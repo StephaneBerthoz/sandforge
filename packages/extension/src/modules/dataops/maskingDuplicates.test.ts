@@ -6,6 +6,7 @@ import {
   duplicateRulesOn,
   maskingDuplicatesSentence,
   readMaskingDuplicates,
+  watchDuplicates,
   type DuplicatesOrg,
 } from './maskingDuplicates.js';
 
@@ -165,7 +166,8 @@ describe('readMaskingDuplicates', () => {
       masked: new Set([MASKED_1, MASKED_2]),
     });
 
-    expect(read).toEqual({ rules: RULES, sets: 1, items: 4 });
+    // The items, then the one set they sit in.
+    expect(read).toEqual({ rules: RULES, sets: 1, items: 4, requests: 2 });
     // From the second before the first write, as the org dates a record.
     expect(org.statements[0]).toContain('WHERE CreatedDate >= 2026-11-04T12:31:19Z');
   });
@@ -184,7 +186,13 @@ describe('readMaskingDuplicates', () => {
       }),
       { rules: RULES, since: SINCE, masked: new Set([MASKED_1]) },
     );
-    expect(read).toEqual({ rules: RULES, sets: 1, items: DUPLICATE_ITEMS_READ, atLeast: true });
+    expect(read).toEqual({
+      rules: RULES,
+      sets: 1,
+      items: DUPLICATE_ITEMS_READ,
+      atLeast: true,
+      requests: 2,
+    });
   });
 
   it('says what the org answered when it would not be read, and counts nothing', async () => {
@@ -201,7 +209,144 @@ describe('readMaskingDuplicates', () => {
       sets: 0,
       items: 0,
       unread: "INVALID_TYPE: sObject type 'DuplicateRecordItem' is not supported.",
+      requests: 1,
     });
+  });
+});
+
+describe('watchDuplicates', () => {
+  /** A machine clock a test moves by hand, and the waits it was asked for. */
+  function clock(start = 1_000_000) {
+    const waits: number[] = [];
+    const state = { at: start };
+    return {
+      waits,
+      advance: (ms: number) => {
+        state.at += ms;
+      },
+      now: () => state.at,
+      sleep: async (ms: number) => {
+        waits.push(ms);
+        state.at += ms;
+      },
+    };
+  }
+
+  /** The org of {@link orgOf}, whose clock answers `serverTime`, counted. */
+  function watchedOrg(
+    tables: { sets: Row[]; items: Row[] },
+    serverTime = '2026-11-04T12:31:25.000Z',
+  ) {
+    const org = orgOf(tables);
+    const asked = { clock: 0 };
+    return {
+      ...org,
+      asked,
+      serverTime: async () => {
+        asked.clock++;
+        return serverTime;
+      },
+    };
+  }
+
+  it('asks the org nothing and waits for nothing when no record of an object a rule covers was saved', async () => {
+    const org = watchedOrg({ sets: [], items: [] });
+    const time = clock();
+    const watch = watchDuplicates(org, RULES, { settleMs: 5_000, ...time });
+
+    // Leads, which no rule covers, saved; contacts sent, and every one refused.
+    watch.beforeWrite('Lead');
+    watch.wrote('Lead', ['00Qxx0000000001AAA']);
+    watch.beforeWrite('Contact');
+    watch.wrote('Contact', []);
+
+    expect(await watch.read()).toBeUndefined();
+    expect(org.asked.clock).toBe(0);
+    expect(org.statements).toEqual([]);
+    expect(time.waits).toEqual([]);
+  });
+
+  it('waits from the last record a rule covers the org saved, not from the run’s last write', async () => {
+    const org = watchedOrg({ sets: [], items: [] });
+    const time = clock();
+    const watch = watchDuplicates(org, RULES, { settleMs: 5_000, ...time });
+
+    watch.beforeWrite('Contact');
+    watch.wrote('contact', [MASKED_1]);
+    // Two seconds of leads after it.
+    time.advance(2_000);
+    watch.beforeWrite('Lead');
+    watch.wrote('Lead', ['00Qxx0000000001AAA']);
+
+    const read = await watch.read();
+    expect(time.waits).toEqual([3_000]);
+    // The org's clock once, the items, and no set to read.
+    expect(read).toEqual({ rules: RULES, sets: 0, items: 0, requests: 2, waitedMs: 3_000 });
+    expect(org.asked.clock).toBe(1);
+  });
+
+  it('waits for nothing when the last covered record was saved longer ago than a report takes', async () => {
+    const org = watchedOrg({ sets: [], items: [] });
+    const time = clock();
+    const watch = watchDuplicates(org, RULES, { settleMs: 5_000, ...time });
+
+    watch.beforeWrite('Contact');
+    watch.wrote('Contact', [MASKED_1]);
+    time.advance(7_000);
+
+    expect(await watch.read()).toMatchObject({ waitedMs: 0, requests: 2 });
+    expect(time.waits).toEqual([]);
+  });
+
+  it('dates the clock back to when the saved write went out, and reads the records a call whose answer never came may have saved', async () => {
+    const org = watchedOrg(
+      {
+        sets: [{ Id: '0GLxx0000000001AAA', CreatedDate: '2026-11-04T12:31:24.000Z' }],
+        items: [
+          {
+            Id: '0GMxx0000000001AAA',
+            DuplicateRecordSetId: '0GLxx0000000001AAA',
+            RecordId: MASKED_2,
+            CreatedDate: '2026-11-04T12:31:24.000Z',
+          },
+        ],
+      },
+      '2026-11-04T12:31:25.000Z',
+    );
+    const time = clock();
+    const watch = watchDuplicates(org, RULES, { settleMs: 0, ...time });
+
+    // The write went out, and its answer came four seconds later.
+    watch.beforeWrite('Contact');
+    time.advance(4_000);
+    watch.wrote('Contact', [MASKED_2]);
+
+    const read = await watch.read();
+    expect(read).toMatchObject({ sets: 1, items: 1 });
+    // 12:31:25 less the four seconds, less the second the org dates a record to.
+    expect(org.statements[0]).toContain('WHERE CreatedDate >= 2026-11-04T12:31:20Z');
+  });
+
+  it('says it could not read what they wrote when the org would not give its clock', async () => {
+    const org = {
+      ...watchedOrg({ sets: [], items: [] }),
+      serverTime: async (): Promise<string> => {
+        throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+      },
+    };
+    const watch = watchDuplicates(org, RULES, { settleMs: 0, ...clock() });
+
+    watch.beforeWrite('Contact');
+    watch.wrote('Contact', [MASKED_1]);
+
+    expect(await watch.read()).toEqual({
+      rules: RULES,
+      sets: 0,
+      items: 0,
+      unread: "the org's clock: INVALID_SESSION_ID: Session expired or invalid",
+      requests: 1,
+    });
+    expect(org.statements).toEqual([]);
   });
 });
 
@@ -234,5 +379,29 @@ describe('maskingDuplicatesSentence', () => {
     );
     expect(maskingDuplicatesSentence(undefined, 'TGT')).toBe('');
     expect(maskingDuplicatesSentence({ rules: [], sets: 0, items: 0 }, 'TGT')).toBe('');
+  });
+
+  it('names the restore and the erasure in place as what wrote the records, and says what the read cost', () => {
+    expect(
+      maskingDuplicatesSentence(
+        { rules: RULES, sets: 1, items: 2, requests: 3, waitedMs: 4_600 },
+        'TGT',
+        'restore',
+      ),
+    ).toBe(
+      'The duplicate rules of TGT on Contact ("Standard Contact Duplicate Rule") wrote 1 ' +
+        'duplicate record set(s) and 2 item(s) during the restore, for records it put back: ' +
+        'kept, as they name records that stay. Read in 3 request(s), after waiting 5 s.',
+    );
+    expect(
+      maskingDuplicatesSentence(
+        { rules: RULES, sets: 0, items: 0, requests: 2, waitedMs: 0 },
+        'TGT',
+        'erasure',
+      ),
+    ).toBe(
+      'The duplicate rules of TGT on Contact ("Standard Contact Duplicate Rule") wrote nothing ' +
+        'for the records it overwrote. Read in 2 request(s), without waiting.',
+    );
   });
 });

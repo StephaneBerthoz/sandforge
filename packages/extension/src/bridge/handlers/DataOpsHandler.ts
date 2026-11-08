@@ -157,8 +157,10 @@ import {
 import {
   DUPLICATES_SETTLE_MS,
   duplicateRulesOn,
+  duplicatesLeft,
   maskingDuplicatesSentence,
-  readMaskingDuplicates,
+  watchDuplicates,
+  type DuplicatesWatch,
 } from '../../modules/dataops/maskingDuplicates.js';
 import {
   muteLines,
@@ -1402,33 +1404,22 @@ export class DataOpsHandler implements DomainHandler {
   }
 
   /**
-   * What the duplicate rules wrote during a masking for the records it
-   * masked, read once their reports had time to land after its last write.
-   * Never throws: what could not be read is said as unread.
+   * Watch what the duplicate rules of the objects a masking or a restore
+   * writes over write during it, for the records it writes: read once their
+   * reports had time to land after its last write of such an object, never
+   * when it wrote none (`watchDuplicates`).
    */
-  private async duplicatesWritten(
+  private duplicatesWatchOf(
     conn: Connection,
-    input: {
-      rules: MaskingDuplicatesWritten['rules'];
-      since: { at: string } | { unread: string } | undefined;
-      masked: ReadonlySet<string>;
-      lastWriteAt: number;
-    },
-  ): Promise<MaskingDuplicatesWritten> {
-    const { rules, since } = input;
-    if (!since || 'unread' in since) {
-      return {
-        rules,
-        sets: 0,
-        items: 0,
-        unread: since ? `the org's clock: ${since.unread}` : "the org's clock was not read",
-      };
-    }
-    const wait = input.lastWriteAt + this.duplicatesSettleMs - Date.now();
-    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-    return readMaskingDuplicates(
-      { query: async (soql) => conn.query<Record<string, unknown>>(soql) },
-      { rules, since: since.at, masked: input.masked },
+    rules: MaskingDuplicatesWritten['rules'],
+  ): DuplicatesWatch {
+    return watchDuplicates(
+      {
+        query: async (soql) => conn.query<Record<string, unknown>>(soql),
+        serverTime: async () => (await conn.soap.getServerTimestamp()).timestamp,
+      },
+      rules,
+      { settleMs: this.duplicatesSettleMs },
     );
   }
 
@@ -3102,6 +3093,13 @@ export class DataOpsHandler implements DomainHandler {
     let live: LiveRun | undefined;
     /** The lease of the mute it was asked for, held from its first write to its end. */
     let held: HeldMute | undefined;
+    /**
+     * What the duplicate rules of the objects it puts back write during it,
+     * for the records it writes, as a masking's are watched: a restore writes
+     * the values a rule matched on before the masking, and its question named
+     * the rules without anything reading what they wrote.
+     */
+    let duplicatesWatch: DuplicatesWatch | undefined;
 
     try {
       if (this.dmlTracker.isDuplicate(rollbackOpId)) {
@@ -3266,6 +3264,13 @@ export class DataOpsHandler implements DomainHandler {
         refuseBeforeWrite(gateRefused.code, gateRefused.message, run, gateRefused.alsoRefused);
         return;
       }
+      duplicatesWatch = this.duplicatesWatchOf(
+        conn,
+        duplicateRulesOn(
+          gated.answer.automation,
+          backupMeta.objects.filter((o) => o.recordCount > 0).map((o) => o.objectApiName),
+        ),
+      );
 
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
@@ -3569,12 +3574,30 @@ export class DataOpsHandler implements DomainHandler {
             unchangedCount += diff.unchanged;
           }
           if (toWrite.length === 0) continue;
-          const results = (await conn
-            .sobject(safeObj)
-            .upsert(toWrite as Array<Record<string, unknown> & { Id: string }>, 'Id', {
-              headers: recordWriteHeaders(),
-            })) as unknown as JsforceResult[];
+          duplicatesWatch.beforeWrite(safeObj);
+          let results: JsforceResult[];
+          try {
+            results = (await conn
+              .sobject(safeObj)
+              .upsert(toWrite as Array<Record<string, unknown> & { Id: string }>, 'Id', {
+                headers: recordWriteHeaders(),
+              })) as unknown as JsforceResult[];
+          } catch (err: unknown) {
+            // No answer came: the org may have put back any row of it, and a
+            // duplicate rule reported it.
+            if (whatTheWriteLeft(err) === 'may-have-written') {
+              duplicatesWatch.wrote(
+                safeObj,
+                toWrite.map((row) => row.Id),
+              );
+            }
+            throw err;
+          }
           const arr = Array.isArray(results) ? results : [results];
+          duplicatesWatch.wrote(
+            safeObj,
+            arr.flatMap((r, at) => (r.success ? [toWrite[at]?.Id] : [])),
+          );
           // Only the successes used to be counted, so a row the org refused
           // (validation rule, required field, trigger) vanished between the
           // upsert and the report. `errors` was declared above and read by
@@ -3643,6 +3666,9 @@ export class DataOpsHandler implements DomainHandler {
       // still did.
       const released = await this.releaseMute(held, payload.orgId);
       held = undefined;
+      // What the duplicate rules wrote for the records it put back, once
+      // their reports had time to land: said, and kept, as a masking says it.
+      const duplicates = await duplicatesWatch.read();
       if (cancelled) {
         this.deps.infraServices?.backgroundRegistry?.abort(rollbackOpId);
         sendOperationCompleted(this.deps, rollbackOpId, {
@@ -3692,11 +3718,21 @@ export class DataOpsHandler implements DomainHandler {
               : '') +
             'unless the restore includes them'
           : '');
-      const message =
+      const duplicatesSaid = maskingDuplicatesSentence(
+        duplicates,
+        this.orgNameOf(payload.orgId),
+        'restore',
+      );
+      const shortfallSaid =
         shortfall === ''
           ? ranMessage
           : `${ranMessage}. The backup held only part of the org's records, and the rest were ` +
-            `left as they are: ${shortfall}.`;
+            `left as they are: ${shortfall}`;
+      const message = duplicatesSaid
+        ? `${shortfallSaid}. ${duplicatesSaid}`
+        : shortfall === ''
+          ? shortfallSaid
+          : `${shortfallSaid}.`;
       const response = buildResponse(this.deps, msg, 'dataops:rollback:response', {
         operationId: payload.operationId,
         status,
@@ -3719,13 +3755,20 @@ export class DataOpsHandler implements DomainHandler {
         ...(shortfall !== '' ? { partial: true } : {}),
         ...(cancelled ? { cancelled: true } : {}),
         ...(released ? { mutedAutomation: released } : {}),
+        ...(duplicates ? { duplicates } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
       // The DataOps page reads only the error and notification channels: a
       // `partial` left in the response alone is as invisible as the count that
-      // was dropped.
-      if (totalFailed > 0 || shortfall !== '' || cancelled || totalKeptChanged > 0) {
+      // was dropped, and so are the sets a duplicate rule wrote, or could not say.
+      if (
+        totalFailed > 0 ||
+        shortfall !== '' ||
+        cancelled ||
+        totalKeptChanged > 0 ||
+        duplicatesLeft(duplicates)
+      ) {
         sendNotification(
           this.deps,
           status === 'failure' ? 'error' : 'warning',
@@ -3737,10 +3780,26 @@ export class DataOpsHandler implements DomainHandler {
       this.dmlTracker.markFailed(rollbackOpId);
       await this.releaseMute(held, payload.orgId);
       held = undefined;
+      // What the duplicate rules wrote for the records it put back before it
+      // failed, read as a restore that ended reads it.
+      const duplicates = await duplicatesWatch?.read();
+      const duplicatesSaid = maskingDuplicatesSentence(
+        duplicates,
+        this.orgNameOf(payload.orgId),
+        'restore',
+      );
       // Dual channel, single display (see handleBackup).
-      sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, err, {
-        code: guardRefusalCode(err),
-      });
+      sendHandlerError(
+        this.deps,
+        'dataops:rollback',
+        'dataops:error',
+        msg,
+        duplicatesSaid ? new Error(`${extractErrorMessage(err)} ${duplicatesSaid}`) : err,
+        {
+          code: guardRefusalCode(err),
+          ...(duplicates ? { extraPayload: { duplicates } } : {}),
+        },
+      );
       sendOperationFailed(this.deps, rollbackOpId, extractErrorMessage(err), true, {
         context: failure,
       });
@@ -4064,11 +4123,7 @@ export class DataOpsHandler implements DomainHandler {
         // The page shows a run's end through this notification and nothing
         // else: a run that left records unmasked, for whatever reason, says so,
         // as does one whose duplicate rules wrote what it keeps, or could not say.
-        const duplicates = result.duplicates;
-        const leftDuplicates =
-          duplicates !== undefined &&
-          (duplicates.sets > 0 || duplicates.items > 0 || duplicates.unread !== undefined);
-        if (result.recordsNotMasked > 0 || leftDuplicates) {
+        if (result.recordsNotMasked > 0 || duplicatesLeft(result.duplicates)) {
           sendNotification(
             this.deps,
             result.status === 'failure' ? 'error' : 'warning',
@@ -4210,24 +4265,20 @@ export class DataOpsHandler implements DomainHandler {
     /** Its entry in Live Operations, once it is listed. */
     let live: LiveRun | undefined;
     /**
-     * The active duplicate rules of the objects it masks, as the read before
-     * its question found them: what they write during the run is read once its
-     * last write is in, and said with its result.
+     * What the active duplicate rules of the objects it masks — as the read
+     * before its question found them — write during the run, for the records
+     * it masks: read once its last write of such an object is in, and said
+     * with its result. None until the run's gate has read them.
      */
-    let duplicateRules: MaskingDuplicatesWritten['rules'] = [];
-    /** The org's clock just before its first write, or why it could not be read. */
-    let duplicatesSince: { at: string } | { unread: string } | undefined;
-    /** The records it masked of the objects that have one. */
-    const maskedUnderRules = new Set<string>();
-    /** When the org last answered one of its updates, on this machine's clock. */
-    let lastWriteAt = 0;
+    let duplicatesWatch: DuplicatesWatch | undefined;
     /**
      * What the duplicate rules wrote for the records it masked, read once
      * their reports had time to land, however the run ends: nothing until it
      * reaches the org, nor when it masked no record of an object that has one.
      * Never throws.
      */
-    let duplicatesOfRun = async (): Promise<MaskingDuplicatesWritten | undefined> => undefined;
+    const duplicatesOfRun = async (): Promise<MaskingDuplicatesWritten | undefined> =>
+      duplicatesWatch?.read();
     // Held under its id from the request on: the page's Stop can come while
     // the run counts its rows, waits on Production Guard's question or takes
     // its snapshot, before it is registered, and a stop then is taken: the
@@ -4594,19 +4645,14 @@ export class DataOpsHandler implements DomainHandler {
         refuseBeforeWrite(gateRefused.code, gateRefused.message, gateRefused.alsoRefused);
         return;
       }
-      duplicateRules = duplicateRulesOn(
-        gated.answer.automation,
-        tallies.filter((t) => t.total > 0).map((t) => t.objectApiName),
+      const watch = this.duplicatesWatchOf(
+        conn,
+        duplicateRulesOn(
+          gated.answer.automation,
+          tallies.filter((t) => t.total > 0).map((t) => t.objectApiName),
+        ),
       );
-      duplicatesOfRun = () =>
-        duplicateRules.length > 0 && maskedUnderRules.size > 0
-          ? this.duplicatesWritten(conn, {
-              rules: duplicateRules,
-              since: duplicatesSince,
-              masked: maskedUnderRules,
-              lastWriteAt,
-            })
-          : Promise.resolve(undefined);
+      duplicatesWatch = watch;
 
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
@@ -4726,16 +4772,6 @@ export class DataOpsHandler implements DomainHandler {
         stop,
       );
       live = listLive(this.liveTracker, operationId, 'dataops', description, grandTotal);
-      // When it starts writing, on the org's clock: what its duplicate rules
-      // write from then on is read once it ends.
-      if (duplicateRules.length > 0) {
-        const orgNow = async (): Promise<string> =>
-          (await conn.soap.getServerTimestamp()).timestamp;
-        duplicatesSince = await orgNow().then(
-          (at) => ({ at }),
-          (err: unknown) => ({ unread: extractErrorMessage(err) }),
-        );
-      }
 
       const { AnonymizationEngine } = await import('../../modules/dataops/AnonymizationEngine.js');
       // The window's key, not a fresh random one: see `maskingKey`.
@@ -4787,10 +4823,6 @@ export class DataOpsHandler implements DomainHandler {
         if (usageAtStop()) break;
         const safeObj = tally.objectApiName;
         failure.objectName = safeObj;
-        /** Whether the object has a duplicate rule, whose items name the records it masks. */
-        const underRules = duplicateRules.some(
-          (on) => on.objectApiName.toLowerCase() === safeObj.toLowerCase(),
-        );
 
         const { select: fields, rulesOf } = await this.maskedFields(
           described,
@@ -4869,6 +4901,10 @@ export class DataOpsHandler implements DomainHandler {
             // an edit as it blocks a create, and a masked record that the rule
             // refuses keeps its real values.
             let updateResults: JsforceResult[];
+            // When it went out: the org's clock, read once the org saved a
+            // record of an object a duplicate rule covers, is dated back to
+            // it, and what the rule writes from then on is read as the run ends.
+            watch.beforeWrite(safeObj);
             try {
               updateResults = (await conn
                 .sobject(objectName)
@@ -4881,24 +4917,30 @@ export class DataOpsHandler implements DomainHandler {
               // that sent them again would mask those a second time, another
               // way. What was sent is kept, as a digest, for the resume to
               // read back first. A call the org never had, or refused whole,
-              // wrote nothing, and is sent again as it was.
+              // wrote nothing, and is sent again as it was. A duplicate rule
+              // may have reported the rows it saved: they are read for.
               if (whatTheWriteLeft(err) === 'may-have-written') {
                 tally.unanswered += batch.length;
                 onUnanswered(batch, batch.flatMap(unconfirmedRowOf));
+                watch.wrote(
+                  safeObj,
+                  batch.map((row) => row.Id),
+                );
               }
               throw err;
             }
             noteApiUsage(`dataops:anonymize update ${safeObj}`);
-            lastWriteAt = Date.now();
             // Same dropped count as the restore: a record the org refuses keeps
             // its real PII, and reporting only the successes hid exactly that.
             const refusedIds: string[] = [];
             const answers = Array.isArray(updateResults) ? updateResults : [updateResults];
+            watch.wrote(
+              safeObj,
+              answers.flatMap((r, i) => (r.success ? [batch[i]?.Id] : [])),
+            );
             answers.forEach((r, i) => {
               if (r.success) {
                 tally.masked++;
-                const masked = batch[i]?.Id;
-                if (underRules && typeof masked === 'string') maskedUnderRules.add(masked);
                 return;
               }
               tally.refused++;

@@ -2160,7 +2160,8 @@
       "related": "組織が一緒に削除するもの：",
       "relatedRecords_other": "{{label}}：{{formatted}} 件",
       "noRelated": "組織の集計による限り、一緒に削除されるものはほかにありません。",
-      "uncounted": "未集計 — 組織が集計を拒否しましたが、レコードに依存するものはそれでも削除されます：",
+      "uncounted": "未集計 — 集計したリレーションの上限を超えたか、組織が集計を拒否しました — それでも一緒に削除されます：",
+      "alongAutomation": "組織が一緒に削除するものは、削除時の自動化を一切実行しません。Salesforce は親と一緒に削除されたレコードでフローもトリガーも実行しないため、確認画面にはこれらのレコード自体で起動するものだけが表示されます。",
       "overwritten_other": "{{formatted}} 件を上書きしました。",
       "deleted_other": "{{formatted}} 件を削除しました。",
       "refusedByOrg_other": "{{formatted}} 件は組織に拒否され、そのまま残っています。"

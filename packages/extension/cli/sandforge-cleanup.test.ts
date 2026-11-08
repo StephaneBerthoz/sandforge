@@ -357,6 +357,31 @@ describe('sandforge-cleanup', () => {
         expect(stderr).toContain('Nothing was deleted. Add --accept-automation to delete');
       });
 
+      it('says what the target deletes along with the records goes too and runs none of its delete automation, which it does not read', async () => {
+        // On a scratch org, a task deleted with its contact ran neither the
+        // before delete trigger nor the before delete flow of Task, each of
+        // which refused the task's own delete.
+        org({ IsSandbox: true });
+
+        await run(argv('--objects', 'Case', '--dry-run'));
+
+        expect(printed).toContain(
+          "  what TGT deletes along with them (a contact's tasks, an account's contacts) goes " +
+            'too, uncounted, and runs none of its delete automation: Salesforce runs none on a ' +
+            'record deleted with its parent',
+        );
+      });
+
+      it('says so in its help', async () => {
+        expect(await run(['node', 'sandforge-cleanup.ts', '--help'])).toBe(0);
+
+        expect(stdout.replace(/\s+/g, ' ')).toContain(
+          "What the target deletes along with the records (a contact's tasks, an account's " +
+            'contacts) goes too, uncounted, and runs none of its delete automation: Salesforce ' +
+            'runs none on a record deleted with its parent, so it is not read.',
+        );
+      });
+
       it('deletes with --accept-automation, and a dry run says a real run would be refused: exit 1', async () => {
         orgRuns.objects = [caseTrigger];
         const { destroyed } = org({ IsSandbox: true });

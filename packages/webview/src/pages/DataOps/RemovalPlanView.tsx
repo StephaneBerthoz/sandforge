@@ -94,6 +94,16 @@ export const RemovalPlanView: React.FC<RemovalPlanViewProps> = ({ mode, plan }) 
                   {t('dataops.removal.uncounted')} {object.uncounted.join(', ')}
                 </p>
               )}
+              {/* What goes along runs none of its delete automation: on a
+                  scratch org, a task deleted with its contact, and contacts
+                  deleted with their account, ran neither the before delete
+                  flow nor the delete trigger of their object, each of which
+                  ran on their own delete. */}
+              {((object.related?.length ?? 0) > 0 || (object.uncounted?.length ?? 0) > 0) && (
+                <p className="text-text-secondary" data-testid="removal-plan-along-automation">
+                  {t('dataops.removal.alongAutomation')}
+                </p>
+              )}
             </>
           )}
         </li>

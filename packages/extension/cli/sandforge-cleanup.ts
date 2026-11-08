@@ -134,6 +134,10 @@ Before it deletes, the cleanup says what the target runs as the records go:
 its record-triggered flows, Apex triggers, processes and workflow rules on
 delete, before and after, the emails that sends against what the target has
 left today, and whether it delivers them (with --json, under automation).
+What the target deletes along with the records (a contact's tasks, an
+account's contacts) goes too, uncounted, and runs none of its delete
+automation: Salesforce runs none on a record deleted with its parent, so it
+is not read.
 
 Exit codes: 0 every record found was deleted (or counted, with --dry-run);
 1 the cleanup could not start, the target is a production org, an object
@@ -157,6 +161,19 @@ const FAILED_EXIT = 1;
 
 /** The exit code of a cleanup whose deletes the target refused in part. */
 const RECORDS_LEFT_EXIT = 3;
+
+/**
+ * What the cleanup says of what the target deletes along with the records:
+ * it goes too, the cleanup does not count it, and Salesforce runs none of
+ * its delete automation, so none of it is read or asked about.
+ */
+export function alongLine(target: string): string {
+  return (
+    `  what ${target} deletes along with them (a contact's tasks, an account's contacts) goes ` +
+    'too, uncounted, and runs none of its delete automation: Salesforce runs none on a record ' +
+    'deleted with its parent'
+  );
+}
 
 /** Refuse a bad flag: exit 2, the code both CLIs use for a command line they will not run. */
 function refuse(message: string): never {
@@ -420,6 +437,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const automation: DataOpsAutomationAnswer = read.answer;
   say('');
   for (const line of automation.lines) say(line);
+  // What the target deletes along with the records it deletes itself goes
+  // too, and runs none of its delete automation: on a scratch org, a task
+  // deleted with its contact ran neither the before delete trigger nor the
+  // before delete flow of Task, and contacts deleted with their account
+  // neither the before delete flow nor the after delete trigger of Contact,
+  // each of which ran on its own delete. Said, not read, and not counted.
+  if (found.size > 0) say(alongLine(args.target));
   let held: HeldMute | undefined;
   if (args.dryRun) {
     for (const line of wouldBeRefusedLines(automation)) say(line);

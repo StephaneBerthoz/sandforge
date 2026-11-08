@@ -194,7 +194,15 @@ function orgOf(
       );
     return write(batch);
   });
-  const upsert = vi.fn(async (batch: Array<Record<string, unknown>>) => write(batch));
+  const upsert = vi.fn(async (batch: Array<Record<string, unknown>>) => {
+    // A rule that reports runs on an edit, a restore's upsert by Id included.
+    if (duplicates)
+      reportAlike(
+        duplicates,
+        batch.map((sent) => String(sent.Id)),
+      );
+    return write(batch);
+  });
   const conn = {
     query,
     queryMore: vi.fn(),
@@ -581,6 +589,8 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
         rules: [{ objectApiName: 'Contact', rules: ['Standard Contact Duplicate Rule'] }],
         sets: 1,
         items: 2,
+        requests: 3,
+        waitedMs: 0,
       });
       expect(String(answer?.message)).toContain(
         'The duplicate rules of ORG on Contact ("Standard Contact Duplicate Rule") wrote 1 ' +
@@ -616,6 +626,8 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
         rules: [{ objectApiName: 'Contact', rules: ['Standard Contact Duplicate Rule'] }],
         sets: 1,
         items: 200,
+        requests: 3,
+        waitedMs: 0,
       });
       expect(String(failed?.message)).toContain(
         'socket hang up — 200 masked before it stopped; 1 still hold their original values',
@@ -630,6 +642,141 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
       expect(tables.items).toHaveLength(200);
       expect(last('operation:failed')?.payload).toMatchObject({
         error: expect.stringContaining('socket hang up'),
+      });
+    });
+
+    it('reads what they wrote for an update whose answer never came, which the org may have saved', async () => {
+      // One update of 2: the org saves it and its rule reports the two alike,
+      // and the answer is lost on the way back.
+      const rows = contactsOf(2);
+      const tables: DuplicateTables = { sets: [], items: [] };
+      const { update } = orgOf(rows, undefined, tables);
+      const answered = update.getMockImplementation();
+      if (!answered) throw new Error('the org answers no update');
+      update.mockImplementationOnce(async (batch) => {
+        await answered(batch);
+        throw Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+      });
+
+      await send('dataops:anonymize', { ...masking, acceptAutomation: true }, 'run-unanswered');
+
+      const failed = last('dataops:error')?.payload;
+      expect(failed?.duplicates).toMatchObject({ sets: 1, items: 2 });
+      expect(String(failed?.message)).toContain(
+        'wrote 1 duplicate record set(s) and 2 item(s) during the masking',
+      );
+    });
+
+    it('reads nothing, asks the org nothing and waits for nothing when no record of the object was masked', async () => {
+      // The org refuses every record: none was saved, so no rule reported one.
+      const rows = contactsOf(2);
+      const tables: DuplicateTables = { sets: [], items: [] };
+      const { update } = orgOf(rows, undefined, tables);
+      update.mockImplementationOnce(async (batch: Array<Record<string, unknown>>) =>
+        batch.map((sent) => ({
+          id: sent.Id,
+          success: false,
+          errors: [{ message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Email is locked' }],
+        })),
+      );
+      const conn = (await getJsforceConnection('org-1', {} as never, {} as never)) as unknown as {
+        soap: { getServerTimestamp: ReturnType<typeof vi.fn> };
+        query: ReturnType<typeof vi.fn>;
+      };
+
+      await send('dataops:anonymize', { ...masking, acceptAutomation: true }, 'run-all-refused');
+
+      expect(last('dataops:anonymize:response')?.payload).toMatchObject({ recordsFailed: 2 });
+      expect(last('dataops:anonymize:response')?.payload.duplicates).toBeUndefined();
+      expect(conn.soap.getServerTimestamp).not.toHaveBeenCalled();
+      expect(
+        conn.query.mock.calls.filter(([soql]) => /FROM DuplicateRecord/.test(String(soql))),
+      ).toEqual([]);
+    });
+
+    it('says how long it waited for their reports and how many requests reading them took', async () => {
+      const rows = contactsOf(2);
+      orgOf(rows, undefined, { sets: [], items: [] });
+      handler.setDuplicatesSettle(40);
+
+      await send('dataops:anonymize', { ...masking, acceptAutomation: true }, 'run-measured');
+
+      const answer = last('dataops:anonymize:response')?.payload;
+      // The org's clock before the first write, the items, then their one set.
+      expect(answer?.duplicates).toMatchObject({ sets: 1, items: 2, requests: 3 });
+      const waited = (answer?.duplicates as { waitedMs?: number }).waitedMs ?? -1;
+      expect(waited).toBeGreaterThan(0);
+      expect(waited).toBeLessThanOrEqual(40);
+      expect(String(answer?.message)).toContain(
+        'kept, as they name records that stay. Read in 3 request(s), after waiting less than 1 s.',
+      );
+    });
+  });
+
+  describe('the duplicate rules of what a restore writes over', () => {
+    /** What the org runs on Contact: nothing fires, its standard duplicate rule is active. */
+    const ruled: ForgeTargetAutomation = {
+      ...runs([]),
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [],
+          triggers: [],
+          duplicateRules: [
+            {
+              name: 'Standard Contact Duplicate Rule',
+              developerName: 'Standard_Rule_for_Contacts',
+            },
+          ],
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      handler.setDuplicatesSettle(0);
+    });
+
+    it('says what they wrote during it for the records it put back, and removes none of it', async () => {
+      // A masking with its snapshot, on an org without a rule, then the restore
+      // on one whose rule reports what it puts back alike.
+      read.mockResolvedValue(runs([]));
+      const rows = contactsOf(2);
+      orgOf(rows);
+      await send(
+        'dataops:anonymize',
+        { ...masking, snapshot: true, acceptAutomation: true },
+        'snap',
+      );
+      const snapshot = last('dataops:anonymize:response')?.payload.snapshot as {
+        operationId: string;
+      };
+      read.mockResolvedValue(ruled);
+      const tables: DuplicateTables = { sets: [], items: [] };
+      const { upsert } = orgOf(rows, undefined, tables);
+
+      await send(
+        'dataops:rollback',
+        { orgId: 'org-1', operationId: snapshot.operationId, acceptAutomation: true },
+        'restore-duplicates',
+      );
+
+      expect(upsert).toHaveBeenCalled();
+      const answer = last('dataops:rollback:response')?.payload;
+      expect(answer).toMatchObject({ totalRestored: 2 });
+      expect(answer?.duplicates).toMatchObject({
+        rules: [{ objectApiName: 'Contact', rules: ['Standard Contact Duplicate Rule'] }],
+        sets: 1,
+        items: 2,
+      });
+      expect(String(answer?.message)).toContain(
+        'The duplicate rules of ORG on Contact ("Standard Contact Duplicate Rule") wrote 1 ' +
+          'duplicate record set(s) and 2 item(s) during the restore, for records it put back: ' +
+          'kept, as they name records that stay.',
+      );
+      expect(tables.sets).toHaveLength(1);
+      expect(last('notification')?.payload).toMatchObject({
+        level: 'warning',
+        message: expect.stringContaining('during the restore, for records it put back'),
       });
     });
   });

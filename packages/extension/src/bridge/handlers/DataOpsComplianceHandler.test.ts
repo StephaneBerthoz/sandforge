@@ -131,10 +131,12 @@ function janeOrg() {
     records.map((r) => ({ success: true, id: r.Id })),
   );
   const destroy = vi.fn(async (ids: string[]) => ids.map((id) => ({ success: true, id })));
-  const query = vi.fn(async (soql: string) => {
-    if (soql.startsWith('SELECT COUNT()')) return { totalSize: 1, records: [] };
-    return { totalSize: 1, records: [janeRecord] };
-  });
+  const query = vi.fn(
+    async (soql: string): Promise<{ totalSize: number; records: unknown[]; done?: boolean }> => {
+      if (soql.startsWith('SELECT COUNT()')) return { totalSize: 1, records: [] };
+      return { totalSize: 1, records: [janeRecord] };
+    },
+  );
   return {
     conn: {
       describe: vi.fn(async () => contactDescribe),
@@ -380,6 +382,87 @@ describe('DataOpsComplianceHandler', () => {
     });
     const erased = new SubjectRequestLogView(deps).list()[0].events[1];
     expect(erased).toMatchObject({ kind: 'erased', mode: 'anonymize', outcome: 'success' });
+  });
+
+  it('says what the duplicate rules wrote for the records it overwrote, as a masking says it, and removes none of it', async () => {
+    // The org's standard rule on Contact reports the record the erasure
+    // writes over with the one it now looks like: a set and two items,
+    // written by the org a few seconds after the save.
+    handler.setTargetAutomation({
+      read: async (_orgId, objects) => ({
+        objectsRead: [...objects],
+        objects: objects.map((objectApiName) => ({
+          objectApiName,
+          flows: [],
+          triggers: [],
+          duplicateRules: [
+            {
+              name: 'Standard Contact Duplicate Rule',
+              developerName: 'Standard_Rule_for_Contacts',
+            },
+          ],
+        })),
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 1,
+      }),
+    });
+    handler.setDuplicatesSettle(0);
+    const clock = '2026-11-04T12:31:20.000Z';
+    const reported = new Date(Date.parse(clock) + 3_000).toISOString();
+    const tables = {
+      sets: [] as Array<Record<string, unknown>>,
+      items: [] as Array<Record<string, unknown>>,
+    };
+    org.update.mockImplementation(async (records: Array<Record<string, unknown>>) => {
+      tables.sets.push({ Id: '0GLxx0000000001AAA', CreatedDate: reported });
+      for (const [at, id] of [String(records[0]?.Id), '003000000000009AAA'].entries()) {
+        tables.items.push({
+          Id: `0GMxx000000000${at + 1}AAA`,
+          CreatedDate: reported,
+          DuplicateRecordSetId: '0GLxx0000000001AAA',
+          RecordId: id,
+        });
+      }
+      return records.map((r) => ({ success: true, id: r.Id }));
+    });
+    const janeQuery = org.query.getMockImplementation();
+    org.query.mockImplementation(async (soql: string) => {
+      const object = /FROM (DuplicateRecord(?:Item|Set))\b/.exec(soql)?.[1];
+      if (object === undefined) return janeQuery?.(soql) ?? { totalSize: 0, records: [] };
+      const rows = object === 'DuplicateRecordSet' ? tables.sets : tables.items;
+      return { totalSize: rows.length, records: rows, done: true };
+    });
+    Object.assign(org.conn, { soap: { getServerTimestamp: async () => ({ timestamp: clock }) } });
+    const { requestId } = await searchJane();
+
+    await handler.handle(
+      request('dataops:dsr:erase', {
+        orgId: 'org-1',
+        requestId,
+        mode: 'anonymize',
+        records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+        dryRun: false,
+      }),
+    );
+
+    const reply = answer<{ outcome: unknown; duplicates?: unknown }>('dataops:dsr:erase:response');
+    expect(reply.outcome).toMatchObject({ status: 'success', done: 1 });
+    expect(reply.duplicates).toMatchObject({
+      rules: [{ objectApiName: 'Contact', rules: ['Standard Contact Duplicate Rule'] }],
+      sets: 1,
+      items: 2,
+    });
+    expect(tables.sets).toHaveLength(1);
+    expect(posted().find((m) => m.type === 'notification')?.payload).toMatchObject({
+      level: 'warning',
+      message: expect.stringContaining(
+        'The duplicate rules of dev on Contact ("Standard Contact Duplicate Rule") wrote 1 ' +
+          'duplicate record set(s) and 2 item(s) during the erasure, for records it overwrote: ' +
+          'kept, as they name records that stay.',
+      ),
+    });
   });
 
   it('says an erasure writes to the org while it writes, and no longer once it ended; a dry run writes to none: a checkpoint of the org is refused meanwhile', async () => {

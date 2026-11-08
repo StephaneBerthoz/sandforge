@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 
 import type {
+  MaskingDuplicatesWritten,
   MutedAutomation,
   SubjectIdentifierKind,
   SubjectIdentifiers,
@@ -9,8 +10,17 @@ import type {
 import { guardTierOf, SUBJECT_SEARCH_LIMIT } from '@sandforge/shared';
 
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
-import { buildResponse, sendHandlerError } from './HandlerTypes.js';
+import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
 import { runGuardedRemoval } from './guardedRemoval.js';
+import { whatTheWriteLeft } from '../../core/common/thrownWrite.js';
+import {
+  DUPLICATES_SETTLE_MS,
+  duplicateRulesOn,
+  duplicatesLeft,
+  maskingDuplicatesSentence,
+  watchDuplicates,
+  type DuplicatesWatch,
+} from '../../modules/dataops/maskingDuplicates.js';
 import {
   alsoRefusedPayload,
   dataOpsAutomationOrgOf,
@@ -79,6 +89,43 @@ function simulated(msg: object): boolean {
   return typeof payload === 'object' && payload !== null && 'dryRun' in payload
     ? payload.dryRun === true
     : false;
+}
+
+/** Whether a row of a write's answer says the org saved its record. */
+function saved(row: unknown): boolean {
+  return typeof row === 'object' && row !== null && 'success' in row && row.success === true;
+}
+
+/**
+ * The session an erasure in place writes through, its updates told to the
+ * watch of its duplicate rules: the org's clock before the first of an object
+ * a rule covers, then the records the org saved — or may have saved, when
+ * the answer never came.
+ */
+function watchedSession(session: OrgSession, watch: DuplicatesWatch): OrgSession {
+  return {
+    ...session,
+    update: async (objectApiName, records) => {
+      watch.beforeWrite(objectApiName);
+      try {
+        const answer = await session.update(objectApiName, records);
+        const rows: unknown[] = Array.isArray(answer) ? answer : [answer];
+        watch.wrote(
+          objectApiName,
+          rows.flatMap((row, at) => (saved(row) ? [records[at]?.Id] : [])),
+        );
+        return answer;
+      } catch (err: unknown) {
+        if (whatTheWriteLeft(err) === 'may-have-written') {
+          watch.wrote(
+            objectApiName,
+            records.map((record) => record.Id),
+          );
+        }
+        throw err;
+      }
+    },
+  };
 }
 
 /** The kinds of identifier a search was given, never the identifiers. */
@@ -155,6 +202,14 @@ export class DataOpsComplianceHandler implements DomainHandler {
   /** Where and how an erasure that mutes keeps its lease, in place of the home directory's. */
   setMuteLeases(options: MuteLeaseOptions): void {
     this.muteLeases = options;
+  }
+
+  /** How long after an erasure's last write what its duplicate rules wrote is read. */
+  private duplicatesSettleMs = DUPLICATES_SETTLE_MS;
+
+  /** Another wait than the org's few seconds before an erasure's duplicate rules are read. */
+  setDuplicatesSettle(ms: number): void {
+    this.duplicatesSettleMs = ms;
   }
 
   /** The handler's own reader of the org's automation, as Forge reads it. */
@@ -538,6 +593,39 @@ export class DataOpsComplianceHandler implements DomainHandler {
         given.back = await leased.release();
         for (const line of muteLines(given.back, target)) this.deps.log(`[INFO] ${line}`);
       };
+      // What the duplicate rules of what it writes over write during it, for
+      // the records it overwrites, as a masking's are watched: an erasure in
+      // place writes made-up names and addresses, its confirmation named the
+      // rules, and nothing read what they wrote. A delete runs none.
+      const watch =
+        mode === 'anonymize'
+          ? watchDuplicates(
+              {
+                query: async (soql) => conn.query<Record<string, unknown>>(soql),
+                serverTime: async () => (await conn.soap.getServerTimestamp()).timestamp,
+              },
+              duplicateRulesOn(
+                gated.answer.automation,
+                written.map((w) => w.objectApiName),
+              ),
+              { settleMs: this.duplicatesSettleMs },
+            )
+          : undefined;
+      /** What they wrote, read once the writes are over, however they ended. */
+      const ruled: { read?: boolean; duplicates?: MaskingDuplicatesWritten } = {};
+      /**
+       * Once the writes are over and before the erasure is said ended: the
+       * lease given back, then what the duplicate rules wrote, read once.
+       */
+      const endWrites = async (): Promise<void> => {
+        await giveBack();
+        if (ruled.read) return;
+        ruled.read = true;
+        ruled.duplicates = await watch?.read();
+      };
+      /** What the erasure's answer says of its duplicate rules: nothing when they cover nothing it wrote. */
+      const duplicatesSaid = (): string =>
+        maskingDuplicatesSentence(ruled.duplicates, target, 'erasure');
       /**
        * What the mute did, said with however the erasure ends — answered,
        * declined at the guard, or stopped half way — as the masking says it:
@@ -558,8 +646,15 @@ export class DataOpsComplianceHandler implements DomainHandler {
           action: 'subject_erase',
           description: `Erase ${recordCount} record(s) of a subject request`,
           origin: 'dataops:dsr:erase',
-          run: (onObject, signal) => runErasure(session, engine, prepared, onObject, signal),
-          beforeEnd: giveBack,
+          run: (onObject, signal) =>
+            runErasure(
+              watch ? watchedSession(session, watch) : session,
+              engine,
+              prepared,
+              onObject,
+              signal,
+            ),
+          beforeEnd: endWrites,
         },
         this.liveTracker,
       ).finally(giveBack);
@@ -592,16 +687,22 @@ export class DataOpsComplianceHandler implements DomainHandler {
         operationId: result.operationId,
         objects: result.outcome.objects,
       });
+      const { duplicates } = ruled;
       if (result.error !== undefined) {
         // Stopped half way: logged with what it had written, and said as the
-        // failure, or the cancel, it is.
+        // failure, or the cancel, it is, with what its duplicate rules wrote
+        // for what it had overwritten.
+        const said = duplicatesSaid();
         sendHandlerError(
           this.deps,
           'dataops:dsr:erase',
           'dataops:error',
           msg,
-          new Error(result.error),
-          { ...(result.cancelled ? { code: RUN_CANCELLED } : {}), extraPayload: muteSaid() },
+          new Error(said ? `${result.error} ${said}` : result.error),
+          {
+            ...(result.cancelled ? { code: RUN_CANCELLED } : {}),
+            extraPayload: { ...muteSaid(), ...(duplicates ? { duplicates } : {}) },
+          },
         );
         return;
       }
@@ -612,12 +713,19 @@ export class DataOpsComplianceHandler implements DomainHandler {
         plan,
         outcome: result.outcome,
         ...muteSaid(),
+        ...(duplicates ? { duplicates } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(
         `[TX] ${response.type} id=${response.id} ${result.outcome.status} ` +
           `done=${result.outcome.done} failed=${result.outcome.failed}`,
       );
+      // The page shows an erasure's counts: the sets a duplicate rule wrote
+      // for what it overwrote, kept, or that they could not be read, are said
+      // as a masking's are, in a notification.
+      if (duplicatesLeft(duplicates)) {
+        sendNotification(this.deps, 'warning', 'Erase', duplicatesSaid());
+      }
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'dataops:dsr:erase', 'dataops:error', msg, err);
     }

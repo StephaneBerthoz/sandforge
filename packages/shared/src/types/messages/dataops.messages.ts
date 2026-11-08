@@ -589,14 +589,17 @@ export interface DataOpsRollbackResponse extends BaseMessage {
     partial?: boolean;
     /** A cancel stopped the restore between two batches: what it restored before is counted. */
     cancelled?: boolean;
+    /** What the duplicate rules wrote during it; absent when it put back no record of an object that has one. */
+    duplicates?: MaskingDuplicatesWritten;
   };
 }
 
 /**
- * What the duplicate rules of the org wrote while a masking ran, for the
- * records it masked: read once its last write was in, and kept. A masking
- * writes the same address over every record, and a rule that reports writes a
- * duplicate record set of the records alike.
+ * What the duplicate rules of the org wrote while a masking ran — or a
+ * restore, or an erasure in place —, for the records it wrote: read once its
+ * last write was in, and kept. A masking writes the same address over every
+ * record, and a rule that reports writes a duplicate record set of the
+ * records alike.
  */
 export interface MaskingDuplicatesWritten {
   /** The objects it masked whose duplicate rules are active, and the rules' names. */
@@ -609,6 +612,10 @@ export interface MaskingDuplicatesWritten {
   atLeast?: true;
   /** Why it could not be read; the counts are then 0. */
   unread?: string;
+  /** The requests it took: the org's clock before the first write, the items, then their sets. */
+  requests?: number;
+  /** How long it waited after the last write for the rules' reports to land, in milliseconds. */
+  waitedMs?: number;
 }
 
 /**
@@ -771,6 +778,11 @@ export interface DataOpsSubjectEraseResponse extends BaseMessage {
     outcome?: RemovalOutcome;
     /** What the erasure's mute assigned, kept quiet and left running, when it was asked to mute. */
     mutedAutomation?: MutedAutomation;
+    /**
+     * An erasure in place's: what the duplicate rules wrote during it; absent
+     * when it overwrote no record of an object that has one.
+     */
+    duplicates?: MaskingDuplicatesWritten;
   };
 }
 
