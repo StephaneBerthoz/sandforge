@@ -1281,12 +1281,13 @@ for (const theme of THEMES) {
       );
       await expectReadable(page, theme, '[data-testid="checkpoint-result"]');
 
-      // Stopped before it answered with a result.
+      // Stopped before it answered with a result: the handler answers
+      // CANCELLED only before the rewind's first write, so nothing changed.
       await page.getByTestId('checkpoint-result-rewind-again').click();
       await rewindFromPreview(page, host, checkpoint, 'pv-4');
       await host.refuse('checkpoint:rewind', 'CANCELLED', 'The rewind was stopped.');
       await expect(page.getByTestId('checkpoint-run-stopped')).toHaveText(
-        `Stopped part way: ${ORG} is between “Before UAT” and now. Rewind again to finish: it takes up from what still differs.`,
+        `Stopped before it wrote anything: ${ORG} is as it was before this rewind. Rewind again to rewind it to “Before UAT”.`,
       );
       await expectReadable(page, theme, '[data-testid="checkpoint-run"]');
 
