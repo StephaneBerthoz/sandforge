@@ -7211,6 +7211,7 @@
       "failure": "The rewind of {{org}} to “{{name}}” ended before it was through: what it did is listed below. Rewind again to take up from what still differs.",
       "cancelled": "Stopped part way: {{org}} is between “{{name}}” and now. Rewind again to finish: it takes up from what still differs.",
       "cancelledUndo": "Undo still returns {{org}} to how it was before the rewind.",
+      "cancelledNothing": "Stopped before it wrote anything: {{org}} is as it was before this rewind. Rewind again to rewind it to “{{name}}”.",
       "rewindAgain": "Rewind again",
       "stopComparing": "Stop comparing these fields…",
       "stoppedComparing": "Not compared from now on: {{fields}}. Rewind again to read {{org}} without them.",

@@ -591,11 +591,12 @@ describe('RewindResult', () => {
     expect(screen.getByRole('button', { name: 'Rewind again' })).toBeInTheDocument();
   });
 
-  it('says a rewind stopped before it wrote, without an Undo to offer', () => {
+  it('says a rewind stopped before it wrote, without an Undo to offer, left the org as it was before it: not between the checkpoint and now (w50f)', () => {
     renderResult(withoutUndo(rewindResult({ status: 'cancelled' })));
     expect(headline()).toBe(
-      'Stopped part way: DEV-SB is between “Before UAT” and now. Rewind again to finish: it takes up from what still differs.',
+      'Stopped before it wrote anything: DEV-SB is as it was before this rewind. Rewind again to rewind it to “Before UAT”.',
     );
+    expect(screen.getByRole('button', { name: 'Rewind again' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Undo this rewind' })).toBeNull();
   });
 

@@ -1877,7 +1877,7 @@ describe('rewindOrg: stopped, and taken up again', () => {
     });
   });
 
-  it('stopped before its first write, then taken up with nothing left to write, leaves its checkpoint no rewind said stopped part way, nor a journal', async () => {
+  it('stopped before its first write, leaves its checkpoint no rewind said stopped part way, nor a journal, and the rewind after it with nothing left to write leaves none either', async () => {
     const t = await taken();
     clock.now = SINCE;
     t.org.trash('Account', account(3), COLLEAGUE);
@@ -1892,22 +1892,88 @@ describe('rewindOrg: stopped, and taken up again', () => {
         },
       });
       expect(resultOf(stoppedRun).status).toBe('cancelled');
+      expect(resultOf(stoppedRun).undo).toBeUndefined();
     } catch (err: unknown) {
       expect(err).toBeInstanceOf(RewindStopped);
     }
-    const stopped = (await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind;
-    expect(stopped?.endedAt).toBeUndefined();
+    expect((await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind).toBeUndefined();
+    expect(readdirSync(t.folder.rewindsDir)).toEqual([]);
     expect(t.org.inBin('Account').map((row) => row.Id)).toEqual([account(3)]);
     // The colleague brings the account back themselves: nothing differs.
     await t.org.undelete([account(3)]);
 
     const again = resultOf(await rewound(t, (await previewed(t)).previewId));
 
-    expect(again.rewindId).toBe(stopped?.rewindId);
     expect(again.status).toBe('success');
     expect(again.undo).toBeUndefined();
     expect((await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind).toBeUndefined();
     expect(readdirSync(t.folder.rewindsDir)).toEqual([]);
+  });
+
+  it('stopped before it sent anything, gives its checkpoint back the rewind before it: the list offers that one’s Undo, its journal kept, and the stopped one keeps none (w50f)', async () => {
+    const { t, first } = await rewoundThenEmptied();
+    const controller = new AbortController();
+    const sent: string[] = [];
+
+    const stopped = resultOf(
+      await rewound(t, (await previewed(t)).previewId, {
+        deps: {
+          signal: controller.signal,
+          undelete: (ids) => {
+            sent.push(...ids);
+            return t.org.undelete(ids);
+          },
+          // Stopped as it is about to bring the account back: nothing sent.
+          onProgress: ({ phase }) => {
+            if (phase === 'bringingBack') controller.abort();
+          },
+        },
+      }),
+    );
+
+    expect(stopped.status).toBe('cancelled');
+    expect(sent).toEqual([]);
+    expect(stopped.undo).toBeUndefined();
+    expect(readdirSync(t.folder.rewindsDir)).toEqual([first.rewindId]);
+    expect((await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind).toEqual({
+      rewindId: first.rewindId,
+      endedAt: expect.any(String),
+      undoUntil: first.undo?.until,
+    });
+    const [entry] = await t.store.list({ now: new Date(clock.now) });
+    expect(entry?.undo).toEqual({ rewindId: first.rewindId, until: first.undo?.until });
+
+    const undo = await undone(t, first.rewindId);
+
+    expect(undo.status).toBe('success');
+  });
+
+  it('stopped once it sent something, keeps its Undo and its journal, which the next rewind takes up: as before', async () => {
+    const { t, first } = await rewoundThenEmptied();
+    t.org.edit('Account', account(2), { Name: 'Renamed again' }, COLLEAGUE);
+    const controller = new AbortController();
+    // Stopped as the org answers its first update: the account given back.
+    const update = t.org.update.bind(t.org);
+    t.org.update = async (objectApiName, records) => {
+      const answer = await update(objectApiName, records);
+      controller.abort();
+      return answer;
+    };
+
+    const stopped = resultOf(
+      await rewound(t, (await previewed(t)).previewId, {
+        deps: { signal: controller.signal },
+      }),
+    );
+
+    expect(stopped.status).toBe('cancelled');
+    expect(stopped.undo).toBeDefined();
+    const last = (await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind;
+    expect(last?.rewindId).toBe(stopped.rewindId);
+    expect(last?.endedAt).toBeUndefined();
+    expect(readdirSync(t.folder.rewindsDir).sort()).toEqual(
+      [first.rewindId, stopped.rewindId].sort(),
+    );
   });
 });
 

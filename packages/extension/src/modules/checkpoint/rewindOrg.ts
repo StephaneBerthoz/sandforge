@@ -301,7 +301,7 @@ import {
 } from './OrgCheckpointStore.js';
 import { deletedSpoolOf, liveSpoolOf, readStreams, spooledRows } from './orgStreams.js';
 import { ORG_ACCESS, actAccessOf, type ActAccess } from './rewindAccess.js';
-import { remakeUnasked, type RemakeUnasked } from './rewindBounds.js';
+import { firedCount, remakeUnasked, type RemakeUnasked } from './rewindBounds.js';
 import { classFileOf, recreatable, rewindDiff, type RewindClass } from './rewindDiff.js';
 import {
   actDeliverability,
@@ -309,10 +309,13 @@ import {
   checkpointEmails,
   checkpointEmailsUncounted,
   draftedByPlan,
+  emailsOfLimit,
   emailsRefusal,
   emailsUncountedWords,
   statusBackByPlan,
   writtenByPlan,
+  type EmailLimits,
+  type WrittenRecords,
 } from './rewindEmails.js';
 import {
   budgetRefusal,
@@ -1088,6 +1091,12 @@ function accessChangedRefusal(orgName: string, changed: readonly string[]): Chec
 }
 
 /**
+ * What lifts a rewind's refusal for the org's automation, in the panel's
+ * words: the command line says its flag in their place.
+ */
+export const REWIND_AUTOMATION_LIFTED_BY = 'accept that it runs to rewind all the same';
+
+/**
  * The refusal of a rewind whose writes fire the org's automation, not
  * accepted, and what of it sends emails that were not counted: there is no
  * preview of the rewind to have said it.
@@ -1103,14 +1112,14 @@ function automationRefusal(
   const makes = (steps.recreate ?? []).length > 0 ? 'makes them again, ' : '';
   const what =
     fired.length > 0
-      ? `${fired.length} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
+      ? `${firedCount(fired)} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
         `rewind brings records back, ${makes}gives them their values back or deletes them`
       : 'what runs as the rewind writes could not all be read, so automation may run';
   return {
     code: 'AUTOMATION',
     message:
       `${orgName}: ${what}. ${emailsUncountedWords('rewind', emailsUncounted)}Rewind refused; ` +
-      `accept that it runs to rewind all the same. ${NOTHING_WRITTEN}`,
+      `${REWIND_AUTOMATION_LIFTED_BY}. ${NOTHING_WRITTEN}`,
   };
 }
 
@@ -1820,10 +1829,19 @@ class Rewind {
    * What its question was asked on once it let the rewind write: the writes
    * of each step, and what of the org's automation still runs. A record the
    * org answers is no longer in the recycle bin is made again only where
-   * that write ran nothing unasked (`remakeUnasked`). Absent when no
-   * automation was read, which asks about nothing.
+   * that write ran nothing unasked (`remakeUnasked`), and whether it was
+   * told to let what runs go, what could not be read among it. Absent when
+   * no automation was read, which asks about nothing.
    */
-  private asked: { automation: ForgeTargetAutomation; steps: ForgeRemovalSteps } | undefined;
+  private asked:
+    { automation: ForgeTargetAutomation; steps: ForgeRemovalSteps; accepted: boolean } | undefined;
+  /**
+   * What its emails were counted on against what the org had left today of
+   * each daily limit: the writes of its plan, then those of each record it
+   * makes again of what the org answers is no longer in the recycle bin, as
+   * it settles them. Absent when no automation was read.
+   */
+  private emailsCounted: { written: WrittenRecords[]; limits: EmailLimits } | undefined;
 
   constructor(
     private readonly deps: RewindDeps,
@@ -2091,7 +2109,10 @@ class Rewind {
     ) {
       return { rewound: false, refusal: automationRefusal(orgName, automation, steps, uncounted) };
     }
-    if (automation) this.asked = { automation, steps };
+    if (automation) {
+      this.asked = { automation, steps, accepted: this.request.acceptAutomation };
+      this.emailsCounted = { written: [...written], limits: budget.emails };
+    }
     // The emails of what still runs, where the org delivers them all or would
     // not say: written only once they were accepted, which the acceptance of
     // the automation never stands for.
@@ -2278,12 +2299,29 @@ class Rewind {
     // offered its undo. Taken up after a stop, it has what its journal says
     // the stopped pass sent, as its ledger line does.
     const linked = (files?.unlinked ?? 0) + (files?.relinked ?? 0) + (files?.linksUpdated ?? 0);
+    // Stopped, it is undone and taken up as far as its journal names a write
+    // about to go: one stopped before its first sent the org nothing, and
+    // has neither. Said stopped part way, it took the Undo of the rewind
+    // before it away from the list from its start, that rewind's journal
+    // still on disk.
     const undoable =
-      cancelled ||
       did ||
       linked > 0 ||
-      (journal.resumed && (await journal.facts()).lastWriteAt !== undefined);
+      ((cancelled || journal.resumed) && (await journal.facts()).lastWriteAt !== undefined);
     let removedJournals: EarlierJournalRemoved[] = [];
+    if (cancelled && !undoable) {
+      try {
+        await this.deps.store.update(checkpoint.checkpointId, (held) => {
+          delete held.lastRewind;
+          return earlier ? { ...held, lastRewind: earlier } : held;
+        });
+      } catch (err: unknown) {
+        this.notes.push(
+          `The checkpoint could not be told the rewind stopped before it wrote anything ` +
+            `(${extractErrorMessage(err)}): its list may not offer to undo the rewind before it.`,
+        );
+      }
+    }
     if (!cancelled) {
       await journal.end();
       this.ended = true;
@@ -2394,10 +2432,11 @@ class Rewind {
       });
       if (note !== undefined) this.notes.push(note);
     }
-    // Through with nothing written, its journal holds nothing to undo, and
-    // only values it kept to write over and never did: it goes, closed
-    // first, as the journals of earlier rewinds go once a later one ends.
-    if (!cancelled && !undoable) {
+    // Through with nothing written, or stopped before it sent anything, its
+    // journal holds nothing to undo or take up, and only values it kept to
+    // write over and never did: it goes, closed first, as the journals of
+    // earlier rewinds go once a later one ends.
+    if (!undoable) {
       await journal.close();
       try {
         await rm(rewindDirOf(this.request.folder, journal.rewindId), {
@@ -3571,9 +3610,58 @@ class Rewind {
     const asked = this.asked;
     if (!asked) return undefined;
     const names = [...new Set(objects)];
-    const unasked = remakeUnasked(asked.automation, asked.steps, names);
+    const unasked = remakeUnasked(asked.automation, asked.steps, names, asked.accepted);
     if (unasked.fired.length === 0 && !unasked.blind) return undefined;
     return notAskedWords(this.request.orgName, names, unasked);
+  }
+
+  /**
+   * Why a record of `objects[0]` the org answered is no longer in the recycle
+   * bin is not made again, with what was to come back with it: the emails
+   * what runs as each is made — and as an order or a contract made as a
+   * draft is given its status back — sends, past what the org has left today
+   * of a daily limit once what the rewind counted is sent. Nothing when they
+   * fit, or could not be counted against a limit, as the rewind's own gate
+   * judges them; what fits is counted, for the next one.
+   *
+   * Uncounted, the orders a rewind found gone as it brought them back were
+   * made again, their flow emailing each, beyond the emails its gate had held
+   * to what a Developer Edition had left of its fifteen.
+   */
+  private remakeEmailsWords(objects: readonly string[]): string | undefined {
+    const counted = this.emailsCounted;
+    const asked = this.asked;
+    if (!counted || !asked) return undefined;
+    const added = objects.flatMap((objectApiName): WrittenRecords[] => [
+      { objectApiName, write: 'insert', records: 1 },
+      ...(STATUS_LIFECYCLES[objectApiName] !== undefined
+        ? [{ objectApiName, write: 'update' as const, records: 1 }]
+        : []),
+    ]);
+    const before = checkpointEmails(counted.written, asked.automation, counted.limits);
+    const after = checkpointEmails(
+      [...counted.written, ...added],
+      asked.automation,
+      counted.limits,
+    );
+    const over = after.filter((check) => check.verdict === 'exceeds');
+    if (over.length === 0) {
+      counted.written.push(...added);
+      return undefined;
+    }
+    const said = over.map((check) => {
+      const more = check.emails - (before.find((b) => b.limit === check.limit)?.emails ?? 0);
+      return (
+        `${emailsOfLimit(more, check.limit)} more than the ` +
+        `${emailsOfLimit(check.emails - more, check.limit)} it counted, past the ` +
+        `${check.remaining ?? 0} of ${check.max ?? 0} ${this.request.orgName} has left today`
+      );
+    });
+    return (
+      'Kept as it is: Salesforce answered it is no longer in the recycle bin, and making it again ' +
+      `sends ${said.join('; ')}. Rewind again: its preview counts it to make again, and its ` +
+      'emails.'
+    );
   }
 
   /**
@@ -3637,8 +3725,9 @@ class Rewind {
       }
       // Made again only where what runs as it is made was asked about: what
       // its question never named stays, said, for a rewind after it to ask.
+      const named = [objectApiName, ...along.map((child) => child.objectApiName)];
       const unasked = remake
-        ? this.remakeUnaskedWords([objectApiName, ...along.map((child) => child.objectApiName)])
+        ? (this.remakeUnaskedWords(named) ?? this.remakeEmailsWords(named))
         : undefined;
       if (remake && unasked === undefined) {
         await remake.add(objectApiName, id);

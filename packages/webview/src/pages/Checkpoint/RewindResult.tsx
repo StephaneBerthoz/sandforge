@@ -609,8 +609,11 @@ const Headline: React.FC<HeadlineProps> = ({ kind, orgName, checkpoint, result, 
       ? t('checkpoint.result.successObjects', { objects, org, name })
       : t('checkpoint.result.success', { org, name });
   } else if (result.status === 'cancelled') {
-    const stopped = t('checkpoint.result.cancelled', { org, name });
-    text = result.undo ? `${stopped} ${t('checkpoint.result.cancelledUndo', { org })}` : stopped;
+    // Stopped before it sent anything, it has no undo, and the org is not
+    // between the checkpoint and now: as it was before this rewind.
+    text = result.undo
+      ? `${t('checkpoint.result.cancelled', { org, name })} ${t('checkpoint.result.cancelledUndo', { org })}`
+      : t('checkpoint.result.cancelledNothing', { org, name });
   } else if (result.status === 'failure') {
     text = t('checkpoint.result.failure', { org, name });
   } else if (result.status === 'unstable') {

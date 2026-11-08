@@ -1486,6 +1486,120 @@ describe('an activated order a rewind makes again or keeps', () => {
     expect(t.org.all('OrderItem')).toEqual([]);
   });
 
+  describe('holding a field the org takes on an update and refuses on an insert', () => {
+    /**
+     * An order's fields with one the org lets a user set on an update and
+     * not on a new record: a record made again is made without it, and the
+     * rewind's second pass gives it back. Live, a rewind that made an
+     * activated order again went through in two passes, its second giving
+     * the order back its checkpoint values, on both gates of the C1 orgs.
+     */
+    const UPDATE_ONLY_FIELDS: Record<string, unknown[]> = {
+      ...ORDER_FIELDS,
+      Order: [
+        ...(ORDER_FIELDS.Order ?? []),
+        writable('ActivatedDate', 'datetime', { createable: false }),
+      ],
+    };
+
+    /** {@link purgedSince}, the order holding that field at the checkpoint. */
+    async function purgedHolding(): Promise<Taken> {
+      const t = await taken(
+        (org) => {
+          baseRecords(org);
+          org.add('OrderStatus', { Id: 'status-1', ApiName: 'Draft', StatusCode: 'Draft' });
+          org.add('OrderStatus', { Id: 'status-2', ApiName: 'Activated', StatusCode: 'Activated' });
+          org.add('Order', {
+            Id: order(1),
+            Status: 'Activated',
+            Description: 'Signed',
+            ActivatedDate: '2026-11-05T22:30:00.000+0000',
+            AccountId: account(1),
+          });
+          org.add('OrderItem', { Id: item(1), Quantity: 2, OrderId: order(1) });
+        },
+        new RewindTestOrg({ fields: UPDATE_ONLY_FIELDS, children: ORDER_CHILDREN }),
+        [...PICKED, 'Order', 'OrderItem'],
+      );
+      clock.now = SINCE;
+      t.org.edit('Order', order(1), { Status: 'Draft' }, COLLEAGUE);
+      clock.now = SINCE + 5_000;
+      t.org.trash('Order', order(1), COLLEAGUE);
+      t.org.purge(order(1));
+      return t;
+    }
+
+    it('counts each flow once in the undo’s refusal: the flow on an order’s update fires as the undo gives the order back its values and as it sets it back to Draft, and the flow on its creation runs on neither (GC4-C2)', async () => {
+      const t = await purgedHolding();
+      const diff = await previewed(t);
+      const made = resultOf(
+        await rewound(t, diff.previewId, { request: { acceptRecreate: true } }),
+      );
+      expect(made.status).toBe('success');
+      expect(made.passes).toBe(2);
+      expect(made.restored).toEqual([
+        expect.objectContaining({ objectApiName: 'Order', planned: 1, restored: 1 }),
+      ]);
+      const read = await t.store.read(t.checkpoint.checkpointId);
+      if (!read?.checkpoint) throw new Error('nothing to undo');
+      const checkpoint = read.checkpoint;
+      clock.now += 60_000;
+      // GC4, gate 3, P4: a flow that emails as an order is created, and one
+      // as an order is updated.
+      const both = automationOf({
+        objectsRead: ['Order', 'OrderItem'],
+        objects: [
+          {
+            objectApiName: 'Order',
+            flows: [
+              {
+                apiName: 'GC_Gate_Order_Create_Email',
+                label: 'GC Gate Order Create Email',
+                timing: 'afterSave',
+                startsOn: 'create',
+                condition: 'read',
+                permissions: [],
+                messages: [{ kind: 'email', name: 'Send Gate Email', limit: 'SingleEmail' }],
+              },
+              {
+                apiName: 'GC_Gate_Order_Update_Email',
+                label: 'GC Gate Order Update Email',
+                timing: 'afterSave',
+                startsOn: 'update',
+                condition: 'read',
+                permissions: [],
+                messages: [{ kind: 'email', name: 'Send Gate Email', limit: 'SingleEmail' }],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+      });
+      const updatesBefore = t.org.updates.length;
+
+      const refused = await undoCheckpoint(
+        {
+          org: t.org,
+          undelete: (ids) => t.org.undelete(ids),
+          store: t.store,
+          readAutomation: both,
+        },
+        { ...request(t), checkpoint, rewindId: made.rewindId, acceptAutomation: false },
+      );
+
+      expect(refused).toMatchObject({
+        undone: false,
+        refusal: {
+          code: 'AUTOMATION',
+          message: expect.stringMatching(
+            /^DEV-ED: 1 flow\(s\), trigger\(s\) or rule\(s\) of Order run as the undo brings records back, gives them their values back, sets an order back to Draft or sends them back to the recycle bin\./,
+          ) as unknown,
+        },
+      });
+      expect(t.org.updates).toHaveLength(updatesBefore);
+    });
+  });
+
   it('stopped once it was made as a draft and before its status went back, stays a draft in a rewind said stopped part way, and the rewind taken up again gives it its status', async () => {
     const t = await purgedSince();
     const diff = await previewed(t);
@@ -1723,6 +1837,76 @@ describe('an activated order a rewind makes again or keeps', () => {
       expect(t.org.all('OrderItem')).toHaveLength(1);
     });
 
+    it('is not made again when the emails what runs as it is made sends would pass what the org has left today beyond what the rewind counted, though that was asked: kept, said, and counted by the rewind after it (checkpoint-tail)', async () => {
+      // Two activated orders at the checkpoint, each set back to Draft and
+      // deleted since: the first emptied from the bin, which the org still
+      // lists — counted to bring back —, the second gone from it — counted to
+      // make again, so what runs as an order is created is asked about.
+      const t = await taken(
+        (org) => {
+          baseRecords(org);
+          org.add('OrderStatus', { Id: 'status-1', ApiName: 'Draft', StatusCode: 'Draft' });
+          org.add('OrderStatus', { Id: 'status-2', ApiName: 'Activated', StatusCode: 'Activated' });
+          for (const n of [1, 2]) {
+            org.add('Order', {
+              Id: order(n),
+              Status: 'Activated',
+              Description: `Signed ${n}`,
+              AccountId: account(1),
+            });
+          }
+        },
+        new RewindTestOrg({ fields: ORDER_FIELDS, children: ORDER_CHILDREN }),
+        [...PICKED, 'Order', 'OrderItem'],
+      );
+      clock.now = SINCE;
+      for (const n of [1, 2]) t.org.edit('Order', order(n), { Status: 'Draft' }, COLLEAGUE);
+      clock.now = SINCE + 5_000;
+      for (const n of [1, 2]) t.org.trash('Order', order(n), COLLEAGUE);
+      t.org.empty(order(1));
+      t.org.purge(order(2));
+      // A Developer Edition with one single email left today.
+      t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 1 } };
+      clock.now = PREVIEWED;
+      const preview = await previewCheckpoint(
+        { org: t.org, store: t.store, readAutomation: ORDER_CREATE_EMAIL },
+        request(t),
+      );
+      if (!preview.previewed) throw new Error(preview.refusal.message);
+      expect(
+        preview.diff.objects
+          .filter(({ objectApiName }) => objectApiName === 'Order')
+          .map(({ toBringBack, toRecreate }) => [toBringBack.inBin, toRecreate ?? 0]),
+      ).toEqual([[1, 1]]);
+      // The one counted to make again sends the one email left: it fits.
+      expect(preview.emails).toEqual([
+        expect.objectContaining({ limit: 'SingleEmail', emails: 1, verdict: 'fits' }),
+      ]);
+
+      const result = resultOf(
+        await rewound(t, preview.diff.previewId, {
+          deps: { readAutomation: ORDER_CREATE_EMAIL },
+          request: { acceptRecreate: true, acceptAutomation: true },
+        }),
+      );
+
+      // The order counted to make again is made; the one found gone in the
+      // bin is not: its email would have been the second of one left.
+      expect(t.org.creates).toEqual([
+        { objectApiName: 'Order', records: [expect.objectContaining({ Description: 'Signed 2' })] },
+      ]);
+      const words =
+        'Kept as it is: Salesforce answered it is no longer in the recycle bin, and making it again sends 1 single email more than the 1 single email it counted, past the 1 of 15 DEV-ED has left today. Rewind again: its preview counts it to make again, and its emails.';
+      expect(result.residual).toContainEqual({
+        objectApiName: 'Order',
+        reason: 'kept',
+        count: 1,
+        ids: [order(1)],
+        message: words,
+      });
+      expect(result.status).toBe('partial');
+    });
+
     it('is made again in the same rewind when nothing the org runs as an order is created or updated was left unasked: as a draft, its product under it, then its status', async () => {
       const t = await emptiedSince();
       const quiet = automationOf({
@@ -1745,7 +1929,7 @@ describe('an activated order a rewind makes again or keeps', () => {
       expect(t.org.all('Order')).toEqual([expect.objectContaining({ Status: 'Activated' })]);
     });
 
-    it('is not made again when what runs as one is made could not all be read: nothing proves it quiet', async () => {
+    it('is made again in the same rewind when what runs as one is made could not all be read and --accept-automation let it run: its question said so, which a second rewind would ask word for word (checkpoint-tail)', async () => {
       const t = await emptiedSince();
       const blind = automationOf({
         objectsRead: ['Account', 'Contact', 'Opportunity', 'Order', 'OrderItem'],
@@ -1753,9 +1937,51 @@ describe('an activated order a rewind makes again or keeps', () => {
       });
       const diff = await previewedWith(t, blind);
 
+      // Not told to let it run, it is refused before it writes, for that.
+      expect(
+        await rewound(t, diff.previewId, {
+          deps: { readAutomation: blind },
+          request: { acceptRecreate: true },
+        }),
+      ).toMatchObject({
+        rewound: false,
+        refusal: {
+          code: 'AUTOMATION',
+          message: expect.stringContaining(
+            'what runs as the rewind writes could not all be read, so automation may run',
+          ) as unknown,
+        },
+      });
+      expect(t.org.creates).toEqual([]);
+
       const result = resultOf(
         await rewound(t, diff.previewId, {
           deps: { readAutomation: blind },
+          request: { acceptRecreate: true, acceptAutomation: true },
+        }),
+      );
+
+      expect(result.status).toBe('success');
+      expect(result.residual).toEqual([]);
+      expect(result.recreated).toEqual([
+        { objectApiName: 'Order', planned: 1, created: 1, refused: 0, reasons: [] },
+        { objectApiName: 'OrderItem', planned: 1, created: 1, refused: 0, reasons: [] },
+      ]);
+      expect(t.org.all('Order')).toEqual([expect.objectContaining({ Status: 'Activated' })]);
+      expect(t.org.all('OrderItem')).toHaveLength(1);
+    });
+
+    it('is not made again when the automation of its object was not read at all: nothing proves it quiet, whatever was accepted', async () => {
+      const t = await emptiedSince();
+      // The read reached the objects the preview counted to write, and not the order's.
+      const partial = automationOf({
+        objectsRead: ['Account', 'Contact', 'Opportunity', 'OrderItem'],
+      });
+      const diff = await previewedWith(t, partial);
+
+      const result = resultOf(
+        await rewound(t, diff.previewId, {
+          deps: { readAutomation: partial },
           request: { acceptRecreate: true, acceptAutomation: true },
         }),
       );

@@ -257,6 +257,42 @@ describe('boundsRefusal — the acceptances and the emails', () => {
     }
   });
 
+  it('counts once what fires on two of its writes: a flow on an order’s creation and update, as it makes the order again, then gives it its status back (GC4-C2)', async () => {
+    const remade = diffOf([object({ objectApiName: 'Order', toRecreate: 1 })]);
+    const onSave: ForgeTargetAutomation = {
+      ...NO_AUTOMATION,
+      objectsRead: ['Order'],
+      objects: [
+        {
+          objectApiName: 'Order',
+          flows: [
+            {
+              apiName: 'Order_Saved',
+              label: 'Order saved',
+              timing: 'afterSave',
+              startsOn: 'createAndUpdate',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    };
+
+    const refused = acceptanceRefusal(
+      'DEV-SB',
+      { diff: remade, automation: onSave },
+      { ...NOTHING_ACCEPTED, acceptRecreate: true },
+      REWIND_STEP_WORDS.lift,
+    );
+
+    expect(refused?.code).toBe('AUTOMATION');
+    expect(refused?.message).toMatch(
+      /^DEV-SB: 1 flow\(s\), trigger\(s\) or rule\(s\) of Order run as the rewind brings records back, makes them again, gives them their values back or deletes them\./,
+    );
+  });
+
   it('refuses a rewind whose writes would send more emails than a Developer Edition has left today, whatever it accepts', async () => {
     const emails: CheckpointEmails[] = [
       {

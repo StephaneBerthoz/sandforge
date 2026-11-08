@@ -7211,6 +7211,7 @@
       "failure": "Le retour arrière de {{org}} à « {{name}} » s'est terminé avant la fin : ce qu'il a fait est indiqué ci-dessous. Faites revenir l'org à ce point de nouveau pour reprendre ce qui diffère encore.",
       "cancelled": "Arrêté en cours de route : {{org}} est entre « {{name}} » et maintenant. Faites revenir l'org à ce point de nouveau pour finir : le retour arrière reprend ce qui diffère encore.",
       "cancelledUndo": "L'annulation ramène toujours {{org}} à son état d'avant le retour arrière.",
+      "cancelledNothing": "Arrêté avant d'avoir rien écrit : {{org}} est tel qu'avant ce retour arrière. Faites revenir l'org à « {{name}} » de nouveau pour le faire.",
       "rewindAgain": "Revenir à ce point de nouveau",
       "stopComparing": "Ne plus comparer ces champs…",
       "stoppedComparing": "Ne sont plus comparés : {{fields}}. Faites revenir l'org à ce point de nouveau pour relire {{org}} sans eux.",

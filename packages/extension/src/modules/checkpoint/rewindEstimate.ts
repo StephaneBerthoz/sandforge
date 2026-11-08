@@ -1477,9 +1477,16 @@ export function diffEstimate(input: DiffEstimateInput): Cost {
  * with a parent. Before the second, the records that came back with a parent
  * are to delete, and the users who last changed them named.
  */
-function readAfterPassCost(input: DiffEstimateInput, secondPassThrough: boolean): Cost {
-  const waiting =
-    !secondPassThrough && input.diff.objects.some((object) => deletedNext(object) > 0);
+function readAfterPassCost(
+  input: DiffEstimateInput,
+  secondPassThrough: boolean,
+  stampedAnew = false,
+): Cost {
+  // Before the second, what it finds to give back — the activation the org
+  // stamped anew on what the first made again — names who last changed it.
+  const names =
+    !secondPassThrough &&
+    (stampedAnew || input.diff.objects.some((object) => deletedNext(object) > 0));
   // What a pass made again in an object nothing moved in moved it: its
   // describe goes with the others', before the change reads.
   const described = input.diff.described;
@@ -1489,7 +1496,7 @@ function readAfterPassCost(input: DiffEstimateInput, secondPassThrough: boolean)
       readAfterPass(object, held, input.relationships, secondPassThrough),
     ),
     new Set(input.diff.unread.map((object) => object.objectApiName)),
-    waiting ? 1 : 0,
+    names ? 1 : 0,
     described === undefined ? undefined : { first: described.first + described.later, later: 0 },
     input.diff.parentsOutsideRequests ?? 0,
     filesReadOf(input.diff),
@@ -1538,6 +1545,15 @@ export function recreateCost(perObject: readonly number[]): Cost {
       ),
   );
 }
+
+/**
+ * The fields the org stamps as an order or a contract is activated — when,
+ * and by whom —, by API name in lower case: a record made again as a draft,
+ * then given its status back, is stamped anew, and the read after the first
+ * pass finds it differing from the checkpoint, which the second pass gives
+ * back. The checkpoint of an activated order of a C1 org held both.
+ */
+const ACTIVATION_STAMPS: ReadonlySet<string> = new Set(['activateddate', 'activatedbyid']);
 
 /**
  * What giving the orders and contracts a rewind makes again their status
@@ -1668,7 +1684,10 @@ function mayHangFrom(
  * - the read after it, which plans pass 2 and is the verify when pass 2 has
  *   nothing to do;
  * - pass 2 and the verify after it, when records come back with a parent:
- *   pass 2 deletes them, and gives back what they held in place;
+ *   pass 2 deletes them, and gives back what they held in place; and when it
+ *   makes again orders or contracts whose activation the checkpoint holds,
+ *   which the org stamps anew as they are given their status back: pass 2
+ *   gives it back;
  * - the links between files and records it removes, inserts again and gives
  *   their sharing back, 200 a call each (`linkWritesCost`).
  *
@@ -1795,8 +1814,23 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
       RUN_RECORDS_PAGE,
     ),
   );
+  // What it makes again of the orders and contracts whose activation the
+  // checkpoint holds: the second pass gives it back, every record counted as
+  // past Draft, as their status is (`statusBackCost`). Not counted, a rewind
+  // that made an activated order again, live, sent 48 requests for 33
+  // estimated, its second pass giving the order back its checkpoint values,
+  // on both gates of the C1 orgs.
+  const stamped = objects.flatMap((object) => {
+    const held = heldOf.get(object.objectApiName);
+    const records = toRecreate(object);
+    if (records === 0 || held === undefined) return [];
+    if (STATUS_LIFECYCLES[object.objectApiName] === undefined) return [];
+    return held.fields.some((field) => ACTIVATION_STAMPS.has(field.toLowerCase()))
+      ? [restoreCost(records, held.fields)]
+      : [];
+  });
   const passTwo =
-    comingBack.length > 0
+    comingBack.length > 0 || stamped.length > 0
       ? sum(
           removalCost(
             comingBack.map((object) => ({
@@ -1806,6 +1840,7 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
             })),
             RUN_RECORDS_PAGE,
           ),
+          ...stamped,
           readAfterPassCost(input, true),
         )
       : NOTHING;
@@ -1813,7 +1848,7 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
     calls(REWIND_USER_REQUESTS, SECONDS_PER_SMALL_CALL),
     passOne,
     linkWritesCost(input.diff.files),
-    readAfterPassCost(input, false),
+    readAfterPassCost(input, false, stamped.length > 0),
     passTwo,
   );
 }

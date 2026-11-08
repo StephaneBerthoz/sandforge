@@ -225,6 +225,17 @@ export function rewindStepsOf(
   };
 }
 
+/**
+ * How many flows, triggers, processes and rules `fired` names, each once: one
+ * that fires on two steps — an order's update flow as an undo gives the order
+ * back its values, then sets it back to Draft — is one. Counted per step, an
+ * undo of a rewind that had made an activated order again said "2 flow(s) …
+ * of Order" of the one flow on an order's update, live.
+ */
+export function firedCount(fired: readonly ForgeFiredOnRemovalStep[]): number {
+  return new Set(fired.map((each) => `${each.objectApiName}\n${each.kind}\n${each.name}`)).size;
+}
+
 /** What runs, unasked, as a rewind makes again what it set out to bring back: see {@link remakeUnasked}. */
 export interface RemakeUnasked {
   /** What fires as one is created, or as an order or a contract is given its status back. */
@@ -241,8 +252,12 @@ export interface RemakeUnasked {
  * made as a draft is then given its status back, and what runs on either
  * write is what `steps` — the writes its question was asked on — did not
  * name for that object. A part of the automation not read, or an object whose
- * automation was not read, leaves those writes unproven quiet. What a bypass
- * the user holds, or the mute holds, keeps quiet does not run.
+ * automation was not read, leaves those writes unproven quiet; but a part not
+ * read is not, once the rewind was told to let what runs go
+ * (`blindAccepted`, --accept-automation): its question said what runs as it
+ * writes could not all be read, which a rewind after it would ask again, word
+ * for word, before it made them. What a bypass the user holds, or the mute
+ * holds, keeps quiet does not run.
  *
  * Seen of an order emptied from the bin: its preview counted it to bring
  * back, and a rewind told it may make records again made it, running what
@@ -252,6 +267,7 @@ export function remakeUnasked(
   automation: Pick<ForgeTargetAutomation, 'objects' | 'objectsRead' | 'unread'>,
   steps: ForgeRemovalSteps,
   objects: readonly string[],
+  blindAccepted = false,
 ): RemakeUnasked {
   const named = (step: readonly string[] | undefined, name: string): boolean =>
     (step ?? []).includes(name);
@@ -265,7 +281,7 @@ export function remakeUnasked(
     fired: firedOnRemovalStepsOf(automation, { recreate: created, giveBack: statused }),
     blind:
       unasked.length > 0 &&
-      (blindedBy(automation.unread) || unasked.some((name) => !read.has(name))),
+      ((!blindAccepted && blindedBy(automation.unread)) || unasked.some((name) => !read.has(name))),
   };
 }
 
@@ -539,7 +555,7 @@ function automationRefusal(
     : '';
   const what =
     fired.length > 0
-      ? `${fired.length} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
+      ? `${firedCount(fired)} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
         `rewind brings records back, ${makes}gives them their values back or deletes them`
       : 'what runs as the rewind writes could not all be read, so automation may run';
   // Said here too: a rewind refused for its automation is the one place it

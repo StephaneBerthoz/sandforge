@@ -7211,6 +7211,7 @@
       "failure": "Das Zurücksetzen von {{org}} auf „{{name}}“ endete, bevor es fertig war: Was es getan hat, ist unten aufgeführt. Setzen Sie erneut zurück, um bei dem fortzufahren, was sich noch unterscheidet.",
       "cancelled": "Mittendrin gestoppt: {{org}} steht zwischen „{{name}}“ und jetzt. Setzen Sie erneut zurück, um fertig zu werden: Es fährt bei dem fort, was sich noch unterscheidet.",
       "cancelledUndo": "Das Rückgängigmachen bringt {{org}} weiterhin auf den Stand vor dem Zurücksetzen.",
+      "cancelledNothing": "Gestoppt, bevor etwas geschrieben wurde: {{org}} ist so wie vor diesem Zurücksetzen. Setzen Sie erneut zurück, um es auf „{{name}}“ zurückzusetzen.",
       "rewindAgain": "Erneut zurücksetzen",
       "stopComparing": "Diese Felder nicht mehr vergleichen…",
       "stoppedComparing": "Ab jetzt nicht mehr verglichen: {{fields}}. Setzen Sie erneut zurück, um {{org}} ohne sie zu lesen.",

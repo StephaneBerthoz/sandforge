@@ -149,6 +149,21 @@ describe('docs/modules/checkpoint.md', () => {
     expect(block).toBe(help.replace(/\n$/, ''));
   });
 
+  it('says a rewind asks you to type the org as --org names it, its alias or its username for an org that has none, as the script compares what is typed', () => {
+    // Positive control: the rewind and the undo take what is typed for what
+    // --org was given, an alias or a username alike.
+    expect(CLI).toContain('const answer = await typed(rewindQuestion(args.org, ');
+    expect(CLI.match(/if \(answer !== args\.org\) throw new Stop/g)).toHaveLength(2);
+
+    const asks =
+      'asks you to type the org as `--org` names it -- its alias, or its username for an org ' +
+      'that has none --';
+    const row = DOC.split('\n').find((line) => line.startsWith('| `rewind`'));
+    expect(row).toContain(asks);
+    expect(helpAsPrinted().replace(/\n/g, ' ')).toContain(asks.replace(/`/g, ''));
+    expect(DOC).not.toContain("asks you to type the org's alias");
+  });
+
   it('names each command the script reads in its table, and no other', () => {
     const commands = commandsRead();
     expect(commands).toEqual([
@@ -1073,13 +1088,24 @@ describe('docs/modules/checkpoint.md', () => {
     );
     expect(REWIND).toMatch(/if \(undoable\) \{\s*removedJournals = await removeEarlierJournals\(/);
     expect(REWIND).toMatch(
-      /if \(!cancelled && !undoable\) \{\s*await journal\.close\(\);[\s\S]*?await rm\(rewindDirOf\(this\.request\.folder, journal\.rewindId\)/,
+      /if \(!undoable\) \{\s*await journal\.close\(\);[\s\S]*?await rm\(rewindDirOf\(this\.request\.folder, journal\.rewindId\)/,
     );
     expect(section(DOC, '## Where checkpoints are kept')).toContain(
-      'A rewind that wrote nothing deletes none, and keeps no journal of its own.',
+      'A rewind that wrote nothing deletes none, and keeps no journal of its own; nor does one ' +
+        'stopped before it sent anything, which has nothing to take up.',
     );
     expect(section(DOC, '## Undo')).toContain(
-      'A rewind that wrote nothing leaves it to the rewind before it.',
+      'A rewind that wrote nothing, or was stopped before it sent anything, leaves it to the ' +
+        'rewind before it.',
+    );
+    // Anchor: stopped, it is undoable only once its journal names a write
+    // about to go, and gives its checkpoint back the last rewind it said
+    // before when it sent nothing.
+    expect(REWIND).toContain(
+      '((cancelled || journal.resumed) && (await journal.facts()).lastWriteAt !== undefined);',
+    );
+    expect(REWIND).toMatch(
+      /if \(cancelled && !undoable\) \{[\s\S]*?return earlier \? \{ \.\.\.held, lastRewind: earlier \} : held;/,
     );
   });
 

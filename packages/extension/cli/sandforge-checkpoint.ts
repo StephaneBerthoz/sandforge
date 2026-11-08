@@ -62,6 +62,7 @@ import {
   type CheckpointScopeMode,
   type CheckpointScopeObject,
   type CheckpointTakeRequests,
+  type ForgeRemovalSteps,
   type ForgeTargetAutomation,
   type OrgCheckpoint,
   type RewindDiff,
@@ -117,6 +118,7 @@ import {
 } from '../src/modules/checkpoint/rewindEmails.js';
 import { rewindWriters } from '../src/modules/checkpoint/rewindPlan.js';
 import { undoPlansOf } from '../src/modules/checkpoint/rewindJournal.js';
+import { REWIND_AUTOMATION_LIFTED_BY } from '../src/modules/checkpoint/rewindOrg.js';
 import { UNDO_AUTOMATION_LIFTED_BY } from '../src/modules/checkpoint/undoCheckpoint.js';
 import { HELD_WHEN_PICKED } from '../src/modules/checkpoint/checkpointScope.js';
 import { DEFAULT_MAX_TOTAL, takeOrgOf } from '../src/modules/checkpoint/takeCheckpoint.js';
@@ -288,15 +290,17 @@ View All Data and Modify All Data, a file a newer SandForge made, are each refus
 is asked. A wrong key, or a file changed since it was exported, is refused before anything is
 kept. A checkpoint kept already the same is left as it is, exit 0; another of its id is refused.
 The lock against two rewinds at once is per machine: agree on who rewinds the org.
-rewind shows its preview and asks you to type the org's alias before it writes, then rewinds from
-that preview as it read the org: a record someone changes after it read is left as they made it,
-and said. A take, a rewind or an undo of the org under way on this machine, in the editor or in
-another command line, refuses a rewind and an undo; other runs writing to the org are not seen
-here, and what one of them changes after the preview read the org is left and said the same way.
+rewind shows its preview and asks you to type the org as --org names it -- its alias, or its
+username for an org that has none -- before it writes, then rewinds from that preview as it read
+the org: a record someone changes after it read is left as they made it, and said. A take, a
+rewind or an undo of the org under way on this machine, in the editor or in another command line,
+refuses a rewind and an undo; other runs writing to the org are not seen here, and what one of
+them changes after the preview read the org is left and said the same way.
 Ctrl-C stops a take between two reads, and nothing of it is kept; a second Ctrl-C ends it at once,
 and leaves a checkpoint listed as never taken, which delete removes. Ctrl-C stops a rewind or an
 undo before its next call to the org, and leaves its journal: rewind again takes up from what still
-differs, and undo still returns the org to how it was before the rewind.
+differs, and undo still returns the org to how it was before the rewind. A rewind stopped before
+it sent anything leaves none, and the undo of the rewind before it stays offered.
 
 A record deleted since that the recycle bin no longer gives back is made again from the
 checkpoint, with a new Id, once --accept-recreate says so: the lookups the checkpoint holds that
@@ -1723,6 +1727,7 @@ function madeAsDraftLines(
 function remakeLeftOf(
   diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
   automation: ForgeTargetAutomation | undefined,
+  acceptAutomation = false,
 ): { objects: string[]; fired: string[] } {
   if (!automation) return { objects: [], fired: [] };
   const steps = rewindStepsOf(diff);
@@ -1730,7 +1735,7 @@ function remakeLeftOf(
   const fired = new Set<string>();
   for (const object of diff.objects) {
     if (toBringBackOf(object) === 0) continue;
-    const unasked = remakeUnasked(automation, steps, [object.objectApiName]);
+    const unasked = remakeUnasked(automation, steps, [object.objectApiName], acceptAutomation);
     if (unasked.fired.length === 0 && !unasked.blind) continue;
     objects.push(object.objectApiName);
     for (const each of unasked.fired) fired.add(`${each.objectApiName}: '${each.name}'`);
@@ -1739,24 +1744,31 @@ function remakeLeftOf(
 }
 
 /**
- * One line per object the org runs something on as a rewind writes, of the
- * objects it writes (`written`), by its own plan: read for every object of
- * the diff, a dry run without --accept-outside named the flow of an order it
- * kept, live, as the table counted it to delete.
+ * One line per object the org runs something on as a rewind writes, by its
+ * own plan's steps (`rewindStepsOf`): what fires as it brings records back,
+ * gives them their values back, makes them again or deletes them, each once.
+ * Read for every object of the diff, a dry run without --accept-outside named
+ * the flow of an order it kept, live, as the table counted it to delete; read
+ * for every flow of the objects it writes, one that brought back an order and
+ * made nothing again named the flow of an order's creation, which neither an
+ * undelete nor an update runs.
  */
 function automationLines(
   orgName: string,
   automation: ForgeTargetAutomation,
-  written: readonly string[],
+  steps: ForgeRemovalSteps,
 ): string[] {
+  const fired = firedOnRemovalStepsOf(automation, steps);
   const lines: string[] = [];
   for (const object of automation.objects) {
-    if (!written.includes(object.objectApiName)) continue;
-    // What a bypass the user holds, or the mute would hold, keeps quiet does not run.
-    const flows = [...object.flows, ...(object.processes ?? []), ...(object.workflowRules ?? [])]
-      .filter((flow) => !flow.permissions.some(({ bypass, held }) => bypass && held === true))
-      .map((flow) => `'${flow.label}'`);
-    const triggers = object.triggers.map((trigger) => trigger.name);
+    // What a bypass the user holds, or the mute would hold, keeps quiet does not fire.
+    const of = fired.filter((each) => each.objectApiName === object.objectApiName);
+    const flows = [
+      ...new Set(of.filter((each) => each.kind !== 'trigger').map((each) => `'${each.name}'`)),
+    ];
+    const triggers = [
+      ...new Set(of.filter((each) => each.kind === 'trigger').map((each) => each.name)),
+    ];
     const parts = [
       ...(flows.length > 0 ? [`${flows.length} flow(s) or rule(s): ${someOf(flows, 4)}`] : []),
       ...(triggers.length > 0
@@ -1783,12 +1795,16 @@ function automationLines(
  *
  * @param user - The user the preview read the org as: who field-level
  *   security hides a field from.
+ * @param acceptAutomation - Whether the rewind they come before was given
+ *   --accept-automation: what could not be read of what runs as it makes a
+ *   record again leaves none of them then, as the rewind judges it.
  */
 export function previewLines(
   orgName: string,
   checkpoint: Pick<OrgCheckpoint, 'name' | 'takenAt'>,
   answer: PreviewAnswer,
   user = 'the user SandForge connects as',
+  acceptAutomation = false,
 ): string[] {
   const { diff } = answer;
   const totals = previewTotals(diff);
@@ -1890,7 +1906,8 @@ export function previewLines(
     );
   }
   // What it leaves all the same: making it again runs what it does not ask about.
-  const left = totals.toBringBack > 0 ? remakeLeftOf(diff, answer.automation) : undefined;
+  const left =
+    totals.toBringBack > 0 ? remakeLeftOf(diff, answer.automation, acceptAutomation) : undefined;
   if (left) {
     const runs =
       left.fired.length > 0
@@ -2012,7 +2029,7 @@ export function previewLines(
     );
   }
   if (answer.automation) {
-    lines.push(...automationLines(orgName, answer.automation, objectsWrittenBy(diff)));
+    lines.push(...automationLines(orgName, answer.automation, rewindStepsOf(diff)));
   }
   if (answer.emails) lines.push(...emailLines(orgName, answer.emails));
   if (answer.emailsUncounted !== undefined) {
@@ -2339,6 +2356,25 @@ const COMMAND_LINE_WORDS: BoundWords = {
 };
 
 /**
+ * A rewind's own refusal in the command's words: refused for the org's
+ * automation found between its preview and its first write — a flow
+ * activated meanwhile —, it names the flag that lifts it, as the refusal its
+ * preview would give does (`COMMAND_LINE_WORDS`), where the rewind says it as
+ * the panel does.
+ */
+function rewindRefusalWords(refusal: CheckpointRefusalLike): CheckpointRefusalLike {
+  return refusal.code === 'AUTOMATION'
+    ? {
+        ...refusal,
+        message: refusal.message.replace(
+          REWIND_AUTOMATION_LIFTED_BY,
+          COMMAND_LINE_WORDS.lift.acceptAutomation,
+        ),
+      }
+    : refusal;
+}
+
+/**
  * An undo's refusal in the command's words: refused for the org's
  * automation, it names the flag that lifts it, as a rewind's refusal does,
  * where the undo says it as the panel does.
@@ -2547,10 +2583,15 @@ export function rewindLines(
     failure:
       `Nothing of the rewind of ${orgName} to '${checkpoint.name}' went through: what still ` +
       'differs is said with why:',
+    // Stopped before it sent anything, it has no undo: nothing to take back,
+    // nothing between the org and the rewind before it.
     cancelled:
-      `Stopped part way: ${orgName} is between '${checkpoint.name}' and now. Rewind again to ` +
-      `finish: it takes up from what still differs, and undo still returns ${orgName} to how it ` +
-      'was before the rewind.',
+      result.undo === undefined
+        ? `Stopped before it wrote anything: ${orgName} is as it was before this rewind. Rewind ` +
+          `again to rewind it to '${checkpoint.name}'.`
+        : `Stopped part way: ${orgName} is between '${checkpoint.name}' and now. Rewind again to ` +
+          `finish: it takes up from what still differs, and undo still returns ${orgName} to how ` +
+          'it was before the rewind.',
   };
   const scope = result.scope;
   if (scope !== undefined && result.status === 'success') {
@@ -3708,7 +3749,15 @@ async function rewind(
       ? planMute(shown.automation, removalStepsWrites(rewindStepsOf(shown.diff)))
       : undefined;
   const preview = muted ? { ...shown, automation: muted.automation } : shown;
-  for (const line of previewLines(args.org, checkpoint, preview, org.username)) say(line);
+  for (const line of previewLines(
+    args.org,
+    checkpoint,
+    preview,
+    org.username,
+    args.acceptAutomation,
+  )) {
+    say(line);
+  }
   for (const line of selection ? selectionLines(selection.plan) : []) say(line);
   for (const line of kept ? keptLines(kept.plan) : []) say(line);
   for (const line of muted ? muteLines(muted.planned, args.org) : []) say(`  ${line}`);
@@ -3792,7 +3841,7 @@ async function rewind(
         timeoutMs: WRITE_TIMEOUT_MS,
       }),
   );
-  const result = resultOfAnswer(sent, 'The rewind');
+  const result = resultOfAnswer(sent, 'The rewind', rewindRefusalWords);
   for (const line of rewindLines(args.org, checkpoint, result, preview.diff.userNames)) say(line);
   for (const line of result.mutedAutomation ? muteLines(result.mutedAutomation, args.org) : []) {
     say(line);

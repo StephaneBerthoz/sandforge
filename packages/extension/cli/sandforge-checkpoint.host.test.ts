@@ -250,8 +250,11 @@ function harness(
     production?: boolean;
     /** What a request becomes on its way to the handler: one another window answers first. */
     sending?: (request: PanelRequest) => PanelRequest;
-    /** What the org runs as a rewind writes, in place of a Tooling API that answers nothing. */
-    automation?: ForgeTargetAutomation;
+    /**
+     * What the org runs as a rewind writes, in place of a Tooling API that
+     * answers nothing: the same at each read, or what each read answers.
+     */
+    automation?: ForgeTargetAutomation | (() => ForgeTargetAutomation);
   } = {},
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-checkpoint-cli-'));
@@ -286,7 +289,10 @@ function harness(
                 setTargetAutomation: (reader: { read: () => Promise<unknown> }) => void;
               };
             }
-          ).checkpointHandler.setTargetAutomation({ read: () => Promise.resolve(automation) });
+          ).checkpointHandler.setTargetAutomation({
+            read: () =>
+              Promise.resolve(typeof automation === 'function' ? automation() : automation),
+          });
         }
       },
     });
@@ -1083,6 +1089,67 @@ describe('sandforge-checkpoint rewind', () => {
     expect(stderr).toContain(
       'Undo refused; give --accept-automation to undo the rewind all the same.',
     );
+    expect(stateOf(h.org)).toEqual(before);
+  });
+
+  it('names --accept-automation when the rewind itself reads automation its preview did not, a flow activated between the two: exit 1, nothing written (w50f)', async () => {
+    const quiet: ForgeTargetAutomation = {
+      objectsRead: ['Account', 'Case'],
+      objects: [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 0,
+    };
+    const activated: ForgeTargetAutomation = {
+      ...quiet,
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_Touched',
+              label: 'Account touched',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    };
+    // The preview's read finds nothing; the rewind's own, before it writes,
+    // finds the flow.
+    let reads = 0;
+    const h = harness({ automation: () => (++reads === 1 ? quiet : activated) });
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const before = stateOf(h.org);
+
+    const { code, stdout, stderr } = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--json',
+    );
+
+    expect(code).toBe(1);
+    expect(reads).toBe(2);
+    const answered = JSON.parse(stdout) as { refusal: { code: string; message: string } };
+    expect(answered.refusal).toEqual({
+      code: 'AUTOMATION',
+      message:
+        'DEV-SB: 1 flow(s), trigger(s) or rule(s) of Account run as the rewind brings records ' +
+        'back, gives them their values back or deletes them. Rewind refused; give ' +
+        '--accept-automation to rewind all the same. No record was written.',
+    });
+    expect(stderr).toContain('Rewind refused; give --accept-automation to rewind all the same.');
+    expect(stderr).not.toContain('accept that it runs');
     expect(stateOf(h.org)).toEqual(before);
   });
 

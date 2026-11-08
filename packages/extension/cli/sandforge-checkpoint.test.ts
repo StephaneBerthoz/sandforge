@@ -1241,6 +1241,100 @@ describe('previewLines', () => {
     expect(blind.join('\n')).toContain(
       'OrderItem, Order records it leaves all the same, with what was to come back with them, and names them: what runs as they are made again could not all be read, which this rewind does not ask about',
     );
+    // Given --accept-automation, whose question said what runs could not all
+    // be read, it leaves none of them for that: made again as drafts, as it
+    // makes them (checkpoint-tail).
+    const accepted = previewLines(
+      'DEV-SB',
+      checkpoint,
+      {
+        diff,
+        estimate,
+        automation: { ...onCreate, objects: [], unread: [{ part: 'triggers', reason: 'refused' }] },
+      },
+      'tester@example.com',
+      true,
+    ).join('\n');
+    expect(accepted).not.toContain('leaves all the same');
+    expect(accepted).toContain(
+      '  if Salesforce answers that an order or a contract to bring back is no longer in the recycle bin, --accept-recreate makes it again as a draft',
+    );
+    // What it names as running unasked still leaves them.
+    expect(
+      previewLines('DEV-SB', checkpoint, { diff, estimate, automation: onCreate }, 'x', true).join(
+        '\n',
+      ),
+    ).toContain(
+      "making them again runs Order: 'Order created', which this rewind does not ask about",
+    );
+  });
+
+  it('names under what the org runs as a rewind writes only what fires on the writes it makes: not the flow of an order’s creation, for a rewind that brings the order back and makes nothing again (GC4-C2)', () => {
+    const flow = (label: string, startsOn: 'create' | 'update') => ({
+      apiName: label.replace(/ /g, '_'),
+      label,
+      timing: 'afterSave' as const,
+      startsOn,
+      condition: 'read' as const,
+      permissions: [],
+    });
+    const onOrder = (
+      flows: ReturnType<typeof flow>[],
+      triggers: ForgeTargetAutomation['objects'][number]['triggers'] = [],
+    ): ForgeTargetAutomation => ({
+      objectsRead: ['OrderItem', 'Order'],
+      objects: [{ objectApiName: 'Order', flows, triggers }],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 1500,
+      requests: 13,
+    });
+    // GC4, gate 3, P1: an activated order and its product deleted, the order
+    // emptied from the bin, then a flow that emails as an order is created.
+    const diff = diffOf([
+      object({
+        objectApiName: 'OrderItem',
+        toBringBack: { inBin: 0, withParent: 1, deletedWhileTaken: 0 },
+      }),
+      object({
+        objectApiName: 'Order',
+        toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+      }),
+    ]);
+
+    const created = previewLines('SF-C1-TARGET', checkpoint, {
+      diff,
+      estimate,
+      automation: onOrder([flow('GC Gate Order Create Email', 'create')]),
+    }).join('\n');
+
+    expect(created).not.toContain('runs as a rewind writes');
+    // Said where it belongs: what making the order again would run, unasked.
+    expect(created).toContain(
+      "making them again runs Order: 'GC Gate Order Create Email', which this rewind does not ask about",
+    );
+
+    // What does fire on its writes is named, each once: the order brought
+    // back is given back its values, an update; an Apex trigger runs after
+    // its undelete.
+    const fired = previewLines('SF-C1-TARGET', checkpoint, {
+      diff,
+      estimate,
+      automation: onOrder(
+        [flow('GC Gate Order Create Email', 'create'), flow('Order touched', 'update')],
+        [
+          { name: 'OrderBack', events: ['afterUndelete', 'afterUpdate'] },
+          { name: 'OrderNew', events: ['afterInsert'] },
+        ],
+      ),
+    });
+    const at = fired.indexOf(
+      '  what SF-C1-TARGET runs as a rewind writes (updates, deletes, records brought back):',
+    );
+    expect(at).toBeGreaterThan(0);
+    expect(fired[at + 1]).toBe(
+      "    Order: 1 flow(s) or rule(s): 'Order touched'; 1 Apex trigger(s): OrderBack",
+    );
   });
 
   it('says the records it brings back for a moment, in none of the three numbers, and what the org runs on them runs twice; counts them in --json', () => {
@@ -1876,8 +1970,13 @@ describe('rewindLines, undoLines and resultJson', () => {
     expect(unstable).toContain(
       '  Account 2 — changed during the rewind by Ada Tester: left as they made them',
     );
-    expect(rewindLines('DEV-SB', checkpoint, resultOf({ status: 'cancelled' }))[0]).toBe(
+    const undo = { until: '2026-11-06T17:00:00.000Z', cannot: [] };
+    expect(rewindLines('DEV-SB', checkpoint, resultOf({ status: 'cancelled', undo }))[0]).toBe(
       "Stopped part way: DEV-SB is between 'Before UAT' and now. Rewind again to finish: it takes up from what still differs, and undo still returns DEV-SB to how it was before the rewind.",
+    );
+    // Stopped before it sent anything, it offers no undo, and is not between.
+    expect(rewindLines('DEV-SB', checkpoint, resultOf({ status: 'cancelled' }))[0]).toBe(
+      "Stopped before it wrote anything: DEV-SB is as it was before this rewind. Rewind again to rewind it to 'Before UAT'.",
     );
   });
 

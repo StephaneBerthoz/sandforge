@@ -7211,6 +7211,7 @@
       "failure": "El retroceso de {{org}} a «{{name}}» terminó antes de acabar: lo que hizo se indica abajo. Retroceda de nuevo para retomar lo que aún difiere.",
       "cancelled": "Detenido a medias: {{org}} está entre «{{name}}» y ahora. Retroceda de nuevo para terminar: retoma lo que aún difiere.",
       "cancelledUndo": "Deshacer sigue devolviendo {{org}} a como estaba antes del retroceso.",
+      "cancelledNothing": "Detenido antes de escribir nada: {{org}} está como antes de este retroceso. Retroceda de nuevo para llevarla a «{{name}}».",
       "rewindAgain": "Retroceder de nuevo",
       "stopComparing": "Dejar de comparar estos campos…",
       "stoppedComparing": "Ya no se comparan: {{fields}}. Retroceda de nuevo para leer {{org}} sin ellos.",

@@ -7211,6 +7211,7 @@
       "failure": "O retrocesso de {{org}} para “{{name}}” terminou antes do fim: o que ele fez está listado abaixo. Retroceda de novo para retomar o que ainda difere.",
       "cancelled": "Interrompido no meio: {{org}} está entre “{{name}}” e agora. Retroceda de novo para terminar: ele retoma o que ainda difere.",
       "cancelledUndo": "Desfazer ainda devolve {{org}} ao estado de antes do retrocesso.",
+      "cancelledNothing": "Interrompido antes de escrever qualquer coisa: {{org}} está como antes deste retrocesso. Retroceda de novo para levá-la a “{{name}}”.",
       "rewindAgain": "Retroceder de novo",
       "stopComparing": "Parar de comparar estes campos…",
       "stoppedComparing": "Não comparados a partir de agora: {{fields}}. Retroceda de novo para ler {{org}} sem eles.",

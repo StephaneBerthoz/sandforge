@@ -73,6 +73,7 @@ import { guardCheckpoint, type CheckpointGuardConnection } from './checkpointGua
 import { OrgReadStopped, compositeReader } from './compositeQueries.js';
 import type { CheckpointFolder, OrgCheckpointStore, OrgLockHolder } from './OrgCheckpointStore.js';
 import { actAccessOf, type ActAccess } from './rewindAccess.js';
+import { firedCount } from './rewindBounds.js';
 import {
   actDeliverability,
   afterLeaseEmailsRefusal,
@@ -297,7 +298,7 @@ function automationRefusal(
   const drafts = (steps.setToDraft ?? []).length > 0 ? ', sets an order back to Draft' : '';
   const what =
     fired.length > 0
-      ? `${fired.length} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
+      ? `${firedCount(fired)} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
         `undo brings records back, gives them their values back${drafts} or sends them back ` +
         'to the recycle bin'
       : 'what runs as the undo writes could not all be read, so automation may run';
