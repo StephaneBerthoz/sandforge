@@ -13,7 +13,7 @@
  * does not is named here the day it is written, not fifteen days later.
  */
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const PACKAGE = join(__dirname, '..', '..');
@@ -22,13 +22,13 @@ const PACKAGE = join(__dirname, '..', '..');
 const WRITTEN_ORIGIN =
   /^const ([A-Za-z_]*T0[A-Za-z_]*) = Date\.parse\('\d{4}-\d{2}-\d{2}[^']*'\);$/m;
 
-/** Every test file of the package, by its path from the package. */
+/** Every test file of the package, by its path from the package, with `/` on any system. */
 function testFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     if (entry.name === 'node_modules' || entry.name.startsWith('.')) return [];
     const path = join(dir, entry.name);
     if (entry.isDirectory()) return testFiles(path);
-    return entry.name.endsWith('.test.ts') ? [relative(PACKAGE, path)] : [];
+    return entry.name.endsWith('.test.ts') ? [relative(PACKAGE, path).split(sep).join('/')] : [];
   });
 }
 
