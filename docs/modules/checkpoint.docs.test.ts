@@ -666,9 +666,9 @@ describe('docs/modules/checkpoint.md', () => {
     expect(REWIND).toContain(
       'if (writing && overEmails) return { rewound: false, refusal: overEmails };',
     );
-    expect(UNDO).toContain(
-      'if (objects.length > 0 && overEmails) return { undone: false, refusal: overEmails };',
-    );
+    // The undo gathers each refusal of its gate, then is refused for the first.
+    expect(UNDO).toContain('if (objects.length > 0 && overEmails) refusals.push(overEmails);');
+    expect(UNDO).toContain('return {\n        undone: false,\n        refusal: refused,');
     expect(unionOf(TYPES, 'CheckpointRefusalCode')).toContain('EMAILS');
     expect(source(`${MODULE_DIR}/rewindEmails.ts`)).toContain("    code: 'EMAILS',");
 

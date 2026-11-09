@@ -186,7 +186,16 @@ export type UndoCheckpointOutcome =
        */
       deliverability?: NonNullable<DeliverabilityGate['audit']>;
     }
-  | { undone: false; refusal: CheckpointRefusal };
+  | {
+      undone: false;
+      refusal: CheckpointRefusal;
+      /**
+       * What else its gate refused it for, once what it writes was read, in
+       * order: its emails past a daily limit or delivered, beside its
+       * automation. Absent when the refusal is the only one.
+       */
+      alsoRefused?: CheckpointRefusal[];
+    };
 
 /** Why an undo ended before it wrote anything: it was stopped. Nothing was written. */
 export class UndoStopped extends Error {
@@ -542,6 +551,10 @@ export async function undoCheckpoint(
     // acceptance of the automation covers it, and its refusal says so.
     const written = writtenByUndo(rewound, along, drafted);
     const uncounted = automation ? checkpointEmailsUncounted(written, automation) : undefined;
+    // Every refusal of its gate, in order, each read from what is read
+    // already: refused for its automation alone, an undo was refused for its
+    // emails only once their automation was accepted.
+    const refusals: CheckpointRefusal[] = [];
     if (
       automation &&
       !request.acceptAutomation &&
@@ -549,7 +562,7 @@ export async function undoCheckpoint(
         blindedBy(automation.unread) ||
         uncounted !== undefined)
     ) {
-      return { undone: false, refusal: automationRefusal(orgName, automation, steps, uncounted) };
+      refusals.push(automationRefusal(orgName, automation, steps, uncounted));
     }
     const cost = undoEstimate({
       objects: checkpoint.objects,
@@ -567,16 +580,24 @@ export async function undoCheckpoint(
       budget,
       orgName,
     );
-    if (objects.length > 0 && overBudget) return { undone: false, refusal: overBudget };
+    if (objects.length > 0 && overBudget) refusals.push(overBudget);
     // The emails its writes make the org send, against what it has left of
     // each daily limit: past them, no box lifts the refusal.
     const overEmails = automation
       ? emailsRefusal('undo', checkpointEmails(written, automation, budget.emails), orgName)
       : undefined;
-    if (objects.length > 0 && overEmails) return { undone: false, refusal: overEmails };
+    if (objects.length > 0 && overEmails) refusals.push(overEmails);
     // Where the org delivers them all or would not say, written only once
     // they were accepted, which the acceptance of the automation never is.
-    if (emails?.refusal) return { undone: false, refusal: emails.refusal };
+    if (emails?.refusal) refusals.push(emails.refusal);
+    const [refused, ...alsoRefused] = refusals;
+    if (refused) {
+      return {
+        undone: false,
+        refusal: refused,
+        ...(alsoRefused.length > 0 ? { alsoRefused } : {}),
+      };
+    }
     if (stopped()) throw new UndoStopped();
 
     // The user it writes as: what it gave back that this user, or the org's

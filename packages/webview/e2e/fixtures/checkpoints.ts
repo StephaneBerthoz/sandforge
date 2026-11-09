@@ -809,3 +809,71 @@ export function previewThatSends(
     },
   };
 }
+
+/**
+ * What `checkpoint:preview` answers the page for a checkpoint of picked
+ * objects whose rewind deletes an account made since that a case outside it
+ * hangs from, and gives another account its name back: a flow emails the
+ * owner as an account is changed, another as one is deleted. Asked without
+ * saying whether the rewind may delete the case's account, the extension
+ * counts the emails of both rewinds: the one that deletes it sends two, the
+ * one that keeps it one.
+ */
+export function previewKeepingOutside(checkpointId: string): CheckpointPreviewResponse['payload'] {
+  const sends = (sentBy: string[]) => ({
+    limit: 'SingleEmail' as const,
+    emails: sentBy.length,
+    verdict: 'fits' as const,
+    remaining: 15,
+    max: 15,
+    objects: [
+      {
+        objectApiName: 'Account',
+        write: 'update' as const,
+        records: sentBy.length,
+        perRecord: 1,
+        sentBy,
+      },
+    ],
+  });
+  const flow = (label: string, startsOn: 'update' | 'delete') => ({
+    apiName: label.replace(/ /g, '_'),
+    label,
+    timing: startsOn === 'update' ? ('afterSave' as const) : ('beforeDelete' as const),
+    startsOn,
+    condition: 'read' as const,
+    permissions: [],
+    messages: [{ kind: 'email' as const, name: 'Tell owner', limit: 'SingleEmail' as const }],
+  });
+  const plain = plainPreview(checkpointId, 'pv-outside');
+  return {
+    ...plain,
+    diff: {
+      ...plain.diff,
+      objects: [
+        diffObject('Account', {
+          toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+          toGiveBack: { records: 1, fields: 1, clearedLookups: 0 },
+          outside: [{ objectApiName: 'Case', count: 1, parents: 1 }],
+          lastChangedBy: { [USERS.alice]: 2 },
+        }),
+      ],
+    },
+    automation: {
+      objectsRead: ['Account'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [flow('Account changed', 'update'), flow('Account gone', 'delete')],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 2,
+    },
+    emails: [sends(['Account changed', 'Account gone'])],
+    emailsKeepingOutside: [sends(['Account changed'])],
+  };
+}

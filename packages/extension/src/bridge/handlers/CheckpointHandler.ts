@@ -174,7 +174,12 @@ type WriteOutcome =
       /** Whether the org delivered the emails what still ran sends, as read before it wrote. */
       deliverability?: ActEmailsAudit;
     }
-  | { done: false; refusal: CheckpointRefusal };
+  | {
+      done: false;
+      refusal: CheckpointRefusal;
+      /** What else its gate refused it for, beside `refusal`: answered beside it. */
+      alsoRefused?: CheckpointRefusal[];
+    };
 
 /** A rewind or an undo that went through, as {@link WriteOutcome} says it. */
 function writtenOutcome(outcome: {
@@ -492,6 +497,8 @@ class Refused extends Error {
     readonly result?: RewindResult,
     /** The guard's or the gate's refusal, as it gave it, when it is one. */
     readonly refusal?: CheckpointRefusal,
+    /** What else the gate refused it for, answered beside the refusal as `alsoRefused`. */
+    readonly alsoRefused: readonly CheckpointRefusal[] = [],
   ) {
     super(message);
     this.name = 'Refused';
@@ -1916,20 +1923,29 @@ export class CheckpointHandler implements DomainHandler {
       sendHandlerError(this.deps, msg.type, 'checkpoint:error', msg, err, {
         code: err.code,
         retryable: err.retryable,
+        // Each refusal beside the first, so a caller told of one is not
+        // refused next for another it could have been told of at once.
+        ...(err.alsoRefused.length > 0
+          ? { extraPayload: { alsoRefused: [...err.alsoRefused] } }
+          : {}),
       });
       return;
     }
     sendHandlerError(this.deps, msg.type, 'checkpoint:error', msg, err, { code, retryable });
   }
 
-  /** A guard's or a gate's refusal, as it gave it. */
-  private refusalOf(refusal: CheckpointRefusal): Refused {
+  /** A guard's or a gate's refusal, as it gave it, with what else refused it beside. */
+  private refusalOf(
+    refusal: CheckpointRefusal,
+    alsoRefused: readonly CheckpointRefusal[] = [],
+  ): Refused {
     return new Refused(
       refusal.code,
       refusal.message,
       RETRYABLE_REFUSALS.has(refusal.code),
       undefined,
       refusal,
+      alsoRefused,
     );
   }
 
@@ -2583,6 +2599,9 @@ export class CheckpointHandler implements DomainHandler {
         diff: outcome.diff,
         ...(outcome.automation ? { automation: outcome.automation } : {}),
         ...(outcome.emails ? { emails: outcome.emails } : {}),
+        ...(outcome.emailsKeepingOutside
+          ? { emailsKeepingOutside: outcome.emailsKeepingOutside }
+          : {}),
         ...(outcome.emailsUncounted !== undefined
           ? { emailsUncounted: outcome.emailsUncounted }
           : {}),
@@ -2800,12 +2819,12 @@ export class CheckpointHandler implements DomainHandler {
             },
           );
           if (outcome.undone) return writtenOutcome(outcome);
+          const words = (refusal: CheckpointRefusal): CheckpointRefusal =>
+            parsed.fromPage === true ? m.pageEmailsRefusal(refusal, 'undo', orgName) : refusal;
           return {
             done: false,
-            refusal:
-              parsed.fromPage === true
-                ? m.pageEmailsRefusal(outcome.refusal, 'undo', orgName)
-                : outcome.refusal,
+            refusal: words(outcome.refusal),
+            ...(outcome.alsoRefused ? { alsoRefused: outcome.alsoRefused.map(words) } : {}),
           };
         },
         (err) => err instanceof m.UndoStopped,
@@ -2915,7 +2934,7 @@ export class CheckpointHandler implements DomainHandler {
         });
         live.fail(outcome.refusal.message);
         settle(new Error(outcome.refusal.message));
-        throw this.refusalOf(outcome.refusal);
+        throw this.refusalOf(outcome.refusal, outcome.alsoRefused);
       }
       const { result, notes, deliverability } = outcome;
       const emails = {

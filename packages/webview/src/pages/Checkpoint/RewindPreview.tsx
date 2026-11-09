@@ -386,7 +386,10 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
       // A step limited to some objects is previewed as its rewind runs: what
       // the org runs, the emails and the refusal are those of its objects, and
       // so is the mute it plans, which was planned on the whole checkpoint.
-      ...(limitedTo ? { objects: limitedTo.objects } : {}),
+      // Whether its deletions take along what of the others hangs from them
+      // too: asked without it, the preview counted the emails of a rewind
+      // that keeps those records, where the step's deletes them.
+      ...(limitedTo ? { objects: limitedTo.objects, acceptOutside: limitedTo.acceptOutside } : {}),
       ...(muteBox && mute ? { muteAutomation: true } : {}),
     },
     { timeoutMs: PREVIEW_TIMEOUT_MS },
@@ -573,7 +576,16 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
 }) => {
   const { t } = useTranslation();
   const orgName = org.alias || org.username;
-  const { diff, automation, emails, emailsUncounted, deliverability, estimate, refusal } = answer;
+  const {
+    diff,
+    automation,
+    emails,
+    emailsKeepingOutside,
+    emailsUncounted,
+    deliverability,
+    estimate,
+    refusal,
+  } = answer;
   const settings = customSettingsOf(checkpoint);
   const undoCannotId = useId();
   const recreateId = useId();
@@ -716,6 +728,13 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   // unless deleting them is accepted, by the same box as what goes along
   // outside a checkpoint of picked objects, offered where that one is not.
   const outsideBoxed = picked && outside.length > 0;
+  // Its box unticked, a rewind of every object keeps what the records outside
+  // hang from, which sends nothing: its emails are those the preview counted
+  // for that rewind, as the command line's preview counts them. Counted for
+  // the rewind that deletes it, the page said the emails of an account the
+  // rewind kept.
+  const keepsOutside = !selecting && outsideBoxed && !ticked.outside;
+  const emailsSent = keepsOutside && emailsKeepingOutside ? emailsKeepingOutside : emails;
   const leftForOutside = plan?.left.some((entry) => entry.reason === 'outsideNotAccepted') ?? false;
   const unpickedBox =
     !limitedTo && selecting && !outsideBoxed && (leftForOutside || ticked.outside);
@@ -1062,7 +1081,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
             onReadAgain={onReadAgain}
             {...(muteBox ? { after: muteBox(muteOffer, mute, onMute) } : {})}
           />
-          {emails && emails.length > 0 && <Emails emails={emails} orgName={orgName} />}
+          {emailsSent && emailsSent.length > 0 && <Emails emails={emailsSent} orgName={orgName} />}
           {/* Said whether or not anything else sends: a package's flow is never read. */}
           {emailsUncounted !== undefined && (
             <p data-testid="checkpoint-preview-emails-uncounted">

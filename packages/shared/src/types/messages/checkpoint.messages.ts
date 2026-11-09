@@ -411,6 +411,15 @@ export interface CheckpointPreviewResponse extends BaseMessage {
      */
     emails?: CheckpointEmails[];
     /**
+     * Of a checkpoint of picked objects whose records outside it were made
+     * since under records the rewind deletes, asked without saying whether
+     * the rewind may delete them (`acceptOutside`): the emails of the rewind
+     * that keeps the records they hang from, which then send none, an empty
+     * list when it sends none; `emails` are those of the rewind that deletes
+     * them along. Absent otherwise.
+     */
+    emailsKeepingOutside?: CheckpointEmails[];
+    /**
      * Why the emails of what fires as the rewind writes were not all
      * counted: the parts of the org's automation that send them it could not
      * read, and the flows, processes and rules whose definition it was
@@ -552,5 +561,15 @@ export interface CheckpointImportResponse extends BaseMessage {
  */
 export interface CheckpointErrorResponse extends BaseMessage {
   type: 'checkpoint:error';
-  payload: { message: string; code: string; retryable: boolean };
+  payload: {
+    message: string;
+    code: string;
+    retryable: boolean;
+    /**
+     * Of an undo its gate refused for more than one reason, the others, in
+     * order, beside the one `code` and `message` say: its emails beside its
+     * automation. Absent when there is one.
+     */
+    alsoRefused?: CheckpointRefusal[];
+  };
 }

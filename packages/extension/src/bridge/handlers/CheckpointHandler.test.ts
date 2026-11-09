@@ -1775,6 +1775,78 @@ describe('CheckpointHandler — the rewind and its undo', () => {
     expect(await emailsOf('wv-preview-3', {})).toEqual([1]);
   });
 
+  it('answers the page, which asks without saying whether the rewind may delete the records outside a checkpoint of picked objects, the emails of the rewind that keeps what they hang from beside those of the one that deletes it, each as the command line counts it', async () => {
+    // The page counted every email a rewind sends deleting the account the
+    // case hangs from, its box unticked, where that rewind keeps the account
+    // and the command line's preview counted none of its emails.
+    const h = harness({
+      org: new HandlerTestOrg(
+        {},
+        { Account: [{ childSObject: 'Case', field: 'AccountId', cascadeDelete: true }] },
+      ),
+    });
+    // A flow that emails an account's owner as it is deleted, another as it is changed.
+    const sends = (apiName: string, startsOn: 'delete' | 'update') => ({
+      apiName,
+      label: apiName,
+      timing: startsOn === 'delete' ? ('beforeSave' as const) : ('afterSave' as const),
+      startsOn,
+      condition: 'read' as const,
+      permissions: [],
+      messages: [{ kind: 'email' as const, name: 'Tell owner', limit: 'SingleEmail' as const }],
+    });
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [sends('Account_gone', 'delete'), sends('Account_changed', 'update')],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation),
+    });
+    await h.send('wv-take-1', 'checkpoint:take', { ...TAKE, mode: 'picked', objects: ['Account'] });
+    const checkpointId = (answerOf(h, 'wv-take-1').payload.checkpoint as { checkpointId: string })
+      .checkpointId;
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    h.org.add('Account', { Id: id('001', 3), Name: 'New', LastModifiedById: COLLEAGUE });
+    h.org.add('Case', {
+      Id: id('500', 3),
+      Subject: 'Under it',
+      AccountId: id('001', 3),
+      LastModifiedById: COLLEAGUE,
+    });
+    clock = T0 + 120_000;
+    h.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 15 } };
+    const previewOf = async (requestId: string, asked: Record<string, boolean>) => {
+      await h.send(requestId, 'checkpoint:preview', { checkpointId, ...asked });
+      const answer = answerOf(h, requestId);
+      expect(answer.type).toBe('checkpoint:preview:response');
+      return answer.payload as { emails?: unknown[]; emailsKeepingOutside?: unknown[] };
+    };
+
+    const keeps = await previewOf('wv-preview-1', { acceptOutside: false });
+    const deletes = await previewOf('wv-preview-2', { acceptOutside: true });
+    const page = await previewOf('wv-preview-3', {});
+
+    // The rewind that keeps the account gives the other its name back: one email.
+    expect(keeps.emails).toEqual([expect.objectContaining({ limit: 'SingleEmail', emails: 1 })]);
+    expect(deletes.emails).toEqual([expect.objectContaining({ limit: 'SingleEmail', emails: 2 })]);
+    expect(page.emails).toEqual(deletes.emails);
+    expect(page.emailsKeepingOutside).toEqual(keeps.emails);
+    // Told which rewind it is of, a preview counts that one alone.
+    expect(keeps).not.toHaveProperty('emailsKeepingOutside');
+    expect(deletes).not.toHaveProperty('emailsKeepingOutside');
+  });
+
   it('passes on whether a rewind by a user read object by object may delete what takes along records the user is not proven to see: refused without it, writing nothing, rewound with it', async () => {
     // The cases go with their account; the user holds the accounts by Modify
     // All on them, the cases by View All alone.

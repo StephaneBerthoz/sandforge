@@ -10,6 +10,7 @@ import type {
 import { useOrgStore } from '../../stores/useOrgStore';
 import {
   developerOrg,
+  diffObject,
   fakeHost,
   previewAnswer,
   previewDiff,
@@ -383,5 +384,76 @@ describe('RewindPreview, the emails the org delivers', () => {
     answerPreview({ automation: WITH_ALERT, deliverability: delivered({ level: 'all' }) });
     expect(screen.getByTestId('checkpoint-preview-deliverability-reading')).toBeInTheDocument();
     expect(screen.getByTestId('checkpoint-preview-accept-emails')).toBeInTheDocument();
+  });
+
+  describe('a checkpoint of picked objects, records outside it made since under accounts it deletes', () => {
+    /** The emails of a rewind, a single email per account given back and per account deleted. */
+    const singleEmails = (emails: number, sentBy: string[]) => ({
+      limit: 'SingleEmail' as const,
+      emails,
+      verdict: 'fits' as const,
+      remaining: 15,
+      max: 15,
+      objects: [
+        {
+          objectApiName: 'Account',
+          write: 'update' as const,
+          records: emails,
+          perRecord: 1,
+          sentBy,
+        },
+      ],
+    });
+
+    function renderPicked(emailsKeepingOutside: ReturnType<typeof singleEmails>[]): void {
+      render(
+        <RewindPreview
+          org={developerOrg()}
+          checkpoint={readyCheckpoint({ scope: { mode: 'picked', leftOut: [] } })}
+          onClose={vi.fn()}
+          onRewind={vi.fn()}
+          muteBox={MUTE_BOX}
+        />,
+      );
+      answerPreview({
+        diff: previewDiff({
+          objects: [
+            diffObject('Account', {
+              toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+              toGiveBack: { records: 1, fields: 1, clearedLookups: 0 },
+              outside: [{ objectApiName: 'Case', count: 1, parents: 1 }],
+            }),
+          ],
+        }),
+        emails: [singleEmails(2, ['Account changed', 'Account gone'])],
+        emailsKeepingOutside,
+      });
+    }
+
+    it('counts, its box unticked, the emails of the rewind that keeps the accounts the records outside hang from, as the command line counts them; ticked, those of the one that deletes them', () => {
+      // The page counted the emails of every account the rewind deletes,
+      // the box unticked, where the rewind keeps the account the case hangs
+      // from and the command line's preview counted fewer.
+      renderPicked([singleEmails(1, ['Account changed'])]);
+
+      expect(screen.getByTestId('checkpoint-preview-accept-outside')).not.toBeChecked();
+      expect(screen.getByTestId('checkpoint-preview-emails-SingleEmail').textContent).toContain(
+        "about 1 sent by DEV-SB's automation as the rewind writes (Account changed)",
+      );
+
+      fireEvent.click(screen.getByTestId('checkpoint-preview-accept-outside'));
+
+      expect(screen.getByTestId('checkpoint-preview-emails-SingleEmail').textContent).toContain(
+        "about 2 sent by DEV-SB's automation as the rewind writes",
+      );
+    });
+
+    it('says no email, its box unticked, when what the rewind keeps sends every one', () => {
+      renderPicked([]);
+
+      expect(screen.queryByTestId('checkpoint-preview-emails')).toBeNull();
+      fireEvent.click(screen.getByTestId('checkpoint-preview-accept-outside'));
+      expect(screen.getByTestId('checkpoint-preview-emails-SingleEmail')).toBeInTheDocument();
+    });
   });
 });

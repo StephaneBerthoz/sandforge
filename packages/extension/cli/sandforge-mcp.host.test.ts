@@ -551,6 +551,49 @@ describe('sandforge-mcp: the checkpoint tools on the memory org', () => {
     expect(h.org.all('Case').map((row) => row.Subject)).toEqual(['Broken']);
     await h.close();
   });
+
+  it('names, under a checkpoint_rewind refused, the parameter of every refusal it meets in one answer, its code under wouldBeRefusedCodes beside the first (GT8)', async () => {
+    // Live, checkpoint_rewind without acceptance answered RECREATE alone and
+    // named acceptRecreate alone, where its preview named three refusals: a
+    // client that gave it would have been refused AUTOMATION, then
+    // EMAILS_DELIVERED.
+    const h = harness();
+    await h.request('initialize', {
+      protocolVersion: '2025-11-25',
+      capabilities: {},
+      clientInfo: { name: 'test', version: '0' },
+    });
+    await h.call('checkpoint_take', { org: 'DEV-SB', name: 'Before UAT' });
+    clock = T0 + 60_000;
+    h.org.trash('Case', id('500', 1), COLLEAGUE);
+    h.org.purge(id('500', 1));
+    clock = T0 + 120_000;
+    // On All email: what runs as it writes, which cannot be read here, may send some.
+    h.org.anonymousApex = { compiled: true, success: true };
+
+    const refused = await h.call('checkpoint_rewind', {
+      org: 'DEV-SB',
+      checkpoint: 'Before UAT',
+      confirm: 'DEV-SB',
+    });
+
+    expect(refused).toMatchObject({
+      isError: true,
+      structuredContent: {
+        exitCode: 1,
+        answer: {
+          refusal: { code: 'RECREATE' },
+          wouldBeRefusedCodes: ['RECREATE', 'AUTOMATION', 'EMAILS_DELIVERED'],
+        },
+      },
+    });
+    for (const param of ['acceptRecreate', 'acceptAutomation', 'acceptEmails']) {
+      expect(textOf(refused)).toContain(`named above, is this tool's ${param}: true.`);
+    }
+    expect(h.org.creates).toEqual([]);
+    expect(h.org.updates).toEqual([]);
+    await h.close();
+  });
 });
 
 describe('sandforge-mcp: the environment tools on the memory org', () => {

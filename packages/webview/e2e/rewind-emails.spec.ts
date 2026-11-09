@@ -7,7 +7,10 @@ import {
   beforeRunCheckpoint,
   daysFromNow,
   listEntry,
+  plainPreview,
+  previewKeepingOutside,
   previewThatSends,
+  readyCheckpoint,
 } from './fixtures/checkpoints';
 import { VSCODE_DEFAULT_STYLES } from './fixtures/vscode-default-styles';
 import { sendExtensionMessage } from './mocks/vscode-api';
@@ -273,6 +276,129 @@ for (const theme of THEMES) {
       await expect.poll(async () => (await outgoing(page, 'checkpoint:undo')).length).toBe(2);
       const [, second] = await outgoing(page, 'checkpoint:undo');
       expect(second.payload).toEqual(expect.objectContaining({ acceptEmails: true }));
+    });
+
+    test('in a checkpoint of picked objects, counts the emails of the rewind that keeps what records outside hang from until their box is ticked, then those of the one that deletes it, and passes axe', async ({
+      page,
+    }) => {
+      // The page counted every email of a rewind that deletes the account a
+      // case outside the checkpoint hangs from, its box unticked, where that
+      // rewind keeps the account and the command line counted fewer.
+      await openModule(page, theme, 'checkpoint');
+      const checkpoint = beforeRunCheckpoint();
+      await answerAll(page, 'checkpoint:list', 'checkpoint:list:response', {
+        checkpoints: [listEntry(checkpoint)],
+      });
+      await page.getByTestId(`checkpoint-rewind-${checkpoint.checkpointId}`).click();
+      await answerAll(
+        page,
+        'checkpoint:preview',
+        'checkpoint:preview:response',
+        previewKeepingOutside(checkpoint.checkpointId),
+      );
+
+      const box = page.getByTestId('checkpoint-preview-accept-outside');
+      const emails = page.getByTestId('checkpoint-preview-emails-SingleEmail');
+      await expect(box).not.toBeChecked();
+      await expect(emails).toHaveText(
+        `Single emails: about 1 sent by ${ORG}'s automation as the rewind writes (Account changed), 15 of 15 left today.`,
+      );
+      await expectAxeClean(page);
+
+      await box.check();
+      await expect(emails).toHaveText(
+        `Single emails: about 2 sent by ${ORG}'s automation as the rewind writes (Account changed and Account gone), 15 of 15 left today.`,
+      );
+      await expectAxeClean(page);
+
+      await box.uncheck();
+      await expect(emails).toContainText('about 1 sent');
+    });
+
+    test('the Rewind step limited to some objects asks its preview whether its deletions take along what of the others hangs from them, and passes axe', async ({
+      page,
+    }) => {
+      // Asked without it, the preview counted the emails, the automation and
+      // the refusal of a rewind that keeps those records, where the step's
+      // rewind deletes them. A step names its checkpoint by an id of the
+      // store's shape.
+      const checkpoint = readyCheckpoint({
+        checkpointId: 'ck-20261029-020000-abcd',
+        name: 'Nightly baseline',
+        scope: { mode: 'picked', leftOut: [] },
+      });
+      const pipeline = {
+        id: 'p-reset',
+        name: 'Nightly reset',
+        description: '',
+        version: 1,
+        steps: [
+          {
+            id: 'step-r',
+            name: 'Reset',
+            type: 'rewind',
+            config: {
+              orgId: CHECKPOINT_ORG.id,
+              checkpointId: checkpoint.checkpointId,
+              maxRecords: 200,
+              objects: ['Contact'],
+              acceptOutside: true,
+            },
+            continueOnError: false,
+          },
+        ],
+        triggers: [],
+        variables: [],
+        tags: [],
+        createdAt: '2026-10-29T00:00:00.000Z',
+        updatedAt: '2026-10-29T00:00:00.000Z',
+      };
+      await openModule(page, theme, 'automation');
+      await answerAll(page, 'pipeline:list', 'pipeline:list:response', {
+        pipelines: [pipeline],
+        triggers: [],
+      });
+      await answerAll(page, 'pipeline:sync-configs', 'pipeline:sync-configs:response', {
+        configs: [],
+      });
+      await answerAll(page, 'pipeline:history', 'pipeline:history:response', { history: [] });
+      await answerAll(page, 'pipeline:templates', 'pipeline:templates:response', {
+        templates: [],
+      });
+      await page.getByTestId('saved-pipeline-p-reset').click();
+      await answerAll(page, 'pipeline:rewind-steps', 'pipeline:rewind-steps:response', {
+        pipelineId: 'p-reset',
+        steps: [{ stepId: 'step-r', checkpointId: checkpoint.checkpointId, valid: true }],
+      });
+      // The step's own list of checkpoints, asked once it is opened.
+      const listed = (await outgoing(page, 'checkpoint:list')).length;
+      await page.getByTestId('canvas-step-step-r').click();
+      await expect
+        .poll(async () => (await outgoing(page, 'checkpoint:list')).length, { timeout: 10_000 })
+        .toBeGreaterThan(listed);
+      await answerAll(page, 'checkpoint:list', 'checkpoint:list:response', {
+        checkpoints: [listEntry(checkpoint)],
+      });
+      await page.getByTestId('rewind-confirm').click();
+
+      await expect
+        .poll(async () => (await outgoing(page, 'checkpoint:preview')).length, { timeout: 10_000 })
+        .toBeGreaterThan(0);
+      const [asked] = await outgoing(page, 'checkpoint:preview');
+      expect(asked.payload).toEqual({
+        checkpointId: checkpoint.checkpointId,
+        objects: ['Contact'],
+        acceptOutside: true,
+      });
+      await answerAll(
+        page,
+        'checkpoint:preview',
+        'checkpoint:preview:response',
+        plainPreview(checkpoint.checkpointId, 'pv-step'),
+      );
+      await expect(page.getByTestId('rewind-step-confirm')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Limited to Contact' })).toBeVisible();
+      await expectAxeClean(page);
     });
 
     test('the Rewind step accepts the emails off by default, saved once ticked, and passes axe', async ({

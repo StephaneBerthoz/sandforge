@@ -56,7 +56,8 @@
  * A preview told whether the rewind may delete the records outside a
  * checkpoint of picked objects created under its records (`acceptOutside`)
  * counts the emails of what that rewind writes as its plan says: not asked,
- * it keeps the records they hang from, which send nothing.
+ * it keeps the records they hang from, which send nothing. One not told
+ * counts both rewinds' emails, the second planned from the same reads.
  */
 
 import {
@@ -185,8 +186,9 @@ export interface PreviewRequest {
    * those it could not count, whether the org delivers them and the refusal
    * it would meet are those of what that rewind writes, as its own plan says:
    * not asked, it keeps the records they hang from, and sends nothing for
-   * them. Absent, those of every record it would delete, which errs by
-   * saying too much: the page asks before it is told.
+   * them. Absent, those of every record it would delete, and beside them
+   * those of the rewind that keeps them (`emailsKeepingOutside`): the page
+   * asks before its box is ticked or not.
    */
   acceptOutside?: boolean;
 }
@@ -200,6 +202,16 @@ export type PreviewOutcome =
       automation?: ForgeTargetAutomation;
       /** The emails its writes make the org send, per daily limit; absent when none. */
       emails?: CheckpointEmails[];
+      /**
+       * Asked without being told whether the rewind may delete the records
+       * outside a checkpoint of picked objects made since under records it
+       * deletes (`acceptOutside`), as the page asks: the emails of the rewind
+       * that keeps the records they hang from, counted as `emails` are, an
+       * empty list when it sends none; `emails` are then those of the rewind
+       * that deletes them along. Absent when nothing outside hangs from
+       * what it deletes, or when it was told.
+       */
+      emailsKeepingOutside?: CheckpointEmails[];
       /**
        * Why the emails of what fires as it writes were not all counted: what
        * of the org's automation that sends them could not be read. Absent
@@ -372,11 +384,11 @@ export async function previewCheckpoint(
   // checkpoint, what it writes too: it keeps the records they hang from.
   // Counted on the diff, the emails of an order it kept were said, its Draft
   // update among them, live.
-  const keepsOutside =
+  const outsideHangs =
     picked === undefined &&
-    request.acceptOutside === false &&
     checkpoint.scope.mode === 'picked' &&
     diff.objects.some((object) => object.outside.length > 0);
+  const keepsOutside = outsideHangs && request.acceptOutside === false;
   let plan: RewindSelectionPlan | undefined;
   if (picked !== undefined || keepsOutside) {
     plan = await planSelection({
@@ -469,6 +481,31 @@ export async function previewCheckpoint(
   const running = muted?.automation ?? automation;
   const emails = running ? checkpointEmails(records, running, budget.emails) : [];
   const emailsUncounted = running ? checkpointEmailsUncounted(records, running) : undefined;
+  // Not told whether the rewind may delete what outside hangs from what it
+  // deletes, the page asks for both rewinds: their emails differ by what the
+  // one that keeps it does not write, planned on this machine from the reads
+  // made, the org not read again. Counted for the rewind that deletes it
+  // alone, the page said the emails of an account its rewind kept.
+  const emailsKeepingOutside =
+    outsideHangs && request.acceptOutside === undefined && running
+      ? checkpointEmails(
+          writtenByDiff(
+            selectionDiff(
+              diff,
+              await planSelection({
+                checkpoint,
+                previewDir: previewDirOf(request.folder, previewId),
+                readAt,
+                acceptOutside: false,
+                heldRows: snapshotRowsOf(checkpoint, request.folder),
+                ...(signal ? { signal } : {}),
+              }),
+            ).objects,
+          ),
+          running,
+          budget.emails,
+        )
+      : undefined;
 
   const holder = deps.store.heldBy(checkpoint.org.organizationId);
   const writing = holder === undefined ? await deps.runWriting?.(guard.org.id) : undefined;
@@ -501,6 +538,7 @@ export async function previewCheckpoint(
     diff,
     ...(automation ? { automation } : {}),
     ...(emails.length > 0 ? { emails } : {}),
+    ...(emailsKeepingOutside ? { emailsKeepingOutside } : {}),
     ...(emailsUncounted !== undefined ? { emailsUncounted } : {}),
     ...(deliverability ? { deliverability } : {}),
     estimate,

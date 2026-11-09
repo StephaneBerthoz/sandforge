@@ -576,7 +576,10 @@ JSON (--json), one value on stdout:
   import             {outcome, checkpoint: {id, name, takenAt, org}, records, objects, expiresAt,
                       warnings}: outcome imported, or alreadyKept for the same checkpoint kept here
                      already
-  refused or failed  {refusal: {code, message}}
+  refused or failed  {refusal: {code, message}}; a rewind or an undo refused before it wrote
+                     for more than one reason adds wouldBeRefused and wouldBeRefusedCodes, as
+                     rewind --dry-run gives them: every refusal, the first among them, each other
+                     also on a line of its own, refused (CODE): message
   A bad command line (exit 2) prints nothing on stdout.
 
 Exit codes: 0 done (take: every record of its objects is kept; rewind and undo: read again, the

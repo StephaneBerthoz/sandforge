@@ -438,7 +438,10 @@ JSON (--json), one value on stdout:
   import             {outcome, checkpoint: {id, name, takenAt, org}, records, objects, expiresAt,
                       warnings}: outcome imported, or alreadyKept for the same checkpoint kept here
                      already
-  refused or failed  {refusal: {code, message}}
+  refused or failed  {refusal: {code, message}}; a rewind or an undo refused before it wrote
+                     for more than one reason adds wouldBeRefused and wouldBeRefusedCodes, as
+                     rewind --dry-run gives them: every refusal, the first among them, each other
+                     also on a line of its own, refused (CODE): message
   A bad command line (exit 2) prints nothing on stdout.
 
 Exit codes: 0 done (take: every record of its objects is kept; rewind and undo: read again, the
@@ -3050,10 +3053,33 @@ class Stop extends Error {
   constructor(
     readonly refusal: CheckpointRefusalLike,
     readonly code: number = FAILED_EXIT,
+    /**
+     * What else refused it before it wrote, each under its own code: said
+     * each on its line, and with the first under `wouldBeRefused`.
+     */
+    readonly also: readonly CheckpointRefusalLike[] = [],
   ) {
     super(refusal.message);
     this.name = 'Stop';
   }
+}
+
+/**
+ * The answer of a command refused: its refusal, and, refused for more than
+ * one reason, every one of them as `rewind --dry-run` lists them, the first
+ * among them, under the keys a script already reads there.
+ */
+function refusalJson(stop: Stop): Record<string, unknown> {
+  const all = [stop.refusal, ...stop.also];
+  return {
+    refusal: stop.refusal,
+    ...(stop.also.length > 0
+      ? {
+          wouldBeRefused: all.map((each) => refusedLine(each)),
+          wouldBeRefusedCodes: all.map((each) => each.code),
+        }
+      : {}),
+  };
 }
 
 /** The payload of an answer, as an object. */
@@ -3070,6 +3096,20 @@ function refusalOfAnswer(answer: PanelAnswer, what: string): CheckpointRefusalLi
   const message = typeof payload.message === 'string' ? payload.message : JSON.stringify(payload);
   const code = typeof payload.code === 'string' ? payload.code : answer.outcome.toUpperCase();
   return { code, message };
+}
+
+/**
+ * What else refused an act whose answer is a refusal, as the extension
+ * names them beside it (`alsoRefused`): an undo refused for its automation
+ * and for the emails the org delivers says both.
+ */
+function alsoRefusedOfAnswer(answer: PanelAnswer): CheckpointRefusalLike[] {
+  const also = payloadOf(answer).alsoRefused;
+  if (answer.outcome !== 'failed' || !Array.isArray(also)) return [];
+  return also.flatMap((each: unknown) => {
+    const { code, message } = (each ?? {}) as Record<string, unknown>;
+    return typeof code === 'string' && typeof message === 'string' ? [{ code, message }] : [];
+  });
 }
 
 /** Run the command; exported so it can be run on the memory org. */
@@ -3295,8 +3335,11 @@ export async function main(
         ? err
         : new Stop({ code: 'FAILED', message: err instanceof Error ? err.message : String(err) });
     process.stderr.write(`${stop.message}\n`);
+    // Each other refusal on a line of its own, its code named, as a clone
+    // refused for several says them.
+    for (const each of stop.also) process.stderr.write(`${refusedLine(each)}\n`);
     // A line refused, as a bad one is, prints nothing on stdout.
-    if (stop.code !== 2) answerJson({ refusal: stop.refusal });
+    if (stop.code !== 2) answerJson(refusalJson(stop));
     endWith(stop.code);
   } finally {
     registry.dispose();
@@ -3748,7 +3791,7 @@ function resultOfAnswer(
     if (stoppedBy !== undefined && refusal.code === 'CANCELLED') {
       throw new Stop(refusal, stopExitCode(stoppedBy));
     }
-    throw new Stop(refusal);
+    throw new Stop(refusal, FAILED_EXIT, alsoRefusedOfAnswer(answer).map(words));
   }
   return payloadOf(answer).result as RewindResult;
 }
@@ -3858,7 +3901,9 @@ async function rewind(
     words: COMMAND_LINE_WORDS,
     user: org.username,
   });
-  const [gate] = gates;
+  // Every refusal a rewind with these flags meets, the preview's own first,
+  // which its lines say.
+  const refused = refusalsOf(preview.refusal, gates);
   const outsideStays = keepsOutside(checkpoint, preview.diff, args.acceptOutside);
   if (outsideStays) {
     say(
@@ -3867,11 +3912,9 @@ async function rewind(
     );
   }
   if (args.dryRun) {
-    // Every refusal a rewind with these flags meets, the preview's own first,
-    // which its lines say. Said one at a time, a rewind on All email whose
-    // flow sends one was said refused for its automation, and for its emails
-    // only once --accept-automation was given, live.
-    const refused = refusalsOf(preview.refusal, gates);
+    // Said one at a time, a rewind on All email whose flow sends one was said
+    // refused for its automation, and for its emails only once
+    // --accept-automation was given, live.
     for (const each of refused.slice(preview.refusal ? 1 : 0))
       say(`  a rewind now would be refused (${each.code}): ${each.message}`);
     // Said in the summary as in the lines: a script read what a rewind's flags
@@ -3892,8 +3935,12 @@ async function rewind(
     });
     return;
   }
-  if (preview.refusal) throw new Stop(preview.refusal);
-  if (gate) throw new Stop(gate);
+  // Refused, it names every one, as its dry run does, the first its refusal:
+  // refused for the first alone, a rewind through MCP named one parameter,
+  // and a client that gave it would have been refused next for the second,
+  // then the third, where its preview had named all three, live.
+  const [first, ...also] = refused;
+  if (first) throw new Stop(first, FAILED_EXIT, also);
   if (writes && !args.yes) {
     const answer = await typed(rewindQuestion(args.org, checkpoint, preview.diff, objects));
     if (answer !== args.org) throw new Stop({ code: 'DECLINED', message: 'Nothing was written.' });

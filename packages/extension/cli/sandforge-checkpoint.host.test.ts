@@ -1335,7 +1335,7 @@ describe('sandforge-checkpoint rewind', () => {
       expect(answer).not.toHaveProperty('refusal');
     });
 
-    it('says in --dry-run every refusal a rewind would meet, its automation and its emails, each with its code, as a rewind without either flag meets one, then the other', async () => {
+    it('says in --dry-run every refusal a rewind would meet, its automation and its emails, each with its code, the first the one a rewind without either flag is refused with', async () => {
       // A flow that emails an account's owner as it is updated, that nothing keeps quiet.
       const h = harness({
         automation: {
@@ -1385,11 +1385,79 @@ describe('sandforge-checkpoint rewind', () => {
         expect.stringMatching(/^refused \(AUTOMATION\): DEV-SB: 1 flow\(s\)/),
         expect.stringMatching(/^refused \(EMAILS_DELIVERED\): DEV-SB delivers every email/),
       ]);
-      // A rewind with the same flags meets the first, then, given its flag, the second.
+      // A rewind with the same flags is refused for the first, then, given its flag, the second.
       const first = await h.run(...line, '--yes', '--json');
       expect(JSON.parse(first.stdout)).toMatchObject({ refusal: { code: 'AUTOMATION' } });
       const second = await h.run(...line, '--yes', '--accept-automation', '--json');
       expect(JSON.parse(second.stdout)).toMatchObject({ refusal: { code: 'EMAILS_DELIVERED' } });
+      expect(stateOf(h.org)).toEqual(before);
+    });
+
+    it('names every refusal a rewind given no flag is refused for, in its lines and under wouldBeRefused as its dry run names them, the first under refusal: lifting the first, a script is not refused next for the others (GT8)', async () => {
+      // Live, through MCP, the rewind of a contact the recycle bin no longer
+      // gave back answered RECREATE alone, and named acceptRecreate alone: a
+      // client that gave it would have been refused AUTOMATION, then
+      // EMAILS_DELIVERED, one at a time, where the preview named all three.
+      const h = harness({
+        automation: {
+          objectsRead: ['Account', 'Case'],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [
+                {
+                  apiName: 'Welcome',
+                  label: 'Welcome',
+                  timing: 'afterSave',
+                  startsOn: 'update',
+                  condition: 'read',
+                  permissions: [],
+                  messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        },
+      });
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+      h.org.purge(id('500', 1));
+      h.org.anonymousApex = ALL_EMAIL;
+      const before = stateOf(h.org);
+      const line = ['rewind', '--org', 'DEV-SB', '--checkpoint', 'Before UAT', '--json'];
+
+      const dry = await h.run(...line, '--dry-run');
+      const refused = await h.run(...line, '--yes');
+
+      expect(dry.code, dry.stderr).toBe(0);
+      const { wouldBeRefused, wouldBeRefusedCodes } = JSON.parse(dry.stdout) as {
+        wouldBeRefused: string[];
+        wouldBeRefusedCodes: string[];
+      };
+      expect(wouldBeRefusedCodes).toEqual(['RECREATE', 'AUTOMATION', 'EMAILS_DELIVERED']);
+      expect(refused.code).toBe(1);
+      const answer = JSON.parse(refused.stdout) as {
+        refusal: { code: string; message: string };
+      };
+      // The first under refusal, as before; every one beside it, as the dry run gives them.
+      expect(answer).toEqual({
+        refusal: { code: 'RECREATE', message: expect.stringContaining('--accept-recreate') },
+        wouldBeRefused,
+        wouldBeRefusedCodes,
+      });
+      expect(`refused (RECREATE): ${answer.refusal.message}`).toBe(wouldBeRefused[0]);
+      // Its lines: the first's words, then each other on a line of its own,
+      // naming the flag that lifts it.
+      expect(refused.stderr).toContain(
+        `${answer.refusal.message}\n${wouldBeRefused[1]}\n${wouldBeRefused[2]}\n`,
+      );
+      expect(wouldBeRefused[1]).toContain('--accept-automation');
+      expect(wouldBeRefused[2]).toContain('--accept-emails');
       expect(stateOf(h.org)).toEqual(before);
     });
 
@@ -1446,6 +1514,49 @@ describe('sandforge-checkpoint rewind', () => {
       const accepted = await h.run(...line, '--accept-automation', '--accept-emails', '--json');
 
       expect(accepted.code, accepted.stderr).toBe(0);
+    });
+
+    it('names every refusal an undo given no flag is refused for, its automation and its emails, the first under refusal and all of them under wouldBeRefused, each on its line', async () => {
+      // Refused for its automation alone, an undo was refused next for its
+      // emails once --accept-automation was given: told one at a time.
+      const h = harness();
+      const checkpoint = await taken(h, '--name', 'Before UAT');
+      demo(h);
+      const rewound = await h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--yes',
+        '--accept-automation',
+        '--json',
+      );
+      expect(rewound.code, rewound.stderr).toBe(0);
+      clock += 60_000;
+      h.org.anonymousApex = ALL_EMAIL;
+      const before = stateOf(h.org);
+      const line = ['undo', '--org', 'DEV-SB', '--checkpoint', checkpoint.checkpointId, '--yes'];
+
+      const refused = await h.run(...line, '--json');
+
+      expect(refused.code).toBe(1);
+      const answer = JSON.parse(refused.stdout) as {
+        refusal: { code: string; message: string };
+        wouldBeRefused: string[];
+        wouldBeRefusedCodes: string[];
+      };
+      expect(answer.refusal.code).toBe('AUTOMATION');
+      expect(answer.refusal.message).toContain('give --accept-automation to undo the rewind');
+      expect(answer.wouldBeRefusedCodes).toEqual(['AUTOMATION', 'EMAILS_DELIVERED']);
+      expect(answer.wouldBeRefused).toEqual([
+        `refused (AUTOMATION): ${answer.refusal.message}`,
+        expect.stringMatching(
+          /^refused \(EMAILS_DELIVERED\): DEV-SB delivers every email[^]*Add --accept-emails to undo all the same/,
+        ),
+      ]);
+      expect(refused.stderr).toContain(`${answer.refusal.message}\n${answer.wouldBeRefused[1]}\n`);
+      expect(stateOf(h.org)).toEqual(before);
     });
   });
 

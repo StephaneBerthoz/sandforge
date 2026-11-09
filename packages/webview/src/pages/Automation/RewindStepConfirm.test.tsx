@@ -220,9 +220,14 @@ describe('RewindStepConfirm', () => {
           onConfirm={vi.fn()}
         />,
       );
+      // Whether its deletions take along what of the others hangs from them
+      // too: asked without it, the preview counted the emails, the automation
+      // and the refusal of a rewind that keeps those records, and the step's
+      // rewind deletes them.
       expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
         checkpointId: CHECKPOINT_ID,
         objects: ['contact'],
+        acceptOutside: true,
         muteAutomation: true,
       });
       // A flow a bypass keeps quiet as accounts are updated: the account is
