@@ -21,8 +21,11 @@ import { recordWriteHeaders, type SeedObjectResult } from '@sandforge/shared';
 import {
   CONTACT_FIELD,
   OPPORTUNITY_CONTACT_ROLE,
+  asMadeWithItsOpportunity,
   contactRolesOfSoql,
+  rolesMadeAlikeWords,
   rolesThePlatformWrote,
+  type PlatformRolesFound,
   type SoqlQuery,
 } from '../../core/common/platformRecords.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -101,6 +104,8 @@ export class SeedPlatformRoles {
   private said: RolesWrittenByThePlatform | undefined;
   /** Why the roles were not looked up, once said. */
   private unread: string | undefined;
+  /** The roles whose opportunity holds several of their contact made with it, sent as generated. */
+  private alike = 0;
 
   constructor(private readonly deps: SeedPlatformRolesDeps) {}
 
@@ -142,10 +147,11 @@ export class SeedPlatformRoles {
    * Of a slice of contact roles about to be inserted, each the platform wrote
    * itself with one of the run's opportunities, for the contact it went in
    * with, by the role's index, with the platform's record: the primary one of
-   * that contact first, one an opportunity (`rolesThePlatformWrote`). Each is
-   * given by an update the fields the run generated for it it lacks; none is
-   * sent. None when the target could not be read: the roles go as generated,
-   * and the result says why.
+   * that contact first, one an opportunity, made with it, never a role made
+   * after it (`rolesThePlatformWrote`). Each is given by an update the fields
+   * the run generated for it it lacks; none is sent. None when the target
+   * could not be read, or for an opportunity holding several made with it:
+   * the roles go as generated, and the result says why.
    */
   async link(
     records: readonly Record<string, unknown>[],
@@ -165,14 +171,18 @@ export class SeedPlatformRoles {
       if (pairsAny(pairing, sentWith)) this.unread ??= 'This run cannot read the target.';
       return new Map();
     }
-    let found: Map<number, Readonly<Record<string, unknown>>>;
+    let pairedWith: PlatformRolesFound;
     try {
-      found = await rolesThePlatformWrote(read, pairing, sentWith, givenFields(records));
+      pairedWith = await rolesThePlatformWrote(read, pairing, sentWith, givenFields(records));
     } catch (err: unknown) {
       this.unread ??= extractErrorMessage(err);
       return new Map();
     }
-    for (const index of found.keys()) {
+    const { found, alike } = pairedWith;
+    // Several made with the opportunity: none tells which the platform wrote,
+    // so the role goes in as generated, and the result says so.
+    this.alike += alike.length;
+    for (const index of [...found.keys(), ...alike]) {
       this.sentWith.delete(idKey(String(records[index]['OpportunityId'])));
     }
     if (found.size > 0) await this.give(records, found);
@@ -240,7 +250,10 @@ export class SeedPlatformRoles {
     return {
       linkedIds: this.linkedIds,
       ...(this.said ? { writtenByThePlatform: { ...this.said } } : {}),
-      notes: this.unread !== undefined ? [rolesNotLookedUpNote(this.unread)] : [],
+      notes: [
+        ...(this.unread !== undefined ? [rolesNotLookedUpNote(this.unread)] : []),
+        ...(this.alike > 0 ? [rolesMadeAlikeWords(this.alike, 'generated')] : []),
+      ],
     };
   }
 }
@@ -296,17 +309,21 @@ export function rolesOfADryRun(): {
     readTarget: async (soql) => {
       const asked = contactRolesOfSoql(soql);
       if (!asked) throw new Error('A dry run reads nothing else of the target here.');
+      const at = new Date().toISOString();
       return asked.opportunities.flatMap((opportunity) => {
         const contact = contactOf.get(opportunity);
         if (contact === undefined) return [];
         return [
-          {
-            ...Object.fromEntries(asked.fields.map((field) => [field, null])),
-            Id: `dry-role-${roles++}`,
-            OpportunityId: opportunity,
-            [CONTACT_FIELD]: contact,
-            ...(asked.fields.includes('IsPrimary') ? { IsPrimary: true } : {}),
-          },
+          asMadeWithItsOpportunity(
+            {
+              ...Object.fromEntries(asked.fields.map((field) => [field, null])),
+              Id: `dry-role-${roles++}`,
+              OpportunityId: opportunity,
+              [CONTACT_FIELD]: contact,
+              ...(asked.fields.includes('IsPrimary') ? { IsPrimary: true } : {}),
+            },
+            at,
+          ),
         ];
       });
     },

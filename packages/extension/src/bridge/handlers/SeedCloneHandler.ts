@@ -60,10 +60,12 @@ import {
   existingActivityRelations,
   giveLinkedRelationsTheirFlags,
   lookupsThePlatformFills,
+  rolesMadeAlikeWords,
   rolesThePlatformWrote,
   rowsACopySends,
   tasksWrittenWithEmails,
   waitsForItsTask,
+  type PlatformRolesFound,
   type RequiredLookup,
   type SoqlQuery,
 } from '../../core/common/platformRecords.js';
@@ -1596,8 +1598,10 @@ export class SeedCloneHandler implements DomainHandler {
        * source's fields it lacks (`giveTheRolesTheirFields`), never sent.
        * Sent, the source's role stood beside the platform's: two primary
        * roles of one contact where the source held one. The record read is
-       * kept for the fields it holds (`platformRoles`). None when the target
-       * could not be asked: the roles go as read.
+       * kept for the fields it holds (`platformRoles`). Never a role made
+       * after the opportunity. None when the target could not be asked, or
+       * for an opportunity holding several of its contact made with it: the
+       * roles go as read, and the log says why.
        */
       const rolesWrittenWithTheirOpportunity = async (
         sourceRecords: readonly Record<string, unknown>[],
@@ -1608,9 +1612,9 @@ export class SeedCloneHandler implements DomainHandler {
         const fields = [...new Set(writeRecords.flatMap((record) => Object.keys(record)))].filter(
           (field) => givenToARole(describe, field),
         );
-        let found: Map<number, Readonly<Record<string, unknown>>>;
+        let pairedWith: PlatformRolesFound;
         try {
-          found = await rolesThePlatformWrote(
+          pairedWith = await rolesThePlatformWrote(
             readTarget,
             writeRecords.map((record, i) => ({
               OpportunityId: record['OpportunityId'],
@@ -1627,6 +1631,15 @@ export class SeedCloneHandler implements DomainHandler {
               `the role of its contact twice: ${extractErrorMessage(err)}`,
           );
           return new Map();
+        }
+        const { found, alike } = pairedWith;
+        if (alike.length > 0) {
+          this.deps.log(
+            `[seed:clone] ${OPPORTUNITY_CONTACT_ROLE}: ${rolesMadeAlikeWords(alike.length)}`,
+          );
+          for (const index of alike) {
+            contactSentWith.delete(String(writeRecords[index]?.['OpportunityId']));
+          }
         }
         const linked = new Map<string, string>();
         for (const [index, record] of found) {

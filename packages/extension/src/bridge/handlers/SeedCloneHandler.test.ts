@@ -60,6 +60,14 @@ import { WriteCancelledError } from '../../modules/sync/WriteCancelledError.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import {
+  MADE_BY_THE_RUN,
+  RUN_USER,
+  WENT_IN,
+  answerContactRoles,
+  secondsAfterItWentIn,
+} from '../../test/contactRoleReads.js';
+import { rolesMadeAlikeWords } from '../../core/common/platformRecords.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
@@ -1544,7 +1552,11 @@ describe('SeedCloneHandler', () => {
        * primary, with no role, and takes a role sent beside it as a second
        * one, as a real org did.
        */
-      async function cloneTheDeal(objects = ['Contact', 'Opportunity', 'OpportunityContactRole']) {
+      async function cloneTheDeal(
+        objects = ['Contact', 'Opportunity', 'OpportunityContactRole'],
+        /** Roles of its contact someone else makes under the deal's copy, answered first. */
+        alsoMade: ReadonlyArray<{ Id: string; Role: string; CreatedDate: string }> = [],
+      ) {
         const reference = (name: string, ...referenceTo: string[]) => ({
           name,
           type: 'reference',
@@ -1553,9 +1565,10 @@ describe('SeedCloneHandler', () => {
         /** The roles the target holds. */
         const roles: Array<Record<string, unknown>> = [];
         const query = vi.fn(async (soql: string) => ({
-          records: soql.includes(' FROM OpportunityContactRole WHERE OpportunityId IN ')
-            ? roles.filter((role) => soql.includes(`'${String(role['OpportunityId'])}'`))
-            : [],
+          records:
+            answerContactRoles(soql, roles, (id) =>
+              id === NEW_DEAL ? { Id: NEW_DEAL, ...MADE_BY_THE_RUN } : undefined,
+            ) ?? [],
         }));
         mockGetConn.mockResolvedValue({
           describe: vi.fn(async (name: string) => ({
@@ -1599,12 +1612,22 @@ describe('SeedCloneHandler', () => {
           async (name: string, records: Array<Record<string, unknown>>) =>
             records.map((record) => {
               if (name === 'Opportunity' && typeof record['ContactId'] === 'string') {
+                for (const made of alsoMade) {
+                  roles.push({
+                    ...made,
+                    OpportunityId: NEW_DEAL,
+                    ContactId: record['ContactId'],
+                    IsPrimary: true,
+                    CreatedById: RUN_USER,
+                  });
+                }
                 roles.push({
                   Id: PLATFORM_ROLE,
                   OpportunityId: NEW_DEAL,
                   ContactId: record['ContactId'],
                   Role: null,
                   IsPrimary: true,
+                  ...MADE_BY_THE_RUN,
                 });
               }
               const id =
@@ -1661,6 +1684,32 @@ describe('SeedCloneHandler', () => {
         expect(updated).toEqual([{ Id: PLATFORM_ROLE, Role: 'Decision Maker' }]);
         expect(result).toMatchObject({ insertedCount: 0, linkedCount: 1, writtenByThePlatform: 1 });
         expect(result?.idMappings).toContainEqual({ sourceId: ROLE, targetId: PLATFORM_ROLE });
+      });
+
+      it("links the source's role to the platform's, never to one of the buyer made under the copy after it, which the target answers first", async () => {
+        const handMade = '00KFk00000HaNdRIAV';
+        const { updated, inserted, result } = await cloneTheDeal(undefined, [
+          { Id: handMade, Role: 'Influencer', CreatedDate: secondsAfterItWentIn(4) },
+        ]);
+
+        expect(inserted).toEqual([]);
+        expect(updated).toEqual([{ Id: PLATFORM_ROLE, Role: 'Decision Maker' }]);
+        expect(result?.idMappings).toContainEqual({ sourceId: ROLE, targetId: PLATFORM_ROLE });
+        expect(result?.idMappings).not.toContainEqual({ sourceId: ROLE, targetId: handMade });
+      });
+
+      it("writes the source's role as read, and logs why, where the copy holds a second role of the buyer made with it", async () => {
+        const { updated, inserted, result } = await cloneTheDeal(undefined, [
+          { Id: '00KFk00000AuToRIAV', Role: 'Business User', CreatedDate: WENT_IN },
+        ]);
+
+        expect(updated).toEqual([]);
+        expect(inserted).toEqual([expect.objectContaining({ Role: 'Decision Maker' })]);
+        expect(result).toMatchObject({ insertedCount: 1 });
+        expect(result?.writtenByThePlatform).toBeUndefined();
+        expect(deps.log).toHaveBeenCalledWith(
+          `[seed:clone] OpportunityContactRole: ${rolesMadeAlikeWords(1)}`,
+        );
       });
 
       it('writes the role as read when the opportunity is not one the clone writes', async () => {

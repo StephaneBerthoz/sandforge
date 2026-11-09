@@ -7,16 +7,38 @@ import {
   seedTargetOf,
   writtenByThePlatformLine,
 } from './seedPlatformRoles.js';
-import { contactRolesSoql } from '../../core/common/platformRecords.js';
+import {
+  contactRolesSoql,
+  madeWithItsOpportunity,
+  rolesMadeAlikeWords,
+} from '../../core/common/platformRecords.js';
+import { MADE_BY_THE_RUN, RUN_USER, secondsAfterItWentIn } from '../../test/contactRoleReads.js';
 
 const OPP = '006000000000001AAA';
 const OPP_2 = '006000000000002AAA';
 const CONTACT = '003000000000001AAA';
 const CONTACT_2 = '003000000000002AAA';
 const PLATFORM_ROLE = '00K000000000001AAA';
+const HAND_ROLE = '00K000000000002AAA';
 
 /** The role the platform wrote with the first opportunity, as the read answers it. */
-const platformRole = { Id: PLATFORM_ROLE, OpportunityId: OPP, ContactId: CONTACT, Role: null };
+const platformRole: Record<string, unknown> = {
+  Id: PLATFORM_ROLE,
+  OpportunityId: OPP,
+  ContactId: CONTACT,
+  Role: null,
+  ...MADE_BY_THE_RUN,
+  Opportunity: { ...MADE_BY_THE_RUN },
+};
+
+/** A role of the same contact made by hand under the first opportunity seconds after it. */
+const handRole: Record<string, unknown> = {
+  ...platformRole,
+  Id: HAND_ROLE,
+  Role: 'Influencer',
+  CreatedDate: secondsAfterItWentIn(4),
+  CreatedById: RUN_USER,
+};
 
 function roles(readTarget = vi.fn(async () => [platformRole])) {
   const update = vi.fn(async (_orgId: string, _objectApiName: string, records: unknown[]) =>
@@ -53,6 +75,48 @@ describe('SeedPlatformRoles', () => {
       notes: [],
     });
     expect(said.resultOf('Opportunity')).toEqual({ linkedIds: [], notes: [] });
+  });
+
+  it('links the role made with the opportunity, never one of its contact made under it after, which the target answers first', async () => {
+    const { said, update } = roles(vi.fn(async () => [handRole, platformRole]));
+    said.opportunitiesWritten([{ ContactId: CONTACT }], {
+      successIds: [OPP],
+      errors: [],
+      rows: [{ id: OPP }],
+    });
+
+    const linked = await said.link([
+      { OpportunityId: OPP, ContactId: CONTACT, Role: 'Decision Maker', IsPrimary: true },
+    ]);
+
+    expect(linked).toEqual(new Map([[0, platformRole]]));
+    expect(update).toHaveBeenCalledWith('org', 'OpportunityContactRole', [
+      { Id: PLATFORM_ROLE, Role: 'Decision Maker' },
+    ]);
+    expect(said.resultOf('OpportunityContactRole').linkedIds).toEqual([PLATFORM_ROLE]);
+  });
+
+  it('links none, sends the role as generated and says why, where the opportunity holds two roles of its contact made with it', async () => {
+    const automations = { ...platformRole, Id: HAND_ROLE, Role: 'Business User' };
+    const { said, update } = roles(vi.fn(async () => [automations, platformRole]));
+    said.opportunitiesWritten([{ ContactId: CONTACT }], {
+      successIds: [OPP],
+      errors: [],
+      rows: [{ id: OPP }],
+    });
+
+    const linked = await said.link([{ OpportunityId: OPP, ContactId: CONTACT, Role: 'Champion' }]);
+
+    expect(linked.size).toBe(0);
+    expect(update).not.toHaveBeenCalled();
+    expect(said.resultOf('OpportunityContactRole')).toEqual({
+      linkedIds: [],
+      notes: [rolesMadeAlikeWords(1, 'generated')],
+    });
+    expect(rolesMadeAlikeWords(1, 'generated')).toContain('so written as generated:');
+    // Its turn came: a second slice of the same contact is sent, and not said twice.
+    expect((await said.link([{ OpportunityId: OPP, ContactId: CONTACT }])).size).toBe(0);
+    expect(said.resultOf('OpportunityContactRole').notes).toHaveLength(1);
   });
 
   it('links one role an opportunity: a second slice of the same contact is sent', async () => {
@@ -135,17 +199,20 @@ describe('rolesOfADryRun', () => {
       ['dry-1', 'dry-2'],
     );
 
-    expect(
-      await dry.readTarget(contactRolesSoql(['dry-1', 'dry-2'], ['Role', 'IsPrimary'])),
-    ).toEqual([
-      {
+    const answered = await dry.readTarget(
+      contactRolesSoql(['dry-1', 'dry-2'], ['Role', 'IsPrimary']),
+    );
+    expect(answered).toEqual([
+      expect.objectContaining({
         Id: 'dry-role-0',
         OpportunityId: 'dry-1',
         ContactId: 'dry-0',
         Role: null,
         IsPrimary: true,
-      },
+      }),
     ]);
+    // Dated as the platform dates its own: made with the opportunity, as a run links it.
+    expect(answered.map(madeWithItsOpportunity)).toEqual([true]);
     expect(await dry.update('org', 'OpportunityContactRole', [{ Id: 'dry-role-0' }])).toEqual([
       { success: true },
     ]);

@@ -21,7 +21,13 @@ import { FakerFallback } from './FakerFallback';
 import { AIDataGenerator } from './AIDataGenerator';
 import { ReferenceLinker } from './ReferenceLinker';
 import { SeedGrappeAdapter } from './SeedGrappeAdapter';
-import { contactRolesOfSoql } from '../../core/common/platformRecords.js';
+import { contactRolesOfSoql, rolesMadeAlikeWords } from '../../core/common/platformRecords.js';
+import {
+  MADE_BY_THE_RUN,
+  RUN_USER,
+  WENT_IN,
+  secondsAfterItWentIn,
+} from '../../test/contactRoleReads.js';
 
 /*
  * A seed that writes opportunities with their contact, then contact roles. Run
@@ -52,9 +58,18 @@ type Row = Record<string, unknown> & { Id: string };
  * refuse a column a contact role lacks with the org's words; its updates
  * refuse what a contact role does not let be changed.
  */
-function roleWritingTarget(options: { perRow?: boolean; unreadable?: string } = {}) {
+function roleWritingTarget(
+  options: {
+    perRow?: boolean;
+    unreadable?: string;
+    /** Roles of its contact someone else makes under each opportunity, answered first. */
+    alsoMade?: ReadonlyArray<{ role: string; at: string }>;
+  } = {},
+) {
   const held = new Map<string, { objectApiName: string; record: Row }>();
   const sent: Array<{ objectApiName: string; records: Record<string, unknown>[] }> = [];
+  /** The roles the target answers before the others. */
+  const answeredFirst = new Set<string>();
   let next = 0;
   const idOf = (objectApiName: string): string =>
     `${ID_PREFIX[objectApiName] ?? 'a0X'}${String(++next).padStart(15, '0')}`;
@@ -79,6 +94,10 @@ function roleWritingTarget(options: { perRow?: boolean; unreadable?: string } = 
           ...(objectApiName === 'OpportunityContactRole' ? { IsPrimary: false, Role: null } : {}),
           ...record,
           Id: id,
+          // The run's own roles went in after the platform's, two seconds later in the real run.
+          ...(objectApiName === 'OpportunityContactRole'
+            ? { CreatedDate: secondsAfterItWentIn(2), CreatedById: RUN_USER }
+            : MADE_BY_THE_RUN),
         },
       });
       if (objectApiName === 'Opportunity' && typeof record.ContactId === 'string') {
@@ -91,8 +110,25 @@ function roleWritingTarget(options: { perRow?: boolean; unreadable?: string } = 
             ContactId: record.ContactId,
             IsPrimary: true,
             Role: null,
+            ...MADE_BY_THE_RUN,
           },
         });
+        for (const made of options.alsoMade ?? []) {
+          const other = idOf('OpportunityContactRole');
+          held.set(other, {
+            objectApiName: 'OpportunityContactRole',
+            record: {
+              Id: other,
+              OpportunityId: id,
+              ContactId: record.ContactId,
+              IsPrimary: true,
+              Role: made.role,
+              CreatedDate: made.at,
+              CreatedById: RUN_USER,
+            },
+          });
+          answeredFirst.add(other);
+        }
       }
       return { id };
     });
@@ -110,12 +146,27 @@ function roleWritingTarget(options: { perRow?: boolean; unreadable?: string } = 
         `INVALID_FIELD: No such column '${unknown}' on entity 'OpportunityContactRole'.`,
       );
     }
-    const columns = ['Id', 'OpportunityId', 'ContactId', ...asked.fields];
-    return asked.opportunities.flatMap((opportunity) =>
-      rolesOf(opportunity).map((role) =>
-        Object.fromEntries(columns.map((column) => [column, role[column] ?? null])),
-      ),
-    );
+    const columns = [
+      'Id',
+      'OpportunityId',
+      'ContactId',
+      'CreatedDate',
+      'CreatedById',
+      ...asked.fields,
+    ];
+    return asked.opportunities.flatMap((opportunity) => {
+      const itsRecord = held.get(opportunity)?.record;
+      const roles = rolesOf(opportunity);
+      return [
+        ...roles.filter((role) => answeredFirst.has(role.Id)),
+        ...roles.filter((role) => !answeredFirst.has(role.Id)),
+      ].map((role) => ({
+        ...Object.fromEntries(columns.map((column) => [column, role[column] ?? null])),
+        Opportunity: itsRecord
+          ? { CreatedDate: itsRecord.CreatedDate, CreatedById: itsRecord.CreatedById }
+          : null,
+      }));
+    });
   });
 
   const update = vi.fn<UpdateFn>(async (_orgId, objectApiName, records) =>
@@ -338,6 +389,46 @@ describe('SeedOrchestrator — the contact role the platform writes with an oppo
       },
     });
     expect(result.status).toBe('success');
+  });
+
+  it('links the platform’s role, never one of the same contact made under the opportunity after it, which the target answers first', async () => {
+    const target = roleWritingTarget({
+      alsoMade: [{ role: 'Influencer', at: secondsAfterItWentIn(4) }],
+    });
+    const result = await new SeedOrchestrator(deps(target)).execute(rolesTemplate(), 'org');
+
+    const [first] = target.recordsOf('Opportunity');
+    expect(
+      target.rolesOfThePair(first.Id, first.ContactId).map((r) => [r.Role, r.CreatedDate]),
+    ).toEqual([
+      ['Decision Maker', WENT_IN],
+      ['Influencer', secondsAfterItWentIn(4)],
+    ]);
+    expect(
+      result.objectResults.find((r) => r.objectApiName === 'OpportunityContactRole'),
+    ).toMatchObject({
+      recordsCreated: 1,
+      errors: [],
+      writtenByThePlatform: { records: 1, given: 1 },
+    });
+  });
+
+  it('sends the role as generated, and says why, where the opportunity holds a second role of its contact made with it', async () => {
+    // The target's automation writing a role for the opportunity's contact in the same save.
+    const target = roleWritingTarget({ alsoMade: [{ role: 'Business User', at: WENT_IN }] });
+    const result = await new SeedOrchestrator(deps(target)).execute(rolesTemplate(), 'org');
+
+    const [first] = target.recordsOf('Opportunity');
+    expect(target.rolesOfThePair(first.Id, first.ContactId).map((r) => r.Role)).toEqual([
+      null,
+      'Business User',
+      'Decision Maker',
+    ]);
+    expect(target.update).not.toHaveBeenCalled();
+    const roles = result.objectResults.find((r) => r.objectApiName === 'OpportunityContactRole');
+    expect(roles?.recordsCreated).toBe(2);
+    expect(roles?.writtenByThePlatform).toBeUndefined();
+    expect(roles?.errors).toEqual([rolesMadeAlikeWords(1, 'generated')]);
   });
 
   it('sends the roles as generated when the target cannot be read, and says an opportunity may hold the role of its contact twice', async () => {

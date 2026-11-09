@@ -118,8 +118,10 @@ import {
   RowsLeftToThePlatform,
   leftToThePlatformNote,
   lookupsThePlatformFills,
+  rolesMadeAlikeWords,
   rolesThePlatformWrote,
   rolesThePlatformWrites,
+  type PlatformRolesFound,
 } from '../../core/common/platformRecords.js';
 import {
   copyPlannedFiles,
@@ -651,6 +653,8 @@ interface RolesOfTheirOpportunity {
   refusal?: string;
   /** Why the roles were not looked up, and went as read. */
   unread?: string;
+  /** The roles whose opportunity holds several of their contact made with it, sent as read. */
+  alike?: number;
 }
 
 /**
@@ -674,10 +678,15 @@ function withRolesOfTheirOpportunity(
       ],
     };
   }
-  const { records, given, refusal } = said;
+  const { records, given, refusal, alike } = said;
+  const madeAlike: SyncObjectResult =
+    alike !== undefined
+      ? { ...result, errors: [...result.errors, rolesMadeAlikeWords(alike)] }
+      : result;
+  if (records === 0) return madeAlike;
   return {
-    ...result,
-    skipped: result.skipped + records,
+    ...madeAlike,
+    skipped: madeAlike.skipped + records,
     writtenByThePlatform: { records, given, ...(refusal !== undefined ? { refusal } : {}) },
   };
 }
@@ -3436,8 +3445,11 @@ export class SyncOrchestrator {
    *
    * Not looked up — the run reads nothing of the target, or the read failed
    * — the roles go as read, and the result says why an opportunity may then
-   * hold the role of its contact twice. An update the target refuses leaves
-   * the platform's record as it wrote it, linked all the same, and said.
+   * hold the role of its contact twice; so does a role whose opportunity
+   * holds several of its contact made with it, which nothing tells apart. A
+   * role made after the opportunity is never linked. An update the target
+   * refuses leaves the platform's record as it wrote it, linked all the
+   * same, and said.
    */
   private async rolesWrittenWithTheirOpportunity(
     objectConfig: SyncObjectConfig,
@@ -3477,9 +3489,9 @@ export class SyncOrchestrator {
     const fields = [...new Set(prepared.records.flatMap((record) => Object.keys(record)))].filter(
       given,
     );
-    let found: Map<number, Readonly<Record<string, unknown>>>;
+    let pairedWith: PlatformRolesFound;
     try {
-      found = await rolesThePlatformWrote(
+      pairedWith = await rolesThePlatformWrote(
         async (soql) => (await query(soql)) as Array<Record<string, unknown>>,
         rows,
         (opportunity) => run.links.contactSentWith(opportunity),
@@ -3491,7 +3503,15 @@ export class SyncOrchestrator {
         said: { records: 0, given: 0, unread: err instanceof Error ? err.message : String(err) },
       };
     }
-    if (found.size === 0) return { prepared };
+    const { found, alike } = pairedWith;
+    // Several made with the opportunity: sent as read, and said.
+    for (const at of alike) run.links.roleLinkedFor(String(rows[at].OpportunityId));
+    const madeAlike = alike.length > 0 ? { alike: alike.length } : {};
+    if (found.size === 0) {
+      return alike.length > 0
+        ? { prepared, said: { records: 0, given: 0, ...madeAlike } }
+        : { prepared };
+    }
 
     const updates: Array<Record<string, unknown>> = [];
     for (const [at, record] of found) {
@@ -3547,6 +3567,7 @@ export class SyncOrchestrator {
         records: found.size,
         given: givenTheirFields,
         ...(refusal !== undefined ? { refusal } : {}),
+        ...madeAlike,
       },
     };
   }

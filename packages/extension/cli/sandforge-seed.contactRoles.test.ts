@@ -21,7 +21,7 @@ vi.mock('./sandforge-clone.js', async (original) => ({
 import { makeConn } from './sfSession.js';
 import { main } from './sandforge-seed.js';
 import { readSeedDryRun, seedDryRunCount } from './env/kinds/seed.js';
-import { contactRolesOfSoql } from '../src/core/common/platformRecords.js';
+import { MADE_BY_THE_RUN, answerContactRoles } from '../src/test/contactRoleReads.js';
 
 /*
  * A seed of a contact, an opportunity with that contact, and a role of the
@@ -103,7 +103,7 @@ function roleWritingSandbox() {
         sent.push({ objectApiName, records });
         return records.map((record) => {
           const id = idOf(objectApiName);
-          held.push({ objectApiName, record: { ...record, Id: id } });
+          held.push({ objectApiName, record: { ...record, Id: id, ...MADE_BY_THE_RUN } });
           if (objectApiName === 'Opportunity' && typeof record['ContactId'] === 'string') {
             held.push({
               objectApiName: 'OpportunityContactRole',
@@ -113,6 +113,7 @@ function roleWritingSandbox() {
                 ContactId: record['ContactId'],
                 IsPrimary: true,
                 Role: null,
+                ...MADE_BY_THE_RUN,
               },
             });
           }
@@ -136,19 +137,12 @@ function roleWritingSandbox() {
       if (soql.includes('FROM Organization')) {
         return page([{ Id: '00D000000000002AAA', IsSandbox: true }]);
       }
-      const roles = contactRolesOfSoql(soql);
-      if (roles) {
-        return page(
-          held
-            .filter(
-              (h) =>
-                h.objectApiName === 'OpportunityContactRole' &&
-                roles.opportunities.includes(String(h.record['OpportunityId'])),
-            )
-            .map((h) => h.record),
-        );
-      }
-      return page([]);
+      const roles = answerContactRoles(
+        soql,
+        held.filter((h) => h.objectApiName === 'OpportunityContactRole').map((h) => h.record),
+        (id) => held.find((h) => h.objectApiName === 'Opportunity' && h.record.Id === id)?.record,
+      );
+      return page(roles ?? []);
     },
     tooling: { query: async () => page([]) },
     request: async () => ({

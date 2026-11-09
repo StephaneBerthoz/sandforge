@@ -11,6 +11,7 @@ import {
   TEAM_USER_FIELD,
   WRITTEN_BY_THE_PLATFORM,
   accountsOfPersonContactsSoql,
+  asMadeWithItsOpportunity,
   contactRolesOfSoql,
   contactRolesSoql,
   opportunitiesOfOwnersSoql,
@@ -280,6 +281,9 @@ export class RehearsalWriter {
     });
     if (ours.length === 0) return answered;
     const prefix = await this.prefixOf(OPPORTUNITY_CONTACT_ROLE);
+    // Dated as the platform dates its own, made with the opportunity: the run
+    // links no role made after it.
+    const at = new Date().toISOString();
     return [
       ...answered,
       ...ours.map(({ id, row, contact }) => {
@@ -288,13 +292,16 @@ export class RehearsalWriter {
           PLATFORM_TEAM_SEQ + this.platformTeam.size + this.platformRoles.size,
         );
         this.platformRoles.set(role.slice(0, 15), row);
-        return {
-          ...Object.fromEntries(roles.fields.map((field) => [field, null])),
-          Id: role,
-          OpportunityId: id,
-          [CONTACT_FIELD]: contact,
-          ...(roles.fields.includes('IsPrimary') ? { IsPrimary: true } : {}),
-        };
+        return asMadeWithItsOpportunity(
+          {
+            ...Object.fromEntries(roles.fields.map((field) => [field, null])),
+            Id: role,
+            OpportunityId: id,
+            [CONTACT_FIELD]: contact,
+            ...(roles.fields.includes('IsPrimary') ? { IsPrimary: true } : {}),
+          },
+          at,
+        );
       }),
     ];
   }

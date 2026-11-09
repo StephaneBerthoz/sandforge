@@ -788,19 +788,38 @@ export function rolesThePlatformWrites(
 }
 
 /**
+ * What the read of the roles asks of each besides what pairs it with a row:
+ * who made it and when, and who made its opportunity and when, which tell
+ * the platform's role from one made after it ({@link madeWithItsOpportunity}).
+ */
+const MADE_WITH_COLUMNS = [
+  'CreatedDate',
+  'CreatedById',
+  'Opportunity.CreatedDate',
+  'Opportunity.CreatedById',
+] as const;
+
+/**
  * The query that reads the contact roles the target holds of the opportunities
- * `ids`, with `fields` besides the ones that pair them with a row.
+ * `ids`, with `fields` besides the ones that pair them with a row and tell who
+ * made them, the oldest first.
  */
 export function contactRolesSoql(ids: readonly string[], fields: readonly string[] = []): string {
   const pairing = ['Id', 'OpportunityId', CONTACT_FIELD];
-  const columns = [...pairing, ...fields.filter((field) => !pairing.includes(field))]
-    .map(assertSoqlIdentifier)
-    .join(', ');
-  return `SELECT ${columns} FROM ${OPPORTUNITY_CONTACT_ROLE} WHERE OpportunityId IN ${inListOf(ids)}`;
+  const told: readonly string[] = [...pairing, ...MADE_WITH_COLUMNS];
+  const columns = [
+    ...pairing,
+    ...MADE_WITH_COLUMNS,
+    ...fields.filter((field) => !told.includes(field)).map(assertSoqlIdentifier),
+  ].join(', ');
+  return (
+    `SELECT ${columns} FROM ${OPPORTUNITY_CONTACT_ROLE} WHERE OpportunityId IN ${inListOf(ids)} ` +
+    'ORDER BY CreatedDate, Id'
+  );
 }
 
 const CONTACT_ROLES_SOQL_RE =
-  /^SELECT Id, OpportunityId, ContactId((?:, \w+)*) FROM OpportunityContactRole WHERE OpportunityId IN (\(.*\))$/;
+  /^SELECT Id, OpportunityId, ContactId, CreatedDate, CreatedById, Opportunity\.CreatedDate, Opportunity\.CreatedById((?:, \w+)*) FROM OpportunityContactRole WHERE OpportunityId IN (\(.*\)) ORDER BY CreatedDate, Id$/;
 
 /**
  * The fields besides those that pair a role and the opportunities a query of
@@ -836,41 +855,129 @@ export async function contactRolesOf(
   return read;
 }
 
+/** A date-time the org answers, to the second; NaN for anything else. */
+const secondOf = (value: unknown): number =>
+  typeof value === 'string' && value !== '' ? Math.floor(Date.parse(value) / 1000) : Number.NaN;
+
+/**
+ * Whether a contact role read with {@link contactRolesSoql} was made with its
+ * opportunity: the same second, by the same user. The platform writes its
+ * role as it takes the opportunity, in the same save, as the user the run
+ * writes as: in a real org, both were dated to the second alike.
+ *
+ * Learnt in a real org. A clone stopped after its opportunity; a role of the
+ * same contact, Influencer, was made by hand under the copy four seconds
+ * later, as the run's user; the clone, taken up, read the roles of the copy
+ * with no order asked, the org answered the hand-made one first, and the
+ * resume linked it, gave it the source's role, Decision Maker, and left the
+ * platform's with none. Of five such reads, the org answered so once.
+ */
+export function madeWithItsOpportunity(role: Readonly<Record<string, unknown>>): boolean {
+  const opportunity = role['Opportunity'];
+  if (typeof opportunity !== 'object' || opportunity === null) return false;
+  const made = opportunity as Readonly<Record<string, unknown>>;
+  const by = textOf(role, 'CreatedById');
+  const itsBy = textOf(made, 'CreatedById');
+  const at = secondOf(role['CreatedDate']);
+  return (
+    by !== undefined &&
+    itsBy !== undefined &&
+    idKey(by) === idKey(itsBy) &&
+    !Number.isNaN(at) &&
+    at === secondOf(made['CreatedDate'])
+  );
+}
+
+/** What pairing the roles a copy sends with the target's found: see {@link platformRolesOf}. */
+export interface PlatformRolesFound {
+  /** The platform's record of each row it was found for, by the row's index. */
+  readonly found: Map<number, Readonly<Record<string, unknown>>>;
+  /**
+   * The rows whose opportunity holds more than one role of their contact
+   * made with it, by index: none is linked, the row goes in as written, and
+   * what the run says says why.
+   */
+  readonly alike: number[];
+}
+
 /**
  * Of the contact roles `held` the target holds, the one the platform wrote
  * for each row of `paired` — under its opportunity, of its contact, both in
- * the target's ids — by the row's index. A record is one row's only. A row
- * no record is found for is not listed: it goes in as written.
+ * the target's ids, made with the opportunity ({@link madeWithItsOpportunity})
+ * — by the row's index. A record is one row's only. A row no record is
+ * found for is not listed: it goes in as written.
+ *
+ * Never a role made later: one a user or the target's automation made after
+ * the opportunity, under it, for the same contact, is theirs, and given the
+ * source's fields it would lose its own. Two or more made with it, which
+ * nothing tells apart — the target's automation writing a role for the
+ * opportunity's contact in the same save — link none: the row goes in as
+ * written, as a role not looked up does, and is listed in `alike`.
  */
 export function platformRolesOf(
   paired: ReadonlyMap<number, { readonly opportunity: string; readonly contact: string }>,
   held: ReadonlyArray<Readonly<Record<string, unknown>>>,
-): Map<number, Readonly<Record<string, unknown>>> {
+): PlatformRolesFound {
   const free = new Map<string, Array<Readonly<Record<string, unknown>>>>();
   for (const record of held) {
     const id = textOf(record, 'Id');
     const opportunity = textOf(record, 'OpportunityId');
     const contact = textOf(record, CONTACT_FIELD);
-    if (!id || !opportunity || !contact) continue;
+    if (!id || !opportunity || !contact || !madeWithItsOpportunity(record)) continue;
     const key = `${idKey(opportunity)}:${idKey(contact)}`;
     free.set(key, [...(free.get(key) ?? []), record]);
   }
   const found = new Map<number, Readonly<Record<string, unknown>>>();
+  const alike: number[] = [];
   for (const [index, { opportunity, contact }] of paired) {
-    const record = free.get(`${idKey(opportunity)}:${idKey(contact)}`)?.shift();
-    if (record) found.set(index, record);
+    const records = free.get(`${idKey(opportunity)}:${idKey(contact)}`) ?? [];
+    if (records.length > 1) alike.push(index);
+    else if (records.length === 1) found.set(index, records[0]);
   }
-  return found;
+  return { found, alike };
+}
+
+/**
+ * What a copy says of `count` contact roles {@link platformRolesOf} found
+ * more than one record of the platform's for, in the words of the line that
+ * says it: written as read, or as a seed generated them.
+ */
+export function rolesMadeAlikeWords(count: number, writtenAs = 'read'): string {
+  return (
+    `${count} contact role(s) not linked to the one the platform wrote with their ` +
+    `opportunity, so written as ${writtenAs}: the target holds more than one role of their contact ` +
+    'under it made with it, the same second, by the same user, and nothing tells which the ' +
+    'platform wrote. The opportunity holds the role of its contact more than once.'
+  );
+}
+
+/** The user a rehearsal or a dry run names as the one its planned records are made by. */
+const PLANNED_BY = 'the user the run writes as';
+
+/**
+ * A contact role a rehearsal or a dry run answers the read of the roles with
+ * in place of the target, for an opportunity it planned: dated as the
+ * platform dates its own, made with that opportunity, at `at`, by the user
+ * the run writes as, which none of them knows and both name alike.
+ */
+export function asMadeWithItsOpportunity(
+  role: Readonly<Record<string, unknown>>,
+  at: string,
+): Record<string, unknown> {
+  const made = { CreatedDate: at, CreatedById: PLANNED_BY };
+  return { ...role, ...made, Opportunity: { ...made } };
 }
 
 /**
  * Of the contact roles a copy is about to send, the record the platform wrote
  * itself for each with an opportunity the copy created with a contact, read
  * from the target, by the role's index: of that opportunity and that contact,
- * the primary role first, one an opportunity (`rolesThePlatformWrites`). A
- * role no record is found for is not listed: it goes in as sent. What a copy
- * that does not hold the opportunity's source row asks — a Seed clone, a
- * Sync — with the ids it sends.
+ * the primary role first, one an opportunity (`rolesThePlatformWrites`), made
+ * with it ({@link platformRolesOf}). A role no record is found for is not
+ * listed: it goes in as sent; nor one whose opportunity holds several made
+ * with it, which goes in as sent and is listed in `alike`. What a copy that
+ * does not hold the opportunity's source row asks — a Seed clone, a Sync —
+ * with the ids it sends.
  *
  * @param rows - The roles as they are to be sent: `OpportunityId` and
  *   `ContactId` in the target's ids, `IsPrimary` as read.
@@ -884,9 +991,9 @@ export async function rolesThePlatformWrote(
   rows: readonly Record<string, unknown>[],
   sentWith: (opportunity: string) => string | undefined,
   fields: readonly string[] = [],
-): Promise<Map<number, Readonly<Record<string, unknown>>>> {
+): Promise<PlatformRolesFound> {
   const chosen = rolesThePlatformWrites(rows, sentWith);
-  if (chosen.length === 0) return new Map();
+  if (chosen.length === 0) return { found: new Map(), alike: [] };
   const paired = new Map(
     chosen.map((index) => [
       index,

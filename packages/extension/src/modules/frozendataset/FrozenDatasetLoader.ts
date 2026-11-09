@@ -128,6 +128,7 @@ import {
   personContactsOfAccounts,
   platformRolesOf,
   recordsByNaturalKey,
+  rolesMadeAlikeWords,
   rolesThePlatformWrites,
   standardPriceIds,
   statusCategories,
@@ -5282,7 +5283,10 @@ export class FrozenDatasetLoader {
    * line says so; the role stays linked either way. A lookup of the role at
    * a record not written yet is owed to pass 2, as on a role inserted. A role
    * the platform did not write — its opportunity went in without the
-   * contact, or was not this load's — is inserted as any other.
+   * contact, or was not this load's — is inserted as any other; so is one
+   * whose opportunity holds several roles of its contact made with it, which
+   * nothing tells apart, and the line says so. A role made after the
+   * opportunity is never the platform's (`platformRolesOf`).
    *
    * @returns How many roles were linked, and what the object's line says of them.
    */
@@ -5367,8 +5371,11 @@ export class FrozenDatasetLoader {
       [...new Set([...paired.values()].map(({ opportunity }) => opportunity))],
       asked,
     );
-    const records = platformRolesOf(paired, held);
-    if (records.size === 0) return { linked: 0 };
+    const { found: records, alike } = platformRolesOf(paired, held);
+    // Several made with the opportunity: none is linked, the role goes in as read, said.
+    const madeAlike = alike.length > 0 ? rolesMadeAlikeWords(alike.length) : undefined;
+    if (records.size === 0) return madeAlike ? { linked: 0, note: madeAlike } : { linked: 0 };
+    const and = (note: string): string => (madeAlike ? `${note}; ${madeAlike}` : note);
 
     const updates: Array<Record<string, unknown> & { Id: string }> = [];
     for (const [index, record] of records) {
@@ -5386,12 +5393,15 @@ export class FrozenDatasetLoader {
     }
     const linked = records.size;
     const written = `${linked} written by the platform with ${writtenWithWords(OPPORTUNITY_CONTACT_ROLE)}`;
-    if (updates.length === 0) return { linked, note: written };
+    if (updates.length === 0) return { linked, note: and(written) };
     const without = (count: number, why: string): string =>
       `${written}, ${count} of them left as it wrote ${count === 1 ? 'it' : 'them'}, without the ` +
       `fields of the source's role: ${why}`;
     if (options.signal?.aborted) {
-      return { linked, note: without(updates.length, 'the load was cancelled before the update') };
+      return {
+        linked,
+        note: and(without(updates.length, 'the load was cancelled before the update')),
+      };
     }
     await this.checkGuard(options, 'update', OPPORTUNITY_CONTACT_ROLE, updates.length);
     const outcomes = await this.deps.writer.update(
@@ -5404,8 +5414,8 @@ export class FrozenDatasetLoader {
       if (outcome?.success) return [];
       return [outcome ? outcome.errors.join('; ') || 'refused' : 'no answer came for it'];
     });
-    if (refused.length === 0) return { linked, note: written };
-    return { linked, note: without(refused.length, refused[0]) };
+    if (refused.length === 0) return { linked, note: and(written) };
+    return { linked, note: and(without(refused.length, refused[0])) };
   }
 
   /**

@@ -40,10 +40,14 @@ import {
   withTheRelationItIs,
   writtenByThePlatform,
   writtenWithWords,
+  asMadeWithItsOpportunity,
   contactRolesOf,
   contactRolesOfSoql,
   contactRolesSoql,
+  madeWithItsOpportunity,
   platformRolesOf,
+  rolesMadeAlikeWords,
+  rolesThePlatformWrote,
   rolesThePlatformWrites,
   type RelationUpdate,
   type SoqlQuery,
@@ -1715,30 +1719,139 @@ describe('the contact role the platform writes with an opportunity', () => {
     expect(rolesThePlatformWrites(rows, () => undefined)).toEqual([]);
   });
 
+  /** The run's user in the target, who wrote its opportunities. */
+  const RUN_USER = '005TGT000000001AAA';
+  /** When the run's opportunity went in, as the org dates a record. */
+  const WENT_IN = '2026-11-09T11:47:00.000+0000';
+  /** A role the target holds under the run's opportunity, as the read of the roles answers it. */
+  const heldRole = (
+    id: string,
+    contact: string,
+    made: { at?: string; by?: string } = {},
+    opportunity = '006TGT000000001AAA',
+  ): Record<string, unknown> => ({
+    Id: id,
+    OpportunityId: opportunity,
+    ContactId: contact,
+    CreatedDate: made.at ?? WENT_IN,
+    CreatedById: made.by ?? RUN_USER,
+    Opportunity: { CreatedDate: WENT_IN, CreatedById: RUN_USER },
+  });
+
   it('pairs each role with the record the target holds under its opportunity, of its contact, once', () => {
     const held = [
-      {
-        Id: '00KTGT000000001AAA',
-        OpportunityId: '006TGT000000001AAA',
-        ContactId: '003TGT000000001AAA',
-      },
-      {
-        Id: '00KTGT000000002AAA',
-        OpportunityId: '006TGT000000001AAA',
-        ContactId: '003TGT000000002AAA',
-      },
+      heldRole('00KTGT000000001AAA', '003TGT000000001AAA'),
+      heldRole('00KTGT000000002AAA', '003TGT000000002AAA'),
     ];
     const paired = new Map([
       [0, { opportunity: '006TGT000000001', contact: '003TGT000000001' }],
-      [1, { opportunity: '006TGT000000001AAA', contact: '003TGT000000001AAA' }],
-      [2, { opportunity: '006TGT000000001AAA', contact: '003TGT000000003AAA' }],
+      [1, { opportunity: '006TGT000000001AAA', contact: '003TGT000000003AAA' }],
     ]);
 
-    expect([...platformRolesOf(paired, held)]).toEqual([[0, held[0]]]);
-    expect([...platformRolesOf(new Map([...paired].slice(2)), held)]).toEqual([]);
+    expect(platformRolesOf(paired, held)).toEqual({ found: new Map([[0, held[0]]]), alike: [] });
+    expect(platformRolesOf(new Map([...paired].slice(1)), held)).toEqual({
+      found: new Map(),
+      alike: [],
+    });
   });
 
-  it('reads the roles of the opportunities two hundred a statement, with the fields asked besides', async () => {
+  it('pairs the role made with the opportunity, never one made under it later for the same contact, whichever the target answers first', () => {
+    // Read on a scratch org with no order asked: the role made by hand four
+    // seconds after the opportunity, Influencer, came first, and a resume
+    // gave it the source's role and left the platform's with none.
+    const byHand = heldRole('00KTGT000000002AAA', '003TGT000000001AAA', {
+      at: '2026-11-09T11:47:05.000+0000',
+    });
+    const platforms = heldRole('00KTGT000000001AAA', '003TGT000000001AAA');
+    const paired = new Map([
+      [0, { opportunity: '006TGT000000001AAA', contact: '003TGT000000001' }],
+    ]);
+
+    expect(platformRolesOf(paired, [byHand, platforms]).found).toEqual(new Map([[0, platforms]]));
+    expect(platformRolesOf(paired, [platforms, byHand]).found).toEqual(new Map([[0, platforms]]));
+    // The platform's gone, the one made by hand is no record of it: the row goes in as written.
+    expect(platformRolesOf(paired, [byHand])).toEqual({ found: new Map(), alike: [] });
+    // Made the same second by another user: not the platform's either.
+    const byAnother = heldRole('00KTGT000000003AAA', '003TGT000000001AAA', {
+      by: '005TGT000000002AAA',
+    });
+    expect(platformRolesOf(paired, [byAnother]).found.size).toBe(0);
+  });
+
+  it('pairs none where the opportunity holds more than one role of its contact made with it, and lists the row', () => {
+    const paired = new Map([
+      [3, { opportunity: '006TGT000000001AAA', contact: '003TGT000000001AAA' }],
+      [4, { opportunity: '006TGT000000002AAA', contact: '003TGT000000001AAA' }],
+    ]);
+    const other = heldRole('00KTGT000000009AAA', '003TGT000000001AAA', {}, '006TGT000000002AAA');
+    const held = [
+      heldRole('00KTGT000000001AAA', '003TGT000000001AAA'),
+      heldRole('00KTGT000000002AAA', '003TGT000000001AAA', { at: '2026-11-09T11:47:00.700+0000' }),
+      other,
+    ];
+
+    expect(platformRolesOf(paired, held)).toEqual({ found: new Map([[4, other]]), alike: [3] });
+    expect(rolesMadeAlikeWords(1)).toBe(
+      '1 contact role(s) not linked to the one the platform wrote with their opportunity, so ' +
+        'written as read: the target holds more than one role of their contact under it made ' +
+        'with it, the same second, by the same user, and nothing tells which the platform ' +
+        'wrote. The opportunity holds the role of its contact more than once.',
+    );
+  });
+
+  it('tells a role made with its opportunity by the second and the user the org answers, in either form of a date or an id', () => {
+    expect(madeWithItsOpportunity(heldRole('00KTGT000000001AAA', '003TGT000000001AAA'))).toBe(true);
+    expect(
+      madeWithItsOpportunity({
+        ...heldRole('00KTGT000000001AAA', '003TGT000000001AAA'),
+        CreatedDate: '2026-11-09T11:47:00.900Z',
+        CreatedById: RUN_USER.slice(0, 15),
+      }),
+    ).toBe(true);
+    expect(
+      madeWithItsOpportunity(
+        heldRole('00KTGT000000001AAA', '003TGT000000001AAA', {
+          at: '2026-11-09T11:47:01.000+0000',
+        }),
+      ),
+    ).toBe(false);
+    // Nothing told of who made it, or of its opportunity: no record of the platform's.
+    expect(
+      madeWithItsOpportunity({
+        Id: '00KTGT000000001AAA',
+        CreatedDate: WENT_IN,
+        CreatedById: RUN_USER,
+      }),
+    ).toBe(false);
+    expect(
+      madeWithItsOpportunity({
+        ...heldRole('00KTGT000000001AAA', '003TGT000000001AAA'),
+        CreatedDate: null,
+        Opportunity: { CreatedDate: null, CreatedById: RUN_USER },
+      }),
+    ).toBe(false);
+    // What a rehearsal or a dry run answers for an opportunity it planned.
+    expect(madeWithItsOpportunity(asMadeWithItsOpportunity({ Id: 'dry-role-0' }, WENT_IN))).toBe(
+      true,
+    );
+  });
+
+  it('lists through the read of the target the rows whose opportunity holds several roles of their contact made with it', async () => {
+    const query: SoqlQuery = async () => [
+      heldRole('00KTGT000000001AAA', '003TGT000000001AAA'),
+      heldRole('00KTGT000000002AAA', '003TGT000000001AAA'),
+    ];
+
+    const read = await rolesThePlatformWrote(
+      query,
+      [{ OpportunityId: '006TGT000000001AAA', ContactId: '003TGT000000001AAA', IsPrimary: true }],
+      () => '003TGT000000001AAA',
+    );
+
+    expect(read).toEqual({ found: new Map(), alike: [0] });
+  });
+
+  it('reads the roles of the opportunities two hundred a statement, the oldest first, with who made them and their opportunity, and the fields asked besides', async () => {
     const ids = Array.from({ length: 201 }, (_, i) => `006TGT${String(i).padStart(9, '0')}AAA`);
     const asked: string[] = [];
     const query: SoqlQuery = async (soql) => {
@@ -1746,15 +1859,18 @@ describe('the contact role the platform writes with an opportunity', () => {
       return [];
     };
 
-    await contactRolesOf(query, ids, ['Role', 'ContactId']);
+    await contactRolesOf(query, ids, ['Role', 'ContactId', 'CreatedDate']);
 
     expect(asked).toHaveLength(2);
     expect(asked[1]).toBe(
-      'SELECT Id, OpportunityId, ContactId, Role FROM OpportunityContactRole ' +
-        "WHERE OpportunityId IN ('006TGT000000200AAA')",
+      'SELECT Id, OpportunityId, ContactId, CreatedDate, CreatedById, Opportunity.CreatedDate, ' +
+        'Opportunity.CreatedById, Role FROM OpportunityContactRole ' +
+        "WHERE OpportunityId IN ('006TGT000000200AAA') ORDER BY CreatedDate, Id",
     );
     expect(contactRolesSoql(['006A'])).toBe(
-      "SELECT Id, OpportunityId, ContactId FROM OpportunityContactRole WHERE OpportunityId IN ('006A')",
+      'SELECT Id, OpportunityId, ContactId, CreatedDate, CreatedById, Opportunity.CreatedDate, ' +
+        "Opportunity.CreatedById FROM OpportunityContactRole WHERE OpportunityId IN ('006A') " +
+        'ORDER BY CreatedDate, Id',
     );
     expect(() => contactRolesSoql(['006A'], ['Role; DELETE'])).toThrow();
   });

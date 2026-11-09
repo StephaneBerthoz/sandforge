@@ -7,6 +7,13 @@ import { targetWriteFieldsOf, type TargetWriteFields } from './targetWriteFields
 import { FieldMappingService } from './FieldMapping.js';
 import { TransformPipeline } from './TransformPipeline.js';
 import { ConflictResolver } from './ConflictResolver.js';
+import {
+  MADE_BY_THE_RUN,
+  RUN_USER,
+  WENT_IN,
+  answerContactRoles,
+  secondsAfterItWentIn,
+} from '../../test/contactRoleReads.js';
 
 /*
  * A Sync of a contact, the deal it is the primary contact of, and its role
@@ -69,8 +76,13 @@ function sourceRows(adviser = false): Record<string, Array<Record<string, unknow
   };
 }
 
-/** The target: what it holds, and an insert that writes a role with an opportunity sent with its contact. */
-function targetOrg() {
+/**
+ * The target: what it holds, and an insert that writes a role with an
+ * opportunity sent with its contact. `alsoMade`: roles of that contact
+ * someone else makes under the opportunity once it is in — by hand, or by
+ * the target's automation — each answered before the platform's.
+ */
+function targetOrg(alsoMade: ReadonlyArray<{ role: string; at: string }> = []) {
   const held = new Map<string, Record<string, unknown>>();
   let next = 100;
   const prefix: Record<string, string> = {
@@ -79,13 +91,15 @@ function targetOrg() {
     OpportunityContactRole: '00K',
   };
   const idFor = (object: string): string => `${prefix[object]}TGT000000${next++}AAA`;
+  /** The ids of the roles the target answers first. */
+  const first: string[] = [];
   const insert = async (
     object: string,
     records: Record<string, unknown>[],
   ): Promise<OperationOutcome[]> =>
     records.map((record) => {
       const id = idFor(object);
-      held.set(id, { ...record, object });
+      held.set(id, { ...record, object, ...(object === 'Opportunity' ? MADE_BY_THE_RUN : {}) });
       const contact = record['ContactId'];
       if (object === 'Opportunity' && typeof contact === 'string' && contact !== '') {
         held.set(idFor('OpportunityContactRole'), {
@@ -94,7 +108,21 @@ function targetOrg() {
           ContactId: contact,
           Role: null,
           IsPrimary: true,
+          ...MADE_BY_THE_RUN,
         });
+        for (const { role, at } of alsoMade) {
+          const made = idFor('OpportunityContactRole');
+          first.push(made);
+          held.set(made, {
+            object: 'OpportunityContactRole',
+            OpportunityId: id,
+            ContactId: contact,
+            Role: role,
+            IsPrimary: true,
+            CreatedDate: at,
+            CreatedById: RUN_USER,
+          });
+        }
       }
       return { id, success: true, errors: [] };
     });
@@ -111,22 +139,22 @@ function targetOrg() {
       Object.assign(found, fields);
       return { id, success: true, errors: [] };
     });
+  /** The roles of an opportunity in the target, as it holds them. */
+  const roles = (): Array<Record<string, unknown>> =>
+    [...held]
+      .filter(([, r]) => r.object === 'OpportunityContactRole')
+      .map(([Id, r]) => ({ ...r, Id }));
   /** The roles the target holds of the opportunities a statement names, as it answers it. */
   const query = async (soql: string): Promise<Array<Record<string, unknown>>> => {
-    const asked = /FROM OpportunityContactRole WHERE OpportunityId IN \((.*)\)$/.exec(soql);
-    if (!asked) return [];
-    const ids = [...asked[1].matchAll(/'([^']*)'/g)].map(([, id]) => id);
-    return [...held]
-      .filter(
-        ([, r]) => r.object === 'OpportunityContactRole' && ids.includes(String(r.OpportunityId)),
-      )
-      .map(([Id, r]) => ({ ...r, Id }));
+    const answered = [
+      ...roles().filter((r) => first.includes(String(r['Id']))),
+      ...roles().filter((r) => !first.includes(String(r['Id']))),
+    ];
+    return answerContactRoles(soql, answered, (id) => held.get(id)) ?? [];
   };
   /** The roles of an opportunity in the target. */
   const rolesOf = (opportunity: string): Array<Record<string, unknown>> =>
-    [...held]
-      .filter(([, r]) => r.object === 'OpportunityContactRole' && r.OpportunityId === opportunity)
-      .map(([Id, r]) => ({ ...r, Id }));
+    roles().filter((r) => r['OpportunityId'] === opportunity);
   const deal = (): string => [...held].find(([, r]) => r.object === 'Opportunity')?.[0] ?? '';
   const inserted = (object: string): number =>
     [...held.values()].filter((r) => r.object === object).length;
@@ -213,6 +241,49 @@ describe('SyncOrchestrator — an opportunity written with its primary contact, 
     ]);
     const roles = result.objectResults.find((r) => r.objectApiName === 'OpportunityContactRole');
     expect(roles).toMatchObject({ success: 1, skipped: 1 });
+  });
+
+  it("links the source's role to the platform's, never to one of the same contact made under the opportunity after it, which the target answers first", async () => {
+    // A resumed clone on a scratch org linked such a role, made by hand four
+    // seconds after the opportunity, and gave it the source's role.
+    const target = targetOrg([{ role: 'Influencer', at: secondsAfterItWentIn(4) }]);
+
+    const result = await orchestrator(target).execute(CONFIG);
+
+    expect(
+      target.rolesOf(target.deal()).map((role) => [role['Role'], role['CreatedDate']]),
+    ).toEqual([
+      ['Decision Maker', WENT_IN],
+      ['Influencer', secondsAfterItWentIn(4)],
+    ]);
+    const roles = result.objectResults.find((r) => r.objectApiName === 'OpportunityContactRole');
+    expect(roles).toMatchObject({ success: 0, failed: 0, skipped: 1 });
+    expect(roles?.writtenByThePlatform).toEqual({ records: 1, given: 1 });
+    expect(roles?.errors).toEqual([]);
+  });
+
+  it("writes the source's role as read, and says why, where the opportunity holds a second role of its contact made with it", async () => {
+    // The target's automation writing a role for the opportunity's contact
+    // in the same save: two made the same second by the same user, and
+    // nothing tells which the platform wrote.
+    const target = targetOrg([{ role: 'Business User', at: WENT_IN }]);
+
+    const result = await orchestrator(target).execute(CONFIG);
+
+    expect(target.rolesOf(target.deal()).map((role) => role['Role'])).toEqual([
+      null,
+      'Business User',
+      'Decision Maker',
+    ]);
+    const roles = result.objectResults.find((r) => r.objectApiName === 'OpportunityContactRole');
+    expect(roles).toMatchObject({ success: 1, failed: 0, skipped: 0 });
+    expect(roles?.writtenByThePlatform).toBeUndefined();
+    expect(roles?.errors).toEqual([
+      '1 contact role(s) not linked to the one the platform wrote with their opportunity, so ' +
+        'written as read: the target holds more than one role of their contact under it made ' +
+        'with it, the same second, by the same user, and nothing tells which the platform ' +
+        'wrote. The opportunity holds the role of its contact more than once.',
+    ]);
   });
 
   it('writes the role as read when the opportunity goes in without its contact', async () => {

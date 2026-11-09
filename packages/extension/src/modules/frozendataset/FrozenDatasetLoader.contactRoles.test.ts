@@ -12,6 +12,14 @@ import {
 } from './FrozenDatasetLoader.js';
 import type { FrozenDataset } from './types.js';
 import type { FrozenDmlWriter, TargetFieldDescribe, TargetObjectDescribe } from './loadTypes.js';
+import {
+  MADE_BY_THE_RUN,
+  RUN_USER,
+  WENT_IN,
+  answerContactRoles,
+  secondsAfterItWentIn,
+} from '../../test/contactRoleReads.js';
+import { rolesMadeAlikeWords } from '../../core/common/platformRecords.js';
 
 const repoRoot = findRepoRoot(process.cwd());
 const tmpDirs: string[] = [];
@@ -41,7 +49,10 @@ const PREFIX: Readonly<Record<string, string>> = {
  * platform's. An update of a field no update can set is refused as the org
  * refuses it.
  */
-function contactRoleOrg() {
+function contactRoleOrg(
+  /** Roles of its contact someone else makes under each opportunity once it is in, answered first. */
+  alsoMade: ReadonlyArray<{ Role: string; CreatedDate: string }> = [],
+) {
   const held = new Map<string, Array<Record<string, unknown>>>();
   let counter = 0;
   const idFor = (objectApiName: string): string =>
@@ -56,7 +67,11 @@ function contactRoleOrg() {
       async (_org: string, objectApiName: string, records: Array<Record<string, unknown>>) =>
         records.map((record) => {
           const id = idFor(objectApiName);
-          rowsOf(objectApiName).push({ ...record, Id: id });
+          rowsOf(objectApiName).push({
+            ...record,
+            Id: id,
+            ...(objectApiName === 'Opportunity' ? MADE_BY_THE_RUN : {}),
+          });
           const contact = record.ContactId;
           if (objectApiName === 'Opportunity' && typeof contact === 'string' && contact !== '') {
             rowsOf(ROLE).push({
@@ -65,7 +80,18 @@ function contactRoleOrg() {
               ContactId: contact,
               IsPrimary: true,
               Role: null,
+              ...MADE_BY_THE_RUN,
             });
+            for (const made of alsoMade) {
+              rowsOf(ROLE).unshift({
+                ...made,
+                Id: idFor(ROLE),
+                OpportunityId: id,
+                ContactId: contact,
+                IsPrimary: true,
+                CreatedById: RUN_USER,
+              });
+            }
           }
           return { id, success: true, errors: [] };
         }),
@@ -101,18 +127,13 @@ function contactRoleOrg() {
       }),
     ),
   };
-  /** The org's answer to a query of the roles of some opportunities, its columns as asked. */
-  const query = vi.fn(async (_org: string, soql: string) => {
-    const roles = new RegExp(`^SELECT (.+) FROM ${ROLE} WHERE OpportunityId IN \\((.*)\\)$`).exec(
-      soql,
-    );
-    if (!roles) return [];
-    const columns = roles[1].split(',').map((c) => c.trim());
-    const ids = roles[2].split(',').map((v) => v.trim().replace(/^'|'$/g, ''));
-    return rowsOf(ROLE)
-      .filter((row) => ids.includes(String(row.OpportunityId)))
-      .map((row) => Object.fromEntries(columns.map((c) => [c, row[c] ?? null])));
-  });
+  /** The org's answer to a query of the roles of some opportunities. */
+  const query = vi.fn(
+    async (_org: string, soql: string) =>
+      answerContactRoles(soql, rowsOf(ROLE), (id) =>
+        rowsOf('Opportunity').find((row) => row.Id === id),
+      ) ?? [],
+  );
   return { writer, query, rolesOf: () => [...rowsOf(ROLE)] };
 }
 
@@ -288,6 +309,38 @@ describe('a Frozen load of an opportunity with its contact and the contact’s r
     // It goes with its opportunity, which the platform deletes it with: no
     // removal takes it on its own.
     expect(recorded?.withTheirRecord).toEqual({ R1: 'O1' });
+  });
+
+  it('links the platform’s role, never one of the same contact made under the opportunity after it, which the target answers first', async () => {
+    const org = contactRoleOrg([{ Role: 'Influencer', CreatedDate: secondsAfterItWentIn(4) }]);
+
+    const { report } = await load(dossier(), org);
+
+    expect(org.rolesOf().map((r) => [r.Role, r.CreatedDate])).toEqual([
+      ['Influencer', secondsAfterItWentIn(4)],
+      ['Decision Maker', WENT_IN],
+    ]);
+    expect(report.perObject.find((o) => o.objectApiName === ROLE)).toMatchObject({
+      inserted: 0,
+      reused: 1,
+      writtenByThePlatform: 1,
+    });
+  });
+
+  it('inserts the role as read, and says why, where the opportunity holds a second role of its contact made with it', async () => {
+    // The target's automation writing a role for the opportunity's contact in the same save.
+    const org = contactRoleOrg([{ Role: 'Business User', CreatedDate: WENT_IN }]);
+
+    const { report, progress } = await load(dossier(), org);
+
+    expect(org.rolesOf().map((r) => r.Role)).toEqual(['Business User', null, 'Decision Maker']);
+    const roles = report.perObject.find((o) => o.objectApiName === ROLE);
+    expect(roles).toMatchObject({ inserted: 1, reused: 0 });
+    expect(roles).not.toHaveProperty('writtenByThePlatform');
+    expect(vi.mocked(org.writer.update).mock.calls.filter(([, object]) => object === ROLE)).toEqual(
+      [],
+    );
+    expect(progress[0]).toContain(rolesMadeAlikeWords(1));
   });
 
   it('inserts as read the role of another contact, which the platform wrote none of', async () => {

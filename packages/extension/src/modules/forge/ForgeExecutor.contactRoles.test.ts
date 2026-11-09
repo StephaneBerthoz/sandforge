@@ -14,6 +14,12 @@ import { partialSummaryOf } from './interruptedRun.js';
 import { RehearsalWriter, rehearsalExecutorDeps } from './rehearsal/RehearsalWriter.js';
 import { finishedRunStatus } from './runResult.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
+import {
+  MADE_BY_THE_RUN,
+  RUN_USER,
+  answerContactRoles,
+  secondsAfterItWentIn,
+} from '../../test/contactRoleReads.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -196,8 +202,19 @@ class ContactRoleOrg {
   readonly updated: Record<string, Array<Record<string, unknown>>> = {};
   private issued = 0;
 
-  query(soql: string): FakeRow[] {
-    return selectRows(this.tables, soql);
+  /**
+   * @param automationRole - The role of the opportunity's contact the
+   *   target's automation writes in the same save as the platform's, if any:
+   *   made the same second, by the same user, answered first.
+   */
+  constructor(private readonly automationRole?: string) {}
+
+  query(soql: string): Array<Record<string, unknown>> {
+    return (
+      answerContactRoles(soql, this.tables['OpportunityContactRole'], (id) =>
+        this.tables['Opportunity'].find((row) => row['Id'] === id),
+      ) ?? selectRows(this.tables, soql)
+    );
   }
 
   insert(objectApiName: string, rows: readonly Record<string, unknown>[]) {
@@ -205,6 +222,7 @@ class ContactRoleOrg {
     return rows.map((row) => {
       const id = this.idFor(objectApiName);
       const record: FakeRow = { Id: id, ...copied(row) };
+      if (objectApiName === 'Opportunity') Object.assign(record, MADE_BY_THE_RUN);
       (this.tables[objectApiName] ??= []).push(record);
       const contact = row['ContactId'];
       if (objectApiName === 'Opportunity' && typeof contact === 'string' && contact !== '') {
@@ -214,10 +232,40 @@ class ContactRoleOrg {
           ContactId: contact,
           Role: null,
           IsPrimary: true,
+          ...MADE_BY_THE_RUN,
         });
+        if (this.automationRole !== undefined) {
+          this.tables['OpportunityContactRole'].unshift({
+            Id: this.idFor('OpportunityContactRole'),
+            OpportunityId: id,
+            ContactId: contact,
+            Role: this.automationRole,
+            IsPrimary: true,
+            ...MADE_BY_THE_RUN,
+          });
+        }
       }
       return { id, success: true, errors: [] as string[] };
     });
+  }
+
+  /**
+   * A contact role made by hand under `opportunityId`, `seconds` after the
+   * run wrote it, as the run's user: answered first, as the org answered it
+   * once in five reads that asked no order.
+   */
+  byHand(opportunityId: string, contactId: string, role: string, seconds: number): string {
+    const id = this.idFor('OpportunityContactRole');
+    this.tables['OpportunityContactRole'].unshift({
+      Id: id,
+      OpportunityId: opportunityId,
+      ContactId: contactId,
+      Role: role,
+      IsPrimary: true,
+      CreatedDate: secondsAfterItWentIn(seconds),
+      CreatedById: RUN_USER,
+    });
+    return id;
   }
 
   update(objectApiName: string, rows: readonly Record<string, unknown>[]) {
@@ -274,8 +322,8 @@ function copied(row: Readonly<Record<string, unknown>>): FakeRow {
 const TARGET_READS = /\bFROM (Account|Contact|Opportunity|OpportunityContactRole)\b/;
 
 /** The source holding `tables`, and a target that writes a contact role with an opportunity. */
-function orgs(tables: Record<string, FakeRow[]> = sourceRows()) {
-  const target = new ContactRoleOrg();
+function orgs(tables: Record<string, FakeRow[]> = sourceRows(), automationRole?: string) {
+  const target = new ContactRoleOrg(automationRole);
   const deps = {
     describeFields: vi.fn(async (_org: string, object: string) => FIELDS[object] ?? [idField]),
     queryRecords: vi.fn(async (org: string, soql: string) => {
@@ -399,6 +447,55 @@ describe('ForgeExecutor, an opportunity sent with its primary contact', () => {
       'Completed OpportunityContactRole: 0 succeeded, 1 written by the platform with their ' +
         "opportunity, for its contact, 1 given the source's fields it lacked, 0 failed",
     );
+  });
+
+  it("writes the source's role as read, and says why, where the target's automation writes a second role of the contact with the opportunity", async () => {
+    // Two roles of the contact made the same second as the opportunity, by
+    // the run's user: nothing tells which the platform wrote, and linking
+    // either could give the source's role to the automation's.
+    const { deps, target } = orgs(sourceRows(), 'Business User');
+
+    const summary = await new ForgeExecutor(deps).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      () => undefined,
+      ROOTED_AT_THE_DEAL,
+    );
+
+    const deal = copyOf(target);
+    expect(target.updated['OpportunityContactRole']).toBeUndefined();
+    expect(target.sent['OpportunityContactRole']).toEqual([
+      expect.objectContaining({ OpportunityId: deal, Role: 'Decision Maker' }),
+    ]);
+    expect(target.rolesOf(deal).map((role) => role['Role'])).toEqual([
+      'Business User',
+      null,
+      'Decision Maker',
+    ]);
+    // The source's role maps to the record the run inserted, the third.
+    expect(summary.remapTable[BUYERS_ROLE]).toBe(target.rolesOf(deal)[2]['Id']);
+    expect(summary.linkedCount).toBe(0);
+    expect(summary.writtenByThePlatform ?? []).toEqual([]);
+    expect(summary.errors).toEqual([
+      expect.objectContaining({
+        objectApiName: 'OpportunityContactRole',
+        failedCount: 0,
+        samples: [
+          {
+            recordSummary: '(contact roles the platform wrote with their opportunities)',
+            messages: [
+              '1 contact role(s) not linked to the one the platform wrote with their ' +
+                'opportunity, so written as read: the target holds more than one role of their ' +
+                'contact under it made with it, the same second, by the same user, and nothing ' +
+                'tells which the platform wrote. The opportunity holds the role of its contact ' +
+                'more than once.',
+            ],
+          },
+        ],
+      }),
+    ]);
+    expect(finishedRunStatus(summary)).toBe('success');
   });
 
   it('writes the role of another contact as read, beside the one the platform writes', async () => {
@@ -777,6 +874,44 @@ describe('ForgeExecutor, a run that writes the roles of an opportunity a run bef
     expect(resumed.writtenByThePlatform).toEqual([
       { objectApiName: 'OpportunityContactRole', rows: 1 },
     ]);
+  });
+
+  it('links, taken up from its journal, the role the platform wrote with the opportunity, never one made by hand under it for the same contact after the part that stopped, which the target reads first', async () => {
+    // On a scratch org: a role of the same contact, Influencer, made by hand
+    // under the copy four seconds after the part that stopped; the resume
+    // linked that one, gave it Decision Maker, and left the platform's with
+    // no role, while its line said "1 written by the platform".
+    const { deps, target, stopped, disk } = await stoppedAfterTheOpportunity(true);
+    expect(stopped).toBeInstanceOf(ForgeAbortedError);
+    const deal = copyOf(target);
+    const [platforms] = target.rolesOf(deal);
+    const buyer = String(target.tables['Contact'][0]['Id']);
+    const byHand = target.byHand(deal, buyer, 'Influencer', 4);
+    const store = ForgeRunStore.open(memoryRunFile(disk.text()));
+    const said: ForgeProgressEvent[] = [];
+
+    const resumed = await new ForgeExecutor(deps).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      (event) => said.push(event),
+      { ...ROOTED_AT_THE_DEAL, stream: { store } },
+    );
+    store.close();
+
+    expect(resumed.remapTable[BUYERS_ROLE]).toBe(platforms['Id']);
+    const roleOf = (id: unknown) => target.rolesOf(deal).find((role) => role['Id'] === id);
+    expect(roleOf(platforms['Id'])).toMatchObject({ Role: 'Decision Maker', IsPrimary: true });
+    expect(roleOf(byHand)).toMatchObject({ Role: 'Influencer' });
+    expect(target.updated['OpportunityContactRole']).toEqual([
+      { Id: platforms['Id'], Role: 'Decision Maker' },
+    ]);
+    expect(target.sent['OpportunityContactRole']).toBeUndefined();
+    expect(resumed.withTheirRecordSourceIds).toContain(BUYERS_ROLE);
+    expect(said.map((event) => event.message)).toContain(
+      'Completed OpportunityContactRole: 0 succeeded, 1 written by the platform with their ' +
+        "opportunity, for its contact, 1 given the source's fields it lacked, 0 failed",
+    );
   });
 
   it('counts at the gate of the run taken up what it writes, the role the platform wrote with the opportunity before said apart', async () => {

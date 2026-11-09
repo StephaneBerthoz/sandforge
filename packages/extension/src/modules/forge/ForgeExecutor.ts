@@ -193,6 +193,7 @@ import {
   personAccountWriteEdges,
   personContactsOfAccounts,
   platformRolesOf,
+  rolesMadeAlikeWords,
   rolesThePlatformWrites,
   statusCategories,
   tasksWrittenWithEmails,
@@ -9807,7 +9808,11 @@ export class ForgeExecutor {
    * left unlinked. A simulation, which wrote no opportunity, links those a
    * real run finds of the opportunities it creates, and reads nothing. Not
    * looked up, the roles go in as read, and the report says why an
-   * opportunity may then hold a contact's role twice. An update the target
+   * opportunity may then hold a contact's role twice; so does a role whose
+   * opportunity holds several of its contact made with it, which nothing
+   * tells apart. The record linked is the one made with the opportunity
+   * (`platformRolesOf`), never one made under it later — by hand, between
+   * the part that stopped and the one that takes it up. An update the target
    * refuses leaves the platform's record as it wrote it, linked all the
    * same: it is the role, short of the fields the report names.
    *
@@ -9923,7 +9928,28 @@ export class ForgeExecutor {
         });
         held = [];
       }
-      for (const [index, record] of platformRolesOf(paired, held)) records.set(index, record);
+      const { found, alike } = platformRolesOf(paired, held);
+      for (const [index, record] of found) records.set(index, record);
+      // Written as read, as a role not looked up is, and said: the run
+      // cannot tell which of them the platform wrote. Its turn came: a page
+      // read after this one links none to that opportunity either.
+      if (alike.length > 0) {
+        for (const index of alike) {
+          state.contactSentWith.delete(String(cleaned[index].source['OpportunityId']));
+        }
+        state.errors.push({
+          objectApiName: OPPORTUNITY_CONTACT_ROLE,
+          stage: 'scope',
+          failedCount: 0,
+          attemptedCount: 0,
+          samples: [
+            {
+              recordSummary: '(contact roles the platform wrote with their opportunities)',
+              messages: [rolesMadeAlikeWords(alike.length)],
+            },
+          ],
+        });
+      }
     }
     if (records.size === 0) return none;
 
@@ -11542,7 +11568,8 @@ export class ForgeExecutor {
         (soql) => this.deps.queryRecords(state.targetOrgId, soql),
         [...new Set([...paired.values()].map(({ opportunity }) => opportunity))],
       );
-      const found = platformRolesOf(paired, held);
+      // One whose opportunity holds several made with it goes in as read: counted.
+      const { found } = platformRolesOf(paired, held);
       return {
         linked: new Set([...found.keys()].map((index) => roles[index])),
         mayBe: chosen.length - paired.size,
