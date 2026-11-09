@@ -19,7 +19,12 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (importOriginal) => {
 
 import { loadOrg, makeConn } from './sfSession.js';
 import { removalOrg, type RemovalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
-import { MEMORY_ORG_USER, MemoryRemovalOrg, type MemoryRow } from '../src/test/memoryRemovalOrg.js';
+import {
+  MEMORY_ORG_USER,
+  MemoryRemovalOrg,
+  type MemoryChild,
+  type MemoryRow,
+} from '../src/test/memoryRemovalOrg.js';
 import { main } from './sandforge-clone';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
@@ -78,31 +83,65 @@ const PART_0 = { first: at('10:00:01'), last: at('10:00:03') };
  * by that user; a feed item keeps no `LastModifiedById`. Deleting the quote
  * the opportunity syncs clears the opportunity's `SyncedQuoteId`.
  */
+const GATE_CHILDREN: Record<string, MemoryChild[]> = {
+  Account: [
+    { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
+    { childSObject: 'Opportunity', field: 'AccountId', cascadeDelete: true },
+  ],
+  Contact: [
+    { childSObject: 'OpportunityContactRole', field: 'ContactId', cascadeDelete: true },
+    { childSObject: 'Opportunity', field: 'ContactId' },
+  ],
+  Opportunity: [
+    { childSObject: 'OpportunityContactRole', field: 'OpportunityId', cascadeDelete: true },
+    { childSObject: 'OpportunityLineItem', field: 'OpportunityId', cascadeDelete: true },
+    { childSObject: 'Quote', field: 'OpportunityId', cascadeDelete: true },
+    { childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true },
+  ],
+  Quote: [{ childSObject: 'Opportunity', field: 'SyncedQuoteId' }],
+};
+
 class GateOrg extends MemoryRemovalOrg {
   private feeds = 0;
 
   constructor(now: () => number) {
-    super(
-      {
-        Account: [
-          { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
-          { childSObject: 'Opportunity', field: 'AccountId', cascadeDelete: true },
-        ],
-        Contact: [
-          { childSObject: 'OpportunityContactRole', field: 'ContactId', cascadeDelete: true },
-          { childSObject: 'Opportunity', field: 'ContactId' },
-        ],
-        Opportunity: [
-          { childSObject: 'OpportunityContactRole', field: 'OpportunityId', cascadeDelete: true },
-          { childSObject: 'OpportunityLineItem', field: 'OpportunityId', cascadeDelete: true },
-          { childSObject: 'Quote', field: 'OpportunityId', cascadeDelete: true },
-          { childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true },
-        ],
-        Quote: [{ childSObject: 'Opportunity', field: 'SyncedQuoteId' }],
-      },
-      { now },
-    );
+    super(GATE_CHILDREN, { now });
     this.missingFields.set('FeedItem', new Set(['LastModifiedById']));
+  }
+
+  /**
+   * Described as the target describes them, as far as a sweep reads them:
+   * deletable, with who created each record and when, who last changed it
+   * and when, its name, and the lookups that tie it to what it hangs from.
+   */
+  override async describe(objectApiName: string): Promise<unknown> {
+    const described = (await super.describe(objectApiName)) as Record<string, unknown>;
+    const field = (name: string, type: string, more: Record<string, unknown> = {}) => ({
+      name,
+      label: name,
+      type,
+      ...more,
+    });
+    const lookups = Object.entries(GATE_CHILDREN).flatMap(([parent, children]) =>
+      children
+        .filter((child) => child.childSObject === objectApiName)
+        .map((child) => field(child.field, 'reference', { referenceTo: [parent] })),
+    );
+    return {
+      ...described,
+      deletable: true,
+      fields: [
+        field('Id', 'id'),
+        field('Name', 'string', { nameField: true }),
+        field('CreatedById', 'reference', { referenceTo: ['User'] }),
+        field('CreatedDate', 'datetime'),
+        ...(objectApiName === 'FeedItem'
+          ? []
+          : [field('LastModifiedById', 'reference', { referenceTo: ['User'] })]),
+        field('LastModifiedDate', 'datetime'),
+        ...lookups,
+      ],
+    };
   }
 
   protected override removed(objectApiName: string, row: MemoryRow): void {
@@ -158,7 +197,15 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     queryMore: vi.fn(async () => page([])),
     identity: vi.fn(async () => ({ user_id: MEMORY_ORG_USER })),
     tooling,
-    request: vi.fn(async () => ({ compositeResponse: [] })),
+    version: '66.0',
+    // The data API's composite, which the sweep counts through, answered by
+    // the org in miniature; the Tooling API's, which reads the target's
+    // automation, as an org with none.
+    request: vi.fn(async (request: { method: string; url: string; body?: string }) =>
+      request.url.includes('/tooling/')
+        ? { compositeResponse: [] }
+        : await org.request({ ...request, method: request.method as 'GET' | 'POST' }),
+    ),
   } as unknown as Connection;
 
   /** Move the clocks of this machine and of the org to `time`. */
@@ -735,6 +782,122 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
         "minute of them reads as the automation's, and one changed by hand before the run's " +
         'last write as unchanged: check the names before a --sweep',
     );
+  });
+
+  /** What `--remove <file> --sweep-list --json` lists at `time`, per object: found, made, late. */
+  async function sweepListOf(file: string, time: string): Promise<unknown[]> {
+    setClock(time);
+    stdout = [];
+    stderr = [];
+    expect(await run(['--remove', file, '--target', 'TGT', '--sweep-list', '--json'])).toBe(
+      undefined,
+    );
+    const answer = JSON.parse(stdout.join('')) as {
+      listing: {
+        found: Array<{ objectApiName: string; count: number; classes: Record<string, number> }>;
+      };
+    };
+    return answer.listing.found.map((o) => [
+      o.objectApiName,
+      o.count,
+      o.classes.made,
+      o.classes.late,
+    ]);
+  }
+
+  /** What the cut part's sweep says of the resume's records, which it leaves. */
+  const LEAVES_THE_RESUME =
+    'a sweep of this summary leaves the 2 record(s) of the run\'s part 1 (its summary\'s "part"), ' +
+    "the run's own, never the target's automation's: --remove of that part's summary takes them";
+
+  it('the cut part’s --sweep-list, the resume having written under its opportunity within the minute: lists none of the resume’s records, and says the resume’s removal takes them', async () => {
+    // The gate's resume wrote 51 s after the cut part's last write; here 48.
+    const { s1 } = theRun(at('10:00:03'), 70);
+    roleMadeByHandAfterTheCut();
+
+    const listed = await sweepListOf(s1, at('10:05:00'));
+
+    // Live, the cut part's list had the resume's lines, quote and prices
+    // "made for the run", to delete, while its removal said they went with
+    // the resume's. The resume linked the platform's role: the run's too.
+    expect(listed).toEqual([['OpportunityContactRole', 1, 1, 0]]);
+    expect(stderr).toContain(
+      'it found 1 record(s) and would delete 1 of them, children first; per object, all it found:',
+    );
+    expect(stderr).toContain(LEAVES_THE_RESUME);
+  });
+
+  it('the cut part’s --sweep-list, the resume two minutes later: lists none of the resume’s records as made late, which --sweep-late would take', async () => {
+    const { s1 } = theRun();
+    roleMadeByHandAfterTheCut();
+
+    const listed = await sweepListOf(s1, at('10:05:00'));
+
+    expect(listed).toEqual([['OpportunityContactRole', 1, 1, 0]]);
+    expect(stderr.join('\n')).not.toContain('--sweep-late takes them');
+    expect(stderr).toContain(LEAVES_THE_RESUME);
+  });
+
+  it('the cut part’s --sweep-list, once the resume’s removal kept its quote: says the cut part’s removal takes it up', async () => {
+    const { s1, s2 } = theRun(at('10:00:03'), 70);
+    setClock(at('10:03:00'));
+    org.edit('Quote', QUOTE.target, { Name: 'Edited' }, COLLEAGUE);
+    await remove(s2, at('10:05:00'));
+
+    const listed = await sweepListOf(s1, at('10:06:00'));
+
+    expect(listed).toEqual([]);
+    expect(stderr).toContain(
+      "a sweep of this summary leaves the 1 record(s) of the run's part 1 (its summary's " +
+        "\"part\"), the run's own, never the target's automation's: an earlier --remove of that " +
+        'part left them, which the removal of this summary takes up once its own records are gone',
+    );
+  });
+
+  it('the cut part’s --sweep-list, the resume within the minute: what hangs from the resume’s records alone is tied to nothing of the cut part, and --sweep-untied is refused, as the panel refuses it', async () => {
+    const { s1 } = theRun(at('10:00:03'), 70);
+    // A post the resume's automation, or a person as the run's user, made on
+    // the resume's quote within the cut part's minute.
+    setClock(at('10:00:54'));
+    org.add('FeedItem', { Id: FEED(9), ParentId: QUOTE.target, ...byTheRun(at('10:00:54')) });
+
+    setClock(at('10:05:00'));
+    stdout = [];
+    stderr = [];
+    await run(['--remove', s1, '--target', 'TGT', '--sweep-list', '--sweep-untied', '--json']);
+    const { listing } = JSON.parse(stdout.join('')) as {
+      listing: {
+        found: Array<{ objectApiName: string; classes: Record<string, number> }>;
+        untied?: { objects: Array<{ objectApiName: string; count: number }>; refusal?: string };
+      };
+    };
+
+    // Tied to the run through the resume's quote, it was made for the run,
+    // which --sweep took; with the quote the run's own, it is tied to nothing
+    // of the cut part, and may be the resume's.
+    expect(listing.found.find((o) => o.objectApiName === 'FeedItem')?.classes).toMatchObject({
+      made: 0,
+      untied: 1,
+    });
+    expect(listing.untied?.objects).toEqual([{ objectApiName: 'FeedItem', count: 1 }]);
+    expect(listing.untied?.refusal).toContain(
+      'Another run of this machine wrote to the target in this run’s window',
+    );
+  });
+
+  it('the cut part’s --sweep --sweep-late, the resume within the minute: deletes none of the resume’s records, which its own removal then takes', async () => {
+    const { s1, s2 } = theRun(at('10:00:03'), 70);
+    roleMadeByHandAfterTheCut();
+
+    await remove(s1, at('10:05:00'), '--sweep', '--sweep-late');
+
+    // The sweep took the role made by hand, as its list warns; the resume's
+    // records stay for the resume's removal, which takes them.
+    expect(org.all('OpportunityContactRole').map((r) => r.Id)).not.toContain(HAND_ROLE);
+    expect(left()).toMatchObject({ Quote: 1, OpportunityLineItem: 1 });
+    const resumed = await remove(s2, at('10:08:00'));
+    expect(resumed.result.status).toBe('success');
+    expect(left()).toEqual({});
   });
 
   it('the journal, the resume having written within the minute and its quote changed since: the quote holds the opportunity as the run’s, never as a record to delete by hand', async () => {
