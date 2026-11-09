@@ -16,6 +16,7 @@ import {
   FrozenLoadCancelledError,
   FrozenLoadFailedError,
   LoadConfigError,
+  loadPlanRecords,
   type FrozenDatasetLoaderDeps,
   type FrozenLoadOptions,
 } from './FrozenDatasetLoader.js';
@@ -1498,6 +1499,69 @@ describe('FrozenDatasetLoader — records the platform owns', () => {
       guard: new SasPathGuard(repoRoot),
     }).load();
     expect(mapping.get('AccountContactRelation-000001')).toBe('07kDIRECT');
+  });
+
+  it('counts in its preview the direct relation of a contact it inserts as linked, written by the platform, as the load links it', async () => {
+    // Its dry run said "AccountContactRelation: 1 to insert" of a load that
+    // inserted none and linked the one the platform wrote with the contact.
+    const dataset = makeAccountContactDataset();
+    dataset.objects.push({
+      objectApiName: 'AccountContactRelation',
+      records: [
+        {
+          referenceId: 'AccountContactRelation-000001',
+          fields: { AccountId: 'Account-000001', ContactId: 'Contact-000001' },
+        },
+      ],
+    });
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      writer: makeWriter(calls),
+      queryImpl: async (_org, soql) =>
+        soql.includes('FROM AccountContactRelation WHERE IsDirect = true')
+          ? [{ Id: '07kDIRECT', AccountId: 'REAL-Account-1', ContactId: 'REAL-Contact-2' }]
+          : [],
+    });
+    const loader = new FrozenDatasetLoader(deps);
+
+    const plan = await loader.planLoad(makeOptions(deps, dataset));
+
+    expect(plan.perObject.find((o) => o.objectApiName === 'AccountContactRelation')).toMatchObject({
+      fromFiles: 1,
+      toInsert: 0,
+      writtenByThePlatform: 1,
+    });
+    expect(loadPlanRecords(plan)).toBe(2);
+    expect(calls).toEqual([]);
+    // What the load then inserts, as its preview counted it.
+    const report = await loader.load(makeOptions(deps, dataset));
+    expect(report.perObject.reduce((sum, o) => sum + o.inserted, 0)).toBe(loadPlanRecords(plan));
+  });
+
+  it('counts to insert a relation of a contact to another account than the one it goes in with', async () => {
+    const dataset = makeAccountContactDataset();
+    dataset.objects[0].records.push({
+      referenceId: 'Account-000002',
+      fields: { Name: 'Other Account', ExternalId__c: 'ACC-2' },
+    });
+    dataset.objects.push({
+      objectApiName: 'AccountContactRelation',
+      records: [
+        {
+          referenceId: 'AccountContactRelation-000001',
+          fields: { AccountId: 'Account-000002', ContactId: 'Contact-000001' },
+        },
+      ],
+    });
+    const deps = makeDeps({ dataset, writer: makeWriter([]), queryImpl: async () => [] });
+
+    const plan = await new FrozenDatasetLoader(deps).planLoad(makeOptions(deps, dataset));
+
+    // No direct relation of the platform's stands for it: the load inserts it.
+    const relations = plan.perObject.find((o) => o.objectApiName === 'AccountContactRelation');
+    expect(relations).toMatchObject({ toInsert: 1 });
+    expect(relations).not.toHaveProperty('writtenByThePlatform');
   });
 
   it('keeps the direct relation with the contact it inserted, which a removal neither takes nor keeps', async () => {
@@ -7673,6 +7737,58 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
     expect(recorded?.mapping.get(ref('Task'))).toBe(TASK);
     expect(recorded && loadRecordsInfo(recorded).linked).toBe(0);
     expect(recorded && loadCreatedRecords(recorded).flatMap(({ ids }) => ids)).not.toContain(TASK);
+  });
+
+  it('counts in its preview the task of an email it inserts related to a record as linked, written by the platform, as the load links it', async () => {
+    // Its dry run said "Task: 1 to insert" of a load that inserted none and
+    // linked the one the platform wrote as it took the email.
+    const dataset = emailDataset();
+    const calls: DmlCall[] = [];
+    const emails: Array<Record<string, unknown>> = [];
+    const deps = makeDeps({
+      dataset,
+      writer: platformWriter(calls, emails),
+      queryImpl: platformReads(emails),
+    });
+    const loader = new FrozenDatasetLoader(deps);
+
+    const plan = await loader.planLoad(makeOptions(deps, dataset));
+
+    expect(plan.perObject.find((o) => o.objectApiName === 'Task')).toMatchObject({
+      fromFiles: 1,
+      toInsert: 0,
+      writtenByThePlatform: 1,
+    });
+    expect(calls).toEqual([]);
+    const report = await loader.load(makeOptions(deps, dataset));
+    expect(report.perObject.find((o) => o.objectApiName === 'Task')).toMatchObject({
+      inserted: 0,
+      reused: 1,
+    });
+    expect(report.perObject.reduce((sum, o) => sum + o.inserted, 0)).toBe(loadPlanRecords(plan));
+  });
+
+  it('counts to insert the task an email on a case names, and that of an email related to nothing', async () => {
+    // On a case, the email names its task from the copy, which the load
+    // inserts first; related to no record, the platform writes it no task.
+    const onACase = emailDataset(true);
+    const deps = makeDeps({ dataset: onACase, writer: makeWriter([]), queryImpl: async () => [] });
+    const plan = await new FrozenDatasetLoader(deps).planLoad(makeOptions(deps, onACase));
+    const tasks = plan.perObject.find((o) => o.objectApiName === 'Task');
+    expect(tasks).toMatchObject({ toInsert: 1 });
+    expect(tasks).not.toHaveProperty('writtenByThePlatform');
+
+    const unrelated = emailDataset();
+    delete unrelated.objects[2].records[0].fields.RelatedToId;
+    const alone = makeDeps({
+      dataset: unrelated,
+      writer: makeWriter([]),
+      queryImpl: async () => [],
+    });
+    const planned = await new FrozenDatasetLoader(alone).planLoad(makeOptions(alone, unrelated));
+    expect(planned.perObject.find((o) => o.objectApiName === 'Task')).toMatchObject({
+      toInsert: 1,
+    });
   });
 
   it('inserts the task after the email when the platform wrote none with it', async () => {

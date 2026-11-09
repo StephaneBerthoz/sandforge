@@ -1129,10 +1129,11 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   })}
                 </p>
               )}
-              {/* The role of the contact an opportunity goes in with: the
-                  platform writes it, and the load links it once the
-                  opportunity is in. Counted to insert, the preview said one
-                  record more than the load wrote. */}
+              {/* The role of the contact an opportunity goes in with, a
+                  contact's direct relation, an email's task: the platform
+                  writes each with the record it goes with, and the load
+                  links it once that one is in. Counted to insert, the
+                  preview said one record more than the load wrote. */}
               {plan.perObject.some((o) => (o.writtenByThePlatform ?? 0) > 0) && (
                 <p
                   className="text-[11px] text-text-secondary"

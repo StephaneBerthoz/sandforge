@@ -776,7 +776,7 @@ describe('FrozenLoadTab', () => {
       render(tab());
 
       expect(screen.getByTestId('frozen-preview-written-by-platform').textContent).toBe(
-        'Written by the platform with their opportunity, and linked once it is in — not counted to insert: OpportunityContactRole (1)',
+        'Written by the platform with the record they go with, and linked once it is in — not counted to insert: OpportunityContactRole (1)',
       );
       expect(previewRows().find((row) => row[0] === 'OpportunityContactRole')?.[2]).toBe('0');
     });

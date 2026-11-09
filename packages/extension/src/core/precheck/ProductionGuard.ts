@@ -231,6 +231,12 @@ export interface WriteConfirmation {
    */
   alreadyLinked?: number;
   /**
+   * Of a Sync run: the contact roles it links to the one the platform writes
+   * with an opportunity it creates, for its contact, which it does not send
+   * and does not count. Absent when none.
+   */
+  rolesLinked?: number;
+  /**
    * Of a Sync run: of `total`, the records an update or an upsert writes,
    * which may write over records the target holds — their values are kept
    * first, and removing the run puts them back. Absent when none.
@@ -264,6 +270,14 @@ export interface WriteConfirmation {
    * read page by page asks before it reads anything.
    */
   counted?: true;
+  /**
+   * Of a clone: of `total`, the contact roles the platform may write itself
+   * with their opportunity, for its contact, at most — or may have written
+   * with an opportunity the run it takes up wrote (`before`) — which the run
+   * links to and does not send: counted in, where the gate could not tell
+   * them. Absent when none.
+   */
+  rolesMayBeByThePlatform?: { rows: number; before?: true };
   /**
    * Of the prices among the rows, those the run may read as it writes them,
    * at most: a price in the currency of the record its lines belong to, the

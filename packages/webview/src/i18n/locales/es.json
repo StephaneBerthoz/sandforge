@@ -1655,6 +1655,8 @@
       "overwrites_other": "De ellos, hasta {{count}} pueden sobrescribir registros que la org de destino contiene: lo que contienen se lee y se conserva antes, y eliminar la ejecución lo restablece.",
       "rolesByThePlatform_one": "De ellos, {{count}} puede ser un rol de contacto que la plataforma escribe por sí misma con una oportunidad que la ejecución crea, para su contacto: la ejecución lo vincula y no lo envía.",
       "rolesByThePlatform_other": "De ellos, hasta {{count}} pueden ser roles de contacto que la plataforma escribe por sí misma con las oportunidades que la ejecución crea, para su contacto: la ejecución vincula cada uno y no lo envía.",
+      "rolesLinked_one": "No contado: {{count}} rol de contacto que la plataforma escribe por sí misma con una oportunidad que crea la ejecución, para su contacto: la ejecución lo vincula y no lo envía.",
+      "rolesLinked_other": "No contados: {{count}} roles de contacto que la plataforma escribe por sí misma con las oportunidades que crea la ejecución, para su contacto: la ejecución vincula cada uno y no lo envía.",
       "notWritten_one": "De los {{total}} que una ejecución cuenta en el origen, {{count}} no se escribiría: retenido o rechazado, como dice cada objeto. Lo que sigue se mide sobre todos.",
       "notWritten_other": "De los {{total}} que una ejecución cuenta en el origen, {{count}} no se escribirían: retenidos o rechazados, como dice cada objeto. Lo que sigue se mide sobre todos.",
       "unwritable": {
@@ -5344,7 +5346,7 @@
       "toDeactivate": "Por desactivar",
       "heldForExcludedParents": "Se dejarían fuera, sin enviar — un lookup sin el cual estos registros no pueden entrar apunta a un objeto que excludedObjects deja fuera, o dependen de tales registros; no se pide ningún marcador para él: {{objects}}",
       "quotesLeftUnsynced": "Quedarían sin presupuesto sincronizado, conservando sus productos — la carga escribiría menos líneas del presupuesto que productos de la oportunidad, y sincronizar un presupuesto reemplaza los productos de una oportunidad por sus líneas: {{objects}}",
-      "writtenByThePlatform": "Escritos por la plataforma con su oportunidad, y vinculados en cuanto esta existe — no se cuentan para insertar: {{objects}}",
+      "writtenByThePlatform": "Escritos por la plataforma con el registro al que acompañan, y vinculados en cuanto este existe — no se cuentan para insertar: {{objects}}",
       "placeholders": "Marcadores por crear, y los registros que llena cada uno: {{fields}}",
       "defaults": "Valores predeterminados declarados, y los registros que llena cada uno: {{fields}}",
       "defaultsPerRecord": "Cada registro recibe un valor propio — su rango añadido al valor declarado, al ser el campo único en el destino o el nombre del registro, o el token que lleva el valor ({n}, {referenceId}) reemplazado: {{fields}}",

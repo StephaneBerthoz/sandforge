@@ -1119,8 +1119,17 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
         `${target} holds: their values are kept first, and --remove puts them back`,
     );
   }
-  // Counted from the source, the role the platform writes with an opportunity
-  // read as one the run writes: on a scratch org the run linked it.
+  // Told from the rows the run writes, the role the platform writes with an
+  // opportunity is out of what the run writes: on a scratch org the gate
+  // counted it, and the run linked it.
+  if ((check.rolesLinked ?? 0) > 0) {
+    lines.push(
+      `  not counted: ${check.rolesLinked} OpportunityContactRole record(s) the platform ` +
+        'writes itself with the opportunities the run creates, for their contact: the run ' +
+        'links each and does not send it',
+    );
+  }
+  // Counted from the source alone, where the rows could not tell them.
   if ((check.rolesByThePlatform ?? 0) > 0) {
     lines.push(
       `  of them, up to ${check.rolesByThePlatform} OpportunityContactRole record(s) the ` +

@@ -902,6 +902,9 @@ describe('messageLines', () => {
             object('Contact', {}),
             object('Opportunity', {}),
             object('OpportunityContactRole', { toInsert: 0, writtenByThePlatform: 1 }),
+            object('AccountContactRelation', { toInsert: 0, writtenByThePlatform: 1 }),
+            object('EmailMessage', {}),
+            object('Task', { toInsert: 0, writtenByThePlatform: 1 }),
           ],
           excludedObjects: [],
           removals: [],
@@ -913,11 +916,16 @@ describe('messageLines', () => {
       },
     });
 
-    expect(lines.slice(0, 4)).toEqual([
-      'dry run: 2 record(s) to insert, 1 to link, 0 not sent — nothing written',
+    expect(lines.slice(0, 7)).toEqual([
+      'dry run: 3 record(s) to insert, 3 to link, 0 not sent — nothing written',
       '  Contact: 1 to insert of 1',
       '  Opportunity: 1 to insert of 1',
       '  OpportunityContactRole: 0 to insert, 1 to link (written by the platform with their opportunity, for its contact) of 1',
+      // A contact's direct relation and an email's task, which the load
+      // links as it links the role: its dry run counted them to insert.
+      '  AccountContactRelation: 0 to insert, 1 to link (written by the platform with their contact) of 1',
+      '  EmailMessage: 1 to insert of 1',
+      '  Task: 0 to insert, 1 to link (written by the platform with their email) of 1',
     ]);
   });
 

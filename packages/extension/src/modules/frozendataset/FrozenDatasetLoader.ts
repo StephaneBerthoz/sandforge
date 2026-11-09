@@ -6008,6 +6008,63 @@ function rolesThePlatformWritesOf(
 }
 
 /**
+ * The direct account-contact relations and the emails' tasks of
+ * `alignedByObject`, by referenceId, that a load links to the record the
+ * platform writes with another it inserts, as it links them once that one is
+ * in: a contact's direct relation with the account the contact goes in with
+ * (`matchDirectRelations`), and the task of an email related to a record of
+ * the load and on no case (`matchTasksWrittenWithEmails`). Of a contact the
+ * load inserts as any contact — not one it links, nor one the platform
+ * writes with its person account — and of an email it inserts.
+ *
+ * Counted to insert, the dry run said the relation and the task to insert of
+ * a load that linked both. One the target refuses its record — the contact,
+ * the email, the record the email is related to — goes in as read, and that
+ * record, counted to insert, does not: the load writes no more than it said.
+ */
+function withTheirRecordOf(
+  alignedByObject: ReadonlyMap<
+    string,
+    ReadonlyArray<{ referenceId: string; fields: Record<string, unknown> }>
+  >,
+  reused: ReadonlySet<string>,
+  withTheirAccount: { has(referenceId: string): boolean },
+  objectOf: (referenceId: string) => string | undefined,
+): Set<string> {
+  const written = (objectApiName: string) =>
+    (alignedByObject.get(objectApiName) ?? []).filter((r) => !reused.has(r.referenceId));
+  const linked = new Set<string>();
+  /** The account each contact the load inserts as any contact goes in with. */
+  const accountOf = new Map<string, unknown>();
+  for (const contact of written(CONTACT)) {
+    if (withTheirAccount.has(contact.referenceId)) continue;
+    accountOf.set(contact.referenceId, contact.fields.AccountId);
+  }
+  const accounts = new Set((alignedByObject.get('Account') ?? []).map((r) => r.referenceId));
+  for (const relation of written(ACCOUNT_CONTACT_RELATION)) {
+    const { AccountId: account, ContactId: contact } = relation.fields;
+    if (typeof account !== 'string' || typeof contact !== 'string') continue;
+    if (accountOf.get(contact) === account && accounts.has(account)) {
+      linked.add(relation.referenceId);
+    }
+  }
+  /** Every record the load writes or links, by referenceId. */
+  const inTheLoad = new Set(
+    [...alignedByObject.values()].flatMap((rows) => rows.map((r) => r.referenceId)),
+  );
+  const tasks = new Set(written(TASK).map((r) => r.referenceId));
+  for (const email of written(EMAIL_MESSAGE)) {
+    const task = email.fields.ActivityId;
+    const related = email.fields.RelatedToId;
+    if (typeof task !== 'string' || !tasks.has(task)) continue;
+    if (typeof related !== 'string' || !inTheLoad.has(related)) continue;
+    if (emailOnACase(email.fields, objectOf)) continue;
+    linked.add(task);
+  }
+  return linked;
+}
+
+/**
  * What a load would do, from what it read before its first write and what
  * its purge would take: see {@link FrozenDatasetLoader.planLoad}. Counted as
  * the load counts: the records it writes are the aligned ones it does not
@@ -6046,6 +6103,11 @@ function loadPlanOf(
   // inserts with their contact, which the load links once each opportunity
   // is in: counted apart, never to insert.
   const rolesOfThePlatform = rolesThePlatformWritesOf(alignedByObject, reused);
+  // So are a contact's direct relation and an email's task, which the
+  // platform writes with the contact and the email the load inserts.
+  const withTheirRecord = withTheirRecordOf(alignedByObject, reused, withTheirAccount, (id) =>
+    prepared.refIndex.get(id),
+  );
   const perObject: FrozenLoadPlanObject[] = [];
   for (const objectApiName of order) {
     const fromFiles =
@@ -6062,7 +6124,9 @@ function loadPlanOf(
     const toWrite = aligned ? written(objectApiName) : [];
     const ofTheirAccount = toWrite.filter((r) => withTheirAccount.has(r.referenceId)).length;
     personContacts += ofTheirAccount;
-    const ofThePlatform = toWrite.filter((r) => rolesOfThePlatform.has(r.referenceId)).length;
+    const ofThePlatform = toWrite.filter(
+      (r) => rolesOfThePlatform.has(r.referenceId) || withTheirRecord.has(r.referenceId),
+    ).length;
     // What only the write tells: the lookups the target filters that the
     // records it inserts hold, as the insert would send them.
     const lookupFilters = (prepared.filteredLookups.get(objectApiName) ?? []).flatMap(

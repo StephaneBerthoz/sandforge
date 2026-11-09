@@ -462,6 +462,41 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
     expect(summary.existingSourceIds).toEqual([]);
   });
 
+  it('says on its dry-run lines one fewer to insert for a row linked by its unique value, as its Simulated line and summary count it', async () => {
+    // Run on a Developer Edition, the dry run of a contact's clone said
+    // "[dry-run] Account: 2 record(s) would be inserted" where its Simulated
+    // line and its summary said 1 inserted and 1 linked, as the run did.
+    const { deps } = fakeOrgs();
+
+    const { summary, events } = await run(deps, {
+      ...OPTIONS,
+      dryRun: true,
+      decisions: REGION_GIVEN,
+    });
+
+    const lines = events
+      .filter((e) => e.objectName === 'Order__c' && e.message.startsWith('[dry-run] '))
+      .map((e) => e.message);
+    // What the lines come to, as one reads them down: the rows the read
+    // brings, more as more are read, fewer as fewer go.
+    const said = lines.reduce((sum, line) => {
+      const more = /^\[dry-run\] Order__c: (\d+) (?:more )?record\(s\) would be inserted/.exec(
+        line,
+      );
+      const fewer = /^\[dry-run\] Order__c: (\d+) fewer would be inserted/.exec(line);
+      return sum + (more ? Number(more[1]) : 0) - (fewer ? Number(fewer[1]) : 0);
+    }, 0);
+    expect(said).toBe(2);
+    expect(lines).toContain(
+      '[dry-run] Order__c: 1 fewer would be inserted, linked to the record the target holds ' +
+        'under the same Code__c, which its refusal of the row names',
+    );
+    expect(events.filter((e) => e.objectName === 'Order__c').at(-1)?.message).toMatch(
+      /^Simulated Order__c: 2 would be inserted, 1 linked to records already in the target, 0 failed/,
+    );
+    expect(summary).toMatchObject({ linkedCount: 1 });
+  });
+
   it('says a currency the target does not hold active, read once, with the currency its rows go in and the amounts converted', async () => {
     const { deps, targetQueries } = fakeOrgs();
 

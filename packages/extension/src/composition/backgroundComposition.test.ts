@@ -693,6 +693,7 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       counted: true,
       alreadyCopied: 40,
       alreadyLinked: 2,
+      rolesLinked: 3,
     };
     expect(runQuestionDetail(sync).split('\n')).toEqual([
       'This sync is about to write 2401 records to DEV:',
@@ -700,6 +701,9 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       '• Account: 1',
       'Not counted: 40 records an earlier run of this configuration copied, still in the target, which the sync leaves as they are.',
       'Not counted: 2 records an earlier run of this configuration linked to records the target held, which the sync leaves as they are.',
+      // Counted among the records to write, on a scratch org the role was
+      // linked by the run that the question said it wrote.
+      'Not counted: 3 contact roles the platform writes itself with the opportunities the sync creates, for their contact, which the sync links to and does not send.',
       'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
       'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
       'The records have been counted, and nothing has been read or written yet.',
@@ -953,6 +957,24 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       "What DEV runs on these objects could not be read (the target's automation: timed out), so the emails its flows send as the records go in were not counted against its daily limits.",
     );
     expect(runQuestionDetail(write)).not.toContain('were not counted against');
+  });
+
+  it('says the contact roles it counts in that the platform may write, where the gate could not tell them', () => {
+    // Said on the command line alone, the question of a run of whole tables
+    // counted the role among the records to write and said nothing of it.
+    expect(
+      runQuestionDetail({ ...write, rolesMayBeByThePlatform: { rows: 2 } }).split('\n'),
+    ).toContain(
+      'Of them, up to 2 contact roles the platform may write itself with their opportunity, for its contact, which the clone links to and does not send.',
+    );
+    expect(
+      runQuestionDetail({ ...write, rolesMayBeByThePlatform: { rows: 1, before: true } }).split(
+        '\n',
+      ),
+    ).toContain(
+      'Of them, up to 1 contact roles the platform may have written with their opportunity, for its contact, in the run this one takes up, which the clone links to and does not send.',
+    );
+    expect(runQuestionDetail(write)).not.toContain('contact roles');
   });
 
   it('says the prices it counts in that the clone may read as it writes them', () => {

@@ -1655,6 +1655,8 @@
       "overwrites_other": "Of them, up to {{count}} may write over records the target org holds: what they hold is read and kept first, and removing the run puts it back.",
       "rolesByThePlatform_one": "Of them, {{count}} may be a contact role the platform writes itself with an opportunity the run creates, for its contact: the run links it and does not send it.",
       "rolesByThePlatform_other": "Of them, up to {{count}} may be contact roles the platform writes itself with the opportunities the run creates, for their contact: the run links each and does not send it.",
+      "rolesLinked_one": "Not counted: {{count}} contact role the platform writes itself with an opportunity the run creates, for its contact: the run links it and does not send it.",
+      "rolesLinked_other": "Not counted: {{count}} contact roles the platform writes itself with the opportunities the run creates, for their contact: the run links each and does not send it.",
       "notWritten_one": "Of the {{total}} a run counts from the source, {{count}} would not be written: held back or refused, as each object says. What follows is measured on all of them.",
       "notWritten_other": "Of the {{total}} a run counts from the source, {{count}} would not be written: held back or refused, as each object says. What follows is measured on all of them.",
       "unwritable": {
@@ -5344,7 +5346,7 @@
       "toDeactivate": "To deactivate",
       "heldForExcludedParents": "Would be left out, not sent — a lookup these records cannot go in without names an object excludedObjects leaves out, or they depend on such records; no placeholder is asked for it: {{objects}}",
       "quotesLeftUnsynced": "Would be left unsynced with their quote, their products kept — the load would write fewer of the quote's lines than of the opportunity's products, and syncing a quote replaces an opportunity's products with its lines: {{objects}}",
-      "writtenByThePlatform": "Written by the platform with their opportunity, and linked once it is in — not counted to insert: {{objects}}",
+      "writtenByThePlatform": "Written by the platform with the record they go with, and linked once it is in — not counted to insert: {{objects}}",
       "placeholders": "Placeholders to create, and the records each fills: {{fields}}",
       "defaults": "Declared defaults, and the records each fills: {{fields}}",
       "defaultsPerRecord": "Each record gets a value of its own — its rank appended to the declared value, the field being unique in the target or the record's name, or the token the value carries ({n}, {referenceId}) replaced: {{fields}}",

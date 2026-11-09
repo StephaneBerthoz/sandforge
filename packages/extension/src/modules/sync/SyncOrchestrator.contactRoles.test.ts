@@ -250,6 +250,7 @@ function gatedOrchestrator(target: ReturnType<typeof targetOrg>, rows = sourceRo
       ...(write.rolesByThePlatform !== undefined
         ? { rolesByThePlatform: write.rolesByThePlatform }
         : {}),
+      ...(write.rolesLinked !== undefined ? { rolesLinked: write.rolesLinked } : {}),
       storage: { verdict: 'fits', estimateMB: 0 },
       emails: [],
       verdict: 'writes',
@@ -292,15 +293,41 @@ function gatedOrchestrator(target: ReturnType<typeof targetOrg>, rows = sourceRo
 }
 
 describe('SyncOrchestrator — what its gate and its simulation count of the role the platform writes', () => {
-  it('has its gate say the role the platform may write with the opportunity, which it counts from the source alone', async () => {
+  it('has its gate count to write what the run writes, the role it links to the platform’s said apart', async () => {
     // On a scratch org, the gate read "write gate: 4 record(s) …
-    // OpportunityContactRole 1", and the run linked that role and wrote none.
+    // OpportunityContactRole 1 … of them, up to 1 OpportunityContactRole
+    // record(s) the platform writes itself", and the run wrote 3 and linked
+    // the role.
     const target = targetOrg();
     const { sync, counted } = gatedOrchestrator(target);
 
-    await sync.execute(CONFIG);
+    const result = await sync.execute(CONFIG);
 
-    expect(counted[0]?.rolesByThePlatform).toBe(1);
+    const gate = counted[0];
+    expect(gate?.objects.map(({ objectApiName, rows }) => [objectApiName, rows])).toEqual([
+      ['Contact', 1],
+      ['Opportunity', 1],
+      ['OpportunityContactRole', 0],
+    ]);
+    expect(gate?.rolesLinked).toBe(1);
+    expect(gate?.rolesByThePlatform).toBeUndefined();
+    // As many to write as the run created, the role among the linked.
+    const toWrite = (gate?.objects ?? []).reduce((sum, object) => sum + object.rows, 0);
+    expect(result.objectResults.reduce((sum, r) => sum + r.success, 0)).toBe(toWrite);
+    expect(
+      result.objectResults.find((r) => r.objectApiName === 'OpportunityContactRole')
+        ?.writtenByThePlatform,
+    ).toEqual({ records: 1, given: 1 });
+  });
+
+  it('has its gate count to write the role of another contact, and every role of an opportunity sent without its contact', async () => {
+    const beside = gatedOrchestrator(targetOrg(), sourceRows(true));
+    await beside.sync.execute(CONFIG);
+    expect(
+      beside.counted[0]?.objects.find((o) => o.objectApiName === 'OpportunityContactRole')?.rows,
+    ).toBe(1);
+    expect(beside.counted[0]?.rolesLinked).toBe(1);
+
     // An opportunity sent without its contact gets none of the platform's.
     const without = gatedOrchestrator(targetOrg());
     await without.sync.execute({
@@ -309,7 +336,41 @@ describe('SyncOrchestrator — what its gate and its simulation count of the rol
         o.objectApiName === 'Opportunity' ? { ...o, excludedFields: ['ContactId'] } : o,
       ),
     });
+    expect(
+      without.counted[0]?.objects.find((o) => o.objectApiName === 'OpportunityContactRole')?.rows,
+    ).toBe(1);
+    expect(without.counted[0]?.rolesLinked).toBeUndefined();
     expect(without.counted[0]?.rolesByThePlatform).toBeUndefined();
+
+    // Nor does one whose contact the run does not write and no earlier run wrote.
+    const noContact = gatedOrchestrator(targetOrg());
+    await noContact.sync.execute({
+      ...CONFIG,
+      objects: CONFIG.objects.filter((o) => o.objectApiName !== 'Contact'),
+    });
+    expect(noContact.counted[0]?.rolesLinked).toBeUndefined();
+    expect(
+      noContact.counted[0]?.objects.find((o) => o.objectApiName === 'OpportunityContactRole')?.rows,
+    ).toBe(1);
+  });
+
+  it('has its gate say how many at most, counted in, where an upsert may update the opportunity', async () => {
+    const { sync, counted } = gatedOrchestrator(targetOrg());
+
+    await sync.simulate({
+      ...CONFIG,
+      objects: CONFIG.objects.map((o) =>
+        o.objectApiName === 'Opportunity'
+          ? { ...o, operation: 'upsert' as const, externalIdField: 'Id' }
+          : o,
+      ),
+    });
+
+    expect(counted[0]?.rolesByThePlatform).toBe(1);
+    expect(counted[0]?.rolesLinked).toBeUndefined();
+    expect(
+      counted[0]?.objects.find((o) => o.objectApiName === 'OpportunityContactRole')?.rows,
+    ).toBe(1);
   });
 
   it('simulates the role linked to the one the platform writes with the opportunity, not inserted, as the run links it', async () => {
@@ -325,9 +386,10 @@ describe('SyncOrchestrator — what its gate and its simulation count of the rol
       '1 record(s) would be linked to the contact role the platform writes with their ' +
         'opportunity, for its contact, not written.',
     );
-    // Said by the gate as the reading found it, and not among what it would
-    // hold back or refuse.
-    expect(simulation.writeCheck).toMatchObject({ total: 3, rolesByThePlatform: 1 });
+    // Said by the gate as the reading found it, out of what the run writes,
+    // and not among what it would hold back or refuse.
+    expect(simulation.writeCheck).toMatchObject({ total: 2, rolesLinked: 1 });
+    expect(simulation.writeCheck?.rolesByThePlatform).toBeUndefined();
     expect(simulation.writeCheck?.notWritten).toBeUndefined();
   });
 

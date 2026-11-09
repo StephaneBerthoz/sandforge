@@ -906,10 +906,19 @@ export interface SyncWriteCheck {
    * Of `total`, the contact roles the platform may write itself as it takes
    * the opportunities the run creates, for the contact each goes in with,
    * which the run links to and does not send: at most, as a count of the
-   * source says them, before a row is read; of a simulation, those its
-   * reading found. Counted in all the same. Absent when none.
+   * source says them, where the gate could not tell them from the rows
+   * (`rolesLinked`). Counted in all the same. Absent when none.
    */
   rolesByThePlatform?: number;
+  /**
+   * The contact roles the run links to the one the platform writes itself as
+   * it takes an opportunity the run creates, for the contact it goes in
+   * with, and does not send: told from the rows the run writes — of a
+   * simulation, as its reading found them. Not in `objects` nor `total`.
+   * Counted in, the gate of one opportunity's sync said 4 records to write
+   * of a run that wrote 3 and linked its role. Absent when none.
+   */
+  rolesLinked?: number;
   /** The `sandforge.safety.confirmAboveRecords` value `total` is past; absent when it is not. */
   aboveRecords?: number;
   /**

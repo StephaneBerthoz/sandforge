@@ -112,6 +112,7 @@ import {
   type SyncDeltaStore,
 } from './SyncDelta.js';
 import {
+  CONTACT,
   CONTACT_FIELD,
   OPPORTUNITY_CONTACT_ROLE,
   RowsLeftToThePlatform,
@@ -906,6 +907,7 @@ function countedWriteOf(
   heldBack: ReadonlyMap<string, SyncHeldBackObject> = new Map(),
   matched: ReadonlyMap<string, number> = new Map(),
   linked: ReadonlySet<string> = new Set(),
+  rolesLinked?: number,
 ): GateInput {
   let alreadyCopied = 0;
   let alreadyLinked = 0;
@@ -936,13 +938,19 @@ function countedWriteOf(
       ? [{ ...object, why: refusal.why, ...(refusal.key ? { key: refusal.key } : {}) }]
       : [];
   });
+  // The roles the run links to the platform's, told from the rows it
+  // writes: out of what it writes, and said apart.
+  const roleRows = measured.find((object) => object.objectApiName === OPPORTUNITY_CONTACT_ROLE);
+  const takenOut = roleRows && rolesLinked !== undefined ? Math.min(rolesLinked, roleRows.rows) : 0;
+  if (roleRows && takenOut > 0) roleRows.rows -= takenOut;
   const written = measured.filter((object) => !refused.has(object.objectApiName));
   const reads = written.filter(
     (object) =>
       object.rows > 0 && createsRecords(object.operation) && readBack.has(object.objectApiName),
   ).length;
   const held = [...heldBack.values()].filter(({ objectApiName }) => !refused.has(objectApiName));
-  const roles = rolesThePlatformMayWrite(objects, written);
+  // Up to how many, where the rows could not tell them.
+  const roles = rolesLinked === undefined ? rolesThePlatformMayWrite(objects, written) : 0;
   return {
     objects: written,
     alreadyCopied,
@@ -951,6 +959,7 @@ function countedWriteOf(
     ...(held.length > 0 ? { heldBack: held } : {}),
     ...(reads > 0 ? { readBack: reads } : {}),
     ...(roles > 0 ? { rolesByThePlatform: roles } : {}),
+    ...(takenOut > 0 ? { rolesLinked: takenOut } : {}),
   };
 }
 
@@ -1281,6 +1290,15 @@ export class SyncOrchestrator {
         apart.heldBack,
         apart.matched,
         earlier.linked,
+        await this.rolesLinkedAtTheGate(
+          config,
+          sortedObjects,
+          unwritable,
+          apart.heldBack,
+          copied,
+          earlier.links,
+          gateReads,
+        ),
       );
       const { answer } = await this.deps.writeGate.hold(measured);
       if (!answer.go) throw refuse(answer.message, answer.code);
@@ -2464,6 +2482,104 @@ export class SyncOrchestrator {
     return { heldBack, matched };
   }
 
+  /**
+   * Of the contact roles a run's gate counts, those the run links to the one
+   * the platform writes itself as it takes an opportunity the run creates,
+   * for the contact it goes in with (`rolesWrittenWithTheirOpportunity`):
+   * told before anything is written, from the rows the run then takes
+   * (`GateReads`). An opportunity an insert creates — not one an earlier run
+   * copied — sent with its `ContactId`, of a contact the run writes before it
+   * or one an earlier run wrote, and of it the role of that contact, the
+   * primary one first (`rolesThePlatformWrites`).
+   *
+   * Counted from the source alone, the gate said "up to 1" of a role it
+   * counted to write, which the run linked. One the target refuses its
+   * opportunity or its contact goes in with neither, as its opportunity is
+   * refused, and the run writes no more than the gate said. Undefined where
+   * the rows cannot tell — the gate reads nothing on a delta configuration, an
+   * upsert may update the opportunity, a mapping or a rule may change what it
+   * sends, an object is left out or holds rows back — and the gate says how
+   * many at most, counted in.
+   *
+   * @param earlier - What earlier runs of the configuration wrote, by source id.
+   * @param gateReads - Receives what it reads of each object, for the object's
+   *   own read to take ({@link GateReads}).
+   */
+  private async rolesLinkedAtTheGate(
+    config: SyncConfig,
+    ordered: readonly SyncObjectConfig[],
+    unwritable: ReadonlyMap<string, TargetRefusal>,
+    heldBack: ReadonlyMap<string, SyncHeldBackObject>,
+    copied: AlreadyCopied,
+    earlier: ReadonlyMap<string, string> | undefined,
+    gateReads: GateReads | undefined,
+  ): Promise<number | undefined> {
+    const named = (name: string): SyncObjectConfig | undefined =>
+      ordered.find((object) => object.objectApiName === name);
+    const opportunity = named(OPPORTUNITY);
+    const roles = named(OPPORTUNITY_CONTACT_ROLE);
+    if (!opportunity || !roles || !createsRecords(roles.operation)) return undefined;
+    // Not looked up in the target, every role goes as read.
+    if (!this.deps.queryTargetRows) return 0;
+    if (opportunity.excludedFields.includes(CONTACT_FIELD)) return 0;
+    if (!gateReads || opportunity.operation !== 'insert') return undefined;
+    const sendsAsRead = (object: SyncObjectConfig): boolean =>
+      object.fieldMappings.length === 0 &&
+      object.addOnFields.length === 0 &&
+      object.transformRules.length === 0;
+    if (!sendsAsRead(opportunity) || !sendsAsRead(roles)) return undefined;
+    const kept = [OPPORTUNITY, OPPORTUNITY_CONTACT_ROLE, CONTACT];
+    if (kept.some((name) => unwritable.has(name) || heldBack.has(name))) return undefined;
+    const described = await this.deps.describeTargetFields?.(OPPORTUNITY).catch(() => undefined);
+    if (!described) return undefined;
+    if (!described.creatable.has(CONTACT_FIELD)) return 0;
+    const rowsOf = async (object: SyncObjectConfig): Promise<Record<string, unknown>[]> => {
+      const held = gateReads.get(object.objectApiName);
+      if (held) return held;
+      const records = await this.deps.querySource(config.sourceOrgId, object);
+      gateReads.set(object.objectApiName, records);
+      return records;
+    };
+    const idOf = (row: Record<string, unknown>): string | undefined =>
+      typeof row['Id'] === 'string' && row['Id'] !== '' ? row['Id'] : undefined;
+    try {
+      // The contacts in the target as each opportunity goes in: those an
+      // earlier run wrote, and those the run creates before it.
+      const inTheTarget = new Set([...(earlier?.keys() ?? [])].map(idKeyOf));
+      const contact = named(CONTACT);
+      if (
+        contact &&
+        createsRecords(contact.operation) &&
+        ordered.indexOf(contact) < ordered.indexOf(opportunity)
+      ) {
+        for (const row of await rowsOf(contact)) {
+          const id = idOf(row);
+          if (id) inTheTarget.add(idKeyOf(id));
+        }
+      }
+      const copiedOf = (name: string): ReadonlySet<string> => copied.get(name) ?? new Set();
+      /** The contact each opportunity the run creates goes in with, by the opportunity's key. */
+      const sentWith = new Map<string, string>();
+      for (const row of await rowsOf(opportunity)) {
+        const id = idOf(row);
+        const sent = row[CONTACT_FIELD];
+        if (!id || typeof sent !== 'string' || sent === '') continue;
+        if (copiedOf(OPPORTUNITY).has(idKeyOf(id)) || !inTheTarget.has(idKeyOf(sent))) continue;
+        sentWith.set(idKeyOf(id), sent);
+      }
+      if (sentWith.size === 0) return 0;
+      const rows = (await rowsOf(roles)).filter((row) => {
+        const id = idOf(row);
+        return id !== undefined && !copiedOf(OPPORTUNITY_CONTACT_ROLE).has(idKeyOf(id));
+      });
+      return rolesThePlatformWrites(rows, (one) => sentWith.get(idKeyOf(one))).length;
+    } catch {
+      // A read that fails is the run's to meet at that object: here, the
+      // gate says how many at most.
+      return undefined;
+    }
+  }
+
   /** Check whether grappe mode should activate based on the counted records and config. */
   private isGrappeActive(totalRecords: number | undefined): boolean {
     const config = this.deps.grappeConfig;
@@ -2588,6 +2704,15 @@ export class SyncOrchestrator {
             apart.heldBack,
             apart.matched,
             earlier.linked,
+            await this.rolesLinkedAtTheGate(
+              config,
+              ordered,
+              refused,
+              apart.heldBack,
+              copied,
+              earlier.links,
+              gateReads,
+            ),
           ),
         );
       } catch (err: unknown) {
@@ -2646,7 +2771,12 @@ export class SyncOrchestrator {
     // them the run holds back or the target refuses: "4 records to write"
     // said of a run that writes 2.
     if (writeCheck) {
-      const measured = new Set(writeCheck.objects.map((object) => object.objectApiName));
+      // The roles the gate told linked are measured with the objects it
+      // counts, though none of them is left to write.
+      const measured = new Set([
+        ...writeCheck.objects.map((object) => object.objectApiName),
+        ...((writeCheck.rolesLinked ?? 0) > 0 ? [OPPORTUNITY_CONTACT_ROLE] : []),
+      ]);
       const written = objects
         .filter((object) => measured.has(object.objectApiName))
         .reduce(
@@ -2655,23 +2785,41 @@ export class SyncOrchestrator {
           0,
         );
       // The roles the platform writes with the opportunities, as the reading
-      // found them, said apart from what the run would hold back or refuse:
-      // the count of the source could say only how many at most.
+      // found them, out of what the run writes and said apart, as the gate
+      // told them from the rows — or counted in, where it could only say
+      // how many at most.
       const check: SyncWriteCheck = { ...writeCheck };
       delete check.rolesByThePlatform;
+      delete check.rolesLinked;
       const linkedRoles = objects
         .filter((object) => measured.has(object.objectApiName))
         .reduce((sum, object) => sum + (object.writtenByThePlatform ?? 0), 0);
-      const notWritten = writeCheck.total - written - linkedRoles;
+      // Counted from the source as the gate counted them, less what the
+      // reading found linked rather than what the gate told.
+      const toldApart = (writeCheck.rolesLinked ?? 0) - linkedRoles;
+      const total = writeCheck.total + toldApart;
+      const notWritten = total - written;
+      const roleObject = { objectApiName: OPPORTUNITY_CONTACT_ROLE, rows: 0 };
+      const counted = check.objects.some((o) => o.objectApiName === OPPORTUNITY_CONTACT_ROLE)
+        ? check.objects
+        : [...check.objects, roleObject];
       // None of what it counts written, it has nothing to write, as its lines
       // say: of 34 prices whose product and book name nothing the target
       // holds, its JSON said verdict "writes" and total 34 beside notWritten
       // 34, under "write gate: 0 record(s) to write". A question or a
       // refusal the run meets first stays said.
-      const none = writeCheck.total > 0 && written + linkedRoles === 0;
+      const none = total > 0 && written === 0;
       writeCheck = {
         ...check,
-        ...(linkedRoles > 0 ? { rolesByThePlatform: linkedRoles } : {}),
+        objects: counted
+          .map((object) =>
+            object.objectApiName === OPPORTUNITY_CONTACT_ROLE
+              ? { ...object, rows: Math.max(0, object.rows + toldApart) }
+              : object,
+          )
+          .filter((object) => object.rows > 0),
+        total,
+        ...(linkedRoles > 0 ? { rolesLinked: linkedRoles } : {}),
         ...(notWritten > 0 ? { notWritten } : {}),
         ...(none ? { total: 0 } : {}),
         ...(none && check.verdict === 'writes' ? { verdict: 'nothing' as const } : {}),

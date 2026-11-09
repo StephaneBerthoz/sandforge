@@ -967,6 +967,14 @@ function writeQuestion(question: WriteConfirmation): string[] {
       ),
     );
   }
+  if (question.rolesLinked !== undefined && question.rolesLinked > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0} contact roles the platform writes itself with the opportunities the sync creates, for their contact, which the sync links to and does not send.',
+        question.rolesLinked,
+      ),
+    );
+  }
   if (question.overwrites !== undefined && question.overwrites > 0) {
     lines.push(
       vscode.l10n.t(
@@ -987,6 +995,22 @@ function writeQuestion(question: WriteConfirmation): string[] {
   if (question.largeVolume !== undefined) {
     lines.push(
       vscode.l10n.t('More than {0} records is a large volume for this org.', question.largeVolume),
+    );
+  }
+  // Counted in, where the gate could not tell them: said, as the command
+  // line says them.
+  if (question.rolesMayBeByThePlatform !== undefined) {
+    const { rows, before } = question.rolesMayBeByThePlatform;
+    lines.push(
+      before === true
+        ? vscode.l10n.t(
+            'Of them, up to {0} contact roles the platform may have written with their opportunity, for its contact, in the run this one takes up, which the clone links to and does not send.',
+            rows,
+          )
+        : vscode.l10n.t(
+            'Of them, up to {0} contact roles the platform may write itself with their opportunity, for its contact, which the clone links to and does not send.',
+            rows,
+          ),
     );
   }
   if (question.pricesForLines !== undefined) {

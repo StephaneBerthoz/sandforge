@@ -107,6 +107,18 @@ describe('SyncWriteCheckCard', () => {
     expect(screen.queryByTestId('sync-write-check-platform-roles')).toBeNull();
   });
 
+  it('says apart from the records to write the contact roles the run links to the platform’s', () => {
+    // On a scratch org the page counted the role among the records to write,
+    // and the run linked it.
+    render(<SyncWriteCheckCard check={{ ...PAST_EMAILS, rolesLinked: 1 }} />);
+
+    expect(screen.getByTestId('sync-write-check-roles-linked').textContent).toBe(
+      'Not counted: 1 contact role the platform writes itself with an opportunity the run ' +
+        'creates, for its contact: the run links it and does not send it.',
+    );
+    expect(screen.queryByTestId('sync-write-check-platform-roles')).toBeNull();
+  });
+
   it('names each object the target would take none of, and that the run asks whether to leave it out', () => {
     // Nothing said it: the run wrote the objects before, then had every
     // record of these refused.

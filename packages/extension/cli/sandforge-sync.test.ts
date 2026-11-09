@@ -1007,6 +1007,34 @@ describe('what a run says before its first write', () => {
     );
   });
 
+  it('says the contact roles the run links to the platform’s apart from the records it counts to write', () => {
+    // On a scratch org: "write gate: 4 record(s) … OpportunityContactRole 1",
+    // and the run wrote 3 and linked the role to the platform's.
+    const lines = writeCheckLines(
+      {
+        objects: [
+          { objectApiName: 'Account', rows: 1 },
+          { objectApiName: 'Contact', rows: 1 },
+          { objectApiName: 'Opportunity', rows: 1 },
+        ],
+        total: 3,
+        alreadyCopied: 0,
+        rolesLinked: 1,
+        storage: { verdict: 'fits', estimateMB: 0.01 },
+        emails: [],
+        verdict: 'writes',
+      },
+      'TGT',
+    );
+
+    expect(lines[0]).toMatch(/^write gate: 3 record\(s\) to write to TGT/);
+    expect(lines).toContain(
+      '  not counted: 1 OpportunityContactRole record(s) the platform writes itself with the ' +
+        'opportunities the run creates, for their contact: the run links each and does not send it',
+    );
+    expect(lines.some((line) => line.includes('of them, up to'))).toBe(false);
+  });
+
   it('names the key of an upsert the target matches none on', () => {
     const lines = writeCheckLines(
       {

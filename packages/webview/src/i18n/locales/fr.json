@@ -1655,6 +1655,8 @@
       "overwrites_other": "Parmi eux, jusqu'à {{count}} peuvent écraser des enregistrements que l'org cible détient : ce qu'ils contiennent est d'abord lu et conservé, et supprimer l'exécution le remet en place.",
       "rolesByThePlatform_one": "Parmi eux, {{count}} peut être un rôle de contact que la plateforme écrit elle-même avec une opportunité que l'exécution crée, pour son contact : l'exécution le rattache et ne l'envoie pas.",
       "rolesByThePlatform_other": "Parmi eux, jusqu'à {{count}} peuvent être des rôles de contact que la plateforme écrit elle-même avec les opportunités que l'exécution crée, pour leur contact : l'exécution rattache chacun et ne l'envoie pas.",
+      "rolesLinked_one": "Non compté : {{count}} rôle de contact que la plateforme écrit elle-même avec une opportunité que l'exécution crée, pour son contact : l'exécution le lie et ne l'envoie pas.",
+      "rolesLinked_other": "Non comptés : {{count}} rôles de contact que la plateforme écrit elle-même avec les opportunités que l'exécution crée, pour leur contact : l'exécution lie chacun et ne l'envoie pas.",
       "notWritten_one": "Sur les {{total}} qu'une exécution compte dans la source, {{count}} ne serait pas écrit : retenu ou refusé, comme chaque objet le dit. La suite est mesurée sur tous.",
       "notWritten_other": "Sur les {{total}} qu'une exécution compte dans la source, {{count}} ne seraient pas écrits : retenus ou refusés, comme chaque objet le dit. La suite est mesurée sur tous.",
       "unwritable": {
@@ -5344,7 +5346,7 @@
       "toDeactivate": "À désactiver",
       "heldForExcludedParents": "Seraient laissés de côté, non envoyés — un lookup sans lequel ces enregistrements ne peuvent pas entrer désigne un objet que excludedObjects laisse de côté, ou ils dépendent de tels enregistrements ; aucun enregistrement technique n'est demandé pour lui : {{objects}}",
       "quotesLeftUnsynced": "Seraient laissées sans devis synchronisé, leurs produits gardés — le chargement écrirait moins de lignes du devis que de produits de l'opportunité, et synchroniser un devis remplace les produits d'une opportunité par ses lignes : {{objects}}",
-      "writtenByThePlatform": "Écrits par la plateforme avec leur opportunité, et liés une fois celle-ci créée — non comptés à insérer : {{objects}}",
+      "writtenByThePlatform": "Écrits par la plateforme avec l'enregistrement qu'ils accompagnent, et liés une fois celui-ci créé — non comptés à insérer : {{objects}}",
       "placeholders": "Placeholders à créer, et les enregistrements que chacun remplit : {{fields}}",
       "defaults": "Valeurs par défaut déclarées, et les enregistrements que chacune remplit : {{fields}}",
       "defaultsPerRecord": "Chaque enregistrement reçoit une valeur à lui — son rang ajouté à la valeur déclarée, le champ étant unique dans la cible ou le nom de l'enregistrement, ou le jeton que porte la valeur ({n}, {referenceId}) remplacé : {{fields}}",

@@ -160,6 +160,7 @@ import {
   overEmailOf,
   forgeWriteBudgetOf,
   pricesForLinesOf,
+  rolesMayBeOf,
   unreadEmailOf,
   READ_CEILING_PER_OBJECT,
   runBypassesOf,
@@ -4164,6 +4165,7 @@ export class ForgeHandler implements DomainHandler {
         ...(unreadEmails.length > 0 ? { emailsUnread: unreadEmails } : {}),
         ...(uncounted !== undefined ? { emailsUncounted: uncounted } : {}),
         ...pricesForLinesOf(plan),
+        ...rolesMayBeOf(plan),
         ...(uncertain.length > 0
           ? { mayBeInTarget: uncertain.map(({ objectApiName, rows }) => ({ objectApiName, rows })) }
           : {}),

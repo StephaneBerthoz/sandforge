@@ -126,8 +126,14 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   {t('sync.writeCheck.overwrites', { count: check.overwrites ?? 0 })}
                 </p>
               )}
-              {/* Counted among the records to write: the role the platform
-                  writes with an opportunity, which the run links and sends not. */}
+              {/* Out of the records to write: the role the platform writes
+                  with an opportunity, which the run links and sends not. */}
+              {(check.rolesLinked ?? 0) > 0 && (
+                <p className="text-text-secondary" data-testid="sync-write-check-roles-linked">
+                  {t('sync.writeCheck.rolesLinked', { count: check.rolesLinked ?? 0 })}
+                </p>
+              )}
+              {/* Counted among them, where the rows could not tell them. */}
               {(check.rolesByThePlatform ?? 0) > 0 && (
                 <p className="text-text-secondary" data-testid="sync-write-check-platform-roles">
                   {t('sync.writeCheck.rolesByThePlatform', {

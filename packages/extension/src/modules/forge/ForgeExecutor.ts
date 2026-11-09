@@ -772,9 +772,8 @@ export interface ForgeWriteBoundary {
     mayAdd?: number;
     /**
      * Of the rows, those the platform may write itself, at most, which the
-     * write links to and does not send: counted in, as the gate cannot tell
-     * them without a read it does not make, and said. See
-     * {@link ForgeMayBeByThePlatform}.
+     * write links to and does not send: counted in, where the gate could not
+     * tell them, and said. See {@link ForgeMayBeByThePlatform}.
      */
     mayBeByThePlatform?: ForgeMayBeByThePlatform;
   }>;
@@ -829,13 +828,12 @@ export interface ForgeCountedObject {
 
 /**
  * The contact roles a gate counts that the platform may write itself as it
- * takes an opportunity of the run, for the contact it goes in with, at most:
- * of a run read page by page, which counts its tables and reads no row
- * before its gate (`before` unset); of an opportunity the run it retries or
- * takes up wrote, whose role the platform wrote then, as the target says
- * once the role's turn comes (`before`). The write links each it finds and
- * sends it not; counted from the rows alone, the gate of a resumed clone
- * said a role to write that the resume linked.
+ * takes an opportunity of the run, for the contact it goes in with, at most,
+ * where the gate could not tell them (`leftOut.byThePlatform` holds those it
+ * told): of a run read page by page whose roles it could not read (`before`
+ * unset); of an opportunity the run it retries or takes up wrote, whose role
+ * the platform wrote then, as the target says once the role's turn comes
+ * (`before`). The write links each it finds and sends it not.
  */
 export interface ForgeMayBeByThePlatform {
   rows: number;
@@ -1458,6 +1456,13 @@ interface NodeCursor {
 
 /** A Salesforce id, 15 or 18 characters: what a checkpoint's id must be to go into a statement. */
 const SALESFORCE_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/**
+ * The most contact roles a run read page by page reads at its gate to tell
+ * those the platform writes with the run's opportunities: one page of a read.
+ * Past it the gate says how many there may be, counted in, and reads no more.
+ */
+const ROLES_TOLD_AT_THE_GATE = 2000;
 
 /**
  * What the record types of a table read page by page say before its first
@@ -5083,6 +5088,8 @@ export class ForgeExecutor {
     }> = [];
     /** The objects whose count is past the cap on each object: the gate says so. */
     const pastTheCap: string[] = [];
+    /** The objects the run reads part of their table of, by the cap or the ceiling. */
+    const readInPart = new Set<string>();
     for (const node of runOrder) {
       if (this.isAborted) {
         throw new ForgeAbortedError(
@@ -5092,22 +5099,40 @@ export class ForgeExecutor {
       const object = node.objectApiName;
       if (!node.included || !state.writtenObjects.has(object)) continue;
       if (config.referenceDataObjects.has(object)) continue;
-      const { read, counted, leftOut, capped } = await this.countToWrite(state, node);
+      const { read, counted, leftOut, capped, partial } = await this.countToWrite(state, node);
       state.counted.set(object, read);
       if (capped) pastTheCap.push(object);
+      if (partial) readInPart.add(object);
       objects.push({ objectApiName: object, rows: [], counted, ...(leftOut ? { leftOut } : {}) });
     }
-    // The contact roles the platform may write with the opportunities the run
-    // creates, which no count tells from the others: said, and counted in.
+    // The contact roles the platform writes with the opportunities the run
+    // creates, told from a read of the roles' table, out of what it writes
+    // and said apart, as a run read whole leaves them out of its gate; where
+    // they cannot be told, how many there may be, counted in. Of an
+    // opportunity a run before it wrote, the target says it once the roles'
+    // turn comes: counted in too, and said.
     const roles = objects.find((o) => o.objectApiName === OPPORTUNITY_CONTACT_ROLE);
+    const opportunities = objects.find((o) => o.objectApiName === OPPORTUNITY_OBJECT);
+    const told = roles
+      ? await this.rolesThePlatformWritesOfTheTables(state, runOrder, objects, readInPart)
+      : undefined;
+    if (roles && told !== undefined && told > 0) {
+      const taken = Math.min(told, roles.counted.rows);
+      roles.counted = { ...roles.counted, rows: roles.counted.rows - taken };
+      roles.leftOut = { ...roles.leftOut, byThePlatform: taken };
+    }
+    const writtenBefore = opportunities?.leftOut?.writtenBefore ?? 0;
     const mayBe = roles
       ? this.rolesThePlatformMayWriteOfTheCounts(
           state,
           roles.counted.rows,
-          objects.find((o) => o.objectApiName === OPPORTUNITY_OBJECT)?.counted.rows ?? 0,
+          (told === undefined ? (opportunities?.counted.rows ?? 0) : 0) + writtenBefore,
         )
       : 0;
-    if (roles && mayBe > 0) roles.mayBeByThePlatform = { rows: mayBe };
+    if (roles && mayBe > 0) {
+      roles.mayBeByThePlatform =
+        told !== undefined ? { rows: mayBe, before: true } : { rows: mayBe };
+    }
     if (this.isAborted) {
       throw new ForgeAbortedError(
         'Forge execution was aborted by user request. Remaining objects were not processed.',
@@ -5141,6 +5166,8 @@ export class ForgeExecutor {
     leftOut?: ForgeRowsLeftOut;
     /** The table holds more rows than the cap on each object lets the run read. */
     capped?: true;
+    /** The table holds more rows than the run reads of it, by the cap or the ceiling. */
+    partial?: true;
   }> {
     const object = node.objectApiName;
     const streamed = this.streamsNode(node, state);
@@ -5183,11 +5210,13 @@ export class ForgeExecutor {
     const leftOut = writtenBefore > 0 ? { writtenBefore } : undefined;
     const counted = (personAccounts?: number): ForgeCountedObject =>
       personAccounts === undefined ? { rows } : { rows, personAccounts };
+    const partial = read < total;
     const answer = (personAccounts?: number) => ({
       read,
       counted: counted(personAccounts),
       ...(leftOut ? { leftOut } : {}),
       ...(capped ? { capped: true as const } : {}),
+      ...(partial ? { partial: true as const } : {}),
     });
     if (object !== ACCOUNT && object !== CONTACT) return answer();
     const fields = await this.deps
@@ -5219,6 +5248,7 @@ export class ForgeExecutor {
       },
       leftOut: { ...leftOut, byThePlatform },
       ...(capped ? { capped: true as const } : {}),
+      ...(partial ? { partial: true as const } : {}),
     };
   }
 
@@ -9802,11 +9832,12 @@ export class ForgeExecutor {
      * The contact each opportunity a run before this one wrote went in with,
      * as its primary role sends it, by the opportunity's source id: the
      * platform's role, if it wrote one, is of that contact. The target says
-     * whether it did. A simulation reads nothing of the target, and counts
-     * such a role as written, as the gate does.
+     * whether it did, to a simulation too: that opportunity is in it.
+     * Counted written, the simulation of a resume said a role "would be
+     * inserted" that the resume linked.
      */
     const writtenBefore = new Map<string, string>();
-    if (!simulated && config.writtenBefore.size > 0) {
+    if (config.writtenBefore.size > 0) {
       cleaned.forEach(({ source }, index) => {
         const opportunity = source['OpportunityId'];
         const contact = payloads[index]?.[CONTACT_FIELD];
@@ -9838,18 +9869,28 @@ export class ForgeExecutor {
       target.updatable
         ? target.updatable.has(field)
         : target.fields?.find((f) => f.name === field)?.updateable !== false;
-    let records: Map<number, Readonly<Record<string, unknown>>>;
-    if (simulated) {
-      records = new Map(chosen.map((index) => [index, { Id: simulated.idFor(target.keyPrefix) }]));
-    } else {
+    // A simulation's own opportunities are in no target: the platform writes
+    // a role with each a real run writes, and the simulation says so. One a
+    // run before it wrote is looked up, as a real run looks it up.
+    const ofTheSimulation = simulated
+      ? chosen.filter((index) => remapper.isCreated(String(cleaned[index].source['OpportunityId'])))
+      : [];
+    const lookedUp = chosen.filter((index) => !ofTheSimulation.includes(index));
+    const records = new Map<number, Readonly<Record<string, unknown>>>(
+      ofTheSimulation.map((index) => [index, { Id: simulated?.idFor(target.keyPrefix) ?? '' }]),
+    );
+    if (lookedUp.length > 0) {
       const queryable = (field: string): boolean =>
         target.fields === undefined ||
         target.fields.some((f) => f.name === field && f.queryable !== false);
-      const fields = [
-        ...new Set(chosen.flatMap((index) => Object.keys(payloads[index] ?? {}))),
-      ].filter((field) => updatable(field) && queryable(field));
+      // A simulation gives the platform's role nothing: it reads only what pairs it.
+      const fields = simulated
+        ? []
+        : [...new Set(lookedUp.flatMap((index) => Object.keys(payloads[index] ?? {})))].filter(
+            (field) => updatable(field) && queryable(field),
+          );
       const paired = new Map(
-        chosen.map((index) => [
+        lookedUp.map((index) => [
           index,
           {
             opportunity: String(remapper.get(String(cleaned[index].source['OpportunityId']))),
@@ -9880,9 +9921,9 @@ export class ForgeExecutor {
             },
           ],
         });
-        return none;
+        held = [];
       }
-      records = platformRolesOf(paired, held);
+      for (const [index, record] of platformRolesOf(paired, held)) records.set(index, record);
     }
     if (records.size === 0) return none;
 
@@ -11425,16 +11466,17 @@ export class ForgeExecutor {
       rowsOf(CONTACT),
       rowsOf(OPPORTUNITY_CONTACT_ROLE),
     );
-    if (roles.size > 0) platform.set(OPPORTUNITY_CONTACT_ROLE, roles);
-    const writtenBefore = this.rolesOfOpportunitiesWrittenBefore(
+    const writtenBefore = await this.rolesOfOpportunitiesWrittenBefore(
       state,
       rowsOf(OPPORTUNITY_CONTACT_ROLE).filter((row) => !roles.has(row)),
     );
+    const linked = new Set([...roles, ...writtenBefore.linked]);
+    if (linked.size > 0) platform.set(OPPORTUNITY_CONTACT_ROLE, linked);
     return objects.map((object) => {
       const itsOwn = platform.get(object.objectApiName);
       const before =
-        object.objectApiName === OPPORTUNITY_CONTACT_ROLE && writtenBefore > 0
-          ? { mayBeByThePlatform: { rows: writtenBefore, before: true as const } }
+        object.objectApiName === OPPORTUNITY_CONTACT_ROLE && writtenBefore.mayBe > 0
+          ? { mayBeByThePlatform: { rows: writtenBefore.mayBe, before: true as const } }
           : {};
       if (!itsOwn || itsOwn.size === 0) return { ...object, ...before };
       return {
@@ -11447,22 +11489,28 @@ export class ForgeExecutor {
   }
 
   /**
-   * Of the contact roles a gate counts, those the platform may have written
-   * with an opportunity the run it retries or takes up wrote, at most: the
-   * primary role, with a contact, of each such opportunity, which the write
-   * looks up in the target and links (`linkTheRolesThePlatformWrote`).
-   * Whether the platform wrote it — the opportunity went in with its contact
-   * — is the target's to say, read as the roles are written: counted in, and
-   * said. Counted from the rows alone, a resumed clone's gate said a role to
-   * write that the resume linked.
+   * Of the contact roles a gate counts, those of an opportunity the run it
+   * retries or takes up wrote that the platform wrote then, which the write
+   * looks up in the target and links (`linkTheRolesThePlatformWrote`): the
+   * primary role, with a contact, of each such opportunity, found in the
+   * target under that opportunity, of that contact, as the write finds it.
+   * The opportunity is there: the target says whether its role is, before
+   * anything is written. Counted, a resumed clone's gate said a role to
+   * write — "up to 1 … the platform may have written" — that the resume
+   * linked. One whose contact the run has not in the target, or all of them
+   * when the target would not answer, may be the platform's: counted in, and
+   * said (`mayBe`).
    */
-  private rolesOfOpportunitiesWrittenBefore(
+  private async rolesOfOpportunitiesWrittenBefore(
     state: ExecutionState,
     roles: readonly Record<string, unknown>[],
-  ): number {
+  ): Promise<{ linked: ReadonlySet<Record<string, unknown>>; mayBe: number }> {
     const { config } = state;
-    if (config.writtenBefore.size === 0) return 0;
-    const opportunities = new Set<string>();
+    const none = { linked: new Set<Record<string, unknown>>(), mayBe: 0 };
+    if (config.writtenBefore.size === 0) return none;
+    const key = (id: string): string => id.slice(0, 15);
+    /** The contact each such opportunity went in with, as its primary role sends it. */
+    const sentWith = new Map<string, string>();
     for (const role of roles) {
       const opportunity = role['OpportunityId'];
       const contact = role[CONTACT_FIELD];
@@ -11470,10 +11518,136 @@ export class ForgeExecutor {
         continue;
       }
       if (isPrimaryRole(role) && config.writtenBefore.has(opportunity)) {
-        opportunities.add(opportunity.slice(0, 15));
+        sentWith.set(key(opportunity), contact);
       }
     }
-    return opportunities.size;
+    if (sentWith.size === 0) return none;
+    const chosen = rolesThePlatformWrites(roles, (opportunity) => sentWith.get(key(opportunity)));
+    // Paired in the target's ids, as the write pairs them.
+    const inTheTarget = (id: unknown): string | undefined =>
+      typeof id === 'string' && id !== ''
+        ? (config.writtenBefore.get(id) ?? state.remapper.get(id))
+        : undefined;
+    const paired = new Map<number, { opportunity: string; contact: string }>();
+    for (const index of chosen) {
+      const opportunity = inTheTarget(roles[index]['OpportunityId']);
+      const contact = inTheTarget(roles[index][CONTACT_FIELD]);
+      if (opportunity !== undefined && contact !== undefined) {
+        paired.set(index, { opportunity, contact });
+      }
+    }
+    if (paired.size === 0) return { ...none, mayBe: chosen.length };
+    try {
+      const held = await contactRolesOf(
+        (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+        [...new Set([...paired.values()].map(({ opportunity }) => opportunity))],
+      );
+      const found = platformRolesOf(paired, held);
+      return {
+        linked: new Set([...found.keys()].map((index) => roles[index])),
+        mayBe: chosen.length - paired.size,
+      };
+    } catch {
+      return { ...none, mayBe: chosen.length };
+    }
+  }
+
+  /**
+   * Of the contact roles a run read page by page counts, those the platform
+   * writes itself as it takes an opportunity the run creates, for the
+   * contact it goes in with (`rolesThePlatformWrites`), told before a page
+   * is read, as a run read whole tells them of its rows
+   * (`rolesThePlatformWritesOfTheRead`): read in one statement of the roles'
+   * table under the run's filter, each with its opportunity's `ContactId`,
+   * of an opportunity among the run's and a contact among those it writes
+   * before it, under their own filters. The write links each it finds
+   * (`linkTheRolesThePlatformWrote`). Counted in, the gate of a run of whole
+   * tables said "up to 1" of a role it counted to write, which the run linked.
+   *
+   * Undefined where it cannot tell, and the gate says how many there may be:
+   * a table the run reads part of, more roles than one page of the read
+   * brings ({@link ROLES_TOLD_AT_THE_GATE}), a field of the opportunity the
+   * run does not send, a describe or a read that failed. An opportunity a
+   * run before it wrote is no opportunity it creates: its role is told when
+   * its turn comes.
+   */
+  private async rolesThePlatformWritesOfTheTables(
+    state: ExecutionState,
+    runOrder: readonly ForgeGraphNode[],
+    objects: ReadonlyArray<{ objectApiName: string }>,
+    readInPart: ReadonlySet<string>,
+  ): Promise<number | undefined> {
+    const { config } = state;
+    const written = new Set(objects.map((object) => object.objectApiName));
+    if (!written.has(OPPORTUNITY_OBJECT)) return 0;
+    if (
+      (config.fieldExclusions[OPPORTUNITY_OBJECT] ?? []).includes(CONTACT_FIELD) ||
+      config.fieldMappings[OPPORTUNITY_OBJECT]?.[CONTACT_FIELD] !== undefined
+    ) {
+      return 0;
+    }
+    const tables = [OPPORTUNITY_OBJECT, OPPORTUNITY_CONTACT_ROLE, CONTACT];
+    if (tables.some((object) => readInPart.has(object))) return undefined;
+    const at = (object: string): number =>
+      runOrder.findIndex((node) => node.objectApiName === object);
+    const contactsInTheRun = written.has(CONTACT) && at(CONTACT) < at(OPPORTUNITY_OBJECT);
+    try {
+      const source = await this.deps.describeFields(state.sourceOrgId, OPPORTUNITY_OBJECT);
+      if (!source.some((field) => field.name === CONTACT_FIELD && field.createable)) return 0;
+      const target = await describeTargetFieldSets(
+        this.deps.describeFields,
+        state.targetOrgId,
+        OPPORTUNITY_OBJECT,
+      );
+      if (!target.creatable.has(CONTACT_FIELD)) return 0;
+      const filterOf = (object: string): string | undefined => config.objectSoqlFilters?.[object];
+      const resumed = config.stream?.resumeAfter.get(OPPORTUNITY_CONTACT_ROLE);
+      const opportunityFilter = filterOf(OPPORTUNITY_OBJECT);
+      const contactFilter = filterOf(CONTACT);
+      const terms = [
+        ...(filterOf(OPPORTUNITY_CONTACT_ROLE) ? [`(${filterOf(OPPORTUNITY_CONTACT_ROLE)})`] : []),
+        `Opportunity.${CONTACT_FIELD} != null`,
+        ...(resumed && SALESFORCE_ID.test(resumed.lastId) ? [`Id > '${resumed.lastId}'`] : []),
+        ...(opportunityFilter
+          ? [`OpportunityId IN (SELECT Id FROM ${OPPORTUNITY_OBJECT} WHERE (${opportunityFilter}))`]
+          : []),
+        ...(contactsInTheRun && contactFilter
+          ? [`${CONTACT_FIELD} IN (SELECT Id FROM ${CONTACT} WHERE (${contactFilter}))`]
+          : []),
+      ];
+      const rows = await this.deps.queryRecords(
+        state.sourceOrgId,
+        `SELECT Id, OpportunityId, ${CONTACT_FIELD}, IsPrimary, Opportunity.${CONTACT_FIELD} ` +
+          `FROM ${OPPORTUNITY_CONTACT_ROLE} WHERE ${terms.join(' AND ')} ` +
+          `ORDER BY Id LIMIT ${ROLES_TOLD_AT_THE_GATE + 1}`,
+      );
+      if (rows.length > ROLES_TOLD_AT_THE_GATE) return undefined;
+      const inTheTarget = (contact: string): boolean =>
+        contactsInTheRun ||
+        config.writtenBefore.has(contact) ||
+        state.remapper.get(contact) !== undefined;
+      const contactOf = (row: Record<string, unknown>): string | undefined => {
+        const opportunity = row['Opportunity'];
+        const contact =
+          opportunity !== null && typeof opportunity === 'object'
+            ? (opportunity as Record<string, unknown>)[CONTACT_FIELD]
+            : undefined;
+        return typeof contact === 'string' && contact !== '' ? contact : undefined;
+      };
+      /** The contact each opportunity the run creates goes in with, by the opportunity's id. */
+      const sentWith = new Map<string, string>();
+      for (const row of rows) {
+        const opportunity = row['OpportunityId'];
+        const contact = contactOf(row);
+        if (typeof opportunity !== 'string' || contact === undefined) continue;
+        if (config.writtenBefore.has(opportunity) || !inTheTarget(contact)) continue;
+        sentWith.set(opportunity.slice(0, 15), contact);
+      }
+      return rolesThePlatformWrites(rows, (opportunity) => sentWith.get(opportunity.slice(0, 15)))
+        .length;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -12162,11 +12336,14 @@ export class ForgeExecutor {
     onProgress: (event: ForgeProgressEvent) => void,
     createdWithoutType?: (built: CleanedRecord) => void,
     targetFields?: readonly FieldInfo[],
-    linkedByTheirValue: ReadonlySet<Record<string, unknown>> = new Set(),
+    linkedByTheirValue: ReadonlyMap<Record<string, unknown>, string> = new Map(),
   ): void {
     const { simulated } = state;
     if (!simulated) return;
     const objectApiName = node.objectApiName;
+    /** The fields of the rows linked by their value in this round, each once, and how many. */
+    const linkedUnder = new Set<string>();
+    let linkedHere = 0;
     onProgress({
       objectName: objectApiName,
       status: 'running',
@@ -12195,8 +12372,11 @@ export class ForgeExecutor {
       }
       const id = simulated.idFor(keyPrefix);
       const sourceId = typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
-      if (linkedByTheirValue.has(payload)) {
+      const linkedUnderField = linkedByTheirValue.get(payload);
+      if (linkedUnderField !== undefined) {
         tally.linkedExistingCount++;
+        linkedHere++;
+        linkedUnder.add(linkedUnderField);
         if (sourceId !== undefined) state.remapper.addExisting(sourceId, id, objectApiName);
         continue;
       }
@@ -12216,6 +12396,22 @@ export class ForgeExecutor {
           ...(nf.insertOnly ? { insertOnly: true as const } : {}),
         });
       }
+    }
+    // Said as a step, as the read said the rows it brings: its line counted
+    // them all to insert, where the Simulated line and the summary counted
+    // linked the one whose value the target holds. Run on a Developer
+    // Edition, the dry run of a contact's clone said "Account: 2 record(s)
+    // would be inserted" of a run that inserted 1 and linked 1.
+    if (linkedHere > 0) {
+      onProgress({
+        objectName: objectApiName,
+        status: 'running',
+        progress: 0,
+        message:
+          `[dry-run] ${objectApiName}: ${linkedHere} fewer would be inserted, linked to the ` +
+          `record${linkedHere === 1 ? '' : 's'} the target holds under the same ` +
+          `${[...linkedUnder].join(', ')}, which its refusal of the row names`,
+      });
     }
   }
 
@@ -12296,9 +12492,9 @@ export class ForgeExecutor {
       recordTypes: ReadonlyMap<string, RecordTypeValues> | undefined;
       unmapped: ReadonlyMap<string, number>;
     },
-  ): Promise<ReadonlySet<Record<string, unknown>>> {
+  ): Promise<ReadonlyMap<Record<string, unknown>, string>> {
     const { gaps } = state;
-    if (!gaps) return new Set();
+    if (!gaps) return new Map();
     const objectApiName = node.objectApiName;
     const typedByName = new Map(
       [...(rows.recordTypes?.values() ?? [])].map((typed) => [typed.recordType, typed]),
@@ -12332,7 +12528,7 @@ export class ForgeExecutor {
       }
     }
     const targetFields = rows.targetFields;
-    if (!targetFields) return new Set();
+    if (!targetFields) return new Map();
     rowGapsOf(
       {
         objectApiName,
@@ -12520,8 +12716,8 @@ export class ForgeExecutor {
     objectApiName: string,
     targetFields: readonly FieldInfo[],
     payloads: readonly Record<string, unknown>[],
-  ): Promise<ReadonlySet<Record<string, unknown>>> {
-    const linked = new Set<Record<string, unknown>>();
+  ): Promise<ReadonlyMap<Record<string, unknown>, string>> {
+    const linked = new Map<Record<string, unknown>, string>();
     const unique = targetFields.filter(
       (f) =>
         f.unique === true &&
@@ -12571,7 +12767,9 @@ export class ForgeExecutor {
       }
       for (const payload of payloads) {
         const value = payload[field.name];
-        if (typeof value === 'string' && held.has(value.toLowerCase())) linked.add(payload);
+        if (typeof value === 'string' && held.has(value.toLowerCase()) && !linked.has(payload)) {
+          linked.set(payload, field.name);
+        }
       }
     }
     return linked;
@@ -13260,7 +13458,7 @@ export class ForgeExecutor {
       // What a simulation finds the target would refuse or change in these
       // rows, as a real run would send them, and the rows it would link to a
       // record it holds under a unique value of theirs.
-      let linkedByTheirValue: ReadonlySet<Record<string, unknown>> = new Set();
+      let linkedByTheirValue: ReadonlyMap<Record<string, unknown>, string> = new Map();
       if (state.gaps) {
         linkedByTheirValue = await this.findGaps(state, node, {
           cleanedRecords,

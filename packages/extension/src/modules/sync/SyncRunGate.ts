@@ -132,9 +132,17 @@ export interface SyncCountedWrite {
    * itself with the opportunities the run creates, at most — one an
    * opportunity, of the contact it goes in with — which the run links to
    * and does not send: counted in all the same, and said
-   * ({@link SyncWriteCheck.rolesByThePlatform}). Absent when none.
+   * ({@link SyncWriteCheck.rolesByThePlatform}). Set only when the gate
+   * could not tell them (`rolesLinked`). Absent when none.
    */
   rolesByThePlatform?: number;
+  /**
+   * The contact roles the run links to the one the platform writes as it
+   * takes an opportunity the run creates, for the contact it goes in with,
+   * told from the rows the run then writes: not in `objects`, and said
+   * apart ({@link SyncWriteCheck.rolesLinked}). Absent when none.
+   */
+  rolesLinked?: number;
   /**
    * The requests the run sends once its writes are through to read back the
    * record type the target gave the records it created without one: the
@@ -462,6 +470,7 @@ export async function measureSyncWrite(
     ...((counted.rolesByThePlatform ?? 0) > 0
       ? { rolesByThePlatform: counted.rolesByThePlatform }
       : {}),
+    ...((counted.rolesLinked ?? 0) > 0 ? { rolesLinked: counted.rolesLinked } : {}),
     ...(aboveRecords !== undefined ? { aboveRecords } : {}),
     storage:
       storage.verdict === 'unread'
@@ -696,6 +705,7 @@ export async function gateSyncWrite(
         ...(check.emailsUnread !== undefined ? { emailsUncounted: check.emailsUnread } : {}),
         ...(check.alreadyCopied > 0 ? { alreadyCopied: check.alreadyCopied } : {}),
         ...((check.alreadyLinked ?? 0) > 0 ? { alreadyLinked: check.alreadyLinked } : {}),
+        ...((check.rolesLinked ?? 0) > 0 ? { rolesLinked: check.rolesLinked } : {}),
         ...(unwritable.length > 0 ? { unwritable } : {}),
         // Left out of `objects`, and written none of: the question that
         // leaves their parent out says them, as its refusal does.

@@ -443,6 +443,21 @@ export function pricesForLinesOf(plan: Pick<WritePlan, 'objects'>): { pricesForL
   return rows > 0 ? { pricesForLines: rows } : {};
 }
 
+/**
+ * The contact roles a plan counts that the platform may write itself, at
+ * most, as a run's question says them: counted in, where the gate could not
+ * tell them from the others.
+ */
+export function rolesMayBeOf(
+  plan: Pick<WritePlan, 'objects'>,
+): Pick<WriteConfirmation, 'rolesMayBeByThePlatform'> {
+  const may = plan.objects.find((object) => object.mayBeByThePlatform)?.mayBeByThePlatform;
+  if (!may || may.rows <= 0) return {};
+  return {
+    rolesMayBeByThePlatform: { rows: may.rows, ...(may.before === true ? { before: true } : {}) },
+  };
+}
+
 /** What an org says of its data storage, in MB. */
 export interface DataStorage {
   maxMB: number;

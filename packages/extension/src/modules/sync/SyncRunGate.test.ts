@@ -116,6 +116,16 @@ describe('measureSyncWrite', () => {
       measures({ readStorage, readApiBudget, readAutomation }),
     );
     expect(linked.check).toMatchObject({ alreadyCopied: 40, alreadyLinked: 2 });
+    // The contact roles the run links to the platform's, told apart from what it writes.
+    const roles = await measureSyncWrite(
+      {
+        ...counted([{ objectApiName: 'OpportunityContactRole', operation: 'insert', rows: 0 }]),
+        rolesLinked: 1,
+      },
+      measures({ readStorage, readApiBudget, readAutomation }),
+    );
+    expect(roles.check).toMatchObject({ total: 0, rolesLinked: 1 });
+    expect(roles.check).not.toHaveProperty('rolesByThePlatform');
     expect(readStorage).not.toHaveBeenCalled();
     expect(readApiBudget).not.toHaveBeenCalled();
     expect(readAutomation).not.toHaveBeenCalled();
@@ -476,6 +486,15 @@ describe('gateSyncWrite', () => {
       alreadyCopied: 3,
       emails: [{ limit: 'SingleEmail', emails: 40, remaining: 12, max: 15 }],
     });
+    expect(confirm.mock.calls[0][0]).not.toHaveProperty('rolesLinked');
+
+    // The roles the run links to the platform's, said in the question too.
+    const withRoles = await measureSyncWrite(
+      { ...pastEmails, rolesLinked: 2 },
+      measures({ readAutomation: async () => WELCOME_FLOW }),
+    );
+    await gateSyncWrite(withRoles, { policy: 'ask', org: 'TRAP', orgTier: 'development', confirm });
+    expect(confirm.mock.calls[1][0]).toMatchObject({ total: 20, rolesLinked: 2 });
   });
 
   it('stops before the first write when the user declines, or when nobody can be asked', async () => {

@@ -312,11 +312,34 @@ function pagedOrgs(tables: Record<string, FakeRow[]> = sourceRows()) {
       .filter((row) => after === undefined || String(row['Id']) > after)
       .slice(0, limit === undefined ? undefined : Number(limit));
   };
+  /**
+   * The roles' read of a run's gate, each role with its opportunity's
+   * contact, as the org answers a relationship field: the roles whose
+   * opportunity names one, in the order of their ids.
+   */
+  const rolesWithTheirOpportunity = (soql: string): Array<Record<string, unknown>> | undefined => {
+    if (!/ FROM OpportunityContactRole WHERE .*Opportunity\.ContactId != null/.test(soql)) {
+      return undefined;
+    }
+    const contactOf = new Map(
+      (tables['Opportunity'] ?? []).map((row) => [row['Id'], row['ContactId'] ?? null]),
+    );
+    return [...(tables['OpportunityContactRole'] ?? [])]
+      .filter((role) => contactOf.get(role['OpportunityId']))
+      .sort((a, b) => String(a['Id']).localeCompare(String(b['Id'])))
+      .map((role) => ({
+        ...role,
+        Opportunity: { ContactId: contactOf.get(role['OpportunityId']) ?? null },
+      }));
+  };
   const read = (soql: string): FakeRow[] => whole(soql) ?? selectRows(tables, soql);
   const paged = {
     ...deps,
-    queryRecords: vi.fn(async (org: string, soql: string) =>
-      org === 'src' ? read(soql) : deps.queryRecords(org, soql),
+    queryRecords: vi.fn(
+      async (org: string, soql: string): Promise<Array<Record<string, unknown>>> =>
+        org === 'src'
+          ? (rolesWithTheirOpportunity(soql) ?? read(soql))
+          : deps.queryRecords(org, soql),
     ),
     queryPages: (org: string, soql: string) =>
       (async function* pages(): AsyncGenerator<FakeRow[]> {
@@ -526,10 +549,55 @@ describe('ForgeExecutor, an opportunity sent with its primary contact', () => {
     );
   });
 
-  it('says at the gate of a run read page by page the role the platform may write with the opportunity, which its count holds', async () => {
-    // A count reads no row: which role the platform writes is known once the
-    // pages are read, and the gate counted it as one the run writes.
+  it('counts at the gate of a run read page by page what the run writes, the role the platform writes said apart', async () => {
+    // On a scratch org the gate of a run of whole tables said "write gate: 4
+    // record(s) … counted in: up to 1 OpportunityContactRole", and the run
+    // wrote 3 and linked the role.
+    const { deps, target } = pagedOrgs();
+    let shown: ForgeWriteBoundary | undefined;
+
+    await new ForgeExecutor(deps).execute(dealGraph(), 'src', 'tgt', () => undefined, {
+      stream: { pageSize: 1 },
+      beforeWrite: async (boundary) => {
+        shown = boundary;
+      },
+    });
+
+    const plan = writePlanOf(shown?.objects ?? []);
+    expect(plan.totalRows).toBe(3);
+    const sent = Object.values(target.sent).reduce((sum, rows) => sum + rows.length, 0);
+    expect(sent).toBe(plan.totalRows);
+    const lines = writePlanLines(plan, storageCheckOf(plan, { maxMB: 5, remainingMB: 5 }), 'TGT');
+    expect(lines).toContain(
+      '  not counted: OpportunityContactRole, 1 record(s) written by the platform with their ' +
+        'opportunity, for its contact, which the run links to and does not send',
+    );
+    expect(lines.some((line) => line.includes('counted in: up to'))).toBe(false);
+    // Sent without its contact, the opportunity gets no role of the platform's.
+    const without = pagedOrgs();
+    let alone: ForgeWriteBoundary | undefined;
+    await new ForgeExecutor(without.deps).execute(dealGraph(), 'src', 'tgt', () => undefined, {
+      stream: { pageSize: 1 },
+      fieldExclusions: { Opportunity: ['ContactId'] },
+      beforeWrite: async (boundary) => {
+        alone = boundary;
+      },
+    });
+    expect(writePlanOf(alone?.objects ?? []).objects.some((o) => o.mayBeByThePlatform)).toBe(false);
+    expect(writePlanOf(alone?.objects ?? []).leftOut?.byThePlatform).toBeUndefined();
+  });
+
+  it('says at the gate of a run read page by page how many roles the platform may write, counted in, where the roles could not be read', async () => {
     const { deps } = pagedOrgs();
+    const reading = deps.queryRecords.getMockImplementation();
+    deps.queryRecords.mockImplementation(async (org: string, soql: string) => {
+      if (soql.includes('Opportunity.ContactId != null')) {
+        throw new Error(
+          'INVALID_FIELD: semi join sub-selects are not allowed with the OR operator',
+        );
+      }
+      return (await reading?.(org, soql)) ?? [];
+    });
     let shown: ForgeWriteBoundary | undefined;
 
     await new ForgeExecutor(deps).execute(dealGraph(), 'src', 'tgt', () => undefined, {
@@ -547,17 +615,6 @@ describe('ForgeExecutor, an opportunity sent with its primary contact', () => {
       '  counted in: up to 1 OpportunityContactRole record(s) the platform may write itself with ' +
         'their opportunity, for its contact, which the run then links to and does not send',
     );
-    // Sent without its contact, the opportunity gets no role of the platform's.
-    const without = pagedOrgs();
-    let alone: ForgeWriteBoundary | undefined;
-    await new ForgeExecutor(without.deps).execute(dealGraph(), 'src', 'tgt', () => undefined, {
-      stream: { pageSize: 1 },
-      fieldExclusions: { Opportunity: ['ContactId'] },
-      beforeWrite: async (boundary) => {
-        alone = boundary;
-      },
-    });
-    expect(writePlanOf(alone?.objects ?? []).objects.some((o) => o.mayBeByThePlatform)).toBe(false);
   });
 
   it('links it all the same when the target refuses the update, and says the fields it went without', async () => {
@@ -722,14 +779,50 @@ describe('ForgeExecutor, a run that writes the roles of an opportunity a run bef
     ]);
   });
 
-  it('says at the gate of the run taken up the role the platform may have written with the opportunity before, which it counts', async () => {
+  it('counts at the gate of the run taken up what it writes, the role the platform wrote with the opportunity before said apart', async () => {
     // On a scratch org the resume's gate read "write gate: 6 record(s) …
-    // OpportunityContactRole 1" and the resume linked the role, sending none:
-    // whether the platform wrote it is the target's to say, read as the role
-    // is written.
+    // OpportunityContactRole 1 … counted in: up to 1", and the resume linked
+    // the role, sending none. The opportunity is in the target, which says
+    // whether its role is before anything is written.
     const { deps, target, stopped, disk } = await stoppedAfterTheOpportunity(true);
     expect(stopped).toBeInstanceOf(ForgeAbortedError);
     const store = ForgeRunStore.open(memoryRunFile(disk.text()));
+    let shown: ForgeWriteBoundary | undefined;
+
+    await new ForgeExecutor(deps).execute(dealGraph(), 'src', 'tgt', () => undefined, {
+      ...ROOTED_AT_THE_DEAL,
+      stream: { store },
+      beforeWrite: async (boundary) => {
+        shown = boundary;
+      },
+    });
+    store.close();
+
+    const plan = writePlanOf(shown?.objects ?? []);
+    expect(plan.totalRows).toBe(0);
+    expect(plan.leftOut?.byThePlatform).toEqual([
+      { objectApiName: 'OpportunityContactRole', rows: 1 },
+    ]);
+    const lines = writePlanLines(plan, storageCheckOf(plan, { maxMB: 5, remainingMB: 5 }), 'TGT');
+    expect(lines).toContain(
+      '  not counted: OpportunityContactRole, 1 record(s) written by the platform with their ' +
+        'opportunity, for its contact, which the run links to and does not send',
+    );
+    expect(lines.some((line) => line.includes('counted in: up to'))).toBe(false);
+    expect(target.sent['OpportunityContactRole']).toBeUndefined();
+  });
+
+  it('says at the gate of the run taken up how many roles the platform may have written, counted in, when the target would not say', async () => {
+    const { deps, stopped, disk } = await stoppedAfterTheOpportunity(true);
+    expect(stopped).toBeInstanceOf(ForgeAbortedError);
+    const store = ForgeRunStore.open(memoryRunFile(disk.text()));
+    const reading = deps.queryRecords.getMockImplementation();
+    deps.queryRecords.mockImplementation(async (org: string, soql: string) => {
+      if (org === 'tgt' && soql.includes('FROM OpportunityContactRole')) {
+        throw new Error('REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.');
+      }
+      return (await reading?.(org, soql)) ?? [];
+    });
     let shown: ForgeWriteBoundary | undefined;
 
     await new ForgeExecutor(deps).execute(dealGraph(), 'src', 'tgt', () => undefined, {
@@ -756,6 +849,28 @@ describe('ForgeExecutor, a run that writes the roles of an opportunity a run bef
         'their opportunity, for its contact, in the run this one takes up, which the run then ' +
         'links to and does not send',
     );
+  });
+
+  it('simulates a retry linking the role the platform wrote with the opportunity before, as the retry links it', async () => {
+    // The simulation of the run that retries read nothing of the target and
+    // said the role "would be inserted", where the retry linked it.
+    const { deps, target, stopped } = await stoppedAfterTheOpportunity();
+    const said: ForgeProgressEvent[] = [];
+
+    const simulated = await new ForgeExecutor(deps).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      (event) => said.push(event),
+      { ...ROOTED_AT_THE_DEAL, dryRun: true, writtenBefore: partialSummaryOf(stopped)?.remapTable },
+    );
+
+    expect(said.map((event) => event.message)).toContainEqual(
+      expect.stringMatching(
+        /^Simulated OpportunityContactRole: 0 would be inserted, 1 written by the platform with their opportunity, for its contact/,
+      ),
+    );
+    expect(simulated.wouldInsertCount).toBe(0);
     expect(target.sent['OpportunityContactRole']).toBeUndefined();
   });
 
