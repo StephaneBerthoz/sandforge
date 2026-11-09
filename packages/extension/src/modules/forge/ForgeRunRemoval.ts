@@ -665,6 +665,14 @@ export interface RunRemovalOptions {
    */
   otherParts?: readonly RunPartAlongside[];
   /**
+   * Records of the run's other parts that `otherParts` does not hand over:
+   * those the same removal takes part by part, before or after this one —
+   * the parts of a journal removed whole, or what earlier removals of the
+   * run's other parts left. As theirs, one under a record of the plan is the
+   * run's own, never what the target's automation made for the run.
+   */
+  otherPartRecords?: readonly ForgeRunObjectRecords[];
+  /**
    * The run's parts after the one removed, each with what it wrote beyond its
    * own records: see {@link RunLaterPart}. Absent, the plan's records are read
    * against the run's own end alone.
@@ -875,6 +883,22 @@ function laterSpansOf(
     }
   }
   return spans;
+}
+
+/**
+ * The keys of the records of `parts` and of `more`, as one: see
+ * {@link DependentsContext.otherPartRecords}.
+ */
+function otherPartRecordsOf(
+  parts: readonly RunPartAlongside[] = [],
+  more: readonly ForgeRunObjectRecords[] = [],
+): RecordKeys | undefined {
+  if (parts.length === 0 && more.length === 0) return undefined;
+  const records = [
+    ...parts.map(({ plan }) => (isRunRecords(plan) ? plan : runRecordsOf(plan))),
+    runRecordsOf(more),
+  ];
+  return { has: (key) => records.some((part) => part.has(key)) };
 }
 
 /** {@link laterSpansOf}, each record's end alone. */
@@ -1540,6 +1564,7 @@ export async function removeRunRecords(
   );
   // What a later part of the run wrote to a record of this one is the run's doing.
   const writtenLater = laterEndsOf(options.laterParts, clock.aheadMs);
+  const otherPartRecords = otherPartRecordsOf(options.otherParts, options.otherPartRecords);
   const changed = new Set<string>();
   for (const { objectApiName } of records.objects) {
     const snapshot = snapshots.get(objectApiName);
@@ -1599,6 +1624,7 @@ export async function removeRunRecords(
                 ...(options.laterParts
                   ? { linkedLater: laterSpansOf(options.laterParts, 'linked', clock.aheadMs) }
                   : {}),
+                ...(otherPartRecords ? { otherPartRecords } : {}),
               }),
             },
           }
@@ -1653,6 +1679,7 @@ export async function removeRunRecords(
     ...(options.laterParts
       ? { linkedLater: laterSpansOf(options.laterParts, 'linked', clock.aheadMs) }
       : {}),
+    ...(otherPartRecords ? { otherPartRecords } : {}),
   });
 
   if (stopped()) return untouched();
@@ -3417,6 +3444,15 @@ interface DependentsContext {
    */
   linkedLater?: ReadonlyMap<string, { start: number; end: number }>;
   /**
+   * Keys of the records the run's other parts created, left in the org: see
+   * {@link RunRemovalOptions.otherParts} and
+   * {@link RunRemovalOptions.otherPartRecords}. One under a record of this
+   * part is the run's own, which its part's removal takes, never what the
+   * target's automation made for the run, which a sweep takes: a sweep
+   * leaves what the run's id map holds.
+   */
+  otherPartRecords?: RecordKeys;
+  /**
    * Whether the check reads for a preview, nothing deleted nor set to Draft
    * yet: the rows a record past Draft locks under it are not held, as a
    * removal sets the record back to Draft before its deletes.
@@ -3846,8 +3882,14 @@ class DependentsCheck {
   private mayBeAutomation(
     row: Record<string, unknown>,
   ): Pick<AutomationHolder, 'created' | 'creator'> | undefined {
-    const { runRecords, runStart, runEnd, runUser } = this.context;
+    const { runRecords, runStart, runEnd, runUser, otherPartRecords } = this.context;
     if (typeof row.Id !== 'string' || runRecords.has(recordKey(row.Id))) return undefined;
+    // A record of another part of the run is the run's, held for that part's
+    // removal. Live, a resume that wrote 52 s after the cut part's
+    // opportunity had its quote and line read as the automation's, which a
+    // sweep takes first, while the same removal named them the resume's and
+    // the cut part's sweep listed neither.
+    if (otherPartRecords?.has(recordKey(row.Id)) === true) return undefined;
     if (typeof row.CreatedById !== 'string') return undefined;
     const creator = recordKey(row.CreatedById);
     if (runUser !== undefined && creator !== runUser) return undefined;

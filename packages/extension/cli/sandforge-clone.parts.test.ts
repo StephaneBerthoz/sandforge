@@ -68,9 +68,8 @@ const FEED = (n: number): string => `0D5${String(n).padStart(12, '0')}AAA`;
 const COLLEAGUE = '005000000000077AAA';
 
 const at = (time: string): string => `2026-10-01T${time}.000Z`;
-/** When the cut part wrote, and when the resume did, on the org's clock. */
+/** When the cut part wrote, on the org's clock; the resume wrote two minutes later. */
 const PART_0 = { first: at('10:00:01'), last: at('10:00:03') };
-const PART_1 = { first: at('10:02:01'), last: at('10:02:03') };
 
 /**
  * The target as the run left it, as the gate's target answered: deleting a
@@ -178,8 +177,12 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
    *
    * @param roleMadeAt - When the contact role was made: with the opportunity
    *   unless told.
+   * @param resumedSoonerBy - How many seconds sooner than two minutes after
+   *   the cut the resume wrote.
    */
-  function theRun(roleMadeAt = at('10:00:03')): { s1: string; s2: string } {
+  function theRun(roleMadeAt = at('10:00:03'), resumedSoonerBy = 0): { s1: string; s2: string } {
+    const resumedAt = (time: string): string =>
+      new Date(Date.parse(at(time)) - resumedSoonerBy * 1_000).toISOString();
     setClock(at('10:00:01'));
     org.add('Account', { Id: ACCOUNT.target, Name: 'A', ...byTheRun(at('10:00:01')) });
     org.add('Contact', {
@@ -200,20 +203,20 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
       ContactId: CONTACT.target,
       ...byTheRun(roleMadeAt),
     });
-    setClock(at('10:02:01'));
+    setClock(resumedAt('10:02:01'));
     org.add('Quote', {
       Id: QUOTE.target,
       OpportunityId: OPPORTUNITY.target,
-      ...byTheRun(at('10:02:01')),
+      ...byTheRun(resumedAt('10:02:01')),
     });
     org.edit('Opportunity', OPPORTUNITY.target, { SyncedQuoteId: QUOTE.target });
-    setClock(at('10:02:02'));
+    setClock(resumedAt('10:02:02'));
     org.edit('OpportunityContactRole', ROLE.target, { Role: 'Decision Maker' });
-    setClock(at('10:02:03'));
+    setClock(resumedAt('10:02:03'));
     org.add('OpportunityLineItem', {
       Id: LINE.target,
       OpportunityId: OPPORTUNITY.target,
-      ...byTheRun(at('10:02:03')),
+      ...byTheRun(resumedAt('10:02:03')),
     });
 
     const lines: unknown[] = [
@@ -238,12 +241,12 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
         0,
       ],
       { end: { status: 'cancelled', forgeId: 'sandforge-clone-parts#0', at: at('10:00:05') } },
-      { part: { n: 1, startedAt: at('10:01:59') } },
+      { part: { n: 1, startedAt: resumedAt('10:01:59') } },
       ...createdLines('1.1', 'Quote', QUOTE),
       ['p', OPPORTUNITY.target, 'SyncedQuoteId'],
       ['e', ROLE.source, ROLE.target, 'OpportunityContactRole'],
       ...createdLines('1.2', 'OpportunityLineItem', LINE),
-      { end: { status: 'success', forgeId: 'sandforge-clone-parts#1', at: at('10:02:05') } },
+      { end: { status: 'success', forgeId: 'sandforge-clone-parts#1', at: resumedAt('10:02:05') } },
     ];
     mkdirSync(join(dir, 'journal', 'forge-runs'), { recursive: true });
     writeFileSync(journal, lines.map((line) => JSON.stringify(line)).join('\n') + '\n', 'utf8');
@@ -263,7 +266,7 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
       record: OPPORTUNITY.source,
       dryRun: false,
       elapsedMs: 5_000,
-      finishedAt: part === 0 ? at('10:00:05') : at('10:02:05'),
+      finishedAt: part === 0 ? at('10:00:05') : resumedAt('10:02:05'),
       journal,
       part,
       result: {
@@ -278,7 +281,11 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     const s1 = join(dir, 's1.json');
     const s2 = join(dir, 's2.json');
     writeFileSync(s1, JSON.stringify(summary(0, PART_0)), 'utf8');
-    writeFileSync(s2, JSON.stringify(summary(1, PART_1)), 'utf8');
+    writeFileSync(
+      s2,
+      JSON.stringify(summary(1, { first: resumedAt('10:02:01'), last: resumedAt('10:02:03') })),
+      'utf8',
+    );
     return { s1, s2 };
   }
 
@@ -687,6 +694,76 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     );
     expect(resumedLines.join('\n')).not.toContain('during the run');
     expect(resumedLines.join('\n')).not.toMatch(/: --sweep takes them first/);
+  });
+
+  it('the cut part, the resume having written under its opportunity within the minute: the resume’s records hold it as the run’s, not as what a sweep takes, and the line counts the contact the hand-made role holds', async () => {
+    // The gate's resume wrote 52 s after the cut part's opportunity; here 48.
+    const { s1 } = theRun(at('10:00:03'), 70);
+    roleMadeByHandAfterTheCut();
+
+    stderr = [];
+    const cut = await remove(s1, at('10:05:00'));
+    const cutLines = [...stderr];
+
+    // Live, its quote and line read as made for the run by the target's
+    // automation, which --sweep takes first, while the same output named
+    // them the resume's, and the cut part's --sweep-list did not list them:
+    // a sweep leaves what the run's id map holds.
+    expect(cut.exit).toBe(3);
+    const opportunity = cut.result.objects.find((o) => o.objectApiName === 'Opportunity');
+    expect(opportunity).toMatchObject({
+      keptDependents: 1,
+      heldBy: ['OpportunityContactRole', 'OpportunityLineItem', 'Quote'],
+    });
+    expect(opportunity).not.toHaveProperty('heldByAutomation');
+    expect(opportunity).not.toHaveProperty('heldByAutomationAfterRun');
+    expect(opportunity).not.toHaveProperty('automationHolders');
+    expect(cut.result.objects.find((o) => o.objectApiName === 'Contact')).toMatchObject({
+      heldBy: ['OpportunityContactRole'],
+      heldByAutomation: 1,
+      heldByAutomationAfterRun: 1,
+      automationHolders: ['OpportunityContactRole'],
+    });
+    expect(cut.result).toMatchObject({
+      heldByOtherParts: [{ part: 1, objects: ['OpportunityLineItem', 'Quote'] }],
+    });
+    expect(cutLines).toContain(
+      '1 record(s) of the run kept for records created under them as its user after the last ' +
+        "write of the run's part that wrote them, within a minute of them, by the target's " +
+        'automation or by hand (OpportunityContactRole): --sweep takes them first (--sweep-list ' +
+        "shows them); a record made by hand as the run's user under the run's records within a " +
+        "minute of them reads as the automation's, and one changed by hand before the run's " +
+        'last write as unchanged: check the names before a --sweep',
+    );
+  });
+
+  it('the journal, the resume having written within the minute and its quote changed since: the quote holds the opportunity as the run’s, never as a record to delete by hand', async () => {
+    theRun(at('10:00:03'), 70);
+    roleMadeByHandAfterTheCut();
+    setClock(at('10:01:30'));
+    org.edit('Quote', QUOTE.target, { Name: 'Edited' });
+
+    stderr = [];
+    const whole = await remove(journal, at('10:05:00'));
+
+    // The resume's removal kept its quote as changed since; the cut part's
+    // read it as the automation's, and its line said to delete it by hand.
+    expect(whole.exit).toBe(3);
+    expect(kept(whole.result.objects)).toEqual([
+      ['Quote', 1, 0],
+      ['Opportunity', 0, 1],
+      ['Contact', 0, 1],
+      ['Account', 0, 1],
+    ]);
+    const opportunity = whole.result.objects.find((o) => o.objectApiName === 'Opportunity');
+    expect(opportunity?.heldBy).toEqual(['OpportunityContactRole', 'Quote']);
+    expect(opportunity).not.toHaveProperty('heldByAutomation');
+    expect(opportunity).not.toHaveProperty('automationHolders');
+    expect(stderr).toContainEqual(
+      expect.stringMatching(
+        /^1 record\(s\) of the run kept for records created under them as its user, within a minute of them, likely by the target's automation \(OpportunityContactRole\):/,
+      ),
+    );
   });
 
   it('the resume, then the journal: the contact role made by hand right after the cut stays, and what it hangs from', async () => {

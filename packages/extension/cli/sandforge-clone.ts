@@ -6363,6 +6363,16 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       // holds them any more.
       const stamped: Record<string, string> = { ...earlier?.removalStamps, ...removal.stamps };
       for (const stamps of removal.otherPartStamps ?? []) Object.assign(stamped, stamps);
+      // Each part's records this removal takes: one of another part that
+      // stays under a record of this one is the run's own, not what the
+      // target's automation made for the run.
+      const takenByPart = [
+        ...(firstPart !== undefined ? [{ part: firstPart, plan: first ? first.plan : plan }] : []),
+        ...[...partsBefore, ...leftByOtherParts].map((left) => ({
+          part: left.part.part,
+          plan: left.plan,
+        })),
+      ];
       for (const { part, plan: left } of [...partsBefore, ...leftByOtherParts]) {
         if (removal.stoppedForUndeletable || removal.cancelled || stop.signal.aborted) break;
         // A part of the journal whose lines say no end is read over the run's
@@ -6380,6 +6390,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
           removalSpans: spans,
           ...(runUserId ? { runUserId } : {}),
           ...(later.length > 0 ? { laterParts: later } : {}),
+          otherPartRecords: takenByPart.flatMap((taken) =>
+            taken.part === part.part ? [] : taken.plan,
+          ),
           includeChanged: args.includeChanged,
           onUndeletable,
           signal: stop.signal,

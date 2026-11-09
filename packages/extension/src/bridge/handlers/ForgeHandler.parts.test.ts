@@ -60,9 +60,8 @@ const FEED = (n: number): string => `0D5${String(n).padStart(12, '0')}AAA`;
 const COLLEAGUE = '005000000000077AAA';
 
 const at = (time: string): string => `2026-10-01T${time}.000Z`;
-/** When the cut part wrote, and when the resume did, on the org's clock. */
+/** When the cut part wrote, on the org's clock; the resume wrote two minutes later. */
 const PART_0 = { first: at('10:00:01'), last: at('10:00:03') };
-const PART_1 = { first: at('10:02:01'), last: at('10:02:03') };
 
 const GRAPH: ForgeGraph = {
   nodes: [],
@@ -165,8 +164,12 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
    *
    * @param roleMadeAt - When the contact role was made: with the opportunity
    *   unless told.
+   * @param resumedSoonerBy - How many seconds sooner than two minutes after
+   *   the cut the resume wrote.
    */
-  function theRun(roleMadeAt = at('10:00:03')): void {
+  function theRun(roleMadeAt = at('10:00:03'), resumedSoonerBy = 0): void {
+    const resumedAt = (time: string): string =>
+      new Date(Date.parse(at(time)) - resumedSoonerBy * 1_000).toISOString();
     setClock(at('10:00:01'));
     org.add('Account', { Id: ACCOUNT.target, Name: 'A', ...byTheRun(at('10:00:01')) });
     org.add('Contact', {
@@ -187,20 +190,20 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
       ContactId: CONTACT.target,
       ...byTheRun(roleMadeAt),
     });
-    setClock(at('10:02:01'));
+    setClock(resumedAt('10:02:01'));
     org.add('Quote', {
       Id: QUOTE.target,
       OpportunityId: OPPORTUNITY.target,
-      ...byTheRun(at('10:02:01')),
+      ...byTheRun(resumedAt('10:02:01')),
     });
     org.edit('Opportunity', OPPORTUNITY.target, { SyncedQuoteId: QUOTE.target });
-    setClock(at('10:02:02'));
+    setClock(resumedAt('10:02:02'));
     org.edit('OpportunityContactRole', ROLE.target, { Role: 'Decision Maker' });
-    setClock(at('10:02:03'));
+    setClock(resumedAt('10:02:03'));
     org.add('OpportunityLineItem', {
       Id: LINE.target,
       OpportunityId: OPPORTUNITY.target,
-      ...byTheRun(at('10:02:03')),
+      ...byTheRun(resumedAt('10:02:03')),
     });
 
     const table = Object.fromEntries(
@@ -236,7 +239,7 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
       status: 'success',
       graph: GRAPH,
       duration: 6_000,
-      timestamp: at('10:02:05'),
+      timestamp: resumedAt('10:02:05'),
       idRemapCount: 6,
       idRemapTable: table,
       // What the cut part wrote, linked to as written before the run stopped,
@@ -248,7 +251,7 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
         { objectApiName: 'OpportunityLineItem', sourceIds: [LINE.source] },
       ],
       targetOrgId: TARGET_ORG,
-      writtenBetween: PART_1,
+      writtenBetween: { first: resumedAt('10:02:01'), last: resumedAt('10:02:03') },
       retryOf: 'run-cut',
       resumed: true,
       // The lookup the cut part's opportunity owed, filled in by the resume.
@@ -389,6 +392,42 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
     expect(resumed?.status).toBe('success');
     expect(resumed).not.toHaveProperty('heldByOtherParts');
     expect(resumed?.otherPartsLeft).toEqual([{ forgeId: 'run-cut', records: 2 }]);
+  });
+
+  it('the cut part, the resume having written under its opportunity within the minute: the resume’s records hold it as the run’s, never as what a sweep takes', async () => {
+    // The gate's resume wrote 52 s after the cut part's opportunity; here 48.
+    theRun(at('10:00:03'), 70);
+    // A second contact role, made by hand as the run's user ten seconds
+    // after the cut part's last write.
+    setClock(at('10:00:13'));
+    org.add('OpportunityContactRole', {
+      Id: TGT('00K', 2),
+      OpportunityId: OPPORTUNITY.target,
+      ContactId: CONTACT.target,
+      Role: 'Influencer',
+      ...byTheRun(at('10:00:13')),
+    });
+
+    const cut = await remove('run-cut', at('10:05:00'));
+
+    // Live, the cut part's removal read the resume's quote and line as made
+    // for the run by the target's automation, which a sweep takes first,
+    // while naming them the resume's: the page said both.
+    const opportunity = cut?.objects.find((o) => o.objectApiName === 'Opportunity');
+    expect(opportunity).toMatchObject({
+      keptDependents: 1,
+      heldBy: ['OpportunityContactRole', 'OpportunityLineItem', 'Quote'],
+    });
+    expect(opportunity).not.toHaveProperty('heldByAutomation');
+    expect(opportunity).not.toHaveProperty('automationHolders');
+    expect(cut?.objects.find((o) => o.objectApiName === 'Contact')).toMatchObject({
+      heldByAutomation: 1,
+      heldByAutomationAfterRun: 1,
+      automationHolders: ['OpportunityContactRole'],
+    });
+    expect(cut?.heldByOtherParts).toEqual([
+      { forgeId: 'run-resumed', objects: ['OpportunityLineItem', 'Quote'] },
+    ]);
   });
 
   it('says nothing of the other part when the resume goes first and the cut part takes the rest', async () => {
