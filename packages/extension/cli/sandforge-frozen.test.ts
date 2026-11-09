@@ -1938,6 +1938,55 @@ describe('messageLines', () => {
     expect(planned).toContain(`  Opportunity: 1 would be ${note.slice(2)}`);
   });
 
+  it('says, in a load and its dry run, the records no identity key was looked up for', () => {
+    // Keyed on a name the rules cleared, a reload's dry run said "Quote: 1
+    // to insert" and nothing of the key it never asked the target about.
+    const wrote =
+      '1 not looked up by its identity keys: Description stayed empty in what the load wrote — ' +
+      'the dataset holds no value, and no default fills it — so it was sent to be inserted, never matched';
+    const would =
+      '1 not looked up by its identity keys: Description stays empty in what the load would write — ' +
+      'the dataset holds no value, and no default fills it — so it would be inserted, never matched';
+    const loaded = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          durationMs: 5,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: {}, failures: [] },
+          keysLeftEmpty: [
+            { objectApiName: 'Quote', fields: ['Description'], count: 1, note: wrote },
+          ],
+        },
+      },
+    });
+    const planned = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          mode: { pilot: false, reload: true },
+          perObject: [],
+          excludedObjects: [],
+          removals: [],
+          placeholders: [],
+          requiredDefaults: [],
+          personContacts: 0,
+          earlierLoads: 1,
+          keysLeftEmpty: [
+            { objectApiName: 'Quote', fields: ['Description'], count: 1, note: would },
+          ],
+        },
+      },
+    });
+
+    expect(loaded).toContain(`  Quote: ${wrote}`);
+    expect(planned).toContain(`  Quote: ${would}`);
+  });
+
   it('says what a reload purged, and what it left of a load that did not say what it created', () => {
     const lines = messageLines({
       type: 'frozen:load:response',

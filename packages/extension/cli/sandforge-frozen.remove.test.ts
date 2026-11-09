@@ -237,6 +237,45 @@ describe('what a sweep of a load is asked, and what the removal says', () => {
     expect(removalAsked(parseArgs(argv(...line)))).toEqual({});
   });
 
+  it('says what a removal including changes took along that the load never wrote', () => {
+    // Run for real: the contact made by hand under an account of the load
+    // went with the account, and the removal said "Contact: 4 deleted of 4",
+    // keptDependents 0, nothing of it.
+    const account = {
+      objectApiName: 'Account',
+      planned: 2,
+      deleted: 2,
+      alreadyGone: 0,
+      keptChanged: 0,
+      keptDependents: 0,
+      refused: 0,
+      heldBy: [],
+      unchecked: [],
+      reasons: [],
+      tookAlong: { count: 1, objects: ['Contact'] },
+    };
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        result: {
+          status: 'success',
+          includeChanged: true,
+          objects: [
+            { ...account, objectApiName: 'Contact', planned: 4, deleted: 4, tookAlong: undefined },
+            account,
+          ],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'removal: SUCCESS',
+      '  Contact: 4 deleted of 4',
+      '  Account: 2 deleted of 2',
+      "      took along 1 record(s) that were not the load's, added or changed since it: Contact",
+    ]);
+  });
+
   it('names the platform’s copies beside their object, and what the automation likely made that kept records', () => {
     const lines = messageLines({
       type: 'frozen:remove:response',

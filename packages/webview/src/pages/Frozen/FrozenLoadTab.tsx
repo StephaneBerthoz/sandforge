@@ -1129,6 +1129,24 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   })}
                 </p>
               )}
+              {/* A key field the rules cleared and no default fills: the
+                  record is never looked up, and goes in beside the one the
+                  target holds. */}
+              {(plan.keysLeftEmpty?.length ?? 0) > 0 && (
+                <p
+                  className="text-[11px] text-status-warning"
+                  data-testid="frozen-preview-keys-left-empty"
+                >
+                  {t('frozen.preview.keysLeftEmpty', {
+                    objects: (plan.keysLeftEmpty ?? [])
+                      .map(
+                        (left) =>
+                          `${left.objectApiName} (${left.count}: ${left.fields.join(', ')})`,
+                      )
+                      .join(', '),
+                  })}
+                </p>
+              )}
               {/* The role of the contact an opportunity goes in with, a
                   contact's direct relation, an email's task: the platform
                   writes each with the record it goes with, and the load
@@ -1772,6 +1790,22 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   {t('frozen.report.quotesLeftUnsynced', {
                     objects: (loadReport.quotesLeftUnsynced ?? [])
                       .map((left) => `${left.objectApiName} (${left.count})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
+              {/* Written beside what the target holds: their key was left empty, never looked up. */}
+              {(loadReport.keysLeftEmpty?.length ?? 0) > 0 && (
+                <p
+                  className="text-[11px] text-status-warning"
+                  data-testid="frozen-report-keys-left-empty"
+                >
+                  {t('frozen.report.keysLeftEmpty', {
+                    objects: (loadReport.keysLeftEmpty ?? [])
+                      .map(
+                        (left) =>
+                          `${left.objectApiName} (${left.count}: ${left.fields.join(', ')})`,
+                      )
                       .join(', '),
                   })}
                 </p>

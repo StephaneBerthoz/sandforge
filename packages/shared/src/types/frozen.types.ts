@@ -287,6 +287,17 @@ export interface FrozenLeftToThePlatform {
 }
 
 /**
+ * Records of one object a load does not look up in the target by its identity
+ * keys: a key field stays empty in what the load writes — the dataset holds no
+ * value of it, and no declared default fills it — so each is inserted, never
+ * matched to the record the target holds.
+ */
+export interface FrozenKeysLeftEmpty extends FrozenLeftToThePlatform {
+  /** The key fields left empty, by API name. */
+  fields: string[];
+}
+
+/**
  * Records of one object a frozen dataset holds that cannot be loaded as they
  * are, for an object `excludedObjects` leaves out: the record a lookup they
  * may not leave empty names, or — for an order past Draft — the items it is
@@ -727,6 +738,13 @@ export interface FrozenLoadReportInfo {
    */
   quotesLeftUnsynced?: FrozenLeftToThePlatform[];
   /**
+   * Per object whose identity keys the load looked records up by — on a
+   * reload, and on every load for an object the platform never deletes — the
+   * records it did not look up: a key field stayed empty in what it wrote.
+   * Absent when it looked up every one.
+   */
+  keysLeftEmpty?: FrozenKeysLeftEmpty[];
+  /**
    * What the sweep asked with a reload did, per load it replaced, as a
    * removal of that load would have swept it: what the target's automation
    * made for the load, taken around the purge. Absent when no sweep was
@@ -897,6 +915,13 @@ export interface FrozenLoadPlanInfo {
    * it would leave none.
    */
   quotesLeftUnsynced?: FrozenLeftToThePlatform[];
+  /**
+   * Per object whose identity keys the load would look records up by — on a
+   * reload, and on every load for an object the platform never deletes — the
+   * records it would not look up: a key field stays empty in what it would
+   * write. Absent when it would look up every one.
+   */
+  keysLeftEmpty?: FrozenKeysLeftEmpty[];
   /**
    * On a reload, per object, records of a load recorded before loads kept
    * what they created that the purge would leave in place: that load may have

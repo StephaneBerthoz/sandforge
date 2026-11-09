@@ -144,7 +144,7 @@ const DESCRIBES: Record<string, TargetObjectDescribe> = {
   Opportunity: {
     name: 'Opportunity',
     fields: [
-      field({ name: 'Name', nillable: false }),
+      field({ name: 'Name', nillable: false, nameField: true }),
       field({ name: 'StageName', type: 'picklist', nillable: false }),
       field({ name: 'CloseDate', type: 'date', nillable: false }),
       field({ name: 'SyncedQuoteId', type: 'reference', referenceTo: ['Quote'] }),
@@ -158,7 +158,8 @@ const DESCRIBES: Record<string, TargetObjectDescribe> = {
   Quote: {
     name: 'Quote',
     fields: [
-      field({ name: 'Name', nillable: false }),
+      field({ name: 'Name', nillable: false, nameField: true }),
+      field({ name: 'Description', type: 'textarea' }),
       field({
         name: 'OpportunityId',
         type: 'reference',
@@ -532,5 +533,217 @@ describe('a Frozen reload that finds again by its key the quote a load before wr
     await expect(
       new FrozenDatasetLoader(deps).planLoad({ ...options, reload: true }),
     ).rejects.toBeInstanceOf(ReloadTakesAlongError);
+  });
+});
+
+describe('a Frozen reload keyed on a field the rules cleared and a default fills', () => {
+  /** The dossier as the rules freeze it: each `Object.field` of `cleared` left `''`. */
+  function clearedIn(dataset: FrozenDataset, cleared: readonly string[]): FrozenDataset {
+    return {
+      ...dataset,
+      objects: dataset.objects.map((objectData) => ({
+        ...objectData,
+        records: objectData.records.map((record) => ({
+          ...record,
+          fields: {
+            ...record.fields,
+            ...Object.fromEntries(
+              cleared
+                .filter((key) => key.startsWith(`${objectData.objectApiName}.`))
+                .map((key) => [key.slice(objectData.objectApiName.length + 1), '']),
+            ),
+          },
+        })),
+      })),
+    };
+  }
+
+  /**
+   * A target that answers what the loader asks as an org does: a read by
+   * identity keys — `(Name = 'a') OR (Name = 'b')` — returns the rows holding
+   * one of those tuples, never the others; a read by ids, those rows.
+   */
+  function answering(org: ReturnType<typeof quoteSyncOrg>, asked: string[]) {
+    return async (_org: string, soql: string): Promise<Row[]> => {
+      asked.push(soql);
+      const pick = (row: Row, columns: string): Row =>
+        Object.fromEntries(columns.split(', ').map((c) => [c, row[c]]));
+      const byIds = /^SELECT (.+) FROM (\w+) WHERE Id IN \((.*)\)$/.exec(soql);
+      if (byIds) {
+        const [, columns, objectApiName, list] = byIds;
+        const wanted = list.split(', ').map((quoted) => quoted.slice(1, -1));
+        return org
+          .rowsOf(objectApiName)
+          .filter((row) => wanted.includes(String(row.Id)))
+          .map((row) => pick(row, columns));
+      }
+      const byKeys = /^SELECT (Id(?:, \w+)+) FROM (\w+) WHERE \((.+)\)$/.exec(soql);
+      if (!byKeys) return [];
+      const [, columns, objectApiName, where] = byKeys;
+      const tuples = where.split(') OR (').map((tuple) =>
+        tuple.split(' AND ').map((condition) => {
+          const [, fieldName, value] = /^(\w+) = '(.*)'$/.exec(condition) ?? [];
+          return [fieldName, value] as const;
+        }),
+      );
+      return org
+        .rowsOf(objectApiName)
+        .filter((row) => tuples.some((tuple) => tuple.every(([f, v]) => row[f] === v)))
+        .map((row) => pick(row, columns));
+    };
+  }
+
+  /**
+   * The target after a load of the dossier whose quote's name the rules
+   * cleared — `Quote.Name = ""` in the dataset — and the declared default
+   * filled, deleting as an org does: an opportunity's quotes and products
+   * go with it.
+   */
+  async function loadedOnce(config: FrozenLoadConfig, cleared: readonly string[]) {
+    const org = quoteSyncOrg();
+    const destroy = org.writer.delete;
+    const cascade = async (orgId: string, objectApiName: string, ids: string[]) => {
+      const answers = await destroy(orgId, objectApiName, ids);
+      const under = (child: string, fieldName: string) =>
+        org
+          .rowsOf(child)
+          .filter((row) => ids.includes(String(row[fieldName])))
+          .map((row) => String(row.Id));
+      if (objectApiName === 'Opportunity') {
+        await cascade(orgId, 'Quote', under('Quote', 'OpportunityId'));
+        await destroy(orgId, PRODUCT, under(PRODUCT, 'OpportunityId'));
+      }
+      return answers;
+    };
+    org.writer.delete = vi.fn(cascade);
+    const asked: string[] = [];
+    const deps = depsOf(
+      org,
+      {
+        excludedObjects: [LINE],
+        requiredFieldDefaults: {
+          'Quote.Name': 'Frozen Quote',
+          'Opportunity.Name': 'Frozen Opportunity',
+        },
+        ...config,
+      },
+      answering(org, asked),
+    );
+    const options = {
+      orgId: '00D-target',
+      orgTier: 'development' as const,
+      dataset: clearedIn(dossier(false), cleared),
+      sasDir: deps.sasDir,
+    };
+    await new FrozenDatasetLoader(deps).load(options);
+    const writes = () =>
+      [org.writer.insert, org.writer.update, org.writer.delete].reduce(
+        (sum, call) => sum + vi.mocked(call).mock.calls.length,
+        0,
+      );
+    return { org, deps, options, asked, writes };
+  }
+
+  it('finds the quote and the opportunity a load before wrote under their default names, and writes neither again', async () => {
+    // Keyed on the names the rules cleared, the reload asked the target for
+    // no record: run on a scratch org, its dry run said "Quote: 1 to insert,
+    // 1 to purge of 1" of the quote an earlier load wrote under the name the
+    // declared default gives it on every load, its rank appended.
+    const { org, deps, options } = await loadedOnce(
+      { identityKeys: { Opportunity: ['Name'], Quote: ['Name'] } },
+      ['Opportunity.Name', 'Quote.Name'],
+    );
+    const [quote] = org.rowsOf('Quote');
+    const [opportunity] = org.rowsOf('Opportunity');
+    expect(quote.Name).toBe('Frozen Quote 1');
+    expect(opportunity.Name).toBe('Frozen Opportunity 1');
+
+    const plan = await new FrozenDatasetLoader(deps).planLoad({ ...options, reload: true });
+
+    const line = (objectApiName: string) =>
+      plan.perObject.find((o) => o.objectApiName === objectApiName);
+    expect(line('Quote')).toMatchObject({ toInsert: 0, reusedByKeys: 1, toPurge: 0 });
+    expect(line('Opportunity')).toMatchObject({ toInsert: 0, reusedByKeys: 1, toPurge: 0 });
+    expect(plan).not.toHaveProperty('keysLeftEmpty');
+
+    vi.mocked(org.writer.insert).mockClear();
+    const report = await new FrozenDatasetLoader(deps).load({ ...options, reload: true });
+
+    const inserted = vi
+      .mocked(org.writer.insert)
+      .mock.calls.map(([, objectApiName]) => objectApiName);
+    expect(inserted).not.toContain('Quote');
+    expect(inserted).not.toContain('Opportunity');
+    expect(org.rowsOf('Quote').map((row) => row.Id)).toEqual([quote.Id]);
+    expect(org.rowsOf('Opportunity').map((row) => row.Id)).toEqual([opportunity.Id]);
+    expect(report.perObject.find((o) => o.objectApiName === 'Quote')).toMatchObject({
+      inserted: 0,
+      reused: 1,
+    });
+  });
+
+  it('is refused before anything is written when the quote it finds by its default name hangs from the opportunity its purge deletes', async () => {
+    // Not found, the quote was counted to purge with its opportunity and
+    // the refusal of a purge that takes a found record along never saw it.
+    const { org, deps, options, writes } = await loadedOnce({ identityKeys: { Quote: ['Name'] } }, [
+      'Opportunity.Name',
+      'Quote.Name',
+    ]);
+    const [quote] = org.rowsOf('Quote');
+    const before = writes();
+
+    await expect(
+      new FrozenDatasetLoader(deps).planLoad({ ...options, reload: true }),
+    ).rejects.toBeInstanceOf(ReloadTakesAlongError);
+    const outcome = await new FrozenDatasetLoader(deps).load({ ...options, reload: true }).then(
+      (report) => report.status,
+      (err: unknown) => err,
+    );
+
+    expect(outcome).toBeInstanceOf(ReloadTakesAlongError);
+    expect((outcome as Error).message).toContain(
+      'This reload finds in the target 1 record(s) that its purge would delete along with what ' +
+        'the loads before it created — Quote (1, under Opportunity)',
+    );
+    expect(writes()).toBe(before);
+    expect(org.rowsOf('Quote').map((row) => row.Id)).toEqual([quote.Id]);
+  });
+
+  it('says, in its dry run and its report, the records whose key stays empty, and asks the target nothing of them', async () => {
+    // A field no default fills — not required — stays empty in what the load
+    // writes: such a key is no key, and the record goes in unmatched.
+    const { org, deps, options, asked } = await loadedOnce(
+      { identityKeys: { Quote: ['Description'] } },
+      ['Quote.Description'],
+    );
+    asked.length = 0;
+
+    const plan = await new FrozenDatasetLoader(deps).planLoad({ ...options, reload: true });
+    const report = await new FrozenDatasetLoader(deps).load({ ...options, reload: true });
+
+    expect(plan.keysLeftEmpty).toEqual([
+      {
+        objectApiName: 'Quote',
+        fields: ['Description'],
+        count: 1,
+        note:
+          '1 not looked up by its identity keys: Description stays empty in what the load would ' +
+          'write — the dataset holds no value, and no default fills it — so it would be inserted, ' +
+          'never matched',
+      },
+    ]);
+    expect(report.keysLeftEmpty).toEqual([
+      {
+        objectApiName: 'Quote',
+        fields: ['Description'],
+        count: 1,
+        note:
+          '1 not looked up by its identity keys: Description stayed empty in what the load wrote ' +
+          '— the dataset holds no value, and no default fills it — so it was sent to be inserted, ' +
+          'never matched',
+      },
+    ]);
+    expect(asked.filter((soql) => / FROM Quote WHERE \(/.test(soql))).toEqual([]);
+    expect(org.rowsOf('Quote')).toHaveLength(1);
   });
 });

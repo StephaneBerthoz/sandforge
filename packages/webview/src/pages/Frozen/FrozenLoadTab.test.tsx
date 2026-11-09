@@ -716,6 +716,43 @@ describe('FrozenLoadTab', () => {
       );
     });
 
+    it('says, in the preview and in the report, the records no identity key was looked up for, their key left empty', () => {
+      // Keyed on a name the rules cleared, a reload's preview counted the quote
+      // to insert and said nothing of the key it never asked the target about.
+      const keysLeftEmpty = [
+        { objectApiName: 'Quote', fields: ['Description'], count: 1, note: '1 not looked up' },
+      ];
+      answers['frozen:load:preview'] = { data: { plan: { ...PLAN, keysLeftEmpty } } };
+      useFrozenStore.setState({
+        loadReport: {
+          status: 'completed',
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: true },
+          startedAt: '2026-10-09T10:00:00.000Z',
+          durationMs: 10,
+          alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+          placeholders: [],
+          requiredDefaults: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          personContact: { restored: 0, unresolved: [] },
+          purge: { deleted: {}, deactivated: {}, failures: [] },
+          keysLeftEmpty,
+          mappingPath: '',
+          contractPath: '',
+        },
+      });
+
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-keys-left-empty').textContent).toBe(
+        'Would be inserted without being looked up in the target by their identity keys — a key field stays empty in what the load would write, the dataset holding no value and no declared default filling it; keep the field in the rules, or key the object on a field the dataset holds: Quote (1: Description)',
+      );
+      expect(screen.getByTestId('frozen-report-keys-left-empty').textContent).toBe(
+        'Sent to be inserted without being looked up in the target by their identity keys — a key field stayed empty in what the load wrote, the dataset holding no value and no declared default filling it; keep the field in the rules, or key the object on a field the dataset holds: Quote (1: Description)',
+      );
+    });
+
     it('names in the preview the lookup filters of what the load inserts, which it cannot check', () => {
       // On the trap org, a filter on the contacts' preferred account refused
       // six records the preview had counted to insert, and nothing named it.

@@ -3429,4 +3429,18 @@ describe('toLoadReportInfo', () => {
     );
     expect(toLoadReportInfo(report)).not.toHaveProperty('untypedFeedItems');
   });
+
+  it('hands the panel the records no identity key was looked up for, their key left empty', () => {
+    const keysLeftEmpty = [
+      {
+        objectApiName: 'Quote',
+        fields: ['Description'],
+        count: 1,
+        note: '1 not looked up by its identity keys: Description stayed empty in what the load wrote',
+      },
+    ];
+
+    expect(toLoadReportInfo({ ...report, keysLeftEmpty }).keysLeftEmpty).toEqual(keysLeftEmpty);
+    expect(toLoadReportInfo(report)).not.toHaveProperty('keysLeftEmpty');
+  });
 });

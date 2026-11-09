@@ -92,6 +92,17 @@ const CHANGED_KEYS: Record<RemovalSubject, string> = {
   rewindUndo: 'runRemoval.rewindUndo.resultChanged',
 };
 
+/**
+ * What a removal took along that was not what it took back, by what it took
+ * back: records added or changed since, under the ones it deleted.
+ */
+const TOOK_ALONG_KEYS: Record<RemovalSubject, string> = {
+  run: 'runRemoval.resultTookAlong',
+  load: 'runRemoval.load.resultTookAlong',
+  rewind: 'runRemoval.rewind.resultTookAlong',
+  rewindUndo: 'runRemoval.rewindUndo.resultTookAlong',
+};
+
 /** What the files a removal leaves in the org are said not to have come with. */
 const FILES_LEFT_KEYS: Record<RemovalSubject, string> = {
   run: 'runRemoval.resultFilesLeft',
@@ -680,6 +691,19 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
             <span className="font-mono text-text-primary">{object.objectApiName}</span>
             {': '}
             {outcomeParts(t, object, subject).join(' · ')}
+            {/* Taken along unsaid, a contact made by hand under an account of
+                a load went with the account, the result counting the load's
+                contacts alone. */}
+            {object.tookAlong && object.tookAlong.count > 0 && (
+              <p
+                data-testid={`forge-removal-took-along-${object.objectApiName}`}
+                className="ml-3 mt-0.5 wrap-break-word"
+              >
+                {counted(t, TOOK_ALONG_KEYS[subject], object.tookAlong.count, {
+                  objects: object.tookAlong.objects.join(', '),
+                })}
+              </p>
+            )}
             {object.reasons.length > 0 && (
               <ul className="ml-3 mt-0.5 list-disc list-inside wrap-break-word">
                 {object.reasons.map((reason) => (

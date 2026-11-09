@@ -709,6 +709,50 @@ describe('ForgeRunRemovalResult of a Frozen load', () => {
     );
     expect(screen.queryByTestId('forge-removal-files-Contact')).toBeNull();
   });
+
+  it('says what a removal including changes took along that the load never wrote', () => {
+    // Run for real, the contact made by hand under an account of the load
+    // went with the account, and the result counted the load's four contacts.
+    const { rerender } = render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        subject="load"
+        result={result({
+          objects: [
+            outcome({ objectApiName: 'Contact', deleted: 4 }),
+            outcome({
+              objectApiName: 'Account',
+              deleted: 2,
+              tookAlong: { count: 1, objects: ['Contact'] },
+            }),
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-took-along-Account').textContent).toBe(
+      "Also took along 1 record that was not the load's, added or changed since it: Contact",
+    );
+    expect(screen.queryByTestId('forge-removal-took-along-Contact')).toBeNull();
+
+    rerender(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({
+          objects: [
+            outcome({
+              objectApiName: 'Account',
+              deleted: 1,
+              tookAlong: { count: 2, objects: ['Contact', 'Task'] },
+            }),
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByTestId('forge-removal-took-along-Account').textContent).toBe(
+      "Also took along 2 records that were not the run's, added or changed since it: Contact, Task",
+    );
+  });
 });
 
 describe('ForgeRunRemovalResult of the files a run did not create', () => {

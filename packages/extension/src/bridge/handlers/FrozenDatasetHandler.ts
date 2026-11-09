@@ -946,6 +946,7 @@ export function toLoadReportInfo(report: FrozenLoadReport): FrozenLoadReportInfo
       ? { heldForExcludedParents: report.heldForExcludedParents }
       : {}),
     ...(report.quotesLeftUnsynced ? { quotesLeftUnsynced: report.quotesLeftUnsynced } : {}),
+    ...(report.keysLeftEmpty ? { keysLeftEmpty: report.keysLeftEmpty } : {}),
     ...(report.recordTypesGiven ? { recordTypesGiven: report.recordTypesGiven } : {}),
     ...(report.runUserId ? { runUserId: report.runUserId } : {}),
     mappingPath: report.mappingPath,

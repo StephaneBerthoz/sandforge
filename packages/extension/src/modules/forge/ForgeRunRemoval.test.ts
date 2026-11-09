@@ -778,6 +778,56 @@ describe('removeRunRecords', () => {
     expect(org.has('Task', id('00T', 1))).toBe(false);
   });
 
+  it('says what it took along that was not the run’s, added since the run under a record it deleted, as changes are included', async () => {
+    // Run for real, a removal including changes took a contact made by hand
+    // under an account of a Frozen load along with the account, and said
+    // "Contact: 4 deleted of 4", the load's four, keptDependents 0.
+    const { org, plan } = accountWithContacts();
+    const byHand = id('003', 3);
+    org.add('Contact', {
+      Id: byHand,
+      AccountId: id('001', 1),
+      CreatedDate: AFTER_RUN,
+      LastModifiedDate: AFTER_RUN,
+    });
+
+    const outcome = await removeRunRecords(org, plan, options({ includeChanged: true }));
+
+    expect(outcome.objects[0]).toMatchObject({ objectApiName: 'Contact', deleted: 2, planned: 2 });
+    expect(outcome.objects[0]).not.toHaveProperty('tookAlong');
+    expect(outcome.objects[1]).toMatchObject({
+      objectApiName: 'Account',
+      deleted: 1,
+      keptDependents: 0,
+      tookAlong: { count: 1, objects: ['Contact'] },
+    });
+    expect(org.has('Contact', byHand)).toBe(false);
+  });
+
+  it('takes along nothing it does not say: what came with the run, and what changes left out keep their parent', async () => {
+    const withTheRun = accountWithContacts();
+    withTheRun.org.add('Task', runRow(id('00T', 1), { WhatId: id('001', 1) }));
+    const kept = accountWithContacts();
+    kept.org.add('Task', {
+      Id: id('00T', 2),
+      WhatId: id('001', 1),
+      CreatedDate: AFTER_RUN,
+      LastModifiedDate: AFTER_RUN,
+    });
+
+    const came = await removeRunRecords(
+      withTheRun.org,
+      withTheRun.plan,
+      options({ includeChanged: true }),
+    );
+    const held = await removeRunRecords(kept.org, kept.plan, options());
+
+    expect(came.objects[1]).toMatchObject({ deleted: 1 });
+    expect(came.objects[1]).not.toHaveProperty('tookAlong');
+    expect(held.objects[1]).toMatchObject({ deleted: 0, keptDependents: 1 });
+    expect(held.objects[1]).not.toHaveProperty('tookAlong');
+  });
+
   it('deletes a parent with what came with the run: created while it went, untouched since', async () => {
     // A task a flow opened when the account was inserted.
     const { org, plan } = accountWithContacts();

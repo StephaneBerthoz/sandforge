@@ -1225,6 +1225,12 @@ class ObjectRemoval {
    * the run's last write: see {@link ForgeUndoObjectResult.heldByAutomationAfterRun}.
    */
   readonly automationHeldAfter = new Set<string>();
+  /**
+   * The records not the run's that the org took along with the ones deleted,
+   * as the request included what was added or changed since the run: each by
+   * its key, with its object. See {@link ForgeUndoObjectResult.tookAlong}.
+   */
+  readonly tookAlong = new Map<string, string>();
 
   /**
    * @param copies - Of `planned`, the records the platform copied as the run
@@ -1337,6 +1343,12 @@ class ObjectRemoval {
       this.result.filesLeft = {
         count: this.filesLeft.size,
         names: [...this.filesLeft.values()].slice(0, FILE_NAME_LIMIT),
+      };
+    }
+    if (this.tookAlong.size > 0) {
+      this.result.tookAlong = {
+        count: this.tookAlong.size,
+        objects: [...new Set(this.tookAlong.values())],
       };
     }
     return this.result;
@@ -2901,6 +2913,9 @@ async function removeCandidates(
         for (const file of files.get(key) ?? []) {
           removal.filesLeft.set(file.key, file.name);
         }
+        for (const [taken, object] of verdict.along.get(key) ?? []) {
+          removal.tookAlong.set(taken, object);
+        }
       } else removal.result.alreadyGone++;
     });
     hooks.onSent?.(batch);
@@ -3500,6 +3515,12 @@ interface HeldVerdict {
    * after the run's last write, as the org dated it.
    */
   automationAfter: Set<string>;
+  /**
+   * By the key of a record about to go, the records not the run's that the
+   * org would take along with it only because the request includes what was
+   * added or changed since the run: each by its key, with its object.
+   */
+  along: Map<string, Map<string, string>>;
   /** Relationships the org deletes along that could not be read by the record, by child object. */
   unchecked: Set<string>;
   /** Why the object's relationships could not be read at all; every record is then held. */
@@ -3609,6 +3630,7 @@ class DependentsCheck {
       otherwise: new Set(),
       byAutomation: new Map(),
       automationAfter: new Set(),
+      along: new Map(),
       unchecked: new Set(),
     };
     if (candidates.length === 0) return verdict;
@@ -3667,7 +3689,7 @@ class DependentsCheck {
     // objects holding records are named in the same order however the reads
     // came back.
     const mayBeAutomation: AutomationHolder[] = [];
-    for (const { relationship, holding, unchecked, automation } of await inPool(
+    for (const { relationship, holding, unchecked, automation, along } of await inPool(
       reads,
       DEPENDENT_READS_AT_ONCE,
     )) {
@@ -3678,6 +3700,11 @@ class DependentsCheck {
       holding.forEach((key) => this.hold(verdict, key));
       for (const holder of automation) verdict.held.add(recordKey(holder.parent));
       mayBeAutomation.push(...automation);
+      for (const { parent, key } of along) {
+        const goes = verdict.along.get(parent) ?? new Map<string, string>();
+        goes.set(key, relationship.childSObject);
+        verdict.along.set(parent, goes);
+      }
     }
     if (this.context.previewing !== true) {
       await this.lockedPastDraft(objectApiName, candidates, verdict);
@@ -3805,13 +3832,23 @@ class DependentsCheck {
    * run is said apart (`automation`), until the record it holds is read
    * ({@link byAutomationOnly}): it holds that record all the same.
    *
-   * @returns The keys held, the records that may be the automation's, and
-   *   whether the relationship could not be read.
+   * A record that goes with its parent only because the request includes
+   * what was added or changed since the run is said apart (`along`): not the
+   * run's, it is taken all the same, and the removal names it.
+   *
+   * @returns The keys held, the records that may be the automation's, those
+   *   taken along only as the request includes changes, and whether the
+   *   relationship could not be read.
    */
   private async holdingIn(
     relationship: DependentRelationship,
     chunk: readonly string[],
-  ): Promise<{ holding: Set<string>; automation: AutomationHolder[]; unchecked: boolean }> {
+  ): Promise<{
+    holding: Set<string>;
+    automation: AutomationHolder[];
+    along: Array<{ parent: string; key: string }>;
+    unchecked: boolean;
+  }> {
     const child = assertSoqlIdentifier(relationship.childSObject);
     const field = assertSoqlIdentifier(relationship.field);
     const [list] = idLists(chunk, chunk.length);
@@ -3845,10 +3882,16 @@ class DependentsCheck {
       // A read that filled its limit may hold more than it read: every
       // record of the chunk is kept rather than guessed about.
       if (answer.records.length >= DEPENDENTS_READ_LIMIT) {
-        return { holding: new Set(chunk.map(recordKey)), automation: [], unchecked: false };
+        return {
+          holding: new Set(chunk.map(recordKey)),
+          automation: [],
+          along: [],
+          unchecked: false,
+        };
       }
       const holding = new Set<string>();
       const automation: AutomationHolder[] = [];
+      const along: Array<{ parent: string; key: string }> = [];
       for (const record of answer.records) {
         if (typeof record !== 'object' || record === null) continue;
         const row = record as Record<string, unknown>;
@@ -3857,16 +3900,18 @@ class DependentsCheck {
         if (child === FILE_LINK && field === 'LinkedEntityId') this.noteFile(row);
         // Locked under this very record, the row stays because the record does.
         if (this.lockedUnder.get(recordKey(row.Id)) === recordKey(parent)) continue;
-        if (!this.stays(row, child, relationship.restricted, relationship.personContacts)) {
+        const asked = { onlyIncluded: false };
+        if (!this.stays(row, child, relationship.restricted, relationship.personContacts, asked)) {
+          if (asked.onlyIncluded) along.push({ parent: recordKey(parent), key: recordKey(row.Id) });
           continue;
         }
         const made = this.mayBeAutomation(row);
         if (made) automation.push({ parent, object: child, ...made });
         else holding.add(recordKey(parent));
       }
-      return { holding, automation, unchecked: false };
+      return { holding, automation, along, unchecked: false };
     }
-    return { holding: new Set(), automation: [], unchecked: !relationship.restricted };
+    return { holding: new Set(), automation: [], along: [], unchecked: !relationship.restricted };
   }
 
   /**
@@ -4224,12 +4269,16 @@ class DependentsCheck {
    *   points at over it.
    * @param personContacts - Whether the record is a contact read under its
    *   account in an org with person accounts.
+   * @param asked - Set `onlyIncluded` when the record goes only because the
+   *   request includes what was added or changed since the run: someone's,
+   *   not the run's, taken along all the same.
    */
   private stays(
     row: Record<string, unknown>,
     object: string,
     restricted = false,
     personContacts = false,
+    asked?: { onlyIncluded: boolean },
   ): boolean {
     const key = recordKey(row.Id as string);
     const {
@@ -4301,6 +4350,10 @@ class DependentsCheck {
     const modifier =
       typeof row.LastModifiedById === 'string' ? recordKey(row.LastModifiedById) : undefined;
     if (created <= runEnd && asRemoval(modifier, modified)) return false;
+    // Taken along unsaid, a contact made by hand under an account of a load
+    // went with the account a removal including changes deleted, and the
+    // removal said "Contact: 4 deleted of 4", the four the load wrote.
+    if (includeChanged && asked) asked.onlyIncluded = true;
     return !includeChanged;
   }
 

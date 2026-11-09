@@ -95,6 +95,7 @@ import {
   sweepListingLines,
   sweepOptionWords,
   targetAutomationReader,
+  tookAlongLines,
   type SweepClassArgs,
 } from './sandforge-clone.js';
 import { relayTakes } from './relayWords.js';
@@ -1466,6 +1467,7 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
         untypedFeedItems?: Array<{ objectApiName: string; note: string }>;
         heldForExcludedParents?: Array<{ objectApiName: string; note: string }>;
         quotesLeftUnsynced?: Array<{ objectApiName: string; note: string }>;
+        keysLeftEmpty?: Array<{ objectApiName: string; note: string }>;
       };
       const lines = [
         `load: ${r.status} in ${r.durationMs}ms — ${r.alignment.excludedObjects.length} object(s) ` +
@@ -1498,11 +1500,13 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
       // Nor sent either: what they cannot go in without is an object
       // excludedObjects leaves out.
       // And a synced quote left unset, which would have taken the products.
+      // And what no identity key was looked up for, its key left empty.
       for (const left of [
         ...(r.leftToThePlatform ?? []),
         ...(r.untypedFeedItems ?? []),
         ...(r.heldForExcludedParents ?? []),
         ...(r.quotesLeftUnsynced ?? []),
+        ...(r.keysLeftEmpty ?? []),
       ]) {
         lines.push(`  ${left.objectApiName}: ${left.note}`);
       }
@@ -1674,6 +1678,7 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
         keptByThePlatform?: Record<string, number>;
         heldForExcludedParents?: Array<{ objectApiName: string; note: string }>;
         quotesLeftUnsynced?: Array<{ objectApiName: string; note: string }>;
+        keysLeftEmpty?: Array<{ objectApiName: string; note: string }>;
         validationRulesUnread?: string;
       };
       const sum = (pick: (o: (typeof plan.perObject)[number]) => number): number =>
@@ -1713,6 +1718,7 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
       for (const held of [
         ...(plan.heldForExcludedParents ?? []),
         ...(plan.quotesLeftUnsynced ?? []),
+        ...(plan.keysLeftEmpty ?? []),
       ]) {
         lines.push(`  ${held.objectApiName}: ${held.note}`);
       }
@@ -1842,6 +1848,7 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
           unchecked: string[];
           reasons: string[];
           filesLeft?: { count: number; names: string[] };
+          tookAlong?: { count: number; objects: string[] };
         }>;
         keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
       };
@@ -1864,6 +1871,8 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
             ]),
         ...r.objects.flatMap((o) => [
           `  ${o.objectApiName}: ${removalCounts(o) || 'nothing'} of ${o.planned}${platformCopiesWords(o)}`,
+          // What went with them that the load never wrote: made by hand since.
+          ...tookAlongLines(o, 'load'),
           ...o.reasons.map((reason) => `      ${reason}`),
           ...(o.filesLeft && o.filesLeft.count > 0 ? [`      ${filesLeftLine(o.filesLeft)}`] : []),
         ]),

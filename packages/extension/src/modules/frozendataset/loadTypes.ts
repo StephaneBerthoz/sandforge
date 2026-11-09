@@ -11,6 +11,7 @@
 
 import type {
   FrozenDefaultPerRecord,
+  FrozenKeysLeftEmpty,
   FrozenLeftToThePlatform,
   FrozenUnresolvedLinkCause,
   FrozenWrittenWithoutFields,
@@ -562,6 +563,13 @@ export interface FrozenLoadReport {
    * products with its quote's lines. Absent when it left none.
    */
   quotesLeftUnsynced?: FrozenLeftToThePlatform[];
+  /**
+   * Per object whose identity keys the load looked records up by — on a
+   * reload, and on every load for an object the platform never deletes — the
+   * records it did not look up: a key field stayed empty in what it wrote.
+   * Absent when it looked up every one.
+   */
+  keysLeftEmpty?: FrozenKeysLeftEmpty[];
   /**
    * Per object, the record type the target gave the records the load created
    * without one, as read back. Absent when there was nothing to say.

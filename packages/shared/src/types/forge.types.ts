@@ -760,6 +760,13 @@ export interface ForgeUndoObjectResult {
   /** The objects of the records counted in `heldByAutomation`, by API name. */
   automationHolders?: string[];
   /**
+   * Records that were not the run's — added under its records since the run,
+   * or changed since — that the org deleted along with the ones counted in
+   * `deleted`, as the request including what changed since the run asked:
+   * how many, and their objects by API name. Absent when none went so.
+   */
+  tookAlong?: { count: number; objects: string[] };
+  /**
    * Of `planned`, the records the platform copied as the run wrote — the
    * quote lines of a quote the run synced with its opportunity — that the
    * run's id map does not hold: part of the run, in its plan and named

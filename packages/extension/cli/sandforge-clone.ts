@@ -4213,6 +4213,28 @@ export function platformCopiesWords(object: { planned: number; platformCopies?: 
   );
 }
 
+/**
+ * What a removal took along that was not the run's, said under its object's
+ * counts: the records added or changed since that the org deleted with the
+ * ones the removal deleted, as a removal including changes asks. Taken unsaid,
+ * a contact made by hand under an account of a Frozen load went with the
+ * account, and the removal said "Contact: 4 deleted of 4", the load's four.
+ * Empty when it took none. Exported so it can be tested.
+ *
+ * @param of - What the removal takes back, as the command calls it.
+ */
+export function tookAlongLines(
+  object: Pick<ForgeUndoObjectResult, 'tookAlong'>,
+  of: 'run' | 'load' = 'run',
+): string[] {
+  const taken = object.tookAlong;
+  if (!taken || taken.count <= 0) return [];
+  return [
+    `      took along ${taken.count} record(s) that were not the ${of}'s, added or changed ` +
+      `since it: ${taken.objects.join(', ')}`,
+  ];
+}
+
 /** What became of one object's records in a removal: the counts that are not zero. */
 function removalCounts(object: ForgeUndoObjectResult): string {
   return [
@@ -4262,6 +4284,7 @@ export function removalLines(
     `removal: ${status.toUpperCase()}`,
     ...objects.flatMap((o) => [
       `  ${o.objectApiName}: ${removalCounts(o) || 'nothing'} of ${o.planned}${platformCopiesWords(o)}`,
+      ...tookAlongLines(o),
       ...o.reasons.map((reason) => `      ${reason}`),
       ...(o.filesLeft && o.filesLeft.count > 0 ? [`      ${filesLeftLine(o.filesLeft)}`] : []),
     ]),

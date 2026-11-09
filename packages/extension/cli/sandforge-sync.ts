@@ -253,6 +253,7 @@ import {
   otherRunsOf,
   platformCopiesWords,
   recordTypeGivenLines,
+  tookAlongLines,
   runMuteSchema,
   runUserIdOf,
   sweepClassArgsOf,
@@ -3019,6 +3020,7 @@ export function removalSummaryLines(
     `removal: ${status.toUpperCase()}`,
     ...objects.flatMap((o) => [
       `  ${o.objectApiName}: ${counts(o) || 'nothing'} of ${o.planned}${platformCopiesWords(o)}`,
+      ...tookAlongLines(o),
       ...o.reasons.map((reason) => `      ${reason}`),
     ]),
   ];

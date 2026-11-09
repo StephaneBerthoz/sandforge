@@ -907,4 +907,26 @@ describe('removalSummaryLines', () => {
       '  Account: 1 not reached of 1',
     ]);
   });
+
+  it('says what a removal including changes took along that the run never wrote', () => {
+    const counts = { alreadyGone: 0, keptChanged: 0, keptDependents: 0, refused: 0 };
+    const lists = { heldBy: [], unchecked: [], reasons: [] };
+
+    expect(
+      removalSummaryLines('success', [
+        {
+          objectApiName: 'Account',
+          planned: 1,
+          deleted: 1,
+          tookAlong: { count: 2, objects: ['Contact', 'Task'] },
+          ...counts,
+          ...lists,
+        },
+      ]),
+    ).toEqual([
+      'removal: SUCCESS',
+      '  Account: 1 deleted of 1',
+      "      took along 2 record(s) that were not the run's, added or changed since it: Contact, Task",
+    ]);
+  });
 });

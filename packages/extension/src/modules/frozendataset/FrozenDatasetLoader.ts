@@ -61,6 +61,7 @@ import {
 import type {
   ForgeWrittenBetween,
   FrozenDefaultPerRecord,
+  FrozenKeysLeftEmpty,
   FrozenLeftToThePlatform,
   FrozenLoadPlanInfo,
   FrozenLoadPlanObject,
@@ -677,6 +678,43 @@ interface PreparedLoad {
    * is not here, and reads `notRead`.
    */
   withoutRecordType: ReadonlyMap<string, WithoutRecordTypeWhy>;
+  /** Per object whose identity keys the load looks records up by, the records it does not: see {@link KeysLeftEmpty}. */
+  keysLeftEmpty: KeysLeftEmpty[];
+}
+
+/**
+ * Records of one object a load does not look up in the target by its identity
+ * keys, a key field staying empty in what it writes: the key fields so left,
+ * and how many records.
+ */
+interface KeysLeftEmpty {
+  objectApiName: string;
+  fields: string[];
+  count: number;
+}
+
+/**
+ * What a load matches records by in the target, of one object: its key
+ * fields, the records as the load writes them, what the alignment says a
+ * default fills, and the ranks and kinds of account those defaults go by.
+ */
+interface KeysAsWritten {
+  objectApiName: string;
+  keyFields: readonly string[];
+  records: ReadonlyArray<{ referenceId: string; fields: Record<string, unknown> }>;
+  missingRequired: readonly MissingRequiredField[];
+  ranks: ReadonlyMap<string, number>;
+  accountKindOf: (referenceId: string) => AccountKind;
+}
+
+/** What identity keys matched, as the alignment's line says it, and what they did not ask about. */
+interface KeyedLinks {
+  /** The records linked, by referenceId. */
+  linked: string[];
+  /** What the alignment's line says, per object. */
+  said: string[];
+  /** Per object, the records whose key stays empty in what the load writes. */
+  leftEmpty: KeysLeftEmpty[];
 }
 
 /**
@@ -1992,8 +2030,10 @@ export class FrozenDatasetLoader {
       );
     }
     // What the platform never deletes is linked, on every load, to the record
-    // the target holds under its identity key: read on the alignment's line,
-    // which a read that throws ends failed, with why.
+    // the target holds under its identity key; and on a reload, what its
+    // identity keys could not ask about before the alignment, by the value
+    // the load writes in a key field the dataset leaves empty: read on the
+    // alignment's line, which a read that throws ends failed, with why.
     const kept = await this.linkWhatThePlatformKeeps(
       orgId,
       alignment.objectResults,
@@ -2001,13 +2041,27 @@ export class FrozenDatasetLoader {
       ranks,
       mapping,
       reused,
+      accountKindOf,
     );
-    for (const key of kept.linked) reusedByKeys.add(key);
+    const keyed = options.reload
+      ? await this.reuseByKeysAsWritten(
+          orgId,
+          loading,
+          alignment.objectResults,
+          alignedByObject,
+          ranks,
+          mapping,
+          reused,
+          accountKindOf,
+        )
+      : { linked: [], said: [], leftEmpty: [] };
+    for (const key of [...kept.linked, ...keyed.linked]) reusedByKeys.add(key);
+    const said = [...kept.said, ...keyed.said];
     emit({
       phase: 'align',
       status: 'done',
       progress: 20,
-      message: `Schema aligned${kept.said.length > 0 ? ` — ${kept.said.join('; ')}` : ''}`,
+      message: `Schema aligned${said.length > 0 ? ` — ${said.join('; ')}` : ''}`,
     });
     running.endOpenLine = undefined;
     // A record the target will not take without a parent the configuration
@@ -2089,6 +2143,7 @@ export class FrozenDatasetLoader {
       plans,
       givenRules,
       withoutRecordType,
+      keysLeftEmpty: [...kept.leftEmpty, ...keyed.leftEmpty],
     };
   }
 
@@ -3347,6 +3402,7 @@ export class FrozenDatasetLoader {
         ? { heldForExcludedParents: heldForExcludedParentsOf(heldForExcluded) }
         : {}),
       ...quotesLeftUnsyncedOf(unsynced, this.config),
+      ...keysLeftEmptyOf(prepared.keysLeftEmpty),
       ...(recordTypesGiven.length > 0 ? { recordTypesGiven } : {}),
       ...(runUserId ? { runUserId } : {}),
       mappingPath: this.deps.mappingStore.filePath,
@@ -3477,7 +3533,12 @@ export class FrozenDatasetLoader {
     };
   }
 
-  /** Reuse existing target records matched by configured identity keys. */
+  /**
+   * Reuse existing target records matched by configured identity keys, by the
+   * values the dataset holds. A record leaving a key field empty is asked
+   * about once the alignment says what the load writes there:
+   * see {@link reuseByKeysAsWritten}.
+   */
   private async reuseByIdentityKeys(
     options: FrozenLoadOptions,
     working: FrozenDataset,
@@ -3556,8 +3617,8 @@ export class FrozenDatasetLoader {
    * alignment, which says which fields a default fills, and before the
    * required fields are settled: a record linked needs none.
    *
-   * @returns The records it linked, and what the alignment's line says of
-   *   them, per object.
+   * @returns The records it linked, what the alignment's line says of them,
+   *   and the records whose key stays empty, per object.
    */
   private async linkWhatThePlatformKeeps(
     orgId: string,
@@ -3569,44 +3630,145 @@ export class FrozenDatasetLoader {
     ranks: ReadonlyMap<string, number>,
     mapping: Map<string, string>,
     reused: Set<string>,
-  ): Promise<{ linked: string[]; said: string[] }> {
-    const linked: string[] = [];
-    const said: string[] = [];
+    accountKindOf: (referenceId: string) => AccountKind,
+  ): Promise<KeyedLinks> {
+    const links: KeyedLinks = { linked: [], said: [], leftEmpty: [] };
     for (const [objectApiName, ownKeys] of Object.entries(KEPT_BY_THE_PLATFORM)) {
       const keyFields = this.config.identityKeys?.[objectApiName] ?? ownKeys;
       const toWrite = (alignedByObject.get(objectApiName) ?? []).filter(
         (r) => !reused.has(r.referenceId),
       );
       if (toWrite.length === 0) continue;
-      const defaulted = (
-        objectResults.find((r) => r.objectApiName === objectApiName)?.missingRequired ?? []
-      ).filter((missing) => !missing.isLookup && keyFields.includes(missing.field));
-      const asWritten = toWrite.map((record) => {
-        const fields = { ...record.fields };
-        for (const missing of defaulted) {
-          const declared = this.config.requiredFieldDefaults?.[`${objectApiName}.${missing.field}`];
-          if (declared === undefined || !leftEmpty(fields[missing.field])) continue;
-          fields[missing.field] = defaultValueFor(
-            declared,
-            defaultPerRecord(declared, missing.distinct),
-            { referenceId: record.referenceId, rank: ranks.get(record.referenceId) ?? 0 },
-          );
-        }
-        return { referenceId: record.referenceId, fields };
-      });
-      const found = await this.findByKeys(orgId, objectApiName, keyFields, asWritten);
-      for (const [referenceId, realId] of found) {
-        mapping.set(referenceId, realId);
-        reused.add(referenceId);
-        linked.push(referenceId);
-      }
-      if (found.size > 0) {
-        said.push(
-          `${objectApiName}: ${found.size} found by ${keyFields.join(', ')}, which the platform does not delete`,
+      const found = await this.linkByKeysAsWritten(
+        orgId,
+        {
+          objectApiName,
+          keyFields,
+          records: toWrite,
+          missingRequired:
+            objectResults.find((r) => r.objectApiName === objectApiName)?.missingRequired ?? [],
+          ranks,
+          accountKindOf,
+        },
+        mapping,
+        reused,
+        links,
+      );
+      if (found > 0) {
+        links.said.push(
+          `${objectApiName}: ${found} found by ${keyFields.join(', ')}, which the platform does not delete`,
         );
       }
     }
-    return { linked, said };
+    return links;
+  }
+
+  /**
+   * On a reload, link each record its identity keys could not ask about
+   * before the alignment — a key field the dataset leaves empty — to the one
+   * the target holds under the value the load writes there: the declared
+   * default of a name the rules cleared, the same from one load to the next.
+   *
+   * Asked about by the dataset's values alone, such a record never was: run
+   * on a scratch org, a reload keyed on the name of the quotes, which the
+   * rules cleared and a default filled, counted the quote an earlier load had
+   * written under that name to purge and to insert again — and the refusal of
+   * a purge that would take a found quote along with its opportunity never
+   * saw it — while nothing said the key was not looked up. Read once the
+   * alignment says which fields a default fills, before the required fields
+   * are settled, a record found needing none. The objects the platform never
+   * deletes are matched so on every load: see {@link linkWhatThePlatformKeeps}.
+   *
+   * @returns The records it linked, what the alignment's line says of them,
+   *   and the records whose key stays empty even so, per object.
+   */
+  private async reuseByKeysAsWritten(
+    orgId: string,
+    loading: FrozenDataset,
+    objectResults: readonly SchemaAlignObjectResult[],
+    alignedByObject: ReadonlyMap<
+      string,
+      ReadonlyArray<{ referenceId: string; fields: Record<string, unknown> }>
+    >,
+    ranks: ReadonlyMap<string, number>,
+    mapping: Map<string, string>,
+    reused: Set<string>,
+    accountKindOf: (referenceId: string) => AccountKind,
+  ): Promise<KeyedLinks> {
+    const links: KeyedLinks = { linked: [], said: [], leftEmpty: [] };
+    for (const [objectApiName, keyFields] of Object.entries(this.config.identityKeys ?? {})) {
+      if (Object.prototype.hasOwnProperty.call(KEPT_BY_THE_PLATFORM, objectApiName)) continue;
+      // What `reuseByIdentityKeys` did not ask about: a record it asked
+      // about and did not find is not asked about again.
+      const unasked = new Set(
+        (loading.objects.find((o) => o.objectApiName === objectApiName)?.records ?? [])
+          .filter((r) => keyFields.some((f) => leftEmpty(r.fields[f])))
+          .map((r) => r.referenceId),
+      );
+      const records = (alignedByObject.get(objectApiName) ?? []).filter(
+        (r) => unasked.has(r.referenceId) && !reused.has(r.referenceId),
+      );
+      if (records.length === 0) continue;
+      const found = await this.linkByKeysAsWritten(
+        orgId,
+        {
+          objectApiName,
+          keyFields,
+          records,
+          missingRequired:
+            objectResults.find((r) => r.objectApiName === objectApiName)?.missingRequired ?? [],
+          ranks,
+          accountKindOf,
+        },
+        mapping,
+        reused,
+        links,
+      );
+      if (found > 0) {
+        links.said.push(
+          `${objectApiName}: ${found} found by ${keyFields.join(', ')}, as the load writes ` +
+            (found === 1 ? 'it' : 'them'),
+        );
+      }
+    }
+    return links;
+  }
+
+  /**
+   * Link each record of `keyed` to the one the target holds under its key
+   * fields, as the load writes them ({@link keysAsWritten}), noting in `links`
+   * what it linked and the records whose key stays empty even so: those are
+   * not looked up, and the load inserts them.
+   *
+   * @returns How many it linked.
+   */
+  private async linkByKeysAsWritten(
+    orgId: string,
+    keyed: KeysAsWritten,
+    mapping: Map<string, string>,
+    reused: Set<string>,
+    links: KeyedLinks,
+  ): Promise<number> {
+    const { objectApiName, keyFields } = keyed;
+    const asWritten = keysAsWritten(keyed, this.config.requiredFieldDefaults ?? {});
+    const empty = asWritten.flatMap((r) => {
+      const fields = keyFields.filter((f) => leftEmpty(r.fields[f]));
+      return fields.length > 0 ? [fields] : [];
+    });
+    if (empty.length > 0) {
+      const fields = keyFields.filter((f) => empty.some((left) => left.includes(f)));
+      links.leftEmpty.push({ objectApiName, fields, count: empty.length });
+      links.said.push(
+        `${objectApiName}: ${empty.length} not looked up, ${fields.join(', ')} left empty`,
+      );
+    }
+    const found = await this.findByKeys(orgId, objectApiName, keyFields, asWritten);
+    for (const [referenceId, realId] of found) {
+      mapping.set(referenceId, realId);
+      reused.add(referenceId);
+      links.linked.push(referenceId);
+    }
+    return found.size;
   }
 
   /**
@@ -6073,6 +6235,69 @@ function defaultValueFor(
   return `${declared} ${record.rank}`;
 }
 
+/**
+ * The records of `keyed` as the load writes their key fields: one the dataset
+ * leaves empty — the rules clear a name — takes the value the declared default
+ * gives the record, where the alignment says a default fills it
+ * (`missingRequired`) and the record is held to it: the same from one load to
+ * the next, as the load gives it (`applyScalarDefault`). What the load matches
+ * a record by in the target, read before anything is written.
+ */
+function keysAsWritten(
+  keyed: KeysAsWritten,
+  requiredFieldDefaults: Readonly<Record<string, unknown>>,
+): Array<{ referenceId: string; fields: Record<string, unknown> }> {
+  const { objectApiName, keyFields, ranks, accountKindOf } = keyed;
+  const defaulted = keyed.missingRequired.filter(
+    (missing) => !missing.isLookup && keyFields.includes(missing.field),
+  );
+  return keyed.records.map((record) => {
+    const fields = { ...record.fields };
+    for (const missing of defaulted) {
+      const declared = requiredFieldDefaults[`${objectApiName}.${missing.field}`];
+      if (declared === undefined || !leftEmpty(fields[missing.field])) continue;
+      if (heldTo(missing, [record], accountKindOf).length === 0) continue;
+      fields[missing.field] = defaultValueFor(
+        declared,
+        defaultPerRecord(declared, missing.distinct),
+        { referenceId: record.referenceId, rank: ranks.get(record.referenceId) ?? 0 },
+      );
+    }
+    return { referenceId: record.referenceId, fields };
+  });
+}
+
+/**
+ * The report's or the plan's `keysLeftEmpty`, `{}` when the load looks up
+ * every record its identity keys name: each object's records said with the
+ * key fields they leave empty, and that they go in unmatched.
+ */
+function keysLeftEmptyOf(
+  left: readonly KeysLeftEmpty[],
+  would = false,
+): { keysLeftEmpty?: FrozenKeysLeftEmpty[] } {
+  if (left.length === 0) return {};
+  return {
+    keysLeftEmpty: left.map(({ objectApiName, fields, count }) => {
+      const their = count === 1 ? 'its' : 'their';
+      const named = fields.join(', ');
+      const why = 'the dataset holds no value, and no default fills it';
+      return {
+        objectApiName,
+        fields: [...fields],
+        count,
+        note: would
+          ? `${count} not looked up by ${their} identity keys: ${named} stays empty in what the ` +
+            `load would write — ${why} — so ${count === 1 ? 'it' : 'they'} would be inserted, ` +
+            'never matched'
+          : `${count} not looked up by ${their} identity keys: ${named} stayed empty in what the ` +
+            `load wrote — ${why} — so ${count === 1 ? 'it was' : 'they were'} sent to be ` +
+            'inserted, never matched',
+      };
+    }),
+  };
+}
+
 /** Each record's rank among the records of its object in the dataset, 1 first, by referenceId. */
 function ranksOf(dataset: FrozenDataset): Map<string, number> {
   const ranks = new Map<string, number>();
@@ -6368,6 +6593,7 @@ function loadPlanOf(
       context,
       true,
     ),
+    ...keysLeftEmptyOf(prepared.keysLeftEmpty, true),
     ...(recordTypesGiven.length > 0 ? { recordTypesGiven } : {}),
   };
 }

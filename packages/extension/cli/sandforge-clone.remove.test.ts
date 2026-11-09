@@ -2422,6 +2422,20 @@ describe('sandforge-clone removal lines', () => {
       '  Account: 1 not reached of 1',
     ]);
   });
+
+  it('says what a removal including changes took along that the run never wrote', () => {
+    expect(
+      removalLines('success', [
+        objectResult('Contact', 4),
+        objectResult('Account', 2, { tookAlong: { count: 1, objects: ['Contact'] } }),
+      ]),
+    ).toEqual([
+      'removal: SUCCESS',
+      '  Contact: 4 deleted of 4',
+      '  Account: 2 deleted of 2',
+      "      took along 1 record(s) that were not the run's, added or changed since it: Contact",
+    ]);
+  });
 });
 
 describe('sandforge-clone removal of a run a call may have written to', () => {
