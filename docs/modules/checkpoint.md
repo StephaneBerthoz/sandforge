@@ -496,9 +496,13 @@ JSON (--json), one value on stdout:
                       toRecreate, carriers, differs, diff, estimate, automation?, emails?,
                       emailsUncounted?, deliverability?, refusal?}: carriers, the records
                      brought back for a moment and deleted again, in none of the other numbers;
-                     diff, estimate,
-                     automation and refusal as the extension answers them; refusal is the one a
-                     rewind would meet now; emails, one per daily limit its writes send
+                     diff, estimate
+                     and automation as the extension answers them; refusal, the first a rewind
+                     given no flag would meet now, of those its lines name with what lifts
+                     each, as rewind --dry-run lists them: the extension's own (the org's lock,
+                     a run writing, the day's API requests or emails, file storage), then an
+                     acceptance it needs (NO_UNDO, RECREATE, UNSEEN, AUTOMATION,
+                     EMAILS_DELIVERED, in that order); emails, one per daily limit its writes send
                      against: {limit, emails, verdict, remaining?, max?, alertsCounted?,
                      objects: [{objectApiName, write, records, perRecord, sentBy}]};
                      emailsUncounted, what sends emails as it writes that could not be read — a

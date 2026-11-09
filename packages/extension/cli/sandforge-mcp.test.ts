@@ -912,35 +912,6 @@ describe("sandforge-mcp: a script's answer", () => {
     await c.close();
   });
 
-  it('names, under a preview, the parameter of checkpoint_rewind each acceptance its refusal names stands for', async () => {
-    // checkpoint_preview relayed "give --accept-recreate to rewind all the
-    // same", a flag of no parameter it has, and named none of the rewind's.
-    const refusal =
-      'DEV: 1 Contact record deleted since is no longer in the recycle bin. Rewind refused; ' +
-      'give --accept-recreate to rewind all the same. No record was written.';
-    const { run } = scripts(() => ({
-      code: 0,
-      stdout: JSON.stringify({
-        checkpoint: 'baseline',
-        refusal: { code: 'RECREATE', message: refusal },
-      }),
-      stderr: `  a rewind now would be refused (RECREATE): ${refusal}\n`,
-    }));
-    const c = client(run);
-    await c.initialized();
-
-    const result = await c.call('checkpoint_preview', { org: 'DEV', checkpoint: 'baseline' });
-
-    expect(textOf(result)).toContain(
-      "--accept-recreate, named above, is checkpoint_rewind's acceptRecreate: true, on the " +
-        'rewind this preview is of. Give it only once the person using you has accepted what it ' +
-        'lets through.',
-    );
-    expect(textOf(result)).not.toContain("is this tool's");
-    expect(textOf(result)).not.toContain('acceptAutomation');
-    await c.close();
-  });
-
   it('names the parameter a flag the script names stands for, as the person’s to give', async () => {
     const refusal =
       'DEV: what runs as the rewind writes could not all be read, so automation may run. Rewind ' +

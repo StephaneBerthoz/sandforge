@@ -358,9 +358,13 @@ JSON (--json), one value on stdout:
                       toRecreate, carriers, differs, diff, estimate, automation?, emails?,
                       emailsUncounted?, deliverability?, refusal?}: carriers, the records
                      brought back for a moment and deleted again, in none of the other numbers;
-                     diff, estimate,
-                     automation and refusal as the extension answers them; refusal is the one a
-                     rewind would meet now; emails, one per daily limit its writes send
+                     diff, estimate
+                     and automation as the extension answers them; refusal, the first a rewind
+                     given no flag would meet now, of those its lines name with what lifts
+                     each, as rewind --dry-run lists them: the extension's own (the org's lock,
+                     a run writing, the day's API requests or emails, file storage), then an
+                     acceptance it needs (NO_UNDO, RECREATE, UNSEEN, AUTOMATION,
+                     EMAILS_DELIVERED, in that order); emails, one per daily limit its writes send
                      against: {limit, emails, verdict, remaining?, max?, alertsCounted?,
                      objects: [{objectApiName, write, records, perRecord, sentBy}]};
                      emailsUncounted, what sends emails as it writes that could not be read — a
@@ -2421,6 +2425,28 @@ export function acceptanceRefusal(
   );
 }
 
+/** What a rewind given none of the flags accepts: the rewind a preview previews. */
+const NOTHING_ACCEPTED: RewindAccepted = {
+  acceptAutomation: false,
+  acceptNoUndo: false,
+  acceptRecreate: false,
+};
+
+/**
+ * Every refusal a rewind of what a preview read meets before it writes, in
+ * order: the preview's own first — the org's lock, a run writing, its mute,
+ * the day's requests and emails, file storage —, then each bound and
+ * acceptance of `gates` ({@link boundsRefusals}) under another code. What
+ * `rewind --dry-run` says for its flags, and `preview` for a rewind given
+ * none.
+ */
+function refusalsOf(
+  own: CheckpointRefusal | undefined,
+  gates: readonly CheckpointRefusal[],
+): CheckpointRefusal[] {
+  return [...(own ? [own] : []), ...gates.filter((each) => each.code !== own?.code)];
+}
+
 /** The question a rewind asks before it writes: what it does, typed as the page asks it. */
 export function rewindQuestion(
   orgName: string,
@@ -3200,10 +3226,39 @@ export async function main(
         const kept = objects ? undefined : await keptOf(host, checkpoint, preview.diff, false);
         const counted = selection ?? kept;
         const shown = counted ? { ...preview, diff: counted.diff } : preview;
+        // What a rewind given no flag meets, as rewind --dry-run says it: the
+        // preview's own refusal, then each acceptance it needs. A preview of a
+        // contact the recycle bin no longer gave back said "1 to make again"
+        // and no refusal, and its rewind was refused RECREATE, live.
+        const refused = refusalsOf(
+          preview.refusal,
+          await boundsRefusals({
+            orgName: args.org,
+            preview: shown,
+            bounds: { refuseWhenActive: false },
+            accepted: NOTHING_ACCEPTED,
+            writers: () => Promise.resolve([]),
+            words: COMMAND_LINE_WORDS,
+            user: org.username,
+          }),
+        );
+        const [first] = refused;
         for (const line of previewLines(args.org, checkpoint, shown, org.username)) say(line);
         for (const line of selection ? selectionLines(selection.plan) : []) say(line);
         for (const line of kept ? keptLines(kept.plan) : []) say(line);
-        answerJson(previewJson(args.org, checkpoint, preview, selection, kept));
+        for (const each of refused.slice(preview.refusal ? 1 : 0)) {
+          say(`  a rewind now would be refused (${each.code}): ${each.message}`);
+        }
+        // Its refusal, the first of them: the one a rewind would meet now.
+        answerJson(
+          previewJson(
+            args.org,
+            checkpoint,
+            { ...preview, ...(first ? { refusal: first } : {}) },
+            selection,
+            kept,
+          ),
+        );
         // Whether the org differs is the whole diff's, whatever the rewind keeps.
         endWith(previewExitCode(selection?.diff ?? preview.diff, args.failOnChange));
         return;
@@ -3816,13 +3871,12 @@ async function rewind(
     // which its lines say. Said one at a time, a rewind on All email whose
     // flow sends one was said refused for its automation, and for its emails
     // only once --accept-automation was given, live.
-    const gated = gates.filter((each) => each.code !== preview.refusal?.code);
-    for (const each of gated)
+    const refused = refusalsOf(preview.refusal, gates);
+    for (const each of refused.slice(preview.refusal ? 1 : 0))
       say(`  a rewind now would be refused (${each.code}): ${each.message}`);
     // Said in the summary as in the lines: a script read what a rewind's flags
     // would be refused for from no key, its code from nowhere. Not under
     // `refusal`, the preview's own: `reset` stops on that before its question.
-    const refused = [...(preview.refusal ? [preview.refusal] : []), ...gated];
     // What a rewind's mute would assign, silence, leave running and lift
     // beside, in the summary as in the lines.
     answerJson({

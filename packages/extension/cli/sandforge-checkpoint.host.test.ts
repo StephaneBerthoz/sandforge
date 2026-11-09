@@ -198,6 +198,7 @@ function connectionOf(org: CliTestOrg, onQuery: (soql: string) => void) {
     describeGlobal: () => org.describeGlobal(),
     tooling: { describeGlobal: () => Promise.resolve({ sobjects: [] }) },
     sobject: (objectApiName: string) => ({
+      create: (records: Array<Record<string, unknown>>) => org.create(objectApiName, records),
       update: (records: Array<Record<string, unknown>>) => org.update(objectApiName, records),
       destroy: (ids: string[]) => org.destroy(objectApiName, ids),
     }),
@@ -786,6 +787,117 @@ describe('sandforge-checkpoint preview', () => {
     expect(code).toBe(2);
     expect(stdout).toBe('');
     expect(stderr).toContain("2 checkpoints of DEV-SB are named 'baseline'");
+  });
+
+  it('names the refusal a rewind without --accept-recreate meets of a record the recycle bin no longer gives back, in the code and words the rewind is refused with; the rewind makes it again with the flag', async () => {
+    // Live, a contact deleted on its own, then the account it had been moved
+    // under: the preview said "1 to make again" and no refusal, and a rewind
+    // through MCP was refused RECREATE, the parameter that lifts it named nowhere.
+    const quiet: ForgeTargetAutomation = {
+      objectsRead: ['Account', 'Case'],
+      objects: [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 0,
+    };
+    const h = harness({ automation: quiet });
+    await taken(h, '--name', 'Before UAT');
+    clock = T0 + 60_000;
+    h.org.trash('Case', id('500', 1), COLLEAGUE);
+    h.org.purge(id('500', 1));
+    clock = T0 + 120_000;
+    const before = stateOf(h.org);
+    const refusal =
+      '1 Case record(s) deleted since are no longer in the recycle bin, or Salesforce keeps them ' +
+      'there for good: this rewind makes them again from the checkpoint, with new Ids. Anything ' +
+      'outside Salesforce that names their old Ids — an integration, a link, a report filter — no ' +
+      'longer finds them. Rewind refused; give --accept-recreate to rewind all the same. No ' +
+      'record was written.';
+
+    const preview = await h.run(
+      'preview',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--json',
+    );
+
+    expect(preview.code, preview.stderr).toBe(0);
+    expect(JSON.parse(preview.stdout)).toMatchObject({
+      toRecreate: 1,
+      refusal: { code: 'RECREATE', message: refusal },
+    });
+    expect(preview.stderr).toContain(`  a rewind now would be refused (RECREATE): ${refusal}\n`);
+
+    const line = ['rewind', '--org', 'DEV-SB', '--checkpoint', 'Before UAT', '--yes', '--json'];
+    const refused = await h.run(...line);
+
+    expect(refused.code).toBe(1);
+    expect(JSON.parse(refused.stdout)).toEqual({ refusal: { code: 'RECREATE', message: refusal } });
+    expect(stateOf(h.org)).toEqual(before);
+
+    const remade = await h.run(...line, '--accept-recreate');
+
+    expect(remade.code, remade.stderr).toBe(0);
+    expect(h.org.creates.map((each) => each.objectApiName)).toEqual(['Case']);
+    expect(h.org.all('Case').map((row) => row.Subject)).toEqual(['Broken']);
+  });
+
+  it('names every refusal a rewind given no flag meets, in the order and words rewind --dry-run gives them, its automation and the emails the org delivers after the records it makes again; its JSON the first', async () => {
+    // A flow that emails an account's owner as it is updated, that nothing keeps quiet.
+    const h = harness({
+      automation: {
+        objectsRead: ['Account', 'Case'],
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [
+              {
+                apiName: 'Welcome',
+                label: 'Welcome',
+                timing: 'afterSave',
+                startsOn: 'update',
+                condition: 'read',
+                permissions: [],
+                messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      },
+    });
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+    h.org.purge(id('500', 1));
+    h.org.anonymousApex = { compiled: true, success: true };
+    const before = stateOf(h.org);
+    const line = ['--org', 'DEV-SB', '--checkpoint', 'Before UAT', '--json'];
+
+    const preview = await h.run('preview', ...line);
+    const dry = await h.run('rewind', ...line, '--dry-run');
+
+    expect(preview.code, preview.stderr).toBe(0);
+    const { wouldBeRefused, wouldBeRefusedCodes } = JSON.parse(dry.stdout) as {
+      wouldBeRefused: string[];
+      wouldBeRefusedCodes: string[];
+    };
+    expect(wouldBeRefusedCodes).toEqual(['RECREATE', 'AUTOMATION', 'EMAILS_DELIVERED']);
+    const said = preview.stderr
+      .split('\n')
+      .filter((each) => each.startsWith('  a rewind now would be refused ('))
+      .map((each) => each.replace(/^ {2}a rewind now would be refused /, 'refused '));
+    expect(said).toEqual(wouldBeRefused);
+    const answer = JSON.parse(preview.stdout) as { refusal: { code: string; message: string } };
+    expect(`refused (${answer.refusal.code}): ${answer.refusal.message}`).toBe(wouldBeRefused[0]);
+    expect(answer).not.toHaveProperty('wouldBeRefused');
+    expect(stateOf(h.org)).toEqual(before);
   });
 });
 
