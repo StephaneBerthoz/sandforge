@@ -226,8 +226,8 @@ On disk, the take says before it runs about what it will take: the file that lis
 | `take`    | Reads the org's records and keeps them as a checkpoint: every object people work in, or the ones `--object` names; `--estimate` says the records, API requests, time and disk it would take, and stops                                                        |
 | `list`    | Names the checkpoints kept, newest first, with what a rewind and an undo can still reach; without `--org`, every org of the store. It never contacts the org                                                                                                  |
 | `preview` | Says what a rewind would delete, give back and bring back, who last changed it, and what it and an undo cannot take back; writes nothing. `--fail-on-change` exits `3` when the org differs from the checkpoint; `--object` previews a rewind of some objects |
-| `rewind`  | Shows the preview, asks you to type the org as `--org` names it -- its alias, or its username for an org that has none --, then rewinds from that preview as it read the org; `--dry-run` stops after the preview; `--object` rewinds some objects alone      |
-| `undo`    | Takes back the org's last rewind; without `--checkpoint`, the rewind of the checkpoint the last rewind went back to                                                                                                                                           |
+| `rewind`  | Shows the preview, asks you to type the org's alias exactly as `--org` gives it, then rewinds from that preview as it read the org; `--dry-run` stops after the preview; `--object` rewinds some objects alone                                                |
+| `undo`    | Takes back the org's last rewind, once you type the org's alias exactly as `--org` gives it; without `--checkpoint`, the rewind of the checkpoint the last rewind went back to                                                                                |
 | `delete`  | Deletes a checkpoint, or with `--all` every checkpoint of the org, from this machine, after asking; the org is not touched, and never contacted                                                                                                               |
 | `export`  | Writes a checkpoint to a `.sfcheckpoint` file, encrypted under a key shown once on stderr, or the one `--key-env` names, for a teammate who rewinds the same org; the org is not contacted                                                                    |
 | `import`  | Keeps a `.sfcheckpoint` file as a checkpoint of the org on this machine once the org answers that it is the file's and its user sees all data, the key typed without echo or read from `--key-env`                                                            |
@@ -429,12 +429,12 @@ View All Data and Modify All Data, a file a newer SandForge made, are each refus
 is asked. A wrong key, or a file changed since it was exported, is refused before anything is
 kept. A checkpoint kept already the same is left as it is, exit 0; another of its id is refused.
 The lock against two rewinds at once is per machine: agree on who rewinds the org.
-rewind shows its preview and asks you to type the org as --org names it -- its alias, or its
-username for an org that has none -- before it writes, then rewinds from that preview as it read
-the org: a record someone changes after it read is left as they made it, and said. A take, a
-rewind or an undo of the org under way on this machine, in the editor or in another command line,
-refuses a rewind and an undo; other runs writing to the org are not seen here, and what one of
-them changes after the preview read the org is left and said the same way.
+rewind shows its preview and asks you to type the org's alias exactly as --org gives it before it
+writes, then rewinds from that preview as it read the org: a record someone changes after it read
+is left as they made it, and said. undo says what it takes back and asks the same before it
+writes. A take, a rewind or an undo of the org under way on this machine, in the editor or in
+another command line, refuses a rewind and an undo; other runs writing to the org are not seen
+here, and what one of them changes after the preview read the org is left and said the same way.
 Ctrl-C stops a take between two reads, and nothing of it is kept; a second Ctrl-C ends it at once,
 and leaves a checkpoint listed as never taken, which delete removes. Ctrl-C stops a rewind or an
 undo before its next call to the org, and leaves its journal: rewind again takes up from what still

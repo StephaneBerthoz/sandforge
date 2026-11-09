@@ -314,6 +314,36 @@ describe('sandforge-clone --summary', () => {
     ]);
   });
 
+  it('writes a summary --remove reads although the machine’s clock was set back during the run', async () => {
+    // Under WSL the clock was set back by 1.25 s every 31 s or so: a run
+    // across one wrote a negative elapsedMs, and --remove refused the
+    // summary the run had just written ("elapsedMs: Too small").
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-09T10:15:05.000Z'));
+    withOrgs(
+      fakeOrg([], (name) => {
+        if (name === 'Account') vi.setSystemTime(Date.now() - 1_250);
+      }),
+    );
+    const path = join(dir, 'clone-summary.json');
+
+    expect(await run(argv('--summary', path, '--json'))).toBeUndefined();
+
+    const writes = writesOf(path);
+    expect(writes).toHaveLength(3);
+    // Killed after any object, the run leaves one --remove takes back.
+    for (const document of writes) {
+      const read = parseRunSummary(JSON.stringify(document));
+      expect('summary' in read ? 'read' : read.refusal).toBe('read');
+    }
+    const kept = readFileSync(path, 'utf8');
+    expect((JSON.parse(kept) as Record<string, unknown>).elapsedMs).toBe(0);
+    const read = parseRunSummary(kept);
+    expect(
+      'summary' in read ? removalPlan(read.summary).map((o) => o.objectApiName) : read,
+    ).toEqual(['Contact', 'Account']);
+  });
+
   it('stops on Ctrl-C between two objects, writes what the run created by then, and exits 130', async () => {
     const once = vi.spyOn(process, 'once');
     const listening = process.listenerCount('SIGINT');

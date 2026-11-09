@@ -149,19 +149,43 @@ describe('docs/modules/checkpoint.md', () => {
     expect(block).toBe(help.replace(/\n$/, ''));
   });
 
-  it('says a rewind asks you to type the org as --org names it, its alias or its username for an org that has none, as the script compares what is typed', () => {
-    // Positive control: the rewind and the undo take what is typed for what
-    // --org was given, an alias or a username alike.
+  it('says a rewind asks you to type the org’s alias exactly as --org gives it, as the script compares what is typed and reaches the org', () => {
+    // Positive controls: the rewind and the undo take what is typed for what
+    // --org was given, letter for letter; the org is reached by that alias
+    // before the question, and an alias takes no @, which every username
+    // has: a username is refused there, never asked for.
     expect(CLI).toContain('const answer = await typed(rewindQuestion(args.org, ');
     expect(CLI.match(/if \(answer !== args\.org\) throw new Stop/g)).toHaveLength(2);
+    expect(PANEL_HOST).toContain('const session = await loadOrg(alias);');
+    expect(source('packages/extension/cli/sfSession.ts')).toContain(
+      'const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;',
+    );
 
-    const asks =
-      'asks you to type the org as `--org` names it -- its alias, or its username for an org ' +
-      'that has none --';
+    const asks = "asks you to type the org's alias exactly as `--org` gives it";
     const row = DOC.split('\n').find((line) => line.startsWith('| `rewind`'));
     expect(row).toContain(asks);
     expect(helpAsPrinted().replace(/\n/g, ' ')).toContain(asks.replace(/`/g, ''));
-    expect(DOC).not.toContain("asks you to type the org's alias");
+    // The help named a username for an org with no alias, which the script
+    // never reaches.
+    for (const text of [row ?? '', helpAsPrinted()]) {
+      expect(text.replace(/\s+/g, ' ')).not.toContain('its username for an org that has none');
+    }
+  });
+
+  it('says an undo asks for the alias too, exactly as --org gives it, once it said what it takes back', () => {
+    // Positive control: the undo says its line, reaches the org, then asks
+    // for what --org was given; the help said so of the rewind alone.
+    expect(CLI).toContain(
+      'say(undoLine(args.org, checkpoint, rewindId, until, counts));\n' +
+        '  const org = await context.connect(args.org);',
+    );
+    expect(CLI).toContain('const answer = await typed(`Type ${args.org} to undo its rewind:`);');
+
+    const row = DOC.split('\n').find((line) => line.startsWith('| `undo`'));
+    expect(row).toContain("once you type the org's alias exactly as `--org` gives it");
+    expect(helpAsPrinted().replace(/\n/g, ' ')).toContain(
+      'undo says what it takes back and asks the same before it writes.',
+    );
   });
 
   it('names each command the script reads in its table, and no other', () => {

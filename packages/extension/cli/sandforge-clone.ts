@@ -70,6 +70,7 @@ import {
 } from './cloneRunParts.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { elapsedSince } from './elapsedSince.js';
 import { runExitCode } from './exitCodes.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 
@@ -3900,7 +3901,9 @@ const runSummarySchema = z.object({
     .max(500)
     .optional(),
   dryRun: z.literal(false),
-  elapsedMs: z.number().nonnegative(),
+  // Below none in a summary a clone wrote across a clock the machine set
+  // back (`elapsedSince`): read as a run that took none, never refused.
+  elapsedMs: z.number().transform((ms) => Math.max(0, ms)),
   finishedAt: summaryDateSchema.optional(),
   // The journal of the run, and which part of it this summary is of: where a
   // summary past the bound keeps the ids.
@@ -5839,7 +5842,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               ...(keptForParts.length > 0 ? { heldByOtherParts: keptForParts } : {}),
             },
             ...(removalsFile ? { removalsFile } : {}),
-            elapsedMs: Date.now() - t0,
+            elapsedMs: elapsedSince(t0),
           },
           null,
           2,
@@ -5862,7 +5865,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
           'which the next --remove of this summary reads',
       );
     }
-    console.log(`\ndone in ${Date.now() - t0}ms`);
+    console.log(`\ndone in ${elapsedSince(t0)}ms`);
   };
 
   const created = removalPlan(summary);
@@ -5998,14 +6001,14 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             target: args.target,
             targetOrgId: org.id,
             listing,
-            elapsedMs: Date.now() - t0,
+            elapsedMs: elapsedSince(t0),
           },
           null,
           2,
         ) + '\n',
       );
     } else {
-      console.log(`\ndone in ${Date.now() - t0}ms`);
+      console.log(`\ndone in ${elapsedSince(t0)}ms`);
     }
     // A list a sweep would be refused for ends as that sweep does: ending 0,
     // it read as an empty list to a script.
@@ -6191,7 +6194,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             tool: 'sandforge-clone',
             summary: args.summaryPath,
             target: args.target,
-            elapsedMs: Date.now() - t0,
+            elapsedMs: elapsedSince(t0),
           },
           refused,
         ),
@@ -6608,7 +6611,7 @@ async function previewRemoval(
           preview,
           refusals,
           notes,
-          elapsedMs: Date.now() - t0,
+          elapsedMs: elapsedSince(t0),
           ...(sweepListing ? { sweepListing } : {}),
         }),
       );
@@ -6616,7 +6619,7 @@ async function previewRemoval(
     }
     say('');
     for (const line of clonePreviewLines(preview, refusals, notes, args.includeChanged)) say(line);
-    say(`\ndone in ${Date.now() - t0}ms`);
+    say(`\ndone in ${elapsedSince(t0)}ms`);
   };
 
   say(`sandforge-clone --remove  ${args.summaryPath}  --preview  of ${args.target}`);
@@ -6735,7 +6738,7 @@ async function previewRemoval(
             action: 'remove-preview',
             summary: args.summaryPath,
             target: args.target,
-            elapsedMs: Date.now() - t0,
+            elapsedMs: elapsedSince(t0),
           },
           refused,
         ),
@@ -7259,7 +7262,7 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
             action: 'verify',
             summary: args.summaryPath,
             target: args.target,
-            elapsedMs: Date.now() - t0,
+            elapsedMs: elapsedSince(t0),
           },
           refused,
         ),
@@ -7333,7 +7336,7 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
           targetOrgId: org.id,
           source: sourceAlias,
           result: verification,
-          elapsedMs: Date.now() - t0,
+          elapsedMs: elapsedSince(t0),
         },
         null,
         2,
@@ -7341,7 +7344,7 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
     );
   } else {
     for (const line of verificationLines(verification, args.target)) console.log(line);
-    console.log(`\ndone in ${Date.now() - t0}ms`);
+    console.log(`\ndone in ${elapsedSince(t0)}ms`);
   }
   const code = VERDICT_EXIT[verification.verdict];
   if (code !== 0) process.exit(code);
@@ -7746,7 +7749,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
             target: args.target,
             dryRun: args.dryRun,
             refused: rootRefused,
-            elapsedMs: Date.now() - t0,
+            elapsedMs: elapsedSince(t0),
           },
           null,
           2,
@@ -7828,7 +7831,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
             ...(args.tables ? { tables: args.tables } : { record: args.record }),
             graph: graphJson(graph, plan),
             objects: listed,
-            elapsedMs: Date.now() - t0,
+            elapsedMs: elapsedSince(t0),
           },
           null,
           2,
@@ -8070,7 +8073,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
             tool: 'sandforge-clone',
             source: args.source,
             target: args.target,
-            elapsedMs: Date.now() - t0,
+            elapsedMs: elapsedSince(t0),
           },
           refused,
           also,
@@ -8451,7 +8454,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       }
       throw err;
     }
-    const elapsedMs = Date.now() - t0;
+    const elapsedMs = elapsedSince(t0);
     // What the target refused, on stderr under --json as every other line:
     // the JSON alone left the terminal at the last call's progress line.
     say('');
@@ -8788,7 +8791,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // run, what a real run's would hold and cost.
     ...checkpointDocument(),
     ...(args.dryRun ? wouldBeRefusedJson(dryRunRefusals) : {}),
-    elapsedMs: at.getTime() - t0,
+    elapsedMs: elapsedSince(t0, at.getTime()),
     finishedAt: at.toISOString(),
     // The journal the run wrote as it went, and its part: where the ids are
     // past the bound, and what --resume takes the run up from.
@@ -9121,7 +9124,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // When the run ended, on this machine's clock: a removal dates by it a run
   // whose writes the target did not date, as the wizard dates a history entry.
   const finishedAt = new Date();
-  const elapsed = finishedAt.getTime() - t0;
+  const elapsed = elapsedSince(t0, finishedAt.getTime());
 
   // Machine-readable summary for CI/automation. Stable schema. The summary
   // file, when asked for, takes the run's end over what it said as it went:

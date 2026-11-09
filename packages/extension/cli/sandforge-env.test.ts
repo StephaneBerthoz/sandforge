@@ -598,6 +598,34 @@ describe('asking before it writes', () => {
     expect(world.records('Account')).toEqual([]);
   });
 
+  it('refuses a username for --org before the org is reached, so the question only ever names an alias', async () => {
+    // The help said a username was asked for an org with no alias: the org
+    // is reached by the alias --org gives, and a username is no alias.
+    const { loadOrg: realLoadOrg } =
+      await vi.importActual<typeof import('./sfSession.js')>('./sfSession.js');
+    const readToken = vi.fn();
+    vi.mocked(loadOrg).mockImplementation((alias) => realLoadOrg(alias, readToken));
+    const asked: string[] = [];
+
+    const { code, answer } = await run(['apply', '--org', 'admin@example.com', '--json'], {
+      ask: async (question) => {
+        asked.push(question);
+        return 'admin@example.com';
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(asked).toEqual([]);
+    expect(readToken).not.toHaveBeenCalled();
+    expect(envRefusalAnswerSchema.parse(answer).refusal).toEqual({
+      code: 'NOT_CONNECTED',
+      message:
+        'admin@example.com could not be reached: Invalid SF org alias: "admin@example.com" ' +
+        '(allowed: letters, digits, underscore, dash, dot)',
+    });
+    expect(world.records('Account')).toEqual([]);
+  });
+
   it('applies once the alias is typed, and asks nothing when there is nothing to do', async () => {
     const asked: string[] = [];
     const ask = async (question: string) => {

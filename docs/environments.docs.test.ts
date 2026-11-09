@@ -1034,12 +1034,13 @@ describe('docs/environments.md', () => {
         '`--fail-on-change` exits `3` when `apply` would write or delete anything',
       ],
       [help(), 'records deleted or changed since', 'a record deleted or changed since'],
-      // The question asks for what --org names, a username for an org with no
-      // alias: the help said "the org's alias" alone, as the Rewind step did.
+      // The question asks for what --org gives, compared letter for letter, and
+      // --org is an alias: a username never reaches the org, let alone the
+      // question, which the help said was asked of an org with no alias.
       [
         help(),
-        "after asking you to type the org's alias, or its username for an\n            org that has none",
-        "asks for the org's alias, or its username for an org that has none, to be typed",
+        "after asking you to type the org's alias exactly as --org gives\n            it",
+        "asks for the org's alias to be typed exactly as `--org` gives it",
       ],
       [
         GUARDS,
@@ -1106,6 +1107,23 @@ describe('docs/environments.md', () => {
     );
     expect(source(`${CLI_DIR}/prompt.ts`)).toContain('no terminal to answer: give --yes');
     expect(DOC).toContain('it stops at the question, exit `2`, having written nothing');
+  });
+
+  it('says the question asks for the alias --org gives, and that a username is refused before the org is reached, as the command line does', () => {
+    // Positive controls: what is typed is held to --org as given, the org is
+    // reached by that alias, and an alias takes no @, which every username has.
+    expect(CLI).toContain('if (answer === args.org) return true;');
+    expect(CLI).toContain('const session = await loadOrg(alias);');
+    const session = source(`${CLI_DIR}/sfSession.ts`);
+    expect(session).toContain('const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;');
+    expect(session).toContain('`Invalid SF org alias: "${alias}"');
+
+    expect(DOC).toContain(
+      '`--org` takes an alias, never a username, which is refused before the org is reached (`Invalid SF org alias`), exit `1`: give an org that has none an alias first, with `sf alias set`.',
+    );
+    for (const text of [DOC, help()]) {
+      expect(text.replace(/\s+/g, ' ')).not.toContain('its username for an org that has none');
+    }
   });
 
   it('quotes each refusal it does not replay in the words the code says it', () => {
@@ -1565,6 +1583,34 @@ describe('the frozen resource and the references between resources, on the page'
     );
     expect(section(DOC, '### A frozen resource')).not.toContain(
       'A first load takes no such acceptance',
+    );
+  });
+
+  it('names a frozen load refused for automation, the first one too, among the refusals and under exit code 1', () => {
+    // Positive control: a load stops before its first write while the target
+    // runs automation as it inserts or updates, unaccepted, with its code;
+    // the frozen kind hands it the acceptance of the line or of the file.
+    expect(source('packages/extension/src/bridge/handlers/FrozenDatasetHandler.ts')).toContain(
+      'class LoadAutomationStop extends Error',
+    );
+    expect(FROZEN).toContain("? { code: 'AUTOMATION_NOT_ACCEPTED', message: refusal }");
+    expect(FROZEN_KIND).toContain(
+      "    ...(input.reload ? ['--reload'] : []),\n" +
+        "    ...(input.acceptAutomation === true ? ['--accept-automation'] : []),",
+    );
+
+    // The refusals and the exit codes named a removal alone, and the emails
+    // of a clone and a seed: a first load its dry run blocks exits 1 too.
+    expect(section(DOC, '## What is refused')).toContain(
+      "a frozen resource's load, the first one too, writes nothing while the org runs some as the load inserts or updates its records, unless the same: its dry run blocks the plan (`AUTOMATION_NOT_ACCEPTED`)",
+    );
+    const exitOne = rows(section(DOC, '## Exit codes')).find(([cell]) => cell === '`1`')?.[1] ?? '';
+    expect(exitOne).toContain(
+      'a removal or a frozen load refused for automation without `--accept-automation`',
+    );
+    expect(exitOne).toContain("(a clone's, a seed's or a load's `EMAILS_NOT_ACCEPTED`");
+    expect(help()).toContain(
+      'a removal or a frozen load refused for automation without --accept-automation,\n',
     );
   });
 

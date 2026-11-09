@@ -101,6 +101,7 @@ import { isProductionTarget, refuseProductionTarget, typeTarget } from './target
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { ownOptionWords, relayTakes, relayedBy } from './relayWords.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
+import { elapsedSince } from './elapsedSince.js';
 import { endWith, runExitCode } from './exitCodes.js';
 import {
   OTHER_ORG,
@@ -2145,7 +2146,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if (args.json) {
       process.stdout.write(
         refusedSummary(
-          { tool: 'sandforge-seed', target: args.target, elapsedMs: Date.now() - t0 },
+          { tool: 'sandforge-seed', target: args.target, elapsedMs: elapsedSince(t0) },
           refused,
           also,
         ),
@@ -2707,7 +2708,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     scenarioKept?.companion !== undefined
       ? await readAgentCatalog(toolingQueryAll(toolingOf(conn))).catch(() => undefined)
       : undefined;
-  const elapsedMs = Date.now() - t0;
+  const elapsedMs = elapsedSince(t0);
   // Said last, after the summary that names what it wrote: the run stopped.
   const interrupted = stop.signal.aborted;
   endWith(
@@ -3404,7 +3405,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               ...(sweepListing ? { sweepListing } : {}),
               ...(mutedAutomation ? { mutedAutomation } : {}),
             },
-            elapsedMs: Date.now() - t0,
+            elapsedMs: elapsedSince(t0),
           },
           null,
           2,
@@ -3417,7 +3418,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     for (const line of sweep ? sweepLines(sweep) : []) say(line);
     for (const line of removalSummaryLines(status, objects)) say(line);
     for (const line of automationHeldLines(objects, args)) say(line);
-    say(`\ndone in ${Date.now() - t0}ms`);
+    say(`\ndone in ${elapsedSince(t0)}ms`);
   };
 
   /** Whether the run's file names a Bulk API job that no line of it answers. */
@@ -3488,14 +3489,14 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             summary: args.summaryPath,
             target: args.target,
             listing,
-            elapsedMs: Date.now() - t0,
+            elapsedMs: elapsedSince(t0),
           },
           null,
           2,
         )}\n`,
       );
     } else {
-      say(`\ndone in ${Date.now() - t0}ms`);
+      say(`\ndone in ${elapsedSince(t0)}ms`);
     }
     // A list a sweep would be refused for ends as that sweep does, as the
     // clone's: ending 0, it read as an empty list to a script.
@@ -3585,7 +3586,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             ...(args.preview ? { action: 'remove-preview' as const } : {}),
             summary: args.summaryPath,
             target: args.target,
-            elapsedMs: Date.now() - t0,
+            elapsedMs: elapsedSince(t0),
           },
           refused,
         ),
@@ -3868,7 +3869,7 @@ async function previewRemoval(
           preview,
           refusals,
           notes,
-          elapsedMs: Date.now() - t0,
+          elapsedMs: elapsedSince(t0),
           ...(sweepListing ? { sweepListing } : {}),
         }),
       );
@@ -3878,7 +3879,7 @@ async function previewRemoval(
     for (const line of removalPreviewLines(preview, refusals, notes, args.includeChanged)) {
       say(line);
     }
-    say(`\ndone in ${Date.now() - t0}ms`);
+    say(`\ndone in ${elapsedSince(t0)}ms`);
   };
 
   say(`sandforge-seed --remove  ${args.summaryPath}  --preview  of ${args.target}`);
@@ -3915,7 +3916,7 @@ async function previewRemoval(
             action: 'remove-preview',
             summary: args.summaryPath,
             target: args.target,
-            elapsedMs: Date.now() - t0,
+            elapsedMs: elapsedSince(t0),
           },
           refused,
         ),

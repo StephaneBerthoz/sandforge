@@ -291,12 +291,12 @@ View All Data and Modify All Data, a file a newer SandForge made, are each refus
 is asked. A wrong key, or a file changed since it was exported, is refused before anything is
 kept. A checkpoint kept already the same is left as it is, exit 0; another of its id is refused.
 The lock against two rewinds at once is per machine: agree on who rewinds the org.
-rewind shows its preview and asks you to type the org as --org names it -- its alias, or its
-username for an org that has none -- before it writes, then rewinds from that preview as it read
-the org: a record someone changes after it read is left as they made it, and said. A take, a
-rewind or an undo of the org under way on this machine, in the editor or in another command line,
-refuses a rewind and an undo; other runs writing to the org are not seen here, and what one of
-them changes after the preview read the org is left and said the same way.
+rewind shows its preview and asks you to type the org's alias exactly as --org gives it before it
+writes, then rewinds from that preview as it read the org: a record someone changes after it read
+is left as they made it, and said. undo says what it takes back and asks the same before it
+writes. A take, a rewind or an undo of the org under way on this machine, in the editor or in
+another command line, refuses a rewind and an undo; other runs writing to the org are not seen
+here, and what one of them changes after the preview read the org is left and said the same way.
 Ctrl-C stops a take between two reads, and nothing of it is kept; a second Ctrl-C ends it at once,
 and leaves a checkpoint listed as never taken, which delete removes. Ctrl-C stops a rewind or an
 undo before its next call to the org, and leaves its journal: rewind again takes up from what still

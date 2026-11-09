@@ -75,6 +75,7 @@ import {
   runKey,
   typeOrg,
 } from './sandforge-clone';
+import { forgeRemovalAnswerSchema } from './env/kinds/forge.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -732,6 +733,36 @@ describe('sandforge-clone --remove', () => {
       expect(options.runEndedAt).toBeUndefined();
       expect(options.runDurationMs).toBe(9_000);
       expect(options.runRecordedAt).toEqual(new Date('2026-10-01T10:00:06.000Z'));
+    });
+
+    it('reads a summary whose run the machine’s clock went back across as a run that took no time', async () => {
+      // A clone across a clock set back under WSL, by 1.25 s every 31 s or
+      // so, wrote elapsedMs -1250, and --remove refused the summary it had
+      // just written: "elapsedMs: Too small".
+      const path = file(runSummary({ elapsedMs: -1_250 }, { writtenBetween: undefined }));
+
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBeUndefined();
+
+      const options = removalOptions();
+      expect(options.runDurationMs).toBe(0);
+      expect(options.runRecordedAt).toEqual(new Date('2026-10-01T10:00:06.000Z'));
+    });
+
+    it('answers with no time below none when the machine sets its clock back during the removal, as an environment reads it', async () => {
+      // A removal across one answered elapsedMs -1250, which the reader of
+      // env destroy refused (countSchema) once the records were deleted.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-11-09T10:15:05.000Z'));
+      vi.mocked(removeRunRecords).mockImplementation(async (...args) => {
+        vi.setSystemTime(Date.now() - 1_250);
+        return removalAnswering(TOOK_ALL)(...args);
+      });
+      const path = file(runSummary());
+
+      expect(await run(['--remove', path, '--target', 'TGT', '--json'])).toBeUndefined();
+
+      const answer = forgeRemovalAnswerSchema.safeParse(JSON.parse(stdout.join('')));
+      expect(answer.success ? answer.data.elapsedMs : answer.error.issues).toBe(0);
     });
 
     it('takes the records changed since the run too with --include-changed', async () => {

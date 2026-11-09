@@ -207,15 +207,14 @@ Commands:
   plan      say what apply would do to the org: per resource, create, keep, replace, delete, or why
             it is blocked; what an earlier apply left there and what changed since; per object the
             records it would write; the API requests, storage and emails it takes; writes nothing
-  apply     do what plan says, after asking you to type the org's alias, or its username for an
-            org that has none; applied again, it writes nothing; stopped, run it again and it
-            takes up
+  apply     do what plan says, after asking you to type the org's alias exactly as --org gives
+            it; applied again, it writes nothing; stopped, run it again and it takes up
   destroy   take back what apply created, the last resource first, into the recycle bin; name what
             it cannot take back
   reset     rewind the org to the checkpoint taken after the last apply: what anyone created,
             changed or deleted since is taken back, the environment's records back as applied;
-            between two test suites, after asking you to type the org's alias, or its username
-            for an org that has none
+            between two test suites, after asking you to type the org's alias exactly as --org
+            gives it
   state     list the environments kept on this machine, or those of one org (--org, an alias or
             an Organization Id); reaches no org
   state recover
@@ -369,10 +368,10 @@ whole, or nothing to do; destroy: every record taken back; reset and destroy --r
 the org matches the checkpoint; output: every resource's records named, or taken back); 1 refused
 before it read or wrote — a production org, a kind of org or a sandbox the file does not allow, a
 protected org, a state of another org, no state without --accept-no-state, another apply of the
-org under way, a removal refused for automation without --accept-automation, more API requests,
-storage or emails than the org has left, emails the org delivers or would not say it withholds
-without --accept-emails (a clone's, a seed's or a load's EMAILS_NOT_ACCEPTED, a rewind's
-EMAILS_DELIVERED), a
+org under way, a removal or a frozen load refused for automation without --accept-automation,
+more API requests, storage or emails than the org has left, emails the org delivers or would not
+say it withholds without --accept-emails (a clone's, a seed's or a load's EMAILS_NOT_ACCEPTED, a
+rewind's EMAILS_DELIVERED), a
 checkpoint the file asks that its script refuses, a
 production source without anonymize or accept: { realData: true }, no checkpoint to reset or
 rewind to, a rewind refused for want of --accept-automation, --accept-no-undo or
