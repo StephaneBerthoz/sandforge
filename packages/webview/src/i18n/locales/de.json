@@ -5487,7 +5487,7 @@
     },
     "reloadRefused": {
       "title": "Neuladen abgelehnt: In {{org}} wurde nichts geschrieben",
-      "wayOut": "Nehmen Sie zuerst den Ladevorgang zurück: Seine Datensätze kommen in den Papierkorb von {{org}}, auch die seitdem geänderten – auf einer gemeinsam genutzten Sandbox die Arbeit anderer –, sobald Sie den Namen der Org eingegeben haben. Laden Sie dann das Dataset erneut. Oder brechen Sie ab: Nichts ändert sich.",
+      "wayOut": "Nehmen Sie zuerst den Ladevorgang zurück: Seine Datensätze kommen in den Papierkorb von {{org}}, auch die seitdem geänderten und was seitdem unter ihnen hinzugefügt wurde – auf einer gemeinsam genutzten Sandbox die Arbeit anderer –, sobald Sie den Namen der Org eingegeben haben. Laden Sie dann das Dataset erneut. Oder brechen Sie ab: Nichts ändert sich.",
       "noWayOut": "Dieser Ladevorgang lässt sich hier nicht zurücknehmen, wie die Karte weiter unten sagt: Das Neuladen kann ihn nicht ersetzen, und nichts wurde gelöscht.",
       "takeBack": "Zuerst den Ladevorgang zurücknehmen…"
     },

@@ -601,6 +601,7 @@ function targetOrg(contactModified = '2026-10-20T10:02:00.000+0000') {
     tooling: { query: vi.fn(async () => page([])), queryMore: vi.fn() },
     describe: vi.fn(async (object: string) => ({
       name: object,
+      label: object,
       deletable: true,
       fields: [],
       childRelationships: [],

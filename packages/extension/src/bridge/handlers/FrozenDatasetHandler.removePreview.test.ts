@@ -119,7 +119,14 @@ function targetOrg() {
           : [],
     })),
     describeGlobal: vi.fn(async () => ({
-      sobjects: [...rows.keys()].map((name) => ({ name, queryable: true, deletable: true })),
+      sobjects: [...rows.keys()].map((name) => ({
+        name,
+        label: name,
+        queryable: true,
+        deletable: true,
+        createable: true,
+        layoutable: true,
+      })),
     })),
     soap: {
       getServerTimestamp: vi.fn(async () => ({ timestamp: new Date().toISOString() })),
@@ -396,9 +403,11 @@ describe('a reload, which replaces the loads before it', () => {
 
     const [refusal] = errorsOn('frozen:load:error');
     expect(refusal.code).toBe('REPLACE_LEAVES_RECORDS');
+    // The contact stays, and its account with it, which the org would delete
+    // the contact along with.
     expect(refusal.message).toContain(
-      'A removal of the loads this reload replaces would leave 1 of their records in the org — ' +
-        'Contact (1: 1 changed since the load)',
+      'A removal of the loads this reload replaces would leave 2 of their records in the org — ' +
+        'Contact (1: 1 changed since the load); Account (1: 1 kept for records that stay under them (Contact))',
     );
     expect(refusal.message).toContain('Nothing was written.');
     expect(org.writes).toEqual([]);

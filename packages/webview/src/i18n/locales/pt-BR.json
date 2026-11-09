@@ -5487,7 +5487,7 @@
     },
     "reloadRefused": {
       "title": "Recarga recusada: nada foi gravado em {{org}}",
-      "wayOut": "Remova primeiro a carga: seus registros vão para a lixeira de {{org}}, incluindo os alterados desde então — em uma sandbox compartilhada, o trabalho de outra pessoa —, depois que você digitar o nome da org. Em seguida, carregue o dataset de novo. Ou cancele: nada muda.",
+      "wayOut": "Remova primeiro a carga: seus registros vão para a lixeira de {{org}}, incluindo os alterados desde então e o que foi adicionado sob eles desde então — em uma sandbox compartilhada, o trabalho de outra pessoa —, depois que você digitar o nome da org. Em seguida, carregue o dataset de novo. Ou cancele: nada muda.",
       "noWayOut": "Esta carga não pode ser removida daqui, como diz o cartão mais abaixo: a recarga não pode substituí-la, e nada foi excluído.",
       "takeBack": "Remover primeiro a carga…"
     },

@@ -209,17 +209,30 @@ Options:
   --reload               replace the loads before: purge what earlier loads created,
                          then load again. Refused before anything is written when a
                          removal of those loads would leave records in the org —
-                         records changed since, of an object the user may not delete,
-                         out of the user's sight or unread — or when one of them was
-                         recorded before loads kept what they created: take the load
-                         back with remove first (--include-changed takes what changed
-                         since). What the target runs as the purge deletes is read
-                         and named first, and nothing is written while something
-                         fires unless --accept-automation or --mute-automation
-                         answers it. The purge takes what those loads created, not
-                         what the target's automation made for them: --sweep takes
-                         that too. With --pilot, a reload purges nothing, and is
-                         not asked
+                         records changed since, kept for records that stay under them
+                         (a contact made by hand since under one of their accounts,
+                         which the org would delete along), of an object the user may
+                         not delete, out of the user's sight or unread — or when one
+                         of them was recorded before loads kept what they created: take
+                         the load back with remove first (--include-changed takes what
+                         changed since, and what was added under them since). Refused
+                         the same way when the purge would have the org delete along a
+                         record the reload finds again by its keys — a quote under the
+                         opportunity an earlier load wrote: give that parent identity
+                         keys too, or take the load back first. What the target's
+                         automation likely made for a load holds nothing with --sweep,
+                         which takes it first. What the target runs as the purge
+                         deletes is read and named first, and nothing is written
+                         while something fires unless --accept-automation or
+                         --mute-automation answers it. The purge takes what those
+                         loads created, not what the target's automation made for
+                         them: --sweep takes that too. With --pilot, a reload purges
+                         nothing, and is not asked
+  --gone-first <file>    with load --reload --dry-run: the records taken back before
+                         the reload runs, a JSON array of their ids — hanging from the
+                         loads' records, they hold nothing. sandforge-env gives it what
+                         its apply takes back first; a reload that runs reads what is
+                         still there
   --max-total <n>       with load: the most records it may insert — the count its dry
                          run gave. A load, or a reload, that would insert more is
                          refused before anything is written, the purge included; a dry
@@ -452,6 +465,11 @@ interface CliArgs {
   preview: boolean;
   /** With load: the most records it may insert. */
   maxTotal?: number;
+  /**
+   * With load --reload --dry-run: the file of the ids of records taken back
+   * before the reload runs (`--gone-first`). Absent unless given.
+   */
+  goneFirst?: string;
   yes: boolean;
   json: boolean;
 }
@@ -484,12 +502,35 @@ const FLAGS: CommandFlags = {
     '--salt-file',
     '--store',
     '--max-total',
+    '--gone-first',
     ...CHECKPOINT_FIRST_FLAGS.values,
   ],
 };
 
 /** The most records `--max-total` takes: the bound of the load's request. */
 const MAX_TOTAL = 1_000_000;
+
+/**
+ * The ids `--gone-first` names: a JSON array of record ids, in the file it
+ * is given. A file that does not read as one is refused, exit 2.
+ */
+export function goneFirstIdsOf(file: string): string[] {
+  let read: unknown;
+  try {
+    read = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (err: unknown) {
+    process.stderr.write(`--gone-first: ${file} does not read: ${String(err)}\n`);
+    process.exit(2);
+  }
+  if (
+    !Array.isArray(read) ||
+    !read.every((id) => typeof id === 'string' && /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/.test(id))
+  ) {
+    process.stderr.write(`--gone-first: ${file} holds no JSON array of record ids.\n`);
+    process.exit(2);
+  }
+  return read as string[];
+}
 
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
@@ -560,6 +601,19 @@ export function parseArgs(argv: string[]): CliArgs {
       '--include-changed goes with remove, or with load --reload --sweep, whose sweep then ' +
         'takes what changed since the loads it replaces. Run with --help.\n',
     );
+    process.exit(2);
+  }
+  // Said of a dry run alone: a reload that runs reads what is still there.
+  if (
+    args.includes('--gone-first') &&
+    !(step === 'load' && args.includes('--reload') && args.includes('--dry-run'))
+  ) {
+    process.stderr.write('--gone-first goes with load --reload --dry-run. Run with --help.\n');
+    process.exit(2);
+  }
+  const goneFirst = get('--gone-first');
+  if (args.includes('--gone-first') && goneFirst === undefined) {
+    process.stderr.write('--gone-first takes the file of the ids taken back first.\n');
     process.exit(2);
   }
   if (args.includes('--write-encrypted') && step !== 'load') {
@@ -644,6 +698,7 @@ export function parseArgs(argv: string[]): CliArgs {
     ...classes,
     preview: args.includes('--preview'),
     ...(maxTotal !== undefined ? { maxTotal } : {}),
+    ...(goneFirst !== undefined ? { goneFirst } : {}),
     yes: args.includes('--yes'),
     json: args.includes('--json'),
   };
@@ -2565,6 +2620,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             targetOrgId,
             ...(args.pilot ? { pilot: true } : {}),
             ...(args.reload ? { reload: true } : {}),
+            // What is taken back before the reload runs holds none of its records then.
+            ...(args.goneFirst !== undefined ? { goneFirst: goneFirstIdsOf(args.goneFirst) } : {}),
             ...(args.writeEncrypted ? { writeEncrypted: true } : {}),
             // What its gate on the emails judges as the load would: the mute
             // planned, nothing assigned, and the accord given or not.

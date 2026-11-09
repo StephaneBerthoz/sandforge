@@ -5487,7 +5487,7 @@
     },
     "reloadRefused": {
       "title": "Rechargement refusé : rien n'a été écrit dans {{org}}",
-      "wayOut": "Retirez d'abord le chargement : ses enregistrements vont dans la corbeille de {{org}}, y compris ceux modifiés depuis — sur une sandbox partagée, le travail de quelqu'un d'autre —, une fois le nom de l'org saisi. Chargez ensuite le dataset à nouveau. Ou annulez : rien ne change.",
+      "wayOut": "Retirez d'abord le chargement : ses enregistrements vont dans la corbeille de {{org}}, y compris ceux modifiés depuis et ce qui a été ajouté sous eux depuis — sur une sandbox partagée, le travail de quelqu'un d'autre —, une fois le nom de l'org saisi. Chargez ensuite le dataset à nouveau. Ou annulez : rien ne change.",
       "noWayOut": "Ce chargement ne peut pas être retiré d'ici, comme la carte l'indique plus bas : le rechargement ne peut pas le remplacer, et rien n'a été supprimé.",
       "takeBack": "Retirer d'abord le chargement…"
     },

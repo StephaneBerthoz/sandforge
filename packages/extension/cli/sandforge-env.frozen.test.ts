@@ -598,6 +598,46 @@ describe('plan and apply a frozen resource', () => {
     expect(named('Account', 'claim')).toHaveLength(2);
   });
 
+  it('blocks a replace whose reload would take along a contact made by hand under its accounts, what the apply takes back first apart', async () => {
+    await apply();
+    const [account] = named('Account', 'claim');
+    // A colleague's contact under a loaded account, made once the apply was through.
+    world.org.add(
+      'Contact',
+      {
+        Id: '003000000000990AAA',
+        LastName: 'By hand',
+        AccountId: String(account?.['Id']),
+        CreatedById: '005000000000099AAA',
+        LastModifiedById: '005000000000099AAA',
+      },
+      new Date(Date.now() + 60_000).toISOString(),
+    );
+    vi.setSystemTime(Date.now() + 120_000);
+    const refrozen = await freezeDataset(join(dir, 'datasets', 'claims-2'), {
+      accounts: 3,
+      perAccount: 1,
+      mark: 'claim',
+      version: '1.1.0',
+    });
+    process.env['SANDFORGE_CLAIMS_DATASET'] = refrozen;
+    writeFile(file({}, { version: '1.1.0', digest: await frozenDatasetDigest(refrozen) }));
+
+    const { plan: planned } = await plan();
+
+    // The followers drawn under the accounts are taken back first, and hold
+    // nothing; the colleague's contact holds its account.
+    const claims = planned.actions.find((each) => each.resource === 'claims');
+    expect(claims?.action).toBe('blocked');
+    expect(claims?.refusal).toContain(
+      'A removal of the loads this reload replaces would leave 1 of their records in the org — ' +
+        'Account (1: 1 kept for records that stay under them (Contact))',
+    );
+    const applied = await apply();
+    expect(applied.code).toBe(1);
+    expect(world.org.all('Contact').map((row) => row['Id'])).toContain('003000000000990AAA');
+  });
+
   it('takes it back with destroy, the drawing resource first: the org holds none of it after, the state every resource destroyed', async () => {
     await apply();
 

@@ -420,6 +420,39 @@ export class LoadRecordsExceededError extends Error {
 }
 
 /**
+ * What a reload finds in the target that its purge would have the target
+ * delete along with a record of a load before it: per object, how many,
+ * and the objects of the records they hang from.
+ */
+export interface FoundUnderThePurge {
+  objectApiName: string;
+  count: number;
+  under: string[];
+}
+
+/**
+ * Raised, before anything is written, when a reload's purge would have the
+ * target delete along with what the loads before it created a record the
+ * reload itself finds there: see `FrozenDatasetLoader.foundUnderThePurge`.
+ */
+export class ReloadTakesAlongError extends Error {
+  constructor(readonly found: readonly FoundUnderThePurge[]) {
+    const total = found.reduce((sum, object) => sum + object.count, 0);
+    super(
+      `This reload finds in the target ${total} record(s) that its purge would delete along with ` +
+        `what the loads before it created — ${found
+          .map((o) => `${o.objectApiName} (${o.count}, under ${o.under.join(', ')})`)
+          .join('; ')}: the target deletes them with the record they hang from, which the reload ` +
+        'does not find again, and the load would then write against records no longer there. ' +
+        'Nothing was written. Give the records they hang from identity keys too, so that the ' +
+        'reload finds them again, or take the load back first with a removal, then load the ' +
+        'dataset again.',
+    );
+    this.name = 'ReloadTakesAlongError';
+  }
+}
+
+/**
  * The records a load would insert, as its preview counts them: the dataset's
  * records it writes, less those it links, the person accounts' contacts the
  * platform writes with their account apart.
@@ -1492,6 +1525,15 @@ export class FrozenDatasetLoader {
       options.reload && !options.pilot
         ? await this.planPurge(options.orgId, prepared.previousLoads, prepared.mapping)
         : undefined;
+    if (purge) {
+      const along = await this.foundUnderThePurge(
+        options.orgId,
+        purge.residuals,
+        prepared.mapping,
+        prepared.refIndex,
+      );
+      if (along.length > 0) throw new ReloadTakesAlongError(along);
+    }
     const plan = loadPlanOf(prepared, purge, {
       orgId: options.orgId,
       mode: { pilot: options.pilot !== undefined, reload: options.reload === true },
@@ -2266,6 +2308,14 @@ export class FrozenDatasetLoader {
           message: 'Purging what earlier loads created',
         });
         const plan = await this.planPurge(orgId, previousLoads, mapping);
+        // What it finds hanging from what it purges would go with it: refused
+        // before the purge's first delete, as its dry run is.
+        const along = await this.foundUnderThePurge(orgId, plan.residuals, mapping, refIndex);
+        if (along.length > 0) {
+          const refused = new ReloadTakesAlongError(along);
+          emit(purgeLine({ cause: refused }));
+          throw refused;
+        }
         carried = plan.carried;
         for (const key of carried.flatMap((object) => object.referenceIds)) {
           const id = mapping.get(key);
@@ -3893,6 +3943,78 @@ export class FrozenDatasetLoader {
     } catch {
       return Number.NaN;
     }
+  }
+
+  /**
+   * The records this reload finds in the target — by its identity keys, a
+   * natural key, the catalog — that hang from a record its purge deletes,
+   * through a relationship the target deletes along (`cascadeChildren`): the
+   * target would delete them with it, and the load would then write against
+   * records no longer there. Read before anything is written, by the
+   * describe of each object purged and the found records' own lookups.
+   *
+   * Found by its name, the quote a load before wrote under its opportunity
+   * was reused, the opportunity, which no key found, purged: the target
+   * deleted the quote with it, the reload wrote its lines under a quote no
+   * longer there, synced its opportunity with it, and said it was complete.
+   * The removal's own check of what hangs from a record does not tell it: a
+   * record that came with the load it replaces goes with it there.
+   *
+   * An object purged that the target will not describe is not read; a read
+   * of the found records that fails counts each of them as taken along.
+   *
+   * @returns What would go along, per object; empty when nothing would.
+   */
+  private async foundUnderThePurge(
+    orgId: string,
+    residuals: ReadonlyMap<string, readonly string[]>,
+    mapping: ReadonlyMap<string, string>,
+    refIndex: ReadonlyMap<string, string>,
+  ): Promise<FoundUnderThePurge[]> {
+    const purged = new Set([...residuals.values()].flat().map(recordKey));
+    const foundByObject = new Map<string, string[]>();
+    for (const [referenceId, id] of mapping) {
+      const objectApiName = refIndex.get(referenceId);
+      if (objectApiName === undefined || purged.has(recordKey(id))) continue;
+      foundByObject.set(objectApiName, [...(foundByObject.get(objectApiName) ?? []), id]);
+    }
+    if (purged.size === 0 || foundByObject.size === 0) return [];
+    const along = new Map<string, { keys: Set<string>; under: Set<string> }>();
+    const takenAlong = (objectApiName: string, id: string, under: string): void => {
+      const entry = along.get(objectApiName) ?? { keys: new Set(), under: new Set() };
+      entry.keys.add(recordKey(id));
+      entry.under.add(under);
+      along.set(objectApiName, entry);
+    };
+    for (const parent of residuals.keys()) {
+      let children: ReadonlyArray<{ childSObject: string; field: string }>;
+      try {
+        children = (await this.deps.orgAccess.describe(orgId, parent)).cascadeChildren ?? [];
+      } catch {
+        continue;
+      }
+      for (const { childSObject, field } of children) {
+        const found = foundByObject.get(childSObject);
+        if (!found) continue;
+        let rows: Array<Record<string, unknown>>;
+        try {
+          rows = await this.readRecords(orgId, childSObject, [field], found);
+        } catch {
+          for (const id of found) takenAlong(childSObject, id, parent);
+          continue;
+        }
+        for (const row of rows) {
+          const points = row[field];
+          if (typeof row.Id !== 'string' || typeof points !== 'string') continue;
+          if (purged.has(recordKey(points))) takenAlong(childSObject, row.Id, parent);
+        }
+      }
+    }
+    return [...along].map(([objectApiName, { keys, under }]) => ({
+      objectApiName,
+      count: keys.size,
+      under: [...under],
+    }));
   }
 
   /**

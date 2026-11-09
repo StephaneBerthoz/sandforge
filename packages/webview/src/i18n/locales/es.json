@@ -5487,7 +5487,7 @@
     },
     "reloadRefused": {
       "title": "Recarga rechazada: no se escribió nada en {{org}}",
-      "wayOut": "Quite primero la carga: sus registros van a la papelera de {{org}}, incluidos los modificados desde entonces — en un sandbox compartido, el trabajo de otra persona —, una vez escrito el nombre de la org. Después cargue de nuevo el dataset. O cancele: nada cambia.",
+      "wayOut": "Quite primero la carga: sus registros van a la papelera de {{org}}, incluidos los modificados desde entonces y lo que se añadió bajo ellos desde entonces — en un sandbox compartido, el trabajo de otra persona —, una vez escrito el nombre de la org. Después cargue de nuevo el dataset. O cancele: nada cambia.",
       "noWayOut": "Esta carga no se puede quitar desde aquí, como dice la tarjeta más abajo: la recarga no puede reemplazarla, y no se eliminó nada.",
       "takeBack": "Quitar primero la carga…"
     },

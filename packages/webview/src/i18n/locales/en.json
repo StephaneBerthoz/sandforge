@@ -5487,7 +5487,7 @@
     },
     "reloadRefused": {
       "title": "Reload refused: nothing was written to {{org}}",
-      "wayOut": "Take the load back first: its records go to the recycle bin of {{org}}, the ones changed since included — on a shared sandbox, someone else's work — once you have typed the org's name. Then load the dataset again. Or cancel, and nothing changes.",
+      "wayOut": "Take the load back first: its records go to the recycle bin of {{org}}, the ones changed since, and what was added under them since, included — on a shared sandbox, someone else's work — once you have typed the org's name. Then load the dataset again. Or cancel, and nothing changes.",
       "noWayOut": "This load cannot be taken back from here, as the card says below: the reload cannot replace it, and nothing was deleted.",
       "takeBack": "Take the load back first…"
     },

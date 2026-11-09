@@ -1024,7 +1024,7 @@ describe('FrozenLoadTab', () => {
       );
       expect(within(refused).getByTestId('frozen-reload-refused-why').textContent).toBe(REFUSAL);
       expect(within(refused).getByTestId('frozen-reload-refused-way-out').textContent).toContain(
-        'the ones changed since included',
+        'the ones changed since, and what was added under them since, included',
       );
       // Said once, on the card: not in the banner above as well.
       expect(screen.queryByTestId('frozen-error')).toBeNull();

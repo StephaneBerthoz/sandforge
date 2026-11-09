@@ -1317,6 +1317,9 @@ export const frozenLoadPayloadSchema = z.object({
   acceptEmails: z.boolean().optional(),
   // Write although the target runs automation as the load inserts and updates, or would not say.
   acceptAutomation: z.boolean().optional(),
+  // With a reload's preview: the records taken back before the reload runs,
+  // which hold none of the loads' records then.
+  goneFirst: z.array(recordIdSchema).max(1_000_000).optional(),
 });
 export const frozenVerifyPayloadSchema = z.object({ targetOrgId: orgIdSchema });
 // The load is named — its org, when it wrote its last record — never its

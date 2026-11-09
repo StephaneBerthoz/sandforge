@@ -696,16 +696,31 @@ export interface RunRemovalOptions {
    * (`RunRemovalOutcome.preview`). The sweep is not made and `onUndeletable`
    * is not asked. What hangs from the records, which a real removal reads at
    * each object's turn, record by record, is not read: a record kept for
-   * records that stay is counted with those it would delete.
+   * records that stay is counted with those it would delete — unless
+   * `previewHeld` asks for it.
    */
   previewOnly?: boolean;
+  /**
+   * With `previewOnly`: read too what hangs from the records it would send,
+   * as a real removal reads it at each object's turn, children first — a
+   * record of the run kept for one that stays then stays itself, and holds
+   * its parents — and count apart the records it would keep for them
+   * (`RemovalPreviewObject.keptDependents`). Not read: the rows a record past
+   * Draft locks under it, which a real removal sets back to Draft first.
+   *
+   * A Frozen reload's purge deleted the records of the loads it replaced
+   * without reading what hung from them: a contact made by hand under one of
+   * their accounts went with the account, unsaid, the reload a success.
+   */
+  previewHeld?: boolean;
 }
 
 /**
  * What a removal would do with one object's records, read before its first
  * write (`RunRemovalOptions.previewOnly`). Every record of the object is
  * counted once: `toDelete`, `alreadyGone`, `keptChanged`, `undeletable`,
- * `notVisible` and `unread` add up to `planned`.
+ * `notVisible`, `unread` and, when it was read, `keptDependents` add up to
+ * `planned`.
  */
 export interface RemovalPreviewObject {
   objectApiName: string;
@@ -750,6 +765,22 @@ export interface RemovalPreviewObject {
    * (`ForgeUndoObjectResult.platformCopies`). Absent when none.
    */
   platformCopies?: number;
+  /**
+   * Read when the preview was asked what hangs from the records
+   * (`RunRemovalOptions.previewHeld`): of the records it would send, those a
+   * record staying in the org hangs from, which a removal keeps
+   * (`ForgeUndoObjectResult.keptDependents`), counted here and no longer in
+   * `toDelete`. Absent otherwise.
+   */
+  keptDependents?: number;
+  /** The objects of the records that hold them, by API name, as a removal names them. */
+  heldBy?: string[];
+  /**
+   * Of `keptDependents`, those held by nothing but records the target's
+   * automation likely made for the run, which a sweep takes first
+   * (`ForgeUndoObjectResult.heldByAutomation`). Absent when none.
+   */
+  heldByAutomation?: number;
   /** Why records stay, or could not be told, in the org's words where it gave them. */
   reasons: string[];
 }
@@ -1533,6 +1564,8 @@ export async function removeRunRecords(
   // record — is read for its writes.
   if (options.previewOnly === true) {
     if (stopped()) return untouched();
+    /** The run's records the preview would not send: they stay, and hold their parents. */
+    const notSent = new Set<string>();
     const preview = await previewOf(session, records, order, {
       snapshots,
       changed,
@@ -1540,6 +1573,36 @@ export async function removeRunRecords(
       includeChanged: options.includeChanged,
       stopped,
       copiesOf,
+      ...(options.previewHeld === true
+        ? {
+            held: {
+              notSent,
+              // As the removal's own check, but that nothing has gone yet: a
+              // record of the run stays when the preview would not send it.
+              check: new DependentsCheck(session, {
+                runRecords: records,
+                reached: { has: () => false },
+                stays: (key) => notSent.has(key),
+                runStart,
+                runEnd,
+                removalStart: clock.start,
+                removalUser: undefined,
+                earlierRemovals: (options.removalSpans ?? []).map((span) => ({
+                  start: epochOf(span.first),
+                  end: epochOf(span.last),
+                  user: recordKey(span.userId),
+                })),
+                includeChanged: options.includeChanged,
+                previewing: true,
+                ...(options.goesWithParent ? { goesWithParent: options.goesWithParent } : {}),
+                ...(options.runUserId ? { runUser: recordKey(options.runUserId) } : {}),
+                ...(options.laterParts
+                  ? { linkedLater: laterSpansOf(options.laterParts, 'linked', clock.aheadMs) }
+                  : {}),
+              }),
+            },
+          }
+        : {}),
     });
     if (!preview) return untouched();
     return {
@@ -1910,6 +1973,12 @@ interface PreviewReading {
   stopped: () => boolean;
   /** How many of an object's records are the platform's copies. */
   copiesOf: (objectApiName: string) => number;
+  /**
+   * What hangs from the records, read when asked (`RunRemovalOptions.previewHeld`):
+   * the check, and the keys of the run's records the preview would not send,
+   * which it fills as it goes.
+   */
+  held?: { check: DependentsCheck; notSent: Set<string> };
 }
 
 /**
@@ -1979,6 +2048,12 @@ async function previewOf(
     if (!snapshot || snapshot.error !== undefined) {
       object.unread = count;
       object.reasons.push(snapshot?.error ?? 'The org gave no reason.');
+      // Never sent, its records stay, and hold their parents.
+      if (reading.held) {
+        for await (const page of records.pages(objectApiName)) {
+          for (const id of page) reading.held.notSent.add(recordKey(id));
+        }
+      }
       continue;
     }
     const articles =
@@ -1986,6 +2061,11 @@ async function previewOf(
         ? await articlesReadOf(org, records, objectApiName, snapshot.missing, reading)
         : undefined;
     const changedIds: string[] = [];
+    /** The records it would send, read for what hangs from them when asked. */
+    const sent: string[] = [];
+    const notSent = (key: string): void => {
+      reading.held?.notSent.add(key);
+    };
     for await (const page of records.pages(objectApiName)) {
       for (const id of page) {
         const key = recordKey(id);
@@ -1994,19 +2074,48 @@ async function previewOf(
           else object.notVisible++;
         } else if (reading.undeletable.has(objectApiName)) {
           object.undeletable++;
+          notSent(key);
         } else if (articles?.unread !== undefined) {
           object.unread++;
+          notSent(key);
         } else if (reading.changed.has(key)) {
           object.changedSince++;
           changedIds.push(id);
-          if (reading.includeChanged) object.toDelete++;
-          else object.keptChanged++;
+          if (reading.includeChanged) {
+            object.toDelete++;
+            sent.push(id);
+          } else {
+            object.keptChanged++;
+            notSent(key);
+          }
         } else if (articles?.kept.has(key)) {
           object.changedSince++;
           object.keptChanged++;
+          notSent(key);
         } else {
           object.toDelete++;
+          sent.push(id);
         }
+      }
+    }
+    if (reading.held && sent.length > 0) {
+      if (reading.stopped()) return undefined;
+      const verdict = await reading.held.check.heldAmong(objectApiName, sent);
+      const kept = sent.filter((id) => verdict.held.has(recordKey(id)));
+      if (kept.length > 0) {
+        object.toDelete -= kept.length;
+        object.keptDependents = kept.length;
+        object.heldBy = [...verdict.holders];
+        for (const id of kept) reading.held.notSent.add(recordKey(id));
+        const byAutomation = kept.filter((id) => verdict.byAutomation.has(recordKey(id)));
+        if (byAutomation.length > 0) object.heldByAutomation = byAutomation.length;
+      }
+      if (verdict.reason !== undefined) object.reasons.push(verdict.reason);
+      if (verdict.unchecked.size > 0) {
+        object.reasons.push(
+          `Not checked: what hangs from them through ${[...verdict.unchecked].join(', ')}, ` +
+            'which the org deletes along but does not let be read by the record it hangs from.',
+        );
       }
     }
     if (articles?.unread !== undefined) {
@@ -3307,6 +3416,12 @@ interface DependentsContext {
    * span on the org's clock: see {@link RunLaterPart.linked}.
    */
   linkedLater?: ReadonlyMap<string, { start: number; end: number }>;
+  /**
+   * Whether the check reads for a preview, nothing deleted nor set to Draft
+   * yet: the rows a record past Draft locks under it are not held, as a
+   * removal sets the record back to Draft before its deletes.
+   */
+  previewing?: true;
 }
 
 /**
@@ -3528,7 +3643,9 @@ class DependentsCheck {
       for (const holder of automation) verdict.held.add(recordKey(holder.parent));
       mayBeAutomation.push(...automation);
     }
-    await this.lockedPastDraft(objectApiName, candidates, verdict);
+    if (this.context.previewing !== true) {
+      await this.lockedPastDraft(objectApiName, candidates, verdict);
+    }
     if (isPricebookEntry(objectApiName)) await this.standardPricesHeld(candidates, verdict);
     if (objectApiName === SELLING_MODEL_OPTION_OBJECT) {
       await this.sellingModelOptionsHeld(candidates, verdict);

@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { RecordTypeGiven } from '@sandforge/shared';
 import {
   discoveryLine,
   frozenInterruptedLine,
   frozenRecordTypeLines,
   FROZEN_PREVIEW_UNREAD,
+  goneFirstIdsOf,
   messageLines,
   parseArgs,
   refusedFirstOf,
@@ -217,6 +221,54 @@ describe('parseArgs', () => {
           '--include-changed goes with remove, or with load --reload --sweep',
         ),
       });
+    }
+  });
+
+  it('reads --gone-first for the dry run of a reload alone: a reload that runs reads what is still there', () => {
+    expect(
+      parseArgs(
+        argv(
+          'load',
+          '--config',
+          'f.json',
+          '--target',
+          'TGT',
+          '--reload',
+          '--dry-run',
+          '--gone-first',
+          'gone.json',
+        ),
+      ),
+    ).toMatchObject({ reload: true, dryRun: true, goneFirst: 'gone.json' });
+    for (const step of [['load', '--reload'], ['load', '--dry-run'], ['remove']]) {
+      expect(
+        refuse(...step, '--config', 'f.json', '--target', 'TGT', '--gone-first', 'gone.json'),
+      ).toMatchObject({
+        code: 2,
+        message: expect.stringContaining('--gone-first goes with load --reload --dry-run'),
+      });
+    }
+  });
+
+  it('reads the ids --gone-first names, and refuses a file that holds anything else', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-gone-first-'));
+    try {
+      const ids = join(dir, 'ids.json');
+      writeFileSync(ids, JSON.stringify(['003000000000001AAA', '003000000000002']));
+      expect(goneFirstIdsOf(ids)).toEqual(['003000000000001AAA', '003000000000002']);
+
+      const other = join(dir, 'other.json');
+      writeFileSync(other, JSON.stringify({ ids: ['003000000000001AAA'] }));
+      let code: number | undefined;
+      vi.spyOn(process, 'exit').mockImplementation(((c?: number) => {
+        code = c;
+        throw new Error('exit');
+      }) as never);
+      vi.spyOn(process.stderr, 'write').mockImplementation((() => true) as never);
+      expect(() => goneFirstIdsOf(other)).toThrow('exit');
+      expect(code).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

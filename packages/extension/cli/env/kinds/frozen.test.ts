@@ -232,6 +232,16 @@ describe('a frozen resource’s lines', () => {
     });
   });
 
+  it('tells the dry run of a replace what the apply takes back before it, and a first load’s nothing', () => {
+    // The script reads it as the dry run of a reload: refused anywhere else.
+    expect(
+      parsed(frozenDryRunLine({ ...line, reload: true, goneFirst: '/tmp/gone-first.json' })),
+    ).toMatchObject({ reload: true, dryRun: true, goneFirst: '/tmp/gone-first.json' });
+    expect(
+      frozenDryRunLine({ ...line, reload: false, goneFirst: '/tmp/gone-first.json' }),
+    ).not.toContain('--gone-first');
+  });
+
   it('hands a first load and its dry run the acceptance of automation it was given, as a reload', () => {
     // A load asks what fires as it inserts and updates, as a reload asks
     // what fires as its purge deletes: given to a reload alone, the

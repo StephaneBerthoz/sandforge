@@ -116,7 +116,7 @@ import {
   replacesInOneRun,
   type EnvKindRun,
 } from './env/envKinds.js';
-import { drawnOf, type EnvDrawn } from './env/envReferences.js';
+import { createdByResource, drawnOf, type EnvDrawn } from './env/envReferences.js';
 import { StepAnswerError } from './env/kinds/common.js';
 import { readForgeSource, type EnvSourceRead } from './env/kinds/forge.js';
 import { frozenSasOf, readFrozenDataset, type EnvDatasetRead } from './env/kinds/frozen.js';
@@ -1179,6 +1179,39 @@ async function drawsOf(
 }
 
 /**
+ * The ids of what the apply of `drafts` takes back before any run: the
+ * records the last run of each live resource it deletes, or replaces in two
+ * steps, created. One whose records cannot be told gives none, and what hangs
+ * of it from a reload's records holds them in that reload's dry run.
+ */
+async function takenBackFirst(
+  prepared: Prepared,
+  drafts: readonly EnvActionDraft[],
+): Promise<string[]> {
+  const { resolved, state, target, store, journalDir } = prepared;
+  const live = new Set(liveResources(state).map(([name]) => name));
+  const ids: string[] = [];
+  for (const draft of drafts) {
+    const removed =
+      draft.action === 'delete' || (draft.action === 'replace' && !replacesInOneRun(draft.kind));
+    if (!removed || !live.has(draft.resource)) continue;
+    const created = await createdByResource(
+      state,
+      draft.resource,
+      {
+        organizationId: target.organizationId,
+        env: resolved.checked.file.name,
+        target: target.alias,
+      },
+      { store, journalDir },
+    );
+    if ('refusal' in created) continue;
+    for (const objectIds of created.created.values()) ids.push(...objectIds);
+  }
+  return ids;
+}
+
+/**
  * Dry-run each resource to create or replace, through its script's own
  * `--dry-run --json`. A forge resource whose source was not read is not, nor
  * a frozen resource whose dataset is not the one pinned, nor a seed resource
@@ -1234,10 +1267,21 @@ async function dryRun(
       const templateFile = join(folder, `${resource.name}.json`);
       let storeFile: string | undefined;
       let sasDir: string | undefined;
+      let goneFirstFile: string | undefined;
       if (resource.kind === 'frozen') {
         const kept = store.sasOf(target.organizationId, env, frozenSasOf(resource.name));
         sasDir = existsSync(kept) ? kept : join(folder, `${resource.name}.sas`);
         if (sasDir === kept) storeFile = join(folder, `${resource.name}.cli-store.json`);
+        // What the apply takes back before any run holds nothing of a
+        // reload's by then: a seed drawn under the loaded accounts, taken
+        // back first, refused the dry run of the reload that replaced them.
+        if (action === 'replace' && replacesInOneRun(resource.kind)) {
+          const goneFirst = await takenBackFirst(prepared, drafts);
+          if (goneFirst.length > 0) {
+            goneFirstFile = join(folder, `${resource.name}.gone-first.json`);
+            writeFileSync(goneFirstFile, `${JSON.stringify(goneFirst)}\n`, { mode: 0o600 });
+          }
+        }
       }
       const payload = payloadOf(resource, {
         ...(drawn !== undefined ? { drawn: drawn.ids } : {}),
@@ -1261,6 +1305,7 @@ async function dryRun(
             resolved.checked.file.resources[resource.name]?.accept?.automation === true,
           ...(seed !== undefined ? { seed } : {}),
           ...(storeFile !== undefined ? { storeFile } : {}),
+          ...(goneFirstFile !== undefined ? { goneFirstFile } : {}),
           // A store of the plan's own: a dry run saves the rules as a template,
           // and the resource's store keeps what its runs did alone.
           ...(resource.kind === 'mask' ? { store: join(folder, `${resource.name}.dataops`) } : {}),

@@ -274,14 +274,23 @@ function frozenSwitches(step: string, input: FrozenLine): string[] {
  * purge, nothing written. A replace's is a reload's. Its own store, when the
  * sas is one loads keep: a dry run writes nothing there. What fires as a load
  * inserts and updates, and as a reload's purge deletes, refuses it unless
- * accepted.
+ * accepted. A replace's is told what the apply takes back before it
+ * (`--gone-first`), which holds none of the loads' records then.
  */
 export function frozenDryRunLine(
-  input: FrozenLine & { reload: boolean; store?: string; acceptAutomation?: boolean },
+  input: FrozenLine & {
+    reload: boolean;
+    store?: string;
+    acceptAutomation?: boolean;
+    goneFirst?: string;
+  },
 ): string[] {
   return [
     ...frozenSwitches('load', input),
     ...(input.reload ? ['--reload'] : []),
+    ...(input.reload && input.goneFirst !== undefined
+      ? ['--gone-first', valueOf('--gone-first', input.goneFirst)]
+      : []),
     ...(input.acceptAutomation === true ? ['--accept-automation'] : []),
     ...(input.store !== undefined ? ['--store', valueOf('--store', input.store)] : []),
     '--dry-run',

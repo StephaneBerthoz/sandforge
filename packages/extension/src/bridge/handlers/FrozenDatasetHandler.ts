@@ -60,6 +60,7 @@ import {
   removeRunRecords,
   setBackToDraftOf,
   type RemovalOrg,
+  type RemovalPreviewObject,
   type RunRemovalOptions,
   type RunRemovalOutcome,
 } from '../../modules/forge/ForgeRunRemoval.js';
@@ -191,6 +192,7 @@ import {
   NonReidentificationControl,
   PLATFORM_RECORDS_FILE_NAME,
   PostLoadVerifier,
+  ReloadTakesAlongError,
   SELECTION_FILE_NAME,
   SasPathGuard,
   SasReferenceIdMappingStore,
@@ -846,22 +848,60 @@ function removalSpanOf(
 /**
  * What a removal of the loads a reload replaces would leave in the org, per
  * object, from the preview of each: the records it keeps as changed since,
- * those of an object the user may not delete, those it cannot see and those
- * it could not read. Empty when it would take them all.
+ * those it keeps for records that stay under them, those of an object the
+ * user may not delete, those it cannot see and those it could not read.
+ * Empty when it would take them all.
+ *
+ * A record held by nothing but what the target's automation likely made for
+ * the load is left too, unless the reload is asked to sweep, which takes
+ * those first, as it takes them before a removal's deletes.
  */
 function leftByRemovalOf(
-  previews: ReadonlyArray<Pick<FrozenRemovalPreview, 'objects'>>,
+  previews: ReadonlyArray<{
+    objects: ReadonlyArray<
+      Pick<
+        RemovalPreviewObject,
+        | 'objectApiName'
+        | 'keptChanged'
+        | 'undeletable'
+        | 'notVisible'
+        | 'unread'
+        | 'keptDependents'
+        | 'heldBy'
+        | 'heldByAutomation'
+      >
+    >;
+  }>,
+  swept = false,
 ): Array<{ objectApiName: string; left: number; why: string[] }> {
   const byObject = new Map<string, { left: number; why: Set<string> }>();
   for (const { objects } of previews) {
     for (const object of objects) {
+      const byAutomation = object.heldByAutomation ?? 0;
+      const held = (object.keptDependents ?? 0) - (swept ? byAutomation : 0);
+      const holders = object.heldBy && object.heldBy.length > 0 ? object.heldBy.join(', ') : '';
       const parts = [
         object.keptChanged > 0 ? `${object.keptChanged} changed since the load` : '',
+        held > 0
+          ? (holders
+              ? `${held} kept for records that stay under them (${holders})`
+              : // Named by no object, they were kept as what hangs from them could not be read.
+                `${held} kept as what hangs from them could not be read`) +
+            (!swept && byAutomation > 0
+              ? `, ${byAutomation} of them for what the target's automation likely made for ` +
+                'the load, which a sweep takes first'
+              : '')
+          : '',
         object.undeletable > 0 ? `${object.undeletable} the user may not delete` : '',
         object.notVisible > 0 ? `${object.notVisible} out of the user's sight` : '',
         object.unread > 0 ? `${object.unread} that could not be read` : '',
       ].filter(Boolean);
-      const left = object.keptChanged + object.undeletable + object.notVisible + object.unread;
+      const left =
+        object.keptChanged +
+        Math.max(0, held) +
+        object.undeletable +
+        object.notVisible +
+        object.unread;
       if (left === 0) continue;
       const entry = byObject.get(object.objectApiName) ?? { left: 0, why: new Set<string>() };
       entry.left += left;
@@ -1797,6 +1837,14 @@ export class FrozenDatasetHandler implements DomainHandler {
           // What the load reads to leave out an object the target takes no
           // insert of, instead of sending its records to be refused.
           createable: meta.createable,
+          // What a reload's purge of one of its records takes along.
+          cascadeChildren: (meta.childRelationships ?? []).flatMap((relationship) =>
+            relationship.cascadeDelete === true &&
+            typeof relationship.field === 'string' &&
+            relationship.field !== ''
+              ? [{ childSObject: relationship.childSObject, field: relationship.field }]
+              : [],
+          ),
           fields: meta.fields.map((f) => ({
             name: f.name,
             type: f.type,
@@ -1949,6 +1997,9 @@ export class FrozenDatasetHandler implements DomainHandler {
     if (err instanceof VolumetryBudgetExceededError) return 'BUDGET_EXCEEDED';
     if (err instanceof LoadConfigError) return 'LOAD_CONFIG';
     if (err instanceof LoadRecordsExceededError) return 'MAX_RECORDS';
+    // Refused as a reload whose removal would leave records is, the way out
+    // the same: take the load back first.
+    if (err instanceof ReloadTakesAlongError) return REPLACE_LEAVES_RECORDS;
     if (err instanceof TimeoutError) return 'TIMEOUT';
     return fallback;
   }
@@ -3580,7 +3631,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     if (!parsed) return;
     const config = this.requireConfig(msg, 'frozen:load:preview:error');
     if (!config) return;
-    const notReplaced = await this.replaceRefusal(parsed, config);
+    const notReplaced = await this.replaceRefusal(parsed, config, parsed.goneFirst);
     if (notReplaced) {
       sendHandlerError(
         this.deps,
@@ -4418,12 +4469,27 @@ export class FrozenDatasetHandler implements DomainHandler {
    * which purges nothing, and a target refreshed since its loads, which took
    * their records, are not asked.
    *
+   * The preview reads what hangs from their records too, as the removal reads
+   * it (`previewHeld`): a record that stays under one of them — made by hand
+   * since the load, older and moved under it — holds it, as it holds it from a
+   * removal. Read without it, the purge deleted an account of the load and
+   * the contact made by hand under it went with it, unsaid, the reload a
+   * success. A record of another load the reload replaces goes with the
+   * record it hangs from, as the purge takes it too; what the target's
+   * automation likely made for a load holds nothing when the reload sweeps
+   * it, as the sweep takes it first.
+   *
+   * @param goneFirst - Asked of a preview alone: the records taken back
+   *   before the reload runs, which hold nothing then — what an environment's
+   *   apply takes back before it reloads. A reload that runs reads what is
+   *   still there.
    * @returns The refusal, under {@link REPLACE_LEAVES_RECORDS}; or the failure
    *   of the reads that would tell, which refuses the request too.
    */
   private async replaceRefusal(
-    request: { targetOrgId: string; reload?: boolean; pilot?: boolean },
+    request: { targetOrgId: string; reload?: boolean; pilot?: boolean; sweep?: boolean },
     config: FrozenProjectConfig,
+    goneFirst: readonly string[] = [],
   ): Promise<{ error: unknown; code: string; retryable: boolean } | undefined> {
     if (request.reload !== true || request.pilot === true) return undefined;
     let refusal: string | undefined;
@@ -4442,20 +4508,41 @@ export class FrozenDatasetHandler implements DomainHandler {
           this.deps.orgRegistry,
           this.deps.orgManager,
         );
-        const previews: Array<Omit<FrozenRemovalPreview, 'refusals'>> = [];
-        for (const load of loads) {
-          if (loadRecordsLeft(load).length === 0) continue;
-          previews.push(await this.previewRemovalOf(conn, load, false));
+        const replaced = loads.filter((load) => loadRecordsLeft(load).length > 0);
+        const goingKeys = new Set([
+          ...replaced.flatMap((load) =>
+            loadRecordsLeft(load).flatMap((object) => object.ids.map((id) => id.slice(0, 15))),
+          ),
+          ...goneFirst.map((id) => id.slice(0, 15)),
+        ]);
+        const previews: Array<{ objects: RemovalPreviewObject[] }> = [];
+        for (const load of replaced) {
+          const outcome = await removeRunRecords(
+            removalOrg(conn, 'frozen:load:replace'),
+            loadRecordsLeft(load),
+            {
+              ...removalSpanOf(load),
+              includeChanged: false,
+              previewOnly: true,
+              previewHeld: true,
+              goesWithParent: (row) =>
+                typeof row.Id === 'string' && goingKeys.has(row.Id.slice(0, 15)),
+            },
+          );
+          if (!outcome.preview)
+            throw new Error('The removal preview stopped before it was through.');
+          previews.push(outcome.preview);
         }
-        const left = leftByRemovalOf(previews);
+        const left = leftByRemovalOf(previews, request.sweep === true);
         if (left.length > 0) {
           const total = left.reduce((sum, object) => sum + object.left, 0);
           refusal =
             `A removal of the loads this reload replaces would leave ${total} of their records in ` +
             `the org — ${left.map((o) => `${o.objectApiName} (${o.left}: ${o.why.join(', ')})`).join('; ')}: ` +
             'loaded again, the dataset would stand beside them, and the reload would delete what ' +
-            'was changed since. Nothing was written. Take the load back first with a removal — ' +
-            'records changed since go too when it is told to include them — then load the ' +
+            'was changed since, and what stays under them along with them. Nothing was written. ' +
+            'Take the load back first with a removal — records changed since, and what was ' +
+            'added under them since, go too when it is told to include them — then load the ' +
             'dataset again.';
         }
       }

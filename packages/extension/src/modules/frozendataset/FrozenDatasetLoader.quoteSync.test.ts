@@ -5,7 +5,11 @@ import * as path from 'node:path';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { SasPathGuard, findRepoRoot } from './SasPathGuard.js';
 import { SasReferenceIdMappingStore } from './SasReferenceIdMappingStore.js';
-import { FrozenDatasetLoader, type FrozenDatasetLoaderDeps } from './FrozenDatasetLoader.js';
+import {
+  FrozenDatasetLoader,
+  ReloadTakesAlongError,
+  type FrozenDatasetLoaderDeps,
+} from './FrozenDatasetLoader.js';
 import type { FrozenDataset } from './types.js';
 import type {
   FrozenDmlWriter,
@@ -145,6 +149,11 @@ const DESCRIBES: Record<string, TargetObjectDescribe> = {
       field({ name: 'CloseDate', type: 'date', nillable: false }),
       field({ name: 'SyncedQuoteId', type: 'reference', referenceTo: ['Quote'] }),
     ],
+    // As an org lists what goes with an opportunity: its quotes, its products.
+    cascadeChildren: [
+      { childSObject: 'Quote', field: 'OpportunityId' },
+      { childSObject: PRODUCT, field: 'OpportunityId' },
+    ],
   },
   Quote: {
     name: 'Quote',
@@ -157,6 +166,7 @@ const DESCRIBES: Record<string, TargetObjectDescribe> = {
         nillable: false,
       }),
     ],
+    cascadeChildren: [{ childSObject: LINE, field: 'QuoteId' }],
   },
   [PRODUCT]: {
     name: PRODUCT,
@@ -434,5 +444,93 @@ describe('a Frozen reload of an opportunity whose synced quote the target alread
     expect(org.rowsOf(PRODUCT)).toHaveLength(2);
     expect(org.deleted).toEqual([]);
     expect(report.pass2).toEqual({ resolved: 1, unresolved: [] });
+  });
+});
+
+describe('a Frozen reload that finds again by its key the quote a load before wrote under its opportunity', () => {
+  /**
+   * The target after a load of the dossier, deleting as an org does: an
+   * opportunity's quotes and products go with it, a quote's lines with the
+   * quote. The reload finds the quote again by its name; nothing finds the
+   * opportunity.
+   */
+  async function loadedOnce() {
+    const org = quoteSyncOrg();
+    const destroy = org.writer.delete;
+    const cascade = async (orgId: string, objectApiName: string, ids: string[]) => {
+      const answers = await destroy(orgId, objectApiName, ids);
+      const under = (child: string, field: string) =>
+        org
+          .rowsOf(child)
+          .filter((row) => ids.includes(String(row[field])))
+          .map((row) => String(row.Id));
+      if (objectApiName === 'Opportunity') {
+        await cascade(orgId, 'Quote', under('Quote', 'OpportunityId'));
+        await destroy(orgId, PRODUCT, under(PRODUCT, 'OpportunityId'));
+      }
+      if (objectApiName === 'Quote') await destroy(orgId, LINE, under(LINE, 'QuoteId'));
+      return answers;
+    };
+    org.writer.delete = vi.fn(cascade);
+    const deps = depsOf(org, { identityKeys: { Quote: ['Name'] } }, async (_org, soql) => {
+      if (soql.startsWith('SELECT Id, Name FROM Quote')) {
+        return org.rowsOf('Quote').map((row) => ({ Id: row.Id, Name: row.Name }));
+      }
+      const read = /^SELECT (.+) FROM (\w+) WHERE Id IN \((.*)\)$/.exec(soql);
+      if (!read) return [];
+      const [, columns, objectApiName, list] = read;
+      const wanted = list.split(', ').map((quoted) => quoted.slice(1, -1));
+      return org
+        .rowsOf(objectApiName)
+        .filter((row) => wanted.includes(String(row.Id)))
+        .map((row) => Object.fromEntries(columns.split(', ').map((c) => [c, row[c]])));
+    });
+    const options = {
+      orgId: '00D-target',
+      orgTier: 'development' as const,
+      dataset: dossier(true),
+      sasDir: deps.sasDir,
+    };
+    await new FrozenDatasetLoader(deps).load(options);
+    return { org, deps, options };
+  }
+
+  it('is refused before anything is written, naming the quote its purge would take along with the opportunity', async () => {
+    // Sent as it was, the purge deleted the opportunity the load before
+    // wrote, the target took the quote the reload had just found along with
+    // it, and the reload wrote two lines under a quote no longer there,
+    // synced its new opportunity with it, and said it was complete.
+    const { org, deps, options } = await loadedOnce();
+    const [quote] = org.rowsOf('Quote');
+    const [opportunity] = org.rowsOf('Opportunity');
+    const writes = () =>
+      [org.writer.insert, org.writer.update, org.writer.delete].reduce(
+        (sum, call) => sum + vi.mocked(call).mock.calls.length,
+        0,
+      );
+    const before = writes();
+
+    const outcome = await new FrozenDatasetLoader(deps).load({ ...options, reload: true }).then(
+      (report) => report.status,
+      (err: unknown) => err,
+    );
+
+    expect(org.rowsOf('Quote').map((row) => row.Id)).toEqual([quote.Id]);
+    expect(org.rowsOf('Opportunity').map((row) => row.Id)).toEqual([opportunity.Id]);
+    expect(writes()).toBe(before);
+    expect(outcome).toBeInstanceOf(ReloadTakesAlongError);
+    expect((outcome as Error).message).toContain(
+      'This reload finds in the target 1 record(s) that its purge would delete along with what ' +
+        'the loads before it created — Quote (1, under Opportunity)',
+    );
+    expect((outcome as Error).message).toContain('Nothing was written.');
+  });
+
+  it('is refused the same way by its dry run', async () => {
+    const { deps, options } = await loadedOnce();
+
+    await expect(
+      new FrozenDatasetLoader(deps).planLoad({ ...options, reload: true }),
+    ).rejects.toBeInstanceOf(ReloadTakesAlongError);
   });
 });

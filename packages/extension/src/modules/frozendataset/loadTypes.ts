@@ -65,6 +65,14 @@ export interface TargetObjectDescribe {
   createable?: boolean;
   fields: TargetFieldDescribe[];
   /**
+   * The relationships the target deletes along with a record of the object,
+   * as its describe lists them (`childRelationships`, `cascadeDelete`): the
+   * object and lookup of each record that goes with it. Its fields do not
+   * say it — a contact's account is a lookup there, and goes with the
+   * account. Absent when the describe was not asked for them.
+   */
+  cascadeChildren?: Array<{ childSObject: string; field: string }>;
+  /**
    * Record types as the running user sees them. `available` is false for one
    * that exists and is active but is not assigned to that user — it resolves
    * by DeveloperName and is then refused at insert. The rest of what the

@@ -299,6 +299,12 @@ export interface EnvDryRunContext {
   acceptAutomation?: boolean;
   /** The store a frozen dry run keeps the script's own state in, apart from the sas. */
   storeFile?: string;
+  /**
+   * The file of the ids the apply takes back before any run, handed to the
+   * dry run of a frozen replace: hanging from the loads' records, they hold
+   * nothing by the time the reload runs.
+   */
+  goneFirstFile?: string;
   /** The DataOps store a mask resource's script keeps its snapshots and its template in. */
   store?: string;
   /**
@@ -353,6 +359,7 @@ export function dryRunLineOf(
           reload: context.replace === true,
           acceptAutomation: context.acceptAutomation === true,
           ...(context.storeFile !== undefined ? { store: context.storeFile } : {}),
+          ...(context.goneFirstFile !== undefined ? { goneFirst: context.goneFirstFile } : {}),
         }),
       };
     case 'mask':
