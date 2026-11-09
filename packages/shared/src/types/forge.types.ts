@@ -990,6 +990,13 @@ export interface ForgeSweepListing {
    */
   late?: ForgeRemovalLeftCount[];
   /**
+   * Of a run cut and taken up, per other part, what the run's user created in
+   * the window that points at one of that part's records, per object: that
+   * part's — the lines the platform copies under the quote a later part
+   * synced — never taken by this sweep. Absent when none.
+   */
+  otherParts?: Array<{ part: number; objects: ForgeRemovalLeftCount[] }>;
+  /**
    * The objects a sweep did not look at, past the most it looks at — children
    * of the run's objects counted beyond the bound — by API name. Absent when
    * it looked at every one.

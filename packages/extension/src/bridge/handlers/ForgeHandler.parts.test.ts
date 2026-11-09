@@ -4,6 +4,7 @@ import type {
   ForgeExecutionResult,
   ForgeGraph,
   ForgeUndoObjectResult,
+  ForgeSweepListing,
   ForgeUndoResult,
 } from '@sandforge/shared';
 
@@ -31,7 +32,13 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { removalOrg, type RemovalOrg } from '../../modules/forge/ForgeRunRemoval.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
-import { MEMORY_ORG_USER, MemoryRemovalOrg, type MemoryRow } from '../../test/memoryRemovalOrg.js';
+import {
+  MEMORY_ORG_USER,
+  MemoryRemovalOrg,
+  type MemoryChild,
+  type MemoryOrgRequest,
+  type MemoryRow,
+} from '../../test/memoryRemovalOrg.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 const TARGET_ORG = 'tgt-org';
@@ -48,6 +55,14 @@ const OPPORTUNITY = { source: SRC('006', 1), target: TGT('006', 1) };
 /** What the resume wrote under the opportunity: the quote it syncs, and a product line. */
 const QUOTE = { source: SRC('0Q0', 1), target: TGT('0Q0', 1) };
 const LINE = { source: SRC('00k', 1), target: TGT('00k', 1) };
+/** The product of the line, which the cut part wrote when told to. */
+const PRODUCT = { source: SRC('01t', 1), target: TGT('01t', 1) };
+/**
+ * The quote line the platform copies from the resume's product line onto the
+ * quote the opportunity syncs, paired with it: in no id map, it points at the
+ * resume's quote and at the cut part's product.
+ */
+const QUOTE_LINE_COPY = TGT('0QL', 1);
 /**
  * The contact role the platform wrote with the opportunity, for its contact,
  * as the cut part inserted it: the resume linked it and gave it the source's
@@ -77,34 +92,79 @@ const GRAPH: ForgeGraph = {
  * feed tracking records the change on it as created by that user; a feed item
  * keeps no `LastModifiedById`.
  */
+const GATE_CHILDREN: Record<string, MemoryChild[]> = {
+  Account: [
+    { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
+    { childSObject: 'Opportunity', field: 'AccountId', cascadeDelete: true },
+  ],
+  Contact: [
+    { childSObject: 'OpportunityContactRole', field: 'ContactId', cascadeDelete: true },
+    { childSObject: 'Opportunity', field: 'ContactId' },
+  ],
+  Opportunity: [
+    { childSObject: 'OpportunityContactRole', field: 'OpportunityId', cascadeDelete: true },
+    { childSObject: 'OpportunityLineItem', field: 'OpportunityId', cascadeDelete: true },
+    { childSObject: 'Quote', field: 'OpportunityId', cascadeDelete: true },
+    { childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true },
+  ],
+  Quote: [
+    { childSObject: 'Opportunity', field: 'SyncedQuoteId' },
+    { childSObject: 'QuoteLineItem', field: 'QuoteId', cascadeDelete: true },
+  ],
+  Product2: [
+    { childSObject: 'OpportunityLineItem', field: 'Product2Id', restrictedDelete: true },
+    { childSObject: 'QuoteLineItem', field: 'Product2Id', restrictedDelete: true },
+  ],
+};
+
 class GateOrg extends MemoryRemovalOrg {
   private feeds = 0;
 
   constructor(now: () => number) {
-    super(
-      {
-        Account: [
-          { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
-          { childSObject: 'Opportunity', field: 'AccountId', cascadeDelete: true },
-        ],
-        Contact: [
-          { childSObject: 'OpportunityContactRole', field: 'ContactId', cascadeDelete: true },
-          { childSObject: 'Opportunity', field: 'ContactId' },
-        ],
-        Opportunity: [
-          { childSObject: 'OpportunityContactRole', field: 'OpportunityId', cascadeDelete: true },
-          { childSObject: 'OpportunityLineItem', field: 'OpportunityId', cascadeDelete: true },
-          { childSObject: 'Quote', field: 'OpportunityId', cascadeDelete: true },
-          { childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true },
-        ],
-        Quote: [{ childSObject: 'Opportunity', field: 'SyncedQuoteId' }],
-      },
-      { now },
-    );
+    super(GATE_CHILDREN, { now });
     this.missingFields.set('FeedItem', new Set(['LastModifiedById']));
   }
 
+  /**
+   * Described as the target describes them, as far as a sweep reads them:
+   * deletable, with who created each record and when, who last changed it
+   * and when, its name, and the lookups that tie it to what it hangs from.
+   */
+  override async describe(objectApiName: string): Promise<unknown> {
+    const described = (await super.describe(objectApiName)) as Record<string, unknown>;
+    const field = (name: string, type: string, more: Record<string, unknown> = {}) => ({
+      name,
+      label: name,
+      type,
+      ...more,
+    });
+    const lookups = Object.entries(GATE_CHILDREN).flatMap(([parent, children]) =>
+      children
+        .filter((child) => child.childSObject === objectApiName)
+        .map((child) => field(child.field, 'reference', { referenceTo: [parent] })),
+    );
+    return {
+      ...described,
+      deletable: true,
+      fields: [
+        field('Id', 'id'),
+        field('Name', 'string', { nameField: true }),
+        field('CreatedById', 'reference', { referenceTo: ['User'] }),
+        field('CreatedDate', 'datetime'),
+        ...(objectApiName === 'FeedItem'
+          ? []
+          : [field('LastModifiedById', 'reference', { referenceTo: ['User'] })]),
+        field('LastModifiedDate', 'datetime'),
+        ...lookups,
+      ],
+    };
+  }
+
   protected override removed(objectApiName: string, row: MemoryRow): void {
+    // Deleting a quote line of a synced quote deletes the line item it is paired with.
+    if (objectApiName === 'QuoteLineItem' && typeof row.OpportunityLineItemId === 'string') {
+      this.trash('OpportunityLineItem', row.OpportunityLineItemId);
+    }
     if (objectApiName !== 'OpportunityLineItem') return;
     const opportunity = this.liveRow('Opportunity', String(row.OpportunityId));
     if (!opportunity) return;
@@ -127,6 +187,21 @@ const byTheRun = (time: string): Record<string, string> => ({
   CreatedById: MEMORY_ORG_USER,
   LastModifiedById: MEMORY_ORG_USER,
 });
+
+/** `org` as an object whose methods are its own, bound to it: one spread keeps them. */
+function withOwnMethods(org: MemoryRemovalOrg): Record<string, unknown> {
+  const methods: Record<string, unknown> = {};
+  for (let at = Object.getPrototypeOf(org); at && at !== Object.prototype;) {
+    for (const name of Object.getOwnPropertyNames(at)) {
+      const value: unknown = Reflect.get(org, name);
+      if (name !== 'constructor' && !(name in methods) && typeof value === 'function') {
+        methods[name] = (value as (...args: unknown[]) => unknown).bind(org);
+      }
+    }
+    at = Object.getPrototypeOf(at);
+  }
+  return methods;
+}
 
 function buildMsg(type: string, payload?: unknown): InboundRequest {
   return inboundRequest({
@@ -166,8 +241,10 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
    *   unless told.
    * @param resumedSoonerBy - How many seconds sooner than two minutes after
    *   the cut the resume wrote.
+   * @param withProduct - Whether the cut part wrote the line's product, and
+   *   the platform copied the line onto the quote as the resume wrote it.
    */
-  function theRun(roleMadeAt = at('10:00:03'), resumedSoonerBy = 0): void {
+  function theRun(roleMadeAt = at('10:00:03'), resumedSoonerBy = 0, withProduct = false): void {
     const resumedAt = (time: string): string =>
       new Date(Date.parse(at(time)) - resumedSoonerBy * 1_000).toISOString();
     setClock(at('10:00:01'));
@@ -190,6 +267,7 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
       ContactId: CONTACT.target,
       ...byTheRun(roleMadeAt),
     });
+    if (withProduct) org.add('Product2', { Id: PRODUCT.target, ...byTheRun(at('10:00:03')) });
     setClock(resumedAt('10:02:01'));
     org.add('Quote', {
       Id: QUOTE.target,
@@ -203,11 +281,25 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
     org.add('OpportunityLineItem', {
       Id: LINE.target,
       OpportunityId: OPPORTUNITY.target,
+      ...(withProduct ? { Product2Id: PRODUCT.target } : {}),
       ...byTheRun(resumedAt('10:02:03')),
     });
+    if (withProduct) {
+      org.add('QuoteLineItem', {
+        Id: QUOTE_LINE_COPY,
+        QuoteId: QUOTE.target,
+        Product2Id: PRODUCT.target,
+        OpportunityLineItemId: LINE.target,
+        ...byTheRun(resumedAt('10:02:03')),
+      });
+    }
 
+    const products = withProduct ? [PRODUCT] : [];
     const table = Object.fromEntries(
-      [ACCOUNT, CONTACT, OPPORTUNITY, QUOTE, LINE, ROLE].map((ids) => [ids.source, ids.target]),
+      [ACCOUNT, CONTACT, OPPORTUNITY, QUOTE, LINE, ROLE, ...products].map((ids) => [
+        ids.source,
+        ids.target,
+      ]),
     );
     const cut: ForgeExecutionResult = {
       forgeId: 'run-cut',
@@ -221,12 +313,14 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
         [ACCOUNT.source]: ACCOUNT.target,
         [CONTACT.source]: CONTACT.target,
         [OPPORTUNITY.source]: OPPORTUNITY.target,
+        ...Object.fromEntries(products.map((ids) => [ids.source, ids.target])),
       },
       idRemapExisting: [],
       idRemapCreated: [
         { objectApiName: 'Account', sourceIds: [ACCOUNT.source] },
         { objectApiName: 'Contact', sourceIds: [CONTACT.source] },
         { objectApiName: 'Opportunity', sourceIds: [OPPORTUNITY.source] },
+        ...products.map((ids) => ({ objectApiName: 'Product2', sourceIds: [ids.source] })),
       ],
       targetOrgId: TARGET_ORG,
       writtenBetween: PART_0,
@@ -244,7 +338,13 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
       idRemapTable: table,
       // What the cut part wrote, linked to as written before the run stopped,
       // and the role the platform wrote, linked to with its opportunity.
-      idRemapExisting: [ACCOUNT.source, CONTACT.source, OPPORTUNITY.source, ROLE.source],
+      idRemapExisting: [
+        ACCOUNT.source,
+        CONTACT.source,
+        OPPORTUNITY.source,
+        ROLE.source,
+        ...products.map((ids) => ids.source),
+      ],
       idRemapWithTheirRecord: [ROLE.source],
       idRemapCreated: [
         { objectApiName: 'Quote', sourceIds: [QUOTE.source] },
@@ -327,8 +427,15 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
       nextId: () => String(++n),
     };
     handler = new ForgeHandler(deps);
-    vi.mocked(getJsforceConnection).mockResolvedValue({} as never);
-    vi.mocked(removalOrg).mockReturnValue(org as unknown as RemovalOrg);
+    // The data API's composite, which a sweep counts through, answered by the
+    // org in miniature; the Tooling API's, as an org with no automation.
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      version: '66.0',
+      request: async (request: MemoryOrgRequest) =>
+        request.url.includes('/tooling/') ? { compositeResponse: [] } : await org.request(request),
+    } as never);
+    // The org with its methods its own, as a sweep copies them.
+    vi.mocked(removalOrg).mockImplementation(() => withOwnMethods(org) as unknown as RemovalOrg);
   });
 
   afterEach(() => {
@@ -429,6 +536,49 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
       { forgeId: 'run-resumed', objects: ['OpportunityLineItem', 'Quote'] },
     ]);
   });
+
+  /** What the sweep of the part `forgeId` lists at `time`: per object, found, made, late; and what it leaves. */
+  async function sweepListOf(
+    forgeId: string,
+    time: string,
+  ): Promise<{ found: unknown[]; otherParts: unknown }> {
+    setClock(time);
+    vi.mocked(deps.broker.postToWebview).mockClear();
+    await handler.handle(buildMsg('forge:undo-sweep:request', { forgeId }));
+    const listing = vi
+      .mocked(deps.broker.postToWebview)
+      .mock.calls.map(([m]) => m as BaseMessage & { payload: { listing: ForgeSweepListing } })
+      .find((m) => m.type === 'forge:undo-sweep:response')?.payload.listing;
+    return {
+      found: (listing?.found ?? []).map((o) => [
+        o.objectApiName,
+        o.count,
+        o.classes?.made,
+        o.classes?.late,
+      ]),
+      otherParts: listing?.otherParts,
+    };
+  }
+
+  for (const [when, sooner] of [
+    ['within the minute', 70],
+    ['two minutes later', 0],
+  ] as const) {
+    it(`the cut part’s sweep, the resume ${when}: leaves the quote line the platform copied under the resume’s quote, which points at the cut part’s product, to the resume’s`, async () => {
+      theRun(at('10:00:03'), sooner, true);
+
+      const cut = await sweepListOf('run-cut', at('10:05:00'));
+      const resumed = await sweepListOf('run-resumed', at('10:05:30'));
+
+      // The cut part's confirmation listed the copy as made for the run, or
+      // made late: deleted, it took its line item along.
+      expect(cut.found).toEqual([['OpportunityContactRole', 1, 1, 0]]);
+      expect(cut.otherParts).toEqual([
+        { part: 1, objects: [{ objectApiName: 'QuoteLineItem', count: 1 }] },
+      ]);
+      expect(resumed.found).toEqual([['QuoteLineItem', 1, 1, 0]]);
+    });
+  }
 
   it('says nothing of the other part when the resume goes first and the cut part takes the rest', async () => {
     theRun();

@@ -6429,9 +6429,10 @@ export class ForgeHandler implements DomainHandler {
    * record its id map holds — read from its journal for a run past the bound
    * — and the lines the platform copied under a quote it synced, which its
    * removal takes and names (`platformCopies`); what the target's automation
-   * creates as the run's objects are written, read now; and what ties a
-   * record to the run (`SweepTies`). `gone` when the journal that holds its
-   * ids cannot be read.
+   * creates as the run's objects are written, read now; what ties a record to
+   * the run (`SweepTies`); and what the other runs of its line created
+   * (`sweepPartsBeside`). `gone` when the journal that holds its ids cannot be
+   * read.
    */
   private async sweepInputOf(
     entry: ForgeExecutionResult,
@@ -6442,6 +6443,7 @@ export class ForgeHandler implements DomainHandler {
     if ('gone' in read) return read;
     const withIds = read.entry;
     const created = forgeRunCreatedRecords(withIds);
+    const otherParts = await this.sweepPartsBeside(entry);
     const remap = new Set(
       Object.values(withIds.idRemapTable ?? {}).map((recordId) => recordId.slice(0, 15)),
     );
@@ -6472,10 +6474,51 @@ export class ForgeHandler implements DomainHandler {
         automation: sweepAutomationOf(automation),
         ...(entry.runUserId ? { runUserId: entry.runUserId } : {}),
         ties: await this.tiesOf(entry),
+        ...(otherParts.length > 0 ? { otherParts } : {}),
         ...(signal ? { signal } : {}),
       },
       removalOrg(conn, 'forge:undo-sweep copies'),
     );
+  }
+
+  /**
+   * The other runs in the line of a run — the part a resume took it up with,
+   * the part it resumed, a retry — each with what it created, as its sweep is
+   * told them (`SweepInput.otherParts`): what hangs from their records alone
+   * is theirs. Each is numbered by its part of the journal, or else by its
+   * place in the line. One whose ids cannot be read, or that wrote to another
+   * org, is left out.
+   */
+  private async sweepPartsBeside(
+    entry: ForgeExecutionResult,
+  ): Promise<NonNullable<SweepInput['otherParts']>> {
+    const history = this.loadHistory();
+    const listed = new Set(history.map((other) => other.forgeId));
+    const plans = (await this.keptRemovalPlans()).filter((plan) => !listed.has(plan.forgeId));
+    const parts: Array<NonNullable<SweepInput['otherParts']>[number]> = [];
+    let place = 0;
+    for (const forgeId of await this.runLineOf(entry.forgeId, history, plans)) {
+      place++;
+      const other = history.find((run) => run.forgeId === forgeId);
+      const plan = other ? undefined : plans.find((kept) => kept.forgeId === forgeId);
+      if ((other ?? plan)?.targetOrgId !== entry.targetOrgId) continue;
+      let created: ForgeRunObjectRecords[] | undefined;
+      if (other) {
+        const read = await this.withIdsOf(other);
+        if (!('gone' in read)) created = forgeRunCreatedRecords(read.entry);
+      } else if (plan?.inJournal) {
+        const read = await this.planRecordsOf({ ...plan, inJournal: plan.inJournal }, true);
+        if (!('gone' in read)) created = read.records;
+      } else if (plan) {
+        created = plan.objects;
+      }
+      if (!created) continue;
+      parts.push({
+        part: other?.journalPart ?? plan?.inJournal?.part ?? place,
+        created,
+      });
+    }
+    return parts;
   }
 
   /**

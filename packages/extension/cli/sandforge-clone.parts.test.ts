@@ -60,6 +60,14 @@ const OPPORTUNITY = { source: SRC('006', 1), target: TGT('006', 1) };
 /** What the resume wrote under the opportunity: the quote it syncs, and a product line. */
 const QUOTE = { source: SRC('0Q0', 1), target: TGT('0Q0', 1) };
 const LINE = { source: SRC('00k', 1), target: TGT('00k', 1) };
+/** The product of the line, which the cut part wrote when told to. */
+const PRODUCT = { source: SRC('01t', 1), target: TGT('01t', 1) };
+/**
+ * The quote line the platform copies from the resume's product line onto the
+ * quote the opportunity syncs, paired with it: in no id map, it points at the
+ * resume's quote and at the cut part's product.
+ */
+const QUOTE_LINE_COPY = TGT('0QL', 1);
 /**
  * The contact role the platform wrote with the opportunity, for its contact,
  * as the cut part inserted it: the resume linked it and gave it the source's
@@ -98,7 +106,14 @@ const GATE_CHILDREN: Record<string, MemoryChild[]> = {
     { childSObject: 'Quote', field: 'OpportunityId', cascadeDelete: true },
     { childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true },
   ],
-  Quote: [{ childSObject: 'Opportunity', field: 'SyncedQuoteId' }],
+  Quote: [
+    { childSObject: 'Opportunity', field: 'SyncedQuoteId' },
+    { childSObject: 'QuoteLineItem', field: 'QuoteId', cascadeDelete: true },
+  ],
+  Product2: [
+    { childSObject: 'OpportunityLineItem', field: 'Product2Id', restrictedDelete: true },
+    { childSObject: 'QuoteLineItem', field: 'Product2Id', restrictedDelete: true },
+  ],
 };
 
 class GateOrg extends MemoryRemovalOrg {
@@ -145,6 +160,10 @@ class GateOrg extends MemoryRemovalOrg {
   }
 
   protected override removed(objectApiName: string, row: MemoryRow): void {
+    // Deleting a quote line of a synced quote deletes the line item it is paired with.
+    if (objectApiName === 'QuoteLineItem' && typeof row.OpportunityLineItemId === 'string') {
+      this.trash('OpportunityLineItem', row.OpportunityLineItemId);
+    }
     if (objectApiName !== 'OpportunityLineItem') return;
     const opportunity = this.liveRow('Opportunity', String(row.OpportunityId));
     if (!opportunity) return;
@@ -226,8 +245,14 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
    *   unless told.
    * @param resumedSoonerBy - How many seconds sooner than two minutes after
    *   the cut the resume wrote.
+   * @param withProduct - Whether the cut part wrote the line's product, and
+   *   the platform copied the line onto the quote as the resume wrote it.
    */
-  function theRun(roleMadeAt = at('10:00:03'), resumedSoonerBy = 0): { s1: string; s2: string } {
+  function theRun(
+    roleMadeAt = at('10:00:03'),
+    resumedSoonerBy = 0,
+    withProduct = false,
+  ): { s1: string; s2: string } {
     const resumedAt = (time: string): string =>
       new Date(Date.parse(at(time)) - resumedSoonerBy * 1_000).toISOString();
     setClock(at('10:00:01'));
@@ -250,6 +275,7 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
       ContactId: CONTACT.target,
       ...byTheRun(roleMadeAt),
     });
+    if (withProduct) org.add('Product2', { Id: PRODUCT.target, ...byTheRun(at('10:00:03')) });
     setClock(resumedAt('10:02:01'));
     org.add('Quote', {
       Id: QUOTE.target,
@@ -263,8 +289,18 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     org.add('OpportunityLineItem', {
       Id: LINE.target,
       OpportunityId: OPPORTUNITY.target,
+      ...(withProduct ? { Product2Id: PRODUCT.target } : {}),
       ...byTheRun(resumedAt('10:02:03')),
     });
+    if (withProduct) {
+      org.add('QuoteLineItem', {
+        Id: QUOTE_LINE_COPY,
+        QuoteId: QUOTE.target,
+        Product2Id: PRODUCT.target,
+        OpportunityLineItemId: LINE.target,
+        ...byTheRun(resumedAt('10:02:03')),
+      });
+    }
 
     const lines: unknown[] = [
       {
@@ -278,6 +314,7 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
       ...createdLines('0.1', 'Account', ACCOUNT),
       ...createdLines('0.2', 'Contact', CONTACT),
       ...createdLines('0.3', 'Opportunity', OPPORTUNITY),
+      ...(withProduct ? createdLines('0.4', 'Product2', PRODUCT) : []),
       [
         'o',
         'Opportunity',
@@ -376,6 +413,8 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
       'OpportunityContactRole',
       'Quote',
       'OpportunityLineItem',
+      'QuoteLineItem',
+      'Product2',
       'FeedItem',
     ]) {
       const count = org.all(object).length;
@@ -883,6 +922,52 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     expect(listing.untied?.refusal).toContain(
       'Another run of this machine wrote to the target in this run’s window',
     );
+  });
+
+  /** What the cut part's sweep says of the resume's records, the platform's copy of its line among them. */
+  const LEAVES_THE_RESUME_AND_COPY =
+    'a sweep of this summary leaves the 3 record(s) of the run\'s part 1 (its summary\'s "part"), ' +
+    "the run's own, never the target's automation's: --remove of that part's summary takes them";
+
+  it('the cut part’s --sweep-list, the resume within the minute: leaves the quote line the platform copied under the resume’s quote, though it points at the cut part’s product, and counts it the resume’s', async () => {
+    // The gate's resume wrote 45 s after the cut part's product; here 48.
+    const { s1, s2 } = theRun(at('10:00:03'), 70, true);
+
+    const listed = await sweepListOf(s1, at('10:05:00'));
+    const { listing } = JSON.parse(stdout.join('')) as { listing: { otherParts?: unknown } };
+    const cutLines = [...stderr];
+    const resumeListed = await sweepListOf(s2, at('10:05:30'));
+
+    // Live, the copies were "made for the run" in the cut part's list, which
+    // would have deleted them, and their line items with them, and in the
+    // resume's: two parts claimed them.
+    expect(listed).toEqual([]);
+    expect(listing.otherParts).toEqual([
+      { part: 1, objects: [{ objectApiName: 'QuoteLineItem', count: 1 }] },
+    ]);
+    expect(cutLines).toContain(LEAVES_THE_RESUME_AND_COPY);
+    expect(resumeListed).toEqual([['QuoteLineItem', 1, 1, 0]]);
+  });
+
+  it('the cut part’s --sweep-list, the resume two minutes later: lists the platform’s copy of the resume’s line as made late no more', async () => {
+    const { s1 } = theRun(at('10:00:03'), 0, true);
+
+    const listed = await sweepListOf(s1, at('10:05:00'));
+
+    expect(listed).toEqual([]);
+    expect(stderr.join('\n')).not.toContain('--sweep-late takes them');
+    expect(stderr).toContain(LEAVES_THE_RESUME_AND_COPY);
+  });
+
+  it('the cut part’s --sweep --sweep-late, the resume within the minute: deletes neither the platform’s copy of the resume’s line nor that line, which the resume’s removal takes', async () => {
+    const { s1, s2 } = theRun(at('10:00:03'), 70, true);
+
+    await remove(s1, at('10:05:00'), '--sweep', '--sweep-late');
+
+    expect(left()).toMatchObject({ Quote: 1, OpportunityLineItem: 1, QuoteLineItem: 1 });
+    const resumed = await remove(s2, at('10:08:00'));
+    expect(resumed.result.status).toBe('success');
+    expect(left()).toEqual({});
   });
 
   it('the cut part’s --sweep --sweep-late, the resume within the minute: deletes none of the resume’s records, which its own removal then takes', async () => {

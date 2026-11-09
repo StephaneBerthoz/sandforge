@@ -4887,17 +4887,23 @@ function partsBeside(run: Pick<RunInParts, 'parts' | 'part'> | undefined): RunPa
 
 /**
  * What a sweep of one part's summary says it leaves of the run's other parts
- * (`otherPartIdsOf`): each part with records left, and what takes them — the
- * removal of that part's summary, or of this one once its own are gone, for
- * a part an earlier removal was asked for and left (`partsLeft`). Exported so
- * it can be tested.
+ * (`otherPartIdsOf`): each part with records left — with what the sweep found
+ * pointing at them (`ForgeSweepListing.otherParts`) — and what takes them:
+ * the removal of that part's summary, or of this one once its own are gone,
+ * for a part an earlier removal was asked for and left (`partsLeft`).
+ * Exported so it can be tested.
  */
 export function otherPartsSweepLines(
   run: Pick<RunInParts, 'parts' | 'part' | 'earlier'> | undefined,
+  listing?: Pick<ForgeSweepListing, 'otherParts'>,
 ): string[] {
   const asked = new Set(run?.earlier?.partsRemoved ?? []);
   return partsBeside(run).flatMap((other) => {
-    const left = idsOf(stillLeft(other.created, run?.earlier?.removalLeft)).length;
+    const hanging = (listing?.otherParts ?? [])
+      .filter(({ part }) => part === other.part)
+      .flatMap(({ objects }) => objects)
+      .reduce((sum, object) => sum + object.count, 0);
+    const left = idsOf(stillLeft(other.created, run?.earlier?.removalLeft)).length + hanging;
     if (left === 0) return [];
     return [
       `a sweep of this summary leaves the ${left} record(s) of the run's part ${other.part} ` +
@@ -4916,9 +4922,10 @@ export function otherPartsSweepLines(
  * to, matched or written over — the user it kept it wrote as, and what the
  * target's automation creates as the run's objects are written, read now;
  * and what ties a record to the run (`SweepTies`), so that the sweep takes
- * only what is tied to it. Of a run cut and taken up, its id map is every
- * part's: `otherParts` gives the records the journal names of the parts
- * other than the summary's (`otherPartIdsOf`). Exported so it can be tested.
+ * only what is tied to it. Of a run cut and taken up (`ofTheRun`), its id map
+ * is every part's (`otherPartIdsOf`), and what points at a record another
+ * part created is that part's (`SweepInput.otherParts`). Exported so it can
+ * be tested.
  */
 export async function cliSweepInput(
   conn: Connection,
@@ -4926,7 +4933,10 @@ export async function cliSweepInput(
   summary: RunSummary,
   created: readonly ForgeRunObjectRecords[],
   ties: SweepTies,
-  { signal, otherParts = [] }: { signal?: AbortSignal; otherParts?: readonly string[] } = {},
+  {
+    signal,
+    ofTheRun,
+  }: { signal?: AbortSignal; ofTheRun?: Pick<RunInParts, 'parts' | 'part'> } = {},
 ): Promise<SweepInput> {
   let automation: ForgeTargetAutomation | { error: string };
   try {
@@ -4938,12 +4948,19 @@ export async function cliSweepInput(
     automation = { error: extractErrorMessage(err) };
   }
   const runUserId = summary.result.runUserId;
+  const otherParts = partsBeside(ofTheRun).map(({ part, created: theirs }) => ({
+    part,
+    created: theirs,
+  }));
   return {
     writtenBetween: summary.result.writtenBetween,
     created,
     remap: new Set(
-      [...Object.values(summary.result.remapTable), ...otherParts].map((id) => id.slice(0, 15)),
+      [...Object.values(summary.result.remapTable), ...otherPartIdsOf(ofTheRun)].map((id) =>
+        id.slice(0, 15),
+      ),
     ),
+    ...(otherParts.length > 0 ? { otherParts } : {}),
     automation: sweepAutomationOf(automation),
     ...(runUserId ? { runUserId } : {}),
     ties,
@@ -6090,7 +6107,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     const listing = await listSweep(
       sweepOrgOf(conn, 'sandforge-clone --sweep-list'),
       await cliSweepInput(conn, args.target, summary, created, await sweepTies(), {
-        otherParts: otherPartIdsOf(ofTheRun),
+        ofTheRun,
       }),
       earlier?.removalSpans ?? [],
     );
@@ -6099,7 +6116,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // only without it, a list read before a sweep lost the warning that what
     // a person made by hand as the run's user reads as the automation's.
     for (const line of sweepListingLines(listing, args.target, args, true)) say(line);
-    for (const line of otherPartsSweepLines(ofTheRun)) say(line);
+    for (const line of otherPartsSweepLines(ofTheRun, listing)) say(line);
     if (args.json) {
       process.stdout.write(
         JSON.stringify(
@@ -6158,7 +6175,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         sweepOrgOf(conn, 'sandforge-clone --sweep', stop.signal),
         await cliSweepInput(conn, args.target, summary, created, await sweepTies(), {
           signal: stop.signal,
-          otherParts: otherPartIdsOf(ofTheRun),
+          ofTheRun,
         }),
         {
           includeChanged: args.includeChanged,
@@ -6171,7 +6188,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             sweepListing = listing;
             say('');
             for (const line of sweepListingLines(listing, args.target, args)) say(line);
-            for (const line of otherPartsSweepLines(ofTheRun)) say(line);
+            for (const line of otherPartsSweepLines(ofTheRun, listing)) say(line);
             return undefined;
           },
         },
@@ -6192,7 +6209,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       sweepListing = unsaid;
       say('');
       for (const line of sweepListingLines(unsaid, args.target, args)) say(line);
-      for (const line of otherPartsSweepLines(ofTheRun)) say(line);
+      for (const line of otherPartsSweepLines(ofTheRun, unsaid)) say(line);
     }
   }
 
@@ -6889,13 +6906,13 @@ async function previewRemoval(
         summary,
         created,
         await summarySweepTies(org.id, args.target, summary, created, earlier, ofTheRun),
-        { otherParts: otherPartIdsOf(ofTheRun) },
+        { ofTheRun },
       ),
       earlier?.removalSpans ?? [],
     );
     say('');
     for (const line of sweepListingLines(sweepListing, args.target, args, true)) say(line);
-    for (const line of otherPartsSweepLines(ofTheRun)) say(line);
+    for (const line of otherPartsSweepLines(ofTheRun, sweepListing)) say(line);
   }
   // What the target runs as a removal takes the run back, and as its sweep
   // deletes, read and said as the removal says it before its first delete.

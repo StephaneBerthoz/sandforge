@@ -393,6 +393,20 @@ export interface SweepInput {
   user?: string;
   /** What tells the records tied to the run, the only ones it takes, from the rest, which it lists. */
   ties: SweepTies;
+  /**
+   * Of a run cut and taken up, the records its other parts created, part by
+   * part and per object. What the run's user created that hangs from one of
+   * them — through a relationship the org deletes along — and from none of
+   * this sweep's own, is that part's, never this sweep's: live, the lines
+   * the platform copied under the quote a resume synced pointed at the cut
+   * part's product too, and the cut part's sweep took them for its own, the
+   * line items they were paired with along. Counted apart
+   * (`ForgeSweepListing.otherParts`).
+   */
+  otherParts?: ReadonlyArray<{
+    part: number;
+    created: ReadonlyArray<{ readonly objectApiName: string; readonly ids: readonly string[] }>;
+  }>;
   /** Stops the sweep before its next call to the org. */
   signal?: AbortSignal;
 }
@@ -1309,6 +1323,49 @@ async function findTied(
     } else if (read.rows.length > 0) {
       found.set(objectApiName, read.rows);
     }
+  }
+
+  // What hangs from a record of another part of the run, and from none of
+  // this one's, is that part's.
+  const ofOtherPart = new Map<string, { part: number; objectApiName: string }>();
+  for (const { part, created } of input.otherParts ?? []) {
+    for (const { objectApiName, ids } of created) {
+      for (const id of ids) ofOtherPart.set(recordKey(id), { part, objectApiName });
+    }
+  }
+  const ofOtherParts = new Map<number, ForgeRemovalLeftCount[]>();
+  for (const [objectApiName, rows] of ofOtherPart.size > 0 ? [...found] : []) {
+    const ours: TiedRow[] = [];
+    for (const row of rows) {
+      let theirs: number | undefined;
+      let own = false;
+      for (const reference of row.references) {
+        const parent = anchors.get(reference.key) ?? ofOtherPart.get(reference.key);
+        if (!parent) continue;
+        const { cascade } = await describes.relation(
+          parent.objectApiName,
+          objectApiName,
+          reference.field,
+        );
+        if (!cascade) continue;
+        if (anchors.has(reference.key)) own = true;
+        else theirs ??= ofOtherPart.get(reference.key)?.part;
+      }
+      if (theirs === undefined || own) {
+        ours.push(row);
+        continue;
+      }
+      const counts = ofOtherParts.get(theirs) ?? [];
+      const count = counts.find((counted) => counted.objectApiName === objectApiName);
+      if (count) count.count++;
+      else counts.push({ objectApiName, count: 1 });
+      ofOtherParts.set(theirs, counts);
+    }
+    if (ours.length > 0) found.set(objectApiName, ours);
+    else found.delete(objectApiName);
+  }
+  if (ofOtherParts.size > 0) {
+    listing.otherParts = [...ofOtherParts].map(([part, objects]) => ({ part, objects }));
   }
 
   // The lookups of the records found, to the run's records and to one another.
