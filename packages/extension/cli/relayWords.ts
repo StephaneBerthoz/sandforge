@@ -16,6 +16,25 @@ export function relayedBy(): string | undefined {
 }
 
 /**
+ * Whether an environment relays this script's lines — `sandforge-env`, its
+ * plan, apply or destroy, relayed itself or not —: a reader who gives the
+ * script no option, the environment setting each from its file.
+ */
+export function relayedByAnEnvironment(): boolean {
+  return relayedBy()?.startsWith('sandforge-env') === true;
+}
+
+/**
+ * An option of this script as a line that describes the run names it: the
+ * option itself, or, relayed by an environment, `words`, what stands for it
+ * in the environment's file or command. Told "(--keep-contact-points)", the
+ * reader of a plan had given no flag: its file had said keepContactPoints.
+ */
+export function envWords(option: string, words: string): string {
+  return relayedByAnEnvironment() ? words : option;
+}
+
+/**
  * The options of a script a command that relays its lines takes itself, and
  * hands it: `sandforge-env destroy --sweep --include-changed`; the MCP
  * server's `seed_run`, `clone_record` and `run_remove` take

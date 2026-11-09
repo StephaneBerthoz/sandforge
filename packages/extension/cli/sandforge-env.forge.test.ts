@@ -788,3 +788,127 @@ describe('a forge resource whose source is a production org', () => {
     expect(sandbox.plan.actions[0]?.notes).toBeUndefined();
   });
 });
+
+describe('what a forge resource’s clone says, relayed by the environment', () => {
+  /** The runner of the scripts, keeping what each said on stderr: what the command relays as it comes. */
+  function relaying(): { runner: CommandRunner; said: () => string } {
+    const said: string[] = [];
+    return {
+      runner: async (script, args, signal) => {
+        const ran = await world.runner(script, args, signal);
+        said.push(ran.stderr);
+        return ran;
+      },
+      said: () => said.join(''),
+    };
+  }
+
+  /** The file, its resource given more settings. */
+  const withSettings = (over: Record<string, unknown>) => ({
+    resources: {
+      cloned: {
+        ...(file()['resources'] as Record<string, Record<string, unknown>>)['cloned'],
+        ...over,
+      },
+    },
+  });
+
+  it('says where the clone takes its choices from in the words of the file, naming neither --template nor the folder the plan deletes', async () => {
+    // Live, a plan relayed "choices from --template
+    // /tmp/sandforge-env-plan-PNTYwW/gt6-contact.json, the flags over it:": a
+    // flag its reader never gave, and a file deleted once the plan ended.
+    const clone = relaying();
+
+    const { code } = await run(['plan', '--org', 'TGT', '--json'], { runner: clone.runner });
+
+    expect(code).toBe(0);
+    expect(clone.said()).toContain('choices from the resource in the file:');
+    expect(clone.said()).not.toContain('--template');
+    expect(clone.said()).not.toContain('sandforge-env-plan-');
+  });
+
+  it('names keepContactPoints, the file’s setting, where the clone writes contact points as read', async () => {
+    writeFileSync(fileOf, JSON.stringify(file(withSettings({ keepContactPoints: true }))));
+    const clone = relaying();
+
+    await run(['apply', '--org', 'TGT', '--yes', '--json', '--accept-no-state'], {
+      runner: clone.runner,
+    });
+
+    expect(clone.said()).toContain('contact points: written as read (keepContactPoints)');
+    expect(clone.said()).not.toContain('--keep-contact-points');
+  });
+
+  it('names no --resume beside the journal of a run the environment takes back and runs whole when it stops', async () => {
+    // An apply stopped part way takes the run back and runs it whole: told
+    // "--resume <journal> takes the run up if it stops", its reader had a
+    // flag the environment never gives, of a run its state no longer follows.
+    const clone = relaying();
+
+    const { code } = await run(['apply', '--org', 'TGT', '--yes', '--json', '--accept-no-state'], {
+      runner: clone.runner,
+    });
+
+    expect(code, stderr.join('')).toBe(0);
+    expect(clone.said()).toMatch(/^journal: \S+$/m);
+    expect(clone.said()).not.toContain('--resume');
+  });
+
+  it('names a table discovery does not reach in the words of the file: the resource’s depth and maxNodes', async () => {
+    writeFileSync(
+      fileOf,
+      JSON.stringify(
+        file(
+          withSettings({
+            tables: [
+              { object: 'Account', where: `Name = '${MARK}'` },
+              { object: 'Asset', where: `Name = '${MARK}'` },
+            ],
+          }),
+        ),
+      ),
+    );
+    const clone = relaying();
+
+    const ran = await run(['plan', '--org', 'TGT', '--json'], { runner: clone.runner });
+
+    expect(envPlanSchema.parse(ran.answer).actions[0]?.action).toBe('blocked');
+    expect(clone.said()).toContain('the table Asset: discovery from Account did not reach it');
+    expect(clone.said()).toContain(
+      "name first a table it hangs from or points at, or raise the resource's depth or maxNodes.",
+    );
+    expect(clone.said()).not.toMatch(/--object|--depth|--max-nodes/);
+  });
+});
+
+describe('the codes of a refused plan', () => {
+  it('gives a plan the codes of what refuses it beside its words, per resource and in all, as a destroy and an apply give theirs', async () => {
+    // Live, a plan whose clone its maxTotal refused said its refusal in words
+    // alone, the code on the clone's line: a pipeline read the codes of a
+    // refused destroy, never of a plan.
+    const cloned = (file()['resources'] as Record<string, Record<string, unknown>>)['cloned'];
+    writeFileSync(
+      fileOf,
+      JSON.stringify(file({ resources: { cloned: { ...cloned, maxTotal: 1 } } })),
+    );
+
+    const accepted = await plan('--accept-no-state');
+
+    expect(accepted.plan.actions[0]).toMatchObject({
+      action: 'blocked',
+      refusalCodes: ['MAX_TOTAL_EXCEEDED'],
+    });
+    expect(accepted.plan.refusal).toContain('A resource is blocked');
+    expect(accepted.plan.refusalCodes).toEqual(['MAX_TOTAL_EXCEEDED']);
+
+    // The apply's own refusal first: no state of the environment on this machine.
+    const noState = await plan();
+    expect(noState.plan.refusal).toContain('This machine keeps no state of clone-flow on TGT');
+    expect(noState.plan.refusalCodes).toEqual(['NO_STATE']);
+
+    const applied = await run(['apply', '--org', 'TGT', '--yes', '--json', '--accept-no-state']);
+    expect(applied.code).toBe(1);
+    expect(envRunResultSchema.parse(applied.answer).refusalCodes).toEqual(['MAX_TOTAL_EXCEEDED']);
+    expect(marked('Account')).toEqual([]);
+  });
+});

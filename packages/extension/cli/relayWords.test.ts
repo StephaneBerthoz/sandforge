@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ownOptionWords, relayTakes, relayedBy } from './relayWords.js';
+import {
+  envWords,
+  ownOptionWords,
+  relayTakes,
+  relayedBy,
+  relayedByAnEnvironment,
+} from './relayWords.js';
 import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
 
 afterEach(() => {
@@ -60,6 +66,30 @@ describe('relayWords', () => {
       expect(relayTakes('--include-changed'), relay).toBe(false);
       expect(ownOptionWords('--include-changed', 'removal')).toBe(
         "this script's own removal with --include-changed",
+      );
+    }
+  });
+
+  it('says an option in the words of an environment that relays the script, whichever its verb and whoever relays it, and as itself otherwise', () => {
+    // Relayed by an environment's plan, a clone said "choices from --template
+    // …" and "(--keep-contact-points)": options its file set, no flag its reader gave.
+    for (const relay of [
+      'sandforge-env',
+      'sandforge-env plan',
+      'sandforge-env apply',
+      'sandforge-env apply, relayed by sandforge-mcp',
+    ]) {
+      vi.stubEnv(RELAYED_BY_VARIABLE, relay);
+      expect(relayedByAnEnvironment(), relay).toBe(true);
+      expect(envWords('--keep-contact-points', 'keepContactPoints'), relay).toBe(
+        'keepContactPoints',
+      );
+    }
+    for (const relay of ['sandforge-mcp', '']) {
+      vi.stubEnv(RELAYED_BY_VARIABLE, relay);
+      expect(relayedByAnEnvironment(), relay).toBe(false);
+      expect(envWords('--keep-contact-points', 'keepContactPoints'), relay).toBe(
+        '--keep-contact-points',
       );
     }
   });

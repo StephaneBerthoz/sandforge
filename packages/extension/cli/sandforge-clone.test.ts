@@ -797,6 +797,42 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({}), 500)).not.toHaveProperty('truncatedObjects');
   });
 
+  it('says the cap, the read ceiling, contact points kept and what a removal cannot reach in the words of the environment that relays the run', () => {
+    // Relayed by sandforge-env, the summary named --max, --max-records-per-object,
+    // --keep-contact-points and --remove: flags its reader never gives, the
+    // environment setting the clone from its file and taking it back by its destroy.
+    const relayed = summary({
+      cappedObjects: { perObject: 2, objects: ['Contact'] },
+      truncatedObjects: ['Task'],
+      mayHaveBeenWritten: [{ objectApiName: 'Contact', sourceIds: ['003000000000001AAA'] }],
+      contactPoints: { neutralized: false, fields: [], values: 0 },
+    });
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+    let lines: string[];
+    try {
+      lines = summaryLines(relayed, false, 500);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(lines).toContain(
+      'stopped at 2 records per object (maxRecordsPerObject), the source holding more, which ' +
+        'were not cloned (1 object(s)):',
+    );
+    expect(lines).toContain(
+      'TRUNCATED at 500 records per object, the source holding more, which were not cloned ' +
+        '(1 object(s)):',
+    );
+    expect(lines).toContain(
+      'may be in the target, under ids the run never learned (destroy cannot reach them):',
+    );
+    expect(lines).toContain(
+      "contact points: written as read (keepContactPoints): the target's flows and email alerts " +
+        'may reach the people the records name',
+    );
+    expect(lines.join('\n')).not.toMatch(/--max|--keep-contact-points|--remove/);
+  });
+
   it('says how many calls the run sent to both orgs, where it counted them', () => {
     const counted = summary({ apiCalls: 64 });
 

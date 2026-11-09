@@ -1362,7 +1362,9 @@ async function planOf(
     replaceDrifted: args.replaceDrifted,
     warnings: prepared.warnings,
     maskStores: maskStoresOf(prepared),
-    ...(prepared.noState !== undefined ? { refusal: prepared.noState.message } : {}),
+    ...(prepared.noState !== undefined
+      ? { refusal: prepared.noState.message, refusalCodes: [prepared.noState.code] }
+      : {}),
   };
   if (args.quick) return { plan: envPlan(common), dryRuns: {} };
   const previews = await previewRuns(
@@ -1995,7 +1997,7 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
           warnings: prepared.warnings,
           maskStores: maskStoresOf(prepared),
         });
-        for (const line of planLines(plan)) say(line);
+        for (const line of planLines(plan, 'destroy')) say(line);
         if (
           plan.refusal === undefined &&
           plan.actions.length > 0 &&

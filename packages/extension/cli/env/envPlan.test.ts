@@ -744,6 +744,28 @@ describe('the plan, on the memory org', () => {
     expect(checkpointed.actions.map((a) => a.action)).toEqual(['create', 'create']);
   });
 
+  it('gives the refusal of the whole apply the code of the guard or of the checkpoint script that refuses it, and none for the day’s sums, in its own words', async () => {
+    const guarded = await planOf(resolvedOf(document()), undefined, {
+      refusal: 'This machine keeps no state of case-flow on TGT.',
+      refusalCodes: ['NO_STATE'],
+    });
+    expect(guarded.refusalCodes).toEqual(['NO_STATE']);
+
+    const checkpointed = await planOf(
+      resolvedOf(document({ checkpoint: { before: true } })),
+      undefined,
+      { checkpointEstimate: { refusal: { code: 'PERMISSIONS', message: 'Missing.' } } },
+    );
+    expect(checkpointed.refusalCodes).toEqual(['PERMISSIONS']);
+
+    const short = await planOf(resolvedOf(document()), undefined, {
+      budget: { ...BUDGET, storage: { maxMB: 5, remainingMB: 0 } },
+    });
+    expect(short.refusal).toContain('of data storage, and TGT has 0 MB left');
+    expect(short).not.toHaveProperty('refusalCodes');
+    for (const action of short.actions) expect(action).not.toHaveProperty('refusalCodes');
+  });
+
   it('adds each checkpoint’s estimate to the day’s requests, and says one it could not estimate', async () => {
     const estimate = { records: 40, apiRequests: 12, seconds: 3, bytes: 2_048 };
     const resolved = resolvedOf(document({ checkpoint: { before: true, after: 'baseline' } }));
@@ -915,8 +937,11 @@ describe('the plan of a forge resource', () => {
     return result.resolved;
   }
 
-  /** A clone's dry run that counts two accounts, `wouldBeRefused` what it says a real run would meet. */
-  function dryRunOf(wouldBeRefused?: string[]): EnvDryRun {
+  /**
+   * A clone's dry run that counts two accounts, `wouldBeRefused` what it says
+   * a real run would meet, `wouldBeRefusedCodes` the code of each.
+   */
+  function dryRunOf(wouldBeRefused?: string[], wouldBeRefusedCodes?: string[]): EnvDryRun {
     return {
       answer: {
         tool: 'sandforge-clone',
@@ -929,6 +954,7 @@ describe('the plan of a forge resource', () => {
           objects: [{ objectApiName: 'Account', rows: 2, storageBytes: 4096 }],
         },
         ...(wouldBeRefused !== undefined ? { wouldBeRefused } : {}),
+        ...(wouldBeRefusedCodes !== undefined ? { wouldBeRefusedCodes } : {}),
       },
     };
   }
@@ -979,6 +1005,32 @@ describe('the plan of a forge resource', () => {
       refusal:
         'its own dry run says a real run would be refused: The run would write 2 records, more than --max-total 1.',
     });
+  });
+
+  it('gives a resource its dry run blocks, and the plan, the codes the clone gave what it says, and none to the plan’s own words', () => {
+    const coded = planWith(forgeResolved({ organizationId: '00D000000000008AAA' }), {
+      cloned: dryRunOf(
+        ['TGT runs automation on the records this clone inserts.', 'More than its maxTotal.'],
+        ['AUTOMATION_NOT_ACCEPTED', 'MAX_TOTAL_EXCEEDED'],
+      ),
+    });
+    expect(coded.actions[0]).toMatchObject({
+      action: 'blocked',
+      refusalCodes: ['AUTOMATION_NOT_ACCEPTED', 'MAX_TOTAL_EXCEEDED'],
+    });
+    expect(coded.refusalCodes).toEqual(['AUTOMATION_NOT_ACCEPTED', 'MAX_TOTAL_EXCEEDED']);
+
+    // A clone of an earlier version, which gave no codes, and a source the plan did not read.
+    for (const plan of [
+      planWith(forgeResolved({ organizationId: '00D000000000008AAA' }), {
+        cloned: dryRunOf(['More than its maxTotal.']),
+      }),
+      planWith(forgeResolved()),
+    ]) {
+      expect(plan.actions[0]?.action).toBe('blocked');
+      expect(plan.actions[0]).not.toHaveProperty('refusalCodes');
+      expect(plan).not.toHaveProperty('refusalCodes');
+    }
   });
 });
 

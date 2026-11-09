@@ -427,6 +427,30 @@ describe('what a seed’s dry run counts, as the plan reads it', () => {
     });
     expect(seedDryRunCount(skipped).refusal).toBeUndefined();
   });
+
+  it('gives its refusal the code the seed gave it, and none to what it said without one', () => {
+    const storage = 'The records take 6 MB, and TGT has 5 MB left.';
+    const refused: SeedDryRunAnswer = {
+      ...answer({
+        operationId: 'x',
+        status: 'success',
+        objectResults: [],
+        totalRecordsCreated: 0,
+        totalRecordsFailed: 0,
+      }),
+      storage: { bytes: 6_000_000, verdict: 'exceeds', estimateMB: 6, refusal: storage },
+      wouldBeRefused: ['The org runs a checkpoint guard.', storage],
+      wouldBeRefusedCodes: ['CHECKPOINT_REFUSED', 'SEED_STORAGE_EXCEEDED'],
+    };
+
+    expect(seedDryRunCount(refused)).toMatchObject({
+      refusal: storage,
+      refusalCodes: ['SEED_STORAGE_EXCEEDED'],
+    });
+    expect(
+      seedDryRunCount({ ...refused, wouldBeRefused: undefined, wouldBeRefusedCodes: undefined }),
+    ).not.toHaveProperty('refusalCodes');
+  });
 });
 
 describe('what a seed’s run wrote, as the apply reads it', () => {

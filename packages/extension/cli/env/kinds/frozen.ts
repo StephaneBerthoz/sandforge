@@ -53,6 +53,7 @@ import { countedStorageBytes } from '../../../src/modules/forge/ForgeRunGate.js'
 import { frozenDatasetDigest } from '../../../src/modules/frozendataset/datasetDigest.js';
 import type { RunnableScript } from '../../scriptRunner.js';
 import {
+  codesSaidIn,
   countSchema,
   readAnswer,
   refusalAt,
@@ -665,6 +666,17 @@ export function frozenDryRunCount(answer: FrozenDryRunAnswer): EnvDryRunCount {
             'linked by its identity keys, or one the load does not send'
           : undefined;
   const notes = [...maskNotes(plan), ...alignmentNotes(plan)];
+  // The load's own codes: its error's, and each refusal's where it gave one for each.
+  const refusals = answer.refusals ?? [];
+  const codes =
+    refusal !== undefined
+      ? codesSaidIn(refusal, said, [
+          ...(error !== undefined ? [error.code ?? ''] : []),
+          ...(answer.refusalCodes?.length === refusals.length
+            ? answer.refusalCodes
+            : refusals.map(() => '')),
+        ])
+      : [];
   return {
     objects: objects.map((object) => ({
       object: object.objectApiName,
@@ -680,6 +692,7 @@ export function frozenDryRunCount(answer: FrozenDryRunAnswer): EnvDryRunCount {
     // gate to add to the other resources': it counted none before.
     emails: frozenEmailsOf(plan),
     ...(refusal !== undefined ? { refusal } : {}),
+    ...(codes.length > 0 ? { refusalCodes: codes } : {}),
     ...(notes.length > 0 ? { notes } : {}),
   };
 }

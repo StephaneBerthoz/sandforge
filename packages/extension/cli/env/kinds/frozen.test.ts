@@ -524,6 +524,19 @@ describe('what a frozen dry run counts, as the plan reads it', () => {
     expect(frozenDryRunCount(refused).refusal).toBe(
       'A removal of the loads this reload replaces would leave 1 of their records in the org',
     );
+    expect(frozenDryRunCount(refused).refusalCodes).toEqual(['REPLACE_LEAVES_RECORDS']);
+    expect(
+      frozenDryRunCount(
+        answer({
+          refusals: ['TGT runs automation as this load inserts its records.'],
+          refusalCodes: ['AUTOMATION_NOT_ACCEPTED'],
+        }),
+      ).refusalCodes,
+    ).toEqual(['AUTOMATION_NOT_ACCEPTED']);
+    // A refusal it gave no code, and the plan's own words.
+    expect(
+      frozenDryRunCount(answer({ refusals: ['This load would insert 2 record(s)'] })),
+    ).not.toHaveProperty('refusalCodes');
     expect(
       frozenDryRunCount(
         answer({ refusals: ['This load would insert 2 record(s), more than the 1 it may'] }),

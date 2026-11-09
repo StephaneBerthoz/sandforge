@@ -2374,11 +2374,14 @@ const DELETE_PARTS = ['flows', 'triggers'] as const;
  * line saying the Apex triggers could not be read.
  *
  * @param unread - What of the target's automation could not be read.
+ * @param removal - What takes the run back, as its reader runs it: an
+ *   environment's destroy, or the command line's `--remove`.
  */
 export function removalRiskLines(
   risks: readonly ForgeRemovalRisk[],
   target: string,
   unread: ReadonlyArray<{ part: string }> = [],
+  removal = '--remove',
 ): string[] {
   const notRead = DELETE_PARTS.filter((part) => unread.some((entry) => entry.part === part));
   const notKnown =
@@ -2407,7 +2410,7 @@ export function removalRiskLines(
     ];
   }
   return [
-    `reversibility: a removal of this run's records (--remove) may be refused in ${target}:`,
+    `reversibility: a removal of this run's records (${removal}) may be refused in ${target}:`,
     ...risks.map(
       ({ objectApiName, kind, name }) =>
         `  ${objectApiName}: ${REMOVAL_RISK_WORDS[kind](name ?? '')}`,

@@ -60,6 +60,7 @@ import { masksObject, missingFieldLine, notWritableLine } from '../../sandforge-
 import type { RunnableScript } from '../../scriptRunner.js';
 import {
   canonicalJson,
+  codesSaidIn,
   readAnswer,
   refusalAt,
   valueOf,
@@ -395,6 +396,8 @@ const previewSchema = z.object({
 export interface MaskDryRead {
   objects: Array<{ object: string; count: number | null }>;
   refusals: string[];
+  /** The code of each of `refusals` the masking gave one, in their order; empty for those it gave none. */
+  refusalCodes: string[];
   /** The emails a run makes the org send as it writes the records over, per daily limit. */
   emails: Array<{ limit: 'SingleEmail' | 'DailyWorkflowEmails'; emails: number }>;
 }
@@ -440,7 +443,7 @@ export function maskDryRead(answer: MaskDryRunAnswer): MaskDryRead {
           'blind',
       );
     }
-    return { objects: [], refusals, emails: [] };
+    return { objects: [], refusals, refusalCodes: refusals.map(() => ''), emails: [] };
   }
   const automation = automationSchema.safeParse(
     postedOf(answer.posted, 'dataops:automation:response'),
@@ -473,13 +476,20 @@ export function maskDryRead(answer: MaskDryRunAnswer): MaskDryRead {
   for (const missing of preview.data.fieldsNotFound) {
     refusals.push(missingFieldLine(missing.objectApiName, missing.fieldApiName));
   }
+  const coded = new Map<string, string>();
   for (const refusal of automation.success ? automation.data.refusals : []) {
     refusals.push(refusal.message);
+    coded.set(refusal.message, refusal.code);
   }
   const emails = automation.success
     ? automation.data.emails.map(({ limit, emails: n }) => ({ limit, emails: n }))
     : [];
-  return { objects, refusals, emails };
+  return {
+    objects,
+    refusals,
+    refusalCodes: refusals.map((refusal) => coded.get(refusal) ?? ''),
+    emails,
+  };
 }
 
 /**
@@ -495,13 +505,16 @@ export function maskDryRunCount(answer: MaskDryRunAnswer): EnvDryRunCount {
     object: object.object,
     wouldCreate: object.count ?? 0,
   }));
+  const refusal = read.refusals.length > 0 ? read.refusals.join(' ') : undefined;
+  const codes = refusal !== undefined ? codesSaidIn(refusal, read.refusals, read.refusalCodes) : [];
   return {
     objects,
     total: objects.reduce((sum, object) => sum + object.wouldCreate, 0),
     created: 0,
     storageBytes: 0,
     emails: read.emails,
-    ...(read.refusals.length > 0 ? { refusal: read.refusals.join(' ') } : {}),
+    ...(refusal !== undefined ? { refusal } : {}),
+    ...(codes.length > 0 ? { refusalCodes: codes } : {}),
   };
 }
 

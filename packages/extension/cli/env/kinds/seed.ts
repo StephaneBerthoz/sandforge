@@ -45,6 +45,7 @@ import { LOCALE_DATA } from '../../../src/modules/seed/LocaleData.js';
 import { SeedValidator } from '../../../src/modules/seed/SeedValidator.js';
 import type { RunnableScript } from '../../scriptRunner.js';
 import {
+  codesSaidIn,
   countSchema,
   idSchema,
   readAnswer,
@@ -660,6 +661,9 @@ export const seedDryRunAnswerSchema = z.object({
   dryRun: z.literal(true),
   storage: dryRunStorageSchema,
   apiRequests: dryRunApiRequestsSchema,
+  /** What a real run would be refused for, each in its own words, and its code. */
+  wouldBeRefused: z.array(z.string()).optional(),
+  wouldBeRefusedCodes: z.array(z.string()).optional(),
   result: seedResultSchema(z.string()),
 });
 
@@ -760,12 +764,18 @@ export function seedDryRunCount(
   drawn?: ReadonlyMap<string, number>,
 ): EnvDryRunCount {
   const results = answer.result.objectResults;
+  /** The seed's own codes, for what `said` holds of what it said a real run would meet. */
+  const codedFor = (said: string): { refusalCodes?: string[] } => {
+    const codes = codesSaidIn(said, answer.wouldBeRefused, answer.wouldBeRefusedCodes);
+    return codes.length > 0 ? { refusalCodes: codes } : {};
+  };
   if (
     answer.result.status === 'failure' &&
     results.length > 0 &&
     results.every((result) => result.objectApiName === REFUSED_BEFORE_WRITING)
   ) {
     const said = results.flatMap((result) => result.errors);
+    const refusal = said.length > 0 ? said.join(' ') : 'the seed refused its dry run';
     return {
       objects: [],
       total: 0,
@@ -773,7 +783,8 @@ export function seedDryRunCount(
       apiRequests: answer.apiRequests.estimate,
       storageBytes: 0,
       emails: [],
-      refusal: said.length > 0 ? said.join(' ') : 'the seed refused its dry run',
+      refusal,
+      ...codedFor(refusal),
     };
   }
   const objects = answer.result.objectResults.map((result) => {
@@ -799,7 +810,7 @@ export function seedDryRunCount(
     apiRequests: answer.apiRequests.estimate,
     storageBytes: answer.storage.bytes,
     emails: answer.emails.checks.map((check) => ({ limit: check.limit, emails: check.emails })),
-    ...(refusal !== undefined ? { refusal } : {}),
+    ...(refusal !== undefined ? { refusal, ...codedFor(refusal) } : {}),
     ...(notes.length > 0 ? { notes } : {}),
   };
 }

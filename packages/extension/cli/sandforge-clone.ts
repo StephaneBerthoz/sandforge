@@ -56,7 +56,13 @@ import { join as joinPath, resolve as resolvePath, sep } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { z } from 'zod';
 import { countRequests, loadOrg, makeConn, type SfOrg } from './sfSession.js';
-import { ownOptionWords, relayTakes, relayedBy } from './relayWords.js';
+import {
+  envWords,
+  ownOptionWords,
+  relayTakes,
+  relayedBy,
+  relayedByAnEnvironment,
+} from './relayWords.js';
 import {
   idsOf,
   laterPartsOf,
@@ -2580,7 +2586,8 @@ export function summaryLines(
     const { perObject, objects } = summary.cappedObjects;
     lines.push(
       '',
-      `stopped at ${perObject} records per object (--max), ` +
+      // An environment caps it with its template's setting, not a flag.
+      `stopped at ${perObject} records per object (${envWords('--max', 'maxRecordsPerObject')}), ` +
         `the source holding more, which were not cloned (${objects.length} object(s)):`,
       ...objects.map((objectApiName) => `  ${objectApiName}`),
     );
@@ -2591,9 +2598,11 @@ export function summaryLines(
   const truncated = truncatedObjectsOf(summary, readCeiling);
   if (truncated) {
     const ceiling = truncated.perObject !== undefined ? `${truncated.perObject} ` : '';
+    // An environment's file has nothing that raises it: the flag is not named.
+    const raisedBy = relayedByAnEnvironment() ? '' : ' (--max-records-per-object)';
     lines.push(
       '',
-      `TRUNCATED at ${ceiling}records per object (--max-records-per-object), ` +
+      `TRUNCATED at ${ceiling}records per object${raisedBy}, ` +
         `the source holding more, which were not cloned (${truncated.objects.length} object(s)):`,
       ...truncated.objects.map((objectApiName) => `  ${objectApiName}`),
     );
@@ -2683,7 +2692,8 @@ export function summaryLines(
   if (mayHaveBeenWritten.length > 0) {
     lines.push(
       '',
-      'may be in the target, under ids the run never learned (--remove cannot reach them):',
+      'may be in the target, under ids the run never learned ' +
+        `(${envWords('--remove', 'destroy')} cannot reach them):`,
     );
     for (const { objectApiName, sourceIds } of mayHaveBeenWritten) {
       lines.push(`  ${objectApiName}  ${sourceIds.length} record(s)`);
@@ -2782,8 +2792,13 @@ export function choicesLines(
   >,
 ): string[] {
   if (!args.choicesFrom) return [];
+  // Relayed by an environment, the file is one it wrote from a resource of
+  // its own file, gone once the plan ends, and no flag goes over it: a plan
+  // said "choices from --template /tmp/sandforge-env-plan-…/<name>.json".
   const lines = [
-    `choices from ${args.choicesFrom.flag} ${args.choicesFrom.path}, the flags over it:`,
+    relayedByAnEnvironment()
+      ? 'choices from the resource in the file:'
+      : `choices from ${args.choicesFrom.flag} ${args.choicesFrom.path}, the flags over it:`,
   ];
   const fields = Object.entries(args.fieldExclusions).flatMap(([object, names]) =>
     names.map((name) => `${object}.${name}`),
@@ -2861,8 +2876,8 @@ export function decisionLines(applied: readonly ForgeDecisionApplied[]): string[
 export function contactPointLines(report: ForgeContactPointsReport, dryRun: boolean): string[] {
   if (!report.neutralized) {
     return [
-      "contact points: written as read (--keep-contact-points): the target's flows and email " +
-        'alerts may reach the people the records name',
+      `contact points: written as read (${envWords('--keep-contact-points', 'keepContactPoints')}): ` +
+        "the target's flows and email alerts may reach the people the records name",
     ];
   }
   const done = dryRun ? 'would be neutralized (dry run, nothing written)' : 'neutralized';
@@ -7777,11 +7792,17 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // it had cloned what it was given: refused before a row is read.
   const notReached = args.tables ? tablesNotReached(discovered, args.tables) : [];
   if (notReached.length > 0) {
+    // An environment names its tables, depth and maxNodes in its file.
+    const env = relayedByAnEnvironment();
+    const named = env
+      ? `the table${notReached.length === 1 ? '' : 's'} ${notReached.join(', ')}`
+      : `--object ${notReached.join(', ')}`;
     process.stderr.write(
-      `--object ${notReached.join(', ')}: discovery from ${root ?? args.tables?.[0]?.objectApiName} ` +
+      `${named}: discovery from ${root ?? args.tables?.[0]?.objectApiName} ` +
         `did not reach ${notReached.length === 1 ? 'it' : 'them'} ` +
         `(${discovered.nodes.length} object(s), depth ${args.depth === 'custom' ? args.customDepth : args.depth}): ` +
-        'name first a table it hangs from or points at, or raise --depth or --max-nodes.\n',
+        'name first a table it hangs from or points at, or raise ' +
+        `${env ? "the resource's depth or maxNodes" : '--depth or --max-nodes'}.\n`,
     );
     process.exit(2);
   }
@@ -7968,14 +7989,20 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // What may refuse taking the run back, said before it writes: a flow before
   // a delete, a trigger on one, a record that locks past Draft.
   const removalRisks = removalRisksOf(targetAutomation, new Set(objectsLeftOut));
-  for (const line of removalRiskLines(removalRisks, args.target, targetAutomation.unread)) {
+  for (const line of removalRiskLines(
+    removalRisks,
+    args.target,
+    targetAutomation.unread,
+    // An environment takes its runs back by its destroy, or by a replace.
+    envWords('--remove', 'destroy, or a replace'),
+  )) {
     say(line);
   }
   // What that automation may reach: the records' own addresses and numbers,
   // unless they go neutralized.
   say(
     args.keepContactPoints
-      ? 'contact points: written as read (--keep-contact-points)'
+      ? `contact points: written as read (${envWords('--keep-contact-points', 'keepContactPoints')})`
       : 'contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range)',
   );
   // What the target holds against the rows, read from its metadata before a
@@ -8858,7 +8885,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       });
     }
     journalStore = journals.openAt(journalPath);
-    say(`journal: ${journalPath} (--resume ${journalPath} takes the run up if it stops)`);
+    // An environment never takes a run up: stopped, its next apply takes the
+    // run back and runs it whole, its state knowing nothing of a --resume.
+    say(
+      relayedByAnEnvironment()
+        ? `journal: ${journalPath}`
+        : `journal: ${journalPath} (--resume ${journalPath} takes the run up if it stops)`,
+    );
   }
   /** The part of the journal this run writes, once it began it. */
   const journalPart = (): number | undefined =>

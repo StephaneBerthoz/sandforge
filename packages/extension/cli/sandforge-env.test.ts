@@ -468,6 +468,37 @@ describe('destroy --sweep', () => {
     expect(world.records('Account')).toHaveLength(2);
   });
 
+  it('ends the plan of a refused destroy on what refuses the destroy, not an apply', async () => {
+    // Live, a destroy refused for a flow before a delete printed its plan,
+    // then "an apply now would be refused: acct: a removal of its runs would
+    // be refused now: …", of an apply nobody asked for.
+    worldOf({ sandbox: true, scratch: true });
+    expect((await run(['apply', '--org', 'TGT', '--yes'])).code).toBe(0);
+    world.automation = {
+      objectsRead: ['Account', 'Contact'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [],
+          triggers: [{ name: 'AccountGuard', events: ['beforeDelete'] }],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 1,
+    } as unknown as typeof world.automation;
+
+    const destroyed = await run(['destroy', '--org', 'TGT', '--yes']);
+
+    expect(destroyed.code).toBe(1);
+    const said = stdout.join('');
+    expect(said).toMatch(
+      /^a destroy now would be refused: accounts: a removal of its runs would be refused now: /m,
+    );
+    expect(`${said}${destroyed.said}`).not.toContain('an apply now would be refused');
+  });
+
   it('tells each script it runs that its lines are relayed, so that what a removal says takes what it kept is what this reader can run', async () => {
     // A removal said "(--sweep-untied takes them)", relayed as it was: a
     // flag this command refuses, exit 2.

@@ -260,6 +260,7 @@ describe('what the script answers', () => {
     expect(maskDryRunCount(answer)).toMatchObject({
       emails: [{ limit: 'SingleEmail', emails: 2 }],
       refusal: 'TGT runs automation as this masking writes over its records.',
+      refusalCodes: ['AUTOMATION_NOT_ACCEPTED'],
     });
   });
 

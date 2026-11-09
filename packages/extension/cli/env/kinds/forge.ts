@@ -59,6 +59,7 @@ import {
 } from '../../../src/core/precheck/orgKindLive.js';
 import type { RunnableScript } from '../../scriptRunner.js';
 import {
+  codesSaidIn,
   countSchema,
   idSchema,
   readAnswer,
@@ -577,6 +578,8 @@ export const forgeDryRunAnswerSchema = z.object({
     })
     .optional(),
   wouldBeRefused: z.array(z.string()).optional(),
+  /** The code of each of `wouldBeRefused`, in their order. */
+  wouldBeRefusedCodes: z.array(z.string()).optional(),
   /** What the org to fill holds against the rows, read from its metadata: see {@link forgeTargetRefusal}. */
   targetGaps: z
     .object({
@@ -775,6 +778,9 @@ export function readForgeVerify(stdout: string): ForgeVerifyAnswer {
 export function forgeDryRunCount(answer: ForgeDryRunAnswer): EnvDryRunCount {
   const plan = answer.writePlan;
   const said = (answer.wouldBeRefused ?? []).join(' ');
+  // The clone's own codes, for what it said: the plan's words are its own.
+  const codes = codesSaidIn(said, answer.wouldBeRefused, answer.wouldBeRefusedCodes);
+  const coded = codes.length > 0 ? { refusalCodes: codes } : {};
   if (plan === undefined) {
     return {
       objects: [],
@@ -787,6 +793,7 @@ export function forgeDryRunCount(answer: ForgeDryRunAnswer): EnvDryRunCount {
           ? said
           : 'the clone never came to count what it would write, and a run held to no count is ' +
             'held to nothing',
+      ...coded,
     };
   }
   const exact = answer.result.wouldInsertCount === plan.totalRows;
@@ -807,7 +814,7 @@ export function forgeDryRunCount(answer: ForgeDryRunAnswer): EnvDryRunCount {
     created: answer.result.wouldInsertCount,
     storageBytes: plan.storageBytes,
     emails: plan.emails ?? [],
-    ...(refusal !== undefined ? { refusal } : {}),
+    ...(refusal !== undefined ? { refusal, ...coded } : {}),
   };
 }
 

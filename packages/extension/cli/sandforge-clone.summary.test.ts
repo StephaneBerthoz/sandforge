@@ -581,6 +581,23 @@ describe('sandforge-clone --summary', () => {
     ]);
   });
 
+  it('names the removal an environment runs, its destroy or a replace, where its reader takes no --remove', async () => {
+    // Relayed by sandforge-env, the line named "(--remove)": the clone's own
+    // removal, which the environment's reader runs as a destroy or a replace.
+    withOrgs(fakeOrg([ACCOUNT_GUARD]));
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env plan');
+    try {
+      expect(await run(argv('--dry-run', '--json'))).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(printed).toContain(
+      "reversibility: a removal of this run's records (destroy, or a replace) may be refused in TGT:",
+    );
+    expect(printed.join('\n')).not.toContain('--remove');
+  });
+
   it('says the Apex triggers it could not read as not known, instead of finding none on a delete', async () => {
     // A Standard User may not read ApexTrigger: the line said "no Apex trigger
     // on one" under the line saying the triggers could not be read.
