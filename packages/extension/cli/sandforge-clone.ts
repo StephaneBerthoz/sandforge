@@ -4545,7 +4545,7 @@ function handWorkTakenLines(listing: ForgeSweepListing, take: SweepClassArgs): s
     listing.found.some((object) => !object.overBound && (object.classes?.[name] ?? 0) > 0);
   const made = holds('made') || holds('madeOver');
   const where = [
-    made ? "under the run's records within a minute of them" : '',
+    made ? MADE_WHERE : '',
     // Said alone, what came late names the records it is made under.
     take.sweepLate === true && holds('late')
       ? `under ${made ? 'them' : "the run's records"} within a quarter of an hour with --sweep-late`
@@ -4556,10 +4556,27 @@ function handWorkTakenLines(listing: ForgeSweepListing, take: SweepClassArgs): s
   ].filter(Boolean);
   if (where.length === 0) return [];
   return [
-    `a record made by hand as the run's user ${where.join(', or ')}${where.length > 1 ? ',' : ''} ` +
-      "reads as the automation's, and one changed by hand before the run's last write as " +
-      'unchanged: check the names before a --sweep',
+    `${handWorkWords(`${where.join(', or ')}${where.length > 1 ? ',' : ''}`)}: check the ` +
+      'names before a --sweep',
   ];
+}
+
+/** Where a sweep takes what the target's automation made for the run, asked nothing more. */
+const MADE_WHERE = "under the run's records within a minute of them";
+
+/**
+ * What a sweep cannot tell from the automation's work among what it takes,
+ * in words: said by the list read before a sweep (`handWorkTakenLines`), and
+ * by a removal whose advice is a sweep (`automationHeldLines`).
+ *
+ * @param where - Where the sweep takes what it takes: {@link MADE_WHERE}, and
+ *   what more it is asked to take.
+ */
+function handWorkWords(where: string): string {
+  return (
+    `a record made by hand as the run's user ${where} reads as the automation's, and one ` +
+    "changed by hand before the run's last write as unchanged"
+  );
 }
 
 /**
@@ -4650,37 +4667,96 @@ export function sweepUnsaid(
  * "--sweep takes them first" of a contact role made by hand between its two
  * parts, and `--sweep-list` of the same journal was refused.
  *
+ * What holds them is said as the org dated it: a record created after the
+ * last write of the run, or of its part that wrote them, is the automation
+ * run late or a person working as the run's user, never "during the run". A
+ * sweep it offers is said with what that sweep takes that may not be the
+ * run's, in the words of the list read before one (`handWorkWords`): live, a
+ * cut part's removal offered `--sweep` for a contact role made by hand five
+ * seconds after the part, which that sweep would have deleted. The records
+ * of another part of the run, which an earlier removal of that part left and
+ * this one took up (`part`), are its sweep's to take, never this summary's:
+ * live, the resume's removal said "--sweep takes them first" of the cut
+ * part's records, and its own sweep, looking in the resume's window, found
+ * nothing.
+ *
  * @param asked - Whether the removal had a sweep: what it left of them, it
- *   left for a reason its listing says; and whether a sweep could not tell
- *   the window the run wrote in now (`windowUntold`).
+ *   left for a reason its listing says; whether a sweep could not tell the
+ *   window the run wrote in now (`windowUntold`); whether the run was cut and
+ *   taken up (`inParts`); and, for the records of another part than the
+ *   summary's, that part (`part`).
  */
 export function automationHeldLines(
-  objects: ReadonlyArray<Pick<ForgeUndoObjectResult, 'heldByAutomation' | 'automationHolders'>>,
-  asked: { sweep?: boolean; windowUntold?: boolean },
+  objects: ReadonlyArray<
+    Pick<
+      ForgeUndoObjectResult,
+      'heldByAutomation' | 'heldByAutomationAfterRun' | 'automationHolders'
+    >
+  >,
+  asked: { sweep?: boolean; windowUntold?: boolean; inParts?: boolean; part?: number },
 ): string[] {
   const held = objects.reduce((sum, object) => sum + (object.heldByAutomation ?? 0), 0);
   if (held === 0) return [];
+  const after = Math.min(
+    held,
+    objects.reduce((sum, object) => sum + (object.heldByAutomationAfterRun ?? 0), 0),
+  );
   const holders = [...new Set(objects.flatMap((object) => object.automationHolders ?? []))];
-  const by = `likely by the target's automation${holders.length > 0 ? ` (${someOf(holders)})` : ''}`;
-  if (asked.sweep !== true && asked.windowUntold === true) {
+  const named = holders.length > 0 ? ` (${someOf(holders)})` : '';
+  const by = `likely by the target's automation${named}`;
+  const byHand =
+    'delete them by hand, then remove the run again; ' +
+    `${ownOptionWords('--preview', 'removal')} says what of it their delete leaves changed ` +
+    `since, which ${ownOptionWords('--include-changed', 'removal')} takes`;
+  if (asked.part === undefined && asked.sweep !== true && asked.windowUntold === true) {
     return [
       `${held} record(s) of the run kept for records created under them as its user, within a ` +
         `minute of them, ${by}: a sweep cannot take them, as it cannot tell the window the run ` +
-        'wrote in now — delete them by hand, then remove the run again; ' +
-        `${ownOptionWords('--preview', 'removal')} says what of it their delete leaves changed ` +
-        `since, which ${ownOptionWords('--include-changed', 'removal')} takes`,
+        `wrote in now — ${byHand}`,
     ];
   }
+  const end =
+    asked.part !== undefined
+      ? "that part's last write"
+      : asked.inParts === true
+        ? "the last write of the run's part that wrote them"
+        : "the run's last write";
+  const when =
+    after === 0
+      ? 'during the run, as its user'
+      : after === held
+        ? `as its user after ${end}, within a minute of them`
+        : `as its user during the run or, under ${after} of them, after ${end}, within a ` +
+          'minute of them';
+  const whose =
+    asked.part === undefined
+      ? 'of the run'
+      : `of the run's part ${asked.part} (its summary's "part")`;
   const what =
-    `${held} record(s) of the run kept for records created under them during the run, as its ` +
-    `user, ${by}`;
+    `${held} record(s) ${whose} kept for records created under them ${when}, ` +
+    (after === 0 ? by : `by the target's automation or by hand${named}`);
+  const handWork = handWorkWords(MADE_WHERE);
+  if (asked.part !== undefined) {
+    const ofPart = (option: string): string =>
+      `${relayedBy() === undefined ? '--remove' : "this script's own removal"} of part ` +
+      `${asked.part}'s summary with ${option}`;
+    return [
+      `${what}: ` +
+        (asked.sweep === true
+          ? "this removal's sweep looked in its own part's window alone, and did not see them; "
+          : "a sweep of this summary looks in its own part's window alone, and leaves them; ") +
+        `${ofPart('--sweep')} takes them first (${ofPart('--sweep-list')} shows them; ` +
+        `${handWork}: check the names before it), or ${byHand}`,
+    ];
+  }
   return [
     asked.sweep === true
       ? `${what}: the sweep left them — ${sweepOptionWords('--sweep-list')} says why; ` +
         `${sweepOptionWords('--sweep-late')} takes those it lists as late, ` +
         `${ownOptionWords('--include-changed', 'removal')} those changed after the run's last write`
       : `${what}: ${sweepOptionWords('--sweep')} takes them first ` +
-        `(${sweepOptionWords('--sweep-list')} shows them)`,
+        `(${sweepOptionWords('--sweep-list')} shows them); ${handWork}: check the names before ` +
+        (relayTakes('--sweep') ? 'a --sweep' : sweepOptionWords('--sweep')),
   ];
 }
 
@@ -5703,6 +5779,31 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
    * this removal ended: a sweep is then refused, and none is offered.
    */
   let windowUntold = false;
+  /** Whether the run was cut and taken up: its journal says two parts or more. */
+  let ranInParts = false;
+  /**
+   * Of a run cut and taken up, removed by one of its summaries: what this
+   * removal took of the summary's own part, and, part by part, of what an
+   * earlier removal of another part left, which it took up after: what holds
+   * what it kept of those is that part's sweep's to take, not this summary's.
+   */
+  let byPart:
+    | {
+        own: ForgeUndoObjectResult[];
+        others: Array<{ part: number; objects: ForgeUndoObjectResult[] }>;
+      }
+    | undefined;
+  /** What kept records of the run for what the automation likely made under them, and what takes it. */
+  const heldLines = (objects: ForgeUndoObjectResult[]): string[] => {
+    const asked = { sweep: args.sweep, windowUntold, inParts: ranInParts };
+    if (!byPart) return automationHeldLines(objects, asked);
+    return [
+      ...automationHeldLines(byPart.own, asked),
+      ...byPart.others.flatMap(({ part, objects: ofPart }) =>
+        automationHeldLines(ofPart, { ...asked, part }),
+      ),
+    ];
+  };
   /**
    * @param removalsFile - Where what the removal left on the run's records
    *   was kept, when it was.
@@ -5744,9 +5845,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
           2,
         ) + '\n',
       );
-      for (const line of automationHeldLines(objects, { ...args, windowUntold })) {
-        console.error(line);
-      }
+      for (const line of heldLines(objects)) console.error(line);
       for (const line of heldByOtherPartsLines(keptForParts)) console.error(line);
       return;
     }
@@ -5755,7 +5854,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       for (const line of removalLines(status, objects, unreachable)) console.log(line);
     }
     if (sweep) for (const line of sweepLines(sweep)) console.log(line);
-    for (const line of automationHeldLines(objects, { ...args, windowUntold })) console.log(line);
+    for (const line of heldLines(objects)) console.log(line);
     for (const line of heldByOtherPartsLines(keptForParts)) console.log(line);
     if (removalsFile) {
       console.log(
@@ -5805,6 +5904,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.stderr.write(`${inParts.refusal}\n`);
     process.exit(2);
   }
+  ranInParts = inParts !== undefined;
   const ofTheRun =
     inParts && resolvePath(removalsFile) !== resolvePath(inParts.file) ? inParts : undefined;
   const earlier = earlierOfTheRun(ownEarlier, ofTheRun?.earlier);
@@ -6194,6 +6294,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
           ...(summary.finishedAt ? { runRecordedAt: new Date(summary.finishedAt) } : {}),
         };
     let removal: RunRemovalOutcome = NOTHING_REMOVED;
+    /** What it took up of each other part's records an earlier removal of that part left. */
+    const ofOtherParts: Array<{ part: number; objects: ForgeUndoObjectResult[] }> = [];
     const onUndeletable = undeletableAnswer(args.leaveUndeletable, args.target, (refused) => {
       undeletableRefused = refused;
     });
@@ -6266,6 +6368,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         });
         Object.assign(stamped, taken.stamps);
         afterOwn.push(taken);
+        if (ofTheRun) ofOtherParts.push({ part: part.part, objects: taken.objects });
       }
     } finally {
       releaseStop();
@@ -6274,6 +6377,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         for (const line of muteLines(mutedAutomation, args.target)) say(line);
       }
     }
+    if (ofOtherParts.length > 0) byPart = { own: removal.objects, others: ofOtherParts };
     if (removal.stoppedForUndeletable) return removal;
     // A removal after an earlier one of the summary takes what that one left,
     // as the panel records it: with when that one ended, by the org's clock.

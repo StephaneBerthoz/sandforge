@@ -750,6 +750,13 @@ export interface ForgeUndoObjectResult {
    * they were told apart.
    */
   heldByAutomation?: number;
+  /**
+   * Of `heldByAutomation`, those held by a record created after the last
+   * write of the run, or of its part that wrote them, as the org dated it:
+   * within a sweep's minute of them, so the target's automation run late —
+   * or a person working as the run's user. Absent when none.
+   */
+  heldByAutomationAfterRun?: number;
   /** The objects of the records counted in `heldByAutomation`, by API name. */
   automationHolders?: string[];
   /**

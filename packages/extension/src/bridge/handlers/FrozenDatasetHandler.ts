@@ -805,7 +805,10 @@ function removalRefusalOf(
  * the org's. A load the target did not date — recorded before loads kept it,
  * or whose dates could not all be read back — is dated by this machine's
  * clock, as it began and as it wrote its last record, read on the org's clock
- * as the removal starts.
+ * as the removal starts, and ends with its last write as the org dated it
+ * (`endedByItsWrites`): ten seconds of leeway after its end took a contact
+ * made by hand under its account five seconds after for the load's, and it
+ * went with the account.
  */
 function removalSpanOf(
   load: RecordedLoad,
@@ -815,6 +818,7 @@ function removalSpanOf(
   | 'runEndedAt'
   | 'runDurationMs'
   | 'runRecordedAt'
+  | 'endedByItsWrites'
   | 'removalStamps'
   | 'removalSpans'
   | 'runUserId'
@@ -829,7 +833,9 @@ function removalSpanOf(
           ...(Number.isFinite(began) && Number.isFinite(ended)
             ? { runDurationMs: Math.max(0, ended - began) }
             : {}),
-          ...(Number.isFinite(ended) ? { runRecordedAt: new Date(ended) } : {}),
+          ...(Number.isFinite(ended)
+            ? { runRecordedAt: new Date(ended), endedByItsWrites: true }
+            : {}),
         }),
     removalStamps: load.removalStamps,
     removalSpans: load.removalSpans,

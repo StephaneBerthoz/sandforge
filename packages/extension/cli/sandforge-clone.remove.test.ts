@@ -1971,8 +1971,11 @@ describe('sandforge-clone --remove', () => {
 
         expect(await run(['--remove', path, '--target', 'TGT'])).toBe(3);
 
+        // With what that sweep takes that may not be the run's, as
+        // --sweep-list warns: said by --sweep-list alone, a contact role made
+        // by hand went unwarned by the removal that offered the sweep.
         expect(printed).toContain(
-          "1 record(s) of the run kept for records created under them during the run, as its user, likely by the target's automation (Task): --sweep takes them first (--sweep-list shows them)",
+          "1 record(s) of the run kept for records created under them during the run, as its user, likely by the target's automation (Task): --sweep takes them first (--sweep-list shows them); a record made by hand as the run's user under the run's records within a minute of them reads as the automation's, and one changed by hand before the run's last write as unchanged: check the names before a --sweep",
         );
       });
 

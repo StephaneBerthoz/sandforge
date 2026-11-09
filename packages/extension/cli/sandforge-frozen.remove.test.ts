@@ -280,8 +280,41 @@ describe('what a sweep of a load is asked, and what the removal says', () => {
       '  QuoteLineItem: 4 deleted of 4 (2 the run wrote, and 2 the platform copied between the quote the run synced and its opportunity)',
     );
     expect(lines).toContain(
-      "1 record(s) of the run kept for records created under them during the run, as its user, likely by the target's automation (Task): --sweep takes them first (--sweep-list shows them)",
+      "1 record(s) of the run kept for records created under them during the run, as its user, likely by the target's automation (Task): --sweep takes them first (--sweep-list shows them); a record made by hand as the run's user under the run's records within a minute of them reads as the automation's, and one changed by hand before the run's last write as unchanged: check the names before a --sweep",
     );
+  });
+
+  it('says what kept records of the load was created after its last write when it was, and what its sweep would take that may not be the load’s', () => {
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        result: {
+          status: 'partial',
+          objects: [
+            {
+              objectApiName: 'Account',
+              planned: 1,
+              deleted: 0,
+              alreadyGone: 0,
+              keptChanged: 0,
+              keptDependents: 1,
+              refused: 0,
+              heldBy: ['Task'],
+              heldByAutomation: 1,
+              heldByAutomationAfterRun: 1,
+              automationHolders: ['Task'],
+              unchecked: [],
+              reasons: [],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      "1 record(s) of the run kept for records created under them as its user after the run's last write, within a minute of them, by the target's automation or by hand (Task): --sweep takes them first (--sweep-list shows them); a record made by hand as the run's user under the run's records within a minute of them reads as the automation's, and one changed by hand before the run's last write as unchanged: check the names before a --sweep",
+    );
+    expect(lines.join('\n')).not.toContain('during the run');
   });
 });
 

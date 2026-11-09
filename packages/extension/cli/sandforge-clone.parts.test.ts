@@ -648,6 +648,47 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     expect(left()).toMatchObject({ Opportunity: 1, Contact: 1, Account: 1 });
   });
 
+  it('the cut part, then the resume: each says the contact role made by hand after the cut part holds what it kept, and that the cut part’s own sweep takes it, never the resume’s', async () => {
+    const { s1, s2 } = theRun();
+    roleMadeByHandAfterTheCut();
+
+    stderr = [];
+    await remove(s1, at('10:05:00'));
+    const cutLines = [...stderr];
+    stderr = [];
+    await remove(s2, at('10:08:00'));
+    const resumedLines = [...stderr];
+
+    // The cut part's removal: its own contact, held by the role, which its
+    // sweep — a minute past its last write — would take as the automation's.
+    expect(cutLines).toContain(
+      '1 record(s) of the run kept for records created under them as its user after the last ' +
+        "write of the run's part that wrote them, within a minute of them, by the target's " +
+        'automation or by hand (OpportunityContactRole): --sweep takes them first (--sweep-list ' +
+        "shows them); a record made by hand as the run's user under the run's records within a " +
+        "minute of them reads as the automation's, and one changed by hand before the run's " +
+        'last write as unchanged: check the names before a --sweep',
+    );
+    // The resume's removal took up the cut part's records the first left: the
+    // role holds them, and the resume's sweep, looking in the resume's
+    // window, would find nothing. Live, it said "created under them during
+    // the run … --sweep takes them first".
+    expect(resumedLines).toContain(
+      '2 record(s) of the run\'s part 0 (its summary\'s "part") kept for records created under ' +
+        "them as its user after that part's last write, within a minute of them, by the " +
+        "target's automation or by hand (OpportunityContactRole): a sweep of this summary looks " +
+        "in its own part's window alone, and leaves them; --remove of part 0's summary with " +
+        "--sweep takes them first (--remove of part 0's summary with --sweep-list shows them; a " +
+        "record made by hand as the run's user under the run's records within a minute of them " +
+        "reads as the automation's, and one changed by hand before the run's last write as " +
+        'unchanged: check the names before it), or delete them by hand, then remove the run ' +
+        'again; --preview says what of it their delete leaves changed since, which ' +
+        '--include-changed takes',
+    );
+    expect(resumedLines.join('\n')).not.toContain('during the run');
+    expect(resumedLines.join('\n')).not.toMatch(/: --sweep takes them first/);
+  });
+
   it('the resume, then the journal: the contact role made by hand right after the cut stays, and what it hangs from', async () => {
     const { s2 } = theRun();
     roleMadeByHandAfterTheCut();

@@ -837,13 +837,16 @@ describe('RunVerifier — lookups the target explains', () => {
      * The scenario's target, its records created by the run's user during
      * the run, and `twice` more contacts beside them, created by the same
      * user in the same window: a call the run wrote again.
+     *
+     * @param copiedAt - When the org dated those more contacts.
      */
-    function withCopies(twice: number) {
+    function withCopies(twice: number, copiedAt = '2026-10-01T09:30:00.000+0000') {
       const { target, source, run } = scenario();
       const created = { CreatedById: RUN_USER, CreatedDate: '2026-10-01T09:30:00.000+0000' };
+      const copy = { ...created, CreatedDate: copiedAt };
       const rowsOf = (object: string): Array<Record<string, unknown>> =>
         object === 'Contact'
-          ? [created, created, ...Array.from({ length: twice }, () => created)]
+          ? [created, created, ...Array.from({ length: twice }, () => copy)]
           : [created];
       const answered = target.query;
       const counts: string[] = [];
@@ -881,8 +884,22 @@ describe('RunVerifier — lookups the target explains', () => {
       expect(objectOf(verification, 'Account').moreInTheWindow).toBeUndefined();
       expect(verification.verdict).toBe('partial');
       expect(counts[0]).toBe(
-        `SELECT COUNT() FROM Contact WHERE CreatedById = '${RUN_USER}' AND CreatedDate >= 2026-10-01T08:59:50Z AND CreatedDate <= 2026-10-01T10:00:10Z`,
+        `SELECT COUNT() FROM Contact WHERE CreatedById = '${RUN_USER}' AND CreatedDate >= 2026-10-01T08:59:50Z AND CreatedDate <= 2026-10-01T10:00:00Z`,
       );
+    });
+
+    it('counts no contact the run’s user made by hand five seconds after the run’s last write, which it would say was created during the run', async () => {
+      // The run's last write, by the org, was at 10:00:00. Counted up to ten
+      // seconds past it, a contact made by hand at 10:00:05 read as one more
+      // "created … during the run by the run's user than the run wrote", and
+      // the verification was partial.
+      const { target, source, run, counts } = withCopies(1, '2026-10-01T10:00:05.000+0000');
+
+      const verification = await new RunVerifier({ target, source }).verify(run, NO_WAIT);
+
+      expect(objectOf(verification, 'Contact').moreInTheWindow).toBeUndefined();
+      expect(verification.verdict).toBe('verified');
+      expect(counts[0]).toMatch(/AND CreatedDate <= 2026-10-01T10:00:00Z$/);
     });
 
     it('is verified when the run’s user created no more than the run wrote', async () => {

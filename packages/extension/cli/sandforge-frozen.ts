@@ -1781,6 +1781,7 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
           notReached?: number;
           heldBy: string[];
           heldByAutomation?: number;
+          heldByAutomationAfterRun?: number;
           automationHolders?: string[];
           platformCopies?: number;
           unchecked: string[];

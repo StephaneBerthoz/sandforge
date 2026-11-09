@@ -1165,6 +1165,11 @@ class ObjectRemoval {
    * what a sweep takes first. Read against `held` as the object settles.
    */
   readonly automationHeld = new Map<string, ReadonlySet<string>>();
+  /**
+   * Of `automationHeld`, by key, those one of whose holders was created after
+   * the run's last write: see {@link ForgeUndoObjectResult.heldByAutomationAfterRun}.
+   */
+  readonly automationHeldAfter = new Set<string>();
 
   /**
    * @param copies - Of `planned`, the records the platform copied as the run
@@ -1251,11 +1256,18 @@ class ObjectRemoval {
       const holders = this.automationHeld.get(recordKey(id));
       return holders ? [holders] : [];
     });
+    const after = this.held.filter((id) => {
+      const key = recordKey(id);
+      return this.automationHeld.has(key) && this.automationHeldAfter.has(key);
+    }).length;
     if (byAutomation.length > 0) {
       this.result.heldByAutomation = byAutomation.length;
+      if (after > 0) this.result.heldByAutomationAfterRun = after;
+      else delete this.result.heldByAutomationAfterRun;
       this.result.automationHolders = [...new Set(byAutomation.flatMap((holders) => [...holders]))];
     } else {
       delete this.result.heldByAutomation;
+      delete this.result.heldByAutomationAfterRun;
       delete this.result.automationHolders;
     }
     const reasons = [
@@ -2707,6 +2719,8 @@ async function removeCandidates(
     const holders = verdict.byAutomation.get(key);
     if (holders) removal.automationHeld.set(key, holders);
     else removal.automationHeld.delete(key);
+    if (holders && verdict.automationAfter.has(key)) removal.automationHeldAfter.add(key);
+    else removal.automationHeldAfter.delete(key);
   }
   hooks.onHeld?.(heldNow.length);
 
@@ -3330,6 +3344,11 @@ interface HeldVerdict {
    * record, within a sweep's `made` of it — with those records' objects.
    */
   byAutomation: Map<string, Set<string>>;
+  /**
+   * Of `byAutomation`, the keys of those one of whose holders was created
+   * after the run's last write, as the org dated it.
+   */
+  automationAfter: Set<string>;
   /** Relationships the org deletes along that could not be read by the record, by child object. */
   unchecked: Set<string>;
   /** Why the object's relationships could not be read at all; every record is then held. */
@@ -3438,6 +3457,7 @@ class DependentsCheck {
       holders: new Set(),
       otherwise: new Set(),
       byAutomation: new Map(),
+      automationAfter: new Set(),
       unchecked: new Set(),
     };
     if (candidates.length === 0) return verdict;
@@ -3513,11 +3533,13 @@ class DependentsCheck {
     if (objectApiName === SELLING_MODEL_OPTION_OBJECT) {
       await this.sellingModelOptionsHeld(candidates, verdict);
     }
-    verdict.byAutomation = await this.byAutomationOnly(
+    const byAutomation = await this.byAutomationOnly(
       objectApiName,
       mayBeAutomation,
       verdict.otherwise,
     );
+    verdict.byAutomation = byAutomation.objects;
+    verdict.automationAfter = byAutomation.after;
     return verdict;
   }
 
@@ -3540,16 +3562,24 @@ class DependentsCheck {
    * whom, only when some holder may be the automation's; a read that fails
    * counts none.
    *
-   * @returns The objects of their holders, by the key of each record held.
+   * Of those, the ones a holder of which came after the run's last write are
+   * said apart: a sweep takes them too, within its minute, but what came then
+   * is the automation run late, or a person working as the run's user. Live,
+   * the removal of a cut part's summary said a contact role made by hand five
+   * seconds after the part's last write was created "during the run".
+   *
+   * @returns The objects of their holders, by the key of each record held,
+   *   and the keys of those held by a record created after the run's end.
    */
   private async byAutomationOnly(
     objectApiName: string,
     holders: readonly AutomationHolder[],
     otherwise: ReadonlySet<string>,
-  ): Promise<Map<string, Set<string>>> {
+  ): Promise<{ objects: Map<string, Set<string>>; after: Set<string> }> {
     const byAutomation = new Map<string, Set<string>>();
+    const after = new Set<string>();
     const pending = holders.filter((holder) => !otherwise.has(recordKey(holder.parent)));
-    if (pending.length === 0) return byAutomation;
+    if (pending.length === 0) return { objects: byAutomation, after };
     let anchors: Map<string, Record<string, unknown>>;
     try {
       const rows = await readRecordsById(
@@ -3562,7 +3592,7 @@ class DependentsCheck {
         rows.flatMap((row) => (typeof row.Id === 'string' ? [[recordKey(row.Id), row]] : [])),
       );
     } catch {
-      return byAutomation;
+      return { objects: byAutomation, after };
     }
     /** Keys of the records one of whose holders is not the automation's after all. */
     const notOnly = new Set<string>();
@@ -3587,9 +3617,13 @@ class DependentsCheck {
       const objects = byAutomation.get(key) ?? new Set<string>();
       objects.add(holder.object);
       byAutomation.set(key, objects);
+      if (holder.created > this.context.runEnd) after.add(key);
     }
-    for (const key of notOnly) byAutomation.delete(key);
-    return byAutomation;
+    for (const key of notOnly) {
+      byAutomation.delete(key);
+      after.delete(key);
+    }
+    return { objects: byAutomation, after };
   }
 
   /**

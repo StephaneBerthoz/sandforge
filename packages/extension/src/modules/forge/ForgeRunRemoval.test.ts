@@ -3670,6 +3670,24 @@ describe('removeRunRecords — what the target automation made under the run rec
     expect(org.queries.filter((q) => q === anchorRead)).toHaveLength(1);
   });
 
+  it('says apart those held by what was created after the run’s last write: the automation run late, or a person working as the run’s user', async () => {
+    // Live, a contact role made by hand five seconds after a cut part's last
+    // write held its contact back, and the removal said it was created
+    // "during the run".
+    const after = await removeRunRecords(accountWithTask(madeJustAfter), PLAN, options());
+    // Ten seconds after the account, twenty before the run's last write, and
+    // written again since as the run's user: left alone, it went with the run.
+    const during = await removeRunRecords(
+      accountWithTask({ ...madeJustAfter, CreatedDate: '2026-09-20T10:04:40.000+0000' }),
+      PLAN,
+      options(),
+    );
+
+    expect(after.objects[0]).toMatchObject({ heldByAutomation: 1, heldByAutomationAfterRun: 1 });
+    expect(during.objects[0]).toMatchObject({ heldByAutomation: 1 });
+    expect(during.objects[0].heldByAutomationAfterRun).toBeUndefined();
+  });
+
   it('counts none for a record a colleague created, one a sweep lists as late, or one a colleague changed', async () => {
     const byColleague = await removeRunRecords(
       accountWithTask({ ...madeJustAfter, CreatedById: COLLEAGUE, LastModifiedById: COLLEAGUE }),

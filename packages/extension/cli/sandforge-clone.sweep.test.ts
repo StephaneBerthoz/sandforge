@@ -1152,8 +1152,70 @@ describe('automationHeldLines', () => {
 
   it('names what the automation likely made that kept records of the run, and that --sweep takes it first', () => {
     expect(automationHeldLines(held, {})).toEqual([
-      "6 record(s) of the run kept for records created under them during the run, as its user, likely by the target's automation (QuoteLineItem, Task): --sweep takes them first (--sweep-list shows them)",
+      "6 record(s) of the run kept for records created under them during the run, as its user, likely by the target's automation (QuoteLineItem, Task): --sweep takes them first (--sweep-list shows them); a record made by hand as the run's user under the run's records within a minute of them reads as the automation's, and one changed by hand before the run's last write as unchanged: check the names before a --sweep",
     ]);
+  });
+
+  it('says, with the sweep it offers, what that sweep takes that may not be the run’s, in the words the list read before a sweep says it', () => {
+    // Live, a cut part's removal offered --sweep for a contact role made by
+    // hand five seconds after the part: that sweep would have deleted it,
+    // and only --sweep-list said so.
+    const [line] = automationHeldLines(held, {});
+    const listed = sweepListingLines(TIED, 'TGT').at(-1);
+
+    expect(listed).toMatch(/: check the names before a --sweep$/);
+    expect(line.endsWith(`(--sweep-list shows them); ${listed}`)).toBe(true);
+  });
+
+  it('says what holds them was created after the run’s last write when it was — the automation run late, or a person — never during the run', () => {
+    const after = held.map((object) => ({
+      ...object,
+      heldByAutomationAfterRun: object.heldByAutomation,
+    }));
+
+    const [line] = automationHeldLines(after, {});
+
+    expect(line).toMatch(
+      /^6 record\(s\) of the run kept for records created under them as its user after the run's last write, within a minute of them, by the target's automation or by hand \(QuoteLineItem, Task\): --sweep takes them first/,
+    );
+    expect(line).not.toContain('during the run');
+    // Of a run cut and taken up, its own part's last write.
+    expect(automationHeldLines(after, { inParts: true })[0]).toContain(
+      "after the last write of the run's part that wrote them, within a minute of them",
+    );
+    // Some during the run, some after: each said.
+    const some = [held[0], { ...held[1], heldByAutomationAfterRun: 2 }];
+    expect(automationHeldLines(some, {})[0]).toContain(
+      "created under them as its user during the run or, under 2 of them, after the run's last " +
+        "write, within a minute of them, by the target's automation or by hand",
+    );
+  });
+
+  it('names, for another part’s records this removal took up, that part’s own sweep, never this summary’s', () => {
+    const after = held.map((object) => ({
+      ...object,
+      heldByAutomationAfterRun: object.heldByAutomation,
+    }));
+
+    const [line] = automationHeldLines(after, { inParts: true, part: 0 });
+    const [swept] = automationHeldLines(after, { sweep: true, inParts: true, part: 0 });
+
+    expect(line).toBe(
+      '6 record(s) of the run\'s part 0 (its summary\'s "part") kept for records created under ' +
+        "them as its user after that part's last write, within a minute of them, by the " +
+        "target's automation or by hand (QuoteLineItem, Task): a sweep of this summary looks in " +
+        "its own part's window alone, and leaves them; --remove of part 0's summary with --sweep " +
+        "takes them first (--remove of part 0's summary with --sweep-list shows them; a record " +
+        "made by hand as the run's user under the run's records within a minute of them reads " +
+        "as the automation's, and one changed by hand before the run's last write as unchanged: " +
+        'check the names before it), or delete them by hand, then remove the run again; ' +
+        '--preview says what of it their delete leaves changed since, which --include-changed takes',
+    );
+    expect(swept).toContain(
+      "this removal's sweep looked in its own part's window alone, and did not see them; " +
+        "--remove of part 0's summary with --sweep takes them first",
+    );
+    expect(swept).not.toContain('the sweep left them');
   });
 
   it('says why a removal that swept left them, and what takes them', () => {
