@@ -5,6 +5,36 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.77.0] - 2026-11-09
+
+A Frozen reload no longer deletes what someone made under a load, runs link only the platform's contact role, and gates count what a run writes.
+
+### Added
+
+- **Command line and MCP**: a refused rewind or undo names every refusal at once, under `wouldBeRefused`.
+- **Command line**: `refusalCodes` in a refused `sandforge-env plan`, `rolesLinked` in a Sync gate, `heldByAutomationAfterRun` in a removal.
+- **Forge, Sync, Seed, Frozen Dataset**: a removal that includes what changed names what it took along that the run never wrote.
+- **Frozen Dataset**: a load, its dry run and the Load tab name the records whose identity key was left empty, not looked up.
+- **Command line**: a sweep of one part of a resumed clone gives what it leaves to the other parts under `listing.otherParts`.
+
+### Changed
+
+- **Frozen Dataset, command line**: `load --reload` exits 1 while records added under a load would go with it: run `remove --include-changed` first.
+- **Sync, Forge, Frozen Dataset, command line**: a gate's or dry run's JSON total leaves out the contact roles and records the run links, given apart.
+
+### Fixed
+
+- **Frozen Dataset**: a reload no longer deletes a contact made by hand under a load, or a quote it found again, and calls it a success.
+- **Frozen Dataset**: a dry run counts linked what the load links, and removing an undated load keeps a record made by hand seconds after.
+- **Frozen Dataset**: a reload finds a record by an identity key the rules cleared, under the value its declared default gives it.
+- **Forge**: a resume links only the platform's contact role; removing or sweeping one part names what holds it and leaves the other part's.
+- **Forge**: gates count what a run writes, a dry run one fewer for a row linked by unique value, and `--verify` nothing made after the run.
+- **Sync**: the gate counts what the run writes, and the contact role it links is the platform's, never one made by hand.
+- **Seed**: the contact role a run links is the one the platform wrote, never one made by hand under the opportunity.
+- **Checkpoints**: the rewind preview counts only the emails its rewind sends, outside box unticked or on a Rewind step of some objects.
+- **Environments**: a plan relays no clone flag the file does not take, and a refused destroy says the destroy is refused.
+- **Command line**: runs across a clock the machine set back leave summaries and answers that `--remove` and `sandforge-env` read.
+
 ## [1.76.1] - 2026-11-09
 
 A checkpoint preview names the refusals its rewind would meet, and removing a resumed Forge clone by its journal keeps what someone made seconds after a part.
