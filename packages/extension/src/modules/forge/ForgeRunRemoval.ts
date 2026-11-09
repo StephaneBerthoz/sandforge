@@ -260,6 +260,15 @@ class PlaceDates {
   at(place: number): number {
     return place < this.dates.length ? this.dates[place] : Number.NaN;
   }
+
+  /** The latest of the dates from `from` to `to`, both included; NaN when none is. */
+  latestWithin(from: number, to: number): number {
+    let latest = Number.NaN;
+    for (const date of this.dates) {
+      if (date >= from && date <= to && !(date <= latest)) latest = date;
+    }
+    return latest;
+  }
 }
 
 /** Whether `value` is the id of one of the run's records. */
@@ -550,6 +559,22 @@ export interface RunRemovalOptions {
    */
   runRecordedAt?: Date;
   /**
+   * For a run dated by `runRecordedAt` alone: end it with its last write as
+   * the org dated it — the latest `CreatedDate` or `LastModifiedDate` of its
+   * records, as the removal reads them, that falls within the run as this
+   * machine's clock dates it, and the rest of that second — rather than
+   * {@link CLOCK_LEEWAY_MS} after it was recorded. The leeway stands where
+   * the org gave no such date: no record left, none written within it.
+   *
+   * A part of a clone cut and taken up is dated by its journal, on the
+   * machine's clock. Live, a contact role the run's user made by hand under
+   * the cut part's opportunity, eight seconds after that part ended, fell
+   * within that leeway: removed by the journal, it was read as the run's and
+   * went with the opportunity, unsaid. What the part's second pass wrote to its own
+   * records is within it still: a lookup filled in, a status given back.
+   */
+  endedByItsWrites?: boolean;
+  /**
    * What earlier removals of the run wrote to records they left in the org,
    * by record id: the `LastModifiedDate` the org left on each. A record last
    * modified no later than that was not changed since the run.
@@ -755,7 +780,10 @@ export interface RunPartAlongside {
   /** Its records left in the org, children before their parents. */
   plan: readonly ForgeRunObjectRecords[] | RunRecords;
   /** Its span, as {@link RunRemovalOptions} takes a run's. */
-  span: Pick<RunRemovalOptions, 'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt'>;
+  span: Pick<
+    RunRemovalOptions,
+    'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt' | 'endedByItsWrites'
+  >;
   /** What its earlier removals stamped: see {@link RunRemovalOptions.removalStamps}. */
   removalStamps?: Readonly<Record<string, string>>;
   /** The run's parts after it: see {@link RunRemovalOptions.laterParts}. */
@@ -779,7 +807,13 @@ export interface RunPartAlongside {
  * that part's own records are read. Changed after it, by anyone, it stays.
  */
 export interface RunLaterPart {
-  /** Its span, as {@link RunRemovalOptions} takes a run's. */
+  /**
+   * Its span, as {@link RunRemovalOptions} takes a run's. Dated by this
+   * machine's clock alone, it ends {@link CLOCK_LEEWAY_MS} after the part was
+   * recorded, whatever `endedByItsWrites` says: the only date the org gave
+   * what it wrote to an earlier part's record, or to one it linked to, is
+   * that record's own, which is what is read against this end.
+   */
   span: Pick<RunRemovalOptions, 'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt'>;
   /** Records of earlier parts it wrote to, by id. */
   wrote?: readonly string[];
@@ -1046,6 +1080,8 @@ interface ObjectSnapshot {
   modifiedColumn?: string;
   /** The earliest `CreatedDate` among them; NaN when none could be read. */
   firstCreated: number;
+  /** The latest `CreatedDate` among them; NaN when none could be read. */
+  lastCreated: number;
   /** Why the object could not be read, when it could not. */
   error?: string;
   /**
@@ -1064,6 +1100,7 @@ function emptySnapshot(): ObjectSnapshot {
     modified: new PlaceDates(),
     missing: new Set(),
     firstCreated: Number.NaN,
+    lastCreated: Number.NaN,
     binned: new Set(),
   };
 }
@@ -2481,6 +2518,9 @@ async function unchangedOfOtherParts(
   const read: PartUnchanged[] = [];
   for (const part of parts) {
     const records = isRunRecords(part.plan) ? part.plan : runRecordsOf(part.plan);
+    // Read without its records' dates, a part asked to end with its last
+    // write ends with its leeway: its own records read the same either way,
+    // the dates that would end it being theirs.
     const { end } = runSpan(part.span, [], orgAheadMs);
     const stamped = new Map(
       Object.entries(part.removalStamps ?? {}).map(([id, date]) => [recordKey(id), epochOf(date)]),
@@ -2757,7 +2797,10 @@ async function readSnapshotPage(
       const dates = new Map<string, number>();
       for (const row of rows) {
         if (typeof row.Id === 'string') dates.set(recordKey(row.Id), epochOf(row[modified]));
-        if (created) snapshot.firstCreated = earliest(snapshot.firstCreated, epochOf(row[created]));
+        if (created) {
+          snapshot.firstCreated = earliest(snapshot.firstCreated, epochOf(row[created]));
+          snapshot.lastCreated = latest(snapshot.lastCreated, epochOf(row[created]));
+        }
       }
       snapshot.modifiedColumn = modified;
       const missing: string[] = [];
@@ -2994,6 +3037,36 @@ function earliest(a: number, b: number): number {
   return b < a ? b : a;
 }
 
+/** The later of two dates, either of which may be NaN for a date not read. */
+function latest(a: number, b: number): number {
+  if (Number.isNaN(a)) return b;
+  return b > a ? b : a;
+}
+
+/**
+ * What is left of the second a date the org gave falls in: the org dates its
+ * writes to the second, truncated, so what it made later in that second
+ * reads as made at the same time, and cannot be told from it.
+ */
+const REST_OF_THE_SECOND_MS = 999;
+
+/**
+ * The latest date the org gave the run's records from `from` to `to`, both
+ * included: when one was created, or last modified. NaN when none falls
+ * there. A `CreatedDate` the run copied from the source falls years before;
+ * a change made after the run, past `to`.
+ */
+function lastWriteOf(snapshots: readonly ObjectSnapshot[], from: number, to: number): number {
+  let last = Number.NaN;
+  for (const snapshot of snapshots) {
+    if (snapshot.lastCreated >= from && snapshot.lastCreated <= to) {
+      last = latest(last, snapshot.lastCreated);
+    }
+    last = latest(last, snapshot.modified.latestWithin(from, to));
+  }
+  return last;
+}
+
 /**
  * The run's span, in the target's dates: the one given, or, for a run whose
  * dates the org did not give back, read from its records and from when it
@@ -3010,6 +3083,12 @@ function earliest(a: number, b: number): number {
  * run's user may set audit fields, the clone writes the source's, years
  * before the run.
  *
+ * Asked to (`endedByItsWrites`), it ends instead with the latest date the
+ * org gave the run's records within that span — when one was created, or
+ * last modified — and the rest of that second: see
+ * {@link RunRemovalOptions.endedByItsWrites}. The leeway stands where the org
+ * gave none.
+ *
  * Without that time, or from an org that does not tell its clock, the span
  * runs from the first record's `CreatedDate` for as long as the run took:
  * late rather than early, as the run's first write came after it started.
@@ -3019,20 +3098,26 @@ function earliest(a: number, b: number): number {
 function runSpan(
   options: Pick<
     RunRemovalOptions,
-    'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt'
+    'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt' | 'endedByItsWrites'
   >,
   snapshots: Iterable<ObjectSnapshot>,
   orgAheadMs: number,
 ): { start: number; end: number } {
+  const read = [...snapshots];
   let firstCreated = Number.NaN;
-  for (const snapshot of snapshots) firstCreated = earliest(firstCreated, snapshot.firstCreated);
+  for (const snapshot of read) firstCreated = earliest(firstCreated, snapshot.firstCreated);
   const duration = options.runDurationMs ?? 0;
   const recordedOnOrg = (options.runRecordedAt?.getTime() ?? Number.NaN) + orgAheadMs;
   if (options.runEndedAt === undefined && Number.isFinite(recordedOnOrg)) {
     const began = recordedOnOrg - duration - CLOCK_LEEWAY_MS;
+    const recordedEnd = recordedOnOrg + CLOCK_LEEWAY_MS;
+    const lastWrite =
+      options.endedByItsWrites === true ? lastWriteOf(read, began, recordedEnd) : Number.NaN;
     return {
       start: options.runStartedAt?.getTime() ?? (firstCreated > began ? firstCreated : began),
-      end: recordedOnOrg + CLOCK_LEEWAY_MS,
+      end: Number.isFinite(lastWrite)
+        ? Math.min(lastWrite + REST_OF_THE_SECOND_MS, recordedEnd)
+        : recordedEnd,
     };
   }
   const start = options.runStartedAt?.getTime() ?? firstCreated;

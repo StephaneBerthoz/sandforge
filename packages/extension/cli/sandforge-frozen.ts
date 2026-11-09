@@ -331,7 +331,8 @@ ${checkpointFirstHelp({
                          (hand work, likely)
   --sweep-list           with remove: list what --sweep would delete, per object
                          with a few names and how many it ties to the load, and
-                         for each other load it sweeps with it, and delete nothing
+                         for each other load it sweeps with it, and delete nothing;
+                         exit 3 when it says a sweep is refused, as --sweep would
   --preview              with remove: say what the removal would do, per object — the
                          records it would delete, those it would keep as changed since
                          the load and who changed them, those gone already, those it
@@ -2308,6 +2309,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const removalRefusals: RunRefusal[] = [];
   /** What refused the step itself before its first write, with its code. */
   let stepRefused: RunRefusal | undefined;
+  /** Whether a --sweep-list said the sweep it lists would be refused, for one load or another. */
+  let sweepListRefused = false;
   /** What a dry run or a preview asked to mute says a real step's mute would do. */
   let dryRunMute: FrozenAnswerContext['mute'];
   /** The checkpoint the load took first, or of a dry run, what a real load's would hold and cost. */
@@ -2371,7 +2374,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // A verification FAILED, PARTIAL or UNSTABLE, and a load that completed
   // with errors, exited 0: only an error message failed the step. A dry run
   // a load would be refused after fails it too, as a preview's refusal does.
-  endWith(failed || refusals.length > 0 ? FAILED_EXIT : frozenStepExit(args.step, posted));
+  endWith(
+    failed || refusals.length > 0
+      ? FAILED_EXIT
+      : sweepListRefused
+        ? PARTIAL_EXIT
+        : frozenStepExit(args.step, posted),
+  );
   if (args.json) {
     await emit();
     return;
@@ -2892,6 +2901,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // load's own records included.
           log(`reading what a sweep of ${args.target} would take…`);
           await send('frozen:remove:sweep', { targetOrgId, loadedAt: records.loadedAt });
+          // A list a sweep would be refused for ends as that sweep does, as
+          // the clone's: ending 0, it read as an empty list to a script.
+          const listed = posted.filter((m) => m.type === 'frozen:remove:sweep:response').at(-1)
+            ?.payload as
+            { listing?: ForgeSweepListing; otherLoads?: FrozenReloadSweepListing[] } | undefined;
+          sweepListRefused = [
+            listed?.listing,
+            ...(listed?.otherLoads ?? []).map(({ listing }) => listing),
+          ].some((listing) => listing?.refusal !== undefined);
           break;
         }
         for (const line of removalPlanLines(records, args.target ?? '')) log(line);

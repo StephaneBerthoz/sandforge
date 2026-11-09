@@ -573,6 +573,160 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     expect(left()).toEqual({});
   });
 
+  /**
+   * A second contact role under the opportunity and its contact, made by hand
+   * as the run's user eight seconds after the cut part ended by this
+   * machine's clock, ten after its last write by the org's: the gate's
+   * second role, which the org dated to the second.
+   */
+  const HAND_ROLE = TGT('00K', 2);
+  function roleMadeByHandAfterTheCut(): void {
+    setClock(at('10:00:13'));
+    org.add('OpportunityContactRole', {
+      Id: HAND_ROLE,
+      OpportunityId: OPPORTUNITY.target,
+      ContactId: CONTACT.target,
+      Role: 'Influencer',
+      ...byTheRun(at('10:00:13')),
+    });
+  }
+
+  /** What holds the records of the run the removal kept, per object, from its JSON. */
+  const heldBy = (objects: readonly ForgeUndoObjectResult[]) =>
+    objects
+      .filter((o) => o.keptDependents > 0)
+      .map((o) => [o.objectApiName, o.heldBy, o.heldByAutomation ?? 0]);
+
+  it('the journal alone keeps a contact role made by hand seconds after the cut, as the run’s user, and says what holds what it kept', async () => {
+    theRun();
+    roleMadeByHandAfterTheCut();
+
+    const whole = await remove(journal, at('10:05:00'));
+
+    // Dated by this machine's clock, ten seconds of leeway after the cut
+    // part's end, the role read as the run's, and went with the opportunity.
+    expect(whole.exit).toBe(3);
+    expect(whole.result.status).toBe('partial');
+    expect(heldBy(whole.result.objects)).toEqual([
+      ['Opportunity', ['OpportunityContactRole'], 1],
+      ['Contact', ['OpportunityContactRole'], 1],
+      ['Account', ['Contact', 'Opportunity'], 0],
+    ]);
+    expect(org.all('OpportunityContactRole').map((r) => r.Id)).toContain(HAND_ROLE);
+    // The org's tracked change for the line item the removal deleted stays
+    // with the opportunity.
+    expect(left()).toMatchObject({
+      Account: 1,
+      Contact: 1,
+      Opportunity: 1,
+      OpportunityContactRole: 2,
+    });
+    // Said as the gate's later role was: kept, and what holds it named.
+    expect(stderr).toContainEqual(
+      expect.stringContaining(
+        '2 record(s) of the run kept for records created under them as its user, within a ' +
+          "minute of them, likely by the target's automation (OpportunityContactRole)",
+      ),
+    );
+  });
+
+  it('the cut part, then the resume, which takes what the cut part left: the contact role made by hand right after the cut stays, and what it hangs from', async () => {
+    const { s1, s2 } = theRun();
+    roleMadeByHandAfterTheCut();
+
+    const cut = await remove(s1, at('10:05:00'));
+    const resumed = await remove(s2, at('10:08:00'));
+
+    expect(cut.exit).toBe(3);
+    expect(resumed.exit).toBe(3);
+    expect(heldBy(resumed.result.objects)).toEqual([
+      ['Opportunity', ['OpportunityContactRole'], 1],
+      ['Contact', ['OpportunityContactRole'], 1],
+      ['Account', ['Contact', 'Opportunity'], 0],
+    ]);
+    expect(org.all('OpportunityContactRole').map((r) => r.Id)).toContain(HAND_ROLE);
+    expect(left()).toMatchObject({ Opportunity: 1, Contact: 1, Account: 1 });
+  });
+
+  it('the resume, then the journal: the contact role made by hand right after the cut stays, and what it hangs from', async () => {
+    const { s2 } = theRun();
+    roleMadeByHandAfterTheCut();
+
+    const resumed = await remove(s2, at('10:05:00'));
+    const whole = await remove(journal, at('10:08:00'));
+
+    expect(resumed.result.status).toBe('success');
+    expect(whole.exit).toBe(3);
+    expect(heldBy(whole.result.objects)).toEqual([
+      ['Opportunity', ['OpportunityContactRole'], 1],
+      ['Contact', ['OpportunityContactRole'], 1],
+      ['Account', ['Contact', 'Opportunity'], 0],
+    ]);
+    expect(org.all('OpportunityContactRole').map((r) => r.Id)).toContain(HAND_ROLE);
+    expect(left()).toMatchObject({ Opportunity: 1, Contact: 1, Account: 1 });
+  });
+
+  it('the journal alone still takes what the org made in the second of the cut part’s last write: the org dates to the second', async () => {
+    theRun();
+    // The org dated the opportunity 10:00:03; a role it made in that same
+    // second cannot be told from one made with it.
+    setClock(at('10:00:03'));
+    org.add('OpportunityContactRole', {
+      Id: HAND_ROLE,
+      OpportunityId: OPPORTUNITY.target,
+      ContactId: CONTACT.target,
+      ...byTheRun(at('10:00:03')),
+    });
+
+    const whole = await remove(journal, at('10:05:00'));
+
+    expect(whole.result.status).toBe('success');
+    expect(left()).toEqual({});
+  });
+
+  /** The words the gate's target had a sweep refused with, its records that dated the run gone. */
+  const SWEEP_REFUSED =
+    'sweep refused: The target did not date this run’s writes: the window its automation ' +
+    'wrote in cannot be told, and nothing is swept.';
+
+  it('a --sweep-list a sweep would be refused for exits 3, as the refused sweep does, not 0 as an empty list', async () => {
+    theRun();
+    roleMadeByHandAfterTheCut();
+    await remove(journal, at('10:05:00'));
+    setClock(at('10:06:00'));
+    stdout = [];
+    const printed: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      printed.push(String(line));
+    });
+
+    const listed = await run(['--remove', journal, '--target', 'TGT', '--sweep-list']);
+    const swept = await run(['--remove', journal, '--target', 'TGT', '--sweep']);
+
+    expect(printed).toContain(SWEEP_REFUSED);
+    expect(listed).toBe(3);
+    expect(swept).toBe(3);
+  });
+
+  it('a --sweep-list --json a sweep would be refused for exits 3, its JSON saying the refusal as before', async () => {
+    theRun();
+    roleMadeByHandAfterTheCut();
+    await remove(journal, at('10:05:00'));
+    setClock(at('10:06:00'));
+    stdout = [];
+    stderr = [];
+
+    const listed = await run(['--remove', journal, '--target', 'TGT', '--sweep-list', '--json']);
+
+    expect(stderr).toContain(SWEEP_REFUSED);
+    expect(JSON.parse(stdout.join(''))).toMatchObject({
+      tool: 'sandforge-clone',
+      action: 'sweep-list',
+      listing: { refusal: SWEEP_REFUSED.replace('sweep refused: ', ''), found: [] },
+    });
+    expect(listed).toBe(3);
+  });
+
   it('keeps the contact role a colleague changed after the resume, and what it hangs from', async () => {
     const { s1, s2 } = theRun();
     setClock(at('10:03:00'));

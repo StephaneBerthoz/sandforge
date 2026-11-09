@@ -143,6 +143,11 @@ export async function runPartsOf(path: string, journals: ForgeRunJournal): Promi
  * A part's span as this machine's clock dated it, for a removal to read on
  * the org's (`runRecordedAt`, `runDurationMs`): its end, right after its last
  * write, and how long it ran. Undefined when its lines say no end.
+ *
+ * The removal of the part's records ends it with its last write as the org
+ * dated it (`endedByItsWrites`), read in what it reads of them: ten seconds
+ * of leeway after the end its lines say took a contact role made by hand
+ * eight seconds after a cut part ended for the run's.
  */
 export function machineSpanOf(part: RunPart): RunPartAlongside['span'] | undefined {
   const ended = Date.parse(part.endedAt ?? '');
@@ -151,6 +156,7 @@ export function machineSpanOf(part: RunPart): RunPartAlongside['span'] | undefin
   return {
     runRecordedAt: new Date(ended),
     runDurationMs: Number.isFinite(began) && began <= ended ? ended - began : 0,
+    endedByItsWrites: true,
   };
 }
 
@@ -164,7 +170,10 @@ export function laterPartsOf(parts: readonly RunPart[], part: number): RunLaterP
   return parts.flatMap((later) => {
     if (later.part <= part || (later.wrote.length === 0 && later.linked.length === 0)) return [];
     const span = machineSpanOf(later);
-    return span ? [{ span, wrote: later.wrote, linked: later.linked }] : [];
+    if (!span) return [];
+    // Read against its recorded end: see `RunLaterPart.span`.
+    const recorded = { runRecordedAt: span.runRecordedAt, runDurationMs: span.runDurationMs };
+    return [{ span: recorded, wrote: later.wrote, linked: later.linked }];
   });
 }
 

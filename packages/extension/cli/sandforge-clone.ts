@@ -947,7 +947,8 @@ Remove what a run created:
                          work, likely)
   --sweep-list           list what --sweep would delete, per object with a few
                          names and how many it ties to the run, and delete
-                         nothing, the run's records included
+                         nothing, the run's records included; exit 3, as a
+                         refused --sweep, when it says the sweep is refused
                          What a sweep leaves, and why: what another user
                          created, a colleague's or an integration's; what is
                          tied to nothing, unless --sweep-untied; what came
@@ -5906,6 +5907,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     } else {
       console.log(`\ndone in ${Date.now() - t0}ms`);
     }
+    // A list a sweep would be refused for ends as that sweep does: ending 0,
+    // it read as an empty list to a script.
+    if (listing.refusal !== undefined) process.exit(RECORDS_LEFT_EXIT);
     return;
   }
   const runUserId = summary.result.runUserId;

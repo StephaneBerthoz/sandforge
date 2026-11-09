@@ -3313,6 +3313,131 @@ describe('removeRunRecords', () => {
       expect(org.has('Task', id('00T', 1))).toBe(true);
     });
 
+    describe('a part dated by the clock of the machine that ran it, asked to end with its last write', () => {
+      // A part of a clone cut and taken up, as its journal dates it: begun at
+      // 10:00:00 and ended at 10:00:05 on a machine whose clock agrees with
+      // the org's, which dates its writes to the second.
+      const at = (seconds: number): string =>
+        new Date(Date.parse('2026-09-20T10:00:00.000Z') + seconds * 1000).toISOString();
+      const part = (overrides: Partial<RunRemovalOptions> = {}): RunRemovalOptions => ({
+        runRecordedAt: new Date(at(5)),
+        runDurationMs: 5_000,
+        endedByItsWrites: true,
+        includeChanged: false,
+        ...overrides,
+      });
+      /** The part's account and contact, created at 10:00:01 and 10:00:02, as the run's user. */
+      function accountAndContact(contactModified = at(2)) {
+        const org = new FakeOrg();
+        org.relationships.set('Account', ACCOUNT_CHILDREN);
+        org.add('Account', {
+          Id: id('001', 1),
+          CreatedDate: at(1),
+          LastModifiedDate: at(1),
+          CreatedById: USER,
+        });
+        org.add('Contact', {
+          Id: id('003', 1),
+          AccountId: id('001', 1),
+          CreatedDate: at(2),
+          LastModifiedDate: contactModified,
+          CreatedById: USER,
+        });
+        const plan = [
+          { objectApiName: 'Contact', ids: [id('003', 1)] },
+          { objectApiName: 'Account', ids: [id('001', 1)] },
+        ];
+        return { org, plan };
+      }
+      /** A task under the account, made at `seconds` as the run's user. */
+      const taskAt = (org: FakeOrg, seconds: number): void =>
+        org.add('Task', {
+          Id: id('00T', 1),
+          WhatId: id('001', 1),
+          CreatedDate: at(seconds),
+          LastModifiedDate: at(seconds),
+          CreatedById: USER,
+        });
+
+      it("keeps a task the run's user made by hand eight seconds after the part ended, and the account it hangs from", async () => {
+        const { org, plan } = accountAndContact();
+        taskAt(org, 13);
+
+        const outcome = await removeRunRecords(org, plan, part());
+
+        expect(outcome.objects).toEqual([
+          expect.objectContaining({ objectApiName: 'Contact', deleted: 1 }),
+          expect.objectContaining({
+            objectApiName: 'Account',
+            deleted: 0,
+            keptDependents: 1,
+            heldBy: ['Task'],
+          }),
+        ]);
+        expect(org.has('Task', id('00T', 1))).toBe(true);
+      });
+
+      it('takes what the org made in the second of the last write the org dated', async () => {
+        const { org, plan } = accountAndContact();
+        taskAt(org, 2);
+
+        const outcome = await removeRunRecords(org, plan, part());
+
+        expect(outcome.objects.map((o) => [o.objectApiName, o.deleted, o.keptDependents])).toEqual([
+          ['Contact', 1, 0],
+          ['Account', 1, 0],
+        ]);
+        expect(org.has('Task', id('00T', 1))).toBe(false);
+      });
+
+      it('ends with its second pass on its own records: what the org made as it filled in a lookup goes', async () => {
+        // The contact's lookup filled in at 10:00:04, after the part's last
+        // insert; a flow opened a task on the account as the contact changed.
+        const { org, plan } = accountAndContact(at(4));
+        taskAt(org, 4);
+
+        const outcome = await removeRunRecords(org, plan, part());
+
+        expect(outcome.objects.map((o) => [o.objectApiName, o.deleted, o.keptChanged])).toEqual([
+          ['Contact', 1, 0],
+          ['Account', 1, 0],
+        ]);
+        expect(org.has('Task', id('00T', 1))).toBe(false);
+      });
+
+      it('keeps ten seconds of leeway after the part where the org dated none of its writes within it', async () => {
+        // Audit fields copied from the source: the account says 2019.
+        const org = new FakeOrg();
+        org.relationships.set('Account', ACCOUNT_CHILDREN);
+        org.add('Account', {
+          Id: id('001', 1),
+          CreatedDate: '2019-05-01T08:00:00.000+0000',
+          LastModifiedDate: '2019-05-01T08:00:00.000+0000',
+          CreatedById: USER,
+        });
+        taskAt(org, 13);
+
+        const outcome = await removeRunRecords(
+          org,
+          [{ objectApiName: 'Account', ids: [id('001', 1)] }],
+          part(),
+        );
+
+        expect(outcome.objects[0]).toMatchObject({ deleted: 1, keptDependents: 0 });
+        expect(org.has('Task', id('00T', 1))).toBe(false);
+      });
+
+      it('unasked, a run dated by when it was recorded keeps its ten seconds of leeway', async () => {
+        const { org, plan } = accountAndContact();
+        taskAt(org, 13);
+
+        const outcome = await removeRunRecords(org, plan, part({ endedByItsWrites: undefined }));
+
+        expect(outcome.objects[1]).toMatchObject({ deleted: 1, keptDependents: 0 });
+        expect(org.has('Task', id('00T', 1))).toBe(false);
+      });
+    });
+
     it('starts a run that kept no dates when it began, not at the creation dates it copied from the source', async () => {
       // The run's user may set audit fields in both orgs, so its account
       // carries the source's creation date, years before the run. A contact

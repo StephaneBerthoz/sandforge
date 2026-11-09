@@ -283,6 +283,52 @@ describe('sandforge-sync --remove with a sweep', () => {
     expect(existsSync(join(dir, 'run.removals.json'))).toBe(false);
   });
 
+  /** Why a sweep of a run whose window cannot be told is refused, in the sweep's words. */
+  const WINDOW_UNTOLD =
+    'The target did not date this run’s writes: the window its automation wrote in cannot be ' +
+    'told, and nothing is swept.';
+
+  it('exits 3 when the sweep it lists would be refused, as that sweep does, where it ended 0 as an empty list', async () => {
+    vi.mocked(listSweep).mockResolvedValue({
+      looked: [],
+      found: [],
+      unread: [],
+      handWork: [],
+      refusal: WINDOW_UNTOLD,
+    });
+    const exit = stubExit();
+
+    await expect(main(argv('--remove', file, '--target', 'TGT', '--sweep-list'))).rejects.toThrow(
+      'exit 3',
+    );
+
+    expect(exit.code()).toBe(3);
+    expect(stdout).toContain(`sweep refused: ${WINDOW_UNTOLD}`);
+    expect(org.deletes).toEqual([]);
+  });
+
+  it('exits 3 under --json when the sweep it lists would be refused, its listing saying why as before', async () => {
+    vi.mocked(listSweep).mockResolvedValue({
+      looked: [],
+      found: [],
+      unread: [],
+      handWork: [],
+      refusal: WINDOW_UNTOLD,
+    });
+    const exit = stubExit();
+
+    await expect(
+      main(argv('--remove', file, '--target', 'TGT', '--sweep-list', '--json')),
+    ).rejects.toThrow('exit 3');
+
+    expect(exit.code()).toBe(3);
+    expect(JSON.parse(stdout)).toMatchObject({
+      tool: 'sandforge-sync',
+      action: 'sweep-list',
+      listing: { found: [], refusal: WINDOW_UNTOLD },
+    });
+  });
+
   it('says the list on stderr under --json, the warning about hand work among it, and the listing alone on stdout', async () => {
     vi.mocked(listSweep).mockResolvedValue({
       looked: ['Account', 'Contact', 'Task'],

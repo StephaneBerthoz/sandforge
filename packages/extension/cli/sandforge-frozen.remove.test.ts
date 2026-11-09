@@ -176,6 +176,56 @@ describe('sandforge-frozen remove, with nothing to take', () => {
   });
 });
 
+describe('sandforge-frozen remove --sweep-list of a load the target no longer dates', () => {
+  /**
+   * A load that kept no dates of the target's, whose account the target no
+   * longer holds: the window its automation wrote in cannot be read.
+   */
+  async function undatedLoad(): Promise<void> {
+    await new SasReferenceIdMappingStore(sasDir, {
+      orgId: ORG_ID,
+      organizationId: ORG_ID,
+      now: () => new Date('2026-10-17T08:00:10.000Z'),
+    }).persist(new Map([['Account-000001', '001000000000001AAA']]), {
+      created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+      startedAt: new Date('2026-10-17T08:00:00.000Z'),
+    });
+  }
+  const REFUSED =
+    'sweep refused: The target did not date this run’s writes: the window its automation ' +
+    'wrote in cannot be told, and nothing is swept.';
+
+  it('exits 3, as the refused sweep does, where it ended 0 as an empty list', async () => {
+    await undatedLoad();
+
+    await main(argv('remove', '--config', configPath, '--target', 'TGT', '--sweep-list'));
+
+    expect(printed.join('')).toContain(REFUSED);
+    expect(process.exitCode).toBe(3);
+  });
+
+  it('exits 3 under --json, the refusal said in the listing it posted, as before', async () => {
+    await undatedLoad();
+    let stderr = '';
+    vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string) => {
+      stderr += chunk;
+      return true;
+    }) as never);
+
+    await main(argv('remove', '--config', configPath, '--target', 'TGT', '--sweep-list', '--json'));
+
+    expect(stderr).toContain(REFUSED);
+    const answer = JSON.parse(printed.join('')) as {
+      posted: Array<{ type: string; payload: { listing?: { refusal?: string } } }>;
+    };
+    expect(
+      answer.posted.find((m) => m.type === 'frozen:remove:sweep:response')?.payload.listing
+        ?.refusal,
+    ).toBe(REFUSED.replace('sweep refused: ', ''));
+    expect(process.exitCode).toBe(3);
+  });
+});
+
 describe('what a sweep of a load is asked, and what the removal says', () => {
   it('asks the panel’s handler for what came late and what is tied to nothing only when told', () => {
     const line = ['remove', '--config', 'c.json', '--target', 'TGT'];

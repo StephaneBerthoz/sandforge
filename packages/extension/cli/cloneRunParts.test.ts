@@ -96,10 +96,11 @@ describe('what a removal of one part is handed of the others', () => {
     ...fields,
   });
 
-  it('dates a part by its lines, on this machine clock', () => {
+  it('dates a part by its lines, on this machine clock, for its removal to end it with its last write as the org dated it', () => {
     expect(machineSpanOf(part(1))).toEqual({
       runRecordedAt: new Date(at('10:02:05')),
       runDurationMs: 5_000,
+      endedByItsWrites: true,
     });
     expect(machineSpanOf(part(1, { endedAt: undefined }))).toBeUndefined();
   });

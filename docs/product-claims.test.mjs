@@ -5343,7 +5343,48 @@ test('the Forge reference says how each part of a resumed clone is removed, from
   );
   assert.match(
     commandLine,
+    /Each part ends with its last write as the target dated it, to the second/,
+    'the journal removal no longer says each part ends with its last write as the target dated it',
+  );
+  assert.match(
+    commandLine,
+    /A record made under them in a later second stays, the run's user's own included/,
+    'the journal removal no longer says a record made in the second after a part stays',
+  );
+  assert.doesNotMatch(
+    commandLine,
+    /unless made within ten seconds of the end of the part before it/,
+    'the journal removal still says a record made within ten seconds of a part is that part’s own',
+  );
+  assert.match(
+    commandLine,
     /`result\.heldByOtherParts`/,
     'the command line paragraph no longer names result.heldByOtherParts',
+  );
+});
+
+test('the Forge reference and the exit codes say a --sweep-list a sweep would be refused for exits 3, as the refused --sweep', () => {
+  const sweep = read('docs', 'forge-reference.md')
+    .split('\n')
+    .find((line) => line.startsWith('`--sweep` precedes the removal'));
+  assert.ok(sweep, 'docs/forge-reference.md no longer has its paragraph on --sweep');
+  assert.match(
+    sweep,
+    /`--sweep-list` lists what `--sweep` would delete[^.]*\. It exits `0` once it has listed, and `3`, as a refused `--sweep` does, when it says the sweep would be refused/,
+    'the Forge reference no longer says what a refused --sweep-list exits',
+  );
+  assert.match(
+    sweep,
+    /a sweep that is refused or leaves some of what it set out to take[^.]*exits `3`/,
+    'the Forge reference no longer says a refused --sweep exits 3',
+  );
+  const partial = read('ci-examples', 'README.md')
+    .split('\n')
+    .find((line) => line.startsWith('| `3`'));
+  assert.ok(partial, 'ci-examples/README.md no longer has the row of exit 3');
+  assert.match(
+    partial,
+    /its `--sweep` was refused[^;]*, or its `--sweep-list` says that sweep would be refused;/,
+    'the exit codes no longer say a refused --sweep-list exits 3',
   );
 });

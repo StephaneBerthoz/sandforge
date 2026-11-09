@@ -1085,6 +1085,28 @@ describe('sandforge-seed --remove', () => {
     expect(existsSync(join(dir, 'seed.removals.json'))).toBe(false);
   });
 
+  it('exits 3 when the sweep it lists would be refused, as that sweep does, where it ended 0 as an empty list', async () => {
+    const refusal =
+      'The target did not date this run’s writes: the window its automation wrote in cannot be ' +
+      'told, and nothing is swept.';
+    vi.mocked(listSweep).mockResolvedValue({
+      looked: [],
+      found: [],
+      unread: [],
+      handWork: [],
+      refusal,
+    });
+    const exit = stubExit();
+
+    await expect(main(argv('--remove', file, '--target', 'TGT', '--sweep-list'))).rejects.toThrow(
+      'exit 3',
+    );
+
+    expect(exit.code()).toBe(3);
+    expect(stdout).toContain(`sweep refused: ${refusal}`);
+    expect(org.deletes).toEqual([]);
+  });
+
   it('refuses a run another process is still writing under its code, its preview too, deleting nothing', async () => {
     // Refused so, it said a sentence with no code on stderr and left stdout
     // empty, its preview as well.

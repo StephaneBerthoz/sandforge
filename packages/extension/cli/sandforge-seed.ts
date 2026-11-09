@@ -509,12 +509,13 @@ Remove what a run created:
                          the run nor the automation reaches (hand work, likely).
   --sweep-list           list what --sweep would delete, per object with a few
                          names and how many it ties to the run, and delete
-                         nothing, the run's records included. What a sweep
-                         leaves: what another user created; what is tied to
-                         nothing, unless --sweep-untied; what came more than
-                         15 minutes after its record, or after the removal
-                         began; what anyone changed after the run's last
-                         write, the run's own user included, unless
+                         nothing, the run's records included; exit 3, as a
+                         refused --sweep, when it says the sweep is refused.
+                         What a sweep leaves: what another user created; what
+                         is tied to nothing, unless --sweep-untied; what came
+                         more than 15 minutes after its record, or after the
+                         removal began; what anyone changed after the run's
+                         last write, the run's own user included, unless
                          --include-changed; what the automation changed
                          rather than created; what left the org; and what the
                          panel or another machine wrote
@@ -3496,6 +3497,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     } else {
       say(`\ndone in ${Date.now() - t0}ms`);
     }
+    // A list a sweep would be refused for ends as that sweep does, as the
+    // clone's: ending 0, it read as an empty list to a script.
+    if (listing.refusal !== undefined) process.exit(RECORDS_LEFT_EXIT);
     return;
   }
 
