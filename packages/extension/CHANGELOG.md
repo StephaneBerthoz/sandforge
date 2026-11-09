@@ -5,6 +5,16 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.76.1] - 2026-11-09
+
+A checkpoint preview names the refusals its rewind would meet, and removing a resumed Forge clone by its journal keeps what someone made seconds after a part.
+
+### Fixed
+
+- **Forge**: `--remove <journal>` of a resumed clone ends each part at its last write as the org dated it, and keeps and names a record made by hand seconds after.
+- **Checkpoints, command line and MCP**: a preview names every refusal its rewind would meet, records to make again included, with what lifts each.
+- **Command line**: a `--sweep-list` that says the sweep would be refused exits 3, as a refused `--sweep` does, in Forge, Sync, Seed and Frozen Dataset.
+
 ## [1.76.0] - 2026-11-08
 
 A Frozen load asks before the target's automation fires, the panel removes a resumed Forge clone whole, and dry runs count what a run links.
