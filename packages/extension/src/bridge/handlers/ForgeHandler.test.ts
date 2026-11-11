@@ -308,6 +308,59 @@ describe('ForgeHandler', () => {
       expect(response.payload.graph).toEqual(graph);
     });
 
+    describe('of the whole org', () => {
+      const WHOLE_ORG = createMockConfig({
+        inputMode: 'org',
+        depth: 'all',
+        recordId: undefined,
+      });
+
+      /** The errors posted for discovery, code and message. */
+      function discoverErrors(): Array<{ code?: string; message: string }> {
+        return vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.map((call) => call[0] as BaseMessage & { payload: Record<string, unknown> })
+          .filter((m) => m.type === 'forge:discover:error')
+          .map((m) => m.payload as { code?: string; message: string });
+      }
+
+      it('walks no cap on objects a config carried over: it takes every object it may copy', async () => {
+        await handler.handle(
+          buildMsg('forge:discover', { config: { ...WHOLE_ORG, maxNodes: 50 } }),
+        );
+
+        expect(orchestrator.discover).toHaveBeenCalledTimes(1);
+        const options = vi.mocked(orchestrator.discover).mock.calls[0][1] as DiscoveryOptions;
+        expect(options).not.toHaveProperty('maxNodes');
+        expect(discoverErrors()).toEqual([]);
+      });
+
+      it('refuses, before anything is read, a config that breaks the rule of the whole org', async () => {
+        // The loose schema the message is parsed with lets them through.
+        for (const config of [
+          { ...WHOLE_ORG, depth: 'direct' as const },
+          createMockConfig({ depth: 'all' }),
+          { ...WHOLE_ORG, soqlQuery: 'SELECT Id FROM Account' },
+        ]) {
+          await handler.handle(buildMsg('forge:discover', { config }));
+        }
+
+        expect(orchestrator.discover).not.toHaveBeenCalled();
+        expect(discoverErrors()).toEqual([
+          expect.objectContaining({
+            code: 'WHOLE_ORG_CONFIG',
+            message:
+              "A clone of the whole org (inputMode 'org') takes the depth 'all' and no other. Nothing was read.",
+          }),
+          expect.objectContaining({ code: 'WHOLE_ORG_CONFIG' }),
+          expect.objectContaining({
+            code: 'WHOLE_ORG_CONFIG',
+            message: expect.stringContaining('soqlQuery must be left out'),
+          }),
+        ]);
+      });
+    });
+
     it('posts error message when discover fails', async () => {
       const config = createMockConfig();
       vi.mocked(orchestrator.discover).mockRejectedValue(new Error('Discovery failed'));
@@ -1252,6 +1305,81 @@ describe('ForgeHandler', () => {
         .mocked(deps.broker.postToWebview)
         .mock.calls.filter((call) => (call[0] as BaseMessage).type === 'forge:execute:error');
       expect(errors).toHaveLength(1);
+    });
+
+    describe('of the whole org', () => {
+      const WHOLE_ORG = createMockConfig({
+        inputMode: 'org',
+        depth: 'all',
+        recordId: undefined,
+      });
+
+      /** The errors the page was answered with, code and message. */
+      function executeErrors(): Array<{ code?: string; message: string }> {
+        return vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.map((call) => call[0] as BaseMessage & { payload: Record<string, unknown> })
+          .filter((m) => m.type === 'forge:execute:error')
+          .map((m) => m.payload as { code?: string; message: string });
+      }
+
+      it('refuses a config that breaks the rule of the whole org before anything is read', async () => {
+        await handler.handle(
+          buildMsg('forge:execute', {
+            graph: createMockGraph(),
+            config: { ...WHOLE_ORG, recordId: '001000000000123' },
+          }),
+        );
+
+        expect(orchestrator.execute).not.toHaveBeenCalled();
+        expect(executeErrors()).toEqual([
+          expect.objectContaining({
+            code: 'WHOLE_ORG_CONFIG',
+            message: expect.stringMatching(
+              /recordId must be left out\. Nothing was read or written\.$/,
+            ),
+          }),
+        ]);
+      });
+
+      it('refuses to simulate it: its confirmation says what it writes, and a simulation keeps no journal', async () => {
+        await handler.handle(
+          buildMsg('forge:execute', {
+            graph: createMockGraph(),
+            config: { ...WHOLE_ORG, dryRun: true },
+          }),
+        );
+
+        expect(orchestrator.execute).not.toHaveBeenCalled();
+        expect(executeErrors()).toEqual([
+          expect.objectContaining({
+            code: 'WHOLE_ORG_SIMULATION',
+            message:
+              'A clone of the whole org cannot be simulated yet: its confirmation lists what it ' +
+              'writes. Nothing was read.',
+          }),
+        ]);
+        // Nothing started: no operation to end.
+        const started = vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.filter((call) => (call[0] as BaseMessage).type === 'operation:started');
+        expect(started).toEqual([]);
+      });
+
+      it('writes nothing without a journal to keep the run in', async () => {
+        await handler.handle(
+          buildMsg('forge:execute', { graph: createMockGraph(), config: WHOLE_ORG }),
+        );
+
+        expect(orchestrator.execute).not.toHaveBeenCalled();
+        expect(executeErrors()).toEqual([
+          expect.objectContaining({
+            message:
+              'A clone of the whole org keeps its journal on disk, which could not be opened. ' +
+              'Nothing was written.',
+          }),
+        ]);
+      });
     });
 
     describe('copying the files of the cloned records', () => {

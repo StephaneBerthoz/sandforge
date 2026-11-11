@@ -5,6 +5,8 @@ import { logger } from '../../logger.js';
 import { isExcludedFromCopy } from './excludedObjects.js';
 import { isInsertOnlyField, isRequiredLookup, isSettableField } from '@sandforge/shared';
 import { CONCURRENT_DESCRIBE_LIMIT } from './orgConcurrency.js';
+import type { GlobalObject } from '../checkpoint/checkpointScope.js';
+import { discoverWholeOrg } from './WholeOrgDiscovery.js';
 
 /** Describe result for an object returned by the org connection. */
 export interface ObjectDescribe {
@@ -84,24 +86,56 @@ export interface GraphDiscoveryDeps {
     objectApiName: string,
     signal?: AbortSignal,
   ) => Promise<ObjectDescribe>;
-  /** Count records matching a SOQL query. */
-  queryCount: (orgId: string, soql: string, signal?: AbortSignal) => Promise<number>;
+  /**
+   * Count records matching a SOQL query. Asked to take every row (`all`), it
+   * counts through the org's `queryAll`, which still answers for the
+   * activities the org archived; the statement then says `IsDeleted = false`
+   * itself, or the recycle bin is counted too.
+   */
+  queryCount: (
+    orgId: string,
+    soql: string,
+    signal?: AbortSignal,
+    options?: { all?: boolean },
+  ) => Promise<number>;
   /** Detect PII fields from a list of field describes. */
   detectPII: (fields: ReadonlyArray<Pick<FieldDescribe, 'name' | 'type'>>) => string[];
-  /** Describe all objects in the org (used for record ID prefix resolution). */
-  describeGlobal: (
+  /**
+   * Describe all objects in the org: their key prefixes, which resolve the
+   * object of a record id, and what the user may do with each, which a clone
+   * of the whole org settles its objects by. A caller that knows only the
+   * names and prefixes may give only those.
+   */
+  describeGlobal: (orgId: string, signal?: AbortSignal) => Promise<GlobalObject[]>;
+  /**
+   * The names the org's Tooling API serves, none when it cannot say: what a
+   * clone of the whole org reads as metadata rather than data. Absent, none.
+   */
+  toolingObjects?: (orgId: string, signal?: AbortSignal) => Promise<string[]>;
+  /**
+   * The org's own approximation of how many records each object holds
+   * (`/limits/recordCount`), by object; `undefined` when the org does not
+   * say — the user lacks View Setup, or the call failed. A clone of the whole
+   * org keeps the figure of an object it could not count in time. Absent,
+   * never asked.
+   */
+  approximateRecordCounts?: (
     orgId: string,
     signal?: AbortSignal,
-  ) => Promise<Array<{ name: string; keyPrefix: string | null }>>;
+  ) => Promise<ReadonlyMap<string, number> | undefined>;
 }
 
 /**
  * What a progress event reports:
  * - `resolving-root`: the root object is being looked up, nothing discovered yet;
  * - `object`: one more object was added to the graph;
- * - `cached`: a graph discovered earlier is served whole.
+ * - `cached`: a graph discovered earlier is served whole;
+ * - `listing`, `counting`, `describing`: a clone of the whole org lists the
+ *   objects of both orgs, counts the records of each it may take, then
+ *   describes those that hold any (`WholeOrgDiscovery`).
  */
-export type DiscoveryPhase = 'resolving-root' | 'object' | 'cached';
+export type DiscoveryPhase =
+  'resolving-root' | 'object' | 'cached' | 'listing' | 'counting' | 'describing';
 
 /** Progress event emitted during graph discovery. */
 export interface DiscoveryProgressEvent {
@@ -113,6 +147,13 @@ export interface DiscoveryProgressEvent {
   discoveredCount: number;
   /** Number of objects remaining in the BFS queue. */
   queueRemaining: number;
+  /**
+   * How many objects the phase goes through, where it knows: the objects a
+   * clone of the whole org counts, then those it describes. `discoveredCount`
+   * is then how many of them are done. Absent on a walk from a root, which
+   * cannot know how far it will go.
+   */
+  total?: number;
 }
 
 /** Options for the discover method. */
@@ -182,13 +223,13 @@ export function holdsAPlace(
  * `setTimeout(0)` so the suite stays portable across jsdom / browser-like
  * environments that the webview tests may run in.
  */
-const yieldToEventLoop: () => Promise<void> =
+export const yieldToEventLoop: () => Promise<void> =
   typeof setImmediate === 'function'
     ? () => new Promise<void>((resolve) => setImmediate(resolve))
     : () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /** Raised inside the walk when the signal fires while an org call is pending. */
-class DiscoveryCancelled extends Error {
+export class DiscoveryCancelled extends Error {
   constructor() {
     super('Discovery cancelled');
     this.name = 'DiscoveryCancelled';
@@ -204,7 +245,10 @@ class DiscoveryCancelled extends Error {
  * the call is being issued is not missed. A call that answers after the cancel
  * is ignored; its rejection is still observed here, never left unhandled.
  */
-function untilCancelled<T>(call: () => Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+export function untilCancelled<T>(
+  call: () => Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
   if (!signal) return call();
   if (signal.aborted) return Promise.reject(new DiscoveryCancelled());
   return new Promise<T>((resolve, reject) => {
@@ -234,7 +278,7 @@ export function knowsItsFields(node: ForgeGraphNode): boolean {
 }
 
 /** The graph a discovery cancelled before its root was resolved hands back. */
-function emptyGraph(): ForgeGraph {
+export function emptyGraph(): ForgeGraph {
   return {
     nodes: [],
     edges: [],
@@ -267,6 +311,9 @@ export class GraphDiscoveryService {
    * @returns The complete ForgeGraph with nodes, edges, and estimates.
    */
   async discover(config: ForgeConfig, options?: DiscoveryOptions): Promise<ForgeGraph> {
+    // A clone of the whole org walks from no root: it lists every object of
+    // both orgs, and the node cap does not apply.
+    if (config.inputMode === 'org') return discoverWholeOrg(this.deps, config, options);
     const signal = options?.signal;
     if (signal?.aborted) return emptyGraph();
     // Emit a "resolving" event so the wizard never sits silent
@@ -805,6 +852,10 @@ export class GraphDiscoveryService {
         // governor limits without producing a usable graph (depth 10 of
         // a CRM org explodes into thousands of describes).
         return Math.max(1, Math.min(10, config.customDepth ?? 3));
+      case 'all':
+        // A clone of the whole org walks from no root: it lists every object
+        // of the org instead, and never reaches the walk this depth bounds.
+        throw new Error('ALL is discovered without a root (WholeOrgDiscovery)');
     }
   }
 }

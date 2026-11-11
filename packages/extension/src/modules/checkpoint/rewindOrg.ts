@@ -110,7 +110,10 @@
  *   result counts there, its give-back counting what was changed since, as
  *   the preview does.
  * - Deleted: the records spooled to disk, handed to `removeRunRecords`, named
- *   in the journal before, and what it left named once it answered.
+ *   in the journal before, and what it left named once it answered. A call
+ *   the org's automation refuses for a Salesforce limit goes again in
+ *   smaller calls, within what the requests the org had left leave past the
+ *   estimate (`splitAllowanceOf`), both passes together.
  * - Files, of a checkpoint that holds them: a file (`ContentDocument`) is a
  *   record, deleted, brought back and given its fields back as one, never
  *   made again; its links come and go with it and with the record they tie
@@ -208,6 +211,7 @@ import {
   type SyncUndeleteObjectResult,
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { CallSizes, RUN_SPLIT_CALLS } from '../../core/common/governorLimit.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { isMuteRefusedError, type RunMute } from '../forge/AutomationMuteLease.js';
 import { readColumnsApart } from '../../core/common/wideRead.js';
@@ -1602,6 +1606,35 @@ export function counted(
 }
 
 /**
+ * The smaller calls a rewind's removals, or an undo's, may send when the
+ * org's automation refuses a call for a Salesforce limit — a trigger that
+ * runs a query per record, Too many SOQL queries past 100 — and the removal
+ * sends the records again in calls half as large (`SplitAllowance`): what
+ * the requests the org has left today, read once before anything else,
+ * leave past the act's estimate, 2,000 at most. No estimate can tell which
+ * trigger will refuse a call of 200, so the splitting is not estimated but
+ * bounded: every call the removal sends more than the estimate priced — a
+ * call that sends refused records again, a call more than calls of 200
+ * would have taken, every call of a Bulk job sent by REST instead — is paid
+ * from it as it is queued, one more request the count sees ({@link counted}),
+ * and together they never take the act past what the org had left when its
+ * gate let it through. Past it, an object goes at 200 again, or as the job
+ * it was queued as, which the estimate priced.
+ *
+ * @param remaining - The requests the org had left today, as the act read them.
+ * @param estimate - What the act takes, its reads so far and the estimate of the rest.
+ */
+export function splitAllowanceOf(remaining: number, estimate: number): number {
+  const left = Math.floor(remaining - estimate);
+  return Number.isFinite(left) ? Math.min(RUN_SPLIT_CALLS, Math.max(0, left)) : 0;
+}
+
+/** The smaller calls a removal sent of its deletes, as the sizes it was handed counted them. */
+export function smallerCallsSent(sizes: CallSizes): number {
+  return sizes.reports('delete').reduce((sum, report) => sum + report.extraCalls, 0);
+}
+
+/**
  * Rewind an org to a checkpoint: see the module's comment.
  *
  * @returns What it did and what still differs, stopped part way included;
@@ -1674,6 +1707,13 @@ class Rewind {
   private readonly stampOf = new Map<string, number>();
   /** When its removals ran, and as whom. */
   private readonly spans: ForgeRemovalSpan[] = [];
+  /**
+   * The smaller calls its removals may still send for calls the org's
+   * automation refused for a limit (`splitAllowanceOf`), set once its gate
+   * let it through: what the first pass's removal sent of them is not the
+   * second's to send again.
+   */
+  private splitLeft = 0;
   /** The user the rewind writes as. */
   private userId = '';
   /** The users whose writes are the rewind's own, by their keys. */
@@ -1931,6 +1971,7 @@ class Rewind {
       orgName,
     );
     if (writing && overBudget) return { rewound: false, refusal: overBudget };
+    this.splitLeft = splitAllowanceOf(budget.remaining, this.count.used() + rest.apiRequests);
     // The emails its writes make the org send, against what it has left of
     // each daily limit: past them, no box lifts the refusal. Those of what
     // could not be read are not counted: the acceptance of the automation
@@ -2538,7 +2579,12 @@ class Rewind {
         const modified = dateMs(row.LastModifiedDate ?? row.SystemModstamp);
         return modified <= runEnd || modified <= (this.stampOf.get(keyOf(row.Id)) ?? Number.NaN);
       };
+      // The sizes the org's automation let through, kept for this removal
+      // alone, and what it spent of the smaller calls taken off what is left.
+      const sizes = new CallSizes();
       outcome = await removeRunRecords(this.org, plan.deletes, {
+        callSizes: sizes,
+        splitAllowance: this.splitLeft,
         runStartedAt: plan.removal.runStartedAt,
         runEndedAt: plan.removal.runEndedAt,
         includeChanged: plan.removal.includeChanged,
@@ -2560,6 +2606,7 @@ class Rewind {
             `Deleting ${objectApiName}: ${settled} / ${total}`,
           ),
       });
+      this.splitLeft = Math.max(0, this.splitLeft - smallerCallsSent(sizes));
       await journal.deleted(outcome);
       tally.delete(outcome.objects);
       for await (const { objectApiName, ids } of outcome.left()) {

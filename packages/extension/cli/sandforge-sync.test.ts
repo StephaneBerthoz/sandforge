@@ -97,6 +97,30 @@ describe('what a run prints of an object', () => {
     expect(objectWrittenLines({})).toEqual([]);
   });
 
+  it('names an owner the target holds inactive as what refused a record written again without it', () => {
+    // Sync does not ask for this refusal itself; the line still names it when
+    // a result carries it, as every refusal a written-again record can carry.
+    expect(
+      objectWrittenLines({
+        writtenWithoutFields: {
+          rows: 2,
+          fields: [
+            {
+              field: 'OwnerId',
+              rows: 2,
+              refusedBy: 'inactive-owner',
+              reason: 'INACTIVE_OWNER_OR_USER: operation performed with inactive user',
+            },
+          ],
+        },
+      }),
+    ).toEqual([
+      '2 record(s) written again without the fields the target refused them on:',
+      '  2 without OwnerId: the target holds the owner it names inactive, ' +
+        'INACTIVE_OWNER_OR_USER: operation performed with inactive user',
+    ]);
+  });
+
   it('prints once for the run what it did with the emails and phone numbers it wrote', () => {
     expect(
       contactPointLines({

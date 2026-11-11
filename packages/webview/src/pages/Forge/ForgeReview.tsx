@@ -11,7 +11,7 @@ import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import type { MetadataDiffEntry } from '../../stores/useForgeStore';
 import { useForgeStore } from '../../stores/useForgeStore';
-import { useForgeObjectsView } from '../../stores/useForgeViewStore';
+import { forgeGraphIsLarge, useForgeObjectsView } from '../../stores/useForgeViewStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { LiveGraph } from '../../components/graph/lazyGraph';
 import { ForgeTableView } from './ForgeTableView';
@@ -29,7 +29,7 @@ import { ReviewFilesOption, filesBlockExecute } from './ReviewFilesOption';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
 import { ForgeRehearseAction } from './ForgeRehearseAction';
 import { startForgeRun } from './startForgeRun';
-import { clonesOneRecord } from './forgeRunConfig';
+import { clonesOneRecord, clonesWholeOrg } from './forgeRunConfig';
 import { useForgeGaps } from './useForgeGaps';
 import { ReviewGapsRead } from './ReviewGapsRead';
 import { ReviewControlsTab } from './ReviewControlsTab';
@@ -46,9 +46,18 @@ type ReviewTab =
  * The graph the target's automation is read for: the objects the user left
  * out count as written, so one taken back in on Review has its automation
  * read already. The tab leaves out what the user leaves out when it shows it.
+ *
+ * Of a clone of the whole org, the nodes go without their relations, and
+ * never with the objects the org leaves out: up to 1,950 objects and 20,000
+ * relations, in a message the panel sends as Review opens and at each read
+ * again. Every relation of such a graph is between two of its nodes, and
+ * what is read turns only on those that reach past the graph — a lookup to a
+ * catalog object discovery stopped before — so the read is the one the run
+ * finds kept for its own graph, relations and all. A graph walked from a
+ * root keeps them: they say which catalog objects past it the run adds.
  */
-function graphForAutomation(graph: ForgeGraph): ForgeGraph {
-  return {
+function graphForAutomation(graph: ForgeGraph, wholeOrg: boolean): ForgeGraph {
+  const sent: ForgeGraph = {
     ...graph,
     nodes: graph.nodes.map((node) => {
       if (node.leftOutByUser !== true) return node;
@@ -56,17 +65,20 @@ function graphForAutomation(graph: ForgeGraph): ForgeGraph {
       delete taken.leftOutByUser;
       return taken;
     }),
+    edges: wholeOrg ? [] : graph.edges,
   };
+  delete sent.leftOut;
+  return sent;
 }
 
 /**
  * Ask what the target runs on the objects a run of the graph writes: as
  * Review opens, and again when the user asks.
  */
-function requestTargetAutomation(targetOrgId: string, graph: ForgeGraph): void {
+function requestTargetAutomation(targetOrgId: string, graph: ForgeGraph, wholeOrg: boolean): void {
   sendBridgeMessage<{ targetOrgId: string; graph: ForgeGraph }>('forge:automation:request', {
     targetOrgId,
-    graph: graphForAutomation(graph),
+    graph: graphForAutomation(graph, wholeOrg),
   });
 }
 
@@ -98,8 +110,16 @@ export const ForgeReview: React.FC = () => {
   const plan = useForgeStore((s) => s.plan);
   const setPhase = useForgeStore((s) => s.setPhase);
   const toggleNodeIncluded = useForgeStore((s) => s.toggleNodeIncluded);
-  /** The graph or its table, as on the discovery and execution screens around it. */
-  const view = useForgeObjectsView(graph?.nodes.length ?? 0);
+  /** A clone of the whole source org: never simulated nor rehearsed yet, its graph large. */
+  const wholeOrg = clonesWholeOrg(config);
+  const objectCount = graph?.nodes.length ?? 0;
+  /**
+   * The graph or its table, as on the discovery and execution screens around
+   * it: a large one, a clone of the whole org's among them, listed unless
+   * the graph is picked on it, with a word of how slow it is to draw.
+   */
+  const view = useForgeObjectsView(objectCount, wholeOrg);
+  const largeGraph = forgeGraphIsLarge(objectCount, wholeOrg);
   /** What the search of the graph holds, the objects it matches, and the one asked to be shown. */
   const [graphQuery, setGraphQuery] = useState('');
   const highlighted = useMemo(
@@ -163,7 +183,7 @@ export const ForgeReview: React.FC = () => {
     // What the target runs on the records the run writes, read with the diff
     // and once as well: a clone fired the target's flows on every record it
     // created, emails among them, and nothing said so before the run.
-    requestTargetAutomation(config.targetOrgId, graph);
+    requestTargetAutomation(config.targetOrgId, graph, clonesWholeOrg(config));
     // And what the target's metadata holds against the rows: its validation
     // and duplicate rules, the fields only it requires, its lookup filters,
     // its API budget. The extension reads an object the user left out too.
@@ -181,7 +201,7 @@ export const ForgeReview: React.FC = () => {
   const readAutomationAgain = useCallback(() => {
     if (!graph || !config) return;
     setAutomationReading(true);
-    requestTargetAutomation(config.targetOrgId, graph);
+    requestTargetAutomation(config.targetOrgId, graph, clonesWholeOrg(config));
   }, [graph, config]);
 
   /**
@@ -350,7 +370,7 @@ export const ForgeReview: React.FC = () => {
           hundreds of objects included. */}
       {graph && (
         <div className="flex flex-wrap items-start gap-4">
-          <ForgeViewToggle view={view} />
+          <ForgeViewToggle view={view} large={largeGraph} objectCount={objectCount} />
           <ReviewGraphSearch
             graph={graph}
             query={graphQuery}
@@ -488,7 +508,22 @@ export const ForgeReview: React.FC = () => {
         <div className="flex flex-wrap items-start justify-end gap-3">
           {/* The platform's own verdict on a sample of the rows, every write
               rolled back: beside Simulate, which checks them here. */}
-          <ForgeRehearseAction />
+          {/* Neither is offered for a clone of the whole org yet: a
+              simulation keeps no journal, which such a run needs, and a
+              rehearsal holds its rows in memory. The confirmation the run
+              always asks before it writes stands in for both. */}
+          {wholeOrg && (
+            <p
+              id="forge-all-no-simulation"
+              data-testid="forge-all-no-simulation"
+              className="flex min-h-9 max-w-xs items-center text-xs text-text-secondary"
+            >
+              {t('forgeRun.allNoSimulation')}
+            </p>
+          )}
+          <ForgeRehearseAction
+            {...(wholeOrg ? { unavailableHintId: 'forge-all-no-simulation' } : {})}
+          />
           {filesBlocked && (
             <p
               id="forge-files-execute-hint"
@@ -506,12 +541,14 @@ export const ForgeReview: React.FC = () => {
               type="button"
               data-testid="simulate-button"
               onClick={handleSimulate}
-              disabled={!graph || !config || filesBlocked}
-              aria-describedby={
-                filesBlocked
-                  ? 'forge-simulate-caption forge-files-execute-hint'
-                  : 'forge-simulate-caption'
-              }
+              disabled={!graph || !config || filesBlocked || wholeOrg}
+              aria-describedby={[
+                'forge-simulate-caption',
+                filesBlocked ? 'forge-files-execute-hint' : '',
+                wholeOrg ? 'forge-all-no-simulation' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
               className="px-4 py-2 text-sm font-semibold rounded-lg border border-forge text-hue-forge transition-colors hover:bg-forge/10 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {t('forgeRun.simulation.action')}

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
@@ -106,6 +107,7 @@ describe('sandforge-clone flag validation', () => {
   it.each([
     ['a malformed --record', argv().map((a) => (a === '001000000000001AAA' ? 'not-an-id' : a))],
     ['an unknown --depth', argv('--depth', 'deep')],
+    ['--depth all, a clone of the whole org', argv('--depth', 'all')],
     ['a --custom-depth that is not a number', argv('--custom-depth', 'five')],
     ['a --custom-depth above the maximum', argv('--custom-depth', '50')],
     ['a --max that is not a number', argv('--max', 'lots')],
@@ -131,6 +133,67 @@ describe('sandforge-clone flag validation', () => {
     expect(await run(args)).toBe(2);
     expect(mockExecFileSync).not.toHaveBeenCalled();
     expect(stderr).not.toBe('');
+  });
+
+  it.each([
+    ['with a record', argv('--depth', 'all')],
+    // How a clone of the whole org is asked for: it names no record, and was
+    // answered that a required flag was missing.
+    [
+      'without a record, as a whole org is asked for',
+      ['node', 'x', '--source', 'SRC', '--target', 'TGT', '--depth', 'all'],
+    ],
+    [
+      'with tables',
+      ['node', 'x', '--object', 'Account', '--source', 'SRC', '--target', 'TGT', '--depth', 'all'],
+    ],
+  ])(
+    'says a clone of the whole org is offered in the Forge panel only, %s',
+    async (_label, args) => {
+      expect(await run(args)).toBe(2);
+
+      expect(mockExecFileSync).not.toHaveBeenCalled();
+      expect(stderr).toBe(
+        '--depth all clones the whole org and is only offered in the Forge panel for now.\n',
+      );
+    },
+  );
+
+  it.each([
+    ['saved from a clone of the whole org', { inputMode: 'org', depth: 'all' }],
+    [
+      'of a record at the depth ALL, which the panel never saves',
+      { inputMode: 'record', recordId: '001000000000001AAA', depth: 'all' },
+    ],
+  ])('refuses a --template %s, before any org is reached', async (_label, input) => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-clone-whole-org-'));
+    try {
+      const template = join(dir, 'template.json');
+      writeFileSync(
+        template,
+        JSON.stringify({
+          id: 'whole-uat',
+          name: 'The whole of UAT',
+          description: '',
+          config: { ...input, anonymizePII: false, skipEmpty: true, batchSize: 'auto' },
+          objectCount: 0,
+          recordCount: 0,
+          createdAt: '2026-11-01T09:00:00.000Z',
+          lastUsedAt: '2026-11-01T09:00:00.000Z',
+        }),
+      );
+
+      // With a record of its own and a depth of its own: what the template clones is the whole org.
+      expect(await run(argv('--template', template, '--depth', 'full'))).toBe(2);
+
+      expect(mockExecFileSync).not.toHaveBeenCalled();
+      expect(stderr).toBe(
+        '--template: the template clones the whole org (the depth ALL), which is only offered ' +
+          'in the Forge panel for now.\n',
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('refuses --files with --anonymize until the files are accepted as they are', async () => {
@@ -1131,6 +1194,35 @@ describe('sandforge-clone summary', () => {
     );
     expect(summaryLines(summary({})).some((line) => line.includes('validation rule'))).toBe(false);
     expect(jsonResult(summary({}))).not.toHaveProperty('writtenWithoutFields');
+  });
+
+  it('says a record written again without its owner was refused for an owner the target holds inactive', () => {
+    // The refusal of `--object` between two sandboxes of one production: the
+    // owner's user is inactive in the target, and the record went in again
+    // without OwnerId, with the user the run writes as.
+    const writtenWithoutFields = [
+      {
+        objectApiName: 'Aeroport__c',
+        rows: 3,
+        fields: [
+          {
+            field: 'OwnerId',
+            refusedBy: 'inactive-owner' as const,
+            reason:
+              'INACTIVE_OWNER_OR_USER: operation performed with inactive user [005000000000001] as owner of [aeroport__c]',
+            rows: 3,
+          },
+        ],
+      },
+    ];
+
+    expect(summaryLines(summary({ writtenWithoutFields }))).toContain(
+      '  Aeroport__c.OwnerId  3 record(s) — the target holds the owner it names inactive — ' +
+        'INACTIVE_OWNER_OR_USER: operation performed with inactive user [005000000000001] as owner of [aeroport__c]',
+    );
+    expect(jsonResult(summary({ writtenWithoutFields })).writtenWithoutFields).toEqual(
+      writtenWithoutFields,
+    );
   });
 
   it('prints the reason an object was held back, from its error samples', () => {

@@ -150,6 +150,39 @@ describe('JournalPart', () => {
     },
   );
 
+  it('hands over with their object the records a job of the part wrote that no row was matched to, each once', async () => {
+    const text = [
+      ...LINES.slice(0, 3),
+      ['n', 'Account', [tgt('001', 50), tgt('001', 51), tgt('001', 1), 'not an id']],
+      ['n', 'Lead', [tgt('00Q', 1)]],
+      ['n', 'Account', [tgt('001', 50)]],
+      ...LINES.slice(3),
+      // A record a job of the next part wrote is that part's.
+      ['n', 'Account', [tgt('001', 60)]],
+    ]
+      .map((line) => JSON.stringify(line))
+      .join('\n');
+    const records = JournalPart.read(memoryRunFile(`${text}\n`), 0)?.runRecords(undefined, 2);
+    if (!records) throw new Error('not read');
+
+    const handed = await collected(records);
+    const accounts = handed.find((object) => object.objectApiName === 'Account')?.ids ?? [];
+    expect(accounts.filter((id) => id === tgt('001', 50))).toHaveLength(1);
+    expect(accounts).toContain(tgt('001', 51));
+    expect(accounts.filter((id) => id === tgt('001', 1))).toHaveLength(1);
+    expect(accounts).not.toContain(tgt('001', 60));
+    expect(handed.find((object) => object.objectApiName === 'Lead')?.ids).toEqual([tgt('00Q', 1)]);
+    expect(records.has(tgt('001', 51).slice(0, 15))).toBe(true);
+    expect(records.has(tgt('001', 60).slice(0, 15))).toBe(false);
+
+    // What the removals left of them, and no more, once some were taken.
+    const keys = new HashedKeys();
+    keys.add(tgt('001', 51).slice(0, 15));
+    const left = JournalPart.read(memoryRunFile(`${text}\n`), 0)?.runRecords(keys);
+    if (!left) throw new Error('not read');
+    expect(await collected(left)).toEqual([{ objectApiName: 'Account', ids: [tgt('001', 51)] }]);
+  });
+
   it('reads no journal of 1.50, whose records are in lines of a page each, and no file that is not a journal', () => {
     const fifty = `${JSON.stringify(HEAD)}\n${JSON.stringify({ object: 'Account', created: [[src('001', 1), tgt('001', 1)]] })}\n`;
     expect(JournalPart.read(memoryRunFile(fifty), 0)).toBeUndefined();

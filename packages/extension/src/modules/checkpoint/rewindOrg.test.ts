@@ -3,6 +3,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeTargetObjectAutomation, RewindResult } from '@sandforge/shared';
 
+import { CallSizes, RUN_SPLIT_CALLS } from '../../core/common/governorLimit.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { MEMORY_ORG_USER, factCombinations, type MemoryRow } from '../../test/memoryRemovalOrg.js';
 import { paced } from '../../test/runnerPace.js';
@@ -49,6 +50,7 @@ import {
   type OrgState,
   type Taken,
 } from '../../test/rewindTestOrg.js';
+import { removeRunRecords } from '../forge/ForgeRunRemoval.js';
 import { rewindDirOf } from './OrgCheckpointStore.js';
 import { previewCheckpoint } from './previewCheckpoint.js';
 import { readRewindJournal } from './rewindJournal.js';
@@ -59,6 +61,8 @@ import {
   counted,
   inRewindWords,
   rewindOrgOf,
+  smallerCallsSent,
+  splitAllowanceOf,
   type RewindOutcome,
 } from './rewindOrg.js';
 import { KEPT_IN_BIN_WORDS } from './undoRewind.js';
@@ -70,6 +74,12 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
+
+// The removal itself, watched: what each rewind hands it is read back.
+vi.mock('../forge/ForgeRunRemoval.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../forge/ForgeRunRemoval.js')>();
+  return { ...actual, removeRunRecords: vi.fn(actual.removeRunRecords) };
+});
 
 /*
  * The rewind, on the memory org the bricks run on: a checkpoint taken of it
@@ -88,6 +98,7 @@ beforeEach(() => {
 afterEach(() => {
   removeTaken();
   vi.mocked(getJsforceConnection).mockReset();
+  vi.mocked(removeRunRecords).mockClear();
 });
 
 describe('rewindOrg, on the memory org', () => {
@@ -1681,6 +1692,116 @@ describe('rewindOrg: what it costs', () => {
     expect(result.undo).toBeUndefined();
     expect(spent(t.org) - asked).toBe(preview.estimate.apiRequests);
     expect(existsSync(t.folder.rewindsDir) ? readdirSync(t.folder.rewindsDir) : []).toEqual([]);
+  });
+});
+
+/**
+ * What a trigger that runs a query per record answers a delete of more than
+ * one record, as SSC_TRG_Provenance answered a removal's call of 116.
+ */
+const TRIGGER_LIMIT =
+  'SSC_TRG_Provenance: execution of BeforeDelete\n\ncaused by: System.LimitException: ' +
+  'Too many SOQL queries: 101\n\nTrigger.SSC_TRG_Provenance: line 5, column 1';
+
+/** The org, its automation refusing for a limit every delete of more than `most` records, rolled back whole. */
+function limitedAbove(org: RewindTestOrg, most: number): void {
+  const destroy = org.destroy.bind(org);
+  org.destroy = (objectApiName, ids) => {
+    if (ids.length <= most) return destroy(objectApiName, ids);
+    org.requests++;
+    org.deletes.push({ objectApiName, ids: [...ids] });
+    return Promise.resolve(
+      ids.map((id) => ({
+        id,
+        success: false,
+        errors: [{ statusCode: 'DELETE_FAILED', message: TRIGGER_LIMIT, fields: [] }],
+      })),
+    );
+  };
+}
+
+/** The smaller calls each removal of the rewind was handed, in order. */
+function allowancesHanded(): Array<number | undefined> {
+  return vi.mocked(removeRunRecords).mock.calls.map(([, , options]) => options.splitAllowance);
+}
+
+describe('rewindOrg: the smaller calls its removal may send', () => {
+  it('hands its removal the 2,000 smaller calls a removal allows itself when the org has far more left than it takes', async () => {
+    const t = await taken();
+    changedSince(t.org);
+    const diff = await previewed(t);
+
+    resultOf(await rewound(t, diff.previewId));
+
+    expect(allowancesHanded()).toEqual([RUN_SPLIT_CALLS]);
+  });
+
+  it('hands its removal no more smaller calls than the requests the org has left leave past its estimate, its gate’s own figure', async () => {
+    const t = await taken();
+    changedSince(t.org);
+    const diff = await previewed(t);
+    t.org.limits = { Max: 15_000, Remaining: 30 };
+    const refused = await rewound(t, diff.previewId);
+    if (refused.rewound) throw new Error('the rewind went through on 30 requests left');
+    const estimate = Number(/takes about (\d+) API requests/.exec(refused.refusal.message)?.[1]);
+    expect(vi.mocked(removeRunRecords)).not.toHaveBeenCalled();
+
+    t.org.limits = { Max: 15_000, Remaining: estimate + 7 };
+    resultOf(await rewound(t, diff.previewId));
+
+    expect(allowancesHanded()).toEqual([7]);
+  });
+
+  it('counts every call its removal sends again smaller once the org’s automation refused one for a Salesforce limit, and puts the org back all the same', async () => {
+    const t = await taken();
+    changedSince(t.org);
+    const diff = await previewed(t);
+    const asked = spent(t.org);
+    limitedAbove(t.org, 1);
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(stateOf(t.org).live).toEqual(t.atCheckpoint.live);
+    expect(result.status).toBe('success');
+    // The call of two refused whole, then each account on its own.
+    expect(
+      t.org.deletes
+        .filter(({ objectApiName }) => objectApiName === 'Account')
+        .map(({ ids }) => ids.length),
+    ).toEqual([2, 1, 1]);
+    expect(result.apiRequests.used).toBe(spent(t.org) - asked);
+    // The two calls more are what the rewind takes off what its removals may still send.
+    const [[, , options]] = vi.mocked(removeRunRecords).mock.calls;
+    expect(options.callSizes && smallerCallsSent(options.callSizes)).toBe(2);
+  });
+});
+
+describe('splitAllowanceOf', () => {
+  it('gives what the requests left leave past the estimate, never less than none, never more than 2,000', () => {
+    expect(splitAllowanceOf(14_000, 300)).toBe(RUN_SPLIT_CALLS);
+    expect(splitAllowanceOf(500, 300)).toBe(200);
+    expect(splitAllowanceOf(300, 300)).toBe(0);
+    expect(splitAllowanceOf(30, 300)).toBe(0);
+    expect(splitAllowanceOf(300.9, 300)).toBe(0);
+    expect(splitAllowanceOf(Number.NaN, 300)).toBe(0);
+  });
+});
+
+describe('smallerCallsSent', () => {
+  it('adds up the smaller calls paid for the deletes of every object, and none of another operation', () => {
+    const sizes = new CallSizes();
+    expect(smallerCallsSent(sizes)).toBe(0);
+    const provenance = { objectApiName: 'Provenance__c', op: 'delete' as const };
+    const contact = { objectApiName: 'Contact', op: 'delete' as const };
+    sizes.refusedAt(provenance, 116);
+    sizes.countExtraCalls(provenance, 2);
+    sizes.refusedAt(contact, 200);
+    sizes.countExtraCalls(contact, 3);
+    const inserted = { objectApiName: 'Contact', op: 'insert' as const };
+    sizes.refusedAt(inserted, 200);
+    sizes.countExtraCalls(inserted, 4);
+
+    expect(smallerCallsSent(sizes)).toBe(5);
   });
 });
 

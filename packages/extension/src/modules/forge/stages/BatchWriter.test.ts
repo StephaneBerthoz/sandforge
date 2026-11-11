@@ -1,17 +1,26 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   BatchWriter,
   addWrittenWithoutFields,
   emptyBatchWriteResult,
+  fieldsToLeaveOut,
   resolveWriteBatching,
   summarizeRecordForError,
   writtenWithoutFieldsNote,
+  type BulkTransport,
+  type InsertCallJournal,
   type WriteNodeInput,
 } from './BatchWriter.js';
+import { BulkApiManager } from '../../../core/engine/BulkApiManager.js';
+import { BulkJobLostError, type BulkRowState, type BulkWriteAnswer } from '../forgeBulkWrite.js';
 import type { ForgeBatchStrategy, ResolvedBatchStrategy } from '../ForgeBatchStrategy.js';
 import { IdRemapper } from '../IdRemapper.js';
 import { logger } from '../../../logger.js';
-import { toSaveOutcome } from '../../../core/common/existingRecordMatch.js';
+import {
+  bulkSaveErrorDetail,
+  formatSaveError,
+  toSaveOutcome,
+} from '../../../core/common/existingRecordMatch.js';
 import type { CleanedRecord } from './RecordCleaner.js';
 import type { PicklistField } from './RecordTypePicklists.js';
 import type {
@@ -975,8 +984,13 @@ describe('BatchWriter', () => {
 });
 
 describe('resolveWriteBatching', () => {
+  const REST = { bulk: false };
+  const BULK = { bulk: true };
+
   it('clamps a bulk-sized batch down to the REST write limit', () => {
-    expect(resolveWriteBatching({ api: 'bulk', batchSize: 10_000, batchCount: 1 }, 5_000)).toEqual({
+    expect(
+      resolveWriteBatching({ api: 'bulk', batchSize: 10_000, batchCount: 1 }, 5_000, REST),
+    ).toEqual({
       api: 'rest',
       batchSize: 200,
       batchCount: 25,
@@ -985,7 +999,7 @@ describe('resolveWriteBatching', () => {
   });
 
   it('honors a strategy asking for smaller batches than the write limit', () => {
-    expect(resolveWriteBatching({ api: 'rest', batchSize: 50, batchCount: 2 }, 90)).toEqual({
+    expect(resolveWriteBatching({ api: 'rest', batchSize: 50, batchCount: 2 }, 90, REST)).toEqual({
       api: 'rest',
       batchSize: 50,
       batchCount: 2,
@@ -994,9 +1008,24 @@ describe('resolveWriteBatching', () => {
   });
 
   it('makes no batch for a node with no record to write', () => {
-    expect(resolveWriteBatching({ api: 'rest', batchSize: 200, batchCount: 1 }, 0).batchCount).toBe(
-      0,
-    );
+    expect(
+      resolveWriteBatching({ api: 'rest', batchSize: 200, batchCount: 1 }, 0, REST).batchCount,
+    ).toBe(0);
+  });
+
+  it('cuts jobs of 10 000 rows for a run that sends jobs, from 2 000 rows of a bulk strategy', () => {
+    const planned: ResolvedBatchStrategy = { api: 'bulk', batchSize: 10_000, batchCount: 3 };
+    expect(resolveWriteBatching(planned, 25_000, BULK)).toEqual({
+      api: 'bulk',
+      batchSize: 10_000,
+      batchCount: 3,
+      clamped: false,
+    });
+    // Under the threshold, or a strategy that asks for REST: by REST all the same.
+    expect(resolveWriteBatching(planned, 1_999, BULK).api).toBe('rest');
+    expect(
+      resolveWriteBatching({ api: 'rest', batchSize: 200, batchCount: 125 }, 25_000, BULK).api,
+    ).toBe('rest');
   });
 });
 
@@ -2588,6 +2617,390 @@ describe('BatchWriter — a row a restricted picklist refused for its value', ()
   });
 });
 
+describe('BatchWriter — a row the target refused for an owner inactive there', () => {
+  type BulkFn = NonNullable<ForgeExecutorDeps['bulkWriteRecords']>;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** The owner as the source gave it, on 18 characters, and as the target names it, on 15. */
+  const OWNER = '005AU00000AbCdEYAQ';
+  const NAMED = '005AU00000AbCdE';
+  /** Another owner, active in the target. */
+  const ACTIVE = '005AU00000AcTiVYAQ';
+  const MESSAGE = `operation performed with inactive user [${NAMED}] as owner of [aeroport__c]`;
+  const REASON = `INACTIVE_OWNER_OR_USER: ${MESSAGE}`;
+  /** The Bulk API's words for it, as a clone between two sandboxes of one production read them. */
+  const SF_ERROR = `INACTIVE_OWNER_OR_USER:${MESSAGE}:--`;
+
+  /** A refusal as the REST writers hand it on: read from the platform's save result. */
+  function refused(
+    ...errors: Array<{ statusCode: string; message: string; fields: string[] }>
+  ): InsertResult {
+    return toSaveOutcome({ success: false, errors }, 'Aeroport__c');
+  }
+
+  const byInactiveOwner = (message = MESSAGE): InsertResult =>
+    refused({ statusCode: 'INACTIVE_OWNER_OR_USER', message, fields: [] });
+
+  /** The same refusal as a job answers it: `sf__Error` read for its code, as `forgeBulkWrite` does. */
+  function byInactiveOwnerInAJob(): InsertResult {
+    const detail = bulkSaveErrorDetail(SF_ERROR);
+    if (!detail) throw new Error('the incident sf__Error reads as one error');
+    return { id: '', success: false, errors: [formatSaveError(detail)], errorDetails: [detail] };
+  }
+
+  const written = (id: string): InsertResult => ({ id, success: true, errors: [] });
+
+  /** Rows of a custom object as the cleaning stage hands them on, owned as given. */
+  function airports(
+    rows: Array<Record<string, unknown>>,
+    overrides?: Partial<WriteNodeInput>,
+    objectApiName = 'Aeroport__c',
+  ): WriteNodeInput {
+    const payloadOf = (row: Record<string, unknown>): Record<string, unknown> =>
+      Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'Id'));
+    return makeInput(rows, {
+      node: makeNode(objectApiName, rows.length),
+      records: rows.map(payloadOf),
+      cleanedRecords: rows.map((row) => ({
+        source: { ...row },
+        cleaned: payloadOf(row),
+        nullifiedFks: [],
+      })),
+      creatableFields: new Set(['Name', 'OwnerId']),
+      ...overrides,
+    });
+  }
+
+  /** `n` rows owned by the inactive owner, each its own source id and name. */
+  function owned(n: number): Array<Record<string, unknown>> {
+    return Array.from({ length: n }, (_, i) => ({
+      Id: `a0AOLD${String(i).padStart(9, '0')}`,
+      Name: `A${i}`,
+      OwnerId: OWNER,
+    }));
+  }
+
+  /** The answer of a job that wrote every row it was sent, each with an id of its own. */
+  function allWritten(records: readonly unknown[]): BulkWriteAnswer {
+    return {
+      answers: records.map((_, i) => written(`a0AJOB${String(i).padStart(9, '0')}`)),
+      rows: records.map((): BulkRowState => 'answered'),
+      unmatchedIds: [],
+      jobId: '750JOB',
+      requests: 12,
+    };
+  }
+
+  /** A node of `rows` whose strategy asks for jobs, written by a run that sends them. */
+  function bulkInput(
+    rows: Array<Record<string, unknown>>,
+    overrides: Partial<WriteNodeInput> = {},
+  ): WriteNodeInput {
+    return airports(rows, {
+      node: { ...makeNode('Aeroport__c', rows.length), batchStrategy: 'auto' },
+      bulk: {
+        signal: new AbortController().signal,
+        restOnly: new Set<string>(),
+        bulkUnsupported: new Set<string>(),
+        manager: new BulkApiManager(1),
+      },
+      ...overrides,
+    });
+  }
+
+  const progressOf = (input: WriteNodeInput): string[] =>
+    vi.mocked(input.onProgress).mock.calls.map(([event]) => event.message);
+
+  it('writes it once more without its owner, the key gone and not emptied, and says the target held the owner inactive', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byInactiveOwner()])
+      .mockResolvedValueOnce([written('a0ANEW1')]);
+    const input = airports([{ Id: 'a0AOLD1', Name: 'Orly', OwnerId: OWNER }]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(2);
+    const sentAgain = insertRecords.mock.calls[1]?.[2]?.[0];
+    expect(sentAgain).toEqual({ Name: 'Orly' });
+    expect(sentAgain).not.toHaveProperty('OwnerId');
+    expect(input.remapper.get('a0AOLD1')).toBe('a0ANEW1');
+    expect(result).toMatchObject({ successCount: 1, failureCount: 0, errorSamples: [] });
+    expect(result.writtenWithoutFields).toEqual({
+      rows: 1,
+      fields: [{ field: 'OwnerId', refusedBy: 'inactive-owner', reason: REASON, rows: 1 }],
+    });
+    expect(writtenWithoutFieldsNote(result.writtenWithoutFields)).toBe(
+      `, 1 written without OwnerId: the target holds the owner it names inactive, ${REASON}`,
+    );
+    expect(progressOf(input)).toContain(
+      'Writing 1 Aeroport__c record again without the fields the target, the owner being ' +
+        'inactive there, refused...',
+    );
+  });
+
+  it('keeps the owner of a row the target refused for another inactive user: a rule or a Flow of its own', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValue([
+        byInactiveOwner(
+          'operation performed with inactive user [005AU00000ZzZzZ] as owner of [aeroport__c]',
+        ),
+      ]);
+    const input = airports([{ Id: 'a0AOLD1', Name: 'Orly', OwnerId: OWNER }]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(result.writtenWithoutFields).toBeUndefined();
+  });
+
+  it('leaves it failed, sent no third time, when the target refuses it again without its owner', async () => {
+    // The owner gone, a Flow of the target gives the record another inactive
+    // user: there is no owner left to go, and the row does not loop.
+    const flow =
+      'operation performed with inactive user [005AU00000FlOwS] as owner of [aeroport__c]';
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byInactiveOwner()])
+      .mockResolvedValueOnce([byInactiveOwner(flow)]);
+    const input = airports([{ Id: 'a0AOLD1', Name: 'Orly', OwnerId: OWNER }]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(2);
+    expect(input.remapper.get('a0AOLD1')).toBeUndefined();
+    expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(result.errorSamples[0]?.messages).toEqual([
+      `INACTIVE_OWNER_OR_USER: ${flow}`,
+      `Sent again without OwnerId after the first refusal: ${REASON}`,
+    ]);
+  });
+
+  it('sends a row no fifth time when its owner is refused after three rounds without fields', async () => {
+    const byRule = (field: string): InsertResult =>
+      refused({
+        statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+        message: `${field} rule`,
+        fields: [field],
+      });
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule('Phone__c')])
+      .mockResolvedValueOnce([byRule('Email__c')])
+      .mockResolvedValueOnce([byRule('Code__c')])
+      .mockResolvedValueOnce([byInactiveOwner()])
+      .mockResolvedValue([written('a0ANEW1')]);
+    const input = airports([
+      {
+        Id: 'a0AOLD1',
+        Name: 'Orly',
+        OwnerId: OWNER,
+        Phone__c: '0100',
+        Email__c: 'm@example.com',
+        Code__c: 'ORY',
+      },
+    ]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(4);
+    expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(result.errorSamples[0]?.messages.at(-1)).toBe(
+      'Not sent again: a row goes again without the fields the target refused 3 times at most.',
+    );
+  });
+
+  it('leaves the row a failure, saying why, when a cancel comes before the call that writes it again', async () => {
+    const insertRecords = vi.fn<InsertImpl>().mockResolvedValueOnce([byInactiveOwner()]);
+    const waitIfPaused = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('cancelled'));
+    const input = airports([{ Id: 'a0AOLD1', Name: 'Orly', OwnerId: OWNER }], { waitIfPaused });
+    const tally = emptyBatchWriteResult();
+
+    await expect(new BatchWriter({ insertRecords }).writeNode(input, tally)).rejects.toThrow(
+      'cancelled',
+    );
+
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(tally).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(tally.errorSamples[0]?.messages).toEqual([
+      REASON,
+      'Not written again without OwnerId: cancelled',
+    ]);
+  });
+
+  describe('an owner it refused earlier in the run', () => {
+    it('sends a later row of another object without it from its first call, and keeps another owner', async () => {
+      // Aeroport__c then Paiement__c, refused for the same inactive
+      // administrator: the second object learns it from the first.
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([byInactiveOwner()])
+        .mockResolvedValueOnce([written('a0ANEW1')])
+        .mockResolvedValueOnce([
+          written('a0PNEW1'),
+          refused({
+            statusCode: 'STRING_TOO_LONG',
+            message: 'Name: data value too large',
+            fields: ['Name'],
+          }),
+          written('a0PNEW3'),
+        ]);
+      const writer = new BatchWriter({ insertRecords });
+
+      await writer.writeNode(airports([{ Id: 'a0AOLD1', Name: 'Orly', OwnerId: OWNER }]));
+      const input = airports(
+        [
+          { Id: 'a0POLD1', Name: 'P1', OwnerId: NAMED },
+          { Id: 'a0POLD2', Name: 'P2 with a name too long', OwnerId: OWNER },
+          { Id: 'a0POLD3', Name: 'P3', OwnerId: ACTIVE },
+        ],
+        undefined,
+        'Paiement__c',
+      );
+      const result = await writer.writeNode(input);
+
+      expect(insertRecords).toHaveBeenCalledTimes(3);
+      expect(insertRecords.mock.calls[2]?.[2]).toEqual([
+        { Name: 'P1' },
+        { Name: 'P2 with a name too long' },
+        { Name: 'P3', OwnerId: ACTIVE },
+      ]);
+      // The payload the cleaning stage built is left as it was.
+      expect(input.records[0]).toEqual({ Name: 'P1', OwnerId: NAMED });
+      expect(input.remapper.get('a0POLD1')).toBe('a0PNEW1');
+      expect(result).toMatchObject({ successCount: 2, failureCount: 1 });
+      expect(result.writtenWithoutFields).toEqual({
+        rows: 1,
+        fields: [{ field: 'OwnerId', refusedBy: 'inactive-owner', reason: REASON, rows: 1 }],
+      });
+      expect(result.errorSamples[0]?.messages).toEqual([
+        'STRING_TOO_LONG: Name: data value too large [Name]',
+        'Sent without OwnerId: the target refused the same owner, inactive there, earlier in ' +
+          `the run, ${REASON}`,
+      ]);
+    });
+
+    it('remembers nothing of a refusal that named no user', async () => {
+      const unnamed = 'operation performed with inactive user as owner of the record';
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([byInactiveOwner(unnamed)])
+        .mockImplementation(async (_org, _object, rows) => rows.map(() => written('a0ANEW')));
+      const writer = new BatchWriter({ insertRecords });
+
+      await writer.writeNode(airports([{ Id: 'a0AOLD1', Name: 'Orly', OwnerId: OWNER }]));
+      await writer.writeNode(airports([{ Id: 'a0AOLD2', Name: 'Nice', OwnerId: OWNER }]));
+
+      // Written again without its owner, as the refusal leaves no other cure...
+      expect(insertRecords.mock.calls[1]?.[2]).toEqual([{ Name: 'Orly' }]);
+      // ...but the next row goes with its owner: nothing said it was this one.
+      expect(insertRecords.mock.calls[2]?.[2]).toEqual([{ Name: 'Nice', OwnerId: OWNER }]);
+    });
+  });
+
+  describe('sent as Bulk API jobs', () => {
+    it('writes a refused round of 2 000 rows or more as a job, the owner gone from every row and from the journal', async () => {
+      const bulkWriteRecords = vi
+        .fn<BulkFn>()
+        .mockImplementationOnce(async (_o, _ob, _op, sent) => ({
+          ...allWritten(sent),
+          answers: sent.map(() => byInactiveOwnerInAJob()),
+        }))
+        .mockImplementation(async (_o, _ob, _op, sent) => allWritten(sent));
+      const deps = { ...makeDeps(), bulkWriteRecords };
+      const sending = vi
+        .fn<InsertCallJournal['sending']>()
+        .mockReturnValueOnce('call-1')
+        .mockReturnValueOnce('call-2');
+      const input = bulkInput(owned(2_500), { calls: { sending, answered: vi.fn() } });
+
+      const result = await new BatchWriter(deps).writeNode(input);
+
+      expect(bulkWriteRecords).toHaveBeenCalledTimes(2);
+      expect(bulkWriteRecords.mock.calls[1][3]).toHaveLength(2_500);
+      expect(bulkWriteRecords.mock.calls[1][3].some((row) => 'OwnerId' in row)).toBe(false);
+      expect(vi.mocked(deps.insertRecords)).not.toHaveBeenCalled();
+      // The round is a call of its own, journaled as it goes: without the owner.
+      expect(sending).toHaveBeenCalledTimes(2);
+      const journaled = sending.mock.calls[1][1];
+      expect(journaled).toHaveLength(2_500);
+      expect(journaled.every((row) => !('OwnerId' in row.payload))).toBe(true);
+      expect(result.successCount).toBe(2_500);
+      expect(result.failureCount).toBe(0);
+      expect(result.writtenWithoutFields).toEqual({
+        rows: 2_500,
+        fields: [{ field: 'OwnerId', refusedBy: 'inactive-owner', reason: REASON, rows: 2_500 }],
+      });
+    });
+
+    it('writes a round of fewer than 2 000 rows again by REST, in calls of 200', async () => {
+      const bulkWriteRecords = vi.fn<BulkFn>().mockImplementation(async (_o, _ob, _op, sent) => {
+        const answer = allWritten(sent);
+        for (let i = 0; i < 150; i++) answer.answers[i] = byInactiveOwnerInAJob();
+        return answer;
+      });
+      const deps = { ...makeDeps(), bulkWriteRecords };
+
+      const result = await new BatchWriter(deps).writeNode(bulkInput(owned(2_000)));
+
+      expect(bulkWriteRecords).toHaveBeenCalledTimes(1);
+      const restCalls = vi.mocked(deps.insertRecords).mock.calls;
+      expect(restCalls.map((c) => c[2].length)).toEqual([150]);
+      expect(restCalls[0][2].some((row) => 'OwnerId' in row)).toBe(false);
+      expect(result.successCount).toBe(2_000);
+      expect(result.writtenWithoutFields?.rows).toBe(150);
+    });
+
+    it('never sends again a row the job may have written', async () => {
+      const bulkWriteRecords = vi.fn<BulkFn>().mockImplementation(async (_o, _ob, _op, sent) => {
+        const answer = allWritten(sent);
+        for (let i = 0; i < 10; i++) answer.answers[i] = byInactiveOwnerInAJob();
+        answer.rows[5] = 'may-have-written';
+        answer.answers[5] = { id: '', success: false, errors: ['may have been written'] };
+        return answer;
+      });
+      const deps = { ...makeDeps(), bulkWriteRecords };
+      vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+      const result = await new BatchWriter(deps).writeNode(bulkInput(owned(2_000)));
+
+      const sentAgain = vi.mocked(deps.insertRecords).mock.calls.flatMap((c) => c[2]);
+      expect(sentAgain.map((row) => row['Name'])).toEqual([
+        'A0',
+        'A1',
+        'A2',
+        'A3',
+        'A4',
+        'A6',
+        'A7',
+        'A8',
+        'A9',
+      ]);
+      expect(result.mayHaveBeenWritten).toEqual(['a0AOLD000000005']);
+      expect(result.successCount).toBe(1_999);
+      expect(result.failureCount).toBe(1);
+    });
+  });
+
+  it('leaves the owner of a parent copied from outside the graph: only the node write asks', () => {
+    const result = byInactiveOwner();
+    const payload = { Name: 'Orly', OwnerId: OWNER };
+
+    expect(fieldsToLeaveOut(result, payload, undefined)).toBeUndefined();
+    expect(
+      fieldsToLeaveOut(result, payload, undefined, undefined, { inactiveOwner: true }),
+    ).toEqual([{ field: 'OwnerId', refusedBy: 'inactive-owner', reason: REASON }]);
+  });
+});
+
 describe('addWrittenWithoutFields', () => {
   it('counts a field left out for the same refusal once, with the rows of both, and another apart', () => {
     const into = addWrittenWithoutFields(undefined, {
@@ -2656,5 +3069,448 @@ describe('writtenWithoutFieldsNote', () => {
       ', 1 written without Email: a validation rule of the target refused it, ' +
         'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad domain',
     );
+  });
+});
+
+describe('BatchWriter — writes sent as Bulk API jobs', () => {
+  type BulkFn = NonNullable<ForgeExecutorDeps['bulkWriteRecords']>;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** `n` accounts, each its own source id and name. */
+  function accounts(n: number, from = 0): Record<string, unknown>[] {
+    return Array.from({ length: n }, (_, i) => ({
+      Id: `001OLD${String(from + i).padStart(9, '0')}`,
+      Name: `A${from + i}`,
+    }));
+  }
+
+  /** The answer of a job that wrote every row it was sent, each with an id of its own. */
+  function allWritten(records: readonly unknown[], prefix = '001JOB'): BulkWriteAnswer {
+    return {
+      answers: records.map((_, i) => ({
+        id: `${prefix}${String(i).padStart(9, '0')}`,
+        success: true,
+        errors: [],
+      })),
+      rows: records.map((): BulkRowState => 'answered'),
+      unmatchedIds: [],
+      jobId: '750JOB',
+      requests: 12,
+    };
+  }
+
+  function transport(overrides: Partial<BulkTransport> = {}): BulkTransport {
+    return {
+      signal: new AbortController().signal,
+      restOnly: new Set<string>(),
+      bulkUnsupported: new Set<string>(),
+      manager: new BulkApiManager(1),
+      ...overrides,
+    };
+  }
+
+  /** A node of `records` whose strategy asks for jobs, written by a run that sends them. */
+  function bulkInput(
+    records: Record<string, unknown>[],
+    overrides: Partial<WriteNodeInput> = {},
+  ): WriteNodeInput {
+    return makeInput(records, {
+      node: { ...makeNode('Account', records.length), batchStrategy: 'auto' },
+      bulk: transport(),
+      ...overrides,
+    });
+  }
+
+  const LOCK: InsertResult = {
+    id: '',
+    success: false,
+    errors: ['UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record'],
+    errorDetails: [
+      {
+        statusCode: 'UNABLE_TO_LOCK_ROW',
+        message: 'unable to obtain exclusive access to this record',
+        fields: [],
+      },
+    ],
+  };
+
+  it('writes everything by REST, as before, for a run that sends no job', async () => {
+    const bulkWriteRecords = vi
+      .fn<BulkFn>()
+      .mockImplementation(async (_o, _ob, _op, sent) => allWritten(sent));
+    const deps = { ...makeDeps(), bulkWriteRecords };
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    const result = await new BatchWriter(deps).writeNode(
+      makeInput(accounts(2_500), {
+        node: { ...makeNode('Account', 2_500), batchStrategy: 'auto' },
+      }),
+    );
+
+    expect(bulkWriteRecords).not.toHaveBeenCalled();
+    expect(vi.mocked(deps.insertRecords)).toHaveBeenCalledTimes(13);
+    expect(result.successCount).toBe(2_500);
+  });
+
+  it('sends jobs of 10 000 rows, and what is left under 2 000 rows by REST in calls of 200', async () => {
+    const bulkWriteRecords = vi
+      .fn<BulkFn>()
+      .mockImplementation(async (_o, _ob, _op, sent) => allWritten(sent));
+    const deps = { ...makeDeps(), bulkWriteRecords };
+    const input = bulkInput(accounts(11_500));
+
+    const result = await new BatchWriter(deps).writeNode(input);
+
+    expect(bulkWriteRecords.mock.calls.map((c) => [c[2], c[3].length])).toEqual([
+      ['insert', 10_000],
+    ]);
+    expect(bulkWriteRecords.mock.calls[0][4]).toMatchObject({
+      bulkManager: input.bulk?.manager,
+      signal: input.bulk?.signal,
+    });
+    expect(vi.mocked(deps.insertRecords).mock.calls.map((c) => c[2].length)).toEqual([
+      200, 200, 200, 200, 200, 200, 200, 100,
+    ]);
+    expect(result.successCount).toBe(11_500);
+    expect(input.remapper.get('001OLD000000000')).toBe('001JOB000000000');
+  });
+
+  it('writes by REST an object the run writes by REST alone, and one the org said no job writes', async () => {
+    const bulkWriteRecords = vi
+      .fn<BulkFn>()
+      .mockImplementation(async (_o, _ob, _op, sent) => allWritten(sent));
+    const deps = { ...makeDeps(), bulkWriteRecords };
+
+    await new BatchWriter(deps).writeNode(
+      bulkInput(accounts(2_000), { bulk: transport({ restOnly: new Set(['Account']) }) }),
+    );
+    await new BatchWriter(deps).writeNode(
+      bulkInput(accounts(2_000), { bulk: transport({ bulkUnsupported: new Set(['Account']) }) }),
+    );
+
+    expect(bulkWriteRecords).not.toHaveBeenCalled();
+    expect(vi.mocked(deps.insertRecords)).toHaveBeenCalledTimes(20);
+  });
+
+  it('sends by REST a job that wrote nothing, and no job of the object again once the org says no job writes it', async () => {
+    const bulkWriteRecords = vi.fn<BulkFn>().mockResolvedValue({
+      answers: [],
+      rows: [],
+      unmatchedIds: [],
+      untouched: { reason: 'Entity is not supported by the Bulk API', unsupported: true },
+      requests: 1,
+    });
+    const deps = { ...makeDeps(), bulkWriteRecords };
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const bulk = transport();
+
+    const result = await new BatchWriter(deps).writeNode(bulkInput(accounts(22_000), { bulk }));
+
+    expect(bulkWriteRecords).toHaveBeenCalledTimes(1);
+    expect(bulk.bulkUnsupported.has('Account')).toBe(true);
+    expect(result.successCount).toBe(22_000);
+    expect(vi.mocked(deps.insertRecords)).toHaveBeenCalledTimes(110);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('not supported by the Bulk API'));
+  });
+
+  it('writes again by REST, in the same round, the rows the job could not answer for themselves', async () => {
+    const bulkWriteRecords = vi.fn<BulkFn>().mockImplementation(async (_o, _ob, _op, sent) => {
+      const answer = allWritten(sent);
+      // A twin, a row left unprocessed, one a duplicate rule refused, one
+      // whose error did not read as one, and one refused for good.
+      answer.rows[0] = 'twin';
+      answer.answers[0] = { id: '', success: false, errors: ['kept out'] };
+      answer.rows[1] = 'unprocessed';
+      answer.answers[1] = { id: '', success: false, errors: ['not processed'] };
+      answer.answers[2] = {
+        id: '',
+        success: false,
+        errors: ['DUPLICATES_DETECTED: dup'],
+        errorDetails: [{ statusCode: 'DUPLICATES_DETECTED', message: 'dup', fields: [] }],
+      };
+      answer.answers[3] = { id: '', success: false, errors: ['two errors; garbled'] };
+      answer.answers[4] = {
+        id: '',
+        success: false,
+        errors: ['INVALID_CROSS_REFERENCE_KEY: invalid cross reference id'],
+        errorDetails: [
+          {
+            statusCode: 'INVALID_CROSS_REFERENCE_KEY',
+            message: 'invalid cross reference id',
+            fields: [],
+          },
+        ],
+      };
+      return answer;
+    });
+    const deps = { ...makeDeps(), bulkWriteRecords };
+
+    const result = await new BatchWriter(deps).writeNode(bulkInput(accounts(2_000)));
+
+    expect(vi.mocked(deps.insertRecords).mock.calls.map((c) => c[2].map((r) => r['Name']))).toEqual(
+      [['A0', 'A1', 'A2', 'A3']],
+    );
+    expect(result.successCount).toBe(1_999);
+    expect(result.failureCount).toBe(1);
+  });
+
+  it('sends again by REST, in calls of 200, the rows a job refused for a lock', async () => {
+    const bulkWriteRecords = vi.fn<BulkFn>().mockImplementation(async (_o, _ob, _op, sent) => {
+      const answer = allWritten(sent);
+      for (let i = 0; i < 300; i++) answer.answers[i] = LOCK;
+      return answer;
+    });
+    const deps = { ...makeDeps(), bulkWriteRecords };
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    const result = await new BatchWriter(deps, undefined, noWait()).writeNode(
+      bulkInput(accounts(2_000)),
+    );
+
+    expect(vi.mocked(deps.insertRecords).mock.calls.map((c) => c[2].length)).toEqual([200, 100]);
+    expect(result.successCount).toBe(2_000);
+  });
+
+  it('never sends again a row the job may have written, and keeps what it wrote no row was matched to', async () => {
+    const bulkWriteRecords = vi.fn<BulkFn>().mockImplementation(async (_o, _ob, _op, sent) => {
+      const answer = allWritten(sent);
+      answer.rows[5] = 'may-have-written';
+      answer.answers[5] = { id: '', success: false, errors: ['may have been written'] };
+      answer.unmatchedIds = ['001ORPHAN0000001'];
+      return answer;
+    });
+    const deps = { ...makeDeps(), bulkWriteRecords };
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const unattributed = vi.fn();
+    const input = bulkInput(accounts(2_000), {
+      calls: { sending: () => 'call-1', answered: vi.fn(), unattributed },
+    });
+
+    const result = await new BatchWriter(deps).writeNode(input);
+
+    expect(vi.mocked(deps.insertRecords)).not.toHaveBeenCalled();
+    expect(result.failureCount).toBe(1);
+    expect(result.mayHaveBeenWritten).toEqual(['001OLD000000005']);
+    expect(result.errorSamples[0].recordSummary).toContain('1 record may have been written');
+    expect(unattributed).toHaveBeenCalledWith('Account', ['001ORPHAN0000001']);
+  });
+
+  it('keeps a job before it goes, its id once opened, and closes it once its answers are counted', async () => {
+    const told: string[] = [];
+    const bulkWriteRecords = vi
+      .fn<BulkFn>()
+      .mockImplementation(async (_o, _ob, _op, sent, options) => {
+        options.onOpened?.('750JOB');
+        told.push('job');
+        return allWritten(sent);
+      });
+    const deps = { ...makeDeps(), bulkWriteRecords };
+    const calls: InsertCallJournal = {
+      sending: (objectApiName, rows) => {
+        told.push(`sending ${objectApiName} ${rows.length}`);
+        return 'call-1';
+      },
+      opened: (callId, jobId) => told.push(`opened ${callId} ${jobId}`),
+      answered: (callId) => told.push(`answered ${callId}`),
+    };
+
+    await new BatchWriter(deps).writeNode(bulkInput(accounts(2_000), { calls }));
+
+    expect(told).toEqual([
+      'sending Account 2000',
+      'opened call-1 750JOB',
+      'job',
+      'answered call-1',
+    ]);
+  });
+
+  it('sends the rows of one parent together, their records kept aligned with them', async () => {
+    const fields: FieldInfo[] = [
+      ...FIELDS,
+      { name: 'Master__c', queryable: true, createable: true, isReference: true, nillable: false },
+    ];
+    const records = accounts(2_000).map((row, i) => ({
+      ...row,
+      Master__c: `a00PARENT${i % 2 === 0 ? 'B' : 'A'}`,
+    }));
+    const bulkWriteRecords = vi.fn<BulkFn>().mockImplementation(async (_o, _ob, _op, sent) => ({
+      // Each record's id says the row it was written for.
+      answers: sent.map((row) => ({
+        id: `001NEW${String(row['Name'])}`,
+        success: true,
+        errors: [],
+      })),
+      rows: sent.map((): BulkRowState => 'answered'),
+      unmatchedIds: [],
+      requests: 12,
+    }));
+    const deps = { ...makeDeps(), bulkWriteRecords };
+    const input = bulkInput(records, {
+      fieldInfos: fields,
+      creatableFields: new Set(['Name', 'Master__c']),
+    });
+
+    await new BatchWriter(deps).writeNode(input);
+
+    const sent = bulkWriteRecords.mock.calls[0][3];
+    expect(sent.slice(0, 1_000).every((row) => row['Master__c'] === 'a00PARENTA')).toBe(true);
+    expect(sent[0]['Name']).toBe('A1');
+    expect(input.remapper.get('001OLD000000001')).toBe('001NEWA1');
+    expect(input.remapper.get('001OLD000000002')).toBe('001NEWA2');
+  });
+
+  it('stops the node at a job closed and lost, its rows among what the target may hold', async () => {
+    const bulkWriteRecords = vi
+      .fn<BulkFn>()
+      .mockRejectedValue(new BulkJobLostError('750JOB', 'socket hang up'));
+    const deps = { ...makeDeps(), bulkWriteRecords };
+    const answered = vi.fn();
+
+    const result = await new BatchWriter(deps).writeNode(
+      bulkInput(accounts(12_000), { calls: { sending: () => 'call-1', answered } }),
+    );
+
+    expect(bulkWriteRecords).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(deps.insertRecords)).not.toHaveBeenCalled();
+    expect(result.failureCount).toBe(12_000);
+    expect(result.mayHaveBeenWritten).toHaveLength(10_000);
+    // Left open, for a run taken up to read the job back by its id.
+    expect(answered).not.toHaveBeenCalled();
+  });
+
+  it('counts the twins a lost job kept out of it as not written, and no row the target may hold', async () => {
+    const bulkWriteRecords = vi
+      .fn<BulkFn>()
+      .mockRejectedValue(new BulkJobLostError('750JOB', 'socket hang up', 3, [0, 1]));
+    const deps = { ...makeDeps(), bulkWriteRecords };
+
+    const result = await new BatchWriter(deps).writeNode(bulkInput(accounts(2_000)));
+
+    expect(vi.mocked(deps.insertRecords)).not.toHaveBeenCalled();
+    expect(result.failureCount).toBe(2_000);
+    expect(result.mayHaveBeenWritten).toHaveLength(1_998);
+    expect(result.mayHaveBeenWritten).not.toContain('001OLD000000000');
+    expect(result.mayHaveBeenWritten).not.toContain('001OLD000000001');
+    expect(result.errorSamples.map((sample) => sample.recordSummary)).toContainEqual(
+      expect.stringContaining('2 records not written'),
+    );
+  });
+
+  /** A REST call the org refused for the day's request limit: the node stops there. */
+  const requestLimit = (): Error =>
+    Object.assign(new Error('REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.'), {
+      errorCode: 'REQUEST_LIMIT_EXCEEDED',
+    });
+
+  it('counts as failed the rows a job refused for a lock when a call after it stops the node', async () => {
+    const bulkWriteRecords = vi.fn<BulkFn>().mockImplementation(async (_o, _ob, _op, sent) => {
+      const answer = allWritten(sent);
+      for (let i = 0; i < 100; i++) answer.answers[i] = LOCK;
+      answer.rows[100] = 'twin';
+      answer.answers[100] = { id: '', success: false, errors: ['kept out'] };
+      return answer;
+    });
+    const deps = { ...makeDeps(), bulkWriteRecords };
+    vi.mocked(deps.insertRecords).mockRejectedValue(requestLimit());
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    const result = await new BatchWriter(deps, undefined, noWait()).writeNode(
+      bulkInput(accounts(2_000)),
+    );
+
+    // The twin's REST call threw: the rows refused for a lock are not sent again.
+    expect(vi.mocked(deps.insertRecords)).toHaveBeenCalledTimes(1);
+    expect(result.successCount).toBe(1_899);
+    expect(result.failureCount).toBe(101);
+    expect(
+      result.errorSamples.some((sample) =>
+        sample.messages.some((m) => m.startsWith('Not sent again: ')),
+      ),
+    ).toBe(true);
+  });
+
+  it('counts as failed the rows a round sent as a job refused for a lock when a call after it stops the node', async () => {
+    const refusal: InsertResult = {
+      id: '',
+      success: false,
+      errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad name'],
+      errorDetails: [
+        { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: 'Bad name', fields: ['Name'] },
+      ],
+    };
+    const bulkWriteRecords = vi
+      .fn<BulkFn>()
+      .mockImplementationOnce(async (_o, _ob, _op, sent) => ({
+        ...allWritten(sent),
+        answers: sent.map(() => refusal),
+      }))
+      .mockImplementation(async (_o, _ob, _op, sent) => {
+        const answer = allWritten(sent);
+        for (let i = 0; i < 100; i++) answer.answers[i] = LOCK;
+        answer.rows[100] = 'twin';
+        answer.answers[100] = { id: '', success: false, errors: ['kept out'] };
+        return answer;
+      });
+    const deps = { ...makeDeps(), bulkWriteRecords };
+    vi.mocked(deps.insertRecords).mockRejectedValue(requestLimit());
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    const result = await new BatchWriter(deps, undefined, noWait()).writeNode(
+      bulkInput(accounts(2_000)),
+    );
+
+    expect(bulkWriteRecords).toHaveBeenCalledTimes(2);
+    expect(result.successCount).toBe(1_899);
+    expect(result.failureCount).toBe(101);
+  });
+
+  it('throws the cancel on once a job the cancel aborted wrote nothing', async () => {
+    const bulkWriteRecords = vi.fn<BulkFn>().mockResolvedValue({
+      answers: [],
+      rows: [],
+      unmatchedIds: [],
+      aborted: true,
+      requests: 2,
+    });
+    const deps = { ...makeDeps(), bulkWriteRecords };
+    const waitIfPaused = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValue(new Error('aborted by user'));
+
+    await expect(
+      new BatchWriter(deps).writeNode(bulkInput(accounts(2_000), { waitIfPaused })),
+    ).rejects.toThrow('aborted by user');
+    expect(vi.mocked(deps.insertRecords)).not.toHaveBeenCalled();
+  });
+
+  it('sends a round of rows refused on their fields as jobs, from 2 000 of them', async () => {
+    const refusal: InsertResult = {
+      id: '',
+      success: false,
+      errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad name'],
+      errorDetails: [
+        { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: 'Bad name', fields: ['Name'] },
+      ],
+    };
+    const bulkWriteRecords = vi
+      .fn<BulkFn>()
+      .mockImplementationOnce(async (_o, _ob, _op, sent) => ({
+        ...allWritten(sent),
+        answers: sent.map(() => refusal),
+      }))
+      .mockImplementation(async (_o, _ob, _op, sent) => allWritten(sent));
+    const deps = { ...makeDeps(), bulkWriteRecords };
+
+    const result = await new BatchWriter(deps).writeNode(bulkInput(accounts(2_000)));
+
+    expect(bulkWriteRecords).toHaveBeenCalledTimes(2);
+    expect(bulkWriteRecords.mock.calls[1][3][0]).not.toHaveProperty('Name');
+    expect(vi.mocked(deps.insertRecords)).not.toHaveBeenCalled();
+    expect(result.successCount).toBe(2_000);
+    expect(result.writtenWithoutFields?.rows).toBe(2_000);
   });
 });

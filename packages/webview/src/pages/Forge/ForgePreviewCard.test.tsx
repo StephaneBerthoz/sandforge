@@ -151,6 +151,28 @@ describe('ForgePreviewCard', () => {
     expect(screen.queryByTestId('forge-preview-not-counted')).toBeNull();
   });
 
+  // "~9000s" said nothing at a glance of a clone of the whole org's two and a half hours.
+  it('says the plan’s duration in hours and minutes, as the rest of the page does', () => {
+    const plan: ForgePlan = {
+      waves: [],
+      totalRecords: 900_000,
+      totalApiCalls: 400,
+      estimatedDurationSeconds: 9_000,
+      cycleResolutions: [],
+    };
+    render(
+      <ForgePreviewCard
+        graph={graphOf([node('Account', { level: 0, recordCount: 900_000 })])}
+        plan={plan}
+        cycleCount={0}
+        truncated={false}
+      />,
+    );
+
+    expect(screen.getByText('~2h 30min')).toBeDefined();
+    expect(screen.queryByText(/~9000s/)).toBeNull();
+  });
+
   it('says of a clone of one record that its counts are the source tables’, and gives no calls or duration reckoned from them', () => {
     // A clone of one case's graph was told "Will clone 9 objects · 1.2 M
     // records, ~40 min", and read a few hundred.

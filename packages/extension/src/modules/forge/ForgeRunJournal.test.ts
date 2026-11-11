@@ -116,6 +116,36 @@ describe("a run's journal", () => {
     expect(left[0]?.lastEnd).toBeUndefined();
   });
 
+  it('reads a journal whose checkpoints name a pass as one whose checkpoints do not, and resumes each read where it stood', async () => {
+    const { deps } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await runThatWrote(journal, 'plain');
+    await journal.begin('with-pass', 'tgt-org', STARTED);
+    const store = journal.open('with-pass');
+    store.beginPart(STARTED);
+    store.setMapping('created', ACCOUNT_A, NEW_ACCOUNT_A, 'Account');
+    store.setMapping('created', ACCOUNT_B, NEW_ACCOUNT_B, 'Account');
+    store.checkpoint('Account', { lastId: ACCOUNT_B, read: 2, done: true });
+    // A second read of the object after its turn, stopped part way.
+    store.checkpoint('Account', { lastId: ACCOUNT_A, read: 1 }, 'afterTask');
+    store.setMapping('created', CONTACT_A, NEW_CONTACT_A, 'Contact');
+    store.close();
+
+    const [plain, withPass] = await Promise.all([journal.read('plain'), journal.read('with-pass')]);
+    if (!plain || !withPass) throw new Error('a journal did not read');
+    expect(withPass.created).toEqual(plain.created);
+    expect(ForgeRunJournal.planOf(withPass)?.objects).toEqual(
+      ForgeRunJournal.planOf(plain)?.objects,
+    );
+    expect(ForgeRunJournal.planOf(withPass)?.objects).toHaveLength(2);
+    expect(journal.open('with-pass').checkpoints()).toEqual(
+      new Map([
+        ['Account', { lastId: ACCOUNT_B, read: 2, done: true }],
+        ['Account/afterTask', { lastId: ACCOUNT_A, read: 1 }],
+      ]),
+    );
+  });
+
   it('leaves nothing over once the run ended or was kept, nor for a run under way', async () => {
     const { deps } = memoryDisk();
     const journal = new ForgeRunJournal(deps);

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ForgeHandler } from './ForgeHandler.js';
+import { ForgeHandler, wholeOrgSplitAllowance } from './ForgeHandler.js';
+import { RUN_SPLIT_CALLS } from '../../core/common/governorLimit.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type {
   BaseMessage,
@@ -33,6 +34,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { muteOrgOf } from '../../modules/forge/AutomationMuteLease.js';
+import { LostBulkJobs } from '../../modules/forge/lostBulkJobs.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -195,6 +197,36 @@ class PathMap extends Map<string, string> {
   override delete(key: string): boolean {
     return super.delete(path.normalize(key));
   }
+}
+
+/** A disk in memory under a real journal: each file's text, by its path. */
+function journalOnMemory(options: { unwritable?: boolean } = {}) {
+  const files = new PathMap();
+  const journal = new ForgeRunJournal({
+    storagePath: '/storage',
+    appendFile: async (filePath, content) => {
+      if (options.unwritable) throw new Error('ENOSPC: no space left on device');
+      files.set(filePath, (files.get(filePath) ?? '') + content);
+    },
+    readLines: (filePath) =>
+      (async function* lines(): AsyncGenerator<string> {
+        for (const line of (files.get(filePath) ?? '').split('\n')) yield line;
+      })(),
+    mkdir: async () => {},
+    rm: async (filePath) => void files.delete(filePath),
+    listFiles: async (dirPath) =>
+      [...files.keys()]
+        .filter((filePath) => path.dirname(filePath) === path.normalize(dirPath))
+        .map((filePath) => path.basename(filePath)),
+    openRunFile: (filePath) => ({
+      size: () => Buffer.byteLength(files.get(filePath) ?? ''),
+      append: (text) => void files.set(filePath, (files.get(filePath) ?? '') + text),
+      read: (offset, length) =>
+        Buffer.from(files.get(filePath) ?? '').subarray(offset, offset + length),
+      close: () => {},
+    }),
+  });
+  return { journal, files };
 }
 
 describe('forge:execute, the gate before the first write', () => {
@@ -873,6 +905,42 @@ describe('forge:execute, the gate before the first write', () => {
       expect(questions).toEqual([]);
     });
 
+    // Review sends a clone of the whole org's graph without its relations,
+    // every one of which is between two of its objects: they change nothing
+    // of what is read, and the run takes Review's read.
+    it("takes Review's read of the graph sent without the relations between its objects", async () => {
+      const reader = readerOf(FIRES);
+      handler.setForgeOrchestrator(orchestratorHanding(), { targetAutomation: reader });
+      await reviewReads({ ...graphOf(), edges: [] });
+
+      await execute(graphOf());
+
+      expect(reader.readForGraph).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads again for a graph whose relation reaches past its objects, which changes what is read', async () => {
+      const reader = readerOf(FIRES);
+      handler.setForgeOrchestrator(orchestratorHanding(), { targetAutomation: reader });
+      await reviewReads(graphOf());
+
+      // A contact's required lookup to a price discovery stopped before.
+      await execute({
+        ...graphOf(),
+        edges: [
+          ...graphOf().edges,
+          {
+            sourceObject: 'PricebookEntry',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+            required: true,
+          },
+        ],
+      });
+
+      expect(reader.readForGraph).toHaveBeenCalledTimes(2);
+    });
+
     it("forgets Review's read of an org that is no longer the org it was", async () => {
       const reader = readerOf(FIRES);
       handler.setForgeOrchestrator(orchestratorHanding(), { targetAutomation: reader });
@@ -1268,36 +1336,6 @@ describe('forge:execute, the gate before the first write', () => {
   });
 
   describe('the journal of a run', () => {
-    /** A disk in memory under a real journal: each file's text, by its path. */
-    function journalOnMemory(options: { unwritable?: boolean } = {}) {
-      const files = new PathMap();
-      const journal = new ForgeRunJournal({
-        storagePath: '/storage',
-        appendFile: async (filePath, content) => {
-          if (options.unwritable) throw new Error('ENOSPC: no space left on device');
-          files.set(filePath, (files.get(filePath) ?? '') + content);
-        },
-        readLines: (filePath) =>
-          (async function* lines(): AsyncGenerator<string> {
-            for (const line of (files.get(filePath) ?? '').split('\n')) yield line;
-          })(),
-        mkdir: async () => {},
-        rm: async (filePath) => void files.delete(filePath),
-        listFiles: async (dirPath) =>
-          [...files.keys()]
-            .filter((filePath) => path.dirname(filePath) === path.normalize(dirPath))
-            .map((filePath) => path.basename(filePath)),
-        openRunFile: (filePath) => ({
-          size: () => Buffer.byteLength(files.get(filePath) ?? ''),
-          append: (text) => void files.set(filePath, (files.get(filePath) ?? '') + text),
-          read: (offset, length) =>
-            Buffer.from(files.get(filePath) ?? '').subarray(offset, offset + length),
-          close: () => {},
-        }),
-      });
-      return { journal, files };
-    }
-
     function runOfWholeTables(): Promise<boolean> {
       return handler.handle(
         inboundRequest({
@@ -2388,6 +2426,152 @@ describe('forge:execute, the gate before the first write', () => {
       done();
     });
 
+    describe('with a Bulk API job closed and lost', () => {
+      /** The contacts' job, closed, whose state the run could not read back. */
+      const LOST = { orgId: 'tgt-org', objectApiName: 'Contact', jobId: '750000000000001AAA' };
+
+      /**
+       * A muted run that loses a job once its rows went, over a target whose
+       * job answers `states` one read after another, the last for good; each
+       * read and each wait said in `calls`, beside the assignments. The
+       * run answers `result`.
+       */
+      function losingAJob(states: string[], waitMs = 60_000, result = RESULT) {
+        const dir = mkdtempSync(path.join(tmpdir(), 'forge-mute-'));
+        const org = memoryPermissionOrg({
+          sets: [{ id: SET, name: 'Data_Load' }],
+          beforeWrite: (write) => {
+            calls.push(`assignment ${write.kind}`);
+          },
+        });
+        let at = 0;
+        const lost = new LostBulkJobs(
+          async (_orgId, jobId) => {
+            const state = (states.length > 1 ? states.shift() : states[0]) ?? 'InProgress';
+            calls.push(`read ${jobId} ${state}`);
+            return state;
+          },
+          {
+            waitMs,
+            now: () => at,
+            sleep: async (ms) => {
+              at += ms;
+            },
+          },
+        );
+        // A job lost before the run began is not its own.
+        lost.note({ ...LOST, jobId: '750000000000009AAA' });
+        const orchestrator = orchestratorHanding(boundaryOf(1));
+        orchestrator.execute.mockImplementation(async (_graph, _config, options) => {
+          await options?.beforeWrite?.(boundaryOf(1));
+          calls.push('written');
+          lost.note(LOST);
+          lost.note({ ...LOST, orgId: 'other-org', jobId: '750000000000002AAA' });
+          return result;
+        });
+        handler.setForgeOrchestrator(orchestrator, {
+          targetAutomation: readerOf(MUTABLE),
+          muteOrg: async () => muteOrgOf(org.connection),
+          muteLeases: { dir, renewEveryMs: 0 },
+          lostBulkJobs: lost,
+        });
+        return { org, done: () => rmSync(dir, { recursive: true, force: true }) };
+      }
+
+      /** What happened past the gate, connections aside. */
+      const past = () =>
+        calls.filter((call) => !call.startsWith('connection') && !call.startsWith('asked'));
+
+      it('gives the mute back only once the org says the job ended', async () => {
+        const { org, done } = losingAJob(['InProgress', 'UploadComplete', 'JobComplete']);
+
+        await executeMuted();
+
+        expect(past()).toEqual([
+          'assignment insert',
+          'written',
+          `read ${LOST.jobId} InProgress`,
+          `read ${LOST.jobId} UploadComplete`,
+          `read ${LOST.jobId} JobComplete`,
+          'assignment delete',
+        ]);
+        expect(org.assignments()).toEqual([]);
+        const [response] = posted('forge:execute:response');
+        const result = response.payload.result as ForgeExecutionResult;
+        expect(result.mutedAutomation).toMatchObject({ state: 'muted', released: true });
+        expect(result).not.toHaveProperty('bulkJobsPastMute');
+        expect(result).not.toHaveProperty('errors');
+        done();
+      });
+
+      it('counts each read of the job among the run’s calls', async () => {
+        // Created nothing, so that the second run is not held back as the
+        // first one again; its calls as the executor counted them.
+        const answered = { ...RESULT, createdCount: 0, apiCalls: 10 };
+        const once = losingAJob(['JobComplete'], 60_000, answered);
+        await executeMuted();
+        once.done();
+        const thrice = losingAJob(['InProgress', 'InProgress', 'JobComplete'], 60_000, answered);
+        await executeMuted();
+        thrice.done();
+
+        const [first, second] = posted('forge:execute:response').map(
+          (response) => (response.payload.result as ForgeExecutionResult).apiCalls ?? 0,
+        );
+        expect(past().filter((call) => call.startsWith('read'))).toHaveLength(4);
+        expect(second - first).toBe(2);
+      });
+
+      it('gives it back past the bound of the wait all the same, and names the job written without it', async () => {
+        const { org, done } = losingAJob(['InProgress'], 60_000);
+
+        await executeMuted();
+
+        const reads = past().filter((call) => call.startsWith('read'));
+        // Five seconds, then ten, twenty, and what is left of the minute but
+        // the last read's room before it.
+        expect(reads).toHaveLength(5);
+        expect(past().at(-1)).toBe('assignment delete');
+        expect(org.assignments()).toEqual([]);
+        const [response] = posted('forge:execute:response');
+        const result = response.payload.result as ForgeExecutionResult;
+        expect(result.bulkJobsPastMute).toEqual([{ objectApiName: 'Contact', jobId: LOST.jobId }]);
+        expect(result.mutedAutomation).toMatchObject({ released: true });
+        // Named to the user among the run's notes, in the results they read:
+        // a report that counts no failed row.
+        expect(result.errors).toEqual([
+          {
+            objectApiName: 'Contact',
+            stage: 'scope',
+            failedCount: 0,
+            attemptedCount: 0,
+            samples: [
+              {
+                recordSummary: `Bulk API job ${LOST.jobId}`,
+                messages: [expect.stringContaining('kept quiet')],
+              },
+            ],
+          },
+        ]);
+        expect(result.status).toBe('success');
+        const [entry] = store.get<ForgeExecutionResult[]>('forge:history') ?? [];
+        expect(entry?.bulkJobsPastMute).toEqual(result.bulkJobsPastMute);
+        expect(entry?.errors).toEqual(result.errors);
+        done();
+      });
+
+      it('waits for nothing on a run that muted nothing', async () => {
+        const { done } = losingAJob(['InProgress']);
+
+        await execute();
+
+        expect(past().filter((call) => call.startsWith('read'))).toEqual([]);
+        const [response] = posted('forge:execute:response');
+        expect(response.payload.result).not.toHaveProperty('bulkJobsPastMute');
+        done();
+      });
+    });
+
     it('asks about the flow as ever without the option', async () => {
       const { org, done } = muting();
 
@@ -2401,6 +2585,426 @@ describe('forge:execute, the gate before the first write', () => {
       });
       expect(org.writes).toEqual([]);
       done();
+    });
+  });
+  describe('a clone of the whole org', () => {
+    const ORG_CONFIG: ForgeConfig = {
+      inputMode: 'org',
+      depth: 'all',
+      sourceOrgId: 'src-org',
+      targetOrgId: 'tgt-org',
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+    };
+
+    /** The whole org, as discovery answers it: contacts past the ceiling of 50 000, and objects left out. */
+    function wholeGraph(): ForgeGraph {
+      return {
+        ...graphOf({ recordCount: 80_000 }),
+        leftOut: [
+          { objectApiName: 'AccountHistory', reason: 'history' },
+          { objectApiName: 'Idea', reason: 'empty' },
+        ],
+      };
+    }
+
+    /**
+     * What the run counted to write: 30 accounts, which a duplicate rule
+     * watches and REST writes, and 25 000 invoices, in Bulk API jobs.
+     */
+    const counted = (over: Partial<ForgeWriteBoundary> = {}): ForgeWriteBoundary => ({
+      objects: [
+        { objectApiName: 'Invoice__c', rows: [], counted: { rows: 25_000 } },
+        { objectApiName: 'Account', rows: [], counted: { rows: 30 } },
+      ],
+      dryRun: false,
+      ...over,
+    });
+
+    /** What each org's `/limits` answer, by org id. */
+    let limitsOf: Record<string, unknown>;
+
+    beforeEach(() => {
+      limitsOf = {
+        'tgt-org': {
+          DataStorageMB: { Max: 2_000, Remaining: 1_500 },
+          FileStorageMB: { Max: 1_000, Remaining: 900 },
+          DailyApiRequests: { Max: 100_000, Remaining: 90_000 },
+          DailyBulkApiBatches: { Max: 15_000, Remaining: 14_000 },
+        },
+        'src-org': { DailyApiRequests: { Max: 500_000, Remaining: 400_000 } },
+      };
+      mockGetConn.mockImplementation(async (orgId: string) => {
+        calls.push(`connection ${orgId}`);
+        return {
+          query: vi.fn().mockResolvedValue({ records: [], done: true, totalSize: 0 }),
+          queryMore: vi.fn(),
+          request: vi.fn(async ({ url }: { url: string }) => {
+            if (url !== '/limits') throw new Error(`unexpected ${url}`);
+            calls.push(`limits ${orgId}`);
+            const answer = limitsOf[orgId];
+            if (answer instanceof Error) throw answer;
+            return answer;
+          }),
+        } as never;
+      });
+    });
+
+    function cloneTheOrg(config: ForgeConfig = ORG_CONFIG): Promise<boolean> {
+      return handler.handle(
+        inboundRequest({
+          id: 'wv-execute',
+          type: 'forge:execute',
+          timestamp: Date.now(),
+          payload: { graph: wholeGraph(), config },
+        } as BaseMessage),
+      );
+    }
+
+    /** An orchestrator handing `boundary` to the gate, with a journal on memory to keep the run in. */
+    function wholeOrgRun(boundary: ForgeWriteBoundary = counted()) {
+      const orchestrator = orchestratorHanding(boundary);
+      handler.setForgeOrchestrator(orchestrator, {
+        targetAutomation: readerOf(QUIET),
+        runJournal: journalOnMemory().journal,
+      });
+      return orchestrator;
+    }
+
+    it('asks before it writes, even with sandforge.safety.confirmAboveRecords at 0, with what it takes of both orgs', async () => {
+      settings['safety.confirmAboveRecords'] = 0;
+      const orchestrator = wholeOrgRun(
+        counted({
+          files: { bytes: 50 * MB, count: 12, overCeiling: 1 },
+          contactPointsBlanked: 340,
+        }),
+      );
+
+      await cloneTheOrg();
+
+      // No question of the tables read past 50 000 rows: every row is the point.
+      expect(questions.map((q) => q.stage)).toEqual(['write']);
+      const [question] = questions;
+      expect(question).toMatchObject({
+        stage: 'write',
+        org: 'DEV',
+        total: 25_030,
+        counted: true,
+        apiRequests: { remaining: 90_000, max: 100_000 },
+        wholeOrg: {
+          source: 'UAT',
+          leftOut: 2,
+          restObjects: ['Account'],
+          fileStorage: {
+            estimateMB: 50,
+            files: 12,
+            overCeiling: 1,
+            remainingMB: 900,
+            maxMB: 1_000,
+          },
+          sourceApi: { remaining: 400_000, max: 500_000 },
+          // Three jobs of invoices; the 30 accounts go by REST.
+          bulkBatches: { estimate: 3, remaining: 14_000, max: 15_000 },
+          contactPointsBlanked: 340,
+        },
+      });
+      expect(question.stage === 'write' && question.wholeOrg?.durationSeconds).toBeGreaterThan(0);
+      expect(question.stage === 'write' && question.aboveRecords).toBeUndefined();
+      expect(calls).toContain('limits src-org');
+      expect(calls).toContain('written');
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+      expect(runs()[0]).toMatchObject({ guard: 'confirmed', context: { confirmed: ['volume'] } });
+    });
+
+    it('reads every row of what it streams, and bounds by the setting only what it reads whole', async () => {
+      settings['forge.maxRecordsPerObject'] = 120_000;
+      const orchestrator = wholeOrgRun();
+
+      await cloneTheOrg();
+
+      const options = vi.mocked(orchestrator.execute).mock.calls[0][2] as {
+        stream?: { ceiling?: number; store?: unknown; summaryBound?: number };
+        wholeReadBound?: number;
+      };
+      expect(options.stream?.ceiling).toBeUndefined();
+      expect(options.stream?.store).toBeDefined();
+      expect(options.wholeReadBound).toBe(120_000);
+    });
+
+    it('says in the question what a template it started from carried over, and what the orgs would not tell', async () => {
+      limitsOf['tgt-org'] = { DataStorageMB: { Max: 2_000, Remaining: 1_500 } };
+      limitsOf['src-org'] = new Error('INSUFFICIENT_ACCESS');
+      wholeOrgRun(counted({ filesUnmeasured: true }));
+
+      await cloneTheOrg({
+        ...ORG_CONFIG,
+        objectSoqlFilters: { Contact: "MailingCountry = 'FR'" },
+        excludedObjects: ['Case'],
+        // The rows a decision on Gaps holds back, and the fields left out:
+        // a whole org that copies part of its records says so too.
+        skippedRows: [
+          { object: 'Invoice__c', gapId: 'picklist_value_refused|Invoice__c|Status__c||Old' },
+        ],
+        fieldExclusions: { Account: ['Description'], Contact: [] },
+      });
+
+      const [question] = questions;
+      expect(question.stage === 'write' && question.apiRequests).toBeUndefined();
+      expect(question).toMatchObject({
+        wholeOrg: {
+          carried: {
+            filters: ['Contact'],
+            excluded: ['Case'],
+            heldBack: ['Invoice__c'],
+            fieldsLeftOut: ['Account'],
+          },
+          filesUnmeasured: true,
+          sourceApiUnread: 'INSUFFICIENT_ACCESS',
+          bulkBatches: { estimate: 3 },
+        },
+      });
+      expect(question.stage === 'write' && question.wholeOrg?.bulkBatches).toEqual({ estimate: 3 });
+    });
+
+    it('says each budget the run leaves short, and nothing of files when the source holds none', async () => {
+      limitsOf['tgt-org'] = {
+        DataStorageMB: { Max: 2_000, Remaining: 1_500 },
+        FileStorageMB: { Max: 1_000, Remaining: 900 },
+        DailyApiRequests: { Max: 100_000, Remaining: 9_000 },
+        DailyBulkApiBatches: { Max: 15_000, Remaining: 1_000 },
+      };
+      limitsOf['src-org'] = { DailyApiRequests: { Max: 500_000, Remaining: 40_000 } };
+      wholeOrgRun(counted({ files: { bytes: 0, count: 0, overCeiling: 0 } }));
+
+      await cloneTheOrg();
+
+      const [question] = questions;
+      expect(question).toMatchObject({
+        wholeOrg: {
+          targetApiNear: true,
+          sourceApi: { remaining: 40_000, near: true },
+          bulkBatches: { remaining: 1_000, near: true },
+        },
+      });
+      expect(question.stage === 'write' && question.wholeOrg?.fileStorage).toBeUndefined();
+    });
+
+    it('says nothing is short when every budget has room', async () => {
+      wholeOrgRun();
+
+      await cloneTheOrg();
+
+      const [question] = questions;
+      const whole = question.stage === 'write' ? question.wholeOrg : undefined;
+      expect(whole?.targetApiNear).toBeUndefined();
+      expect(whole?.sourceApi?.near).toBeUndefined();
+      expect(whole?.bulkBatches?.near).toBeUndefined();
+    });
+
+    describe('the smaller calls it allows itself', () => {
+      /** A run that keeps what the gate answers the executor, once let through. */
+      function runAnswered(boundary: ForgeWriteBoundary = counted()) {
+        const answered: unknown[] = [];
+        const orchestrator = orchestratorHanding();
+        orchestrator.execute.mockImplementation(async (_graph, _config, options) => {
+          answered.push(await options?.beforeWrite?.(boundary));
+          calls.push('written');
+          return RESULT;
+        });
+        handler.setForgeOrchestrator(orchestrator, {
+          targetAutomation: readerOf(QUIET),
+          runJournal: journalOnMemory().journal,
+        });
+        return answered;
+      }
+
+      it('answers the run RUN_SPLIT_CALLS when what it leaves of the target’s requests covers twice as many', async () => {
+        const answered = runAnswered();
+
+        await cloneTheOrg();
+
+        expect(calls).toContain('written');
+        expect(answered).toEqual([{ splitAllowance: RUN_SPLIT_CALLS }]);
+      });
+
+      it('answers half of what it leaves of them near the limit', async () => {
+        limitsOf['tgt-org'] = {
+          DataStorageMB: { Max: 2_000, Remaining: 1_500 },
+          DailyApiRequests: { Max: 100_000, Remaining: 3_000 },
+        };
+        const answered = runAnswered();
+
+        await cloneTheOrg();
+
+        const [question] = questions;
+        const estimate = question.stage === 'write' ? question.apiRequests?.estimate : undefined;
+        expect(estimate).toBeDefined();
+        expect(question).toMatchObject({ wholeOrg: { targetApiNear: true } });
+        expect(answered).toEqual([{ splitAllowance: Math.floor((3_000 - (estimate ?? 0)) / 2) }]);
+      });
+
+      it('answers RUN_SPLIT_CALLS when the target did not say what it has left', async () => {
+        limitsOf['tgt-org'] = { DataStorageMB: { Max: 2_000, Remaining: 1_500 } };
+        const answered = runAnswered();
+
+        await cloneTheOrg();
+
+        expect(answered).toEqual([{ splitAllowance: RUN_SPLIT_CALLS }]);
+      });
+
+      it('answers nothing of them to a run of anything else, which keeps its own', async () => {
+        const answered = runAnswered();
+        settings['safety.confirmAboveRecords'] = 10;
+
+        await execute();
+
+        expect(calls).toContain('written');
+        expect(answered).toEqual([undefined]);
+      });
+
+      it('takes half of what the run leaves, RUN_SPLIT_CALLS at most, none past what is left', () => {
+        expect(
+          wholeOrgSplitAllowance({ verdict: 'fits', estimate: 1_000, remaining: 90_000, max: 1 }),
+        ).toBe(RUN_SPLIT_CALLS);
+        expect(
+          wholeOrgSplitAllowance({ verdict: 'near', estimate: 1_000, remaining: 2_001, max: 1 }),
+        ).toBe(500);
+        expect(
+          wholeOrgSplitAllowance({ verdict: 'near', estimate: 1_000, remaining: 1_000, max: 1 }),
+        ).toBe(0);
+        expect(
+          wholeOrgSplitAllowance({ verdict: 'exceeds', estimate: 1_000, remaining: 10, max: 1 }),
+        ).toBe(0);
+        expect(wholeOrgSplitAllowance({ verdict: 'unread', estimate: 1_000, unread: 'no' })).toBe(
+          RUN_SPLIT_CALLS,
+        );
+      });
+    });
+
+    it('refuses, without asking, a run past the API requests the target has left today', async () => {
+      limitsOf['tgt-org'] = {
+        DataStorageMB: { Max: 2_000, Remaining: 1_500 },
+        DailyApiRequests: { Max: 100_000, Remaining: 5 },
+      };
+      wholeOrgRun();
+
+      await cloneTheOrg();
+
+      expect(questions).toEqual([]);
+      expect(calls).not.toContain('written');
+      expectStoppedAtTheGate('API_BUDGET_EXCEEDED');
+      const [error] = posted('forge:execute:error');
+      expect(error.payload.gate).toMatchObject({
+        code: 'API_BUDGET_EXCEEDED',
+        api: { kind: 'requests', org: 'target', remaining: 5 },
+      });
+      expect(String(error.payload.message)).toContain(
+        'DEV has 5 of its 100000 daily requests left',
+      );
+      expect(runs()).toEqual([
+        expect.objectContaining({
+          outcome: 'stopped',
+          guard: 'allowed',
+          details: { code: 'API_BUDGET_EXCEEDED' },
+        }),
+      ]);
+    });
+
+    it('refuses, without asking, a run past the API requests the source has left today', async () => {
+      limitsOf['src-org'] = { DailyApiRequests: { Max: 500_000, Remaining: 3 } };
+      wholeOrgRun();
+
+      await cloneTheOrg();
+
+      expect(questions).toEqual([]);
+      expect(calls).not.toContain('written');
+      expectStoppedAtTheGate('API_BUDGET_EXCEEDED');
+      const [error] = posted('forge:execute:error');
+      expect(error.payload.gate).toMatchObject({
+        api: { kind: 'requests', org: 'source', estimate: 14, remaining: 3 },
+      });
+      expect(String(error.payload.message)).toContain(
+        'The run reads the source records in about 14 API requests, and UAT has 3',
+      );
+    });
+
+    it('refuses, without asking, jobs past the Bulk API batches the target has left today', async () => {
+      (limitsOf['tgt-org'] as Record<string, unknown>).DailyBulkApiBatches = {
+        Max: 15_000,
+        Remaining: 2,
+      };
+      wholeOrgRun();
+
+      await cloneTheOrg();
+
+      expect(questions).toEqual([]);
+      expectStoppedAtTheGate('API_BUDGET_EXCEEDED');
+      expect(posted('forge:execute:error')[0].payload.gate).toEqual({
+        code: 'API_BUDGET_EXCEEDED',
+        api: { kind: 'bulkBatches', org: 'target', estimate: 3, remaining: 2 },
+      });
+    });
+
+    it('refuses, without asking, files past the file storage the target has left', async () => {
+      wholeOrgRun(counted({ files: { bytes: 950 * MB, count: 40, overCeiling: 0 } }));
+
+      await cloneTheOrg();
+
+      expect(questions).toEqual([]);
+      expectStoppedAtTheGate('STORAGE_EXCEEDED');
+      const [error] = posted('forge:execute:error');
+      expect(error.payload.gate).toEqual({
+        code: 'STORAGE_EXCEEDED',
+        storage: { estimateMB: 950, remainingMB: 900, kind: 'files' },
+      });
+      expect(String(error.payload.message)).toContain('take about 950 MB of file storage');
+    });
+
+    it('refuses an object it reads whole past the setting, before reading any limit, and not as a cancel', async () => {
+      wholeOrgRun(
+        counted({
+          wholeReadOver: [{ objectApiName: 'PricebookEntry', rows: 80_000, bound: 50_000 }],
+        }),
+      );
+
+      await cloneTheOrg();
+
+      expect(questions).toEqual([]);
+      expect(calls).not.toContain('limits tgt-org');
+      expect(calls).not.toContain('written');
+      expectStoppedAtTheGate('READ_BOUND_EXCEEDED');
+      const [error] = posted('forge:execute:error');
+      expect(error.payload.gate).toEqual({
+        code: 'READ_BOUND_EXCEEDED',
+        readBound: { bound: 50_000, objects: [{ objectApiName: 'PricebookEntry', rows: 80_000 }] },
+      });
+      expect(String(error.payload.message)).toContain('sandforge.forge.maxRecordsPerObject');
+      // Nobody declined anything: the guard's decision stands.
+      expect(runs()).toEqual([
+        expect.objectContaining({
+          outcome: 'stopped',
+          guard: 'allowed',
+          details: { code: 'READ_BOUND_EXCEEDED' },
+        }),
+      ]);
+    });
+
+    it('stops before it reads a row when its journal cannot be opened', async () => {
+      const orchestrator = orchestratorHanding(counted());
+      handler.setForgeOrchestrator(orchestrator, {
+        targetAutomation: readerOf(QUIET),
+        runJournal: journalOnMemory({ unwritable: true }).journal,
+      });
+
+      await cloneTheOrg();
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      const [error] = posted('forge:execute:error');
+      expect(error.payload.message).toBe(
+        'A clone of the whole org keeps its journal on disk, which could not be opened. ' +
+          'Nothing was written.',
+      );
     });
   });
 });

@@ -40,6 +40,10 @@ const USER = fakeId('005', 1);
 
 type Row = Record<string, unknown> & { Id: string };
 
+/** What a trigger that runs a query per record has the org answer for each record of a chunk. */
+const LIMIT_MESSAGE =
+  'SSC_TRG_Contact: execution of BeforeDelete\n\ncaused by: System.LimitException: Too many SOQL queries: 101\n\nTrigger.SSC_TRG_Contact: line 5, column 1';
+
 interface Child {
   childSObject: string;
   field: string;
@@ -62,6 +66,13 @@ class JobOrg implements RemovalOrg {
   readonly queries: string[] = [];
   /** What a job answers for a record instead of deleting it, by id: its `sf__Error`. */
   readonly jobErrors = new Map<string, string>();
+  /**
+   * Records a job refuses for a limit the target's automation hit, as a job
+   * refuses each record of a chunk a trigger had refused: by id.
+   */
+  readonly jobLimit = new Set<string>();
+  /** The most records a REST delete of a contact holds before the trigger refuses it whole. */
+  restLimitAbove?: number;
   /** What the next jobs answer instead of deleting anything, in turn. */
   readonly jobAnswers: Array<BulkDeleteAnswer | Error> = [];
   /** Told of each job before it is answered. */
@@ -175,6 +186,13 @@ class JobOrg implements RemovalOrg {
 
   async destroy(objectApiName: string, ids: string[]): Promise<unknown> {
     this.calls.push({ objectApiName, ids: [...ids] });
+    if (objectApiName === 'Contact' && ids.length > (this.restLimitAbove ?? Infinity)) {
+      return ids.map((id) => ({
+        id,
+        success: false,
+        errors: [{ statusCode: 'DELETE_FAILED', message: LIMIT_MESSAGE }],
+      }));
+    }
     return ids.map((id) => {
       const error = this.jobErrors.get(id);
       if (error) {
@@ -207,6 +225,9 @@ class JobOrg implements RemovalOrg {
       rows: ids.map((id) => {
         const error = this.jobErrors.get(id);
         if (error) return { success: false, error };
+        if (this.jobLimit.has(id)) {
+          return { success: false, error: `DELETE_FAILED:${LIMIT_MESSAGE}:--` };
+        }
         return this.take(objectApiName, id) === 'deleted'
           ? { success: true }
           : { success: false, error: 'ENTITY_IS_DELETED:entity is deleted:--' };
@@ -495,6 +516,131 @@ describe('a removal past the bulk threshold', () => {
         ['Account', 1],
       ]),
     );
+  });
+});
+
+describe('a job the target’s automation refused records of for a Salesforce limit', () => {
+  /** The sizes of the REST deletes of contacts, in turn. */
+  const contactCalls = (org: JobOrg): number[] =>
+    org.calls.filter((call) => call.objectApiName === 'Contact').map((call) => call.ids.length);
+
+  it('sends again by REST at 100 what a job refused for a limit, and the job queued behind it by REST too', async () => {
+    const { org, plan } = contactsUnderAnAccount(BULK_DELETE_JOB_RECORDS + 500);
+    const contacts = plan[0].ids;
+    // The trigger refused the job's first chunk of 200.
+    for (const contact of contacts.slice(0, 200)) org.jobLimit.add(contact);
+
+    const outcome = await removeRunRecords(org, plan, OPTIONS);
+
+    // One job, never a second: its 200 by REST at 100, then the 25 250 the
+    // second job held, at 100 as well.
+    expect(org.jobs.map((job) => job.ids.length)).toEqual([25_250]);
+    const calls = contactCalls(org);
+    expect(calls).toHaveLength(2 + 253);
+    expect(calls.every((size) => size <= 100)).toBe(true);
+    expect(outcome.objects[0]).toMatchObject({ deleted: 50_500, refused: 0 });
+    // Every call that sends the second job's records by REST is one more: the
+    // job, as priced, would have sent a few requests for all of them.
+    expect(outcome.objects[0].reasons).toEqual([
+      'SSC_TRG_Contact (before delete) hit Too many SOQL queries on a call of 200: sent 100 at a time, 255 calls more.',
+    ]);
+    expect(outcome.sizes?.()).toEqual({ Contact: 100 });
+  });
+
+  it('sends by REST what the allowance pays of a job queued behind, every call paid, and the rest as a job', async () => {
+    const { org, plan } = contactsUnderAnAccount(BULK_DELETE_JOB_RECORDS + 500);
+    for (const contact of plan[0].ids.slice(0, 200)) org.jobLimit.add(contact);
+
+    const outcome = await removeRunRecords(org, plan, { ...OPTIONS, splitAllowance: 100 });
+
+    // 2 calls of 100 for the chunk the first job had refused, then the 98
+    // the allowance has left of the second job's 25 250, by REST: 9 800
+    // records. The 15 450 past them go as the job they were, never as calls
+    // of 200 nothing paid for.
+    expect(org.jobs.map((job) => job.ids.length)).toEqual([25_250, 15_450]);
+    const calls = contactCalls(org);
+    expect(calls).toEqual(Array(100).fill(100));
+    expect(outcome.objects[0]).toMatchObject({ deleted: 50_500, refused: 0 });
+    expect(outcome.objects[0].reasons).toEqual([
+      'SSC_TRG_Contact (before delete) hit Too many SOQL queries on a call of 200: sent 100 at a time, 100 calls more.',
+    ]);
+  });
+
+  it('sends an object an earlier removal cut at what the allowance pays for, and the rest as a job', async () => {
+    const { org, plan } = contactsUnderAnAccount(10_500);
+    // A trigger that passes 50 at a time and no more, whatever the transport.
+    org.restLimitAbove = 50;
+    for (const contact of plan[0].ids) org.jobLimit.add(contact);
+
+    const outcome = await removeRunRecords(org, plan, {
+      ...OPTIONS,
+      deleteSizes: { Contact: 50 },
+      splitAllowance: 20,
+    });
+
+    // The 20 calls the allowance pays for go at 50, 1 000 records, before the
+    // switch: an allowance short of the whole is spent, not left unused. The
+    // 9 500 left go as a job, refused for the limit, and stay refused.
+    expect(contactCalls(org)).toEqual(Array(20).fill(50));
+    expect(org.jobs.map((job) => job.ids.length)).toEqual([9_500]);
+    const [contact] = outcome.objects;
+    expect(contact).toMatchObject({ deleted: 1_000, refused: 9_500 });
+    expect(contact.reasons).toEqual([
+      'Sent 50 at a time, the size a limit called for in an earlier removal, 20 calls more.',
+      '9500 not sent in smaller calls: the removal had spent the 20 smaller calls it allows itself.',
+      expect.stringContaining('DELETE_FAILED: SSC_TRG_Contact: execution of BeforeDelete'),
+    ]);
+    // What the next removal takes up again, at 50, and the account they hold.
+    expect(await leftCounts(outcome)).toEqual(
+      new Map([
+        ['Contact', 9_500],
+        ['Account', 1],
+      ]),
+    );
+  });
+
+  it('sends the pages gathered after it by REST, never by a job', async () => {
+    const { org, plan } = contactsUnderAnAccount(BULK_DELETE_JOB_RECORDS + 10_000);
+    for (const contact of plan[0].ids.slice(0, 200)) org.jobLimit.add(contact);
+
+    const outcome = await removeRunRecords(org, inPages(plan, 2_000), OPTIONS);
+
+    expect(org.jobs.map((job) => job.ids.length)).toEqual([BULK_DELETE_JOB_RECORDS]);
+    expect(contactCalls(org)).toEqual(Array(2 + 100).fill(100));
+    expect(outcome.objects[0]).toMatchObject({ deleted: 60_000, refused: 0 });
+    expect(await leftCounts(outcome)).toEqual(new Map());
+  });
+
+  it('sends by REST what a job left untouched, and cuts those calls to the size a limit called for', async () => {
+    const { org, plan } = contactsUnderAnAccount(10_500);
+    org.jobAnswers.push({ kind: 'untouched', reason: 'InvalidBatch : Failed to process the job' });
+    org.restLimitAbove = 100;
+
+    const outcome = await removeRunRecords(org, plan, OPTIONS);
+
+    expect(org.jobs).toHaveLength(1);
+    // The first call of 200 refused, then every record at 100.
+    expect(contactCalls(org)).toEqual([200, ...Array(105).fill(100)]);
+    expect(outcome.objects[0]).toMatchObject({ deleted: 10_500, refused: 0 });
+  });
+
+  it('sends smaller what the allowance pays for, and leaves the rest refused as the org refused it', async () => {
+    const { org, plan } = contactsUnderAnAccount(10_500);
+    for (const contact of plan[0].ids.slice(0, 300)) org.jobLimit.add(contact);
+
+    const outcome = await removeRunRecords(org, plan, { ...OPTIONS, splitAllowance: 2 });
+
+    // Two calls of 100 paid for; the last 100 stay, and are not tried again.
+    expect(contactCalls(org)).toEqual([100, 100]);
+    const [contact, account] = outcome.objects;
+    expect(contact).toMatchObject({ deleted: 10_400, refused: 100 });
+    expect(contact.reasons).toEqual([
+      'SSC_TRG_Contact (before delete) hit Too many SOQL queries on a call of 200: sent 100 at a time, 2 calls more.',
+      '100 not sent in smaller calls: the removal had spent the 2 smaller calls it allows itself.',
+      expect.stringContaining('DELETE_FAILED: SSC_TRG_Contact: execution of BeforeDelete'),
+    ]);
+    // Their account stays with them.
+    expect(account).toMatchObject({ deleted: 0, keptDependents: 1 });
   });
 });
 

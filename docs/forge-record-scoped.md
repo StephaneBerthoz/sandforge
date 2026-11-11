@@ -394,18 +394,24 @@ run that reads it whole holds it: `SELECT RecordTypeId, COUNT(Id) … GROUP BY
 RecordTypeId` under the run's filter, asked when the target has such a record
 type. `onPage` is told, as each page is written, what it created and the last
 id it read. `ceiling` is the most rows of one object it reads
-(`sandforge.forge.maxRecordsPerObject`). A run that upserts (`upsertMode`)
-matches every page of an object by one external id: before the first page,
-it reads the id and the external ids of every row it reads of the object,
-from the first row and under the object's filter, and keeps the first
+(`sandforge.forge.maxRecordsPerObject`); a clone of the whole org has none, and
+holds to that setting only the nodes it reads whole (`wholeReadBound`), which
+its gate refuses past it (`READ_BOUND_EXCEEDED`). A run that upserts
+(`upsertMode`) matches every page of an object by one external id: before the
+first page, it reads the id and the external ids of every row it reads of the
+object, from the first row and under the object's filter, and keeps the first
 external id whose value each row holds and no two share, as a run read whole
 picks it over all its rows; a page whose rows as written repeat a value an
 earlier page sent, or leave one empty, is inserted. A record-scoped run, one
 that copies files, and one whose graph holds emails, read every node whole as
 before; so do the catalog, the tasks and the objects mapped by name within a
-streamed run. `pageSize` cuts the pages to a size of its own: a test seam, and
-the clone command's `SANDFORGE_FORGE_PAGE_SIZE` diagnostic, under which a
-record-scoped run reads its statements through the cursor too.
+streamed run. A clone of the whole org (`stream.everything`) reads every node
+page by page — the emails, the tasks and a run that copies files too, the
+emails on a case read again once the tasks they name are written — and only
+the catalog and the objects mapped by name whole. `pageSize` cuts the pages to
+a size of its own: a test seam, and the clone command's
+`SANDFORGE_FORGE_PAGE_SIZE` diagnostic, under which a record-scoped run reads
+its statements through the cursor too.
 
 `stream.store` is the run's journal (`ForgeRunStore`, one `.ndjson` file a
 run): every mapping the run registers — created, linked to, written over —

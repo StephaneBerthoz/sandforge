@@ -98,6 +98,28 @@ describe('ForgeRehearseAction', () => {
     );
   });
 
+  // A clone of the whole org: its rehearsal would hold its rows in memory.
+  it('rehearses nothing when told why it cannot, and is described by that line', () => {
+    render(
+      <>
+        <p id="why-not">Not for a clone of the whole org.</p>
+        <ForgeRehearseAction unavailableHintId="why-not" />
+      </>,
+    );
+    const button = screen.getByTestId('rehearse-button') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('aria-describedby')).toBe(
+      'forge-rehearse-hint forge-rehearse-status why-not',
+    );
+
+    fireEvent.click(button);
+    expect(
+      mockPostMessage.mock.calls.filter(
+        (call) => (call[0] as { payload: BaseMessage }).payload.type === 'forge:rehearse:request',
+      ),
+    ).toHaveLength(0);
+  });
+
   it('says each phase: the object read, the calls to confirm, the call under way', () => {
     render(<ForgeRehearseAction />);
     fireEvent.click(screen.getByTestId('rehearse-button'));

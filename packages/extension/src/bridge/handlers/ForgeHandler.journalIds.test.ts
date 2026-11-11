@@ -657,6 +657,51 @@ describe('a run whose ids are in its journal', () => {
     ]);
   });
 
+  it('keeps on its plan the size a limit cut its deletes to, hands it to the next removal, and keeps the smaller of the two', async () => {
+    const entry = await runPastTheBound();
+    const refused = new Set([targetOf('003', 1), targetOf('003', 2), targetOf('003', 3)]);
+    let sizes: Record<string, number> = { Contact: 58 };
+    removalAnswer = (plan) => ({
+      objects: plan.map(({ objectApiName, ids }) => ({
+        objectApiName,
+        planned: ids.length,
+        deleted: ids.filter((id) => !refused.has(id)).length,
+        alreadyGone: 0,
+        keptChanged: 0,
+        keptDependents: 0,
+        refused: ids.filter((id) => refused.has(id)).length,
+        heldBy: [],
+        unchecked: [],
+        reasons: [],
+      })),
+      cancelled: false,
+      gone: plan.flatMap(({ ids }) => ids.filter((id) => !refused.has(id))),
+      left: leftAfter(
+        plan,
+        plan.flatMap(({ ids }) => ids.filter((id) => !refused.has(id))),
+      ),
+      stamps: {},
+      sizes: () => sizes,
+    });
+
+    await send('wv-undo', 'forge:undo', { forgeId: entry.forgeId });
+
+    expect(removalOptions[0]).not.toHaveProperty('deleteSizes');
+    const kept = await plans.get(entry.forgeId);
+    expect(kept?.inJournal?.left).toEqual([{ objectApiName: 'Contact', count: 3 }]);
+    expect(kept?.deleteSizes).toEqual({ Contact: 58 });
+    // Kept on the plan alone: the history entry holds none.
+    expect(stored()[0]).not.toHaveProperty('deleteSizes');
+
+    // Remove what is left: the contacts start at 58; the next removal went
+    // through at 100 for them and at 20 for the accounts.
+    sizes = { Contact: 100, Account: 20 };
+    await send('wv-undo-again', 'forge:undo', { forgeId: entry.forgeId });
+
+    expect(removalOptions[1]?.deleteSizes).toEqual({ Contact: 58 });
+    expect((await plans.get(entry.forgeId))?.deleteSizes).toEqual({ Contact: 58, Account: 20 });
+  });
+
   it('keeps what a removal stamped beside the journal, not on the entry, and tells the next removal and Verify', async () => {
     const entry = await runPastTheBound();
     const stamped = { [targetOf('001', 1)]: '2026-10-14T12:00:05.000+0000' };

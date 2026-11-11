@@ -138,6 +138,28 @@ describe('ForgeOrchestrator', () => {
       expect(second).toBe(full);
     });
 
+    it('serves a clone of the whole org discovered again from the cache, and discovers it anew once its filters change', async () => {
+      const org = createMockConfig({ inputMode: 'org', depth: 'all', recordId: undefined });
+
+      await orchestrator.discover(org);
+      await orchestrator.discover({ ...org });
+      expect(deps.discoveryService.discover).toHaveBeenCalledTimes(1);
+
+      // A filter changes the counts, and an object it keeps no row of is
+      // left out as empty: the graph discovered without it is not this one.
+      const filtered = { ...org, objectSoqlFilters: { Account: "Type = 'Customer'" } };
+      await orchestrator.discover(filtered);
+      await orchestrator.discover({
+        ...filtered,
+        objectSoqlFilters: { Account: "Type = 'Customer'" },
+      });
+      expect(deps.discoveryService.discover).toHaveBeenCalledTimes(2);
+
+      // Nor is a clone of the whole org the graph of one of its records.
+      await orchestrator.discover(createMockConfig());
+      expect(deps.discoveryService.discover).toHaveBeenCalledTimes(3);
+    });
+
     it('should propagate errors from discoveryService', async () => {
       vi.mocked(deps.discoveryService.discover).mockRejectedValue(
         new Error('Cannot resolve root object'),
@@ -383,6 +405,78 @@ describe('ForgeOrchestrator', () => {
       expect(vi.mocked(deps.executor.execute).mock.calls[0][4]).toMatchObject({
         stream: { ceiling: 200_000 },
       });
+    });
+
+    it('asks the executor to copy the whole org of a config in org mode: every row page by page, no cap, a Bulk API job a window', async () => {
+      const wholeOrg = createMockConfig({
+        inputMode: 'org',
+        depth: 'all',
+        recordId: undefined,
+        // Carried over from a template or a run: no clone of the whole org
+        // caps an object or reads the parents outside its graph.
+        maxRecordsPerObject: 200,
+        expandOrphanParents: true,
+      });
+      const onPage = vi.fn();
+
+      await orchestrator.execute(createMockGraph(), wholeOrg, {
+        stream: { ceiling: 200_000, onPage, summaryBound: 1_000 },
+        wholeReadBound: 120_000,
+      });
+      // Without a stream of its own, read page by page all the same.
+      await orchestrator.execute(createMockGraph(), wholeOrg);
+
+      const [given, bare] = vi.mocked(deps.executor.execute).mock.calls.map((c) => c[4]);
+      expect(given).toMatchObject({
+        writeApi: 'auto',
+        expandOrphanParents: false,
+        stream: {
+          onPage,
+          summaryBound: 1_000,
+          everything: true,
+          writeWindow: 10_000,
+          secondPassPageSize: 10_000,
+          wholeReadBound: 120_000,
+        },
+      });
+      expect(given?.maxRecordsPerObject).toBeUndefined();
+      expect(given?.stream?.ceiling).toBeUndefined();
+      expect(given?.rootRecordId).toBeUndefined();
+      expect(bare?.stream).toMatchObject({ everything: true, wholeReadBound: 50_000 });
+
+      // A run of whole tables stays as it was: no Bulk API, its cap, its ceiling.
+      await orchestrator.execute(
+        createMockGraph(),
+        createMockConfig({
+          inputMode: 'soql',
+          recordId: undefined,
+          soqlQuery: 'SELECT Id FROM Account',
+          maxRecordsPerObject: 200,
+        }),
+        { stream: { ceiling: 200_000 } },
+      );
+      const tables = vi.mocked(deps.executor.execute).mock.calls[2][4];
+      expect(tables).toMatchObject({ maxRecordsPerObject: 200, stream: { ceiling: 200_000 } });
+      expect(tables?.writeApi).toBeUndefined();
+      expect(tables?.stream?.everything).toBeUndefined();
+    });
+
+    it('bounds the reads that hold their rows of a clone of the whole org by the bound of its whole reads, not its ceiling', async () => {
+      const told: number[] = [];
+      const ordered = new ForgeOrchestrator({
+        ...deps,
+        setReadOptions: ({ maxRecordsPerObject }) => told.push(maxRecordsPerObject),
+      });
+      const wholeOrg = createMockConfig({ inputMode: 'org', depth: 'all', recordId: undefined });
+
+      await ordered.execute(createMockGraph(), wholeOrg, {
+        stream: { ceiling: 200_000 },
+        wholeReadBound: 300_000,
+      });
+      // Given no bound, the setting's default: 50 000.
+      await ordered.execute(createMockGraph(), wholeOrg, { stream: {} });
+
+      expect(told).toEqual([300_000, 50_000, 50_000, 50_000]);
     });
 
     it('leaves out by name the objects unchecked on the page, not those discovery left out, in both input modes', async () => {

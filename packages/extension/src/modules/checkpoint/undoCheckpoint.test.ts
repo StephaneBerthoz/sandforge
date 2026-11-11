@@ -28,6 +28,7 @@ import {
   type UndoCheckpointOutcome,
   type UndoCheckpointRequest,
 } from './undoCheckpoint.js';
+import { undoRewind } from './undoRewind.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -36,6 +37,12 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
+
+// The undo itself, watched: what each undo of the checkpoint hands it is read back.
+vi.mock('./undoRewind.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./undoRewind.js')>();
+  return { ...actual, undoRewind: vi.fn(actual.undoRewind) };
+});
 
 /*
  * The undo of a rewind, as the panel and the command line ask for one, on the
@@ -214,6 +221,7 @@ beforeEach(() => {
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   vi.mocked(getJsforceConnection).mockReset();
+  vi.mocked(undoRewind).mockClear();
 });
 
 const named = {
@@ -694,6 +702,30 @@ describe('undoCheckpoint: what it refuses before it writes', () => {
       },
     });
     expect(stateOf(r.org)).toEqual(before);
+  });
+});
+
+describe('undoCheckpoint: the smaller calls its removal may send', () => {
+  it('hands the undo what the requests the org has left leave past its estimate, 2,000 at most: the gate’s own figure', async () => {
+    const r = await rewound();
+    r.org.limits = { Max: 15_000, Remaining: 8 };
+    const refused = await undone(r);
+    if (refused.undone) throw new Error('the undo went through on 8 requests left');
+    const estimate = Number(/takes about (\d+) API requests/.exec(refused.refusal.message)?.[1]);
+    expect(vi.mocked(undoRewind)).not.toHaveBeenCalled();
+
+    r.org.limits = { Max: 15_000, Remaining: estimate + 5 };
+    resultOf(await undone(r));
+
+    expect(vi.mocked(undoRewind).mock.calls.map(([input]) => input.splitAllowance)).toEqual([5]);
+  });
+
+  it('hands the undo the 2,000 smaller calls a removal allows itself when the org has far more left than it takes', async () => {
+    const r = await rewound();
+
+    resultOf(await undone(r));
+
+    expect(vi.mocked(undoRewind).mock.calls.map(([input]) => input.splitAllowance)).toEqual([2000]);
   });
 });
 

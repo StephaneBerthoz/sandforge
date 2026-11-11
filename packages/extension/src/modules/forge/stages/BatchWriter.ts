@@ -7,13 +7,32 @@
  * source→target ID mappings, links rows the target refused because it
  * already holds them to the record it named, writes again without them the
  * rows a validation rule, a restricted picklist or the lookup filter of a
- * lookup the target lets be empty refused on fields it named, up to three
+ * lookup the target lets be empty refused on fields it named, and without its
+ * owner a row the target refused for holding that owner inactive, up to three
  * rounds a row — and sends without it from the start a row holding a picklist
- * value the target refused under the same record type earlier in the run —
+ * value the target refused under the same record type earlier in the run, or
+ * an owner it refused as inactive earlier in the run —
  * sends again, after a wait, a call that never reached the target and the
  * rows it could not lock a record for, stops at a call whose answer was lost
  * and says which rows the target may hold, collects per-record failure
  * samples, and queues nullified cycle FKs for the pass-2 UPDATE.
+ *
+ * A run that writes through the Bulk API (`WriteNodeInput.bulk`, a clone of
+ * the whole org) sends each call of {@link FORGE_BULK_MIN_ROWS} rows or more
+ * as a Bulk API 2.0 job instead (`forgeBulkWrite`), and every other call —
+ * and every row a job could not answer for itself — by REST as before.
+ *
+ * A call the target's automation refuses for a Salesforce limit — a trigger
+ * that runs a query per record passes the 100 a transaction allows on a call
+ * of 200, and the whole call is rolled back — has the rows it refused so sent
+ * again in calls half as large, at once and in place, down to one record
+ * (`sendSplittingOnLimits`): the size that went through is kept for the rest
+ * of the run on that object and operation (`CallSizes`, the run's, which its
+ * second pass shares), the object goes by REST rather than as jobs from then
+ * on, and the calls it costs come out of the run's allowance
+ * (`SplitAllowance`). A row still refused sent on its own, or kept from
+ * smaller calls by a spent allowance, fails with the org's message and a
+ * sentence that says which.
  *
  * Pause/abort is honored before each call through the `waitIfPaused`
  * checkpoint injected by the executor.
@@ -27,14 +46,35 @@ import type {
   InsertResult,
 } from '../ForgeExecutor.js';
 import type { ForgeFieldRefusal, ForgeGraphNode } from '@sandforge/shared';
-import { SELLING_MODEL_OPTION_OBJECT, isAlreadyExistsError } from '@sandforge/shared';
+import {
+  SELLING_MODEL_OPTION_OBJECT,
+  isAlreadyExistsError,
+  limitCauseOf,
+  type GovernorLimitCause,
+} from '@sandforge/shared';
 import { codeAndMessage, existingRecordOf } from '../../../core/common/existingRecordMatch.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import {
+  BULK_CHUNK,
+  CallSizes,
+  NOT_SPLIT,
+  RUN_SPLIT_CALLS,
+  SplitAllowance,
+  allowedFor,
+  limitNoteText,
+  sendSplittingOnLimits,
+  type CallKey,
+  type LimitNote,
+  type SmallerCalls,
+  type SplitPricing,
+} from '../../../core/common/governorLimit.js';
+import {
+  INACTIVE_OWNER_REFUSAL,
   LOOKUP_FILTER_REFUSAL,
   RESTRICTED_PICKLIST_REFUSAL,
   addWrittenWithoutFields,
   heldKeyOf,
+  inactiveOwnerNamed,
   refusedFields,
   refusedOnNoField,
   without,
@@ -42,6 +82,8 @@ import {
   type WrittenWithoutFields,
 } from '../../../core/common/refusedFields.js';
 import { whatTheWriteLeft, type ThrownWrite } from '../../../core/common/thrownWrite.js';
+import type { BulkApiManager } from '../../../core/engine/BulkApiManager.js';
+import { buildBulkCsv } from '../../../core/engine/bulkCsv.js';
 import { RetryStrategy } from '../../../core/engine/RetryStrategy.js';
 import {
   ACCOUNT_CONTACT_RELATION,
@@ -55,8 +97,18 @@ import {
   recordsByNaturalKey,
 } from '../../../core/common/platformRecords.js';
 import { logger } from '../../../logger.js';
-import { ForgeBatchStrategy as ForgeBatchStrategyService } from '../ForgeBatchStrategy.js';
+import {
+  FORGE_BULK_MIN_ROWS,
+  ForgeBatchStrategy as ForgeBatchStrategyService,
+} from '../ForgeBatchStrategy.js';
 import type { ResolvedBatchStrategy } from '../ForgeBatchStrategy.js';
+import {
+  BulkJobLostError,
+  FORGE_BULK_JOB_MAX_BYTES,
+  FORGE_BULK_JOB_ROWS,
+  type BulkRowState,
+  type BulkWriteAnswer,
+} from '../forgeBulkWrite.js';
 import type { CleanedRecord } from './RecordCleaner.js';
 import type { OwedAtInsert } from '../ForgeRunStore.js';
 import type { PicklistField } from './RecordTypePicklists.js';
@@ -85,20 +137,21 @@ export const WRITE_API_MAX_BATCH: Readonly<Record<ResolvedBatchStrategy['api'], 
 };
 
 /**
- * The API this writer really dispatches on.
+ * The transport is chosen call by call, never for a node as a whole.
  *
- * `composition/forgeComposition.ts` wires both `insertRecords` and
- * `upsertRecords` onto `conn.sobject(name).create/upsert` — REST sObject
- * Collections. No Bulk 2.0 transport is reachable from this stage, so the
- * effective batch size is derived from THIS constant and never from
- * `ForgeBatchStrategy.batchSize` alone: the strategy returns
+ * `composition/forgeComposition.ts` wires `insertRecords` and `upsertRecords`
+ * onto `conn.sobject(name).create/upsert` — REST sObject Collections, 200
+ * records a call — and, for a run that writes through the Bulk API,
+ * `bulkWriteRecords` onto a Bulk API 2.0 job. The strategy returns
  * `api: 'bulk'` + `batchSize: 10_000` as soon as a node holds more than 200
- * records, and posting 10 000 records to a 200-record endpoint failed every
- * object above the threshold. Moving Forge onto a real Bulk path means
- * changing this constant *and* the injected deps together, which keeps the
- * two in sync by construction.
+ * records, but no run but one that asks for jobs (`WriteNodeInput.bulk`) has
+ * one to send: posting 10 000 records to the 200-record endpoint failed every
+ * object above the threshold, and the batch size is derived from the
+ * transport {@link resolveWriteBatching} settles on, never from the strategy
+ * alone. A batch cut for a job that ends up under {@link FORGE_BULK_MIN_ROWS}
+ * rows — the rest of an object past its jobs, a write the org refused as a
+ * job — still goes by REST, in calls of 200.
  */
-const WRITE_API: ResolvedBatchStrategy['api'] = 'rest';
 
 /**
  * Times a call is sent again when what it threw proves it never reached the
@@ -143,23 +196,34 @@ function sleep(ms: number): Promise<void> {
  * least, a node that read no rows — or whose every row the target already
  * held — made an insert call with nothing in it.
  *
+ * A node goes in Bulk API jobs only when the run sends jobs and may send this
+ * object as one (`transport.bulk`), the strategy asks for them, and it holds
+ * {@link FORGE_BULK_MIN_ROWS} rows or more; by REST otherwise, whatever the
+ * strategy asked.
+ *
  * @param planned - What {@link ForgeBatchStrategyService.resolve} proposed.
  * @param recordCount - Records to write for this node.
+ * @param transport - Whether the run may send this node's rows as Bulk API jobs.
  * @returns The API really used, the clamped batch size/count, and whether the
  *   planned size had to be reduced.
  */
 export function resolveWriteBatching(
   planned: ResolvedBatchStrategy,
   recordCount: number,
+  transport: { bulk: boolean },
 ): {
   api: ResolvedBatchStrategy['api'];
   batchSize: number;
   batchCount: number;
   clamped: boolean;
 } {
-  const batchSize = Math.min(planned.batchSize, WRITE_API_MAX_BATCH[WRITE_API]);
+  const api: ResolvedBatchStrategy['api'] =
+    transport.bulk && planned.api === 'bulk' && recordCount >= FORGE_BULK_MIN_ROWS
+      ? 'bulk'
+      : 'rest';
+  const batchSize = Math.min(planned.batchSize, WRITE_API_MAX_BATCH[api]);
   return {
-    api: WRITE_API,
+    api,
     batchSize,
     batchCount: Math.ceil(recordCount / batchSize),
     clamped: batchSize < planned.batchSize,
@@ -275,6 +339,15 @@ export interface WriteNodeInput {
    * left the records it had created in the target. Absent, no call is kept.
    */
   calls?: InsertCallJournal;
+  /**
+   * How the run sends its writes as Bulk API 2.0 jobs, when it does: a clone
+   * of the whole org (`ExecuteOptions.writeApi: 'auto'`). A call of
+   * {@link FORGE_BULK_MIN_ROWS} rows or more of an object neither in
+   * `restOnly` nor in `bulkUnsupported` goes as a job, through
+   * `deps.bulkWriteRecords`; every other call by REST. Absent, every call goes
+   * by REST, as it always did.
+   */
+  bulk?: BulkTransport;
   /** Pause/abort checkpoint — called between batch iterations. */
   waitIfPaused: () => Promise<void>;
   /**
@@ -285,6 +358,28 @@ export interface WriteNodeInput {
   stopped?: () => boolean;
   /** Progress sink for batch-level events. */
   onProgress: (event: ForgeProgressEvent) => void;
+}
+
+/** How a run sends its writes as Bulk API jobs: see {@link WriteNodeInput.bulk}. */
+export interface BulkTransport {
+  /** The run's cancel: it aborts a job still open, and nothing once the job is closed. */
+  readonly signal: AbortSignal;
+  /**
+   * Objects the run writes by REST whatever their number: a file's content in
+   * base64, an email and its task, and an object an active duplicate rule
+   * watches — a job carries no duplicate-rule header. A lead or a case, when
+   * the run applies the target's assignment rules, is not here: the first job
+   * of one is refused by `deps.bulkWriteRecords` before anything is sent, as
+   * unsupported, and the object joins `bulkUnsupported`.
+   */
+  readonly restOnly: ReadonlySet<string>;
+  /**
+   * Objects the org said, in the run, the Bulk API does not write: added to
+   * as it says so, read by every node after, written by REST from then on.
+   */
+  readonly bulkUnsupported: Set<string>;
+  /** The run's job limiter: one job at a time, the run's own. */
+  readonly manager: BulkApiManager;
 }
 
 /** A row of an insert call as its journal keeps it: see {@link InsertCallJournal.sending}. */
@@ -309,6 +404,17 @@ export interface InsertCallJournal {
   ): string | undefined;
   /** Keep that the call's answer is counted, once what it created is registered. */
   answered(callId: string): void;
+  /**
+   * Keep the id the org gave the job a call is sent as, once it opened it and
+   * before anything of it is closed: a run taken up reads the job back by it
+   * (`reconcileInFlight`) rather than looking for its rows in the target.
+   */
+  opened?(callId: string, jobId: string): void;
+  /**
+   * Keep the ids of records a job wrote that no row of it could be matched
+   * to: the run's all the same, which removing its records takes back.
+   */
+  unattributed?(objectApiName: string, targetIds: readonly string[]): void;
 }
 
 /** Outcome of writing one node's records. */
@@ -480,6 +586,8 @@ interface NodeWrite {
   readonly onWritten: ((built: CleanedRecord, targetId: string) => void) | undefined;
   /** Where each insert call is kept as it goes and as it is answered: see `WriteNodeInput.calls`. */
   readonly calls: InsertCallJournal | undefined;
+  /** How the run sends its writes as Bulk API jobs; absent, every call goes by REST. */
+  readonly bulk: BulkTransport | undefined;
   /** Duplicates the target did not name, for an object with a natural key. */
   readonly byNaturalKey: UnnamedDuplicate[];
   /** Rows the target refused on fields it named, to write again without them. */
@@ -517,22 +625,78 @@ interface CallThrew {
   readonly tries: number;
 }
 
+/**
+ * Where the calls of a run of rows sent by REST stopped, a call having thrown:
+ * the rows of that call, and those still waiting to go after it — sent again
+ * smaller after a limit, or not sent yet — which go no more.
+ */
+interface RestStop {
+  readonly threw: CallThrew;
+  readonly rows: readonly RowToWrite[];
+  readonly rest: readonly RowToWrite[];
+}
+
+/** No row of the call goes again: see `BatchWriter.settleAnswers`. */
+const NONE_AGAIN: ReadonlySet<number> = new Set();
+
+/** No row of the call was settled for a limit: see `BatchWriter.settleAnswers`. */
+const NO_LIMIT_NOTES: ReadonlyMap<number, LimitNote> = new Map();
+
+/**
+ * What the writer is handed for the run beside its transport: the sizes calls
+ * go at and the smaller calls the run allows itself, shared with the run's
+ * second pass; and the wait before a call, or a row, is sent again.
+ */
+export interface BatchWriterOptions {
+  /** The run's sizes, per object and operation; absent, the writer's own. */
+  readonly sizes?: CallSizes;
+  /** The run's allowance of smaller calls; absent, one of {@link RUN_SPLIT_CALLS} of the writer's own. */
+  readonly allowance?: SplitAllowance;
+  /** Waits out the delay before a call, or a row, is sent again. */
+  readonly wait?: (ms: number) => Promise<void>;
+}
+
+/** The size a write's calls are kept at: its object, and the operation whose triggers it fires. */
+function callKeyOf(write: {
+  readonly objectApiName: string;
+  readonly upsertField?: string;
+}): CallKey {
+  return { objectApiName: write.objectApiName, op: write.upsertField ? 'upsert' : 'insert' };
+}
+
+/**
+ * The limit a refused row's answer says the target's automation hit, with the
+ * trigger it names: see `limitCauseOf`. Nothing for a row written, or refused
+ * for anything else.
+ */
+function limitOf(answer: InsertResult | undefined): GovernorLimitCause | undefined {
+  return answer !== undefined && !answer.success ? limitCauseOf(answer.errors) : undefined;
+}
+
 /** What refused a field, as the line of a write that leaves it out says it. */
 const REFUSER: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'a validation rule',
   'restricted-picklist': 'a restricted picklist',
   'lookup-filter': 'a lookup filter',
+  'inactive-owner': 'the target, the owner being inactive there',
 };
 
-/** What refused the fields of `leftOut`, as the line of their write without them says it. */
+/**
+ * What refused the fields of `leftOut`, as the line of their write without
+ * them says it: the rules of the target, then the target itself when it held
+ * the owner inactive, set apart by a comma as the line goes on after it.
+ */
 function whatRefused(leftOut: readonly FieldToLeaveOut[]): string {
   const by = new Set(leftOut.map((f) => f.refusedBy));
   const named = (Object.keys(REFUSER) as ForgeFieldRefusal[])
-    .filter((refusal) => by.has(refusal))
+    .filter((refusal) => refusal !== 'inactive-owner' && by.has(refusal))
     .map((refusal) => REFUSER[refusal]);
   const said =
     named.length > 1 ? `${named.slice(0, -1).join(', ')} or ${named[named.length - 1]}` : named[0];
-  return `${said ?? REFUSER['validation-rule']} of the target`;
+  const rules = said === undefined ? undefined : `${said} of the target`;
+  if (!by.has('inactive-owner')) return rules ?? `${REFUSER['validation-rule']} of the target`;
+  const owner = `${REFUSER['inactive-owner']},`;
+  return rules === undefined ? owner : `${rules} or ${owner}`;
 }
 
 /**
@@ -542,20 +706,25 @@ function whatRefused(leftOut: readonly FieldToLeaveOut[]): string {
  * fields the row gives a value to, on the rules of `refusedFields`. A result
  * whose details do not answer its errors one for one says less than the row
  * was refused for, and nothing is left out. A parent copied from outside the
- * graph is written again on the same rule (`OrphanExpander`).
+ * graph is written again on the same rule (`OrphanExpander`), its owner kept:
+ * only the node's own write (`BatchWriter.settle`) asks for an inactive
+ * owner's refusal to leave the owner out.
  *
  * @param keep - A field the row cannot go without: the external id an upsert matches it by.
  * @param mayBeEmpty - Whether the target lets a row leave a field empty; without it, no lookup is left out.
+ * @param options - `inactiveOwner`: whether the target holding the row's owner
+ *   inactive has the row go again without it. See `refusedFields`.
  */
 export function fieldsToLeaveOut(
   result: InsertResult,
   payload: Record<string, unknown>,
   keep: string | undefined,
   mayBeEmpty?: (field: string) => boolean,
+  options?: { readonly inactiveOwner?: boolean },
 ): FieldToLeaveOut[] | undefined {
   const details = result.errorDetails ?? [];
   if (details.length !== result.errors.length) return undefined;
-  return refusedFields(details, payload, keep, mayBeEmpty);
+  return refusedFields(details, payload, keep, mayBeEmpty, options);
 }
 
 /** Whether every error the target refused a row with is its failure to lock a record the write needed. */
@@ -602,16 +771,28 @@ function sentAgainNotes(refusals: readonly RefusalOnFields[]): string[] {
 }
 
 /**
- * What the sample of a row first sent without the values the target had
- * refused under its record type says: which fields, and the refusal. Nothing
- * for a row that went with all of its values.
+ * What the sample of a row first sent without what the target had refused
+ * earlier in the run says: the values it refused under the row's record type,
+ * then the owner it held inactive, each with which fields and the refusal.
+ * Nothing for a row that went with all of its values.
  */
 function sentWithoutNote(before: readonly FieldToLeaveOut[]): string[] {
-  if (before.length === 0) return [];
-  const refusals = [...new Set(before.map((f) => f.reason))].join('; ');
+  const said = (leftOut: readonly FieldToLeaveOut[], why: string): string[] =>
+    leftOut.length === 0
+      ? []
+      : [
+          `Sent without ${fieldList(leftOut)}: ${why} earlier in the run, ` +
+            [...new Set(leftOut.map((f) => f.reason))].join('; '),
+        ];
   return [
-    `Sent without ${fieldList(before)}: the target refused the same value under the same ` +
-      `record type earlier in the run, ${refusals}`,
+    ...said(
+      before.filter((f) => f.refusedBy !== 'inactive-owner'),
+      'the target refused the same value under the same record type',
+    ),
+    ...said(
+      before.filter((f) => f.refusedBy === 'inactive-owner'),
+      'the target refused the same owner, inactive there,',
+    ),
   ];
 }
 
@@ -628,6 +809,103 @@ const MAY_HAVE_BEEN_WRITTEN =
   'The call was sent and its answer never came back: the target may hold any of these ' +
   'records, and which of them is unknown. Counted as failed and never sent again, they are ' +
   'not among the records the run created, which removing its records takes back.';
+
+/**
+ * What the sample of the rows a Bulk API job may have written without saying
+ * so says after why: what the run does with them, and with what the job wrote.
+ */
+const MAY_HAVE_BEEN_WRITTEN_BY_A_JOB =
+  'Counted as failed and never sent again, they are not among the records the run created; ' +
+  "the records the job wrote that no row was matched to are, and removing the run's records " +
+  'takes them back.';
+
+/** The code a duplicate rule refuses a row with: a job carries no header that waives the rule. */
+const DUPLICATE_RULE_REFUSAL = 'DUPLICATES_DETECTED';
+
+/**
+ * Whether a row of a job goes once more by REST: one the job did not answer
+ * for itself — kept out as another's twin, left unprocessed — or refused by a
+ * duplicate rule, which the REST call's header waives, or with an error that
+ * did not read as exactly one (`forgeBulkWrite` reads one into
+ * `errorDetails`), or for a limit the target's automation hit on the job's
+ * chunk of 200, which no one sets: by REST it goes in smaller calls. Never one
+ * the job may have written.
+ */
+function goesAgainByRest(state: BulkRowState, answer: InsertResult): boolean {
+  if (state === 'twin' || state === 'unprocessed') return true;
+  if (state !== 'answered' || answer.success) return false;
+  if (limitOf(answer) !== undefined) return true;
+  const details = answer.errorDetails;
+  return details?.length !== 1 || details[0].statusCode === DUPLICATE_RULE_REFUSAL;
+}
+
+/**
+ * The rows of a job's CSV cut into runs of `maxBytes` at most, header
+ * included, as `[from, to)` pairs in order. Each cell counted at its widest —
+ * quoted, its quotes doubled, an empty one sent as `#N/A` — so a run never
+ * passes the bound once sent. A row wider than the bound alone is a run of
+ * its own: the job refuses it, and it goes by REST.
+ */
+function piecesUnder(
+  maxBytes: number,
+  csv: { readonly columns: readonly string[]; readonly rows: readonly (readonly string[])[] },
+): Array<[number, number]> {
+  const widest = (cells: readonly string[]): number =>
+    cells.reduce(
+      (sum, cell) =>
+        sum + Math.max(Buffer.byteLength(cell, 'utf8'), 4) + (cell.split('"').length - 1) + 3,
+      1,
+    );
+  const header = widest(csv.columns);
+  const pieces: Array<[number, number]> = [];
+  let from = 0;
+  let bytes = header;
+  csv.rows.forEach((cells, i) => {
+    const row = widest(cells);
+    if (i > from && bytes + row > maxBytes) {
+      pieces.push([from, i]);
+      from = i;
+      bytes = header;
+    }
+    bytes += row;
+  });
+  if (csv.rows.length > from) pieces.push([from, csv.rows.length]);
+  return pieces;
+}
+
+/**
+ * The order to write a node's rows in when they go as Bulk API jobs: by the
+ * value of the first lookup a row cannot go without — a master-detail is one
+ * — so that the rows of one parent go together. Undefined when the object
+ * has none, or no row holds a value of it: the rows go as they came. The
+ * owner is none of them: a user's record is not what two chunks wait on.
+ */
+function sortedByParent(
+  fieldInfos: readonly FieldInfo[],
+  creatable: ReadonlySet<string>,
+  records: readonly Record<string, unknown>[],
+): number[] | undefined {
+  const parent = fieldInfos.find(
+    (f) => f.isReference && f.nillable === false && f.name !== 'OwnerId' && creatable.has(f.name),
+  )?.name;
+  if (parent === undefined) return undefined;
+  const valueOf = (i: number): string => {
+    const value = records[i][parent];
+    return typeof value === 'string' ? value : '';
+  };
+  if (!records.some((_, i) => valueOf(i) !== '')) return undefined;
+  // Stable: rows of one parent keep the order they came in.
+  return records
+    .map((_, i) => i)
+    .sort((a, b) => {
+      const va = valueOf(a);
+      const vb = valueOf(b);
+      if (va === vb) return a - b;
+      if (va === '') return 1;
+      if (vb === '') return -1;
+      return va < vb ? -1 : 1;
+    });
+}
 
 /** What the sample of a call refused for the target's API request limit says after the error. */
 const REQUEST_LIMIT_REACHED =
@@ -673,19 +951,58 @@ export class BatchWriter {
    */
   private readonly refusedValues = new Map<string, FieldToLeaveOut>();
 
+  /**
+   * The owners the target refused in the run as inactive there, by their id
+   * on fifteen characters, each with the refusal: a later row — of any object
+   * — sent with the same owner goes without it from its first call, and the
+   * record to the user the run writes as, rather than be refused for it and
+   * sent again. Kept only of a refusal that named the row's own owner: one
+   * that named no user says nothing of the next row's. Kept for the run, as
+   * the values are: a clone between two sandboxes of one production was
+   * refused for one inactive administrator on thousands of records of a
+   * dozen objects, one refused job or call each once this is known. See
+   * `inactiveOwnerNamed`.
+   */
+  private readonly refusedOwners = new Map<string, FieldToLeaveOut>();
+
+  /**
+   * The size each object's calls go at, per operation, once the target's
+   * automation refused one for a Salesforce limit: the run's, shared with its
+   * second pass, so that the next node, page or round of the object goes at
+   * once at the size that went through. See `sendSplittingOnLimits`.
+   */
+  private readonly sizes: CallSizes;
+
+  /** The smaller calls the run allows itself, shared with its second pass. */
+  private readonly allowance: SplitAllowance;
+
+  /** Waits out the delay before a call, or a row, is sent again. */
+  private readonly wait: (ms: number) => Promise<void>;
+
   /** How long to wait before each send of a call, or of a row, the target never had. */
   private readonly backoff = new RetryStrategy({ initialDelay: RESEND_DELAY_MS });
 
   /**
-   * @param wait - Waits out the delay before a call, or a row, is sent again.
+   * @param options - The run's sizes and allowance, and the wait before a
+   *   call is sent again: see {@link BatchWriterOptions}. A wait handed alone
+   *   is the wait.
    */
   constructor(
     private readonly deps: Pick<ForgeExecutorDeps, 'insertRecords' | 'upsertRecords'> &
-      Partial<Pick<ForgeExecutorDeps, 'queryRecords' | 'updateRecords' | 'describeFields'>>,
+      Partial<
+        Pick<
+          ForgeExecutorDeps,
+          'queryRecords' | 'updateRecords' | 'describeFields' | 'bulkWriteRecords'
+        >
+      >,
     batchStrategy?: ForgeBatchStrategyService,
-    private readonly wait: (ms: number) => Promise<void> = sleep,
+    options: BatchWriterOptions | ((ms: number) => Promise<void>) = {},
   ) {
     this.batchStrategy = batchStrategy ?? new ForgeBatchStrategyService();
+    const given: BatchWriterOptions = typeof options === 'function' ? { wait: options } : options;
+    this.sizes = given.sizes ?? new CallSizes();
+    this.allowance = given.allowance ?? new SplitAllowance(RUN_SPLIT_CALLS);
+    this.wait = given.wait ?? sleep;
   }
 
   /**
@@ -739,20 +1056,50 @@ export class BatchWriter {
         ? `${tally.flagsNotKept}, ${flagsNotKept}`
         : flagsNotKept;
     }
-    const records = input.records.filter((_, i) => !direct.has(i));
-    const cleanedRecords = input.cleanedRecords.filter((_, i) => !direct.has(i));
+    let records = input.records.filter((_, i) => !direct.has(i));
+    let cleanedRecords = input.cleanedRecords.filter((_, i) => !direct.has(i));
+
+    // Upsert via external Id when available — re-runs patch existing
+    // target rows instead of failing on DUPLICATE_VALUE. When multiple
+    // ext-id fields exist (legacy ExtId__c + new MigrationKey__c), the
+    // first describe-order pick may be non-unique → DUPLICATE_EXTERNAL_ID.
+    // Tiebreaker: prefer fields whose values are non-null + unique in
+    // the *source batch*; fall back to alphabetical for determinism.
+    // Picked before the transport, which depends on the operation: an object
+    // whose inserts a limit cut goes by REST, whatever its upserts did.
+    const upsertField = this.pickUpsertField(
+      fieldInfos,
+      creatableFields,
+      records,
+      input.upsertMode === 'auto' && this.deps.upsertRecords ? 'auto' : 'off',
+      input.tableKeys,
+    );
     const planned = this.batchStrategy.resolve(node.batchStrategy, records.length);
     // The resolved `api` used to be discarded, so a node resolved to
     // 'bulk' was sliced into 10 000-record batches and handed to the REST
     // write path, which rejects anything over 200.
-    const { batchSize, batchCount, clamped } = resolveWriteBatching(planned, records.length);
+    const { api, batchSize, batchCount, clamped } = resolveWriteBatching(planned, records.length, {
+      bulk: this.mayBulk(input.bulk, callKeyOf({ objectApiName: node.objectApiName, upsertField })),
+    });
     if (clamped) {
       logger.warn(
         `[forge] ${node.objectApiName}: batch strategy asked for ${planned.batchSize} records ` +
-          `per call (api="${planned.api}") but the write path is "${WRITE_API}" ` +
-          `(max ${WRITE_API_MAX_BATCH[WRITE_API]}) — using ${batchSize} per call ` +
+          `per call (api="${planned.api}") but the write path is "${api}" ` +
+          `(max ${WRITE_API_MAX_BATCH[api]}) — using ${batchSize} per call ` +
           `(${batchCount} batch(es)).`,
       );
+    }
+    if (api === 'bulk') {
+      // Rows under one parent go in the same job, one after the other: the
+      // org processes a job in chunks, side by side, and two chunks writing
+      // children of one parent wait on its lock — UNABLE_TO_LOCK_ROW once
+      // the wait passes. Sorted here, as the rows are cut into batches, and
+      // never as a call sends them: the rows and their records stay aligned.
+      const sorted = sortedByParent(fieldInfos, creatableFields, records);
+      if (sorted) {
+        records = sorted.map((i) => records[i]);
+        cleanedRecords = sorted.map((i) => cleanedRecords[i]);
+      }
     }
 
     input.onProgress({
@@ -769,19 +1116,6 @@ export class BatchWriter {
 
     let recordOffset = 0;
 
-    // Upsert via external Id when available — re-runs patch existing
-    // target rows instead of failing on DUPLICATE_VALUE. When multiple
-    // ext-id fields exist (legacy ExtId__c + new MigrationKey__c), the
-    // first describe-order pick may be non-unique → DUPLICATE_EXTERNAL_ID.
-    // Tiebreaker: prefer fields whose values are non-null + unique in
-    // the *source batch*; fall back to alphabetical for determinism.
-    const upsertField = this.pickUpsertField(
-      fieldInfos,
-      creatableFields,
-      records,
-      input.upsertMode === 'auto' && this.deps.upsertRecords ? 'auto' : 'off',
-      input.tableKeys,
-    );
     const write: NodeWrite = {
       objectApiName: node.objectApiName,
       targetOrgId,
@@ -791,6 +1125,7 @@ export class BatchWriter {
       oweLookups: input.oweLookups,
       onWritten: input.onWritten,
       calls: input.calls,
+      bulk: input.bulk,
       byNaturalKey: [],
       refusedOnTheirFields: [],
       locked: [],
@@ -844,32 +1179,36 @@ export class BatchWriter {
         return row;
       });
       const what = `${node.objectApiName} batch ${b + 1}/${batchCount}`;
-      let outcome: CallAnswered | CallThrew;
+      let stopped: CallThrew | undefined;
       try {
         // A cancel stops the node before its next call — or before a call
         // that never reached the target is sent again.
-        await input.waitIfPaused();
-        outcome = await this.call(write, input, rows);
+        stopped = await this.sendRows(
+          write,
+          input,
+          rows,
+          what,
+          records.length - recordOffset - rows.length,
+        );
       } catch (err) {
         settleOnStop(err);
         throw err;
       }
-      if ('thrown' in outcome) {
+      if (stopped) {
         // A call that throws stops the node there, and what failed is its rows
         // and those of the calls it leaves unsent. Thrown on, it took down what
         // the calls before had written: counted as failed with the whole node,
         // and the lookups those rows owe lost before pass 2 could fill them in.
-        this.settleThrown(write, outcome, rows, what, records.length - recordOffset - rows.length);
         // Nor are the rows refused on their fields in the calls before
-        // written again: they stay the failures the target made them.
-        this.leaveRefusedAsFailed(
-          write,
-          write.refusedOnTheirFields.splice(0),
-          extractErrorMessage(outcome.thrown),
-        );
+        // written again: they stay the failures the target made them. Nor
+        // those refused for a lock: a batch the node sends as jobs, or a job
+        // and the REST calls after it, makes more than one call, and a lock
+        // one of them met waits for the batch to be through to go again.
+        const why = extractErrorMessage(stopped.thrown);
+        this.leaveLockedAsFailed(write, write.locked.splice(0), why);
+        this.leaveRefusedAsFailed(write, write.refusedOnTheirFields.splice(0), why);
         break;
       }
-      await this.settleAnswers(write, rows, outcome);
       recordOffset += rows.length;
       // The rows the target could not lock a record for go again now, after a
       // wait: the lock another transaction held may be gone.
@@ -898,7 +1237,12 @@ export class BatchWriter {
     }
 
     try {
-      await this.writeAgainWithoutTheirFields(write, input, batchSize);
+      // By REST, in calls of 200, but for a round a job takes: see `writeAgainWithoutTheirFields`.
+      await this.writeAgainWithoutTheirFields(
+        write,
+        input,
+        Math.min(batchSize, WRITE_API_MAX_BATCH.rest),
+      );
     } catch (err) {
       // A cancel before a call that writes them again: see `settleOnStop`.
       settleOnStop(err);
@@ -941,6 +1285,571 @@ export class BatchWriter {
     return write.upsertField && this.deps.upsertRecords
       ? this.deps.upsertRecords(write.targetOrgId, write.objectApiName, write.upsertField, records)
       : this.deps.insertRecords(write.targetOrgId, write.objectApiName, records);
+  }
+
+  /**
+   * Whether the run may send rows of the key's object as Bulk API jobs: it
+   * sends jobs, can, neither writes the object by REST alone nor heard the
+   * org say the Bulk API does not write it, and no limit of the target's
+   * automation cut a call of the object and operation in the run — a job's
+   * chunk of 200, which no one sets, is the call that was refused, and the
+   * object goes by REST for the rest of the run, its allowance spent or not.
+   */
+  private mayBulk(bulk: BulkTransport | undefined, key: CallKey): boolean {
+    return this.jobsCanCarry(bulk, key.objectApiName) && !this.sizes.wasShrunk(key);
+  }
+
+  /**
+   * Whether the run sends jobs, can, and may send `objectApiName` as one,
+   * whatever a limit did: see {@link mayBulk}.
+   */
+  private jobsCanCarry(bulk: BulkTransport | undefined, objectApiName: string): boolean {
+    return (
+      bulk !== undefined &&
+      this.deps.bulkWriteRecords !== undefined &&
+      !bulk.restOnly.has(objectApiName) &&
+      !bulk.bulkUnsupported.has(objectApiName)
+    );
+  }
+
+  /**
+   * Whether a limit cut the key's calls and the allowance still pays for
+   * smaller ones: a job planned for the object goes by REST instead, in calls
+   * of the size kept. Once the allowance is spent, a job already planned
+   * stays a job, which no smaller call is paid to replace.
+   */
+  private goesSmallerByRest(key: CallKey): boolean {
+    return this.sizes.wasShrunk(key) && !this.sizes.isSpent(key);
+  }
+
+  /**
+   * Send `rows` and count what the target answered for each, choosing the
+   * transport call by call: a Bulk API job for each {@link FORGE_BULK_JOB_ROWS}
+   * of them when the run may send the object as jobs and they are
+   * {@link FORGE_BULK_MIN_ROWS} or more, calls of 200 by REST for the rest.
+   * A job planned once a limit cut a call of the object goes by REST instead,
+   * while the allowance pays for smaller calls: see {@link goesSmallerByRest}
+   * and {@link sendJobByRest}.
+   * A cancel at the checkpoint before a call is thrown on, `onStop` told the
+   * rows left unsent first.
+   *
+   * @param after - Rows of the calls the node has still to make past these,
+   *   left unsent when one of these throws.
+   * @param onStop - Told the rows a cancel kept from being sent, before it is
+   *   thrown on; absent, they are left uncounted, as any row a cancel keeps
+   *   from its first call.
+   * @returns The call that threw, when one did: the node stops there.
+   */
+  private async sendRows(
+    write: NodeWrite,
+    input: WriteNodeInput,
+    rows: readonly RowToWrite[],
+    what: string,
+    after: number,
+    onStop?: (unsent: readonly RowToWrite[], why: string) => void,
+  ): Promise<CallThrew | undefined> {
+    const jobs =
+      this.jobsCanCarry(write.bulk, write.objectApiName) && rows.length >= FORGE_BULK_MIN_ROWS;
+    const size = jobs ? FORGE_BULK_JOB_ROWS : WRITE_API_MAX_BATCH.rest;
+    for (let start = 0; start < rows.length; start += size) {
+      const chunk = rows.slice(start, start + size);
+      const later = rows.length - start - chunk.length + after;
+      let stopped: CallThrew | undefined;
+      try {
+        // What is left of an object past its jobs goes by REST, under the
+        // threshold: its calls of 200 cost no more than a job, and end sooner.
+        // A job a limit met in the one before goes by REST too, as far as the
+        // allowance pays for it: its chunks of 200 would be refused as that
+        // one's were (`writeAsJobs`).
+        stopped =
+          jobs && chunk.length >= FORGE_BULK_MIN_ROWS && write.bulk
+            ? await this.writeAsJobs(write, input, write.bulk, chunk, what, later, onStop)
+            : await this.sendByRest(write, input, chunk, what, later, onStop);
+      } catch (err) {
+        onStop?.(rows.slice(start + chunk.length), extractErrorMessage(err));
+        throw err;
+      }
+      if (stopped) return stopped;
+    }
+    return undefined;
+  }
+
+  /**
+   * Send `rows` by REST, in calls of 200 — of the size a limit of the target's
+   * automation left the object at, read before each call — after the
+   * checkpoint each call has, and count what the target answered for each.
+   * A call that throws stops there: its rows, those waiting to go again
+   * smaller, and those after them, are counted failed. The rows are handed to
+   * the calls in runs of 200, or of as many calls of the size kept as fit in
+   * 200 — 174 at 58 — so that no run ends in a call shorter than the size.
+   *
+   * @param after - Rows of the calls past these, left unsent when one of these throws.
+   * @param onStop - See {@link sendRows}.
+   * @param pricing - How their calls cut smaller are paid: see `SplitPricing`.
+   */
+  private async sendByRest(
+    write: NodeWrite,
+    input: WriteNodeInput,
+    rows: readonly RowToWrite[],
+    what: string,
+    after: number,
+    onStop?: (unsent: readonly RowToWrite[], why: string) => void,
+    pricing?: SplitPricing<RowToWrite>,
+  ): Promise<CallThrew | undefined> {
+    const most = WRITE_API_MAX_BATCH.rest;
+    const key = callKeyOf(write);
+    for (let start = 0; start < rows.length;) {
+      const kept = this.sizes.of(key);
+      const run = kept < most ? kept * Math.floor(most / kept) : most;
+      const chunk = rows.slice(start, start + run);
+      let stopped: RestStop | undefined;
+      try {
+        await input.waitIfPaused();
+      } catch (err) {
+        onStop?.(rows.slice(start), extractErrorMessage(err));
+        throw err;
+      }
+      try {
+        stopped = await this.callAndSettle(write, input, chunk, onStop, undefined, pricing);
+      } catch (err) {
+        // The chunk's own rows left unsent were handed on by `callAndSettle`.
+        onStop?.(rows.slice(start + chunk.length), extractErrorMessage(err));
+        throw err;
+      }
+      if (stopped) {
+        const later = stopped.rest.length + rows.length - start - chunk.length + after;
+        this.settleThrown(write, stopped.threw, stopped.rows, what, later);
+        return stopped.threw;
+      }
+      start += chunk.length;
+    }
+    return undefined;
+  }
+
+  /**
+   * Send `rows` by REST and count what the target answered for each, in
+   * calls of the size kept for the object and operation, read before each
+   * call (`sendSplittingOnLimits`): the rows a call of more than one was
+   * refused for a limit of the target's automation go again at once, in
+   * calls half as large, each call more paid out of the run's allowance. The
+   * first call's checkpoint is the caller's; each call after it has its own.
+   *
+   * A row sent again keeps what it was: its payload, what it was first sent
+   * without, its refusals on fields and its sends for a lock — the journal
+   * keeps it as it goes, and the answer of its first call, which created
+   * nothing for it, is closed. What the target refused earlier in the run is
+   * not taken out of it again: an owner learned inactive since it was built
+   * stays, as it does for a row sent again for a lock, and the rounds without
+   * fields take it out if the target refuses it.
+   *
+   * @param onUnsent - Told the rows a cancel, or anything thrown, kept from
+   *   being sent or settled, before it is thrown on.
+   * @param maxSize - The most a call holds: 200 when absent.
+   * @param pricing - How the calls cut smaller are paid: see `SplitPricing`.
+   * @returns Where the calls stopped when one threw: the caller counts its
+   *   rows and those after them.
+   */
+  private async callAndSettle(
+    write: NodeWrite,
+    input: WriteNodeInput,
+    rows: readonly RowToWrite[],
+    onUnsent?: (unsent: readonly RowToWrite[], why: string) => void,
+    maxSize?: number,
+    pricing?: SplitPricing<RowToWrite>,
+  ): Promise<RestStop | undefined> {
+    let threw: CallThrew | undefined;
+    let answered: CallAnswered = { answers: [] };
+    const { stopped } = await sendSplittingOnLimits<RowToWrite, InsertResult>(rows, {
+      key: callKeyOf(write),
+      sizes: this.sizes,
+      allowance: this.allowance,
+      ...(maxSize !== undefined ? { maxSize } : {}),
+      ...pricing,
+      beforeEachSend: () => input.waitIfPaused(),
+      send: async (part) => {
+        const outcome = await this.call(write, input, part);
+        if ('thrown' in outcome) {
+          // Never sent again, as any call that threw: one that may have
+          // written rows writes none of them twice.
+          threw = outcome;
+          return 'stop';
+        }
+        answered = outcome;
+        return { answers: outcome.answers };
+      },
+      limited: (answer) => limitOf(answer),
+      settle: (part, _answers, again, notes) =>
+        this.settleAnswers(write, part, answered, again, notes),
+      onThrow: (unsent, error) => onUnsent?.(unsent, extractErrorMessage(error)),
+      onFirstRefusal: (report) => this.warnFirstRefusal(report),
+    });
+    if (!stopped || threw === undefined) return undefined;
+    return { threw, rows: stopped.part, rest: stopped.rest };
+  }
+
+  /**
+   * Said once for an object and operation, the first time a limit of the
+   * target's automation cuts its calls: who hit what, on a call of how many,
+   * and the size its calls go at from then on.
+   */
+  private warnFirstRefusal(report: SmallerCalls): void {
+    const who = report.automation ?? "the target's automation";
+    const on = report.from === undefined ? '' : ` on a call of ${report.from}`;
+    logger.warn(
+      `[forge] ${report.objectApiName}: ${who} hit ${report.limit ?? 'a Salesforce limit'}${on} ` +
+        `— sending ${report.to} at a time` +
+        (report.op === 'upsert' ? ' (upsert).' : '.'),
+    );
+  }
+
+  /**
+   * Send `rows` — {@link FORGE_BULK_JOB_ROWS} at most — as Bulk API 2.0 jobs,
+   * one for each {@link FORGE_BULK_JOB_MAX_BYTES} of CSV they make, and count
+   * what each row came to. Each job is kept before it goes, as a REST call
+   * is (`InsertCallJournal.sending`), with its id once the org opened it
+   * (`opened`), and closed once what it created is on disk.
+   *
+   * What the job answered is counted as a REST answer is: a row refused for
+   * a lock, on its fields, as one the target holds, goes on as it would. A
+   * row it could not answer for itself — kept out as another's twin, left
+   * unprocessed, refused by a duplicate rule (a job carries no header that
+   * waives one), or with an error that does not read as one — goes once more
+   * by REST in the same round. A job that wrote nothing (`untouched`) has its
+   * rows sent by REST; when the org said the Bulk API does not write the
+   * object, no job of it is sent again in the run. A row the job may have
+   * written without saying so is counted failed and never sent again, and the
+   * records it wrote that no row was matched to are kept for removal
+   * (`unattributed`). A job closed and lost (`BulkJobLostError`) stops the
+   * node there, its rows counted as may have been written, as a REST call
+   * whose answer was lost does. A row a job refused for a limit of the
+   * target's automation goes again by REST at half a job's chunk, every call
+   * paid, and the jobs of the object still to send — the pieces of these rows
+   * past it among them — go by REST at that size ({@link sendJobByRest}).
+   *
+   * @param after - Rows past these, left unsent when one of these stops the node.
+   * @param onStop - See {@link sendRows}.
+   */
+  private async writeAsJobs(
+    write: NodeWrite,
+    input: WriteNodeInput,
+    bulk: BulkTransport,
+    rows: readonly RowToWrite[],
+    what: string,
+    after: number,
+    onStop?: (unsent: readonly RowToWrite[], why: string) => void,
+  ): Promise<CallThrew | undefined> {
+    const sendJob = this.deps.bulkWriteRecords;
+    if (!sendJob) return this.sendByRest(write, input, rows, what, after, onStop);
+    const key = callKeyOf(write);
+    if (this.goesSmallerByRest(key)) {
+      return this.sendJobByRest(write, input, bulk, rows, what, after, onStop);
+    }
+    const operation = write.upsertField ? 'upsert' : 'insert';
+    const payloads = rows.map(sentAs);
+    const pieces = piecesUnder(
+      FORGE_BULK_JOB_MAX_BYTES,
+      buildBulkCsv(operation, payloads, write.upsertField),
+    );
+    for (const [from, to] of pieces) {
+      const piece = rows.slice(from, to);
+      const later = rows.length - to + after;
+      if (this.goesSmallerByRest(key)) {
+        // A limit refused an earlier piece's job: this one's chunks of 200
+        // would be refused as that one's were.
+        let stopped: CallThrew | undefined;
+        try {
+          stopped = await this.sendJobByRest(write, input, bulk, piece, what, later, onStop);
+        } catch (err) {
+          onStop?.(rows.slice(to), extractErrorMessage(err));
+          throw err;
+        }
+        if (stopped) return stopped;
+        continue;
+      }
+      const records = payloads.slice(from, to);
+      // Kept before it goes, as a REST call is: see `WriteNodeInput.calls`.
+      const callId = write.calls?.sending(
+        write.objectApiName,
+        piece.map((row, i) => ({
+          sourceId: sourceIdOf(row),
+          payload: records[i],
+          owes: owedBy(row),
+        })),
+        write.upsertField,
+      );
+      let answer: BulkWriteAnswer;
+      try {
+        answer = await sendJob(write.targetOrgId, write.objectApiName, operation, records, {
+          bulkManager: bulk.manager,
+          signal: bulk.signal,
+          ...(write.upsertField ? { externalIdField: write.upsertField } : {}),
+          onOpened: (jobId) => {
+            if (callId !== undefined) write.calls?.opened?.(callId, jobId);
+          },
+        });
+      } catch (thrown) {
+        if (thrown instanceof BulkJobLostError) {
+          // Closed, and what it did could not be read back: the call stays
+          // open in the journal, for a run taken up to read the job by its id.
+          // The rows kept out of it as another's twin were never sent: not
+          // written, they are no row the target may hold.
+          const lost: CallThrew = { thrown, left: 'may-have-written', tries: 1 };
+          const twins = new Set(thrown.twins);
+          const inJob = piece.filter((_, i) => !twins.has(i));
+          this.settleThrown(write, lost, inJob, `${what} (Bulk API job)`, later);
+          this.leaveTwinsUnsent(write, piece.length - inJob.length, what, thrown);
+          return lost;
+        }
+        // Thrown before anything was sent — no connection to the org: no job was opened.
+        answer = {
+          answers: [],
+          rows: [],
+          unmatchedIds: [],
+          untouched: { reason: extractErrorMessage(thrown) },
+          requests: 0,
+        };
+      }
+      if (answer.aborted) {
+        // Cancelled while the job was open: nothing was written, and the
+        // checkpoint throws the cancel on.
+        try {
+          await input.waitIfPaused();
+        } catch (err) {
+          if (callId !== undefined) write.calls?.answered(callId);
+          onStop?.(rows.slice(from), extractErrorMessage(err));
+          throw err;
+        }
+        answer = { ...answer, untouched: { reason: 'the job was aborted' } };
+      }
+      if (answer.untouched) {
+        // Nothing written: the call is closed, and its rows go by REST.
+        if (callId !== undefined) write.calls?.answered(callId);
+        if (answer.untouched.unsupported) bulk.bulkUnsupported.add(write.objectApiName);
+        logger.warn(
+          `[forge] ${write.objectApiName}: a Bulk API job of ${nRecords(piece.length)} wrote ` +
+            `nothing (${answer.untouched.reason}) — sent by REST` +
+            (answer.untouched.unsupported ? ', as every write of the object in the run.' : '.'),
+        );
+        let stopped: CallThrew | undefined;
+        try {
+          stopped = await this.sendByRest(write, input, piece, what, later, onStop);
+        } catch (err) {
+          onStop?.(rows.slice(to), extractErrorMessage(err));
+          throw err;
+        }
+        if (stopped) return stopped;
+        continue;
+      }
+      if (answer.unmatchedIds.length > 0) {
+        write.calls?.unattributed?.(write.objectApiName, answer.unmatchedIds);
+        logger.warn(
+          `[forge] ${write.objectApiName}: Bulk API job ${answer.jobId ?? ''} wrote ` +
+            `${nRecords(answer.unmatchedIds.length)} no row was matched to — kept for removal.`,
+        );
+      }
+      const answered: RowToWrite[] = [];
+      const answers: InsertResult[] = [];
+      const byRest: RowToWrite[] = [];
+      const limitedRows = new Map<RowToWrite, InsertResult>();
+      const mayHave: RowToWrite[] = [];
+      const notes = new Map<number, LimitNote>();
+      let limit: GovernorLimitCause | undefined;
+      piece.forEach((row, i) => {
+        const state = answer.rows[i] ?? 'unprocessed';
+        const result = answer.answers[i];
+        const limited = state === 'answered' ? limitOf(result) : undefined;
+        if (state === 'may-have-written') mayHave.push(row);
+        else if (limited !== undefined && result !== undefined && this.sizes.isSpent(key)) {
+          // A limit the allowance no longer pays smaller calls for: the row
+          // stays refused as the org refused it, sent again at 200 it would be
+          // refused again.
+          notes.set(answered.length, NOT_SPLIT);
+          answered.push(row);
+          answers.push(result);
+        } else if (limited !== undefined && result !== undefined) {
+          limit ??= limited;
+          limitedRows.set(row, result);
+        } else if (!result || goesAgainByRest(state, result)) {
+          byRest.push(row);
+        } else {
+          answered.push(row);
+          answers.push(result);
+        }
+      });
+      this.sizes.countNotSplit(key, notes.size);
+      if (limit) {
+        // The job's chunks of 200 were the calls refused: its rows go again by
+        // REST at half of them, and the object by REST for the rest of the run.
+        const cut = this.sizes.wasShrunk(key);
+        this.sizes.refusedAt(key, BULK_CHUNK, limit);
+        const report = this.sizes.report(key);
+        if (!cut && report) this.warnFirstRefusal(report);
+      }
+      this.settleMayHaveBeenWritten(write, mayHave, what, answer.jobId);
+      // Closed once what it created is on disk: the rows going again by REST
+      // are kept with the calls that send them.
+      await this.settleAnswers(
+        write,
+        answered,
+        callId === undefined ? { answers } : { answers, callId },
+        NONE_AGAIN,
+        notes,
+      );
+      const refused = [...limitedRows.keys()];
+      if (byRest.length > 0) {
+        let stopped: CallThrew | undefined;
+        try {
+          stopped = await this.sendByRest(
+            write,
+            input,
+            byRest,
+            `${what}, by REST`,
+            refused.length + later,
+            onStop,
+          );
+        } catch (err) {
+          onStop?.([...refused, ...rows.slice(to)], extractErrorMessage(err));
+          throw err;
+        }
+        if (stopped) return stopped;
+      }
+      if (refused.length > 0) {
+        // Refused by a chunk of 200 already, each of their calls by REST is
+        // one more than the job, paid as it is queued; those the allowance no
+        // longer pays for stay refused as the org refused them, never sent at
+        // 200 to be refused again.
+        let stopped: CallThrew | undefined;
+        try {
+          stopped = await this.sendByRest(
+            write,
+            input,
+            refused,
+            `${what}, by REST`,
+            later,
+            onStop,
+            {
+              pricedAs: 'job',
+              unpaid: (unpaid) =>
+                this.settleAnswers(
+                  write,
+                  unpaid,
+                  { answers: unpaid.map((row) => limitedRows.get(row) as InsertResult) },
+                  NONE_AGAIN,
+                  new Map(unpaid.map((_, i): [number, LimitNote] => [i, NOT_SPLIT])),
+                ),
+            },
+          );
+        } catch (err) {
+          onStop?.(rows.slice(to), extractErrorMessage(err));
+          throw err;
+        }
+        if (stopped) return stopped;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Send by REST, at the size a limit left the object at, the rows a job was
+   * planned for once a limit cut a call of the object, as far as the
+   * allowance pays for every one of those calls — each is one more than the
+   * job — paid before the first goes. What it does not pay for goes as the
+   * job it was planned as, the object spent, or by REST at 200 under
+   * {@link FORGE_BULK_MIN_ROWS}: calls of 200 in a job's place cost some ten
+   * times its requests, for rows its automation would refuse all the same.
+   *
+   * @param after - Rows past these, left unsent when one of these stops the node.
+   * @param onStop - See {@link sendRows}.
+   */
+  private async sendJobByRest(
+    write: NodeWrite,
+    input: WriteNodeInput,
+    bulk: BulkTransport,
+    rows: readonly RowToWrite[],
+    what: string,
+    after: number,
+    onStop?: (unsent: readonly RowToWrite[], why: string) => void,
+  ): Promise<CallThrew | undefined> {
+    const key = callKeyOf(write);
+    const size = this.sizes.of(key);
+    const asked = Math.ceil(rows.length / size);
+    // Paid for before the first goes, the key spent only once they went: a
+    // spent key's calls go at 200, and these at the size paid for.
+    const granted = this.allowance.take(key, asked);
+    this.sizes.countExtraCalls(key, granted);
+    const byRest = rows.slice(0, granted * size);
+    const asJob = rows.slice(byRest.length);
+    if (byRest.length > 0) {
+      let stopped: CallThrew | undefined;
+      try {
+        stopped = await this.sendByRest(write, input, byRest, what, asJob.length + after, onStop, {
+          pricedAs: 'job',
+          paid: { calls: granted },
+        });
+      } catch (err) {
+        onStop?.(asJob, extractErrorMessage(err));
+        throw err;
+      } finally {
+        if (granted < asked) this.sizes.spend(key);
+      }
+      if (stopped) return stopped;
+    } else if (granted < asked) {
+      this.sizes.spend(key);
+    }
+    if (asJob.length === 0) return undefined;
+    return asJob.length >= FORGE_BULK_MIN_ROWS
+      ? this.writeAsJobs(write, input, bulk, asJob, what, after, onStop)
+      : this.sendByRest(write, input, asJob, what, after, onStop);
+  }
+
+  /**
+   * Count as failed, not written, the `count` rows a job lost after its close
+   * kept out of it as another's twin: they were to go by REST once it
+   * answered, and the node stops there.
+   */
+  private leaveTwinsUnsent(
+    write: NodeWrite,
+    count: number,
+    what: string,
+    lost: BulkJobLostError,
+  ): void {
+    if (count === 0) return;
+    write.tally.failureCount += count;
+    this.sample(write.tally, {
+      recordSummary: `${what}: ${nRecords(count)} not written`,
+      messages: [
+        extractErrorMessage(lost),
+        'Kept out of the Bulk API job as twins of other rows, to be written by REST once it ' +
+          'answered: never sent, the target holds none of them.',
+      ],
+    });
+  }
+
+  /**
+   * Count as failed the rows a job may have written without saying so, never
+   * to be sent again, by source id among what the target may hold
+   * (`mayHaveBeenWritten`), as the rows of a call whose answer was lost are.
+   */
+  private settleMayHaveBeenWritten(
+    write: NodeWrite,
+    rows: readonly RowToWrite[],
+    what: string,
+    jobId: string | undefined,
+  ): void {
+    if (rows.length === 0) return;
+    const { tally } = write;
+    tally.failureCount += rows.length;
+    const sourceIds = rows.map(sourceIdOf).filter((id): id is string => id !== undefined);
+    tally.mayHaveBeenWritten = [...(tally.mayHaveBeenWritten ?? []), ...sourceIds];
+    this.sampleAhead(tally, {
+      recordSummary: `${what}: ${nRecords(rows.length)} may have been written`,
+      messages: [
+        `Bulk API job ${jobId ?? ''} gave them no result of their own, and wrote records no ` +
+          'row was matched to: the target may hold any of these records, and which of them ' +
+          'is unknown.',
+        MAY_HAVE_BEEN_WRITTEN_BY_A_JOB,
+      ],
+    });
   }
 
   /**
@@ -1013,11 +1922,24 @@ export class BatchWriter {
    * answer for is failed: one result per row sent is what the API answers,
    * and a truncated answer has been seen in the wild. An answer past the rows
    * sent has no row behind it, and is not read.
+   *
+   * A row of `again`, refused for a limit of the target's automation and sent
+   * again in a smaller call, is neither settled nor counted here: nothing of
+   * it is remembered — no value, no owner, no refusal, no send for a lock —
+   * and it is settled with the call that sends it again. The call is closed
+   * all the same once what it created is on disk: rolled back for that row,
+   * it created nothing of it.
+   *
+   * @param again - The places in `rows` of the rows sent again smaller.
+   * @param notes - Why a row refused for a limit is settled rather than sent
+   *   again, by its place in `rows`: said in its sample once it fails.
    */
   private async settleAnswers(
     write: NodeWrite,
     rows: readonly RowToWrite[],
     { answers, callId }: CallAnswered,
+    again: ReadonlySet<number> = NONE_AGAIN,
+    notes: ReadonlyMap<number, LimitNote> = NO_LIMIT_NOTES,
   ): Promise<void> {
     // The records the target created are put on disk before the run awaits
     // anything, with the lookups they owe. The describe below, read for a
@@ -1029,14 +1951,15 @@ export class BatchWriter {
     // none of it.
     rows.forEach((row, i) => {
       const answer = answers[i];
-      if (answer?.success) this.settle(write, answer, row);
+      if (answer?.success && !again.has(i)) this.settle(write, answer, row);
     });
     write.remapper.persist();
     await this.readWhatMayBeEmpty(write, answers);
     rows.forEach((row, i) => {
+      if (again.has(i)) return;
       const answer = answers[i];
       if (answer) {
-        if (!answer.success) this.settle(write, answer, row);
+        if (!answer.success) this.settle(write, answer, row, notes.get(i));
         return;
       }
       write.tally.failureCount++;
@@ -1150,22 +2073,58 @@ export class BatchWriter {
       await this.wait(delay);
       await input.waitIfPaused();
       const locked = write.locked.splice(0);
-      const rows = locked.map(({ row }): RowToWrite => ({
-        ...row,
-        lockResends: row.lockResends + 1,
-      }));
-      let outcome: CallAnswered | CallThrew;
-      try {
-        outcome = await this.call(write, input, rows);
-      } catch (err) {
-        this.leaveLockedAsFailed(write, locked, extractErrorMessage(err));
-        throw err;
+      // In calls of 200 — or of the size a limit left the object at: a job
+      // refuses its rows for a lock by the thousand, and a REST call takes no
+      // more. A REST call's are one call's.
+      const size = WRITE_API_MAX_BATCH.rest;
+      for (let start = 0; start < locked.length; start += size) {
+        const part = locked.slice(start, start + size);
+        const rows = part.map(({ row }): RowToWrite => ({
+          ...row,
+          lockResends: row.lockResends + 1,
+        }));
+        // A row a cancel keeps from going fails with the lock's refusal it had.
+        const lockedOf = new Map(rows.map((row, i) => [row, part[i]] as const));
+        const leaveUnsent = (unsent: readonly RowToWrite[], why: string): void =>
+          this.leaveLockedAsFailed(
+            write,
+            unsent.flatMap((row) => lockedOf.get(row) ?? []),
+            why,
+          );
+        let stopped: RestStop | undefined;
+        try {
+          if (start > 0) await input.waitIfPaused();
+        } catch (err) {
+          const why = extractErrorMessage(err);
+          this.leaveLockedAsFailed(write, locked.slice(start), why);
+          // Refused for a lock again by a call of this round: not sent again either.
+          this.leaveLockedAsFailed(write, write.locked.splice(0), why);
+          throw err;
+        }
+        try {
+          stopped = await this.callAndSettle(write, input, rows, leaveUnsent);
+        } catch (err) {
+          const why = extractErrorMessage(err);
+          this.leaveLockedAsFailed(write, locked.slice(start + part.length), why);
+          this.leaveLockedAsFailed(write, write.locked.splice(0), why);
+          throw err;
+        }
+        if (stopped) {
+          this.settleThrown(
+            write,
+            stopped.threw,
+            stopped.rows,
+            `${write.objectApiName}, sent again`,
+            after + stopped.rest.length + locked.length - start - part.length,
+          );
+          this.leaveLockedAsFailed(
+            write,
+            write.locked.splice(0),
+            extractErrorMessage(stopped.threw.thrown),
+          );
+          return stopped.threw;
+        }
       }
-      if ('thrown' in outcome) {
-        this.settleThrown(write, outcome, rows, `${write.objectApiName}, sent again`, after);
-        return outcome;
-      }
-      await this.settleAnswers(write, rows, outcome);
     }
     return undefined;
   }
@@ -1174,8 +2133,17 @@ export class BatchWriter {
    * Count what the target answered for one row: written, linked to the record
    * it holds, waiting for the lookup by its natural key, to go again — for a
    * lock, or without the fields it refused — or failed.
+   *
+   * @param limitNote - Why a row the target's automation refused for a limit
+   *   was not sent again smaller: sent on its own already, or the allowance
+   *   spent. Said after the org's message when the row fails.
    */
-  private settle(write: NodeWrite, result: InsertResult, row: RowToWrite): void {
+  private settle(
+    write: NodeWrite,
+    result: InsertResult,
+    row: RowToWrite,
+    limitNote?: LimitNote,
+  ): void {
     const { tally, remapper, objectApiName } = write;
     const { built, before } = row;
     const payload = sentAs(row);
@@ -1227,6 +2195,7 @@ export class BatchWriter {
       return;
     }
     this.rememberRefusedValues(write, result, payload);
+    this.rememberRefusedOwners(write, result, payload);
     const existing = existingRecordOf(result, write.targetKeyPrefix);
     if (existing.kind === 'linked') {
       // The target refused the row because it holds it, and said which
@@ -1251,14 +2220,18 @@ export class BatchWriter {
     }
     // Refused on fields a validation rule named — a phone the target wants
     // in another format — on a restricted picklist's value its record type
-    // does not take, or on a lookup its filter refuses the record of, the row
-    // went down, and every record hanging from it failed or was skipped for
-    // want of it. Written again without them once the calls are through, it
-    // is in the target, short of a value. A second refusal, on fields the
-    // first did not name, gets a round of its own.
+    // does not take, on a lookup its filter refuses the record of, or for an
+    // owner the target holds inactive, the row went down, and every record
+    // hanging from it failed or was skipped for want of it. Written again
+    // without them once the calls are through, it is in the target, short of
+    // a value — or owned by the user the run writes as. A second refusal, on
+    // fields the first did not name, gets a round of its own: the same
+    // owner's refusal again finds no owner left to go, and the row fails.
     const mayBeEmpty = (field: string): boolean =>
       write.mayBeEmpty?.has(field.toLowerCase()) ?? false;
-    const leftOut = fieldsToLeaveOut(result, payload, write.upsertField, mayBeEmpty);
+    const leftOut = fieldsToLeaveOut(result, payload, write.upsertField, mayBeEmpty, {
+      inactiveOwner: true,
+    });
     const roundsLeft = row.refusals.length < ROUNDS_WITHOUT_FIELDS;
     if (leftOut && roundsLeft) {
       write.refusedOnTheirFields.push({
@@ -1282,6 +2255,9 @@ export class BatchWriter {
       // value from the start, when it did.
       messages: [
         ...result.errors,
+        ...(limitNote
+          ? [limitNoteText(limitNote, allowedFor(this.allowance, callKeyOf(write)), 'run')]
+          : []),
         ...sentAgainNotes(row.refusals),
         ...(locked
           ? [
@@ -1352,23 +2328,67 @@ export class BatchWriter {
   }
 
   /**
+   * Keep for the run each owner the target refused a row for as inactive,
+   * when the refusal named the row's own owner: see `refusedOwners`. Never
+   * the external id the row is upserted by, which it never goes without.
+   */
+  private rememberRefusedOwners(
+    write: NodeWrite,
+    result: InsertResult,
+    payload: Record<string, unknown>,
+  ): void {
+    const field = heldKeyOf(payload, 'OwnerId');
+    if (field === undefined || field.toLowerCase() === write.upsertField?.toLowerCase()) return;
+    for (const detail of result.errorDetails ?? []) {
+      if (detail.statusCode !== INACTIVE_OWNER_REFUSAL) continue;
+      const owner = inactiveOwnerNamed(detail, payload);
+      if (owner === undefined || this.refusedOwners.has(owner)) continue;
+      this.refusedOwners.set(owner, {
+        field: 'OwnerId',
+        refusedBy: 'inactive-owner',
+        reason: codeAndMessage(detail),
+      });
+    }
+  }
+
+  /**
    * A row's payload as it is first sent: without the values the target
-   * refused under the record type it names earlier in the run, and those it
-   * goes without, with the refusal of each. Sent with them, the row would be
-   * refused for them and sent again without them, as it now is from the
-   * start; its rounds without fields stay for whatever else the target
-   * refuses it on. The payload itself, left as it was, when it holds none.
+   * refused under the record type it names earlier in the run, nor an owner
+   * it refused as inactive earlier in the run, and those it goes without,
+   * with the refusal of each. Sent with them, the row would be refused for
+   * them and sent again without them, as it now is from the start; its rounds
+   * without fields stay for whatever else the target refuses it on. The
+   * payload itself, left as it was, when it holds none.
+   *
+   * The owner's key is taken out of the payload, never set to null nor left
+   * empty, and before the call is journaled, fingerprinted or cut into a
+   * job's CSV: by REST the record goes to the user the run writes as, and so
+   * it does by a job, whose CSV leaves the row's cell empty — the column's
+   * default — rather than `#N/A`, a null the target refuses for an owner. The
+   * journal, the job's rows and their answers all see the row as it went.
    */
   private withoutRefusedValues(
     write: NodeWrite,
     payload: Record<string, unknown>,
   ): { sent: Record<string, unknown>; before: FieldToLeaveOut[] } {
     const before: FieldToLeaveOut[] = [];
-    if (this.refusedValues.size === 0) return { sent: payload, before };
+    if (this.refusedValues.size === 0 && this.refusedOwners.size === 0) {
+      return { sent: payload, before };
+    }
     for (const field of Object.keys(payload)) {
       const key = this.refusedValueKey(write, payload, field);
       const refused = key === undefined ? undefined : this.refusedValues.get(key);
       if (refused) before.push({ ...refused, field });
+    }
+    const ownerField = heldKeyOf(payload, 'OwnerId');
+    const owner = ownerField === undefined ? undefined : payload[ownerField];
+    if (
+      ownerField !== undefined &&
+      typeof owner === 'string' &&
+      ownerField.toLowerCase() !== write.upsertField?.toLowerCase()
+    ) {
+      const refused = this.refusedOwners.get(owner.slice(0, 15));
+      if (refused) before.push({ ...refused, field: ownerField });
     }
     return before.length === 0
       ? { sent: payload, before }
@@ -1443,28 +2463,68 @@ export class BatchWriter {
           `Writing ${rows.length} ${write.objectApiName} record${rows.length === 1 ? '' : 's'} ` +
           `again without the fields ${whatRefused(rows.flatMap(leftOutOf))} refused...`,
       });
+      if (this.mayBulk(write.bulk, callKeyOf(write)) && rows.length >= FORGE_BULK_MIN_ROWS) {
+        // A round a job takes goes as jobs, as the node's first write did: a
+        // rule that refused fifty thousand rows on one field took two hundred
+        // and fifty calls more to write them again by REST. A row a cancel
+        // keeps from going stays the failure the target made it.
+        const why = `${write.objectApiName}, sent again`;
+        let stoppedBy = await this.sendRows(write, input, rows, why, 0, (unsent, reason) =>
+          this.leaveRefusedAsFailed(write, unsent, reason),
+        );
+        stoppedBy ??= await this.sendLockedAgain(write, input, 0);
+        if (stoppedBy) {
+          // The rows a call of the round before the one that threw had
+          // refused for a lock are not sent again either: see `writeNode`.
+          const reason = extractErrorMessage(stoppedBy.thrown);
+          this.leaveLockedAsFailed(write, write.locked.splice(0), reason);
+          this.leaveRefusedAsFailed(write, write.refusedOnTheirFields.splice(0), reason);
+          return;
+        }
+        continue;
+      }
+      // As many to a call as the first write sent, or the size a limit left
+      // the object at, read before each call.
       for (let start = 0; start < rows.length; start += batchSize) {
         const chunk = rows.slice(start, start + batchSize);
-        let outcome: CallAnswered | CallThrew;
+        const leaveUnsent = (unsent: readonly RowToWrite[], why: string): void =>
+          this.leaveRefusedAsFailed(write, unsent, why);
+        let stopped: RestStop | undefined;
         try {
           await input.waitIfPaused();
-          outcome = await this.call(write, input, chunk);
         } catch (err) {
           this.leaveRefusedAsFailed(write, rows.slice(start), extractErrorMessage(err));
           throw err;
         }
+        try {
+          stopped = await this.callAndSettle(write, input, chunk, leaveUnsent, batchSize);
+        } catch (err) {
+          // The chunk's own rows left unsent were handed on by `callAndSettle`.
+          this.leaveRefusedAsFailed(
+            write,
+            rows.slice(start + chunk.length),
+            extractErrorMessage(err),
+          );
+          throw err;
+        }
         let stoppedBy: CallThrew | undefined;
-        if ('thrown' in outcome) {
-          stoppedBy = outcome;
-          const why = extractErrorMessage(outcome.thrown);
-          if (outcome.left === 'may-have-written') {
-            this.settleThrown(write, outcome, chunk, `${write.objectApiName}, sent again`, 0);
-            this.leaveRefusedAsFailed(write, rows.slice(start + batchSize), why);
+        if (stopped) {
+          stoppedBy = stopped.threw;
+          const why = extractErrorMessage(stopped.threw.thrown);
+          const after = [...stopped.rest, ...rows.slice(start + chunk.length)];
+          if (stopped.threw.left === 'may-have-written') {
+            this.settleThrown(
+              write,
+              stopped.threw,
+              stopped.rows,
+              `${write.objectApiName}, sent again`,
+              0,
+            );
+            this.leaveRefusedAsFailed(write, after, why);
           } else {
-            this.leaveRefusedAsFailed(write, rows.slice(start), why);
+            this.leaveRefusedAsFailed(write, [...stopped.rows, ...after], why);
           }
         } else {
-          await this.settleAnswers(write, chunk, outcome);
           try {
             stoppedBy = await this.sendLockedAgain(write, input, 0);
           } catch (err) {

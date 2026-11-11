@@ -40,6 +40,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 import { useForgeForm, recordLimitOptionFor } from './useForgeForm';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { filesBlockExecute } from './ReviewFilesOption';
 
 /** A discovered graph as the executor leaves it once a run has finished. */
 const GRAPH: ForgeGraph = {
@@ -399,6 +400,27 @@ describe('useForgeForm run history', () => {
     expect(result.current.inputMode).toBe('record');
     expect(result.current.soqlQuery).toBe('');
     expect(result.current.canDiscover).toBe(false);
+  });
+
+  it('opens a stored clone of the whole org on the record tab, which has no tab of its own', () => {
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.handleRecordIdChange('0019999999999999AAA');
+    });
+    act(() => {
+      result.current.applyHistoryConfig({
+        inputMode: 'org',
+        depth: 'all',
+        anonymizePII: true,
+        skipEmpty: true,
+        batchSize: 'auto',
+      });
+    });
+
+    expect(result.current.inputMode).toBe('record');
+    expect(result.current.recordId).toBe('');
+    expect(result.current.soqlQuery).toBe('');
   });
 
   it("does not let the AI mode discover from the SOQL tab's query", () => {
@@ -1074,5 +1096,313 @@ describe('cloning directly', () => {
 
     expect(sentTypes()).not.toContain('forge:discover');
     expect(useForgeStore.getState().directDiscoveryId).toBeNull();
+  });
+});
+
+describe('a clone of the whole org (ALL)', () => {
+  /** A run cloned from the whole org, as the extension keeps it in its history. */
+  const ORG_RUN: ForgeExecutionResult = {
+    ...SOQL_RUN,
+    forgeId: 'forge-2026-03-02-org',
+    config: {
+      inputMode: 'org',
+      depth: 'all',
+      anonymizePII: true,
+      skipEmpty: true,
+      expandOrphanParents: false,
+      batchSize: 'auto',
+    },
+  };
+
+  /** A template saved from a clone of the whole org, carrying filters and exclusions. */
+  const ORG_TEMPLATE: ForgeTemplate = {
+    id: 'tpl-org',
+    name: 'Refresh UAT',
+    description: '',
+    config: {
+      ...ORG_RUN.config!,
+      excludedObjects: ['Task'],
+      objectSoqlFilters: { Case: "Status = 'Closed'" },
+      skippedRows: [{ object: 'Contact', gapId: 'g1' }],
+      fieldExclusions: { Account: ['Fax'] },
+      ownerMappings: { '005A00000000001AAA': '005B00000000001AAA' },
+    },
+    objectCount: 900,
+    recordCount: 1_200_000,
+    createdAt: '2026-03-02T09:00:00.000Z',
+    lastUsedAt: '2026-03-02T09:00:00.000Z',
+  };
+
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useForgeStore.getState().reset();
+    useForgeStore.setState({ history: [] });
+    useOrgStore.setState({ selectedOrgId: null });
+  });
+
+  /** The form with both orgs picked, apart. */
+  function withOrgs() {
+    const hook = renderHook(() => useForgeForm());
+    act(() => {
+      hook.result.current.setSourceOrgId('org-src');
+      hook.result.current.setTargetOrgId('org-tgt');
+    });
+    return hook;
+  }
+
+  it('sends the whole org, from no input, with no cap and no orphan parent fetched', () => {
+    const { result } = withOrgs();
+    act(() => {
+      result.current.handleRecordIdChange('001AB00000ABCDEFGH');
+      result.current.setMaxNodes(350);
+      result.current.setRecordLimit('50');
+      result.current.setExpandOrphanParents(true);
+      result.current.setDepth('custom');
+      result.current.setCustomDepth(4);
+    });
+    act(() => result.current.setDepth('all'));
+    expect(result.current.wholeOrg).toBe(true);
+    act(() => result.current.handleDiscover());
+
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+    expect(config).toMatchObject({
+      inputMode: 'org',
+      depth: 'all',
+      expandOrphanParents: false,
+      sourceOrgId: 'org-src',
+      targetOrgId: 'org-tgt',
+    });
+    for (const field of [
+      'recordId',
+      'soqlQuery',
+      'templateId',
+      'objectSoqlFilters',
+      'customDepth',
+      'maxNodes',
+      'maxRecordsPerObject',
+    ]) {
+      expect(config[field], field).toBeUndefined();
+    }
+    // The caps the user set stay in the form for the next run that has them.
+    expect(result.current.maxNodes).toBe(350);
+    expect(result.current.recordLimit).toBe('50');
+  });
+
+  it('sends no cap of 200 from the SOQL tab it was picked on, nor the query', () => {
+    const { result } = withOrgs();
+    act(() => {
+      result.current.setInputMode('soql');
+      result.current.setSoqlQuery("SELECT Id FROM Account WHERE Industry = 'X'");
+    });
+    expect(result.current.recordLimitValue).toBe(100);
+    act(() => result.current.setDepth('all'));
+
+    expect(result.current.recordLimitValue).toBeUndefined();
+    act(() => result.current.handleDiscover());
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+    expect(config.inputMode).toBe('org');
+    expect(config.maxRecordsPerObject).toBeUndefined();
+    expect(config.soqlQuery).toBeUndefined();
+    expect(config.objectSoqlFilters).toBeUndefined();
+  });
+
+  it('is not held back by a query refused on a tab it greys out, nor by a missing input', () => {
+    const { result } = withOrgs();
+    act(() => {
+      result.current.setInputMode('soql');
+      result.current.setSoqlQuery('SELECT Id FROM 1Account WHERE Name = null');
+    });
+    expect(result.current.canDiscover).toBe(false);
+    act(() => result.current.setDepth('all'));
+
+    expect(result.current.canDiscover).toBe(true);
+  });
+
+  it('discovers with the two orgs alone, and not between two orgs that are one', () => {
+    const { result } = renderHook(() => useForgeForm());
+    act(() => result.current.setDepth('all'));
+    expect(result.current.canDiscover).toBe(false);
+
+    act(() => result.current.setSourceOrgId('org-src'));
+    expect(result.current.canDiscover).toBe(false);
+    act(() => result.current.setTargetOrgId('org-tgt'));
+    expect(result.current.canDiscover).toBe(true);
+    act(() => result.current.setTargetOrgId('org-src'));
+    expect(result.current.canDiscover).toBe(false);
+  });
+
+  describe('its files', () => {
+    it('copies them, each up to 35 MB, on Discover as on a Clone directly', () => {
+      const { result } = withOrgs();
+      act(() => result.current.setDepth('all'));
+
+      act(() => result.current.handleDiscover());
+      expect(useForgeStore.getState().fileCopy).toEqual({
+        enabled: true,
+        maxFileSizeMB: 35,
+        acceptedAsIs: false,
+      });
+
+      act(() => result.current.handleCloneDirectly());
+      expect(useForgeStore.getState().fileCopy).toEqual({
+        enabled: true,
+        maxFileSizeMB: 35,
+        acceptedAsIs: false,
+      });
+    });
+
+    it('copies none while personal fields are anonymized, and 35 MB once Review turns them on', () => {
+      const { result } = withOrgs();
+      act(() => {
+        result.current.setAnonymize(true);
+        result.current.setDepth('all');
+      });
+
+      act(() => result.current.handleDiscover());
+      expect(useForgeStore.getState().fileCopy.enabled).toBe(false);
+      expect(useForgeStore.getState().fileCopy.maxFileSizeMB).toBe(35);
+
+      // Review's checkbox turns the copy on and changes nothing else: the
+      // ceiling stays, and the run waits for files to be accepted as they are.
+      act(() => useForgeStore.getState().setFileCopy({ enabled: true }));
+      const { fileCopy } = useForgeStore.getState();
+      expect(fileCopy).toEqual({ enabled: true, maxFileSizeMB: 35, acceptedAsIs: false });
+      expect(filesBlockExecute({ fileCopy, config: { anonymizePII: true } })).toBe(true);
+      act(() => useForgeStore.getState().setFileCopy({ acceptedAsIs: true }));
+      expect(
+        filesBlockExecute({
+          fileCopy: useForgeStore.getState().fileCopy,
+          config: { anonymizePII: true },
+        }),
+      ).toBe(false);
+    });
+  });
+
+  describe('reusing the last graph', () => {
+    it('is never offered for a clone of the whole org', () => {
+      useForgeStore.setState({ history: [RECORD_RUN] });
+      const { result } = withOrgs();
+      act(() => result.current.handleRecordIdChange('001AB00000ABCDEFGH'));
+      expect(result.current.canReuseLastGraph).toBe(true);
+
+      act(() => result.current.setDepth('all'));
+      expect(result.current.canReuseLastGraph).toBe(false);
+    });
+
+    it('is not offered for the graph a clone of the whole org left, known by its config or its graph', () => {
+      useForgeStore.setState({ history: [ORG_RUN] });
+      const { result, unmount } = withOrgs();
+      act(() => result.current.handleRecordIdChange('001AB00000ABCDEFGH'));
+      expect(result.current.canReuseLastGraph).toBe(false);
+      unmount();
+
+      // A run of this session: its result came back without its config.
+      useForgeStore.setState({
+        history: [{ ...RECORD_RUN, config: undefined, graph: { ...GRAPH, leftOut: [] } }],
+      });
+      const second = withOrgs();
+      act(() => second.result.current.handleRecordIdChange('001AB00000ABCDEFGH'));
+      expect(second.result.current.canReuseLastGraph).toBe(false);
+    });
+  });
+
+  it('offers no Quick start of a starter template, which clones one record', () => {
+    const { result } = withOrgs();
+    act(() => {
+      result.current.setInputMode('template');
+      result.current.setSelectedTemplate('builtin:account-360');
+      result.current.handleRecordIdChange('001AB00000ABCDEFGH');
+    });
+    expect(result.current.canQuickStartTemplate).toBe(true);
+
+    act(() => result.current.setDepth('all'));
+    expect(result.current.canQuickStartTemplate).toBe(false);
+  });
+
+  it('is put back by a past run of the whole org, which leaves the caps as they were', () => {
+    const { result } = renderHook(() => useForgeForm());
+    act(() => {
+      result.current.setMaxNodes(200);
+      result.current.setRecordLimit('500');
+    });
+    act(() => result.current.applyHistoryConfig(ORG_RUN.config!));
+
+    expect(result.current.depth).toBe('all');
+    expect(result.current.wholeOrg).toBe(true);
+    expect(result.current.anonymize).toBe(true);
+    expect(result.current.maxNodes).toBe(200);
+    expect(result.current.recordLimit).toBe('500');
+  });
+
+  describe('from a template saved of it', () => {
+    function applied() {
+      const hook = withOrgs();
+      act(() => {
+        hook.result.current.applyTemplate(ORG_TEMPLATE);
+      });
+      return hook;
+    }
+
+    it('picks ALL, and runs as the whole org with the choices it carries', () => {
+      const { result } = applied();
+      expect(result.current.depth).toBe('all');
+      act(() => result.current.handleDiscover());
+
+      const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+      expect(config).toMatchObject({
+        inputMode: 'org',
+        depth: 'all',
+        excludedObjects: ['Task'],
+        objectSoqlFilters: { Case: "Status = 'Closed'" },
+      });
+      expect(config.templateId).toBeUndefined();
+    });
+
+    it('says what those choices still narrow of the whole org', () => {
+      const { result } = applied();
+
+      expect(result.current.carriedNarrowing).toEqual({
+        filtered: ['Case'],
+        excluded: ['Task'],
+        heldBack: ['Contact'],
+        fields: ['Account'],
+      });
+    });
+
+    it('is not left selected as an input, which would outlive the ALL chip', () => {
+      const { result } = withOrgs();
+      act(() => {
+        result.current.handleRecordIdChange('001AB00000ABCDEFGH');
+        result.current.setInputMode('template');
+      });
+      act(() => {
+        result.current.applyTemplate(ORG_TEMPLATE);
+      });
+      expect(result.current.selectedTemplate).toBe('');
+      expect(result.current.inputMode).toBe('record');
+      expect(result.current.recordId).toBe('');
+
+      // Leaving ALL shows an empty Record tab, and nothing to discover: not
+      // the record id typed before the template was applied.
+      act(() => result.current.setDepth('direct'));
+      expect(result.current.canDiscover).toBe(false);
+      mockPostMessage.mockClear();
+      act(() => result.current.handleDiscover());
+      expect(sentTypes()).not.toContain('forge:discover');
+    });
+
+    it('drops them on request, and keeps the choices that narrow nothing', () => {
+      const { result } = applied();
+      act(() => result.current.clearCarried());
+      expect(result.current.carriedNarrowing).toBeNull();
+      act(() => result.current.handleDiscover());
+
+      const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+      expect(config).not.toHaveProperty('excludedObjects');
+      expect(config).not.toHaveProperty('skippedRows');
+      expect(config).not.toHaveProperty('fieldExclusions');
+      expect(config.objectSoqlFilters).toBeUndefined();
+      expect(config.ownerMappings).toEqual({ '005A00000000001AAA': '005B00000000001AAA' });
+    });
   });
 });

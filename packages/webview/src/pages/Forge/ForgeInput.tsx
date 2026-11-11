@@ -16,9 +16,9 @@ import {
 import { cn } from '../../theme';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { SeedInsteadHint } from '../../components/ui/SeedInsteadHint';
-import type { ForgeInputMode } from '../../stores/useForgeStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useForgeForm } from './useForgeForm';
+import type { ForgeTabMode } from './useForgeForm';
 import { useForgeTemplates } from './useForgeTemplates';
 import { ForgeSoqlNotices } from './ForgeSoqlNotices';
 import { ForgeAIPanel, ForgeHistoryPanel, ForgeTemplatePanel } from './forgeInputPanels';
@@ -41,8 +41,8 @@ function starterName(
 
 /** Tab configuration for the Forge input modes. */
 interface TabConfig {
-  /** Tab identifier matching ForgeInputMode. */
-  id: ForgeInputMode;
+  /** Tab identifier matching the input mode it runs from. */
+  id: ForgeTabMode;
   /** i18n key for the tab label. */
   labelKey: string;
   /** Icon component rendered inside the trigger. */
@@ -102,8 +102,12 @@ export const ForgeInput: React.FC = () => {
    * for the root record exactly as the Record tab does — it had no way to,
    * and the run went out unscoped.
    */
-  const templateNeedsRoot = form.inputMode === 'template' && !!form.builtinTplCandidate;
+  // A clone of the whole org reads no record id: one left in a greyed tab is
+  // neither asked for nor refused.
+  const templateNeedsRoot =
+    !form.wholeOrg && form.inputMode === 'template' && !!form.builtinTplCandidate;
   const recordIdInvalid =
+    !form.wholeOrg &&
     (form.inputMode === 'record' || templateNeedsRoot) &&
     form.recordId.trim().length > 0 &&
     extractRecordId(form.recordId) === null;
@@ -126,6 +130,19 @@ export const ForgeInput: React.FC = () => {
    * would name a clause that may be faultless, and point at the wrong fix.
    */
   const aliasRefused = Boolean(soqlRootFilter(runQuery)?.unresolvedAlias);
+  /** The carried choices a clone of the whole org still keeps, listed in its note. */
+  const narrowing = form.carriedNarrowing;
+  /** Each kind of carried choice the note lists, with the objects it names. */
+  const narrowingLines = narrowing
+    ? (
+        [
+          ['forge.allCarriedFiltered', narrowing.filtered],
+          ['forge.allCarriedExcluded', narrowing.excluded],
+          ['forge.allCarriedHeldBack', narrowing.heldBack],
+          ['forge.allCarriedFields', narrowing.fields],
+        ] as const
+      ).filter(([, objects]) => objects.length > 0)
+    : [];
 
   return (
     <div className="flex flex-col gap-4" data-testid="forge-input">
@@ -186,19 +203,24 @@ export const ForgeInput: React.FC = () => {
           <div className="rounded-lg border border-subtle bg-surface-1 overflow-hidden">
             <Tabs.Root
               value={form.inputMode}
-              onValueChange={(v) => form.setInputMode(v as ForgeInputMode)}
+              onValueChange={(v) => form.setInputMode(v as ForgeTabMode)}
             >
               <Tabs.List className="flex border-b border-subtle" aria-label={t('nav.forge')}>
+                {/* ALL starts from none of these inputs: the tabs are greyed,
+                    out of the keyboard's way, and say why on hover. */}
                 {TABS.map((tab) => (
                   <Tabs.Trigger
                     key={tab.id}
                     value={tab.id}
                     data-testid={tab.testId}
+                    disabled={form.wholeOrg}
+                    title={form.wholeOrg ? t('forge.allInputDisabled') : undefined}
                     className={cn(
                       'flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm transition-colors',
                       'text-text-secondary hover:text-text-primary',
                       'data-[state=active]:text-hue-forge data-[state=active]:border-b-2 data-[state=active]:border-forge',
                       'data-[state=active]:bg-surface-2',
+                      'disabled:opacity-40 disabled:cursor-not-allowed',
                     )}
                   >
                     {tab.icon}
@@ -208,125 +230,169 @@ export const ForgeInput: React.FC = () => {
               </Tabs.List>
 
               <div className="p-3">
+                {/* ALL: in place of the tab's input, why there is none, and
+                    what a template or a past run put back in the form still
+                    narrows of the whole org, with a way to drop it. Without
+                    it, a clone of the whole org went out filtered, or with
+                    objects left out, and nothing on the form said so. */}
+                {form.wholeOrg && (
+                  <div
+                    role="note"
+                    data-testid="forge-input-all-note"
+                    className="flex flex-col gap-2 text-xs text-text-secondary"
+                  >
+                    <p>{t('forge.allInputDisabled')}</p>
+                    {narrowingLines.length > 0 && (
+                      <div
+                        className="rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 flex flex-col gap-1 text-text-primary"
+                        data-testid="forge-input-all-carried"
+                      >
+                        <p>{t('forge.allCarried')}</p>
+                        <ul className="list-disc pl-4">
+                          {narrowingLines.map(([key, objects]) => (
+                            <li key={key}>{t(key, { objects: objects.join(', ') })}</li>
+                          ))}
+                        </ul>
+                        <button
+                          type="button"
+                          data-testid="forge-clear-carried"
+                          onClick={form.clearCarried}
+                          className={cn(
+                            'self-start mt-1 px-2.5 py-1 rounded-md text-[11px] font-medium',
+                            'border border-forge/30 bg-forge/5 text-hue-forge',
+                            'hover:bg-forge/10 hover:border-forge/50 transition-colors',
+                          )}
+                        >
+                          {t('forge.clearCarried')}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {/* Record tab */}
-                <Tabs.Content value="record" className="flex flex-col gap-2">
-                  <div className="flex gap-2">
-                    <input
-                      data-testid="forge-input-record"
-                      type="text"
-                      value={form.recordId}
-                      onChange={(e) => form.handleRecordIdChange(e.target.value)}
-                      /* The SOQL tab launches discovery from the keyboard;
+                {!form.wholeOrg && (
+                  <Tabs.Content value="record" className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <input
+                        data-testid="forge-input-record"
+                        type="text"
+                        value={form.recordId}
+                        onChange={(e) => form.handleRecordIdChange(e.target.value)}
+                        /* The SOQL tab launches discovery from the keyboard;
                          the record tab — the one people actually paste into —
                          had no shortcut, so the flagship path forced a trip to
                          the mouse. Enter (bare or with Ctrl/Cmd) submits. */
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && canDiscoverNow) {
+                            e.preventDefault();
+                            form.handleDiscover();
+                          }
+                        }}
+                        placeholder={t('forge.recordIdPlaceholder')}
+                        // A placeholder is not a name: it disappears on the first
+                        // keystroke and screen readers are not required to read
+                        // it. The Home hero's record input has carried the same
+                        // label through `t()` since it shipped; this one, the
+                        // flagship path's own field, had none.
+                        aria-label={t('forge.recordIdPlaceholder')}
+                        aria-invalid={recordIdInvalid}
+                        aria-describedby={recordIdInvalid ? 'forge-record-id-error' : undefined}
+                        className={cn(
+                          'flex-1 px-3 py-2 rounded-md text-sm font-mono',
+                          'bg-(--sf-bg-input)',
+                          'text-(--sf-text-input)',
+                          'border',
+                          recordIdInvalid ? 'border-status-error/40' : 'border-(--sf-border-input)',
+                          'focus:outline-hidden focus:border-forge/50',
+                        )}
+                      />
+                      <button
+                        type="button"
+                        data-testid="forge-preview-btn"
+                        aria-label={t('forge.refreshPreview')}
+                        disabled={
+                          extractRecordId(form.recordId) === null ||
+                          form.sourceOrgId.length === 0 ||
+                          form.previewLoading
+                        }
+                        onClick={form.handlePreview}
+                        title={t('forge.refreshPreview')}
+                        className={cn(
+                          'shrink-0 px-2.5 py-2 rounded-md text-sm transition-colors',
+                          'border border-(--sf-border-input)',
+                          'bg-(--sf-bg-input)',
+                          'text-text-secondary hover:text-hue-forge hover:border-forge/50',
+                          'disabled:opacity-40 disabled:cursor-not-allowed',
+                        )}
+                      >
+                        {form.previewLoading ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <RefreshCw size={14} />
+                        )}
+                      </button>
+                    </div>
+                    {recordIdInvalid && (
+                      <p
+                        id="forge-record-id-error"
+                        role="alert"
+                        data-testid="forge-record-id-error"
+                        className="text-xs text-status-error"
+                      >
+                        {/* Same wording as the Home hero, which already refuses an
+                          unreadable id — reusing its key rather than adding a
+                          seventh translation of the same sentence. */}
+                        {t('home.invalidRecordId')}
+                      </p>
+                    )}
+                    {form.previewError && (
+                      <div className="p-2 rounded-md text-sm text-status-error bg-status-error/10 border border-status-error/20">
+                        {form.previewError}
+                      </div>
+                    )}
+                  </Tabs.Content>
+                )}
+
+                {/* SOQL tab */}
+                {!form.wholeOrg && (
+                  <Tabs.Content value="soql">
+                    <textarea
+                      data-testid="forge-input-soql"
+                      value={form.soqlQuery}
+                      onChange={(e) => form.setSoqlQuery(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && canDiscoverNow) {
+                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && form.canDiscover) {
                           e.preventDefault();
                           form.handleDiscover();
                         }
                       }}
-                      placeholder={t('forge.recordIdPlaceholder')}
-                      // A placeholder is not a name: it disappears on the first
-                      // keystroke and screen readers are not required to read
-                      // it. The Home hero's record input has carried the same
-                      // label through `t()` since it shipped; this one, the
-                      // flagship path's own field, had none.
-                      aria-label={t('forge.recordIdPlaceholder')}
-                      aria-invalid={recordIdInvalid}
-                      aria-describedby={recordIdInvalid ? 'forge-record-id-error' : undefined}
+                      placeholder={t('forge.soqlPlaceholder')}
+                      // The placeholder was its only name, and it is gone at
+                      // the first keystroke; the record field beside it had the
+                      // same gap until it was named.
+                      aria-label={t('forge.soqlQuery')}
+                      rows={5}
                       className={cn(
-                        'flex-1 px-3 py-2 rounded-md text-sm font-mono',
+                        'w-full px-3 py-2 rounded-md text-sm font-mono resize-y',
                         'bg-(--sf-bg-input)',
                         'text-(--sf-text-input)',
-                        'border',
-                        recordIdInvalid ? 'border-status-error/40' : 'border-(--sf-border-input)',
+                        'border border-(--sf-border-input)',
                         'focus:outline-hidden focus:border-forge/50',
                       )}
                     />
-                    <button
-                      type="button"
-                      data-testid="forge-preview-btn"
-                      aria-label={t('forge.refreshPreview')}
-                      disabled={
-                        extractRecordId(form.recordId) === null ||
-                        form.sourceOrgId.length === 0 ||
-                        form.previewLoading
-                      }
-                      onClick={form.handlePreview}
-                      title={t('forge.refreshPreview')}
-                      className={cn(
-                        'shrink-0 px-2.5 py-2 rounded-md text-sm transition-colors',
-                        'border border-(--sf-border-input)',
-                        'bg-(--sf-bg-input)',
-                        'text-text-secondary hover:text-hue-forge hover:border-forge/50',
-                        'disabled:opacity-40 disabled:cursor-not-allowed',
-                      )}
-                    >
-                      {form.previewLoading ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <RefreshCw size={14} />
-                      )}
-                    </button>
-                  </div>
-                  {recordIdInvalid && (
-                    <p
-                      id="forge-record-id-error"
-                      role="alert"
-                      data-testid="forge-record-id-error"
-                      className="text-xs text-status-error"
-                    >
-                      {/* Same wording as the Home hero, which already refuses an
-                          unreadable id — reusing its key rather than adding a
-                          seventh translation of the same sentence. */}
-                      {t('home.invalidRecordId')}
-                    </p>
-                  )}
-                  {form.previewError && (
-                    <div className="p-2 rounded-md text-sm text-status-error bg-status-error/10 border border-status-error/20">
-                      {form.previewError}
-                    </div>
-                  )}
-                </Tabs.Content>
+                    <ForgeSoqlNotices
+                      query={form.soqlQuery}
+                      objectNameRefused={form.objectNameRefused}
+                    />
+                  </Tabs.Content>
+                )}
 
-                {/* SOQL tab */}
-                <Tabs.Content value="soql">
-                  <textarea
-                    data-testid="forge-input-soql"
-                    value={form.soqlQuery}
-                    onChange={(e) => form.setSoqlQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && form.canDiscover) {
-                        e.preventDefault();
-                        form.handleDiscover();
-                      }
-                    }}
-                    placeholder={t('forge.soqlPlaceholder')}
-                    // The placeholder was its only name, and it is gone at
-                    // the first keystroke; the record field beside it had the
-                    // same gap until it was named.
-                    aria-label={t('forge.soqlQuery')}
-                    rows={5}
-                    className={cn(
-                      'w-full px-3 py-2 rounded-md text-sm font-mono resize-y',
-                      'bg-(--sf-bg-input)',
-                      'text-(--sf-text-input)',
-                      'border border-(--sf-border-input)',
-                      'focus:outline-hidden focus:border-forge/50',
-                    )}
-                  />
-                  <ForgeSoqlNotices
-                    query={form.soqlQuery}
-                    objectNameRefused={form.objectNameRefused}
-                  />
-                </Tabs.Content>
-
-                {/* Template tab — forceMount keeps state alive for CRUD management */}
+                {/* Template tab — forceMount keeps state alive for CRUD
+                    management, and it stays mounted, hidden, under the note of ALL. */}
                 <Tabs.Content
                   value="template"
                   forceMount
-                  className={form.inputMode !== 'template' ? 'hidden' : ''}
+                  className={form.inputMode !== 'template' || form.wholeOrg ? 'hidden' : ''}
                 >
                   <PartBoundary data-testid="forge-templates-failed">
                     <Suspense fallback={null}>
@@ -393,24 +459,26 @@ export const ForgeInput: React.FC = () => {
                 </Tabs.Content>
 
                 {/* AI tab */}
-                <Tabs.Content value="ai">
-                  <PartBoundary data-testid="forge-ai-failed">
-                    <Suspense fallback={null}>
-                      <ForgeAIPanel
-                        ai={form.ai}
-                        aiAvailable={aiAvailable}
-                        sourceOrgId={form.sourceOrgId}
-                        onOpenSettings={() => navigate('settings', { settingsTab: 'ai' })}
-                      />
-                    </Suspense>
-                  </PartBoundary>
-                  {/* The draft is run as a SOQL query, so it carries the SOQL
+                {!form.wholeOrg && (
+                  <Tabs.Content value="ai">
+                    <PartBoundary data-testid="forge-ai-failed">
+                      <Suspense fallback={null}>
+                        <ForgeAIPanel
+                          ai={form.ai}
+                          aiAvailable={aiAvailable}
+                          sourceOrgId={form.sourceOrgId}
+                          onOpenSettings={() => navigate('settings', { settingsTab: 'ai' })}
+                        />
+                      </Suspense>
+                    </PartBoundary>
+                    {/* The draft is run as a SOQL query, so it carries the SOQL
                       tab's verdicts too. */}
-                  <ForgeSoqlNotices
-                    query={form.ai.draft}
-                    objectNameRefused={form.objectNameRefused}
-                  />
-                </Tabs.Content>
+                    <ForgeSoqlNotices
+                      query={form.ai.draft}
+                      objectNameRefused={form.objectNameRefused}
+                    />
+                  </Tabs.Content>
+                )}
               </div>
             </Tabs.Root>
           </div>
@@ -438,11 +506,22 @@ export const ForgeInput: React.FC = () => {
                 — {t('forge.objectCapHint')}
               </span>
             </div>
+            {/* ALL has no object cap: the select shows so, greyed, and says
+                why under it; the cap set before stays for the next run. */}
             <select
               id="forge-max-nodes"
-              aria-describedby="forge-max-nodes-hint"
+              aria-describedby={
+                form.wholeOrg ? 'forge-max-nodes-hint forge-max-nodes-all' : 'forge-max-nodes-hint'
+              }
               data-testid="forge-max-nodes"
-              value={form.maxNodes === undefined ? 'default' : String(form.maxNodes)}
+              disabled={form.wholeOrg}
+              value={
+                form.wholeOrg
+                  ? 'all'
+                  : form.maxNodes === undefined
+                    ? 'default'
+                    : String(form.maxNodes)
+              }
               onChange={(e) =>
                 form.setMaxNodes(e.target.value === 'default' ? undefined : Number(e.target.value))
               }
@@ -452,14 +531,25 @@ export const ForgeInput: React.FC = () => {
                 'text-(--sf-text-input)',
                 'border border-(--sf-border-input)',
                 'focus:outline-hidden focus:border-forge/50',
+                'disabled:opacity-40 disabled:cursor-not-allowed',
               )}
             >
+              {form.wholeOrg && <option value="all">{t('forge.objectCapAll')}</option>}
               <option value="default">{t('forge.objectCapDefault')}</option>
               <option value="100">100</option>
               <option value="200">200</option>
               <option value="350">350</option>
               <option value="500">500</option>
             </select>
+            {form.wholeOrg && (
+              <p
+                id="forge-max-nodes-all"
+                data-testid="forge-max-nodes-all"
+                className="mt-1.5 text-[10px] text-text-secondary"
+              >
+                {t('forge.objectCapAllDisabled')}
+              </p>
+            )}
           </div>
 
           {/* Records-per-object cap — keeps big-org clones bounded */}
@@ -478,11 +568,19 @@ export const ForgeInput: React.FC = () => {
                 — {t('forge.recordLimitHint')}
               </span>
             </div>
+            {/* ALL copies every record: the select shows so, greyed, in an
+                option of its own, as Objects does; the limit set before
+                stays for the next run. */}
             <select
               id="forge-record-limit"
-              aria-describedby="forge-record-limit-hint"
+              aria-describedby={
+                form.wholeOrg
+                  ? 'forge-record-limit-hint forge-record-limit-all'
+                  : 'forge-record-limit-hint'
+              }
               data-testid="forge-record-limit"
-              value={form.recordLimit}
+              disabled={form.wholeOrg}
+              value={form.wholeOrg ? 'every' : form.recordLimit}
               onChange={(e) => form.setRecordLimit(e.target.value)}
               className={cn(
                 'px-3 py-1.5 rounded-md text-xs',
@@ -490,8 +588,10 @@ export const ForgeInput: React.FC = () => {
                 'text-(--sf-text-input)',
                 'border border-(--sf-border-input)',
                 'focus:outline-hidden focus:border-forge/50',
+                'disabled:opacity-40 disabled:cursor-not-allowed',
               )}
             >
+              {form.wholeOrg && <option value="every">{t('forge.recordLimitEvery')}</option>}
               <option value="smart">{t('forge.recordLimitSmart')}</option>
               <option value="10">{t('forge.recordLimitOpt10')}</option>
               <option value="50">{t('forge.recordLimitOpt50')}</option>
@@ -503,7 +603,18 @@ export const ForgeInput: React.FC = () => {
             {/* What Smart applies to this run: no cap to one record's graph,
                 a cap to a run from a query. It named the root object's whole
                 table "the org" and sized the cap of a one-record clone by it. */}
-            {form.recordLimit === 'smart' && (
+            {/* In its place for ALL, which reads past the 50,000 rows per
+                object Smart announces for one record. */}
+            {form.wholeOrg && (
+              <p
+                id="forge-record-limit-all"
+                data-testid="forge-record-limit-all"
+                className="mt-1.5 text-[10px] text-text-secondary"
+              >
+                {t('forge.recordLimitAllDisabled')}
+              </p>
+            )}
+            {form.recordLimit === 'smart' && !form.wholeOrg && (
               <div
                 className="mt-1.5 text-[10px] text-text-secondary"
                 data-testid="forge-record-limit-smart-hint"
@@ -523,6 +634,7 @@ export const ForgeInput: React.FC = () => {
             onSkipEmptyChange={form.setSkipEmpty}
             expandOrphanParents={form.expandOrphanParents}
             onExpandOrphanParentsChange={form.setExpandOrphanParents}
+            expandOrphanParentsDisabled={form.wholeOrg}
             keepContactPoints={form.keepContactPoints}
             onKeepContactPointsChange={form.setKeepContactPoints}
           />
@@ -545,7 +657,9 @@ export const ForgeInput: React.FC = () => {
             <Flame size={16} />
             {t('forge.discoverGraph')}
           </button>
-          {/* Disabled CTA hint */}
+          {/* Disabled CTA hint. ALL needs no input and sends no query, so it
+              is held back by its orgs alone, and the chain below ends on one
+              of them before it reaches the hint of a query or an input. */}
           {!form.canDiscover && (
             <p
               className="text-[10px] text-text-secondary text-center mt-1"
@@ -598,7 +712,7 @@ export const ForgeInput: React.FC = () => {
             data-testid="forge-clone-directly-hint"
             className="text-[10px] text-text-secondary text-center"
           >
-            {t('forge.direct.hint')}
+            {t(form.wholeOrg ? 'forge.direct.hintAll' : 'forge.direct.hint')}
           </p>
 
           {/* Reuse last graph — skip BFS rediscovery (~30s on large orgs) */}
@@ -671,6 +785,9 @@ export const ForgeInput: React.FC = () => {
           sourceOrgId={form.sourceOrgId}
           anonymize={form.anonymize}
           onClosePreview={form.closePreview}
+          wholeOrg={form.wholeOrg}
+          sourceAlias={form.sourceOrg ? form.sourceOrg.alias || form.sourceOrg.username : ''}
+          targetAlias={form.targetOrg ? form.targetOrg.alias || form.targetOrg.username : ''}
         />
       </div>
 

@@ -53,11 +53,20 @@ import type {
 
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import {
+  ALONE,
+  CallSizes,
+  RUN_SPLIT_CALLS,
+  sendSplittingOnLimits,
+  SplitAllowance,
+  type LimitNote,
+} from '../../core/common/governorLimit.js';
 import { emptyCounts } from '../audit/auditTrail.js';
 import { describedObjectSchema } from '../dataops/DataQualityScanner.js';
 import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import {
   deleteBatch,
+  deleteLimitNotes,
   removalOrder,
   type DeleteOutcome,
   type RecordKeys,
@@ -626,6 +635,13 @@ export interface SweepOptions {
    * refusal, a person declining. Nothing is asked when nothing was found.
    */
   approve?: (listing: ForgeSweepListing) => Promise<string | undefined>;
+  /**
+   * The smaller calls the sweep may send when the target's automation
+   * refuses a call for a Salesforce limit: those of the removal it comes
+   * before (`RunRemovalOptions.sweep`), spent by the two together, 500 per
+   * object and 2 000 in all. Absent, the sweep has its own.
+   */
+  allowance?: SplitAllowance;
 }
 
 /** Where a sweep stands with one object's records. */
@@ -633,6 +649,13 @@ interface ObjectSweep {
   result: ForgeSweepObjectResult;
   /** The records the org refused, by id, with its reason. */
   refused: Map<string, string>;
+  /**
+   * Of those, the ones refused for a limit the target's automation hit, sent
+   * on their own or kept from smaller calls by the allowance: not sent again.
+   */
+  limited: Set<string>;
+  /** How many of them were refused though sent on their own. */
+  alone: number;
 }
 
 /**
@@ -642,6 +665,13 @@ interface ObjectSweep {
  * time, stopped between two calls when asked. Records the org refuses are
  * counted with its reasons, and sent once more when the rest has gone. A
  * refused sweep deletes nothing.
+ *
+ * A call the target's automation refuses for a Salesforce limit — a trigger
+ * that runs a query per record — goes again in calls half as large, down to
+ * one record, and the object's next calls at the size the limit called for
+ * (`sendSplittingOnLimits`), within the allowance of the removal it comes
+ * before (`SweepOptions.allowance`); what it still refuses for a limit is not
+ * sent once more.
  */
 export async function sweepRunRecords(
   org: RemovalOrg,
@@ -696,26 +726,67 @@ export async function sweepRunRecords(
     [...findings.rows.keys()].map((objectApiName) => ({ objectApiName })),
   );
   const sweeps: ObjectSweep[] = [];
+  // The sweep's own sizes, as it deletes other records than the removal it
+  // comes before, but that removal's allowance when it hands it: a removal
+  // and its sweep spend one bound together.
+  const sizes = new CallSizes();
+  const allowance = options.allowance ?? new SplitAllowance(RUN_SPLIT_CALLS);
+  /** Count what one call did to each of its records, but for those sent again smaller. */
   const settle = (
     sweep: ObjectSweep,
     batch: readonly string[],
-    outcomes: DeleteOutcome[],
+    outcomes: readonly (DeleteOutcome | undefined)[],
+    again: ReadonlySet<number>,
+    notes: ReadonlyMap<number, LimitNote>,
   ): void => {
     batch.forEach((id, index) => {
-      const outcome = outcomes[index];
+      if (again.has(index)) return;
+      const outcome: DeleteOutcome = outcomes[index] ?? {
+        kind: 'refused',
+        reason: 'The org gave no answer for it.',
+        dependency: false,
+      };
       if (outcome.kind === 'refused') {
         sweep.refused.set(id, outcome.reason);
+        if (outcome.limit) sweep.limited.add(id);
+        if (notes.get(index) === ALONE) sweep.alone++;
         return;
       }
       sweep.refused.delete(id);
+      sweep.limited.delete(id);
       if (outcome.kind === 'deleted') sweep.result.deleted++;
       else sweep.result.alreadyGone++;
     });
   };
+  /**
+   * Delete `ids` of one object, sending again smaller what a limit refused;
+   * whether the sweep was stopped before it was through.
+   */
+  const deleteAll = async (sweep: ObjectSweep, ids: readonly string[]): Promise<boolean> => {
+    if (ids.length === 0) return false;
+    if (stopped()) return true;
+    const { objectApiName } = sweep.result;
+    const { stopped: stoppedAt } = await sendSplittingOnLimits<string, DeleteOutcome>(ids, {
+      key: { objectApiName, op: 'delete' },
+      sizes,
+      allowance,
+      maxSize: RECORDS_PER_CALL,
+      beforeEachSend: () => (stopped() ? 'stop' : undefined),
+      send: async (part) => ({ answers: await deleteBatch(org, objectApiName, part) }),
+      limited: (answer) => (answer?.kind === 'refused' ? answer.limit : undefined),
+      settle: (part, answers, again, notes) => settle(sweep, part, answers, again, notes),
+    });
+    return stoppedAt !== undefined;
+  };
   const ended = (cancelled: boolean): ForgeSweepResult => {
-    const objects = sweeps.map(({ result, refused }) => {
+    const objects = sweeps.map(({ result, refused, alone }) => {
       result.refused = refused.size;
-      result.reasons = [...new Set(refused.values())].slice(0, REASON_LIMIT);
+      result.reasons = [
+        ...new Set([
+          ...deleteLimitNotes(result.objectApiName, sizes, allowance, alone),
+          ...refused.values(),
+        ]),
+      ].slice(0, REASON_LIMIT);
       return result;
     });
     return { status: sweepStatus(objects, cancelled), objects, ...base };
@@ -734,6 +805,8 @@ export async function sweepRunRecords(
         reasons: [],
       },
       refused: new Map(),
+      limited: new Set(),
+      alone: 0,
     };
     sweeps.push(sweep);
     const toDelete: string[] = [];
@@ -743,23 +816,17 @@ export async function sweepRunRecords(
       if (changed && !options.includeChanged) sweep.result.keptChanged++;
       else toDelete.push(row.id);
     }
-    for (let at = 0; at < toDelete.length; at += RECORDS_PER_CALL) {
-      if (stopped()) return ended(true);
-      const batch = toDelete.slice(at, at + RECORDS_PER_CALL);
-      settle(sweep, batch, await deleteBatch(org, objectApiName, batch));
-    }
+    if (await deleteAll(sweep, toDelete)) return ended(true);
   }
 
   // What the org refused goes once more, once the rest has gone: a record
   // refused for one hanging from it may be free by then, as a removal finds.
+  // What it refused for a limit was sent on its own already, or kept from
+  // smaller calls by the allowance: it would be refused the same.
   if (sweeps.some((sweep) => sweep.result.deleted > 0)) {
     for (const sweep of sweeps) {
-      const again = [...sweep.refused.keys()];
-      for (let at = 0; at < again.length; at += RECORDS_PER_CALL) {
-        if (stopped()) return ended(true);
-        const batch = again.slice(at, at + RECORDS_PER_CALL);
-        settle(sweep, batch, await deleteBatch(org, sweep.result.objectApiName, batch));
-      }
+      const again = [...sweep.refused.keys()].filter((id) => !sweep.limited.has(id));
+      if (await deleteAll(sweep, again)) return ended(true);
     }
   }
   return ended(false);

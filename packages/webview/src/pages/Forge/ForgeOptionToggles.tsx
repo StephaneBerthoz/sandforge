@@ -17,6 +17,12 @@ export interface ForgeOptionTogglesProps {
   expandOrphanParents: boolean;
   /** Toggle auto-fetching missing parents. */
   onExpandOrphanParentsChange: (value: boolean) => void;
+  /**
+   * Auto-fetch parents does not apply: a clone of the whole org reads every
+   * table whole, so every parent is already in the run. The chip is greyed,
+   * shown off, and says why.
+   */
+  expandOrphanParentsDisabled?: boolean;
   /** Whether email addresses and phone numbers are written as the source holds them. */
   keepContactPoints: boolean;
   /** Toggle keeping email addresses and phone numbers as they are. */
@@ -56,11 +62,15 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
   onSkipEmptyChange,
   expandOrphanParents,
   onExpandOrphanParentsChange,
+  expandOrphanParentsDisabled = false,
   keepContactPoints,
   onKeepContactPointsChange,
 }) => {
   const { t } = useTranslation();
   const warningId = useId();
+  const expandOrphanParentsAllId = useId();
+  /** What the run does: a greyed chip fetches nothing, whatever was ticked before. */
+  const fetchesParents = expandOrphanParents && !expandOrphanParentsDisabled;
   const anonymizeHintId = useId();
   const contactPointsHintId = useId();
 
@@ -110,24 +120,32 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
         </label>
         <label
           className={cn(
-            'relative flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-xs',
-            expandOrphanParents
-              ? 'border-forge bg-forge/10 text-hue-forge'
-              : 'border-subtle bg-surface-1 text-text-secondary hover:border-forge/30',
+            'relative flex items-center gap-2 px-3 py-2 rounded-lg border transition-all text-xs',
+            expandOrphanParentsDisabled
+              ? 'border-subtle bg-surface-1 text-text-secondary opacity-40 cursor-not-allowed'
+              : fetchesParents
+                ? 'border-forge bg-forge/10 text-hue-forge cursor-pointer'
+                : 'border-subtle bg-surface-1 text-text-secondary hover:border-forge/30 cursor-pointer',
           )}
-          title={t(
-            'forge.expandOrphanParentsHint',
-            'Auto-fetch missing required parents (single-hop) so Asset/InsurancePolicy etc. land with their FKs intact.',
-          )}
+          title={
+            expandOrphanParentsDisabled
+              ? t('forge.expandOrphanParentsAll')
+              : t(
+                  'forge.expandOrphanParentsHint',
+                  'Auto-fetch missing required parents (single-hop) so Asset/InsurancePolicy etc. land with their FKs intact.',
+                )
+          }
         >
           <input
             type="checkbox"
-            checked={expandOrphanParents}
+            checked={fetchesParents}
+            disabled={expandOrphanParentsDisabled}
             onChange={(e) => onExpandOrphanParentsChange(e.target.checked)}
             data-testid="forge-expand-orphan-parents-toggle"
+            aria-describedby={expandOrphanParentsDisabled ? expandOrphanParentsAllId : undefined}
             className="sr-only"
           />
-          <ChipBox checked={expandOrphanParents} testId="forge-expand-orphan-parents-box" />
+          <ChipBox checked={fetchesParents} testId="forge-expand-orphan-parents-box" />
           {t('forge.expandOrphanParents', 'Auto-fetch parents')}
         </label>
         <label
@@ -160,6 +178,13 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
         <p id={contactPointsHintId} data-testid="forge-contact-points-default">
           {t('runResults.contactPoints.neutralizedUnlessKept')}
         </p>
+        {/* Why the chip is greyed, said beside it: a title alone is read on
+            hover only, and a disabled box is never hovered from the keyboard. */}
+        {expandOrphanParentsDisabled && (
+          <p id={expandOrphanParentsAllId} data-testid="forge-expand-orphan-parents-all">
+            {t('forge.expandOrphanParentsAll')}
+          </p>
+        )}
       </div>
       {/* Said beside the choice, not only on hover: the records then reach the
           target's automation with the addresses and numbers of real people. */}

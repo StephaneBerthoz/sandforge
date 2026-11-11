@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { ReviewPlanTab } from './ReviewPlanTab';
 import { buildSyntheticForgeGraph } from '@sandforge/shared';
@@ -86,8 +86,17 @@ describe('ReviewPlanTab', () => {
     const summary = screen.getByTestId('review-plan-summary').textContent;
     expect(summary).toContain('350');
     expect(summary).toContain('6 estimated API calls');
-    expect(screen.getByTestId('wave-0').textContent).toContain('4 estimated API calls · ~10.5s');
-    expect(screen.getByTestId('wave-1').textContent).toContain('2 estimated API calls · ~3.2s');
+    expect(screen.getByTestId('wave-0').textContent).toContain('4 estimated API calls · ~11s');
+    expect(screen.getByTestId('wave-1').textContent).toContain('2 estimated API calls · ~3s');
+    // Rounded, as "~14s" was said of 13.7 before the hours and minutes.
+    expect(screen.getByTestId('review-plan-duration').textContent).toBe('~14s');
+  });
+
+  // "~7260s" said nothing at a glance of a clone of the whole org's two hours.
+  it('says the plan’s duration in hours, minutes and seconds, as the rest of the page does', () => {
+    mockPlan = makePlan({ estimatedDurationSeconds: 7_260 });
+    render(<ReviewPlanTab />);
+    expect(screen.getByTestId('review-plan-duration').textContent).toBe('~2h 1min');
   });
 
   it('should display object names inside wave cards', () => {
@@ -171,8 +180,92 @@ describe('ReviewPlanTab', () => {
       render(<ReviewPlanTab />);
 
       expect(screen.getByTestId('review-plan-summary').textContent).toBe('records not counted');
-      expect(screen.getByTestId('wave-0').textContent).toContain('4 estimated API calls · ~10.5s');
+      expect(screen.getByTestId('wave-0').textContent).toContain('4 estimated API calls · ~11s');
       expect(screen.getByTestId('wave-1').textContent).not.toContain('API call');
+    });
+  });
+
+  describe('what a clone of the whole org leaves out', () => {
+    /** A clone of the whole org's graph, with the objects it leaves out. */
+    function wholeOrgGraph(): ForgeGraph {
+      return {
+        ...buildSyntheticForgeGraph([]),
+        leftOut: [
+          { objectApiName: 'UserRole', reason: 'setup', detail: 'noLayout' },
+          { objectApiName: 'AccountHistory', reason: 'history' },
+          { objectApiName: 'Asset', reason: 'empty' },
+          { objectApiName: 'PermissionSet', reason: 'setup' },
+          { objectApiName: 'Invoice__c', reason: 'missingInTarget' },
+          {
+            objectApiName: 'Secret__c',
+            reason: 'unreadable',
+            detail: 'INSUFFICIENT_ACCESS: no access to Secret__c',
+          },
+          { objectApiName: 'ContentVersion', reason: 'files', detail: 'withTheirRecords' },
+        ],
+      };
+    }
+
+    it('names nothing of a graph walked from a root, which leaves no object out', () => {
+      mockPlan = makePlan();
+      mockGraph = buildSyntheticForgeGraph(['Account']);
+      render(<ReviewPlanTab />);
+      expect(screen.queryByTestId('review-left-out')).toBeNull();
+    });
+
+    it('counts them folded, and lists them by why once opened, what the target lacks first', () => {
+      mockPlan = makePlan();
+      mockGraph = wholeOrgGraph();
+      render(<ReviewPlanTab />);
+
+      const toggle = screen.getByTestId('review-left-out-toggle');
+      expect(toggle.textContent).toBe('Left out: 7 objects of the source org');
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      // Folded, not one name is in the page: there may be thousands.
+      expect(screen.queryByTestId('review-left-out-setup')).toBeNull();
+
+      fireEvent.click(toggle);
+
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      const groups = [
+        ...screen
+          .getByTestId('review-left-out')
+          .querySelectorAll('[data-testid^="review-left-out-"]'),
+      ]
+        .map((group) => group.getAttribute('data-testid'))
+        .filter((id) => id !== 'review-left-out-toggle');
+      expect(groups).toEqual([
+        'review-left-out-missingInTarget',
+        'review-left-out-unreadable',
+        'review-left-out-empty',
+        'review-left-out-setup',
+        'review-left-out-history',
+        'review-left-out-files',
+      ]);
+      // By name within a group, the word the page translates in brackets.
+      expect(screen.getByTestId('review-left-out-setup').textContent).toBe(
+        'Setup, users, permissions, logs and jobs (2)PermissionSet, UserRole (no page layout)',
+      );
+      expect(screen.getByTestId('review-left-out-files').textContent).toContain(
+        'ContentVersion (copied with the records it hangs on)',
+      );
+      // The org's own words, as it said them.
+      expect(screen.getByTestId('review-left-out-unreadable').textContent).toContain(
+        'Secret__c: INSUFFICIENT_ACCESS: no access to Secret__c',
+      );
+    });
+
+    it('still says them while the plan is coming, or could not be made', () => {
+      mockGraph = wholeOrgGraph();
+      mockPlan = null;
+      const { unmount } = render(<ReviewPlanTab />);
+      expect(screen.getByTestId('plan-loading')).toBeDefined();
+      expect(screen.getByTestId('review-left-out')).toBeDefined();
+      unmount();
+
+      render(<ReviewPlanTab error="no plan" />);
+      expect(screen.getByTestId('plan-error')).toBeDefined();
+      expect(screen.getByTestId('review-left-out')).toBeDefined();
     });
   });
 });

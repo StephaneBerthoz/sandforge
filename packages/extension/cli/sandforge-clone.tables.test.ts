@@ -691,6 +691,36 @@ describe('sandforge-clone of whole tables', () => {
       expect(removalPlan(ofJournal.summary).map((object) => object.ids.length)).toEqual([3, 2]);
     });
 
+    it('names the objects of a clone of the whole org read back from its journal, as it names tables', async () => {
+      withFakeOrgs();
+      expect(await run(argv('--json'))).toBeUndefined();
+      const journal = String((JSON.parse(stdout.join('')) as { journal: string }).journal);
+      // The journal as a clone of the whole org the panel ran keeps its head:
+      // no record, no query, the depth ALL.
+      const text = readFileSync(journal, 'utf8');
+      const [head, ...rest] = text.split('\n');
+      const run0 = JSON.parse(head) as {
+        run: { resume: { startedWith: { config: Record<string, unknown> } } };
+      };
+      const config = run0.run.resume.startedWith.config;
+      delete config['soqlQuery'];
+      delete config['customDepth'];
+      config['inputMode'] = 'org';
+      config['depth'] = 'all';
+      const wholeOrg = [JSON.stringify(run0), ...rest].join('\n');
+      writeFileSync(journal, wholeOrg);
+
+      const read = await runSummaryOfFile(journal, wholeOrg, 'TGT');
+      if ('refusal' in read) throw new Error(read.refusal);
+
+      expect(read.summary.record).toBeUndefined();
+      expect(read.summary.objects?.map((object) => object.objectApiName)).toEqual([
+        'Account',
+        'Contact',
+      ]);
+      expect(removalPlan(read.summary).map((object) => object.ids.length)).toEqual([3, 2]);
+    });
+
     it('gives with a dry run what its gate counted, the count a run is held to, and writes nothing', async () => {
       const orgs = withFakeOrgs();
 

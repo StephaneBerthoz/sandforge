@@ -63,7 +63,7 @@ Two orgs, one holding real records (a UAT or partial-copy sandbox, say) and one 
 1. **Connect your orgs**: click the SandForge icon in the Activity Bar, open the org dropdown at the top of the launcher, choose **New organization...**, then **Import from Salesforce CLI** to pull in every org authenticated in the Salesforce CLI.
 2. **Open Forge**: click the flame icon in the sidebar, or run **SandForge: Open Forge** from the Command Palette.
 3. **Paste a root record ID** from the org you copy from into **Record ID or Salesforce URL** (an Account works well), and pick the org you fill as the target.
-4. Tune **Depth**, **Records per object**, and **Anonymize PII** on the same form, then click **Discover Graph**.
+4. Tune **Depth**, **Records per object**, and **Anonymize PII** on the same form, then click **Discover Graph**. **ALL**, the last **Depth**, copies the whole source org instead, with no record to paste and no cap: every object the target can create, written through Bulk API 2.0 jobs, and always confirmed before the first write ([how](docs/forge-reference.md#copy-the-whole-org-all)).
 5. Click **Review & Execute** toward the org you fill. IDs are remapped as the records are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it.
 
 ![Forge — live record preview, dependency estimate and PII detection](assets/screenshots/forge.png)
@@ -281,8 +281,8 @@ In-app, press `Ctrl+K` for the command palette and `G` + a letter to jump betwee
 | `sandforge.showWhatsNew`                   | Show what a new minor version brings the first time a SandForge panel opens after an upgrade. A patch version never shows it.                                 | `true`            |
 | `sandforge.telemetry`                      | Record extension errors locally for diagnosis. Nothing is sent over the network.                                                                              | `false`           |
 | `sandforge.orgs.validateOnStartup`         | Validate registered orgs when SandForge first opens a view in a window, and auto-refresh expired sessions via the sf CLI                                      | `true`            |
-| `sandforge.forge.graphView`                | Forge's discovery, Review and execution screens: `auto` shows a table past 25 objects, a graph below; `graph` or `table` always                               | `auto`            |
-| `sandforge.forge.maxRecordsPerObject`      | Most records of one object a Forge clone reads: a clone of whole tables reads and writes them a page at a time; past it, truncated                            | `50000`           |
+| `sandforge.forge.graphView`                | Forge's discovery, Review and execution screens: `auto` shows a table past 25 objects, a graph below; `graph` or `table` always, but past 150 objects or ALL  | `auto`            |
+| `sandforge.forge.maxRecordsPerObject`      | Most records of one object a Forge clone reads, whole tables a page at a time; past it, truncated, but ALL, the whole org, is refused on what it reads whole  | `50000`           |
 | `sandforge.seed.defaultBatchSize`          | Default batch size for Seed data operations                                                                                                                   | `200`             |
 | `sandforge.sync.defaultBatchSize`          | Default batch size for Sync data operations                                                                                                                   | `200`             |
 | `sandforge.sync.maxConcurrentOps`          | Maximum concurrent sync operations                                                                                                                            | `3`               |

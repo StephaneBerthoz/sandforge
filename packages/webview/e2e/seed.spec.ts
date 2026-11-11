@@ -232,14 +232,16 @@ test.describe('Forge — input form', () => {
     });
   });
 
-  test('displays the three depth chips, direct selected', async ({ page }) => {
+  test('displays the four depth chips, direct selected', async ({ page }) => {
     await expect(page.getByTestId('forge-depth-direct')).toBeVisible();
     await expect(page.getByTestId('forge-depth-full')).toBeVisible();
     await expect(page.getByTestId('forge-depth-custom')).toBeVisible();
+    await expect(page.getByTestId('forge-depth-all')).toBeVisible();
 
     // The chips are a radiogroup, so the selection is `aria-checked`, not a class.
     await expect(page.getByTestId('forge-depth-direct')).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByTestId('forge-depth-custom')).toHaveAttribute('aria-checked', 'false');
+    await expect(page.getByTestId('forge-depth-all')).toHaveAttribute('aria-checked', 'false');
   });
 
   test('selecting custom depth reveals the numeric input', async ({ page }) => {

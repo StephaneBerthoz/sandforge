@@ -300,15 +300,21 @@ export function forgeRemovalPlanCountsLeft(
 /**
  * The records a run linked to that removing its records leaves, counted:
  * {@link forgeRunLinkedKept}, or what a run whose ids are in its journal
- * counted as linked.
+ * counted as linked, less those the platform deletes with a record the run
+ * created (`linkedWithTheirRecordCount`).
  */
 export function forgeRunLinkedKeptCount(
   entry: Pick<
     ForgeExecutionResult,
-    'idRemapExisting' | 'idRemapWithTheirRecord' | 'remapInJournal' | 'linkedExistingCount'
+    | 'idRemapExisting'
+    | 'idRemapWithTheirRecord'
+    | 'remapInJournal'
+    | 'linkedExistingCount'
+    | 'linkedWithTheirRecordCount'
   >,
 ): number {
-  return entry.remapInJournal ? (entry.linkedExistingCount ?? 0) : forgeRunLinkedKept(entry).length;
+  if (!entry.remapInJournal) return forgeRunLinkedKept(entry).length;
+  return Math.max(0, (entry.linkedExistingCount ?? 0) - (entry.linkedWithTheirRecordCount ?? 0));
 }
 
 /**

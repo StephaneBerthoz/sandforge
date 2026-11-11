@@ -66,6 +66,10 @@
  * removal keeps its own: an undo stopped part way is taken up by the next one,
  * which reads what the first wrote as no change since the rewind.
  *
+ * A call the org's automation refuses for a Salesforce limit goes again in
+ * smaller calls, as any removal sends it, within what its caller read the org
+ * has left today past the undo's estimate (`UndoRewindInput.splitAllowance`).
+ *
  * The org's lock is taken for it (`OrgCheckpointStore.lock`), and the guards
  * of a rewind are passed before it (`checkpointGuard.ts`): it checks only
  * that the lock it is handed is the checkpoint's org's.
@@ -153,6 +157,13 @@ export interface UndoRewindInput {
   onProgress?: RunRemovalOptions['onProgress'];
   /** Asked before the first write when the user may not delete some objects' records. */
   onUndeletable?: RunRemovalOptions['onUndeletable'];
+  /**
+   * The smaller calls its removal may send when the org's automation refuses
+   * a call for a Salesforce limit: what the requests the org had left leave
+   * past the undo's estimate (`splitAllowanceOf`). Absent, the removal's own
+   * 2,000.
+   */
+  splitAllowance?: number;
 }
 
 /**
@@ -943,6 +954,7 @@ async function undoFrom(
       ...(stamps ? { removalStamps: stamps } : {}),
       ...(spansBefore.length > 0 ? { removalSpans: spansBefore } : {}),
       includeChanged: false,
+      ...(input.splitAllowance !== undefined ? { splitAllowance: input.splitAllowance } : {}),
       ...(along.count > 0 ? { goesWithParent } : {}),
       ...(plans.bringBack.count > 0 || plans.giveBack.count > 0 ? { sweep } : {}),
       ...(input.onUndeletable ? { onUndeletable: input.onUndeletable } : {}),

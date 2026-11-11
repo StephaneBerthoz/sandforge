@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
 
 import type { RemovalOrg } from './ForgeRunRemoval.js';
+import { SplitAllowance } from '../../core/common/governorLimit.js';
 import {
   HAND_WORK_OBJECTS,
   SWEEP_OBJECT_BOUND,
@@ -606,6 +607,123 @@ describe('sweepRunRecords', () => {
       reasons: ['DELETE_FAILED: a flow refuses the delete'],
     });
     expect(result.status).toBe('partial');
+  });
+
+  describe('a call the target’s automation refuses for a Salesforce limit', () => {
+    /** What a trigger that runs a query per record has the org answer, after `DELETE_FAILED: `. */
+    const LIMIT_TEXT =
+      'SSC_TRG_Task: execution of BeforeDelete\n\ncaused by: System.LimitException: Too many SOQL queries: 101';
+
+    /** The org with `count` tasks the run's user created, which a call of more than `most` has refused whole. */
+    function tasksRefusedAbove(count: number, most: number): SweepOrg {
+      const org = orgAfterRun();
+      org.add(
+        'Task',
+        ...Array.from({ length: count }, (_, n) =>
+          rec(id('00T', n + 1), `Task ${n}`, RUN_USER, DURING),
+        ),
+      );
+      const destroy = org.destroy.bind(org);
+      org.destroy = async (objectApiName, ids) => {
+        if (objectApiName !== 'Task' || ids.length <= most) return destroy(objectApiName, ids);
+        org.deletes.push({ object: objectApiName, ids: [...ids] });
+        org.onDelete?.();
+        return ids.map((recordId) => ({
+          id: recordId,
+          success: false,
+          errors: [{ statusCode: 'DELETE_FAILED', message: LIMIT_TEXT }],
+        }));
+      };
+      return org;
+    }
+
+    const taskCalls = (org: SweepOrg): number[] =>
+      org.deletes.filter((call) => call.object === 'Task').map((call) => call.ids.length);
+
+    it('sends again in calls half as large what a call of 200 was refused for, and the rest at that size', async () => {
+      const org = tasksRefusedAbove(250, 100);
+
+      const result = await sweepRunRecords(org, input(), NO_SPANS);
+
+      expect(taskCalls(org)).toEqual([200, 100, 100, 50]);
+      expect(result.objects.find((o) => o.objectApiName === 'Task')).toMatchObject({
+        found: 250,
+        deleted: 250,
+        refused: 0,
+        reasons: [
+          'SSC_TRG_Task (before delete) hit Too many SOQL queries on a call of 200: sent 100 at a time, 2 calls more.',
+        ],
+      });
+      expect(org.ids('Task')).toEqual([]);
+      expect(result.status).toBe('success');
+    });
+
+    it('spends the allowance of the removal it comes before, when handed it', async () => {
+      const org = tasksRefusedAbove(250, 100);
+      // What the removal has left of its smaller calls: one.
+      const allowance = new SplitAllowance(1);
+
+      const result = await sweepRunRecords(org, input(), { ...NO_SPANS, allowance });
+
+      // One call of 100 paid for; the other 100 the 200 held stay refused,
+      // and the 50 after them go at 200 again.
+      expect(taskCalls(org)).toEqual([200, 100, 50]);
+      expect(allowance.spent).toBe(1);
+      expect(result.objects.find((o) => o.objectApiName === 'Task')).toMatchObject({
+        deleted: 150,
+        refused: 100,
+        reasons: [
+          'SSC_TRG_Task (before delete) hit Too many SOQL queries on a call of 200: sent 100 at a time, 1 call more.',
+          '100 not sent in smaller calls: the removal had spent the 1 smaller calls it allows itself.',
+          expect.stringContaining('DELETE_FAILED: SSC_TRG_Task: execution of BeforeDelete'),
+        ],
+      });
+    });
+
+    it('does not send once more what it refused for a limit sent on its own', async () => {
+      const org = orgAfterRun();
+      org.add(
+        'Task',
+        rec(id('00T', 1), 'Its trigger queries per record', RUN_USER, DURING),
+        rec(id('00T', 2), 'Held a moment', RUN_USER, DURING),
+        rec(id('00T', 3), 'Free', RUN_USER, DURING),
+      );
+      org.refusals.set(id('00T', 1), LIMIT_TEXT);
+      org.refusals.set(id('00T', 2), 'records still hang from it');
+      org.freedOnRetry.add(id('00T', 2));
+
+      const result = await sweepRunRecords(org, input(), NO_SPANS);
+
+      // Sent again on its own, then refused for good; the held one goes once more.
+      expect(org.deletes.map((call) => call.ids)).toEqual([
+        [id('00T', 1), id('00T', 2), id('00T', 3)],
+        [id('00T', 1)],
+        [id('00T', 2)],
+      ]);
+      const task = result.objects.find((o) => o.objectApiName === 'Task');
+      expect(task).toMatchObject({ deleted: 2, refused: 1 });
+      expect(task?.reasons).toEqual([
+        'SSC_TRG_Task (before delete) hit Too many SOQL queries on a call of 3: sent 2 at a time, 1 call more.',
+        expect.stringContaining('Sent on its own, the record still made the target'),
+        expect.stringContaining('DELETE_FAILED: SSC_TRG_Task: execution of BeforeDelete'),
+      ]);
+    });
+
+    it('stops between two of the smaller calls when asked, and leaves what they held', async () => {
+      const org = tasksRefusedAbove(250, 100);
+      const stop = new AbortController();
+      org.onDelete = () => stop.abort();
+
+      const result = await sweepRunRecords(org, input({ signal: stop.signal }), NO_SPANS);
+
+      expect(result.status).toBe('cancelled');
+      expect(taskCalls(org)).toEqual([200]);
+      expect(org.ids('Task')).toHaveLength(250);
+      expect(result.objects.find((o) => o.objectApiName === 'Task')).toMatchObject({
+        deleted: 0,
+        refused: 0,
+      });
+    });
   });
 
   it('leaves an object past the bound unswept, and says so', async () => {

@@ -1,7 +1,95 @@
-import React, { useMemo } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import type { ForgeLeftOutObject } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
-import { uiLocale } from '../../utils/formatters';
+import { formatEstimateSec, uiLocale } from '../../utils/formatters';
+import { leftOutByReason, leftOutDetail, leftOutReasonLabel } from './forgeLeftOut';
+
+/**
+ * Reasons an object is left out for whose detail is the org's own words — a
+ * sentence each — listed one object a line; the others, their objects named
+ * in a run of text, the word `detail` translates in brackets.
+ */
+const SAID_BY_THE_ORG = new Set(['unreadable', 'notDescribed']);
+
+/**
+ * The objects of the source org a clone of the whole org leaves out, grouped
+ * by why, folded until opened: up to thousands of names, which neither the
+ * plan's waves nor the run take, said here rather than left unsaid. Nothing
+ * is shown of a graph walked from a root, which names none. The names are
+ * put in the page only once the section is opened.
+ */
+const ReviewLeftOutObjects: React.FC<{ leftOut: readonly ForgeLeftOutObject[] | undefined }> = ({
+  leftOut,
+}) => {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const listId = useId();
+  const groups = useMemo(() => leftOutByReason(leftOut), [leftOut]);
+  if (groups.length === 0) return null;
+  const count = leftOut?.length ?? 0;
+  return (
+    <section data-testid="review-left-out" className="rounded-lg border border-subtle p-3">
+      <button
+        type="button"
+        data-testid="review-left-out-toggle"
+        aria-expanded={open}
+        // Named once the list is in the page: folded, it is not there.
+        aria-controls={open ? listId : undefined}
+        onClick={() => setOpen((was) => !was)}
+        className="flex w-full items-center gap-1.5 text-left text-xs font-semibold text-text-primary"
+      >
+        {open ? (
+          <ChevronDown size={12} aria-hidden="true" />
+        ) : (
+          <ChevronRight size={12} aria-hidden="true" />
+        )}
+        {t('forgeRun.review.leftOutTitle', {
+          count,
+          formatted: count.toLocaleString(uiLocale()),
+        })}
+      </button>
+      {open && (
+        <div id={listId} className="mt-2 flex flex-col gap-2">
+          <p className="text-[10px] text-text-secondary">{t('forgeRun.review.leftOutHint')}</p>
+          {groups.map((group) => (
+            <div key={group.reason} data-testid={`review-left-out-${group.reason}`}>
+              <h4 className="text-[11px] font-semibold text-text-primary">
+                {leftOutReasonLabel(t, group.reason)}{' '}
+                <span className="font-normal tabular-nums text-text-secondary">
+                  ({group.objects.length.toLocaleString(uiLocale())})
+                </span>
+              </h4>
+              {SAID_BY_THE_ORG.has(group.reason) ? (
+                <ul className="text-[10px] text-text-secondary">
+                  {group.objects.map((object) => {
+                    const detail = leftOutDetail(t, object);
+                    return (
+                      <li key={object.objectApiName}>
+                        <span className="text-text-primary">{object.objectApiName}</span>
+                        {detail ? `: ${detail}` : ''}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="text-[10px] text-text-secondary">
+                  {group.objects
+                    .map((object) => {
+                      const detail = leftOutDetail(t, object);
+                      return detail ? `${object.objectApiName} (${detail})` : object.objectApiName;
+                    })
+                    .join(', ')}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+};
 
 /**
  * Plan tab within the Forge Review phase.
@@ -40,23 +128,33 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
   const counted = (objects: readonly string[]): boolean =>
     !objects.some((objectApiName) => notCounted.has(objectApiName));
 
+  // What a clone of the whole org leaves out is the graph's, not the plan's:
+  // said whether the plan came, is coming, or could not be made.
+  const leftOutSection = <ReviewLeftOutObjects leftOut={graph?.leftOut} />;
+
   // A failed plan request used to be indistinguishable from a slow one: both
   // showed the loading text forever.
   if (error) {
     return (
-      <div data-testid="plan-error" className="py-8 text-center text-sm text-status-error">
-        {error}
+      <div className="flex flex-col gap-3">
+        <div data-testid="plan-error" className="py-8 text-center text-sm text-status-error">
+          {error}
+        </div>
+        {leftOutSection}
       </div>
     );
   }
 
   if (!plan) {
     return (
-      <div
-        data-testid="plan-loading"
-        className="flex items-center justify-center py-8 text-text-secondary text-sm"
-      >
-        {t('forgeRun.review.planLoading', 'Generating execution plan...')}
+      <div className="flex flex-col gap-3">
+        <div
+          data-testid="plan-loading"
+          className="flex items-center justify-center py-8 text-text-secondary text-sm"
+        >
+          {t('forgeRun.review.planLoading', 'Generating execution plan...')}
+        </div>
+        {leftOutSection}
       </div>
     );
   }
@@ -77,7 +175,10 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
               })}
             </span>
             <span>{t('common.estimatedApiCallCount', { count: plan.totalApiCalls })}</span>
-            <span>~{plan.estimatedDurationSeconds.toFixed(0)}s</span>
+            {/* "~7200s" said nothing at a glance of a run of two hours. */}
+            <span data-testid="review-plan-duration">
+              ~{formatEstimateSec(plan.estimatedDurationSeconds)}
+            </span>
           </>
         ) : (
           <span>{t('forgeRun.preview.recordsNotCounted')}</span>
@@ -98,7 +199,7 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
             {counted(wave.objectApiNames) && (
               <span className="text-[10px] text-text-secondary">
                 {t('common.estimatedApiCallCount', { count: wave.estimatedApiCalls })} · ~
-                {wave.estimatedDurationSeconds.toFixed(1)}s
+                {formatEstimateSec(wave.estimatedDurationSeconds)}
               </span>
             )}
           </div>
@@ -130,6 +231,8 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
           ))}
         </div>
       )}
+
+      {leftOutSection}
     </div>
   );
 };

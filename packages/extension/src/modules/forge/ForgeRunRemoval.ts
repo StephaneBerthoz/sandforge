@@ -4,6 +4,7 @@ import type {
   ForgeRemovalSpan,
   ForgeRunObjectRecords,
   ForgeUndoObjectResult,
+  GovernorLimitCause,
 } from '@sandforge/shared';
 import {
   PRICEBOOK_ENTRY_CURRENCY_FIELD,
@@ -12,8 +13,21 @@ import {
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   SELLING_MODEL_OPTION_OBJECT,
   isPricebookEntry,
+  limitCauseOf,
 } from '@sandforge/shared';
 
+import {
+  allowedFor,
+  BULK_CHUNK,
+  CallSizes,
+  GOVERNOR_LIMIT_ALONE,
+  notSplitNote,
+  RUN_SPLIT_CALLS,
+  smallerCallsNote,
+  SplitAllowance,
+  takeSmallerCalls,
+  type CallKey,
+} from '../../core/common/governorLimit.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
@@ -37,6 +51,7 @@ import {
 } from '../dataops/RecordRemoval.js';
 import { BulkApiExecutor, type BulkApiConnection } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import { trackedBulkConnection } from '../../core/engine/trackedBulkConnection.js';
 import { withArticleRemoval } from '../seed/articleRemoval.js';
 
 /** Reasons kept per object: an org repeats the same few. */
@@ -62,12 +77,6 @@ export const BULK_DELETE_THRESHOLD = 10_000;
  * past the first saves the wait the org makes it start with.
  */
 export const BULK_DELETE_JOB_RECORDS = 50_000;
-
-/**
- * Reads of a Bulk API 2.0 job's results once it is through: its successful,
- * failed and unprocessed records, each a call of its own.
- */
-export const BULK_RESULT_READS = 3;
 
 /**
  * Reads of an object's dependents sent at once. Each answers in a quarter of a
@@ -398,66 +407,33 @@ export async function bulkDeleteJob(
   ids: readonly string[],
   signal?: AbortSignal,
 ): Promise<BulkDeleteAnswer> {
-  let closed = false;
-  /** The job's last state, and its message, as the org last told it. */
-  let last: { state?: string; message?: string } = {};
-  /** Rows the job's results answer, written or refused: none, and it processed nothing. */
-  let processed = 0;
-  /** The calls the job sent the org, each one of its daily requests. */
-  let requests = 0;
-  const sent = <T>(calls: number, call: () => Promise<T>): Promise<T> => {
-    requests += calls;
-    return call();
-  };
-  // The job, told what the org did with it: jsforce's handle, as the executor drives it.
-  const tracked: BulkApiConnection = {
-    bulk2: {
-      createJob: (options) => {
-        const job = connection.bulk2.createJob(options);
-        return {
-          get id() {
-            return job.id;
-          },
-          open: () => sent(1, () => job.open()),
-          uploadData: (csv) => sent(1, () => job.uploadData(csv)),
-          close: async () => {
-            await sent(1, () => job.close());
-            closed = true;
-          },
-          abort: () => sent(1, () => job.abort()),
-          check: async () => {
-            const status = await sent(1, () => job.check());
-            last = { state: status.state, message: status.errorMessage };
-            return status;
-          },
-          getAllResults: async () => {
-            // Its successful, failed and unprocessed records: three reads.
-            const results = await sent(BULK_RESULT_READS, () => job.getAllResults());
-            processed = Array.isArray(results)
-              ? results.length
-              : (results.successfulResults?.length ?? 0) + (results.failedResults?.length ?? 0);
-            return results;
-          },
-        };
-      },
-    },
-  };
+  // The job, told what the org did with it, and the calls it sent: each one
+  // of the org's daily requests.
+  const tracked = trackedBulkConnection(connection);
   let result: Awaited<ReturnType<BulkApiExecutor['executeBulk']>>;
   try {
     result = await new BulkApiExecutor().executeBulk(
       // One job at a time, and nothing else of the removal's own shares them.
-      { connection: tracked, bulkManager: new BulkApiManager(1), ...(signal ? { signal } : {}) },
+      {
+        connection: tracked.connection,
+        bulkManager: new BulkApiManager(1),
+        ...(signal ? { signal } : {}),
+      },
       objectApiName,
       // A delete sends the records to the recycle bin, as a REST delete does.
       'delete',
       ids.map((Id) => ({ Id })),
     );
   } catch (err: unknown) {
-    if (!closed) return { kind: 'untouched', reason: extractErrorMessage(err), requests };
+    if (!tracked.closed()) {
+      return { kind: 'untouched', reason: extractErrorMessage(err), requests: tracked.requests() };
+    }
     throw err;
   }
+  const requests = tracked.requests();
+  const last = tracked.last();
   if (result.aborted) return { kind: 'aborted', requests };
-  if (last.state !== 'JobComplete' && processed === 0) {
+  if (last.state !== 'JobComplete' && tracked.processed() === 0) {
     return {
       kind: 'untouched',
       reason: last.message || `job ${last.state ?? 'not complete'}`,
@@ -556,9 +532,12 @@ export interface RunRemovalOptions {
    * sweep that deleted a child of one of the run's records with a roll-up
    * summary restamped that record as the org recalculated the summary, and
    * the removal then kept it as changed since the run. A stop during the
-   * sweep stops the removal before its first write.
+   * sweep stops the removal before its first write. It is handed the
+   * removal's allowance of smaller calls, which a sweep that sends calls the
+   * target's automation refuses for a limit again smaller spends with it
+   * (`SweepOptions.allowance`): one bound for the two.
    */
-  sweep?: () => Promise<boolean>;
+  sweep?: (allowance: SplitAllowance) => Promise<boolean>;
   /**
    * The last part of a sweep granted with the removal, made once the run's
    * records are deleted: what the sweep found made for the run that a record
@@ -623,6 +602,27 @@ export interface RunRemovalOptions {
    * records that stay is counted with those it would delete.
    */
   previewOnly?: boolean;
+  /**
+   * The sizes its deletes go at, per object, shared with whoever handed them:
+   * a caller that removes in several passes keeps what a limit taught one for
+   * the next. Absent, the removal keeps its own, seeded from `deleteSizes`.
+   */
+  callSizes?: CallSizes;
+  /**
+   * The size, under 200, an earlier removal of the run cut an object's calls
+   * to once the target's automation refused a larger call for a Salesforce
+   * limit (`ForgeRemovalPlan.deleteSizes`): that object's records go at it
+   * from the first call, by REST, as far as the allowance pays for those
+   * calls. Read only without `callSizes`.
+   */
+  deleteSizes?: Readonly<Record<string, number>>;
+  /**
+   * The smaller calls the removal may make, when a limit has it send again
+   * in calls half as large what the org refused: {@link RUN_SPLIT_CALLS}
+   * unless the caller's budget allows fewer, and 500 per object whatever it
+   * allows. Past it, the records stay refused as the org refused them.
+   */
+  splitAllowance?: number;
 }
 
 /**
@@ -826,6 +826,16 @@ export interface RunRemovalOutcome {
    * `objects` is empty and `left` gives back every record it was handed.
    */
   preview?: RunRemovalPreview;
+  /**
+   * The size, under 200, the removal's calls of each object went down to
+   * once the target's automation refused a larger call for a Salesforce
+   * limit, by object — those it was handed in `deleteSizes` included: for the
+   * next removal of the run to start at (`ForgeRemovalPlan.deleteSizes`).
+   * The size the limit called for, sent at or not: the allowance spent, the
+   * records went at 200 again. Empty when no limit cut a call. Absent from
+   * an outcome no removal made.
+   */
+  sizes?: () => Record<string, number>;
 }
 
 /** One row of a delete's answer, or an update's. */
@@ -931,6 +941,13 @@ interface Refusal {
    * it is never sent, nor taken for gone by a read that no longer finds it.
    */
   sent: boolean;
+  /**
+   * Refused for a Salesforce limit the target's automation hit: sent on its
+   * own already, or kept from smaller calls by the removal's allowance. The
+   * second try does not send it again; the next removal of the run does, at
+   * the size kept for its object.
+   */
+  limit?: true;
 }
 
 /** Where a removal stands with one object's records. */
@@ -973,6 +990,13 @@ class ObjectRemoval {
    * their document's key: each named by its title, or its id.
    */
   readonly filesLeft = new Map<string, string>();
+  /**
+   * What is said of the calls a limit of the target's automation had sent
+   * smaller, once the object's turn is over: placed before the org's refusals.
+   */
+  limitNotes: string[] = [];
+  /** Records refused for a limit though sent on their own: the automation's doing, whatever the size. */
+  alone = 0;
 
   constructor(objectApiName: string, planned: number) {
     this.result = {
@@ -1012,9 +1036,24 @@ class ObjectRemoval {
     ];
   }
 
-  /** The records whose delete the org refused, whatever it refused it with, by id. */
+  /**
+   * The records whose delete the org refused, whatever it refused it with, by
+   * id: what is read back once the rest has gone, a parent deleted after them
+   * having maybe taken them along.
+   */
   refusedSent(): string[] {
     return [...this.refused].filter(([, refusal]) => refusal.sent).map(([id]) => id);
+  }
+
+  /**
+   * Of {@link refusedSent}, those the second try sends once more: all but the
+   * ones refused for a limit, which went on their own already or were kept
+   * from smaller calls by the allowance, and would only be refused again.
+   */
+  refusedToSendAgain(): string[] {
+    return [...this.refused]
+      .filter(([, refusal]) => refusal.sent && refusal.limit !== true)
+      .map(([id]) => id);
   }
 
   /**
@@ -1053,6 +1092,7 @@ class ObjectRemoval {
     const reasons = [
       ...(this.notVisibleNote ? [this.notVisibleNote] : []),
       ...this.notes,
+      ...this.limitNotes,
       ...this.secondTryNote(),
       ...(this.unread ? [this.unread.reason] : []),
       ...[...this.refused.values()].map((r) => r.reason),
@@ -1121,7 +1161,13 @@ class ObjectRemoval {
  * prices and options behind those: each refused, and the org's refusals were
  * all it said of why the removal ended partial.
  *
- * The rest are deleted {@link RECORDS_PER_CALL} at a time. A record the org
+ * The rest are deleted {@link RECORDS_PER_CALL} at a time. A call the target's
+ * automation refuses for a Salesforce limit — a trigger that runs a query per
+ * record, 116 `Provenance__c` refused whole for "Too many SOQL queries: 101" —
+ * goes again in calls half as large, by REST and never as a job, down to one
+ * record; the size the limit called for holds for the object's next calls,
+ * its jobs sent by REST as far as the allowance pays for them, and is said
+ * back (`RunRemovalOutcome.sizes`) for the next removal of the run. A record the org
  * refuses is counted with its reason, and the rest go on; so does the next
  * object when one cannot be read at all. The files attached to a record
  * deleted, which the run did not create, stay in the org once their record is
@@ -1148,6 +1194,12 @@ export async function removeRunRecords(
   const records = isRunRecords(plan) ? plan : runRecordsOf(plan);
   const total = records.objects.reduce((sum, object) => sum + object.count, 0);
   const stopped = (): boolean => options.signal?.aborted === true;
+  // The sizes the deletes go at and the smaller calls a limit may cost,
+  // shared by every object's pages, its records gathered for a job, and the
+  // second try: a size a limit taught one call holds for the rest.
+  const sizes = options.callSizes ?? CallSizes.from(options.deleteSizes, 'delete');
+  const allowance = new SplitAllowance(options.splitAllowance ?? RUN_SPLIT_CALLS);
+  const sizesKept = (): Record<string, number> => sizes.list('delete');
   /** Every record handed over, left where it is: a removal stopped before it wrote. */
   const untouched = (): RunRemovalOutcome => ({
     objects: withNotReached([], records.objects),
@@ -1155,6 +1207,7 @@ export async function removeRunRecords(
     gone: [],
     stamps: {},
     left: () => everyRecordOf(records),
+    sizes: sizesKept,
   });
 
   const snapshots = new Map<string, ObjectSnapshot>();
@@ -1291,6 +1344,7 @@ export async function removeRunRecords(
       stamps: {},
       left: () => everyRecordOf(records),
       preview,
+      sizes: sizesKept,
     };
   }
   // The run's other parts are read before the first write too, as their own
@@ -1334,7 +1388,7 @@ export async function removeRunRecords(
   // Developer Edition whose accounts count their opportunities, the sweep
   // took the opportunity created under a cloned account during the run, and
   // the removal kept the account as changed since the run.
-  if (options.sweep && (await options.sweep())) wrote = true;
+  if (options.sweep && (await options.sweep(allowance))) wrote = true;
 
   const removals: ObjectRemoval[] = [];
   const removalOf = (objectApiName: string): ObjectRemoval | undefined =>
@@ -1416,6 +1470,9 @@ export async function removeRunRecords(
         for (const id of ids) gone.push(id);
       }
     }
+    for (const removal of removals) {
+      removal.limitNotes = limitNotesOf(removal, sizes, allowance);
+    }
     const settled = removals.map((removal) => removal.settle());
     return {
       ...(undeletable.length > 0 ? { undeletable } : {}),
@@ -1426,6 +1483,7 @@ export async function removeRunRecords(
       stamps,
       ...(span ? { span } : {}),
       ...(otherPartStamps.length > 0 ? { otherPartStamps } : {}),
+      sizes: sizesKept,
     };
   };
   // Stopped during the sweep: none of the run's records goes, and what the
@@ -1515,6 +1573,8 @@ export async function removeRunRecords(
       placeOf = new Map();
       return removeCandidates(session, dependents, removal, sent, {
         stopped,
+        sizes,
+        allowance,
         placeOf: places,
         onDeleted: (deleted) => {
           settled += deleted;
@@ -1571,13 +1631,17 @@ export async function removeRunRecords(
   // entry", as UNKNOWN_EXCEPTION), the prices went next, and the options, the
   // products and the products' classification behind them stayed until a
   // second removal took them all. What the org refuses for any other reason
-  // than records hanging from it goes once more, and no more. Settled
-  // already, a record is not counted twice.
+  // than records hanging from it goes once more, and no more — but for what
+  // it refused for a limit of the target's automation: sent on its own
+  // already, or kept from smaller calls by the allowance, it would be refused
+  // the same, and stays for the next removal. Settled already, a record is
+  // not counted twice. Sent again, a record goes at the size kept for its
+  // object.
   const deletedAny = removals.some((removal) => removal.result.deleted > 0);
   for (let round = 0, progress = true; progress; round++) {
     progress = false;
     for (const removal of removals) {
-      const again = round === 0 ? removal.refusedSent() : [];
+      const again = round === 0 ? removal.refusedToSendAgain() : [];
       const waiting =
         round > 0
           ? removal.waiting()
@@ -1590,6 +1654,8 @@ export async function removeRunRecords(
       const takenUp = new Set(again);
       const cancelledPart = await removeCandidates(session, dependents, removal, waiting, {
         stopped,
+        sizes,
+        allowance,
         onSent: (batch) => {
           for (const id of batch) if (takenUp.has(id)) removal.secondTry.add(id);
         },
@@ -2246,15 +2312,141 @@ interface DeleteRound {
   ids: string[];
   /** Sent as a Bulk API 2.0 delete job rather than over REST. */
   byJob: boolean;
+  /**
+   * The files attached to its records, read for the delete it was cut from:
+   * a call a limit cut, or a job sent over REST, is not read again.
+   */
+  files?: Map<string, AttachedFile[]>;
+  /** Cut under 200 for a limit: its records count with the calls sent smaller. */
+  reduced?: true;
 }
 
-/** `ids` cut into calls of {@link RECORDS_PER_CALL}. */
-function callsOf(ids: readonly string[]): DeleteRound[] {
+/** `ids` cut into calls of `size`, {@link RECORDS_PER_CALL} unless a limit taught a smaller one. */
+function callsOf(
+  ids: readonly string[],
+  size: number = RECORDS_PER_CALL,
+  files?: Map<string, AttachedFile[]>,
+): DeleteRound[] {
   const calls: DeleteRound[] = [];
-  for (let at = 0; at < ids.length; at += RECORDS_PER_CALL) {
-    calls.push({ ids: ids.slice(at, at + RECORDS_PER_CALL), byJob: false });
+  const step = Math.max(1, Math.min(size, RECORDS_PER_CALL));
+  const reduced = step < RECORDS_PER_CALL && ids.length > step;
+  for (let at = 0; at < ids.length; at += step) {
+    calls.push({
+      ids: ids.slice(at, at + step),
+      byJob: false,
+      ...(files ? { files } : {}),
+      ...(reduced ? { reduced: true as const } : {}),
+    });
   }
   return calls;
+}
+
+/** The key the sizes of an object's deletes are kept under. */
+function deleteKey(objectApiName: string): CallKey {
+  return { objectApiName, op: 'delete' };
+}
+
+/**
+ * What a delete would have taken without a limit, against which the calls
+ * cut smaller are paid: REST calls of 200 (`'calls'`), or a Bulk job
+ * (`'job'`), which sends a few requests whatever it holds — the estimate of a
+ * rewind or an undo priced it so — and whose every call sent by REST
+ * instead is one more.
+ */
+type PricedAs = 'calls' | 'job';
+
+/**
+ * Of `count` records of one object, how many go at `size`, the size a limit
+ * left its calls at: as many as what the allowance has left pays for, each
+ * call more than the delete was priced at (`priced`) paid as it is queued.
+ * An allowance that does not cover them all pays for the first of them and
+ * spends the key, for good: an object of 50 000 records left at 50 sends the
+ * calls its 500 pay for, 25 000 records, rather than none.
+ */
+function paidAtSize(
+  count: number,
+  size: number,
+  priced: PricedAs,
+  key: CallKey,
+  sizes: CallSizes,
+  allowance: SplitAllowance,
+): number {
+  const all = Math.ceil(count / size);
+  const atFull = Math.ceil(count / RECORDS_PER_CALL);
+  /** The calls more of `calls` at the size, the records past them sent as priced. */
+  const extraOf = (calls: number): number =>
+    priced === 'job'
+      ? calls
+      : calls + Math.ceil((count - Math.min(count, calls * size)) / RECORDS_PER_CALL) - atFull;
+  const left = sizes.isSpent(key) ? 0 : allowance.left(key);
+  let calls = all;
+  if (extraOf(all) > left) {
+    // What a call costs never goes down as calls are added: the most that
+    // fit is found from above, a few steps.
+    calls = Math.min(all - 1, priced === 'job' ? left : left + atFull);
+    while (calls > 0 && extraOf(calls) > left) calls--;
+  }
+  takeSmallerCalls(sizes, allowance, key, extraOf(calls));
+  if (calls < all) sizes.spend(key);
+  return Math.min(count, calls * size);
+}
+
+/**
+ * `ids` of one object cut into REST calls at the size kept for it: under 200
+ * once a limit cut one of its calls, each call more than calls of 200 would
+ * have taken paid as it is queued. What the allowance does not pay for goes
+ * in calls of 200, the key spent.
+ */
+function restCallsOf(
+  ids: readonly string[],
+  key: CallKey,
+  sizes: CallSizes,
+  allowance: SplitAllowance,
+  files?: Map<string, AttachedFile[]>,
+): DeleteRound[] {
+  const size = sizes.of(key);
+  if (size >= RECORDS_PER_CALL) return callsOf(ids, RECORDS_PER_CALL, files);
+  const paid = paidAtSize(ids.length, size, 'calls', key, sizes, allowance);
+  return [
+    ...callsOf(ids.slice(0, paid), size, files),
+    ...callsOf(ids.slice(paid), RECORDS_PER_CALL, files),
+  ];
+}
+
+/**
+ * `ids` of one object as Bulk delete jobs of one size: 50 500 records go as
+ * two of 25 250, not as one of 50 000 and one of 500 that costs as long.
+ */
+function jobsOf(ids: readonly string[], files?: Map<string, AttachedFile[]>): DeleteRound[] {
+  const rounds: DeleteRound[] = [];
+  if (ids.length === 0) return rounds;
+  const size = Math.ceil(ids.length / Math.ceil(ids.length / BULK_DELETE_JOB_RECORDS));
+  for (let at = 0; at < ids.length; at += size) {
+    rounds.push({ ids: ids.slice(at, at + size), byJob: true, ...(files ? { files } : {}) });
+  }
+  return rounds;
+}
+
+/**
+ * `ids` of one object a job was to delete, sent by REST at the size a limit
+ * left its calls at instead, as far as the allowance pays for every one of
+ * those calls; the rest stay a job, as priced, the key spent. A job's chunk
+ * of 200 is the call that was refused: by REST, the records go. But the
+ * calls of 200 a spent object would send in its place cost some ten times
+ * the job's requests, which no estimate counted, for records its automation
+ * refuses all the same.
+ */
+function jobAsRestCalls(
+  ids: readonly string[],
+  key: CallKey,
+  sizes: CallSizes,
+  allowance: SplitAllowance,
+  files?: Map<string, AttachedFile[]>,
+): DeleteRound[] {
+  const size = sizes.of(key);
+  const paid =
+    size < RECORDS_PER_CALL ? paidAtSize(ids.length, size, 'job', key, sizes, allowance) : 0;
+  return [...callsOf(ids.slice(0, paid), size, files), ...jobsOf(ids.slice(paid), files)];
 }
 
 /**
@@ -2265,25 +2457,30 @@ function callsOf(ids: readonly string[]): DeleteRound[] {
  * {@link BULK_DELETE_JOB_RECORDS}, where the org takes jobs; the rest in calls
  * of {@link RECORDS_PER_CALL}. A file's version is deleted by its document,
  * read first (`deleteVersions`), and a file over REST: never by a job
- * ({@link NEVER_BY_JOB}).
+ * ({@link NEVER_BY_JOB}). An object a limit of the target's automation cut —
+ * in this removal, or in an earlier one (`deleteSizes`) — goes over REST at
+ * the size kept for it, rather than by a job whose chunks of 200 are the
+ * call that was refused, as far as the allowance pays for those calls: once
+ * it is spent, a group that would go as a job still does, as priced, and
+ * the rest in calls of 200.
  */
 async function deleteRounds(
   org: RemovalOrg,
   objectApiName: string,
   ids: string[],
+  sizes: CallSizes,
+  allowance: SplitAllowance,
 ): Promise<DeleteRound[]> {
   const rounds: DeleteRound[] = [];
+  const key = deleteKey(objectApiName);
   const byJob = org.bulkDestroy !== undefined && !NEVER_BY_JOB.has(objectApiName);
   const cut = (list: string[]): void => {
     if (!byJob || list.length < BULK_DELETE_THRESHOLD) {
-      rounds.push(...callsOf(list));
-      return;
-    }
-    // Jobs of one size: 50 500 records go as two of 25 250, not as one of
-    // 50 000 and one of 500 that costs as long.
-    const size = Math.ceil(list.length / Math.ceil(list.length / BULK_DELETE_JOB_RECORDS));
-    for (let at = 0; at < list.length; at += size) {
-      rounds.push({ ids: list.slice(at, at + size), byJob: true });
+      rounds.push(...restCallsOf(list, key, sizes, allowance));
+    } else if (sizes.wasShrunk(key) && !sizes.isSpent(key)) {
+      rounds.push(...jobAsRestCalls(list, key, sizes, allowance));
+    } else {
+      rounds.push(...jobsOf(list));
     }
   };
   if (!isPricebookEntry(objectApiName) || ids.length === 0) {
@@ -2304,6 +2501,10 @@ async function deleteRounds(
 /** How {@link removeCandidates} reports as it goes. */
 interface CandidateHooks {
   stopped: () => boolean;
+  /** The sizes the removal's deletes go at, shared by all its calls. */
+  sizes: CallSizes;
+  /** The smaller calls the removal may still make. */
+  allowance: SplitAllowance;
   /** Records deleted, or found gone, by one call. */
   onDeleted?: (count: number) => void;
   /** Records kept for their dependents or left for the org's refusal to be read. */
@@ -2355,13 +2556,30 @@ async function removeCandidates(
   hooks.onHeld?.(heldNow.length);
 
   const toDelete = candidates.filter((id) => !verdict.held.has(recordKey(id)));
-  const queue = await deleteRounds(org, objectApiName, toDelete);
+  const { sizes, allowance } = hooks;
+  const key = deleteKey(objectApiName);
+  const queue = await deleteRounds(org, objectApiName, toDelete, sizes, allowance);
   for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-    const { ids: batch, byJob } = next;
     if (hooks.stopped()) return true;
+    // Queued before a limit cut its object's calls: a call larger than the
+    // size kept is cut to it, and a job goes over REST — each call paid as
+    // it is queued, as far as the allowance pays; past it, a call goes at
+    // 200 and a job as a job. A thousand records queued as five calls went
+    // on at 200 after the first was refused, and each of the four was
+    // refused in turn.
+    if (next.byJob && sizes.wasShrunk(key) && !sizes.isSpent(key)) {
+      queue.unshift(...jobAsRestCalls(next.ids, key, sizes, allowance, next.files));
+      continue;
+    }
+    if (!next.byJob && next.ids.length > sizes.of(key)) {
+      queue.unshift(...restCallsOf(next.ids, key, sizes, allowance, next.files));
+      continue;
+    }
+    const { ids: batch, byJob } = next;
     // Named before the delete: a file seen through its record may be out of
-    // the session's reach once the record is gone.
-    const files = await dependents.filesOn(batch);
+    // the session's reach once the record is gone. A call cut from another
+    // keeps what was read for that one.
+    const files = next.files ?? (await dependents.filesOn(batch));
     const answer = byJob
       ? await deleteByJob(org, objectApiName, batch)
       : await deleteBatch(org, objectApiName, batch);
@@ -2370,37 +2588,157 @@ async function removeCandidates(
     // The org deleted none of them by the job: they go over REST, which
     // answers each one, before anything after them.
     if (answer === 'untouched') {
-      queue.unshift(...callsOf(batch));
+      queue.unshift(...restCallsOf(batch, key, sizes, allowance, files));
       continue;
     }
-    const outcomes = answer;
-    batch.forEach((id, index) => {
-      const result = outcomes[index];
-      if (result.kind === 'refused') {
-        removal.refused.set(id, {
-          reason: result.reason,
-          dependency: result.dependency,
-          sent: true,
-        });
-        return;
-      }
-      removal.refused.delete(id);
-      const key = recordKey(id);
-      const place = hooks.placeOf?.get(key);
-      if (place !== undefined) removal.goneAt.add(place);
-      else removal.goneLater.add(key);
-      if (result.kind === 'deleted') {
-        removal.result.deleted++;
-        if (place === undefined) removal.deletedLater.add(key);
-        for (const file of files.get(key) ?? []) {
-          removal.filesLeft.set(file.key, file.name);
-        }
-      } else removal.result.alreadyGone++;
-    });
-    hooks.onSent?.(batch);
-    hooks.onDeleted?.(batch.length);
+    const requeued = sendAgainSmaller(batch, answer, byJob, { key, sizes, allowance, files });
+    queue.unshift(...requeued.calls);
+    settleOutcomes(removal, hooks, batch, answer, requeued.indices, files);
+    if (next.reduced) sizes.countSmallCallRows(key, batch.length - requeued.indices.size);
   }
   return false;
+}
+
+/** What {@link sendAgainSmaller} cuts with. */
+interface SmallerCallsContext {
+  key: CallKey;
+  sizes: CallSizes;
+  allowance: SplitAllowance;
+  files: Map<string, AttachedFile[]>;
+}
+
+/**
+ * Of one delete's records, those the org refused for a limit the target's
+ * automation hit, cut into calls half as large as the one refused — a job's
+ * as half its chunk of 200 — by REST, never by a job, at the head of the
+ * queue and in their order: each call paid as it is queued, and as many as
+ * the allowance grants. The rest of them stay refused, and so does a record
+ * refused on its own. A call refused whole is the trigger's doing, once for
+ * the call: in two calls of 58, the 116 records a call was refused for all
+ * went.
+ *
+ * @returns The calls to send again and the places in `batch` of their records,
+ *   which are not settled yet.
+ */
+function sendAgainSmaller(
+  batch: readonly string[],
+  outcomes: readonly DeleteOutcome[],
+  byJob: boolean,
+  context: SmallerCallsContext,
+): { calls: DeleteRound[]; indices: Set<number> } {
+  const { key, sizes, allowance, files } = context;
+  const indices = new Set<number>();
+  const limited: number[] = [];
+  let cause: GovernorLimitCause | undefined;
+  outcomes.forEach((outcome, index) => {
+    if (outcome.kind === 'refused' && outcome.limit) {
+      limited.push(index);
+      cause ??= outcome.limit;
+    }
+  });
+  if (limited.length === 0 || batch.length === 1) return { calls: [], indices };
+  if (sizes.isSpent(key)) {
+    sizes.countNotSplit(key, limited.length);
+    return { calls: [], indices };
+  }
+  const size = sizes.refusedAt(key, byJob ? BULK_CHUNK : batch.length, cause);
+  const granted = takeSmallerCalls(sizes, allowance, key, Math.ceil(limited.length / size));
+  const covered = limited.slice(0, granted * size);
+  for (const index of covered) indices.add(index);
+  sizes.countNotSplit(key, limited.length - covered.length);
+  const calls = callsOf(
+    covered.map((index) => batch[index]),
+    size,
+    files,
+  ).map((call): DeleteRound => ({ ...call, reduced: true }));
+  return { calls, indices };
+}
+
+/**
+ * Count in `removal` what one delete did to each of its records, but for
+ * those sent again smaller (`requeued`), counted once their own call is
+ * answered: deleted, already gone, or refused with the org's reason — for
+ * good when it was a limit's, the record sent on its own or kept from smaller
+ * calls by the allowance.
+ */
+function settleOutcomes(
+  removal: ObjectRemoval,
+  hooks: Pick<CandidateHooks, 'placeOf' | 'onSent' | 'onDeleted'>,
+  batch: readonly string[],
+  outcomes: readonly DeleteOutcome[],
+  requeued: ReadonlySet<number>,
+  files: ReadonlyMap<string, readonly AttachedFile[]>,
+): void {
+  const settled: string[] = [];
+  batch.forEach((id, index) => {
+    if (requeued.has(index)) return;
+    settled.push(id);
+    const result = outcomes[index];
+    if (result.kind === 'refused') {
+      if (result.limit && batch.length === 1) removal.alone++;
+      removal.refused.set(id, {
+        reason: result.reason,
+        dependency: result.dependency,
+        sent: true,
+        ...(result.limit ? { limit: true as const } : {}),
+      });
+      return;
+    }
+    removal.refused.delete(id);
+    const key = recordKey(id);
+    const place = hooks.placeOf?.get(key);
+    if (place !== undefined) removal.goneAt.add(place);
+    else removal.goneLater.add(key);
+    if (result.kind === 'deleted') {
+      removal.result.deleted++;
+      if (place === undefined) removal.deletedLater.add(key);
+      for (const file of files.get(key) ?? []) {
+        removal.filesLeft.set(file.key, file.name);
+      }
+    } else removal.result.alreadyGone++;
+  });
+  if (settled.length === 0) return;
+  hooks.onSent?.(settled);
+  hooks.onDeleted?.(settled.length);
+}
+
+/** {@link deleteLimitNotes} for the records of one removal's object. */
+function limitNotesOf(
+  removal: ObjectRemoval,
+  sizes: CallSizes,
+  allowance: SplitAllowance,
+): string[] {
+  return deleteLimitNotes(removal.result.objectApiName, sizes, allowance, removal.alone);
+}
+
+/**
+ * What the result of an object a removal or a sweep deleted says of the
+ * calls a limit of the target's automation had sent smaller: which trigger
+ * hit which limit on a call of how many, the size it went at and the calls
+ * that cost; the records kept from smaller calls once the allowance was
+ * spent; and, for a record refused though sent on its own, what to fix.
+ * Nothing when no limit cut a call. Engine English, as the other notes.
+ *
+ * @param alone - Its records refused for a limit though sent on their own.
+ */
+export function deleteLimitNotes(
+  objectApiName: string,
+  sizes: CallSizes,
+  allowance: SplitAllowance,
+  alone: number,
+): string[] {
+  const key = deleteKey(objectApiName);
+  const notes: string[] = [];
+  const report = sizes.report(key);
+  // A size that cost no call more said nothing a reader needs: the records
+  // fitted in it, or the allowance kept it from use, which the next note says.
+  if (report && report.extraCalls > 0) notes.push(smallerCallsNote(report));
+  if (report && report.notSplit > 0) {
+    // The object's own share when that is what ran out, the removal's otherwise.
+    notes.push(notSplitNote(report.notSplit, allowedFor(allowance, key), 'removal'));
+  }
+  if (alone > 0) notes.push(GOVERNOR_LIMIT_ALONE);
+  return notes;
 }
 
 /**
@@ -2616,7 +2954,41 @@ function runSpan(
 
 /** What a delete did to one record. */
 export type DeleteOutcome =
-  { kind: 'deleted' } | { kind: 'gone' } | { kind: 'refused'; reason: string; dependency: boolean };
+  | { kind: 'deleted' }
+  | { kind: 'gone' }
+  | {
+      kind: 'refused';
+      reason: string;
+      dependency: boolean;
+      /**
+       * The Salesforce limit the target's automation hit, and the trigger
+       * that hit it, when the org's answer says so (`limitCauseOf`): the
+       * call's doing, not the record's, and never a dependency. Never set on
+       * a call that threw.
+       */
+      limit?: GovernorLimitCause;
+    };
+
+/**
+ * The outcome of a record the org refused with `errors`, as `CODE: message`:
+ * refused for a limit of the target's automation when the words say so —
+ * whatever the code, `DELETE_FAILED` included — or else for records hanging
+ * from it on `DELETE_FAILED`. A limit refused under `DELETE_FAILED` was tried
+ * again round after round as a dependency, and refused each time.
+ */
+function refusedOutcome(
+  reason: string,
+  texts: readonly string[],
+  codes: readonly (string | undefined)[],
+): DeleteOutcome {
+  const limit = limitCauseOf(texts);
+  return {
+    kind: 'refused',
+    reason,
+    dependency: limit === undefined && codes.includes(DEPENDENCY_REFUSAL),
+    ...(limit ? { limit } : {}),
+  };
+}
 
 /**
  * Delete one batch and say what became of each record: deleted, already gone
@@ -2642,11 +3014,11 @@ export async function deleteBatch(
     if (row.success && row.data.success) return { kind: 'deleted' };
     const errors = row.success ? (row.data.errors ?? []) : [];
     if (errors.some((error) => codeOf(error) === 'ENTITY_IS_DELETED')) return { kind: 'gone' };
-    return {
-      kind: 'refused',
-      reason: errors.length > 0 ? describeError(errors[0]) : 'The org gave no reason.',
-      dependency: errors.some((error) => codeOf(error) === DEPENDENCY_REFUSAL),
-    };
+    return refusedOutcome(
+      errors.length > 0 ? describeError(errors[0]) : 'The org gave no reason.',
+      errors.map(describeError),
+      errors.map(codeOf),
+    );
   });
 }
 
@@ -2656,7 +3028,9 @@ export async function deleteBatch(
  * already gone — `ENTITY_IS_DELETED`, deleted since it was read; or refused
  * with the org's reason, `CODE: message` as {@link describeError} writes it,
  * and refused for records still hanging from it on `DELETE_FAILED`, tried
- * again as such. A job the org answered with an error that throws refuses
+ * again as such — unless its words name a limit the target's automation hit,
+ * which the removal sends again by REST in smaller calls (`refusedOutcome`).
+ * A job the org answered with an error that throws refuses
  * every record of it, as a call the org refuses whole does: the org may have
  * deleted any of them, and the second try reads which.
  *
@@ -2683,14 +3057,11 @@ async function deleteByJob(
     if (row?.success === true) return { kind: 'deleted' };
     const { code, message } = bulkErrorOf(row?.error ?? '');
     if (code === 'ENTITY_IS_DELETED') return { kind: 'gone' };
-    return {
-      kind: 'refused',
-      reason:
-        code && message
-          ? `${code}: ${message}`
-          : row?.error || code || message || 'The org gave no reason.',
-      dependency: code === DEPENDENCY_REFUSAL,
-    };
+    const reason =
+      code && message
+        ? `${code}: ${message}`
+        : row?.error || code || message || 'The org gave no reason.';
+    return refusedOutcome(reason, [reason], [code]);
   });
 }
 

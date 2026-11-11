@@ -27,7 +27,7 @@ import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { DEPTH_KEYS } from './useForgeForm';
 import type { ForgeRunConfig } from './useForgeForm';
-import { INPUT_MODE_KEYS, configSubject } from './forgeRunConfig';
+import { configSubject, runInputLabelKey } from './forgeRunConfig';
 import {
   ForgeRunRemovalConfirm,
   ForgeRunRemovalMark,
@@ -451,7 +451,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
                 </div>
                 {config && (
                   <span className="block text-[11px] text-text-secondary truncate">
-                    {[t(INPUT_MODE_KEYS[config.inputMode]), subject, t(DEPTH_KEYS[config.depth])]
+                    {[t(runInputLabelKey(config)), subject, t(DEPTH_KEYS[config.depth])]
                       .filter(Boolean)
                       .join(' · ')}
                   </span>

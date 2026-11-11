@@ -47,6 +47,7 @@ import {
   type SweepOptions,
 } from '../src/modules/forge/ForgeRunSweep.js';
 import { fingerprintFields, rowFingerprint } from '../src/modules/forge/ForgeInFlight.js';
+import { RUN_SPLIT_CALLS, SplitAllowance } from '../src/core/common/governorLimit.js';
 import {
   main,
   parseRunSummary,
@@ -190,7 +191,7 @@ function removalAnswering(
   outcome: RunRemovalOutcome,
 ): (...args: Parameters<typeof removeRunRecords>) => Promise<RunRemovalOutcome> {
   return async (_org, _plan, options) => {
-    await options.sweep?.();
+    await options.sweep?.(new SplitAllowance(RUN_SPLIT_CALLS));
     if (options.signal?.aborted) {
       return { objects: [], cancelled: true, gone: [], left: noneLeft, stamps: {} };
     }

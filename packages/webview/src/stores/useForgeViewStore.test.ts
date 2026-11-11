@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { FORGE_GRAPH_MAX_OBJECTS, forgeObjectsView, useForgeViewStore } from './useForgeViewStore';
+import {
+  FORGE_GRAPH_MAX_OBJECTS,
+  FORGE_GRAPH_SLOW_OBJECTS,
+  forgeGraphIsLarge,
+  forgeObjectsView,
+  useForgeViewStore,
+} from './useForgeViewStore';
 
 describe('forgeObjectsView', () => {
   it('draws a graph of up to the threshold as a graph under auto, and lists a larger one', () => {
@@ -16,14 +22,30 @@ describe('forgeObjectsView', () => {
   });
 
   it('shows the view picked with the switch over the setting', () => {
-    expect(forgeObjectsView('table', 'graph', 400)).toBe('graph');
+    expect(forgeObjectsView('table', 'graph', 100)).toBe('graph');
     expect(forgeObjectsView('auto', 'table', 2)).toBe('table');
+  });
+
+  // A graph picked on a run of a dozen objects, or set, drew 1,950 of them.
+  it('lists a large graph unless the graph was picked on a large one', () => {
+    expect(forgeObjectsView('graph', null, 400, true)).toBe('table');
+    expect(forgeObjectsView('auto', 'graph', 400, true, false)).toBe('table');
+    expect(forgeObjectsView('auto', 'graph', 400, true, true)).toBe('graph');
+    expect(forgeObjectsView('graph', 'table', 400, true, true)).toBe('table');
+  });
+});
+
+describe('forgeGraphIsLarge', () => {
+  it('holds past the objects a graph is drawn of, and of every clone of the whole org', () => {
+    expect(forgeGraphIsLarge(FORGE_GRAPH_SLOW_OBJECTS)).toBe(false);
+    expect(forgeGraphIsLarge(FORGE_GRAPH_SLOW_OBJECTS + 1)).toBe(true);
+    expect(forgeGraphIsLarge(3, true)).toBe(true);
   });
 });
 
 describe('useForgeViewStore', () => {
   beforeEach(() => {
-    useForgeViewStore.setState({ setting: 'auto', choice: null });
+    useForgeViewStore.setState({ setting: 'auto', choice: null, choiceOnLarge: false });
   });
 
   it('takes each value the setting offers', () => {
@@ -47,7 +69,14 @@ describe('useForgeViewStore', () => {
     useForgeViewStore.getState().adoptSetting('table');
 
     const { setting, choice } = useForgeViewStore.getState();
-    expect(forgeObjectsView(setting, choice, 400)).toBe('graph');
+    expect(forgeObjectsView(setting, choice, 100)).toBe('graph');
+  });
+
+  it('keeps whether the view was picked on a large graph', () => {
+    useForgeViewStore.getState().choose('graph', true);
+    expect(useForgeViewStore.getState().choiceOnLarge).toBe(true);
+    useForgeViewStore.getState().choose('table');
+    expect(useForgeViewStore.getState().choiceOnLarge).toBe(false);
   });
 });
 

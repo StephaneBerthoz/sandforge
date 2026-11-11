@@ -176,6 +176,20 @@ export function forgeRunOfResource(
     if ('refusals' in read) return read;
     entry = read.entry;
   }
+  // A template saved from a clone of the whole org in the Forge panel clones
+  // the whole org, which no resource does: refused, rather than its depth
+  // taken for a walk from the record or the tables the line gives.
+  if (entry?.config.inputMode === 'org' || entry?.config.depth === 'all') {
+    return {
+      refusals: [
+        refusalAt(
+          [...base, 'template'],
+          `the template "${entry.id}" clones the whole org (the depth ALL), which is only ` +
+            'offered in the Forge panel for now: an environment clones a record or tables',
+        ),
+      ],
+    };
+  }
   const fromEntry: Record<string, unknown> = { ...entry?.config };
   for (const key of INPUT_KEYS) delete fromEntry[key];
   if (resource.tables !== undefined && fromEntry['expandOrphanParents'] === true) {

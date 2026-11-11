@@ -2,10 +2,14 @@ import { describe, it, expect } from 'vitest';
 import type { ForgeConfig, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import {
   carriedChoices,
+  carriedNarrowing,
   clonesOneRecord,
+  clonesWholeOrg,
   configSubject,
+  runInputLabelKey,
   templateFromRun,
   withCarried,
+  withoutNarrowing,
   withoutOrgs,
 } from './forgeRunConfig';
 import type { RunToSave } from './forgeRunConfig';
@@ -16,6 +20,17 @@ describe('clonesOneRecord', () => {
     expect(clonesOneRecord({ inputMode: 'record' })).toBe(false);
     expect(clonesOneRecord({ inputMode: 'soql', recordId: '001000000000001AAA' })).toBe(false);
     expect(clonesOneRecord(null)).toBe(false);
+  });
+});
+
+describe('clonesWholeOrg', () => {
+  it('holds of a run of the whole org, by its input mode or by its depth, and of no other', () => {
+    expect(clonesWholeOrg({ inputMode: 'org', depth: 'all' })).toBe(true);
+    // A pairing the extension refuses still reads as the whole org's, as its label does.
+    expect(clonesWholeOrg({ inputMode: 'record', depth: 'all' })).toBe(true);
+    expect(clonesWholeOrg({ inputMode: 'soql', depth: 'full' })).toBe(false);
+    expect(clonesWholeOrg(null)).toBe(false);
+    expect(clonesWholeOrg(undefined)).toBe(false);
   });
 });
 
@@ -70,6 +85,36 @@ describe('configSubject', () => {
     expect(configSubject({ ...RECORD_RUN, inputMode: 'ai', aiPrompt: 'open cases' })).toBe(
       'open cases',
     );
+  });
+
+  it('names nothing a clone of the whole org started from, and labels it by what it cloned', () => {
+    expect(
+      configSubject({
+        inputMode: 'org',
+        depth: 'all',
+        anonymizePII: true,
+        skipEmpty: true,
+        batchSize: 'auto',
+      }),
+    ).toBeUndefined();
+    expect(runInputLabelKey({ inputMode: 'org', depth: 'all' })).toBe('forge.wholeOrg');
+  });
+
+  it('names every other run by the tab it was run from', () => {
+    expect(runInputLabelKey({ inputMode: 'record', depth: 'direct' })).toBe('forge.recordTab');
+    expect(runInputLabelKey({ inputMode: 'soql', depth: 'full' })).toBe('forge.soqlTab');
+    expect(runInputLabelKey({ inputMode: 'template', depth: 'custom' })).toBe('forge.templateTab');
+    expect(runInputLabelKey({ inputMode: 'ai', depth: 'direct' })).toBe('forge.aiTab');
+  });
+
+  it('names a run at the depth ALL the whole org, whatever input mode it says', () => {
+    // The extension refuses ALL with any other mode: the label names no tab
+    // the run never started from.
+    expect(runInputLabelKey({ inputMode: 'record', depth: 'all' })).toBe('forge.wholeOrg');
+  });
+
+  it('clones no single record from the whole org', () => {
+    expect(clonesOneRecord({ inputMode: 'org' })).toBe(false);
   });
 });
 
@@ -243,6 +288,52 @@ describe('carriedChoices', () => {
         objectSoqlFilters: { Account: "Industry = 'Energy'", Contact: 'Email != null' },
       }).objectSoqlFilters,
     ).toEqual({ Contact: 'Email != null' });
+  });
+});
+
+describe('carriedNarrowing', () => {
+  it('names, by object, the carried choices that leave part of the source behind', () => {
+    expect(
+      carriedNarrowing({
+        objectSoqlFilters: { Case: "Status = 'Closed'" },
+        excludedObjects: ['Task', 'Event'],
+        skippedRows: [
+          { object: 'Contact', gapId: 'g1' },
+          { object: 'Contact', gapId: 'g2' },
+        ],
+        fieldExclusions: { Account: ['Fax'], Lead: [] },
+        ownerMappings: { '005A': '005B' },
+      }),
+    ).toEqual({
+      filtered: ['Case'],
+      excluded: ['Task', 'Event'],
+      heldBack: ['Contact'],
+      fields: ['Account'],
+    });
+  });
+
+  it('is null when what is carried only changes how rows are written', () => {
+    expect(carriedNarrowing({})).toBeNull();
+    expect(
+      carriedNarrowing({
+        ownerMappings: { '005A': '005B' },
+        ignoredGaps: ['g'],
+        fieldExclusions: {},
+      }),
+    ).toBeNull();
+  });
+
+  it('drops those choices, and keeps the others', () => {
+    expect(
+      withoutNarrowing({
+        objectSoqlFilters: { Case: "Status = 'Closed'" },
+        excludedObjects: ['Task'],
+        skippedRows: [{ object: 'Contact', gapId: 'g1' }],
+        fieldExclusions: { Account: ['Fax'] },
+        ownerMappings: { '005A': '005B' },
+        ignoredGaps: ['g'],
+      }),
+    ).toEqual({ ownerMappings: { '005A': '005B' }, ignoredGaps: ['g'] });
   });
 });
 

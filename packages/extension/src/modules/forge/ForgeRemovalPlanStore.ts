@@ -97,6 +97,14 @@ const planSchema = z.object({
       ),
     })
     .optional(),
+  // The size a limit of the target's automation cut each object's calls to
+  // in a removal: a whole number of records, one
+  // to a call's 200. Sizes that are not are dropped, never the plan: the run
+  // stays removable, at calls of 200 again.
+  deleteSizes: z
+    .record(z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/), z.number().int().min(1).max(200))
+    .optional()
+    .catch(undefined),
 });
 
 const fileSchema = z.object({ version: z.literal(1), plans: z.array(z.unknown()) });

@@ -7,6 +7,7 @@ import type {
   ForgeEmailsPerInsert,
   ForgeExecutionError,
   ForgeExecutionResult,
+  ForgeBulkJobPastMute,
   ForgeGraph,
   ForgeRemovalPlan,
   ForgeRemovalSpan,
@@ -46,6 +47,7 @@ import {
   leftOutByTheUser,
   removalRisksOf,
   guardTierOf,
+  wholeOrgConfigIssue,
 } from '@sandforge/shared';
 import * as z from 'zod';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -73,10 +75,13 @@ import {
   type MuteLeaseOptions,
   type RunMute,
 } from '../../modules/forge/AutomationMuteLease.js';
+import { pastMuteNotes, type LostBulkJobs } from '../../modules/forge/lostBulkJobs.js';
+import { wholeOrgHistoryEntry } from '../../modules/forge/wholeOrgHistory.js';
 import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
 import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
+import { RUN_SPLIT_CALLS, type SplitAllowance } from '../../core/common/governorLimit.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 import {
@@ -127,9 +132,13 @@ import type {
   WriteConfirmation,
 } from '../../core/precheck/ProductionGuard.js';
 import {
+  BULK_BATCHES_NOT_TOLD,
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   ForgeRunGateError,
+  apiBudgetCheckOf,
+  apiBudgetRefusal,
   automationUnreadOf,
+  bulkBatchesRefusal,
   bypassesToAssign,
   confirmationStorageOf,
   confirmationSimulatedOf,
@@ -151,11 +160,18 @@ import {
   runBypassesOf,
   updateStepsOf,
   type UpdatedAfterInsert,
+  readApiBudget,
+  readBoundRefusal,
   readDataStorage,
   readEmailLimits,
+  fileStorageRefusal,
+  sourceApiBudgetRefusal,
   storageCheckOf,
   storageRefusal,
+  wholeOrgMeasuresOf,
   writePlanOf,
+  type ApiBudget,
+  type ApiBudgetCheck,
   type DataStorage,
   type EmailLimit,
   type SimulatedWrite,
@@ -211,6 +227,7 @@ import type {
   ExecutionSummary,
   ForgeProgressEvent,
   ForgeWriteBoundary,
+  ForgeWriteGateAnswer,
 } from '../../modules/forge/ForgeExecutor.js';
 import {
   ForgeRunJournal,
@@ -282,6 +299,55 @@ const FILES_NOT_ACCEPTED = 'FILES_NOT_ACCEPTED';
 
 /** Why a retry was stopped before it started: what the run it retries wrote is not known. */
 const RETRY_UNAVAILABLE = 'RETRY_UNAVAILABLE';
+
+/**
+ * Why a discovery, a run, a simulation or a rehearsal of a clone of the whole
+ * org was refused before anything was read: its config breaks the rule that
+ * holds `inputMode: 'org'` and the depth ALL together (`wholeOrgConfigIssue`).
+ * The page builds no such config; a message that bypassed the strict schema
+ * — the incoming one is the loose one — is refused here, in its words.
+ */
+const WHOLE_ORG_CONFIG = 'WHOLE_ORG_CONFIG';
+
+/**
+ * Why a run was refused before anything was read: its graph is the one the
+ * history keeps of a clone of the whole org, without the relations between
+ * its objects (`ForgeGraph.withoutEdges`), which a run orders its parents
+ * and maps its lookups by.
+ */
+const GRAPH_WITHOUT_EDGES = 'GRAPH_WITHOUT_EDGES';
+const GRAPH_WITHOUT_EDGES_MESSAGE =
+  'This graph is the one the history keeps of a clone of the whole org, without the relations ' +
+  'between its objects, and cannot be run as it is. Discover the org again from the Forge ' +
+  'panel. Nothing was read or written.';
+
+/**
+ * Why a simulation of a clone of the whole org was refused: a simulation
+ * keeps no journal, which such a run needs, and its confirmation, always
+ * asked, says what it writes before anything is written.
+ */
+const WHOLE_ORG_SIMULATION = 'WHOLE_ORG_SIMULATION';
+const WHOLE_ORG_SIMULATION_MESSAGE =
+  'A clone of the whole org cannot be simulated yet: its confirmation lists what it writes. ' +
+  'Nothing was read.';
+
+/**
+ * Why a rehearsal of a clone of the whole org was refused: a rehearsal holds
+ * every row it prepares, which no memory takes for a whole org.
+ */
+const WHOLE_ORG_REHEARSAL = 'WHOLE_ORG_REHEARSAL';
+const WHOLE_ORG_REHEARSAL_MESSAGE =
+  'A clone of the whole org cannot be rehearsed yet: a rehearsal holds every row it prepares. ' +
+  'Its confirmation lists what it writes. Nothing was read or sent.';
+
+/**
+ * What a clone of the whole org is told when its journal cannot be opened:
+ * the ids it maps, the lookups its second pass sets and where it would be
+ * taken up all live there, and held in memory instead they would not fit.
+ */
+const WHOLE_ORG_JOURNAL_MESSAGE =
+  'A clone of the whole org keeps its journal on disk, which could not be opened. ' +
+  'Nothing was written.';
 
 /** Why a reader of a run's ids was refused: they were kept in its journal, which is gone. */
 const JOURNAL_GONE = 'JOURNAL_GONE';
@@ -588,6 +654,13 @@ export interface ForgeServices {
   muteOrg?: (orgId: string) => Promise<MuteOrg>;
   /** Where and how the mute leases are kept: the home directory's, unless told. */
   muteLeases?: MuteLeaseOptions;
+  /**
+   * The Bulk API jobs the runs closed and could not read back, noted where
+   * every job is sent: a run that muted the target's automation waits for
+   * its own to end before it gives the mute back (`LostBulkJobs`). Without
+   * it, the mute is given back as the run ends.
+   */
+  lostBulkJobs?: LostBulkJobs;
 }
 
 /**
@@ -710,6 +783,24 @@ const NOTHING_REMOVED: RunRemovalOutcome = {
   left: async function* () {},
 };
 
+/**
+ * The delete sizes a run's plan keeps once a removal said its own: per
+ * object, the smaller of the two. A size only goes down — a trigger that
+ * went through at 58 once may not at 100 the next time — and an object the
+ * removal did not send keeps the size it had.
+ */
+function smallestSizes(
+  kept: Readonly<Record<string, number>> | undefined,
+  said: Readonly<Record<string, number>>,
+): Record<string, number> {
+  const sizes: Record<string, number> = { ...kept };
+  for (const [objectApiName, size] of Object.entries(said)) {
+    const before = sizes[objectApiName];
+    sizes[objectApiName] = before === undefined ? size : Math.min(before, size);
+  }
+  return sizes;
+}
+
 /** A sweep that did not run, whose refusal or failure says why. */
 const SWEEP_NOT_RUN: ForgeSweepResult = {
   status: 'cancelled',
@@ -774,7 +865,7 @@ type RemovalState = Pick<
  */
 type RunToRemove = Pick<
   ForgeRemovalPlan,
-  'forgeId' | 'targetOrgId' | 'timestamp' | 'duration' | 'writtenBetween'
+  'forgeId' | 'targetOrgId' | 'timestamp' | 'duration' | 'writtenBetween' | 'deleteSizes'
 > &
   RemovalState & {
     /** Rows a call of the run may have written under ids it never learned. */
@@ -1044,7 +1135,12 @@ function guardedWrites(
   const written = graph.nodes.filter((node) => node.included);
   const objectName = written.map((node) => node.objectApiName).join(', ') || 'ForgeData';
   const alsoWrites = RELATED_RECORDS_ALSO_WRITTEN;
-  const cap = config.maxRecordsPerObject;
+  // A clone of the whole org copies every row whatever cap a config carried
+  // over (`forgeExecuteOptions`): none bounds what it writes. A node whose
+  // count timed out keeps the org's own approximation
+  // (`recordCountApproximate`), which counts here as the number it is — the
+  // run reads what the table holds, as for any node counted.
+  const cap = config.inputMode === 'org' ? undefined : config.maxRecordsPerObject;
   // Record-scoped as the orchestrator runs it: an input of one record.
   let atMost = config.inputMode === 'record' && typeof config.recordId === 'string';
   let records = 0;
@@ -1060,18 +1156,74 @@ function guardedWrites(
   return { objectName, recordCount: atMost ? { atMost: records } : records, alsoWrites };
 }
 
+/** What narrows a clone of the whole org, as its question says it: see {@link carriedOf}. */
+type WholeOrgCarried = NonNullable<NonNullable<WriteConfirmation['wholeOrg']>['carried']>;
+
+/**
+ * The smaller calls a clone of the whole org allows itself
+ * (`SplitAllowance`), from what its gate read of the target's daily API
+ * requests: half of what the run leaves of them, `RUN_SPLIT_CALLS` at most,
+ * none when it leaves nothing — and `RUN_SPLIT_CALLS` when the target did not
+ * say. A run the gate let through near the limit keeps an allowance; one
+ * past it was refused before. No gate can tell beforehand which trigger of
+ * the target runs a query per record, and a margin set aside for it would
+ * refuse runs that split nothing: the splitting is bounded instead, within
+ * what the run leaves.
+ */
+export function wholeOrgSplitAllowance(targetApi: ApiBudgetCheck): number {
+  if (targetApi.verdict === 'unread') return RUN_SPLIT_CALLS;
+  const left = Math.max(0, Math.floor((targetApi.remaining - targetApi.estimate) / 2));
+  return Math.min(RUN_SPLIT_CALLS, left);
+}
+
+/**
+ * What a clone of the whole org was set to that narrows it — the objects it
+ * reads through a filter, those it leaves out by name, those whose rows a
+ * decision on Gaps holds back, those it copies without some of their fields
+ * — for its question to say: a whole org that copies part of a table, or
+ * part of its records, without saying so is not what was asked for. Carried
+ * over from a template or the run it was started from, or set on Review:
+ * the configuration does not tell them apart, nor does the question. Absent
+ * when nothing does.
+ */
+function carriedOf(
+  config: Pick<
+    ForgeConfig,
+    'objectSoqlFilters' | 'excludedObjects' | 'skippedRows' | 'fieldExclusions'
+  >,
+): { carried?: WholeOrgCarried } {
+  const carried: WholeOrgCarried = {
+    filters: Object.keys(config.objectSoqlFilters ?? {}).sort(),
+    excluded: [...new Set(config.excludedObjects ?? [])].sort(),
+    heldBack: [...new Set((config.skippedRows ?? []).map((entry) => entry.object))].sort(),
+    fieldsLeftOut: Object.entries(config.fieldExclusions ?? {})
+      .filter(([, fields]) => fields.length > 0)
+      .map(([object]) => object)
+      .sort(),
+  };
+  return Object.values(carried).some((objects) => objects.length > 0) ? { carried } : {};
+}
+
 /**
  * What tells one read of the target's automation from another: the org, and
  * the objects and required lookups of the graph it was read for, which say
  * the objects the run writes (`objectsTheRunWrites`). An object the user left
  * out counts as written, as Review reads it: the run reads the same, and
  * says nothing of what fires on an object it leaves out.
+ *
+ * Only a relation that reaches past the graph's objects counts: what is read
+ * turns on a required lookup from a catalog object discovery stopped before,
+ * never on one between two of its objects. Review sends the graph of a clone
+ * of the whole org without its relations — thousands, every one between two
+ * of its objects — and its read is the one the run of that graph finds.
  */
 function automationKey(targetOrgId: string, graph: Pick<ForgeGraph, 'nodes' | 'edges'>): string {
+  const held = new Set(graph.nodes.map((node) => node.objectApiName));
   const nodes = graph.nodes
     .map((node) => `${node.objectApiName}:${node.included || node.leftOutByUser === true ? 1 : 0}`)
     .sort();
   const edges = graph.edges
+    .filter((edge) => !held.has(edge.sourceObject) || !held.has(edge.targetObject))
     .map((edge) => `${edge.sourceObject}>${edge.targetObject}:${edge.required === true ? 1 : 0}`)
     .sort();
   return JSON.stringify([targetOrgId, nodes, edges]);
@@ -1177,6 +1329,8 @@ export class ForgeHandler implements DomainHandler {
   private muteOrgOf?: (orgId: string) => Promise<MuteOrg>;
   /** Where and how the mute leases are kept, when not the home directory's. */
   private muteLeases?: MuteLeaseOptions;
+  /** The Bulk API jobs the runs closed and lost, which a muted run waits for (see {@link ForgeServices}). */
+  private lostBulkJobs?: LostBulkJobs;
   private rehearser?: ForgeRehearser;
   /** The operation of the rehearsal under way, when one is: one at a time. */
   private rehearseOperationId: string | null = null;
@@ -1334,6 +1488,7 @@ export class ForgeHandler implements DomainHandler {
       this.requestsSent = services.requestsSent;
       this.muteOrgOf = services.muteOrg;
       this.muteLeases = services.muteLeases;
+      this.lostBulkJobs = services.lostBulkJobs;
       this.rehearser = services.rehearser;
     }
   }
@@ -1707,6 +1862,21 @@ export class ForgeHandler implements DomainHandler {
     const parsed = parsePayload(discoverPayloadSchema, msg, 'forge:discover:error', this.deps);
     if (!parsed) return;
     const { config } = parsed;
+    // The loose schema lets a whole-org config through that the strict one
+    // refuses: an org without ALL would walk from no root, ALL from a record
+    // would be discovered as the whole org.
+    const wholeOrgIssue = wholeOrgConfigIssue(config);
+    if (wholeOrgIssue !== undefined) {
+      sendHandlerError(
+        this.deps,
+        'forge:discover',
+        'forge:discover:error',
+        msg,
+        new Error(`${wholeOrgIssue}. Nothing was read.`),
+        { code: WHOLE_ORG_CONFIG },
+      );
+      return;
+    }
     // Kept under its request, beside the discoveries of other panels: a newer
     // discovery stopped any other, and the page that had asked for the other
     // waited for an answer that never came. The page that replaces its own
@@ -1734,8 +1904,10 @@ export class ForgeHandler implements DomainHandler {
     try {
       logger.info('Forge discover started');
       const graph = await this.orchestrator.discover(config, {
-        // Absent, the discovery service keeps its own default.
-        maxNodes: config.maxNodes,
+        // Absent, the discovery service keeps its own default. A clone of
+        // the whole org takes every object it may copy, bounded by its own
+        // limit and refused past it: a cap carried over is ignored.
+        ...(config.inputMode === 'org' ? {} : { maxNodes: config.maxNodes }),
         signal: controller.signal,
         onProgress: (event) => {
           throttledProgress(event as unknown as Record<string, unknown>);
@@ -1836,6 +2008,53 @@ export class ForgeHandler implements DomainHandler {
       : parsePayload(executePayloadSchema, msg, 'forge:execute:error', this.deps);
     if (!parsed) return;
     const { graph, config, anonymizationRules, files, reviewSkipped, muteAutomation } = parsed;
+    // Held to the rule of a clone of the whole org, as discovery is: the loose
+    // schema the message is parsed with lets a broken one through. A resumed
+    // run was held to it already, on the record (`handleResumeRun`).
+    const wholeOrgIssue = wholeOrgConfigIssue(config);
+    if (wholeOrgIssue !== undefined) {
+      sendHandlerError(
+        this.deps,
+        'forge:execute',
+        'forge:execute:error',
+        msg,
+        new Error(`${wholeOrgIssue}. Nothing was read or written.`),
+        { code: WHOLE_ORG_CONFIG },
+      );
+      return;
+    }
+    // The graph the history keeps of a clone of the whole org, without its
+    // relations, which the page holds once that entry is opened and a Retry
+    // sends back: run, its parents went unordered and its lookups unmapped.
+    // Refused before anything is read; the org is discovered again.
+    if (graph.withoutEdges === true) {
+      sendHandlerError(
+        this.deps,
+        'forge:execute',
+        'forge:execute:error',
+        msg,
+        new Error(GRAPH_WITHOUT_EDGES_MESSAGE),
+        { code: GRAPH_WITHOUT_EDGES },
+      );
+      return;
+    }
+    /** Whether the run clones the whole org (ALL): see `ForgeConfig.inputMode`. */
+    const wholeOrg = config.inputMode === 'org';
+    // A simulation keeps no journal, which a clone of the whole org needs for
+    // its ids, its second pass and where it would be taken up; and its
+    // confirmation, always asked, says what it writes first. Refused before
+    // anything is read, and kept out of the audit trail as a simulation is.
+    if (wholeOrg && config.dryRun === true) {
+      sendHandlerError(
+        this.deps,
+        'forge:execute',
+        'forge:execute:error',
+        msg,
+        new Error(WHOLE_ORG_SIMULATION_MESSAGE),
+        { code: WHOLE_ORG_SIMULATION },
+      );
+      return;
+    }
     // A run taken up where it stopped names the part it resumes, as a retry
     // names the run it retries: the history walks back through both.
     const retryOf = resume ? resume.forgeId : parsed.retryOf;
@@ -2228,6 +2447,10 @@ export class ForgeHandler implements DomainHandler {
     let mute: Awaited<ReturnType<typeof muteForRun>>['prepared'];
     /** What the run says of its mute: planned before it writes, as it ended after. */
     let mutedAutomation: MutedAutomation | undefined;
+    /** How many lost Bulk API jobs were noted when the executor had the run: those noted after are its own. */
+    let lostJobsAtStart: number | undefined;
+    /** The Bulk API jobs of the run still running when its mute was given back (`bulkJobsPastMute`). */
+    let jobsPastMute: ForgeBulkJobPastMute[] = [];
 
     // Throttle execute progress events to ~10/s. With Bulk API 2.0 batches
     // of 200 records, a 50K-record clone fires ~250 events; spamming each
@@ -2342,12 +2565,13 @@ export class ForgeHandler implements DomainHandler {
         // The tables the run reads with no cap past the most rows of one
         // object it reads, put to the user before the first is read: a run of
         // whole tables reads them to that number, and a run from a record
-        // holds each object whole until it writes it.
-        const aboveCeiling = objectsAboveReadCeiling(
-          graph,
-          config.maxRecordsPerObject,
-          readCeiling,
-        );
+        // holds each object whole until it writes it. A clone of the whole
+        // org reads every row of what it streams, which is the point of it,
+        // and refuses at its write gate what it would read whole past that
+        // number (`READ_BOUND_EXCEEDED`): nothing to ask here.
+        const aboveCeiling = wholeOrg
+          ? []
+          : objectsAboveReadCeiling(graph, config.maxRecordsPerObject, readCeiling);
         if (aboveCeiling.length > 0) {
           if (runController.signal.aborted) {
             stoppedBeforeStart = true;
@@ -2387,6 +2611,7 @@ export class ForgeHandler implements DomainHandler {
       }
       startedAt = Date.now();
       requestsAtStart = this.requestsSent?.();
+      lostJobsAtStart = this.lostBulkJobs?.count;
       // What a run writes is kept on disk as it goes, so a window closed under
       // the run leaves its records removable, and a run that stops can be
       // taken up where it stopped: a run of whole tables reads each object
@@ -2444,6 +2669,12 @@ export class ForgeHandler implements DomainHandler {
               'read for the calls the run had under way. Nothing was written.',
           );
       }
+      // A clone of the whole org keeps on disk the ids it maps, the lookups
+      // its second pass sets and where it would be taken up: run without its
+      // journal, they would all be held in memory, which a whole org does not
+      // fit in. It stops before it reads a row; a run of anything else runs
+      // on, its history keeping what it created.
+      if (wholeOrg && !store) throw new Error(WHOLE_ORG_JOURNAL_MESSAGE);
       // A Cancel taken while the journal was opened reaches an executor that
       // has not started, which clears it on entry: the run wrote.
       if (runController.signal.aborted) {
@@ -2468,6 +2699,17 @@ export class ForgeHandler implements DomainHandler {
         ...(targetAutomation !== undefined ? { automation: targetAutomation } : {}),
         mayBeInTarget,
         ...(dryRun ? {} : { simulated: this.simulations.of(volumeCase) }),
+        ...(wholeOrg
+          ? {
+              wholeOrg: {
+                source:
+                  this.deps.orgManager.getOrg(config.sourceOrgId)?.alias ?? config.sourceOrgId,
+                sourceOrgId: config.sourceOrgId,
+                leftOut: graph.leftOut?.length ?? 0,
+                ...carriedOf(config),
+              },
+            }
+          : {}),
         onSimulated: (plan) => {
           simulatedPlan = plan;
         },
@@ -2487,21 +2729,33 @@ export class ForgeHandler implements DomainHandler {
           // records put them all in the history, which the extension's global
           // state rewrites whole at every change — and up to the command
           // line's bound, an entry still held megabytes of them.
+          // A clone of the whole org reads every row: no ceiling, and the
+          // setting bounds only what it reads whole (`wholeReadBound`).
           stream: {
-            ceiling: readCeiling,
+            ceiling: wholeOrg ? undefined : readCeiling,
             ...(store ? { store, summaryBound: HISTORY_IDS_BOUND } : {}),
           },
+          ...(wholeOrg ? { wholeReadBound: readCeiling } : {}),
+          // What the gate answers — the smaller calls a clone of the whole
+          // org allows itself, from what the target has left today — goes
+          // back to the run, which spends it from its first write.
           beforeWrite: async (boundary) => {
-            await writeGate(boundary);
-            if (!mute || boundary.dryRun || held) return;
+            const answer = await writeGate(boundary);
+            if (!mute || boundary.dryRun || held) return answer;
             held = await mute.acquire(operationId);
             mutedAutomation = held.outcome;
+            return answer;
           },
         })
         // Every line of the journal written before the run's end is said.
         .finally(closeStore)
         .finally(async () => {
-          if (held) mutedAutomation = await held.release();
+          if (!held) return;
+          // A job the run closed and lost may be writing still: its rows
+          // would go in with the automation the mute keeps quiet. Given
+          // back once each ended, or past the bound of the wait.
+          jobsPastMute = await this.jobsStillRunning(config.targetOrgId, lostJobsAtStart, lookup);
+          mutedAutomation = await held.release();
         });
       // A retry names the run it retried, which the history walks back to
       // before a later retry is built on it.
@@ -2511,7 +2765,19 @@ export class ForgeHandler implements DomainHandler {
         counted.remapInJournal && store && journalId
           ? { journalId, journalPart: Math.max(0, store.partCount - 1) }
           : {};
-      const muted = mutedAutomation ? { mutedAutomation } : {};
+      // The jobs still running as the mute was given back are named to the
+      // user among the run's notes, in the results they already read.
+      const muted = mutedAutomation
+        ? {
+            mutedAutomation,
+            ...(jobsPastMute.length > 0
+              ? {
+                  bulkJobsPastMute: jobsPastMute,
+                  errors: [...(counted.errors ?? []), ...pastMuteNotes(jobsPastMute)],
+                }
+              : {}),
+          }
+        : {};
       const result =
         retryOf !== undefined
           ? {
@@ -2664,6 +2930,7 @@ export class ForgeHandler implements DomainHandler {
               ...(store && journalId
                 ? { journalId, journalPart: Math.max(0, store.partCount - 1) }
                 : {}),
+              ...(jobsPastMute.length > 0 ? { bulkJobsPastMute: jobsPastMute } : {}),
             })
           : undefined;
       // Kept with its journal, the run can be taken up where it stopped. A
@@ -2774,10 +3041,16 @@ export class ForgeHandler implements DomainHandler {
    * config, never in it: removing what the run created has to reach the org it
    * wrote to. So is the source, for a verification to read there what each
    * record pointed at.
+   *
+   * A clone of the whole org is kept with its graph made small
+   * (`wholeOrgHistoryEntry`): its nodes without their relations, what it
+   * left out counted by reason. Kept whole, its thousands of relations and
+   * left-out objects went into every write of the global state, twenty runs
+   * of them.
    */
   private addToHistory(result: ForgeExecutionResult, config: ForgeConfig): void {
     const entry: ForgeExecutionResult = {
-      ...result,
+      ...(config.inputMode === 'org' ? wholeOrgHistoryEntry(result) : result),
       config: stripOrgIds(config),
       targetOrgId: config.targetOrgId,
       sourceOrgId: config.sourceOrgId,
@@ -2814,6 +3087,8 @@ export class ForgeHandler implements DomainHandler {
       journalId?: string;
       /** Which part of that journal it is. */
       journalPart?: number;
+      /** Its Bulk API jobs still running when its mute was given back. */
+      bulkJobsPastMute?: ForgeBulkJobPastMute[];
     },
   ): ForgeExecutionResult | undefined {
     // Past the bound the summary holds no id, and counts what the run created.
@@ -2835,6 +3110,12 @@ export class ForgeHandler implements DomainHandler {
       ...(run.retryOf !== undefined && run.resumed ? { resumed: true as const } : {}),
       ...(run.journalId ? { journalId: run.journalId } : {}),
       ...(run.journalId && run.journalPart !== undefined ? { journalPart: run.journalPart } : {}),
+      ...(run.bulkJobsPastMute
+        ? {
+            bulkJobsPastMute: run.bulkJobsPastMute,
+            errors: [...(result.errors ?? []), ...pastMuteNotes(run.bulkJobsPastMute)],
+          }
+        : {}),
     };
     this.addToHistory(stopped, config);
     return stopped;
@@ -3326,6 +3607,273 @@ export class ForgeHandler implements DomainHandler {
   }
 
   /**
+   * What the write gate holds a clone of the whole org to beside its rows'
+   * data storage, and what its question says of it.
+   *
+   * - The files it copies, as the source summed them, against the target's
+   *   file storage from the `/limits` the gate read for the data storage:
+   *   past it, refused (`STORAGE_EXCEEDED`, `storage.kind: 'files'`).
+   * - The API requests its writes take of the target, against what the same
+   *   answer said it has left, and the Bulk API batches its jobs take of the
+   *   target's day: past either, refused (`API_BUDGET_EXCEEDED`, `api.kind`
+   *   `requests` or `bulkBatches`). Not told, the question says so.
+   * - The API requests its reads take of the source, read from its own
+   *   `/limits`: past them, refused (`API_BUDGET_EXCEEDED`, `api.org`
+   *   `source`). The source is often a production org whose integrations
+   *   draw on the same requests.
+   *
+   * @returns What the question adds: the target's API requests whenever it
+   *   told them, and the whole org's own part (`WriteConfirmation.wholeOrg`);
+   *   and the smaller calls the run allows itself (`wholeOrgSplitAllowance`).
+   * @throws ForgeRunGateError for what it refuses.
+   */
+  private async wholeOrgChecks(
+    run: {
+      org: string;
+      lookup: { requests: number };
+      wholeOrg?: {
+        source: string;
+        sourceOrgId: string;
+        leftOut: number;
+        carried?: WholeOrgCarried;
+      };
+    },
+    boundary: ForgeWriteBoundary,
+    plan: WritePlan,
+    targetLimits: DataStorage | { unread: string },
+  ): Promise<{
+    question: Pick<WriteConfirmation, 'apiRequests' | 'wholeOrg'>;
+    splitAllowance?: number;
+  }> {
+    const whole = run.wholeOrg;
+    if (!whole) return { question: {} };
+    const measures = wholeOrgMeasuresOf(plan, boundary.files);
+    const told = 'unread' in targetLimits ? undefined : targetLimits;
+
+    // The files, against the target's file storage: none to copy when the
+    // source summed none, and nothing for the question to say of them.
+    const files = boundary.files && boundary.files.count > 0 ? boundary.files : undefined;
+    const fileCheck = files
+      ? storageCheckOf(
+          { storageBytes: files.bytes },
+          told?.fileStorage ??
+            ('unread' in targetLimits
+              ? targetLimits
+              : { unread: 'the limits the org answered list no FileStorageMB' }),
+        )
+      : undefined;
+    const filesRefused = fileCheck ? fileStorageRefusal(fileCheck, run.org) : undefined;
+    if (filesRefused && fileCheck && fileCheck.verdict === 'exceeds') {
+      throw new ForgeRunGateError('STORAGE_EXCEEDED', filesRefused, {
+        estimateMB: Number(formatMB(fileCheck.estimateMB)),
+        remainingMB: fileCheck.remainingMB,
+        kind: 'files',
+      });
+    }
+
+    // The target's API requests, from the answer the storage came in.
+    const targetApi = apiBudgetCheckOf(
+      { run: measures.targetRequests },
+      'unread' in targetLimits ? targetLimits : targetLimits.dailyApiRequests,
+    );
+    const targetRefused = apiBudgetRefusal(targetApi, run.org);
+    if (targetRefused && targetApi.verdict === 'exceeds') {
+      throw new ForgeRunGateError('API_BUDGET_EXCEEDED', targetRefused, undefined, undefined, {
+        api: {
+          kind: 'requests',
+          org: 'target',
+          estimate: targetApi.estimate,
+          remaining: targetApi.remaining,
+        },
+      });
+    }
+
+    // The target's Bulk API batches for the day: what its jobs take.
+    const batches =
+      measures.bulkBatches > 0
+        ? apiBudgetCheckOf(
+            measures.bulkBatches,
+            told?.dailyBulkApiBatches ??
+              ('unread' in targetLimits ? targetLimits : { unread: BULK_BATCHES_NOT_TOLD }),
+          )
+        : undefined;
+    const batchesRefused = batches ? bulkBatchesRefusal(batches, run.org) : undefined;
+    if (batchesRefused && batches && batches.verdict === 'exceeds') {
+      throw new ForgeRunGateError('API_BUDGET_EXCEEDED', batchesRefused, undefined, undefined, {
+        api: {
+          kind: 'bulkBatches',
+          org: 'target',
+          estimate: batches.estimate,
+          remaining: batches.remaining,
+        },
+      });
+    }
+
+    // The source's API requests: what its reads take, from its own limits.
+    run.lookup.requests++;
+    const sourceApi = apiBudgetCheckOf(
+      measures.sourceRequests,
+      await this.readSourceApiBudget(whole.sourceOrgId),
+    );
+    const sourceRefused = sourceApiBudgetRefusal(sourceApi, whole.source);
+    if (sourceRefused && sourceApi.verdict === 'exceeds') {
+      throw new ForgeRunGateError('API_BUDGET_EXCEEDED', sourceRefused, undefined, undefined, {
+        api: {
+          kind: 'requests',
+          org: 'source',
+          estimate: sourceApi.estimate,
+          remaining: sourceApi.remaining,
+        },
+      });
+    }
+    // Calls the target's automation refuses for a limit go again smaller,
+    // within half of what the run leaves of the target's requests today.
+    const splitAllowance = wholeOrgSplitAllowance(targetApi);
+    logger.info('Forge write gate: a clone of the whole org', {
+      targetRequests: targetApi.estimate,
+      targetApi: targetApi.verdict,
+      sourceRequests: sourceApi.estimate,
+      sourceApi: sourceApi.verdict,
+      bulkBatches: measures.bulkBatches,
+      ...(batches ? { batches: batches.verdict } : {}),
+      ...(fileCheck ? { fileStorage: fileCheck.verdict } : {}),
+      durationSeconds: Math.round(measures.durationSeconds),
+      restObjects: measures.restObjects.length,
+      splitAllowance,
+    });
+
+    return {
+      splitAllowance,
+      question: {
+        ...(targetApi.verdict === 'unread'
+          ? {}
+          : {
+              apiRequests: {
+                estimate: targetApi.estimate,
+                remaining: targetApi.remaining,
+                max: targetApi.max,
+              },
+            }),
+        wholeOrg: {
+          source: whole.source,
+          leftOut: whole.leftOut,
+          ...(whole.carried ? { carried: whole.carried } : {}),
+          // The question says every budget, near or not: one the run would
+          // leave short is said as such, as a run of any other module says it.
+          ...(targetApi.verdict === 'near' ? { targetApiNear: true as const } : {}),
+          durationSeconds: measures.durationSeconds,
+          restObjects: measures.restObjects,
+          ...(files && fileCheck
+            ? {
+                fileStorage: {
+                  estimateMB: fileCheck.estimateMB,
+                  files: files.count,
+                  overCeiling: files.overCeiling,
+                  ...(fileCheck.verdict === 'unread'
+                    ? {}
+                    : { remainingMB: fileCheck.remainingMB, maxMB: fileCheck.maxMB }),
+                  ...(fileCheck.verdict === 'near' ? { near: true as const } : {}),
+                },
+              }
+            : {}),
+          ...(boundary.filesUnmeasured ? { filesUnmeasured: true as const } : {}),
+          ...(sourceApi.verdict === 'unread'
+            ? { sourceApiUnread: sourceApi.unread }
+            : {
+                sourceApi: {
+                  estimate: sourceApi.estimate,
+                  remaining: sourceApi.remaining,
+                  max: sourceApi.max,
+                  ...(sourceApi.verdict === 'near' ? { near: true as const } : {}),
+                },
+              }),
+          ...(batches
+            ? {
+                bulkBatches:
+                  batches.verdict === 'unread'
+                    ? { estimate: batches.estimate }
+                    : {
+                        estimate: batches.estimate,
+                        remaining: batches.remaining,
+                        max: batches.max,
+                        ...(batches.verdict === 'near' ? { near: true as const } : {}),
+                      },
+              }
+            : {}),
+          ...(boundary.contactPointsBlanked !== undefined && boundary.contactPointsBlanked > 0
+            ? { contactPointsBlanked: boundary.contactPointsBlanked }
+            : {}),
+        },
+      },
+    };
+  }
+
+  /**
+   * The Bulk API jobs a run that muted the target's automation closed and
+   * lost (`LostBulkJobs`), read again by their ids until each ended, before
+   * the run gives its mute back: the org goes on writing a closed job
+   * whatever became of the call that sent it, and what it wrote once the
+   * mute was given back went in with every flow, trigger and rule the mute
+   * kept quiet. Bounded (`LOST_JOBS_WAIT_MS`): past the bound the mute is
+   * given back all the same, and the jobs still running are what the run's
+   * result names (`bulkJobsPastMute`). Each read is one of the target's
+   * requests, counted with those made for the run.
+   *
+   * @param mark - How many lost jobs were noted when the executor had the
+   *   run: undefined when none are noted, or the run never reached it.
+   * @returns The jobs still running, or whose id the org never told.
+   */
+  private async jobsStillRunning(
+    targetOrgId: string,
+    mark: number | undefined,
+    lookup: { requests: number },
+  ): Promise<ForgeBulkJobPastMute[]> {
+    const lost = this.lostBulkJobs;
+    if (!lost || mark === undefined) return [];
+    const jobs = lost.since(mark, targetOrgId);
+    if (jobs.length === 0) return [];
+    logger.info(
+      'Forge execute: waiting for the Bulk API jobs the run lost before the mute is given back',
+      {
+        jobs: jobs.map((job) => `${job.objectApiName} ${job.jobId ?? '(no id)'}`),
+      },
+    );
+    const running = await lost.stillRunning(jobs, () => {
+      lookup.requests++;
+    });
+    if (running.length > 0) {
+      logger.warn(
+        'Forge execute: Bulk API jobs still running as the mute is given back; what they write ' +
+          'now goes in with the target’s automation',
+        { jobs: running.map((job) => `${job.objectApiName} ${job.jobId ?? '(no id)'}`) },
+      );
+    }
+    return running.map(({ objectApiName, jobId }) => ({
+      objectApiName,
+      ...(jobId ? { jobId } : {}),
+    }));
+  }
+
+  /**
+   * The daily API requests the source has left, or why they could not be
+   * read: what a clone of the whole org reads takes of them.
+   */
+  private async readSourceApiBudget(sourceOrgId: string): Promise<ApiBudget | { unread: string }> {
+    try {
+      const conn = await getJsforceConnection(
+        sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      return await new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('forge:limits', () =>
+        readApiBudget(conn),
+      );
+    } catch (err: unknown) {
+      return { unread: extractErrorMessage(err) };
+    }
+  }
+
+  /**
    * What the executor hands every row it is about to write, before the first
    * goes (`ExecuteOptions.beforeWrite`): the run's gate on what it writes.
    *
@@ -3338,9 +3886,21 @@ export class ForgeHandler implements DomainHandler {
    * has left of, or that were not counted: what sends could not be read. What
    * is refused or declined throws, and the run stops with nothing written.
    *
+   * A clone of the whole org (`run.wholeOrg`) is always asked, whatever the
+   * setting, with what else it takes: the target's API requests and Bulk API
+   * batches, read from the same `/limits` as its storage, the source's API
+   * requests, its file storage, how long it writes and what goes by REST. It
+   * is refused, before the question, for an object it would read whole past
+   * the setting's bound (`READ_BOUND_EXCEEDED`), files past the target's
+   * file storage (`STORAGE_EXCEEDED`), or requests or batches past what an
+   * org has left today (`API_BUDGET_EXCEEDED`).
+   *
    * @param run.lookup - The requests made for the run besides the executor's:
-   *   the read of the target's limits is one of them.
+   *   the read of the target's limits is one of them, and of the source's.
    * @param run.onConfirmed - Called once a person confirmed the run.
+   * @returns For a clone of the whole org let through, the smaller calls the
+   *   run allows itself (`wholeOrgSplitAllowance`); nothing for another run,
+   *   which keeps `RUN_SPLIT_CALLS`.
    */
   private writeGate(run: {
     guard: ProductionGuard;
@@ -3365,8 +3925,19 @@ export class ForgeHandler implements DomainHandler {
     simulated?: SimulatedWrite;
     /** Told, on a simulation, what it would write, measured as the run's rows are. */
     onSimulated?: (plan: WritePlan) => void;
+    /**
+     * Of a clone of the whole org: the source, as the user knows it and by
+     * id, the objects discovery left out, and what the run was set to that
+     * narrows it (`carriedOf`). Absent for any other run.
+     */
+    wholeOrg?: {
+      source: string;
+      sourceOrgId: string;
+      leftOut: number;
+      carried?: WholeOrgCarried;
+    };
     onConfirmed: () => void;
-  }): (boundary: ForgeWriteBoundary) => Promise<void> {
+  }): (boundary: ForgeWriteBoundary) => Promise<ForgeWriteGateAnswer | undefined> {
     return async (boundary) => {
       // A simulation writes nothing to hold back: what it would write is kept
       // for the run of its case that follows.
@@ -3375,9 +3946,32 @@ export class ForgeHandler implements DomainHandler {
         return;
       }
       const plan = writePlanOf(boundary.objects);
+      // What a clone of the whole org reads whole past the bound of such a
+      // read is refused before anything else is read: read so, the run would
+      // write part of it. Not a cancel — nobody declined anything — and no
+      // read of the limits is spent on it.
+      const over = run.wholeOrg ? (boundary.wholeReadOver ?? []) : [];
+      if (over.length > 0) {
+        const bound = Math.min(...over.map((object) => object.bound));
+        const objects = over.map(({ objectApiName, rows }) => ({ objectApiName, rows }));
+        logger.warn('Forge write gate: objects read whole past their bound', {
+          bound,
+          objects: Object.fromEntries(
+            objects.slice(0, 20).map((object) => [object.objectApiName, object.rows]),
+          ),
+        });
+        throw new ForgeRunGateError(
+          'READ_BOUND_EXCEEDED',
+          readBoundRefusal(objects, bound),
+          undefined,
+          undefined,
+          { readBound: { bound, objects: objects.slice(0, 200) } },
+        );
+      }
       if (plan.totalRows === 0) return;
       run.lookup.requests++;
-      const storage = storageCheckOf(plan, await this.readTargetDataStorage(run.targetOrgId));
+      const targetLimits = await this.readTargetDataStorage(run.targetOrgId);
+      const storage = storageCheckOf(plan, targetLimits);
       const threshold = this.confirmAboveRecords();
       const aboveRecords = threshold > 0 && plan.totalRows > threshold ? threshold : undefined;
       const line = largeVolumeThreshold(run.orgTier);
@@ -3400,6 +3994,9 @@ export class ForgeHandler implements DomainHandler {
           remainingMB: storage.remainingMB,
         });
       }
+      const whole = run.wholeOrg
+        ? await this.wholeOrgChecks(run, boundary, plan, targetLimits)
+        : undefined;
       if (storage.verdict === 'near') {
         logger.warn(
           'Forge write gate: the records take more than 80 % of the data storage the target has left',
@@ -3479,7 +4076,10 @@ export class ForgeHandler implements DomainHandler {
         unreadEmails.length === 0 &&
         uncounted === undefined &&
         uncertain.length === 0 &&
-        simulated?.farAbove !== true
+        simulated?.farAbove !== true &&
+        // A clone of the whole org is always asked, even with the setting at
+        // 0: what it writes, takes and lasts is put to the user first.
+        whole === undefined
       ) {
         return;
       }
@@ -3503,10 +4103,13 @@ export class ForgeHandler implements DomainHandler {
           : {}),
         ...(boundary.capped ? { capped: boundary.capped } : {}),
         ...(simulated ? { simulated } : {}),
+        ...(whole ? whole.question : {}),
       });
       if (answer === 'confirmed') {
         run.onConfirmed();
-        return;
+        return whole?.splitAllowance !== undefined
+          ? { splitAllowance: whole.splitAllowance }
+          : undefined;
       }
       throw answer === 'declined'
         ? new ForgeRunGateError(
@@ -3814,12 +4417,16 @@ export class ForgeHandler implements DomainHandler {
           ? { journalId: entry.journalId, part: entry.journalPart }
           : undefined;
       const notLookedFor = notLookedForOf(entry.mayHaveBeenWritten, { ...lookedFor, reconciled });
+      // The sizes a limit of the target's automation taught an earlier
+      // removal are kept on the run's plan alone: its entry holds none.
+      const deleteSizes = (await this.keptRemovalPlan(forgeId))?.deleteSizes;
       run = {
         ...entry,
         targetOrgId: entry.targetOrgId,
         unreachable: unreachableAfter(entry.mayHaveBeenWritten, reconciled),
         ...(notLookedFor ? { notLookedFor } : {}),
         ...(inJournal ? { inJournal } : {}),
+        ...(deleteSizes ? { deleteSizes } : {}),
       };
       if (entry.remapInJournal) {
         // The ids of a run past the bound are read from its journal a page at
@@ -4426,6 +5033,15 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
     const { graph, config, anonymizationRules } = head.startedWith;
+    // Held to the rule of a clone of the whole org before anything else is
+    // asked of it, and refused on the record as every other resume is:
+    // `handleExecute` holds a fresh run to it, and would refuse this one
+    // without a trace in the audit trail.
+    const wholeOrgIssue = wholeOrgConfigIssue(config);
+    if (wholeOrgIssue !== undefined) {
+      refuse(WHOLE_ORG_CONFIG, `${wholeOrgIssue}. Nothing was read or written.`, targetOrgId);
+      return;
+    }
     const ceiling = this.maxRecordsPerObject();
     /** Whether the run, asked of this graph and configuration, is set up as the part it resumes. */
     const setUpAlike = (asked: { graph: ForgeGraph; config: ForgeConfig }): boolean =>
@@ -4513,7 +5129,17 @@ export class ForgeHandler implements DomainHandler {
     );
   }
 
-  /** What a run is fingerprinted by beside its graph: see `fingerprintOf`. */
+  /**
+   * What a run is fingerprinted by beside its graph: see `fingerprintOf`.
+   *
+   * The read ceiling is part of it for a run it cuts: changed between two
+   * parts, a run of whole tables would read past where the first part
+   * stopped, or short of it. A clone of the whole org reads every row of
+   * what it streams, and refuses at its write gate what it would read whole
+   * past the setting (`READ_BOUND_EXCEEDED`) rather than cut it: the setting
+   * changes nothing it reads, and taking it up after the setting changed is
+   * not refused for it.
+   */
   private runSetupOf(
     config: ForgeConfig,
     anonymizationRules: ForgeAnonymizationRules | undefined,
@@ -4523,7 +5149,7 @@ export class ForgeHandler implements DomainHandler {
     return {
       config: { ...config, dryRun: undefined },
       anonymizationRules: anonymizationRules ?? {},
-      ceiling,
+      ceiling: config.inputMode === 'org' ? null : ceiling,
       targetSalesforceOrgId: targetSalesforceOrgId?.slice(0, 15) ?? null,
     };
   }
@@ -5120,12 +5746,15 @@ export class ForgeHandler implements DomainHandler {
       // when a roll-up counts it, which read afterwards was a change since
       // the run. A cancel during the sweep stops the removal too.
       const sweepMade: { result?: ForgeSweepResult } = {};
+      // The sweep spends the removal's allowance of smaller calls with it,
+      // as the removal hands it over: one bound for the two.
       const sweep = sweepOf
-        ? async (): Promise<boolean> => {
+        ? async (allowance?: SplitAllowance): Promise<boolean> => {
             sweepMade.result = await this.sweepBeforeRemoval({
               conn,
               entry: sweepOf,
               includeChanged,
+              ...(allowance ? { allowance } : {}),
               removalSpans: entry.removalSpans ?? [],
               signal: stop.signal,
               guard,
@@ -5155,6 +5784,9 @@ export class ForgeHandler implements DomainHandler {
                 : { runDurationMs: entry.duration, runRecordedAt: new Date(entry.timestamp) }),
               ...(Object.keys(stampedBefore).length > 0 ? { removalStamps: stampedBefore } : {}),
               ...(entry.removalSpans ? { removalSpans: entry.removalSpans } : {}),
+              // What a limit of the target's automation taught an earlier
+              // removal: those objects go at the size it called for.
+              ...(entry.deleteSizes ? { deleteSizes: entry.deleteSizes } : {}),
               ...(sweep ? { sweep } : {}),
               ...(parts && parts.parts.length > 0
                 ? { otherParts: parts.parts.map((part) => part.alongside) }
@@ -5227,6 +5859,10 @@ export class ForgeHandler implements DomainHandler {
         sweepResult && sweepMarkOf(sweepResult, new Date().toISOString(), sweepOf?.sweep);
       const stamped = Object.keys(outcome.stamps).length > 0;
       const ran = outcome.span;
+      // The sizes a limit cut this removal's calls to, kept on the plan for
+      // the next removal of the run to start at.
+      const sized = outcome.sizes?.() ?? {};
+      const resized = Object.keys(sized).length > 0;
       let left: string[] | undefined;
       let leftCounts: Array<{ objectApiName: string; count: number }> | undefined;
       if (inJournal) {
@@ -5257,7 +5893,7 @@ export class ForgeHandler implements DomainHandler {
         const gone = new Set(outcome.gone);
         left = plan.flatMap(({ ids }) => ids.filter((id) => !gone.has(id)));
       }
-      if (mark || stamped || ran || left || leftCounts || swept) {
+      if (mark || stamped || ran || left || leftCounts || swept || resized) {
         // The history entry and the plan kept of the run say the same of its
         // removals: either may be the one the next removal reads.
         const marked = <T extends RemovalState>(e: T): T => ({
@@ -5285,6 +5921,7 @@ export class ForgeHandler implements DomainHandler {
               ...(kept.inJournal && leftCounts
                 ? { inJournal: { ...kept.inJournal, left: leftCounts } }
                 : {}),
+              ...(resized ? { deleteSizes: smallestSizes(kept.deleteSizes, sized) } : {}),
             };
             return forgeRemovalPlanCountsLeft(next).length > 0 ? next : undefined;
           })
@@ -5609,6 +6246,8 @@ export class ForgeHandler implements DomainHandler {
     guard: ProductionGuard;
     orgTier: SafetyTier;
     operationId: string;
+    /** The removal's allowance of smaller calls, which the sweep spends with it. */
+    allowance?: SplitAllowance;
   }): Promise<ForgeSweepResult> {
     const { conn, entry, guard, orgTier } = context;
     const targetOrgId = entry.targetOrgId ?? '';
@@ -5622,6 +6261,7 @@ export class ForgeHandler implements DomainHandler {
         result = await sweepRunRecords(removalOrg(conn, 'forge:undo sweep'), input, {
           includeChanged: context.includeChanged,
           removalSpans: context.removalSpans,
+          ...(context.allowance ? { allowance: context.allowance } : {}),
           approve: async (listing) => {
             const { check, decision } = await consultProductionGuard(guard, {
               orgId: targetOrgId,
@@ -5975,6 +6615,22 @@ export class ForgeHandler implements DomainHandler {
     );
     if (!parsed) return;
     const { graph, config, anonymizationRules } = parsed;
+    // A clone of the whole org is not rehearsed in this version: the
+    // rehearser holds every row it prepares, and a whole org does not fit in
+    // memory. Its confirmation, always asked, lists what it writes. Refused
+    // before anything is read, as a malformed message is: nothing to audit.
+    const wholeOrgIssue = wholeOrgConfigIssue(config);
+    if (wholeOrgIssue !== undefined || config.inputMode === 'org') {
+      refuse(
+        new Error(
+          wholeOrgIssue !== undefined
+            ? `${wholeOrgIssue}. Nothing was read or sent.`
+            : WHOLE_ORG_REHEARSAL_MESSAGE,
+        ),
+        wholeOrgIssue !== undefined ? WHOLE_ORG_CONFIG : WHOLE_ORG_REHEARSAL,
+      );
+      return;
+    }
     /**
      * The rehearsal's entry in the audit trail: what it judged, or why it
      * stopped or failed. It creates records in the target, rolled back with

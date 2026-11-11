@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Connection } from 'jsforce';
 import type { ForgeConfig } from '@sandforge/shared';
-import { buildSyntheticForgeGraph } from '@sandforge/shared';
+import { buildSyntheticForgeGraph, SF_API_VERSION } from '@sandforge/shared';
 
 /** What VS Code calls when a setting changes, as the listeners registered below gave it. */
 type ConfigurationListener = (event: {
@@ -22,8 +22,15 @@ vi.mock('../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('../core/connection/ConnectionHelper.js', () => ({ getJsforceConnection: vi.fn() }));
+// The real write, unless a test makes one job lost: one read back for ten
+// minutes of Forge's waits is too long to sit through.
+vi.mock('../modules/forge/forgeBulkWrite.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../modules/forge/forgeBulkWrite.js')>();
+  return { ...actual, forgeBulkWrite: vi.fn(actual.forgeBulkWrite) };
+});
 
 import { getJsforceConnection } from '../core/connection/ConnectionHelper.js';
+import { BulkJobLostError, forgeBulkWrite } from '../modules/forge/forgeBulkWrite.js';
 import { initForgeComposition, registerForgeGraphViewListener } from './forgeComposition.js';
 import type { ForgeCompositionDeps } from './forgeComposition.js';
 import type { ForgeOrchestrator } from '../modules/forge/ForgeOrchestrator.js';
@@ -31,6 +38,9 @@ import type { ForgeServices } from '../bridge/handlers/ForgeHandler.js';
 import { ForgeRemovalPlanStore } from '../modules/forge/ForgeRemovalPlanStore.js';
 import { PIIDetector } from '../core/precheck/PIIDetector.js';
 import { SchemaCache } from '../core/metadata/SchemaCache.js';
+import { BulkApiManager } from '../core/engine/BulkApiManager.js';
+import type { ForgeExecutor, ForgeExecutorDeps } from '../modules/forge/ForgeExecutor.js';
+import type { GraphDiscoveryDeps } from '../modules/forge/GraphDiscoveryService.js';
 
 /** A field as jsforce's describe returns it, reduced to what Forge reads. */
 function field(name: string, type: string, referenceTo: string[] = []) {
@@ -818,6 +828,265 @@ describe('initForgeComposition', () => {
     ]);
   });
 
+  it("reads and counts the archived activities through the org's queryAll when asked, each call counted, and any other read through query", async () => {
+    const sent: Array<{ soql: string; scanAll: boolean }> = [];
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      return {
+        ...connection,
+        query: vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
+          sent.push({ soql, scanAll: options?.scanAll === true });
+          if (/COUNT\(\)/i.test(soql)) return { totalSize: 7, done: true, records: [] };
+          return {
+            totalSize: 2,
+            done: false,
+            // As jsforce 3 gives it, whatever opened the cursor.
+            nextRecordsUrl: '/services/data/v62.0/query/01g-2000',
+            records: [{ Id: '00T000000000001AAA' }],
+          };
+        }),
+        queryMore: vi.fn(async (url: string) => {
+          sent.push({ soql: url, scanAll: false });
+          return { totalSize: 2, done: true, records: [{ Id: '00T000000000002AAA' }] };
+        }),
+      } as unknown as Connection;
+    });
+    const { orchestrator, services } = await compose();
+    const deps = (orchestrator as unknown as { deps: { executor: { deps: ForgeExecutorDeps } } })
+      .deps.executor.deps;
+    const before = services.requestsSent?.() ?? 0;
+    const statement = 'SELECT Id FROM Task WHERE IsDeleted = false ORDER BY Id';
+
+    const pages: unknown[][] = [];
+    for await (const page of deps.queryPages?.('src', statement, { all: true }) ?? []) {
+      pages.push(page);
+    }
+    const counted = await deps.countRecords?.('src', 'SELECT COUNT() FROM Task', { all: true });
+    await deps.countRecords?.('src', 'SELECT COUNT() FROM Account');
+
+    expect(pages).toEqual([[{ Id: '00T000000000001AAA' }], [{ Id: '00T000000000002AAA' }]]);
+    expect(counted).toBe(7);
+    expect(sent).toEqual([
+      { soql: statement, scanAll: true },
+      { soql: '/services/data/v62.0/query/01g-2000', scanAll: false },
+      { soql: 'SELECT COUNT() FROM Task', scanAll: true },
+      { soql: 'SELECT COUNT() FROM Account', scanAll: false },
+    ]);
+    expect((services.requestsSent?.() ?? 0) - before).toBe(4);
+  });
+
+  describe('the discovery of a whole org', () => {
+    /** An object as jsforce's global describe lists it, the user free to do anything with it. */
+    const listed = (name: string, extra: Record<string, unknown> = {}) => ({
+      name,
+      keyPrefix: PREFIX[name] ?? null,
+      queryable: true,
+      createable: true,
+      updateable: true,
+      deletable: true,
+      custom: name.endsWith('__c'),
+      customSetting: false,
+      layoutable: true,
+      label: `${name} label`,
+      urls: {},
+      ...extra,
+    });
+
+    /** The deps the composition gave discovery. */
+    const discoveryDeps = (orchestrator: ForgeOrchestrator): GraphDiscoveryDeps =>
+      (orchestrator as unknown as { deps: { discoveryService: { deps: GraphDiscoveryDeps } } }).deps
+        .discoveryService.deps;
+
+    it('lists each object with what the user may do with it, and nothing else of what the org says', async () => {
+      vi.mocked(getJsforceConnection).mockImplementation(
+        async (orgId: string) =>
+          ({
+            ...fakeConnection(orgId),
+            describeGlobal: vi.fn(async () => ({
+              sobjects: [
+                listed('Account'),
+                listed('Endpoints__c', {
+                  customSetting: true,
+                  layoutable: false,
+                  deletable: false,
+                }),
+              ],
+            })),
+          }) as unknown as Connection,
+      );
+      const { orchestrator } = await compose();
+
+      const objects = await discoveryDeps(orchestrator).describeGlobal('src');
+
+      expect(objects).toEqual([
+        {
+          name: 'Account',
+          keyPrefix: '001',
+          queryable: true,
+          createable: true,
+          updateable: true,
+          deletable: true,
+          custom: false,
+          customSetting: false,
+          layoutable: true,
+        },
+        {
+          name: 'Endpoints__c',
+          keyPrefix: null,
+          queryable: true,
+          createable: true,
+          updateable: true,
+          deletable: false,
+          custom: true,
+          customSetting: true,
+          layoutable: false,
+        },
+      ]);
+    });
+
+    it('reads the names the Tooling API serves, and none when the org will not say', async () => {
+      let toolingFails = false;
+      vi.mocked(getJsforceConnection).mockImplementation(
+        async (orgId: string) =>
+          ({
+            ...fakeConnection(orgId),
+            tooling: {
+              describeGlobal: vi.fn(async () => {
+                if (toolingFails) throw new Error('INSUFFICIENT_ACCESS: no Tooling API');
+                return { sobjects: [{ name: 'ApexClass' }, { name: 'Flow' }] };
+              }),
+            },
+          }) as unknown as Connection,
+      );
+      const { orchestrator } = await compose();
+      const deps = discoveryDeps(orchestrator);
+
+      expect(await deps.toolingObjects?.('tgt')).toEqual(['ApexClass', 'Flow']);
+      toolingFails = true;
+      expect(await deps.toolingObjects?.('tgt')).toEqual([]);
+    });
+
+    it("reads the org's approximate record counts in one call, and none when the org refuses it", async () => {
+      const requested: string[] = [];
+      let refuses = false;
+      vi.mocked(getJsforceConnection).mockImplementation(
+        async (orgId: string) =>
+          ({
+            ...fakeConnection(orgId),
+            request: vi.fn(async (url: string) => {
+              requested.push(url);
+              if (refuses) {
+                throw Object.assign(new Error('The REST API is not enabled for this user'), {
+                  errorCode: 'API_DISABLED_FOR_ORG',
+                });
+              }
+              return {
+                sObjects: [
+                  { name: 'Account', count: 1200 },
+                  { name: 'Invoice__c', count: 0 },
+                  { name: 42, count: 'odd' },
+                ],
+              };
+            }),
+          }) as unknown as Connection,
+      );
+      const { orchestrator } = await compose();
+      const deps = discoveryDeps(orchestrator);
+
+      const figures = await deps.approximateRecordCounts?.('src');
+      refuses = true;
+      const refused = await deps.approximateRecordCounts?.('src');
+
+      expect(figures ? [...figures] : figures).toEqual([
+        ['Account', 1200],
+        ['Invoice__c', 0],
+      ]);
+      expect(refused).toBeUndefined();
+      expect(requested).toEqual([
+        `/services/data/${SF_API_VERSION}/limits/recordCount`,
+        `/services/data/${SF_API_VERSION}/limits/recordCount`,
+      ]);
+    });
+
+    it("counts through the org's queryAll when asked, and through query otherwise", async () => {
+      const sent: Array<{ soql: string; scanAll: boolean }> = [];
+      vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+        const connection = fakeConnection(orgId);
+        return {
+          ...connection,
+          query: vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
+            sent.push({ soql, scanAll: options?.scanAll === true });
+            return { totalSize: 5, done: true, records: [] };
+          }),
+        } as unknown as Connection;
+      });
+      const { orchestrator } = await compose();
+      const deps = discoveryDeps(orchestrator);
+
+      const tasks = await deps.queryCount(
+        'src',
+        'SELECT COUNT() FROM Task WHERE IsDeleted = false',
+        undefined,
+        { all: true },
+      );
+      await deps.queryCount('src', 'SELECT COUNT() FROM Account');
+
+      expect(tasks).toBe(5);
+      expect(sent).toEqual([
+        { soql: 'SELECT COUNT() FROM Task WHERE IsDeleted = false', scanAll: true },
+        { soql: 'SELECT COUNT() FROM Account', scanAll: false },
+      ]);
+    });
+
+    it('discovers every object both orgs let the clone take, through the orchestrator', async () => {
+      vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+        const connection = fakeConnection(orgId);
+        return {
+          ...connection,
+          describeGlobal: vi.fn(async () => ({
+            sobjects: [
+              listed('Account'),
+              listed('Contact'),
+              listed('Opportunity'),
+              listed('AccountHistory'),
+              listed('ApexClass', { createable: false }),
+            ],
+          })),
+          tooling: { describeGlobal: vi.fn(async () => ({ sobjects: [{ name: 'ApexClass' }] })) },
+          request: vi.fn(async () => ({ sObjects: [{ name: 'Opportunity', count: 900 }] })),
+          query: vi.fn(async (soql: string) => {
+            // The opportunities' count never answers: the org's figure stands.
+            if (/FROM Opportunity/.test(soql)) throw new Error('socket hang up');
+            return { totalSize: 2, done: true, records: [] };
+          }),
+        } as unknown as Connection;
+      });
+      const { orchestrator } = await compose();
+
+      const graph = await orchestrator.discover({
+        ...SOQL_CONFIG,
+        inputMode: 'org',
+        depth: 'all',
+        soqlQuery: undefined,
+      });
+
+      expect(graph.nodes.map((n) => [n.objectApiName, n.recordCount, n.level])).toEqual([
+        ['Account', 2, 1],
+        ['Contact', 2, 2],
+        ['Opportunity', 900, 2],
+      ]);
+      expect(graph.nodes[2].recordCountApproximate).toBe(true);
+      expect(graph.edges.map((e) => `${e.sourceObject}>${e.targetObject}`).sort()).toEqual([
+        'Account>Contact',
+        'Account>Opportunity',
+      ]);
+      expect(graph.leftOut).toEqual([
+        { objectApiName: 'AccountHistory', reason: 'history' },
+        { objectApiName: 'ApexClass', reason: 'metadata' },
+      ]);
+    });
+  });
+
   it('reads no more rows of an object than the run is set to read, and says the rest was not read', async () => {
     vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
       const connection = fakeConnection(orgId);
@@ -1108,9 +1377,10 @@ describe('initForgeComposition', () => {
     expect(describeCalls.get('tgt::Account')).toBe(1);
   });
 
-  it('lets its describes go once they are five minutes old, read or not', async () => {
+  it('lets its describes go once they are ten minutes old, read or not', async () => {
     // Kept until read, the describes of a run stayed on the extension host's
-    // heap, which every extension shares, for the life of the window.
+    // heap, which every extension shares, for the life of the window. Ten
+    // minutes rather than five: a whole org's discovery alone takes minutes.
     const { services } = await compose();
     const set = vi.spyOn(SchemaCache.prototype, 'set');
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
@@ -1123,6 +1393,9 @@ describe('initForgeComposition', () => {
       expect(holders[0].size).toBeGreaterThan(0);
 
       vi.advanceTimersByTime(5 * 60_000 + 1_000);
+      expect(holders[0].size).toBeGreaterThan(0);
+
+      vi.advanceTimersByTime(5 * 60_000);
 
       expect(holders[0].size).toBe(0);
     } finally {
@@ -1448,6 +1721,218 @@ describe('initForgeComposition', () => {
     expect(result.idRemapCreated).toContainEqual({
       objectApiName: 'ContentDocument',
       sourceIds: [DOCUMENT],
+    });
+  });
+  describe('a run that writes through the Bulk API', () => {
+    /** The executor the orchestrator runs, and the deps the composition wired it with. */
+    function executorOf(orchestrator: ForgeOrchestrator): ForgeExecutor {
+      return (orchestrator as unknown as { deps: { executor: ForgeExecutor } }).deps.executor;
+    }
+
+    /** The jobs the fake org was sent, and every call each sent. */
+    let jobs: Array<{ options: Record<string, unknown>; calls: string[] }>;
+
+    /** A connection whose source holds 2 000 opportunities, and whose Bulk API writes every job. */
+    function bulkConnection(orgId: string) {
+      const connection = fakeConnection(orgId);
+      return {
+        ...connection,
+        query: vi.fn(async (soql: string) => {
+          if (/FROM DuplicateRule/.test(soql)) {
+            return { totalSize: 1, done: true, records: [{ SobjectType: 'Account' }] };
+          }
+          if (/\bFROM Opportunity\b/.test(soql) && !/COUNT\(\)/i.test(soql)) {
+            const records = Array.from({ length: 2_000 }, (_, i) => ({
+              Id: sfId('Opportunity', i + 1),
+              Name: `Opportunity ${i + 1}`,
+              AccountId: sfId('Account', 1 + (i % 2)),
+            }));
+            return { totalSize: records.length, done: true, records };
+          }
+          return connection.query(soql);
+        }),
+        bulk2: {
+          createJob: (options: Record<string, unknown>) => {
+            const job = { options: { ...options }, calls: [] as string[] };
+            jobs.push(job);
+            let uploaded = '';
+            let opened = false;
+            return {
+              get id() {
+                return opened ? '750000000000001AAA' : undefined;
+              },
+              open: async () => {
+                job.calls.push('open');
+                opened = true;
+              },
+              uploadData: async (csv: string) => {
+                job.calls.push('upload');
+                uploaded = csv;
+              },
+              close: async () => {
+                job.calls.push('close');
+              },
+              abort: async () => {
+                job.calls.push('abort');
+              },
+              check: async () => {
+                job.calls.push('check');
+                return { state: 'JobComplete' };
+              },
+              getAllResults: async () => {
+                job.calls.push('results');
+                const [header, ...lines] = uploaded.trimEnd().split('\n');
+                const columns = header.split(',');
+                return {
+                  successfulResults: lines.map((line, i) => ({
+                    sf__Id: sfId('Opportunity', 900 + i),
+                    sf__Created: 'true',
+                    ...Object.fromEntries(columns.map((c, at) => [c, line.split(',')[at] ?? ''])),
+                  })),
+                  failedResults: [],
+                  unprocessedRecords: [],
+                };
+              },
+            };
+          },
+          job: () => ({
+            check: async () => ({ state: 'JobComplete' }),
+            getSuccessfulResults: async () => [],
+            getAllResults: async () => ({ successfulResults: [] }),
+            abort: async () => undefined,
+          }),
+        },
+      };
+    }
+
+    beforeEach(() => {
+      jobs = [];
+      vi.mocked(getJsforceConnection).mockImplementation(
+        async (orgId: string) => bulkConnection(orgId) as unknown as Connection,
+      );
+    });
+
+    it('sends a write of 2 000 rows as a job naming no assignment rule, counts each of its calls, and writes what a duplicate rule watches by REST', async () => {
+      const { orchestrator } = await compose();
+      const graph = await orchestrator.discover(SOQL_CONFIG);
+      const opportunities = graph.nodes.find((n) => n.objectApiName === 'Opportunity');
+      if (opportunities) opportunities.batchStrategy = 'auto';
+
+      const summary = await executorOf(orchestrator).execute(graph, 'src', 'tgt', () => undefined, {
+        writeApi: 'auto',
+      });
+
+      expect(jobs.map(({ options }) => options)).toEqual([
+        { operation: 'insert', object: 'Opportunity' },
+      ]);
+      expect(jobs[0].calls).toEqual(['open', 'upload', 'close', 'check', 'results']);
+      expect(summary.successCount).toBeGreaterThanOrEqual(2_000);
+      // The accounts a duplicate rule watches went by REST, with the header that waives it.
+      expect(createHeaders.map(({ objectApiName }) => objectApiName)).toContain('Account');
+      expect(createHeaders.map(({ objectApiName }) => objectApiName)).not.toContain('Opportunity');
+      // Its calls counted as it sent them: opened, sent, closed, its state read
+      // once and its results three ways, and the duplicate rules read once —
+      // eight, where the same run by REST, wired afresh, sends ten calls of 200.
+      const rest = await compose();
+      const restGraph = await rest.orchestrator.discover(SOQL_CONFIG);
+      const byRest = await executorOf(rest.orchestrator).execute(
+        restGraph,
+        'src',
+        'tgt',
+        () => undefined,
+      );
+      expect((byRest.apiCalls ?? 0) - (summary.apiCalls ?? 0)).toBe(2);
+    });
+
+    it('sends no job of a lead or a case while the run applies the target’s assignment rules', async () => {
+      const { orchestrator } = await compose();
+      const graph = await orchestrator.discover(SOQL_CONFIG);
+      // The orchestrator says what the run asks of the target's rules before it runs.
+      await orchestrator.execute(graph, { ...SOQL_CONFIG, applyAssignmentRules: true });
+      const deps = (executorOf(orchestrator) as unknown as { deps: ForgeExecutorDeps }).deps;
+
+      const answer = await deps.bulkWriteRecords?.('tgt', 'Lead', 'insert', [{ LastName: 'x' }], {
+        bulkManager: new BulkApiManager(1),
+      });
+
+      expect(answer?.untouched).toMatchObject({ unsupported: true });
+      expect(answer?.requests).toBe(0);
+      expect(jobs).toEqual([]);
+    });
+
+    it('notes a job closed and lost for the run’s end, which reads its state again by its id through the target’s connection', async () => {
+      // The run's end waits for such a job before it gives back the mute of
+      // the target's automation: noted nowhere, the mute went back at once,
+      // and the org wrote the job's rows with every flow and trigger running.
+      const LOST = '750000000000LOSTAA';
+      const reads: Array<{ orgId: string; type: string; id: unknown }> = [];
+      vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+        const connection = bulkConnection(orgId);
+        return {
+          ...connection,
+          bulk2: {
+            ...connection.bulk2,
+            job: (type: string, options: { id?: string }) => {
+              reads.push({ orgId, type, id: options.id });
+              return { check: async () => ({ state: 'JobComplete' }) };
+            },
+          },
+        } as unknown as Connection;
+      });
+      const { orchestrator, services } = await compose();
+      const deps = (executorOf(orchestrator) as unknown as { deps: ForgeExecutorDeps }).deps;
+      const lost = services.lostBulkJobs;
+      const mark = lost?.count ?? 0;
+      vi.mocked(forgeBulkWrite).mockRejectedValueOnce(
+        new BulkJobLostError(LOST, 'the org did not answer'),
+      );
+
+      await expect(
+        deps.bulkWriteRecords?.('tgt', 'Contact', 'insert', [{ LastName: 'x' }], {
+          bulkManager: new BulkApiManager(1),
+        }),
+      ).rejects.toBeInstanceOf(BulkJobLostError);
+
+      const noted = lost?.since(mark, 'tgt') ?? [];
+      expect(noted).toEqual([{ orgId: 'tgt', objectApiName: 'Contact', jobId: LOST }]);
+      expect(lost?.since(mark, 'src')).toEqual([]);
+      let sent = 0;
+      expect(await lost?.stillRunning(noted, () => sent++)).toEqual([]);
+      expect(reads).toEqual([{ orgId: 'tgt', type: 'ingest', id: LOST }]);
+      expect(sent).toBe(1);
+    });
+
+    it('notes no job of a write that failed before its job was closed', async () => {
+      const { orchestrator, services } = await compose();
+      const deps = (executorOf(orchestrator) as unknown as { deps: ForgeExecutorDeps }).deps;
+      const mark = services.lostBulkJobs?.count ?? 0;
+      vi.mocked(forgeBulkWrite).mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+
+      await expect(
+        deps.bulkWriteRecords?.('tgt', 'Contact', 'insert', [{ LastName: 'x' }], {
+          bulkManager: new BulkApiManager(1),
+        }),
+      ).rejects.toThrow('INVALID_SESSION_ID');
+
+      expect(services.lostBulkJobs?.count).toBe(mark);
+    });
+
+    it('reads which objects the target’s duplicate rules watch, and says nothing when it will not say', async () => {
+      const { orchestrator } = await compose();
+      const deps = (executorOf(orchestrator) as unknown as { deps: ForgeExecutorDeps }).deps;
+
+      expect(await deps.duplicateRuleObjects?.('tgt')).toEqual(new Set(['Account']));
+
+      vi.mocked(getJsforceConnection).mockImplementation(
+        async (orgId: string) =>
+          ({
+            ...bulkConnection(orgId),
+            query: vi.fn(async () => {
+              throw new Error('INVALID_TYPE: sObject type DuplicateRule is not supported');
+            }),
+          }) as unknown as Connection,
+      );
+      expect(await deps.duplicateRuleObjects?.('tgt')).toBeUndefined();
     });
   });
 });

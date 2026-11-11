@@ -184,7 +184,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
           <Dialog.Portal forceMount>
             <Dialog.Overlay asChild>
               <m.div
-                className="fixed inset-0 z-50 flex items-center justify-center glass-overlay"
+                className="fixed inset-0 z-50 flex items-center justify-center p-4 glass-overlay"
                 variants={fadeIn}
                 initial="hidden"
                 animate="visible"
@@ -197,9 +197,15 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                   onOpenAutoFocus={focusField}
                   onCloseAutoFocus={giveFocusBack}
                 >
+                  {/* Held to the panel's height, the title and what arms the
+                      Confirm button always in sight: the removal of a clone
+                      of a whole org listed some thirty objects and the
+                      automation that fires as each goes, the dialog ran past
+                      the bottom of the panel, and its field and buttons could
+                      not be reached. What is said between them scrolls. */}
                   <m.div
                     className={cn(
-                      'rounded-lg p-4 max-w-md w-full',
+                      'flex flex-col max-h-full rounded-lg p-4 max-w-md w-full',
                       'bg-(--vscode-editor-background,#1e1e1e)',
                       styles.border,
                       'border shadow-xl',
@@ -212,24 +218,33 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Dialog.Title
-                      className={cn('text-base font-semibold', styles.accent)}
+                      className={cn('shrink-0 text-base font-semibold', styles.accent)}
                       data-testid="danger-title"
                     >
                       {title}
                     </Dialog.Title>
-                    <Dialog.Description className="text-xs text-(--vscode-descriptionForeground,#868686) mt-2">
-                      {description}
-                    </Dialog.Description>
-                    {children && (
-                      <div
-                        className="mt-3 text-xs text-(--vscode-editor-foreground,#d4d4d4)"
-                        data-testid="danger-details"
-                      >
-                        {children}
-                      </div>
-                    )}
+                    <div
+                      role="region"
+                      aria-label={title}
+                      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a long list of details scrolls, and none of its lines is a control to reach it by: the region takes the focus itself, so the keyboard can scroll it (axe scrollable-region-focusable).
+                      tabIndex={0}
+                      className="min-h-0 overflow-y-auto mt-2 -mr-2 pr-2 rounded-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--sf-accent)"
+                      data-testid="danger-scroll"
+                    >
+                      <Dialog.Description className="text-xs text-(--vscode-descriptionForeground,#868686)">
+                        {description}
+                      </Dialog.Description>
+                      {children && (
+                        <div
+                          className="mt-3 text-xs text-(--vscode-editor-foreground,#d4d4d4)"
+                          data-testid="danger-details"
+                        >
+                          {children}
+                        </div>
+                      )}
+                    </div>
                     {asksToType && (
-                      <>
+                      <div className="shrink-0">
                         {/* One translated sentence rather than three glued
                             fragments: languages that put the literal first or
                             last need the <code> to move with it. */}
@@ -273,9 +288,9 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                           aria-labelledby={promptId}
                           data-testid="danger-input"
                         />
-                      </>
+                      </div>
                     )}
-                    <div className="flex justify-end gap-2 mt-4">
+                    <div className="shrink-0 flex justify-end gap-2 mt-4">
                       <button
                         ref={dismissRef}
                         className="px-3 py-1.5 text-sm rounded-sm bg-(--vscode-button-secondaryBackground,#3a3d41) text-(--vscode-button-secondaryForeground,#fff) hover:bg-(--vscode-button-secondaryHoverBackground,#45494e)"

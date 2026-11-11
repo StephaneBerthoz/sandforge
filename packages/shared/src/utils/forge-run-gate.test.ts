@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FORGE_RUN_GATE_CODES, forgeRunGateStopOf, isForgeRunGateCode } from './forge-run-gate.js';
 
 describe('forge run gate stops', () => {
-  it('names the six ways a run stops at its gate', () => {
+  it('names the eight ways a run stops at its gate', () => {
     expect(FORGE_RUN_GATE_CODES).toEqual([
       'PRODUCTION_TARGET',
       'AUTOMATION_DECLINED',
@@ -10,6 +10,8 @@ describe('forge run gate stops', () => {
       'WRITE_DECLINED',
       'STORAGE_EXCEEDED',
       'CONFIRMATION_UNAVAILABLE',
+      'API_BUDGET_EXCEEDED',
+      'READ_BOUND_EXCEEDED',
     ]);
   });
 
@@ -37,6 +39,59 @@ describe('forge run gate stops', () => {
     });
   });
 
+  it('reads which storage a refusal for storage names, the data storage when it says none', () => {
+    expect(
+      forgeRunGateStopOf({
+        code: 'STORAGE_EXCEEDED',
+        storage: { estimateMB: 2_048, remainingMB: 1_000, kind: 'files' },
+      }),
+    ).toEqual({
+      code: 'STORAGE_EXCEEDED',
+      storage: { estimateMB: 2_048, remainingMB: 1_000, kind: 'files' },
+    });
+    expect(
+      forgeRunGateStopOf({ code: 'STORAGE_EXCEEDED', storage: { estimateMB: 1, remainingMB: 0 } })
+        ?.storage,
+    ).not.toHaveProperty('kind');
+  });
+
+  it('reads a refusal for the API budget: which allowance, of which org, and its figures', () => {
+    expect(
+      forgeRunGateStopOf({
+        code: 'API_BUDGET_EXCEEDED',
+        api: { kind: 'requests', org: 'source', estimate: 120_000, remaining: 4_000 },
+      }),
+    ).toEqual({
+      code: 'API_BUDGET_EXCEEDED',
+      api: { kind: 'requests', org: 'source', estimate: 120_000, remaining: 4_000 },
+    });
+    // An org over its allocation says what is left below zero.
+    expect(
+      forgeRunGateStopOf({
+        code: 'API_BUDGET_EXCEEDED',
+        api: { kind: 'bulkBatches', org: 'target', estimate: 900, remaining: -2 },
+      })?.api,
+    ).toEqual({ kind: 'bulkBatches', org: 'target', estimate: 900, remaining: -2 });
+    expect(forgeRunGateStopOf({ code: 'API_BUDGET_EXCEEDED' })).toEqual({
+      code: 'API_BUDGET_EXCEEDED',
+    });
+  });
+
+  it('reads a refusal for an object read whole: the bound and each object past it', () => {
+    const readBound = {
+      bound: 50_000,
+      objects: [
+        { objectApiName: 'PricebookEntry', rows: 72_000 },
+        { objectApiName: 'Product2', rows: 51_000 },
+      ],
+    };
+
+    expect(forgeRunGateStopOf({ code: 'READ_BOUND_EXCEEDED', readBound })).toEqual({
+      code: 'READ_BOUND_EXCEEDED',
+      readBound,
+    });
+  });
+
   it('reads nothing from a field that is not a stop', () => {
     expect(forgeRunGateStopOf(undefined)).toBeNull();
     expect(forgeRunGateStopOf({ code: 'EXECUTE_ERROR' })).toBeNull();
@@ -45,5 +100,35 @@ describe('forge run gate stops', () => {
     );
     expect(forgeRunGateStopOf('PRODUCTION_TARGET')).toBeNull();
     expect(forgeRunGateStopOf({ code: 'READ_DECLINED', ceiling: -1 })).toBeNull();
+    expect(
+      forgeRunGateStopOf({
+        code: 'STORAGE_EXCEEDED',
+        storage: { estimateMB: 1, remainingMB: 0, kind: 'logs' },
+      }),
+    ).toBeNull();
+    expect(
+      forgeRunGateStopOf({
+        code: 'API_BUDGET_EXCEEDED',
+        api: { kind: 'calls', org: 'target', estimate: 1, remaining: 0 },
+      }),
+    ).toBeNull();
+    expect(
+      forgeRunGateStopOf({
+        code: 'API_BUDGET_EXCEEDED',
+        api: { kind: 'requests', org: 'both', estimate: 1, remaining: 0 },
+      }),
+    ).toBeNull();
+    expect(
+      forgeRunGateStopOf({ code: 'READ_BOUND_EXCEEDED', readBound: { bound: 0, objects: [] } }),
+    ).toBeNull();
+    expect(
+      forgeRunGateStopOf({
+        code: 'READ_BOUND_EXCEEDED',
+        readBound: {
+          bound: 10,
+          objects: Array.from({ length: 201 }, (_, i) => ({ objectApiName: `O${i}`, rows: 11 })),
+        },
+      }),
+    ).toBeNull();
   });
 });

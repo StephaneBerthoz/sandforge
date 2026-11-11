@@ -1,6 +1,7 @@
 import * as fc from 'fast-check';
 import { describe, it, expect, expectTypeOf, vi } from 'vitest';
 import {
+  BYTES_PER_MB,
   DATA_STORAGE_NOT_TOLD,
   type ForgeAutomationWrite,
   type ForgeGraphEdge,
@@ -13,6 +14,9 @@ import {
   apiBudgetCheckOf,
   apiBudgetRefusal,
   confirmationApiOf,
+  likelyRest,
+  FORGE_BULK_WRITER,
+  runDurationSeconds,
   runRequestsEstimate,
   runRequestsTotal,
   type RunRequestParts,
@@ -45,8 +49,14 @@ import {
   objectsUpdatedAfterInsert,
   pricesForLinesOf,
   readApiBudget,
+  readBoundRefusal,
   readDataStorage,
   readEmailLimits,
+  BULK_BATCHES_NOT_TOLD,
+  bulkBatchesRefusal,
+  fileStorageRefusal,
+  sourceApiBudgetRefusal,
+  wholeOrgMeasuresOf,
   removalAutomationLines,
   removalAutomationRefusal,
   removalRiskLines,
@@ -138,6 +148,27 @@ describe('writePlanOf', () => {
     // their own and none for the person accounts', one campaign.
     expect(plan.storageBytes).toBe(6 * 2 * KB + 4 * 4 * KB + 8 * 2 * KB + 8 * KB);
     expect(plan.leftOut).toBeUndefined();
+  });
+
+  it('measures counted emails by the size of their text a clone of the whole org summed, where a count says nothing of it', () => {
+    const plan = writePlanOf([
+      { objectApiName: 'EmailMessage', rows: [], counted: { rows: 3, bytes: 150 * KB } },
+      { objectApiName: 'Case', rows: [], counted: { rows: 2, bytes: 1 } },
+      { objectApiName: 'Task', rows: [], counted: { rows: 2 } },
+    ]);
+
+    // The bytes summed stand for the object, whatever it is; without them an
+    // email counted takes nothing, and any other object its documented size.
+    expect(
+      plan.objects.map(({ objectApiName, storageBytes }) => [objectApiName, storageBytes]),
+    ).toEqual([
+      ['EmailMessage', 150 * KB],
+      ['Case', 1],
+      ['Task', 2 * 2 * KB],
+    ]);
+    expect(
+      writePlanOf([{ objectApiName: 'EmailMessage', rows: [], counted: { rows: 3 } }]).storageBytes,
+    ).toBe(0);
   });
 
   it('adds up what the run will not write: what the run it retries wrote, and the objects held back', () => {
@@ -255,11 +286,31 @@ describe('readDataStorage', () => {
   it('reads the data storage the org says it has, from its limits', async () => {
     const request = vi.fn().mockResolvedValue({
       DataStorageMB: { Max: 200, Remaining: 37 },
-      FileStorageMB: { Max: 1_000, Remaining: 900 },
+      SingleEmail: { Max: 15, Remaining: 3 },
     });
 
     await expect(readDataStorage({ request })).resolves.toEqual({ maxMB: 200, remainingMB: 37 });
     expect(request).toHaveBeenCalledWith({ method: 'GET', url: '/limits' });
+  });
+
+  it('reads from the same answer the file storage and the daily Bulk API batches, when it lists them', async () => {
+    // What a clone of the whole org weighs its files and its jobs against,
+    // with no request beside the one its data storage takes.
+    const request = vi.fn().mockResolvedValue({
+      DataStorageMB: { Max: 200, Remaining: 37 },
+      FileStorageMB: { Max: 1_000, Remaining: 900 },
+      DailyApiRequests: { Max: 15_000, Remaining: 14_000 },
+      DailyBulkApiBatches: { Max: 15_000, Remaining: 14_990 },
+    });
+
+    await expect(readDataStorage({ request })).resolves.toEqual({
+      maxMB: 200,
+      remainingMB: 37,
+      dailyApiRequests: { max: 15_000, remaining: 14_000 },
+      dailyBulkApiBatches: { max: 15_000, remaining: 14_990 },
+      fileStorage: { maxMB: 1_000, remainingMB: 900 },
+    });
+    expect(request).toHaveBeenCalledTimes(1);
   });
 
   it('refuses an answer that does not say it, rather than taking it for enough', async () => {
@@ -288,6 +339,151 @@ describe('readDataStorage', () => {
     await expect(readApiBudget({ request: vi.fn().mockResolvedValue({}) })).rejects.toThrow(
       new Error(API_REQUESTS_NOT_TOLD),
     );
+  });
+});
+
+describe('what a clone of the whole org takes', () => {
+  const planOf = (objects: Array<[string, number]>) => ({
+    objects: objects.map(([objectApiName, rows]) => ({ objectApiName, rows, storageBytes: 0 })),
+  });
+
+  it('writes an object of 2 000 rows or more in Bulk API jobs, one batch of the day per 10 000 records', () => {
+    const measures = wholeOrgMeasuresOf(
+      planOf([
+        ['Opportunity', 25_000],
+        ['Invoice__c', 2_000],
+        ['Region__c', 1_999],
+      ]),
+    );
+
+    expect(measures.objects).toEqual([
+      { objectApiName: 'Opportunity', rows: 25_000, bulk: true },
+      { objectApiName: 'Invoice__c', rows: 2_000, bulk: true },
+      { objectApiName: 'Region__c', rows: 1_999, bulk: false },
+    ]);
+    // Opportunity: two jobs of 10 000 and one of 5 000; Invoice__c: one.
+    expect(measures.bulkBatches).toBe(4);
+    expect(measures.restObjects).toEqual(['Region__c']);
+    expect(measures.targetRequests).toBe(runRequestsEstimate(measures.objects, FORGE_BULK_WRITER));
+    expect(measures.durationSeconds).toBe(runDurationSeconds(measures.objects, FORGE_BULK_WRITER));
+  });
+
+  it('sends what a job cannot write by REST, and counts no batch for it', () => {
+    // A duplicate rule watches accounts until the target says otherwise; a
+    // task is always written by REST.
+    const measures = wholeOrgMeasuresOf(
+      planOf([
+        ['Account', 50_000],
+        ['Task', 30_000],
+      ]),
+    );
+
+    expect(measures.bulkBatches).toBe(0);
+    expect(measures.restObjects).toEqual(['Account', 'Task']);
+    expect(measures.targetRequests).toBe(Math.ceil(80_000 / 200));
+    // What the target says of its rules is followed when told.
+    expect(
+      wholeOrgMeasuresOf(planOf([['Account', 50_000]]), undefined, new Set()).bulkBatches,
+    ).toBe(5);
+  });
+
+  it('reads the source a page of 2 000 rows at a time, and each file it copies', () => {
+    expect(
+      wholeOrgMeasuresOf(
+        planOf([
+          ['Opportunity', 25_000],
+          ['Region__c', 10],
+        ]),
+      ).sourceRequests,
+    ).toBe(13 + 1);
+    // 450 files: the content of each, and their links 200 at a time; each
+    // file is a call of its own in the target too.
+    const withFiles = wholeOrgMeasuresOf(planOf([['Region__c', 10]]), { count: 450 });
+    expect(withFiles.sourceRequests).toBe(1 + 450 + 3);
+    expect(withFiles.targetRequests).toBe(1 + 450);
+  });
+
+  it('refuses in plain words what a run takes past what an org has left, and nothing within it', () => {
+    const over = apiBudgetCheckOf(20, { max: 15_000, remaining: 10 });
+    expect(bulkBatchesRefusal(over, 'DEV')).toBe(
+      'The run writes through Bulk API jobs that take about 20 of the daily Bulk API batches, ' +
+        'and DEV has 10 of its 15000 left: its jobs would be refused part way through. Run it ' +
+        'once the org has batches to spare — the limit is counted over the last 24 hours, and ' +
+        'Bulk API 1.0 shares it — or leave objects out. Nothing was written.',
+    );
+    expect(sourceApiBudgetRefusal(over, 'PROD')).toContain(
+      'The run reads the source records in about 20 API requests, and PROD has 10 of its 15000 daily requests left',
+    );
+    const fits = apiBudgetCheckOf(20, { max: 15_000, remaining: 14_000 });
+    expect(bulkBatchesRefusal(fits, 'DEV')).toBeUndefined();
+    expect(sourceApiBudgetRefusal(fits, 'PROD')).toBeUndefined();
+    expect(
+      bulkBatchesRefusal(apiBudgetCheckOf(20, { unread: BULK_BATCHES_NOT_TOLD }), 'DEV'),
+    ).toBeUndefined();
+
+    const files = storageCheckOf(
+      { storageBytes: 300 * BYTES_PER_MB },
+      { maxMB: 1_000, remainingMB: 120 },
+    );
+    expect(fileStorageRefusal(files, 'DEV')).toBe(
+      'The files to copy take about 300 MB of file storage, and DEV has 120 MB left of 1000 MB: ' +
+        'leave out the objects whose files take it, turn the copy of files off on Review, or ' +
+        'free file storage in DEV. Nothing was written.',
+    );
+    expect(
+      fileStorageRefusal(
+        storageCheckOf({ storageBytes: BYTES_PER_MB }, { maxMB: 1_000, remainingMB: 120 }),
+        'DEV',
+      ),
+    ).toBeUndefined();
+  });
+
+  it('names each object read whole past the bound, and the setting that sets it', () => {
+    expect(readBoundRefusal([{ objectApiName: 'PricebookEntry', rows: 80_000 }], 50_000)).toBe(
+      'A clone of the whole org reads a few objects whole, and PricebookEntry (80000 rows) holds ' +
+        'more than the 50000 rows of one object the sandforge.forge.maxRecordsPerObject setting ' +
+        'lets a run hold at once: raise the setting or leave the object out on Review. Nothing ' +
+        'was written.',
+    );
+    expect(
+      readBoundRefusal(
+        [
+          { objectApiName: 'PricebookEntry', rows: 80_000 },
+          { objectApiName: 'Product2', rows: 60_000 },
+        ],
+        50_000,
+      ),
+    ).toContain('PricebookEntry (80000 rows), Product2 (60000 rows) hold more than');
+  });
+
+  it('carries the API budget and the bound it refuses for in the stop the page reads', () => {
+    const api = {
+      kind: 'bulkBatches' as const,
+      org: 'target' as const,
+      estimate: 20,
+      remaining: 10,
+    };
+    expect(
+      new ForgeRunGateError('API_BUDGET_EXCEEDED', 'refused', undefined, undefined, { api }).stop,
+    ).toEqual({ code: 'API_BUDGET_EXCEEDED', api });
+    const readBound = {
+      bound: 50_000,
+      objects: [{ objectApiName: 'PricebookEntry', rows: 80_000 }],
+    };
+    expect(
+      new ForgeRunGateError('READ_BOUND_EXCEEDED', 'refused', undefined, undefined, { readBound })
+        .stop,
+    ).toEqual({ code: 'READ_BOUND_EXCEEDED', readBound });
+    expect(
+      new ForgeRunGateError('STORAGE_EXCEEDED', 'refused', {
+        estimateMB: 300,
+        remainingMB: 120,
+        kind: 'files',
+      }).stop,
+    ).toEqual({
+      code: 'STORAGE_EXCEEDED',
+      storage: { estimateMB: 300, remainingMB: 120, kind: 'files' },
+    });
   });
 });
 
@@ -1838,14 +2034,71 @@ describe('the daily API requests', () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
-  it('estimates a run: a REST call per 200 rows, five per Bulk API job of 10 000, a read per 2 000', () => {
+  it('estimates a run: a REST call per 200 rows, the calls of each Bulk API job of 10 000, a read per 2 000', () => {
+    // Jobs of 10 000 and 2 000, each opened, sent, closed, its state read
+    // once closed and every five seconds of its time (24 seconds of wait,
+    // then 750 rows a second: about 37 and 27 seconds), its results read three
+    // ways. Counted five a job, its reads of results and of its state were
+    // left out.
+    const tenThousand = 3 + (1 + 8) + 3;
+    const twoThousand = 3 + (1 + 6) + 3;
     expect(
       runRequestsEstimate([
         { rows: 401 },
         { rows: 12_000, bulk: true },
         { rows: 0, readRows: 4_001 },
       ]),
-    ).toBe(3 + 10 + 3);
+    ).toBe(3 + tenThousand + twoThousand + 3);
+  });
+
+  it("estimates a Forge job's reads of its state by the waits it grows between them", () => {
+    // After 5, 10, 20, then every 30 seconds: about 37 seconds take four waits, 27 three.
+    expect(runRequestsEstimate([{ rows: 12_000, bulk: true }], FORGE_BULK_WRITER)).toBe(
+      3 + (1 + 4) + 3 + (3 + (1 + 3) + 3),
+    );
+    expect(runRequestsEstimate([{ rows: 0, bulk: true }], FORGE_BULK_WRITER)).toBe(0);
+  });
+
+  it('counts by REST what is left of an object past its Forge jobs under 2 000 rows, as its writer sends it', () => {
+    // A job of 10 000, then one REST call for the row left; Seed and Sync
+    // send that row in a job of its own.
+    expect(runRequestsEstimate([{ rows: 10_001, bulk: true }], FORGE_BULK_WRITER)).toBe(
+      3 + (1 + 4) + 3 + 1,
+    );
+    expect(runRequestsEstimate([{ rows: 10_001, bulk: true }])).toBe(
+      3 + (1 + 8) + 3 + (3 + (1 + 5) + 3),
+    );
+    expect(runDurationSeconds([{ rows: 10_001, bulk: true }], FORGE_BULK_WRITER)).toBeCloseTo(
+      24 + 10_000 / 750 + 0.01,
+      6,
+    );
+  });
+
+  it('takes a run its REST writes at a hundredth of a second a row, and each Bulk API job its wait then its rows, one after another', () => {
+    expect(runDurationSeconds([{ rows: 500, bulk: false }])).toBeCloseTo(5, 6);
+    expect(runDurationSeconds([{ rows: 12_000, bulk: true }])).toBeCloseTo(
+      24 + 10_000 / 750 + 24 + 2_000 / 750,
+      6,
+    );
+    expect(
+      runDurationSeconds([
+        { rows: 0, bulk: true },
+        { rows: 100, bulk: false },
+      ]),
+    ).toBeCloseTo(1, 6);
+  });
+
+  it('expects REST under 2 000 rows, for files, emails and tasks, and for the objects a duplicate rule watches', () => {
+    expect(likelyRest('Invoice__c', 1_999)).toBe(true);
+    expect(likelyRest('Invoice__c', 2_000)).toBe(false);
+    for (const always of ['ContentVersion', 'Attachment', 'EmailMessage', 'Task']) {
+      expect(likelyRest(always, 50_000)).toBe(true);
+      expect(likelyRest(always, 50_000, new Set())).toBe(true);
+    }
+    // The standard rules' objects until the target says which its rules watch.
+    expect(likelyRest('Account', 50_000)).toBe(true);
+    expect(likelyRest('Account', 50_000, new Set(['Lead']))).toBe(false);
+    expect(likelyRest('Invoice__c', 50_000, new Set(['Invoice__c']))).toBe(true);
   });
 
   it('says a run exceeds what is left, comes near a tenth of the day, fits, or could not be read', () => {

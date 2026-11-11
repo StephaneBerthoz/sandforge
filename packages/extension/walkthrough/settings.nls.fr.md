@@ -3,7 +3,7 @@
 SandForge range ses paramètres à deux endroits :
 
 - **Ouvrir les paramètres** ouvre la page de SandForge : la langue de ses panneaux, et l'assistant IA optionnel, propulsé par Anthropic (Claude).
-- **Ouvrir les paramètres de SandForge dans VS Code** ouvre les paramètres de l'éditeur, filtrés sur SandForge : les tailles de lots par défaut de Seed et de Sync, la trace des décisions de Production Guard gardée avec chaque exécution dans le journal d’audit (Rapports, `sandforge.safety.auditLogging`), et la façon dont Forge montre un grand graphe — dessiné jusqu'à 25 objets et listé dans un tableau au-delà, ou toujours d'une seule façon (`sandforge.forge.graphView`).
+- **Ouvrir les paramètres de SandForge dans VS Code** ouvre les paramètres de l'éditeur, filtrés sur SandForge : les tailles de lots par défaut de Seed et de Sync, la trace des décisions de Production Guard gardée avec chaque exécution dans le journal d’audit (Rapports, `sandforge.safety.auditLogging`), et la façon dont Forge montre un grand graphe — dessiné jusqu'à 25 objets et listé dans un tableau au-delà, ou d'une seule façon jusqu'à 150 objets, en tableau au-delà et pour un clonage de toute l'org (`sandforge.forge.graphView`).
 
 [Ouvrir les paramètres](command:sandforge.openSettings)
 

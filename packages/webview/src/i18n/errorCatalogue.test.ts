@@ -52,6 +52,7 @@ const placeholders = (value: unknown): string[] =>
 const MESSAGE_SAMPLES: readonly string[] = [
   "INVALID_CROSS_REFERENCE_KEY: Record Type ID: this ID value isn't valid for the user",
   'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: entity type cannot be inserted: Case History',
+  'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: SSC_TRG_Provenance: execution of BeforeInsert caused by: System.LimitException: Too many SOQL queries: 101',
   "Cycle FK 'PrimaryContactId' could not be resolved — referenced parent (source 003ABC123) was not cloned",
   "Cycle FK 'ParentId' could not be resolved",
   'no parent in cache and not the root',
@@ -309,10 +310,36 @@ describe('what the hints say, in English', () => {
     expect(errors.rowLocked.explanation).toContain('transient');
   });
 
-  it('names the inactive user as one of the target, since every record the clone creates is its running user', () => {
-    expect(errors.inactiveUser.forge.explanation).toContain(
-      'The clone leaves each record it creates to the user it writes as',
+  /*
+   * The hint said the clone leaves each record it creates to the user it
+   * writes as, which a clone of a query or of the whole org does not: it keeps
+   * an owner the target holds active, and writes a record whose owner the
+   * target holds inactive with that user unless the user may keep it. A
+   * clone of a production org into one of its sandboxes was refused for an
+   * owner inactive there, record after record, under a hint that sent the
+   * user to the target's rules and Flows alone.
+   */
+  it('says which owner the clone keeps, which it replaces and what is left to refuse a record', () => {
+    const { explanation, action } = errors.inactiveUser.forge;
+    expect(explanation).toContain(
+      'A clone of a record leaves each record it creates to the user it writes as',
     );
+    expect(explanation).toContain('keeps an owner the target holds active');
+    expect(explanation).toContain('unless that user has Update Records with Inactive Owners');
+    expect(explanation).toContain(
+      `Owners given in Review → ${en.forgeRun.review.controlsTab} come first`,
+    );
+    expect(explanation).toContain('an assignment rule or a Flow of the target');
+    expect(explanation).toContain('an audit field');
+    expect(explanation).not.toContain('The clone leaves each record it creates');
+    expect(action).toContain('rather than an inactive one');
+    for (const [locale, bundle] of Object.entries(LOCALES)) {
+      const said = lookup(bundle, 'errors.inactiveUser.forge.explanation') as string;
+      expect({ locale, permission: said.includes('Update Records with Inactive Owners') }).toEqual({
+        locale,
+        permission: true,
+      });
+    }
   });
 
   /*

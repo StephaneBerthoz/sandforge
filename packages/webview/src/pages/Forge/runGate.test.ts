@@ -224,3 +224,35 @@ describe('a retry stopped at its gate', () => {
     expect(useForgeStore.getState().phase).toBe('review');
   });
 });
+
+describe('the notice of a stop, brought into view once', () => {
+  beforeEach(() => {
+    useForgeRunGateStore.getState().clear();
+  });
+
+  it('is yet to be brought into view when a run stops, and stays shown once it was', () => {
+    const gate = useForgeRunGateStore.getState();
+    gate.setStop({ code: 'STORAGE_EXCEEDED' });
+    expect(useForgeRunGateStore.getState().revealed).toBe(false);
+
+    useForgeRunGateStore.getState().markRevealed();
+
+    expect(useForgeRunGateStore.getState()).toMatchObject({
+      stop: { code: 'STORAGE_EXCEEDED' },
+      revealed: true,
+    });
+  });
+
+  it('is to be brought into view again for the next stop, and forgotten with the stop', () => {
+    useForgeRunGateStore.getState().setStop({ code: 'WRITE_DECLINED' });
+    useForgeRunGateStore.getState().markRevealed();
+
+    useForgeRunGateStore.getState().clear();
+    expect(useForgeRunGateStore.getState()).toMatchObject({ stop: null, revealed: false });
+
+    useForgeRunGateStore.getState().setStop({ code: 'WRITE_DECLINED' });
+    useForgeRunGateStore.getState().markRevealed();
+    useForgeRunGateStore.getState().setStop({ code: 'PRODUCTION_TARGET' });
+    expect(useForgeRunGateStore.getState().revealed).toBe(false);
+  });
+});

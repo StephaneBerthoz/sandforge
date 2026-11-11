@@ -160,6 +160,45 @@ describe('cursorPages', () => {
     expect(read).toBeGreaterThan(FORGE_QUERY_MAX_RECORDS);
   });
 
+  it("reads through the source's queryAll when asked for the archived rows, its next pages through the locator it gave", async () => {
+    const source = sourceOf([
+      { records: rows(2, 0), done: false, nextRecordsUrl: '/queryAll/next/1' },
+      { records: rows(1, 2), done: true },
+    ]);
+    const queryAll = vi.fn<(soql: string) => Promise<QueryPage<Row>>>(source.query);
+    const read: Row[] = [];
+    for await (const page of cursorPages(
+      { ...source, queryAll },
+      'SELECT Id FROM Task WHERE IsDeleted = false ORDER BY Id',
+      { all: true },
+    )) {
+      read.push(...page);
+    }
+
+    expect(read).toEqual(rows(3, 0));
+    expect(queryAll).toHaveBeenCalledWith(
+      'SELECT Id FROM Task WHERE IsDeleted = false ORDER BY Id',
+    );
+    expect(source.query).toHaveBeenCalledTimes(1);
+    expect(source.queryMore).toHaveBeenCalledWith('/queryAll/next/1');
+  });
+
+  it('reads through query when not asked for the archived rows, whatever the source has', async () => {
+    const source = sourceOf([{ records: rows(1), done: true }]);
+    const queryAll = vi.fn<(soql: string) => Promise<QueryPage<Row>>>();
+    for await (const page of cursorPages({ ...source, queryAll }, 'SELECT Id FROM Task')) {
+      expect(page).toEqual(rows(1));
+    }
+    expect(queryAll).not.toHaveBeenCalled();
+  });
+
+  it('refuses a read of the archived rows from a source with no queryAll, rather than leave them out', async () => {
+    const source = sourceOf([{ records: rows(1), done: true }]);
+    const pages = cursorPages(source, 'SELECT Id FROM Event ORDER BY Id', { all: true });
+    await expect(pages.next()).rejects.toThrow('No queryAll to read Event with its archived rows.');
+    expect(source.query).not.toHaveBeenCalled();
+  });
+
   it('stops after a run of empty pages from a cursor that never says it is done', async () => {
     const source = sourceOf([{ records: [], done: false, nextRecordsUrl: '/loop' }]);
     let pages = 0;

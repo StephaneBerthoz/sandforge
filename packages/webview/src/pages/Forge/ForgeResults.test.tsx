@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import i18n from '../../i18n';
+import de from '../../i18n/locales/de.json';
+import en from '../../i18n/locales/en.json';
+import es from '../../i18n/locales/es.json';
 import fr from '../../i18n/locales/fr.json';
 import ja from '../../i18n/locales/ja.json';
+import ptBR from '../../i18n/locales/pt-BR.json';
 import type {
   BaseMessage,
   ForgeConfig,
@@ -821,6 +825,85 @@ describe('ForgeResults', () => {
         // Right under the table.
         expect(report).toContain(
           '| Product2 | - | error | - |\n\nNot listed: 2 objects discovery left out because their table is empty in the source.',
+        );
+      } finally {
+        Reflect.deleteProperty(navigator, 'clipboard');
+      }
+    });
+
+    it("copies into the report what the run failed and noted, under the table's line of empty tables", async () => {
+      // The report said "error | -" of an object whose every row was refused,
+      // and nothing of the run's errors or notes the page lists under it.
+      cloneBeyondItsGraph();
+      mockResult = Object.assign(mockResult, {
+        existingRecords: [{ objectApiName: 'Account', linked: 1, unidentified: 0 }],
+        errors: [
+          {
+            objectApiName: 'Contact',
+            stage: 'insert' as const,
+            failedCount: 2,
+            attemptedCount: 3,
+            samples: [
+              {
+                recordSummary: 'LastName=Doe',
+                messages: [
+                  'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: SSC_TRG_Contact: execution of BeforeInsert\n\ncaused by: System.LimitException: Too many SOQL queries: 101',
+                ],
+              },
+            ],
+          },
+          {
+            objectApiName: '__pass2__',
+            stage: 'insert' as const,
+            failedCount: 1,
+            attemptedCount: 4,
+            samples: [{ recordSummary: 'Id=003', messages: ['a lookup | left as it was'] }],
+          },
+          {
+            objectApiName: 'Contact',
+            stage: 'scope' as const,
+            failedCount: 0,
+            attemptedCount: 3,
+            samples: [
+              {
+                recordSummary: 'Contact: 3 records sent 2 at a time',
+                messages: [
+                  'SSC_TRG_Contact (before insert) hit Too many SOQL queries on calls of 3: 1 calls more.',
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      const writeText = vi.fn((_text: string) => Promise.resolve());
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+        writable: true,
+      });
+      try {
+        render(<ForgeResults />);
+        await act(async () => {
+          fireEvent.click(screen.getByTestId('forge-copy-report'));
+        });
+
+        const report = writeText.mock.calls[0]?.[0] ?? '';
+        // What discovery said of it, then what the run failed of it.
+        expect(report).toContain(
+          '| Contact | 3 | done | FIELD_INTEGRITY_EXCEPTION; 2 failed at insert: CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY |',
+        );
+        // The rows the run failed nothing of are as they were.
+        expect(report).toContain('| PricebookEntry | 2 | done | - |');
+        expect(report).toContain(
+          'their table is empty in the source.\n\n## Run Errors\n\n- Failed records: 3 across 2 objects\n\n' +
+            '| Object | Stage | Failed | Attempted | Codes seen in samples | Sample message |\n' +
+            '|--------|-------|--------|-----------|-----------------------|----------------|\n' +
+            '| Contact | insert | 2 | 3 | CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY (1 of 1 sample) | ' +
+            'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: SSC_TRG_Contact: execution of BeforeInsert caused by: System.LimitException: Too many SOQL queries: 101 |\n' +
+            '| __pass2__ | insert | 1 | 4 | (no code) | a lookup \\| left as it was |\n\n' +
+            '## Run Notes\n\n| Object | Note |\n|--------|------|\n' +
+            '| Contact | Contact: 3 records sent 2 at a time — SSC_TRG_Contact (before insert) hit Too many SOQL queries on calls of 3: 1 calls more. |\n\n' +
+            '## Already in the Target',
         );
       } finally {
         Reflect.deleteProperty(navigator, 'clipboard');
@@ -2668,6 +2751,127 @@ describe('ForgeResults', () => {
       expect(report).toContain(
         '| Visit__c | Rating__c | 2 | restricted picklist | ' +
           'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes |',
+      );
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
+  it("keeps a refusal's row whole in the report, its line breaks and pipes escaped", async () => {
+    // The refusal is the org's message: a line break in it ended the row, and
+    // a pipe opened a column.
+    mockResult = Object.assign(makeMockResult(), {
+      writtenWithoutFields: [
+        {
+          objectApiName: 'Contact',
+          rows: 1,
+          fields: [
+            {
+              field: 'Phone',
+              reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be\n+33 | +44',
+              rows: 1,
+            },
+          ],
+        },
+      ],
+    });
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    try {
+      render(<ForgeResults />);
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('forge-copy-report'));
+      });
+
+      expect(writeText.mock.calls[0]?.[0] ?? '').toContain(
+        '| Contact | Phone | 1 | validation rule | FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be +33 \\| +44 |',
+      );
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
+  it('names an owner the target holds inactive as what refused the record, in each of the panel’s languages', async () => {
+    // A record the target refused for its owner, inactive there, went in again
+    // without OwnerId: the row says so in the words of the panel's language,
+    // never as the key or the code the extension recorded.
+    mockResult = Object.assign(makeMockResult(), {
+      writtenWithoutFields: [
+        {
+          objectApiName: 'Aeroport__c',
+          rows: 3,
+          fields: [
+            {
+              field: 'OwnerId',
+              refusedBy: 'inactive-owner',
+              reason:
+                'INACTIVE_OWNER_OR_USER: operation performed with inactive user [005000000000001] as owner of [aeroport__c]',
+              rows: 3,
+            },
+          ],
+        },
+      ],
+    });
+    const locales = { en, fr, de, es, ja, 'pt-BR': ptBR } as const;
+    try {
+      for (const [language, catalogue] of Object.entries(locales)) {
+        const label = catalogue.runResults.writtenWithoutFields.byInactiveOwner;
+        expect(label.trim()).not.toBe('');
+        if (language !== 'en') {
+          expect(label).not.toBe(en.runResults.writtenWithoutFields.byInactiveOwner);
+        }
+        i18n.addResourceBundle(language, 'translation', catalogue, true, true);
+        await i18n.changeLanguage(language);
+        const { unmount } = render(<ForgeResults />);
+        expect(screen.getByTestId('forge-results-written-without-row').textContent).toContain(
+          `Aeroport__c.OwnerId — `,
+        );
+        expect(screen.getByTestId('forge-results-written-without-row').textContent).toContain(
+          ` — ${label} — INACTIVE_OWNER_OR_USER: `,
+        );
+        unmount();
+      }
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
+  it('copies into the report an owner the target holds inactive as what refused the record', async () => {
+    mockResult = Object.assign(makeMockResult(), {
+      writtenWithoutFields: [
+        {
+          objectApiName: 'Paiement__c',
+          rows: 2,
+          fields: [
+            {
+              field: 'OwnerId',
+              refusedBy: 'inactive-owner',
+              reason: 'INACTIVE_OWNER_OR_USER: operation performed with inactive user',
+              rows: 2,
+            },
+          ],
+        },
+      ],
+    });
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    try {
+      render(<ForgeResults />);
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('forge-copy-report'));
+      });
+
+      expect(writeText.mock.calls[0]?.[0] ?? '').toContain(
+        '| Paiement__c | OwnerId | 2 | inactive owner | ' +
+          'INACTIVE_OWNER_OR_USER: operation performed with inactive user |',
       );
     } finally {
       Reflect.deleteProperty(navigator, 'clipboard');

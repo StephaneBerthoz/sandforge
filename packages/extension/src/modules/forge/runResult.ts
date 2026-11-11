@@ -99,6 +99,11 @@ export function forgeRunResult(
     // Only a run that upserted says how many records it wrote over.
     ...(summary.updatedCount > 0 ? { updatedCount: summary.updatedCount } : {}),
     linkedExistingCount: summary.linkedCount,
+    // Of a run whose ids are in its journal, those of them the platform
+    // deletes with a record the run created: a removal keeps none of them.
+    ...(summary.withTheirRecordCount
+      ? { linkedWithTheirRecordCount: summary.withTheirRecordCount }
+      : {}),
     existingRecords: summary.existingRecords,
     idRemapByObject: summary.remapByObject,
     // The table alone cannot say which of its rows the run created: it

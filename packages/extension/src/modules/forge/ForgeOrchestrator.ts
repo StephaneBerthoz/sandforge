@@ -76,10 +76,17 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
 
   /**
    * Session-scoped discovery cache. Keyed by
-   * `${sourceOrgId}::${inputMode}::${recordId|soql}::${depth}::${customDepth}`.
+   * `${sourceOrgId}::${inputMode}::${recordId|soql}::${depth}::${customDepth}`;
+   * a clone of the whole org has no root, and its place in the key holds the
+   * filters its counts went through instead.
    * Avoids re-running the 30s+ BFS when the user re-discovers the same root
    * within the same VSCode session. TTL 10min, LRU 16 entries (~5MB max)
-   * so stale graphs after schema changes age out without manual reset.
+   * so stale graphs after schema changes age out without manual reset. A
+   * graph of the whole org past that size is still kept: the cache evicts
+   * every other graph to make room for it and holds it alone until it ages
+   * out. That is the trade wanted — its discovery counts and describes every
+   * object of the org, minutes of calls, where a graph from a root takes
+   * seconds to discover again.
    */
   private discoveryCache = new SchemaCache<ForgeGraph>({
     defaultTtl: 10 * 60_000,
@@ -103,14 +110,24 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
    * cache hits never silently swap one configuration for another.
    */
   private cacheKeyFor(config: ForgeConfig): string {
+    // A clone of the whole org starts from no record and no query. What its
+    // graph depends on beside the orgs is the filters its counts go through:
+    // an object a filter keeps no row of is left out as empty, and a filter
+    // carried from a template can change between two discoveries.
     const root =
-      config.inputMode === 'record'
-        ? (config.recordId ?? '')
-        : config.inputMode === 'soql'
-          ? (config.soqlQuery ?? '')
-          : config.inputMode === 'template'
-            ? (config.templateId ?? '')
-            : (config.aiPrompt ?? '');
+      config.inputMode === 'org'
+        ? JSON.stringify(
+            Object.entries(config.objectSoqlFilters ?? {}).sort(([a], [b]) =>
+              a < b ? -1 : a > b ? 1 : 0,
+            ),
+          )
+        : config.inputMode === 'record'
+          ? (config.recordId ?? '')
+          : config.inputMode === 'soql'
+            ? (config.soqlQuery ?? '')
+            : config.inputMode === 'template'
+              ? (config.templateId ?? '')
+              : (config.aiPrompt ?? '');
     return [
       config.sourceOrgId,
       config.targetOrgId,
@@ -261,8 +278,15 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       // Forge sets each record's owner itself: the target's assignment rules
       // apply only when the run asks for them.
       this.deps.setWriteOptions?.({ applyAssignmentRules: config.applyAssignmentRules === true });
+      // A clone of the whole org reads page by page, with no bound but the
+      // statement's own: what the deps bound is a node it reads whole — the
+      // catalog, an object mapped by name — to the setting. Its ceiling is
+      // none, and fell back to the default of 50 000.
       this.deps.setReadOptions?.({
-        maxRecordsPerObject: stream?.ceiling ?? FORGE_READ_CEILING_PER_OBJECT,
+        maxRecordsPerObject:
+          config.inputMode === 'org'
+            ? wholeReadBoundOf(runOptions)
+            : (stream?.ceiling ?? FORGE_READ_CEILING_PER_OBJECT),
       });
       const summary = await this.deps.executor.execute(
         graph,
@@ -304,7 +328,26 @@ export type ForgeRunOptions = Pick<
 > & {
   anonymizationRules?: ForgeAnonymizationMethods;
   files?: ForgeFileCopyOption;
+  /**
+   * Of a clone of the whole org (`inputMode: 'org'`), the most rows of a node
+   * it reads whole — the price catalog, an object mapped by name — it reads:
+   * the `sandforge.forge.maxRecordsPerObject` setting. Past it, the run is
+   * refused at its gate, before anything is written
+   * (`ForgeWriteBoundary.wholeReadOver`). The setting's default when absent.
+   */
+  wholeReadBound?: number;
 };
+
+/** The bound of the nodes a clone of the whole org reads whole: see {@link ForgeRunOptions.wholeReadBound}. */
+function wholeReadBoundOf(runOptions: ForgeRunOptions | undefined): number {
+  const bound = runOptions?.wholeReadBound;
+  return bound !== undefined && Number.isFinite(bound) && bound >= 1
+    ? Math.floor(bound)
+    : FORGE_READ_CEILING_PER_OBJECT;
+}
+
+/** Rows of an object a clone of the whole org writes at a time, and lookups its second pass takes: a Bulk API job's worth. */
+const WHOLE_ORG_WINDOW = 10_000;
 
 /**
  * What the executor is asked to do by a run of `config` over `graph`, as
@@ -344,8 +387,24 @@ export function forgeExecuteOptions(
     : undefined;
   const writtenBefore = runOptions?.writtenBefore;
   const beforeWrite = runOptions?.beforeWrite;
+  const wholeOrg = config.inputMode === 'org';
   // Read page by page when it reads whole tables: see `ExecuteOptions.stream`.
-  const stream = runOptions?.stream;
+  // A clone of the whole org always is, everything it holds (`everything`),
+  // with no ceiling — every row of the org is the point — a window of a Bulk
+  // API job's worth of rows at a time, and its second pass a job's worth of
+  // lookups at a time: by pages of 2 000, no update of the pass reached the
+  // 2 000 of one object a job takes. What it reads whole is bounded apart
+  // (`wholeReadBound`), and the run refused past it.
+  const stream: ExecuteOptions['stream'] = wholeOrg
+    ? {
+        ...runOptions?.stream,
+        everything: true,
+        writeWindow: WHOLE_ORG_WINDOW,
+        secondPassPageSize: WHOLE_ORG_WINDOW,
+        ceiling: undefined,
+        wholeReadBound: wholeReadBoundOf(runOptions),
+      }
+    : runOptions?.stream;
   // The objects unchecked on the Forge page leave the run as objects
   // excluded by name: the rows that cannot be written without one of
   // their records are held back and said, not sent for the target to
@@ -405,7 +464,12 @@ export function forgeExecuteOptions(
           dryRun ||
           decisions
         ? {
-            maxRecordsPerObject: config.maxRecordsPerObject,
+            // A clone of the whole org copies every row: no cap on each
+            // object, whatever a config carried over says; nor does it read
+            // the parents outside the graph of a row, every object of the org
+            // being a node. It writes through the Bulk API from a job's worth.
+            maxRecordsPerObject: wholeOrg ? undefined : config.maxRecordsPerObject,
+            ...(wholeOrg ? { expandOrphanParents: false, writeApi: 'auto' as const } : {}),
             fieldExclusions: config.fieldExclusions,
             excludedObjects,
             ownerMappings: config.ownerMappings,

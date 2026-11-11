@@ -1,9 +1,11 @@
+import path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ForgeHandler } from './ForgeHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, ForgeConfig, ForgeGraph, ForgeExecutionResult } from '@sandforge/shared';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import { ForgeRunJournal } from '../../modules/forge/ForgeRunJournal.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../logger.js', () => ({
@@ -234,5 +236,189 @@ describe('forge history entries are replayable', () => {
     // A legacy entry stays a valid history row; it simply cannot offer a
     // re-run — which is why `config` is optional rather than required.
     expect((data.get('forge:history') as ForgeExecutionResult[])[0].config).toBeUndefined();
+  });
+});
+
+/** A journal of runs on a disk in memory, keyed by path as the platform writes it. */
+function journalOnMemory(): ForgeRunJournal {
+  const files = new Map<string, string>();
+  const at = (filePath: string): string => path.normalize(filePath);
+  return new ForgeRunJournal({
+    storagePath: '/storage',
+    appendFile: async (filePath, content) => {
+      files.set(at(filePath), (files.get(at(filePath)) ?? '') + content);
+    },
+    readLines: (filePath) =>
+      (async function* lines(): AsyncGenerator<string> {
+        for (const line of (files.get(at(filePath)) ?? '').split('\n')) yield line;
+      })(),
+    mkdir: async () => {},
+    rm: async (filePath) => void files.delete(at(filePath)),
+    listFiles: async (dirPath) =>
+      [...files.keys()]
+        .filter((filePath) => path.dirname(filePath) === at(dirPath))
+        .map((filePath) => path.basename(filePath)),
+    openRunFile: (filePath) => ({
+      size: () => Buffer.byteLength(files.get(at(filePath)) ?? ''),
+      append: (text) => void files.set(at(filePath), (files.get(at(filePath)) ?? '') + text),
+      read: (offset, length) =>
+        Buffer.from(files.get(at(filePath)) ?? '').subarray(offset, offset + length),
+      close: () => {},
+    }),
+  });
+}
+
+/*
+ * The history lives in the extension's global state, rewritten whole at every
+ * change, twenty runs of it: a clone of the whole org keeps there its nodes,
+ * without the thousands of relations and left-out objects its graph names.
+ */
+describe('the history entry of a clone of the whole org', () => {
+  const WHOLE_ORG: ForgeConfig = {
+    inputMode: 'org',
+    depth: 'all',
+    sourceOrgId: 'src-org',
+    targetOrgId: 'tgt-org',
+    anonymizePII: false,
+    skipEmpty: true,
+    batchSize: 'auto',
+  };
+
+  /** The graph a clone of the whole org ran: two objects, a relation, three objects left out. */
+  function wholeOrgGraph(): ForgeGraph {
+    const [account] = createGraph().nodes;
+    return {
+      ...createGraph(),
+      nodes: [account, { ...account, objectApiName: 'Contact', level: 1 }],
+      edges: [
+        {
+          sourceObject: 'Contact',
+          targetObject: 'Account',
+          relationshipName: 'AccountId',
+          type: 'lookup',
+        },
+      ],
+      leftOut: [
+        { objectApiName: 'AccountHistory', reason: 'history' },
+        { objectApiName: 'Widget__c', reason: 'empty' },
+        { objectApiName: 'ContactHistory', reason: 'history' },
+      ],
+    };
+  }
+
+  let handler: ForgeHandler;
+  let deps: HandlerDeps;
+  let data: Map<string, unknown>;
+  let execute: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const store = createConfigStore();
+    data = store.data;
+    deps = createDeps(store.store);
+    handler = new ForgeHandler(deps);
+    execute = vi.fn();
+    handler.setForgeOrchestrator(
+      {
+        discover: vi.fn(),
+        execute,
+        on: vi.fn().mockReturnValue(vi.fn()),
+        abort: vi.fn(),
+        pause: vi.fn(),
+        resume: vi.fn(),
+      } as unknown as ForgeOrchestrator,
+      // A clone of the whole org writes nothing without its journal.
+      { runJournal: journalOnMemory() },
+    );
+  });
+
+  function run(config: ForgeConfig, graph: ForgeGraph): Promise<boolean> {
+    return handler.handle(buildMsg('forge:execute', { graph, config }));
+  }
+
+  it('keeps its nodes, no relation, and what it left out counted by reason; its page has the graph whole', async () => {
+    const graph = wholeOrgGraph();
+    execute.mockResolvedValue({
+      ...createResult(),
+      graph,
+      // Past the bound, its ids and the records they go with are marked in its journal.
+      remapInJournal: true,
+      idRemapWithTheirRecord: ['003000000000001AAA'],
+      linkedWithTheirRecordCount: 1,
+    } satisfies ForgeExecutionResult);
+
+    await run(WHOLE_ORG, graph);
+
+    const [entry] = data.get('forge:history') as ForgeExecutionResult[];
+    expect(entry.graph.nodes.map((node) => node.objectApiName)).toEqual(['Account', 'Contact']);
+    expect(entry.graph.edges).toEqual([]);
+    expect(entry.graph.withoutEdges).toBe(true);
+    expect(entry.graph).not.toHaveProperty('leftOut');
+    expect(entry.leftOutCounts).toEqual([
+      { reason: 'history', count: 2 },
+      { reason: 'empty', count: 1 },
+    ]);
+    expect(entry).not.toHaveProperty('idRemapWithTheirRecord');
+    expect(entry.linkedWithTheirRecordCount).toBe(1);
+    expect(entry.config).toMatchObject({ inputMode: 'org', depth: 'all' });
+
+    const response = vi
+      .mocked(deps.broker.postToWebview)
+      .mock.calls.map((c) => c[0] as BaseMessage & { payload: { result?: ForgeExecutionResult } })
+      .find((m) => m.type === 'forge:execute:response');
+    expect(response?.payload.result?.graph.edges).toHaveLength(1);
+    expect(response?.payload.result?.graph.leftOut).toHaveLength(3);
+    expect(response?.payload.result?.graph).not.toHaveProperty('withoutEdges');
+  });
+
+  it('refuses to run the graph its entry keeps, which a Retry of the entry opened from the history sends back', async () => {
+    // Without its relations, its parents went unordered and its lookups unmapped.
+    const graph = wholeOrgGraph();
+    execute.mockResolvedValue({ ...createResult(), graph } satisfies ForgeExecutionResult);
+    await run(WHOLE_ORG, graph);
+    const [entry] = data.get('forge:history') as ForgeExecutionResult[];
+    vi.mocked(deps.broker.postToWebview).mockClear();
+
+    await handler.handle(
+      buildMsg('forge:execute', { graph: entry.graph, config: WHOLE_ORG, retryOf: entry.forgeId }),
+    );
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    const posted = vi
+      .mocked(deps.broker.postToWebview)
+      .mock.calls.map(
+        (c) => c[0] as BaseMessage & { payload: { code?: string; message?: string } },
+      );
+    const refused = posted.find((m) => m.type === 'forge:execute:error');
+    expect(refused?.payload.code).toBe('GRAPH_WITHOUT_EDGES');
+    expect(refused?.payload.message).toContain('Discover the org again');
+    expect(posted.find((m) => m.type === 'forge:execute:response')).toBeUndefined();
+  });
+
+  it('keeps the records that go with one it created when its ids are in the entry, as any run does', async () => {
+    const graph = wholeOrgGraph();
+    execute.mockResolvedValue({
+      ...createResult(),
+      graph,
+      idRemapWithTheirRecord: ['003000000000001AAA'],
+    } satisfies ForgeExecutionResult);
+
+    await run(WHOLE_ORG, graph);
+
+    const [entry] = data.get('forge:history') as ForgeExecutionResult[];
+    expect(entry.idRemapWithTheirRecord).toEqual(['003000000000001AAA']);
+    expect(entry.graph.edges).toEqual([]);
+  });
+
+  it('keeps the graph of any other run whole', async () => {
+    const graph = { ...wholeOrgGraph(), leftOut: undefined };
+    execute.mockResolvedValue({ ...createResult(), graph } satisfies ForgeExecutionResult);
+
+    await run(createConfig(), graph);
+
+    const [entry] = data.get('forge:history') as ForgeExecutionResult[];
+    expect(entry.graph.edges).toHaveLength(1);
+    expect(entry.graph).not.toHaveProperty('withoutEdges');
+    expect(entry).not.toHaveProperty('leftOutCounts');
   });
 });

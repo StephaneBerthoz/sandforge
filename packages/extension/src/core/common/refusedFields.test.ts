@@ -3,6 +3,7 @@ import type { SaveErrorDetail } from './existingRecordMatch.js';
 import {
   addWrittenWithoutFields,
   heldKeyOf,
+  inactiveOwnerNamed,
   refusedFields,
   refusedOnNoField,
   without,
@@ -138,6 +139,175 @@ describe('refusedFields', () => {
   });
 });
 
+describe('refusedFields, an owner the target holds inactive', () => {
+  /** The owner as the source gave it, on 18 characters, and as the target's message names it, on 15. */
+  const OWNER = '005AU00000AbCdEYAQ';
+  const NAMED = '005AU00000AbCdE';
+  const MESSAGE = `operation performed with inactive user [${NAMED}] as owner of [aeroport__c]`;
+  const REASON = `INACTIVE_OWNER_OR_USER: ${MESSAGE}`;
+  const inactive = (message = MESSAGE, fields: string[] = []): SaveErrorDetail => ({
+    statusCode: 'INACTIVE_OWNER_OR_USER',
+    message,
+    fields,
+  });
+  const asked = { inactiveOwner: true } as const;
+
+  it('leaves out the owner the refusal names, whatever length its id is given at', () => {
+    expect(
+      refusedFields([inactive()], { Name: 'Orly', OwnerId: OWNER }, undefined, undefined, asked),
+    ).toEqual([{ field: 'OwnerId', refusedBy: 'inactive-owner', reason: REASON }]);
+    // Named on 18 characters, the row's owner on 15: the same user.
+    expect(
+      refusedFields(
+        [inactive(`operation performed with inactive user [${OWNER}] as owner of [aeroport__c]`)],
+        { Name: 'Orly', ownerid: NAMED },
+        undefined,
+        undefined,
+        asked,
+      )?.map((f) => f.field),
+    ).toEqual(['ownerid']);
+  });
+
+  it('leaves out nothing when the refusal names another user than the owner: a rule or a Flow of the target', () => {
+    expect(
+      refusedFields(
+        [inactive('operation performed with inactive user [005AU00000ZzZzZ] as owner of [case]')],
+        { Subject: 'S', OwnerId: OWNER },
+        undefined,
+        undefined,
+        asked,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('leaves out the owner of a refusal naming no user only when the row carries no audit field', () => {
+    const unnamed = inactive('operation performed with inactive user as owner of the record');
+    expect(
+      refusedFields([unnamed], { Name: 'Orly', OwnerId: OWNER }, undefined, undefined, asked),
+    ).toEqual([
+      {
+        field: 'OwnerId',
+        refusedBy: 'inactive-owner',
+        reason:
+          'INACTIVE_OWNER_OR_USER: operation performed with inactive user as owner of the record',
+      },
+    ]);
+    // The user it meant may be the one who made the record, or last changed it.
+    expect(
+      refusedFields(
+        [unnamed],
+        { Name: 'Orly', OwnerId: OWNER, CreatedById: '005AU00000CrEaT' },
+        undefined,
+        undefined,
+        asked,
+      ),
+    ).toBeUndefined();
+    expect(
+      refusedFields(
+        [unnamed],
+        { Name: 'Orly', OwnerId: OWNER, LastModifiedById: '005AU00000MoDiF' },
+        undefined,
+        undefined,
+        asked,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('leaves out nothing of a row that gives no owner', () => {
+    expect(
+      refusedFields([inactive()], { Name: 'Orly' }, undefined, undefined, asked),
+    ).toBeUndefined();
+    expect(
+      refusedFields([inactive()], { Name: 'Orly', OwnerId: '' }, undefined, undefined, asked),
+    ).toBeUndefined();
+    expect(
+      refusedFields([inactive()], { Name: 'Orly', OwnerId: null }, undefined, undefined, asked),
+    ).toBeUndefined();
+  });
+
+  it('never leaves out the owner when it is the field a row is kept by', () => {
+    expect(
+      refusedFields([inactive()], { Name: 'Orly', OwnerId: OWNER }, 'ownerid', undefined, asked),
+    ).toBeUndefined();
+  });
+
+  it('leaves out nothing when the refusal names a field beside the owner', () => {
+    expect(
+      refusedFields(
+        [inactive(MESSAGE, ['Approver__c'])],
+        { Name: 'Orly', OwnerId: OWNER, Approver__c: OWNER },
+        undefined,
+        undefined,
+        asked,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("leaves out the owner and a rule's field of one refusal, and nothing beside an error it cannot go without", () => {
+    expect(
+      refusedFields(
+        [rule('Phone'), inactive()],
+        { Name: 'Orly', OwnerId: OWNER, Phone: '0100' },
+        undefined,
+        undefined,
+        asked,
+      )?.map((f) => [f.field, f.refusedBy]),
+    ).toEqual([
+      ['Phone', 'validation-rule'],
+      ['OwnerId', 'inactive-owner'],
+    ]);
+    expect(
+      refusedFields(
+        [inactive(), { statusCode: 'UNKNOWN_EXCEPTION', message: 'boom', fields: [] }],
+        { Name: 'Orly', OwnerId: OWNER },
+        undefined,
+        undefined,
+        asked,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('leaves out nothing for a caller that does not ask: Sync, Seed, Frozen and the parents copied from outside the graph', () => {
+    expect(
+      refusedFields([inactive()], { Name: 'Orly', OwnerId: OWNER }, undefined),
+    ).toBeUndefined();
+    expect(
+      refusedFields([inactive()], { Name: 'Orly', OwnerId: OWNER }, undefined, () => true, {}),
+    ).toBeUndefined();
+  });
+});
+
+describe('inactiveOwnerNamed', () => {
+  const OWNER = '005AU00000AbCdEYAQ';
+  const named = (id: string): SaveErrorDetail => ({
+    statusCode: 'INACTIVE_OWNER_OR_USER',
+    message: `operation performed with inactive user [${id}] as owner of [servicecontract]`,
+    fields: [],
+  });
+
+  it("names the row's own owner on fifteen characters, and nothing of another user or another refusal", () => {
+    expect(inactiveOwnerNamed(named('005AU00000AbCdE'), { OwnerId: OWNER })).toBe(
+      '005AU00000AbCdE',
+    );
+    expect(inactiveOwnerNamed(named('005AU00000ZzZzZ'), { OwnerId: OWNER })).toBeUndefined();
+    expect(inactiveOwnerNamed(named('005AU00000AbCdE'), { Name: 'x' })).toBeUndefined();
+    expect(
+      inactiveOwnerNamed(
+        { statusCode: 'INACTIVE_OWNER_OR_USER', message: 'inactive user', fields: [] },
+        { OwnerId: OWNER },
+      ),
+    ).toBeUndefined();
+    expect(
+      inactiveOwnerNamed(
+        { ...named('005AU00000AbCdE'), statusCode: 'INVALID_CROSS_REFERENCE_KEY' },
+        {
+          OwnerId: OWNER,
+        },
+      ),
+    ).toBeUndefined();
+  });
+});
+
 describe('refusedOnNoField', () => {
   it('tells a validation rule that named no field from one that named a field, or another error', () => {
     expect(refusedOnNoField([rule()])).toBe(true);
@@ -244,6 +414,26 @@ describe('writtenWithoutFieldsNote', () => {
     ).toBe(
       ', 1 written without Preferred_Account__c: a lookup filter of the target refused the ' +
         'record it names, FIELD_FILTER_VALIDATION_EXCEPTION: Value does not exist',
+    );
+  });
+
+  it('says the target held the owner it names inactive', () => {
+    expect(
+      writtenWithoutFieldsNote({
+        rows: 2,
+        fields: [
+          {
+            field: 'OwnerId',
+            refusedBy: 'inactive-owner',
+            reason:
+              'INACTIVE_OWNER_OR_USER: operation performed with inactive user [005AU00000AbCdE]',
+            rows: 2,
+          },
+        ],
+      }),
+    ).toBe(
+      ', 2 written without OwnerId: the target holds the owner it names inactive, ' +
+        'INACTIVE_OWNER_OR_USER: operation performed with inactive user [005AU00000AbCdE]',
     );
   });
 

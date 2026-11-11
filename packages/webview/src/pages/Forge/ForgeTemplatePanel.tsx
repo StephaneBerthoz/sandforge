@@ -9,7 +9,7 @@ import type { ForgeTemplate } from '../../stores/useForgeStore';
 import type { ForgeTemplatesManager } from './useForgeTemplates';
 import { DEPTH_KEYS } from './useForgeForm';
 import type { TemplateTargetOutcome } from './useForgeForm';
-import { INPUT_MODE_KEYS, configSubject } from './forgeRunConfig';
+import { configSubject, runInputLabelKey } from './forgeRunConfig';
 import { starterTemplateKeys } from './forgeUtils';
 import type { TemplateFileRefusal } from './forgeTemplateFile';
 
@@ -336,7 +336,7 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                       )}
                     >
                       {[
-                        t(INPUT_MODE_KEYS[tpl.config.inputMode]),
+                        t(runInputLabelKey(tpl.config)),
                         subject,
                         t(DEPTH_KEYS[tpl.config.depth]),
                         target && t('forge.savedTemplate.summaryTarget', { org: target }),

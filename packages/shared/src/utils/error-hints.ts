@@ -22,6 +22,8 @@
  * names, and a key assembled from a slug is one.
  */
 
+import { GOVERNOR_LIMIT, NOT_A_BATCH_LIMIT } from './governor-limit.js';
+
 /** How much an error costs the run, which tints its hint. */
 export type ErrorHintSeverity = 'info' | 'warning' | 'error';
 
@@ -262,9 +264,13 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     forge: ['errors.duplicateRule.forge.explanation', 'errors.duplicateRule.forge.action'],
     seedAction: 'errors.duplicateRule.seed.action',
   },
-  // A Forge clone leaves OwnerId out unless an owner mapping sets it: the
-  // inactive user comes from that mapping, or from the target's own
-  // assignment rules and Flows.
+  // A Forge clone of a record leaves OwnerId out unless an owner mapping sets
+  // it; a clone of a query or of the whole org keeps an owner the target holds
+  // active, and leaves out one it holds inactive unless the user it writes as
+  // may keep it, and writes again without it a record the target refuses for
+  // the owner it was sent. What is still refused comes from a mapping to a
+  // user inactive in the target, from the target's own assignment rules and
+  // Flows, or from an audit field naming an inactive user.
   INACTIVE_OWNER_OR_USER: {
     severity: 'error',
     keys: ['errors.inactiveUser.explanation', 'errors.inactiveUser.action'],
@@ -531,6 +537,24 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
 };
 
 /**
+ * A message that names a Salesforce limit of the automation's transaction,
+ * from {@link GOVERNOR_LIMIT}, and no trigger's recursion, which Salesforce
+ * says as a `System.LimitException` too and which each record runs into on
+ * its own: the advice to query once for the whole call would be wrong there.
+ */
+const LIMIT_OF_A_CALL = new RegExp(
+  String.raw`^(?![\s\S]*${NOT_A_BATCH_LIMIT.source})[\s\S]*(?:${GOVERNOR_LIMIT.source})`,
+  'i',
+);
+
+/** The hint of a limit the target's automation hit, under whichever code it came. */
+const GOVERNOR_LIMIT_ENTRY: Entry = {
+  severity: 'error',
+  keys: ['errors.governorLimit.explanation', 'errors.governorLimit.action'],
+  forge: ['errors.governorLimit.forge.explanation', 'errors.governorLimit.forge.action'],
+};
+
+/**
  * Wordings of a code that hold for one kind of message only, tried before the
  * code's own entry.
  */
@@ -541,6 +565,23 @@ const VARIANTS: ReadonlyArray<{
   says: string;
   entry: Entry;
 }> = [
+  // The target's automation hitting a Salesforce limit on the call that
+  // carried the record: a trigger or a Flow that queries or writes once per
+  // record, rather than once for the call. Salesforce says it under any of
+  // three codes, and the record is not the cause: the whole call was rolled
+  // back. Read before the code's own entry, which would speak of an
+  // automation failing on this record. Forge sends such a call again in
+  // smaller ones (`sendSplittingOnLimits`), so what reaches its results was
+  // refused sent on its own, or once the run had spent the smaller calls it
+  // allows itself; every other module reports the refusal as the org gave it.
+  ...['CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY', 'DELETE_FAILED', 'CANNOT_EXECUTE_FLOW_TRIGGER'].map(
+    (code) => ({
+      code,
+      match: LIMIT_OF_A_CALL,
+      says: code,
+      entry: GOVERNOR_LIMIT_ENTRY,
+    }),
+  ),
   // One code, two very different situations. On a record type the mapping
   // is right and the org simply does not let the running user use it —
   // nothing about the data can fix that, and the platform's wording sends
@@ -766,15 +807,20 @@ const NO_REASON_CODES: ReadonlySet<string> = new Set(['UNKNOWN', 'UNKNOWN_ERROR'
 /** A status code: SCREAMING_SNAKE with at least one underscore. */
 const STATUS_CODE = '[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+';
 
-/** `CODE: detail` at the start of a message, the detail up to its first full stop. */
-const LEADING_CODE = new RegExp(`^(${STATUS_CODE}):\\s*(.*?)(?:\\.|$)`);
+/**
+ * `CODE: detail` at the start of a message, the detail up to its first full
+ * stop or line break: an Apex refusal runs over several lines ("execution of
+ * BeforeDelete", then "caused by: …") with no full stop on its first, and was
+ * read as no code at all.
+ */
+const LEADING_CODE = new RegExp(`^(${STATUS_CODE}):\\s*(.*?)(?:\\.|[\\r\\n]|$)`);
 
 /**
  * A code after a sentence of SandForge's own: `Connection failed for "Dev":
  * API_DISABLED_FOR_ORG: API is not enabled…`. Read for a code the catalogue
  * knows only, so a word in capitals inside a message is not taken for one.
  */
-const INNER_CODE = new RegExp(`: (${STATUS_CODE}):\\s*(.*?)(?:\\.|$)`);
+const INNER_CODE = new RegExp(`: (${STATUS_CODE}):\\s*(.*?)(?:\\.|[\\r\\n]|$)`);
 
 /** The entry of a code, read as an own property: `constructor` is not a code. */
 function entryOf(code: string): Entry | undefined {

@@ -1109,6 +1109,7 @@ const REFUSED_FIELD_BY: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'a validation rule of the target refused it',
   'restricted-picklist': 'a restricted picklist of the target refused its value',
   'lookup-filter': 'a lookup filter of the target refused the record it names',
+  'inactive-owner': 'the target holds the owner it names inactive',
 };
 
 /**

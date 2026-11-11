@@ -304,6 +304,27 @@ const FORGE_SAVED_TEMPLATE = {
   lastUsedAt: '2026-09-01T08:00:00.000Z',
 };
 
+/** A template saved from a clone of the whole org, still narrowing it: an object filtered, one left out. */
+const FORGE_ORG_TEMPLATE = {
+  id: 'tpl-refresh-uat',
+  name: 'Refresh UAT',
+  description: 'The whole production org, closed cases only and no tasks',
+  config: {
+    inputMode: 'org',
+    depth: 'all',
+    anonymizePII: true,
+    skipEmpty: true,
+    expandOrphanParents: false,
+    batchSize: 'auto',
+    excludedObjects: ['Task'],
+    objectSoqlFilters: { Case: "Status = 'Closed'" },
+  },
+  objectCount: 900,
+  recordCount: 1_200_000,
+  createdAt: '2026-09-01T08:00:00.000Z',
+  lastUsedAt: '2026-09-01T08:00:00.000Z',
+};
+
 /** A one-object graph a Forge discovery answers with, run and done. */
 const FORGE_RUN_GRAPH = {
   nodes: [
@@ -2128,6 +2149,53 @@ for (const theme of SCANNED_THEMES) {
       await input.blur();
       await expect(input).toHaveValue('10');
       await expect(page.getByTestId('forge-depth-custom-error')).toHaveCount(0);
+    });
+
+    test('Forge ALL picked: the tabs, caps and Auto-fetch it greys, each saying why, then the choices a template of it carries', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await bridge.waitForMessage('forge:templates:list', { timeout: 10_000 });
+      await answerAll(page, 'forge:templates:list', 'forge:templates:list:response', {
+        templates: [FORGE_ORG_TEMPLATE],
+      });
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-depth-all').click();
+
+      await expect(page.getByTestId('forge-depth-all')).toHaveAttribute('aria-checked', 'true');
+      await expect(page.getByTestId('forge-depth-all')).toHaveAttribute(
+        'aria-describedby',
+        'forge-depth-all-hint',
+      );
+      await expect(page.getByTestId('forge-tab-record')).toBeDisabled();
+      await expect(page.getByTestId('forge-input-all-note')).toHaveAttribute('role', 'note');
+      await expect(page.getByTestId('forge-max-nodes')).toBeDisabled();
+      await expect(page.getByTestId('forge-record-limit')).toBeDisabled();
+      await expect(page.getByTestId('forge-expand-orphan-parents-toggle')).toBeDisabled();
+      await expect(page.getByTestId('forge-expand-orphan-parents-toggle')).toHaveAttribute(
+        'aria-describedby',
+        /\S/,
+      );
+      await expect(page.getByTestId('forge-all-preview')).toBeVisible();
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-depth-all-hint"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-input-all-note"]'),
+      ).toBeGreaterThan(0);
+
+      // A template saved of a clone of the whole org, applied from its tab:
+      // ALL comes back with the choices it carries listed, and a way to drop them.
+      await page.getByTestId('forge-depth-direct').click();
+      await page.getByTestId('forge-tab-template').click();
+      await page.getByTestId(`forge-template-apply-${FORGE_ORG_TEMPLATE.id}`).click();
+      await page.waitForSelector('[data-testid="forge-input-all-carried"]', { timeout: 10_000 });
+      await expect(page.getByTestId('forge-depth-all')).toHaveAttribute('aria-checked', 'true');
+      await expect(page.getByTestId('forge-clear-carried')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test('Forge options keeping emails and phone numbers as they are, and the warning it gives', async ({

@@ -202,6 +202,24 @@ describe('ForgeHistoryPanel', () => {
     expect(screen.getByTestId('forge-history-entry-forge-legacy')).toBeDefined();
   });
 
+  it('names a clone of the whole org by what it cloned, its depth said once', () => {
+    const orgRun: ForgeExecutionResult = {
+      ...SOQL_RUN,
+      forgeId: 'forge-org',
+      config: {
+        inputMode: 'org',
+        depth: 'all',
+        anonymizePII: true,
+        skipEmpty: true,
+        batchSize: 'auto',
+      },
+    };
+    render(<ForgeHistoryPanel entries={[orgRun]} error={null} onReuseConfig={vi.fn()} />);
+
+    const summary = screen.getByTestId('forge-history-entry-forge-org').querySelector('span.block');
+    expect(summary?.textContent).toBe('Whole org · ALL');
+  });
+
   it('hands the stored configuration back when a run is re-used', () => {
     const onReuseConfig = vi.fn();
     render(

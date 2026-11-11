@@ -154,6 +154,7 @@ import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailabilit
 import { readRecordTypePicklists } from '../src/core/metadata/recordTypePicklists.js';
 import { describePicklistChange } from '../src/modules/forge/stages/RecordTypePicklists.js';
 import { describeCurrencyReplaced } from '../src/core/common/recordCurrencies.js';
+import type { SplitAllowance } from '../src/core/common/governorLimit.js';
 import { ForgeFilesRefusedError } from '../src/modules/forge/stages/FileCopier.js';
 import {
   insertFile,
@@ -820,6 +821,7 @@ const REFUSED_IT: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'a validation rule refused it',
   'restricted-picklist': 'a restricted picklist refused its value',
   'lookup-filter': 'a lookup filter refused the record it names',
+  'inactive-owner': 'the target holds the owner it names inactive',
 };
 
 /** The flag each ForgeConfig field is read from, to name it in an error. */
@@ -1062,14 +1064,24 @@ export function cloneInputLine(args: Pick<CliArgs, 'record' | 'tables'>): string
     .join(', ')}`;
 }
 
-/** What a run's lines and summary call what it cloned: its record, or the tables it read. */
+/** The most objects a run's line names by name: a clone of the whole org copies hundreds. */
+const SUBJECT_OBJECTS_NAMED = 12;
+
+/**
+ * What a run's lines and summary call what it cloned: its record, or the
+ * tables it read — the first of them by name, and how many more, past
+ * {@link SUBJECT_OBJECTS_NAMED}.
+ */
 export function cloneSubjectOf(run: {
   record?: string;
   objects?: ReadonlyArray<{ objectApiName: string }>;
 }): string {
   if (run.record) return run.record;
   const objects = (run.objects ?? []).map((object) => object.objectApiName);
-  return objects.length > 0 ? objects.join(', ') : 'the run';
+  if (objects.length === 0) return 'the run';
+  if (objects.length <= SUBJECT_OBJECTS_NAMED) return objects.join(', ');
+  const more = objects.length - SUBJECT_OBJECTS_NAMED;
+  return `${objects.slice(0, SUBJECT_OBJECTS_NAMED).join(', ')} and ${more} more object${more === 1 ? '' : 's'}`;
 }
 
 /** The largest file read as a run's choices: a template with every decision a graph holds stays well under it. */
@@ -1171,6 +1183,18 @@ const CLONE_FLAGS: CommandFlags = {
   ],
 };
 
+/**
+ * Exit on the depth ALL: a clone of the whole org is a depth of the run's
+ * schema, which would refuse it only for going with a record or tables. It is
+ * not offered on the command line at all, which is what the refusal says.
+ */
+function refuseWholeOrgDepth(): never {
+  process.stderr.write(
+    '--depth all clones the whole org and is only offered in the Forge panel for now.\n',
+  );
+  process.exit(2);
+}
+
 /** The command line read and checked; exits on `--help` or a bad flag. Exported so it can be tested. */
 export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): CliArgs {
   const args = argv.slice(2);
@@ -1222,6 +1246,20 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     choices = read.file;
   }
   const template = choices?.kind === 'template' ? choices.template : undefined;
+  // A template saved from a clone of the whole org in the Forge panel: what
+  // it clones is the whole org, which the command does not offer — not a
+  // record, a query or tables whose choices it could take.
+  if (template?.config.inputMode === 'org' || template?.config.depth === 'all') {
+    process.stderr.write(
+      '--template: the template clones the whole org (the depth ALL), which is only offered ' +
+        'in the Forge panel for now.\n',
+    );
+    process.exit(2);
+  }
+  // The flag, told before what else the line lacks: `--depth all` names no
+  // record, as a clone of the whole org takes none, and was answered that a
+  // required flag was missing rather than why the depth is refused.
+  if (get('--depth') === 'all') refuseWholeOrgDepth();
   /** What the file decides, leaves out, filters and maps: the template's config, or the config. */
   const fileChoices: Partial<ForgeConfigInput> =
     choices?.kind === 'template' ? { ...choices.template.config } : (choices?.config ?? {});
@@ -1514,13 +1552,18 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     }
     process.exit(2);
   }
+  // Refused above, the flag and the template both: what remains is a walk
+  // from the root. The schema's `'all'` is told in words all the same, should
+  // the checks above ever move behind it.
+  const { depth } = checked.data;
+  if (depth === 'all') refuseWholeOrgDepth();
 
   return {
     record,
     tables,
     source,
     target,
-    depth: checked.data.depth,
+    depth,
     customDepth,
     maxNodes,
     maxRecordsPerObject,
@@ -3345,7 +3388,9 @@ const runSummarySchema = z.object({
         where: z.string().max(512).optional(),
       }),
     )
-    .max(500)
+    // As many as a graph holds nodes: a clone of the whole org the panel
+    // ran, read back from its journal, names every object it copied.
+    .max(2_000)
     .optional(),
   dryRun: z.literal(false),
   elapsedMs: z.number().nonnegative(),
@@ -3447,9 +3492,12 @@ async function runSummaryOfJournal(
   const elapsed = Date.parse(recordedAt) - Date.parse(read.startedAt);
   const startedWith = read.resume?.startedWith;
   const record = read.resume?.recordId ?? startedWith?.config.recordId;
-  // A clone of whole tables names the tables its graph took, each under its filter.
+  // A clone of whole tables names the tables its graph took, each under its
+  // filter; so does any run that started from no record — a clone of the
+  // whole org the panel ran, its objects — rather than calling it a record
+  // of none.
   const objects =
-    !record && startedWith?.config.inputMode === 'soql'
+    !record && startedWith && startedWith.config.inputMode !== 'record'
       ? startedWith.graph.nodes
           .filter((node) => node.included)
           .map(({ objectApiName }) => {
@@ -4266,12 +4314,14 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // read afterwards was a change since the run.
   const sweepMade: { result?: ForgeSweepResult } = {};
   const sweepFirst = args.sweep
-    ? async (): Promise<boolean> => {
+    ? async (allowance?: SplitAllowance): Promise<boolean> => {
         const swept = await sweepRunRecords(
           removalOrg(conn, 'sandforge-clone --sweep'),
           await cliSweepInput(conn, args.target, summary, created, stop.signal),
           {
             includeChanged: args.includeChanged,
+            // The removal's smaller calls, which the sweep spends with it.
+            ...(allowance ? { allowance } : {}),
             // What the earlier removals of the run changed while they ran is no
             // change since the run.
             removalSpans: earlier?.removalSpans ?? [],
@@ -5735,8 +5785,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       return records;
     },
     // Each page as the org answers it, the next asked once the one before
-    // is taken: the paged read, which the diagnostic's pages go through.
-    queryPages: (orgId, soql) => {
+    // is taken: the paged read, which the diagnostic's pages go through. A
+    // read asked to take the archived activities goes through the org's
+    // `queryAll`, as the extension's does: dropped here, the read would go
+    // through `query` and leave them out without a word.
+    queryPages: (orgId, soql, options) => {
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
       pagedReads.statements++;
@@ -5746,18 +5799,23 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
             pagedReads.pages++;
             return c.query<Record<string, unknown>>(q);
           },
+          queryAll: async (q) => {
+            pagedReads.pages++;
+            return c.query<Record<string, unknown>>(q, { scanAll: true });
+          },
           queryMore: async (url) => {
             pagedReads.pages++;
             return c.queryMore<Record<string, unknown>>(url);
           },
         },
         soql,
+        options,
       );
     },
-    countRecords: async (orgId, soql) => {
+    countRecords: async (orgId, soql, options) => {
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
-      return (await c.query(soql)).totalSize;
+      return (await c.query(soql, options?.all ? { scanAll: true } : undefined)).totalSize;
     },
     // The org's currency settings: whether advanced currency management is
     // on, which the user's access to dated rates cannot always tell.

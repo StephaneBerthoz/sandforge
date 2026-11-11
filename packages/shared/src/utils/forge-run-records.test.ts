@@ -461,6 +461,9 @@ describe('a run whose ids are in its journal', () => {
     expect(forgeRunCreatedSome(inTheJournal())).toBe(true);
     expect(forgeRunCreatedSome(inTheJournal({ createdCount: 0 }))).toBe(false);
     expect(forgeRunLinkedKeptCount(inTheJournal())).toBe(2);
+    // Those the platform deletes with a record the run created are not kept.
+    expect(forgeRunLinkedKeptCount(inTheJournal({ linkedWithTheirRecordCount: 1 }))).toBe(1);
+    expect(forgeRunLinkedKeptCount(inTheJournal({ linkedWithTheirRecordCount: 5 }))).toBe(0);
   });
 
   it('keeps a plan that names its journal and holds no id, counted as the entry counts it', () => {

@@ -273,6 +273,34 @@ describe('forge:rehearse', () => {
     expect(posted('forge:rehearse:error')[0].payload).toMatchObject({ code: 'PRODUCTION_TARGET' });
   });
 
+  it('refuses a clone of the whole org before reading anything, and leaves no trace in the audit trail', async () => {
+    // The rehearser holds every row it prepares, which no memory takes for a
+    // whole org: refused in this version, the run's confirmation listing
+    // what it writes instead.
+    await rehearse({
+      graph: GRAPH,
+      config: {
+        ...CONFIG,
+        inputMode: 'org',
+        depth: 'all',
+        recordId: undefined,
+      },
+    });
+    expect(rehearser.rehearse).not.toHaveBeenCalled();
+    expect(questions).toEqual([]);
+    expect(posted('forge:rehearse:error')[0].payload).toMatchObject({
+      code: 'WHOLE_ORG_REHEARSAL',
+      message:
+        'A clone of the whole org cannot be rehearsed yet: a rehearsal holds every row it ' +
+        'prepares. Its confirmation lists what it writes. Nothing was read or sent.',
+    });
+    expect(trail()).toEqual([]);
+    // Nor is a config that breaks the rule of the whole org.
+    await rehearse({ graph: GRAPH, config: { ...CONFIG, depth: 'all' } });
+    expect(posted('forge:rehearse:error')[1].payload).toMatchObject({ code: 'WHOLE_ORG_CONFIG' });
+    expect(rehearser.rehearse).not.toHaveBeenCalled();
+  });
+
   it('refuses without the guard, which has nobody to ask', async () => {
     deps.infraServices = {} as HandlerDeps['infraServices'];
     await rehearse();

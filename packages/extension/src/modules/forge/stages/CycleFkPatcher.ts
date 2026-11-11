@@ -16,6 +16,25 @@
  * records still failed entirely, one stage later. The call site passes it
  * now, with the duplicate-rule header, and this stage still bounds its own
  * batches.
+ *
+ * A run that writes through the Bulk API (`bulkUpdate`) sends an object's
+ * updates as Bulk API jobs from `FORGE_BULK_MIN_ROWS` of them, ten thousand a
+ * job: a clone of a whole org owes its second pass by the million. An object
+ * an active duplicate rule watches (`restOnly`) is updated by REST all the
+ * same — a rule refuses an update as it refuses an insert, and only the REST
+ * call's header waives it.
+ *
+ * An update the target's automation refuses for a Salesforce limit — a
+ * trigger on the object that runs a query per record, past the 100 a call
+ * allows — is the call's refusal, not the record's: the updates it refused go
+ * again in calls half as large, down to one, and the object's later calls go
+ * at the size that went through, by REST rather than as jobs
+ * (`sendSplittingOnLimits`, `CallSizes`). Updates are idempotent and keep no
+ * journal line per call, so an update sent again never writes twice. The
+ * sizes and the smaller calls a run allows itself are the run's
+ * (`callSizes`, `splitAllowance`), shared with its first pass. A pass handed
+ * neither — Seed's — splits nothing: its updates go in calls of 200, and one
+ * refused for a limit fails as the org refused it.
  */
 
 import type {
@@ -25,10 +44,29 @@ import type {
   ForgeProgressEvent,
   UpdateResult,
 } from '../ForgeExecutor.js';
+import { limitCauseOf, type GovernorLimitCause } from '@sandforge/shared';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
+import {
+  BULK_CHUNK,
+  CallSizes,
+  NOT_SPLIT,
+  RUN_SPLIT_CALLS,
+  SplitAllowance,
+  allowedFor,
+  limitNoteText,
+  sendSplittingOnLimits,
+  type CallKey,
+  type LimitNote,
+  type SmallerCalls,
+  type SplitPricing,
+} from '../../../core/common/governorLimit.js';
 import { LookupPatchSet } from '../../../core/common/lookupPatches.js';
 import { LOOKUP_FILTER_REFUSAL } from '../../../core/common/refusedFields.js';
+import { RetryStrategy } from '../../../core/engine/RetryStrategy.js';
+import { logger } from '../../../logger.js';
 import type { IdRemapper } from '../IdRemapper.js';
+import { FORGE_BULK_MIN_ROWS } from '../ForgeBatchStrategy.js';
+import { BulkJobLostError, FORGE_BULK_JOB_ROWS, type BulkWriteAnswer } from '../forgeBulkWrite.js';
 import {
   WRITE_API_MAX_BATCH,
   summarizeRecordForError,
@@ -92,6 +130,123 @@ export interface CycleFkPatchInput {
    * A verification of the run tells it from a lookup that broke.
    */
   onRefusedByFilter?: (objectApiName: string, field: string, recordId: string) => void;
+  /**
+   * Send one object's updates as one Bulk API job and answer each
+   * (`forgeBulkWrite`): what a run that writes through the Bulk API sends an
+   * object's updates as, from `FORGE_BULK_MIN_ROWS` of them. Throws only once
+   * the job was closed and could not be read back. Absent, every update goes
+   * by REST, as it always did.
+   */
+  bulkUpdate?: (
+    objectApiName: string,
+    records: Record<string, unknown>[],
+  ) => Promise<BulkWriteAnswer>;
+  /**
+   * Objects whose updates go by REST whatever their number: those an active
+   * duplicate rule of the target watches, which only the REST call's header
+   * waives. Read only with `bulkUpdate`.
+   */
+  restOnly?: ReadonlySet<string>;
+  /**
+   * Objects the org said the Bulk API does not write, in the run: the run's
+   * own (`BulkTransport.bulkUnsupported`), so an object its first write or an
+   * earlier node's pass learned that of is not sent as a job again, and one
+   * this pass learns it of is not sent so by the passes after. Absent, the
+   * pass keeps its own. Read only with `bulkUpdate`.
+   */
+  bulkUnsupported?: Set<string>;
+  /** Waits out the delay before updates a job refused for a lock go again by REST. */
+  wait?: (ms: number) => Promise<void>;
+  /**
+   * The size each object's updates go at, cut by the calls the target's
+   * automation refused for a limit: the run's, so that what one node's pass
+   * learned holds for the passes after it. Absent, the pass keeps its own.
+   * Without it and without `splitAllowance`, the pass splits nothing.
+   */
+  callSizes?: CallSizes;
+  /**
+   * The smaller calls the run allows itself (`SplitAllowance`), shared with
+   * its first pass. Absent, the pass keeps its own, of `RUN_SPLIT_CALLS`.
+   * Without it and without `callSizes`, the pass splits nothing.
+   */
+  splitAllowance?: SplitAllowance;
+}
+
+/** The code the target refuses a row with when it could not lock a record the write needed. */
+const LOCK_REFUSAL = 'UNABLE_TO_LOCK_ROW';
+
+/** The code a duplicate rule refuses a row with: a job carries no header that waives it. */
+const DUPLICATE_RULE_REFUSAL = 'DUPLICATES_DETECTED';
+
+/**
+ * Times an update a job refused for a record it could not lock is sent again
+ * by REST, after a wait that doubles each time: the job's chunks run side by
+ * side, and two of them updating children of one record wait on its lock.
+ */
+const RESENDS_OF_A_LOCKED_UPDATE = 3;
+
+/** The wait before the first of those sends: doubled before each next one. */
+const RESEND_DELAY_MS = 2_000;
+
+/** What the sizes of an object's updates are kept under. */
+function updateKey(objectApiName: string): CallKey {
+  return { objectApiName, op: 'update' };
+}
+
+/** Wait `ms` milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Whether every error an update was refused with is a lock the target could not get. */
+function refusedForALock(result: UpdateResult): boolean {
+  const details = result.errorDetails ?? [];
+  if (details.length > 0 && details.length === result.errors.length) {
+    return details.every((detail) => detail.statusCode === LOCK_REFUSAL);
+  }
+  return result.errors.length > 0 && result.errors.every((error) => error.startsWith(LOCK_REFUSAL));
+}
+
+/**
+ * Whether an update a job refused goes once more by REST: refused for a lock,
+ * by a duplicate rule the REST call's header waives, or with an error that
+ * did not read as exactly one (`forgeBulkWrite` reads one into `errorDetails`).
+ */
+function goesAgainByRest(result: UpdateResult): boolean {
+  const details = result.errorDetails;
+  return (
+    details?.length !== 1 ||
+    details[0].statusCode === DUPLICATE_RULE_REFUSAL ||
+    details[0].statusCode === LOCK_REFUSAL
+  );
+}
+
+/**
+ * The limit an update was refused for, when the target's automation hit one
+ * as the call ran: the call's refusal, which a smaller call cures.
+ */
+function limitOf(result: UpdateResult | undefined): GovernorLimitCause | undefined {
+  return result && !result.success ? limitCauseOf(result.errors) : undefined;
+}
+
+/** The log line of an object whose updates are first sent smaller. */
+function logFirstRefusal(report: SmallerCalls): void {
+  const who = report.automation ?? "the target's automation";
+  logger.warn(
+    `[forge] ${report.objectApiName}: ${who} hit ${report.limit ?? 'a Salesforce limit'} on an ` +
+      `update call of ${report.from ?? report.to * 2} — sending ${report.to} at a time.`,
+  );
+}
+
+/**
+ * The value an update sets first, which the updates of a job are sorted by:
+ * those that point at one record go together, in one of the job's chunks,
+ * rather than wait on its lock from two.
+ */
+function valueSet(update: Readonly<Record<string, unknown>>): string {
+  const field = Object.keys(update).find((name) => name !== 'Id');
+  const value = field === undefined ? undefined : update[field];
+  return typeof value === 'string' ? value : '';
 }
 
 /** The lookups one update fills in: every field it carries but the record's Id. */
@@ -252,8 +407,31 @@ export class CycleFkPass {
   private handed = 0;
   /** What the records owing in several parts owe, gathered across them: see `sendHeld`. */
   private readonly held = new LookupPatchSet();
+  /** Objects the org said the Bulk API does not update: updated by REST from then on. */
+  private readonly bulkUnsupported: Set<string>;
+  /** How long to wait before updates a job refused for a lock go again. */
+  private readonly backoff = new RetryStrategy({ initialDelay: RESEND_DELAY_MS });
+  /** The size each object's updates go at: see `CycleFkPatchInput.callSizes`. */
+  private readonly sizes: CallSizes;
+  /** The smaller calls the run allows itself: see `CycleFkPatchInput.splitAllowance`. */
+  private readonly allowance: SplitAllowance;
+  /**
+   * Whether an update refused for a limit is sent again smaller: only by a
+   * pass handed the run's sizes or allowance, as Forge's executor hands them.
+   */
+  private readonly splits: boolean;
 
-  constructor(private readonly input: Omit<CycleFkPatchInput, 'pendingFkUpdates'>) {}
+  constructor(private readonly input: Omit<CycleFkPatchInput, 'pendingFkUpdates'>) {
+    this.bulkUnsupported = input.bulkUnsupported ?? new Set<string>();
+    this.splits = input.callSizes !== undefined || input.splitAllowance !== undefined;
+    this.sizes = input.callSizes ?? new CallSizes();
+    this.allowance = input.splitAllowance ?? new SplitAllowance(RUN_SPLIT_CALLS);
+  }
+
+  /** The limit an update was refused for, when the pass splits: see {@link splits}. */
+  private limitOf(result: UpdateResult | undefined): GovernorLimitCause | undefined {
+    return this.splits ? limitOf(result) : undefined;
+  }
 
   /**
    * Patch one part of the lookups owed.
@@ -341,66 +519,379 @@ export class CycleFkPass {
     this.resolvedCount++;
   }
 
-  /** Send the updates `owed` holds, per object, in calls of the REST limit. */
+  /**
+   * Send the updates `owed` holds, per object: as Bulk API jobs when the run
+   * sends them and the object owes enough of them (`jobsFor`), otherwise in
+   * calls of the REST limit.
+   */
   private async send(owed: LookupPatchSet): Promise<void> {
+    const { input } = this;
+    if (!input.updateRecords) return;
+    for (const [objectApiName, recordsToUpdate] of owed.updates()) {
+      if (this.jobsFor(objectApiName, recordsToUpdate.length)) {
+        await this.sendAsJobs(objectApiName, recordsToUpdate);
+        continue;
+      }
+      await this.sendByRest(objectApiName, recordsToUpdate);
+    }
+  }
+
+  /**
+   * Whether `count` updates of `objectApiName` go as Bulk API jobs: the run
+   * sends them, they are `FORGE_BULK_MIN_ROWS` or more, and the object is
+   * neither one a duplicate rule watches, nor one the org said the Bulk API
+   * does not update, nor one whose updates a limit cut: a job's chunk of 200
+   * is the call that was refused, and the object goes by REST for the rest
+   * of the run, its smaller calls spent or not.
+   */
+  private jobsFor(objectApiName: string, count: number): boolean {
+    const { input } = this;
+    return (
+      input.bulkUpdate !== undefined &&
+      count >= FORGE_BULK_MIN_ROWS &&
+      input.restOnly?.has(objectApiName) !== true &&
+      !this.bulkUnsupported.has(objectApiName) &&
+      !this.sizes.wasShrunk(updateKey(objectApiName))
+    );
+  }
+
+  /** Count the lookups of updates a cancel kept from being sent. */
+  private leaveNotSent(objectApiName: string, records: readonly Record<string, unknown>[]): void {
+    for (const record of records) this.notSent += lookupsIn(record);
+    if (records.length > 0) this.notSentObjects.add(objectApiName);
+  }
+
+  /**
+   * Send updates of one object by REST, in calls of the REST limit or of the
+   * size a limit cut the object's updates to, read again before each call,
+   * after asking whether the run was cancelled before each. The updates a
+   * call of more than one was refused for a limit go again at once, in calls
+   * half as large (`sendSplittingOnLimits`); one refused so on its own, or
+   * past the smaller calls the run allows itself, fails with a sentence that
+   * says so after the org's.
+   *
+   * @param locked - Where an update the target refused for a lock goes, to be
+   *   sent again, when the caller sends such updates again; absent, it fails
+   *   as any refused update does.
+   * @param pricing - How the calls cut smaller are paid: see `SplitPricing`.
+   */
+  private async sendByRest(
+    objectApiName: string,
+    recordsToUpdate: readonly Record<string, unknown>[],
+    locked?: Record<string, unknown>[],
+    pricing?: SplitPricing<Record<string, unknown>>,
+  ): Promise<void> {
     const { input } = this;
     const { targetOrgId } = input;
     const updateRecords = input.updateRecords;
-    if (!updateRecords) return;
-    const maxPerCall = WRITE_API_MAX_BATCH['rest'];
-    for (const [objectApiName, recordsToUpdate] of owed.updates()) {
-      for (let offset = 0; offset < recordsToUpdate.length; offset += maxPerCall) {
-        const batch = recordsToUpdate.slice(offset, offset + maxPerCall);
-        if (!this.cancelled) this.cancelled = input.stopped?.() === true;
+    if (!updateRecords || recordsToUpdate.length === 0) return;
+    const askStopped = (): boolean => {
+      if (!this.cancelled) this.cancelled = input.stopped?.() === true;
+      return this.cancelled;
+    };
+    if (askStopped()) {
+      this.leaveNotSent(objectApiName, recordsToUpdate);
+      return;
+    }
+    // What a call threw, read by the settle of that call: one rejected call
+    // does not abandon the rest, whose records are independent FK patches.
+    let threw: { error: unknown } | undefined;
+    const outcome = await sendSplittingOnLimits<Record<string, unknown>, UpdateResult>(
+      recordsToUpdate,
+      {
+        key: updateKey(objectApiName),
+        sizes: this.sizes,
+        allowance: this.allowance,
+        maxSize: WRITE_API_MAX_BATCH['rest'],
+        ...pricing,
+        beforeEachSend: () => (askStopped() ? 'stop' : undefined),
+        send: async (part) => {
+          try {
+            return { answers: await updateRecords(targetOrgId, objectApiName, [...part]) };
+          } catch (error) {
+            threw = { error };
+            return { answers: [] };
+          }
+        },
+        limited: (answer) => this.limitOf(answer),
+        settle: (part, answers, again, notes) => {
+          const thrown = threw;
+          threw = undefined;
+          if (thrown) this.callThrew(objectApiName, part, thrown.error);
+          else this.settleAnswers(objectApiName, part, answers, again, notes, locked);
+          input.onAnswered?.();
+        },
+        onFirstRefusal: logFirstRefusal,
+      },
+    );
+    // Stopped before a call by a cancel: that call and every one after it
+    // were never sent. No call is stopped as one that may have written.
+    if (outcome.stopped) {
+      this.leaveNotSent(objectApiName, [...outcome.stopped.part, ...outcome.stopped.rest]);
+    }
+  }
+
+  /**
+   * Settle what one call answered: the updates the target took, those it
+   * refused for a lock when the caller sends them again, and the others it
+   * refused — those of `again` aside, which go again in smaller calls.
+   */
+  private settleAnswers(
+    objectApiName: string,
+    batch: readonly Record<string, unknown>[],
+    updateResults: readonly (UpdateResult | undefined)[],
+    again: ReadonlySet<number>,
+    notes: ReadonlyMap<number, LimitNote>,
+    locked?: Record<string, unknown>[],
+  ): void {
+    const { input } = this;
+    for (let i = 0; i < batch.length; i++) {
+      if (again.has(i)) continue;
+      const r = updateResults[i];
+      if (!r) {
+        // An answer shorter than its batch says nothing of the records past
+        // its end, and nothing is not success: left uncounted, their lookups
+        // read as resolved. Counted as left empty, as the insert of a batch
+        // counts the rows its answer leaves out.
+        this.pass2Failed += lookupsIn(batch[i]);
+        if (this.pass2Samples.length < 3) {
+          this.pass2Samples.push({
+            recordSummary: summarizeRecordForError(batch[i]),
+            messages: [
+              `No result returned for record (API truncated batch: ${updateResults.length}/${batch.length})`,
+            ],
+          });
+        }
+      } else if (r.success) input.onPatched?.(objectApiName, batch[i]);
+      else if (locked && refusedForALock(r)) locked.push(batch[i]);
+      else this.refused(objectApiName, batch[i], r, notes.get(i));
+    }
+  }
+
+  /** Count the updates of a call that threw as left empty, with what it threw. */
+  private callThrew(
+    objectApiName: string,
+    batch: readonly Record<string, unknown>[],
+    err: unknown,
+  ): void {
+    for (const record of batch) this.pass2Failed += lookupsIn(record);
+    if (this.pass2Samples.length < 3) {
+      this.pass2Samples.push({
+        recordSummary: `${objectApiName} batch failed`,
+        messages: [extractErrorMessage(err)],
+      });
+    }
+  }
+
+  /**
+   * Count an update the target refused: its lookups stay empty, and a filter
+   * that named one is told. One refused for a limit and not sent again says
+   * why after the org's words (`note`): sent on its own, or past the smaller
+   * calls the run allows itself.
+   */
+  private refused(
+    objectApiName: string,
+    update: Readonly<Record<string, unknown>>,
+    result: UpdateResult,
+    note?: LimitNote,
+  ): void {
+    this.tellRefusedByFilter(objectApiName, update, result);
+    this.pass2Failed += lookupsIn(update);
+    if (this.pass2Samples.length < 3) {
+      const allowed = allowedFor(this.allowance, updateKey(objectApiName));
+      this.pass2Samples.push({
+        recordSummary: summarizeRecordForError(update),
+        messages:
+          note === undefined
+            ? result.errors
+            : [...result.errors, limitNoteText(note, allowed, 'run')],
+      });
+    }
+  }
+
+  /**
+   * Send updates of one object as Bulk API jobs of `FORGE_BULK_JOB_ROWS`,
+   * sorted by the value each sets, after asking whether the run was cancelled
+   * before each job. What a job took is marked once its results are read; an
+   * update it could not answer for itself — left unprocessed, refused for a
+   * lock, by a duplicate rule, or with an error that does not read as one —
+   * goes again by REST, an update refused for a lock up to three times. A job
+   * that wrote nothing has its updates sent by REST, and once the org says
+   * the Bulk API does not update the object, every update of it after, as
+   * does a job that threw before the org held anything of it. A job lost once
+   * closed leaves its lookups said as not filled in — the target may hold
+   * them all the same. An update a job refused for a limit goes again by REST,
+   * at half a job's chunk, and the jobs of the object still to send go by
+   * REST too, at the size kept, as far as the smaller calls the run allows
+   * itself pay for every one of those calls, each one more than the job; once
+   * they are spent, a job planned stays a job, and what it refuses for a limit
+   * stays refused, as the org refused it, never sent at 200 to be refused
+   * again.
+   */
+  private async sendAsJobs(
+    objectApiName: string,
+    recordsToUpdate: readonly Record<string, unknown>[],
+  ): Promise<void> {
+    const { input } = this;
+    const bulkUpdate = input.bulkUpdate;
+    if (!bulkUpdate) return;
+    const sorted = recordsToUpdate
+      .map((record, at) => ({ record, at, value: valueSet(record) }))
+      .sort((a, b) => (a.value === b.value ? a.at - b.at : a.value < b.value ? -1 : 1))
+      .map(({ record }) => record);
+    const key = updateKey(objectApiName);
+    for (let offset = 0; offset < sorted.length; offset += FORGE_BULK_JOB_ROWS) {
+      let job = sorted.slice(offset, offset + FORGE_BULK_JOB_ROWS);
+      if (!this.cancelled) this.cancelled = input.stopped?.() === true;
+      if (this.cancelled) {
+        this.leaveNotSent(objectApiName, job);
+        continue;
+      }
+      // A limit refused a job of the object: its chunks of 200 are the calls
+      // that were refused, and the jobs after go by REST at the size kept, as
+      // far as the allowance pays for each of their calls, before the first
+      // goes. The key is spent once they went — a spent key's calls go at
+      // 200 — and what it did not pay for goes as the job it was planned as,
+      // or at 200 under the threshold of a job.
+      if (this.sizes.wasShrunk(key) && !this.sizes.isSpent(key)) {
+        const size = this.sizes.of(key);
+        const asked = Math.ceil(job.length / size);
+        const granted = this.allowance.take(key, asked);
+        this.sizes.countExtraCalls(key, granted);
+        const byRest = job.slice(0, granted * size);
+        await this.sendByRest(objectApiName, byRest, undefined, {
+          pricedAs: 'job',
+          paid: { calls: granted },
+        });
+        if (granted === asked) continue;
+        this.sizes.spend(key);
+        job = job.slice(byRest.length);
         if (this.cancelled) {
-          for (const record of batch) this.notSent += lookupsIn(record);
-          this.notSentObjects.add(objectApiName);
+          this.leaveNotSent(objectApiName, job);
           continue;
         }
-        try {
-          const updateResults = await updateRecords(targetOrgId, objectApiName, batch);
-          for (let i = 0; i < updateResults.length; i++) {
-            const r = updateResults[i];
-            if (r.success) input.onPatched?.(objectApiName, batch[i]);
-            if (!r.success) {
-              this.tellRefusedByFilter(objectApiName, batch[i], r);
-              this.pass2Failed += lookupsIn(batch[i]);
-              if (this.pass2Samples.length < 3) {
-                this.pass2Samples.push({
-                  recordSummary: summarizeRecordForError(batch[i]),
-                  messages: r.errors,
-                });
-              }
-            }
-          }
-          // An answer shorter than its batch says nothing of the records past
-          // its end, and nothing is not success: left uncounted, their lookups
-          // read as resolved. Counted as left empty, as the insert of a batch
-          // counts the rows its answer leaves out.
-          for (let i = updateResults.length; i < batch.length; i++) {
-            this.pass2Failed += lookupsIn(batch[i]);
-            if (this.pass2Samples.length < 3) {
-              this.pass2Samples.push({
-                recordSummary: summarizeRecordForError(batch[i]),
-                messages: [
-                  `No result returned for record (API truncated batch: ${updateResults.length}/${batch.length})`,
-                ],
-              });
-            }
-          }
-        } catch (err) {
-          // One rejected batch does not abandon the rest: the records in the
-          // other batches are independent FK patches.
-          for (const record of batch) this.pass2Failed += lookupsIn(record);
-          if (this.pass2Samples.length < 3) {
-            this.pass2Samples.push({
-              recordSummary: `${objectApiName} batch failed`,
-              messages: [extractErrorMessage(err)],
-            });
-          }
+        if (job.length < FORGE_BULK_MIN_ROWS) {
+          await this.sendByRest(objectApiName, job);
+          continue;
+        }
+      }
+      let answer: BulkWriteAnswer;
+      try {
+        answer = await bulkUpdate(objectApiName, job);
+      } catch (err) {
+        if (!(err instanceof BulkJobLostError)) {
+          // Thrown before the org held anything of it — no connection to the
+          // target: nothing was updated, and an update sent twice sets the
+          // same value, so the job's updates go by REST.
+          await this.sendByRest(objectApiName, job);
+          continue;
+        }
+        // Closed, and what it did could not be read back.
+        for (const record of job) this.pass2Failed += lookupsIn(record);
+        if (this.pass2Samples.length < 3) {
+          this.pass2Samples.push({
+            recordSummary: `${objectApiName}: a Bulk API job of ${job.length} updates was lost`,
+            messages: [
+              extractErrorMessage(err),
+              'The target may hold any of these lookups: they are counted as left empty.',
+            ],
+          });
         }
         input.onAnswered?.();
+        continue;
       }
+      if (answer.aborted) {
+        // Cancelled while the job was open: it updated nothing.
+        this.cancelled = true;
+        for (const record of job) this.notSent += lookupsIn(record);
+        this.notSentObjects.add(objectApiName);
+        continue;
+      }
+      if (answer.untouched) {
+        if (answer.untouched.unsupported) this.bulkUnsupported.add(objectApiName);
+        await this.sendByRest(objectApiName, job);
+        continue;
+      }
+      const again: Array<Record<string, unknown>> = [];
+      const refusedForALimit = new Map<Record<string, unknown>, UpdateResult>();
+      let limit: GovernorLimitCause | undefined;
+      job.forEach((record, i) => {
+        const state = answer.rows[i] ?? 'unprocessed';
+        const result = answer.answers[i];
+        const limited = state === 'answered' ? this.limitOf(result) : undefined;
+        if (limited && result && this.sizes.isSpent(key)) {
+          // The smaller calls spent, sent again at 200 it would be refused
+          // as the job's chunk of 200 was: it stays refused, and says why.
+          this.sizes.countNotSplit(key, 1);
+          this.refused(objectApiName, record, result, NOT_SPLIT);
+        } else if (limited && result) {
+          // Refused with its chunk for a limit: by REST, at half a chunk.
+          limit ??= limited;
+          refusedForALimit.set(record, result);
+        } else if (state === 'answered' && result?.success) {
+          input.onPatched?.(objectApiName, record);
+        } else if (state === 'may-have-written') {
+          this.pass2Failed += lookupsIn(record);
+          if (this.pass2Samples.length < 3) {
+            this.pass2Samples.push({
+              recordSummary: summarizeRecordForError(record),
+              messages: ['The Bulk API job may have written this update without saying so.'],
+            });
+          }
+        } else if (state !== 'answered' || !result || goesAgainByRest(result)) {
+          again.push(record);
+        } else {
+          this.refused(objectApiName, record, result);
+        }
+      });
+      if (limit && !this.sizes.isSpent(key)) {
+        const first = !this.sizes.wasShrunk(key);
+        this.sizes.refusedAt(key, BULK_CHUNK, limit);
+        const report = this.sizes.report(key);
+        if (first && report) logFirstRefusal(report);
+      }
+      // The marks of what the job took go to disk before anything else is sent.
+      input.onAnswered?.();
+      await this.sendAgainByRest(objectApiName, again);
+      // Each of their calls by REST is one more than the job, paid as it is
+      // queued; those the allowance no longer pays for stay refused, unsent.
+      await this.sendAgainByRest(objectApiName, [...refusedForALimit.keys()], {
+        pricedAs: 'job',
+        unpaid: (unpaid) => {
+          for (const record of unpaid) {
+            const result = refusedForALimit.get(record);
+            if (result) this.refused(objectApiName, record, result, NOT_SPLIT);
+          }
+        },
+      });
+    }
+  }
+
+  /**
+   * Send again by REST the updates a job could not answer for itself: once,
+   * and an update refused for a lock again, after a wait that doubles each
+   * time, up to three times; still refused so, it fails with that refusal.
+   *
+   * @param pricing - How the calls of the first send cut smaller are paid:
+   *   see `SplitPricing`.
+   */
+  private async sendAgainByRest(
+    objectApiName: string,
+    records: readonly Record<string, unknown>[],
+    pricing?: SplitPricing<Record<string, unknown>>,
+  ): Promise<void> {
+    let left = records;
+    for (let resends = 0; left.length > 0; resends++) {
+      if (resends > 0) await (this.input.wait ?? sleep)(this.backoff.calculateDelay(resends - 1));
+      const locked: Array<Record<string, unknown>> = [];
+      await this.sendByRest(
+        objectApiName,
+        left,
+        // The last of its sends: a refusal for a lock fails it.
+        resends < RESENDS_OF_A_LOCKED_UPDATE - 1 ? locked : undefined,
+        resends === 0 ? pricing : undefined,
+      );
+      left = locked;
     }
   }
 

@@ -44,6 +44,12 @@ vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+// The removal itself, watched: what the undo hands it is read back.
+vi.mock('../forge/ForgeRunRemoval.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../forge/ForgeRunRemoval.js')>();
+  return { ...actual, removeRunRecords: vi.fn(actual.removeRunRecords) };
+});
+
 /*
  * Undo, on the memory org the bricks run on, of a rewind made of the bricks
  * a rewind goes through: its journal opened before it writes, its deletions
@@ -432,6 +438,31 @@ describe('undoRewind, on the memory org', () => {
     expect(org.all('Contact').find((row) => row.Id === R)?.ReportsToId).toBe(NC);
     expect(outcome.residual).toEqual([]);
     expect(outcome.notes).toEqual([]);
+  });
+
+  it('hands its removal the smaller calls it is given for calls the org’s automation refuses for a Salesforce limit, and leaves the removal its own when given none', async () => {
+    const handed = async (splitAllowance?: number): Promise<Array<number | undefined>> => {
+      const org = orgBeforeTheRewind();
+      const folder = await checkpointFolder();
+      const rewindId = await rewound(folder, org);
+      vi.mocked(removeRunRecords).mockClear();
+      vi.setSystemTime(TR + 10 * 60_000);
+      const outcome = await undoRewind({
+        folder,
+        rewindId,
+        lock,
+        objects: READ_ORDER,
+        org,
+        undelete: (ids) => org.undelete(ids),
+        ...(splitAllowance !== undefined ? { splitAllowance } : {}),
+      });
+      expect(outcome.status).toBe('success');
+      return vi.mocked(removeRunRecords).mock.calls.map(([, , options]) => options.splitAllowance);
+    };
+
+    expect(await handed(7)).toEqual([7]);
+    expect(await handed(0)).toEqual([0]);
+    expect(await handed()).toEqual([undefined]);
   });
 
   it(

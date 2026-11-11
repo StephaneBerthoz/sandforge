@@ -586,6 +586,39 @@ describe('cleanNodeRecords', () => {
     expect(out.nullifiedFks).toEqual([]);
   });
 
+  it("queues a lookup at a managed package's object the run writes, which every other copy leaves out", () => {
+    // A clone of the whole org holds Vlocity's parties as a node: a party
+    // naming one not written yet has it filled in by the second pass.
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'vlocity_cmt__ParentPartyId__c',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        nillable: true,
+        referenceTo: ['vlocity_cmt__Party__c'],
+      },
+    ];
+    const clean = (writtenObjects?: ReadonlySet<string>) =>
+      cleanNodeRecords(
+        makeInput({
+          objectApiName: 'vlocity_cmt__Party__c',
+          records: [{ Id: 'a0VA', vlocity_cmt__ParentPartyId__c: 'a0VSOURCE' }],
+          fieldInfos: fields,
+          creatableFields: new Set(['vlocity_cmt__ParentPartyId__c']),
+          referenceFallback: 'keep',
+          ...(writtenObjects ? { writtenObjects } : {}),
+        }),
+      )[0];
+
+    const written = clean(new Set(['vlocity_cmt__Party__c']));
+    expect(written.nullifiedFks.map((f) => f.field)).toEqual(['vlocity_cmt__ParentPartyId__c']);
+    expect(written.cleaned).not.toHaveProperty('vlocity_cmt__ParentPartyId__c');
+    // Left out of the run, it is an object no clone creates, as before.
+    expect(clean().nullifiedFks).toEqual([]);
+  });
+
   it('never owes the second pass a lookup no write can set', () => {
     // A person account's contact, read with the account: the platform writes
     // it with the account and fills the lookup, and refuses an update of it.
@@ -1233,5 +1266,123 @@ describe('lookups at objects no clone creates', () => {
     );
 
     expect(out.cleaned.AccountId).toBe('001SOURCE');
+  });
+});
+
+describe('an owner the target holds inactive', () => {
+  /*
+   * Run for real across the whole org, from a production to a sandbox of it,
+   * every record the source's "Admin Salesforce" owned was refused for that
+   * owner, inactive in the sandbox, and every record under them after them.
+   */
+  const INACTIVE = '005000000000001AAA';
+  const ACTIVE = '005000000000002AAA';
+  const MAPPED_TO = '005000000000009AAA';
+  const withOwner: FieldInfo[] = [
+    { name: 'Id', queryable: true, createable: false, isReference: false },
+    { name: 'Name', queryable: true, createable: true, isReference: false },
+    {
+      name: 'OwnerId',
+      queryable: true,
+      createable: true,
+      isReference: true,
+      referenceTo: ['Group', 'User'],
+    },
+    {
+      name: 'Approver__c',
+      queryable: true,
+      createable: true,
+      isReference: true,
+      referenceTo: ['User'],
+    },
+  ];
+  const ownersInput = (overrides: Partial<CleanNodeRecordsInput> = {}): CleanNodeRecordsInput =>
+    makeInput({
+      objectApiName: 'Aeroport__c',
+      fieldInfos: withOwner,
+      referenceFallback: 'keep',
+      creatableFields: new Set(['Name', 'OwnerId', 'Approver__c']),
+      inactiveOwners: new Set([INACTIVE]),
+      ...overrides,
+    });
+
+  it('sends a row without the key of an owner the target holds inactive, and says whose, keeping an active one', () => {
+    const [inactive, active] = cleanNodeRecords(
+      ownersInput({
+        records: [
+          { Id: 'a01A', Name: 'Orly', OwnerId: INACTIVE },
+          { Id: 'a01B', Name: 'Roissy', OwnerId: ACTIVE },
+        ],
+      }),
+    );
+
+    // Left out, never sent empty: a job's CSV sends a null as `#N/A`.
+    expect('OwnerId' in inactive.cleaned).toBe(false);
+    expect(inactive.cleaned).toEqual({ Name: 'Orly' });
+    expect(inactive.ownerInactive).toBe(INACTIVE);
+    expect(inactive).not.toHaveProperty('lookupsNotCarried');
+    expect(inactive.nullifiedFks).toEqual([]);
+    expect(active.cleaned).toEqual({ Name: 'Roissy', OwnerId: ACTIVE });
+    expect(active).not.toHaveProperty('ownerInactive');
+  });
+
+  it('gives a mapped owner the user it is mapped to, whatever the target holds of the source one', () => {
+    const [out] = cleanNodeRecords(
+      ownersInput({
+        records: [{ Id: 'a01A', Name: 'Orly', OwnerId: INACTIVE }],
+        ownerMappings: { [INACTIVE]: MAPPED_TO },
+      }),
+    );
+
+    expect(out.cleaned).toEqual({ Name: 'Orly', OwnerId: MAPPED_TO });
+    expect(out).not.toHaveProperty('ownerInactive');
+  });
+
+  it('keeps a lookup at a user other than the owner naming the same user', () => {
+    const [out] = cleanNodeRecords(
+      ownersInput({
+        records: [{ Id: 'a01A', Name: 'Orly', OwnerId: INACTIVE, Approver__c: INACTIVE }],
+      }),
+    );
+
+    expect(out.cleaned).toEqual({ Name: 'Orly', Approver__c: INACTIVE });
+    expect(out.ownerInactive).toBe(INACTIVE);
+  });
+
+  it('leaves a run that nullifies as it was: the owner never goes, and none is said inactive', () => {
+    const [out] = cleanNodeRecords(
+      ownersInput({
+        records: [{ Id: 'a01A', Name: 'Orly', OwnerId: INACTIVE }],
+        referenceFallback: 'nullify',
+      }),
+    );
+
+    expect(out.cleaned).toEqual({ Name: 'Orly' });
+    expect(out).not.toHaveProperty('ownerInactive');
+  });
+
+  it('does nothing where the owner is not createable: the detail side of a master-detail', () => {
+    const [out] = cleanNodeRecords(
+      ownersInput({
+        records: [{ Id: 'a01A', Name: 'Orly', OwnerId: INACTIVE }],
+        creatableFields: new Set(['Name', 'Approver__c']),
+      }),
+    );
+
+    expect(out.cleaned).toEqual({ Name: 'Orly' });
+    expect(out).not.toHaveProperty('ownerInactive');
+  });
+
+  it('says an owner the target lacks as one it lacks, not as one it holds inactive', () => {
+    const [out] = cleanNodeRecords(
+      ownersInput({
+        records: [{ Id: 'a01A', Name: 'Orly', OwnerId: INACTIVE }],
+        targetLacks: new Set([INACTIVE]),
+      }),
+    );
+
+    expect(out.cleaned).toEqual({ Name: 'Orly' });
+    expect(out.lookupsNotCarried).toEqual(['OwnerId']);
+    expect(out).not.toHaveProperty('ownerInactive');
   });
 });

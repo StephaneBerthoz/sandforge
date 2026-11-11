@@ -9,6 +9,12 @@ import { join } from 'node:path';
 // genuinely translated while the rest stays English and readable.
 const l10nBundle = vi.hoisted(() => ({ current: {} as Record<string, string> }));
 
+/** The window's language, as `vscode.env.language` says it: English unless a test sets it. */
+const windowEnv = vi.hoisted(() => ({
+  clipboard: { writeText: vi.fn() },
+  language: 'en',
+}));
+
 /** The folders open in the window, which a test sets: none by default. */
 const openFolders = vi.hoisted(() => ({
   workspaceFolders: undefined as Array<{ uri: { scheme: string; fsPath: string } }> | undefined,
@@ -30,7 +36,7 @@ vi.mock('vscode', () => ({
       return { scheme: base.scheme, fsPath, path: fsPath };
     },
   },
-  env: { clipboard: { writeText: vi.fn() } },
+  env: windowEnv,
   l10n: {
     t: (message: string, ...args: unknown[]): string =>
       (l10nBundle.current[message] ?? message).replace(/\{(\d+)\}/g, (_m, i: string) =>
@@ -1010,6 +1016,207 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       "DEV exécute de l'automatisation sur les enregistrements que ce clonage insère :",
     );
     expect(button).toBe('Exécuter');
+  });
+
+  describe('of a clone of the whole org', () => {
+    const part: NonNullable<WriteConfirmation['wholeOrg']> = {
+      source: 'PROD',
+      leftOut: 412,
+      carried: {
+        filters: ['Contact'],
+        excluded: ['Case'],
+        heldBack: ['Opportunity'],
+        fieldsLeftOut: ['Lead'],
+      },
+      durationSeconds: 250.3,
+      restObjects: ['Account'],
+      fileStorage: { estimateMB: 50, files: 12, overCeiling: 1, remainingMB: 900, maxMB: 1_000 },
+      sourceApi: { estimate: 14, remaining: 400_000, max: 500_000 },
+      bulkBatches: { estimate: 3, remaining: 14_000, max: 15_000 },
+      contactPointsBlanked: 340,
+    };
+    const wholeOrg: WriteConfirmation = {
+      ...write,
+      objects: [
+        { objectApiName: 'Invoice__c', rows: 25_000 },
+        { objectApiName: 'Account', rows: 30 },
+      ],
+      total: 25_030,
+      aboveRecords: undefined,
+      counted: true,
+      storage: { estimateMB: 48.89, maxMB: 2_000, remainingMB: 1_500, near: false },
+      apiRequests: { estimate: 126, remaining: 90_000, max: 100_000 },
+      wholeOrg: part,
+    };
+
+    it('says what it copies, leaves out and takes of both orgs, how long it writes and that a removal takes it back', () => {
+      expect(runQuestionDetail(wholeOrg).split('\n')).toEqual([
+        'This clone copies all the data of PROD into DEV: 2 objects, 25030 records.',
+        '• Invoice__c: 25000',
+        '• Account: 30',
+        'They take about 48.9 MB of data storage; DEV has 1500 MB left of 2000 MB.',
+        'Left out: 412 objects that are empty or unreadable in PROD, missing from DEV, or that the API cannot create or a removal cannot take back there, setup, history, sharing and system objects among them. Review names them.',
+        'Read through a filter rather than whole: Contact.',
+        'Carried over from the template or run this clone started from, left out by name: Case.',
+        'Copied without the rows a decision on Gaps holds back: Opportunity.',
+        'Copied without some of their fields: Lead.',
+        'Files: 12, taking about 50 MB; DEV has 900 MB of file storage left of 1000 MB.',
+        'Files not copied, larger than the largest file the clone copies: 1.',
+        'API requests of DEV, to write: about 126; it has 90000 of its 100000 daily requests left.',
+        'API requests of PROD, to read: about 14; it has 400000 of its 500000 daily requests left.',
+        'Bulk API batches of DEV: about 3; it has 14000 of its 15000 daily batches left.',
+        'Duration: about 5 minutes.',
+        'The records go in Bulk API 2.0 jobs, one at a time, parents first.',
+        'Written by REST rather than in Bulk API jobs, for their size or what a job cannot do: Account.',
+        'Up to 340 phone numbers are written empty: past the 10000 fictional numbers the clone gives, none is left to replace them.',
+        'Records whose owner is inactive in DEV are written with you as their owner, unless you hold Update Records with Inactive Owners; owners mapped under Review → Controls come first.',
+        'Removing the run from Results takes back every record it created.',
+        'The records have been counted, and nothing has been read or written yet.',
+      ]);
+    });
+
+    it('says what neither org would tell, a run of hours in hours, and the objects past a dozen by their number', () => {
+      const lines = runQuestionDetail({
+        ...wholeOrg,
+        apiRequests: undefined,
+        wholeOrg: {
+          source: 'PROD',
+          leftOut: 0,
+          durationSeconds: 3 * 3600 + 60,
+          restObjects: Array.from({ length: 14 }, (_, i) => `R${i}__c`),
+          filesUnmeasured: true,
+          sourceApiUnread: 'INSUFFICIENT_ACCESS',
+          bulkBatches: { estimate: 3 },
+        },
+      }).split('\n');
+
+      expect(lines).not.toContainEqual(expect.stringMatching(/^Left out/));
+      expect(lines).toEqual(
+        expect.arrayContaining([
+          'PROD would neither sum nor list its files: whether they fit in the file storage of DEV is not known.',
+          'What DEV has left of its daily API requests could not be read, so whether the writes fit is not known.',
+          'What PROD has left of its daily API requests could not be read (INSUFFICIENT_ACCESS), so whether the reads fit is not known.',
+          'Bulk API batches of DEV: about 3. It did not say how many it has left today, so whether they fit is not known.',
+          'Duration: about 3.1 hours.',
+          'The records go in Bulk API 2.0 jobs, one at a time, parents first.',
+          `Written by REST rather than in Bulk API jobs, for their size or what a job cannot do: ${Array.from(
+            { length: 12 },
+            (_, i) => `R${i}__c`,
+          ).join(', ')}, and 2 more.`,
+        ]),
+      );
+      // The line that says the run leaves the org short is a near run's: not said here.
+      expect(lines).not.toContainEqual(expect.stringContaining('less than a tenth'));
+    });
+
+    it('says each budget the run would leave short, as a run of any other module says it', () => {
+      const lines = runQuestionDetail({
+        ...wholeOrg,
+        wholeOrg: {
+          ...part,
+          targetApiNear: true,
+          fileStorage: {
+            estimateMB: 50,
+            files: 12,
+            overCeiling: 0,
+            remainingMB: 60,
+            maxMB: 1_000,
+            near: true,
+          },
+          sourceApi: { estimate: 14, remaining: 40_000, max: 500_000, near: true },
+          bulkBatches: { estimate: 3, remaining: 1_000, max: 15_000, near: true },
+        },
+      }).split('\n');
+
+      expect(lines).toEqual(
+        expect.arrayContaining([
+          'That is more than 80% of the file storage left.',
+          'That would leave DEV with less than a tenth of its daily requests.',
+          'That would leave PROD with less than a tenth of its daily requests.',
+          'That would leave DEV with less than a tenth of its daily Bulk API batches.',
+        ]),
+      );
+      // Each said after its own figures.
+      expect(
+        lines.indexOf('That would leave PROD with less than a tenth of its daily requests.'),
+      ).toBe(lines.findIndex((line) => line.startsWith('API requests of PROD')) + 1);
+    });
+
+    it('says no Bulk API job when it sends none, and a short run as a minute or less', () => {
+      const lines = runQuestionDetail({
+        ...wholeOrg,
+        wholeOrg: {
+          source: 'PROD',
+          leftOut: 0,
+          durationSeconds: 40,
+          restObjects: ['Account'],
+        },
+      }).split('\n');
+
+      expect(lines).toContain('Duration: a minute or less.');
+      expect(lines).not.toContainEqual(expect.stringContaining('Bulk API 2.0 jobs'));
+      expect(lines).not.toContainEqual(expect.stringMatching(/^Files/));
+      expect(lines).not.toContainEqual(expect.stringMatching(/^That would leave/));
+    });
+
+    /*
+     * A clone of a production org into one of its sandboxes copied the
+     * records of a user the sandbox held inactive, and the target refused
+     * each of them for it. The run now writes them with the user it writes as,
+     * which changes their owner: said on every clone of the whole org, before
+     * anything is read of the target's users, and with no figure.
+     */
+    it('says who owns a record whose owner the target holds inactive, whatever else it says', () => {
+      const lines = runQuestionDetail({
+        ...wholeOrg,
+        wholeOrg: { source: 'PROD', leftOut: 0, durationSeconds: 40, restObjects: [] },
+      }).split('\n');
+
+      expect(lines.slice(-3)).toEqual([
+        'Records whose owner is inactive in DEV are written with you as their owner, unless you hold Update Records with Inactive Owners; owners mapped under Review → Controls come first.',
+        'Removing the run from Results takes back every record it created.',
+        'The records have been counted, and nothing has been read or written yet.',
+      ]);
+      // A clone of some tables says nothing of it: its question is not put
+      // for every run, and its results name the owners it wrote otherwise.
+      expect(runQuestionDetail(write)).not.toContain('Update Records with Inactive Owners');
+    });
+
+    it('gives the hours in the figures of the window', () => {
+      windowEnv.language = 'fr';
+      try {
+        expect(
+          runQuestionDetail({
+            ...wholeOrg,
+            wholeOrg: { ...part, durationSeconds: 3 * 3600 + 60 },
+          }).split('\n'),
+        ).toContain('Duration: about 3,1 hours.');
+      } finally {
+        windowEnv.language = 'en';
+      }
+    });
+
+    it('asks under a title of its own, in the language of the window', async () => {
+      l10nBundle.current = JSON.parse(
+        readFileSync(join(__dirname, '..', '..', 'l10n', 'bundle.l10n.fr.json'), 'utf8'),
+      ) as Record<string, string>;
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
+      const { productionGuard } = createBackgroundComposition({
+        configStore: createMockConfigStore(),
+      });
+
+      await productionGuard.confirmRun(wholeOrg);
+
+      const [title, options] = vi.mocked(vscode.window.showWarningMessage).mock
+        .calls[0] as unknown as [string, { modal: boolean; detail: string }];
+      expect(title).toBe("SandForge : confirmer ce clonage de toute l'org");
+      expect(options.detail.split('\n')[0]).toBe(
+        'Ce clonage copie toutes les données de PROD dans DEV : 2 objets, 25030 enregistrements.',
+      );
+      expect(options.detail.split('\n')).toContain(
+        "Les enregistrements dont le propriétaire est inactif dans DEV sont écrits à votre nom, sauf si vous avez l'autorisation Update Records with Inactive Owners ; les propriétaires confiés sous Revue → Réglages passent avant.",
+      );
+    });
   });
 
   it('declines when the user dismisses it', async () => {

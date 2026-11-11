@@ -13,6 +13,12 @@ import type {
   ForgeCycleResolution,
 } from '@sandforge/shared';
 import { ForgeBatchStrategy as BatchStrategy } from './ForgeBatchStrategy.js';
+import {
+  FORGE_BULK_WRITER,
+  likelyRest,
+  runDurationSeconds,
+  runRequestsEstimate,
+} from './ForgeRunGate.js';
 import { resolveWriteBatching } from './stages/BatchWriter.js';
 import { ordersTheWrite, sortNodesForWriting } from './stages/ScopeResolver.js';
 
@@ -33,9 +39,15 @@ export class ForgePlanGenerator {
    * Generate an execution plan from a Forge graph.
    *
    * @param graph - The dependency graph with nodes and edges.
+   * @param options - `bulk`: the run writes through the Bulk API (a clone of
+   *   the whole org), so an object it is likely to send as jobs is counted by
+   *   the calls and the time of those jobs (`runRequestsEstimate`,
+   *   `runDurationSeconds`), and the rest by REST calls of 200 as before.
+   *   Counted by REST alone, a clone of the whole org was said to take fifty
+   *   calls per ten thousand rows where it sends about a dozen.
    * @returns A plan with ordered waves, totals, and cycle resolutions.
    */
-  generate(graph: ForgeGraph): ForgePlan {
+  generate(graph: ForgeGraph, options?: { bulk?: boolean }): ForgePlan {
     const includedNodes = graph.nodes.filter((n) => n.included);
     if (includedNodes.length === 0) {
       return {
@@ -72,6 +84,9 @@ export class ForgePlanGenerator {
       let totalRecords = 0;
       let totalApiCalls = 0;
       let maxDuration = 0;
+      // The run sends one Bulk API job at a time: the jobs of a wave follow
+      // one another, where its REST writes are taken to overlap.
+      let bulkDuration = 0;
 
       for (const objName of objects) {
         const node = nodeMap.get(objName);
@@ -82,11 +97,22 @@ export class ForgePlanGenerator {
         // write of the run sends, and the plan counted one call where the
         // writer sends fifty.
         const planned = this.batchStrategy.resolve(node.batchStrategy, node.recordCount);
-        const apiCalls = resolveWriteBatching(planned, node.recordCount).batchCount;
+        let apiCalls: number;
+        if (
+          options?.bulk === true &&
+          planned.api === 'bulk' &&
+          !likelyRest(node.objectApiName, node.recordCount)
+        ) {
+          const jobs = [{ rows: node.recordCount, bulk: true }];
+          apiCalls = runRequestsEstimate(jobs, FORGE_BULK_WRITER);
+          bulkDuration += runDurationSeconds(jobs, FORGE_BULK_WRITER);
+        } else {
+          apiCalls = resolveWriteBatching(planned, node.recordCount, { bulk: false }).batchCount;
+          maxDuration = Math.max(maxDuration, apiCalls * this.avgSecondsPerApiCall);
+        }
         totalApiCalls += apiCalls;
-        const duration = apiCalls * this.avgSecondsPerApiCall;
-        if (duration > maxDuration) maxDuration = duration;
       }
+      if (bulkDuration > maxDuration) maxDuration = bulkDuration;
 
       return {
         order: index,
@@ -284,9 +310,13 @@ function cyclesOf(graph: ForgeGraph): { edges: ForgeGraphEdge[]; components: str
  * simulates the recursion: each frame remembers (node v, edge iterator index
  * i); on the way down child frames are pushed, on the way up lowLink is
  * propagated and components are emitted. Equivalent to the recursive form,
- * O(V+E).
+ * O(V+E). A clone of the whole org levels its nodes by it too
+ * (`WholeOrgDiscovery`), up to two thousand objects deep in the worst case.
  */
-function stronglyConnected(names: readonly string[], edges: readonly ForgeGraphEdge[]): string[][] {
+export function stronglyConnected(
+  names: readonly string[],
+  edges: readonly ForgeGraphEdge[],
+): string[][] {
   const adj = new Map<string, string[]>();
   for (const name of names) adj.set(name, []);
   for (const edge of edges) adj.get(edge.sourceObject)?.push(edge.targetObject);

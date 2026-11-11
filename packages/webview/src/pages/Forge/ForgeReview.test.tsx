@@ -3,7 +3,11 @@ import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import '../../i18n';
 import { ForgeReview } from './ForgeReview';
 import type { ForgeGraphNode, ForgeGraph } from '../../stores/useForgeStore';
-import { FORGE_GRAPH_MAX_OBJECTS, useForgeViewStore } from '../../stores/useForgeViewStore';
+import {
+  FORGE_GRAPH_MAX_OBJECTS,
+  FORGE_GRAPH_SLOW_OBJECTS,
+  useForgeViewStore,
+} from '../../stores/useForgeViewStore';
 import type { MetadataDiffEntry } from '../../stores/useForgeStore';
 import type {
   ForgeAnonymizationCategory,
@@ -66,6 +70,9 @@ const defaultGraph: ForgeGraph = {
 
 /** Only the ForgeConfig fields ForgeReview reads. */
 interface MockConfig {
+  /** Set of a clone of the whole org, with the depth ALL. */
+  inputMode?: 'org';
+  depth?: 'all';
   anonymizePII: boolean;
   sourceOrgId: string;
   targetOrgId: string;
@@ -215,7 +222,7 @@ describe('ForgeReview', () => {
     mockFileCopy = { ...NO_FILES };
     mockMuteAutomation = false;
     mockSetMuteAutomation.mockClear();
-    useForgeViewStore.setState({ setting: 'auto', choice: null });
+    useForgeViewStore.setState({ setting: 'auto', choice: null, choiceOnLarge: false });
     mockGaps = { metadata: [], simulation: [], rehearsal: [] };
   });
 
@@ -346,6 +353,7 @@ describe('ForgeReview', () => {
     const caption = screen.getByTestId('forge-simulate-caption');
     expect(caption.textContent).toBe('Checks every record here, sends nothing.');
     expect(screen.getByTestId('simulate-button').getAttribute('aria-describedby')).toBe(caption.id);
+    expect(screen.queryByTestId('forge-all-no-simulation')).toBeNull();
     expect(screen.getByTestId('forge-rehearse-caption').textContent).toBe(
       'The target tries a sample, rolled back; costs API calls.',
     );
@@ -459,6 +467,100 @@ describe('ForgeReview', () => {
       fireEvent.click(screen.getByTestId('forge-view-graph'));
       expect(screen.getByTestId('live-graph')).toBeDefined();
       expect(useForgeViewStore.getState().choice).toBe('graph');
+    });
+
+    // The graph picked, or set, on runs of a dozen objects drew 400 of them,
+    // and would draw a clone of the whole org's 1,950.
+    it('lists a large graph whatever the setting or a pick made on a small one says, and warns of drawing it', () => {
+      useForgeViewStore.getState().adoptSetting('graph');
+      useForgeViewStore.getState().choose('graph');
+      mockGraph = graphOf(FORGE_GRAPH_SLOW_OBJECTS + 1);
+      render(<ForgeReview />);
+
+      expect(screen.getByTestId('forge-table-view')).toBeDefined();
+      expect(screen.queryByTestId('live-graph')).toBeNull();
+      const warning = screen.getByTestId('forge-view-graph-slow');
+      expect(warning.textContent).toBe(
+        'A clone of the whole org or a graph past 150 objects can hold the panel still for a while once drawn, and a run redraws it at each step: the table lists its 151 objects at once.',
+      );
+      // Said before the click that would hold the panel still.
+      expect(screen.getByTestId('forge-view-graph').getAttribute('aria-describedby')).toBe(
+        warning.id,
+      );
+
+      // Picked on it, the graph is drawn, the warning still beside the switch.
+      fireEvent.click(screen.getByTestId('forge-view-graph'));
+      expect(screen.getByTestId('live-graph')).toBeDefined();
+      expect(screen.getByTestId('forge-view-graph-slow')).toBeDefined();
+    });
+
+    it('warns of nothing on a graph it may draw', () => {
+      mockGraph = graphOf(FORGE_GRAPH_SLOW_OBJECTS);
+      render(<ForgeReview />);
+      expect(screen.queryByTestId('forge-view-graph-slow')).toBeNull();
+      expect(screen.getByTestId('forge-view-graph').getAttribute('aria-describedby')).toBeNull();
+    });
+  });
+
+  describe('a clone of the whole org', () => {
+    beforeEach(() => {
+      mockConfig = { ...defaultConfig, inputMode: 'org', depth: 'all' };
+      mockGraph = {
+        ...defaultGraph,
+        edges: [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
+        ],
+        leftOut: [{ objectApiName: 'AccountHistory', reason: 'history' }],
+      };
+    });
+
+    it('lists its graph, however few objects it holds, the graph offered with its warning', () => {
+      render(<ForgeReview />);
+
+      expect(screen.getByTestId('forge-table-view')).toBeDefined();
+      expect(screen.queryByTestId('live-graph')).toBeNull();
+      expect(screen.getByTestId('forge-view-graph-slow')).toBeDefined();
+    });
+
+    it('offers neither Simulate nor Rehearse, and says why under both', () => {
+      render(<ForgeReview />);
+
+      const why = screen.getByTestId('forge-all-no-simulation');
+      expect(why.textContent).toBe(
+        'A clone of the whole org can be neither simulated nor rehearsed yet: the confirmation Execute always asks before it writes says what it writes, its storage, its API requests and its duration.',
+      );
+      const simulate = screen.getByTestId('simulate-button') as HTMLButtonElement;
+      const rehearse = screen.getByTestId('rehearse-button') as HTMLButtonElement;
+      expect(simulate.disabled).toBe(true);
+      expect(rehearse.disabled).toBe(true);
+      expect(simulate.getAttribute('aria-describedby')?.split(' ')).toContain(why.id);
+      expect(rehearse.getAttribute('aria-describedby')?.split(' ')).toContain(why.id);
+      // Execute, whose confirmation stands in for both, is still there.
+      expect((screen.getByTestId('execute-button') as HTMLButtonElement).disabled).toBe(false);
+
+      fireEvent.click(simulate);
+      expect(mockMarkSimulation).not.toHaveBeenCalled();
+    });
+
+    it('asks what the target runs with its objects alone, not its relations nor what it leaves out', () => {
+      render(<ForgeReview />);
+
+      const requests = mockSendBridgeMessage.mock.calls.filter(
+        (call) => call[0] === 'forge:automation:request',
+      );
+      expect(requests).toEqual([
+        [
+          'forge:automation:request',
+          { targetOrgId: 'tgt-org', graph: { ...defaultGraph, edges: [] } },
+        ],
+      ]);
+      const sent = (requests[0][1] as { graph: ForgeGraph }).graph;
+      expect('leftOut' in sent).toBe(false);
     });
   });
 

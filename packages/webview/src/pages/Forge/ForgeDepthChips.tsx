@@ -11,6 +11,11 @@ import { DEPTH_OPTIONS, DEPTH_KEYS, DEPTH_TOOLTIP_KEYS } from './useForgeForm';
  * refused outright. Past ten levels a CRM org's graph runs into thousands of
  * describes, spending its API limits without producing a graph anyone can
  * use, which is why the cap is there; the hint under the field says so.
+ *
+ * ALL, the fourth chip, is no depth of that walk: it walks no relationship,
+ * and takes every object of the source org the target can create, so it has
+ * no number to type. What it copies, and what it leaves out, is said under
+ * the chips once it is picked.
  */
 export const MAX_CUSTOM_DEPTH = 10;
 
@@ -88,6 +93,7 @@ export const ForgeDepthChips: React.FC<ForgeDepthChipsProps> = ({
             onClick={() => onDepthChange(d)}
             onKeyDown={(e) => onDepthKeyDown(e, d)}
             title={t(DEPTH_TOOLTIP_KEYS[d])}
+            aria-describedby={d === 'all' && depth === 'all' ? 'forge-depth-all-hint' : undefined}
             className={cn(
               'px-4 py-1.5 rounded-full text-xs font-medium transition-all border',
               depth === d
@@ -137,6 +143,18 @@ export const ForgeDepthChips: React.FC<ForgeDepthChipsProps> = ({
           data-testid="forge-depth-custom-hint"
         >
           {t('forge.depthCustomHint', { max: MAX_CUSTOM_DEPTH })}
+        </p>
+      )}
+      {/* Said where ALL is picked, not only on hover: every object, every
+          record, no cap, and what Salesforce keeps an API from creating left
+          out, which Review names. */}
+      {depth === 'all' && (
+        <p
+          id="forge-depth-all-hint"
+          className="mt-1.5 text-[10px] text-text-secondary"
+          data-testid="forge-depth-all-hint"
+        >
+          {t('forge.depthAllHint')}
         </p>
       )}
     </div>

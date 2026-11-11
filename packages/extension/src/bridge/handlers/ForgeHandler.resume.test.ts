@@ -520,6 +520,25 @@ describe('a run taken up where it stopped', () => {
     expect((await history(handler))[0]?.resumable).toBe(true);
   });
 
+  it('refuses, on the record, a run whose journal breaks the rule of a clone of the whole org', async () => {
+    const { stopped } = await cancelledRun();
+    // A journal the loose schema it is read with lets through: the depth of a
+    // clone of the whole org on a clone from a query.
+    for (const [filePath, text] of files) {
+      files.set(filePath, text.replaceAll('"depth":"direct"', '"depth":"all"'));
+    }
+    const { handler, execute } = windowRunning(async () => DONE);
+
+    await send(handler, 'wv-broken', 'forge:resume-run', { forgeId: stopped.forgeId });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(refusal('wv-broken')).toMatchObject({ code: 'WHOLE_ORG_CONFIG' });
+    const audited = new AuditTrailStore(configStore)
+      .list()
+      .entries.filter((e) => e.details?.['code'] === 'WHOLE_ORG_CONFIG');
+    expect(audited.map((e) => e.outcome)).toEqual(['stopped']);
+  });
+
   it('refuses to take it up set up otherwise: another read ceiling, or another clone on the page', async () => {
     const { stopped } = await cancelledRun();
     const { handler, execute } = windowRunning(async () => DONE);
@@ -536,6 +555,34 @@ describe('a run taken up where it stopped', () => {
     expect(execute).not.toHaveBeenCalled();
     expect(refusal('wv-ceiling')).toMatchObject({ code: 'RESUME_CHANGED' });
     expect(refusal('wv-page')).toMatchObject({ code: 'RESUME_CHANGED' });
+  });
+
+  it('takes up a clone of the whole org after the read ceiling changed: it cuts nothing it reads by it', async () => {
+    const wholeOrg: ForgeConfig = {
+      ...CONFIG,
+      inputMode: 'org',
+      depth: 'all',
+      soqlQuery: undefined,
+    };
+    const first = windowRunning(cancelledAfterOne);
+    await send(first.handler, 'wv-execute', 'forge:execute', { graph: GRAPH, config: wholeOrg });
+    const stopped = posted('forge:execute:error')[0]?.payload.result as ForgeExecutionResult;
+    expect(stopped).toMatchObject({ cancelled: true, resumable: true });
+    const { handler, execute } = windowRunning(async () => DONE);
+
+    // Its fingerprint holds no ceiling: the setting bounds only what it reads
+    // whole, refused at its write gate past it rather than cut.
+    settings['forge.maxRecordsPerObject'] = 20_000;
+    await send(handler, 'wv-resume', 'forge:resume-run', { forgeId: stopped.forgeId });
+    delete settings['forge.maxRecordsPerObject'];
+
+    expect(refusal('wv-resume')).toBeUndefined();
+    expect(execute).toHaveBeenCalledTimes(1);
+    const [, config, options] = execute.mock.calls[0] as Parameters<Execute>;
+    expect(config).toMatchObject({ inputMode: 'org', depth: 'all' });
+    // Read with no ceiling, the setting as it stands now the bound of what it reads whole.
+    expect(options?.stream?.ceiling).toBeUndefined();
+    expect(options).toMatchObject({ wholeReadBound: 20_000 });
   });
 
   it('refuses a run whose records were removed, and one taken up already', async () => {

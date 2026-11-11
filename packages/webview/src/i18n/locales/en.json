@@ -43,6 +43,8 @@
     "time": "Time",
     "recordIds": "Record IDs",
     "statusAbbrev": "St",
+    "objectCountFormatted_one": "{{formatted}} object",
+    "objectCountFormatted_other": "{{formatted}} objects",
     "recordCountFormatted_one": "{{formatted}} record",
     "recordCountFormatted_other": "{{formatted}} records",
     "fieldCount_one": "{{count}} field",
@@ -3528,6 +3530,14 @@
     "soqlTab": "SOQL",
     "templateTab": "Template",
     "aiTab": "AI",
+    "wholeOrg": "Whole org",
+    "allInputDisabled": "ALL copies the whole source org, so it starts from no record, query, template or AI draft. Pick another depth to use them.",
+    "allCarried": "Choices carried from a template or a past run still narrow this clone of the whole org:",
+    "allCarriedFiltered": "Objects filtered: {{objects}}",
+    "allCarriedExcluded": "Objects left out: {{objects}}",
+    "allCarriedHeldBack": "Rows held back on: {{objects}}",
+    "allCarriedFields": "Fields left out on: {{objects}}",
+    "clearCarried": "Remove these choices",
     "ai": {
       "notConfiguredTitle": "No AI provider is set up",
       "notConfiguredBody": "Store an Anthropic API key in Settings > AI: saving it turns AI on. Your description is then sent to the model with the names of the source org's objects, and the fields of the objects it names. The query that comes back is checked against the org and waits for you to run it.",
@@ -3562,6 +3572,7 @@
     "depthDirect": "Direct only",
     "depthFull": "Deep (5 levels)",
     "depthCustom": "Custom depth",
+    "depthAll": "ALL",
     "sourceOrg": "Source Org",
     "targetOrg": "Target Org",
     "anonymizePII": "Anonymize PII",
@@ -3588,6 +3599,8 @@
     "depthDirectTooltip": "Only directly related child objects (1 level)",
     "depthFullTooltip": "The dependency tree, up to 5 levels deep",
     "depthCustomTooltip": "Specify the maximum relationship depth",
+    "depthAllTooltip": "Every record of every object the source org lets Forge read and the target lets it create, files and emails included",
+    "depthAllHint": "ALL copies the whole source org: every object the target can create, every record of each, with no cap. Objects Salesforce does not let an API create are left out, and Review names them.",
     "depthCustomHint": "Up to {{max}} levels: past that, discovery would describe thousands of objects in a CRM org and spend its API limits without producing a usable graph.",
     "depthCustomInvalid": "Enter a whole number from 1 to {{max}}.",
     "soqlPreviewHint": "Preview is available for Record ID input",
@@ -3596,12 +3609,19 @@
     "refreshPreview": "Refresh preview",
     "noOrgSelected": "Select a source org to preview",
     "livePreview": "Live Preview",
+    "allPreviewBody": "Discovery lists every object of {{source}} that {{target}} can create, and counts their records.",
+    "allPreviewBodyNoTarget": "Discovery lists every object of {{source}} that the target org can create, and counts their records.",
+    "allPreviewNoSource": "Select a source org to copy all of its data",
+    "allPreviewPiiOff": "Anonymize PII is off: every personal field of the source org is copied as it is.",
+    "allGraphTooLarge_one": "Its {{formatted}} object is listed rather than drawn, as is every clone of the whole org and every graph past 150 objects: a graph of hundreds of objects holds the panel still while it is laid out. Review can still draw it.",
+    "allGraphTooLarge_other": "Its {{formatted}} objects are listed rather than drawn, as is every clone of the whole org and every graph past 150 objects: a graph of hundreds of objects holds the panel still while it is laid out. Review can still draw it.",
     "piiWarning_one": "{{count}} PII field detected",
     "piiWarning_other": "{{count}} PII fields detected",
     "piiWarningHint": "Names, addresses and other personal fields go as they are; Anonymize PII masks them.",
     "direct": {
       "action": "Clone directly",
-      "hint": "Discovers and clones in one go, without Review: no gaps decided, no metadata diff; what the target runs on insert is still put to you first."
+      "hint": "Discovers and clones in one go, without Review: no gaps decided, no metadata diff; what the target runs on insert is still put to you first.",
+      "hintAll": "Clones the whole org without Review: what it writes, its storage, its API requests and its duration are still put to you first."
     },
     "editTemplate": "Edit",
     "deleteTemplateConfirm": "Are you sure you want to delete this template?",
@@ -3615,10 +3635,14 @@
     "objectCap": "Objects",
     "objectCapHint": "Max objects discovery may include (empty ones not counted).",
     "objectCapDefault": "Default (50)",
+    "objectCapAll": "Every object",
+    "objectCapAllDisabled": "ALL takes every object the target can create: there is no object cap.",
     "recordLimitSmart": "Smart (set by the input)",
     "recordLimitSmartRecord": "Smart: reads only what the record reaches, at most 50,000 rows per object, and asks before a large write.",
     "recordLimitSmartSoql": "Smart: {{limit}} per object. A run from a query reads the other objects from their whole tables.",
     "recordLimitAll": "All",
+    "recordLimitEvery": "Every record",
+    "recordLimitAllDisabled": "ALL copies every record of each object: there is no cap per object.",
     "recordLimitOpt10": "10 / object (sample)",
     "recordLimitOpt50": "50 / object",
     "recordLimitOpt100": "100 / object",
@@ -3651,6 +3675,25 @@
     },
     "expandOrphanParents": "Auto-fetch parents",
     "expandOrphanParentsHint": "Also copies the parents the clone does not read on its own: behind a lookup that can name several objects, past five levels up, or past the cap. A record-scoped clone already reads by id the parents its records cannot be written without.",
+    "expandOrphanParentsAll": "ALL copies every table whole, so every parent is already in the run.",
+    "leftOut": {
+      "missingInTarget": "Not in the target org",
+      "notWritable": "Not created, edited and deleted by you in the target org",
+      "notQueryable": "Not queried by you in the source org",
+      "unreadable": "Refused by the source org",
+      "notDescribed": "Their description could not be read",
+      "empty": "No record in the source org",
+      "setup": "Setup, users, permissions, logs and jobs",
+      "metadata": "Metadata, deployed rather than copied",
+      "unsupportedKind": "Big objects, external and Data Cloud objects, Knowledge versions, platform events",
+      "chatter": "Chatter feeds",
+      "history": "History objects",
+      "sharing": "Sharing objects",
+      "changeEvent": "Change events",
+      "files": "Files and documents",
+      "noLayout": "no page layout",
+      "withTheirRecords": "copied with the records it hangs on"
+    },
     "reuseLastGraph": "Reuse last graph (skip discovery)",
     "reuseLastGraphHint": "Skip the 30s+ discovery and reuse the graph from your last execution.",
     "quickStartTemplate": "Quick start ({{name}})",
@@ -3765,7 +3808,13 @@
     "elapsed": "Elapsed",
     "discovery": "Graph Discovery",
     "discoveryProgress": "Discovering… {{discovered}} objects scanned, {{queued}} queued",
+    "discoveryPhase": {
+      "listing": "Listing the objects of both orgs…",
+      "counting": "Counting the records: {{done}} of {{total}} objects",
+      "describing": "Describing the objects that hold records: {{done}} of {{total}}"
+    },
     "executeForge": "Execute Forge",
+    "allNoSimulation": "A clone of the whole org can be neither simulated nor rehearsed yet: the confirmation Execute always asks before it writes says what it writes, its storage, its API requests and its duration.",
     "runStoppedOn": "The run stopped before its end: {{message}}",
     "runCancelled": "You cancelled the run before its end.",
     "runStoppedWrote_one": "Before it stopped, it had created {{count}} record in the target org.",
@@ -3847,6 +3896,8 @@
     "anonymizedFields": "Anonymized Fields",
     "tableView": "Table View",
     "graphView": "Graph View",
+    "graphViewSlow_one": "A clone of the whole org or a graph past 150 objects can hold the panel still for a while once drawn, and a run redraws it at each step: the table lists its {{formatted}} object at once.",
+    "graphViewSlow_other": "A clone of the whole org or a graph past 150 objects can hold the panel still for a while once drawn, and a run redraws it at each step: the table lists its {{formatted}} objects at once.",
     "direct": {
       "discovering": "The clone starts as soon as discovery answers.",
       "reviewSkipped": "Review skipped: this run started as soon as discovery answered, with the objects it included, and the metadata diff between the two orgs was not run. The flows and Apex triggers the target org runs as the records are inserted were read before it, and any that fires was put to you first."
@@ -3857,7 +3908,14 @@
       "readDeclined": "You cancelled the run at the confirmation of the tables it reads with no cap per object, each past {{ceiling}} records. Nothing was read or written. Set Records per object to read fewer.",
       "writeDeclined": "You cancelled the run before it wrote anything. The source records were read; nothing was written to the target org.",
       "storageExceeded": "The run was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and the target org has {{remaining}} MB left. Leave objects out, lower the records per object, or free data storage in the target org.",
-      "confirmationUnavailable": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked."
+      "storageExceededAll": "The run was refused before it wrote anything: the records of the whole org take about {{estimate}} MB of data storage, and the target org has {{remaining}} MB left. Leave objects out on Review, or free data storage in the target org.",
+      "storageExceededFiles": "The run was refused before it wrote anything: the files it copies take about {{estimate}} MB of file storage, and the target org has {{remaining}} MB left. Leave the files out on Review, or free file storage in the target org.",
+      "confirmationUnavailable": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
+      "apiBudgetExceeded": "The run was refused before it wrote anything: it would take more API requests than the source or target org has left today, or more Bulk API batches than the target has left. Run it once the org has some to spare.",
+      "apiRequestsExceededTarget": "The run was refused before it wrote anything: it would take about {{estimate}} API requests of the target org, which has {{remaining}} left today. Run it once the org has more to spare, or leave objects out on Review.",
+      "apiRequestsExceededSource": "The run was refused before it wrote anything: reading the source org would take about {{estimate}} of its API requests, and it has {{remaining}} left today. Run it once the org has more to spare, or leave objects out on Review.",
+      "bulkBatchesExceeded": "The run was refused before it wrote anything: its Bulk API jobs would take about {{estimate}} batches of the target org, which has {{remaining}} left over the last 24 hours. Run it once the org has more to spare.",
+      "readBoundExceeded": "The run was refused before it wrote anything: a clone of the whole org reads a few objects whole, and more than {{bound}} records, as many as the sandforge.forge.maxRecordsPerObject setting lets it hold at once, were found in {{objects}}. Raise the setting, or leave these objects out on Review."
     },
     "executionTable": {
       "leftOut": "left out",
@@ -4029,6 +4087,9 @@
       "planLoading": "Generating execution plan...",
       "wave": "Wave",
       "cycles": "Cycle Resolutions",
+      "leftOutTitle_one": "Left out: {{formatted}} object of the source org",
+      "leftOutTitle_other": "Left out: {{formatted}} objects of the source org",
+      "leftOutHint": "The objects of the source org this clone of the whole org does not take, by why: Salesforce does not let an API create them, the target cannot take them, or the source holds none.",
       "fieldsAnonymized_one": "{{count}} field anonymized",
       "fieldsAnonymized_other": "{{count}} fields anonymized",
       "fieldsScanned_one": "{{count}} field scanned in all",
@@ -5235,10 +5296,11 @@
     "encryptedLeftOut": "{{fields}}: encrypted fields the user SandForge reads the source org as sees masked, lacking View Encrypted Data. Left out of every record written, rather than copied as masks.",
     "writtenWithoutFields": {
       "title": "Written without a field the target org refused",
-      "hint": "The target org refused these records on the fields it named: a validation rule of its own, a restricted picklist that does not take the value for the record's record type — one never given values of a field takes none, which nothing read before the write tells — or the lookup filter of a lookup it lets be empty, which does not take the record the lookup names. The clone wrote each record again without those fields: the record is in the target org, without the value the source holds for them.",
+      "hint": "The target org refused these records on the fields it named: a validation rule of its own, a restricted picklist that does not take the value for the record's record type — one never given values of a field takes none, which nothing read before the write tells — or the lookup filter of a lookup it lets be empty, which does not take the record the lookup names. The clone wrote each record again without those fields: the record is in the target org, without the value the source holds for them. A record the target refused for its owner, inactive there, was written again without it: the user the clone writes as owns it.",
       "byValidationRule": "a validation rule refused it",
       "byRestrictedPicklist": "a restricted picklist refused its value",
-      "byLookupFilter": "a lookup filter refused the record it names"
+      "byLookupFilter": "a lookup filter refused the record it names",
+      "byInactiveOwner": "the target refused its owner, inactive there"
     },
     "checkpointNow": {
       "why": "Before your testers start, keep {{org}} as it is now: it becomes the point to come back to, and a rewind returns it there, whoever changes it next.",
@@ -5531,6 +5593,14 @@
         "action": "Fix that automation in the target org, or turn it off while you clone, then retry the failed objects."
       }
     },
+    "governorLimit": {
+      "explanation": "An automation of the org — a trigger, or a Flow — hit a Salesforce limit, such as too many queries, too many writes or too much CPU time, on the call that carried this record, and the org rolled back every record of that call: the automation runs a query or a write for each record rather than one for them all.",
+      "action": "Have that automation query and write once for all the records of a call, or have it skip its work for a holder of a bypass custom permission, which Mute the target's automation for this run assigns where a run offers it; then run again.",
+      "forge": {
+        "explanation": "An automation of the target org — the trigger the message names, or a Flow — hit a Salesforce limit, such as too many queries, too many writes or too much CPU time, as the record was saved: it runs a query or a write for each record, and the target rolled back the whole call. Forge sends the records of such a call again in calls half as large, down to one record, and keeps that size for the object for the rest of the run; this record was still refused, sent on its own or once the run had spent the smaller calls it allows itself, as the sentence after the org's message says.",
+        "action": "Fix that automation in the target org so it queries and writes once for all the records of a call, or have it skip its work for a holder of the bypass custom permission that Mute the target's automation for this run assigns; then retry the failed objects, or, for a removal, remove what is left."
+      }
+    },
     "insufficientAccess": {
       "explanation": "Your user in the org lacks the access this operation needs.",
       "action": "Ask an administrator for the missing permission, or connect the org with a user who has it."
@@ -5589,8 +5659,8 @@
       "explanation": "Salesforce refused the record because it would be owned by, or assigned to, a user who is inactive in the org.",
       "action": "Point the assignment rule or Flow that picks that user at an active user or a queue, or reactivate the user, then run again.",
       "forge": {
-        "explanation": "Salesforce refused the record because it would be owned by, or assigned to, a user who is inactive in the target org. The clone leaves each record it creates to the user it writes as, so that user comes from the target — an assignment rule, or a Flow that sets the owner or assigns a task — or from an owner given in Review → Controls.",
-        "action": "In the target org, point that rule or Flow at an active user or a queue, or reactivate the user; or, in Review → Controls, give the records to an active user under Owners given to the target's users. Then retry the failed objects."
+        "explanation": "Salesforce refused the record because it would be owned by, or assigned to, a user who is inactive in the target org. A clone of a record leaves each record it creates to the user it writes as; a clone of a query or of the whole org keeps an owner the target holds active, and gives that user a record whose owner the target holds inactive, unless that user has Update Records with Inactive Owners. Owners given in Review → Controls come first. What is still refused comes from one of those owners given to a user inactive in the target, from an assignment rule or a Flow of the target that sets the owner or assigns a task, or from an audit field, such as Created By, that names an inactive user.",
+        "action": "In the target org, point that rule or Flow at an active user or a queue, or reactivate the user; or, in Review → Controls, give the records to an active user rather than an inactive one under Owners given to the target's users. Then retry the failed objects."
       }
     },
     "entityDeleted": {

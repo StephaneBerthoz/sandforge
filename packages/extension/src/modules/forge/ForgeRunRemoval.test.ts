@@ -9,6 +9,7 @@ import {
   type RunRemovalOptions,
 } from './ForgeRunRemoval.js';
 import { removalAuditObjects, removalMark, removalStatus } from './removalOutcome.js';
+import { CallSizes, SplitAllowance } from '../../core/common/governorLimit.js';
 
 /** A fake record id: the object's prefix, then a counter. */
 const id = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
@@ -3393,6 +3394,333 @@ describe('removeRunRecords', () => {
     expect(progress.map(([settled]) => settled)).toEqual(
       [...progress.map(([s]) => s)].sort((a, b) => a - b),
     );
+  });
+});
+
+/** What SSC_TRG_Provenance had the org answer for each record of a call of 116. */
+const PROVENANCE_LIMIT = {
+  statusCode: 'DELETE_FAILED',
+  message:
+    'SSC_TRG_Provenance: execution of BeforeDelete\n\ncaused by: System.LimitException: Too many SOQL queries: 101\n\nTrigger.SSC_TRG_Provenance: line 5, column 1',
+};
+
+/**
+ * Have the org refuse whole every delete of `object` holding more than
+ * `most` records, each record with `refusal`: a trigger that runs a query per
+ * record, once for the call.
+ */
+function limitAbove(
+  org: FakeOrg,
+  object: string,
+  most: number,
+  refusal: { statusCode: string; message: string } = PROVENANCE_LIMIT,
+): void {
+  const destroy = org.destroy.bind(org);
+  org.destroy = async (objectApiName, ids) => {
+    if (objectApiName !== object || ids.length <= most) return destroy(objectApiName, ids);
+    org.deletes.push({ object: objectApiName, ids: [...ids] });
+    return ids.map((recordId) => ({
+      id: recordId,
+      success: false,
+      errors: [{ ...refusal, fields: [] }],
+    }));
+  };
+}
+
+/** The sizes of the delete calls the org was sent for `object`, in turn. */
+function callSizesOf(org: FakeOrg, object: string): number[] {
+  return org.deletes.filter((call) => call.object === object).map((call) => call.ids.length);
+}
+
+/** An org holding `count` records of `object` the run created. */
+function runOf(
+  object: string,
+  prefix: string,
+  count: number,
+): { org: FakeOrg; ids: string[]; plan: ForgeRunObjectRecords[] } {
+  const org = new FakeOrg();
+  const ids = Array.from({ length: count }, (_, n) => id(prefix, n + 1));
+  org.add(object, ...ids.map((recordId) => runRow(recordId)));
+  return { org, ids, plan: [{ objectApiName: object, ids }] };
+}
+
+/** What a removal says it left, per object. */
+async function leftOf(outcome: Awaited<ReturnType<typeof removeRunRecords>>) {
+  const left: ForgeRunObjectRecords[] = [];
+  for await (const page of outcome.left()) left.push(page);
+  return left;
+}
+
+describe('removeRunRecords — a call the target’s automation refuses for a Salesforce limit', () => {
+  it('sends again in two calls of 58 the 116 records a trigger had a call refused for, and says so', async () => {
+    const { org, plan } = runOf('Provenance__c', 'a0P', 116);
+    limitAbove(org, 'Provenance__c', 100);
+    const progress: number[] = [];
+
+    const outcome = await removeRunRecords(
+      org,
+      plan,
+      options({ onProgress: (settled) => progress.push(settled) }),
+    );
+
+    expect(callSizesOf(org, 'Provenance__c')).toEqual([116, 58, 58]);
+    expect(outcome.objects).toEqual([
+      expect.objectContaining({ planned: 116, deleted: 116, refused: 0 }),
+    ]);
+    expect(outcome.objects[0].reasons).toEqual([
+      'SSC_TRG_Provenance (before delete) hit Too many SOQL queries on a call of 116: sent 58 at a time, 2 calls more.',
+    ]);
+    // Each record counted once, once its own call is answered: none held first.
+    expect(progress).toEqual([0, 58, 116]);
+    expect(outcome.sizes?.()).toEqual({ Provenance__c: 58 });
+    expect(await leftOf(outcome)).toEqual([]);
+  });
+
+  it('takes a limit the org refused with DELETE_FAILED for no dependency, and still tries a dependency again', async () => {
+    const org = new FakeOrg();
+    const provenance = id('a0P', 1);
+    const thing = id('a0T', 1);
+    org.add('Provenance__c', runRow(provenance));
+    org.add('Thing__c', runRow(thing));
+    org.add('Account', runRow(id('001', 1)));
+    // Every call refused, even of one record: the trigger queries per record.
+    limitAbove(org, 'Provenance__c', 0);
+    org.refusals.set(thing, {
+      statusCode: 'DELETE_FAILED',
+      message: 'Your attempt to delete this record could not be completed: associated with cases.',
+    });
+
+    const outcome = await removeRunRecords(
+      org,
+      [
+        { objectApiName: 'Provenance__c', ids: [provenance] },
+        { objectApiName: 'Thing__c', ids: [thing] },
+        { objectApiName: 'Account', ids: [id('001', 1)] },
+      ],
+      options(),
+    );
+
+    // Refused on its own: final, never sent again once the account went.
+    expect(callSizesOf(org, 'Provenance__c')).toEqual([1]);
+    expect(callSizesOf(org, 'Thing__c')).toEqual([1, 1]);
+    const [limited, dependent, account] = outcome.objects;
+    expect(limited).toMatchObject({ deleted: 0, refused: 1 });
+    expect(limited.reasons).toEqual([
+      expect.stringContaining('Sent on its own, the record still made the target'),
+      expect.stringContaining('System.LimitException: Too many SOQL queries'),
+    ]);
+    expect(dependent).toMatchObject({ deleted: 0, refused: 1 });
+    expect(account).toMatchObject({ deleted: 1 });
+    // A record sent alone teaches no size.
+    expect(outcome.sizes?.()).toEqual({});
+    expect((await leftOf(outcome)).map((page) => page.objectApiName)).toEqual([
+      'Provenance__c',
+      'Thing__c',
+    ]);
+  });
+
+  it('sends a record refused for a dependency once more at the size the object went through at', async () => {
+    const { org, ids, plan } = runOf('Provenance__c', 'a0P', 6);
+    const account = id('001', 1);
+    org.add('Account', runRow(account));
+    limitAbove(org, 'Provenance__c', 2);
+    // The last three hang from the account until it goes.
+    const blocked = new Set(ids.slice(3));
+    org.refuse = (object, row) =>
+      object === 'Provenance__c' && blocked.has(row.Id) && org.has('Account', account)
+        ? { statusCode: 'DELETE_FAILED', message: 'associated with the following account' }
+        : undefined;
+
+    const outcome = await removeRunRecords(
+      org,
+      [...plan, { objectApiName: 'Account', ids: [account] }],
+      options(),
+    );
+
+    // 6 refused, 3 refused, then 2 and 1; the three queued at 3 go at 2 and
+    // 1, refused for the account; once it is gone, at 2 and 1 again.
+    expect(callSizesOf(org, 'Provenance__c')).toEqual([6, 3, 2, 1, 2, 1, 2, 1]);
+    expect(outcome.objects[0]).toMatchObject({ deleted: 6, refused: 0 });
+    expect(outcome.objects[0].reasons).toEqual([
+      'SSC_TRG_Provenance (before delete) hit Too many SOQL queries on a call of 6: sent 2 at a time, 6 calls more.',
+      'Refused at first, sent again once the rest had gone: 3 deleted.',
+    ]);
+  });
+
+  it('cuts the calls queued behind the refused one to the size that went through, and leaves another object at 200', async () => {
+    const { org, plan } = runOf('Provenance__c', 'a0P', 1_000);
+    const others = Array.from({ length: 300 }, (_, n) => id('a0B', n + 1));
+    org.add('Other__c', ...others.map((recordId) => runRow(recordId)));
+    limitAbove(org, 'Provenance__c', 100);
+
+    const outcome = await removeRunRecords(
+      org,
+      [...plan, { objectApiName: 'Other__c', ids: others }],
+      options(),
+    );
+
+    // One call refused; its 200 and the four calls of 200 behind it at 100.
+    expect(callSizesOf(org, 'Provenance__c')).toEqual([200, ...Array(10).fill(100)]);
+    expect(callSizesOf(org, 'Other__c')).toEqual([200, 100]);
+    expect(outcome.objects.map((o) => [o.objectApiName, o.deleted, o.refused])).toEqual([
+      ['Provenance__c', 1_000, 0],
+      ['Other__c', 300, 0],
+    ]);
+    expect(outcome.objects[0].reasons).toEqual([
+      'SSC_TRG_Provenance (before delete) hit Too many SOQL queries on a call of 200: sent 100 at a time, 6 calls more.',
+    ]);
+    expect(outcome.objects[1].reasons).toEqual([]);
+    expect(outcome.sizes?.()).toEqual({ Provenance__c: 100 });
+  });
+
+  it('leaves the half not sent yet when stopped between the two, counted once as not reached', async () => {
+    const { org, ids, plan } = runOf('Provenance__c', 'a0P', 116);
+    limitAbove(org, 'Provenance__c', 100);
+    const stop = new AbortController();
+    const destroy = org.destroy.bind(org);
+    org.destroy = async (objectApiName, sent) => {
+      const answer = await destroy(objectApiName, sent);
+      if (org.deletes.length === 2) stop.abort();
+      return answer;
+    };
+    const progress: number[] = [];
+
+    const outcome = await removeRunRecords(
+      org,
+      plan,
+      options({ signal: stop.signal, onProgress: (settled) => progress.push(settled) }),
+    );
+
+    expect(callSizesOf(org, 'Provenance__c')).toEqual([116, 58]);
+    expect(outcome.cancelled).toBe(true);
+    expect(outcome.objects[0]).toMatchObject({ deleted: 58, refused: 0, notReached: 58 });
+    expect(progress).toEqual([0, 58]);
+    expect(await leftOf(outcome)).toEqual([{ objectApiName: 'Provenance__c', ids: ids.slice(58) }]);
+  });
+
+  it('keeps every custom price before any standard one, each cut to the size that went through', async () => {
+    const org = new FakeOrg();
+    const custom = [id('01u', 1), id('01u', 2)];
+    const standard = [id('01u', 3), id('01u', 4)];
+    const price = (priceId: string, n: number, isStandard: boolean): Row =>
+      runRow(priceId, {
+        Product2Id: id('01t', n),
+        Pricebook2Id: isStandard ? id('01s', 9) : id('01s', 1),
+        IsStandardPrice: isStandard,
+      });
+    org.add(
+      'PricebookEntry',
+      price(standard[0], 1, true),
+      price(custom[0], 1, false),
+      price(standard[1], 2, true),
+      price(custom[1], 2, false),
+    );
+    limitAbove(org, 'PricebookEntry', 1);
+
+    const outcome = await removeRunRecords(
+      org,
+      [{ objectApiName: 'PricebookEntry', ids: [standard[0], custom[0], standard[1], custom[1]] }],
+      options(),
+    );
+
+    expect(org.deletes.map((call) => call.ids)).toEqual([
+      custom,
+      [custom[0]],
+      [custom[1]],
+      [standard[0]],
+      [standard[1]],
+    ]);
+    expect(outcome.objects[0]).toMatchObject({ deleted: 4, refused: 0 });
+  });
+
+  it('leaves the records refused as the org refused them once the allowance is spent, and says so', async () => {
+    const { org, plan } = runOf('Provenance__c', 'a0P', 116);
+    limitAbove(org, 'Provenance__c', 100);
+
+    const outcome = await removeRunRecords(org, plan, options({ splitAllowance: 0 }));
+
+    expect(callSizesOf(org, 'Provenance__c')).toEqual([116]);
+    expect(outcome.objects[0]).toMatchObject({ deleted: 0, refused: 116 });
+    // Allowed none, it spent none: the note says so, not that 0 were spent.
+    expect(outcome.objects[0].reasons).toEqual([
+      '116 not sent in smaller calls: what the org has left today allowed the removal none.',
+      expect.stringContaining('DELETE_FAILED: SSC_TRG_Provenance: execution of BeforeDelete'),
+    ]);
+    // The next removal starts at the size the limit called for.
+    expect(outcome.sizes?.()).toEqual({ Provenance__c: 58 });
+  });
+
+  it('starts at the size a limit called for in an earlier removal, and says it back', async () => {
+    const { org, plan } = runOf('Provenance__c', 'a0P', 116);
+    limitAbove(org, 'Provenance__c', 100);
+
+    const outcome = await removeRunRecords(
+      org,
+      plan,
+      options({ deleteSizes: { Provenance__c: 58, Other__c: 500 } }),
+    );
+
+    expect(callSizesOf(org, 'Provenance__c')).toEqual([58, 58]);
+    expect(outcome.objects[0]).toMatchObject({ deleted: 116, refused: 0 });
+    expect(outcome.objects[0].reasons).toEqual([
+      'Sent 58 at a time, the size a limit called for in an earlier removal, 1 call more.',
+    ]);
+    expect(outcome.sizes?.()).toEqual({ Provenance__c: 58 });
+  });
+
+  it('sends at the size kept what the allowance pays for before going back to 200', async () => {
+    const { org, plan } = runOf('Provenance__c', 'a0P', 5_000);
+    limitAbove(org, 'Provenance__c', 50);
+
+    const outcome = await removeRunRecords(
+      org,
+      plan,
+      options({ deleteSizes: { Provenance__c: 50 }, splitAllowance: 20 }),
+    );
+
+    // 26 calls of 50 and 19 of 200 take 20 calls more than the 25 of 200 the
+    // 5 000 records would have: the allowance is used to its last call before
+    // the switch, rather than spent with none of its calls sent.
+    expect(callSizesOf(org, 'Provenance__c')).toEqual([
+      ...Array(26).fill(50),
+      ...Array(18).fill(200),
+      100,
+    ]);
+    expect(outcome.objects[0]).toMatchObject({ deleted: 1_300, refused: 3_700 });
+    expect(outcome.objects[0].reasons.slice(0, 2)).toEqual([
+      'Sent 50 at a time, the size a limit called for in an earlier removal, 20 calls more.',
+      '3700 not sent in smaller calls: the removal had spent the 20 smaller calls it allows itself.',
+    ]);
+  });
+
+  it('hands its sweep the allowance it spends, one bound for the two', async () => {
+    const { org, plan } = runOf('Provenance__c', 'a0P', 116);
+    limitAbove(org, 'Provenance__c', 100);
+    let handed: SplitAllowance | undefined;
+    const sweep = vi.fn(async (allowance: SplitAllowance) => {
+      handed = allowance;
+      // What a sweep's own smaller calls took off it.
+      allowance.take({ objectApiName: 'Task', op: 'delete' }, 9);
+      return false;
+    });
+
+    const outcome = await removeRunRecords(org, plan, options({ sweep, splitAllowance: 10 }));
+
+    expect(handed?.granted).toBe(10);
+    // The sweep took 9 of the 10: one call of 58 is paid, the other 58 stay.
+    expect(callSizesOf(org, 'Provenance__c')).toEqual([116, 58]);
+    expect(outcome.objects[0]).toMatchObject({ deleted: 58, refused: 58 });
+    expect(handed?.spent).toBe(10);
+  });
+
+  it('shares the sizes it is handed, which the caller reads afterwards', async () => {
+    const { org, plan } = runOf('Provenance__c', 'a0P', 116);
+    limitAbove(org, 'Provenance__c', 100);
+    const callSizes = new CallSizes();
+
+    await removeRunRecords(org, plan, options({ callSizes }));
+
+    expect(callSizes.of({ objectApiName: 'Provenance__c', op: 'delete' })).toBe(58);
   });
 });
 

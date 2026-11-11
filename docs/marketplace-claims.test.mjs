@@ -733,8 +733,33 @@ test('the Forge step follows the page: target, record and depth, discovery, then
         offenders.push(`${locale}: ${key} is not named beside Execute Forge`);
       }
     }
-    if (!body.includes(`**${panelLabel(locale, 'forge.depthFull')}**`)) {
-      offenders.push(`${locale}: the deepest Depth is not named as the page names it`);
+    if (!items[depth].includes(`**${panelLabel(locale, 'forge.depthFull')}**`)) {
+      offenders.push(`${locale}: the deepest traversal Depth is not named as the page names it`);
+    }
+    // ALL copies the whole org, with no record to paste: the step that asks
+    // for a record has to say the depth that takes none, or a reader set on
+    // copying everything goes looking for a record to start from.
+    if (!items[depth].includes(`**${panelLabel(locale, 'forge.depthAll')}**`)) {
+      offenders.push(`${locale}: ALL is not named beside Depth as the page names it`);
+    }
+    // A clone of the whole org can be neither simulated nor rehearsed yet,
+    // and the step names both buttons beside Execute Forge: it has to say so,
+    // in the sentence that names ALL. The step names both buttons elsewhere
+    // already, so a step that named ALL anywhere would pass with a sentence
+    // that offered them to it; the sentence is cut at its full stop, the
+    // Japanese one included.
+    const all = `**${panelLabel(locale, 'forge.depthAll')}**`;
+    const allSentence = items[writes].split(/(?<=[.。])\s*/u).find((part) => part.includes(all));
+    if (allSentence === undefined) {
+      offenders.push(`${locale}: the step beside Execute Forge does not say what ALL leaves off`);
+    } else {
+      for (const key of ['forgeRun.simulation.action', 'forgeRun.rehearsal.action']) {
+        if (!allSentence.includes(`**${panelLabel(locale, key)}**`)) {
+          offenders.push(
+            `${locale}: the sentence that names ALL beside Execute Forge leaves out ${key}`,
+          );
+        }
+      }
     }
   }
   assert.deepEqual(offenders, [], offenders.join('\n'));

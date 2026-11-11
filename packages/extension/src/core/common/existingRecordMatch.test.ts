@@ -236,6 +236,22 @@ describe('bulkSaveErrorDetail', () => {
     });
   });
 
+  it("reads an inactive owner's refusal as one error naming no field, the owner in its message", () => {
+    // As a clone between two sandboxes of one production was refused on every
+    // record an inactive administrator owned: the user between brackets, the
+    // object after it, and no field before the closing dashes.
+    expect(
+      bulkSaveErrorDetail(
+        'INACTIVE_OWNER_OR_USER:operation performed with inactive user [005AU00000AbCdE] as ' +
+          'owner of [aeroport__c]:--',
+      ),
+    ).toEqual({
+      statusCode: 'INACTIVE_OWNER_OR_USER',
+      message: 'operation performed with inactive user [005AU00000AbCdE] as owner of [aeroport__c]',
+      fields: [],
+    });
+  });
+
   it('reads nothing of a text that is not exactly one error', () => {
     // Read as one, two errors would name the fields of the second under the
     // code of the first.

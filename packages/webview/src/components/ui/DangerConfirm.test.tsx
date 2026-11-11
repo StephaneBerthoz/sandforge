@@ -43,6 +43,37 @@ describe('DangerConfirm', () => {
     expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('scrolls a long list of details, its title, field and buttons held in sight', () => {
+    // The removal of a clone of a whole org listed some thirty objects and the
+    // automation that fires as each goes: the dialog ran past the panel, and
+    // its field and buttons could not be reached.
+    render(
+      <DangerConfirm {...baseProps}>
+        <ul>
+          {Array.from({ length: 40 }, (_, i) => (
+            <li key={i}>{`Object${String(i)}__c: ${String(i)} records`}</li>
+          ))}
+        </ul>
+      </DangerConfirm>,
+    );
+
+    const scroll = screen.getByTestId('danger-scroll');
+    expect(scroll.className).toContain('overflow-y-auto');
+    expect(scroll.className).toContain('min-h-0');
+    // Reached by the keyboard as by the pointer.
+    expect(scroll.tabIndex).toBe(0);
+    expect(scroll.contains(screen.getByText(baseProps.description))).toBe(true);
+    expect(scroll.contains(screen.getByTestId('danger-details'))).toBe(true);
+    // What arms and answers the dialog stays outside what scrolls.
+    for (const id of ['danger-title', 'danger-input', 'danger-confirm-btn', 'danger-dismiss-btn']) {
+      expect(scroll.contains(screen.getByTestId(id))).toBe(false);
+    }
+    // The dialog is held to the panel, as a column whose middle gives way.
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.className).toContain('max-h-full');
+    expect(dialog.className).toContain('flex-col');
+  });
+
   it('adds no details block when there is nothing to add', () => {
     render(<DangerConfirm {...baseProps} />);
     expect(screen.queryByTestId('danger-details')).toBeNull();

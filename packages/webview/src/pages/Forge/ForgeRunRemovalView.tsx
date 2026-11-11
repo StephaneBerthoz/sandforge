@@ -222,6 +222,7 @@ type RemovableRun = Pick<
       | 'removalLeftByObject'
       | 'idRemapByObject'
       | 'linkedExistingCount'
+      | 'linkedWithTheirRecordCount'
       | 'journalGone'
     >
   >;

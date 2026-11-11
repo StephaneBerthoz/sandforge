@@ -21,19 +21,49 @@ import { ForgeNodeDetail } from './ForgeNodeDetail';
 import { ForgeTableView } from './ForgeTableView';
 import { ForgeViewToggle } from './ForgeViewToggle';
 import { sendDiscovery } from './directRun';
-import { clonesOneRecord } from './forgeRunConfig';
+import { clonesOneRecord, clonesWholeOrg } from './forgeRunConfig';
+import { leftOutByReason, leftOutReasonLabel } from './forgeLeftOut';
 
 import { Button } from '../../components/ui/Button';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
 import { useForgeStore } from '../../stores/useForgeStore';
-import { useForgeObjectsView } from '../../stores/useForgeViewStore';
+import { forgeGraphIsLarge, useForgeObjectsView } from '../../stores/useForgeViewStore';
 import type { ForgeGraphNode } from '../../stores/useForgeStore';
 import type { BaseMessage } from '@sandforge/shared';
 import { useMessageListener, useSendMessage } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { slideUp, staggerContainer } from '../../motion/presets';
-import { formatSizeMB, formatDurationSec } from '../../utils/formatters';
+import { formatSizeMB, formatDurationSec, uiLocale } from '../../utils/formatters';
 import { cn } from '../../theme';
+
+/**
+ * Where a discovery stands, as its progress events say it: a walk from a
+ * root counts the objects it reached and those queued; a clone of the whole
+ * org lists the objects of both orgs, counts the records of each it may
+ * take, then describes those holding any, and says of the last two how many
+ * objects each goes through (`total`), of which `discoveredCount` are done.
+ */
+interface DiscoveryProgress {
+  phase?: string;
+  discoveredCount: number;
+  queueRemaining: number;
+  total?: number;
+}
+
+/** The sentence a progress event is said in. */
+function progressLine(t: ReturnType<typeof useTranslation>['t'], p: DiscoveryProgress): string {
+  if (p.phase === 'listing') return t('forgeRun.discoveryPhase.listing');
+  if ((p.phase === 'counting' || p.phase === 'describing') && p.total !== undefined) {
+    return t(`forgeRun.discoveryPhase.${p.phase}`, {
+      done: p.discoveredCount.toLocaleString(uiLocale()),
+      total: p.total.toLocaleString(uiLocale()),
+    });
+  }
+  return t('forgeRun.discoveryProgress', {
+    discovered: p.discoveredCount,
+    queued: p.queueRemaining,
+  });
+}
 
 /**
  * Main discovery phase component for the Forge wizard.
@@ -99,13 +129,21 @@ export const ForgeDiscovery: React.FC = () => {
   const [selectedNodeName, setSelectedNodeName] = useState<string | null>(null);
   /** The error the discovery ended on: the screen's, or a Clone directly's. */
   const shownError = discoveryError ?? directDiscoveryError;
-  const viewMode = useForgeObjectsView(graph?.nodes.length ?? 0);
+  /** A clone of the whole source org: its graph is large however many objects it holds. */
+  const wholeOrg = clonesWholeOrg(config);
+  /**
+   * A graph too large to draw (`forgeGraphIsLarge`): the screen does not
+   * draw it at all, whatever the setting or the switch says — laid out and
+   * drawn, 1,950 objects held the panel still — but sums it up above its
+   * table: its objects, its records and what the org leaves out, by why.
+   * Review offers the graph, with a word of how slow it is.
+   */
+  const largeGraph = forgeGraphIsLarge(graph?.nodes.length ?? 0, wholeOrg);
+  const pickedView = useForgeObjectsView(graph?.nodes.length ?? 0, wholeOrg);
+  const viewMode = largeGraph ? 'table' : pickedView;
   const [searchQuery, setSearchQuery] = useState('');
   /** Live counters streamed by the extension during graph discovery. */
-  const [discoveryProgress, setDiscoveryProgress] = useState<{
-    discoveredCount: number;
-    queueRemaining: number;
-  } | null>(null);
+  const [discoveryProgress, setDiscoveryProgress] = useState<DiscoveryProgress | null>(null);
 
   /**
    * Listen for throttled discovery progress from the extension
@@ -115,11 +153,13 @@ export const ForgeDiscovery: React.FC = () => {
   useMessageListener<
     BaseMessage & {
       payload: {
-        phase: 'resolving-root' | 'object' | 'cached';
-        /** Set on `object` events only. */
+        phase: 'resolving-root' | 'object' | 'cached' | 'listing' | 'counting' | 'describing';
+        /** Set on `object` events, and on a clone of the whole org's counted or described. */
         objectApiName?: string;
         discoveredCount: number;
         queueRemaining: number;
+        /** How many objects a clone of the whole org counts, then describes. */
+        total?: number;
       };
     }
   >(
@@ -131,9 +171,12 @@ export const ForgeDiscovery: React.FC = () => {
       // still be walking, its counters shown over the new one's.
       const { discoveryId, directDiscoveryId } = useForgeStore.getState();
       if (msg.correlationId !== discoveryId && msg.correlationId !== directDiscoveryId) return;
+      const { phase: eventPhase, discoveredCount, queueRemaining, total } = msg.payload;
       setDiscoveryProgress({
-        discoveredCount: msg.payload.discoveredCount,
-        queueRemaining: msg.payload.queueRemaining,
+        phase: eventPhase,
+        discoveredCount,
+        queueRemaining,
+        ...(typeof total === 'number' ? { total } : {}),
       });
     }, []),
   );
@@ -215,6 +258,9 @@ export const ForgeDiscovery: React.FC = () => {
     }
   }, [searchQuery, graph, viewMode]);
 
+  /** What a clone of the whole org leaves out, by why, for its summary. */
+  const leftOutGroups = useMemo(() => leftOutByReason(graph?.leftOut), [graph]);
+
   /** Computed stats from the graph. */
   const stats = useMemo(() => {
     if (!graph) {
@@ -254,14 +300,7 @@ export const ForgeDiscovery: React.FC = () => {
         {/* The wait can run for minutes: its counters are said, at most one
             sentence every few seconds, as a run's progress is. */}
         <ProgressAnnouncer
-          message={
-            discoveryProgress
-              ? t('forgeRun.discoveryProgress', {
-                  discovered: discoveryProgress.discoveredCount,
-                  queued: discoveryProgress.queueRemaining,
-                })
-              : ''
-          }
+          message={discoveryProgress ? progressLine(t, discoveryProgress) : ''}
           testId="forge-discovery-status"
         />
         {directRunPending && (
@@ -274,10 +313,7 @@ export const ForgeDiscovery: React.FC = () => {
             data-testid="forge-discovery-progress"
             className="text-xs tabular-nums text-text-secondary"
           >
-            {t('forgeRun.discoveryProgress', {
-              discovered: discoveryProgress.discoveredCount,
-              queued: discoveryProgress.queueRemaining,
-            })}
+            {progressLine(t, discoveryProgress)}
           </p>
         )}
         {/* A BFS over a wide org can run for minutes; without this the spinner
@@ -366,11 +402,59 @@ export const ForgeDiscovery: React.FC = () => {
         </m.div>
       )}
 
+      {/* A large graph (a clone of the whole org, or past 150 objects) is
+          never drawn here: what it holds is summed up above its table. */}
+      {largeGraph && (
+        <m.div
+          variants={slideUp}
+          data-testid="forge-discovery-summary"
+          className="flex flex-col gap-2 rounded-lg border border-subtle bg-surface-1 px-4 py-3 text-xs text-text-secondary"
+        >
+          <p data-testid="forge-discovery-summary-counts" className="text-sm text-text-primary">
+            {t('common.objectCountFormatted', {
+              count: stats.objectCount,
+              formatted: stats.objectCount.toLocaleString(uiLocale()),
+            })}
+            {' \u00b7 '}
+            {t('common.recordCountFormatted', {
+              count: stats.recordCount,
+              formatted: stats.recordCount.toLocaleString(uiLocale()),
+            })}
+          </p>
+          <p data-testid="forge-discovery-not-drawn">
+            {t('forge.allGraphTooLarge', {
+              count: graph.nodes.length,
+              formatted: graph.nodes.length.toLocaleString(uiLocale()),
+            })}
+          </p>
+          {leftOutGroups.length > 0 && (
+            <div data-testid="forge-discovery-left-out">
+              <p>
+                {t('forgeRun.review.leftOutTitle', {
+                  count: graph.leftOut?.length ?? 0,
+                  formatted: (graph.leftOut?.length ?? 0).toLocaleString(uiLocale()),
+                })}
+              </p>
+              <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
+                {leftOutGroups.map((group) => (
+                  <li key={group.reason} data-testid={`forge-discovery-left-out-${group.reason}`}>
+                    {leftOutReasonLabel(t, group.reason)}:{' '}
+                    <span className="tabular-nums text-text-primary">
+                      {group.objects.length.toLocaleString(uiLocale())}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </m.div>
+      )}
+
       {/* View mode toggle + search input. The view follows the
-          sandforge.forge.graphView setting — a graph of hundreds of objects
-          is listed rather than drawn — until the switch picks one. */}
+          sandforge.forge.graphView setting until the switch picks one; a
+          large graph is listed whatever either says, and offers no switch. */}
       <m.div variants={slideUp} className="flex items-center gap-2">
-        <ForgeViewToggle view={viewMode} />
+        {!largeGraph && <ForgeViewToggle view={viewMode} />}
         <div className="relative flex-1 max-w-xs">
           <Search
             size={14}

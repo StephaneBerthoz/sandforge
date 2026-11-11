@@ -3,7 +3,7 @@
 O SandForge guarda suas configurações em dois lugares:
 
 - **Abrir Configurações** abre a página do SandForge: o idioma dos seus painéis e o assistente de IA opcional, com tecnologia da Anthropic (Claude).
-- **Abrir as configurações do SandForge no VS Code** abre as configurações do editor, filtradas pelo SandForge: os tamanhos de lote padrão de Seed e Sync, o registro das decisões do Production Guard mantido com cada execução no registro de auditoria (Relatórios, `sandforge.safety.auditLogging`), e como o Forge mostra um grafo grande — desenhado até 25 objetos e listado em uma tabela acima disso, ou sempre de uma só forma (`sandforge.forge.graphView`).
+- **Abrir as configurações do SandForge no VS Code** abre as configurações do editor, filtradas pelo SandForge: os tamanhos de lote padrão de Seed e Sync, o registro das decisões do Production Guard mantido com cada execução no registro de auditoria (Relatórios, `sandforge.safety.auditLogging`), e como o Forge mostra um grafo grande — desenhado até 25 objetos e listado em uma tabela acima disso, ou de uma só forma até 150 objetos, em uma tabela acima disso e para um clone da org inteira (`sandforge.forge.graphView`).
 
 [Abrir Configurações](command:sandforge.openSettings)
 

@@ -3,7 +3,7 @@
 SandForge keeps its settings in two places:
 
 - **Open Settings** opens SandForge's own page: the language of its panels, and the optional AI assistant, powered by Anthropic (Claude).
-- **Open SandForge settings in VS Code** opens the editor's Settings, filtered to SandForge: the default batch sizes for Seed and Sync, the record of Production Guard's decisions kept with each run in the audit trail (Reports, `sandforge.safety.auditLogging`), and how Forge shows a large graph — drawn up to 25 objects and listed in a table past that, or always one way (`sandforge.forge.graphView`).
+- **Open SandForge settings in VS Code** opens the editor's Settings, filtered to SandForge: the default batch sizes for Seed and Sync, the record of Production Guard's decisions kept with each run in the audit trail (Reports, `sandforge.safety.auditLogging`), and how Forge shows a large graph — drawn up to 25 objects and listed in a table past that, or one way up to 150 objects, a table past them and for a clone of the whole org (`sandforge.forge.graphView`).
 
 [Open Settings](command:sandforge.openSettings)
 

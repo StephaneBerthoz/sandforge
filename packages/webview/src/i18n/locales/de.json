@@ -43,6 +43,8 @@
     "time": "Zeit",
     "recordIds": "Datensatz-IDs",
     "statusAbbrev": "St",
+    "objectCountFormatted_one": "{{formatted}} Objekt",
+    "objectCountFormatted_other": "{{formatted}} Objekte",
     "recordCountFormatted_one": "{{formatted}} Datensatz",
     "recordCountFormatted_other": "{{formatted}} Datensätze",
     "fieldCount_one": "{{count}} Feld",
@@ -3528,6 +3530,14 @@
     "soqlTab": "SOQL",
     "templateTab": "Vorlage",
     "aiTab": "KI",
+    "wholeOrg": "Gesamte Org",
+    "allInputDisabled": "ALL kopiert die gesamte Quell-Org und geht daher von keinem Datensatz, keiner Abfrage, keiner Vorlage und keinem KI-Entwurf aus. Wählen Sie eine andere Tiefe, um sie zu verwenden.",
+    "allCarried": "Aus einer Vorlage oder einem früheren Lauf übernommene Entscheidungen schränken diesen Klon der gesamten Org noch ein:",
+    "allCarriedFiltered": "Gefilterte Objekte: {{objects}}",
+    "allCarriedExcluded": "Ausgelassene Objekte: {{objects}}",
+    "allCarriedHeldBack": "Zurückgehaltene Zeilen in: {{objects}}",
+    "allCarriedFields": "Ausgelassene Felder in: {{objects}}",
+    "clearCarried": "Diese Entscheidungen entfernen",
     "ai": {
       "notConfiguredTitle": "Kein KI-Anbieter eingerichtet",
       "notConfiguredBody": "Speichern Sie einen Anthropic-API-Schlüssel unter Einstellungen > KI: Das Speichern schaltet die KI ein. Ihre Beschreibung wird dann mit den Namen der Objekte der Quell-Org und den Feldern der Objekte, die sie nennt, an das Modell gesendet. Die zurückkommende Abfrage wird gegen die Org geprüft und wartet darauf, dass Sie sie starten.",
@@ -3562,6 +3572,7 @@
     "depthDirect": "Nur direkt",
     "depthFull": "Tief (5 Ebenen)",
     "depthCustom": "Benutzerdefinierte Tiefe",
+    "depthAll": "ALL",
     "sourceOrg": "Quell-Org",
     "targetOrg": "Ziel-Org",
     "anonymizePII": "PII anonymisieren",
@@ -3588,6 +3599,8 @@
     "depthDirectTooltip": "Nur direkt verknüpfte untergeordnete Objekte (1 Ebene)",
     "depthFullTooltip": "Der Abhängigkeitsbaum, bis zu 5 Ebenen tief",
     "depthCustomTooltip": "Geben Sie die maximale Beziehungstiefe an",
+    "depthAllTooltip": "Jeder Datensatz jedes Objekts, das die Quell-Org Forge lesen und die Ziel-Org erstellen lässt, Dateien und E-Mails eingeschlossen",
+    "depthAllHint": "ALL kopiert die gesamte Quell-Org: jedes Objekt, das das Ziel erstellen kann, jeden Datensatz davon, ohne Obergrenze. Objekte, die Salesforce nicht per API erstellen lässt, werden ausgelassen, und die Überprüfung nennt sie.",
     "depthCustomHint": "Bis zu {{max}} Ebenen: Darüber hinaus würde die Ermittlung in einer CRM-Org Tausende von Objekten beschreiben und ihre API-Limits aufbrauchen, ohne einen brauchbaren Graphen zu liefern.",
     "depthCustomInvalid": "Geben Sie eine ganze Zahl von 1 bis {{max}} ein.",
     "soqlPreviewHint": "Vorschau ist bei Datensatz-ID-Eingabe verfügbar",
@@ -3596,12 +3609,19 @@
     "refreshPreview": "Vorschau aktualisieren",
     "noOrgSelected": "Wählen Sie eine Quell-Org für die Vorschau",
     "livePreview": "Live-Vorschau",
+    "allPreviewBody": "Die Ermittlung listet jedes Objekt von {{source}} auf, das {{target}} erstellen kann, und zählt seine Datensätze.",
+    "allPreviewBodyNoTarget": "Die Ermittlung listet jedes Objekt von {{source}} auf, das die Ziel-Org erstellen kann, und zählt seine Datensätze.",
+    "allPreviewNoSource": "Wählen Sie eine Quell-Org, um alle ihre Daten zu kopieren",
+    "allPreviewPiiOff": "„PII anonymisieren“ ist aus: Jedes personenbezogene Feld der Quell-Org wird unverändert kopiert.",
+    "allGraphTooLarge_one": "Sein {{formatted}} Objekt wird aufgelistet statt gezeichnet, wie bei jedem Klon der ganzen Org und jedem Graphen mit mehr als 150 Objekten: Ein Graph mit Hunderten von Objekten blockiert das Panel, solange er angeordnet wird. Die Überprüfung kann ihn trotzdem zeichnen.",
+    "allGraphTooLarge_other": "Seine {{formatted}} Objekte werden aufgelistet statt gezeichnet, wie bei jedem Klon der ganzen Org und jedem Graphen mit mehr als 150 Objekten: Ein Graph mit Hunderten von Objekten blockiert das Panel, solange er angeordnet wird. Die Überprüfung kann ihn trotzdem zeichnen.",
     "piiWarning_one": "{{count}} PII-Feld erkannt",
     "piiWarning_other": "{{count}} PII-Felder erkannt",
     "piiWarningHint": "Namen, Adressen und andere personenbezogene Felder werden unverändert übertragen; „PII anonymisieren“ maskiert sie.",
     "direct": {
       "action": "Direkt klonen",
-      "hint": "Ermittelt und klont in einem Zug, ohne Überprüfung: keine Abweichung entschieden, kein Metadatenvergleich; was das Ziel beim Einfügen ausführt, wird Ihnen trotzdem zuerst vorgelegt."
+      "hint": "Ermittelt und klont in einem Zug, ohne Überprüfung: keine Abweichung entschieden, kein Metadatenvergleich; was das Ziel beim Einfügen ausführt, wird Ihnen trotzdem zuerst vorgelegt.",
+      "hintAll": "Klont die gesamte Org ohne Überprüfung: Was er schreibt, sein Speicherbedarf, seine API-Anfragen und seine Dauer werden Ihnen trotzdem zuerst vorgelegt."
     },
     "editTemplate": "Bearbeiten",
     "deleteTemplateConfirm": "Möchten Sie diese Vorlage wirklich löschen?",
@@ -3615,10 +3635,14 @@
     "objectCap": "Objekte",
     "objectCapHint": "Höchstzahl der Objekte, die die Ermittlung aufnehmen darf (leere zählen nicht).",
     "objectCapDefault": "Standard (50)",
+    "objectCapAll": "Alle Objekte",
+    "objectCapAllDisabled": "ALL nimmt jedes Objekt, das das Ziel erstellen kann: Es gibt keine Objektobergrenze.",
     "recordLimitSmart": "Automatisch (je nach Eingabe)",
     "recordLimitSmartRecord": "Automatisch: liest nur, was der Datensatz erreicht, höchstens 50.000 Zeilen pro Objekt, und fragt vor einem großen Schreibvorgang.",
     "recordLimitSmartSoql": "Automatisch: {{limit}} pro Objekt. Ein Lauf aus einer Abfrage liest die übrigen Objekte aus ihren ganzen Tabellen.",
     "recordLimitAll": "Alle",
+    "recordLimitEvery": "Alle Datensätze",
+    "recordLimitAllDisabled": "ALL kopiert jeden Datensatz jedes Objekts: Es gibt keine Obergrenze pro Objekt.",
     "recordLimitOpt10": "10 / Objekt (Stichprobe)",
     "recordLimitOpt50": "50 / Objekt",
     "recordLimitOpt100": "100 / Objekt",
@@ -3651,6 +3675,25 @@
     },
     "expandOrphanParents": "Übergeordnete automatisch abrufen",
     "expandOrphanParentsHint": "Kopiert auch die übergeordneten Datensätze, die der Klon nicht von selbst liest: hinter einer Referenz, die mehrere Objekte benennen kann, jenseits von fünf Ebenen oder über der Obergrenze. Ein Klon ab einem Datensatz liest die übergeordneten Datensätze, ohne die seine Datensätze nicht geschrieben werden können, bereits per ID.",
+    "expandOrphanParentsAll": "ALL kopiert jede Tabelle vollständig, daher ist jeder übergeordnete Datensatz bereits im Lauf.",
+    "leftOut": {
+      "missingInTarget": "Nicht in der Ziel-Org vorhanden",
+      "notWritable": "In der Ziel-Org von Ihnen nicht erstell-, bearbeit- und löschbar",
+      "notQueryable": "In der Quell-Org von Ihnen nicht abfragbar",
+      "unreadable": "Von der Quell-Org verweigert",
+      "notDescribed": "Beschreibung nicht lesbar",
+      "empty": "Kein Datensatz in der Quell-Org",
+      "setup": "Setup, Benutzer, Berechtigungen, Protokolle und Jobs",
+      "metadata": "Metadaten, bereitgestellt statt kopiert",
+      "unsupportedKind": "Big Objects, externe und Data-Cloud-Objekte, Knowledge-Versionen, Plattformereignisse",
+      "chatter": "Chatter-Feeds",
+      "history": "Verlaufsobjekte",
+      "sharing": "Freigabeobjekte",
+      "changeEvent": "Änderungsereignisse",
+      "files": "Dateien und Dokumente",
+      "noLayout": "ohne Seitenlayout",
+      "withTheirRecords": "mit den Datensätzen kopiert, an denen sie hängt"
+    },
     "reuseLastGraph": "Letzten Graph wiederverwenden (Ermittlung überspringen)",
     "reuseLastGraphHint": "Überspringen Sie die über 30 Sekunden dauernde Ermittlung und verwenden Sie den Graph Ihrer letzten Ausführung erneut.",
     "quickStartTemplate": "Schnellstart ({{name}})",
@@ -3765,7 +3808,13 @@
     "elapsed": "Vergangen",
     "discovery": "Graph-Ermittlung",
     "discoveryProgress": "Ermittlung… {{discovered}} Objekte gescannt, {{queued}} in der Warteschlange",
+    "discoveryPhase": {
+      "listing": "Objekte beider Orgs werden aufgelistet…",
+      "counting": "Datensätze werden gezählt: {{done}} von {{total}} Objekten",
+      "describing": "Objekte mit Datensätzen werden beschrieben: {{done}} von {{total}}"
+    },
     "executeForge": "Forge ausführen",
+    "allNoSimulation": "Ein Klon der gesamten Org kann noch weder simuliert noch geprobt werden: Die Bestätigung, die Ausführen immer vor dem Schreiben verlangt, nennt, was er schreibt, seinen Speicher, seine API-Anfragen und seine Dauer.",
     "runStoppedOn": "Der Lauf wurde vor seinem Ende angehalten: {{message}}",
     "runCancelled": "Sie haben den Lauf vor seinem Ende abgebrochen.",
     "runStoppedWrote_one": "Bevor er angehalten wurde, hatte er {{count}} Datensatz in der Ziel-Org erstellt.",
@@ -3847,6 +3896,8 @@
     "anonymizedFields": "Anonymisierte Felder",
     "tableView": "Tabellenansicht",
     "graphView": "Graph-Ansicht",
+    "graphViewSlow_one": "Als Graph gezeichnet, kann ein Klon der ganzen Org oder ein Graph mit mehr als 150 Objekten das Panel eine Weile blockieren, und ein Lauf zeichnet ihn bei jedem Schritt neu: Die Tabelle listet sein {{formatted}} Objekt sofort auf.",
+    "graphViewSlow_other": "Als Graph gezeichnet, kann ein Klon der ganzen Org oder ein Graph mit mehr als 150 Objekten das Panel eine Weile blockieren, und ein Lauf zeichnet ihn bei jedem Schritt neu: Die Tabelle listet seine {{formatted}} Objekte sofort auf.",
     "direct": {
       "discovering": "Das Klonen beginnt, sobald die Ermittlung antwortet.",
       "reviewSkipped": "Überprüfung übersprungen: Dieser Lauf begann, sobald die Ermittlung antwortete, mit den Objekten, die sie einbezogen hat, und der Metadatenvergleich zwischen den beiden Orgs wurde nicht ausgeführt. Die Flows und Apex-Trigger, die die Ziel-Org beim Einfügen der Datensätze ausführt, wurden vorher gelesen, und was davon ausgelöst wird, wurde Ihnen zuerst vorgelegt."
@@ -3857,7 +3908,14 @@
       "readDeclined": "Sie haben den Lauf bei der Bestätigung der Tabellen abgebrochen, die er ohne Obergrenze pro Objekt liest, jede mit mehr als {{ceiling}} Datensätzen. Es wurde nichts gelesen oder geschrieben. Stellen Sie Datensätze pro Objekt ein, um weniger zu lesen.",
       "writeDeclined": "Sie haben den Lauf abgebrochen, bevor er etwas geschrieben hat. Die Quelldatensätze wurden gelesen; in die Ziel-Org wurde nichts geschrieben.",
       "storageExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze belegen etwa {{estimate}} MB Datenspeicher, und die Ziel-Org hat noch {{remaining}} MB frei. Lassen Sie Objekte weg, verringern Sie die Datensätze pro Objekt oder geben Sie Datenspeicher in der Ziel-Org frei.",
-      "confirmationUnavailable": "Der Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und es konnte keine eingeholt werden."
+      "storageExceededAll": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Datensätze der gesamten Org belegen etwa {{estimate}} MB Datenspeicher, und die Ziel-Org hat noch {{remaining}} MB frei. Lassen Sie in der Überprüfung Objekte weg oder geben Sie Datenspeicher in der Ziel-Org frei.",
+      "storageExceededFiles": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Dateien, die er kopiert, belegen etwa {{estimate}} MB Dateispeicher, und die Ziel-Org hat noch {{remaining}} MB frei. Lassen Sie die Dateien in der Überprüfung weg oder geben Sie Dateispeicher in der Ziel-Org frei.",
+      "confirmationUnavailable": "Der Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und es konnte keine eingeholt werden.",
+      "apiBudgetExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er bräuchte mehr API-Anfragen, als der Quell- oder Ziel-Org heute bleiben, oder mehr Bulk-API-Batches, als der Ziel-Org bleiben. Starten Sie ihn, sobald die Org wieder genug davon hat.",
+      "apiRequestsExceededTarget": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er bräuchte etwa {{estimate}} API-Anfragen der Ziel-Org, der heute noch {{remaining}} bleiben. Starten Sie ihn, sobald die Org wieder genug davon hat, oder lassen Sie in der Überprüfung Objekte weg.",
+      "apiRequestsExceededSource": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Das Lesen der Quell-Org bräuchte etwa {{estimate}} ihrer API-Anfragen, und ihr bleiben heute noch {{remaining}}. Starten Sie ihn, sobald die Org wieder genug davon hat, oder lassen Sie in der Überprüfung Objekte weg.",
+      "bulkBatchesExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Bulk-API-Jobs bräuchten etwa {{estimate}} Batches der Ziel-Org, der in den letzten 24 Stunden noch {{remaining}} bleiben. Starten Sie ihn, sobald die Org wieder genug davon hat.",
+      "readBoundExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Eine Kopie der gesamten Org liest einige Objekte vollständig, und in {{objects}} wurden mehr als {{bound}} Datensätze gefunden, so viele, wie die Einstellung sandforge.forge.maxRecordsPerObject sie auf einmal halten lässt. Erhöhen Sie die Einstellung, oder lassen Sie diese Objekte in der Prüfung weg."
     },
     "executionTable": {
       "leftOut": "ausgelassen",
@@ -4029,6 +4087,9 @@
       "planLoading": "Ausführungsplan wird erstellt...",
       "wave": "Welle",
       "cycles": "Zyklusauflösungen",
+      "leftOutTitle_one": "Ausgelassen: {{formatted}} Objekt der Quell-Org",
+      "leftOutTitle_other": "Ausgelassen: {{formatted}} Objekte der Quell-Org",
+      "leftOutHint": "Die Objekte der Quell-Org, die dieser Klon der gesamten Org nicht übernimmt, nach Grund: Salesforce lässt sie nicht per API erstellen, das Ziel kann sie nicht aufnehmen, oder die Quelle hat keine.",
       "fieldsAnonymized_one": "{{count}} Feld anonymisiert",
       "fieldsAnonymized_other": "{{count}} Felder anonymisiert",
       "fieldsScanned_one": "{{count}} Feld insgesamt geprüft",
@@ -5235,10 +5296,11 @@
     "encryptedLeftOut": "{{fields}}: verschlüsselte Felder, die der Benutzer, mit dem SandForge die Quell-Org liest, ohne die Berechtigung View Encrypted Data maskiert sieht. Aus jedem geschriebenen Datensatz weggelassen, statt maskiert kopiert.",
     "writtenWithoutFields": {
       "title": "Ohne ein Feld geschrieben, das die Ziel-Org abgelehnt hat",
-      "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln, eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das —, oder der Suchfilter eines Nachschlagefelds, das leer bleiben darf, der den genannten Datensatz nicht annimmt. Der Klon hat jeden Datensatz ohne diese Felder erneut geschrieben: Der Datensatz ist in der Ziel-Org, ohne den Wert, den die Quelle für diese Felder enthält.",
+      "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln, eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das —, oder der Suchfilter eines Nachschlagefelds, das leer bleiben darf, der den genannten Datensatz nicht annimmt. Der Klon hat jeden Datensatz ohne diese Felder erneut geschrieben: Der Datensatz ist in der Ziel-Org, ohne den Wert, den die Quelle für diese Felder enthält. Ein Datensatz, den die Ziel-Org wegen seines dort inaktiven Inhabers abgelehnt hat, wurde ohne ihn erneut geschrieben: Er gehört dem Benutzer, unter dem der Klon schreibt.",
       "byValidationRule": "von einer Validierungsregel abgelehnt",
       "byRestrictedPicklist": "Wert von einer eingeschränkten Auswahlliste abgelehnt",
-      "byLookupFilter": "genannter Datensatz von einem Suchfilter abgelehnt"
+      "byLookupFilter": "genannter Datensatz von einem Suchfilter abgelehnt",
+      "byInactiveOwner": "Inhaber von der Ziel-Org abgelehnt, da dort inaktiv"
     },
     "checkpointNow": {
       "why": "Bevor Ihre Tester beginnen, halten Sie {{org}} im jetzigen Stand als Punkt fest, zu dem Sie zurückkehren können. Das Zurücksetzen bringt die Org dann dorthin zurück, egal wer sie danach ändert.",
@@ -5531,6 +5593,14 @@
         "action": "Beheben Sie diese Automatisierung in der Ziel-Org oder schalten Sie sie für die Dauer des Klonens ab, und wiederholen Sie dann die fehlgeschlagenen Objekte."
       }
     },
+    "governorLimit": {
+      "explanation": "Eine Automatisierung der Org — ein Trigger oder ein Flow — hat bei dem Aufruf, der diesen Datensatz trug, ein Salesforce-Limit überschritten, etwa zu viele Abfragen, zu viele Schreibvorgänge oder zu viel CPU-Zeit, und die Org hat alle Datensätze dieses Aufrufs zurückgesetzt: Die Automatisierung führt pro Datensatz eine Abfrage oder einen Schreibvorgang aus statt einen für alle.",
+      "action": "Lassen Sie diese Automatisierung für alle Datensätze eines Aufrufs nur einmal abfragen und schreiben, oder lassen Sie sie für Inhaber einer benutzerdefinierten Bypass-Berechtigung nichts tun, die „Automatisierungen der Ziel-Org für diesen Durchlauf stummschalten“ zuweist, wo ein Lauf es anbietet; starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Eine Automatisierung der Ziel-Org — der Trigger, den die Meldung nennt, oder ein Flow — hat beim Speichern des Datensatzes ein Salesforce-Limit überschritten, etwa zu viele Abfragen, zu viele Schreibvorgänge oder zu viel CPU-Zeit: Sie führt pro Datensatz eine Abfrage oder einen Schreibvorgang aus, und die Ziel-Org hat den ganzen Aufruf zurückgesetzt. Forge sendet die Datensätze eines solchen Aufrufs erneut in halb so großen Aufrufen, bis hinunter zu einem Datensatz, und behält diese Größe für das Objekt bis zum Ende des Durchlaufs; dieser Datensatz wurde dennoch abgelehnt, allein gesendet oder nachdem der Durchlauf die kleineren Aufrufe aufgebraucht hatte, die er sich erlaubt, wie der Satz nach der Meldung der Org sagt.",
+        "action": "Beheben Sie diese Automatisierung in der Ziel-Org, damit sie für alle Datensätze eines Aufrufs nur einmal abfragt und schreibt, oder damit sie für Inhaber der benutzerdefinierten Bypass-Berechtigung nichts tut, die „Automatisierungen der Ziel-Org für diesen Durchlauf stummschalten“ zuweist; wiederholen Sie dann die fehlgeschlagenen Objekte oder entfernen Sie, bei einem Entfernen, die verbliebenen Datensätze."
+      }
+    },
     "insufficientAccess": {
       "explanation": "Ihrem Benutzer in der Org fehlen die für diesen Vorgang nötigen Rechte.",
       "action": "Bitten Sie einen Administrator um die fehlende Berechtigung, oder verbinden Sie die Org mit einem Benutzer, der sie hat."
@@ -5589,8 +5659,8 @@
       "explanation": "Salesforce hat den Datensatz abgelehnt, weil er einem Benutzer gehören oder zugewiesen würde, der in der Org inaktiv ist.",
       "action": "Richten Sie die Zuweisungsregel oder den Flow, der diesen Benutzer wählt, auf einen aktiven Benutzer oder eine Warteschlange aus, oder aktivieren Sie den Benutzer wieder, und starten Sie dann erneut.",
       "forge": {
-        "explanation": "Salesforce hat den Datensatz abgelehnt, weil er einem Benutzer gehören oder zugewiesen würde, der in der Ziel-Org inaktiv ist. Der Klon überlässt jeden Datensatz, den er anlegt, dem Benutzer, unter dem er schreibt: Dieser Benutzer kommt also aus der Ziel-Org — eine Zuweisungsregel oder ein Flow, der den Inhaber setzt oder eine Aufgabe zuweist — oder aus einem Inhaber, der unter Überprüfung → Einstellungen angegeben wurde.",
-        "action": "Richten Sie diese Regel oder diesen Flow in der Ziel-Org auf einen aktiven Benutzer oder eine Warteschlange aus, oder aktivieren Sie den Benutzer wieder; oder geben Sie die Datensätze unter Überprüfung → Einstellungen bei „Besitzer, die Benutzern des Ziels zugewiesen werden“ einem aktiven Benutzer. Wiederholen Sie dann die fehlgeschlagenen Objekte."
+        "explanation": "Salesforce hat den Datensatz abgelehnt, weil er einem Benutzer gehören oder zugewiesen würde, der in der Ziel-Org inaktiv ist. Ein Klon eines Datensatzes überlässt jeden Datensatz, den er anlegt, dem Benutzer, unter dem er schreibt; ein Klon einer Abfrage oder der ganzen Org behält einen Inhaber, der in der Ziel-Org aktiv ist, und gibt diesem Benutzer einen Datensatz, dessen Inhaber in der Ziel-Org inaktiv ist, es sei denn, dieser Benutzer hat die Berechtigung Update Records with Inactive Owners. Die unter Überprüfung → Einstellungen angegebenen Inhaber haben Vorrang. Was weiterhin abgelehnt wird, kommt von einem dieser Inhaber, der einem in der Ziel-Org inaktiven Benutzer zugewiesen ist, von einer Zuweisungsregel oder einem Flow der Ziel-Org, der den Inhaber setzt oder eine Aufgabe zuweist, oder von einem Prüffeld wie Erstellt von, das einen inaktiven Benutzer nennt.",
+        "action": "Richten Sie diese Regel oder diesen Flow in der Ziel-Org auf einen aktiven Benutzer oder eine Warteschlange aus, oder aktivieren Sie den Benutzer wieder; oder geben Sie die Datensätze unter Überprüfung → Einstellungen bei „Besitzer, die Benutzern des Ziels zugewiesen werden“ einem aktiven statt einem inaktiven Benutzer. Wiederholen Sie dann die fehlgeschlagenen Objekte."
       }
     },
     "entityDeleted": {

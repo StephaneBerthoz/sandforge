@@ -29,8 +29,15 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 vi.mock('../../core/common/sforceLimitParser.js', () => ({
   checkApiLimits: vi.fn(),
 }));
+// The sweep as it is, watched for what the handler hands it.
+vi.mock('../../modules/forge/ForgeRunSweep.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../modules/forge/ForgeRunSweep.js')>();
+  return { ...actual, sweepRunRecords: vi.fn(actual.sweepRunRecords) };
+});
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { SplitAllowance } from '../../core/common/governorLimit.js';
+import { sweepRunRecords } from '../../modules/forge/ForgeRunSweep.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -375,6 +382,15 @@ describe('a sweep asked with a removal', () => {
     // Counts only: no record id, no name reaches the trail.
     expect(JSON.stringify(store.get('audit:trail'))).not.toContain(id('00T', 1));
     expect(JSON.stringify(store.get('audit:trail'))).not.toContain('Welcome call');
+  });
+
+  it('hands the sweep the removal’s allowance of smaller calls, one bound for the two', async () => {
+    await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true }));
+
+    expect(errors()).toEqual([]);
+    const options = vi.mocked(sweepRunRecords).mock.calls[0]?.[2];
+    expect(options?.allowance).toBeInstanceOf(SplitAllowance);
+    expect(options?.allowance?.granted).toBe(2000);
   });
 
   it('keeps no record of the run back for a task the automation opened under it after the run’s last write', async () => {

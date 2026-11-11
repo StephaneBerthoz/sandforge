@@ -43,6 +43,8 @@
     "time": "Hora",
     "recordIds": "IDs de registro",
     "statusAbbrev": "St",
+    "objectCountFormatted_one": "{{formatted}} objeto",
+    "objectCountFormatted_other": "{{formatted}} objetos",
     "recordCountFormatted_one": "{{formatted}} registro",
     "recordCountFormatted_other": "{{formatted}} registros",
     "fieldCount_one": "{{count}} campo",
@@ -3528,6 +3530,14 @@
     "soqlTab": "SOQL",
     "templateTab": "Modelo",
     "aiTab": "IA",
+    "wholeOrg": "Org inteira",
+    "allInputDisabled": "ALL copia a org de origem inteira, então não parte de nenhum registro, consulta, modelo ou rascunho de IA. Escolha outra profundidade para usá-los.",
+    "allCarried": "Escolhas trazidas de um modelo ou de uma execução anterior ainda restringem este clone da org inteira:",
+    "allCarriedFiltered": "Objetos filtrados: {{objects}}",
+    "allCarriedExcluded": "Objetos deixados de fora: {{objects}}",
+    "allCarriedHeldBack": "Linhas retidas em: {{objects}}",
+    "allCarriedFields": "Campos deixados de fora em: {{objects}}",
+    "clearCarried": "Remover estas escolhas",
     "ai": {
       "notConfiguredTitle": "Nenhum provedor de IA está configurado",
       "notConfiguredBody": "Salve uma chave de API da Anthropic em Configurações > IA: salvá-la ativa a IA. Sua descrição é então enviada ao modelo com os nomes dos objetos da org de origem e os campos dos objetos que ela cita. A consulta que volta é verificada na org e espera você executá-la.",
@@ -3562,6 +3572,7 @@
     "depthDirect": "Somente diretos",
     "depthFull": "Profundo (5 níveis)",
     "depthCustom": "Profundidade personalizada",
+    "depthAll": "ALL",
     "sourceOrg": "Org de origem",
     "targetOrg": "Org de destino",
     "anonymizePII": "Anonimizar PII",
@@ -3588,6 +3599,8 @@
     "depthDirectTooltip": "Somente objetos filhos diretamente relacionados (1 nível)",
     "depthFullTooltip": "A árvore de dependências, até 5 níveis de profundidade",
     "depthCustomTooltip": "Especifique a profundidade máxima de relacionamento",
+    "depthAllTooltip": "Cada registro de cada objeto que a org de origem deixa o Forge ler e que a org de destino deixa criar, arquivos e e-mails incluídos",
+    "depthAllHint": "ALL copia a org de origem inteira: cada objeto que o destino pode criar, cada registro de cada um, sem limite. Os objetos que o Salesforce não deixa criar pela API ficam de fora, e a revisão os nomeia.",
     "depthCustomHint": "Até {{max}} níveis: além disso, a descoberta descreveria milhares de objetos em uma org de CRM e esgotaria seus limites de API sem produzir um grafo utilizável.",
     "depthCustomInvalid": "Digite um número inteiro de 1 a {{max}}.",
     "soqlPreviewHint": "A pré-visualização está disponível para entrada de ID de registro",
@@ -3596,12 +3609,19 @@
     "refreshPreview": "Atualizar pré-visualização",
     "noOrgSelected": "Selecione uma org de origem para pré-visualizar",
     "livePreview": "Pré-visualização ao vivo",
+    "allPreviewBody": "A descoberta lista cada objeto de {{source}} que {{target}} pode criar, e conta seus registros.",
+    "allPreviewBodyNoTarget": "A descoberta lista cada objeto de {{source}} que a org de destino pode criar, e conta seus registros.",
+    "allPreviewNoSource": "Selecione uma org de origem para copiar todos os seus dados",
+    "allPreviewPiiOff": "Anonimizar PII está desativado: cada campo pessoal da org de origem é copiado como está.",
+    "allGraphTooLarge_one": "Seu {{formatted}} objeto é listado em vez de desenhado, como em todo clone da org inteira e todo grafo de mais de 150 objetos: um grafo de centenas de objetos trava o painel enquanto é organizado. A revisão ainda pode desenhá-lo.",
+    "allGraphTooLarge_other": "Seus {{formatted}} objetos são listados em vez de desenhados, como em todo clone da org inteira e todo grafo de mais de 150 objetos: um grafo de centenas de objetos trava o painel enquanto é organizado. A revisão ainda pode desenhá-lo.",
     "piiWarning_one": "{{count}} campo PII detectado",
     "piiWarning_other": "{{count}} campos PII detectados",
     "piiWarningHint": "Nomes, endereços e outros campos pessoais vão como estão; Anonimizar PII os mascara.",
     "direct": {
       "action": "Clonar diretamente",
-      "hint": "Descobre e clona de uma vez, sem a revisão: nenhuma divergência decidida, sem comparação de metadados; o que o destino executa ao inserir ainda é apresentado a você primeiro."
+      "hint": "Descobre e clona de uma vez, sem a revisão: nenhuma divergência decidida, sem comparação de metadados; o que o destino executa ao inserir ainda é apresentado a você primeiro.",
+      "hintAll": "Clona a org inteira sem a revisão: o que ele grava, seu armazenamento, suas solicitações de API e sua duração ainda são apresentados a você primeiro."
     },
     "editTemplate": "Editar",
     "deleteTemplateConfirm": "Tem certeza de que deseja excluir este modelo?",
@@ -3615,10 +3635,14 @@
     "objectCap": "Objetos",
     "objectCapHint": "Máximo de objetos que a descoberta pode incluir (os vazios não contam).",
     "objectCapDefault": "Padrão (50)",
+    "objectCapAll": "Todos os objetos",
+    "objectCapAllDisabled": "ALL pega cada objeto que o destino pode criar: não há limite de objetos.",
     "recordLimitSmart": "Inteligente (conforme a entrada)",
     "recordLimitSmartRecord": "Inteligente: lê apenas o que o registro alcança, no máximo 50.000 linhas por objeto, e pergunta antes de uma gravação grande.",
     "recordLimitSmartSoql": "Inteligente: {{limit}} por objeto. Uma execução a partir de uma consulta lê os outros objetos de suas tabelas inteiras.",
     "recordLimitAll": "Todos",
+    "recordLimitEvery": "Todos os registros",
+    "recordLimitAllDisabled": "ALL copia cada registro de cada objeto: não há limite por objeto.",
     "recordLimitOpt10": "10 / objeto (amostra)",
     "recordLimitOpt50": "50 / objeto",
     "recordLimitOpt100": "100 / objeto",
@@ -3651,6 +3675,25 @@
     },
     "expandOrphanParents": "Buscar pais automaticamente",
     "expandOrphanParentsHint": "Copia também os registros pai que o clone não lê por conta própria: atrás de uma referência que pode apontar para vários objetos, além de cinco níveis ou do limite. Um clone a partir de um registro já lê por ID os registros pai sem os quais seus registros não podem ser gravados.",
+    "expandOrphanParentsAll": "ALL copia cada tabela inteira, então cada registro pai já está na execução.",
+    "leftOut": {
+      "missingInTarget": "Não existem na org de destino",
+      "notWritable": "Você não pode criá-los, editá-los e excluí-los na org de destino",
+      "notQueryable": "Você não pode consultá-los na org de origem",
+      "unreadable": "Recusados pela org de origem",
+      "notDescribed": "Não foi possível ler a descrição",
+      "empty": "Nenhum registro na org de origem",
+      "setup": "Configuração, usuários, permissões, logs e jobs",
+      "metadata": "Metadados, implantados em vez de copiados",
+      "unsupportedKind": "Big objects, objetos externos e do Data Cloud, versões do Knowledge, eventos de plataforma",
+      "chatter": "Feeds do Chatter",
+      "history": "Objetos de histórico",
+      "sharing": "Objetos de compartilhamento",
+      "changeEvent": "Eventos de alteração",
+      "files": "Arquivos e documentos",
+      "noLayout": "sem layout de página",
+      "withTheirRecords": "copiado com os registros aos quais está vinculado"
+    },
     "reuseLastGraph": "Reutilizar último grafo (pular descoberta)",
     "reuseLastGraphHint": "Pule a descoberta de 30s+ e reutilize o grafo da sua última execução.",
     "quickStartTemplate": "Início rápido ({{name}})",
@@ -3765,7 +3808,13 @@
     "elapsed": "Decorrido",
     "discovery": "Descoberta do grafo",
     "discoveryProgress": "Descobrindo… {{discovered}} objetos analisados, {{queued}} na fila",
+    "discoveryPhase": {
+      "listing": "Listando os objetos das duas orgs…",
+      "counting": "Contando os registros: {{done}} de {{total}} objetos",
+      "describing": "Descrevendo os objetos que têm registros: {{done}} de {{total}}"
+    },
     "executeForge": "Executar Forge",
+    "allNoSimulation": "Um clone da org inteira ainda não pode ser simulado nem ensaiado: a confirmação que Executar sempre pede antes de gravar diz o que ele grava, seu armazenamento, suas solicitações de API e sua duração.",
     "runStoppedOn": "A execução foi interrompida antes do fim: {{message}}",
     "runCancelled": "Você cancelou a execução antes do fim.",
     "runStoppedWrote_one": "Antes de ser interrompida, ela tinha criado {{count}} registro na org de destino.",
@@ -3847,6 +3896,8 @@
     "anonymizedFields": "Campos anonimizados",
     "tableView": "Visualização em tabela",
     "graphView": "Visualização em grafo",
+    "graphViewSlow_one": "Desenhado como grafo, um clone da org inteira ou um grafo de mais de 150 objetos pode travar o painel por um tempo, e uma execução o redesenha a cada etapa: a tabela lista seu {{formatted}} objeto na hora.",
+    "graphViewSlow_other": "Desenhado como grafo, um clone da org inteira ou um grafo de mais de 150 objetos pode travar o painel por um tempo, e uma execução o redesenha a cada etapa: a tabela lista seus {{formatted}} objetos na hora.",
     "direct": {
       "discovering": "A clonagem começa assim que a descoberta responde.",
       "reviewSkipped": "Revisão pulada: esta execução começou assim que a descoberta respondeu, com os objetos que ela incluiu, e a comparação de metadados entre as duas orgs não foi executada. Os Flows e gatilhos Apex que a org de destino executa ao inserir os registros foram lidos antes, e os que forem disparados foram apresentados a você primeiro."
@@ -3857,7 +3908,14 @@
       "readDeclined": "Você cancelou a execução na confirmação das tabelas que ela lê sem limite por objeto, cada uma com mais de {{ceiling}} registros. Nada foi lido nem gravado. Ajuste Registros por objeto para ler menos.",
       "writeDeclined": "Você cancelou a execução antes que ela gravasse qualquer coisa. Os registros de origem foram lidos; nada foi gravado na org de destino.",
       "storageExceeded": "A execução foi recusada antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e a org de destino tem {{remaining}} MB livres. Exclua objetos, reduza os registros por objeto ou libere armazenamento de dados na org de destino.",
-      "confirmationUnavailable": "A execução foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e nenhuma pôde ser pedida."
+      "storageExceededAll": "A execução foi recusada antes de gravar qualquer coisa: os registros da org inteira ocupam cerca de {{estimate}} MB de armazenamento de dados, e a org de destino tem {{remaining}} MB livres. Exclua objetos na revisão ou libere armazenamento de dados na org de destino.",
+      "storageExceededFiles": "A execução foi recusada antes de gravar qualquer coisa: os arquivos que ela copia ocupam cerca de {{estimate}} MB de armazenamento de arquivos, e a org de destino tem {{remaining}} MB livres. Exclua os arquivos na revisão ou libere armazenamento de arquivos na org de destino.",
+      "confirmationUnavailable": "A execução foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e nenhuma pôde ser pedida.",
+      "apiBudgetExceeded": "A execução foi recusada antes de gravar qualquer coisa: ela precisaria de mais solicitações de API do que restam hoje à org de origem ou de destino, ou de mais lotes da Bulk API do que restam à org de destino. Execute-a quando a org tiver de sobra.",
+      "apiRequestsExceededTarget": "A execução foi recusada antes de gravar qualquer coisa: ela precisaria de cerca de {{estimate}} solicitações de API da org de destino, que tem {{remaining}} restantes hoje. Execute-a quando a org tiver de sobra, ou exclua objetos na revisão.",
+      "apiRequestsExceededSource": "A execução foi recusada antes de gravar qualquer coisa: ler a org de origem precisaria de cerca de {{estimate}} de suas solicitações de API, e restam {{remaining}} hoje. Execute-a quando a org tiver de sobra, ou exclua objetos na revisão.",
+      "bulkBatchesExceeded": "A execução foi recusada antes de gravar qualquer coisa: seus jobs da Bulk API precisariam de cerca de {{estimate}} lotes da org de destino, que tem {{remaining}} restantes nas últimas 24 horas. Execute-a quando a org tiver de sobra.",
+      "readBoundExceeded": "A execução foi recusada antes de gravar qualquer coisa: uma cópia da org inteira lê alguns objetos inteiros, e mais de {{bound}} registros, tantos quantos a configuração sandforge.forge.maxRecordsPerObject a deixa manter de uma vez, foram encontrados em {{objects}}. Aumente a configuração ou exclua esses objetos na revisão."
     },
     "executionTable": {
       "leftOut": "excluído",
@@ -4029,6 +4087,9 @@
       "planLoading": "Gerando o plano de execução...",
       "wave": "Onda",
       "cycles": "Resoluções de ciclos",
+      "leftOutTitle_one": "De fora: {{formatted}} objeto da org de origem",
+      "leftOutTitle_other": "De fora: {{formatted}} objetos da org de origem",
+      "leftOutHint": "Os objetos da org de origem que este clone da org inteira não leva, por motivo: o Salesforce não deixa a API criá-los, o destino não pode recebê-los ou a origem não tem nenhum.",
       "fieldsAnonymized_one": "{{count}} campo anonimizado",
       "fieldsAnonymized_other": "{{count}} campos anonimizados",
       "fieldsScanned_one": "{{count}} campo analisado no total",
@@ -5235,10 +5296,11 @@
     "encryptedLeftOut": "{{fields}}: campos criptografados que o usuário com que o SandForge lê a org de origem vê mascarados, por não ter a permissão View Encrypted Data. Deixados de fora de cada registro gravado, em vez de copiados mascarados.",
     "writtenWithoutFields": {
       "title": "Gravados sem um campo recusado pela org de destino",
-      "hint": "A org de destino recusou estes registros pelos campos que indicou: uma de suas regras de validação, uma lista de opções restrita que não aceita o valor para o tipo de registro do registro — um tipo de registro ao qual nunca foram dados valores do campo não aceita nenhum, o que nada do que é lido antes da gravação indica —, ou o filtro de pesquisa de um campo de pesquisa que ela permite deixar vazio, que não aceita o registro indicado. O clone gravou cada registro de novo sem esses campos: o registro está na org de destino, sem o valor que a origem tem para eles.",
+      "hint": "A org de destino recusou estes registros pelos campos que indicou: uma de suas regras de validação, uma lista de opções restrita que não aceita o valor para o tipo de registro do registro — um tipo de registro ao qual nunca foram dados valores do campo não aceita nenhum, o que nada do que é lido antes da gravação indica —, ou o filtro de pesquisa de um campo de pesquisa que ela permite deixar vazio, que não aceita o registro indicado. O clone gravou cada registro de novo sem esses campos: o registro está na org de destino, sem o valor que a origem tem para eles. Um registro que a org de destino recusou por seu proprietário, inativo nela, foi gravado de novo sem ele: pertence ao usuário com que o clone grava.",
       "byValidationRule": "recusado por uma regra de validação",
       "byRestrictedPicklist": "valor recusado por uma lista de opções restrita",
-      "byLookupFilter": "registro indicado recusado por um filtro de pesquisa"
+      "byLookupFilter": "registro indicado recusado por um filtro de pesquisa",
+      "byInactiveOwner": "proprietário recusado pela org de destino, onde está inativo"
     },
     "checkpointNow": {
       "why": "Antes que seus testadores comecem, guarde {{org}} como está agora como o ponto ao qual voltar. Retroceder depois a devolve a esse ponto, não importa quem a altere em seguida.",
@@ -5531,6 +5593,14 @@
         "action": "Corrija essa automação na org de destino, ou desative-a durante a clonagem, e então tente de novo os objetos com falha."
       }
     },
+    "governorLimit": {
+      "explanation": "Uma automação da org — um gatilho ou um Flow — excedeu um limite do Salesforce, como consultas demais, gravações demais ou tempo de CPU demais, na chamada que levava este registro, e a org desfez todos os registros dessa chamada: a automação faz uma consulta ou uma gravação por registro em vez de uma só para todos.",
+      "action": "Faça essa automação consultar e gravar uma só vez para todos os registros de uma chamada, ou não fazer nada para quem tem uma permissão personalizada de bypass, que “Silenciar as automações do destino nesta execução” atribui onde uma execução a oferece; e execute de novo.",
+      "forge": {
+        "explanation": "Uma automação da org de destino — o gatilho que a mensagem nomeia, ou um Flow — excedeu um limite do Salesforce, como consultas demais, gravações demais ou tempo de CPU demais, ao salvar o registro: ela faz uma consulta ou uma gravação por registro, e a org de destino desfez a chamada inteira. O Forge envia de novo os registros dessa chamada em chamadas com a metade do tamanho, até um só registro, e mantém esse tamanho para o objeto até o fim da execução; este registro foi recusado mesmo assim, enviado sozinho ou depois que a execução esgotou as chamadas menores que se permite, como diz a frase depois da mensagem da org.",
+        "action": "Corrija essa automação na org de destino para que consulte e grave uma só vez para todos os registros de uma chamada, ou para que não faça nada para quem tem a permissão personalizada de bypass que “Silenciar as automações do destino nesta execução” atribui; e então tente de novo os objetos com falha ou, numa remoção, remova o que resta."
+      }
+    },
     "insufficientAccess": {
       "explanation": "Seu usuário na org não tem o acesso que esta operação exige.",
       "action": "Peça a permissão que falta a um administrador, ou conecte a org com um usuário que a tenha."
@@ -5589,8 +5659,8 @@
       "explanation": "O Salesforce recusou o registro porque ele pertenceria, ou seria atribuído, a um usuário inativo na org.",
       "action": "Faça a regra de atribuição ou o Flow que escolhe esse usuário apontar para um usuário ativo ou uma fila, ou reative o usuário, e execute de novo.",
       "forge": {
-        "explanation": "O Salesforce recusou o registro porque ele pertenceria, ou seria atribuído, a um usuário inativo na org de destino. O clone deixa cada registro que cria com o usuário com que grava, então esse usuário vem da org de destino — uma regra de atribuição, ou um Flow que define o proprietário ou atribui uma tarefa — ou de um proprietário dado em Revisão → Ajustes.",
-        "action": "Na org de destino, faça essa regra ou esse Flow apontar para um usuário ativo ou uma fila, ou reative o usuário; ou, em Revisão → Ajustes, dê os registros a um usuário ativo em Proprietários atribuídos a usuários do destino. Então tente de novo os objetos com falha."
+        "explanation": "O Salesforce recusou o registro porque ele pertenceria, ou seria atribuído, a um usuário inativo na org de destino. Um clone de um registro deixa cada registro que cria com o usuário com que grava; um clone de uma consulta ou da org inteira mantém um proprietário ativo no destino e dá a esse usuário um registro cujo proprietário está inativo no destino, a menos que esse usuário tenha a permissão Update Records with Inactive Owners. Os proprietários dados em Revisão → Ajustes têm prioridade. O que ainda é recusado vem de um desses proprietários dado a um usuário inativo no destino, de uma regra de atribuição ou um Flow do destino que define o proprietário ou atribui uma tarefa, ou de um campo de auditoria, como Criado por, que indica um usuário inativo.",
+        "action": "Na org de destino, faça essa regra ou esse Flow apontar para um usuário ativo ou uma fila, ou reative o usuário; ou, em Revisão → Ajustes, dê os registros a um usuário ativo, em vez de um inativo, em Proprietários atribuídos a usuários do destino. Então tente de novo os objetos com falha."
       }
     },
     "entityDeleted": {

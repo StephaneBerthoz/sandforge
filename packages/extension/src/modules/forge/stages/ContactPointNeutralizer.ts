@@ -56,8 +56,12 @@ export const EMAIL_FIELD_LENGTH = 80;
 /** The most characters a phone field takes: 40, whatever the object. */
 const PHONE_FIELD_LENGTH = 40;
 
-/** How many numbers the range kept for fiction holds: `+33 6 39 98` and four digits. */
-const FICTIONAL_NUMBERS = 10_000;
+/**
+ * How many numbers the range kept for fiction holds: `+33 6 39 98` and four
+ * digits. Past them a number goes in empty: a clone of the whole org tells
+ * its gate how many may (`ForgeWriteBoundary.contactPointsBlanked`).
+ */
+export const FICTIONAL_NUMBERS = 10_000;
 
 /** The draws tried for a number before the next free one is taken in order. */
 const REDRAWS = 64;

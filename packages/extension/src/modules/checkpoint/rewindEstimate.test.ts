@@ -12,6 +12,7 @@ import { removeRunRecords } from '../forge/ForgeRunRemoval.js';
 import type { LimitsTransport } from '../forge/ForgeRunGate.js';
 import { restoreOverwrites, type BackupReader } from '../sync/SyncRunRestore.js';
 import { undeleteRunDeletions } from '../sync/SyncRunUndelete.js';
+import { bulkJobRequests, bulkJobStateReads } from '../../core/engine/bulkJobCost.js';
 import { compositeReader } from './compositeQueries.js';
 import { readChanges } from './orgStreams.js';
 import {
@@ -24,8 +25,6 @@ import {
   linkWritesCost,
   readBudget,
   relationshipsOf,
-  bulkJobRequests,
-  bulkJobStateReads,
   recreateCost,
   removalCost,
   restoreCost,
@@ -494,21 +493,6 @@ describe('the bricks, as they send their requests to the org', () => {
     // Not told who works in what, each relationship is counted, the most the
     // check reads: the two it never reads, asked once and read twice each.
     expect(cost(relationshipsOf(describe, { inCheckpoint })) - sent).toBe(2 * (1 + 2));
-  });
-
-  it('prices a Bulk API job by the calls it sends, as the org counted one live: a job of 200 deletes with two reads of its state cost five', () => {
-    // P9, on a scratch org: opened, its CSV sent, closed, its state read
-    // twice, its results never read — five of the day's requests, the
-    // /limits delta the same.
-    expect(bulkJobRequests({ stateReads: 2, resultReads: 0 })).toBe(5);
-    // A removal's job reads its results three ways once through.
-    expect(bulkJobRequests({ stateReads: 2 })).toBe(8);
-  });
-
-  it('reads the state of a job once as it is closed, then once every five seconds of its time', () => {
-    // 24 seconds of waiting, then 750 deletes a second: 12,000 take 40.
-    expect(bulkJobStateReads(12_000)).toBe(1 + 8);
-    expect(bulkJobStateReads(50_000)).toBe(1 + Math.ceil((24 + 50_000 / 750) / 5));
   });
 
   it('prices the deletes past 10,000 records of an object as the Bulk API jobs the removal sends them in, never as the REST calls of 200 they stand for', () => {

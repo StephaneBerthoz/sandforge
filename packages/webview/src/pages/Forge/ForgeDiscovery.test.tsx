@@ -3,7 +3,11 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import '../../i18n';
 import { ForgeDiscovery } from './ForgeDiscovery';
 import type { ForgeGraph, ForgeGraphNode } from '../../stores/useForgeStore';
-import { FORGE_GRAPH_MAX_OBJECTS, useForgeViewStore } from '../../stores/useForgeViewStore';
+import {
+  FORGE_GRAPH_MAX_OBJECTS,
+  FORGE_GRAPH_SLOW_OBJECTS,
+  useForgeViewStore,
+} from '../../stores/useForgeViewStore';
 
 /* ---- Mocks ---- */
 
@@ -167,7 +171,7 @@ describe('ForgeDiscovery', () => {
     mockDiscoveryId = null;
     mockDiscoveryError = null;
     mockConfig = null;
-    useForgeViewStore.setState({ setting: 'auto', choice: null });
+    useForgeViewStore.setState({ setting: 'auto', choice: null, choiceOnLarge: false });
   });
 
   it('should render with forge-discovery test id', () => {
@@ -480,13 +484,13 @@ describe('ForgeDiscovery', () => {
       unmount();
 
       useForgeViewStore.getState().adoptSetting('graph');
-      mockGraph = graphOf(400);
+      mockGraph = graphOf(FORGE_GRAPH_SLOW_OBJECTS);
       render(<ForgeDiscovery />);
       expect(screen.getByTestId('live-graph')).toBeDefined();
     });
 
     it('comes back on the view picked with the switch, over the setting', () => {
-      mockGraph = graphOf(400);
+      mockGraph = graphOf(FORGE_GRAPH_SLOW_OBJECTS);
       const { unmount } = render(<ForgeDiscovery />);
       fireEvent.click(screen.getByTestId('forge-view-graph'));
       expect(screen.getByTestId('live-graph')).toBeDefined();
@@ -494,6 +498,138 @@ describe('ForgeDiscovery', () => {
 
       render(<ForgeDiscovery />);
       expect(screen.getByTestId('live-graph')).toBeDefined();
+    });
+
+    // Laid out and drawn, 1,950 objects held the panel still: the discovery
+    // never draws a large graph, whatever the setting or the switch said.
+    it('never draws a graph past the objects it may draw, whatever the setting or the switch says', () => {
+      useForgeViewStore.getState().adoptSetting('graph');
+      useForgeViewStore.getState().choose('graph', true);
+      mockGraph = graphOf(FORGE_GRAPH_SLOW_OBJECTS + 1);
+      render(<ForgeDiscovery />);
+
+      expect(screen.queryByTestId('live-graph')).toBeNull();
+      expect(screen.getByTestId('forge-table-view')).toBeDefined();
+      expect(screen.queryByTestId('forge-view-graph')).toBeNull();
+      expect(screen.getByTestId('forge-discovery-not-drawn').textContent).toBe(
+        'Its 151 objects are listed rather than drawn, as is every clone of the whole org and every graph past 150 objects: a graph of hundreds of objects holds the panel still while it is laid out. Review can still draw it.',
+      );
+      // A graph walked from a root leaves nothing out to sum up.
+      expect(screen.queryByTestId('forge-discovery-left-out')).toBeNull();
+    });
+  });
+
+  describe('a clone of the whole org', () => {
+    beforeEach(() => {
+      mockConfig = {
+        inputMode: 'org',
+        depth: 'all',
+        sourceOrgId: 'org-source',
+        targetOrgId: 'org-target',
+        anonymizePII: true,
+        skipEmpty: true,
+        batchSize: 'auto',
+      };
+    });
+
+    it('sums its graph up above its table, whatever it holds, with what it leaves out by why', () => {
+      mockGraph = {
+        ...defaultGraph,
+        totalRecords: 1_250_000,
+        leftOut: [
+          { objectApiName: 'AccountHistory', reason: 'history' },
+          { objectApiName: 'Asset', reason: 'empty' },
+          { objectApiName: 'Invoice__c', reason: 'missingInTarget' },
+          { objectApiName: 'Order', reason: 'empty' },
+        ],
+      };
+      render(<ForgeDiscovery />);
+
+      expect(screen.queryByTestId('live-graph')).toBeNull();
+      expect(screen.getByTestId('forge-table-view')).toBeDefined();
+      expect(screen.getByTestId('forge-discovery-summary-counts').textContent).toBe(
+        '2 objects · 1,250,000 records',
+      );
+      expect(screen.getByTestId('forge-discovery-left-out').textContent).toContain(
+        'Left out: 4 objects of the source org',
+      );
+      // What the target lacks first, then what the source holds none of.
+      const reasons = [
+        ...screen.getByTestId('forge-discovery-left-out').querySelectorAll('li'),
+      ].map((item) => item.textContent);
+      expect(reasons).toEqual([
+        'Not in the target org: 1',
+        'No record in the source org: 2',
+        'History objects: 1',
+      ]);
+    });
+
+    // Its records were written 1,250,000 and its objects 1950, side by side.
+    it('writes the objects it sums up as it writes the records, in the language of the panel', () => {
+      mockGraph = {
+        ...defaultGraph,
+        nodes: Array.from({ length: 1_950 }, (_, i) =>
+          makeNode({ objectApiName: `Object${String(i)}__c` }),
+        ),
+        edges: [],
+        totalRecords: 1_250_000,
+      };
+      render(<ForgeDiscovery />);
+
+      expect(screen.getByTestId('forge-discovery-summary-counts').textContent).toBe(
+        '1,950 objects · 1,250,000 records',
+      );
+    });
+
+    it('says which phase its discovery is in, and how far through the objects it goes', async () => {
+      mockGraph = null;
+      mockDiscoveryId = 'wv-discover-org';
+      render(<ForgeDiscovery />);
+      const progress = (payload: Record<string, unknown>): void =>
+        act(() => {
+          window.dispatchEvent(
+            new MessageEvent('message', {
+              data: {
+                id: `progress-${String(payload.phase)}-${String(payload.discoveredCount)}`,
+                type: 'forge:discover:progress',
+                timestamp: Date.now(),
+                correlationId: 'wv-discover-org',
+                payload,
+              },
+            }),
+          );
+        });
+
+      progress({ phase: 'listing', discoveredCount: 0, queueRemaining: 0 });
+      await waitFor(() =>
+        expect(screen.getByTestId('forge-discovery-progress').textContent).toBe(
+          'Listing the objects of both orgs…',
+        ),
+      );
+      progress({
+        phase: 'counting',
+        objectApiName: 'Account',
+        discoveredCount: 1_200,
+        queueRemaining: 300,
+        total: 1_500,
+      });
+      await waitFor(() =>
+        expect(screen.getByTestId('forge-discovery-progress').textContent).toBe(
+          'Counting the records: 1,200 of 1,500 objects',
+        ),
+      );
+      progress({
+        phase: 'describing',
+        objectApiName: 'Account',
+        discoveredCount: 40,
+        queueRemaining: 360,
+        total: 400,
+      });
+      await waitFor(() =>
+        expect(screen.getByTestId('forge-discovery-progress').textContent).toBe(
+          'Describing the objects that hold records: 40 of 400',
+        ),
+      );
     });
   });
 

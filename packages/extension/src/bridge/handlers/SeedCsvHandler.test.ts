@@ -228,7 +228,8 @@ describe('SeedCsvHandler', () => {
       const [error] = posted(deps, 'seed:csv:error');
       expect((error.payload as { code?: string }).code).toBe('API_BUDGET_EXCEEDED');
       expect(String((error.payload as { message?: string }).message)).toContain(
-        'The run takes about 15 API requests',
+        // Jobs of 10 000, 10 000 and 5 000, each with its reads of state and results.
+        'The run takes about 44 API requests',
       );
     });
 

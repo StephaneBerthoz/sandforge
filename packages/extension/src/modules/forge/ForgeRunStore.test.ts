@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ForgeRunStore, memoryRunFile, nodeRunFile } from './ForgeRunStore.js';
+import { checkpointKey, ForgeRunStore, memoryRunFile, nodeRunFile } from './ForgeRunStore.js';
 
 /** The `n`-th source id of an object whose ids begin with `prefix`. */
 const src = (prefix: string, n: number): string => `${prefix}S${String(n).padStart(14, '0')}`;
@@ -159,6 +159,43 @@ describe('ForgeRunStore', () => {
       });
     });
 
+    it('keeps where a pass that reads an object again stands apart from where the object stands', () => {
+      const { store, file } = freshStore();
+      store.setMapping('created', src('02s', 1), tgt('02s', 1), 'EmailMessage');
+      store.checkpoint('EmailMessage', { lastId: src('02s', 9), read: 10, done: true });
+      // The page of the pass written after the object's last checkpoint.
+      store.setMapping('created', src('02s', 2), tgt('02s', 2), 'EmailMessage');
+      store.checkpoint('EmailMessage', { lastId: src('02s', 4), read: 3 }, 'afterTask');
+      store.close();
+
+      const read = ForgeRunStore.open(memoryRunFile(file.text()));
+      expect(read.checkpoints()).toEqual(
+        new Map([
+          ['EmailMessage', { lastId: src('02s', 9), read: 10, done: true }],
+          [checkpointKey('EmailMessage', 'afterTask'), { lastId: src('02s', 4), read: 3 }],
+        ]),
+      );
+      expect(checkpointKey('EmailMessage', 'afterTask')).toBe('EmailMessage/afterTask');
+      // The pass's checkpoint says nothing of the object's own read: the
+      // record mapped after the object's last checkpoint is still past it.
+      expect(read.earlierRecordsOf('EmailMessage', true)).toBe(1);
+      // On the line, the object's name stays an API name, the pass beside it.
+      expect(file.text()).toContain(
+        `{"at":{"object":"EmailMessage","pass":"afterTask","lastId":"${src('02s', 4)}","read":3}}`,
+      );
+    });
+
+    it('refuses a pass whose name is not one, and reads no checkpoint of such a line', () => {
+      const { store, file } = freshStore();
+      expect(() =>
+        store.checkpoint('EmailMessage', { lastId: src('02s', 1), read: 1 }, 'a/b'),
+      ).toThrow(/Not the name of a pass/);
+      store.close();
+      const forged = `${file.text()}{"at":{"object":"EmailMessage","pass":"x/y","lastId":"${src('02s', 1)}","read":1}}
+`;
+      expect(ForgeRunStore.open(memoryRunFile(forged)).checkpoints()).toEqual(new Map());
+    });
+
     it('leaves out a line a closed window cut short, and reads the others', () => {
       const text = `${firstPart()}["c","${src('001', 8)}","001T0`;
       const store = ForgeRunStore.open(memoryRunFile(text));
@@ -282,6 +319,29 @@ describe('ForgeRunStore', () => {
       expect(again.statusesOwed()).toEqual(new Map());
     });
 
+    it("marks each record the platform wrote with one the run created once a part, and gives back this part's, in the order marked", () => {
+      const { store, file } = freshStore();
+      store.withTheirRecord(src('003', 1));
+      store.withTheirRecord(src('00T', 2));
+      store.withTheirRecord(src('003', 1));
+      expect(store.withTheirRecordCount).toBe(2);
+      expect([...store.withTheirRecordIds()]).toEqual([src('003', 1), src('00T', 2)]);
+      // None of them a mapping, or an id read.
+      expect(store.mapping(src('003', 1))).toBeUndefined();
+      expect(store.wasRead(src('003', 1))).toBe(false);
+      store.close();
+
+      // A part that takes the run up marks those it meets, one an earlier
+      // part marked too: it counts them among the records it linked to.
+      const again = ForgeRunStore.open(memoryRunFile(file.text()));
+      again.beginPart(at);
+      again.withTheirRecord(src('003', 1));
+      again.withTheirRecord(src('003', 3));
+      again.withTheirRecord(src('003', 1));
+      expect(again.withTheirRecordCount).toBe(2);
+      expect([...again.withTheirRecordIds()]).toEqual([src('003', 1), src('003', 3)]);
+    });
+
     it('counts a status given back twice once', () => {
       const { store } = freshStore();
       store.oweStatus('Order', tgt('801', 1), 'Activated');
@@ -366,6 +426,32 @@ describe('ForgeRunStore', () => {
         false,
       ]);
       expect([1, 2, 3].map((n) => store.owesUntold(src('003', n)))).toEqual([true, false, false]);
+    });
+
+    it('writes the job a call went as at once, and the records a job wrote that no row was matched to, none of them a mapping', () => {
+      const { store, file } = freshStore();
+      store.setMapping('updated', src('001', 9), tgt('001', 9), 'Account');
+      const callId = store.sent(
+        'Account',
+        ['Name'],
+        [{ sourceId: src('001', 1), fingerprint: 'abcdefg1234567' }],
+        at,
+      );
+      store.jobOpened(callId, '750000000000001AAA');
+      // On disk before the job is closed: a process killed meanwhile leaves it.
+      expect(file.text().trim().split('\n').at(-1)).toBe(`["j","${callId}","750000000000001AAA"]`);
+      store.createdUnattributed('Account', [tgt('001', 2), tgt('001', 3)]);
+      store.createdUnattributed('Account', []);
+      store.answered(callId);
+      store.flush();
+      expect(file.text().trim().split('\n').slice(-2)).toEqual([
+        `["n","Account",["${tgt('001', 2)}","${tgt('001', 3)}"]]`,
+        `["a","${callId}"]`,
+      ]);
+      // Opened again, the store reads neither line as a record the run mapped.
+      const reopened = ForgeRunStore.open(file);
+      expect([...reopened.mappings()].map((mapping) => mapping.sourceId)).toEqual([src('001', 9)]);
+      expect(reopened.mapping('Account')).toBeUndefined();
     });
 
     it('starts each part with a line of its own', () => {

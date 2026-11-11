@@ -89,6 +89,7 @@ import {
   counted,
   heldWhile,
   muteOfSteps,
+  splitAllowanceOf,
   type MuteOfWrites,
   type RewindOrg,
 } from './rewindOrg.js';
@@ -493,6 +494,9 @@ export async function undoCheckpoint(
     });
     const overBudget = budgetRefusal('undo', count.used() + cost.apiRequests, budget, orgName);
     if (objects.length > 0 && overBudget) return { undone: false, refusal: overBudget };
+    // What the requests left leave past the estimate: the smaller calls its
+    // removal may send for a call the org's automation refuses for a limit.
+    const splitAllowance = splitAllowanceOf(budget.remaining, count.used() + cost.apiRequests);
     // The emails its writes make the org send, against what it has left of
     // each daily limit: past them, no box lifts the refusal.
     const overEmails = automation
@@ -520,6 +524,7 @@ export async function undoCheckpoint(
             objects: checkpoint.objects,
             org: count.org,
             undelete: count.undelete,
+            splitAllowance,
             ...(signal ? { signal } : {}),
             ...(deps.onUndeletable ? { onUndeletable: deps.onUndeletable } : {}),
             onProgress: (settled, total, objectApiName) =>

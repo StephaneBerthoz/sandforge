@@ -6,11 +6,15 @@ import { forgeDescribeCache } from '../modules/forge/forgeDescribeCache.js';
 import { TimeoutManager } from '../core/engine/TimeoutManager';
 import type { ObjectDescribe } from '../modules/forge/GraphDiscoveryService';
 import type { ForgeExecutorDeps } from '../modules/forge/ForgeExecutor';
+import type { BulkApiConnection } from '../core/engine/BulkApiExecutor.js';
+import type { IngestJobReading, IngestJobResultsReading } from '../core/engine/ingestJobRead.js';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { OrgRegistry } from '../core/connection/OrgRegistry';
 import type { OrgManager } from '../core/connection/OrgManager';
 import { personalFieldsByApiName, type PIIDetector } from '../core/precheck/PIIDetector';
-import { forgeWriteHeaders, type ForgeWriteOptions } from '@sandforge/shared';
+import { forgeWriteHeaders, SF_API_VERSION, type ForgeWriteOptions } from '@sandforge/shared';
+import type { GlobalObject } from '../modules/checkpoint/checkpointScope.js';
+import { extractErrorMessage } from '../core/common/extractErrorMessage.js';
 import {
   FORGE_QUERY_MAX_PAGES,
   FORGE_QUERY_MAX_RECORDS,
@@ -143,6 +147,13 @@ function toForgeObjectDescribe(
  */
 const RECORDS_PER_WRITE_CALL = 200;
 
+/**
+ * The objects the target's assignment rules route: a run that applies them
+ * writes these by REST, which asks for them, never as a Bulk API job, which
+ * names none (`scripts/assignment-rules-off.test.mjs`).
+ */
+const ASSIGNED_OBJECTS: ReadonlySet<string> = new Set(['Lead', 'Case']);
+
 /** Inputs required to wire the Forge orchestrator. */
 export interface ForgeCompositionDeps {
   handlers: ExtensionHandlers;
@@ -189,6 +200,10 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
     import('../modules/forge/TargetGapReader.js'),
     import('../modules/forge/ForgeRemovalPlanStore.js'),
     import('../modules/forge/ForgeRunJournal.js'),
+    import('../modules/forge/forgeBulkWrite.js'),
+    import('../modules/forge/lostBulkJobs.js'),
+    import('../core/engine/trackedBulkConnection.js'),
+    import('../modules/seed/seedDuplicateRules.js'),
   ])
     .then(
       ([
@@ -207,6 +222,10 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         { TargetGapReader },
         { ForgeRemovalPlanStore },
         { nodeRunJournal },
+        { forgeBulkWrite, BulkJobLostError },
+        { LostBulkJobs },
+        { trackedBulkConnection },
+        { objectsUnderDuplicateRules },
       ]) => {
         // Shared schema cache + timeout manager. Eliminates the 600+ describe
         // round-trips per forge run on a large org (350+ SObjects).
@@ -215,9 +234,10 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         // What the describe cache holds, and for how long: `forgeDescribeCache`.
         const describeCache = forgeDescribeCache<ForgeObjectDescribe>();
         const describesUnderWay = new Map<string, Promise<ForgeObjectDescribe>>();
-        const describeGlobalCache = new SchemaCache<
-          Array<{ name: string; keyPrefix: string | null }>
-        >({
+        // Each object with what the user may do with it, which a clone of the
+        // whole org settles its objects by, beside the key prefix a record id
+        // is resolved by.
+        const describeGlobalCache = new SchemaCache<GlobalObject[]>({
           defaultTtl: 5 * 60_000,
           maxSize: 16,
           maxSizeBytes: 50 * 1024 * 1024,
@@ -254,6 +274,18 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         const countExecutorRequest = (): void => {
           executorRequests++;
         };
+
+        /**
+         * The Bulk API jobs a run closed and could not read back, kept for
+         * the run's end, which reads each again by its id before it gives
+         * back the mute of the target's automation (`LostBulkJobs`). Each
+         * read is one of the target's requests, counted with the run's.
+         */
+        const lostJobs = new LostBulkJobs(async (orgId, jobId) => {
+          const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+          const job = (conn as unknown as IngestJobReading).bulk2.job('ingest', { id: jobId });
+          return (await job.check()).state;
+        });
 
         /**
          * The cached describe of `objectApiName` on `orgId`, fetched once.
@@ -329,14 +361,19 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
               },
               30_000,
             ),
-          queryCount: (orgId, soql, signal) =>
+          // A count asked to take every row goes through the org's `queryAll`
+          // (`scanAll`), which still answers for the archived activities.
+          queryCount: (orgId, soql, signal, options) =>
             sfTimeouts.withTimeout(
               `queryCount`,
               async (timeoutSignal) => {
                 const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
                 signal?.throwIfAborted();
                 timeoutSignal.throwIfAborted();
-                const result = await conn.query<{ expr0: number }>(soql);
+                const result = await conn.query<{ expr0: number }>(
+                  soql,
+                  options?.all ? { scanAll: true } : undefined,
+                );
                 return result.totalSize;
               },
               15_000,
@@ -356,12 +393,79 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
                 signal?.throwIfAborted();
                 timeoutSignal.throwIfAborted();
                 const r = await conn.describeGlobal();
-                return r.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null }));
+                return r.sobjects.map((s): GlobalObject => ({
+                  name: s.name,
+                  keyPrefix: s.keyPrefix ?? null,
+                  queryable: s.queryable,
+                  createable: s.createable,
+                  updateable: s.updateable,
+                  deletable: s.deletable,
+                  custom: s.custom,
+                  customSetting: s.customSetting,
+                  layoutable: s.layoutable,
+                }));
               },
               60_000,
             );
             describeGlobalCache.set(orgId, result);
             return result;
+          },
+          // What the target's Tooling API serves is metadata, which a clone of
+          // the whole org leaves out as such. An org that will not say leaves
+          // the data API's own flags to decide.
+          toolingObjects: async (orgId, signal) => {
+            try {
+              return await sfTimeouts.withTimeout(
+                'toolingDescribeGlobal',
+                async (timeoutSignal) => {
+                  const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+                  signal?.throwIfAborted();
+                  timeoutSignal.throwIfAborted();
+                  const answer = await conn.tooling.describeGlobal();
+                  return answer.sobjects.map((sobject) => sobject.name);
+                },
+                60_000,
+              );
+            } catch (err: unknown) {
+              signal?.throwIfAborted();
+              log(
+                `[forge] the Tooling API of ${orgId} did not list its objects: ${extractErrorMessage(err)}`,
+              );
+              return [];
+            }
+          },
+          // The org's own figure of each object's records, refreshed by the
+          // org now and then, read in one call: what a clone of the whole org
+          // keeps for an object it could not count in time. It needs View
+          // Setup; without it, or on any failure, the org says nothing.
+          approximateRecordCounts: async (orgId, signal) => {
+            try {
+              return await sfTimeouts.withTimeout(
+                'recordCount',
+                async (timeoutSignal) => {
+                  const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+                  signal?.throwIfAborted();
+                  timeoutSignal.throwIfAborted();
+                  const counted = await conn.request<{
+                    sObjects?: Array<{ name?: unknown; count?: unknown }>;
+                  }>(`/services/data/${SF_API_VERSION}/limits/recordCount`);
+                  const figures = new Map<string, number>();
+                  for (const entry of counted.sObjects ?? []) {
+                    if (typeof entry.name === 'string' && typeof entry.count === 'number') {
+                      figures.set(entry.name, entry.count);
+                    }
+                  }
+                  return figures;
+                },
+                60_000,
+              );
+            } catch (err: unknown) {
+              signal?.throwIfAborted();
+              log(
+                `[forge] ${orgId} gave no approximate record counts: ${extractErrorMessage(err)}`,
+              );
+              return undefined;
+            }
           },
         });
 
@@ -416,8 +520,14 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             return records;
           },
           // A run of whole tables reads each object a page at a time, writing
-          // each before it asks for the next: nothing here holds the rows.
-          queryPages: (orgId, soql) =>
+          // each before it asks for the next: nothing here holds the rows. A
+          // read asked to take the archived activities goes through the org's
+          // `queryAll` (`scanAll`). Its next pages go by the locator that read
+          // gave, which jsforce 3 hands back as `/query/<locator>` whatever
+          // opened it (`Query.locatorToUrl`): the cursor is the org's, opened
+          // by `queryAll`, and keeps the archived rows. To probe on a real
+          // org: an archived task past the first page of such a read.
+          queryPages: (orgId, soql, options) =>
             (async function* pages(): AsyncGenerator<Record<string, unknown>[]> {
               const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
               yield* cursorPages<Record<string, unknown>>(
@@ -426,18 +536,23 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
                     countExecutorRequest();
                     return conn.query<Record<string, unknown>>(q);
                   },
+                  queryAll: async (q) => {
+                    countExecutorRequest();
+                    return conn.query<Record<string, unknown>>(q, { scanAll: true });
+                  },
                   queryMore: async (url) => {
                     countExecutorRequest();
                     return conn.queryMore<Record<string, unknown>>(url);
                   },
                 },
                 soql,
+                options,
               );
             })(),
-          countRecords: async (orgId, soql) => {
+          countRecords: async (orgId, soql, options) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             countExecutorRequest();
-            return (await conn.query(soql)).totalSize;
+            return (await conn.query(soql, options?.all ? { scanAll: true } : undefined)).totalSize;
           },
           // The org's currency settings, one row: whether advanced currency
           // management is on, which the user's access cannot always tell.
@@ -569,6 +684,67 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             return fileTransfer.remainingFileStorageMB(conn);
           },
           requestsSent: () => executorRequests,
+          // A run that writes through the Bulk API sends a write a job takes
+          // as one, on the run's own job limiter; each call it sends the org —
+          // opened, sent, closed, each read of its state and of its results,
+          // the job read back by its id — counted as it goes. No job of a
+          // lead or a case goes while the run applies the target's assignment
+          // rules: a job names no assignment rule, and a REST write asks for
+          // them (`forgeWriteHeaders`). Refused before anything is sent, the
+          // object goes by REST for the rest of the run.
+          bulkWriteRecords: async (orgId, objectName, operation, records, options) => {
+            if (runWrites.applyAssignmentRules && ASSIGNED_OBJECTS.has(objectName)) {
+              return {
+                answers: [],
+                rows: [],
+                unmatchedIds: [],
+                untouched: {
+                  reason: `the run applies the target's assignment rules, which a job cannot`,
+                  unsupported: true,
+                },
+                requests: 0,
+              };
+            }
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const tracked = trackedBulkConnection(
+              conn as unknown as BulkApiConnection & IngestJobResultsReading,
+              (requests) => {
+                executorRequests += requests;
+              },
+            );
+            try {
+              return await forgeBulkWrite(
+                tracked.connection,
+                options.bulkManager,
+                objectName,
+                operation,
+                records,
+                {
+                  ...(options.externalIdField ? { externalIdField: options.externalIdField } : {}),
+                  ...(options.signal ? { signal: options.signal } : {}),
+                  ...(options.onOpened ? { onOpened: options.onOpened } : {}),
+                },
+              );
+            } catch (err: unknown) {
+              // Closed and not read back: the org may be writing it still,
+              // which the run's end waits for before it gives the mute back.
+              if (err instanceof BulkJobLostError) {
+                lostJobs.note({
+                  orgId,
+                  objectApiName: objectName,
+                  ...(err.jobId ? { jobId: err.jobId } : {}),
+                });
+              }
+              throw err;
+            }
+          },
+          // The objects an active duplicate rule of the target watches: a job
+          // carries no header that waives one, so the run writes them by REST.
+          duplicateRuleObjects: async (orgId) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            countExecutorRequest();
+            return objectsUnderDuplicateRules(conn);
+          },
           // No `anonymize`: what a run anonymizes comes with the run — the
           // fields selected on each node, the methods Review holds — and the
           // executor keys an anonymizer of its own to each run. The one wired
@@ -716,6 +892,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           // The executor's own count, read as a run goes: its progress says
           // the calls made so far, which its result counts once it ends.
           requestsSent: () => executorRequests,
+          lostBulkJobs: lostJobs,
         });
         log('Forge v2 module initialized.');
       },

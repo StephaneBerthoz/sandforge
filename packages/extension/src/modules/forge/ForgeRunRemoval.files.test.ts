@@ -320,6 +320,112 @@ async function clone(target: TargetOrg, documentUnread = false) {
   });
 }
 
+/** What a trigger that runs a query per record has the org answer for each record of the call. */
+const LIMIT_REFUSAL = {
+  statusCode: 'DELETE_FAILED',
+  message:
+    'SSC_TRG_Files: execution of BeforeDelete\n\ncaused by: System.LimitException: Too many SOQL queries: 101',
+};
+
+/**
+ * Have `target` refuse whole every delete of `object` holding more than
+ * `most` records, and keep the sizes of the deletes of that object.
+ */
+function limitAbove(target: TargetOrg, object: string, most: number): number[] {
+  const sizes: number[] = [];
+  const destroy = target.destroy.bind(target);
+  target.destroy = async (objectApiName, ids) => {
+    if (objectApiName !== object) return destroy(objectApiName, ids);
+    sizes.push(ids.length);
+    if (ids.length <= most) return destroy(objectApiName, ids);
+    return ids.map(() => ({ success: false, errors: [LIMIT_REFUSAL] }));
+  };
+  return sizes;
+}
+
+/** A removal's span around what `target` holds now: the records were written during it. */
+const AROUND_NOW = (): { runStartedAt: Date; runEndedAt: Date; includeChanged: false } => ({
+  runStartedAt: new Date(Date.now() - 60_000),
+  runEndedAt: new Date(Date.now() + 60_000),
+  includeChanged: false,
+});
+
+describe('a delete a limit of the target’s automation refused, when the records carry files', () => {
+  it('names the files of the records sent again smaller from what was read for the call refused, read once', async () => {
+    const target = new TargetOrg();
+    const cases = target
+      .writeRecords(
+        'Case',
+        [1, 2, 3, 4].map((n) => ({ Subject: `Case ${n}` })),
+      )
+      .map((answer) => answer.id);
+    // A file someone published on each case: the run did not create it.
+    for (const [n, caseId] of cases.entries()) {
+      target.writeFile('ContentVersion', {
+        Title: `Photo ${n + 1}`,
+        PathOnClient: 'photo.png',
+        FirstPublishLocationId: caseId,
+      });
+    }
+    const deletes = limitAbove(target, 'Case', 2);
+    const queries: string[] = [];
+    const query = target.query.bind(target);
+    target.query = async (soql) => {
+      queries.push(soql);
+      return query(soql);
+    };
+
+    const outcome = await removeRunRecords(
+      target,
+      [{ objectApiName: 'Case', ids: cases }],
+      AROUND_NOW(),
+    );
+
+    expect(deletes).toEqual([4, 2, 2]);
+    expect(outcome.objects[0]).toMatchObject({ deleted: 4, refused: 0 });
+    expect(outcome.objects[0].filesLeft).toEqual({
+      count: 4,
+      names: ['Photo 1', 'Photo 2', 'Photo 3', 'Photo 4'],
+    });
+    // The titles of the files, read for the call of four alone.
+    expect(
+      queries.filter((soql) => /Title FROM ContentDocument WHERE Id IN/.test(soql)),
+    ).toHaveLength(1);
+  });
+
+  it('sends again smaller the versions whose documents a limit refused, deleted through their documents', async () => {
+    const target = new TargetOrg();
+    const caseId = target.writeRecords('Case', [{ Subject: 'Broken' }])[0].id;
+    const versions = [1, 2].map(
+      (n) =>
+        target.writeFile('ContentVersion', {
+          Title: `Photo ${n}`,
+          PathOnClient: 'photo.png',
+          FirstPublishLocationId: caseId,
+        }).id,
+    );
+    const deletes = limitAbove(target, 'ContentDocument', 1);
+
+    const outcome = await removeRunRecords(
+      target,
+      [{ objectApiName: 'ContentVersion', ids: versions }],
+      AROUND_NOW(),
+    );
+
+    expect(deletes).toEqual([2, 1, 1]);
+    expect(outcome.objects[0]).toMatchObject({
+      objectApiName: 'ContentVersion',
+      deleted: 2,
+      refused: 0,
+    });
+    expect(outcome.objects[0].reasons).toEqual([
+      'SSC_TRG_Files (before delete) hit Too many SOQL queries on a call of 2: sent 1 at a time, 2 calls more.',
+    ]);
+    expect(target.all('ContentDocument')).toEqual([]);
+    expect(target.all('ContentVersion')).toEqual([]);
+  });
+});
+
 describe('removing the records a run created, when the run copied files', () => {
   it('removes the files it created with them: each document, which takes its versions and links', async () => {
     // The file's links are stamped after the run ended, as a real target

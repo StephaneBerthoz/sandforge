@@ -3,7 +3,7 @@
 SandForge hält seine Einstellungen an zwei Orten:
 
 - **Einstellungen öffnen** öffnet die Seite von SandForge: die Sprache seiner Panels und den optionalen KI-Assistenten, betrieben von Anthropic (Claude).
-- **SandForge-Einstellungen in VS Code öffnen** öffnet die Einstellungen des Editors, auf SandForge gefiltert: die Standard-Batchgrößen für Seed und Sync, die Aufzeichnung der Entscheidungen von Production Guard, mit jedem Lauf im Audit-Protokoll (Berichte, `sandforge.safety.auditLogging`), und wie Forge einen großen Graphen zeigt — bis 25 Objekte gezeichnet und darüber in einer Tabelle gelistet, oder immer auf eine Art (`sandforge.forge.graphView`).
+- **SandForge-Einstellungen in VS Code öffnen** öffnet die Einstellungen des Editors, auf SandForge gefiltert: die Standard-Batchgrößen für Seed und Sync, die Aufzeichnung der Entscheidungen von Production Guard, mit jedem Lauf im Audit-Protokoll (Berichte, `sandforge.safety.auditLogging`), und wie Forge einen großen Graphen zeigt — bis 25 Objekte gezeichnet und darüber in einer Tabelle gelistet, oder bis 150 Objekte auf eine Art, darüber und für einen Klon der ganzen Org in einer Tabelle (`sandforge.forge.graphView`).
 
 [Einstellungen öffnen](command:sandforge.openSettings)
 

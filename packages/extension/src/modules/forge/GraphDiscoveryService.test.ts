@@ -272,6 +272,47 @@ describe('GraphDiscoveryService', () => {
     });
   });
 
+  describe('a clone of the whole org', () => {
+    it('lists both orgs instead of walking from a root, whatever node cap is given', async () => {
+      // Every object the target can take and the source holds records of is
+      // a node: the cap of a walk from a root does not apply.
+      vi.mocked(deps.describeGlobal).mockResolvedValue(
+        ['Account', 'Contact', 'Opportunity'].map((name) => ({
+          name,
+          keyPrefix: null,
+          queryable: true,
+          createable: true,
+          updateable: true,
+          deletable: true,
+          layoutable: true,
+        })),
+      );
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectApiName) => ({
+        ...makeAccountDescribe(),
+        name: objectApiName,
+      }));
+      const config = createConfig({ inputMode: 'org', depth: 'all', recordId: undefined });
+
+      const graph = await service.discover(config, { maxNodes: 1 });
+
+      expect(graph.nodes.map((n) => n.objectApiName)).toEqual([
+        'Account',
+        'Contact',
+        'Opportunity',
+      ]);
+      expect(graph.nodes.every((n) => n.level >= 1)).toBe(true);
+      expect(graph.leftOut).toEqual([]);
+      expect(deps.describeGlobal).toHaveBeenCalledWith('src-org', undefined);
+      expect(deps.describeGlobal).toHaveBeenCalledWith('tgt-org', undefined);
+      expect(deps.queryCount).toHaveBeenCalledWith(
+        'src-org',
+        'SELECT COUNT() FROM Account',
+        undefined,
+        undefined,
+      );
+    });
+  });
+
   describe('depth traversal', () => {
     it('should traverse child relationships with depth=direct (1 level)', async () => {
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
@@ -410,6 +451,14 @@ describe('GraphDiscoveryService', () => {
 
       // Only root, no children to discover
       expect(graph.nodes).toHaveLength(1);
+    });
+
+    // A clone of the whole org lists every object of the org: it never walks
+    // from a root, and a walk given its depth says so rather than guess one.
+    it('refuses to walk from a root with the depth all, the whole org', async () => {
+      await expect(service.discover(createConfig({ depth: 'all' }))).rejects.toThrow(
+        'ALL is discovered without a root (WholeOrgDiscovery)',
+      );
     });
   });
 

@@ -15,8 +15,16 @@ import { useForgeStore } from '../../stores/useForgeStore';
  */
 export interface ForgeRunGateState {
   stop: ForgeRunGateStop | null;
-  /** Keep why a run stopped at its gate. */
+  /**
+   * Whether the notice has been brought into view and handed the keyboard
+   * for this stop. Once per stop: the page drawn again with the same stop —
+   * left and come back to — does not scroll to it again.
+   */
+  revealed: boolean;
+  /** Keep why a run stopped at its gate, yet to be brought into view. */
   setStop: (stop: ForgeRunGateStop) => void;
+  /** Say the notice of this stop has been brought into view. */
+  markRevealed: () => void;
   /** Forget it: a run starts, or the notice is dismissed. */
   clear: () => void;
 }
@@ -24,11 +32,15 @@ export interface ForgeRunGateState {
 /** Zustand store for why the last Forge run stopped at its gate. */
 export const useForgeRunGateStore = create<ForgeRunGateState>((set) => ({
   stop: null,
+  revealed: false,
   setStop(stop) {
-    set({ stop });
+    set({ stop, revealed: false });
+  },
+  markRevealed() {
+    set({ revealed: true });
   },
   clear() {
-    set({ stop: null });
+    set({ stop: null, revealed: false });
   },
 }));
 

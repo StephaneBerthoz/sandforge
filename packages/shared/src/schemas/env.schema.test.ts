@@ -412,6 +412,15 @@ describe('a forge resource', () => {
     ]);
   });
 
+  // A clone of the whole org is offered in the Forge panel only: a file that
+  // asks for one is refused at its parse, not run as a walk from its record.
+  it('refuses the depth all, a clone of the whole org', () => {
+    const refusals = refusalsOf(withForge({ tables: [{ object: 'Account' }], depth: 'all' }));
+
+    expect(refusals).toHaveLength(1);
+    expect(refusals[0]).toMatch(/^resources\.bug-1234\.depth: /);
+  });
+
   it('holds each condition to the rule the clone holds its --where to', () => {
     const refusedWhere = (where: string) =>
       refusalsOf(withForge({ tables: [{ object: 'Case', where }] }));

@@ -93,6 +93,38 @@ describe('ForgeRemovalPlanStore', () => {
     expect((await store.get('forge-1'))?.sweep).toEqual(sweep);
   });
 
+  it('reads back the size each object went through at once a limit cut a removal, for the next one to start at', async () => {
+    const store = new ForgeRemovalPlanStore(memoryDisk().deps);
+
+    await store.put(plan('forge-1', 1, { deleteSizes: { Provenance__c: 58, Contact: 200 } }));
+
+    expect((await store.get('forge-1'))?.deleteSizes).toEqual({ Provenance__c: 58, Contact: 200 });
+  });
+
+  it('drops sizes that are not a whole number of records from 1 to 200, and keeps the plan', async () => {
+    const disk = memoryDisk();
+    const store = new ForgeRemovalPlanStore(disk.deps);
+    const sized = (deleteSizes: unknown) => ({ ...plan('forge-1'), deleteSizes });
+
+    for (const deleteSizes of [{ A__c: 0 }, { A__c: 201 }, { A__c: 2.5 }, { 'A; DELETE': 5 }]) {
+      disk.files.set(FILE, JSON.stringify({ version: 1, plans: [sized(deleteSizes)] }));
+      const kept = await store.get('forge-1');
+      expect(kept?.objects).toEqual(plan('forge-1').objects);
+      expect(kept?.deleteSizes).toBeUndefined();
+    }
+  });
+
+  it('reads a plan kept before plans kept sizes as it was', async () => {
+    const disk = memoryDisk();
+    const store = new ForgeRemovalPlanStore(disk.deps);
+    disk.files.set(FILE, JSON.stringify({ version: 1, plans: [plan('forge-old')] }));
+
+    const kept = await store.get('forge-old');
+
+    expect(kept).toEqual(plan('forge-old'));
+    expect(kept).not.toHaveProperty('deleteSizes');
+  });
+
   it('writes through a file beside it renamed over it, so a stopped write leaves the last whole file', async () => {
     const disk = memoryDisk();
     const store = new ForgeRemovalPlanStore(disk.deps);

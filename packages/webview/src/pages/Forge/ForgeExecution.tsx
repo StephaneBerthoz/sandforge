@@ -33,12 +33,13 @@ import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { slideUp, staggerContainer } from '../../motion/presets';
 import { cn } from '../../theme';
 import { formatElapsed } from '../../utils/formatters';
-import { useForgeObjectsView } from '../../stores/useForgeViewStore';
+import { forgeGraphIsLarge, useForgeObjectsView } from '../../stores/useForgeViewStore';
 import { estimatedApiCallsOf } from './forgeApiCalls';
 import { translateError } from '@sandforge/shared';
 import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 import { ForgeExecutionTable } from './ForgeExecutionTable';
 import { ForgeViewToggle } from './ForgeViewToggle';
+import { clonesWholeOrg } from './forgeRunConfig';
 
 /**
  * What the top bar says: that the run is forging, or held paused; that it is
@@ -94,12 +95,18 @@ export const ForgeExecution: React.FC = () => {
   const reviewSkipped = useForgeStore((s) => s.reviewSkipped);
   /** Whether the run is a simulation, which writes nothing. */
   const simulation = useForgeStore((s) => s.simulation);
+  /** A clone of the whole source org, whose graph is large however many objects it holds. */
+  const wholeOrg = useForgeStore((s) => clonesWholeOrg(s.config));
+  const objectCount = graph?.nodes.length ?? 0;
   /**
    * The run's objects as a graph or as a table: each progress event redraws
    * the whole graph, which past a few dozen objects takes longer than the time
-   * between two events (see FORGE_GRAPH_MAX_OBJECTS).
+   * between two events (see FORGE_GRAPH_MAX_OBJECTS). A large graph, a clone
+   * of the whole org's among them, is listed unless the graph is picked on
+   * one, with a word of how slow it is to draw (FORGE_GRAPH_SLOW_OBJECTS).
    */
-  const view = useForgeObjectsView(graph?.nodes.length ?? 0);
+  const view = useForgeObjectsView(objectCount, wholeOrg);
+  const largeGraph = forgeGraphIsLarge(objectCount, wholeOrg);
   /** Whether an error ended the run: nothing is left to pause or abort. */
   const stopped = Boolean(runError);
   /**
@@ -433,7 +440,7 @@ export const ForgeExecution: React.FC = () => {
       {/* ---- Middle: SplitView (graph or table + logs) ---- */}
       {graph && (
         <div className="flex items-center gap-2">
-          <ForgeViewToggle view={view} />
+          <ForgeViewToggle view={view} large={largeGraph} objectCount={objectCount} />
         </div>
       )}
       {/* A height of its own, as the discovery graph has: under a minimum

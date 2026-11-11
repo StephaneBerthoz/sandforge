@@ -10,26 +10,31 @@
  * Review and Execute then describe the included nodes of both orgs. Held to a
  * hundred entries, the cache dropped the root and its first wave, the likely
  * included nodes, before discovery was over, and every two-org run past fifty
- * included objects described them again. A thousand entries hold a cycle of
- * the largest discovery; the byte cap, measured by a structural estimator that
- * walks each field descriptor (see `SchemaCache.estimateSize`), is what bounds
- * the memory.
+ * included objects described them again. A clone of the whole org describes
+ * every object of the source that holds records, up to nineteen hundred and
+ * fifty, then Review and Execute describe them in both orgs: two thousand five
+ * hundred entries hold most of such a cycle. The byte cap, measured by a
+ * structural estimator that walks each field descriptor (see
+ * `SchemaCache.estimateSize`), is what bounds the memory: past it the oldest
+ * describes go, and are only read again.
  *
- * Entries go once their five minutes are up (`releaseExpired`): read again
+ * Entries go once their ten minutes are up (`releaseExpired`): read again
  * only on the next run, they used to stay on the extension host's heap for the
- * life of the window. A Review left open past them describes again.
+ * life of the window. Ten rather than five, for the discovery of a whole org
+ * alone can take minutes before its Review starts. A Review left open past
+ * them describes again.
  */
 
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 
 /** Most describes the cache holds, across both orgs of a run. */
-export const FORGE_DESCRIBE_CACHE_ENTRIES = 1_000;
+export const FORGE_DESCRIBE_CACHE_ENTRIES = 2_500;
 
 /** Most bytes, by the cache's estimate, the describes take. */
 export const FORGE_DESCRIBE_CACHE_BYTES = 200 * 1024 * 1024;
 
 /** How long a describe is kept: a discovery, its Review and its run. */
-export const FORGE_DESCRIBE_TTL_MS = 5 * 60_000;
+export const FORGE_DESCRIBE_TTL_MS = 10 * 60_000;
 
 /** The cache a Forge composition keeps its describes in, keyed `${orgId}::${objectApiName}`. */
 export function forgeDescribeCache<T>(): SchemaCache<T> {

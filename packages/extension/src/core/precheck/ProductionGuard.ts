@@ -304,7 +304,9 @@ export interface WriteConfirmation {
    * The API requests the run takes, when it would leave the org under a
    * tenth of its daily requests, every part together, and the parts beside
    * the run's own when it has any (`RunRequestParts`: the checkpoint first,
-   * the read-backs, the deliverability read, the fit). Absent otherwise.
+   * the read-backs, the deliverability read, the fit). Absent otherwise —
+   * save for a clone of the whole org (`wholeOrg`), which says them whenever
+   * the target told them, near or not.
    */
   apiRequests?: {
     estimate: number;
@@ -366,6 +368,71 @@ export interface WriteConfirmation {
      */
     farAbove?: true;
   };
+  /**
+   * Of a Forge clone of the whole org (ALL), what else it takes besides the
+   * rows and their data storage above, as its question says it whatever the
+   * volume: it is always asked. The target's own API requests are in
+   * `apiRequests`. Absent for any other run.
+   */
+  wholeOrg?: WholeOrgConfirmation;
+}
+
+/** What a clone of the whole org puts in its question: see {@link WriteConfirmation.wholeOrg}. */
+interface WholeOrgConfirmation {
+  /** The org it copies, as the user knows it. */
+  source: string;
+  /** The objects discovery left out (`ForgeGraph.leftOut`), which Review names. */
+  leftOut: number;
+  /**
+   * What the run was set to that narrows it, carried over from the template
+   * or the run it started from or set on Review: the objects read through a
+   * filter, those left out by name, those whose rows a decision on Gaps holds
+   * back (`skippedRows`), and those with fields left out (`fieldExclusions`),
+   * each by name. Absent when nothing does.
+   */
+  carried?: { filters: string[]; excluded: string[]; heldBack: string[]; fieldsLeftOut: string[] };
+  /**
+   * Set when its writes would leave the target with less than a tenth of its
+   * daily API requests (`apiRequests`), as `apiBudgetCheckOf` says it.
+   */
+  targetApiNear?: true;
+  /** How long its writes take, about, in seconds. */
+  durationSeconds: number;
+  /** The objects it writes by REST rather than in Bulk API jobs, by name. */
+  restObjects: string[];
+  /**
+   * The files it copies: what they take, how many, and how many are past the
+   * largest file copied; with what the target has left of its file storage,
+   * absent when the target did not say. Absent when it copies none, the
+   * source holding none, or the source would not sum them (`filesUnmeasured`).
+   */
+  fileStorage?: {
+    estimateMB: number;
+    files: number;
+    overCeiling: number;
+    remainingMB?: number;
+    maxMB?: number;
+    /** Set when they take more than 80 % of what the target has left. */
+    near?: true;
+  };
+  /** Set when it copies files the source would neither sum nor list. */
+  filesUnmeasured?: true;
+  /**
+   * The API requests its reads take of the source, against what it has left
+   * today: `near` set when they would leave it with less than a tenth.
+   */
+  sourceApi?: { estimate: number; remaining: number; max: number; near?: true };
+  /** Why what the source has left of its API requests could not be read, when it could not. */
+  sourceApiUnread?: string;
+  /**
+   * The Bulk API batches its jobs take of the target's day, against what it
+   * has left: `remaining` and `max` absent when the target did not say,
+   * `near` set when they would leave it with less than a tenth. Absent when
+   * it sends no job.
+   */
+  bulkBatches?: { estimate: number; remaining?: number; max?: number; near?: true };
+  /** The phone numbers it writes empty past the 10 000 its fiction holds, at most. Absent when none. */
+  contactPointsBlanked?: number;
 }
 
 /**

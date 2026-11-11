@@ -121,9 +121,18 @@ describe('seedStorageGate', () => {
     expect(gate.api).toMatchObject({ verdict: 'fits', remaining: 14_000, max: 15_000 });
   });
 
-  it('counts a REST call per 200 records, and five calls per Bulk API job past them', () => {
-    expect(seedRequestsEstimate(objects(['Account', 150], ['Contact', 600]))).toBe(1 + 5);
-    expect(seedRequestsEstimate(objects(['Contact', 25_000]))).toBe(15);
+  it('counts a REST call per 200 records, and past them the calls of each Bulk API job, its reads of results included', () => {
+    // A job of 600: opened, sent, closed, its state read once closed and
+    // every five seconds of its 25 (24 of wait, 750 rows a second), its
+    // results read three ways. Counted five, its reads of results and of its
+    // state past the first were left out.
+    expect(seedRequestsEstimate(objects(['Account', 150], ['Contact', 600]))).toBe(
+      1 + (3 + (1 + 5) + 3),
+    );
+    // Jobs of 10 000, 10 000 and 5 000: 38, 38 and 31 seconds.
+    expect(seedRequestsEstimate(objects(['Contact', 25_000]))).toBe(
+      2 * (3 + (1 + 8) + 3) + (3 + (1 + 7) + 3),
+    );
   });
 
   it('lets a seed through, saying so, when the org will not say what it has left', async () => {

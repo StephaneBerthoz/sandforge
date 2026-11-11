@@ -67,6 +67,18 @@ import type {
 } from '../../core/precheck/ProductionGuard.js';
 import type { ForgeWriteBoundary } from './ForgeExecutor.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import {
+  bulkJobRequests,
+  bulkJobSeconds,
+  bulkJobStateReads,
+  FORGE_BULK_POLL_SCHEDULE,
+  type BulkPollSchedule,
+} from '../../core/engine/bulkJobCost.js';
+import {
+  DUPLICATE_RULE_FALLBACK_OBJECTS,
+  FORGE_BULK_MIN_ROWS,
+  FORGE_REST_ONLY_OBJECTS,
+} from './ForgeBatchStrategy.js';
 import { ordersTheWrite } from './stages/ScopeResolver.js';
 import { objectsTheRunWrites } from './TargetAutomationReader.js';
 
@@ -216,13 +228,18 @@ export interface WritePlanLeftOut {
  * The data storage the rows a count says a run will write of `objectApiName`
  * take, by the documented sizes: the person accounts apart — 4 KB each, being
  * an account and a contact, and none for their contacts, which the platform
- * writes with them. A count says nothing of an email's size: an object read
- * page by page holds no email, which a run with emails reads whole.
+ * writes with them. A count says nothing of an email's size: what the rows
+ * were measured to take (`bytes`) stands for it — a clone of the whole org
+ * sums its emails' text page by page before it writes one — and an object
+ * counted without it takes the documented size of its records.
  */
 export function countedStorageBytes(
   objectApiName: string,
-  counted: { rows: number; personAccounts?: number },
+  counted: { rows: number; personAccounts?: number; bytes?: number },
 ): number {
+  if (counted.bytes !== undefined && Number.isFinite(counted.bytes)) {
+    return Math.max(0, counted.bytes);
+  }
   const persons = Math.min(counted.personAccounts ?? 0, counted.rows);
   const others = counted.rows - persons;
   if (objectApiName === ACCOUNT) return others * RECORD_BYTES + persons * PERSON_ACCOUNT_BYTES;
@@ -399,6 +416,17 @@ export interface DataStorage {
    * the answer did not list them.
    */
   dailyApiRequests?: ApiBudget;
+  /**
+   * The daily Bulk API batches it has, from the same answer — what a job of
+   * Bulk API 2.0 takes a batch of per ten thousand records, shared with Bulk
+   * API 1.0: absent when the answer did not list them.
+   */
+  dailyBulkApiBatches?: ApiBudget;
+  /**
+   * Its file storage, in MB, from the same answer — what the files a clone of
+   * the whole org copies take: absent when the answer did not list it.
+   */
+  fileStorage?: { maxMB: number; remainingMB: number };
 }
 
 /** What an org has of its daily API requests, as its `/limits` say. */
@@ -412,11 +440,20 @@ export interface LimitsTransport {
   request(request: { method: 'GET'; url: string }): Promise<unknown>;
 }
 
-/** What `/limits` says of an org's data storage, and of its daily API requests when it lists them. */
+/** A limit as `/limits` gives each: its most, and what is left of it. */
+const limitSchema = z.object({ Max: z.number(), Remaining: z.number() }).loose();
+
+/**
+ * What `/limits` says of an org's data storage, and, when it lists them, of
+ * its daily API requests, its daily Bulk API batches and its file storage:
+ * one answer the write gate reads them all from.
+ */
 const dataStorageSchema = z
   .object({
-    DataStorageMB: z.object({ Max: z.number(), Remaining: z.number() }).loose(),
-    DailyApiRequests: z.object({ Max: z.number(), Remaining: z.number() }).loose().optional(),
+    DataStorageMB: limitSchema,
+    DailyApiRequests: limitSchema.optional(),
+    DailyBulkApiBatches: limitSchema.optional(),
+    FileStorageMB: limitSchema.optional(),
   })
   .loose();
 
@@ -465,6 +502,22 @@ export async function readDataStorage(transport: LimitsTransport): Promise<DataS
           },
         }
       : {}),
+    ...(limits.DailyBulkApiBatches
+      ? {
+          dailyBulkApiBatches: {
+            max: limits.DailyBulkApiBatches.Max,
+            remaining: limits.DailyBulkApiBatches.Remaining,
+          },
+        }
+      : {}),
+    ...(limits.FileStorageMB
+      ? {
+          fileStorage: {
+            maxMB: limits.FileStorageMB.Max,
+            remainingMB: limits.FileStorageMB.Remaining,
+          },
+        }
+      : {}),
   };
 }
 
@@ -484,8 +537,11 @@ export async function readApiBudget(transport: LimitsTransport): Promise<ApiBudg
 const ROWS_PER_REST_CALL = 200;
 /** Records a Bulk API job takes before another is opened. */
 const ROWS_PER_BULK_JOB = 10_000;
-/** The calls a Bulk API job costs: open, upload, close, and polling it. */
-const CALLS_PER_BULK_JOB = 5;
+/**
+ * Seconds a REST write takes a record, about: the figure discovery gives a
+ * graph's duration (`GraphDiscoveryService`).
+ */
+const REST_SECONDS_PER_ROW = 0.01;
 /** Records a query page reads. */
 const ROWS_PER_READ = 2_000;
 /**
@@ -494,25 +550,128 @@ const ROWS_PER_READ = 2_000;
  */
 export const API_BUDGET_NEAR_SHARE = 0.1;
 
+/** How a writer sends its Bulk API jobs, as far as what they cost goes. */
+interface BulkWriterModel {
+  /** How it waits between two reads of a job's state: five seconds each unless told. */
+  schedule?: BulkPollSchedule;
+  /** The rows under which what is left of an object goes by REST rather than in a job of its own. */
+  restUnder?: number;
+}
+
+/**
+ * How Forge sends its Bulk API jobs: their state read after waits that grow
+ * (`FORGE_BULK_POLL_SCHEDULE`), and what is left of an object past its jobs
+ * of ten thousand sent by REST under `FORGE_BULK_MIN_ROWS`, as its writer
+ * chooses the transport call by call. Seed and Sync send every row in jobs,
+ * read every five seconds.
+ */
+export const FORGE_BULK_WRITER: BulkWriterModel = {
+  schedule: FORGE_BULK_POLL_SCHEDULE,
+  restUnder: FORGE_BULK_MIN_ROWS,
+};
+
+/**
+ * The Bulk API jobs `rows` records of one object go in, by their size: jobs
+ * of {@link ROWS_PER_BULK_JOB}, then what is left, as the writers cut them —
+ * unless what is left is under `restUnder`, which then goes by REST (`rest`).
+ */
+function bulkJobsOf(rows: number, restUnder = 0): { jobs: number[]; rest: number } {
+  const jobs: number[] = [];
+  for (let left = rows; left > 0; left -= ROWS_PER_BULK_JOB) {
+    const job = Math.min(left, ROWS_PER_BULK_JOB);
+    if (job < restUnder) return { jobs, rest: job };
+    jobs.push(job);
+  }
+  return { jobs, rest: 0 };
+}
+
 /**
  * The calls a run makes of the org it writes to, roughly: per object, a REST
- * call per {@link ROWS_PER_REST_CALL} records, or {@link CALLS_PER_BULK_JOB} per
- * Bulk API job of {@link ROWS_PER_BULK_JOB}, and a call per page of
+ * call per {@link ROWS_PER_REST_CALL} records, or per Bulk API job of
+ * {@link ROWS_PER_BULK_JOB} the calls it sends (`bulkJobRequests`) — opened,
+ * sent, closed, its state read as often as `schedule` reads it over its
+ * time, its results read three ways — and a call per page of
  * {@link ROWS_PER_READ} records it reads of that org.
+ *
+ * A job was counted five calls whatever it held: its three reads of results
+ * were left out, and so was every read of its state past the first, a job of
+ * ten thousand rows read nine times at Seed's five seconds.
+ *
+ * @param writer - How the writer sends its jobs: read every five seconds,
+ *   every row in a job, as Seed and Sync send them, unless told; Forge
+ *   passes {@link FORGE_BULK_WRITER}.
  */
 export function runRequestsEstimate(
   objects: ReadonlyArray<{ rows: number; bulk?: boolean; readRows?: number }>,
+  writer: BulkWriterModel = {},
 ): number {
+  const restCalls = (rows: number): number => Math.ceil(rows / ROWS_PER_REST_CALL);
   return objects.reduce((sum, { rows, bulk, readRows }) => {
-    const writes =
-      rows <= 0
-        ? 0
-        : bulk
-          ? CALLS_PER_BULK_JOB * Math.ceil(rows / ROWS_PER_BULK_JOB)
-          : Math.ceil(rows / ROWS_PER_REST_CALL);
+    let writes = 0;
+    if (rows > 0 && bulk) {
+      const { jobs, rest } = bulkJobsOf(rows, writer.restUnder);
+      writes =
+        jobs.reduce(
+          (calls, job) =>
+            calls + bulkJobRequests({ stateReads: bulkJobStateReads(job, writer.schedule) }),
+          0,
+        ) + restCalls(rest);
+    } else if (rows > 0) {
+      writes = restCalls(rows);
+    }
     const reads = readRows && readRows > 0 ? Math.ceil(readRows / ROWS_PER_READ) : 0;
     return sum + writes + reads;
   }, 0);
+}
+
+/**
+ * The seconds a run's writes take, about: a REST write
+ * {@link REST_SECONDS_PER_ROW} a record, a Bulk API job its wait in the org
+ * and then its records (`bulkJobSeconds`), one job after another — a run
+ * sends one at a time.
+ *
+ * @param writer - How the writer cuts an object into jobs: every row in a
+ *   job unless told; Forge passes {@link FORGE_BULK_WRITER}, whose small
+ *   remainder goes by REST.
+ */
+export function runDurationSeconds(
+  objects: ReadonlyArray<{ rows: number; bulk: boolean }>,
+  writer: BulkWriterModel = {},
+): number {
+  return objects.reduce((sum, { rows, bulk }) => {
+    if (rows <= 0) return sum;
+    if (!bulk) return sum + rows * REST_SECONDS_PER_ROW;
+    const { jobs, rest } = bulkJobsOf(rows, writer.restUnder);
+    return (
+      sum +
+      jobs.reduce((seconds, job) => seconds + bulkJobSeconds(job), 0) +
+      rest * REST_SECONDS_PER_ROW
+    );
+  }, 0);
+}
+
+/**
+ * Whether a run that writes through the Bulk API is likely to write
+ * `rows` records of `objectApiName` by REST all the same: under
+ * {@link FORGE_BULK_MIN_ROWS}, an object always written by REST
+ * ({@link FORGE_REST_ONLY_OBJECTS}), or one a duplicate rule watches, which a
+ * job cannot waive. Which objects a rule watches is the target's to say
+ * (`restOnly`); until it has, the objects of the standard rules every org
+ * starts with ({@link DUPLICATE_RULE_FALLBACK_OBJECTS}).
+ *
+ * @param restOnly - The objects the run writes by REST beside those always
+ *   written so, as the target's rules and the run's options make them.
+ */
+export function likelyRest(
+  objectApiName: string,
+  rows: number,
+  restOnly?: ReadonlySet<string>,
+): boolean {
+  return (
+    rows < FORGE_BULK_MIN_ROWS ||
+    FORGE_REST_ONLY_OBJECTS.has(objectApiName) ||
+    (restOnly ?? DUPLICATE_RULE_FALLBACK_OBJECTS).has(objectApiName)
+  );
 }
 
 /**
@@ -655,6 +814,168 @@ export function confirmationApiOf(
         },
       }
     : {};
+}
+
+/**
+ * Records of a Bulk API 2.0 job one of the day's Bulk API batches counts: the
+ * platform cuts what a job is sent into batches of this many, each taken from
+ * `DailyBulkApiBatches`, which Bulk API 1.0 shares.
+ */
+const ROWS_PER_BULK_BATCH = 10_000;
+
+/** Files whose links to their records one query reads, as a clone of the whole org asks for them. */
+const FILES_PER_LINK_QUERY = 200;
+
+/**
+ * What a clone of the whole org takes of both orgs and of the time, as its
+ * gate reckons it from what it is about to write: see {@link wholeOrgMeasuresOf}.
+ */
+export interface WholeOrgMeasures {
+  /** Per object, its rows and whether a Bulk API job is likely to write them, the most first. */
+  objects: Array<{ objectApiName: string; rows: number; bulk: boolean }>;
+  /** The API requests its writes take of the target (`runRequestsEstimate`, Forge's writer). */
+  targetRequests: number;
+  /** The API requests its reads take of the source, those still to come. */
+  sourceRequests: number;
+  /** The Bulk API batches its jobs take of the target's day. */
+  bulkBatches: number;
+  /** The seconds its writes take, about (`runDurationSeconds`). */
+  durationSeconds: number;
+  /** The objects it is likely to write by REST all the same (`likelyRest`), by name. */
+  restObjects: string[];
+}
+
+/**
+ * What a clone of the whole org is about to take, from the rows its gate
+ * counted:
+ * - of the target, the requests its writes send — a Bulk API job from
+ *   {@link FORGE_BULK_MIN_ROWS} rows of an object, REST below, or for an
+ *   object a job cannot write ({@link likelyRest}), and a call per file it
+ *   copies — and the day's Bulk API batches its jobs take, one per
+ *   {@link ROWS_PER_BULK_BATCH} records;
+ * - of the source, the requests its reads send still: a page per
+ *   {@link ROWS_PER_READ} rows of each object, and of the files it copies, a
+ *   read of each one's content and a query of their links per
+ *   {@link FILES_PER_LINK_QUERY}. The counts, the describes and the measure
+ *   of the emails' text were taken before the gate: what the source says it
+ *   has left, read at the gate, has them out already;
+ * - the time its writes take, one job after another.
+ *
+ * The second pass, which sets the lookups between records written in the
+ * same window, is not counted: no count before the run can say how many of
+ * them there are. The estimate errs short by that much.
+ *
+ * @param files - The files the run may copy, as the source summed them
+ *   (`ForgeWriteBoundary.files`); absent when it copies none, or they were
+ *   not measured.
+ * @param restOnly - The objects written by REST beside those always written
+ *   so; the standard duplicate rules' objects until the target has said.
+ */
+export function wholeOrgMeasuresOf(
+  plan: Pick<WritePlan, 'objects'>,
+  files?: { count: number },
+  restOnly?: ReadonlySet<string>,
+): WholeOrgMeasures {
+  const objects = plan.objects.map(({ objectApiName, rows }) => ({
+    objectApiName,
+    rows,
+    bulk: !likelyRest(objectApiName, rows, restOnly),
+  }));
+  const fileCount = files && files.count > 0 ? files.count : 0;
+  return {
+    objects,
+    targetRequests: runRequestsEstimate(objects, FORGE_BULK_WRITER) + fileCount,
+    sourceRequests:
+      objects.reduce((sum, { rows }) => sum + Math.ceil(Math.max(0, rows) / ROWS_PER_READ), 0) +
+      fileCount +
+      Math.ceil(fileCount / FILES_PER_LINK_QUERY),
+    bulkBatches: objects.reduce(
+      (sum, { rows, bulk }) =>
+        bulk
+          ? sum +
+            bulkJobsOf(rows, FORGE_BULK_WRITER.restUnder).jobs.reduce(
+              (batches, job) => batches + Math.ceil(job / ROWS_PER_BULK_BATCH),
+              0,
+            )
+          : sum,
+      0,
+    ),
+    durationSeconds: runDurationSeconds(objects, FORGE_BULK_WRITER),
+    restObjects: objects
+      .filter(({ rows, bulk }) => rows > 0 && !bulk)
+      .map(({ objectApiName }) => objectApiName),
+  };
+}
+
+/**
+ * Why the target's daily Bulk API batches are not known when its `/limits`
+ * list none, as {@link API_REQUESTS_NOT_TOLD} is for its requests.
+ */
+export const BULK_BATCHES_NOT_TOLD = 'the limits the org answered list no DailyBulkApiBatches';
+
+/**
+ * Why a clone of the whole org cannot be written for the Bulk API batches
+ * its jobs take of the target's day, or nothing when it can.
+ */
+export function bulkBatchesRefusal(check: ApiBudgetCheck, target: string): string | undefined {
+  if (check.verdict !== 'exceeds') return undefined;
+  return (
+    `The run writes through Bulk API jobs that take about ${check.estimate} of the daily Bulk ` +
+    `API batches, and ${target} has ${check.remaining} of its ${check.max} left: its jobs would ` +
+    'be refused part way through. Run it once the org has batches to spare — the limit is ' +
+    'counted over the last 24 hours, and Bulk API 1.0 shares it — or leave objects out. ' +
+    'Nothing was written.'
+  );
+}
+
+/**
+ * Why a clone of the whole org cannot be run for the API requests its reads
+ * take of the source, or nothing when it can: the source is often a
+ * production org, whose integrations draw on the same daily requests.
+ */
+export function sourceApiBudgetRefusal(check: ApiBudgetCheck, source: string): string | undefined {
+  if (check.verdict !== 'exceeds') return undefined;
+  return (
+    `The run reads the source records in about ${check.estimate} API requests, and ${source} ` +
+    `has ${check.remaining} of its ${check.max} daily requests left: the reads would stop part ` +
+    "way through, and the org's own integrations with them. Run it once the org has requests " +
+    'to spare — the limit is counted over the last 24 hours — or leave objects out. Nothing ' +
+    'was written.'
+  );
+}
+
+/**
+ * Why the files a clone of the whole org copies cannot be written for the
+ * file storage they take, or nothing when they can.
+ */
+export function fileStorageRefusal(check: StorageCheck, target: string): string | undefined {
+  if (check.verdict !== 'exceeds') return undefined;
+  return (
+    `The files to copy take about ${formatMB(check.estimateMB)} MB of file storage, and ` +
+    `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB: leave out the objects ` +
+    `whose files take it, turn the copy of files off on Review, or free file storage in ` +
+    `${target}. Nothing was written.`
+  );
+}
+
+/**
+ * Why a clone of the whole org cannot be run for the objects it reads whole
+ * — the price catalog, an object mapped by name — past the most rows of one
+ * object the extension lets a run hold at once, each named with its rows.
+ * Read so, the run would write part of them; refused, nobody declined
+ * anything.
+ */
+export function readBoundRefusal(
+  over: ReadonlyArray<{ objectApiName: string; rows: number }>,
+  bound: number,
+): string {
+  const named = over.map(({ objectApiName, rows }) => `${objectApiName} (${rows} rows)`).join(', ');
+  return (
+    `A clone of the whole org reads a few objects whole, and ${named} ` +
+    `${over.length === 1 ? 'holds' : 'hold'} more than the ${bound} rows of one object the ` +
+    'sandforge.forge.maxRecordsPerObject setting lets a run hold at once: raise the setting ' +
+    'or leave the object out on Review. Nothing was written.'
+  );
 }
 
 /** What the rows take against what the target has left, or why that could not be told. */
@@ -1408,22 +1729,33 @@ export type ForgeRunGateErrorCode =
  */
 export class ForgeRunGateError extends Error {
   readonly code: ForgeRunGateErrorCode;
-  /** For a refusal for storage: what the rows take, and what the target had left, in MB. */
-  readonly storage?: { estimateMB: number; remainingMB: number };
+  /**
+   * For a refusal for storage: what the rows or the files take, and what the
+   * target had left, in MB, and which storage (`kind`, the data storage when
+   * absent).
+   */
+  readonly storage?: NonNullable<ForgeRunGateStop['storage']>;
   /** For a run cancelled at its read: the most rows of one object it was set to read. */
   readonly ceiling?: number;
+  /** For a refusal for an API budget: which allowance of which org, what the run takes and what is left. */
+  readonly api?: NonNullable<ForgeRunGateStop['api']>;
+  /** For a clone of the whole org refused for what it reads whole: the bound, and the objects past it. */
+  readonly readBound?: NonNullable<ForgeRunGateStop['readBound']>;
 
   constructor(
     code: ForgeRunGateErrorCode,
     message: string,
-    storage?: { estimateMB: number; remainingMB: number },
+    storage?: NonNullable<ForgeRunGateStop['storage']>,
     ceiling?: number,
+    detail?: Pick<ForgeRunGateStop, 'api' | 'readBound'>,
   ) {
     super(message);
     this.name = 'ForgeRunGateError';
     this.code = code;
     if (storage) this.storage = storage;
     if (ceiling !== undefined) this.ceiling = ceiling;
+    if (detail?.api) this.api = detail.api;
+    if (detail?.readBound) this.readBound = detail.readBound;
   }
 
   /** The stop as the page is told it; none for a code of the command line's own. */
@@ -1439,6 +1771,8 @@ export class ForgeRunGateError extends Error {
       code: this.code,
       ...(this.storage ? { storage: this.storage } : {}),
       ...(this.ceiling !== undefined ? { ceiling: this.ceiling } : {}),
+      ...(this.api ? { api: this.api } : {}),
+      ...(this.readBound ? { readBound: this.readBound } : {}),
     };
   }
 }

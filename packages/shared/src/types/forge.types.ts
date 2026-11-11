@@ -2,11 +2,28 @@ import type { MutedAutomation } from '../utils/automation-mute.js';
 import type { AnonymizationMethod, CurrencyReplaced, RecordTypeGiven } from './common.types.js';
 import type { RunCheckpointEstimate, RunCheckpointInfo } from './checkpoint.types.js';
 
-/** Mode used to specify the input for a Forge operation */
-export type ForgeInputMode = 'record' | 'soql' | 'template' | 'ai';
+/**
+ * Mode used to specify the input for a Forge operation.
+ *
+ * `org` starts from nothing at all: a clone of the whole source org, every
+ * object the target can take and every record of each. It goes with the
+ * `all` depth and with no other, and takes none of the other modes' inputs.
+ */
+export type ForgeInputMode = 'record' | 'soql' | 'template' | 'ai' | 'org';
 
-/** Depth of relationship traversal during graph construction */
-export type ForgeDepth = 'direct' | 'full' | 'custom';
+/**
+ * How far discovery walks the relationships from the run's root: the depths
+ * a run from a record, a query, a template or an AI draft can take, and the
+ * only ones `sandforge.yaml` and the command line accept.
+ */
+export type ForgeTraversalDepth = 'direct' | 'full' | 'custom';
+
+/**
+ * The depth of a Forge run: a walk from its root, or `all`, which walks
+ * nothing and takes every object of the source org the target can take.
+ * `all` goes with the `org` input mode and with no other.
+ */
+export type ForgeDepth = ForgeTraversalDepth | 'all';
 
 /**
  * Status of a single node within the Forge dependency graph.
@@ -34,7 +51,12 @@ export type ForgeGraphView = 'auto' | 'graph' | 'table';
  * and data-handling options such as PII anonymization and batch sizing.
  */
 export interface ForgeConfig {
-  /** How input records are specified */
+  /**
+   * How input records are specified. `org` — the whole source org — goes with
+   * the `all` depth and with no other, and leaves `recordId`, `soqlQuery`,
+   * `templateId`, `aiPrompt` and `customDepth` unset (`wholeOrgConfigIssue`);
+   * `maxNodes` has nothing to cap there and is ignored.
+   */
   inputMode: ForgeInputMode;
   /** Salesforce record ID when inputMode is 'record' */
   recordId?: string;
@@ -44,7 +66,10 @@ export interface ForgeConfig {
   templateId?: string;
   /** Natural-language AI prompt when inputMode is 'ai' */
   aiPrompt?: string;
-  /** How deep to traverse relationships */
+  /**
+   * How deep to traverse relationships; `all` with the `org` input mode, and
+   * only with it, for every object of the source org.
+   */
   depth: ForgeDepth;
   /** Maximum traversal levels when depth is 'custom' */
   customDepth?: number;
@@ -116,6 +141,15 @@ export interface ForgeConfig {
    * Map source-org user IDs to target-org user IDs for OwnerId remap.
    * Without this, records authored by users that don't exist on the
    * target sandbox (e.g. ex-employees) reject with INVALID_OWNER.
+   *
+   * A mapping comes first: an owner mapped here is written as mapped, and
+   * never read in the target. An owner the target does not hold, left
+   * unmapped, is left out of the row, and the record goes to the user the run
+   * writes as. One it holds inactive is left out so too unless that user may
+   * give a record an inactive owner (Update Records with Inactive Owners);
+   * and one the target refuses all the same (`INACTIVE_OWNER_OR_USER`) — a
+   * mapping to a user since made inactive, a permission read as held and
+   * refused — has its row written again without it: see `ForgeFieldRefusal`.
    */
   ownerMappings?: Record<string, string>;
   /**
@@ -434,6 +468,15 @@ export interface ForgeGraphNode {
    * reads. Absent on every node discovery counted.
    */
   recordCountUnknown?: boolean;
+  /**
+   * Whether `recordCount` is the org's own approximation rather than a count.
+   *
+   * A clone of the whole org counts each object it takes, and an object whose
+   * count timed out keeps the figure the org's record-count endpoint gave for
+   * it rather than being left out: the run copies every record it reads,
+   * whatever the figure said. Absent on every node that was counted.
+   */
+  recordCountApproximate?: boolean;
   /** Number of fields included in the operation */
   fieldCount: number;
   /** Current processing status of this node */
@@ -541,6 +584,95 @@ export interface ForgeGraph {
   estimatedDurationSeconds: number;
   /** True when BFS hit the node cap and the graph is incomplete. */
   truncated?: boolean;
+  /**
+   * The objects of the source org a clone of the whole org does not take,
+   * each with why: never a node, so Review and the confirmation can name what
+   * the run leaves behind rather than leave it out unsaid. Absent on a graph
+   * walked from a root, whose objects are only those it reached.
+   */
+  leftOut?: ForgeLeftOutObject[];
+  /**
+   * Set on the graph the history keeps of a clone of the whole org, which
+   * keeps its nodes without their relations (`ForgeExecutionResult.leftOutCounts`):
+   * run as it is, its parents would go unordered and its lookups unmapped,
+   * so a run of it is refused, and the org discovered again. Absent from
+   * every graph discovery builds.
+   */
+  withoutEdges?: true;
+}
+
+/**
+ * Why a clone of the whole org leaves an object of the source org out.
+ *
+ * - `missingInTarget`: the target org has no such object.
+ * - `notQueryable`: the source org does not let the user query it.
+ * - `empty`: the source holds no record of it.
+ * - `unreadable`: the source refused to count or read it.
+ * - `notWritable`: the target does not let the user create, edit and delete
+ *   its records, which the run's insert, its second pass and a rewind need.
+ * - `setup`: users, permissions and the rest of setup, the org's logs and
+ *   jobs; `detail: 'noLayout'` when it is one the org gives no page layout.
+ * - `metadata`: served by the Tooling API: deployed, not kept as data.
+ * - `chatter`, `history`, `sharing`, `changeEvent`: a feed, a history
+ *   object, a sharing object, a change event — what the org keeps itself.
+ * - `unsupportedKind`: a big object, an external or Data Cloud object, a
+ *   Knowledge version or a platform event.
+ * - `files`: a file or what hangs on one, copied with the records it hangs
+ *   on rather than as an object of its own, or a document of the Documents tab.
+ * - `notDescribed`: its describe could not be read.
+ *
+ * A custom setting is no reason: a clone of the whole org takes them as it
+ * takes any other object the target can write.
+ */
+export type ForgeLeftOutReason =
+  | 'missingInTarget'
+  | 'notQueryable'
+  | 'empty'
+  | 'unreadable'
+  | 'notWritable'
+  | 'setup'
+  | 'metadata'
+  | 'chatter'
+  | 'history'
+  | 'sharing'
+  | 'changeEvent'
+  | 'unsupportedKind'
+  | 'files'
+  | 'notDescribed';
+
+/** An object of the source org a clone of the whole org leaves out, with why. */
+export interface ForgeLeftOutObject {
+  objectApiName: string;
+  reason: ForgeLeftOutReason;
+  /**
+   * More of why, where there is more to say. Either one of two words the page
+   * translates — `noLayout` for setup the org gives no page layout,
+   * `withTheirRecords` for a file the run copies with the records it hangs
+   * on — or, for an object `unreadable` or `notDescribed`, the org's own
+   * words, shown as the org said them.
+   */
+  detail?: string;
+}
+
+/**
+ * How many objects a clone of the whole org left out for one reason: what its
+ * entry in the history keeps of `ForgeGraph.leftOut`, which lists thousands
+ * of them by name (`ForgeExecutionResult.leftOutCounts`).
+ */
+export interface ForgeLeftOutCount {
+  reason: ForgeLeftOutReason;
+  count: number;
+}
+
+/**
+ * A Bulk API job a run closed and could not read back that was still running
+ * — or could not be read at all — when the run gave back the mute of the
+ * target's automation (`ForgeExecutionResult.bulkJobsPastMute`).
+ */
+export interface ForgeBulkJobPastMute {
+  objectApiName: string;
+  /** The id the org gave the job; absent when its close went before the org told it. */
+  jobId?: string;
 }
 
 /** Sample of a record that failed insertion, with the platform errors. */
@@ -1082,6 +1214,15 @@ export interface ForgeRemovalPlan {
    * takes now.
    */
   inJournal?: { journalId: string; part: number; left: ForgeRemovalLeftCount[] };
+  /**
+   * The size, under 200, its removals cut an object's calls to, by object:
+   * the target's automation refused a larger call for a Salesforce limit — a
+   * trigger that runs a query per record. The size the limit called for,
+   * sent at or not once the removal's allowance was spent. The next removal
+   * sends that object's records at it from its first call, by REST, the
+   * smallest a removal was cut to kept. Absent while no limit cut a removal.
+   */
+  deleteSizes?: Record<string, number>;
   /** Set, when the plans are listed, on one whose journal is gone. Never stored. */
   journalGone?: true;
 }
@@ -1191,14 +1332,25 @@ export interface ForgeFieldsLeftOut {
 /**
  * What refused a field rows went in without: a validation rule of the target
  * (`FIELD_CUSTOM_VALIDATION_EXCEPTION`), a restricted picklist of the target
- * that refused its value (`INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST`), or the
+ * that refused its value (`INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST`), the
  * lookup filter of a lookup the target lets be empty, which refused the record
- * it names (`FIELD_FILTER_VALIDATION_EXCEPTION`). The picklist's refusal gets
+ * it names (`FIELD_FILTER_VALIDATION_EXCEPTION`), or the target holding the
+ * row's owner inactive (`INACTIVE_OWNER_OR_USER`). The picklist's refusal gets
  * past the check made before the write when the record type the row goes in
  * with was never given values of the field: it takes none of them, while the
  * target's UI API answers the field's every value for it.
+ *
+ * The owner's refusal is Forge's alone, and only of `OwnerId`: a sandbox made
+ * from a production holds the users the production holds, its inactive ones
+ * inactive, and a clone between two of its sandboxes was refused so on every
+ * record an inactive administrator owned, and on every record under them. The
+ * run leaves such an owner out before the write when it can tell; one the
+ * target refuses all the same — the refusal naming the owner the row was sent
+ * with, or naming no one of a row that carries no audit field — has its row
+ * written again without it, and the record goes to the user the run writes as.
  */
-export type ForgeFieldRefusal = 'validation-rule' | 'restricted-picklist' | 'lookup-filter';
+export type ForgeFieldRefusal =
+  'validation-rule' | 'restricted-picklist' | 'lookup-filter' | 'inactive-owner';
 
 /** A field the target refused rows on, left out as they were written again. */
 export interface ForgeRefusedField {
@@ -1211,14 +1363,14 @@ export interface ForgeRefusedField {
   refusedBy?: ForgeFieldRefusal;
   /**
    * What the target refused the rows with, `STATUS_CODE: message`: the rule's
-   * own words, the picklist's, which name the value it refused, or the
-   * lookup filter's.
+   * own words, the picklist's, which name the value it refused, the
+   * lookup filter's, or the target's naming the inactive owner.
    */
   reason: string;
   /**
    * Rows written without it: sent again without it once refused, or, its
-   * value refused under the same record type earlier in the run, sent without
-   * it from the start.
+   * value refused under the same record type earlier in the run — or the
+   * same owner refused earlier in the run — sent without it from the start.
    */
   rows: number;
 }
@@ -1512,6 +1664,23 @@ export interface ForgeExecutionResult {
    */
   mutedAutomation?: MutedAutomation;
   /**
+   * The Bulk API jobs the run closed and could not read back that the org
+   * had not ended when the run gave its mute back, after waiting for them up
+   * to ten minutes: what the org wrote of them after that went in with the
+   * target's automation running, flows, triggers and rules the mute kept
+   * quiet. Absent when the run muted nothing, or every such job had ended.
+   */
+  bulkJobsPastMute?: ForgeBulkJobPastMute[];
+  /**
+   * Of a clone of the whole org as its entry in the history keeps it, how
+   * many objects it left out for each reason: the entry's graph keeps its
+   * nodes without their relations and without `leftOut`, which name
+   * thousands of objects, in a history the extension's global state rewrites
+   * whole at every change. Absent from every other run, and from the result
+   * a run answers its page with, whose graph is whole.
+   */
+  leftOutCounts?: ForgeLeftOutCount[];
+  /**
    * The checkpoint of what the run writes, when it was asked to take one
    * before its first write (`checkpointFirst`): taken, or deleted as the run
    * wrote nothing; of a simulation, what it would hold and cost, and the
@@ -1592,6 +1761,13 @@ export interface ForgeExecutionResult {
    * rows. Optional for runs recorded before it.
    */
   linkedExistingCount?: number;
+  /**
+   * Of `linkedExistingCount`, for a run whose ids are in its journal
+   * (`remapInJournal`), the records the platform wrote with one this run
+   * created, and deletes with it: `idRemapWithTheirRecord` counted, the ids
+   * being in the journal. Absent when there were none.
+   */
+  linkedWithTheirRecordCount?: number;
   /**
    * Set when a cancel stopped the run before it was through. The result says
    * what it had done by then; its status is never `success`.

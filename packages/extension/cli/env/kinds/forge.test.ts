@@ -213,6 +213,41 @@ describe('a forge resource, converted', () => {
     ).toBe(true);
   });
 
+  it('refuses a template saved from a clone of the whole org, with a record, tables or a depth of its own', () => {
+    const wholeOrg = {
+      ...ENTRY,
+      id: 'whole-uat',
+      config: {
+        inputMode: 'org',
+        depth: 'all',
+        anonymizePII: false,
+        skipEmpty: true,
+        batchSize: 'auto',
+      },
+    };
+    const file = templates([wholeOrg]);
+    const refusal = [
+      'the template "whole-uat" clones the whole org (the depth ALL), which is only offered in ' +
+        'the Forge panel for now: an environment clones a record or tables',
+    ];
+
+    expect(refusedWith({ ...tables, template: { file, id: 'whole-uat' } })).toEqual(refusal);
+    expect(
+      refusedWith({
+        kind: 'forge',
+        source: 'uat',
+        record: { id: '001000000000001AAA' },
+        template: { file, id: 'whole-uat' },
+        depth: 'full',
+      }),
+    ).toEqual(refusal);
+    // The depth ALL on a template of a record, which the panel never saves: refused all the same.
+    const allOfARecord = templates([{ ...ENTRY, config: { ...ENTRY.config, depth: 'all' } }]);
+    expect(refusedWith({ ...tables, template: { file: allOfARecord, id: ENTRY.id } })).toEqual([
+      expect.stringContaining('clones the whole org (the depth ALL)'),
+    ]);
+  });
+
   it('warns that a template’s file copy is not made, and copies none', () => {
     const file = templates([{ ...ENTRY, files: { maxFileSizeMB: 10 } }]);
     const read = forgeRunOfResource(

@@ -122,6 +122,25 @@ describe('ForgeTemplatePanel', () => {
     );
   });
 
+  it('names a template of the whole org by what it clones, its depth said once', () => {
+    const wholeOrg: ForgeTemplate = {
+      ...SAVED,
+      id: 'tpl-org',
+      config: {
+        inputMode: 'org',
+        depth: 'all',
+        anonymizePII: true,
+        skipEmpty: true,
+        batchSize: 'auto',
+      },
+    };
+    renderPanel(manager({ templates: [wholeOrg] }));
+
+    expect(screen.getByTestId('forge-template-summary-tpl-org').textContent).toBe(
+      'Whole org · ALL',
+    );
+  });
+
   it('labels the rename fields and says why a rename failed', () => {
     renderPanel(
       manager({

@@ -1089,3 +1089,74 @@ describe('ForgeExecutor, person accounts', () => {
     );
   });
 });
+
+describe('ForgeExecutor, person accounts written as a Bulk API job', () => {
+  it('sends person and business accounts in one job, each row as a REST call sends it', async () => {
+    // A clone of a whole org sends 2 000 accounts or more as a job: the job's
+    // columns are every field any row carries, and a row leaves empty those it
+    // does not carry, so the person's last name and the company's name go
+    // side by side, as they go in one REST call.
+    const accounts = Array.from({ length: 2_000 }, (_, i) =>
+      i % 2 === 0
+        ? {
+            Id: fakeId('001', 100 + i),
+            Name: `Person ${i}`,
+            LastName: `Person ${i}`,
+            IsPersonAccount: true,
+            PersonContactId: null,
+            Key_Contact__c: null,
+          }
+        : {
+            Id: fakeId('001', 100 + i),
+            Name: `Company ${i}`,
+            LastName: null,
+            IsPersonAccount: false,
+            PersonContactId: null,
+            Key_Contact__c: null,
+          },
+    );
+    const source = { Account: accounts };
+    const graph = graphOf(
+      [{ ...node('Account', 0), recordCount: 2_000, batchStrategy: 'auto' }],
+      [],
+    );
+
+    const rest = orgsWithPersonAccounts(undefined, source);
+    await rest.executor.execute(graph, 'src', 'tgt', () => undefined);
+    const restRows = rest.inserted
+      .filter(({ object }) => object === 'Account')
+      .flatMap(({ rows }) => rows);
+
+    const bulk = orgsWithPersonAccounts(undefined, source);
+    const bulkWriteRecords = vi.fn<NonNullable<ForgeExecutorDeps['bulkWriteRecords']>>(
+      async (_org, _object, _operation, records) => ({
+        answers: records.map((_, i) => ({
+          id: `001Tg${String(i).padStart(13, '0')}`,
+          success: true,
+          errors: [],
+        })),
+        rows: records.map(() => 'answered' as const),
+        unmatchedIds: [],
+        requests: 12,
+      }),
+    );
+    const executor = new ForgeExecutor({
+      ...bulk.deps,
+      bulkWriteRecords,
+      duplicateRuleObjects: async () => new Set<string>(),
+    });
+    const summary = await executor.execute(graph, 'src', 'tgt', () => undefined, {
+      writeApi: 'auto',
+    });
+
+    expect(bulkWriteRecords).toHaveBeenCalledTimes(1);
+    const sent = bulkWriteRecords.mock.calls[0][3];
+    expect(sent).toHaveLength(2_000);
+    expect(sent).toEqual(restRows);
+    expect(sent.some((row) => typeof row['LastName'] === 'string')).toBe(true);
+    expect(sent.some((row) => row['LastName'] === undefined || row['LastName'] === null)).toBe(
+      true,
+    );
+    expect(summary.successCount).toBe(2_000);
+  });
+});

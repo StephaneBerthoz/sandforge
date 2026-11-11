@@ -243,6 +243,17 @@ describe('ReviewControlsTab', () => {
     expect(config()).not.toHaveProperty('maxRecordsPerObject');
   });
 
+  it('offers no cap on a clone of the whole org, which copies every record', () => {
+    act(() =>
+      useForgeStore
+        .getState()
+        .updateConfig((c) => ({ ...c, inputMode: 'org', depth: 'all', recordId: undefined })),
+    );
+
+    expect(screen.queryByTestId('controls-cap')).toBeNull();
+    expect(screen.getByTestId('controls-owner-target')).toBeTruthy();
+  });
+
   it('lists a cap the run holds that the form does not offer, as it stands', () => {
     act(() => useForgeStore.getState().updateConfig((c) => ({ ...c, maxRecordsPerObject: 200 })));
 

@@ -64,7 +64,16 @@ import { ForgeResultsVerify } from './ForgeResultsVerify';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
 import { useForgeRunGateStore } from './runGate';
-import { createdTargets, objectResultsCsv, rootCopyOf } from './forgeResultsExport';
+import {
+  createdTargets,
+  isRunNote,
+  objectResultsCsv,
+  reportCell,
+  rootCopyOf,
+  runErrorsReportLines,
+  runFailureCell,
+  runNotesReportLines,
+} from './forgeResultsExport';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 
@@ -115,6 +124,7 @@ const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'runResults.writtenWithoutFields.byValidationRule',
   'restricted-picklist': 'runResults.writtenWithoutFields.byRestrictedPicklist',
   'lookup-filter': 'runResults.writtenWithoutFields.byLookupFilter',
+  'inactive-owner': 'runResults.writtenWithoutFields.byInactiveOwner',
 };
 
 /** The same, as the copied report says it, in English as the rest of it. */
@@ -122,25 +132,8 @@ const REFUSED_BY_REPORT: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'validation rule',
   'restricted-picklist': 'restricted picklist',
   'lookup-filter': 'lookup filter',
+  'inactive-owner': 'inactive owner',
 };
-
-/**
- * Whether a report of the run is a note: one at the `scope` stage that counts
- * no failed record and does not skip its object — a lookup left empty because
- * its record is not in the clone, rows the platform writes itself, a check of
- * the target that could not be made. The run's status and its audit entry
- * read its reports the same way (`forgeAuditObjects`). A read that failed
- * counts no row either in a record-scoped run, which never learned how many
- * its scope held, and is a failure; so is an object skipped whole, whose
- * report may count none. Reference data the target holds no match for is a
- * note whatever it counts: never meant to be written, its rows are neither
- * written nor failed, as the run's totals and the audit trail count them, and
- * listed with the failures they swelled the panel's count of failed records.
- */
-function isRunNote(error: ForgeExecutionError): boolean {
-  if (error.referenceData === true) return true;
-  return error.stage === 'scope' && error.failedCount === 0 && error.skipped !== true;
-}
 
 /** Status badge colors. */
 const statusBadgeStyles: Record<string, string> = {
@@ -528,9 +521,15 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     ];
 
     // Each status as the run gave it, where the page names it in words: the
-    // report is written in English throughout, headings and notes alike.
+    // report is written in English throughout, headings and notes alike. The
+    // errors are what discovery said of the object, then what the run failed
+    // of it, by stage and code: the run's own failures were left out, and an
+    // object whose every row was refused read "error | -".
     for (const row of rows) {
-      const errorText = row.errors.length > 0 ? row.errors.join(', ') : '-';
+      const errorText =
+        [reportCell(row.errors.join(', ')), runFailureCell(row.objectApiName, failures)]
+          .filter(Boolean)
+          .join('; ') || '-';
       lines.push(
         `| ${row.objectApiName} | ${String(row.records ?? '-')} | ${row.status} | ${errorText} |`,
       );
@@ -544,6 +543,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           : `Not listed: ${String(emptyTables)} objects discovery left out because their table is empty in the source.`,
       );
     }
+    // What the errors and notes panels show, which the report left out: a
+    // row per report, the run's own passes included, then the notes.
+    lines.push(...runErrorsReportLines(failures), ...runNotesReportLines(notes));
 
     if (existingRecords.length > 0) {
       lines.push('', '## Already in the Target', '', '| Object | Linked | Not identified |');
@@ -567,7 +569,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       for (const { objectApiName, fields } of writtenWithoutFields) {
         for (const { field, refusedBy = 'validation-rule', reason, rows: count } of fields) {
           lines.push(
-            `| ${objectApiName} | ${field} | ${String(count)} | ${REFUSED_BY_REPORT[refusedBy]} | ${reason} |`,
+            // The refusal is the org's message: a line break or a `|` in it
+            // broke the row.
+            `| ${objectApiName} | ${field} | ${String(count)} | ${REFUSED_BY_REPORT[refusedBy]} | ${reportCell(reason)} |`,
           );
         }
       }
@@ -583,6 +587,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     failedReads,
     rows,
     emptyTables,
+    failures,
+    notes,
     existingRecords,
     writtenWithoutFields,
   ]);

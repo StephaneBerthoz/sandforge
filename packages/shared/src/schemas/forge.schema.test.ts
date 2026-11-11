@@ -3,6 +3,10 @@ import { describe, it, expect } from 'vitest';
 import {
   forgeInputModeSchema,
   forgeDepthSchema,
+  forgeRunDepthSchema,
+  forgeConfigSchemaStrict,
+  forgeLeftOutObjectSchema,
+  wholeOrgConfigIssue,
   forgeNodeStatusSchema,
   forgeGraphViewSchema,
   forgeEdgeTypeSchema,
@@ -20,6 +24,7 @@ import {
   forgePlanSchema,
   forgeCheckpointSchema,
   forgeFileCopyOptionSchema,
+  FORGE_LEFT_OUT_MAX,
 } from './forge.schema.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -100,7 +105,7 @@ function createValidForgeTemplate(): Record<string, unknown> {
 
 describe('forgeInputModeSchema', () => {
   it('should accept all valid input modes', () => {
-    const modes = ['record', 'soql', 'template', 'ai'];
+    const modes = ['record', 'soql', 'template', 'ai', 'org'];
     for (const mode of modes) {
       expect(forgeInputModeSchema.parse(mode)).toBe(mode);
     }
@@ -121,6 +126,152 @@ describe('forgeDepthSchema', () => {
 
   it('should reject invalid depth', () => {
     expect(() => forgeDepthSchema.parse('deep')).toThrow();
+  });
+
+  // sandforge.yaml and its JSON Schema take this one: a clone of the whole
+  // org is offered in the Forge panel only.
+  it('refuses all, the whole org, which only a run takes', () => {
+    expect(forgeDepthSchema.safeParse('all').success).toBe(false);
+  });
+});
+
+describe('forgeRunDepthSchema', () => {
+  it('takes the walks from a root and all, the whole org', () => {
+    for (const depth of ['direct', 'full', 'custom', 'all']) {
+      expect(forgeRunDepthSchema.parse(depth)).toBe(depth);
+    }
+  });
+
+  it('refuses a depth it does not name', () => {
+    expect(forgeRunDepthSchema.safeParse('deep').success).toBe(false);
+  });
+
+  it('is the depth of a run config', () => {
+    expect(forgeConfigSchema.parse({ ...createValidForgeConfig(), depth: 'all' }).depth).toBe(
+      'all',
+    );
+  });
+});
+
+/**
+ * A clone of the whole org: the `org` input mode with the `all` depth, and
+ * nothing a walk from a root would start from.
+ */
+function wholeOrgConfig(): Record<string, unknown> {
+  return {
+    inputMode: 'org',
+    depth: 'all',
+    sourceOrgId: 'org-source-123',
+    targetOrgId: 'org-target-456',
+    anonymizePII: true,
+    skipEmpty: true,
+    batchSize: 'auto',
+  };
+}
+
+describe('wholeOrgConfigIssue', () => {
+  it('says nothing of a config that walks from a root', () => {
+    expect(
+      wholeOrgConfigIssue({ inputMode: 'record', recordId: '001xx000003DGbY', depth: 'full' }),
+    ).toBe(undefined);
+    expect(
+      wholeOrgConfigIssue({
+        inputMode: 'soql',
+        soqlQuery: 'SELECT Id FROM Account',
+        depth: 'custom',
+        customDepth: 3,
+      }),
+    ).toBe(undefined);
+  });
+
+  it('says nothing of a clone of the whole org as one must be', () => {
+    expect(wholeOrgConfigIssue({ inputMode: 'org', depth: 'all' })).toBe(undefined);
+  });
+
+  it('refuses the org input mode with any depth but all', () => {
+    for (const depth of ['direct', 'full', 'custom'] as const) {
+      expect(wholeOrgConfigIssue({ inputMode: 'org', depth })).toMatch(/takes the depth 'all'/);
+    }
+  });
+
+  it('refuses the depth all with any input mode but org, and names it', () => {
+    expect(
+      wholeOrgConfigIssue({ inputMode: 'record', recordId: '001xx000003DGbY', depth: 'all' }),
+    ).toMatch(/goes with inputMode 'org' only, not 'record'/);
+    expect(wholeOrgConfigIssue({ inputMode: 'ai', aiPrompt: 'accounts', depth: 'all' })).toMatch(
+      /not 'ai'/,
+    );
+  });
+
+  it('names each input a clone of the whole org was given and starts from none of', () => {
+    const issue = wholeOrgConfigIssue({
+      inputMode: 'org',
+      depth: 'all',
+      recordId: '001xx000003DGbY',
+      soqlQuery: 'SELECT Id FROM Account',
+      templateId: 'tpl-001',
+      aiPrompt: 'accounts',
+      customDepth: 3,
+    });
+    expect(issue).toMatch(
+      /recordId, soqlQuery, templateId, aiPrompt, customDepth must be left out$/,
+    );
+  });
+});
+
+describe('forgeConfigSchemaStrict', () => {
+  it('takes a clone of the whole org with no input', () => {
+    const parsed = forgeConfigSchemaStrict.parse(wholeOrgConfig());
+    expect(parsed.inputMode).toBe('org');
+    expect(parsed.depth).toBe('all');
+  });
+
+  it('lets maxNodes by on a clone of the whole org, which has nothing to cap', () => {
+    expect(forgeConfigSchemaStrict.safeParse({ ...wholeOrgConfig(), maxNodes: 50 }).success).toBe(
+      true,
+    );
+  });
+
+  it('refuses the org input mode without the depth all', () => {
+    const result = forgeConfigSchemaStrict.safeParse({ ...wholeOrgConfig(), depth: 'full' });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toMatch(/takes the depth 'all'/);
+  });
+
+  it('refuses the depth all from a record, a query, a template or an AI draft', () => {
+    const inputs: Array<Record<string, unknown>> = [
+      { inputMode: 'record', recordId: '001xx000003DGbY' },
+      { inputMode: 'soql', soqlQuery: 'SELECT Id FROM Account' },
+      { inputMode: 'template', templateId: 'tpl-001' },
+      { inputMode: 'ai', aiPrompt: 'accounts' },
+    ];
+    for (const input of inputs) {
+      const result = forgeConfigSchemaStrict.safeParse({ ...wholeOrgConfig(), ...input });
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0]?.message).toMatch(/goes with inputMode 'org' only/);
+    }
+  });
+
+  it.each([
+    ['recordId', '001xx000003DGbY'],
+    ['soqlQuery', 'SELECT Id FROM Account'],
+    ['templateId', 'tpl-001'],
+    ['aiPrompt', 'accounts'],
+    ['customDepth', 3],
+  ])('refuses a clone of the whole org given %s', (field, value) => {
+    const result = forgeConfigSchemaStrict.safeParse({ ...wholeOrgConfig(), [field]: value });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toContain(field);
+  });
+
+  it('still holds a walk from a root to its matching field', () => {
+    expect(forgeConfigSchemaStrict.safeParse(createValidForgeConfig()).success).toBe(true);
+    const result = forgeConfigSchemaStrict.safeParse({
+      ...createValidForgeConfig(),
+      inputMode: 'soql',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toMatch(/inputMode requires the matching field/);
   });
 });
 
@@ -341,6 +492,17 @@ describe('forgeGraphNodeSchema', () => {
     ).toBeUndefined();
     expect(() => forgeGraphNodeSchema.parse({ ...uncounted, recordCountUnknown: 1 })).toThrow();
   });
+
+  it('keeps that a count is the org approximation, so the history does not read it as counted', () => {
+    const approximate = { ...createValidForgeGraphNode(), recordCountApproximate: true };
+    expect(forgeGraphNodeSchema.parse(approximate).recordCountApproximate).toBe(true);
+    expect(
+      forgeGraphNodeSchema.parse(createValidForgeGraphNode()).recordCountApproximate,
+    ).toBeUndefined();
+    expect(() =>
+      forgeGraphNodeSchema.parse({ ...approximate, recordCountApproximate: 'yes' }),
+    ).toThrow();
+  });
 });
 
 // ─── Edge Schema Tests ───────────────────────────────────────────────────────
@@ -442,6 +604,31 @@ describe('forgeGraphSchema', () => {
     ).toThrow();
   });
 
+  it('keeps the objects a clone of the whole org leaves out, each with why', () => {
+    const leftOut = [
+      { objectApiName: 'User', reason: 'setup' },
+      { objectApiName: 'Holiday', reason: 'setup', detail: 'noLayout' },
+      { objectApiName: 'ContentDocument', reason: 'files' },
+      { objectApiName: 'Widget__c', reason: 'missingInTarget' },
+    ];
+    const result = forgeGraphSchema.parse({ ...createValidForgeGraph(), leftOut });
+    expect(result.leftOut).toEqual(leftOut);
+  });
+
+  it('keeps every object a large org leaves out, and refuses more than any org lists', () => {
+    // An org of three thousand custom objects, each with its sharing,
+    // history, feed and change event objects, lists some sixteen thousand.
+    expect(FORGE_LEFT_OUT_MAX).toBeGreaterThan(16_000);
+    const leftOut = Array.from({ length: FORGE_LEFT_OUT_MAX + 1 }, (_, i) => ({
+      objectApiName: `Object${i}__c`,
+      reason: 'empty',
+    }));
+    expect(forgeGraphSchema.safeParse({ ...createValidForgeGraph(), leftOut }).success).toBe(false);
+    expect(
+      forgeGraphSchema.safeParse({ ...createValidForgeGraph(), leftOut: leftOut.slice(1) }).success,
+    ).toBe(true);
+  });
+
   it('should reject invalid nested node', () => {
     const graph = {
       nodes: [{ objectApiName: '' }],
@@ -451,6 +638,29 @@ describe('forgeGraphSchema', () => {
       estimatedDurationSeconds: 0,
     };
     expect(() => forgeGraphSchema.parse(graph)).toThrow();
+  });
+});
+
+describe('forgeLeftOutObjectSchema', () => {
+  it('refuses a reason it does not name', () => {
+    expect(
+      forgeLeftOutObjectSchema.safeParse({ objectApiName: 'Account', reason: 'tooBig' }).success,
+    ).toBe(false);
+  });
+
+  // A clone of the whole org takes custom settings as it takes any other
+  // object the target can write: being one is no reason to be left out.
+  it('has no reason for a custom setting', () => {
+    expect(
+      forgeLeftOutObjectSchema.safeParse({ objectApiName: 'Config__c', reason: 'customSetting' })
+        .success,
+    ).toBe(false);
+  });
+
+  it('refuses a name that is no API name', () => {
+    expect(
+      forgeLeftOutObjectSchema.safeParse({ objectApiName: 'Drop table', reason: 'empty' }).success,
+    ).toBe(false);
   });
 });
 

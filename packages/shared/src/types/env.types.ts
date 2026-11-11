@@ -20,7 +20,7 @@ import type {
   SavedTemplateRuleConfig,
 } from '../constants/saved-anonymization-templates.js';
 import type { ForgeTemplateInput } from '../schemas/forge.schema.js';
-import type { ForgeDepth } from './forge.types.js';
+import type { ForgeTraversalDepth } from './forge.types.js';
 import type { FieldRule, SeedRelation, SeedTemplate } from './seed.types.js';
 
 // ─── The file (sandforge.yaml, version 1) ───────────────────────────────────
@@ -178,7 +178,8 @@ export interface EnvForgeResource {
   record?: EnvForgeRecord;
   tables?: EnvForgeTable[];
   template?: EnvForgeTemplateRef;
-  depth?: ForgeDepth;
+  /** How far discovery walks from the record: never `all`, a clone of the whole org, which only the Forge panel offers. */
+  depth?: ForgeTraversalDepth;
   customDepth?: number;
   maxNodes?: number;
   anonymize?: EnvForgeAnonymize;

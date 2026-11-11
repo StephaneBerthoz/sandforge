@@ -4,7 +4,7 @@ import { Database, Link2, EyeOff, AlertTriangle, Clock, Zap } from 'lucide-react
 import { leftOutAsEmptyTable } from '@sandforge/shared';
 import type { ForgeGraph, ForgePlan } from '@sandforge/shared';
 import { cn } from '../../theme';
-import { uiLocale } from '../../utils/formatters';
+import { formatEstimateSec, uiLocale } from '../../utils/formatters';
 
 /** Default reference-data objects — must mirror ForgeExecutor's default. */
 const REFERENCE_DATA_DEFAULTS = new Set(['BusinessHours', 'OperatingHours']);
@@ -205,7 +205,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
                 {t('common.estimatedApiCallCount', { count: plan.totalApiCalls })}
               </span>
               <span className="flex items-center gap-1.5">
-                <Clock size={11} />~{plan.estimatedDurationSeconds.toFixed(0)}s
+                <Clock size={11} />~{formatEstimateSec(plan.estimatedDurationSeconds)}
               </span>
             </>
           )}

@@ -1805,6 +1805,60 @@ describe('forge:undo', () => {
       expect((await plans.get('forge-1'))?.undo).toEqual(history()[0].undo);
     });
 
+    describe('the size a limit of the target’s automation cut its deletes to', () => {
+      /** What a trigger that runs a query per record has the org answer for each record of the call. */
+      const LIMIT =
+        'SSC_TRG_Contact: execution of BeforeDelete caused by: System.LimitException: Too many SOQL queries: 101';
+      /** The ids each delete of contacts sent, in turn. */
+      const contactCalls = (): string[][] =>
+        org.deletes.filter((call) => call.object === 'Contact').map((call) => call.ids);
+
+      it('starts Remove what is left at the size kept on the plan of a run the history dropped', async () => {
+        withPlans();
+        await plans.put({ ...forgeRemovalPlanOf(runEntry())!, deleteSizes: { Contact: 1 } });
+        store.set('forge:history', [], 'forge');
+
+        await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+        expect(contactCalls()).toEqual([[id('003', 2)], [id('003', 1)]]);
+        expect(answer()).toMatchObject({ status: 'success' });
+      });
+
+      it('starts at the size kept on the plan of a run the history still lists, which its entry does not hold', async () => {
+        withPlans();
+        await plans.put({ ...forgeRemovalPlanOf(runEntry())!, deleteSizes: { Contact: 1 } });
+
+        await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+        expect(contactCalls()).toEqual([[id('003', 2)], [id('003', 1)]]);
+        expect(history()[0]).not.toHaveProperty('deleteSizes');
+      });
+
+      it('keeps on the plan, per object, the smaller of the size it had and the one the removal went through at', async () => {
+        withPlans();
+        await plans.put({
+          ...forgeRemovalPlanOf(runEntry())!,
+          deleteSizes: { Contact: 150, Other__c: 20 },
+        });
+        // The account changed since the run: it stays, and so does the plan.
+        (org.rows.get('Account') ?? [])[0].LastModifiedDate = AFTER_RUN;
+        // A call of both contacts refused whole; one at a time, they go.
+        org.refuseDelete((object) =>
+          object === 'Contact' && (org.deletes.at(-1)?.ids.length ?? 0) > 1 ? LIMIT : undefined,
+        );
+
+        await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+        expect(contactCalls()).toEqual([
+          [id('003', 2), id('003', 1)],
+          [id('003', 2)],
+          [id('003', 1)],
+        ]);
+        expect(answer()?.objects[0]).toMatchObject({ objectApiName: 'Contact', deleted: 2 });
+        expect((await plans.get('forge-1'))?.deleteSizes).toEqual({ Contact: 1, Other__c: 20 });
+      });
+    });
+
     it('refuses a run neither the history nor a kept plan names', async () => {
       withPlans();
       store.set('forge:history', [], 'forge');

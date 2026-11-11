@@ -5,6 +5,7 @@ import {
   formatDate,
   formatCurrency,
   formatDuration,
+  formatEstimateSec,
   formatFileSize,
   formatRelativeTime,
   formatRelativeTimeI18n,
@@ -161,6 +162,21 @@ describe('formatDuration', () => {
 
   it('should return "0ms" for negative values', () => {
     expect(formatDuration(-1000)).toBe('0ms');
+  });
+});
+
+describe('formatEstimateSec', () => {
+  it('rounds an estimate to the nearest second rather than cutting it', () => {
+    expect(formatEstimateSec(10.6)).toBe('11s');
+    expect(formatEstimateSec(10.4)).toBe('10s');
+    expect(formatEstimateSec(7_199.6)).toBe('2h');
+  });
+
+  // "~400ms" claimed a precision a guess of a wave never had.
+  it('says a second, not milliseconds, of an estimate under one, and nothing of none', () => {
+    expect(formatEstimateSec(0.4)).toBe('1s');
+    expect(formatEstimateSec(0)).toBe('0s');
+    expect(formatEstimateSec(NaN)).toBe('0s');
   });
 });
 

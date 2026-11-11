@@ -19,12 +19,16 @@ import { soqlRootFilter } from './forgeUtils';
 /** A run's configuration as History and templates keep it: without the org pair. */
 export type StoredForgeConfig = Omit<ForgeConfig, 'sourceOrgId' | 'targetOrgId'>;
 
-/** The tab label each input mode was run from. */
-export const INPUT_MODE_KEYS: Record<ForgeInputMode, string> = {
+/**
+ * The tab label each input mode was run from; a clone of the whole org,
+ * which has no tab, by what it cloned.
+ */
+const INPUT_MODE_KEYS: Record<ForgeInputMode, string> = {
   record: 'forge.recordTab',
   soql: 'forge.soqlTab',
   template: 'forge.templateTab',
   ai: 'forge.aiTab',
+  org: 'forge.wholeOrg',
 };
 
 /**
@@ -38,6 +42,32 @@ export function clonesOneRecord(
   return config?.inputMode === 'record' && Boolean(config.recordId);
 }
 
+/**
+ * Whether the run clones the whole source org: its graph grows to hundreds
+ * of objects and past, never drawn unless asked for, and it can be neither
+ * simulated nor rehearsed yet. The depth ALL says it as the input mode does,
+ * as {@link runInputLabelKey} reads it: the extension refuses any other
+ * pairing of the two.
+ */
+export function clonesWholeOrg(
+  config: Pick<ForgeConfig, 'inputMode' | 'depth'> | null | undefined,
+): boolean {
+  return config?.inputMode === 'org' || config?.depth === 'all';
+}
+
+/**
+ * What History and the Template tab name a stored run by, before what it
+ * started from and its depth: the tab it was run from, or, for a clone of
+ * the whole org, which has none, "Whole org". Its depth then says ALL once,
+ * beside it ("Whole org · ALL"), and no record, query or template stands
+ * between the two. A config that says the depth ALL is the whole org's
+ * whatever its input mode says: the extension refuses any other pairing,
+ * and the label would otherwise name a tab the run never started from.
+ */
+export function runInputLabelKey(config: Pick<StoredForgeConfig, 'inputMode' | 'depth'>): string {
+  return config.depth === 'all' ? INPUT_MODE_KEYS.org : INPUT_MODE_KEYS[config.inputMode];
+}
+
 /** The part of a stored config that identifies what was cloned. */
 export function configSubject(config: StoredForgeConfig): string | undefined {
   switch (config.inputMode) {
@@ -49,6 +79,9 @@ export function configSubject(config: StoredForgeConfig): string | undefined {
       return config.templateId;
     case 'ai':
       return config.aiPrompt;
+    // A clone of the whole org names nothing it started from: its label says it all.
+    case 'org':
+      return undefined;
   }
 }
 
@@ -113,6 +146,60 @@ export function carriedChoices(config: StoredForgeConfig | ForgeConfig | null): 
     else delete carried.objectSoqlFilters;
   }
   return carried;
+}
+
+/**
+ * The carried choices that leave part of the source org behind, by the
+ * objects each names: the objects a filter narrows, those left out, those
+ * whose rows are held back on a gap, and those whose fields are left out.
+ *
+ * A clone of the whole org takes them as any run does: a template or a past
+ * run put back in the form brings its filters and exclusions with it, and
+ * the run then copies less than the whole org, which nothing on the form
+ * showed. Its note lists them, by these names, with a way to drop them.
+ * Null when none of them is carried. The other carried choices (mappings,
+ * owners, defaults, decisions on gaps) change how a row is written, not
+ * which rows go, and are left out of this.
+ */
+export interface CarriedNarrowing {
+  /** Objects a carried SOQL filter narrows. */
+  filtered: string[];
+  /** Objects a carried exclusion leaves out. */
+  excluded: string[];
+  /** Objects whose rows a carried gap decision holds back. */
+  heldBack: string[];
+  /** Objects some of whose fields a carried exclusion leaves out. */
+  fields: string[];
+}
+
+/** The keys of {@link CarriedNarrowing}'s choices, which "Remove these choices" drops. */
+const NARROWING_KEYS = [
+  'objectSoqlFilters',
+  'excludedObjects',
+  'skippedRows',
+  'fieldExclusions',
+] as const satisfies ReadonlyArray<(typeof CARRIED_KEYS)[number]>;
+
+/** See {@link CarriedNarrowing}. */
+export function carriedNarrowing(carried: CarriedRunChoices): CarriedNarrowing | null {
+  const narrowing: CarriedNarrowing = {
+    filtered: Object.keys(carried.objectSoqlFilters ?? {}),
+    excluded: [...(carried.excludedObjects ?? [])],
+    // One object may hold rows back on several gaps: named once.
+    heldBack: [...new Set((carried.skippedRows ?? []).map((rows) => rows.object))],
+    fields: Object.entries(carried.fieldExclusions ?? {})
+      .filter(([, fields]) => fields.length > 0)
+      .map(([object]) => object),
+  };
+  const any = Object.values(narrowing).some((objects) => objects.length > 0);
+  return any ? narrowing : null;
+}
+
+/** `carried` without the choices {@link carriedNarrowing} lists; the others are kept. */
+export function withoutNarrowing(carried: CarriedRunChoices): CarriedRunChoices {
+  const kept: CarriedRunChoices = { ...carried };
+  for (const key of NARROWING_KEYS) delete kept[key];
+  return kept;
 }
 
 /**

@@ -273,6 +273,74 @@ describe('ForgePlanGenerator', () => {
     });
   });
 
+  describe('a run that writes through the Bulk API', () => {
+    it('counts an object it sends as jobs by the calls and the time of those jobs', () => {
+      const graph = makeGraph([
+        makeNode({ objectApiName: 'Invoice__c', level: 0, recordCount: 25_000 }),
+      ]);
+
+      const rest = generator.generate(graph);
+      const bulk = generator.generate(graph, { bulk: true });
+
+      // By REST: 125 calls of 200. As jobs of 10 000, 10 000 and 5 000:
+      // opened, sent, closed, its state read after 5, 10, 20 then every 30
+      // seconds over its time, its results read three ways.
+      expect(rest.totalApiCalls).toBe(125);
+      const tenThousand = 3 + (1 + 4) + 3;
+      const fiveThousand = 3 + (1 + 3) + 3;
+      expect(bulk.totalApiCalls).toBe(2 * tenThousand + fiveThousand);
+      // Each job waits its turn in the org, then writes 750 rows a second.
+      expect(bulk.estimatedDurationSeconds).toBeCloseTo(3 * 24 + 25_000 / 750, 6);
+    });
+
+    it('takes the jobs of a wave one after another, as the run sends them, and its REST writes beside them', () => {
+      const graph = makeGraph([
+        makeNode({ objectApiName: 'Invoice__c', level: 0, recordCount: 10_000 }),
+        makeNode({ objectApiName: 'Shipment__c', level: 0, recordCount: 10_000 }),
+        makeNode({ objectApiName: 'Note__c', level: 0, recordCount: 400, batchStrategy: 'rest' }),
+      ]);
+
+      const wave = generator.generate(graph, { bulk: true }).waves[0];
+
+      expect(wave.estimatedDurationSeconds).toBeCloseTo(2 * (24 + 10_000 / 750), 6);
+    });
+
+    it('counts by REST what is left of an object past its jobs under 2 000 rows', () => {
+      const graph = makeGraph([
+        makeNode({ objectApiName: 'Invoice__c', level: 0, recordCount: 10_001 }),
+      ]);
+
+      const plan = generator.generate(graph, { bulk: true });
+
+      // One job of 10 000, then one REST call for the row left.
+      expect(plan.totalApiCalls).toBe(3 + (1 + 4) + 3 + 1);
+      expect(plan.estimatedDurationSeconds).toBeCloseTo(24 + 10_000 / 750 + 0.01, 6);
+    });
+
+    it('counts by REST what it is likely to write by REST all the same', () => {
+      const graph = makeGraph([
+        // Under 2 000 rows.
+        makeNode({ objectApiName: 'Invoice__c', level: 0, recordCount: 1_999 }),
+        // Watched by a standard duplicate rule.
+        makeNode({ objectApiName: 'Account', level: 0, recordCount: 20_000 }),
+        // Answered row by row.
+        makeNode({ objectApiName: 'Task', level: 0, recordCount: 20_000 }),
+        // Asked to go by REST.
+        makeNode({
+          objectApiName: 'Order__c',
+          level: 0,
+          recordCount: 20_000,
+          batchStrategy: 'rest',
+        }),
+      ]);
+
+      expect(generator.generate(graph, { bulk: true }).totalApiCalls).toBe(
+        generator.generate(graph).totalApiCalls,
+      );
+      expect(generator.generate(graph).totalApiCalls).toBe(10 + 3 * 100);
+    });
+  });
+
   describe('duration estimation', () => {
     it('should estimate duration based on max API calls per wave', () => {
       const gen = new ForgePlanGenerator({ avgSecondsPerApiCall: 1 });

@@ -37,6 +37,18 @@
  * or wrote nothing. Upsert calls were not kept, and a removal of a run whose
  * upsert was under way left what that call created in the target.
  *
+ * A call sent as a Bulk API job is kept with the id the org gave the job
+ * (`ForgeRunStore.jobOpened`), and read back by it rather than looked for in
+ * the target: the job goes on to its end on the org's side whatever became of
+ * the run, and its results say, row by row, what it wrote. Each record it
+ * wrote is matched to its row by the row's fingerprint, recomputed from the
+ * cells the results echo; a job still running leaves its rows uncertain, one
+ * never closed wrote nothing, and the records it wrote that no row could be
+ * matched to are kept as the run's (`ForgeRunStore.createdUnattributed`), for
+ * a removal to take back. Beside such records, a row no record was matched to
+ * may be one of them, and stays uncertain, as one the window leaves
+ * unexplained does.
+ *
  * Memory stays bounded as the journal's readers keep it: the journal is gone
  * through with the records it names held as hashed keys, a few bytes each and
  * no id, and the window is read a page at a time, keeping of each record its
@@ -47,18 +59,25 @@ import type { Connection } from 'jsforce';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
+  readJobResults,
+  type IngestJobResultsReading,
+  type JobResultsRead,
+} from '../../core/engine/ingestJobRead.js';
+import {
   ANSWERED_TAG,
   FOUND_AFTER_STOP,
   FOUND_OWING_KEPT,
   hashA,
   hashB,
+  JOB_TAG,
   journalLines,
   owedLine,
   SENT_TAG,
+  UNATTRIBUTED_TAG,
   type OwedAtInsert,
   type RunFile,
 } from './ForgeRunStore.js';
-import { HashedKeys } from './journalRecords.js';
+import { HashedKeys, unattributedOf } from './journalRecords.js';
 import { cursorPages } from './queryAllPages.js';
 
 /** A Salesforce id, as every id a journal holds is. */
@@ -263,6 +282,20 @@ function answeredCallOf(text: string): string | undefined {
   }
 }
 
+/** The call and the job a job line names; nothing for any other line. */
+function jobOf(text: string): { callId: string; jobId: string } | undefined {
+  if (!text.startsWith(`["${JOB_TAG}"`)) return undefined;
+  try {
+    const value: unknown = JSON.parse(text);
+    if (!Array.isArray(value)) return undefined;
+    const [, callId, jobId] = value as unknown[];
+    if (typeof callId !== 'string' || typeof jobId !== 'string' || jobId === '') return undefined;
+    return { callId, jobId };
+  } catch {
+    return undefined;
+  }
+}
+
 /** A mapping line: a record a run created, linked to or wrote over. */
 function mappingOf(
   text: string,
@@ -297,6 +330,12 @@ export interface InFlightTarget {
   userId(): Promise<string>;
   /** The org's clock now, as it writes a date: what this machine's clock is set to. */
   serverTime?(): Promise<string>;
+  /**
+   * A Bulk API job read back by its id: its state, and once it has ended,
+   * its results (`readJobResults`). Without it, a call sent as a job is
+   * looked for in the target as a REST call is.
+   */
+  readJob?(jobId: string): Promise<JobResultsRead>;
 }
 
 /**
@@ -315,6 +354,7 @@ export function inFlightTargetOf(conn: Connection): InFlightTarget {
       ),
     userId: async () => (await conn.identity()).user_id,
     serverTime: async () => (await conn.soap.getServerTimestamp()).timestamp,
+    readJob: (jobId) => readJobResults(conn as unknown as IngestJobResultsReading, jobId),
   };
 }
 
@@ -377,6 +417,155 @@ interface Candidate {
 }
 
 /**
+ * The lines that keep `row` as the record `id` its call created: the record,
+ * and the lookups the row went in without, owed to the second pass, as the
+ * call's answer would have kept them.
+ */
+function foundLines(call: SentCall, row: SentRow, id: string): string[] {
+  return [
+    JSON.stringify([
+      'c',
+      row.sourceId,
+      id,
+      call.objectApiName,
+      call.owesKept ? FOUND_OWING_KEPT : FOUND_AFTER_STOP,
+    ]),
+    ...row.owes.map(({ field, sourceRefId, insertOnly }) =>
+      owedLine({
+        objectApiName: call.objectApiName,
+        newId: id,
+        sourceId: row.sourceId,
+        fieldName: field,
+        sourceRefId,
+        ...(insertOnly ? { insertOnly } : {}),
+      }),
+    ),
+  ];
+}
+
+/** What a reconciliation made of a call read back by its job. */
+interface JobReconciled {
+  /** The lines to add to the journal: rows found, records no row was matched to, the call closed. */
+  lines: string[];
+  /** The target ids it took, found or kept unmatched: none of them a record of another call. */
+  taken: string[];
+}
+
+/**
+ * Read back by its job the call `call`, its rows not mapped yet `rows`: each
+ * record the job wrote matched to its row by the fingerprint of the cells
+ * its results echo over the call's fields — or, for an upsert, by the value of
+ * its external id, a record it created and not one it wrote over — one for
+ * one. A fingerprint more rows share, or that more records carry than rows,
+ * leaves its rows uncertain, and its records are kept as the run's without a
+ * row. A record the job wrote under no row's fingerprint leaves uncertain
+ * the rows no record was found for: it may be one of them, its cells not
+ * what the run sent. The call is closed once every row is found or known not
+ * written.
+ *
+ * @param named - The records the journal names: none of them the job's to match.
+ * @param unattributed - Those of them named as the run's under no row
+ *   (`createdUnattributed`), by an earlier reconciliation of this call: the
+ *   job's still, matched again, and not named a second time.
+ */
+function reconcileByJob(
+  call: SentCall,
+  rows: readonly SentRow[],
+  read: JobResultsRead,
+  named: HashedKeys,
+  unattributed: HashedKeys,
+  outcome: InFlightReconciliation,
+): JobReconciled {
+  const { objectApiName } = call;
+  const closed = JSON.stringify([ANSWERED_TAG, call.callId]);
+  if (read.state === 'never-closed') {
+    // Never closed, it wrote nothing: the resume writes its rows.
+    tally(outcome.notFound, objectApiName, rows.length);
+    return { lines: [closed], taken: [] };
+  }
+  if (read.state === 'running') {
+    tally(outcome.uncertain, objectApiName, rows.length);
+    return { lines: [], taken: [] };
+  }
+  if (read.state === 'unread') {
+    outcome.unread.push({ objectApiName, reason: read.reason });
+    tally(outcome.uncertain, objectApiName, rows.length);
+    return { lines: [], taken: [] };
+  }
+  const upsertField = call.upsertField;
+  /** Per fingerprint, the records the job created under it that no line names yet. */
+  const held = new Map<string, string[]>();
+  for (const result of read.results.successfulResults ?? []) {
+    const id = result['sf__Id'];
+    if (typeof id !== 'string' || !RECORD_ID.test(id)) continue;
+    const key = id.slice(0, 15);
+    if (named.has(key) && !unattributed.has(key)) continue;
+    // A record an upsert wrote over was the target's before the run: not its own.
+    if (upsertField !== undefined && String(result['sf__Created']).toLowerCase() !== 'true') {
+      continue;
+    }
+    const fingerprint =
+      upsertField !== undefined
+        ? externalIdKey(result, upsertField)
+        : rowFingerprint(result, call.fields);
+    held.set(fingerprint, [...(held.get(fingerprint) ?? []), id]);
+  }
+  const byKey = new Map<string, SentRow[]>();
+  for (const row of rows) {
+    const key = upsertField !== undefined ? (row.externalKey ?? '') : row.fingerprint;
+    byKey.set(key, [...(byKey.get(key) ?? []), row]);
+  }
+  const lines: string[] = [];
+  const taken: string[] = [];
+  const unmatched: string[] = [];
+  /** The rows no record of the job carries the fingerprint of. */
+  let unfound = 0;
+  let doubtful = false;
+  for (const [key, same] of byKey) {
+    const holding = key === '' ? [] : (held.get(key) ?? []);
+    held.delete(key);
+    if (holding.length === 0) {
+      unfound += same.length;
+      continue;
+    }
+    if (same.length === 1 && holding.length === 1) {
+      lines.push(...foundLines(call, same[0], holding[0]));
+      taken.push(holding[0]);
+      tally(outcome.found, objectApiName);
+      continue;
+    }
+    // Which row each record is cannot be told: the rows may be there, and
+    // the records are the run's all the same.
+    tally(outcome.uncertain, objectApiName, same.length);
+    unmatched.push(...holding);
+    doubtful = true;
+  }
+  // Records the job wrote under no row's fingerprint are the run's, under no
+  // row. A job's results echo the cells it was sent, so such a record is a
+  // row whose cells the fingerprint did not find again: any row no record was
+  // found for may be it, and stays uncertain — never written a second time —
+  // as a row the window cannot explain does. With none, a row no record was
+  // found for was refused, left unprocessed, kept out of the job, or an
+  // upsert that wrote over a record the target held: the resume writes it.
+  let unexplained = false;
+  for (const ids of held.values()) {
+    unmatched.push(...ids);
+    if (ids.length > 0) unexplained = true;
+  }
+  if (unfound > 0) {
+    tally(unexplained ? outcome.uncertain : outcome.notFound, objectApiName, unfound);
+    if (unexplained) doubtful = true;
+  }
+  const newlyUnmatched = unmatched.filter((id) => !unattributed.has(id.slice(0, 15)));
+  if (newlyUnmatched.length > 0) {
+    lines.push(JSON.stringify([UNATTRIBUTED_TAG, objectApiName, newlyUnmatched]));
+  }
+  taken.push(...unmatched);
+  if (!doubtful) lines.push(closed);
+  return { lines, taken };
+}
+
+/**
  * The insert calls the journal `file` names no answer of: read without the
  * target, to know whether a reconciliation has anything to look for.
  */
@@ -414,13 +603,19 @@ export async function reconcileInFlight(
   now: () => Date = () => new Date(),
 ): Promise<InFlightReconciliation> {
   const outcome = noCallsInFlight();
-  // The calls left open, and the journal's last time.
+  // The calls left open, the jobs they went as, and the journal's last time.
   const open = new Map<string, { offset: number; length: number }>();
+  const jobs = new Map<string, string>();
   let last = Number.NEGATIVE_INFINITY;
   for (const line of journalLines(file)) {
     const answered = answeredCallOf(line.text);
     if (answered !== undefined) {
       open.delete(answered);
+      continue;
+    }
+    const job = jobOf(line.text);
+    if (job) {
+      jobs.set(job.callId, job.jobId);
       continue;
     }
     if (line.text.startsWith(`["${SENT_TAG}"`)) {
@@ -451,7 +646,21 @@ export async function reconcileInFlight(
   // and, of their objects, every record it names, which is none of theirs.
   const mapped = new Set<string>();
   const named = new HashedKeys();
+  // The records a job wrote that no row was matched to, as the run kept
+  // them: none of them a record of a call looked for in the window, and a
+  // call read again by its job matches them again.
+  const unattributed = new HashedKeys();
   for (const line of journalLines(file)) {
+    const kept = unattributedOf(line.text);
+    if (kept) {
+      if (objects.has(kept.object)) {
+        for (const id of kept.ids) {
+          named.add(id.slice(0, 15));
+          unattributed.add(id.slice(0, 15));
+        }
+      }
+      continue;
+    }
     const mapping = mappingOf(line.text);
     if (!mapping) continue;
     if (openSources.has(mapping.sourceId)) mapped.add(mapping.sourceId);
@@ -475,8 +684,38 @@ export async function reconcileInFlight(
   let userUnread: string | undefined;
 
   const lines: string[] = [];
+  // The calls sent as jobs first, each read back by its job: what they took
+  // is no record for the calls looked for in the window to match.
+  const readJob = target.readJob?.bind(target);
+  const byJob = new Set<string>();
+  if (readJob) {
+    for (const call of calls) {
+      const jobId = jobs.get(call.callId);
+      if (jobId === undefined) continue;
+      byJob.add(call.callId);
+      const rows = call.rows.filter((row) => !mapped.has(row.sourceId));
+      if (rows.length === 0) {
+        lines.push(JSON.stringify([ANSWERED_TAG, call.callId]));
+        continue;
+      }
+      const reconciled = reconcileByJob(
+        call,
+        rows,
+        await readJob(jobId),
+        named,
+        unattributed,
+        outcome,
+      );
+      lines.push(...reconciled.lines);
+      for (const id of reconciled.taken) named.add(id.slice(0, 15));
+    }
+  }
+
   for (const objectApiName of objects) {
-    const ofObject = calls.filter((call) => call.objectApiName === objectApiName);
+    const ofObject = calls.filter(
+      (call) => call.objectApiName === objectApiName && !byJob.has(call.callId),
+    );
+    if (ofObject.length === 0) continue;
     const rowsLeft = ofObject.map((call) => ({
       call,
       rows: call.rows.filter((row) => !mapped.has(row.sourceId)),
@@ -549,34 +788,10 @@ export async function reconcileInFlight(
       index.set(key, byFingerprint);
     }
 
-    /**
-     * Keep `row` as the record `candidate` the call created: the record, and
-     * the lookups the row went in without, owed to the second pass, as the
-     * call's answer would have kept them.
-     */
+    /** Keep `row` as the record `candidate` the call created: see `foundLines`. */
     const found = (call: SentCall, row: SentRow, candidate: Candidate): void => {
       candidate.taken = true;
-      lines.push(
-        JSON.stringify([
-          'c',
-          row.sourceId,
-          candidate.id,
-          objectApiName,
-          call.owesKept ? FOUND_OWING_KEPT : FOUND_AFTER_STOP,
-        ]),
-      );
-      for (const { field, sourceRefId, insertOnly } of row.owes) {
-        lines.push(
-          owedLine({
-            objectApiName,
-            newId: candidate.id,
-            sourceId: row.sourceId,
-            fieldName: field,
-            sourceRefId,
-            ...(insertOnly ? { insertOnly } : {}),
-          }),
-        );
-      }
+      lines.push(...foundLines(call, row, candidate.id));
       tally(outcome.found, objectApiName);
     };
 

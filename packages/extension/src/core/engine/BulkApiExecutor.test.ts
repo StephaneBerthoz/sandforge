@@ -286,6 +286,60 @@ describe('BulkApiExecutor', () => {
       await Promise.all([first, second]);
     });
 
+    it('waits five seconds between two reads of the job state unless told', async () => {
+      const job = createMockJob({
+        checkResults: [
+          { state: 'InProgress', numberRecordsProcessed: 0 },
+          { state: 'InProgress', numberRecordsProcessed: 1 },
+          { state: 'JobComplete', numberRecordsProcessed: 3 },
+        ],
+      });
+      const promise = new BulkApiExecutor().executeBulk(
+        createDeps(createMockConnection(job)),
+        'Account',
+        'insert',
+        [{ Name: 'A' }, { Name: 'B' }, { Name: 'C' }],
+      );
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(job.check).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(job.check).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(job.check).toHaveBeenCalledTimes(3);
+      await promise;
+    });
+
+    it('waits as its caller schedules between two reads of the job state, told how many it waited for', async () => {
+      const job = createMockJob({
+        checkResults: [
+          { state: 'UploadComplete', numberRecordsProcessed: 0 },
+          { state: 'InProgress', numberRecordsProcessed: 1 },
+          { state: 'JobComplete', numberRecordsProcessed: 3 },
+        ],
+      });
+      const asked: number[] = [];
+      const deps: BulkApiExecutorDeps = {
+        ...createDeps(createMockConnection(job)),
+        pollIntervalMs: (attempt) => {
+          asked.push(attempt);
+          return (attempt + 1) * 1_000;
+        },
+      };
+      const promise = new BulkApiExecutor().executeBulk(deps, 'Account', 'insert', [
+        { Name: 'A' },
+        { Name: 'B' },
+        { Name: 'C' },
+      ]);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(job.check).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(job.check).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(job.check).toHaveBeenCalledTimes(3);
+      await promise;
+      expect(asked).toEqual([0, 1]);
+    });
+
     it('should call onProgress during polling', async () => {
       const onProgress = vi.fn();
       const job = createMockJob({
@@ -444,6 +498,7 @@ describe('BulkApiExecutor', () => {
         recordIndex: 1,
         success: false,
         error: 'No result returned by Bulk API job',
+        state: 'no-result',
       });
     });
 
@@ -724,9 +779,24 @@ describe('BulkApiExecutor', () => {
         success: false,
         error:
           'No result returned by Bulk API job; the job wrote 1 record(s) no row was matched to: 01t000000000009AAA',
+        state: 'no-result',
       });
       expect(result.unmatchedIds).toEqual(['01t000000000009AAA']);
+      expect(result.unmatchedWrites).toBe(1);
       expect(result.successIds).toContain('01t000000000009AAA');
+    });
+
+    it('counts a record the job wrote without its id that no row was matched to, though it has no id to name', async () => {
+      const { result } = await run('insert', [{ Name: 'A' }, { Name: 'B' }], {
+        successfulResults: [
+          { sf__Id: '01t000000000001AAA', sf__Created: 'true', Name: 'A' },
+          { sf__Created: 'true', Name: 'B as echoed otherwise' },
+        ],
+      });
+
+      expect(result.outcomes[1]).toMatchObject({ success: false, state: 'no-result' });
+      expect(result.unmatchedIds).toBeUndefined();
+      expect(result.unmatchedWrites).toBe(1);
     });
 
     it('says why on every row a failed job left without a result', async () => {
@@ -752,6 +822,28 @@ describe('BulkApiExecutor', () => {
       expect(result.outcomes.map((o) => o.error)).toEqual([
         'Record not processed by Bulk API job (InvalidBatch : Field name not found : Nope__c)',
         'No result returned by Bulk API job (InvalidBatch : Field name not found : Nope__c)',
+      ]);
+    });
+
+    it('says apart, by its state, a row the job did not process, one no result was matched to, and one it answered', async () => {
+      // Read from the text, a row was told apart by words written for a
+      // person; a caller that writes again what the job never processed reads
+      // the state instead.
+      const { result } = await run(
+        'insert',
+        [{ Name: 'A' }, { Name: 'B' }, { Name: 'C' }, { Name: 'D' }],
+        {
+          successfulResults: [{ sf__Id: '01t000000000001AAA', sf__Created: 'true', Name: 'A' }],
+          failedResults: [{ sf__Error: 'REQUIRED_FIELD_MISSING:Missing:Foo__c --', Name: 'B' }],
+          unprocessedRecords: [{ Name: 'C' }],
+        },
+      );
+
+      expect(result.outcomes.map((o) => o.state)).toEqual([
+        undefined,
+        undefined,
+        'unprocessed',
+        'no-result',
       ]);
     });
   });

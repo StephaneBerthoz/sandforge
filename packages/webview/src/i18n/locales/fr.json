@@ -43,6 +43,8 @@
     "time": "Heure",
     "recordIds": "ID d'enregistrement",
     "statusAbbrev": "St",
+    "objectCountFormatted_one": "{{formatted}} objet",
+    "objectCountFormatted_other": "{{formatted}} objets",
     "recordCountFormatted_one": "{{formatted}} enregistrement",
     "recordCountFormatted_other": "{{formatted}} enregistrements",
     "fieldCount_one": "{{count}} champ",
@@ -3528,6 +3530,14 @@
     "soqlTab": "SOQL",
     "templateTab": "Modèle",
     "aiTab": "IA",
+    "wholeOrg": "Toute l'org",
+    "allInputDisabled": "ALL copie toute l'org source : il ne part d'aucun enregistrement, d'aucune requête, d'aucun modèle ni d'aucun brouillon IA. Choisissez une autre profondeur pour les utiliser.",
+    "allCarried": "Des choix repris d'un modèle ou d'une exécution précédente restreignent encore ce clone de toute l'org :",
+    "allCarriedFiltered": "Objets filtrés : {{objects}}",
+    "allCarriedExcluded": "Objets écartés : {{objects}}",
+    "allCarriedHeldBack": "Lignes retenues sur : {{objects}}",
+    "allCarriedFields": "Champs écartés sur : {{objects}}",
+    "clearCarried": "Retirer ces choix",
     "ai": {
       "notConfiguredTitle": "Aucun fournisseur d'IA n'est configuré",
       "notConfiguredBody": "Enregistrez une clé API Anthropic dans Paramètres > IA : l'enregistrer active l'IA. Votre description est alors envoyée au modèle avec les noms des objets de l'org source, et les champs des objets qu'elle nomme. La requête qui revient est vérifiée auprès de l'org et attend que vous la lanciez.",
@@ -3562,6 +3572,7 @@
     "depthDirect": "Direct uniquement",
     "depthFull": "Profond (5 niveaux)",
     "depthCustom": "Profondeur personnalisée",
+    "depthAll": "ALL",
     "sourceOrg": "Org source",
     "targetOrg": "Org cible",
     "anonymizePII": "Anonymiser les PII",
@@ -3588,6 +3599,8 @@
     "depthDirectTooltip": "Uniquement les objets enfants directs (1 niveau)",
     "depthFullTooltip": "L'arbre de dépendances, jusqu'à 5 niveaux de profondeur",
     "depthCustomTooltip": "Spécifiez la profondeur maximale des relations",
+    "depthAllTooltip": "Chaque enregistrement de chaque objet que l'org source laisse lire à Forge et que l'org cible le laisse créer, fichiers et e-mails compris",
+    "depthAllHint": "ALL copie toute l'org source : chaque objet que la cible peut créer, chaque enregistrement de chacun, sans plafond. Les objets que Salesforce ne laisse pas créer par l'API sont écartés, et la revue les nomme.",
     "depthCustomHint": "Jusqu'à {{max}} niveaux : au-delà, la découverte décrirait des milliers d'objets dans une org CRM et épuiserait ses limites d'API sans produire de graphe exploitable.",
     "depthCustomInvalid": "Saisissez un nombre entier de 1 à {{max}}.",
     "soqlPreviewHint": "L'aperçu est disponible pour les ID d'enregistrement",
@@ -3596,12 +3609,19 @@
     "refreshPreview": "Rafraîchir l'aperçu",
     "noOrgSelected": "Sélectionnez une org source pour l'aperçu",
     "livePreview": "Aperçu en direct",
+    "allPreviewBody": "La découverte liste chaque objet de {{source}} que {{target}} peut créer, et compte ses enregistrements.",
+    "allPreviewBodyNoTarget": "La découverte liste chaque objet de {{source}} que l'org cible peut créer, et compte ses enregistrements.",
+    "allPreviewNoSource": "Sélectionnez une org source pour en copier toutes les données",
+    "allPreviewPiiOff": "Anonymiser les PII est désactivé : chaque champ personnel de l'org source est copié tel quel.",
+    "allGraphTooLarge_one": "Son {{formatted}} objet est listé plutôt que dessiné, comme pour tout clonage de toute l'org et tout graphe de plus de 150 objets : un graphe de centaines d'objets fige le panneau le temps d'être disposé. La revue peut encore le dessiner.",
+    "allGraphTooLarge_other": "Ses {{formatted}} objets sont listés plutôt que dessinés, comme pour tout clonage de toute l'org et tout graphe de plus de 150 objets : un graphe de centaines d'objets fige le panneau le temps d'être disposé. La revue peut encore le dessiner.",
     "piiWarning_one": "{{count}} champ PII détecté",
     "piiWarning_other": "{{count}} champs PII détectés",
     "piiWarningHint": "Les noms, les adresses et les autres champs personnels partent tels quels ; Anonymiser les PII les masque.",
     "direct": {
       "action": "Cloner directement",
-      "hint": "Découvre et clone d'un seul tenant, sans la revue : aucun écart tranché, pas de comparaison des métadonnées ; ce que la cible exécute à l'insertion vous est tout de même soumis d'abord."
+      "hint": "Découvre et clone d'un seul tenant, sans la revue : aucun écart tranché, pas de comparaison des métadonnées ; ce que la cible exécute à l'insertion vous est tout de même soumis d'abord.",
+      "hintAll": "Clone toute l'org sans la revue : ce qu'il écrit, son stockage, ses requêtes API et sa durée vous sont tout de même soumis d'abord."
     },
     "editTemplate": "Modifier",
     "deleteTemplateConfirm": "Voulez-vous vraiment supprimer ce modèle ?",
@@ -3615,10 +3635,14 @@
     "objectCap": "Objets",
     "objectCapHint": "Nombre maximal d'objets que la découverte peut inclure (les objets vides ne comptent pas).",
     "objectCapDefault": "Par défaut (50)",
+    "objectCapAll": "Tous les objets",
+    "objectCapAllDisabled": "ALL prend chaque objet que la cible peut créer : il n'y a pas de plafond d'objets.",
     "recordLimitSmart": "Automatique (selon l'entrée)",
     "recordLimitSmartRecord": "Automatique : ne lit que ce que l'enregistrement atteint, au plus 50 000 lignes par objet, et demande avant une écriture volumineuse.",
     "recordLimitSmartSoql": "Automatique : {{limit}} par objet. Une exécution depuis une requête lit les autres objets dans leur table entière.",
     "recordLimitAll": "Tout",
+    "recordLimitEvery": "Tous les enregistrements",
+    "recordLimitAllDisabled": "ALL copie chaque enregistrement de chaque objet : il n'y a pas de plafond par objet.",
     "recordLimitOpt10": "10 / objet (échantillon)",
     "recordLimitOpt50": "50 / objet",
     "recordLimitOpt100": "100 / objet",
@@ -3651,6 +3675,25 @@
     },
     "expandOrphanParents": "Récupérer les parents automatiquement",
     "expandOrphanParentsHint": "Copie aussi les parents que le clone ne lit pas de lui-même : derrière une référence pouvant désigner plusieurs objets, au-delà de cinq niveaux ou du plafond. Un clone à partir d'un enregistrement lit déjà par id les parents sans lesquels ses enregistrements ne peuvent pas être écrits.",
+    "expandOrphanParentsAll": "ALL copie chaque table en entier : chaque parent fait donc déjà partie de l'exécution.",
+    "leftOut": {
+      "missingInTarget": "Absents de l'org cible",
+      "notWritable": "Que vous ne pouvez pas créer, modifier et supprimer dans l'org cible",
+      "notQueryable": "Que vous ne pouvez pas interroger dans l'org source",
+      "unreadable": "Refusés par l'org source",
+      "notDescribed": "Description illisible",
+      "empty": "Aucun enregistrement dans l'org source",
+      "setup": "Configuration, utilisateurs, autorisations, journaux et tâches planifiées",
+      "metadata": "Métadonnées, déployées et non copiées",
+      "unsupportedKind": "Big objects, objets externes et Data Cloud, versions Knowledge, événements de plateforme",
+      "chatter": "Fils Chatter",
+      "history": "Objets d'historique",
+      "sharing": "Objets de partage",
+      "changeEvent": "Événements de modification",
+      "files": "Fichiers et documents",
+      "noLayout": "sans présentation de page",
+      "withTheirRecords": "copié avec les enregistrements auxquels il est rattaché"
+    },
     "reuseLastGraph": "Réutiliser le dernier graphe (skip discovery)",
     "reuseLastGraphHint": "Saute la découverte (30s+) et réutilise le graphe de la dernière exécution.",
     "quickStartTemplate": "Démarrage rapide ({{name}})",
@@ -3765,7 +3808,13 @@
     "elapsed": "Écoulé",
     "discovery": "Découverte du graphe",
     "discoveryProgress": "Découverte… {{discovered}} objets analysés, {{queued}} en file",
+    "discoveryPhase": {
+      "listing": "Liste des objets des deux orgs…",
+      "counting": "Comptage des enregistrements : {{done}} objets sur {{total}}",
+      "describing": "Description des objets qui ont des enregistrements : {{done}} sur {{total}}"
+    },
     "executeForge": "Exécuter le Forge",
+    "allNoSimulation": "Un clonage de toute l'org ne peut pas encore être simulé ni faire l'objet d'un essai à blanc : la confirmation que Exécuter demande toujours avant d'écrire dit ce qu'il écrit, son stockage, ses appels API et sa durée.",
     "runStoppedOn": "L'exécution s'est arrêtée avant sa fin : {{message}}",
     "runCancelled": "Vous avez annulé l'exécution avant sa fin.",
     "runStoppedWrote_one": "Avant de s'arrêter, elle avait créé {{count}} enregistrement dans l'org cible.",
@@ -3847,6 +3896,8 @@
     "anonymizedFields": "Champs anonymisés",
     "tableView": "Vue tableau",
     "graphView": "Vue graphe",
+    "graphViewSlow_one": "Dessiné, un clonage de toute l'org ou un graphe de plus de 150 objets peut figer le panneau un moment, et un clonage le redessine à chaque étape : le tableau liste aussitôt son {{formatted}} objet.",
+    "graphViewSlow_other": "Dessiné, un clonage de toute l'org ou un graphe de plus de 150 objets peut figer le panneau un moment, et un clonage le redessine à chaque étape : le tableau liste aussitôt ses {{formatted}} objets.",
     "direct": {
       "discovering": "Le clonage démarre dès que la découverte répond.",
       "reviewSkipped": "Revue sautée : ce clonage a démarré dès que la découverte a répondu, avec les objets qu'elle a retenus, et la comparaison des métadonnées entre les deux organisations n'a pas été lancée. Les Flows et les déclencheurs Apex que l'org cible exécute à l'insertion des enregistrements ont été lus avant lui, et ceux qui se déclenchent vous ont été soumis d'abord."
@@ -3857,7 +3908,14 @@
       "readDeclined": "Vous avez annulé le clonage à la confirmation des tables qu'il lit sans limite par objet, chacune au-delà de {{ceiling}} enregistrements. Rien n'a été lu ni écrit. Réglez Enregistrements / objet pour en lire moins.",
       "writeDeclined": "Vous avez annulé le clonage avant qu'il n'écrive quoi que ce soit. Les enregistrements source ont été lus ; rien n'a été écrit dans l'org cible.",
       "storageExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses enregistrements occupent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo à l'org cible. Excluez des objets, réduisez le nombre d'enregistrements par objet ou libérez du stockage de données dans l'org cible.",
-      "confirmationUnavailable": "Le clonage a été arrêté avant d'écrire quoi que ce soit : il lui fallait votre confirmation, et aucune n'a pu être demandée."
+      "storageExceededAll": "Le clonage a été refusé avant d'écrire quoi que ce soit : les enregistrements de toute l'org occupent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo à l'org cible. Excluez des objets dans la revue ou libérez du stockage de données dans l'org cible.",
+      "storageExceededFiles": "Le clonage a été refusé avant d'écrire quoi que ce soit : les fichiers qu'il copie occupent environ {{estimate}} Mo de stockage de fichiers, et il reste {{remaining}} Mo à l'org cible. Excluez les fichiers dans la revue ou libérez du stockage de fichiers dans l'org cible.",
+      "confirmationUnavailable": "Le clonage a été arrêté avant d'écrire quoi que ce soit : il lui fallait votre confirmation, et aucune n'a pu être demandée.",
+      "apiBudgetExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : il demanderait plus d'appels API qu'il n'en reste aujourd'hui à l'org source ou cible, ou plus de lots Bulk API qu'il n'en reste à l'org cible. Relancez-le quand l'org en aura de reste.",
+      "apiRequestsExceededTarget": "Le clonage a été refusé avant d'écrire quoi que ce soit : il demanderait environ {{estimate}} appels API à l'org cible, à qui il en reste {{remaining}} aujourd'hui. Relancez-le quand l'org en aura de reste, ou excluez des objets dans la revue.",
+      "apiRequestsExceededSource": "Le clonage a été refusé avant d'écrire quoi que ce soit : lire l'org source demanderait environ {{estimate}} de ses appels API, et il lui en reste {{remaining}} aujourd'hui. Relancez-le quand l'org en aura de reste, ou excluez des objets dans la revue.",
+      "bulkBatchesExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses jobs Bulk API demanderaient environ {{estimate}} lots à l'org cible, à qui il en reste {{remaining}} sur les dernières 24 heures. Relancez-le quand l'org en aura de reste.",
+      "readBoundExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : une copie de toute l'org lit quelques objets en entier, et plus de {{bound}} enregistrements, autant que le réglage sandforge.forge.maxRecordsPerObject lui permet d'en garder à la fois, ont été trouvés dans {{objects}}. Augmentez le réglage, ou excluez ces objets dans la revue."
     },
     "executionTable": {
       "leftOut": "écarté",
@@ -4029,6 +4087,9 @@
       "planLoading": "Génération du plan d'exécution...",
       "wave": "Vague",
       "cycles": "Résolutions de cycles",
+      "leftOutTitle_one": "Écartés : {{formatted}} objet de l'org source",
+      "leftOutTitle_other": "Écartés : {{formatted}} objets de l'org source",
+      "leftOutHint": "Les objets de l'org source que ce clonage de toute l'org ne prend pas, par motif : Salesforce ne laisse pas l'API les créer, la cible ne peut pas les recevoir, ou la source n'en a aucun.",
       "fieldsAnonymized_one": "{{count}} champ anonymisé",
       "fieldsAnonymized_other": "{{count}} champs anonymisés",
       "fieldsScanned_one": "{{count}} champ analysé au total",
@@ -5235,10 +5296,11 @@
     "encryptedLeftOut": "{{fields}} : champs chiffrés que l'utilisateur avec lequel SandForge lit l'org source voit masqués, faute de l'autorisation View Encrypted Data. Laissés hors de chaque enregistrement écrit, plutôt que copiés masqués.",
     "writtenWithoutFields": {
       "title": "Écrits sans un champ refusé par l'org cible",
-      "hint": "L'org cible a refusé ces enregistrements sur les champs qu'elle désignait : une de ses règles de validation, une liste de sélection restreinte qui n'accepte pas la valeur pour le type d'enregistrement de l'enregistrement — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune, ce que rien de ce qui est lu avant l'écriture ne dit —, ou le filtre de recherche d'un champ de référence qu'elle permet de laisser vide, qui n'accepte pas l'enregistrement désigné. Le clone a écrit de nouveau chaque enregistrement sans ces champs : l'enregistrement est dans l'org cible, sans la valeur que la source leur donne.",
+      "hint": "L'org cible a refusé ces enregistrements sur les champs qu'elle désignait : une de ses règles de validation, une liste de sélection restreinte qui n'accepte pas la valeur pour le type d'enregistrement de l'enregistrement — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune, ce que rien de ce qui est lu avant l'écriture ne dit —, ou le filtre de recherche d'un champ de référence qu'elle permet de laisser vide, qui n'accepte pas l'enregistrement désigné. Le clone a écrit de nouveau chaque enregistrement sans ces champs : l'enregistrement est dans l'org cible, sans la valeur que la source leur donne. Un enregistrement refusé par l'org cible pour son propriétaire, inactif dans celle-ci, a été écrit de nouveau sans lui : l'utilisateur sous lequel le clone écrit en est le propriétaire.",
       "byValidationRule": "refusé par une règle de validation",
       "byRestrictedPicklist": "valeur refusée par une liste de sélection restreinte",
-      "byLookupFilter": "enregistrement désigné refusé par un filtre de recherche"
+      "byLookupFilter": "enregistrement désigné refusé par un filtre de recherche",
+      "byInactiveOwner": "propriétaire refusé par l'org cible, où il est inactif"
     },
     "checkpointNow": {
       "why": "Avant que vos testeurs ne commencent, gardez {{org}} telle qu'elle est maintenant comme point où revenir. Revenir à ce point l'y ramène ensuite, quel que soit l'auteur des changements à venir.",
@@ -5531,6 +5593,14 @@
         "action": "Corrigez cette automatisation dans l'org cible, ou désactivez-la le temps du clonage, puis relancez les objets en échec."
       }
     },
+    "governorLimit": {
+      "explanation": "Une automatisation de l'org — un déclencheur ou un Flow — a dépassé une limite de Salesforce, comme trop de requêtes, trop d'écritures ou trop de temps CPU, sur l'appel qui portait cet enregistrement, et l'org a annulé tous les enregistrements de cet appel : l'automatisation lance une requête ou une écriture par enregistrement au lieu d'une seule pour tous.",
+      "action": "Faites en sorte que cette automatisation interroge et écrive une seule fois pour tous les enregistrements d'un appel, ou qu'elle ne fasse rien pour qui détient une autorisation personnalisée de contournement, que « Rendre muettes les automatisations de la cible pour cette exécution » attribue là où une exécution le propose ; puis relancez.",
+      "forge": {
+        "explanation": "Une automatisation de l'org cible — le déclencheur que nomme le message, ou un Flow — a dépassé une limite de Salesforce, comme trop de requêtes, trop d'écritures ou trop de temps CPU, à la sauvegarde de l'enregistrement : elle lance une requête ou une écriture par enregistrement, et l'org cible a annulé tout l'appel. Forge renvoie les enregistrements d'un tel appel en appels deux fois plus petits, jusqu'à un seul enregistrement, et garde cette taille pour l'objet jusqu'à la fin de l'exécution ; cet enregistrement a tout de même été refusé, envoyé seul ou une fois épuisés les appels plus petits que l'exécution s'accorde, comme le dit la phrase qui suit le message de l'org.",
+        "action": "Corrigez cette automatisation dans l'org cible pour qu'elle interroge et écrive une seule fois pour tous les enregistrements d'un appel, ou pour qu'elle ne fasse rien pour qui détient l'autorisation personnalisée de contournement que « Rendre muettes les automatisations de la cible pour cette exécution » attribue ; puis relancez les objets en échec ou, pour une suppression, supprimez ce qui reste."
+      }
+    },
     "insufficientAccess": {
       "explanation": "Votre utilisateur dans l'org n'a pas les droits nécessaires à cette opération.",
       "action": "Demandez l'autorisation manquante à un administrateur, ou connectez l'org avec un utilisateur qui la possède."
@@ -5589,8 +5659,8 @@
       "explanation": "Salesforce a refusé l'enregistrement parce qu'il appartiendrait, ou serait attribué, à un utilisateur inactif dans l'org.",
       "action": "Faites pointer la règle d'attribution ou le Flow qui choisit cet utilisateur vers un utilisateur actif ou une file d'attente, ou réactivez l'utilisateur, puis relancez.",
       "forge": {
-        "explanation": "Salesforce a refusé l'enregistrement parce qu'il appartiendrait, ou serait attribué, à un utilisateur inactif dans l'org cible. Le clone laisse chaque enregistrement qu'il crée à l'utilisateur sous lequel il écrit : cet utilisateur vient donc de l'org cible — une règle d'attribution, ou un Flow qui fixe le propriétaire ou attribue une tâche — ou d'un propriétaire donné dans Revue → Réglages.",
-        "action": "Dans l'org cible, faites pointer cette règle ou ce Flow vers un utilisateur actif ou une file d'attente, ou réactivez l'utilisateur ; ou, dans Revue → Réglages, confiez les enregistrements à un utilisateur actif sous Propriétaires confiés aux utilisateurs de la cible. Puis relancez les objets en échec."
+        "explanation": "Salesforce a refusé l'enregistrement parce qu'il appartiendrait, ou serait attribué, à un utilisateur inactif dans l'org cible. Un clone d'enregistrement laisse chaque enregistrement qu'il crée à l'utilisateur sous lequel il écrit ; un clone de requête ou de toute l'org garde un propriétaire actif dans la cible, et donne à cet utilisateur un enregistrement dont le propriétaire est inactif dans la cible, sauf si cet utilisateur a l'autorisation Update Records with Inactive Owners. Les propriétaires confiés dans Revue → Réglages passent avant. Ce qui reste refusé vient de l'un de ces propriétaires confié à un utilisateur inactif dans la cible, d'une règle d'attribution ou d'un Flow de la cible qui fixe le propriétaire ou attribue une tâche, ou d'un champ d'audit, comme Créé par, qui désigne un utilisateur inactif.",
+        "action": "Dans l'org cible, faites pointer cette règle ou ce Flow vers un utilisateur actif ou une file d'attente, ou réactivez l'utilisateur ; ou, dans Revue → Réglages, confiez les enregistrements à un utilisateur actif plutôt qu'à un utilisateur inactif sous Propriétaires confiés aux utilisateurs de la cible. Puis relancez les objets en échec."
       }
     },
     "entityDeleted": {

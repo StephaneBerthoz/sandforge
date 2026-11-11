@@ -21,14 +21,46 @@ export type ForgeObjectsView = 'graph' | 'table';
 export const FORGE_GRAPH_MAX_OBJECTS = 25;
 
 /**
+ * The most objects a screen draws as a graph because the setting says
+ * `graph`, or because the switch was set to the graph on a smaller one; past
+ * it, and for every clone of the whole org, the graph is large
+ * ({@link forgeGraphIsLarge}).
+ *
+ * Laying a graph out (dagre) then drawing it (ReactFlow) grows faster than
+ * its objects: at 400 it held the panel still about a second at each redraw,
+ * and a clone of the whole org takes up to 1,950. A large graph is listed
+ * whatever the setting says, the discovery does not draw it at all, and
+ * Review and the execution offer it only with a warning of how slow it is.
+ */
+export const FORGE_GRAPH_SLOW_OBJECTS = 150;
+
+/**
+ * Whether a graph of `objectCount` objects is too large to be drawn unless
+ * the user asks for it on it: past {@link FORGE_GRAPH_SLOW_OBJECTS}, or a
+ * clone of the whole org, whose graph grows to that and past it as the org
+ * is counted.
+ */
+export function forgeGraphIsLarge(objectCount: number, wholeOrg = false): boolean {
+  return wholeOrg || objectCount > FORGE_GRAPH_SLOW_OBJECTS;
+}
+
+/**
  * What a screen shows a graph of `objectCount` objects as: the view picked
  * with the Graph/Table switch, once one was, over what the setting says.
+ *
+ * A large graph (`large`) is listed unless the switch was set to the graph
+ * on a large graph (`choiceOnLarge`): neither the setting nor the graph
+ * picked on a run of a dozen objects draws 1,950 of them, which would hold
+ * the panel still at every progress of the run.
  */
 export function forgeObjectsView(
   setting: ForgeGraphView,
   choice: ForgeObjectsView | null,
   objectCount: number,
+  large = false,
+  choiceOnLarge = false,
 ): ForgeObjectsView {
+  if (large) return choice === 'graph' && choiceOnLarge ? 'graph' : 'table';
   if (choice !== null) return choice;
   if (setting !== 'auto') return setting;
   return objectCount > FORGE_GRAPH_MAX_OBJECTS ? 'table' : 'graph';
@@ -41,22 +73,31 @@ export interface ForgeViewState {
   /**
    * The view picked with the Graph/Table switch of any of those screens, or
    * null until one is picked. Kept as long as the panel, as the store is: it
-   * holds on all three and for every run, over the setting.
+   * holds on all three and for every run, over the setting, but for a large
+   * graph ({@link forgeGraphIsLarge}). That one is listed unless the graph
+   * was picked on a large graph too (`choiceOnLarge`), and the discovery,
+   * which offers no switch then, never draws it.
    */
   choice: ForgeObjectsView | null;
+  /**
+   * Whether `choice` was picked on a large graph ({@link forgeGraphIsLarge}):
+   * only then does it draw one.
+   */
+  choiceOnLarge: boolean;
   /**
    * Take the setting from an extension message. A message that names none,
    * or a value the setting does not offer, leaves the one held.
    */
   adoptSetting: (value: unknown) => void;
-  /** Keep the view picked with the switch. */
-  choose: (view: ForgeObjectsView) => void;
+  /** Keep the view picked with the switch, on a large graph or not. */
+  choose: (view: ForgeObjectsView, onLarge?: boolean) => void;
 }
 
 /** Zustand store for how the Forge screens show a graph's objects. */
 export const useForgeViewStore = create<ForgeViewState>((set) => ({
   setting: 'auto',
   choice: null,
+  choiceOnLarge: false,
 
   adoptSetting(value: unknown): void {
     // Read without zod: the bridge calls this in every panel, and a schema
@@ -64,12 +105,19 @@ export const useForgeViewStore = create<ForgeViewState>((set) => ({
     if (isForgeGraphView(value)) set({ setting: value });
   },
 
-  choose(view: ForgeObjectsView): void {
-    set({ choice: view });
+  choose(view: ForgeObjectsView, onLarge = false): void {
+    set({ choice: view, choiceOnLarge: onLarge });
   },
 }));
 
-/** What a screen shows a graph of `objectCount` objects as, followed as it changes. */
-export function useForgeObjectsView(objectCount: number): ForgeObjectsView {
-  return useForgeViewStore((state) => forgeObjectsView(state.setting, state.choice, objectCount));
+/**
+ * What a screen shows a graph of `objectCount` objects as, followed as it
+ * changes; `wholeOrg` for a clone of the whole org, whose graph is large
+ * whatever it holds yet.
+ */
+export function useForgeObjectsView(objectCount: number, wholeOrg = false): ForgeObjectsView {
+  const large = forgeGraphIsLarge(objectCount, wholeOrg);
+  return useForgeViewStore((state) =>
+    forgeObjectsView(state.setting, state.choice, objectCount, large, state.choiceOnLarge),
+  );
 }

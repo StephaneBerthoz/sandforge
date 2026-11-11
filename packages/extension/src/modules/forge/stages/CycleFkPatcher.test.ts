@@ -8,6 +8,12 @@ import {
 import { IdRemapper } from '../IdRemapper.js';
 import type { PendingFkUpdate } from './BatchWriter.js';
 import type { ForgeExecutorDeps, ForgeProgressEvent } from '../ForgeExecutor.js';
+import { BulkJobLostError, type BulkRowState, type BulkWriteAnswer } from '../forgeBulkWrite.js';
+import {
+  CallSizes,
+  GOVERNOR_LIMIT_ALONE,
+  SplitAllowance,
+} from '../../../core/common/governorLimit.js';
 
 type UpdateRecordsFn = NonNullable<ForgeExecutorDeps['updateRecords']>;
 
@@ -702,5 +708,519 @@ describe('the second pass handed in parts', () => {
     expect(across.spans('001NEW000000011')).toBe(true);
     expect(across.spans('001NEW000000010')).toBe(false);
     expect(across.spans('001NEW999999999')).toBe(false);
+  });
+});
+
+describe('patchCycleFkUpdates — updates sent as Bulk API jobs', () => {
+  type BulkUpdateFn = NonNullable<CycleFkPatchInput['bulkUpdate']>;
+
+  /** `n` accounts owing their parent, the parents cloned: every lookup resolvable. */
+  function owing(n: number): { pending: PendingFkUpdate[]; remapper: IdRemapper } {
+    const remapper = new IdRemapper();
+    const pending: PendingFkUpdate[] = [];
+    for (let i = 0; i < n; i++) {
+      const parent = `001PAR${String(i % 3).padStart(9, '0')}`;
+      remapper.add(parent, `001TGT${String(i % 3).padStart(9, '0')}`);
+      pending.push(
+        makePending({
+          newId: `001NEW${String(i).padStart(9, '0')}`,
+          sourceId: `001OLD${String(i).padStart(9, '0')}`,
+          fieldName: 'ParentId',
+          sourceRefId: parent,
+        }),
+      );
+    }
+    return { pending, remapper };
+  }
+
+  /** The answer of a job that took every update it was sent. */
+  function allTaken(records: readonly Record<string, unknown>[]): BulkWriteAnswer {
+    return {
+      answers: records.map((r) => ({ id: String(r['Id']), success: true, errors: [] })),
+      rows: records.map((): BulkRowState => 'answered'),
+      unmatchedIds: [],
+      requests: 12,
+    };
+  }
+
+  const LOCK = {
+    id: '',
+    success: false,
+    errors: ['UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record'],
+    errorDetails: [
+      {
+        statusCode: 'UNABLE_TO_LOCK_ROW',
+        message: 'unable to obtain exclusive access',
+        fields: [],
+      },
+    ],
+  };
+
+  it('sends an object owing 2 000 updates or more as jobs, sorted by the value each sets, and marks what they took', async () => {
+    const { pending, remapper } = owing(2_100);
+    const bulkUpdate = vi
+      .fn<BulkUpdateFn>()
+      .mockImplementation(async (_object, records) => allTaken(records));
+    const onPatched = vi.fn();
+    const onAnswered = vi.fn();
+    const input = makeInput({
+      pendingFkUpdates: pending,
+      remapper,
+      bulkUpdate,
+      onPatched,
+      onAnswered,
+    });
+
+    const error = await patchCycleFkUpdates(input);
+
+    expect(error).toBeNull();
+    expect(input.updateRecords).not.toHaveBeenCalled();
+    expect(bulkUpdate).toHaveBeenCalledTimes(1);
+    const [object, sent] = bulkUpdate.mock.calls[0];
+    expect(object).toBe('Account');
+    expect(sent).toHaveLength(2_100);
+    const values = sent.map((r) => String(r['ParentId']));
+    expect(values).toEqual([...values].sort());
+    expect(onPatched).toHaveBeenCalledTimes(2_100);
+    expect(onAnswered).toHaveBeenCalledTimes(1);
+  });
+
+  it('updates by REST under 2 000 updates, and an object a duplicate rule watches whatever their number', async () => {
+    const few = owing(1_999);
+    const bulkUpdate = vi
+      .fn<BulkUpdateFn>()
+      .mockImplementation(async (_object, records) => allTaken(records));
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) =>
+        records.map((r) => ({ id: String(r['Id']), success: true, errors: [] })),
+      );
+
+    await patchCycleFkUpdates(
+      makeInput({
+        pendingFkUpdates: few.pending,
+        remapper: few.remapper,
+        updateRecords,
+        bulkUpdate,
+      }),
+    );
+    const many = owing(2_000);
+    await patchCycleFkUpdates(
+      makeInput({
+        pendingFkUpdates: many.pending,
+        remapper: many.remapper,
+        updateRecords,
+        bulkUpdate,
+        restOnly: new Set(['Account']),
+      }),
+    );
+
+    expect(bulkUpdate).not.toHaveBeenCalled();
+    expect(updateRecords).toHaveBeenCalledTimes(20);
+  });
+
+  it('sends again by REST, three times at most, the updates a job refused for a lock', async () => {
+    const { pending, remapper } = owing(2_000);
+    const bulkUpdate = vi.fn<BulkUpdateFn>().mockImplementation(async (_object, records) => {
+      const answer = allTaken(records);
+      answer.answers[0] = LOCK;
+      answer.answers[1] = LOCK;
+      answer.rows[2] = 'unprocessed';
+      return answer;
+    });
+    // The first record stays locked; the second goes on its second send.
+    let sends = 0;
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) => {
+        sends++;
+        return records.map((r, i) =>
+          i === 0 || (i === 1 && sends === 1)
+            ? LOCK
+            : { id: String(r['Id']), success: true, errors: [] },
+        );
+      });
+    const wait = vi.fn<(ms: number) => Promise<void>>().mockResolvedValue(undefined);
+
+    const error = await patchCycleFkUpdates(
+      makeInput({ pendingFkUpdates: pending, remapper, updateRecords, bulkUpdate, wait }),
+    );
+
+    expect(updateRecords.mock.calls.map((c) => c[2].length)).toEqual([3, 2, 1]);
+    expect(wait).toHaveBeenCalledTimes(2);
+    expect(error).toMatchObject({ objectApiName: '__pass2__', failedCount: 1 });
+  });
+
+  it('updates by REST what a job wrote nothing of, and counts as left empty what a lost job may have written', async () => {
+    const { pending, remapper } = owing(2_000);
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) =>
+        records.map((r) => ({ id: String(r['Id']), success: true, errors: [] })),
+      );
+
+    await patchCycleFkUpdates(
+      makeInput({
+        pendingFkUpdates: pending,
+        remapper,
+        updateRecords,
+        bulkUpdate: vi.fn<BulkUpdateFn>().mockResolvedValue({
+          answers: [],
+          rows: [],
+          unmatchedIds: [],
+          untouched: { reason: 'InvalidEntity', unsupported: true },
+          requests: 1,
+        }),
+      }),
+    );
+    expect(updateRecords).toHaveBeenCalledTimes(10);
+
+    const lost = await patchCycleFkUpdates(
+      makeInput({
+        pendingFkUpdates: pending,
+        remapper,
+        updateRecords,
+        bulkUpdate: vi
+          .fn<BulkUpdateFn>()
+          .mockRejectedValue(new BulkJobLostError('750JOB', 'socket hang up')),
+      }),
+    );
+    expect(lost).toMatchObject({ failedCount: 2_000 });
+    expect(lost?.samples[0].messages).toContainEqual(expect.stringContaining('socket hang up'));
+  });
+
+  it('updates by REST what a job that threw before the org held anything of it was to update', async () => {
+    const { pending, remapper } = owing(2_000);
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) =>
+        records.map((r) => ({ id: String(r['Id']), success: true, errors: [] })),
+      );
+    const onPatched = vi.fn();
+
+    const error = await patchCycleFkUpdates(
+      makeInput({
+        pendingFkUpdates: pending,
+        remapper,
+        updateRecords,
+        onPatched,
+        bulkUpdate: vi.fn<BulkUpdateFn>().mockRejectedValue(new Error('no connection')),
+      }),
+    );
+
+    expect(error).toBeNull();
+    expect(updateRecords).toHaveBeenCalledTimes(10);
+    expect(onPatched).toHaveBeenCalledTimes(2_000);
+  });
+
+  it('sends no job of an object the run heard the Bulk API does not update, and tells the run of one it hears so', async () => {
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) =>
+        records.map((r) => ({ id: String(r['Id']), success: true, errors: [] })),
+      );
+    const bulkUpdate = vi.fn<BulkUpdateFn>().mockResolvedValue({
+      answers: [],
+      rows: [],
+      unmatchedIds: [],
+      untouched: { reason: 'InvalidEntity', unsupported: true },
+      requests: 1,
+    });
+    const bulkUnsupported = new Set<string>();
+
+    // Two nodes' passes of one run: the second sends no job of the object.
+    for (let node = 0; node < 2; node++) {
+      const { pending, remapper } = owing(2_000);
+      await patchCycleFkUpdates(
+        makeInput({
+          pendingFkUpdates: pending,
+          remapper,
+          updateRecords,
+          bulkUpdate,
+          bulkUnsupported,
+        }),
+      );
+    }
+
+    expect(bulkUpdate).toHaveBeenCalledTimes(1);
+    expect(bulkUnsupported.has('Account')).toBe(true);
+    expect(updateRecords).toHaveBeenCalledTimes(20);
+  });
+});
+
+describe('patchCycleFkUpdates — updates the target’s automation refuses for a Salesforce limit', () => {
+  type BulkUpdateFn = NonNullable<CycleFkPatchInput['bulkUpdate']>;
+
+  /** What a trigger that runs a query per record answers a call too large for it. */
+  const LIMIT_MESSAGE =
+    'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: SSC_TRG_Provenance: execution of BeforeUpdate\n\n' +
+    'caused by: System.LimitException: Too many SOQL queries: 101\n\n' +
+    'Trigger.SSC_TRG_Provenance: line 12, column 1';
+
+  const refusedForALimit = (id: string) => ({
+    id,
+    success: false,
+    errors: [LIMIT_MESSAGE],
+    errorDetails: [
+      { statusCode: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY', message: LIMIT_MESSAGE, fields: [] },
+    ],
+  });
+
+  /** `n` provenances owing their parent, every parent cloned. */
+  function owing(n: number): { pendingFkUpdates: PendingFkUpdate[]; remapper: IdRemapper } {
+    const remapper = new IdRemapper();
+    const pendingFkUpdates: PendingFkUpdate[] = [];
+    for (let i = 0; i < n; i++) {
+      const id = String(i).padStart(9, '0');
+      remapper.add(`a01OLD${id}`, `a01TGT${id}`);
+      pendingFkUpdates.push(
+        makePending({
+          objectApiName: 'Provenance__c',
+          newId: `a02NEW${id}`,
+          sourceId: `a02OLD${id}`,
+          fieldName: 'Parent__c',
+          sourceRefId: `a01OLD${id}`,
+        }),
+      );
+    }
+    return { pendingFkUpdates, remapper };
+  }
+
+  /** A target whose trigger refuses, for a limit, every update of a call past `most`. */
+  function targetTaking(most: number) {
+    return vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) =>
+        records.map((r) =>
+          records.length > most
+            ? refusedForALimit(String(r['Id']))
+            : { id: String(r['Id']), success: true, errors: [] },
+        ),
+      );
+  }
+
+  /** A Bulk API job that answers every update refused for a limit. */
+  function jobsRefusingAll() {
+    return vi.fn<BulkUpdateFn>().mockImplementation(async (_object, records) => ({
+      answers: records.map((r) => refusedForALimit(String(r['Id']))),
+      rows: records.map((): BulkRowState => 'answered'),
+      unmatchedIds: [],
+      requests: 12,
+    }));
+  }
+
+  it('sends again in calls half as large the updates a call was refused for, and tells each one filled in', async () => {
+    const updateRecords = targetTaking(100);
+    const onPatched = vi.fn();
+    const onAnswered = vi.fn();
+    const callSizes = new CallSizes();
+
+    const error = await patchCycleFkUpdates(
+      makeInput({ ...owing(116), updateRecords, onPatched, onAnswered, callSizes }),
+    );
+
+    expect(error).toBeNull();
+    expect(updateRecords.mock.calls.map((c) => c[2].length)).toEqual([116, 58, 58]);
+    expect(onPatched).toHaveBeenCalledTimes(116);
+    expect(new Set(onPatched.mock.calls.map((c) => c[1]['Id'])).size).toBe(116);
+    expect(onAnswered).toHaveBeenCalledTimes(3);
+    expect(callSizes.report({ objectApiName: 'Provenance__c', op: 'update' })).toMatchObject({
+      from: 116,
+      to: 58,
+      rows: 116,
+      extraCalls: 2,
+      limit: 'Too many SOQL queries',
+      automation: 'SSC_TRG_Provenance',
+      event: 'before update',
+    });
+  });
+
+  it('starts the next pass of the run at the size that went through', async () => {
+    const callSizes = new CallSizes();
+    const splitAllowance = new SplitAllowance(2_000);
+    const updateRecords = targetTaking(100);
+    await patchCycleFkUpdates(
+      makeInput({ ...owing(116), updateRecords, callSizes, splitAllowance }),
+    );
+    updateRecords.mockClear();
+
+    await patchCycleFkUpdates(
+      makeInput({ ...owing(116), updateRecords, callSizes, splitAllowance }),
+    );
+
+    expect(updateRecords.mock.calls.map((c) => c[2].length)).toEqual([58, 58]);
+  });
+
+  it('fails an update refused so on its own, saying what to fix after the words of the org', async () => {
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) =>
+        records.map((r) => refusedForALimit(String(r['Id']))),
+      );
+
+    const error = await patchCycleFkUpdates(
+      makeInput({ ...owing(1), updateRecords, splitAllowance: new SplitAllowance() }),
+    );
+
+    expect(updateRecords).toHaveBeenCalledTimes(1);
+    expect(error).toMatchObject({ objectApiName: '__pass2__', failedCount: 1 });
+    expect(error?.samples[0].messages).toEqual([LIMIT_MESSAGE, GOVERNOR_LIMIT_ALONE]);
+  });
+
+  it('splits nothing for a pass handed neither the run sizes nor its allowance, as Seed hands none', async () => {
+    const updateRecords = targetTaking(100);
+
+    const error = await patchCycleFkUpdates(makeInput({ ...owing(116), updateRecords }));
+
+    expect(updateRecords.mock.calls.map((c) => c[2].length)).toEqual([116]);
+    expect(error).toMatchObject({ failedCount: 116, attemptedCount: 116 });
+    expect(error?.samples[0].messages).toEqual([LIMIT_MESSAGE]);
+  });
+
+  it('sends nothing smaller past the smaller calls the run allows itself, and says so', async () => {
+    const updateRecords = targetTaking(100);
+
+    const error = await patchCycleFkUpdates(
+      makeInput({ ...owing(116), updateRecords, splitAllowance: new SplitAllowance(0) }),
+    );
+
+    expect(updateRecords).toHaveBeenCalledTimes(1);
+    expect(error).toMatchObject({ failedCount: 116, attemptedCount: 116 });
+    expect(error?.samples[0].messages).toEqual([
+      LIMIT_MESSAGE,
+      'Not sent in smaller calls: what the org has left today allowed the run none.',
+    ]);
+  });
+
+  it('counts as not sent the smaller calls a cancel came before', async () => {
+    let cancelled = false;
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) => {
+        cancelled = true;
+        return records.map((r) => refusedForALimit(String(r['Id'])));
+      });
+    const onPatched = vi.fn();
+
+    const error = await patchCycleFkUpdates(
+      makeInput({
+        ...owing(116),
+        updateRecords,
+        onPatched,
+        stopped: () => cancelled,
+        callSizes: new CallSizes(),
+      }),
+    );
+
+    expect(updateRecords).toHaveBeenCalledTimes(1);
+    expect(onPatched).not.toHaveBeenCalled();
+    expect(error).toMatchObject({ failedCount: 116, attemptedCount: 116 });
+    expect(error?.samples[0].recordSummary).toBe('Provenance__c: 116 lookups not sent');
+  });
+
+  it('sends again by REST, 100 at a time, the updates a job was refused for, and no job of the object after', async () => {
+    const bulkUpdate = jobsRefusingAll();
+    const updateRecords = targetTaking(100);
+    const onPatched = vi.fn();
+    const callSizes = new CallSizes();
+    const splitAllowance = new SplitAllowance(2_000);
+
+    const error = await patchCycleFkUpdates(
+      makeInput({
+        ...owing(2_000),
+        updateRecords,
+        bulkUpdate,
+        onPatched,
+        callSizes,
+        splitAllowance,
+      }),
+    );
+
+    expect(error).toBeNull();
+    expect(bulkUpdate).toHaveBeenCalledTimes(1);
+    expect(updateRecords.mock.calls.map((c) => c[2].length)).toEqual(Array(20).fill(100));
+    expect(onPatched).toHaveBeenCalledTimes(2_000);
+    // Twenty calls of 100 where one job went: each is one more.
+    expect(splitAllowance.spent).toBe(20);
+
+    // The next node's pass of the run sends the object by REST, at 100.
+    bulkUpdate.mockClear();
+    updateRecords.mockClear();
+    await patchCycleFkUpdates(
+      makeInput({ ...owing(2_000), updateRecords, bulkUpdate, callSizes, splitAllowance }),
+    );
+    expect(bulkUpdate).not.toHaveBeenCalled();
+    expect(updateRecords.mock.calls.map((c) => c[2].length)).toEqual(Array(20).fill(100));
+  });
+
+  it('sends by REST, at 100, the jobs of the object still planned after one was refused', async () => {
+    const bulkUpdate = jobsRefusingAll();
+    const updateRecords = targetTaking(100);
+    const splitAllowance = new SplitAllowance(2_000);
+
+    const error = await patchCycleFkUpdates(
+      makeInput({ ...owing(20_000), updateRecords, bulkUpdate, splitAllowance }),
+    );
+
+    expect(error).toBeNull();
+    expect(bulkUpdate).toHaveBeenCalledTimes(1);
+    expect(updateRecords).toHaveBeenCalledTimes(200);
+    expect(updateRecords.mock.calls.every((c) => c[2].length === 100)).toBe(true);
+    // Two hundred calls of 100 where two jobs went: each is one more.
+    expect(splitAllowance.spent).toBe(200);
+  });
+
+  it('sends by REST what the allowance pays every call for of a job still planned, and the rest as a job', async () => {
+    const bulkUpdate = jobsRefusingAll();
+    const updateRecords = targetTaking(100);
+    const callSizes = new CallSizes();
+    const splitAllowance = new SplitAllowance(150);
+
+    await patchCycleFkUpdates(
+      makeInput({ ...owing(30_000), updateRecords, bulkUpdate, callSizes, splitAllowance }),
+    );
+
+    // The first job's 10 000 by REST, 100 calls; 50 calls of the second
+    // job's, the 5 000 updates left a job, as the third, the object spent.
+    expect(bulkUpdate.mock.calls.map((c) => c[1].length)).toEqual([10_000, 5_000, 10_000]);
+    expect(updateRecords).toHaveBeenCalledTimes(150);
+    expect(updateRecords.mock.calls.every((c) => c[2].length === 100)).toBe(true);
+    expect(splitAllowance.spent).toBe(150);
+    expect(callSizes.report({ objectApiName: 'Provenance__c', op: 'update' })).toMatchObject({
+      notSplit: 15_000,
+      spent: true,
+    });
+  });
+
+  it('keeps a job planned a job once the smaller calls are spent', async () => {
+    // Thirty thousand updates: three jobs. The first is refused for a limit;
+    // its updates go again at 100 until the allowance of 3 runs out, and the
+    // rest stay refused, never sent at 200 to be refused again. The object
+    // spent, the two jobs still planned stay jobs, and what they refuse for a
+    // limit stays refused, sent by REST no more.
+    const bulkUpdate = jobsRefusingAll();
+    const updateRecords = targetTaking(100);
+    const callSizes = new CallSizes();
+
+    const error = await patchCycleFkUpdates(
+      makeInput({
+        ...owing(30_000),
+        updateRecords,
+        bulkUpdate,
+        callSizes,
+        splitAllowance: new SplitAllowance(3),
+      }),
+    );
+
+    expect(callSizes.isSpent({ objectApiName: 'Provenance__c', op: 'update' })).toBe(true);
+    expect(bulkUpdate).toHaveBeenCalledTimes(3);
+    // Three calls of 100, each paid, and none of 200.
+    expect(updateRecords).toHaveBeenCalledTimes(3);
+    expect(updateRecords.mock.calls.every((c) => c[2].length === 100)).toBe(true);
+    expect(error).toMatchObject({ failedCount: 29_700, attemptedCount: 30_000 });
+    expect(callSizes.report({ objectApiName: 'Provenance__c', op: 'update' })).toMatchObject({
+      notSplit: 29_700,
+      spent: true,
+    });
   });
 });
