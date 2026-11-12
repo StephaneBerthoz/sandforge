@@ -18,6 +18,12 @@ import { developerOrg, productionOrg } from '../Checkpoint/testing/checkpointFix
 import { ForgeResults, ID_REMAP_VIRTUALIZE_THRESHOLD } from './ForgeResults';
 import { FORGE_GUIDE_URL } from '@sandforge/shared';
 import { useForgeRunGateStore } from './runGate';
+import {
+  RUN_NOTES,
+  SECOND_PASS_REPORT,
+  TRAP_REFUSALS,
+  UNMATCHED_REFERENCE_DATA,
+} from './testing/forgeRunReports';
 
 /* ---- Mocks ---- */
 
@@ -825,6 +831,105 @@ describe('ForgeResults', () => {
       } finally {
         Reflect.deleteProperty(navigator, 'clipboard');
       }
+    });
+
+    /**
+     * The clone the trap target refused: both accounts for the field the
+     * source lacks, the contact for its missing email. The second pass left
+     * a manager's lookup empty, the contacts went in without two lookups, the
+     * platform kept a tracked change, and the target held no match for the
+     * reference data's office hours.
+     */
+    function cloneTheTrapRefused(errors: ForgeExecutionError[]): void {
+      const [account, contact, ofCases] = makeMockGraph().nodes;
+      mockGraph = {
+        ...makeMockGraph(),
+        nodes: [
+          { ...account, status: 'error', errors: [] },
+          { ...contact, status: 'error', errors: [] },
+          ofCases,
+        ],
+      };
+      mockResult = Object.assign(makeMockResult(), {
+        graph: mockGraph,
+        createdCount: 0,
+        readByObject: [
+          { objectApiName: 'Account', read: 2 },
+          { objectApiName: 'Contact', read: 1 },
+        ],
+        errors,
+      });
+    }
+
+    /** What Copy report put on the clipboard. */
+    async function copiedReport(): Promise<string> {
+      const writeText = vi.fn((_text: string) => Promise.resolve());
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+        writable: true,
+      });
+      try {
+        render(<ForgeResults />);
+        await act(async () => {
+          fireEvent.click(screen.getByTestId('forge-copy-report'));
+        });
+        return writeText.mock.calls[0]?.[0] ?? '';
+      } finally {
+        Reflect.deleteProperty(navigator, 'clipboard');
+      }
+    }
+
+    it('copies into the report what the run failed of each object, then its errors and notes', async () => {
+      // The report read "error | -" of the objects whose every record the
+      // target refused, and said nothing of the run's errors or notes the
+      // page lists under the table.
+      cloneTheTrapRefused([
+        ...TRAP_REFUSALS,
+        SECOND_PASS_REPORT,
+        ...RUN_NOTES,
+        UNMATCHED_REFERENCE_DATA,
+      ]);
+
+      const report = await copiedReport();
+
+      expect(report).toContain(
+        '| Object | Records | Status | Errors |\n' +
+          '|--------|---------|--------|--------|\n' +
+          '| Account | 2 | error | 2 failed at insert: REQUIRED_FIELD_MISSING |\n' +
+          '| Contact | 1 | error | 1 failed at insert: FIELD_CUSTOM_VALIDATION_EXCEPTION |\n' +
+          '| Case | - | skipped | - |\n\n' +
+          '## Run Errors\n\n' +
+          '- Failed records: 3 across 2 objects\n' +
+          '- Lookups the second pass left empty: 1\n\n' +
+          '| Object | Stage | Failed | Attempted | Codes seen in samples | Sample message |\n' +
+          '|--------|-------|--------|-----------|-----------------------|----------------|\n' +
+          '| Account | insert | 2 | 2 | REQUIRED_FIELD_MISSING (2 of 2 samples) | ' +
+          "REQUIRED_FIELD_MISSING: Des champs obligatoires n'ont pas été remplis : [Trap_Target_Only__c] |\n" +
+          '| Contact | insert | 1 | 1 | FIELD_CUSTOM_VALIDATION_EXCEPTION (1 of 1 sample) | ' +
+          'FIELD_CUSTOM_VALIDATION_EXCEPTION: Email is required. [Email] |\n' +
+          '| __pass2__ | insert | 1 | 4 | (no code) | ' +
+          "Cycle FK 'ReportsToId' could not be resolved — referenced parent (source 003000000000009AAA) was not cloned |\n\n" +
+          '## Run Notes\n\n' +
+          '| Object | Note |\n' +
+          '|--------|------|\n' +
+          '| Contact | ReportsToId → Contact (2 records) — Written without ReportsToId: the target holds no record of these ids, outside the run. |\n' +
+          '| Contact | Trap_Preferred_Account__c → Account (1 record) — Written without Trap_Preferred_Account__c: the target holds no record of these ids, outside the run. |\n' +
+          '| FeedItem | Type=TrackedChange (1 record) — Not written: the platform writes each tracked change itself, and refuses one a copy sends. |\n' +
+          '| BusinessHours | Id=01m000000000001AAA matchValue=Office hours — Reference-data row not found on target org |',
+      );
+    });
+
+    it('lists no note nor unmatched reference data among the run errors, and gives the table no error for them', async () => {
+      cloneTheTrapRefused([...RUN_NOTES, UNMATCHED_REFERENCE_DATA]);
+
+      const report = await copiedReport();
+
+      expect(report).not.toContain('## Run Errors');
+      expect(report).not.toContain('Failed records');
+      expect(report).toContain('| Account | 2 | error | - |\n| Contact | 1 | error | - |\n');
+      expect(report).toContain('## Run Notes');
+      expect(report).toContain('| BusinessHours | Id=01m000000000001AAA');
     });
 
     it('shows an object beyond the graph as done when the run said nothing of it', () => {
@@ -2890,6 +2995,44 @@ describe('ForgeResults', () => {
       expect(report).toContain(
         '| Visit__c | Rating__c | 2 | restricted picklist | ' +
           'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes |',
+      );
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
+  it("keeps a refusal's row whole in the report, its line breaks run into spaces and its pipes escaped", async () => {
+    // The refusal is the org's message: a line break in it ended the row, and
+    // a pipe opened a column.
+    mockResult = Object.assign(makeMockResult(), {
+      writtenWithoutFields: [
+        {
+          objectApiName: 'Contact',
+          rows: 1,
+          fields: [
+            {
+              field: 'Phone',
+              reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written\n+33 | +44',
+              rows: 1,
+            },
+          ],
+        },
+      ],
+    });
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    try {
+      render(<ForgeResults />);
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('forge-copy-report'));
+      });
+
+      expect(writeText.mock.calls[0]?.[0] ?? '').toContain(
+        '| Contact | Phone | 1 | validation rule | FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33 \\| +44 |',
       );
     } finally {
       Reflect.deleteProperty(navigator, 'clipboard');
