@@ -2,7 +2,7 @@ import { Writable } from 'node:stream';
 import jsforce from 'jsforce';
 import type { Connection } from 'jsforce';
 import { describe, expect, it } from 'vitest';
-import { BULK_NULL_CELL, buildBulkCsv, resultCells, rowKey } from './bulkCsv.js';
+import { BULK_NULL_CELL, ambiguousRows, buildBulkCsv, resultCells, rowKey } from './bulkCsv.js';
 
 /** The rows a Frozen load writes: every empty value left out, so their fields differ. */
 const PROBE_ROWS: Record<string, unknown>[] = [
@@ -189,6 +189,49 @@ describe('rowKey', () => {
     expect(echoKey(csv, { Code__c: ' spaced ' }, 'exact')).toBe(
       rowKey(csv.rows[0], csv.identity, 'exact'),
     );
+  });
+});
+
+describe('ambiguousRows', () => {
+  it('names every insert row whose cells another row carries too, in the form the platform echoes them', () => {
+    const csv = buildBulkCsv('insert', [
+      { LastName: 'Doe', Amount__c: 3 },
+      { LastName: 'Roe', Amount__c: 3 },
+      // Echoed 3.0 for 3: the results could not tell these apart from the first.
+      { LastName: 'Doe', Amount__c: '3.0' },
+      { LastName: 'Doe', Amount__c: 3 },
+    ]);
+
+    expect([...ambiguousRows(csv)].sort()).toEqual([0, 2, 3]);
+  });
+
+  it('names no row when each is told by its own cells, and a row with fewer fields by its empty ones', () => {
+    const csv = buildBulkCsv('insert', [
+      { LastName: 'Doe' },
+      { LastName: 'Doe', Email: 'doe@example.com' },
+    ]);
+
+    expect(ambiguousRows(csv).size).toBe(0);
+  });
+
+  it('judges an update by its Id and an upsert by its external id alone, the other cells aside', () => {
+    const update = buildBulkCsv('update', [
+      { Id: '001000000000001AAA', Name: 'A' },
+      { Id: '001000000000002AAA', Name: 'A' },
+      { Id: '001000000000001AAA', Name: 'B' },
+    ]);
+    // The same record sent twice, whatever else its rows carry.
+    expect([...ambiguousRows(update)].sort()).toEqual([0, 2]);
+
+    const upsert = buildBulkCsv(
+      'upsert',
+      [
+        { Key__c: 'k1', Name: 'A' },
+        { Key__c: 'k2', Name: 'A' },
+      ],
+      'Key__c',
+    );
+    expect(ambiguousRows(upsert).size).toBe(0);
   });
 });
 

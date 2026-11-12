@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BULK_RESULT_READS,
+  FORGE_BULK_POLL_SCHEDULE,
   bulkJobCost,
   bulkJobRequests,
   bulkJobSeconds,
@@ -34,5 +35,25 @@ describe('what a Bulk API job costs', () => {
     // 25,000 in one job: 57.3 seconds, twelve waits — not three jobs of
     // five calls each.
     expect(bulkJobCost(25_000)).toBe(3 + (1 + 12) + 3);
+  });
+
+  it('takes a count below nothing for no record, never a job quicker than its wait', () => {
+    expect(bulkJobSeconds(0)).toBe(24);
+    expect(bulkJobSeconds(-5)).toBe(24);
+  });
+
+  it('reads a Forge job after five, ten, twenty, then every thirty seconds: fewer reads for a long job', () => {
+    expect([0, 1, 2, 3, 4, 10].map(FORGE_BULK_POLL_SCHEDULE)).toEqual([
+      5_000, 10_000, 20_000, 30_000, 30_000, 30_000,
+    ]);
+    // 10,000 rows take some 37 seconds: waits of 5, 10, 20 cover 35, a fourth covers it.
+    expect(bulkJobStateReads(10_000, FORGE_BULK_POLL_SCHEDULE)).toBe(1 + 4);
+    expect(bulkJobStateReads(10_000)).toBe(1 + 8);
+    // 2,000 rows take some 27 seconds: three waits.
+    expect(bulkJobStateReads(2_000, FORGE_BULK_POLL_SCHEDULE)).toBe(1 + 3);
+  });
+
+  it('never loops on a schedule that waits nothing', () => {
+    expect(bulkJobStateReads(0, () => 0)).toBe(1 + 24_000);
   });
 });

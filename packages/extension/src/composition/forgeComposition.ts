@@ -143,6 +143,13 @@ function toForgeObjectDescribe(
  */
 const RECORDS_PER_WRITE_CALL = 200;
 
+/**
+ * The objects the target's assignment rules route: a run that applies them
+ * writes these by REST, which asks for them, never as a Bulk API job, which
+ * names none (`scripts/assignment-rules-off.test.mjs`).
+ */
+const ASSIGNED_OBJECTS: ReadonlySet<string> = new Set(['Lead', 'Case']);
+
 /** Inputs required to wire the Forge orchestrator. */
 export interface ForgeCompositionDeps {
   handlers: ExtensionHandlers;
@@ -190,6 +197,11 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
     import('../modules/forge/ForgeRemovalPlanStore.js'),
     import('../modules/forge/ForgeRunJournal.js'),
     import('../modules/forge/targetCreators.js'),
+    import('../modules/forge/forgeBulkWrite.js'),
+    import('../modules/forge/lostBulkJobs.js'),
+    import('../core/engine/trackedBulkConnection.js'),
+    import('../core/engine/jsforceBulk.js'),
+    import('../modules/seed/seedDuplicateRules.js'),
   ])
     .then(
       ([
@@ -209,6 +221,11 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         { ForgeRemovalPlanStore },
         { nodeRunJournal },
         { createFactsOnce, readCreateFacts, whyNotCreatableOver },
+        { forgeBulkWrite, BulkJobLostError },
+        { LostBulkJobs },
+        { trackedBulkConnection },
+        { jsforceBulk },
+        { objectsUnderDuplicateRules },
       ]) => {
         // Shared schema cache + timeout manager. Eliminates the 600+ describe
         // round-trips per forge run on a large org (350+ SObjects).
@@ -256,6 +273,17 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         const countExecutorRequest = (): void => {
           executorRequests++;
         };
+
+        /**
+         * The Bulk API jobs a run closed and could not read back, the org
+         * writing them perhaps still (`LostBulkJobs`): noted as
+         * `bulkWriteRecords` loses them, each read again by its id through
+         * the target's connection.
+         */
+        const lostJobs = new LostBulkJobs(async (orgId, jobId) => {
+          const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+          return (await jsforceBulk(conn).bulk2.job('ingest', { id: jobId }).check()).state;
+        });
 
         /**
          * The cached describe of `objectApiName` on `orgId`, fetched once.
@@ -589,6 +617,62 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             return (await conn.identity()).user_id;
           },
+          // A write sent as a Bulk API job, on the run's own job limiter; each
+          // call it sends the org — opened, sent, closed, each read of its
+          // state and of its results, the job read back by its id — counted
+          // as it goes. No job of a lead or a case goes while the run applies
+          // the target's assignment rules: a job names no assignment rule, and
+          // a REST write asks for them (`forgeWriteHeaders`). Refused before
+          // anything is sent, the object goes by REST.
+          bulkWriteRecords: async (orgId, objectName, operation, records, options) => {
+            if (runWrites.applyAssignmentRules && ASSIGNED_OBJECTS.has(objectName)) {
+              return {
+                answers: [],
+                rows: [],
+                unmatchedIds: [],
+                untouched: {
+                  reason: `the run applies the target's assignment rules, which a job cannot`,
+                  unsupported: true,
+                },
+                requests: 0,
+              };
+            }
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const tracked = trackedBulkConnection(jsforceBulk(conn), (requests) => {
+              executorRequests += requests;
+            });
+            try {
+              return await forgeBulkWrite(
+                tracked.connection,
+                options.bulkManager,
+                objectName,
+                operation,
+                records,
+                {
+                  ...(options.externalIdField ? { externalIdField: options.externalIdField } : {}),
+                  ...(options.signal ? { signal: options.signal } : {}),
+                  ...(options.onOpened ? { onOpened: options.onOpened } : {}),
+                },
+              );
+            } catch (err: unknown) {
+              // Closed and not read back: the org may be writing it still.
+              if (err instanceof BulkJobLostError) {
+                lostJobs.note({
+                  orgId,
+                  objectApiName: objectName,
+                  ...(err.jobId ? { jobId: err.jobId } : {}),
+                });
+              }
+              throw err;
+            }
+          },
+          // The objects an active duplicate rule of the target watches: a job
+          // carries no header that waives one.
+          duplicateRuleObjects: async (orgId) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            countExecutorRequest();
+            return objectsUnderDuplicateRules(conn);
+          },
           // No `anonymize`: what a run anonymizes comes with the run — the
           // fields selected on each node, the methods Review holds — and the
           // executor keys an anonymizer of its own to each run. The one wired
@@ -775,6 +859,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           // The executor's own count, read as a run goes: its progress says
           // the calls made so far, which its result counts once it ends.
           requestsSent: () => executorRequests,
+          lostBulkJobs: lostJobs,
         });
         log('Forge v2 module initialized.');
       },

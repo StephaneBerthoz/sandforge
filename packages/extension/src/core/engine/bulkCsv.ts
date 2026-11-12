@@ -116,6 +116,37 @@ export function rowKey(
 }
 
 /**
+ * The rows of a job that no result could be laid on with certainty: those
+ * whose identifying cells, compared in the form the platform writes them back
+ * in, are another row's too — by their indices in {@link BulkCsv.rows}.
+ *
+ * Two rows sent alike take the results that echo them in turn
+ * (`normalizeBulkJobResults`), which is right when the two were written alike
+ * and wrong when one was written and the other refused: the refusal could go
+ * to the row written, and its id to the row refused, so the run would map a
+ * record to the wrong source and send again the one it wrote. A caller that
+ * cannot afford that sends these rows another way, each answered on its own.
+ * An insert is matched on every column, so two rows are twins only when they
+ * carry the same values; an update or an upsert on its key, unique but for a
+ * row sent twice.
+ */
+export function ambiguousRows(csv: BulkCsv): ReadonlySet<number> {
+  const first = new Map<string, number>();
+  const shared = new Set<number>();
+  csv.rows.forEach((cells, i) => {
+    const key = rowKey(cells, csv.identity, 'canonical');
+    const before = first.get(key);
+    if (before === undefined) {
+      first.set(key, i);
+    } else {
+      shared.add(before);
+      shared.add(i);
+    }
+  });
+  return shared;
+}
+
+/**
  * A result row's cells under the uploaded columns. A job's results echo every
  * column it was sent, beside its own `sf__` ones.
  */

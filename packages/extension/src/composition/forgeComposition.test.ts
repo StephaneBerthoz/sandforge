@@ -22,8 +22,15 @@ vi.mock('../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('../core/connection/ConnectionHelper.js', () => ({ getJsforceConnection: vi.fn() }));
+// The real write, unless a test makes one job lost: one read back for ten
+// minutes of Forge's waits is too long to sit through.
+vi.mock('../modules/forge/forgeBulkWrite.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../modules/forge/forgeBulkWrite.js')>();
+  return { ...actual, forgeBulkWrite: vi.fn(actual.forgeBulkWrite) };
+});
 
 import { getJsforceConnection } from '../core/connection/ConnectionHelper.js';
+import { BulkJobLostError, forgeBulkWrite } from '../modules/forge/forgeBulkWrite.js';
 import { initForgeComposition, registerForgeGraphViewListener } from './forgeComposition.js';
 import type { ForgeCompositionDeps } from './forgeComposition.js';
 import type { ForgeOrchestrator } from '../modules/forge/ForgeOrchestrator.js';
@@ -31,6 +38,8 @@ import type { ForgeServices } from '../bridge/handlers/ForgeHandler.js';
 import { ForgeRemovalPlanStore } from '../modules/forge/ForgeRemovalPlanStore.js';
 import { PIIDetector } from '../core/precheck/PIIDetector.js';
 import { SchemaCache } from '../core/metadata/SchemaCache.js';
+import { BulkApiManager } from '../core/engine/BulkApiManager.js';
+import type { ForgeExecutor, ForgeExecutorDeps } from '../modules/forge/ForgeExecutor.js';
 
 /** A field as jsforce's describe returns it, reduced to what Forge reads. */
 function field(name: string, type: string, referenceTo: string[] = []) {
@@ -1560,6 +1569,222 @@ describe('initForgeComposition', () => {
     expect(result.idRemapCreated).toContainEqual({
       objectApiName: 'ContentDocument',
       sourceIds: [DOCUMENT],
+    });
+  });
+
+  describe('the writes a run may send as Bulk API jobs', () => {
+    /** The deps the composition wired the orchestrator's executor with. */
+    function executorDepsOf(orchestrator: ForgeOrchestrator): ForgeExecutorDeps {
+      const { executor } = (orchestrator as unknown as { deps: { executor: ForgeExecutor } }).deps;
+      return (executor as unknown as { deps: ForgeExecutorDeps }).deps;
+    }
+
+    /** The jobs the fake org was sent, and every call each sent. */
+    let jobs: Array<{ options: Record<string, unknown>; calls: string[] }>;
+
+    /**
+     * A connection whose Bulk API writes every job, answering as jsforce does:
+     * a job with no id until the org opened it, its state the org's JSON, its
+     * results read three ways in one call of jsforce's.
+     */
+    function bulkConnection(orgId: string) {
+      const connection = fakeConnection(orgId);
+      return {
+        ...connection,
+        query: vi.fn(async (soql: string) => {
+          if (/FROM DuplicateRule/.test(soql)) {
+            return { totalSize: 1, done: true, records: [{ SobjectType: 'Account' }] };
+          }
+          return connection.query(soql);
+        }),
+        bulk2: {
+          createJob: (options: Record<string, unknown>) => {
+            const job = { options: { ...options }, calls: [] as string[] };
+            jobs.push(job);
+            let uploaded = '';
+            let opened = false;
+            return {
+              get id() {
+                return opened ? '750000000000001AAA' : undefined;
+              },
+              open: async () => {
+                job.calls.push('open');
+                opened = true;
+                return { id: '750000000000001AAA', state: 'Open' };
+              },
+              uploadData: async (csv: string) => {
+                job.calls.push('upload');
+                uploaded = csv;
+              },
+              close: async () => {
+                job.calls.push('close');
+              },
+              abort: async () => {
+                job.calls.push('abort');
+              },
+              check: async () => {
+                job.calls.push('check');
+                return {
+                  id: '750000000000001AAA',
+                  state: 'JobComplete',
+                  numberRecordsProcessed: 2,
+                };
+              },
+              getAllResults: async () => {
+                job.calls.push('results');
+                const [header, ...lines] = uploaded.trimEnd().split('\n');
+                const columns = header.split(',');
+                return {
+                  successfulResults: lines.map((line, i) => ({
+                    sf__Id: sfId('Contact', 900 + i),
+                    sf__Created: 'true',
+                    ...Object.fromEntries(columns.map((c, at) => [c, line.split(',')[at] ?? ''])),
+                  })),
+                  failedResults: [],
+                  unprocessedRecords: [],
+                };
+              },
+            };
+          },
+          job: () => ({
+            check: async () => ({ state: 'JobComplete' }),
+            getSuccessfulResults: async () => [],
+            getAllResults: async () => ({ successfulResults: [] }),
+            abort: async () => undefined,
+          }),
+        },
+      };
+    }
+
+    beforeEach(() => {
+      jobs = [];
+      vi.mocked(getJsforceConnection).mockImplementation(
+        async (orgId: string) => bulkConnection(orgId) as unknown as Connection,
+      );
+    });
+
+    it("sends a write as one job through the target's Bulk API, naming no assignment rule, each of its calls counted with the run's", async () => {
+      const { orchestrator, services } = await compose();
+      const deps = executorDepsOf(orchestrator);
+      const before = services.requestsSent?.() ?? 0;
+
+      const answer = await deps.bulkWriteRecords?.(
+        'tgt',
+        'Contact',
+        'insert',
+        [{ LastName: 'A' }, { LastName: 'B' }],
+        { bulkManager: new BulkApiManager(1) },
+      );
+
+      expect(jobs.map(({ options }) => options)).toEqual([
+        { operation: 'insert', object: 'Contact' },
+      ]);
+      expect(jobs[0].calls).toEqual(['open', 'upload', 'close', 'check', 'results']);
+      expect(answer?.rows).toEqual(['answered', 'answered']);
+      expect(answer?.answers.map((a) => a.id)).toEqual([
+        sfId('Contact', 900),
+        sfId('Contact', 901),
+      ]);
+      // Opened, sent, closed, its state read once, its results three ways.
+      expect(answer?.requests).toBe(3 + 1 + 3);
+      expect((services.requestsSent?.() ?? 0) - before).toBe(answer?.requests);
+    });
+
+    it('sends no job of a lead or a case while the run applies the target’s assignment rules', async () => {
+      const { orchestrator } = await compose();
+      const graph = await orchestrator.discover(SOQL_CONFIG);
+      // The orchestrator says what the run asks of the target's rules before it runs.
+      await orchestrator.execute(graph, { ...SOQL_CONFIG, applyAssignmentRules: true });
+      const deps = executorDepsOf(orchestrator);
+
+      for (const objectName of ['Lead', 'Case']) {
+        const answer = await deps.bulkWriteRecords?.(
+          'tgt',
+          objectName,
+          'insert',
+          [{ LastName: 'x' }],
+          {
+            bulkManager: new BulkApiManager(1),
+          },
+        );
+        expect(answer?.untouched).toMatchObject({ unsupported: true });
+        expect(answer?.requests).toBe(0);
+      }
+      expect(jobs).toEqual([]);
+    });
+
+    it('notes a job closed and lost, which reads its state again by its id through the target’s connection', async () => {
+      // A job the org may be writing still: noted nowhere, nothing could wait
+      // for it before the mute of the target's automation is given back.
+      const LOST = '750000000000LOSTAA';
+      const reads: Array<{ orgId: string; type: string; id: unknown }> = [];
+      vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+        const connection = bulkConnection(orgId);
+        return {
+          ...connection,
+          bulk2: {
+            ...connection.bulk2,
+            job: (type: string, options: { id?: string }) => {
+              reads.push({ orgId, type, id: options.id });
+              return { check: async () => ({ id: options.id, state: 'JobComplete' }) };
+            },
+          },
+        } as unknown as Connection;
+      });
+      const { orchestrator, services } = await compose();
+      const deps = executorDepsOf(orchestrator);
+      const lost = services.lostBulkJobs;
+      const mark = lost?.count ?? 0;
+      vi.mocked(forgeBulkWrite).mockRejectedValueOnce(
+        new BulkJobLostError(LOST, 'the org did not answer'),
+      );
+
+      await expect(
+        deps.bulkWriteRecords?.('tgt', 'Contact', 'insert', [{ LastName: 'x' }], {
+          bulkManager: new BulkApiManager(1),
+        }),
+      ).rejects.toBeInstanceOf(BulkJobLostError);
+
+      const noted = lost?.since(mark, 'tgt') ?? [];
+      expect(noted).toEqual([{ orgId: 'tgt', objectApiName: 'Contact', jobId: LOST }]);
+      expect(lost?.since(mark, 'src')).toEqual([]);
+      let sent = 0;
+      expect(await lost?.stillRunning(noted, () => sent++)).toEqual([]);
+      expect(reads).toEqual([{ orgId: 'tgt', type: 'ingest', id: LOST }]);
+      expect(sent).toBe(1);
+    });
+
+    it('notes no job of a write that failed before its job was closed', async () => {
+      const { orchestrator, services } = await compose();
+      const deps = executorDepsOf(orchestrator);
+      const mark = services.lostBulkJobs?.count ?? 0;
+      vi.mocked(forgeBulkWrite).mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+
+      await expect(
+        deps.bulkWriteRecords?.('tgt', 'Contact', 'insert', [{ LastName: 'x' }], {
+          bulkManager: new BulkApiManager(1),
+        }),
+      ).rejects.toThrow('INVALID_SESSION_ID');
+
+      expect(services.lostBulkJobs?.count).toBe(mark);
+    });
+
+    it('reads which objects the target’s duplicate rules watch, and says nothing when it will not say', async () => {
+      const { orchestrator } = await compose();
+      const deps = executorDepsOf(orchestrator);
+
+      expect(await deps.duplicateRuleObjects?.('tgt')).toEqual(new Set(['Account']));
+
+      vi.mocked(getJsforceConnection).mockImplementation(
+        async (orgId: string) =>
+          ({
+            ...bulkConnection(orgId),
+            query: vi.fn(async () => {
+              throw new Error('INVALID_TYPE: sObject type DuplicateRule is not supported');
+            }),
+          }) as unknown as Connection,
+      );
+      expect(await deps.duplicateRuleObjects?.('tgt')).toBeUndefined();
     });
   });
 });

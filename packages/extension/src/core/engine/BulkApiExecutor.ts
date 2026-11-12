@@ -30,6 +30,13 @@ export interface BulkExecutionResult {
    */
   unmatchedIds?: string[];
   /**
+   * How many records the job wrote that no row could be matched to, with
+   * their ids or without: more than `unmatchedIds` holds when the org gave a
+   * success without its `sf__Id`. Set only when there is one. A row left
+   * without a result may be any of them.
+   */
+  unmatchedWrites?: number;
+  /**
    * Set when the run's cancel aborted the job before it was closed:
    * Salesforce processed none of its records, and `outcomes` is empty.
    */
@@ -59,6 +66,15 @@ export interface BulkRecordOutcome {
    * (false), from its `sf__Created` column. Absent when the row does not say.
    */
   created?: boolean;
+  /**
+   * Why a failed record has no answer of its own, when it has none:
+   * `unprocessed` when the job listed it among the records it did not
+   * process, `no-result` when no result row was matched to it. Absent on a
+   * record the job answered, written or refused. Read from here rather than
+   * from the text of `error`, which says it for a person and names what the
+   * job left unmatched.
+   */
+  state?: 'unprocessed' | 'no-result';
 }
 
 /**
@@ -79,6 +95,12 @@ export interface NormalizedBulkResults {
   outcomes: BulkRecordOutcome[];
   /** Real IDs of success rows that could not be attributed to an input record. */
   unattributedSuccessIds: string[];
+  /**
+   * How many success rows could not be attributed to an input record, with
+   * an id or without: one the org gave without its `sf__Id` has no id to put
+   * in `unattributedSuccessIds`, and still wrote a record.
+   */
+  unattributedSuccesses: number;
   /** Errors of failure rows that could not be attributed to an input record. */
   unattributedFailures: string[];
 }
@@ -156,6 +178,7 @@ export function normalizeBulkJobResults(
   const count = upload.rows.length;
   const outcomes: BulkRecordOutcome[] = [];
   const unattributedSuccessIds: string[] = [];
+  let unattributedSuccesses = 0;
   const unattributedFailures: string[] = [];
   const claimed = new Array<boolean>(count).fill(false);
 
@@ -168,14 +191,19 @@ export function normalizeBulkJobResults(
         success: true,
         ...(created !== undefined ? { created } : {}),
       });
-    } else if (id !== undefined) {
-      unattributedSuccessIds.push(id);
+    } else {
+      unattributedSuccesses++;
+      if (id !== undefined) unattributedSuccessIds.push(id);
     }
   };
-  const claimFailure = (error: string, recordIndex: number): void => {
+  const claimFailure = (
+    error: string,
+    recordIndex: number,
+    state?: BulkRecordOutcome['state'],
+  ): void => {
     if (recordIndex >= 0 && recordIndex < count && !claimed[recordIndex]) {
       claimed[recordIndex] = true;
-      outcomes.push({ recordIndex, success: false, error });
+      outcomes.push({ recordIndex, success: false, error, ...(state ? { state } : {}) });
     } else {
       unattributedFailures.push(error);
     }
@@ -215,7 +243,7 @@ export function normalizeBulkJobResults(
       const error = `${NOT_PROCESSED}${why}`;
       pending.push({
         row,
-        settle: (i) => claimFailure(error, i),
+        settle: (i) => claimFailure(error, i, 'unprocessed'),
         orphan: () => claimFailure(error, -1),
       });
     }
@@ -230,11 +258,11 @@ export function normalizeBulkJobResults(
   // fail closed instead of assuming success.
   const noResult = `${NO_RESULT}${why}${unmatchedResults(unattributedSuccessIds, unattributedFailures)}`;
   for (let i = 0; i < count; i++) {
-    if (!claimed[i]) claimFailure(noResult, i);
+    if (!claimed[i]) claimFailure(noResult, i, 'no-result');
   }
 
   outcomes.sort((a, b) => a.recordIndex - b.recordIndex);
-  return { outcomes, unattributedSuccessIds, unattributedFailures };
+  return { outcomes, unattributedSuccessIds, unattributedSuccesses, unattributedFailures };
 }
 
 /**
@@ -374,6 +402,14 @@ export interface BulkApiExecutorDeps {
    * gave no id.
    */
   onOpened?: (jobId: string) => void;
+  /**
+   * How long the job is left before its state is read again, by the number of
+   * reads already waited for (0 for the first wait), in milliseconds. Each
+   * read is one of the org's daily requests. {@link BULK_POLL_INTERVAL_MS}
+   * every time unless told: Seed and Sync poll so; Forge waits longer the
+   * longer a job runs (`FORGE_BULK_POLL_SCHEDULE`).
+   */
+  pollIntervalMs?: (attempt: number) => number;
 }
 
 /**
@@ -396,7 +432,10 @@ export function openedJobId(job: Pick<BulkJobHandle, 'id'>): string | undefined 
  * Salesforce's message — a header it refused fails the whole job — or the
  * state it ended in when it gave none.
  */
-export function jobErrorOf(status: BulkJobCheckResult): string | undefined {
+export function jobErrorOf(status: {
+  state: string;
+  errorMessage?: string | null;
+}): string | undefined {
   if (status.state === 'JobComplete') return undefined;
   return status.errorMessage || `job ${status.state}`;
 }
@@ -518,10 +557,15 @@ export class BulkApiExecutor {
       await job.close();
 
       let status = await job.check();
-      while (status.state === 'InProgress' || status.state === 'UploadComplete') {
+      for (
+        let attempt = 0;
+        status.state === 'InProgress' || status.state === 'UploadComplete';
+        attempt++
+      ) {
         deps.bulkManager.updateJobState(jobId, status.state);
         deps.onProgress?.(status.numberRecordsProcessed ?? 0, records.length);
-        await new Promise((r) => setTimeout(r, BULK_POLL_INTERVAL_MS));
+        const wait = deps.pollIntervalMs?.(attempt) ?? BULK_POLL_INTERVAL_MS;
+        await new Promise((r) => setTimeout(r, wait));
         status = await job.check();
       }
 
@@ -564,6 +608,9 @@ export class BulkApiExecutor {
         outcomes: normalized.outcomes,
         ...(normalized.unattributedSuccessIds.length > 0
           ? { unmatchedIds: normalized.unattributedSuccessIds }
+          : {}),
+        ...(normalized.unattributedSuccesses > 0
+          ? { unmatchedWrites: normalized.unattributedSuccesses }
           : {}),
       };
     } catch (err: unknown) {

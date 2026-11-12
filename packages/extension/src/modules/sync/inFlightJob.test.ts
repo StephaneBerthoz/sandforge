@@ -120,6 +120,46 @@ describe('readJobCreated', () => {
     expect(left.abort).toHaveBeenCalledTimes(1);
   });
 
+  it('reads a job left open again once the org refuses its abort: closed in the meantime, it ran, and what it wrote is read', async () => {
+    // The org refuses to abort a job that is no longer open: its window's
+    // close reached the org first, and the org writes it whatever comes after.
+    const checks = ['Open', 'JobComplete'];
+    const abort = vi.fn(async () => {
+      throw new Error('INVALIDJOBSTATE: job is not open');
+    });
+    const conn: IngestJobReading = {
+      bulk2: {
+        job: () => ({
+          check: async () => ({ state: checks.length > 1 ? (checks.shift() ?? '') : checks[0] }),
+          getSuccessfulResults: async () => [{ sf__Id: fakeId('003', 1), sf__Created: 'true' }],
+          abort,
+        }),
+      },
+    };
+
+    expect(await readJobCreated(conn, JOB, false)).toEqual({
+      state: 'ended',
+      created: [fakeId('003', 1)],
+    });
+    expect(abort).toHaveBeenCalledTimes(1);
+  });
+
+  it('says a job never closed when the org refuses its abort and holds it open still: an open job is never processed', async () => {
+    const { conn, abort } = orgWithJob('Open');
+    abort.mockRejectedValueOnce(new Error('INVALIDJOBSTATE'));
+
+    expect(await readJobCreated(conn, JOB, false)).toEqual({ state: 'never-closed' });
+  });
+
+  it('reads no answer that names no state of a job as one that ended, and reads none of its records', async () => {
+    const { conn } = orgWithJob('Closed', [{ sf__Id: fakeId('003', 1), sf__Created: 'true' }]);
+
+    expect(await readJobCreated(conn, JOB, false)).toEqual({
+      state: 'unread',
+      reason: expect.stringContaining('"Closed"'),
+    });
+  });
+
   it('says why a job could not be read back, rather than reading it as one that wrote nothing', async () => {
     const { conn } = orgWithJob('JobComplete', [], { unreadable: true });
 

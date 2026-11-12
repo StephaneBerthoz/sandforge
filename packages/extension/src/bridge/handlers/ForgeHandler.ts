@@ -105,6 +105,7 @@ import type { TargetGapReader } from '../../modules/forge/TargetGapReader.js';
 import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
 import type { ForgeRemovalPlanStore } from '../../modules/forge/ForgeRemovalPlanStore.js';
 import type { ForgeRehearser } from '../../modules/forge/rehearsal/ForgeRehearser.js';
+import type { LostBulkJobs } from '../../modules/forge/lostBulkJobs.js';
 import {
   RehearsalCancelledError,
   RehearsalNotRolledBackError,
@@ -641,6 +642,12 @@ export interface ForgeServices {
   muteOrg?: (orgId: string) => Promise<MuteOrg>;
   /** Where and how the mute leases are kept: the home directory's, unless told. */
   muteLeases?: MuteLeaseOptions;
+  /**
+   * The Bulk API jobs the runs closed and could not read back, the org
+   * writing them perhaps still (`LostBulkJobs`), each readable again by its
+   * id through its target's connection.
+   */
+  lostBulkJobs?: LostBulkJobs;
 }
 
 /**

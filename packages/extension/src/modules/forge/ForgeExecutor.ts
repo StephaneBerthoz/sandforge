@@ -271,6 +271,8 @@ import { maskedEncryptedFields, viewsEncryptedDataOnce } from '../sync/encrypted
 import type { ForgeRunStore, StoredOwedLookup } from './ForgeRunStore.js';
 import { externalIdKey, fingerprintFields, rowFingerprint } from './ForgeInFlight.js';
 import type { FieldBounds } from './describeBounds.js';
+import type { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import type { BulkWriteAnswer, ForgeBulkWriteOptions } from './forgeBulkWrite.js';
 import {
   findUnavailableRecordTypes,
   parseRecordTypeCounts,
@@ -1033,7 +1035,38 @@ export interface ForgeExecutorDeps {
    * row inserted.
    */
   runningUser?: (orgId: string) => Promise<string | undefined>;
+  /**
+   * Send records of one object to an org as one Bulk API 2.0 job and answer
+   * each (`forgeBulkWrite`), through the run's own job limiter
+   * (`bulkManager`), one job at a time. Throws `BulkJobLostError` once the
+   * job was closed and could not be read back, its rows perhaps written; an
+   * org it cannot reach throws before any job is opened. Its calls are
+   * counted in `requestsSent` as they go. Optional: without it every write
+   * goes by REST.
+   */
+  bulkWriteRecords?: (
+    orgId: string,
+    objectName: string,
+    operation: 'insert' | 'upsert' | 'update',
+    records: Record<string, unknown>[],
+    options: BulkWriteRecordsOptions,
+  ) => Promise<BulkWriteAnswer>;
+  /**
+   * The objects an active duplicate rule of an org watches, or undefined when
+   * the org will not say. A Bulk API job carries no header that waives a
+   * rule, so a run that sends jobs writes these by REST.
+   */
+  duplicateRuleObjects?: (orgId: string) => Promise<ReadonlySet<string> | undefined>;
 }
+
+/** How one write is sent as a Bulk API job: see {@link ForgeExecutorDeps.bulkWriteRecords}. */
+export type BulkWriteRecordsOptions = Pick<
+  ForgeBulkWriteOptions,
+  'externalIdField' | 'signal' | 'onOpened'
+> & {
+  /** The run's job limiter: one job at a time, the run's own. */
+  bulkManager: BulkApiManager;
+};
 
 /** Progress event emitted during execution. */
 export interface ForgeProgressEvent {

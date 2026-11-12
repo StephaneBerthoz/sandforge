@@ -15,38 +15,24 @@
  *
  * Read only, but for a job the org never processed: one left open — the
  * window closed before it was closed — is aborted, so that nothing closes it
- * later, and it wrote nothing. Never one opened less than
- * {@link OPEN_JOB_GRACE_MS} ago: a job stays open for the whole of its
- * upload, and a second window that listed the run during it aborted the
- * first window's job, whose records were then never written.
+ * later, and it wrote nothing. Never one opened less than an hour ago: a job
+ * stays open for the whole of its upload, and a second window that listed
+ * the run during it aborted the first window's job, whose records were then
+ * never written. Nor one whose abort the org refuses: no longer open, its
+ * close reached the org after all, and it is read for what it is now —
+ * running, or ended with what it wrote. Taken for never closed, such a job
+ * was answered with no record, and its records stayed in the org after the
+ * run's removal. The job is read as Forge reads one back
+ * (`readJobResults`), its successful results alone.
  */
 
-import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { readJobResults, type IngestJobReading } from '../../core/engine/ingestJobRead.js';
 import type { SyncRunKept } from './SyncRunCreations.js';
 
-/**
- * How long a job left open is taken for one still being uploaded: an hour.
- * Its window uploads a job's rows right after the org opens it, and closes
- * it once they are all sent; a job open longer than this was left so.
- */
-export const OPEN_JOB_GRACE_MS = 60 * 60_000;
+export type { IngestJobReading };
 
 /** A Salesforce id, as every id read back is: they end up in deletes. */
 const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
-
-/** How an ingest job is reached by its id: the part of a jsforce connection this reads. */
-export interface IngestJobReading {
-  bulk2: {
-    job(
-      type: 'ingest',
-      options: { id: string },
-    ): {
-      check(): Promise<{ state: string; systemModstamp?: string; createdDate?: string }>;
-      getSuccessfulResults(): Promise<ReadonlyArray<Record<string, unknown>>>;
-      abort(): Promise<unknown>;
-    };
-  };
-}
 
 /** What a job read back by its id says of the records it wrote. */
 export type JobCreatedRead =
@@ -82,37 +68,20 @@ export async function readJobCreated(
   upsert: boolean,
   now: () => number = () => Date.now(),
 ): Promise<JobCreatedRead> {
-  try {
-    const job = conn.bulk2.job('ingest', { id: jobId });
-    const info = await job.check();
-    if (info.state === 'Open') {
-      // Opened lately: its window may be uploading it still. Read again later.
-      const opened = Date.parse(info.createdDate ?? '');
-      if (Number.isFinite(opened) && now() - opened < OPEN_JOB_GRACE_MS) {
-        return { state: 'running' };
-      }
-      // Never closed: the org never processes it, and nothing closes it now.
-      await job.abort().catch(() => undefined);
-      return { state: 'never-closed' };
-    }
-    if (info.state === 'UploadComplete' || info.state === 'InProgress') return { state: 'running' };
-    // Ended — complete, failed, or aborted once it ran: what it wrote is in
-    // its successful results all the same.
-    const rows = await job.getSuccessfulResults();
-    const created = rows.flatMap((row) => {
-      const id = row['sf__Id'];
-      if (typeof id !== 'string' || !RECORD_ID.test(id)) return [];
-      if (upsert && createdFlag(row['sf__Created']) !== true) return [];
-      return [id];
-    });
-    return {
-      state: 'ended',
-      created,
-      ...(typeof info.systemModstamp === 'string' ? { at: info.systemModstamp } : {}),
-    };
-  } catch (err: unknown) {
-    return { state: 'unread', reason: extractErrorMessage(err) };
-  }
+  // Its successful results alone: every record it wrote is there.
+  const read = await readJobResults(conn, jobId, { now, successfulOnly: true });
+  if (read.state !== 'ended') return read;
+  const created = (read.results.successfulResults ?? []).flatMap((row) => {
+    const id = row['sf__Id'];
+    if (typeof id !== 'string' || !RECORD_ID.test(id)) return [];
+    if (upsert && createdFlag(row['sf__Created']) !== true) return [];
+    return [id];
+  });
+  return {
+    state: 'ended',
+    created,
+    ...(typeof read.info.systemModstamp === 'string' ? { at: read.info.systemModstamp } : {}),
+  };
 }
 
 /** Where the answer of a job read back goes: the run's file (`SyncRunCreations.answerInFlight`). */
