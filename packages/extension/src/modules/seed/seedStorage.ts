@@ -9,7 +9,12 @@
  * storage at all; its planned records went to Production Guard alone.
  */
 
-import type { CheckpointRefusal, RunCheckpointEstimate, SeedTemplate } from '@sandforge/shared';
+import type {
+  CheckpointRefusal,
+  GrappeConfig,
+  RunCheckpointEstimate,
+  SeedTemplate,
+} from '@sandforge/shared';
 import {
   apiBudgetCheckOf,
   apiBudgetRefusal,
@@ -27,22 +32,139 @@ import {
   type StorageCheck,
 } from '../forge/ForgeRunGate.js';
 import { fitBudgetOf, type FitBudget } from '../forge/fitBudget.js';
+import { seedSliceOf } from './SeedOrchestrator.js';
 
 /** Records past which a seed sends an object as a Bulk API job (`seedInsert`'s default). */
 const SEED_BULK_THRESHOLD = 200;
 
 /**
- * The API requests a seed's writes make of its target, roughly: each object
- * by REST up to {@link SEED_BULK_THRESHOLD} records, as a Bulk API job past it.
+ * The query of the org's active duplicate rules a seed's insert sends once,
+ * before the first insert past {@link SEED_BULK_THRESHOLD} records
+ * (`objectsUnderDuplicateRules`).
  */
-export function seedRequestsEstimate(template: Pick<SeedTemplate, 'objects'>): number {
-  return runRequestsEstimate([
-    ...template.objects.map((object) => ({
-      rows: object.recordCount,
-      bulk: object.recordCount > SEED_BULK_THRESHOLD,
-    })),
-    ...platformRoleCalls(template),
-  ]);
+const DUPLICATE_RULES_READ = 1;
+
+/** How a seed's records reach its target, as far as what they cost it goes. */
+export interface SeedWritePath {
+  /**
+   * Whether an active duplicate rule watches each object, as the read of the
+   * target's automation said it (`duplicateRulesOf`): the insert sends such
+   * an object through REST, however many its records, and any other past
+   * the threshold as Bulk API jobs. An object it does not name, or every
+   * object when absent, may go either way: it is priced the dearer.
+   */
+  duplicateRules?: ReadonlyMap<string, boolean>;
+  /**
+   * The records of each insert when the run partitions the seed
+   * (`seedPartitionOf`); absent, an object goes a slice at a time
+   * (`seedSliceOf`).
+   */
+  partition?: number;
+}
+
+/** Whether `rules` say a duplicate rule watches `objectApiName`, whatever its case; nothing when they do not say. */
+function watchedBy(
+  rules: ReadonlyMap<string, boolean> | undefined,
+  objectApiName: string,
+): boolean | undefined {
+  if (!rules) return undefined;
+  const name = objectApiName.toLowerCase();
+  for (const [object, watched] of rules) if (object.toLowerCase() === name) return watched;
+  return undefined;
+}
+
+/** The records of each insert of `count` records, `size` at a time: at least one, as the run sends. */
+function insertsOf(count: number, size: number): number[] {
+  const step = Math.max(1, Math.floor(size));
+  const inserts: number[] = [];
+  let from = 0;
+  do {
+    const n = Math.max(0, Math.min(step, count - from));
+    inserts.push(n);
+    from += n;
+  } while (from < count);
+  return inserts;
+}
+
+/**
+ * The API requests a seed's writes make of its target, as its insert sends
+ * them (`seedInsert`): each object a slice of up to 10,000 records at a time
+ * — fewer for a wide one, a partition each when the run partitions the seed
+ * —, each slice by REST calls of its batch size up to
+ * {@link SEED_BULK_THRESHOLD} records, and past it as one Bulk API job over
+ * its whole time, unless a duplicate rule watches the object, which then goes
+ * by REST however many its records. Where the read of the rules did not say,
+ * the dearer of the two. With a job, the query of the rules; and the calls of
+ * the roles the platform writes with the opportunities.
+ *
+ * A job was counted five calls whatever its time, and an object a rule
+ * watches as jobs: 25,000 contacts, which the insert sends in 125 REST calls,
+ * were counted 15 requests. What the insert cannot know before — the rows a
+ * validation rule refused, sent again without its fields; a call tried again
+ * — is left out.
+ */
+export function seedRequestsEstimate(
+  template: Pick<SeedTemplate, 'objects'>,
+  path: SeedWritePath = {},
+): number {
+  let jobs = false;
+  const writes = template.objects.flatMap((object) => {
+    const watched = watchedBy(path.duplicateRules, object.objectApiName);
+    return insertsOf(object.recordCount, path.partition ?? seedSliceOf(object)).map((records) => {
+      const rest = runRequestsEstimate([{ rows: records, perCall: object.batchSize }]);
+      if (records <= SEED_BULK_THRESHOLD) return rest;
+      jobs = true;
+      if (watched === true) return rest;
+      const job = runRequestsEstimate([{ rows: records, bulk: true }]);
+      return watched === false ? job : Math.max(job, rest);
+    });
+  });
+  return (
+    writes.reduce((sum, calls) => sum + calls, 0) +
+    (jobs ? DUPLICATE_RULES_READ : 0) +
+    runRequestsEstimate(platformRoleCalls(template))
+  );
+}
+
+/**
+ * The records each insert of a seed holds when the run partitions it, as the
+ * orchestrator decides (`shouldActivateGrappe`): the setting on, and the
+ * seed's records at its threshold or more. Nothing otherwise.
+ */
+export function seedPartitionOf(
+  grappe: Pick<GrappeConfig, 'enabled' | 'autoActivateThreshold' | 'grappeSize'> | undefined,
+  template: Pick<SeedTemplate, 'objects'>,
+): number | undefined {
+  if (!grappe?.enabled) return undefined;
+  const total = template.objects.reduce((sum, object) => sum + object.recordCount, 0);
+  return total >= grappe.autoActivateThreshold ? grappe.grappeSize : undefined;
+}
+
+/**
+ * The API requests an import's writes make of its target, as the writer of
+ * the CSV import and of the clone sends them (`BulkDataWriter`): an object of
+ * no more than `threshold` records by REST calls of `perCall`; past it, one
+ * Bulk API job over its whole time, however many its records — more than
+ * 10,000 are read into the one job a chunk at a time —, and the rows a
+ * duplicate rule refused in it sent again by REST, 200 a call. Every row of
+ * an object a rule watches may be refused so, and is counted again; so is
+ * every row of one the read of the rules did not say of.
+ *
+ * The clone priced its records as REST calls: 600 rows, one job of twelve
+ * calls, were counted three. The CSV import priced its rows as jobs of 10,000
+ * at five calls each: 25,000 rows, one job of nineteen, were counted fifteen.
+ */
+export function importRequestsEstimate(
+  objects: ReadonlyArray<{ objectApiName: string; rows: number }>,
+  path: { threshold: number; perCall?: number; duplicateRules?: ReadonlyMap<string, boolean> },
+): number {
+  return objects.reduce((sum, { objectApiName, rows }) => {
+    if (rows <= path.threshold) {
+      return sum + runRequestsEstimate([{ rows, perCall: path.perCall }]);
+    }
+    const refusedAgain = watchedBy(path.duplicateRules, objectApiName) === false ? 0 : rows;
+    return sum + runRequestsEstimate([{ rows, bulk: true }, { rows: refusedAgain }]);
+  }, 0);
 }
 
 /**
@@ -131,6 +253,9 @@ export const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
  *   cost, as the port of the checkpoints scoped it; absent when not asked.
  * @param deliverability - The requests its read of whether the target
  *   delivers its emails sent (`deliverabilityPartOf`), counted with the seed's.
+ * @param path - How its records reach the target, as its requests are
+ *   priced: the duplicate rules read with the target's automation, the
+ *   partitions of the run (`seedRequestsEstimate`).
  */
 export async function seedStorageGate(
   transport: LimitsTransport,
@@ -139,6 +264,7 @@ export async function seedStorageGate(
   target: string,
   checkpoint?: RunCheckpointEstimate,
   deliverability: Pick<RunRequestParts, 'deliverability'> = {},
+  path: SeedWritePath = {},
 ): Promise<SeedStorageGate> {
   const plan = { storageBytes: seedStorageBytes(template, personObjects) };
   let storage: Awaited<ReturnType<typeof readDataStorage>> | { unread: string };
@@ -158,7 +284,11 @@ export async function seedStorageGate(
         }))
       : storage.dailyApiRequests;
   const api = apiBudgetCheckOf(
-    { run: seedRequestsEstimate(template), ...checkpointPartOf(checkpoint), ...deliverability },
+    {
+      run: seedRequestsEstimate(template, path),
+      ...checkpointPartOf(checkpoint),
+      ...deliverability,
+    },
     budget,
   );
   const refused = checkpointScopeStop(checkpoint);

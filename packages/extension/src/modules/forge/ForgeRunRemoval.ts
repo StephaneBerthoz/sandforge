@@ -37,6 +37,7 @@ import {
 } from '../dataops/RecordRemoval.js';
 import { BulkApiExecutor, type BulkApiConnection } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import { BULK_RESULT_READS } from '../../core/engine/bulkJobCost.js';
 import {
   OTHER_VERSIONS_KEPT,
   isArticleVersionObject,
@@ -74,12 +75,6 @@ export const BULK_DELETE_THRESHOLD = 10_000;
  * past the first saves the wait the org makes it start with.
  */
 export const BULK_DELETE_JOB_RECORDS = 50_000;
-
-/**
- * Reads of a Bulk API 2.0 job's results once it is through: its successful,
- * failed and unprocessed records, each a call of its own.
- */
-export const BULK_RESULT_READS = 3;
 
 /**
  * Reads of an object's dependents sent at once. Each answers in a quarter of a

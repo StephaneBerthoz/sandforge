@@ -2004,14 +2004,26 @@ describe('the daily API requests', () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
-  it('estimates a run: a REST call per 200 rows, five per Bulk API job of 10 000, a read per 2 000', () => {
+  it('estimates a run: a REST call per 200 rows, a Bulk API job by every call it sends over its time, a read per 2 000', () => {
     expect(
       runRequestsEstimate([
         { rows: 401 },
         { rows: 12_000, bulk: true },
         { rows: 0, readRows: 4_001 },
       ]),
-    ).toBe(3 + 10 + 3);
+    ).toBe(
+      // 12,000 rows in one job: opened, sent, closed, its state read once
+      // closed and after each five seconds of its forty, its results read
+      // three ways. Counted five per 10,000, two jobs' worth: ten.
+      3 + (3 + 9 + 3) + 3,
+    );
+  });
+
+  it('counts a REST call per the records its writer sends a call, when it sends fewer than 200', () => {
+    // A seed run with --batch-size 50 sends 401 records in nine calls.
+    expect(runRequestsEstimate([{ rows: 401, perCall: 50 }])).toBe(9);
+    // No more than 200 a call, whatever it is told: the org takes no more.
+    expect(runRequestsEstimate([{ rows: 401, perCall: 500 }])).toBe(3);
   });
 
   it('says a run exceeds what is left, comes near a tenth of the day, fits, or could not be read', () => {

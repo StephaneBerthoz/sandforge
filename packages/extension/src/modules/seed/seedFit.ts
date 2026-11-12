@@ -66,7 +66,7 @@ import {
 } from '../forge/fitBudget.js';
 import { formatMBPast } from '../forge/ForgeRunGate.js';
 import { ARTICLE_VERSION_OBJECT } from './seedKnowledge.js';
-import { seedRequestsEstimate, seedStorageBytes } from './seedStorage.js';
+import { seedRequestsEstimate, seedStorageBytes, type SeedWritePath } from './seedStorage.js';
 
 /** The template a fit reads: its objects and their relations. */
 type FitTemplate = Pick<SeedTemplate, 'objects' | 'relations'>;
@@ -333,7 +333,9 @@ function recordsWords(n: number): string {
  * asked, or the day's API requests when their writes would leave less than a
  * tenth of it — and says why no room was kept when the target's automation
  * could not be read (`automationUnread`): the page that shows it says no
- * more than what was computed here.
+ * more than what was computed here. Its requests are priced as the gate
+ * prices them, by the same write path (`path`): the duplicate rules the gate
+ * read, the partitions of the run.
  */
 export function fitSeedTemplate(input: {
   template: FitTemplate;
@@ -341,6 +343,7 @@ export function fitSeedTemplate(input: {
   budget: FitBudget;
   room: Pick<SeedAutomationRoom, 'perRecord' | 'notCounted' | 'unread'>;
   ask?: SeedFitAsk;
+  path?: SeedWritePath;
 }): SeedFit {
   const { template, personObjects, budget, room } = input;
   const caps = input.ask?.caps;
@@ -359,7 +362,7 @@ export function fitSeedTemplate(input: {
       counts,
       bytes: seedStorageBytes(fitted, personObjects) + roomBytes,
       roomBytes,
-      requests: seedRequestsEstimate(fitted),
+      requests: seedRequestsEstimate(fitted, input.path),
       records: [...counts.values()].reduce((sum, n) => sum + n, 0),
     };
   };
@@ -470,17 +473,19 @@ export function fitSeedTemplate(input: {
 /**
  * The fit proposed with the refusal of a seed for its storage or its API
  * requests: by share, from what the gate read, room kept for what still runs
- * of the target's automation. Nothing when the target would not say its
- * storage: there is nothing to fit to.
+ * of the target's automation, its requests priced by the gate's write path.
+ * Nothing when the target would not say its storage: there is nothing to fit
+ * to.
  */
 export function seedFitProposalOf(
   budget: FitBudget | { unread: string },
   template: FitTemplate,
   personObjects: readonly string[],
   room: Pick<SeedAutomationRoom, 'perRecord' | 'notCounted' | 'unread'>,
+  path?: SeedWritePath,
 ): SeedFitProposal | undefined {
   if ('unread' in budget) return undefined;
-  return fitSeedTemplate({ template, personObjects, budget, room }).proposal;
+  return fitSeedTemplate({ template, personObjects, budget, room, path }).proposal;
 }
 
 /**

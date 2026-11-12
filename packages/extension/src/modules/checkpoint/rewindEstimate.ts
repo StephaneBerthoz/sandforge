@@ -59,13 +59,13 @@ import * as z from 'zod';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { DELETED_PAST_DRAFT, STATUS_LIFECYCLES } from '../../core/common/platformRecords.js';
 import { columnGroups, idsPerStatement } from '../../core/common/wideRead.js';
-import { BULK_POLL_INTERVAL_MS } from '../../core/engine/BulkApiExecutor.js';
-import { RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import {
-  BULK_DELETE_JOB_RECORDS,
-  BULK_DELETE_THRESHOLD,
-  BULK_RESULT_READS,
-} from '../forge/ForgeRunRemoval.js';
+  bulkJobRequests,
+  bulkJobSeconds,
+  bulkJobStateReads,
+} from '../../core/engine/bulkJobCost.js';
+import { RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
+import { BULK_DELETE_JOB_RECORDS, BULK_DELETE_THRESHOLD } from '../forge/ForgeRunRemoval.js';
 import {
   apiBudgetCheckOf,
   readApiBudget,
@@ -302,22 +302,6 @@ const SECONDS_PER_DEPENDENTS_READ = 0.25;
  * in 8.6 s by ten calls.
  */
 const SECONDS_PER_WRITE = 0.86;
-
-/**
- * Seconds a Bulk API job waits its turn in the org before it deletes a record,
- * about: on a scratch org, 24 of the 25.6 seconds a job of 2,000 contacts took.
- */
-const BULK_JOB_WAIT_SECONDS = 24;
-
-/**
- * Records a Bulk API job deletes a second once under way, about: 12,000 in 33
- * seconds, fifty thousand in about a minute and a half, the slower of the two
- * taken, so a job is read as often as it may be.
- */
-const BULK_JOB_RECORDS_PER_SECOND = 750;
-
-/** Calls a Bulk API job sends whatever it holds: opened, its CSV sent, closed. */
-const BULK_JOB_FIXED_CALLS = 3;
 
 /** The file version, whose records a removal deletes by their document, never by a job. */
 const FILE_VERSION = 'ContentVersion';
@@ -967,28 +951,6 @@ function relationshipsFor(
       cascades: UNDESCRIBED_RELATIONSHIPS,
     }
   );
-}
-
-/**
- * The calls one Bulk API 2.0 job sends the org, each one of its daily
- * requests: opened, its CSV sent, closed, each read of its state, and its
- * results read three ways once it is through, unless told how many.
- */
-export function bulkJobRequests(job: { stateReads: number; resultReads?: number }): number {
-  return BULK_JOB_FIXED_CALLS + job.stateReads + (job.resultReads ?? BULK_RESULT_READS);
-}
-
-/** Seconds a Bulk API job of `records` deletes takes, about: its wait, then the deletes. */
-function bulkJobSeconds(records: number): number {
-  return BULK_JOB_WAIT_SECONDS + records / BULK_JOB_RECORDS_PER_SECOND;
-}
-
-/**
- * Reads of its state a Bulk API job of `records` deletes takes: one as it is
- * closed, then one each time the executor waits for it, as long as its time.
- */
-export function bulkJobStateReads(records: number): number {
-  return 1 + Math.ceil((bulkJobSeconds(records) * 1000) / BULK_POLL_INTERVAL_MS);
 }
 
 /**

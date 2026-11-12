@@ -36,11 +36,12 @@ import {
   deliverabilityPartOf,
   readApiBudget,
   readDataStorage,
-  runRequestsEstimate,
   storageCheckOf,
   type ApiBudget,
   type DataStorage,
 } from '../../modules/forge/ForgeRunGate.js';
+import { importRequestsEstimate } from '../../modules/seed/seedStorage.js';
+import { duplicateRulesOf } from '../../modules/seed/seedDuplicateRules.js';
 import {
   NO_APEX_IN_PRODUCTION,
   readEmailDeliverability,
@@ -585,9 +586,20 @@ export class SeedCsvHandler implements DomainHandler {
           : await readApiBudget(conn).catch((err: unknown) => ({
               unread: extractErrorMessage(err),
             }));
+      // The rows priced as the writer sends them: past the Bulk API
+      // threshold one job, and every row again by REST when a duplicate rule
+      // watches the object, or may — the writer sends what a rule refused in
+      // the job again so —, as the automation read above found the rules.
       const api = apiBudgetCheckOf(
         {
-          run: runRequestsEstimate([{ rows: parsed.records.length, bulk: true }]),
+          run: importRequestsEstimate(
+            [{ objectApiName: parsed.objectApiName, rows: parsed.records.length }],
+            {
+              threshold: robustnessConfigOf(this.deps).bulk.threshold,
+              perCall: this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200),
+              duplicateRules: duplicateRulesOf(read),
+            },
+          ),
           ...checkpointPartOf(checkpoint?.planned),
           ...deliverabilityPartOf(emailsOfRun.ofRun),
         },

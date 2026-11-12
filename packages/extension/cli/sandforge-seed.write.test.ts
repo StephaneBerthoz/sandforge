@@ -26,6 +26,7 @@ import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 import { readRunFile } from '../src/modules/sync/SyncRunCreations.js';
 import { main, seedInterruptedLine, seedWritePathOf } from './sandforge-seed.js';
+import { targetAutomationReader } from './sandforge-clone.js';
 import type { BulkJobHandle } from '../src/core/engine/BulkApiExecutor.js';
 
 /** Asset, as the fake org describes it: a name to fill, nothing else required. */
@@ -220,6 +221,28 @@ describe('a seed from the command line', () => {
       '(a Bulk API job, or REST when an active duplicate rule watches the object)',
     );
     expect(seedWritePathOf(200, 200)).toBe('(REST)');
+  });
+
+  it('prices its API requests by the duplicate rules the read of the automation found, as the insert sends its records', async () => {
+    fakeOrg();
+    // The rules read with the automation: none watches Asset.
+    vi.mocked(targetAutomationReader).mockReturnValueOnce({
+      read: async (_target: string, objects: readonly string[]) => ({
+        objectsRead: [...objects],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+      }),
+    } as never);
+
+    await main(argv(12_000, '--dry-run', '--json'));
+
+    const summary = JSON.parse(stdout.join('')) as { apiRequests: { estimate: number } };
+    // A job for each slice, of 10,000 and of 2,000, each read as long as it
+    // runs and its results three ways, and the query of the rules: 29. Not
+    // told of the rules, 64: the REST calls a rule would make of the first.
+    expect(summary.apiRequests.estimate).toBe(3 + 9 + 3 + (3 + 7 + 3) + 1);
   });
 
   it('skips an --object the user may not create, saying why, and writes the others', async () => {

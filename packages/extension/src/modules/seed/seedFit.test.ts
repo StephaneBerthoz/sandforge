@@ -542,6 +542,39 @@ describe('fitSeedTemplate', () => {
     });
     expect(fit).toMatchObject({ heldBy: 'whole', records: 7600, proposal: { share: 1 } });
   });
+
+  it('prices the requests of each share by the write path the gate read, as the gate prices them', () => {
+    const contacts: Pick<SeedTemplate, 'objects' | 'relations'> = {
+      objects: [
+        {
+          objectApiName: 'Contact',
+          recordCount: 25_000,
+          fieldRules: [],
+          excludedFields: [],
+          insertOrder: 0,
+          batchSize: 200,
+        },
+      ],
+      relations: [],
+    };
+    const noRule = { duplicateRules: new Map([['Contact', false]]) };
+    const fit = (path?: typeof noRule) =>
+      fitSeedTemplate({
+        template: contacts,
+        personObjects: [],
+        budget: budgetOf(500 * BYTES_PER_MB, 50),
+        room: NO_ROOM,
+        ...(path ? { path } : {}),
+      });
+    // No rule watches the contacts: jobs of 10,000, 10,000 and 5,000 (44
+    // calls) and the query of the rules, within the 50 left.
+    expect(fit(noRule)).toMatchObject({ heldBy: 'whole', requests: 45 });
+    // Not told, a rule may: 125 REST calls, and the share is cut.
+    expect(fit().heldBy).toBe('apiRequests');
+    expect(
+      seedFitProposalOf(budgetOf(500 * BYTES_PER_MB, 50), contacts, [], NO_ROOM, noRule)?.share,
+    ).toBe(1);
+  });
 });
 
 describe('fittedTemplate', () => {

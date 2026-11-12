@@ -146,7 +146,9 @@ import {
   seedFitBudgetOf,
   seedStorageBytes,
   seedStorageGate,
+  type SeedWritePath,
 } from '../src/modules/seed/seedStorage.js';
+import { duplicateRulesOf } from '../src/modules/seed/seedDuplicateRules.js';
 import {
   SEED_CANNOT_FIT,
   SEED_FIT_STORAGE_UNREAD,
@@ -2250,6 +2252,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const objectAccess = seedObjectAccess(conn);
   // What it counts: an optional object the org does not take is skipped by the run.
   let taken = await templateTheOrgTakes(template, objectAccess);
+  // Its requests priced as the insert sends them: an object a duplicate rule
+  // watches through REST, as the read of the automation found the rules.
+  const writePath: SeedWritePath = { duplicateRules: duplicateRulesOf(read) };
   let storage = await seedStorageGate(
     conn,
     taken,
@@ -2257,6 +2262,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     args.target,
     checkpointPlanned?.estimate,
     deliverabilityRequests,
+    writePath,
   );
   /** The fit asked, or the one a refusal for the storage or the requests proposes. */
   let fit: { applied: boolean; fit: SeedFit } | undefined;
@@ -2285,6 +2291,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         budget,
         room: room.room,
         ask: args.fit,
+        path: writePath,
       });
       fit = { applied: true, fit: fitted };
       for (const line of seedFitLines(fitted, args.target, { applied: true, ...fitWords })) {
@@ -2310,6 +2317,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           args.target,
           checkpointPlanned?.estimate,
           deliverabilityRequests,
+          writePath,
         );
       }
     }
@@ -2339,6 +2347,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           personObjects,
           budget,
           room: room.room,
+          path: writePath,
         });
         fit = { applied: false, fit: proposed };
         for (const line of seedFitLines(proposed, args.target, { applied: false, ...fitWords })) {

@@ -118,8 +118,11 @@ import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 import {
   SEED_STORAGE_EXCEEDED,
   seedFitBudgetOf,
+  seedPartitionOf,
   seedStorageGate,
+  type SeedWritePath,
 } from '../../modules/seed/seedStorage.js';
+import { duplicateRulesOf } from '../../modules/seed/seedDuplicateRules.js';
 import {
   seedAuditFitOf,
   seedFitProposalOf,
@@ -1817,6 +1820,13 @@ export class SeedOpsHandler implements DomainHandler {
       await import('../../modules/seed/seedObjectAccess.js');
     // What it counts: an optional object the org does not take is skipped by the run.
     const taken = await templateTheOrgTakes(kinds.template, seedObjectAccess(conn));
+    // Its requests priced as its insert sends them: an object a duplicate
+    // rule watches through REST, as the automation read above found the
+    // rules, and each partition of a run the setting partitions on its own.
+    const writePath: SeedWritePath = {
+      duplicateRules: duplicateRulesOf(read),
+      partition: seedPartitionOf(readGrappeConfig(this.deps.services), kinds.template),
+    };
     const storage = await seedStorageGate(
       conn,
       taken,
@@ -1824,6 +1834,7 @@ export class SeedOpsHandler implements DomainHandler {
       org?.alias ?? payload.orgId,
       checkpoint?.planned,
       deliverabilityPartOf(emailsOfRun.ofRun),
+      writePath,
     );
     if (storage.check.verdict === 'unread') {
       warn(
@@ -1864,6 +1875,7 @@ export class SeedOpsHandler implements DomainHandler {
             taken,
             kinds.personObjects,
             stillRunning.room,
+            writePath,
           );
       return {
         refusal: {

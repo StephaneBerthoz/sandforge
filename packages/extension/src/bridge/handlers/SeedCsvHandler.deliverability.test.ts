@@ -12,7 +12,7 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { EMAIL_NOT_PERMITTED } from '../../modules/forge/targetDeliverability.js';
-import { runRequestsEstimate } from '../../modules/forge/ForgeRunGate.js';
+import { importRequestsEstimate } from '../../modules/seed/seedStorage.js';
 import {
   writePathOrderDefects,
   type WritePathStep,
@@ -276,9 +276,11 @@ describe('SeedCsvHandler — an import on the emails of what runs', () => {
 
   it('counts what the read sent with the import’s requests', async () => {
     // A closed org's read sends two requests: with one left past the run's
-    // own, the run alone fits and the two together do not.
+    // own — two rows, one REST call —, the run alone fits and the two
+    // together do not.
     apex = CLOSED;
-    requestsLeft = runRequestsEstimate([{ rows: 2, bulk: true }]) + 1;
+    requestsLeft =
+      importRequestsEstimate([{ objectApiName: 'Account', rows: 2 }], { threshold: 200 }) + 1;
 
     await handler.handle(buildMsg());
 

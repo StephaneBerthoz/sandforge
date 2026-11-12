@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { BaseMessage, ForgeTargetAutomation } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  ForgeTargetAutomation,
+  ForgeTargetObjectAutomation,
+} from '@sandforge/shared';
 import { SeedCloneHandler } from './SeedCloneHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
@@ -2393,9 +2397,8 @@ describe('SeedCloneHandler', () => {
         ]);
       });
 
-      it('refuses a clone past the API requests the target has left today, before anything is written', async () => {
-        // Nothing compared them: a clone into an org whose integrations had
-        // used the day's requests stopped part way through.
+      /** The target of a clone with one API request left today, its contacts' rules as `rules` lists them. */
+      const oneRequestLeft = (rules: ForgeTargetObjectAutomation['duplicateRules']): void => {
         mockGetConn.mockResolvedValue({
           describe: vi.fn(async () => ({ keyPrefix: '003', fields: [], recordTypeInfos: [] })),
           request: vi.fn(async () => ({
@@ -2404,11 +2407,23 @@ describe('SeedCloneHandler', () => {
           })),
           limitInfo: undefined,
         } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
-        handler.setTargetAutomation({ read: vi.fn(async () => contactFlow(true)) });
+        const read = contactFlow(true);
+        handler.setTargetAutomation({
+          read: vi.fn(async () => ({
+            ...read,
+            objects: read.objects.map((object) => ({ ...object, duplicateRules: rules })),
+          })),
+        });
         vi.mocked(deps.orgManager.getOrg).mockReturnValue({
           alias: 'my-dev-org',
           orgType: 'Developer',
         } as never);
+      };
+
+      it('refuses a clone past the API requests the target has left today, before anything is written', async () => {
+        // Nothing compared them: a clone into an org whose integrations had
+        // used the day's requests stopped part way through.
+        oneRequestLeft([]);
         await previewContacts(400);
 
         await handler.handle(
@@ -2417,13 +2432,35 @@ describe('SeedCloneHandler', () => {
 
         expect(writer.insert).not.toHaveBeenCalled();
         expect(posted(deps, 'operation:started')).toEqual([]);
+        // The writer sends 400 contacts as one Bulk API job: opened, sent,
+        // closed, its state read six times, its results three ways. Counted
+        // as two REST calls.
         expect(posted(deps, 'operation:failed')).toEqual([
           expect.objectContaining({
             payload: expect.objectContaining({
               code: 'API_BUDGET_EXCEEDED',
               error: expect.stringContaining(
-                'The run takes about 2 API requests, and my-dev-org has 1 of its 15000 daily requests left',
+                'The run takes about 12 API requests, and my-dev-org has 1 of its 15000 daily requests left',
               ),
+            }),
+          }),
+        ]);
+      });
+
+      it('counts again by REST the contacts a duplicate rule watching them may refuse in the job', async () => {
+        oneRequestLeft([{ name: 'Standard Contact Rule', developerName: 'Standard_Rule' }]);
+        await previewContacts(400);
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        // The job's twelve calls, and the two that send its 400 rows again
+        // should the rule refuse them all.
+        expect(posted(deps, 'operation:failed')).toEqual([
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              error: expect.stringContaining('The run takes about 14 API requests'),
             }),
           }),
         ]);

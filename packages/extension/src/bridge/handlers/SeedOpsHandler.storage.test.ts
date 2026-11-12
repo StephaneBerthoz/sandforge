@@ -15,6 +15,7 @@ import { inboundRequest } from '../../test/mockFactories.js';
 import type { SeedOrchestratorDependencies } from '../../modules/seed/SeedOrchestrator.js';
 import { LOCALE_DATA } from '../../modules/seed/LocaleData.js';
 import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
+import { seedRequestsEstimate } from '../../modules/seed/seedStorage.js';
 import type { AIProvider } from '../../modules/ai/types.js';
 
 vi.mock('../../logger.js', () => ({
@@ -223,6 +224,90 @@ describe('SeedOpsHandler — storage and locale', () => {
     expect(String(error.payload.message)).toContain(
       'my-dev-org has 2 of its 15000 daily requests left',
     );
+  });
+
+  describe('the API requests it is held to, priced as its insert sends them', () => {
+    /** A template of `count` contacts alone. */
+    const contactsOf = (count: number): SeedTemplate => {
+      const contact = CRM_STARTER.objects.find((o) => o.objectApiName === 'Contact');
+      if (!contact) throw new Error('no contacts');
+      return {
+        ...CRM_STARTER,
+        objects: [{ ...contact, recordCount: count, insertOrder: 0 }],
+        relations: [],
+      };
+    };
+    /** An org with room for the records, three requests left, and the rules `ruled` names active. */
+    const orgWithRules = (ruled: string[]) => {
+      const { request, query } = developerEdition();
+      request.mockResolvedValue({
+        DataStorageMB: { Max: 1_000, Remaining: 1_000 },
+        DailyApiRequests: { Max: 15_000, Remaining: 3 },
+      } as never);
+      query.mockImplementation(async (soql: string) =>
+        soql.includes('FROM DuplicateRule')
+          ? {
+              records: ruled.map((object) => ({
+                SobjectType: object,
+                DeveloperName: `Standard_${object}_Rule`,
+                MasterLabel: `Standard ${object} Rule`,
+              })),
+            }
+          : soql.includes('FROM Organization')
+            ? { records: [{ DefaultLocaleSidKey: 'en_US' }] }
+            : { records: [] },
+      );
+    };
+    const refusal = (): string => {
+      const [error] = posted('seed:error');
+      expect(error.payload).toMatchObject({ code: 'API_BUDGET_EXCEEDED' });
+      return String(error.payload.message);
+    };
+
+    it('prices contacts no duplicate rule watches as the Bulk API jobs the insert sends them in', async () => {
+      // The org's rules read with its automation: none on Contact. Jobs of
+      // 10,000, 10,000 and 5,000 and the query of the rules: 45, where the
+      // REST calls a rule would make them take 125. The read of whether the
+      // org delivers the contacts' emails besides.
+      orgWithRules(['Account']);
+      const template = contactsOf(25_000);
+
+      await execute(template);
+
+      expect(executed).toEqual([]);
+      expect(
+        seedRequestsEstimate(template, { duplicateRules: new Map([['Contact', false]]) }),
+      ).toBe(45);
+      expect(refusal()).toContain(
+        'The run takes about 46 API requests (1 of them to read whether the target delivers its emails)',
+      );
+    });
+
+    it('prices contacts a duplicate rule watches as the REST calls the insert sends them in', async () => {
+      // 600 contacts in three calls and the query of the rules, where a job
+      // would take twelve; the read of the deliverability besides.
+      orgWithRules(['Contact']);
+
+      await execute(contactsOf(600));
+
+      expect(refusal()).toContain('The run takes about 5 API requests (1 of them');
+    });
+
+    it('prices each partition of a seed the setting partitions as its own job', async () => {
+      // Partitions turned on, past 10,000 records, of 5,000 each: five jobs
+      // of fourteen calls, where slices of 10,000 make three of 44.
+      const settings = deps.services as unknown as {
+        getSandforgeSetting: ReturnType<typeof vi.fn>;
+      };
+      settings.getSandforgeSetting.mockImplementation((key: string, fallback: unknown) =>
+        key === 'grappe.enabled' ? true : fallback,
+      );
+      orgWithRules([]);
+
+      await execute(contactsOf(25_000));
+
+      expect(refusal()).toContain('The run takes about 72 API requests (1 of them');
+    });
   });
 
   it("draws the people of a seed in the org's own locale, and in the one the request names", async () => {

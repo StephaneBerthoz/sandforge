@@ -97,11 +97,12 @@ import {
   readApiBudget,
   readDataStorage,
   readEmailLimits,
-  runRequestsEstimate,
   storageCheckOf,
   type ApiBudget,
   type DataStorage,
 } from '../../modules/forge/ForgeRunGate.js';
+import { importRequestsEstimate } from '../../modules/seed/seedStorage.js';
+import { duplicateRulesOf } from '../../modules/seed/seedDuplicateRules.js';
 import {
   NO_APEX_IN_PRODUCTION,
   readEmailDeliverability,
@@ -1054,9 +1055,20 @@ export class SeedCloneHandler implements DomainHandler {
           : await readApiBudget(targetConn).catch((err: unknown) => ({
               unread: extractErrorMessage(err),
             }));
+      // The records priced as the writer sends them, as an import's: past
+      // the Bulk API threshold one job an object, and what a duplicate rule
+      // refused in it again by REST, as the automation read above found the
+      // rules.
       const api = apiBudgetCheckOf(
         {
-          run: runRequestsEstimate(counted.map((o) => ({ rows: o.recordCount }))),
+          run: importRequestsEstimate(
+            counted.map((o) => ({ objectApiName: o.objectApiName, rows: o.recordCount })),
+            {
+              threshold: robustnessConfigOf(this.deps).bulk.threshold,
+              perCall: this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200),
+              duplicateRules: duplicateRulesOf(automationRead),
+            },
+          ),
           ...checkpointPartOf(checkpoint?.planned),
           ...deliverabilityPartOf(emailsOfRun?.ofRun),
         },

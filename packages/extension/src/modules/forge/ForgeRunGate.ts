@@ -81,6 +81,7 @@ import type {
 } from '../../core/precheck/ProductionGuard.js';
 import type { ForgeMayBeByThePlatform, ForgeWriteBoundary } from './ForgeExecutor.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { bulkJobCost } from '../../core/engine/bulkJobCost.js';
 import { RUN_CANCELLED } from './forgeAudit.js';
 import { ordersTheWrite } from './stages/ScopeResolver.js';
 import { objectsTheRunWrites } from './TargetAutomationReader.js';
@@ -548,12 +549,8 @@ export async function readApiBudget(transport: LimitsTransport): Promise<ApiBudg
   return { max: limits.DailyApiRequests.Max, remaining: limits.DailyApiRequests.Remaining };
 }
 
-/** Records a REST call writes, as the runs send them. */
+/** Records a REST call writes, as the runs send them, and the most one takes. */
 const ROWS_PER_REST_CALL = 200;
-/** Records a Bulk API job takes before another is opened. */
-const ROWS_PER_BULK_JOB = 10_000;
-/** The calls a Bulk API job costs: open, upload, close, and polling it. */
-const CALLS_PER_BULK_JOB = 5;
 /** Records a query page reads. */
 const ROWS_PER_READ = 2_000;
 /**
@@ -564,20 +561,25 @@ export const API_BUDGET_NEAR_SHARE = 0.1;
 
 /**
  * The calls a run makes of the org it writes to, roughly: per object, a REST
- * call per {@link ROWS_PER_REST_CALL} records, or {@link CALLS_PER_BULK_JOB} per
- * Bulk API job of {@link ROWS_PER_BULK_JOB}, and a call per page of
- * {@link ROWS_PER_READ} records it reads of that org.
+ * call per {@link ROWS_PER_REST_CALL} records — per `perCall`, when its
+ * writer sends fewer a call —, or, for records sent as one Bulk API 2.0 job
+ * (`bulk`), every call that job sends over its whole time (`bulkJobCost`):
+ * opened, sent, closed, its state read as long as it runs, its results read
+ * three ways; and a call per page of {@link ROWS_PER_READ} records it reads
+ * of that org. A writer that sends an object in several jobs gives each its
+ * own entry.
+ *
+ * A job was counted five calls per 10,000 records, whatever it held: its
+ * reads of results were left out, and so was every read of its state past
+ * the first. A seed of 600 records sent as one job took twelve calls,
+ * counted five.
  */
 export function runRequestsEstimate(
-  objects: ReadonlyArray<{ rows: number; bulk?: boolean; readRows?: number }>,
+  objects: ReadonlyArray<{ rows: number; bulk?: boolean; readRows?: number; perCall?: number }>,
 ): number {
-  return objects.reduce((sum, { rows, bulk, readRows }) => {
-    const writes =
-      rows <= 0
-        ? 0
-        : bulk
-          ? CALLS_PER_BULK_JOB * Math.ceil(rows / ROWS_PER_BULK_JOB)
-          : Math.ceil(rows / ROWS_PER_REST_CALL);
+  return objects.reduce((sum, { rows, bulk, readRows, perCall }) => {
+    const restPerCall = Math.min(ROWS_PER_REST_CALL, Math.max(1, perCall ?? ROWS_PER_REST_CALL));
+    const writes = rows <= 0 ? 0 : bulk ? bulkJobCost(rows) : Math.ceil(rows / restPerCall);
     const reads = readRows && readRows > 0 ? Math.ceil(readRows / ROWS_PER_READ) : 0;
     return sum + writes + reads;
   }, 0);
