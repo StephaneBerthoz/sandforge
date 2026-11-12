@@ -175,7 +175,7 @@ const manifestSchema = z.object({
 });
 
 /** Where an object's ids are in a spool's folder. */
-function idsFileOf(dir: string, objectApiName: string): string {
+export function idsFileOf(dir: string, objectApiName: string): string {
   return join(dir, `${sanitizeSoqlObjectName(objectApiName)}.ids`);
 }
 
@@ -208,6 +208,22 @@ async function flushed(file: string): Promise<void> {
   } finally {
     await handle.close();
   }
+}
+
+/**
+ * Close a spool whose ids files are written: flush each to the disk, then
+ * write the list of its objects and their counts, in their order — the
+ * spool, as it is read back. An object of no record has no file.
+ */
+export async function closeSpool(
+  dir: string,
+  objects: Array<{ objectApiName: string; count: number }>,
+): Promise<IdSpool> {
+  for (const { objectApiName, count } of objects) {
+    if (count > 0) await flushed(idsFileOf(dir, objectApiName));
+  }
+  await writeWhole(join(dir, MANIFEST), `${JSON.stringify({ version: 1, objects })}\n`);
+  return new IdSpool(dir, objects);
 }
 
 /**
@@ -286,13 +302,8 @@ export class IdSpoolWriter {
       await makePrivateDir(this.dir);
       this.made = true;
     }
-    for (const objectApiName of this.order) {
-      await this.flush(objectApiName);
-      await flushed(idsFileOf(this.dir, objectApiName));
-    }
-    const objects = order ? order(this.objects) : this.objects;
-    await writeWhole(join(this.dir, MANIFEST), `${JSON.stringify({ version: 1, objects })}\n`);
-    return new IdSpool(this.dir, objects);
+    for (const objectApiName of this.order) await this.flush(objectApiName);
+    return closeSpool(this.dir, order ? order(this.objects) : this.objects);
   }
 }
 

@@ -1,4 +1,3 @@
-import * as z from 'zod';
 import type { Connection } from 'jsforce';
 import type {
   ForgeRemovalSpan,
@@ -12,30 +11,16 @@ import {
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   SELLING_MODEL_OPTION_OBJECT,
   isPricebookEntry,
-  limitCauseOf,
 } from '@sandforge/shared';
 
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { limitSplitting, type LimitSplitting } from '../../core/common/governorLimit.js';
 import {
-  GOVERNOR_LIMIT_ALONE,
-  GOVERNOR_LIMIT_KEPT_WHOLE,
-  allowedFor,
-  limitSplitting,
-  notSplitNote,
-  sendSplittingOnLimits,
-  smallerCallsNote,
-  type CallKey,
-  type LimitNote,
-  type LimitSplitting,
-} from '../../core/common/governorLimit.js';
-import {
-  DELETED_PAST_DRAFT,
   LOCKED_PAST_DRAFT,
   STATUS_LIFECYCLES,
   standardPriceIds,
   statusCategories,
-  type SoqlQuery,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
 import { describedObjectSchema } from '../dataops/DataQualityScanner.js';
@@ -48,9 +33,23 @@ import {
   RECORDS_PER_CALL,
   workedObjects,
 } from '../dataops/RecordRemoval.js';
-import { BulkApiExecutor, type BulkApiConnection } from '../../core/engine/BulkApiExecutor.js';
-import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
-import { BULK_RESULT_READS } from '../../core/engine/bulkJobCost.js';
+import type { BulkApiConnection } from '../../core/engine/BulkApiExecutor.js';
+import {
+  BULK_DELETE_JOB_RECORDS,
+  bulkDeleteJob,
+  deleteLimitNotes,
+  goesByJob,
+  lockResendNote,
+  queryOf,
+  removalOrder,
+  retryRounds,
+  sendDeletes,
+  takenAlong,
+  type BulkDeleteAnswer,
+  type DeleteOutcome,
+} from '../../core/removal/deleteRecords.js';
+import { backToDraft, putBackStatuses, type Drafted } from '../../core/removal/recordsToDraft.js';
+import { recycleBinOf } from '../../core/removal/recycleBin.js';
 import {
   OTHER_VERSIONS_KEPT,
   isArticleVersionObject,
@@ -65,29 +64,26 @@ import {
 } from './quoteSyncCopies.js';
 import { MADE_WITHIN_MS, TIE_LEAD_MS } from './sweepTies.js';
 
+// The deletes themselves are the removal core's, shared with whatever else
+// deletes records: what the removal's callers have always read from here.
+export {
+  BULK_DELETE_JOB_RECORDS,
+  BULK_DELETE_THRESHOLD,
+  bulkDeleteJob,
+  deleteBatch,
+  deleteLimitNotes,
+  deleteSplittingOnLimits,
+  removalOrder,
+  takenAlong,
+  type BulkDeleteAnswer,
+  type DeleteOutcome,
+  type LimitedDeletes,
+  type ReadBack,
+} from '../../core/removal/deleteRecords.js';
+export { setBackToDraftOf } from '../../core/removal/recordsToDraft.js';
+
 /** Reasons kept per object: an org repeats the same few. */
 const REASON_LIMIT = 5;
-
-/**
- * Records of one object past which a removal deletes them through a Bulk API
- * 2.0 `delete` job rather than in calls of {@link RECORDS_PER_CALL}. A job
- * waits its turn in the org before it deletes anything: on a scratch org,
- * 2 000 contacts went in 8.6 seconds by ten calls and in 25.6 by one job, 24
- * of them waiting for the org; 6 000 took some 30 seconds either way; 12 000
- * went in 33 seconds as one job, where calls take about 52. Past ten
- * thousand, a job is the quicker, and its seven calls — opened, sent, closed,
- * polled, read back three times — stand for the fifty a removal sent before.
- */
-export const BULK_DELETE_THRESHOLD = 10_000;
-
-/**
- * Records one delete job holds at most. A removal is stopped between two
- * jobs, never within one the org has, so a job of a whole table held a stop
- * for as long as the org took to delete it; fifty thousand records is about a
- * minute and a half at the pace a scratch org deleted them, and every job
- * past the first saves the wait the org makes it start with.
- */
-export const BULK_DELETE_JOB_RECORDS = 50_000;
 
 /**
  * Reads of an object's dependents sent at once. Each answers in a quarter of a
@@ -131,15 +127,6 @@ const DEPENDENT_DATE_COLUMNS: readonly (readonly string[])[] = [
  */
 export const CLOCK_LEEWAY_MS = 10_000;
 
-/**
- * The code the org refuses a delete with while other records still hang from
- * the one deleted — "associated with the following opportunities", "some
- * opportunities of this account were closed won". A record refused with it is
- * tried again for as long as a round of tries takes something more; one the
- * org refuses with any other code, once.
- */
-const DEPENDENCY_REFUSAL = 'DELETE_FAILED';
-
 /** Key prefix of a user: the owner a file's first link names. */
 const USER_KEY_PREFIX = '005';
 
@@ -154,14 +141,6 @@ const FILE_VERSION = 'ContentVersion';
 
 /** Files named per object: the count says how many there were. */
 const FILE_NAME_LIMIT = 5;
-
-/**
- * The objects whose records never go by a Bulk API job, however many: a
- * file's version, deleted by its document (`deleteVersions`); and a file,
- * which a rewind deletes over REST alone — a job of files was never tried on
- * an org, and 10,000 files go in 50 calls.
- */
-const NEVER_BY_JOB: ReadonlySet<string> = new Set([FILE_VERSION, FILE]);
 
 /** Records told by their key, as a set of keys tells them, without holding them. */
 export interface RecordKeys {
@@ -395,121 +374,6 @@ export type RemovalOrg = Pick<
     signal?: AbortSignal,
   ): Promise<BulkDeleteAnswer>;
 };
-
-/**
- * What a Bulk API 2.0 delete job answered: per record, in the order of the
- * ids it was sent, deleted or the org's error (`sf__Error`, `CODE:message:fields`);
- * or that it was aborted before the org had it; or that the org deleted none
- * of them — the job could not be handed over, an object the Bulk API does not
- * take, or it failed whole before it processed a record — which leaves them
- * to be deleted over REST, which answers each one.
- *
- * Each says how many calls the job sent the org (`requests`): opened, its CSV
- * sent, closed or aborted, each read of its state, its results read three
- * ways. The org counts each against its daily requests, and the records none
- * (asked live: a job of 200 deletes cost five). Absent from an answer that
- * does not say, which counts as one.
- */
-export type BulkDeleteAnswer = (
-  | { kind: 'answered'; rows: ReadonlyArray<{ success: true } | { success: false; error: string }> }
-  | { kind: 'aborted' }
-  | { kind: 'untouched'; reason: string }
-) & { requests?: number };
-
-/**
- * Delete `ids` of one object through one Bulk API 2.0 `delete` job, as
- * {@link RemovalOrg.bulkDestroy} says: the CSV of their ids, the job's
- * results read back and matched to them by the `Id` each row echoes
- * (`normalizeBulkJobResults`). A row no result names is answered with why.
- *
- * Whatever fails before the job is closed — opened, sent — leaves the org
- * holding nothing to process, and so does a job that failed with no record
- * processed: `untouched`. A failure once it is closed throws, as the org may
- * have deleted any of its records.
- */
-export async function bulkDeleteJob(
-  connection: BulkApiConnection,
-  objectApiName: string,
-  ids: readonly string[],
-  signal?: AbortSignal,
-): Promise<BulkDeleteAnswer> {
-  let closed = false;
-  /** The job's last state, and its message, as the org last told it. */
-  let last: { state?: string; message?: string } = {};
-  /** Rows the job's results answer, written or refused: none, and it processed nothing. */
-  let processed = 0;
-  /** The calls the job sent the org, each one of its daily requests. */
-  let requests = 0;
-  const sent = <T>(calls: number, call: () => Promise<T>): Promise<T> => {
-    requests += calls;
-    return call();
-  };
-  // The job, told what the org did with it: jsforce's handle, as the executor drives it.
-  const tracked: BulkApiConnection = {
-    bulk2: {
-      createJob: (options) => {
-        const job = connection.bulk2.createJob(options);
-        return {
-          get id() {
-            return job.id;
-          },
-          open: () => sent(1, () => job.open()),
-          uploadData: (csv) => sent(1, () => job.uploadData(csv)),
-          close: async () => {
-            await sent(1, () => job.close());
-            closed = true;
-          },
-          abort: () => sent(1, () => job.abort()),
-          check: async () => {
-            const status = await sent(1, () => job.check());
-            last = { state: status.state, message: status.errorMessage };
-            return status;
-          },
-          getAllResults: async () => {
-            // Its successful, failed and unprocessed records: three reads.
-            const results = await sent(BULK_RESULT_READS, () => job.getAllResults());
-            processed = Array.isArray(results)
-              ? results.length
-              : (results.successfulResults?.length ?? 0) + (results.failedResults?.length ?? 0);
-            return results;
-          },
-        };
-      },
-    },
-  };
-  let result: Awaited<ReturnType<BulkApiExecutor['executeBulk']>>;
-  try {
-    result = await new BulkApiExecutor().executeBulk(
-      // One job at a time, and nothing else of the removal's own shares them.
-      { connection: tracked, bulkManager: new BulkApiManager(1), ...(signal ? { signal } : {}) },
-      objectApiName,
-      // A delete sends the records to the recycle bin, as a REST delete does.
-      'delete',
-      ids.map((Id) => ({ Id })),
-    );
-  } catch (err: unknown) {
-    if (!closed) return { kind: 'untouched', reason: extractErrorMessage(err), requests };
-    throw err;
-  }
-  if (result.aborted) return { kind: 'aborted', requests };
-  if (last.state !== 'JobComplete' && processed === 0) {
-    return {
-      kind: 'untouched',
-      reason: last.message || `job ${last.state ?? 'not complete'}`,
-      requests,
-    };
-  }
-  const byRow = new Map(result.outcomes.map((outcome) => [outcome.recordIndex, outcome]));
-  return {
-    kind: 'answered',
-    requests,
-    rows: ids.map((_, at) => {
-      const outcome = byRow.get(at);
-      if (outcome?.success) return { success: true };
-      return { success: false, error: outcome?.error ?? 'The job gave no result for it.' };
-    }),
-  };
-}
 
 /**
  * The org a removal works on, over a jsforce connection: the session the
@@ -1073,29 +937,6 @@ export const NOTHING_REMOVED: RunRemovalOutcome = {
   left: async function* () {},
 };
 
-/** One row of a delete's answer, or an update's. */
-const writeResultSchema = z
-  .object({
-    success: z.boolean(),
-    errors: z
-      .array(
-        z.union([
-          z
-            .object({
-              statusCode: z.string().optional(),
-              errorCode: z.string().optional(),
-              message: z.string().optional(),
-            })
-            .loose(),
-          z.string(),
-        ]),
-      )
-      .optional(),
-  })
-  .loose();
-
-type WriteError = NonNullable<z.infer<typeof writeResultSchema>['errors']>[number];
-
 /** A record by its first fifteen characters: the same record, whichever length its id is written in. */
 function recordKey(id: string): string {
   return id.slice(0, 15);
@@ -1124,19 +965,6 @@ function datesWithout(err: unknown, tried: number): number {
 /** A date the org wrote, in epoch milliseconds; NaN when there is none to read. */
 function epochOf(value: unknown): number {
   return typeof value === 'string' ? Date.parse(value) : Number.NaN;
-}
-
-/** The code of a write's error, whichever name the answer gave it. */
-function codeOf(error: WriteError): string | undefined {
-  return typeof error === 'string' ? undefined : (error.statusCode ?? error.errorCode);
-}
-
-/** One error of a write, as the org said it: `CODE: message`. */
-function describeError(error: WriteError): string {
-  if (typeof error === 'string') return error;
-  const code = codeOf(error);
-  const message = error.message ?? '';
-  return code && message ? `${code}: ${message}` : code || message || 'The org gave no reason.';
 }
 
 /** What the org holds of one object's records now, before anything is deleted. */
@@ -1266,6 +1094,12 @@ class ObjectRemoval {
    * org's refusals.
    */
   limitNotes: string[] = [];
+  /**
+   * The records the org could not lock, sent again (`DeleteOutcome.lockResends`),
+   * by key, with what their last answer was: what the object's result says of
+   * them (`lockResendNote`).
+   */
+  readonly lockResent = new Map<string, DeleteOutcome['kind']>();
 
   /**
    * @param copies - Of `planned`, the records the platform copied as the run
@@ -1381,6 +1215,7 @@ class ObjectRemoval {
       ...(this.notVisibleNote ? [this.notVisibleNote] : []),
       ...this.notes,
       ...this.limitNotes,
+      ...lockResendNote(this.lockResent.values()),
       ...this.secondTryNote(),
       ...(this.unread ? [this.unread.reason] : []),
       ...[...this.refused.values()].map((r) => r.reason),
@@ -1863,9 +1698,13 @@ export async function removeRunRecords(
   // Stopped during the sweep: none of the run's records goes, and what the
   // sweep left on them is said for the next removal.
   if (stopped()) return wrote ? outcome(true) : untouched();
+  /** Of records about to be set to Draft, those records that stay hang from: they stay as they are. */
+  const heldOf = async (
+    objectApiName: string,
+    candidates: readonly string[],
+  ): Promise<ReadonlySet<string>> => (await dependents.heldAmong(objectApiName, candidates)).held;
   const drafting = await backToDraft(
     session,
-    dependents,
     order,
     records,
     (objectApiName, id) => {
@@ -1880,17 +1719,18 @@ export async function removeRunRecords(
       );
     },
     stopped,
+    heldOf,
   );
   drafted = drafting.drafted;
   if (drafting.cancelled) return outcome(true);
   if (options.alongToDraft) {
     const along = await backToDraft(
       session,
-      dependents,
       options.alongToDraft.objects,
       options.alongToDraft,
       () => true,
       stopped,
+      heldOf,
     );
     drafted = [...drafted, ...along.drafted];
     if (along.cancelled) return outcome(true);
@@ -1944,10 +1784,7 @@ export async function removeRunRecords(
     // checked and sent, or no page would ever reach the threshold, and twelve
     // thousand contacts went in sixty calls. Every other object goes a page at
     // a time, as it did.
-    const gathers =
-      session.bulkDestroy !== undefined &&
-      !NEVER_BY_JOB.has(objectApiName) &&
-      count >= BULK_DELETE_THRESHOLD;
+    const gathers = goesByJob(session, objectApiName, count);
     let candidates: string[] = [];
     /** The place among the object's records of each candidate, by its key. */
     let placeOf = new Map<string, number>();
@@ -2019,20 +1856,17 @@ export async function removeRunRecords(
   // than records hanging from it goes once more, and no more. Settled
   // already, a record is not counted twice.
   const deletedAny = removals.some((removal) => removal.result.deleted > 0);
-  for (let round = 0, progress = true; progress; round++) {
-    progress = false;
-    for (const removal of removals) {
-      const again = round === 0 ? removal.refusedToSendAgain() : [];
-      const waiting =
-        round > 0
-          ? removal.waiting()
-          : again.length > 0 || deletedAny
-            ? [...again, ...removal.held]
-            : [];
-      if (waiting.length === 0) continue;
-      if (stopped()) return outcome(true);
-      const deletedBefore = removal.result.deleted;
-      const takenUp = new Set(again);
+  const stoppedRetrying = await retryRounds(removals, {
+    stopped,
+    idsOf: (removal, round) => {
+      if (round > 0) return removal.waiting();
+      const again = removal.refusedToSendAgain();
+      return again.length > 0 || deletedAny ? [...again, ...removal.held] : [];
+    },
+    send: async (removal, waiting, round) => {
+      // What the org had refused that this round takes up: nothing has been
+      // sent since the round read it.
+      const takenUp = new Set(round === 0 ? removal.refusedToSendAgain() : []);
       const cancelledPart = await removeCandidates(session, dependents, removal, waiting, {
         stopped,
         splitting,
@@ -2041,10 +1875,11 @@ export async function removeRunRecords(
         },
       });
       for (const id of removal.held) if (takenUp.has(id)) removal.secondTry.add(id);
-      if (cancelledPart) return outcome(true);
-      if (removal.result.deleted > deletedBefore) progress = true;
-    }
-  }
+      return cancelledPart;
+    },
+    deleted: (removal) => removal.result.deleted,
+  });
+  if (stoppedRetrying) return outcome(true);
 
   // The last part of a granted sweep, once every record of the run that will
   // go has gone, its second try included: what one of them pointed at through
@@ -2278,56 +2113,6 @@ async function userNamesOf(
   return names;
 }
 
-/** What reading back the records the org refused to delete found. */
-export interface ReadBack {
-  /**
-   * The ones the org no longer holds that the session had read before their
-   * delete: a parent deleted after them took them along.
-   */
-  gone: string[];
-  /**
-   * The ones the read could not settle: all of them when it failed, and one
-   * it no longer finds that the session had never read — gone, or out of the
-   * session's sight. Not checked: never taken for gone.
-   */
-  unchecked: string[];
-  /** Why the read failed, when it did. */
-  failure?: string;
-}
-
-/**
- * Of the records the org refused to delete, the ones it no longer holds: a
- * parent deleted after them took them along. Read back by their ids. Shared by
- * the removal of a run's records and a reload's purge, which both delete
- * children before their parents.
- *
- * A record the read does not find is gone only if the session read it before
- * its delete: one the session cannot see — kept from it by sharing, or owned
- * by a user whose records it does not reach — comes back from a query no more
- * than a deleted one, and taken for gone, it was counted so while it stayed in
- * the org. One the session never read is not checked, and so is every one of
- * them when the read fails.
- *
- * @param stillThere - Reads the records of `refused` the org holds now.
- * @param seen - Whether the session read a record before its delete.
- */
-export async function takenAlong(
-  refused: readonly string[],
-  stillThere: (ids: readonly string[]) => Promise<ReadonlyArray<Record<string, unknown>>>,
-  seen: (id: string) => boolean,
-): Promise<ReadBack> {
-  if (refused.length === 0) return { gone: [], unchecked: [] };
-  let rows: ReadonlyArray<Record<string, unknown>>;
-  try {
-    rows = await stillThere(refused);
-  } catch (err: unknown) {
-    return { gone: [], unchecked: [...refused], failure: extractErrorMessage(err) };
-  }
-  const still = new Set(rows.map((row) => recordKey(String(row.Id))));
-  const missing = refused.filter((id) => !still.has(recordKey(id)));
-  return { gone: missing.filter(seen), unchecked: missing.filter((id) => !seen(id)) };
-}
-
 /**
  * Count as gone the refused records the org no longer holds: a parent the
  * removal deleted after their last try took them along. Every one the org
@@ -2371,73 +2156,6 @@ async function settleTakenAlong(
 }
 
 /**
- * The plan's objects in the order their records can go: each one after every
- * other object of the plan whose records point at it, and otherwise in the
- * order given. Where objects point at each other, the order given decides,
- * and what the org refuses for it is tried again once the rest is gone.
- *
- * Read from the child relationships the org lists for each object: which
- * objects hold a lookup to it. An object the org cannot describe keeps its
- * place.
- */
-export async function removalOrder<T extends { readonly objectApiName: string }>(
-  org: RemovalOrg,
-  plan: readonly T[],
-): Promise<T[]> {
-  const inPlan = new Set(plan.map((object) => object.objectApiName));
-  /** Per object, the objects of the plan it points at. */
-  const pointsAt = new Map<string, Set<string>>();
-  for (const { objectApiName } of plan) {
-    let children: string[];
-    try {
-      const described = describedObjectSchema.parse(await org.describe(objectApiName));
-      children = (described.childRelationships ?? []).map((r) => r.childSObject);
-    } catch {
-      continue;
-    }
-    for (const child of children) {
-      if (child === objectApiName || !inPlan.has(child)) continue;
-      const parents = pointsAt.get(child) ?? new Set<string>();
-      parents.add(objectApiName);
-      pointsAt.set(child, parents);
-    }
-  }
-  const remaining = [...plan];
-  const ordered: T[] = [];
-  while (remaining.length > 0) {
-    const free = remaining.findIndex(
-      (object) =>
-        !remaining.some(
-          (other) =>
-            other !== object && pointsAt.get(other.objectApiName)?.has(object.objectApiName),
-        ),
-    );
-    ordered.push(...remaining.splice(free >= 0 ? free : 0, 1));
-  }
-  return ordered;
-}
-
-/** A SOQL query of the org, answering its rows. */
-function queryOf(org: RemovalOrg): SoqlQuery {
-  return async (soql) => {
-    const answer = await org.query(soql);
-    return answer.records.filter(
-      (row): row is Record<string, unknown> => typeof row === 'object' && row !== null,
-    );
-  };
-}
-
-/** A record {@link backToDraft} set to Draft, and the status it had. */
-interface Drafted {
-  objectApiName: string;
-  id: string;
-  /** The Draft status it was set to. */
-  draft: string;
-  /** The status it had, and gets back if it stays in the org. */
-  status: string;
-}
-
-/**
  * The objects whose records a removal of a run's `objects` deletes: those,
  * then the objects outside them the platform's copies of the run's lines are
  * on, which it takes with the run's own ({@link quoteSyncCopyObjectsOf}). What
@@ -2450,38 +2168,6 @@ export function objectsRemovedOf(objects: readonly string[]): string[] {
   return [...new Set([...objects, ...quoteSyncCopyObjectsOf(objects)])];
 }
 
-/**
- * Those of `objects` whose records past Draft a removal sets back to Draft
- * before it deletes them ({@link backToDraft}), and gives back their status
- * when it keeps them: what fires on their update fires then too.
- */
-export function setBackToDraftOf(objects: readonly string[]): string[] {
-  return objects.filter(
-    (objectApiName) =>
-      STATUS_LIFECYCLES[objectApiName] !== undefined && !DELETED_PAST_DRAFT.has(objectApiName),
-  );
-}
-
-/**
- * Return to a Draft status, before anything is deleted, the run's records of
- * an object with a status lifecycle — an order — that are past Draft and set
- * to go. A contract is left as it stands: the org deletes an activated one,
- * and would not set it back to Draft (`DELETED_PAST_DRAFT`).
- *
- * An activated order keeps its products and itself from being deleted —
- * "unable to modify activated order" — and a clone now writes orders back as
- * the source held them, activated ones included. The Frozen purge learnt it
- * first. Only a record the removal means to delete is touched: one it keeps,
- * changed since the run or held for a record that stays, is left as it is. A
- * refusal here shows again, with its reason, as the delete that follows.
- *
- * Which records stay is only known once the deletes are through — an item the
- * org refuses holds its order — so each record set to Draft is handed back
- * with the status it had, for {@link putBackStatuses}. Stopped, it sets
- * nothing more.
- *
- * @param goes - Whether the record is still in the org and not kept as changed.
- */
 /**
  * The objects of the plan whose records the user the removal runs as may not
  * delete, as their describes say (`deletable: false`), with their records
@@ -2513,143 +2199,6 @@ async function undeletableOf(
     }
   }
   return undeletable;
-}
-
-async function backToDraft(
-  org: RemovalOrg,
-  dependents: DependentsCheck,
-  order: ReadonlyArray<{ readonly objectApiName: string }>,
-  records: RunRecords,
-  goes: (objectApiName: string, id: string) => boolean,
-  stopped: () => boolean,
-): Promise<{ drafted: Drafted[]; cancelled: boolean }> {
-  const query = queryOf(org);
-  const drafted: Drafted[] = [];
-  for (const { objectApiName } of order) {
-    const lifecycle = STATUS_LIFECYCLES[objectApiName];
-    if (!lifecycle || DELETED_PAST_DRAFT.has(objectApiName)) continue;
-    /** The object's statuses, read once its first page holds a record to set back. */
-    let categories: StatusCategories | undefined;
-    for await (const page of records.pages(objectApiName)) {
-      const candidates = page.filter((id) => goes(objectApiName, id));
-      if (candidates.length === 0) continue;
-      if (stopped()) return { drafted, cancelled: true };
-      categories ??= await statusCategories(query, lifecycle);
-      const known = categories;
-      const draft = known?.draft;
-      if (!known || !draft) break;
-      const { held } = await dependents.heldAmong(objectApiName, candidates);
-      let rows: Array<Record<string, unknown>>;
-      try {
-        rows = await readRecordsById(org, objectApiName, ['Status'], candidates);
-      } catch {
-        continue;
-      }
-      const pastDraft = rows
-        .filter((row) => typeof row.Id === 'string' && !held.has(recordKey(row.Id)))
-        .filter((row) => {
-          const category = known.categoryOf.get(String(row.Status));
-          return category !== undefined && category !== 'Draft';
-        })
-        .map((row) => ({ objectApiName, id: String(row.Id), draft, status: String(row.Status) }));
-      for (let at = 0; at < pastDraft.length; at += RECORDS_PER_CALL) {
-        if (stopped()) return { drafted, cancelled: true };
-        const batch = pastDraft.slice(at, at + RECORDS_PER_CALL);
-        // Kept before the call: an update the org applied without answering is
-        // put back all the same.
-        drafted.push(...batch);
-        try {
-          await org.update(
-            objectApiName,
-            batch.map(({ id }) => ({ Id: id, Status: draft })),
-          );
-        } catch {
-          // Shown again by the delete.
-        }
-      }
-    }
-  }
-  return { drafted, cancelled: false };
-}
-
-/** How {@link putBackStatuses} says what it did. */
-interface PutBackHooks {
-  /**
-   * Say something of an object's records on its result.
-   *
-   * @param failed - Whether a record of it was left in Draft.
-   */
-  note: (objectApiName: string, reason: string, failed: boolean) => void;
-}
-
-/**
- * Give each record {@link backToDraft} set to Draft that the removal leaves in
- * the org — kept, refused, or not reached — the status it had, and say so on
- * its object, whether the org took it back or not.
- *
- * Set to Draft before any delete, an order was then held by an item the org
- * refused, or refused itself, or the removal was cancelled before its turn:
- * it stayed in the org deactivated, and nothing said so. A record the removal
- * set to Draft and someone changed since is left as they left it. What this
- * leaves on the records, a later removal is told by {@link stampsLeft}.
- */
-async function putBackStatuses(
-  org: RemovalOrg,
-  drafted: readonly Drafted[],
-  hooks: PutBackHooks,
-): Promise<void> {
-  const objects = [...new Set(drafted.map((record) => record.objectApiName))];
-  for (const objectApiName of objects) {
-    const records = drafted.filter((record) => record.objectApiName === objectApiName);
-    const byKey = new Map(records.map((record) => [recordKey(record.id), record]));
-    const ids = records.map((record) => record.id);
-    let rows: Array<Record<string, unknown>>;
-    try {
-      rows = await readRecordsById(org, objectApiName, ['Status'], ids);
-    } catch (err: unknown) {
-      hooks.note(
-        objectApiName,
-        `Status set to ${records[0].draft} for the delete, and not read back to be restored: ${extractErrorMessage(err)}`,
-        true,
-      );
-      continue;
-    }
-    const inDraft = rows.flatMap((row) => {
-      const record = typeof row.Id === 'string' ? byKey.get(recordKey(row.Id)) : undefined;
-      return record && row.Status === record.draft ? [record] : [];
-    });
-    for (let at = 0; at < inDraft.length; at += RECORDS_PER_CALL) {
-      const batch = inDraft.slice(at, at + RECORDS_PER_CALL);
-      let answer: unknown;
-      try {
-        answer = await org.update(
-          objectApiName,
-          batch.map(({ id, status }) => ({ Id: id, Status: status })),
-        );
-      } catch (err: unknown) {
-        answer = batch.map(() => ({ success: false, errors: [extractErrorMessage(err)] }));
-      }
-      const answered = Array.isArray(answer) ? answer : [answer];
-      batch.forEach(({ draft, status }, index) => {
-        const row = writeResultSchema.safeParse(answered[index]);
-        if (row.success && row.data.success) {
-          hooks.note(
-            objectApiName,
-            `Status set to ${draft} for the delete, then back to ${status}.`,
-            false,
-          );
-          return;
-        }
-        const errors = row.success ? (row.data.errors ?? []) : [];
-        const reason = errors.length > 0 ? describeError(errors[0]) : 'The org gave no reason.';
-        hooks.note(
-          objectApiName,
-          `Status set to ${draft} for the delete, and left there: the org refused ${status} back — ${reason}`,
-          true,
-        );
-      });
-    }
-  }
 }
 
 /**
@@ -2811,66 +2360,6 @@ async function unchangedOfOtherParts(
   return read;
 }
 
-/** One delete of a removal: a call of up to {@link RECORDS_PER_CALL} records, or a job. */
-interface DeleteRound {
-  ids: string[];
-  /** Sent as a Bulk API 2.0 delete job rather than over REST. */
-  byJob: boolean;
-}
-
-/** `ids` cut into calls of {@link RECORDS_PER_CALL}. */
-function callsOf(ids: readonly string[]): DeleteRound[] {
-  const calls: DeleteRound[] = [];
-  for (let at = 0; at < ids.length; at += RECORDS_PER_CALL) {
-    calls.push({ ids: ids.slice(at, at + RECORDS_PER_CALL), byJob: false });
-  }
-  return calls;
-}
-
-/**
- * The deletes `ids` of one object go in: every custom price before any
- * standard one, which the org refuses while a custom price of its product is
- * left — `UNKNOWN_EXCEPTION` when both went in one call. Each such group of
- * {@link BULK_DELETE_THRESHOLD} records or more goes as jobs of up to
- * {@link BULK_DELETE_JOB_RECORDS}, where the org takes jobs; the rest in calls
- * of {@link RECORDS_PER_CALL}. A file's version is deleted by its document,
- * read first (`deleteVersions`), and a file over REST: never by a job
- * ({@link NEVER_BY_JOB}).
- */
-async function deleteRounds(
-  org: RemovalOrg,
-  objectApiName: string,
-  ids: string[],
-): Promise<DeleteRound[]> {
-  const rounds: DeleteRound[] = [];
-  const byJob = org.bulkDestroy !== undefined && !NEVER_BY_JOB.has(objectApiName);
-  const cut = (list: string[]): void => {
-    if (!byJob || list.length < BULK_DELETE_THRESHOLD) {
-      rounds.push(...callsOf(list));
-      return;
-    }
-    // Jobs of one size: 50 500 records go as two of 25 250, not as one of
-    // 50 000 and one of 500 that costs as long.
-    const size = Math.ceil(list.length / Math.ceil(list.length / BULK_DELETE_JOB_RECORDS));
-    for (let at = 0; at < list.length; at += size) {
-      rounds.push({ ids: list.slice(at, at + size), byJob: true });
-    }
-  };
-  if (!isPricebookEntry(objectApiName) || ids.length === 0) {
-    cut(ids);
-    return rounds;
-  }
-  let standard = new Set<string>();
-  try {
-    standard = new Set([...(await standardPriceIds(queryOf(org), ids))].map(recordKey));
-  } catch {
-    // Unread, the prices go as they come: the retry takes what is refused.
-  }
-  cut(ids.filter((id) => !standard.has(recordKey(id))));
-  cut(ids.filter((id) => standard.has(recordKey(id))));
-  return rounds;
-}
-
 /** How {@link removeCandidates} reports as it goes. */
 interface CandidateHooks {
   stopped: () => boolean;
@@ -2937,167 +2426,53 @@ async function removeCandidates(
   hooks.onHeld?.(heldNow.length);
 
   const toDelete = candidates.filter((id) => !verdict.held.has(recordKey(id)));
-  const queue = await deleteRounds(org, objectApiName, toDelete);
-  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-    const { ids: batch, byJob } = next;
-    if (hooks.stopped()) return true;
+  /** The files attached to the records of the delete under way that the run did not create. */
+  let files = new Map<string, AttachedFile[]>();
+  const settle = (sent: readonly string[], outcomes: readonly DeleteOutcome[]): void => {
+    sent.forEach((id, index) => {
+      const result = outcomes[index];
+      const key = recordKey(id);
+      if (result.lockResends !== undefined || removal.lockResent.has(key)) {
+        removal.lockResent.set(key, result.kind);
+      }
+      if (result.kind === 'refused') {
+        removal.refused.set(id, {
+          reason: result.reason,
+          dependency: result.dependency,
+          sent: true,
+          ...(result.limit ? { limit: true as const } : {}),
+        });
+        return;
+      }
+      removal.refused.delete(id);
+      const place = hooks.placeOf?.get(key);
+      if (place !== undefined) removal.goneAt.add(place);
+      else removal.goneLater.add(key);
+      if (result.kind === 'deleted') {
+        removal.result.deleted++;
+        if (place === undefined) removal.deletedLater.add(key);
+        for (const file of files.get(key) ?? []) {
+          removal.filesLeft.set(file.key, file.name);
+        }
+        for (const [taken, object] of verdict.along.get(key) ?? []) {
+          removal.tookAlong.set(taken, object);
+        }
+      } else removal.result.alreadyGone++;
+    });
+    hooks.onSent?.(sent);
+    hooks.onDeleted?.(sent.length);
+  };
+  const { stopped } = await sendDeletes(org, objectApiName, toDelete, {
+    stopped: hooks.stopped,
+    splitting: hooks.splitting,
     // Named before the delete: a file seen through its record may be out of
     // the session's reach once the record is gone.
-    const files = await dependents.filesOn(batch);
-    const settle = (sent: readonly string[], outcomes: readonly DeleteOutcome[]): void => {
-      sent.forEach((id, index) => {
-        const result = outcomes[index];
-        if (result.kind === 'refused') {
-          removal.refused.set(id, {
-            reason: result.reason,
-            dependency: result.dependency,
-            sent: true,
-            ...(result.limit ? { limit: true as const } : {}),
-          });
-          return;
-        }
-        removal.refused.delete(id);
-        const key = recordKey(id);
-        const place = hooks.placeOf?.get(key);
-        if (place !== undefined) removal.goneAt.add(place);
-        else removal.goneLater.add(key);
-        if (result.kind === 'deleted') {
-          removal.result.deleted++;
-          if (place === undefined) removal.deletedLater.add(key);
-          for (const file of files.get(key) ?? []) {
-            removal.filesLeft.set(file.key, file.name);
-          }
-          for (const [taken, object] of verdict.along.get(key) ?? []) {
-            removal.tookAlong.set(taken, object);
-          }
-        } else removal.result.alreadyGone++;
-      });
-      hooks.onSent?.(sent);
-      hooks.onDeleted?.(sent.length);
-    };
-    // Over REST, a call the target's automation refuses for a limit goes
-    // again smaller, in place, each call after the first checked for a stop.
-    if (!byJob) {
-      const stoppedPart = await deleteSplittingOnLimits(
-        org,
-        objectApiName,
-        batch,
-        hooks.splitting,
-        {
-          stopped: hooks.stopped,
-          settle,
-        },
-      );
-      if (stoppedPart) return true;
-      continue;
-    }
-    const answer = await deleteByJob(org, objectApiName, batch);
-    // Aborted before the org had it: nothing of it was deleted.
-    if (answer === 'aborted') return true;
-    // The org deleted none of them by the job: they go over REST, which
-    // answers each one, before anything after them.
-    if (answer === 'untouched') {
-      queue.unshift(...callsOf(batch));
-      continue;
-    }
-    settle(batch, answer);
-  }
-  return false;
-}
-
-/** The key the sizes of an object's deletes are kept under. */
-function deleteKey(objectApiName: string): CallKey {
-  return { objectApiName, op: 'delete' };
-}
-
-/** How {@link deleteSplittingOnLimits} goes: when to stop, and what to do with each answer. */
-export interface LimitedDeletes {
-  /** Asked before every call but the first, whose check stays with the caller. */
-  stopped: () => boolean;
-  /**
-   * Told what became of the records of each call, those sent again smaller
-   * aside, once: a record refused for a limit and not sent again carries why
-   * (`limit`), and is never a dependency's refusal.
-   */
-  settle: (sent: readonly string[], outcomes: readonly DeleteOutcome[]) => void;
-}
-
-/**
- * Delete `ids` of one object over REST, in calls of the size kept for it
- * (`splitting`), and settle what became of each: a call the target's
- * automation refuses for a Salesforce limit goes again — a record on its own
- * first, then in calls half as large, down to one — within the smaller calls
- * the removal allows itself (`sendSplittingOnLimits`). A delete never writes
- * twice: sent again, a record deleted since answers that it is gone. A call
- * the org refused whole — what threw, which `deleteBatch` reads as a refusal
- * of each record — is read as its words say: one that names a limit goes
- * again smaller, as one answered record by record does.
- *
- * @returns Whether a stop came before one of the calls: what it held, and
- *   what came after it, is left unsettled.
- */
-export async function deleteSplittingOnLimits(
-  org: RemovalOrg,
-  objectApiName: string,
-  ids: readonly string[],
-  splitting: LimitSplitting,
-  hooks: LimitedDeletes,
-): Promise<boolean> {
-  const { stopped } = await sendSplittingOnLimits<string, DeleteOutcome>(ids, {
-    key: deleteKey(objectApiName),
-    sizes: splitting.sizes,
-    allowance: splitting.allowance,
-    beforeEachSend: () => (hooks.stopped() ? 'stop' : undefined),
-    send: async (part) => ({ answers: await deleteBatch(org, objectApiName, part) }),
-    limited: (outcome) =>
-      outcome?.kind === 'refused' ? limitCauseOf([outcome.reason]) : undefined,
-    settle: (part, answers, again, notes) => {
-      const sent: string[] = [];
-      const outcomes: DeleteOutcome[] = [];
-      part.forEach((id, index) => {
-        if (again.has(index)) return;
-        const outcome: DeleteOutcome = answers[index] ?? {
-          kind: 'refused',
-          reason: 'The org gave no answer for it.',
-          dependency: false,
-        };
-        const note = notes.get(index);
-        sent.push(id);
-        outcomes.push(
-          note !== undefined && outcome.kind === 'refused'
-            ? { ...outcome, dependency: false, limit: note }
-            : outcome,
-        );
-      });
-      if (sent.length > 0) hooks.settle(sent, outcomes);
+    prepare: async (batch) => {
+      files = await dependents.filesOn(batch);
     },
+    settle,
   });
-  return stopped !== undefined;
-}
-
-/**
- * What the result of an object a removal or a sweep deleted says of the
- * calls a limit of the target's automation refused: which trigger hit which
- * limit on a call of how many, the size it went at and the calls that cost;
- * the records kept from smaller calls once the allowance was spent; and, for
- * a record refused though sent on its own, what to fix. Nothing when no limit
- * refused a call. Engine English, as the other notes.
- */
-export function deleteLimitNotes(objectApiName: string, splitting: LimitSplitting): string[] {
-  const key = deleteKey(objectApiName);
-  const report = splitting.sizes.report(key);
-  if (!report) return [];
-  const notes: string[] = [];
-  if (report.rows + report.alone + report.notSplit + report.keptWhole > 0) {
-    notes.push(smallerCallsNote(report));
-  }
-  if (report.notSplit > 0) {
-    // The object's own share when that is what ran out, the removal's otherwise.
-    notes.push(notSplitNote(report.notSplit, allowedFor(splitting.allowance, key), 'removal'));
-  }
-  if (report.keptWhole > 0) notes.push(GOVERNOR_LIMIT_KEPT_WHOLE);
-  else if (report.alone > 0) notes.push(GOVERNOR_LIMIT_ALONE);
-  return notes;
+  return stopped;
 }
 
 /**
@@ -3283,36 +2658,6 @@ async function withCopies(
   };
 }
 
-/**
- * Of the records of one object a read did not find, those the org's recycle
- * bin holds, by key: deleted. The rest are out of the session's sight — kept
- * from it by sharing, or owned by a user whose records it does not reach — or
- * deleted for good, as the org deletes some objects. Why the bin could not be
- * read, when it could not: then none of them is taken for gone.
- */
-async function recycleBinOf(
-  org: RemovalOrg,
-  objectApiName: string,
-  ids: readonly string[],
-): Promise<{ deleted: Set<string> } | { error: string }> {
-  const object = assertSoqlIdentifier(objectApiName);
-  const deleted = new Set<string>();
-  try {
-    for (const list of idLists(ids)) {
-      const answer = await org.queryDeleted(
-        `SELECT Id FROM ${object} WHERE Id IN (${list}) AND IsDeleted = true`,
-      );
-      for (const row of answer.records) {
-        const id = (row as { Id?: unknown } | null)?.Id;
-        if (typeof id === 'string') deleted.add(recordKey(id));
-      }
-    }
-  } catch (err: unknown) {
-    return { error: extractErrorMessage(err) };
-  }
-  return { deleted };
-}
-
 /** The org's clock as a removal starts. */
 interface RemovalClock {
   /**
@@ -3464,142 +2809,6 @@ function runSpan(
   const start = options.runStartedAt?.getTime() ?? firstCreated;
   const end = options.runEndedAt?.getTime() ?? start + duration;
   return { start, end };
-}
-
-/** What a delete did to one record. */
-export type DeleteOutcome =
-  | { kind: 'deleted' }
-  | { kind: 'gone' }
-  | {
-      kind: 'refused';
-      reason: string;
-      dependency: boolean;
-      /** Refused for a limit of the target's automation, and why it was not sent again. */
-      limit?: LimitNote;
-    };
-
-/**
- * Delete one batch and say what became of each record: deleted, already gone
- * — deleted since it was read, often along with a parent — or refused, with
- * the org's reason. A call the org refuses whole refuses every record of it.
- */
-export async function deleteBatch(
-  org: RemovalOrg,
-  objectApiName: string,
-  batch: readonly string[],
-): Promise<DeleteOutcome[]> {
-  if (objectApiName === FILE_VERSION) return deleteVersions(org, batch);
-  let answer: unknown;
-  try {
-    answer = await org.destroy(objectApiName, [...batch]);
-  } catch (err: unknown) {
-    const reason = extractErrorMessage(err);
-    return batch.map(() => ({ kind: 'refused', reason, dependency: false }));
-  }
-  const rows = Array.isArray(answer) ? answer : [answer];
-  return batch.map((_, index): DeleteOutcome => {
-    const row = writeResultSchema.safeParse(rows[index]);
-    if (row.success && row.data.success) return { kind: 'deleted' };
-    const errors = row.success ? (row.data.errors ?? []) : [];
-    if (errors.some((error) => codeOf(error) === 'ENTITY_IS_DELETED')) return { kind: 'gone' };
-    return {
-      kind: 'refused',
-      reason: errors.length > 0 ? describeError(errors[0]) : 'The org gave no reason.',
-      dependency: errors.some((error) => codeOf(error) === DEPENDENCY_REFUSAL),
-    };
-  });
-}
-
-/**
- * Delete one job's worth of records through the org's Bulk API 2.0 and say
- * what became of each, in the words a delete over REST gives it: deleted;
- * already gone — `ENTITY_IS_DELETED`, deleted since it was read; or refused
- * with the org's reason, `CODE: message` as {@link describeError} writes it,
- * and refused for records still hanging from it on `DELETE_FAILED`, tried
- * again as such. A job the org answered with an error that throws refuses
- * every record of it, as a call the org refuses whole does: the org may have
- * deleted any of them, and the second try reads which.
- *
- * @returns The outcomes; `aborted` when the stop came before the org had the
- *   job; `untouched` when it deleted none of them, for REST to take them.
- */
-async function deleteByJob(
-  org: RemovalOrg,
-  objectApiName: string,
-  batch: readonly string[],
-): Promise<DeleteOutcome[] | 'aborted' | 'untouched'> {
-  let answer: BulkDeleteAnswer | undefined;
-  try {
-    answer = await org.bulkDestroy?.(objectApiName, batch);
-  } catch (err: unknown) {
-    const reason = extractErrorMessage(err);
-    return batch.map(() => ({ kind: 'refused', reason, dependency: false }));
-  }
-  if (answer === undefined || answer.kind === 'untouched') return 'untouched';
-  if (answer.kind === 'aborted') return 'aborted';
-  const { rows } = answer;
-  return batch.map((_, at): DeleteOutcome => {
-    const row = rows[at];
-    if (row?.success === true) return { kind: 'deleted' };
-    const { code, message } = bulkErrorOf(row?.error ?? '');
-    if (code === 'ENTITY_IS_DELETED') return { kind: 'gone' };
-    return {
-      kind: 'refused',
-      reason:
-        code && message
-          ? `${code}: ${message}`
-          : row?.error || code || message || 'The org gave no reason.',
-      dependency: code === DEPENDENCY_REFUSAL,
-    };
-  });
-}
-
-/**
- * The code and message of an error as Bulk API writes it in `sf__Error`:
- * `CODE:message:fields`, the fields `--` when it names none. An error the job
- * wrote of a row it gave no result for carries no code.
- */
-function bulkErrorOf(text: string): { code?: string; message: string } {
-  const match = /^([A-Z][A-Z0-9_]*):([\s\S]*?)(?::(?:--|[\w.,]+))?$/.exec(text.trim());
-  if (!match) return { message: text.trim() };
-  return { code: match[1], message: match[2].trim() };
-}
-
-/**
- * Delete the file versions `batch` names by deleting their documents, and say
- * what became of each version: the org deletes no version on its own — its
- * describe says it is not deletable — and a run keeps a version alone when it
- * was stopped before it read the version's document back (`copyFiles`). A
- * version the org no longer holds went with its document.
- */
-async function deleteVersions(org: RemovalOrg, batch: readonly string[]): Promise<DeleteOutcome[]> {
-  let rows: Array<Record<string, unknown>>;
-  try {
-    rows = await readRecordsById(org, FILE_VERSION, ['ContentDocumentId'], batch);
-  } catch (err: unknown) {
-    const reason = extractErrorMessage(err);
-    return batch.map(() => ({ kind: 'refused', reason, dependency: false }));
-  }
-  const documentOf = new Map<string, string>();
-  for (const row of rows) {
-    if (typeof row.Id === 'string' && typeof row.ContentDocumentId === 'string') {
-      documentOf.set(recordKey(row.Id), row.ContentDocumentId);
-    }
-  }
-  const documents = [...new Set(documentOf.values())];
-  const outcomes = documents.length > 0 ? await deleteBatch(org, FILE, documents) : [];
-  const byDocument = new Map(documents.map((document, at) => [document, outcomes[at]]));
-  return batch.map((id): DeleteOutcome => {
-    const document = documentOf.get(recordKey(id));
-    if (document === undefined) return { kind: 'gone' };
-    return (
-      byDocument.get(document) ?? {
-        kind: 'refused',
-        reason: 'The org gave no answer for its document.',
-        dependency: false,
-      }
-    );
-  });
 }
 
 /** What the dependents check knows of the removal under way. */
