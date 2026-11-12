@@ -260,6 +260,70 @@ describe('translateError in Forge', () => {
     expect(result?.actionKey).toBe('errors.automationRefused.forge.action');
   });
 
+  /**
+   * A limit the target's automation hit, as a trap org answered an insert and
+   * a delete of it (one line, under CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY);
+   * the longer form over several lines, under DELETE_FAILED; and a Flow's.
+   */
+  const LIMIT_REFUSALS: ReadonlyArray<readonly [code: string, raw: string]> = [
+    [
+      'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY',
+      'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: Item_Trigger: System.LimitException: Too many SOQL queries: 101',
+    ],
+    [
+      'DELETE_FAILED',
+      'DELETE_FAILED: Item_Trigger: execution of BeforeDelete\n\ncaused by: ' +
+        'System.LimitException: Too many SOQL queries: 101\n\nTrigger.Item_Trigger: line 12, column 1',
+    ],
+    [
+      'CANNOT_EXECUTE_FLOW_TRIGGER',
+      "CANNOT_EXECUTE_FLOW_TRIGGER: We can't save this record because the “Item Sync” process failed. " +
+        'Error: Apex CPU time limit exceeded',
+    ],
+  ];
+
+  it.each(LIMIT_REFUSALS)(
+    "explains a limit the target's automation hit under %s as a call too large for it, not as the record's fault",
+    (code, raw) => {
+      const result = forge(raw);
+      expect(result).toMatchObject({
+        code,
+        severity: 'error',
+        explanationKey: 'errors.governorLimit.forge.explanation',
+        actionKey: 'errors.governorLimit.forge.action',
+      });
+      // The code sent beside the message reaches the same hint.
+      expect(forge(raw, code)?.explanationKey).toBe('errors.governorLimit.forge.explanation');
+    },
+  );
+
+  it('keeps the guide row of the code a limit came under', () => {
+    expect(forge(LIMIT_REFUSALS[0][1])?.docUrl).toBe(
+      `${FORGE_GUIDE_URL}#${guideAnchorOf('CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY')}`,
+    );
+  });
+
+  it("leaves a trigger's recursion, which each record runs into on its own, to the automation's own hint", () => {
+    for (const raw of [
+      'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: CaseTrigger: execution of AfterUpdate caused by: ' +
+        'System.LimitException: Maximum trigger depth exceeded',
+      'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: CaseTrigger: execution of AfterUpdate caused by: ' +
+        'System.LimitException: Maximum stack depth reached: 1001',
+    ]) {
+      expect(forge(raw)?.explanationKey).toBe('errors.automationRefused.forge.explanation');
+    }
+  });
+
+  it('leaves a request limit, and a refusal that names no limit, to their own hints', () => {
+    expect(forge('REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.')?.explanationKey).toBe(
+      'errors.requestLimit.forge.explanation',
+    );
+    expect(
+      forge('DELETE_FAILED: your entity cannot be deleted because it is referenced')
+        ?.explanationKey,
+    ).toBe('errors.deleteFailed.explanation');
+  });
+
   it('explains a lookup left empty because its record is not in the clone, as a note', () => {
     for (const raw of [
       'Written with the lookup empty: the InsurancePolicy record it points at is not in the clone.',
@@ -395,6 +459,27 @@ describe('translateError in every other module', () => {
       docUrl: helpSearchUrlOf('DUPLICATE_VALUE'),
       docKind: 'search',
     });
+  });
+
+  it("words a limit the org's automation hit in the shared wording, for a seed as for the others", () => {
+    const raw =
+      'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: LeadTrigger: System.LimitException: Too many DML statements: 151';
+    for (const module of [undefined, 'seed'] as const) {
+      expect(translateError(raw, { module })).toMatchObject({
+        code: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY',
+        explanationKey: 'errors.governorLimit.explanation',
+        actionKey: 'errors.governorLimit.action',
+        severity: 'error',
+        docKind: 'search',
+      });
+    }
+  });
+
+  it('reads the code in front of a message that runs over several lines with no full stop on its first', () => {
+    expect(
+      translateError('DELETE_FAILED: AccountGuard: execution of BeforeDelete\n\ncaused by: refused')
+        ?.explanationKey,
+    ).toBe('errors.deleteFailed.explanation');
   });
 
   it('gives a seed what a seed does about it, under the shared explanation', () => {

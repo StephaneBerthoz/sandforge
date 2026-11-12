@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   CycleFkPass,
   RecordsOwingAcrossParts,
@@ -8,6 +8,12 @@ import {
 import { IdRemapper } from '../IdRemapper.js';
 import type { PendingFkUpdate } from './BatchWriter.js';
 import type { ForgeExecutorDeps, ForgeProgressEvent } from '../ForgeExecutor.js';
+import {
+  GOVERNOR_LIMIT_ALONE,
+  GOVERNOR_LIMIT_KEPT_WHOLE,
+  limitSplitting,
+} from '../../../core/common/governorLimit.js';
+import { logger } from '../../../logger.js';
 
 type UpdateRecordsFn = NonNullable<ForgeExecutorDeps['updateRecords']>;
 
@@ -702,5 +708,187 @@ describe('the second pass handed in parts', () => {
     expect(across.spans('001NEW000000011')).toBe(true);
     expect(across.spans('001NEW000000010')).toBe(false);
     expect(across.spans('001NEW999999999')).toBe(false);
+  });
+});
+
+describe('patchCycleFkUpdates — updates the target’s automation refuses for a Salesforce limit', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** What a trap org answered every row of a call too large for its trigger, which queries per record. */
+  const LIMIT_MESSAGE =
+    'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: Ledger_Trigger: System.LimitException: Too many SOQL queries: 101';
+
+  const refusedForALimit = (id: string) => ({
+    id,
+    success: false,
+    errors: [LIMIT_MESSAGE],
+    errorDetails: [
+      { statusCode: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY', message: LIMIT_MESSAGE, fields: [] },
+    ],
+  });
+
+  /** `n` ledgers owing their parent, every parent cloned. */
+  function owing(n: number): { pendingFkUpdates: PendingFkUpdate[]; remapper: IdRemapper } {
+    const remapper = new IdRemapper();
+    const pendingFkUpdates: PendingFkUpdate[] = [];
+    for (let i = 0; i < n; i++) {
+      const id = String(i).padStart(9, '0');
+      remapper.add(`a01OLD${id}`, `a01TGT${id}`);
+      pendingFkUpdates.push(
+        makePending({
+          objectApiName: 'Ledger__c',
+          newId: `a02NEW${id}`,
+          sourceId: `a02OLD${id}`,
+          fieldName: 'Parent__c',
+          sourceRefId: `a01OLD${id}`,
+        }),
+      );
+    }
+    return { pendingFkUpdates, remapper };
+  }
+
+  /** A target whose trigger refuses, for a limit, every update of a call past `most`. */
+  function targetTaking(most: number) {
+    return vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) =>
+        records.map((r) =>
+          records.length > most
+            ? refusedForALimit(String(r['Id']))
+            : { id: String(r['Id']), success: true, errors: [] },
+        ),
+      );
+  }
+
+  /** A target whose trigger refuses every update for a limit, alone or not. */
+  function targetRefusingAll() {
+    return vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) =>
+        records.map((r) => refusedForALimit(String(r['Id']))),
+      );
+  }
+
+  it('sends again, a record on its own then in calls half as large, the updates a call was refused for, and tells each one filled in', async () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const updateRecords = targetTaking(100);
+    const onPatched = vi.fn();
+    const onAnswered = vi.fn();
+    const splitting = limitSplitting();
+
+    const error = await patchCycleFkUpdates(
+      makeInput({ ...owing(116), updateRecords, onPatched, onAnswered, splitting }),
+    );
+
+    expect(error).toBeNull();
+    expect(updateRecords.mock.calls.map((c) => c[2].length)).toEqual([116, 1, 58, 57]);
+    expect(onPatched).toHaveBeenCalledTimes(116);
+    expect(new Set(onPatched.mock.calls.map((c) => c[1]['Id'])).size).toBe(116);
+    expect(onAnswered).toHaveBeenCalledTimes(4);
+    expect(splitting.sizes.report({ objectApiName: 'Ledger__c', op: 'update' })).toMatchObject({
+      from: 116,
+      to: 58,
+      rows: 116,
+      extraCalls: 3,
+      limit: 'Too many SOQL queries',
+      automation: 'Ledger_Trigger',
+    });
+  });
+
+  it('starts the next pass of the run at the size that went through', async () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const splitting = limitSplitting();
+    const updateRecords = targetTaking(100);
+    await patchCycleFkUpdates(makeInput({ ...owing(116), updateRecords, splitting }));
+    updateRecords.mockClear();
+
+    await patchCycleFkUpdates(makeInput({ ...owing(116), updateRecords, splitting }));
+
+    expect(updateRecords.mock.calls.map((c) => c[2].length)).toEqual([58, 58]);
+  });
+
+  it('fails an update refused so on its own, saying what to fix after the words of the org', async () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const updateRecords = targetRefusingAll();
+
+    const error = await patchCycleFkUpdates(
+      makeInput({ ...owing(1), updateRecords, splitting: limitSplitting() }),
+    );
+
+    expect(updateRecords).toHaveBeenCalledTimes(1);
+    expect(error).toMatchObject({ objectApiName: '__pass2__', failedCount: 1 });
+    expect(error?.samples[0].messages).toEqual([LIMIT_MESSAGE, GOVERNOR_LIMIT_ALONE]);
+  });
+
+  it('stops after two updates refused on their own, and leaves the rest as the org refused them', async () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const updateRecords = targetRefusingAll();
+
+    const error = await patchCycleFkUpdates(
+      makeInput({ ...owing(116), updateRecords, splitting: limitSplitting() }),
+    );
+
+    expect(updateRecords.mock.calls.map((c) => c[2].length)).toEqual([116, 1, 1]);
+    expect(error).toMatchObject({ failedCount: 116, attemptedCount: 116 });
+    expect(error?.samples.map((sample) => sample.messages.at(-1))).toEqual([
+      GOVERNOR_LIMIT_ALONE,
+      GOVERNOR_LIMIT_ALONE,
+      GOVERNOR_LIMIT_KEPT_WHOLE,
+    ]);
+  });
+
+  it('splits nothing for a pass handed no splitting of the run, as Seed hands none', async () => {
+    const updateRecords = targetTaking(100);
+
+    const error = await patchCycleFkUpdates(makeInput({ ...owing(116), updateRecords }));
+
+    expect(updateRecords.mock.calls.map((c) => c[2].length)).toEqual([116]);
+    expect(error).toMatchObject({ failedCount: 116, attemptedCount: 116 });
+    expect(error?.samples[0].messages).toEqual([LIMIT_MESSAGE]);
+  });
+
+  it('sends nothing smaller past the smaller calls the run allows itself, and says so', async () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const updateRecords = targetTaking(100);
+
+    const error = await patchCycleFkUpdates(
+      makeInput({ ...owing(116), updateRecords, splitting: limitSplitting(0) }),
+    );
+
+    expect(updateRecords).toHaveBeenCalledTimes(1);
+    expect(error).toMatchObject({ failedCount: 116, attemptedCount: 116 });
+    expect(error?.samples[0].messages).toEqual([
+      LIMIT_MESSAGE,
+      'Not sent in smaller calls: what the org has left today allowed the run none.',
+    ]);
+  });
+
+  it('counts as not sent the smaller calls a cancel came before', async () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    let cancelled = false;
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) => {
+        cancelled = true;
+        return records.map((r) => refusedForALimit(String(r['Id'])));
+      });
+    const onPatched = vi.fn();
+
+    const error = await patchCycleFkUpdates(
+      makeInput({
+        ...owing(116),
+        updateRecords,
+        onPatched,
+        stopped: () => cancelled,
+        splitting: limitSplitting(),
+      }),
+    );
+
+    expect(updateRecords).toHaveBeenCalledTimes(1);
+    expect(onPatched).not.toHaveBeenCalled();
+    expect(error).toMatchObject({ failedCount: 116, attemptedCount: 116 });
+    expect(error?.samples[0].recordSummary).toBe('Ledger__c: 116 lookups not sent');
   });
 });

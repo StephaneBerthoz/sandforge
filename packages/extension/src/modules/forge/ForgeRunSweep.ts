@@ -71,13 +71,15 @@ import type {
 
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { limitSplitting, type LimitSplitting } from '../../core/common/governorLimit.js';
 import { readOtherColumns, wideStatement } from '../../core/common/wideRead.js';
 import { emptyCounts } from '../audit/auditTrail.js';
 import type { CompositeReader } from '../checkpoint/compositeQueries.js';
 import { describedObjectSchema, type DescribedObject } from '../dataops/DataQualityScanner.js';
 import { idLists, readRecordsById, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import {
-  deleteBatch,
+  deleteLimitNotes,
+  deleteSplittingOnLimits,
   removalOrder,
   takenAlong,
   type DeleteOutcome,
@@ -1547,6 +1549,11 @@ interface ObjectSweep {
   result: ForgeSweepObjectResult;
   /** The records the org refused, by id, with its reason. */
   refused: Map<string, string>;
+  /**
+   * Of them, those refused for a limit of the target's automation and not
+   * sent again smaller: sent once more, they would be refused the same.
+   */
+  limited: Set<string>;
   /** The records that wait for the run's own: under them in cascade, or pointed at by them. */
   later: string[];
 }
@@ -1585,8 +1592,13 @@ export interface SweepParts {
    * one of them nor waits for one — once `ask` found it and nothing refused
    * it; it resolves to whether it deleted anything. A refused sweep deletes
    * nothing, now or after.
+   *
+   * @param splitting - The sizes the deletes go at once the target's
+   *   automation refused one for a Salesforce limit, and the smaller calls
+   *   allowed: the removal's, which the sweep spends with it, for this part
+   *   and the one after. Absent, the sweep's own, of 2 000 smaller calls.
    */
-  first(): Promise<boolean>;
+  first(splitting?: LimitSplitting): Promise<boolean>;
   /**
    * The ids of what the sweep takes, as the org wrote them, filled by
    * `first` before the removal's first write: a record among them under a
@@ -1621,8 +1633,10 @@ export interface SweepParts {
    * should have gone with them still in the org, then send once more what
    * the org refused; it resolves to whether it deleted anything. Nothing,
    * for a sweep whose first part did not end.
+   *
+   * @param splitting - As `first` takes it.
    */
-  afterRemoval(): Promise<boolean>;
+  afterRemoval(splitting?: LimitSplitting): Promise<boolean>;
   /** What the sweep did so far: what `first` did, with what `afterRemoval` did once it ran. */
   result(): ForgeSweepResult;
 }
@@ -1639,6 +1653,8 @@ export interface SweepParts {
  */
 export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptions): SweepParts {
   const stopped = (): boolean => input.signal?.aborted === true;
+  /** The removal's sizes and smaller calls once a part is handed them; the sweep's own before. */
+  let splitting = limitSplitting();
   const automationMade = new Set<string>();
   const made = new Set<string>();
   const late = new Set<string>();
@@ -1664,9 +1680,11 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       const outcome = outcomes[index];
       if (outcome.kind === 'refused') {
         sweep.refused.set(id, outcome.reason);
+        if (outcome.limit) sweep.limited.add(id);
         return;
       }
       sweep.refused.delete(id);
+      sweep.limited.delete(id);
       gone.add(id);
       if (outcome.kind === 'deleted') sweep.result.deleted++;
       else sweep.result.alreadyGone++;
@@ -1682,11 +1700,17 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       if (stopped()) return false;
       const batch = ids.slice(at, at + RECORDS_PER_CALL);
       const before = sweep.result.deleted;
-      settle(sweep, batch, await deleteBatch(org, sweep.result.objectApiName, batch));
+      // A call the target's automation refuses for a limit goes again
+      // smaller, within the smaller calls the removal allows itself.
+      const cut = await deleteSplittingOnLimits(org, sweep.result.objectApiName, batch, splitting, {
+        stopped,
+        settle: (sent, outcomes) => settle(sweep, sent, [...outcomes]),
+      });
       if (after && sweep.result.deleted > before) {
         sweep.result.afterRemoval =
           (sweep.result.afterRemoval ?? 0) + sweep.result.deleted - before;
       }
+      if (cut) return false;
     }
     return true;
   };
@@ -1817,7 +1841,8 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
 
     ask,
 
-    async first() {
+    async first(given?: LimitSplitting) {
+      if (given) splitting = given;
       await ask();
       if (state !== 'asked' || !found) return false;
       const findings = found;
@@ -1841,6 +1866,7 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
             reasons: [],
           },
           refused: new Map(),
+          limited: new Set(),
           later: [],
         };
         sweeps.push(sweep);
@@ -1866,7 +1892,8 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       return deleted() > 0;
     },
 
-    async afterRemoval() {
+    async afterRemoval(given?: LimitSplitting) {
+      if (given) splitting = given;
       if (state !== 'first') return false;
       const before = deleted();
       for (const sweep of sweeps) {
@@ -1880,7 +1907,8 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       // refused for one hanging from it may be free by then, as a removal finds.
       if (deleted() > 0) {
         for (const sweep of sweeps) {
-          if (!(await send(sweep, [...sweep.refused.keys()]))) {
+          const again = [...sweep.refused.keys()].filter((id) => !sweep.limited.has(id));
+          if (!(await send(sweep, again))) {
             state = 'cancelled';
             return deleted() > before;
           }
@@ -1921,7 +1949,9 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       }
       const objects = sweeps.map(({ result, refused }) => {
         result.refused = refused.size;
-        result.reasons = [...new Set(refused.values())].slice(0, REASON_LIMIT);
+        result.reasons = [
+          ...new Set([...deleteLimitNotes(result.objectApiName, splitting), ...refused.values()]),
+        ].slice(0, REASON_LIMIT);
         return result;
       });
       const waiting = sweeps.some((sweep) => sweep.later.length > 0);

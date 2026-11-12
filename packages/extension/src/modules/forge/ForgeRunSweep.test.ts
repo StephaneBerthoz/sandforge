@@ -657,6 +657,68 @@ describe('sweepRunRecords', () => {
     expect(result.status).toBe('partial');
   });
 
+  /** What a trap org answered every record of a delete its trigger, querying per record, refused. */
+  const LIMIT = {
+    statusCode: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY',
+    message: 'Task_Trigger: System.LimitException: Too many SOQL queries: 101',
+  };
+
+  /** The org, its trigger on Task refusing whole a call of more than `most`, or one holding `heavy`. */
+  function limitedOnTasks(
+    org: ReturnType<typeof orgAfterRun>,
+    most: number,
+    heavy = new Set<string>(),
+  ) {
+    const destroy = org.destroy.bind(org);
+    org.destroy = async (objectApiName: string, ids: string[]): Promise<unknown> => {
+      if (
+        objectApiName === 'Task' &&
+        (ids.length > most || ids.some((recordId) => heavy.has(recordId)))
+      ) {
+        org.deletes.push({ object: objectApiName, ids: [...ids] });
+        return ids.map((recordId) => ({ id: recordId, success: false, errors: [LIMIT] }));
+      }
+      return destroy(objectApiName, ids);
+    };
+  }
+
+  it('sends again smaller what the target’s automation refused for a limit, and says so', async () => {
+    const org = orgAfterRun();
+    org.add('Task', onCase(1, 'One'), onCase(2, 'Two'), onCase(3, 'Three'));
+    limitedOnTasks(org, 1);
+
+    const result = await sweepRunRecords(org, input(), NO_SPANS);
+
+    expect(
+      org.deletes.filter((call) => call.object === 'Task').map((call) => call.ids.length),
+    ).toEqual([3, 1, 2, 1, 1]);
+    expect(org.ids('Task')).toEqual([]);
+    expect(result.objects[0]).toMatchObject({
+      found: 3,
+      deleted: 3,
+      refused: 0,
+      reasons: [
+        'Task_Trigger hit Too many SOQL queries on a call of 3: sent 1 at a time, 4 calls more.',
+      ],
+    });
+  });
+
+  it('sends no second time a record refused for a limit sent on its own', async () => {
+    const org = orgAfterRun();
+    org.add('Task', onCase(1, 'Heavy'), onCase(2, 'Two'), onCase(3, 'Three'), onCase(4, 'Four'));
+    limitedOnTasks(org, 200, new Set([id('00T', 1)]));
+
+    const result = await sweepRunRecords(org, input(), NO_SPANS);
+
+    // The call of 4; the heavy one on its own, then another; the two left.
+    expect(
+      org.deletes.filter((call) => call.object === 'Task').map((call) => call.ids.length),
+    ).toEqual([4, 1, 1, 2]);
+    expect(org.ids('Task')).toEqual([id('00T', 1)]);
+    expect(result.objects[0]).toMatchObject({ deleted: 3, refused: 1 });
+    expect(result.objects[0].reasons).toContain(`${LIMIT.statusCode}: ${LIMIT.message}`);
+  });
+
   it('leaves an object past the bound unswept, and says so', async () => {
     const org = orgAfterRun();
     org.add(

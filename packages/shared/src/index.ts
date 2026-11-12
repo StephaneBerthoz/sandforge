@@ -227,6 +227,15 @@ export {
   type RecordErrorGroup,
 } from './utils/record-error-groups.js';
 export {
+  GOVERNOR_LIMIT,
+  NOT_A_BATCH_LIMIT,
+  automationOf,
+  limitCauseOf,
+  limitIn,
+  type GovernorLimitAutomation,
+  type GovernorLimitCause,
+} from './utils/governor-limit.js';
+export {
   forgeRemovalPlanCountsLeft,
   forgeRemovalPlanLeft,
   forgeRemovalPlanOf,

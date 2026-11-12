@@ -9,6 +9,11 @@ import {
   type RunRemovalOptions,
 } from './ForgeRunRemoval.js';
 import { removalAuditObjects, removalMark, removalStatus } from './removalOutcome.js';
+import {
+  GOVERNOR_LIMIT_ALONE,
+  GOVERNOR_LIMIT_KEPT_WHOLE,
+  limitSplitting,
+} from '../../core/common/governorLimit.js';
 
 /** A fake record id: the object's prefix, then a counter. */
 const id = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
@@ -4039,5 +4044,151 @@ describe('removeRunRecords — the last part of a granted sweep', () => {
     expect(afterPreview).not.toHaveBeenCalled();
     expect(afterStop).not.toHaveBeenCalled();
     expect(outcome.cancelled).toBe(true);
+  });
+});
+
+describe('removeRunRecords — a call the target’s automation refuses for a Salesforce limit', () => {
+  /**
+   * What a trap org answered every record of a delete of 116 by one call,
+   * its trigger running a query per record before delete: nothing deleted,
+   * every record refused under this code, not `DELETE_FAILED`.
+   */
+  const LIMIT = {
+    statusCode: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY',
+    message: 'Item_Trigger: System.LimitException: Too many SOQL queries: 101',
+  };
+  const LIMIT_REASON = `${LIMIT.statusCode}: ${LIMIT.message}`;
+
+  /**
+   * An org whose trigger on `Item__c` refuses whole a delete of more than
+   * `most` records, and any call holding one of `heavy`, alone or not.
+   */
+  class LimitedOrg extends FakeOrg {
+    constructor(
+      private readonly most: number,
+      private readonly heavy: ReadonlySet<string> = new Set(),
+    ) {
+      super();
+    }
+
+    override async destroy(objectApiName: string, ids: string[]): Promise<unknown> {
+      if (
+        objectApiName === 'Item__c' &&
+        (ids.length > this.most || ids.some((recordId) => this.heavy.has(recordId)))
+      ) {
+        this.deletes.push({ object: objectApiName, ids: [...ids] });
+        return ids.map((recordId) => ({
+          id: recordId,
+          success: false,
+          errors: [{ ...LIMIT, fields: [] }],
+        }));
+      }
+      return super.destroy(objectApiName, ids);
+    }
+  }
+
+  /** 116 items the run created, in an org whose trigger refuses them as `org` says. */
+  function items(org: FakeOrg): ForgeRunObjectRecords[] {
+    const ids = Array.from({ length: 116 }, (_, n) => id('a0B', n + 1));
+    org.add('Item__c', ...ids.map((recordId) => runRow(recordId)));
+    return [{ objectApiName: 'Item__c', ids }];
+  }
+
+  const callsOf = (org: FakeOrg): number[] =>
+    org.deletes.filter((d) => d.object === 'Item__c').map((d) => d.ids.length);
+
+  it('deletes the 116 a trigger refused in one call, a record on its own then in calls of 58, and says so', async () => {
+    const org = new LimitedOrg(100);
+    const plan = items(org);
+
+    const outcome = await removeRunRecords(org, plan, options());
+
+    expect(callsOf(org)).toEqual([116, 1, 58, 57]);
+    expect(org.rows.get('Item__c') ?? []).toEqual([]);
+    const result = outcome.objects.find((o) => o.objectApiName === 'Item__c');
+    expect(result).toMatchObject({ planned: 116, deleted: 116, refused: 0 });
+    expect(result?.reasons).toEqual([
+      'Item_Trigger hit Too many SOQL queries on a call of 116: sent 58 at a time, 3 calls more.',
+    ]);
+  });
+
+  it('leaves them refused, and sends them no second time, when it is allowed no smaller call', async () => {
+    const org = new LimitedOrg(100);
+    const plan = items(org);
+
+    const outcome = await removeRunRecords(org, plan, options({ splitting: limitSplitting(0) }));
+
+    expect(callsOf(org)).toEqual([116]);
+    const result = outcome.objects.find((o) => o.objectApiName === 'Item__c');
+    expect(result).toMatchObject({ deleted: 0, refused: 116 });
+    expect(result?.reasons).toEqual([
+      'Item_Trigger hit Too many SOQL queries on a call of 116.',
+      '116 not sent in smaller calls: what the org has left today allowed the removal none.',
+      LIMIT_REASON,
+    ]);
+  });
+
+  it('stops after two records refused on their own, and sends the rest no second time', async () => {
+    const plan: ForgeRunObjectRecords[] = [];
+    const all = new Set(Array.from({ length: 116 }, (_, n) => id('a0B', n + 1)));
+    const org = new LimitedOrg(200, all);
+    plan.push(...items(org));
+
+    const outcome = await removeRunRecords(org, plan, options());
+
+    expect(callsOf(org)).toEqual([116, 1, 1]);
+    const result = outcome.objects.find((o) => o.objectApiName === 'Item__c');
+    expect(result).toMatchObject({ deleted: 0, refused: 116 });
+    expect(result?.reasons).toEqual([
+      'Item_Trigger hit Too many SOQL queries on a call of 116, and 2 records sent on their own were refused too: not sent in smaller calls, 2 calls more.',
+      GOVERNOR_LIMIT_KEPT_WHOLE,
+      LIMIT_REASON,
+    ]);
+  });
+
+  it('deletes every record but one past the limit alone, and that one refused sent on its own', async () => {
+    const heavy = id('a0B', 40);
+    const org = new LimitedOrg(200, new Set([heavy]));
+    const plan = items(org);
+
+    const outcome = await removeRunRecords(org, plan, options());
+
+    expect(callsOf(org).length).toBeLessThan(20);
+    const result = outcome.objects.find((o) => o.objectApiName === 'Item__c');
+    expect(result).toMatchObject({ deleted: 115, refused: 1 });
+    expect(org.has('Item__c', heavy)).toBe(true);
+    expect(result?.reasons).toContain(GOVERNOR_LIMIT_ALONE);
+  });
+
+  it('never splits a refusal of one record, which a smaller call does not cure, and sends it again once', async () => {
+    const org = new LimitedOrg(200);
+    const plan = items(org);
+    const kept = id('a0B', 7);
+    org.refusals.set(kept, {
+      statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+      message: 'Items in use are kept',
+    });
+
+    const outcome = await removeRunRecords(org, plan, options());
+
+    // The call of 116, then the second try of the record refused.
+    expect(callsOf(org)).toEqual([116, 1]);
+    const result = outcome.objects.find((o) => o.objectApiName === 'Item__c');
+    expect(result).toMatchObject({ deleted: 115, refused: 1 });
+    expect(result?.reasons.some((reason) => reason.includes(' hit '))).toBe(false);
+  });
+
+  it('hands its sizes and smaller calls to the sweep, which spends them with it', async () => {
+    const org = new LimitedOrg(100);
+    const plan = items(org);
+    const splitting = limitSplitting(50);
+    const sweep = vi.fn(async () => false);
+    const afterRemoval = vi.fn(async () => false);
+
+    await removeRunRecords(org, plan, options({ splitting, sweep, afterRemoval }));
+
+    expect(sweep).toHaveBeenCalledWith(splitting);
+    expect(afterRemoval).toHaveBeenCalledWith(splitting);
+    expect(splitting.allowance.spent).toBe(3);
   });
 });

@@ -17,6 +17,18 @@
  * and says which rows the target may hold, collects per-record failure
  * samples, and queues nullified cycle FKs for the pass-2 UPDATE.
  *
+ * A call the target's automation refuses for a Salesforce limit — a trigger
+ * that runs a query per record passes the 100 a transaction allows on a call
+ * of 200, and the whole call is rolled back — has the rows it refused so sent
+ * again, at once and in place, a record on its own first, then in calls half
+ * as large, down to one record (`sendSplittingOnLimits`): the size that went
+ * through is kept for the rest of the run on that object and operation, and
+ * the calls it costs come out of the run's allowance (`LimitSplitting`, the
+ * run's, which its second pass shares). A row still refused sent on its own,
+ * kept from smaller calls because records of its object sent on their own
+ * were refused too, or by a spent allowance, fails with the org's message and
+ * a sentence that says which. A call that threw is never sent again.
+ *
  * Pause/abort is honored before each call through the `waitIfPaused`
  * checkpoint injected by the executor.
  */
@@ -29,9 +41,24 @@ import type {
   InsertResult,
 } from '../ForgeExecutor.js';
 import type { ForgeFieldRefusal, ForgeGraphNode } from '@sandforge/shared';
-import { SELLING_MODEL_OPTION_OBJECT, isAlreadyExistsError } from '@sandforge/shared';
+import {
+  SELLING_MODEL_OPTION_OBJECT,
+  isAlreadyExistsError,
+  limitCauseOf,
+  type GovernorLimitCause,
+} from '@sandforge/shared';
 import { codeAndMessage, existingRecordOf } from '../../../core/common/existingRecordMatch.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
+import {
+  allowedFor,
+  limitNoteText,
+  limitSplitting,
+  sendSplittingOnLimits,
+  type CallKey,
+  type LimitNote,
+  type LimitSplitting,
+  type SmallerCalls,
+} from '../../../core/common/governorLimit.js';
 import {
   INACTIVE_OWNER_REFUSAL,
   LOOKUP_FILTER_REFUSAL,
@@ -554,6 +581,51 @@ interface CallThrew {
   readonly tries: number;
 }
 
+/**
+ * Where a node's calls stopped when one threw: the call that threw, its rows,
+ * and the rows still waiting to go after it — sent again smaller after a
+ * limit, or not sent yet — which go no more.
+ */
+interface RestStop {
+  readonly threw: CallThrew;
+  readonly rows: readonly RowToWrite[];
+  readonly rest: readonly RowToWrite[];
+}
+
+/** No row of the call goes again: see `BatchWriter.settleAnswers`. */
+const NONE_AGAIN: ReadonlySet<number> = new Set();
+
+/** No row of the call was settled for a limit: see `BatchWriter.settleAnswers`. */
+const NO_LIMIT_NOTES: ReadonlyMap<number, LimitNote> = new Map();
+
+/** The size a write's calls are kept at: its object, and the operation whose triggers it fires. */
+function callKeyOf(write: Pick<NodeWrite, 'objectApiName' | 'upsertField'>): CallKey {
+  return { objectApiName: write.objectApiName, op: write.upsertField ? 'upsert' : 'insert' };
+}
+
+/**
+ * The limit a refused row's answer says the target's automation hit, with the
+ * trigger it names: see `limitCauseOf`. Nothing for a row written, or refused
+ * for anything else.
+ */
+function limitOf(answer: InsertResult | undefined): GovernorLimitCause | undefined {
+  return answer !== undefined && !answer.success ? limitCauseOf(answer.errors) : undefined;
+}
+
+/**
+ * Said once for an object and operation, the first time a limit of the
+ * target's automation refuses one of its calls: who hit what, on a call of
+ * how many.
+ */
+function warnFirstRefusal(report: SmallerCalls): void {
+  const who = report.automation ?? "the target's automation";
+  logger.warn(
+    `[forge] ${report.objectApiName}: ${who} hit ${report.limit ?? 'a Salesforce limit'} on a ` +
+      `call of ${report.from} — sending a record on its own, then smaller calls` +
+      (report.op === 'upsert' ? ' (upsert).' : '.'),
+  );
+}
+
 /** What refused a field, as the line of a write that leaves it out says it. */
 const REFUSER: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'a validation rule',
@@ -765,12 +837,18 @@ export class BatchWriter {
 
   /**
    * @param wait - Waits out the delay before a call, or a row, is sent again.
+   * @param splitting - The size each object's calls go at once a limit of the
+   *   target's automation refused one, and the smaller calls the run allows
+   *   itself: the run's, shared with its second pass, so that the next node,
+   *   page or round of the object goes at once at the size that went
+   *   through. See `sendSplittingOnLimits`. Absent, the writer's own.
    */
   constructor(
     private readonly deps: Pick<ForgeExecutorDeps, 'insertRecords' | 'upsertRecords'> &
       Partial<Pick<ForgeExecutorDeps, 'queryRecords' | 'updateRecords' | 'describeFields'>>,
     batchStrategy?: ForgeBatchStrategyService,
     private readonly wait: (ms: number) => Promise<void> = sleep,
+    private readonly splitting: LimitSplitting = limitSplitting(),
   ) {
     this.batchStrategy = batchStrategy ?? new ForgeBatchStrategyService();
   }
@@ -929,32 +1007,37 @@ export class BatchWriter {
         return row;
       });
       const what = `${node.objectApiName} batch ${b + 1}/${batchCount}`;
-      let outcome: CallAnswered | CallThrew;
+      let stopped: RestStop | undefined;
       try {
         // A cancel stops the node before its next call — or before a call
         // that never reached the target is sent again.
         await input.waitIfPaused();
-        outcome = await this.call(write, input, rows);
+        stopped = await this.callAndSettle(write, input, rows);
       } catch (err) {
         settleOnStop(err);
         throw err;
       }
-      if ('thrown' in outcome) {
+      if (stopped) {
         // A call that throws stops the node there, and what failed is its rows
         // and those of the calls it leaves unsent. Thrown on, it took down what
         // the calls before had written: counted as failed with the whole node,
         // and the lookups those rows owe lost before pass 2 could fill them in.
-        this.settleThrown(write, outcome, rows, what, records.length - recordOffset - rows.length);
+        this.settleThrown(
+          write,
+          stopped.threw,
+          stopped.rows,
+          what,
+          stopped.rest.length + records.length - recordOffset - rows.length,
+        );
         // Nor are the rows refused on their fields in the calls before
         // written again: they stay the failures the target made them.
         this.leaveRefusedAsFailed(
           write,
           write.refusedOnTheirFields.splice(0),
-          extractErrorMessage(outcome.thrown),
+          extractErrorMessage(stopped.threw.thrown),
         );
         break;
       }
-      await this.settleAnswers(write, rows, outcome);
       recordOffset += rows.length;
       // The rows the target could not lock a record for go again now, after a
       // wait: the lock another transaction held may be gone.
@@ -1077,6 +1160,74 @@ export class BatchWriter {
     }
   }
 
+  /**
+   * Send `rows` and count what the target answered for each, in calls of the
+   * size kept for the object and operation, read before each call
+   * (`sendSplittingOnLimits`): the rows a call of more than one was refused
+   * for a limit of the target's automation go again at once, a record on its
+   * own first the first time, then in calls half as large, each call more
+   * paid out of the run's allowance. The first call's checkpoint is the
+   * caller's; each call after it has its own.
+   *
+   * A row sent again keeps what it was: its payload, what it was first sent
+   * without, its refusals on fields and its sends for a lock — the journal
+   * keeps it as it goes, and the answer of its first call, which created
+   * nothing for it, is closed.
+   *
+   * @param onUnsent - Told the rows a cancel, or anything thrown, kept from
+   *   being sent or settled, before it is thrown on. Absent, those the target
+   *   had refused for a limit, waiting to go again smaller, are counted
+   *   failed with that refusal; the others were never answered, as the rows
+   *   of a call a cancel keeps from going.
+   * @returns Where the calls stopped when one threw: the caller counts its
+   *   rows and those after them.
+   */
+  private async callAndSettle(
+    write: NodeWrite,
+    input: WriteNodeInput,
+    rows: readonly RowToWrite[],
+    onUnsent?: (unsent: readonly RowToWrite[], why: string) => void,
+  ): Promise<RestStop | undefined> {
+    let threw: CallThrew | undefined;
+    let answered: CallAnswered = { answers: [] };
+    /** The rows the target refused for a limit, with what it refused them with. */
+    const refusedForALimit = new Map<RowToWrite, readonly string[]>();
+    const { stopped } = await sendSplittingOnLimits<RowToWrite, InsertResult>(rows, {
+      key: callKeyOf(write),
+      sizes: this.splitting.sizes,
+      allowance: this.splitting.allowance,
+      beforeEachSend: () => input.waitIfPaused(),
+      send: async (part) => {
+        const outcome = await this.call(write, input, part);
+        if ('thrown' in outcome) {
+          // Never sent again, as any call that threw: one that may have
+          // written rows writes none of them twice.
+          threw = outcome;
+          return 'stop';
+        }
+        answered = outcome;
+        return { answers: outcome.answers };
+      },
+      limited: (answer, row) => {
+        const cause = limitOf(answer);
+        if (cause && answer) refusedForALimit.set(row, answer.errors);
+        return cause;
+      },
+      // Rows held while the key was probed are settled with the answers of
+      // the call that refused them, closed already.
+      settle: (part, answers, again, notes, held) =>
+        this.settleAnswers(write, part, held ? { answers } : answered, again, notes),
+      onThrow: (unsent, error) => {
+        const why = extractErrorMessage(error);
+        if (onUnsent) onUnsent(unsent, why);
+        else this.leaveLimitedAsFailed(write, unsent, refusedForALimit, why);
+      },
+      onFirstRefusal: warnFirstRefusal,
+    });
+    if (!stopped || threw === undefined) return undefined;
+    return { threw, rows: stopped.part, rest: stopped.rest };
+  }
+
   /** Keep `sample` among the node's samples, while it holds fewer than three. */
   private sample(tally: BatchWriteResult, sample: ExecutionErrorSample): void {
     if (tally.errorSamples.length < 3) tally.errorSamples.push(sample);
@@ -1098,11 +1249,28 @@ export class BatchWriter {
    * answer for is failed: one result per row sent is what the API answers,
    * and a truncated answer has been seen in the wild. An answer past the rows
    * sent has no row behind it, and is not read.
+   *
+   * A row of `again`, refused for a limit of the target's automation and sent
+   * again in a smaller call, is neither settled nor counted here: nothing of
+   * it is remembered, and it is settled with the call that sends it again.
+   * The call is closed all the same once what it created is on disk: rolled
+   * back for that row, it created nothing of it.
+   *
+   * @param again - The places in `rows` of the rows sent again smaller.
+   * @param notes - Why a row refused for a limit is settled rather than sent
+   *   again, by its place in `rows`: said in its sample once it fails.
    */
   private async settleAnswers(
     write: NodeWrite,
     rows: readonly RowToWrite[],
-    { answers, callId }: CallAnswered,
+    {
+      answers,
+      callId,
+    }: Pick<CallAnswered, 'callId'> & {
+      readonly answers: readonly (InsertResult | undefined)[];
+    },
+    again: ReadonlySet<number> = NONE_AGAIN,
+    notes: ReadonlyMap<number, LimitNote> = NO_LIMIT_NOTES,
   ): Promise<void> {
     // The records the target created are put on disk before the run awaits
     // anything, with the lookups they owe. The describe below, read for a
@@ -1114,14 +1282,18 @@ export class BatchWriter {
     // none of it.
     rows.forEach((row, i) => {
       const answer = answers[i];
-      if (answer?.success) this.settle(write, answer, row);
+      if (answer?.success && !again.has(i)) this.settle(write, answer, row);
     });
     write.remapper.persist();
-    await this.readWhatMayBeEmpty(write, answers);
+    await this.readWhatMayBeEmpty(
+      write,
+      answers.filter((answer): answer is InsertResult => answer !== undefined),
+    );
     rows.forEach((row, i) => {
+      if (again.has(i)) return;
       const answer = answers[i];
       if (answer) {
-        if (!answer.success) this.settle(write, answer, row);
+        if (!answer.success) this.settle(write, answer, row, notes.get(i));
         return;
       }
       write.tally.failureCount++;
@@ -1239,18 +1411,25 @@ export class BatchWriter {
         ...row,
         lockResends: row.lockResends + 1,
       }));
-      let outcome: CallAnswered | CallThrew;
-      try {
-        outcome = await this.call(write, input, rows);
-      } catch (err) {
-        this.leaveLockedAsFailed(write, locked, extractErrorMessage(err));
-        throw err;
+      // A row a cancel keeps from going fails with the lock's refusal it had.
+      const lockedOf = new Map(rows.map((row, i) => [row, locked[i]] as const));
+      const stopped = await this.callAndSettle(write, input, rows, (unsent, why) =>
+        this.leaveLockedAsFailed(
+          write,
+          unsent.flatMap((row) => lockedOf.get(row) ?? []),
+          why,
+        ),
+      );
+      if (stopped) {
+        this.settleThrown(
+          write,
+          stopped.threw,
+          stopped.rows,
+          `${write.objectApiName}, sent again`,
+          after + stopped.rest.length,
+        );
+        return stopped.threw;
       }
-      if ('thrown' in outcome) {
-        this.settleThrown(write, outcome, rows, `${write.objectApiName}, sent again`, after);
-        return outcome;
-      }
-      await this.settleAnswers(write, rows, outcome);
     }
     return undefined;
   }
@@ -1259,8 +1438,18 @@ export class BatchWriter {
    * Count what the target answered for one row: written, linked to the record
    * it holds, waiting for the lookup by its natural key, to go again — for a
    * lock, or without the fields it refused — or failed.
+   *
+   * @param limitNote - Why a row the target's automation refused for a limit
+   *   was not sent again smaller: sent on its own already, records of its
+   *   object sent on their own refused too, or the allowance spent. Said
+   *   after the org's message when the row fails.
    */
-  private settle(write: NodeWrite, result: InsertResult, row: RowToWrite): void {
+  private settle(
+    write: NodeWrite,
+    result: InsertResult,
+    row: RowToWrite,
+    limitNote?: LimitNote,
+  ): void {
     const { tally, remapper, objectApiName } = write;
     const { built, before } = row;
     const payload = sentAs(row);
@@ -1393,6 +1582,15 @@ export class BatchWriter {
             ]
           : []),
         ...(refusedOnNoField(result.errorDetails) ? [REFUSED_ON_NO_FIELD] : []),
+        ...(limitNote
+          ? [
+              limitNoteText(
+                limitNote,
+                allowedFor(this.splitting.allowance, callKeyOf(write)),
+                'run',
+              ),
+            ]
+          : []),
         ...sentWithoutNote(before),
       ],
     });
@@ -1538,6 +1736,34 @@ export class BatchWriter {
   }
 
   /**
+   * Count as failed, with the refusal they had, rows the target refused for a
+   * limit of its automation that a cancel kept from going again smaller, each
+   * sample saying why. A row it never answered is not among them: it was not
+   * sent, as the rows of a call a cancel keeps from going.
+   */
+  private leaveLimitedAsFailed(
+    write: NodeWrite,
+    rows: readonly RowToWrite[],
+    refused: ReadonlyMap<RowToWrite, readonly string[]>,
+    why: string,
+  ): void {
+    for (const row of rows) {
+      const errors = refused.get(row);
+      if (!errors) continue;
+      write.tally.failureCount++;
+      this.sample(write.tally, {
+        recordSummary: summarizeRecordForError(row.payload),
+        messages: [
+          ...errors,
+          ...sentAgainNotes(row.refusals),
+          `Not sent again in a smaller call: ${why}`,
+          ...sentWithoutNote(row.before),
+        ],
+      });
+    }
+  }
+
+  /**
    * Count as failed, with the refusal they had, rows the target could not
    * lock a record for that a cancel or a call that threw kept from being sent
    * again, each sample saying why.
@@ -1586,26 +1812,40 @@ export class BatchWriter {
       });
       for (let start = 0; start < rows.length; start += batchSize) {
         const chunk = rows.slice(start, start + batchSize);
-        let outcome: CallAnswered | CallThrew;
+        let stopped: RestStop | undefined;
         try {
           await input.waitIfPaused();
-          outcome = await this.call(write, input, chunk);
         } catch (err) {
           this.leaveRefusedAsFailed(write, rows.slice(start), extractErrorMessage(err));
           throw err;
         }
+        try {
+          stopped = await this.callAndSettle(write, input, chunk, (unsent, why) =>
+            this.leaveRefusedAsFailed(write, unsent, why),
+          );
+        } catch (err) {
+          // The chunk's own rows left unsent were counted by `callAndSettle`.
+          this.leaveRefusedAsFailed(write, rows.slice(start + batchSize), extractErrorMessage(err));
+          throw err;
+        }
         let stoppedBy: CallThrew | undefined;
-        if ('thrown' in outcome) {
-          stoppedBy = outcome;
-          const why = extractErrorMessage(outcome.thrown);
-          if (outcome.left === 'may-have-written') {
-            this.settleThrown(write, outcome, chunk, `${write.objectApiName}, sent again`, 0);
-            this.leaveRefusedAsFailed(write, rows.slice(start + batchSize), why);
+        if (stopped) {
+          stoppedBy = stopped.threw;
+          const why = extractErrorMessage(stopped.threw.thrown);
+          const after = [...stopped.rest, ...rows.slice(start + batchSize)];
+          if (stopped.threw.left === 'may-have-written') {
+            this.settleThrown(
+              write,
+              stopped.threw,
+              stopped.rows,
+              `${write.objectApiName}, sent again`,
+              0,
+            );
+            this.leaveRefusedAsFailed(write, after, why);
           } else {
-            this.leaveRefusedAsFailed(write, rows.slice(start), why);
+            this.leaveRefusedAsFailed(write, [...stopped.rows, ...after], why);
           }
         } else {
-          await this.settleAnswers(write, chunk, outcome);
           try {
             stoppedBy = await this.sendLockedAgain(write, input, 0);
           } catch (err) {

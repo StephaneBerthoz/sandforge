@@ -12,10 +12,23 @@ import {
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   SELLING_MODEL_OPTION_OBJECT,
   isPricebookEntry,
+  limitCauseOf,
 } from '@sandforge/shared';
 
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import {
+  GOVERNOR_LIMIT_ALONE,
+  GOVERNOR_LIMIT_KEPT_WHOLE,
+  allowedFor,
+  limitSplitting,
+  notSplitNote,
+  sendSplittingOnLimits,
+  smallerCallsNote,
+  type CallKey,
+  type LimitNote,
+  type LimitSplitting,
+} from '../../core/common/governorLimit.js';
 import {
   DELETED_PAST_DRAFT,
   LOCKED_PAST_DRAFT,
@@ -594,9 +607,12 @@ export interface RunRemovalOptions {
    * sweep that deleted a child of one of the run's records with a roll-up
    * summary restamped that record as the org recalculated the summary, and
    * the removal then kept it as changed since the run. A stop during the
-   * sweep stops the removal before its first write.
+   * sweep stops the removal before its first write. It is handed the
+   * removal's sizes and smaller calls ({@link splitting}): a sweep whose
+   * deletes the target's automation refuses for a limit spends them with
+   * the removal, one bound for the two.
    */
-  sweep?: () => Promise<boolean>;
+  sweep?: (splitting?: LimitSplitting) => Promise<boolean>;
   /**
    * The last part of a sweep granted with the removal, made once the run's
    * records are deleted: what the sweep found made for the run that a record
@@ -604,9 +620,19 @@ export interface RunRemovalOptions {
    * an Asset a Case of the run names (`Case.AssetId`) — which goes only once
    * that record is gone. It resolves to whether it deleted anything; a
    * record of the run kept leaves what it points at, and says so. Absent,
-   * nothing waits for the run's records.
+   * nothing waits for the run's records. Handed the removal's sizes and
+   * smaller calls, as {@link sweep} is.
    */
-  afterRemoval?: () => Promise<boolean>;
+  afterRemoval?: (splitting?: LimitSplitting) => Promise<boolean>;
+  /**
+   * The size each object's deletes go at once the target's automation
+   * refused one of its calls for a Salesforce limit, and the smaller calls
+   * the removal allows itself (`sendSplittingOnLimits`): a rewind hands one
+   * for the act, from what its gate read of the org's daily requests, shared
+   * by its passes. Absent, the removal's own, of 2 000 smaller calls: it reads
+   * none of the org's requests.
+   */
+  splitting?: LimitSplitting;
   /**
    * The ids of the records a granted sweep found made for the run by the
    * target's automation, which it deletes: a child among them, still in the
@@ -1167,6 +1193,14 @@ interface Refusal {
    * it is never sent, nor taken for gone by a read that no longer finds it.
    */
   sent: boolean;
+  /**
+   * Refused for a Salesforce limit the target's automation hit: sent on its
+   * own already, kept from smaller calls because records of its object sent
+   * on their own were refused too, or by the removal's allowance. The second
+   * try does not send it again, which would be refused the same; the next
+   * removal of the run does.
+   */
+  limit?: true;
 }
 
 /** Where a removal stands with one object's records. */
@@ -1226,6 +1260,12 @@ class ObjectRemoval {
    * its key, with its object. See {@link ForgeUndoObjectResult.tookAlong}.
    */
   readonly tookAlong = new Map<string, string>();
+  /**
+   * What is said of the calls a limit of the target's automation refused,
+   * once the object's turn is over (`deleteLimitNotes`): placed before the
+   * org's refusals.
+   */
+  limitNotes: string[] = [];
 
   /**
    * @param copies - Of `planned`, the records the platform copied as the run
@@ -1273,6 +1313,17 @@ class ObjectRemoval {
   /** The records whose delete the org refused, whatever it refused it with, by id. */
   refusedSent(): string[] {
     return [...this.refused].filter(([, refusal]) => refusal.sent).map(([id]) => id);
+  }
+
+  /**
+   * Of {@link refusedSent}, those the second try sends once more: all but the
+   * ones refused for a limit, which went on their own already or were kept
+   * from smaller calls, and would only be refused again.
+   */
+  refusedToSendAgain(): string[] {
+    return [...this.refused]
+      .filter(([, refusal]) => refusal.sent && refusal.limit !== true)
+      .map(([id]) => id);
   }
 
   /**
@@ -1329,6 +1380,7 @@ class ObjectRemoval {
     const reasons = [
       ...(this.notVisibleNote ? [this.notVisibleNote] : []),
       ...this.notes,
+      ...this.limitNotes,
       ...this.secondTryNote(),
       ...(this.unread ? [this.unread.reason] : []),
       ...[...this.refused.values()].map((r) => r.reason),
@@ -1403,7 +1455,13 @@ class ObjectRemoval {
  * prices and options behind those: each refused, and the org's refusals were
  * all it said of why the removal ended partial.
  *
- * The rest are deleted {@link RECORDS_PER_CALL} at a time. A record the org
+ * The rest are deleted {@link RECORDS_PER_CALL} at a time. A call the target's
+ * automation refuses for a Salesforce limit — the 116 records of a custom
+ * object refused whole by a trigger that ran a query per record, "Too many
+ * SOQL queries: 101" — goes again over REST, a record on its own first, then
+ * in calls half as large, down to one record; the size the limit called for
+ * holds for the object's next calls, within the smaller calls the removal
+ * allows itself (`RunRemovalOptions.splitting`). A record the org
  * refuses is counted with its reason, and the rest go on; so does the next
  * object when one cannot be read at all. The files attached to a record
  * deleted, which the run did not create, stay in the org once their record is
@@ -1439,6 +1497,10 @@ export async function removeRunRecords(
   const copiesCount = new Map<string, number>();
   const copiesOf = (objectApiName: string): number => copiesCount.get(objectApiName) ?? 0;
   const stopped = (): boolean => options.signal?.aborted === true;
+  // The sizes the deletes go at and the smaller calls a limit may cost,
+  // shared by every object's pages, the second try and the sweep: a size a
+  // limit taught one call holds for the rest.
+  const splitting = options.splitting ?? limitSplitting();
   /** Every record handed over, left where it is: a removal stopped before it wrote. */
   const untouched = (): RunRemovalOutcome => ({
     objects: withNotReached([], records.objects, copiesOf),
@@ -1697,7 +1759,7 @@ export async function removeRunRecords(
   // Developer Edition whose accounts count their opportunities, the sweep
   // took the opportunity created under a cloned account during the run, and
   // the removal kept the account as changed since the run.
-  if (options.sweep && (await options.sweep())) wrote = true;
+  if (options.sweep && (await options.sweep(splitting))) wrote = true;
 
   const removals: ObjectRemoval[] = [];
   const removalOf = (objectApiName: string): ObjectRemoval | undefined =>
@@ -1782,6 +1844,9 @@ export async function removeRunRecords(
       for await (const { ids } of recordsWhere(handed, order, (_object, _id, taken) => taken)) {
         for (const id of ids) gone.push(id);
       }
+    }
+    for (const removal of removals) {
+      removal.limitNotes = deleteLimitNotes(removal.result.objectApiName, splitting);
     }
     const settled = removals.map((removal) => removal.settle());
     return {
@@ -1894,6 +1959,7 @@ export async function removeRunRecords(
       placeOf = new Map();
       return removeCandidates(session, dependents, removal, sent, {
         stopped,
+        splitting,
         placeOf: places,
         onDeleted: (deleted) => {
           settled += deleted;
@@ -1956,7 +2022,7 @@ export async function removeRunRecords(
   for (let round = 0, progress = true; progress; round++) {
     progress = false;
     for (const removal of removals) {
-      const again = round === 0 ? removal.refusedSent() : [];
+      const again = round === 0 ? removal.refusedToSendAgain() : [];
       const waiting =
         round > 0
           ? removal.waiting()
@@ -1969,6 +2035,7 @@ export async function removeRunRecords(
       const takenUp = new Set(again);
       const cancelledPart = await removeCandidates(session, dependents, removal, waiting, {
         stopped,
+        splitting,
         onSent: (batch) => {
           for (const id of batch) if (takenUp.has(id)) removal.secondTry.add(id);
         },
@@ -1986,7 +2053,7 @@ export async function removeRunRecords(
   // cases" — and deleting the Case first, then the Asset, took both.
   if (options.afterRemoval) {
     if (stopped()) return outcome(true);
-    if (await options.afterRemoval()) wrote = true;
+    if (await options.afterRemoval(splitting)) wrote = true;
   }
 
   for (const removal of removals) {
@@ -2807,6 +2874,8 @@ async function deleteRounds(
 /** How {@link removeCandidates} reports as it goes. */
 interface CandidateHooks {
   stopped: () => boolean;
+  /** The sizes the removal's deletes go at, and the smaller calls it may still make. */
+  splitting: LimitSplitting;
   /** Records deleted, or found gone, by one call. */
   onDeleted?: (count: number) => void;
   /** Records kept for their dependents or left for the org's refusal to be read. */
@@ -2875,9 +2944,54 @@ async function removeCandidates(
     // Named before the delete: a file seen through its record may be out of
     // the session's reach once the record is gone.
     const files = await dependents.filesOn(batch);
-    const answer = byJob
-      ? await deleteByJob(org, objectApiName, batch)
-      : await deleteBatch(org, objectApiName, batch);
+    const settle = (sent: readonly string[], outcomes: readonly DeleteOutcome[]): void => {
+      sent.forEach((id, index) => {
+        const result = outcomes[index];
+        if (result.kind === 'refused') {
+          removal.refused.set(id, {
+            reason: result.reason,
+            dependency: result.dependency,
+            sent: true,
+            ...(result.limit ? { limit: true as const } : {}),
+          });
+          return;
+        }
+        removal.refused.delete(id);
+        const key = recordKey(id);
+        const place = hooks.placeOf?.get(key);
+        if (place !== undefined) removal.goneAt.add(place);
+        else removal.goneLater.add(key);
+        if (result.kind === 'deleted') {
+          removal.result.deleted++;
+          if (place === undefined) removal.deletedLater.add(key);
+          for (const file of files.get(key) ?? []) {
+            removal.filesLeft.set(file.key, file.name);
+          }
+          for (const [taken, object] of verdict.along.get(key) ?? []) {
+            removal.tookAlong.set(taken, object);
+          }
+        } else removal.result.alreadyGone++;
+      });
+      hooks.onSent?.(sent);
+      hooks.onDeleted?.(sent.length);
+    };
+    // Over REST, a call the target's automation refuses for a limit goes
+    // again smaller, in place, each call after the first checked for a stop.
+    if (!byJob) {
+      const stoppedPart = await deleteSplittingOnLimits(
+        org,
+        objectApiName,
+        batch,
+        hooks.splitting,
+        {
+          stopped: hooks.stopped,
+          settle,
+        },
+      );
+      if (stoppedPart) return true;
+      continue;
+    }
+    const answer = await deleteByJob(org, objectApiName, batch);
     // Aborted before the org had it: nothing of it was deleted.
     if (answer === 'aborted') return true;
     // The org deleted none of them by the job: they go over REST, which
@@ -2886,37 +3000,104 @@ async function removeCandidates(
       queue.unshift(...callsOf(batch));
       continue;
     }
-    const outcomes = answer;
-    batch.forEach((id, index) => {
-      const result = outcomes[index];
-      if (result.kind === 'refused') {
-        removal.refused.set(id, {
-          reason: result.reason,
-          dependency: result.dependency,
-          sent: true,
-        });
-        return;
-      }
-      removal.refused.delete(id);
-      const key = recordKey(id);
-      const place = hooks.placeOf?.get(key);
-      if (place !== undefined) removal.goneAt.add(place);
-      else removal.goneLater.add(key);
-      if (result.kind === 'deleted') {
-        removal.result.deleted++;
-        if (place === undefined) removal.deletedLater.add(key);
-        for (const file of files.get(key) ?? []) {
-          removal.filesLeft.set(file.key, file.name);
-        }
-        for (const [taken, object] of verdict.along.get(key) ?? []) {
-          removal.tookAlong.set(taken, object);
-        }
-      } else removal.result.alreadyGone++;
-    });
-    hooks.onSent?.(batch);
-    hooks.onDeleted?.(batch.length);
+    settle(batch, answer);
   }
   return false;
+}
+
+/** The key the sizes of an object's deletes are kept under. */
+function deleteKey(objectApiName: string): CallKey {
+  return { objectApiName, op: 'delete' };
+}
+
+/** How {@link deleteSplittingOnLimits} goes: when to stop, and what to do with each answer. */
+export interface LimitedDeletes {
+  /** Asked before every call but the first, whose check stays with the caller. */
+  stopped: () => boolean;
+  /**
+   * Told what became of the records of each call, those sent again smaller
+   * aside, once: a record refused for a limit and not sent again carries why
+   * (`limit`), and is never a dependency's refusal.
+   */
+  settle: (sent: readonly string[], outcomes: readonly DeleteOutcome[]) => void;
+}
+
+/**
+ * Delete `ids` of one object over REST, in calls of the size kept for it
+ * (`splitting`), and settle what became of each: a call the target's
+ * automation refuses for a Salesforce limit goes again — a record on its own
+ * first, then in calls half as large, down to one — within the smaller calls
+ * the removal allows itself (`sendSplittingOnLimits`). A delete never writes
+ * twice: sent again, a record deleted since answers that it is gone. A call
+ * the org refused whole — what threw, which `deleteBatch` reads as a refusal
+ * of each record — is read as its words say: one that names a limit goes
+ * again smaller, as one answered record by record does.
+ *
+ * @returns Whether a stop came before one of the calls: what it held, and
+ *   what came after it, is left unsettled.
+ */
+export async function deleteSplittingOnLimits(
+  org: RemovalOrg,
+  objectApiName: string,
+  ids: readonly string[],
+  splitting: LimitSplitting,
+  hooks: LimitedDeletes,
+): Promise<boolean> {
+  const { stopped } = await sendSplittingOnLimits<string, DeleteOutcome>(ids, {
+    key: deleteKey(objectApiName),
+    sizes: splitting.sizes,
+    allowance: splitting.allowance,
+    beforeEachSend: () => (hooks.stopped() ? 'stop' : undefined),
+    send: async (part) => ({ answers: await deleteBatch(org, objectApiName, part) }),
+    limited: (outcome) =>
+      outcome?.kind === 'refused' ? limitCauseOf([outcome.reason]) : undefined,
+    settle: (part, answers, again, notes) => {
+      const sent: string[] = [];
+      const outcomes: DeleteOutcome[] = [];
+      part.forEach((id, index) => {
+        if (again.has(index)) return;
+        const outcome: DeleteOutcome = answers[index] ?? {
+          kind: 'refused',
+          reason: 'The org gave no answer for it.',
+          dependency: false,
+        };
+        const note = notes.get(index);
+        sent.push(id);
+        outcomes.push(
+          note !== undefined && outcome.kind === 'refused'
+            ? { ...outcome, dependency: false, limit: note }
+            : outcome,
+        );
+      });
+      if (sent.length > 0) hooks.settle(sent, outcomes);
+    },
+  });
+  return stopped !== undefined;
+}
+
+/**
+ * What the result of an object a removal or a sweep deleted says of the
+ * calls a limit of the target's automation refused: which trigger hit which
+ * limit on a call of how many, the size it went at and the calls that cost;
+ * the records kept from smaller calls once the allowance was spent; and, for
+ * a record refused though sent on its own, what to fix. Nothing when no limit
+ * refused a call. Engine English, as the other notes.
+ */
+export function deleteLimitNotes(objectApiName: string, splitting: LimitSplitting): string[] {
+  const key = deleteKey(objectApiName);
+  const report = splitting.sizes.report(key);
+  if (!report) return [];
+  const notes: string[] = [];
+  if (report.rows + report.alone + report.notSplit + report.keptWhole > 0) {
+    notes.push(smallerCallsNote(report));
+  }
+  if (report.notSplit > 0) {
+    // The object's own share when that is what ran out, the removal's otherwise.
+    notes.push(notSplitNote(report.notSplit, allowedFor(splitting.allowance, key), 'removal'));
+  }
+  if (report.keptWhole > 0) notes.push(GOVERNOR_LIMIT_KEPT_WHOLE);
+  else if (report.alone > 0) notes.push(GOVERNOR_LIMIT_ALONE);
+  return notes;
 }
 
 /**
@@ -3287,7 +3468,15 @@ function runSpan(
 
 /** What a delete did to one record. */
 export type DeleteOutcome =
-  { kind: 'deleted' } | { kind: 'gone' } | { kind: 'refused'; reason: string; dependency: boolean };
+  | { kind: 'deleted' }
+  | { kind: 'gone' }
+  | {
+      kind: 'refused';
+      reason: string;
+      dependency: boolean;
+      /** Refused for a limit of the target's automation, and why it was not sent again. */
+      limit?: LimitNote;
+    };
 
 /**
  * Delete one batch and say what became of each record: deleted, already gone

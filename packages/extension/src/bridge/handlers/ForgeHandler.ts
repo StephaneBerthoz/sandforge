@@ -87,6 +87,7 @@ import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
 import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
+import { splitAllowanceAnswerOf } from '../../core/common/governorLimit.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 import {
@@ -2862,8 +2863,11 @@ export class ForgeHandler implements DomainHandler {
           // record types the target gave: the bypass is held no longer than
           // the writes. Given back again as the run ends, it answers the same.
           beforeWrite: async (boundary): Promise<ForgeWriteGateAnswer | undefined> => {
-            await writeGate(boundary);
-            if (!mute || boundary.dryRun || held) return undefined;
+            // The smaller calls the run may send when the target's
+            // automation refuses a call for a limit, from the requests the
+            // gate read of the target.
+            const allowed = await writeGate(boundary);
+            if (!mute || boundary.dryRun || held) return allowed;
             const lease = await mute.acquire(operationId);
             held = lease;
             mutedAutomation = lease.outcome;
@@ -2873,6 +2877,7 @@ export class ForgeHandler implements DomainHandler {
             const relit = emails?.afterLease(lease.outcome, emailsAccepted);
             if (relit) throw new ForgeRunGateError(relit.code, relit.message);
             return {
+              ...allowed,
               lease: { assigned: lease.outcome.assigned.length, giveBack: () => lease.release() },
             };
           },
@@ -3943,7 +3948,7 @@ export class ForgeHandler implements DomainHandler {
     /** What the read of whether the target delivers its emails sent: counted with the run's. */
     deliverability?: number;
     onConfirmed: () => void;
-  }): (boundary: ForgeWriteBoundary) => Promise<void> {
+  }): (boundary: ForgeWriteBoundary) => Promise<Pick<ForgeWriteGateAnswer, 'splitAllowance'>> {
     const first = run.checkpoint;
     /** The checkpoint's ask, given the objects the rows are of: every one the run writes. */
     const askOf = (plan: WritePlan): BeforeRunAsk | undefined =>
@@ -3965,10 +3970,10 @@ export class ForgeHandler implements DomainHandler {
             logger.warn(`Forge simulation: ${beforeRunFailedWords(err)}`);
           });
         }
-        return;
+        return {};
       }
       const plan = writePlanOf(boundary.objects);
-      if (plan.totalRows === 0) return;
+      if (plan.totalRows === 0) return {};
       run.lookup.requests++;
       const limits = await this.readTargetDataStorage(run.targetOrgId);
       const storage = storageCheckOf(plan, limits);
@@ -4051,6 +4056,7 @@ export class ForgeHandler implements DomainHandler {
         ...(requests.api.parts ? { parts: requests.api.parts } : {}),
       });
       if (requests.stop) throw ForgeRunGateError.of(requests.stop);
+      const allowed = splitAllowanceAnswerOf(requests.api);
       // The checkpoint asked first, taken once the rows may be written: after
       // the question, as close to the first write as the answer lets it, and
       // before the lease the run takes once this gate returns. A take refused
@@ -4148,7 +4154,7 @@ export class ForgeHandler implements DomainHandler {
         !requests.asks
       ) {
         await takeFirst();
-        return;
+        return allowed;
       }
       const answer = await run.guard.confirmRun({
         stage: 'write',
@@ -4176,7 +4182,7 @@ export class ForgeHandler implements DomainHandler {
       if (answer === 'confirmed') {
         run.onConfirmed();
         await takeFirst();
-        return;
+        return allowed;
       }
       throw answer === 'declined'
         ? new ForgeRunGateError(
@@ -5855,8 +5861,9 @@ export class ForgeHandler implements DomainHandler {
               ...(parts && parts.laterParts.length > 0 ? { laterParts: parts.laterParts } : {}),
               ...(sweepParts
                 ? {
-                    sweep: () => sweepParts.first(),
-                    afterRemoval: () => sweepParts.afterRemoval(),
+                    // The removal's sizes and smaller calls, which the sweep spends with it.
+                    sweep: (splitting) => sweepParts.first(splitting),
+                    afterRemoval: (splitting) => sweepParts.afterRemoval(splitting),
                     automationMade: sweepParts.automationMade,
                   }
                 : {}),

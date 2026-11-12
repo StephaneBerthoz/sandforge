@@ -153,6 +153,12 @@ export interface UndoRewindInput {
   onProgress?: RunRemovalOptions['onProgress'];
   /** Asked before the first write when the user may not delete some objects' records. */
   onUndeletable?: RunRemovalOptions['onUndeletable'];
+  /**
+   * The smaller calls its removal may send when the org's automation refuses
+   * a call for a Salesforce limit: from the requests the undo read of the
+   * org (`splitAllowanceOf`). Absent, the removal's own 2 000.
+   */
+  splitting?: RunRemovalOptions['splitting'];
 }
 
 /**
@@ -938,6 +944,7 @@ async function undoFrom(
   let outcome: RunRemovalOutcome;
   if (plans.remove.spool.count > 0) {
     outcome = await removeRunRecords(org, plans.remove, {
+      ...(input.splitting ? { splitting: input.splitting } : {}),
       runStartedAt: new Date(read.head.startedAt),
       ...(read.lastWriteAt !== undefined ? { runRecordedAt: new Date(read.lastWriteAt) } : {}),
       ...(stamps ? { removalStamps: stamps } : {}),

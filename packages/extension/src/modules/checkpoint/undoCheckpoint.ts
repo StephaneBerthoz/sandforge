@@ -67,6 +67,7 @@ import { isMuteRefusedError } from '../forge/AutomationMuteLease.js';
 import { deliverabilityPartOf, type DeliverabilityGate } from '../forge/ForgeRunGate.js';
 import { readEmailDeliverability } from '../forge/targetDeliverability.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { limitSplitting, splitAllowanceOf } from '../../core/common/governorLimit.js';
 import { setBackToDraftOf, type RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
 import type { UndeleteCall } from '../sync/SyncRunUndelete.js';
 import { guardCheckpoint, type CheckpointGuardConnection } from './checkpointGuard.js';
@@ -636,6 +637,11 @@ export async function undoCheckpoint(
             objects: checkpoint.objects,
             org: count.org,
             undelete: count.undelete,
+            // Half of what the requests it read leave past its own, for the
+            // calls a limit of the org's automation has it send smaller.
+            splitting: limitSplitting(
+              splitAllowanceOf(budget.remaining, count.used() + cost.apiRequests),
+            ),
             ...(signal ? { signal } : {}),
             ...(deps.onUndeletable ? { onUndeletable: deps.onUndeletable } : {}),
             onProgress: (settled, total, objectApiName) =>

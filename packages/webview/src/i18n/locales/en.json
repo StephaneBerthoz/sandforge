@@ -6455,6 +6455,14 @@
         "action": "Fix that automation in the target org, or turn it off while you clone, then retry the failed objects."
       }
     },
+    "governorLimit": {
+      "explanation": "An automation of the org — a trigger, or a Flow — hit a Salesforce limit, such as too many queries, too many writes or too much CPU time, on the call that carried this record, and the org rolled back every record of that call: the automation runs a query or a write for each record rather than one for them all.",
+      "action": "Have that automation query and write once for all the records of a call, or have it skip its work for a holder of a bypass custom permission, which Mute the target's automation for this run assigns where a run offers it; then run again.",
+      "forge": {
+        "explanation": "An automation of the target org — the trigger the message names, or a Flow — hit a Salesforce limit, such as too many queries, too many writes or too much CPU time, as the record was saved, and the target rolled back the whole call. Forge sends the records of such a call again, a record on its own first, then in calls half as large, down to one record, and keeps that size for the object for the rest of the run; this record was still refused — sent on its own, kept from smaller calls because records of the object sent on their own were refused too, or once the run had spent the smaller calls it allows itself — as the sentence after the org's message says.",
+        "action": "Fix that automation in the target org so it queries and writes once for all the records of a call, and does no more for one record than a limit allows, or have it skip its work for a holder of the bypass custom permission that Mute the target's automation for this run assigns; then retry the failed objects, or, for a removal, remove what is left."
+      }
+    },
     "insufficientAccess": {
       "explanation": "Your user in the org lacks the access this operation needs.",
       "action": "Ask an administrator for the missing permission, or connect the org with a user who has it."

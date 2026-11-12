@@ -16,6 +16,17 @@
  * records still failed entirely, one stage later. The call site passes it
  * now, with the duplicate-rule header, and this stage still bounds its own
  * batches.
+ *
+ * An update the target's automation refuses for a Salesforce limit — a
+ * trigger on the object that runs a query per record, past the 100 a call
+ * allows — is the call's refusal, not the record's: the updates it refused go
+ * again, a record on its own first, then in calls half as large, down to one,
+ * and the object's later calls go at the size that went through
+ * (`sendSplittingOnLimits`). Updates are idempotent and keep no journal line
+ * per call, so an update sent again never writes twice. The sizes and the
+ * smaller calls are the run's (`splitting`), shared with its first pass. A
+ * pass handed none — Seed's — splits nothing: its updates go in calls of 200,
+ * and one refused for a limit fails as the org refused it.
  */
 
 import type {
@@ -25,10 +36,22 @@ import type {
   ForgeProgressEvent,
   UpdateResult,
 } from '../ForgeExecutor.js';
+import { limitCauseOf } from '@sandforge/shared';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
+import {
+  allowedFor,
+  limitNoteText,
+  limitSplitting,
+  sendSplittingOnLimits,
+  type CallKey,
+  type LimitNote,
+  type LimitSplitting,
+  type SmallerCalls,
+} from '../../../core/common/governorLimit.js';
 import { LookupPatchSet } from '../../../core/common/lookupPatches.js';
 import { LOOKUP_FILTER_REFUSAL } from '../../../core/common/refusedFields.js';
 import type { IdRemapper } from '../IdRemapper.js';
+import { logger } from '../../../logger.js';
 import {
   WRITE_API_MAX_BATCH,
   summarizeRecordForError,
@@ -92,6 +115,28 @@ export interface CycleFkPatchInput {
    * A verification of the run tells it from a lookup that broke.
    */
   onRefusedByFilter?: (objectApiName: string, field: string, recordId: string) => void;
+  /**
+   * The size each object's updates go at once a limit of the target's
+   * automation refused one of its calls, and the smaller calls the run allows
+   * itself: the run's, shared with its first pass, so that what one node's
+   * pass learned holds for the passes after it. Absent, the pass splits
+   * nothing.
+   */
+  splitting?: LimitSplitting;
+}
+
+/** What the sizes of an object's updates are kept under. */
+function updateKey(objectApiName: string): CallKey {
+  return { objectApiName, op: 'update' };
+}
+
+/** The log line of an object whose updates a limit first refused. */
+function logFirstRefusal(report: SmallerCalls): void {
+  const who = report.automation ?? "the target's automation";
+  logger.warn(
+    `[forge] ${report.objectApiName}: ${who} hit ${report.limit ?? 'a Salesforce limit'} on an ` +
+      `update of ${report.from} records — sending a record on its own, then smaller calls.`,
+  );
 }
 
 /** The lookups one update fills in: every field it carries but the record's Id. */
@@ -252,8 +297,15 @@ export class CycleFkPass {
   private handed = 0;
   /** What the records owing in several parts owe, gathered across them: see `sendHeld`. */
   private readonly held = new LookupPatchSet();
+  /** The run's sizes and allowance, or the pass's own when it splits nothing: see `splits`. */
+  private readonly splitting: LimitSplitting;
+  /** Whether an update refused for a limit is sent again smaller: only by a pass handed the run's. */
+  private readonly splits: boolean;
 
-  constructor(private readonly input: Omit<CycleFkPatchInput, 'pendingFkUpdates'>) {}
+  constructor(private readonly input: Omit<CycleFkPatchInput, 'pendingFkUpdates'>) {
+    this.splits = input.splitting !== undefined;
+    this.splitting = input.splitting ?? limitSplitting(0);
+  }
 
   /**
    * Patch one part of the lookups owed.
@@ -343,64 +395,152 @@ export class CycleFkPass {
 
   /** Send the updates `owed` holds, per object, in calls of the REST limit. */
   private async send(owed: LookupPatchSet): Promise<void> {
+    for (const [objectApiName, recordsToUpdate] of owed.updates()) {
+      await this.sendObject(objectApiName, recordsToUpdate);
+    }
+  }
+
+  /** Count the lookups of updates a cancel kept from being sent. */
+  private leaveNotSent(objectApiName: string, records: readonly Record<string, unknown>[]): void {
+    for (const record of records) this.notSent += lookupsIn(record);
+    if (records.length > 0) this.notSentObjects.add(objectApiName);
+  }
+
+  /**
+   * Send the updates of one object in calls of the REST limit, or of the size
+   * a limit cut the object's updates to, read again before each call, after
+   * asking whether the run was cancelled before each. The updates a call of
+   * more than one was refused for a limit go again at once, a record on its
+   * own first, then in calls half as large (`sendSplittingOnLimits`); one
+   * refused so on its own, kept from smaller calls because records sent on
+   * their own were refused too, or past the smaller calls the run allows
+   * itself, fails with a sentence that says so after the org's.
+   */
+  private async sendObject(
+    objectApiName: string,
+    recordsToUpdate: readonly Record<string, unknown>[],
+  ): Promise<void> {
     const { input } = this;
     const { targetOrgId } = input;
     const updateRecords = input.updateRecords;
-    if (!updateRecords) return;
-    const maxPerCall = WRITE_API_MAX_BATCH['rest'];
-    for (const [objectApiName, recordsToUpdate] of owed.updates()) {
-      for (let offset = 0; offset < recordsToUpdate.length; offset += maxPerCall) {
-        const batch = recordsToUpdate.slice(offset, offset + maxPerCall);
-        if (!this.cancelled) this.cancelled = input.stopped?.() === true;
-        if (this.cancelled) {
-          for (const record of batch) this.notSent += lookupsIn(record);
-          this.notSentObjects.add(objectApiName);
-          continue;
+    if (!updateRecords || recordsToUpdate.length === 0) return;
+    const askStopped = (): boolean => {
+      if (!this.cancelled) this.cancelled = input.stopped?.() === true;
+      return this.cancelled;
+    };
+    if (askStopped()) {
+      this.leaveNotSent(objectApiName, recordsToUpdate);
+      return;
+    }
+    // What a call threw, read by the settle of that call: one rejected call
+    // does not abandon the rest, whose records are independent FK patches.
+    let threw: { error: unknown } | undefined;
+    const outcome = await sendSplittingOnLimits<Record<string, unknown>, UpdateResult>(
+      recordsToUpdate,
+      {
+        key: updateKey(objectApiName),
+        sizes: this.splitting.sizes,
+        allowance: this.splitting.allowance,
+        maxSize: WRITE_API_MAX_BATCH['rest'],
+        beforeEachSend: () => (askStopped() ? 'stop' : undefined),
+        send: async (part) => {
+          try {
+            return { answers: await updateRecords(targetOrgId, objectApiName, [...part]) };
+          } catch (error) {
+            threw = { error };
+            return { answers: [] };
+          }
+        },
+        limited: (answer) =>
+          this.splits && answer && !answer.success ? limitCauseOf(answer.errors) : undefined,
+        settle: (part, answers, again, notes) => {
+          const thrown = threw;
+          threw = undefined;
+          if (thrown) this.callThrew(objectApiName, part, thrown.error);
+          else this.settleAnswers(objectApiName, part, answers, again, notes);
+          input.onAnswered?.();
+        },
+        onFirstRefusal: logFirstRefusal,
+      },
+    );
+    // Stopped before a call by a cancel: that call and every one after it
+    // were never sent. No call is stopped as one that may have written.
+    if (outcome.stopped) {
+      this.leaveNotSent(objectApiName, [...outcome.stopped.part, ...outcome.stopped.rest]);
+    }
+  }
+
+  /**
+   * Settle what one call answered: the updates the target took, and the
+   * others it refused — those of `again` aside, which go again in smaller
+   * calls.
+   */
+  private settleAnswers(
+    objectApiName: string,
+    batch: readonly Record<string, unknown>[],
+    updateResults: readonly (UpdateResult | undefined)[],
+    again: ReadonlySet<number>,
+    notes: ReadonlyMap<number, LimitNote>,
+  ): void {
+    const { input } = this;
+    for (let i = 0; i < batch.length; i++) {
+      if (again.has(i)) continue;
+      const r = updateResults[i];
+      if (!r) {
+        // An answer shorter than its batch says nothing of the records past
+        // its end, and nothing is not success: left uncounted, their lookups
+        // read as resolved. Counted as left empty, as the insert of a batch
+        // counts the rows its answer leaves out.
+        this.pass2Failed += lookupsIn(batch[i]);
+        if (this.pass2Samples.length < 3) {
+          this.pass2Samples.push({
+            recordSummary: summarizeRecordForError(batch[i]),
+            messages: [
+              `No result returned for record (API truncated batch: ${updateResults.length}/${batch.length})`,
+            ],
+          });
         }
-        try {
-          const updateResults = await updateRecords(targetOrgId, objectApiName, batch);
-          for (let i = 0; i < updateResults.length; i++) {
-            const r = updateResults[i];
-            if (r.success) input.onPatched?.(objectApiName, batch[i]);
-            if (!r.success) {
-              this.tellRefusedByFilter(objectApiName, batch[i], r);
-              this.pass2Failed += lookupsIn(batch[i]);
-              if (this.pass2Samples.length < 3) {
-                this.pass2Samples.push({
-                  recordSummary: summarizeRecordForError(batch[i]),
-                  messages: r.errors,
-                });
-              }
-            }
-          }
-          // An answer shorter than its batch says nothing of the records past
-          // its end, and nothing is not success: left uncounted, their lookups
-          // read as resolved. Counted as left empty, as the insert of a batch
-          // counts the rows its answer leaves out.
-          for (let i = updateResults.length; i < batch.length; i++) {
-            this.pass2Failed += lookupsIn(batch[i]);
-            if (this.pass2Samples.length < 3) {
-              this.pass2Samples.push({
-                recordSummary: summarizeRecordForError(batch[i]),
-                messages: [
-                  `No result returned for record (API truncated batch: ${updateResults.length}/${batch.length})`,
-                ],
-              });
-            }
-          }
-        } catch (err) {
-          // One rejected batch does not abandon the rest: the records in the
-          // other batches are independent FK patches.
-          for (const record of batch) this.pass2Failed += lookupsIn(record);
-          if (this.pass2Samples.length < 3) {
-            this.pass2Samples.push({
-              recordSummary: `${objectApiName} batch failed`,
-              messages: [extractErrorMessage(err)],
-            });
-          }
+      } else if (r.success) input.onPatched?.(objectApiName, batch[i]);
+      else {
+        this.tellRefusedByFilter(objectApiName, batch[i], r);
+        this.pass2Failed += lookupsIn(batch[i]);
+        if (this.pass2Samples.length < 3) {
+          const note = notes.get(i);
+          this.pass2Samples.push({
+            recordSummary: summarizeRecordForError(batch[i]),
+            messages:
+              note === undefined
+                ? r.errors
+                : [
+                    ...r.errors,
+                    limitNoteText(
+                      note,
+                      allowedFor(this.splitting.allowance, updateKey(objectApiName)),
+                      'run',
+                    ),
+                  ],
+          });
         }
-        input.onAnswered?.();
       }
+    }
+  }
+
+  /**
+   * Count the updates of a call that threw as left empty, with what it threw.
+   * One rejected batch does not abandon the rest: the records in the other
+   * batches are independent FK patches.
+   */
+  private callThrew(
+    objectApiName: string,
+    batch: readonly Record<string, unknown>[],
+    err: unknown,
+  ): void {
+    for (const record of batch) this.pass2Failed += lookupsIn(record);
+    if (this.pass2Samples.length < 3) {
+      this.pass2Samples.push({
+        recordSummary: `${objectApiName} batch failed`,
+        messages: [extractErrorMessage(err)],
+      });
     }
   }
 

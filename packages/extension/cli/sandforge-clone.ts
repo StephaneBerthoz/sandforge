@@ -191,6 +191,7 @@ import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailabilit
 import { readRecordTypePicklists } from '../src/core/metadata/recordTypePicklists.js';
 import { describePicklistChange } from '../src/modules/forge/stages/RecordTypePicklists.js';
 import { describeCurrencyReplaced } from '../src/core/common/recordCurrencies.js';
+import { splitAllowanceAnswerOf } from '../src/core/common/governorLimit.js';
 import { ForgeFilesRefusedError } from '../src/modules/forge/stages/FileCopier.js';
 import {
   insertFile,
@@ -5036,9 +5037,10 @@ export function sweepPartsOptions(
 ): Pick<RunRemovalOptions, 'sweep' | 'automationMade' | 'afterRemoval'> {
   if (!parts) return {};
   return {
-    sweep: () => parts.first(),
+    // The removal's sizes and smaller calls, which the sweep spends with it.
+    sweep: (splitting) => parts.first(splitting),
     automationMade: parts.automationMade,
-    afterRemoval: () => parts.afterRemoval(),
+    afterRemoval: (splitting) => parts.afterRemoval(splitting),
   };
 }
 
@@ -8726,6 +8728,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
    * for the next.
    */
   let alsoRefusedAtGate: RunRefusal[] = [];
+  // The smaller calls the run may send when the target's automation refuses
+  // a call for a limit, from the requests the gate read of the target; none
+  // read, the run keeps its own 2 000.
+  let allowedAtTheGate: Pick<ForgeWriteGateAnswer, 'splitAllowance'> = {};
   const beforeWrite = async (boundary: ForgeWriteBoundary): Promise<void> => {
     const plan = writePlanOf(boundary.objects);
     let storage: DataStorage | { unread: string };
@@ -8774,6 +8780,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       budget,
       target: args.target,
     });
+    allowedAtTheGate = splitAllowanceAnswerOf(gate.api);
     say(apiRequestsLine(gate.api, args.target));
     if (checkpointPlanned) {
       for (const line of checkpointEstimateLines(checkpointPlanned.estimate)) say(line);
@@ -9116,7 +9123,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         say(line);
       }
     }
-    if (!mute?.prepared || held) return undefined;
+    if (!mute?.prepared || held) return allowedAtTheGate;
     const lease = await mute.prepared
       .acquire(`sandforge-clone ${t0}`)
       .catch(async (err: unknown) => {
@@ -9134,6 +9141,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     const relit = emails?.afterLease(lease.outcome, args.acceptEmails);
     if (relit) throw new ForgeRunGateError(relit.code, relit.message);
     return {
+      ...allowedAtTheGate,
       lease: { assigned: lease.outcome.assigned.length, giveBack: () => lease.release() },
     };
   };

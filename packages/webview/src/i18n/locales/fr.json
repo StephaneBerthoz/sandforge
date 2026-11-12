@@ -6455,6 +6455,14 @@
         "action": "Corrigez cette automatisation dans l'org cible, ou désactivez-la le temps du clonage, puis relancez les objets en échec."
       }
     },
+    "governorLimit": {
+      "explanation": "Une automatisation de l'org — un déclencheur ou un Flow — a dépassé une limite de Salesforce, comme trop de requêtes, trop d'écritures ou trop de temps CPU, sur l'appel qui portait cet enregistrement, et l'org a annulé tous les enregistrements de cet appel : l'automatisation lance une requête ou une écriture par enregistrement au lieu d'une seule pour tous.",
+      "action": "Faites en sorte que cette automatisation interroge et écrive une seule fois pour tous les enregistrements d'un appel, ou qu'elle ne fasse rien pour qui détient une autorisation personnalisée de contournement, que « Rendre muettes les automatisations de la cible pour cette exécution » attribue là où une exécution le propose ; puis relancez.",
+      "forge": {
+        "explanation": "Une automatisation de l'org cible — le déclencheur que nomme le message, ou un Flow — a dépassé une limite de Salesforce, comme trop de requêtes, trop d'écritures ou trop de temps CPU, à la sauvegarde de l'enregistrement, et l'org cible a annulé tout l'appel. Forge renvoie les enregistrements d'un tel appel, un enregistrement seul d'abord, puis en appels deux fois plus petits, jusqu'à un seul enregistrement, et garde cette taille pour l'objet jusqu'à la fin de l'exécution ; cet enregistrement a tout de même été refusé — envoyé seul, tenu à l'écart des appels plus petits parce que des enregistrements de l'objet envoyés seuls ont été refusés eux aussi, ou une fois épuisés les appels plus petits que l'exécution s'accorde —, comme le dit la phrase qui suit le message de l'org.",
+        "action": "Corrigez cette automatisation dans l'org cible pour qu'elle interroge et écrive une seule fois pour tous les enregistrements d'un appel, et qu'elle ne fasse pas pour un seul enregistrement plus qu'une limite ne le permet, ou pour qu'elle ne fasse rien pour qui détient l'autorisation personnalisée de contournement que « Rendre muettes les automatisations de la cible pour cette exécution » attribue ; puis relancez les objets en échec ou, pour une suppression, supprimez ce qui reste."
+      }
+    },
     "insufficientAccess": {
       "explanation": "Votre utilisateur dans l'org n'a pas les droits nécessaires à cette opération.",
       "action": "Demandez l'autorisation manquante à un administrateur, ou connectez l'org avec un utilisateur qui la possède."

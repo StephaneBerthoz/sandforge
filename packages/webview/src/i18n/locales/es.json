@@ -6455,6 +6455,14 @@
         "action": "Corrija esa automatización en la org de destino, o desactívela mientras clona, y luego reintente los objetos fallidos."
       }
     },
+    "governorLimit": {
+      "explanation": "Una automatización de la org — un desencadenador o un Flow — superó un límite de Salesforce, como demasiadas consultas, demasiadas escrituras o demasiado tiempo de CPU, en la llamada que llevaba este registro, y la org deshizo todos los registros de esa llamada: la automatización lanza una consulta o una escritura por registro en lugar de una sola para todos.",
+      "action": "Haga que esa automatización consulte y escriba una sola vez para todos los registros de una llamada, o que no haga nada para quien tenga un permiso personalizado de bypass, que «Silenciar las automatizaciones del destino en esta ejecución» asigna donde una ejecución lo ofrece; y vuelva a ejecutar.",
+      "forge": {
+        "explanation": "Una automatización de la org de destino — el desencadenador que nombra el mensaje, o un Flow — superó un límite de Salesforce, como demasiadas consultas, demasiadas escrituras o demasiado tiempo de CPU, al guardar el registro, y la org de destino deshizo toda la llamada. Forge vuelve a enviar los registros de esa llamada, primero un registro solo y luego en llamadas de la mitad de tamaño, hasta un solo registro, y mantiene ese tamaño para el objeto hasta el final de la ejecución; este registro fue rechazado de todos modos — enviado solo, apartado de las llamadas más pequeñas porque registros del objeto enviados solos también fueron rechazados, o una vez agotadas las llamadas más pequeñas que la ejecución se permite —, como dice la frase que sigue al mensaje de la org.",
+        "action": "Corrija esa automatización en la org de destino para que consulte y escriba una sola vez para todos los registros de una llamada y no haga para un solo registro más de lo que un límite permite, o para que no haga nada para quien tenga el permiso personalizado de bypass que «Silenciar las automatizaciones del destino en esta ejecución» asigna; y luego reintente los objetos fallidos o, en una eliminación, elimine lo que queda."
+      }
+    },
     "insufficientAccess": {
       "explanation": "Su usuario en la org no tiene el acceso que requiere esta operación.",
       "action": "Pida el permiso que falta a un administrador, o conecte la org con un usuario que lo tenga."

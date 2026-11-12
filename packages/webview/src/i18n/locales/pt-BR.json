@@ -6455,6 +6455,14 @@
         "action": "Corrija essa automação na org de destino, ou desative-a durante a clonagem, e então tente de novo os objetos com falha."
       }
     },
+    "governorLimit": {
+      "explanation": "Uma automação da org — um gatilho ou um Flow — excedeu um limite do Salesforce, como consultas demais, gravações demais ou tempo de CPU demais, na chamada que levava este registro, e a org desfez todos os registros dessa chamada: a automação faz uma consulta ou uma gravação por registro em vez de uma só para todos.",
+      "action": "Faça essa automação consultar e gravar uma só vez para todos os registros de uma chamada, ou não fazer nada para quem tem uma permissão personalizada de bypass, que “Silenciar as automações do destino nesta execução” atribui onde uma execução a oferece; e execute de novo.",
+      "forge": {
+        "explanation": "Uma automação da org de destino — o gatilho que a mensagem nomeia, ou um Flow — excedeu um limite do Salesforce, como consultas demais, gravações demais ou tempo de CPU demais, ao salvar o registro, e a org de destino desfez a chamada inteira. O Forge envia de novo os registros dessa chamada, primeiro um registro sozinho, depois em chamadas com a metade do tamanho, até um só registro, e mantém esse tamanho para o objeto até o fim da execução; este registro foi recusado mesmo assim — enviado sozinho, deixado fora das chamadas menores porque registros do objeto enviados sozinhos também foram recusados, ou depois que a execução esgotou as chamadas menores que se permite —, como diz a frase depois da mensagem da org.",
+        "action": "Corrija essa automação na org de destino para que consulte e grave uma só vez para todos os registros de uma chamada e não faça para um só registro mais do que um limite permite, ou para que não faça nada para quem tem a permissão personalizada de bypass que “Silenciar as automações do destino nesta execução” atribui; e então tente de novo os objetos com falha ou, numa remoção, remova o que resta."
+      }
+    },
     "insufficientAccess": {
       "explanation": "Seu usuário na org não tem o acesso que esta operação exige.",
       "action": "Peça a permissão que falta a um administrador, ou conecte a org com um usuário que a tenha."

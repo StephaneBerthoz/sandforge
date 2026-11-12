@@ -6455,6 +6455,14 @@
         "action": "Beheben Sie diese Automatisierung in der Ziel-Org oder schalten Sie sie für die Dauer des Klonens ab, und wiederholen Sie dann die fehlgeschlagenen Objekte."
       }
     },
+    "governorLimit": {
+      "explanation": "Eine Automatisierung der Org — ein Trigger oder ein Flow — hat bei dem Aufruf, der diesen Datensatz trug, ein Salesforce-Limit überschritten, etwa zu viele Abfragen, zu viele Schreibvorgänge oder zu viel CPU-Zeit, und die Org hat alle Datensätze dieses Aufrufs zurückgesetzt: Die Automatisierung führt pro Datensatz eine Abfrage oder einen Schreibvorgang aus statt einen für alle.",
+      "action": "Lassen Sie diese Automatisierung für alle Datensätze eines Aufrufs nur einmal abfragen und schreiben, oder lassen Sie sie für Inhaber einer benutzerdefinierten Bypass-Berechtigung nichts tun, die „Automatisierungen der Ziel-Org für diesen Durchlauf stummschalten“ zuweist, wo ein Lauf es anbietet; starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Eine Automatisierung der Ziel-Org — der Trigger, den die Meldung nennt, oder ein Flow — hat beim Speichern des Datensatzes ein Salesforce-Limit überschritten, etwa zu viele Abfragen, zu viele Schreibvorgänge oder zu viel CPU-Zeit, und die Ziel-Org hat den ganzen Aufruf zurückgesetzt. Forge sendet die Datensätze eines solchen Aufrufs erneut, zuerst einen Datensatz allein, dann in halb so großen Aufrufen, bis hinunter zu einem Datensatz, und behält diese Größe für das Objekt bis zum Ende des Durchlaufs; dieser Datensatz wurde dennoch abgelehnt — allein gesendet, von kleineren Aufrufen ausgenommen, weil allein gesendete Datensätze des Objekts ebenfalls abgelehnt wurden, oder nachdem der Durchlauf die kleineren Aufrufe aufgebraucht hatte, die er sich erlaubt —, wie der Satz nach der Meldung der Org sagt.",
+        "action": "Beheben Sie diese Automatisierung in der Ziel-Org, damit sie für alle Datensätze eines Aufrufs nur einmal abfragt und schreibt und für einen einzelnen Datensatz nicht mehr tut, als ein Limit erlaubt, oder damit sie für Inhaber der benutzerdefinierten Bypass-Berechtigung nichts tut, die „Automatisierungen der Ziel-Org für diesen Durchlauf stummschalten“ zuweist; wiederholen Sie dann die fehlgeschlagenen Objekte oder entfernen Sie, bei einem Entfernen, die verbliebenen Datensätze."
+      }
+    },
     "insufficientAccess": {
       "explanation": "Ihrem Benutzer in der Org fehlen die für diesen Vorgang nötigen Rechte.",
       "action": "Bitten Sie einen Administrator um die fehlende Berechtigung, oder verbinden Sie die Org mit einem Benutzer, der sie hat."

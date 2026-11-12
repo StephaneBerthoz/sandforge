@@ -52,6 +52,7 @@ const placeholders = (value: unknown): string[] =>
 const MESSAGE_SAMPLES: readonly string[] = [
   "INVALID_CROSS_REFERENCE_KEY: Record Type ID: this ID value isn't valid for the user",
   'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: entity type cannot be inserted: Case History',
+  'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: Item_Trigger: System.LimitException: Too many SOQL queries: 101',
   "Cycle FK 'PrimaryContactId' could not be resolved — referenced parent (source 003ABC123) was not cloned",
   "Cycle FK 'ParentId' could not be resolved",
   'no parent in cache and not the root',

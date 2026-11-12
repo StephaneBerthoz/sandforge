@@ -116,7 +116,10 @@
  *   result counts there, its give-back counting what was changed since, as
  *   the preview does.
  * - Deleted: the records spooled to disk, handed to `removeRunRecords`, named
- *   in the journal before, and what it left named once it answered.
+ *   in the journal before, and what it left named once it answered. A call
+ *   the org's automation refuses for a Salesforce limit goes again in
+ *   smaller calls, within half of what the requests the org had left leave
+ *   past the rewind's own (`splitAllowanceOf`), both passes together.
  * - Files, of a checkpoint that holds them: a file (`ContentDocument`) is a
  *   record, deleted, brought back and given its fields back as one, never
  *   made again; its links come and go with it and with the record they tie
@@ -214,6 +217,11 @@ import {
   type SyncUndeleteObjectResult,
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import {
+  limitSplitting,
+  splitAllowanceOf,
+  type LimitSplitting,
+} from '../../core/common/governorLimit.js';
 import {
   STATUS_LIFECYCLES,
   draftStartOf,
@@ -1786,6 +1794,13 @@ class Rewind {
   private unqueried: Promise<ReadonlySet<string>> | undefined;
   /** The objects the org answered keep no recycle bin: no `IsDeleted` to read. */
   private readonly noBin = new Set<string>();
+  /**
+   * The sizes its removals' deletes go at once the org's automation refused
+   * one for a limit, and the smaller calls they may still send: set once its
+   * gate let it through, from what it read of the org's requests, and shared
+   * by both passes — what the first sent is not the second's to send again.
+   */
+  private splitting: LimitSplitting = limitSplitting();
   /** Every date a write of the rewind left on a record, by id: its own doing, whoever the org names. */
   private readonly stamps: Record<string, string> = {};
   /** The same dates, by the record's key, in milliseconds. */
@@ -2090,6 +2105,9 @@ class Rewind {
       orgName,
     );
     if (writing && overBudget) return { rewound: false, refusal: overBudget };
+    this.splitting = limitSplitting(
+      splitAllowanceOf(budget.remaining, this.count.used() + rest.apiRequests),
+    );
     // The emails its writes make the org send, against what it has left of
     // each daily limit: past them, no box lifts the refusal. Those of what
     // could not be read are not counted: the acceptance of the automation
@@ -2808,6 +2826,7 @@ class Rewind {
         return modified <= runEnd || modified <= (this.stampOf.get(keyOf(row.Id)) ?? Number.NaN);
       };
       outcome = await removeRunRecords(this.org, plan.deletes, {
+        splitting: this.splitting,
         runStartedAt: plan.removal.runStartedAt,
         runEndedAt: plan.removal.runEndedAt,
         includeChanged: plan.removal.includeChanged,

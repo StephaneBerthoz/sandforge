@@ -238,6 +238,15 @@ import {
   type CycleFkPatchInput,
 } from './stages/CycleFkPatcher.js';
 import {
+  allowedFor,
+  limitSplitting,
+  notSplitNote,
+  smallerCallsNote,
+  type CallOp,
+  type LimitSplitting,
+  type SmallerCalls,
+} from '../../core/common/governorLimit.js';
+import {
   bytesOf,
   copyFiles,
   dryRunLine,
@@ -825,6 +834,14 @@ export interface ForgeWriteGateAnswer {
    * lease answers the same.
    */
   lease?: { assigned: number; giveBack: () => Promise<unknown> };
+  /**
+   * The smaller calls the run may send when the target's automation refuses
+   * a call for a Salesforce limit, from the daily requests the gate read of
+   * the target (`splitAllowanceOf`): half of what they leave past the run's,
+   * 2 000 at most. Absent — no gate, or one that could not read them — the
+   * run allows itself 2 000.
+   */
+  splitAllowance?: number;
 }
 
 /** What a count says of an object a run read page by page will write: see {@link ForgeWriteBoundary.objects}. */
@@ -1708,6 +1725,15 @@ interface ExecutionState {
   readonly referenceDataMapper: ReferenceDataMapper;
   readonly orphanExpander: OrphanExpander;
   readonly batchWriter: BatchWriter;
+  /**
+   * The sizes each object's calls go at once the target's automation refused
+   * one for a Salesforce limit, and the smaller calls the run allows itself:
+   * shared by its writer and its second pass, said on each object's line
+   * (`sentSmallerNote`) and among the run's notes (`smallerCallsReports`).
+   */
+  readonly splitting: LimitSplitting;
+  /** What each object's lines said of its rows sent smaller so far, by key. */
+  readonly smallerCallsSaid: Map<string, number>;
   /** Objects whose downstream children must be skipped. */
   readonly failedObjects: Set<string>;
   /**
@@ -3499,6 +3525,89 @@ function marksIn(store: ForgeRunStore): NonNullable<CycleFkPatchInput['onPatched
   };
 }
 
+/** The operations a node's write goes by, whose smaller calls its line says. */
+const NODE_WRITE_OPS: readonly CallOp[] = ['insert', 'upsert'];
+
+/** The operations the run's notes of smaller calls cover: its writes, and its second pass. */
+const RUN_OPS: readonly CallOp[] = ['insert', 'upsert', 'update'];
+
+/**
+ * What an object's line says of its rows sent in smaller calls since its
+ * last line said them: ", 116 sent 58 at a time after the target's
+ * automation hit a Salesforce limit"; nothing when none were. The run's
+ * note (`smallerCallsReports`) names the limit and the trigger.
+ */
+function sentSmallerNote(state: ExecutionState, objectApiName: string): string {
+  let note = '';
+  for (const op of NODE_WRITE_OPS) {
+    const report = state.splitting.sizes.report({ objectApiName, op });
+    if (!report || report.to >= report.from) continue;
+    const id = `${op}\u0000${objectApiName}`;
+    const rows = report.rows - (state.smallerCallsSaid.get(id) ?? 0);
+    if (rows <= 0) continue;
+    state.smallerCallsSaid.set(id, report.rows);
+    note +=
+      `, ${rows} sent ${report.to} at a time after the target's automation hit a ` +
+      'Salesforce limit';
+  }
+  return note;
+}
+
+/**
+ * The run's note of an object a limit of the target's automation refused a
+ * call of, among its notes as the panel, the report and the command line read
+ * them (`stage: 'scope'`, no row failed by it — the rows still refused are
+ * among the object's failures already, each with its sentence): how many
+ * records went at what size, or were refused for the limit, then which
+ * automation hit which limit on a call of what size, and what it cost in
+ * calls. Its message starts with no code: no error's help hangs on it.
+ */
+function smallerCallsReportOf(report: SmallerCalls, allowed: number): ExecutionObjectError {
+  const { objectApiName } = report;
+  const what = report.op === 'update' ? 'lookup updates' : 'records';
+  const refused = report.alone + report.notSplit + report.keptWhole;
+  const summary =
+    report.to < report.from && report.rows > 0
+      ? `${objectApiName}: ${report.rows} ${what} sent ${report.to} at a time`
+      : `${objectApiName}: ${refused} ${what} refused for a Salesforce limit`;
+  return {
+    objectApiName,
+    stage: 'scope',
+    failedCount: 0,
+    attemptedCount: report.rows,
+    samples: [
+      {
+        recordSummary: summary,
+        messages: [
+          smallerCallsNote(report),
+          ...(report.notSplit > 0 ? [notSplitNote(report.notSplit, allowed, 'run')] : []),
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * The run's notes of the objects a limit refused a call of, once per object
+ * and operation, whichever nodes and passes wrote them: see
+ * `smallerCallsReportOf`. An object refused but neither sent smaller nor
+ * left refused — the run stopped before its smaller calls — has no note: it
+ * would say 0 records.
+ */
+function smallerCallsReports(state: ExecutionState): ExecutionObjectError[] {
+  return RUN_OPS.flatMap((op) =>
+    state.splitting.sizes
+      .reports(op)
+      .filter((report) => report.rows + report.alone + report.notSplit + report.keptWhole > 0)
+      .map((report) =>
+        smallerCallsReportOf(
+          report,
+          allowedFor(state.splitting.allowance, { objectApiName: report.objectApiName, op }),
+        ),
+      ),
+  );
+}
+
 /**
  * Where a node's insert calls are kept in the run's journal: each before it
  * goes, its rows' source ids, the fingerprints of what it writes and the
@@ -3954,6 +4063,8 @@ export class ForgeExecutor {
     // A simulation writes nothing to keep, and its ids are its own.
     const store = config.dryRun ? undefined : config.stream?.store;
     store?.beginPart(new Date());
+    // 2 000 smaller calls until a gate that read the target's requests allows fewer.
+    const splitting = limitSplitting();
     const state: ExecutionState = {
       config,
       sourceOrgId,
@@ -3983,7 +4094,9 @@ export class ForgeExecutor {
             )
           : this.deps,
       ),
-      batchWriter: new BatchWriter(this.deps, this.deps.batchStrategy),
+      batchWriter: new BatchWriter(this.deps, this.deps.batchStrategy, undefined, splitting),
+      splitting,
+      smallerCallsSaid: new Map<string, number>(),
       failedObjects: new Set<string>(),
       notCreatable: new Set<string>(),
       notInTarget: new Set<string>(),
@@ -4830,6 +4943,7 @@ export class ForgeExecutor {
             deferUnresolved: true,
             stillPending,
             stopped: () => this.isAborted,
+            splitting: state.splitting,
             onPatched: this.patchedInTheJournal(state),
             onAnswered: () => state.store?.flush(),
             onRefusedByFilter: (object, field, recordId) =>
@@ -4860,6 +4974,7 @@ export class ForgeExecutor {
           enabled: !config.dryRun,
           onProgress,
           stopped: () => this.isAborted,
+          splitting: state.splitting,
           onPatched: this.patchedInTheJournal(state),
           onAnswered: () => state.store?.flush(),
           onRefusedByFilter: (object, field, recordId) =>
@@ -4905,6 +5020,7 @@ export class ForgeExecutor {
 
   /**
    * Keep what the gate's answer asks of the write before its first record:
+   * the smaller calls it allows the run, from the target's requests it read;
    * the lease it took, given back once the last write is through
    * (`giveTheLeaseBack`), and, when the lease assigned a permission set, the
    * record types of the objects written read again (`readAgainUnderTheLease`).
@@ -4914,6 +5030,8 @@ export class ForgeExecutor {
     answer: ForgeWriteGateAnswer | void,
     objects: ForgeWriteBoundary['objects'],
   ): Promise<void> {
+    const allowed = answer ? answer.splitAllowance : undefined;
+    if (allowed !== undefined) state.splitting.allowance.limitTo(allowed);
     const lease = answer ? answer.lease : undefined;
     if (!lease) return;
     state.lease = lease;
@@ -6156,6 +6274,8 @@ export class ForgeExecutor {
       lookupsOutsideTheRunNote(carry.lookupsOutsideTheRun) +
       pricesSwappedNote(state, object);
     const withoutFields = writtenWithoutFieldsNote(carry.writtenWithoutFields);
+    // Its rows sent in smaller calls after a limit of the target's automation.
+    const sentSmaller = sentSmallerNote(state, object);
     const readById = readAsParentsNote(state, object);
     const ownNote = ownSentNote(carry.sentOnTheirOwn);
     if (failedNode) {
@@ -6164,7 +6284,7 @@ export class ForgeExecutor {
           ? `Failed all ${object} records: ${carry.failed + heldCount} failed` +
               `${ofThemHeldBack(held)}${ownNote}${picklists}${readById}`
           : `${carry.failed + heldCount}/${total + heldCount} ${object} records failed (>50%)` +
-              `${ofThemHeldBack(held)}${ownNote}${picklists}${withoutFields}${readById} — objects ` +
+              `${ofThemHeldBack(held)}${ownNote}${picklists}${withoutFields}${sentSmaller}${readById} — objects ` +
               'that cannot be written without it will be skipped',
       );
       return;
@@ -6176,7 +6296,7 @@ export class ForgeExecutor {
       progress: 100,
       message:
         `${config.dryRun ? 'Simulated' : 'Completed'} ${object}: ${pagedCounts(config, carry, held)}` +
-        `${ownNote}${flagsNotKept}${picklists}${withoutFields}` +
+        `${ownNote}${flagsNotKept}${picklists}${withoutFields}${sentSmaller}` +
         `${leftToThePlatformNote(state, object)}${readById}`,
     });
   }
@@ -7423,13 +7543,15 @@ export class ForgeExecutor {
       // object the user excluded, read twice as a node of the catalog is, and
       // the rows written without a lookup at a record outside the run, page
       // after page, and with the user the run writes as for owner, the target
-      // holding theirs inactive.
+      // holding theirs inactive, and the objects a limit of the target's
+      // automation refused a call of, node after node.
       errors: [
         ...state.errors,
         ...heldForExclusionsReports(state),
         ...leftToThePlatformReports(state),
         ...lookupsOutsideTheRunReports(state),
         ...inactiveOwnersReports(state),
+        ...smallerCallsReports(state),
       ],
       truncatedObjects: [...state.truncatedObjects],
       ...cappedObjectsOf(state),
@@ -12435,6 +12557,7 @@ export class ForgeExecutor {
       enabled: !state.config.dryRun,
       onProgress: state.onProgress,
       stopped: () => this.isAborted,
+      splitting: state.splitting,
       // Each lookup the target filled in is marked, on disk before the pass
       // sends anything else: a part that takes up a run stopped during the
       // pass sends only those the marks leave.
@@ -14056,6 +14179,8 @@ export class ForgeExecutor {
       // field it went without, what refused it — a validation rule, or a
       // restricted picklist refusing its value — and the refusal's words.
       const withoutFields = writtenWithoutFieldsNote(writeResult.writtenWithoutFields);
+      // Its rows sent in smaller calls after a limit of the target's automation.
+      const sentSmaller = sentSmallerNote(state, node.objectApiName);
       // What else became of the object's rows, said once, on the line that
       // ends the node: after the emails that waited for their task, if any,
       // or on the line a cancel ends the node with before them.
@@ -14076,7 +14201,7 @@ export class ForgeExecutor {
         `${nodeSuccess} ${succeeded}${takenFromTheSync}${updated}${linked}${writtenWithTheirEmail}` +
         `${writtenWithTheirAccount}${writtenWithTheirOpportunity}${already}, ` +
         `${nodeFailure + heldBackCount(reasons)} failed${unidentified}${ofThemHeldBack(reasons)}`;
-      const rest = `${sentOnTheirOwn}${waitForTheirTask}${flagsNotKept}${picklists}${withoutFields}${waiting === 0 ? leftToThePlatform : ''}${readById}`;
+      const rest = `${sentOnTheirOwn}${waitForTheirTask}${flagsNotKept}${picklists}${withoutFields}${sentSmaller}${waiting === 0 ? leftToThePlatform : ''}${readById}`;
 
       if (stoppedBy) {
         /*
@@ -14110,7 +14235,7 @@ export class ForgeExecutor {
           objectName: node.objectApiName,
           status: failedNode ? 'error' : 'stopped',
           progress: 100,
-          message: `${stopped}: ${counts(heldBeforeTheWrite(true))}, ${notSent} not sent${ofThemWaiting}${ownNote(ownSent)}${flagsNotKept}${picklists}${withoutFields}${leftToThePlatform}`,
+          message: `${stopped}: ${counts(heldBeforeTheWrite(true))}, ${notSent} not sent${ofThemWaiting}${ownNote(ownSent)}${flagsNotKept}${picklists}${withoutFields}${sentSmaller}${leftToThePlatform}`,
         });
         throw stoppedBy;
       }
@@ -14133,7 +14258,7 @@ export class ForgeExecutor {
               ? `Failed all ${node.objectApiName} records: ` +
                 `${nodeFailure + heldCount} failed${ofThemHeldBack(held)}${sentOnTheirOwn}${picklists}${readById}`
               : `${nodeFailure + heldCount}/${total + heldCount} ${node.objectApiName} records ` +
-                `failed (>50%)${ofThemHeldBack(held)}${sentOnTheirOwn}${picklists}${withoutFields}${readById} — objects that cannot be written without it will be skipped`,
+                `failed (>50%)${ofThemHeldBack(held)}${sentOnTheirOwn}${picklists}${withoutFields}${sentSmaller}${readById} — objects that cannot be written without it will be skipped`,
         });
       } else {
         onProgress({

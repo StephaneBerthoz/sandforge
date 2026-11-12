@@ -24,6 +24,7 @@ import type {
 } from '@sandforge/shared';
 
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import type { LimitSplitting } from '../../core/common/governorLimit.js';
 import {
   consultProductionGuard,
   type ConsultedGuard,
@@ -125,10 +126,13 @@ export interface RemovalSweep {
    * refused, declined, or that could not read.
    */
   readonly takes: readonly string[];
-  /** Delete what goes before the run's records; whether it deleted anything. */
-  first(): Promise<boolean>;
+  /**
+   * Delete what goes before the run's records; whether it deleted anything.
+   * Handed the removal's sizes and smaller calls, the sweep spends them with it.
+   */
+  first(splitting?: LimitSplitting): Promise<boolean>;
   /** Once the run's records are deleted, what waited for them; whether it deleted anything. */
-  afterRemoval(): Promise<boolean>;
+  afterRemoval(splitting?: LimitSplitting): Promise<boolean>;
   /** What the sweep takes, which holds none of the run's records back: filled by `first`. */
   readonly automationMade: ReadonlySet<string>;
   /**
@@ -237,8 +241,8 @@ export async function removalSweepOf(request: RemovalSweepRequest): Promise<Remo
     get takes() {
       return stopped ? [] : (parts?.takes ?? []);
     },
-    first: () => part((sweep) => sweep.first()),
-    afterRemoval: () => part((sweep) => sweep.afterRemoval()),
+    first: (splitting) => part((sweep) => sweep.first(splitting)),
+    afterRemoval: (splitting) => part((sweep) => sweep.afterRemoval(splitting)),
     result: () => stopped ?? parts?.result() ?? SWEEP_NOT_RUN,
     settle: () => {
       settled ??= (async () => {
