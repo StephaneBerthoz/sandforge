@@ -99,6 +99,12 @@ export interface ForgeStageConfig {
   readonly maxOrphanParentExpansions: number;
   /** Insert vs upsert behaviour — `'auto'` upserts via external Id when available. */
   readonly upsertMode: 'auto' | 'off';
+  /**
+   * How the run writes its rows: `'auto'` sends a write a job takes as a Bulk
+   * API job, `'rest'` — anything else asked — by REST calls, as runs always
+   * did. See `ExecuteOptions.writeApi`.
+   */
+  readonly writeApi: 'rest' | 'auto';
   /** Per-object field exclusions (stripped before insert even when createable). */
   readonly fieldExclusions: Record<string, string[]>;
   /** Objects the run leaves out by name, whether discovery reached them or not. */
@@ -185,6 +191,7 @@ export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeSt
     expandOrphanParents: options?.expandOrphanParents ?? false,
     maxOrphanParentExpansions: options?.maxOrphanParentExpansions ?? 20,
     upsertMode: options?.upsertMode === 'auto' ? 'auto' : 'off',
+    writeApi: options?.writeApi === 'auto' ? 'auto' : 'rest',
     fieldExclusions: options?.fieldExclusions ?? {},
     excludedObjects: new Set(options?.excludedObjects ?? []),
     ownerMappings: options?.ownerMappings ?? {},

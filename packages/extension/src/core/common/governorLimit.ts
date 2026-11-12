@@ -38,6 +38,14 @@
  * A call that threw, which may have written, is never sent again: whatever it
  * holds is settled by its caller as such, and no row of it goes twice.
  *
+ * A Bulk API job hands a trigger its rows {@link BULK_CHUNK} at a time, a size
+ * no one sets: the rows a job's chunk was refused for a limit are those of a
+ * call of 200 refused, and go again by REST as such (`SplitRun.refusedIn`) —
+ * probed, then halved, never sent again at the size that refused them — out
+ * of the same allowance. Rows a job was planned for that go by REST once a
+ * limit cut their object are priced against the job (`SplitRun.pricedAs`):
+ * every one of their calls is one more than it.
+ *
  * Forge's batch writer, its second pass on lookups, the removal of a run's
  * records and the sweep of what a run left send through
  * {@link sendSplittingOnLimits}.
@@ -47,6 +55,12 @@ import type { GovernorLimitCause } from '@sandforge/shared';
 
 /** The size of a call no limit cut: the REST API's 200 records. */
 export const FULL_CALL_SIZE = 200;
+
+/**
+ * The records a Bulk API job hands a trigger at a time, which no one sets:
+ * one of its chunks refused for a limit is a call of 200 refused.
+ */
+export const BULK_CHUNK = 200;
 
 /** The smaller calls a run or a removal allows itself at most. */
 export const RUN_SPLIT_CALLS = 2000;
@@ -539,6 +553,15 @@ export function extraCallsOf(rows: number, size: number, cap: number = FULL_CALL
 /** What one call answered, or that it may have written and must not be sent again. */
 export type SplitReply<A> = { answers: readonly (A | undefined)[] } | 'stop';
 
+/**
+ * What the rows would have gone as without a limit, against which their calls
+ * cut smaller are paid: calls of 200 (`'calls'`), a call paid when it is one
+ * more than they would have taken, or a Bulk API job (`'job'`), which sends a
+ * few requests whatever it holds, and whose every call sent by REST instead
+ * is one more.
+ */
+export type SplitPricedAs = 'calls' | 'job';
+
 /** How {@link sendSplittingOnLimits} sends, reads and settles the rows of one object and operation. */
 export interface SplitRun<T, A> {
   key: CallKey;
@@ -546,6 +569,28 @@ export interface SplitRun<T, A> {
   allowance: SplitAllowance;
   /** The most a call holds, whatever the size kept: 200 when absent. */
   maxSize?: number;
+  /** What the rows would have gone as: `'calls'` when absent. */
+  pricedAs?: SplitPricedAs;
+  /**
+   * Smaller calls the caller paid for before handing the rows: a call cut
+   * smaller takes one of them before it asks the allowance for one. A caller
+   * that pays a job's rows up front spends the key only once they went: a
+   * spent key's calls go at 200, and these at the size paid for.
+   */
+  paid?: { calls: number };
+  /**
+   * Set when every row was refused for a limit already, by a call that was
+   * not this one's: a Bulk API job's chunk of {@link BULK_CHUNK} (`from`).
+   * The rows are held with what it answered (`answers`, one per row) and go
+   * as the rows of a call refused here do: a record on its own first, then
+   * in calls half as large, every call paid — or settled as the org refused
+   * them, the key left whole or spent. None is sent at the size that refused it.
+   */
+  refusedIn?: {
+    readonly from: number;
+    readonly answers: readonly (A | undefined)[];
+    readonly cause?: GovernorLimitCause;
+  };
   /**
    * Before every call but the first, whose own check stays with the caller:
    * a pause waited out, a cancellation thrown, or `'stop'` to send no more.
@@ -640,11 +685,14 @@ export async function sendSplittingOnLimits<T, A>(
     let size = Math.min(cap, sizes.of(key));
     let reduced = size < cap;
     // A call cut under what it would otherwise hold is paid as it is queued
-    // when it is one more than calls of `cap` would have taken: 400 rows at
-    // 100 pay two of their four calls. Refused, the key is spent, and goes at
-    // full size again.
-    if (reduced && isExtraCall(items.length - cursor, size, cap)) {
-      if (takeSmallerCalls(sizes, allowance, key, 1) === 0) {
+    // when it is one more than what the rows were priced at would have taken:
+    // 400 rows at 100 pay two of their four calls against calls of 200, and
+    // all four against a job. A call the caller paid for already is not paid
+    // twice. Refused, the key is spent, and goes at full size again.
+    const paysOne = run.pricedAs === 'job' || isExtraCall(items.length - cursor, size, cap);
+    if (reduced && paysOne) {
+      if (run.paid && run.paid.calls > 0) run.paid.calls--;
+      else if (takeSmallerCalls(sizes, allowance, key, 1) === 0) {
         size = cap;
         reduced = false;
       }
@@ -718,6 +766,29 @@ export async function sendSplittingOnLimits<T, A>(
   };
 
   let first = true;
+  const refused = run.refusedIn;
+  if (refused && items.length > 0) {
+    // Refused already, by a call of `from` that was not this one's: held with
+    // what it answered, as the rows of a call refused below are, and nothing
+    // left to cut. The first call this sends is not the caller's to check.
+    cursor = items.length;
+    first = false;
+    if (!sizes.wasRefused(key)) {
+      sizes.firstRefusal(key, refused.from, refused.cause);
+      const report = sizes.report(key);
+      if (report) run.onFirstRefusal?.(report);
+    }
+    held = {
+      items: [...items],
+      answers: [...refused.answers],
+      from: refused.from,
+      ...(refused.cause ? { cause: refused.cause } : {}),
+    };
+    if (sizes.isSpent(key)) await release(NOT_SPLIT);
+    else if (sizes.isKeptWhole(key)) await release(KEPT_WHOLE);
+    else if (!sizes.wasCut(key) && sizes.probes(key) < ALONE_PROBES) await probeNext();
+    else await halveHeld();
+  }
   for (;;) {
     let part: QueuedPart<T> | undefined;
     if (first) {

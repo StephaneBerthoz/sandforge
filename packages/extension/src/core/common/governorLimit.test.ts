@@ -5,6 +5,7 @@ import {
   ALONE,
   ALONE_PROBES,
   allowedFor,
+  BULK_CHUNK,
   CallSizes,
   FULL_CALL_SIZE,
   GOVERNOR_LIMIT_ALONE,
@@ -642,5 +643,108 @@ describe('sendSplittingOnLimits', () => {
     const { calls, run } = harness(() => ok);
     expect(await sendSplittingOnLimits([], run)).toEqual({});
     expect(calls).toEqual([]);
+  });
+});
+
+describe('sendSplittingOnLimits — rows a Bulk API job’s chunk refused for a limit', () => {
+  /** What the job answered each of `rows`: the limit's refusal, its chunk rolled back. */
+  const refusedByAJob = (rows: readonly string[]): SplitRun<string, Answer>['refusedIn'] => ({
+    from: BULK_CHUNK,
+    answers: rows.map(() => limitRefusal),
+    cause: limitCauseOf(limitRefusal.errors),
+  });
+
+  it('sends a record of them on its own first, then halves of a chunk, never a call of 200, every call paid', async () => {
+    const onFirstRefusal = vi.fn();
+    const rows = ids(300);
+    const { calls, settled, run } = harness(refusesOver(100), {
+      refusedIn: refusedByAJob(rows),
+      onFirstRefusal,
+    });
+    expect(await sendSplittingOnLimits(rows, run)).toEqual({});
+    expect(calls.map((call) => call.length)).toEqual([1, 100, 100, 99]);
+    expect(settled).toHaveLength(300);
+    expect(settled.every((row) => row.answer?.success)).toBe(true);
+    // The record on its own and the three calls of 100: none stands for a call of 200.
+    expect(run.allowance.spent).toBe(4);
+    expect(onFirstRefusal).toHaveBeenCalledTimes(1);
+    expect(run.sizes.report(LEDGER)).toMatchObject({
+      from: BULK_CHUNK,
+      to: BULK_CHUNK / 2,
+      rows: 300,
+      extraCalls: 4,
+      automation: 'Ledger_Trigger',
+    });
+  });
+
+  it('halves them at once, at the size a call cut the key to, when the key was cut already', async () => {
+    const sizes = new CallSizes();
+    sizes.refusedAt(LEDGER, 116);
+    const rows = ids(120);
+    const { calls, settled, run } = harness(refusesOver(100), {
+      sizes,
+      refusedIn: refusedByAJob(rows),
+    });
+    await sendSplittingOnLimits(rows, run);
+    expect(calls.map((call) => call.length)).toEqual([58, 58, 4]);
+    expect(settled.every((row) => row.answer?.success)).toBe(true);
+    expect(run.allowance.spent).toBe(3);
+  });
+
+  it('leaves them refused as the org refused them, sending nothing, when the allowance pays no call', async () => {
+    const rows = ids(5);
+    const { calls, settled, run } = harness(refusesOver(100), {
+      allowance: new SplitAllowance(0),
+      refusedIn: refusedByAJob(rows),
+    });
+    await sendSplittingOnLimits(rows, run);
+    expect(calls).toEqual([]);
+    expect(settled).toEqual(
+      rows.map((id) => ({ id, answer: limitRefusal, note: NOT_SPLIT, held: true })),
+    );
+    expect(run.sizes.report(LEDGER)).toMatchObject({ notSplit: 5, spent: true });
+  });
+
+  it('leaves them refused, sending nothing, once records of the key sent on their own were refused', async () => {
+    const sizes = new CallSizes();
+    sizes.firstRefusal(LEDGER, 200);
+    sizes.keepWhole(LEDGER);
+    const rows = ids(3);
+    const { calls, settled, run } = harness(refusesOver(100), {
+      sizes,
+      refusedIn: refusedByAJob(rows),
+    });
+    await sendSplittingOnLimits(rows, run);
+    expect(calls).toEqual([]);
+    expect(settled.map((row) => row.note)).toEqual([KEPT_WHOLE, KEPT_WHOLE, KEPT_WHOLE]);
+  });
+});
+
+describe('sendSplittingOnLimits — rows priced as a Bulk API job', () => {
+  /** Sizes on which a limit cut the key's calls to half a job's chunk. */
+  const cutToAHundred = (): CallSizes => {
+    const sizes = new CallSizes();
+    sizes.refusedAt(LEDGER, BULK_CHUNK);
+    return sizes;
+  };
+
+  it('pays each of their calls, where calls of 200 would have paid half of them', async () => {
+    const asCalls = harness(() => ok, { sizes: cutToAHundred() });
+    await sendSplittingOnLimits(ids(400), asCalls.run);
+    expect(asCalls.run.allowance.spent).toBe(2);
+
+    const asJob = harness(() => ok, { sizes: cutToAHundred(), pricedAs: 'job' });
+    await sendSplittingOnLimits(ids(400), asJob.run);
+    expect(asJob.calls.map((call) => call.length)).toEqual([100, 100, 100, 100]);
+    expect(asJob.run.allowance.spent).toBe(4);
+  });
+
+  it('takes the calls the caller paid before asking the allowance, and pays none twice', async () => {
+    const paid = { calls: 3 };
+    const { calls, run } = harness(() => ok, { sizes: cutToAHundred(), pricedAs: 'job', paid });
+    await sendSplittingOnLimits(ids(400), run);
+    expect(calls.map((call) => call.length)).toEqual([100, 100, 100, 100]);
+    expect(paid.calls).toBe(0);
+    expect(run.allowance.spent).toBe(1);
   });
 });

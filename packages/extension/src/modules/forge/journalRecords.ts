@@ -1,6 +1,13 @@
 import type { IdMapRow } from '@sandforge/shared';
 import type { RecordKeys, RunRecords } from './ForgeRunRemoval.js';
-import { hashA, hashB, journalLines, SourceIdIndex, type RunFile } from './ForgeRunStore.js';
+import {
+  hashA,
+  hashB,
+  journalLines,
+  SourceIdIndex,
+  UNATTRIBUTED_TAG,
+  type RunFile,
+} from './ForgeRunStore.js';
 
 /**
  * A part of a run's journal as the readers of its ids take it — a removal,
@@ -18,7 +25,10 @@ import { hashA, hashB, journalLines, SourceIdIndex, type RunFile } from './Forge
  * and what a removal's plan makes of it (`forgeRunCreatedRecords`): the part's
  * records created, by the latest word on each in that part, each object's
  * records newest first and the objects too; a record the run linked a source
- * row to left out, and a record named twice taken once.
+ * row to left out, and a record named twice taken once. The records a Bulk API
+ * job of the part wrote that no row was matched to (`createdUnattributed`)
+ * are the part's too, though no source row maps to them: a removal takes them
+ * with the rest of their object.
  */
 
 /** A Salesforce id, as every id a journal holds is. */
@@ -54,6 +64,26 @@ function mappingOf(text: string): Mapping | undefined {
     sourceId,
     targetId,
     object: typeof object === 'string' && OBJECT_NAME.test(object) ? object : '',
+  };
+}
+
+/** The records a Bulk API job wrote that no row was matched to, as a line names them; nothing for any other line. */
+export function unattributedOf(text: string): { object: string; ids: string[] } | undefined {
+  if (!text.startsWith(`["${UNATTRIBUTED_TAG}"`)) return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(value)) return undefined;
+  const [, object, ids] = value as unknown[];
+  if (typeof object !== 'string' || !OBJECT_NAME.test(object) || !Array.isArray(ids)) {
+    return undefined;
+  }
+  return {
+    object,
+    ids: ids.filter((id): id is string => typeof id === 'string' && RECORD_ID.test(id)),
   };
 }
 
@@ -167,6 +197,8 @@ export class JournalPart {
     private readonly mine: SourceIdIndex,
     /** The source ids of the part, by their first line in it, in that order. */
     private readonly firstInPart: LinePlaces,
+    /** The part's lines naming records a job wrote that no row was matched to. */
+    private readonly unattributed: LinePlaces,
   ) {}
 
   /**
@@ -180,6 +212,7 @@ export class JournalPart {
     const all = new SourceIdIndex(sourceAt);
     const mine = new SourceIdIndex(sourceAt);
     const firstInPart = new LinePlaces();
+    const unattributed = new LinePlaces();
     let head = false;
     let current = -1;
     for (const line of journalLines(file)) {
@@ -193,6 +226,10 @@ export class JournalPart {
         continue;
       }
       if (line.text.startsWith('{"object":')) return undefined;
+      if (current === part && unattributedOf(line.text)) {
+        unattributed.push(line.offset, line.length);
+        continue;
+      }
       const mapping = mappingOf(line.text);
       if (!mapping) continue;
       const a = hashA(mapping.sourceId);
@@ -204,7 +241,7 @@ export class JournalPart {
       const created = mapping.tag === 'c' && mapping.object !== '';
       mine.put(found, a, b, line.offset, line.length, created ? 1 : 0);
     }
-    return head ? new JournalPart(file, all, mine, firstInPart) : undefined;
+    return head ? new JournalPart(file, all, mine, firstInPart, unattributed) : undefined;
   }
 
   /** The mapping of the line at `offset`. */
@@ -323,27 +360,75 @@ export class JournalPart {
       );
     };
 
+    // The records a job wrote that no row was matched to: each once, none a
+    // row maps to already, counted with the records of its object.
+    const unattributedAt = (at: number): { object: string; ids: string[] } | undefined =>
+      unattributedOf(
+        file.read(this.unattributed.offsetAt(at), this.unattributed.lengthAt(at)).toString('utf8'),
+      );
+    const unattributed = new HashedKeys();
+    const unattributedLines = this.unattributed.size;
+    const extraOf = new Map<string, number>();
+    for (let at = 0; at < unattributedLines; at++) {
+      const line = unattributedAt(at);
+      if (!line) continue;
+      for (const id of line.ids) {
+        const key = keyOf(id);
+        if (unattributed.has(key) || isLinked(key)) continue;
+        if (members.find(key, hashA(key), hashB(key)) >= 0) continue;
+        unattributed.add(key);
+        if (!left || left.has(key)) extraOf.set(line.object, (extraOf.get(line.object) ?? 0) + 1);
+      }
+    }
+    for (const [objectApiName, count] of extraOf) {
+      const known = objects.find((object) => object.objectApiName === objectApiName);
+      if (known) known.count += count;
+      else objects.unshift({ objectApiName, count });
+    }
+    const unattributedMember = (key: string): boolean =>
+      unattributed.size > 0 && unattributed.has(key) && (!left || left.has(key));
+
     return {
       objects,
       pages: async function* (objectApiName) {
         const places = byObject.get(objectApiName);
-        if (!places) return;
         let page: string[] = [];
-        for (let at = places.size - 1; at >= 0; at--) {
-          const offset = places.offsetAt(at);
-          const mapping = mappingAt(offset, places.lengthAt(at));
-          if (!mapping || mapping.object === '') continue;
-          const key = keyOf(mapping.targetId);
-          if (!member(key, offset)) continue;
-          page.push(mapping.targetId);
-          if (page.length >= pageSize) {
-            yield page;
-            page = [];
+        if (places) {
+          for (let at = places.size - 1; at >= 0; at--) {
+            const offset = places.offsetAt(at);
+            const mapping = mappingAt(offset, places.lengthAt(at));
+            if (!mapping || mapping.object === '') continue;
+            const key = keyOf(mapping.targetId);
+            if (!member(key, offset)) continue;
+            page.push(mapping.targetId);
+            if (page.length >= pageSize) {
+              yield page;
+              page = [];
+            }
+          }
+        }
+        // Then what its jobs wrote that no row was matched to, each once.
+        if (extraOf.has(objectApiName)) {
+          const given = new HashedKeys();
+          for (let at = 0; at < unattributedLines; at++) {
+            const line = unattributedAt(at);
+            if (line?.object !== objectApiName) continue;
+            for (const id of line.ids) {
+              const key = keyOf(id);
+              if (given.has(key) || !unattributedMember(key)) continue;
+              if (members.find(key, hashA(key), hashB(key)) >= 0) continue;
+              given.add(key);
+              page.push(id);
+              if (page.length >= pageSize) {
+                yield page;
+                page = [];
+              }
+            }
           }
         }
         if (page.length > 0) yield page;
       },
-      has: (key) => member(key),
+      has: (key) => member(key) || unattributedMember(key),
     };
   }
 

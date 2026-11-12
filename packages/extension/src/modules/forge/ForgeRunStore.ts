@@ -107,6 +107,22 @@ export interface StoredCheckpoint {
   done?: true;
 }
 
+/**
+ * The key a checkpoint is kept under in {@link ForgeRunStore.checkpoints}:
+ * the object's name, or, for a second read of the object the run makes after
+ * its turn — the emails on a case, read again once the tasks they name are
+ * written — the object's name and that read's, `EmailMessage/afterTask`. Each
+ * read resumes after its own last id: the second read of an object stops
+ * where the first one never was. An API name holds no `/`, so no key of a
+ * pass is one of an object.
+ */
+export function checkpointKey(objectApiName: string, pass?: string): string {
+  return pass === undefined ? objectApiName : `${objectApiName}/${pass}`;
+}
+
+/** The name of a pass, as a checkpoint line carries it: letters and digits. */
+const PASS_NAME = /^[A-Za-z][A-Za-z0-9]*$/;
+
 /** A lookup owed to the second pass, as the store gives it back. */
 export interface StoredOwedLookup {
   update: PendingFkUpdate;
@@ -166,6 +182,20 @@ const CODE_OF_TAG: Readonly<Record<string, number>> = {
 export const SENT_TAG = 'x';
 /** The tag of a line that says an insert call's answer is counted: see `ForgeRunStore.answered`. */
 export const ANSWERED_TAG = 'a';
+/** The tag of a line that names the Bulk API job a call went as: see `ForgeRunStore.jobOpened`. */
+export const JOB_TAG = 'j';
+/**
+ * The tag of a line that names records a Bulk API job wrote that no row was
+ * matched to: see `ForgeRunStore.createdUnattributed`. Not `u`, which an
+ * update's mapping holds.
+ */
+export const UNATTRIBUTED_TAG = 'n';
+/**
+ * The tag of a mark that says the record a source id is linked to is one the
+ * platform wrote with a record the run created, and deletes with it: see
+ * `ForgeRunStore.withTheirRecord`.
+ */
+const WITH_THEIR_RECORD_TAG = 't';
 /**
  * What ends the line of a record a call under way when the run stopped had
  * created, found in the target since, whose call never said what its rows
@@ -364,7 +394,15 @@ function markKeyOf(value: readonly unknown[] | undefined): string {
   if (!value) return '';
   if (value[0] === 'p' && value.length >= 3) return filledKey(String(value[1]), String(value[2]));
   if (value[0] === 'g' && value.length >= 3) return givenKey(String(value[2]));
+  if (value[0] === WITH_THEIR_RECORD_TAG && value.length >= 2) {
+    return withTheirRecordKey(String(value[1]));
+  }
   return '';
+}
+
+/** The key of the mark of a record written with one the run created. */
+function withTheirRecordKey(sourceId: string): string {
+  return `t\u0000${sourceId}`;
 }
 
 /** The key of the mark of a lookup filled in. */
@@ -449,6 +487,8 @@ export class ForgeRunStore {
    */
   private readonly marks: SourceIdIndex;
   private readsHeld: string[] = [];
+  /** The records this part marked as written with one the run created: see {@link withTheirRecord}. */
+  private withTheirRecordMarked = 0;
   /** Insert calls this store kept the sending of: what numbers the next one. */
   private callsSent = 0;
   /**
@@ -495,6 +535,7 @@ export class ForgeRunStore {
   beginPart(startedAt: Date): void {
     this.flush();
     this.mappedBeforePart = this.mappedCount;
+    this.withTheirRecordMarked = 0;
     this.partStart = this.file.size();
     this.write({ part: { n: this.parts, startedAt: startedAt.toISOString() } });
     this.parts++;
@@ -658,15 +699,29 @@ export class ForgeRunStore {
 
   /* ---- where each object's read stood ---- */
 
-  /** Keep where the read of `objectApiName` stands, once a page of it is written. */
-  checkpoint(objectApiName: string, checkpoint: StoredCheckpoint): void {
+  /**
+   * Keep where the read of `objectApiName` stands, once a page of it is
+   * written: of its read at its turn, or of the pass `pass` that reads it
+   * again later (see {@link checkpointKey}). The pass goes on the line as a
+   * field of its own, beside the object's name, which the journal's readers
+   * hold to an API name.
+   */
+  checkpoint(objectApiName: string, checkpoint: StoredCheckpoint, pass?: string): void {
+    if (pass !== undefined && !PASS_NAME.test(pass)) {
+      throw new Error(`Not the name of a pass: ${JSON.stringify(pass.slice(0, 40))}`);
+    }
     this.settleReads();
-    this.write({ at: { object: objectApiName, ...checkpoint } });
-    this.checkpointsByObject.set(objectApiName, { ...checkpoint });
+    this.write({
+      at: { object: objectApiName, ...(pass !== undefined ? { pass } : {}), ...checkpoint },
+    });
+    this.checkpointsByObject.set(checkpointKey(objectApiName, pass), { ...checkpoint });
     this.flush();
   }
 
-  /** Per object, where its read stood when the last part stopped. */
+  /**
+   * Where each read stood when the last part stopped: per object, and per
+   * pass that reads an object again, under {@link checkpointKey}.
+   */
   checkpoints(): Map<string, StoredCheckpoint> {
     return new Map(this.checkpointsByObject);
   }
@@ -832,6 +887,51 @@ export class ForgeRunStore {
     }
   }
 
+  /* ---- the records the platform wrote with the run's ---- */
+
+  /**
+   * Keep that the record `sourceId` is linked to is one the platform wrote
+   * with a record the run created, and deletes with it — a person account's
+   * contact, the task of an email: see `ExecutionSummary.withTheirRecordSourceIds`.
+   * A mark, as a lookup filled in is: a run of millions of such records held
+   * their ids to its end.
+   *
+   * Marked once in each part that meets it, not once in the journal: a part
+   * counts and lists the records it linked to (`counts`), so it counts and
+   * lists those of them the platform wrote too. Marked once in the journal, a
+   * part that met again a record a part stopped before it had marked counted
+   * it among the records it linked to and not among those, and a removal of
+   * the run said it kept a record that goes with the run's.
+   */
+  withTheirRecord(sourceId: string): void {
+    const key = withTheirRecordKey(sourceId);
+    const a = hashA(key);
+    const b = hashB(key);
+    const found = this.marks.find(key, a, b);
+    const thisPart = this.partStart === Number.POSITIVE_INFINITY ? 0 : this.partStart;
+    if (found >= 0 && this.marks.offsetOf(found) >= thisPart) return;
+    const line = JSON.stringify([WITH_THEIR_RECORD_TAG, sourceId]);
+    const offset = this.write(line);
+    this.marks.put(found, a, b, offset, Buffer.byteLength(line), 0);
+    this.withTheirRecordMarked++;
+  }
+
+  /** The records this part marked so (`withTheirRecord`). */
+  get withTheirRecordCount(): number {
+    return this.withTheirRecordMarked;
+  }
+
+  /** Their source ids, in the order marked: this part's lines of the journal, read from its start. */
+  *withTheirRecordIds(): Generator<string> {
+    if (this.withTheirRecordMarked === 0) return;
+    for (const line of this.lines()) {
+      if (line.offset < this.partStart) continue;
+      if (!line.text.startsWith(`["${WITH_THEIR_RECORD_TAG}"`)) continue;
+      const value = parseLine(line.text);
+      if (value && value.length >= 2) yield String(value[1]);
+    }
+  }
+
   /* ---- the insert calls, sent and answered ---- */
 
   /**
@@ -905,6 +1005,29 @@ export class ForgeRunStore {
    */
   answered(callId: string): void {
     this.write(JSON.stringify([ANSWERED_TAG, callId]));
+  }
+
+  /**
+   * Keep the id the org gave the Bulk API job the call `callId` went as, once
+   * it opened it and before anything of it is closed: written at once. A
+   * process killed while the job ran leaves the call open with its job, which
+   * a run taken up reads back by that id (`reconcileInFlight`) — what the job
+   * wrote, row by row — where a REST call's rows are looked for in the target.
+   */
+  jobOpened(callId: string, jobId: string): void {
+    this.write(JSON.stringify([JOB_TAG, callId, jobId]));
+    this.flush();
+  }
+
+  /**
+   * Keep the target ids of records of `objectApiName` a Bulk API job wrote
+   * that no row of it was matched to: the run's, though no source row maps to
+   * them, which a removal of the run takes back with its records
+   * (`JournalPart.runRecords`).
+   */
+  createdUnattributed(objectApiName: string, targetIds: readonly string[]): void {
+    if (targetIds.length === 0) return;
+    this.write(JSON.stringify([UNATTRIBUTED_TAG, objectApiName, [...targetIds]]));
   }
 
   /**
@@ -1042,12 +1165,20 @@ export class ForgeRunStore {
       } else if ('at' in parsed) {
         const at = (parsed as { at: unknown }).at;
         if (typeof at !== 'object' || at === null) continue;
-        const { object, lastId, read, done } = at as Record<string, unknown>;
+        const { object, pass, lastId, read, done } = at as Record<string, unknown>;
         if (typeof object !== 'string' || typeof lastId !== 'string' || typeof read !== 'number') {
           continue;
         }
-        this.checkpointsByObject.set(object, { lastId, read, ...(done === true ? { done } : {}) });
-        this.earlierPastCheckpoint.delete(object);
+        // A line of a pass whose name is not one is no checkpoint of it.
+        if (pass !== undefined && (typeof pass !== 'string' || !PASS_NAME.test(pass))) continue;
+        this.checkpointsByObject.set(checkpointKey(object, pass), {
+          lastId,
+          read,
+          ...(done === true ? { done } : {}),
+        });
+        // Only the read at the object's turn says which of its records an
+        // earlier part mapped past where it stood: a pass reads other rows.
+        if (pass === undefined) this.earlierPastCheckpoint.delete(object);
       }
     }
   }
@@ -1068,7 +1199,7 @@ export class ForgeRunStore {
       }
       return;
     }
-    if (tag === 'p' || tag === 'g') {
+    if (tag === 'p' || tag === 'g' || tag === WITH_THEIR_RECORD_TAG) {
       const key = markKeyOf(value);
       if (!key) return;
       const a = hashA(key);

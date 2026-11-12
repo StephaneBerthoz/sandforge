@@ -13,6 +13,8 @@ describe('resolveStageConfig', () => {
     expect(config.expandOrphanParents).toBe(false);
     expect(config.maxOrphanParentExpansions).toBe(20);
     expect(config.upsertMode).toBe('off');
+    // By REST calls, as every run always wrote, unless a run asks for jobs.
+    expect(config.writeApi).toBe('rest');
     expect(config.fieldExclusions).toEqual({});
     expect(config.excludedObjects).toEqual(new Set());
     expect(config.ownerMappings).toEqual({});
@@ -79,6 +81,7 @@ describe('resolveStageConfig', () => {
       dryRun: true,
       maxRecordsPerObject: 50,
       upsertMode: 'auto',
+      writeApi: 'auto',
       expandOrphanParents: true,
       maxOrphanParentExpansions: 5,
       referenceDataObjects: ['BusinessHours'],
@@ -92,6 +95,7 @@ describe('resolveStageConfig', () => {
     expect(config.dryRun).toBe(true);
     expect(config.maxRecordsPerObject).toBe(50);
     expect(config.upsertMode).toBe('auto');
+    expect(config.writeApi).toBe('auto');
     expect(config.expandOrphanParents).toBe(true);
     expect(config.maxOrphanParentExpansions).toBe(5);
     expect(config.referenceDataObjects).toEqual(new Set(['BusinessHours']));

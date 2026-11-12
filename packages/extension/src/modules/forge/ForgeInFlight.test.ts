@@ -7,12 +7,16 @@ import {
   externalIdKey,
   fingerprintFields,
   inFlightLines,
+  inFlightTargetOf,
   reconcileInFlight,
   rowFingerprint,
   uncertainRows,
   type InFlightTarget,
 } from './ForgeInFlight.js';
 import { ForgeRunStore, memoryRunFile } from './ForgeRunStore.js';
+import type { JobResultsRead } from '../../core/engine/ingestJobRead.js';
+import type { JsforceIngestJobResults } from '../../core/engine/BulkApiExecutor.js';
+import type { Connection } from 'jsforce';
 import { JournalPart } from './journalRecords.js';
 
 /** An id of `prefix`, the `n`-th, its checksum right. */
@@ -257,6 +261,56 @@ describe('the insert calls a journal names no answer of, looked for in the targe
     expect(outcome.notFound).toEqual([{ objectApiName: 'Contact', rows: 2 }]);
     expect(uncertainRows(outcome)).toBe(0);
     expect(added(text, file.text())).toEqual([['a', expect.any(String)]]);
+  });
+
+  it('leaves the rows waiting to go again in smaller calls to the resume, which writes each of them once', async () => {
+    // The target's automation refused a call of four for a Salesforce limit:
+    // the call is closed, nothing of it created, and its rows go again two at
+    // a time. The process is killed while the first of the two is under way,
+    // the second still waiting.
+    const disk = memoryRunFile(HEAD);
+    const store = ForgeRunStore.open(disk);
+    store.beginPart(new Date(SENT_AT));
+    const sendCall = (rows: number[]): string => {
+      const payloads = rows.map(contact);
+      const fields = fingerprintFields(payloads);
+      return store.sent(
+        'Contact',
+        fields,
+        rows.map((n, i) => ({
+          sourceId: source(n),
+          fingerprint: rowFingerprint(payloads[i], fields),
+        })),
+        new Date(SENT_AT),
+      );
+    };
+    store.answered(sendCall([1, 2, 3, 4]));
+    sendCall([1, 2]);
+    store.flush();
+    const text = disk.text();
+    const file = memoryRunFile(text);
+    const org = targetHolding([held(1), held(2)]);
+
+    const outcome = await reconcileInFlight(file, org);
+
+    // The half under way is found and kept as written; the half waiting was
+    // in no call left open, and nothing of it is looked for.
+    expect(outcome).toMatchObject({
+      calls: 1,
+      found: [{ objectApiName: 'Contact', rows: 2 }],
+      notFound: [],
+      uncertain: [],
+      lookedFor: new Set([source(1), source(2)]),
+    });
+    expect(added(text, file.text()).filter(([tag]) => tag === 'c')).toEqual([
+      ['c', source(1), target(1), 'Contact', 'found-owed'],
+      ['c', source(2), target(2), 'Contact', 'found-owed'],
+    ]);
+    // Taken up, the run writes what the journal maps to nothing: the half
+    // that waited, once, and not the half the target holds.
+    const resumed = ForgeRunStore.open(memoryRunFile(file.text()));
+    expect([1, 2, 3, 4].filter((n) => resumed.mapping(source(n)) === undefined)).toEqual([3, 4]);
+    expect((await reconcileInFlight(file, org)).calls).toBe(0);
   });
 
   it('says a row may be in the target when more records than rows share its fingerprint, and leaves its call open', async () => {
@@ -548,5 +602,281 @@ describe('the upsert calls a journal names no answer of, looked for by their ext
 
   it('counts an upsert call under way among the calls a journal names no answer of', () => {
     expect(callsInFlight(memoryRunFile(upsertJournal([1, 2])))).toBe(1);
+  });
+});
+
+describe('reconciling a call sent as a Bulk API job', () => {
+  const JOB = '750000000000001AAA';
+
+  /** A journal whose run sent contacts `rows` as a job, opened, its answer never kept. */
+  function jobJournal(rows: number[], opened = true): string {
+    const disk = memoryRunFile(HEAD);
+    const store = ForgeRunStore.open(disk);
+    store.beginPart(new Date(SENT_AT));
+    const payloads = rows.map(contact);
+    const fields = fingerprintFields(payloads);
+    const callId = store.sent(
+      'Contact',
+      fields,
+      rows.map((n, i) => ({
+        sourceId: source(n),
+        fingerprint: rowFingerprint(payloads[i], fields),
+      })),
+      new Date(SENT_AT),
+    );
+    if (opened) store.jobOpened(callId, JOB);
+    store.flush();
+    return disk.text();
+  }
+
+  /** A successful result of the job: the cells it was sent, as a CSV echoes them, and its id. */
+  function result(n: number, id = target(n)): Record<string, unknown> {
+    const cells = Object.fromEntries(
+      Object.entries(contact(n)).map(([field, value]) => [field, String(value)]),
+    );
+    return { sf__Id: id, sf__Created: 'true', ...cells };
+  }
+
+  /** A target whose job `JOB` reads back as `read`, and whose window must never be read. */
+  function targetWithJob(read: JobResultsRead): InFlightTarget & { queries: string[] } {
+    const org = targetHolding([]);
+    return { ...org, readJob: vi.fn(async () => read) };
+  }
+
+  it('keeps the rows its results answer as written by the run, by their fingerprint, and reads no window', async () => {
+    const text = jobJournal([1, 2, 3]);
+    const file = memoryRunFile(text);
+    const org = targetWithJob({
+      state: 'ended',
+      info: { state: 'JobComplete' },
+      // Out of the order sent, as a job's results come.
+      results: { successfulResults: [result(3), result(1)], failedResults: [] },
+    });
+
+    const outcome = await reconcileInFlight(file, org);
+
+    expect(org.readJob).toHaveBeenCalledWith(JOB);
+    expect(org.queries).toEqual([]);
+    expect(outcome.found).toEqual([{ objectApiName: 'Contact', rows: 2 }]);
+    expect(outcome.notFound).toEqual([{ objectApiName: 'Contact', rows: 1 }]);
+    const lines = added(text, file.text());
+    expect(lines.filter(([tag]) => tag === 'c')).toEqual([
+      ['c', source(1), target(1), 'Contact', 'found-owed'],
+      ['c', source(3), target(3), 'Contact', 'found-owed'],
+    ]);
+    expect(lines.at(-1)?.[0]).toBe('a');
+    expect((await reconcileInFlight(file, org)).calls).toBe(0);
+  });
+
+  it('keeps as the run’s, under no row, the records the job wrote that no row could be matched to', async () => {
+    const text = jobJournal([1, 2]);
+    const file = memoryRunFile(text);
+    const changed = { ...result(2), LastName: 'Changed by a flow' };
+    const org = targetWithJob({
+      state: 'ended',
+      info: { state: 'JobComplete' },
+      results: { successfulResults: [result(1), changed] },
+    });
+
+    const outcome = await reconcileInFlight(file, org);
+
+    expect(outcome.found).toEqual([{ objectApiName: 'Contact', rows: 1 }]);
+    // Row 2 may be the record no row matched: never written again, its call left open.
+    expect(outcome.notFound).toEqual([]);
+    expect(uncertainRows(outcome)).toBe(1);
+    const lines = added(text, file.text());
+    expect(lines).toContainEqual(['n', 'Contact', [target(2)]]);
+    expect(lines.filter(([tag]) => tag === 'a')).toEqual([]);
+    // What a removal of the part takes back: the record found, and the one no row matched.
+    const records = JournalPart.read(file, 0)?.runRecords();
+    const ids: string[] = [];
+    for await (const page of records?.pages('Contact') ?? []) ids.push(...page);
+    expect(ids.sort()).toEqual([target(1), target(2)].sort());
+
+    // Read again, the job says the same: row 2 stays uncertain, the record
+    // is not named twice, and the call stays open.
+    const after = file.text();
+    const again = await reconcileInFlight(file, org);
+    expect(again.calls).toBe(1);
+    expect(uncertainRows(again)).toBe(1);
+    expect(again.notFound).toEqual([]);
+    expect(added(after, file.text())).toEqual([]);
+  });
+
+  it('writes again the rows of a job it answered none of, when every record it wrote is matched', async () => {
+    const text = jobJournal([1, 2]);
+    const file = memoryRunFile(text);
+    const org = targetWithJob({
+      state: 'ended',
+      info: { state: 'JobComplete' },
+      results: { successfulResults: [result(1)], failedResults: [] },
+    });
+
+    const outcome = await reconcileInFlight(file, org);
+
+    expect(outcome.notFound).toEqual([{ objectApiName: 'Contact', rows: 1 }]);
+    expect(uncertainRows(outcome)).toBe(0);
+    expect(added(text, file.text()).at(-1)?.[0]).toBe('a');
+  });
+
+  it('finds each row of a job some of whose rows went without their owner, inactive in the target', async () => {
+    // The target holds the owner of rows 2 and 3 inactive: they went in
+    // without OwnerId, their cell empty, and the target gave them the user the
+    // run writes as. A field one row leaves out is no part of any row's
+    // fingerprint, so whatever the job echoes in that cell — empty, or the id
+    // of the user it gave the record to — each row is found again by its own.
+    const INACTIVE = idOf('005I', 1);
+    const sentRow = (n: number): Record<string, unknown> =>
+      n === 2 || n === 3 ? contact(n) : { ...contact(n), OwnerId: INACTIVE };
+    const disk = memoryRunFile(HEAD);
+    const store = ForgeRunStore.open(disk);
+    store.beginPart(new Date(SENT_AT));
+    const payloads = [1, 2, 3, 4].map(sentRow);
+    const fields = fingerprintFields(payloads);
+    expect(fields).not.toContain('OwnerId');
+    const callId = store.sent(
+      'Contact',
+      fields,
+      [1, 2, 3, 4].map((n, i) => ({
+        sourceId: source(n),
+        fingerprint: rowFingerprint(payloads[i], fields),
+      })),
+      new Date(SENT_AT),
+    );
+    store.jobOpened(callId, JOB);
+    store.flush();
+    const text = disk.text();
+    const file = memoryRunFile(text);
+    const echoed = (n: number, ownerCell: string): Record<string, unknown> => ({
+      ...result(n),
+      OwnerId: ownerCell,
+    });
+    const org = targetWithJob({
+      state: 'ended',
+      info: { state: 'JobComplete' },
+      results: {
+        successfulResults: [
+          echoed(1, INACTIVE),
+          echoed(2, ''),
+          echoed(3, USER),
+          echoed(4, INACTIVE),
+        ],
+        failedResults: [],
+      },
+    });
+
+    const outcome = await reconcileInFlight(file, org);
+
+    expect(outcome.found).toEqual([{ objectApiName: 'Contact', rows: 4 }]);
+    expect(outcome.notFound).toEqual([]);
+    expect(uncertainRows(outcome)).toBe(0);
+    expect(
+      added(text, file.text())
+        .filter(([tag]) => tag === 'c')
+        .map(([, from, to]) => [from, to]),
+    ).toEqual([1, 2, 3, 4].map((n) => [source(n), target(n)]));
+  });
+
+  it('takes the records a job wrote under no row for none of a REST call’s rows', async () => {
+    // The run kept, under no row, a record its job wrote; a REST call of the
+    // same object was under way when it stopped, its row carrying the same
+    // values: the record is the job's, not the call's row.
+    const disk = memoryRunFile(HEAD);
+    const store = ForgeRunStore.open(disk);
+    store.beginPart(new Date(SENT_AT));
+    store.createdUnattributed('Contact', [target(1)]);
+    const payloads = [contact(1)];
+    const fields = fingerprintFields(payloads);
+    store.sent(
+      'Contact',
+      fields,
+      [{ sourceId: source(1), fingerprint: rowFingerprint(payloads[0], fields) }],
+      new Date(SENT_AT),
+    );
+    store.flush();
+    const file = memoryRunFile(disk.text());
+
+    const outcome = await reconcileInFlight(file, targetHolding([held(1)]));
+
+    expect(outcome.found).toEqual([]);
+  });
+
+  it('leaves the rows of a job still running uncertain and its call open, and the rows of one never closed to the resume', async () => {
+    const running = memoryRunFile(jobJournal([1, 2]));
+    const before = running.text();
+    const stillRunning = await reconcileInFlight(running, targetWithJob({ state: 'running' }));
+    expect(uncertainRows(stillRunning)).toBe(2);
+    expect(running.text()).toBe(before);
+
+    const neverClosed = memoryRunFile(jobJournal([1, 2]));
+    const text = neverClosed.text();
+    const closed = await reconcileInFlight(neverClosed, targetWithJob({ state: 'never-closed' }));
+    expect(closed.notFound).toEqual([{ objectApiName: 'Contact', rows: 2 }]);
+    expect(added(text, neverClosed.text())).toEqual([['a', expect.any(String)]]);
+  });
+
+  it('says why a job could not be read, its rows uncertain', async () => {
+    const file = memoryRunFile(jobJournal([1]));
+
+    const outcome = await reconcileInFlight(
+      file,
+      targetWithJob({ state: 'unread', reason: 'INVALIDJOB: no such job' }),
+    );
+
+    expect(outcome.unread).toEqual([
+      { objectApiName: 'Contact', reason: 'INVALIDJOB: no such job' },
+    ]);
+    expect(uncertainRows(outcome)).toBe(1);
+  });
+
+  it('looks for the rows of a call sent before its job opened in the window, as a REST call’s', async () => {
+    const text = jobJournal([1], false);
+    const file = memoryRunFile(text);
+    const org = { ...targetHolding([held(1)]), readJob: vi.fn() };
+
+    const outcome = await reconcileInFlight(file, org);
+
+    expect(org.readJob).not.toHaveBeenCalled();
+    expect(outcome.found).toEqual([{ objectApiName: 'Contact', rows: 1 }]);
+  });
+});
+
+describe('a job read back over the run’s connection', () => {
+  const JOB = '750000000000001AAA';
+
+  /** A jsforce connection whose job `JOB` the org says is in `state`, its results those given. */
+  function connection(state: string, results: JsforceIngestJobResults = {}): Connection {
+    const job = {
+      check: vi.fn(async () => ({ id: JOB, state, numberRecordsProcessed: 1 })),
+      getSuccessfulResults: vi.fn(async () => results.successfulResults ?? []),
+      getAllResults: vi.fn(async () => results),
+      abort: vi.fn(async () => undefined),
+    };
+    const bulk2 = { job: vi.fn(() => job) };
+    return { bulk2 } as unknown as Connection;
+  }
+
+  it('reads the job by its id, its state held to an ingest job’s, and its results once it ended', async () => {
+    const results = {
+      successfulResults: [{ sf__Id: '003000000000001AAA', sf__Created: 'true', LastName: 'A' }],
+      failedResults: [],
+      unprocessedRecords: [],
+    };
+    const target = inFlightTargetOf(connection('JobComplete', results));
+
+    expect(await target.readJob?.(JOB)).toEqual({
+      state: 'ended',
+      info: { state: 'JobComplete', numberRecordsProcessed: 1 },
+      results,
+    });
+  });
+
+  it('reads no state the Bulk API does not give an ingest job, and says so', async () => {
+    const target = inFlightTargetOf(connection('Closed'));
+
+    const read = await target.readJob?.(JOB);
+
+    expect(read).toMatchObject({ state: 'unread' });
+    expect(read?.state === 'unread' ? read.reason : '').toContain('not an ingest job');
   });
 });

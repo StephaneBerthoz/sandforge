@@ -24,7 +24,12 @@ import type {
 } from '@sandforge/shared';
 import { fileCopyRefusal, isFileContentField } from '@sandforge/shared';
 import { IdRemapper } from './IdRemapper.js';
-import { ForgeBatchStrategy as ForgeBatchStrategyService } from './ForgeBatchStrategy.js';
+import {
+  DUPLICATE_RULE_FALLBACK_OBJECTS,
+  FORGE_BULK_MIN_ROWS,
+  FORGE_REST_ONLY_OBJECTS,
+  ForgeBatchStrategy as ForgeBatchStrategyService,
+} from './ForgeBatchStrategy.js';
 import { isNotFound } from './ForgeMetadataDiff.js';
 import { isNeverCopied } from './excludedObjects.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -161,6 +166,7 @@ import {
   summarizeRecordForError,
   writtenWithoutFieldsNote,
   type BatchWriteResult,
+  type BulkTransport,
   type InsertCallJournal,
   type PendingFkUpdate,
   type TableUpsertKeys,
@@ -269,8 +275,12 @@ import { maskedEncryptedFields, viewsEncryptedDataOnce } from '../sync/encrypted
 import type { ForgeRunStore, StoredOwedLookup } from './ForgeRunStore.js';
 import { externalIdKey, fingerprintFields, rowFingerprint } from './ForgeInFlight.js';
 import type { FieldBounds } from './describeBounds.js';
-import type { BulkApiManager } from '../../core/engine/BulkApiManager.js';
-import type { BulkWriteAnswer, ForgeBulkWriteOptions } from './forgeBulkWrite.js';
+import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import {
+  FORGE_BULK_JOB_ROWS,
+  type BulkWriteAnswer,
+  type ForgeBulkWriteOptions,
+} from './forgeBulkWrite.js';
 import {
   findUnavailableRecordTypes,
   parseRecordTypeCounts,
@@ -468,6 +478,14 @@ export interface ExecuteOptions {
    * target: no insert, update or file, and no id of its own in the summary.
    */
   dryRun?: boolean;
+  /**
+   * How the run writes its rows: `'rest'`, the default, by REST calls of 200,
+   * as every run always did; `'auto'` sends each write of
+   * `FORGE_BULK_MIN_ROWS` rows or more of an object that may go so as a Bulk
+   * API 2.0 job (`deps.bulkWriteRecords`), its second pass too, and the rest
+   * by REST: see `WriteNodeInput.bulk`. A simulation sends no job.
+   */
+  writeApi?: 'rest' | 'auto';
   /**
    * The user's decisions about what the target would refuse or change in the
    * rows, from the run's config: applied to every row before it is written,
@@ -1772,6 +1790,12 @@ interface ExecutionState {
   readonly splitting: LimitSplitting;
   /** What each object's lines said of its rows sent smaller so far, by key. */
   readonly smallerCallsSaid: Map<string, number>;
+  /**
+   * How the run sends its writes as Bulk API jobs: set for a run that writes
+   * through the Bulk API (`ExecuteOptions.writeApi: 'auto'`) and is not a
+   * simulation, when the deps send jobs. Absent, every write goes by REST.
+   */
+  readonly bulk?: BulkTransport;
   /** Objects whose downstream children must be skipped. */
   readonly failedObjects: Set<string>;
   /**
@@ -3656,6 +3680,10 @@ export function insertCallsIn(store: ForgeRunStore): InsertCallJournal {
       );
     },
     answered: (callId) => store.answered(callId),
+    // A call sent as a Bulk API job: its id, read back by a run taken up, and
+    // the records it wrote that no row was matched to, removed with the run's.
+    opened: (callId, jobId) => store.jobOpened(callId, jobId),
+    unattributed: (objectApiName, targetIds) => store.createdUnattributed(objectApiName, targetIds),
   };
 }
 
@@ -3726,13 +3754,17 @@ class SimulatedIds {
  * parent copied from outside the graph — so a simulation of a run that copies
  * one counts it as written, and writes nothing.
  */
-function simulatedWrites<D extends Pick<ForgeExecutorDeps, 'insertRecords'>>(
+function simulatedWrites<
+  D extends Pick<ForgeExecutorDeps, 'insertRecords'> & Partial<ForgeExecutorDeps>,
+>(
   deps: D,
   simulated: SimulatedIds,
   keyPrefixOf: (orgId: string, objectName: string) => Promise<string | null>,
 ): D {
   return {
     ...deps,
+    // Nor does it send a job: a write a job would take comes back done too.
+    bulkWriteRecords: undefined,
     insertRecords: async (
       orgId: string,
       objectName: string,
@@ -3819,6 +3851,11 @@ export class ForgeExecutor {
   private isPaused = false;
   private pauseResolve: (() => void) | null = null;
   private isAborted = false;
+  /**
+   * What aborts the Bulk API job a run has open when it is cancelled: made
+   * for each run that sends jobs (`bulkTransportOf`), and aborted with it.
+   */
+  private bulkCancel = new AbortController();
   /** The run `execute` has under way, for {@link summarySoFar}; null between runs. */
   private running: ExecutionState | null = null;
 
@@ -3858,12 +3895,79 @@ export class ForgeExecutor {
   /** Abort execution. Resumes any paused state to propagate the abort. */
   abort(): void {
     this.isAborted = true;
+    // A job still open writes nothing once aborted; one closed goes on, and is waited for.
+    this.bulkCancel.abort();
     // Snapshot+null+invoke so a concurrent pause/resume can't leak the
     // promise resolver into a paused state from a previous run.
     const resolver = this.pauseResolve;
     this.pauseResolve = null;
     this.isPaused = false;
     resolver?.();
+  }
+
+  /**
+   * How a run sends its writes as Bulk API jobs, or undefined for a run that
+   * sends none: one that does not write through the Bulk API
+   * (`ExecuteOptions.writeApi`), a simulation, or deps that send no job.
+   *
+   * The run gets a job limiter of its own, one job at a time: shared by every
+   * run of the extension, a second run under way at once — the panel and a
+   * command — would be refused a job of its own, and would have written by
+   * REST without a word. The objects it writes by REST whatever their number
+   * are those a job cannot write as a REST call does (`FORGE_REST_ONLY_OBJECTS`)
+   * and those an active duplicate rule of the target watches, which no job
+   * can waive — the standard Account, Contact and Lead rules when the target
+   * will not say. Its cancel is a signal of its own, aborted with the run.
+   */
+  private async bulkTransportOf(
+    config: ForgeStageConfig,
+    targetOrgId: string,
+  ): Promise<BulkTransport | undefined> {
+    if (config.writeApi !== 'auto' || config.dryRun || !this.deps.bulkWriteRecords) {
+      return undefined;
+    }
+    const watched = await this.deps
+      .duplicateRuleObjects?.(targetOrgId)
+      .catch((): undefined => undefined);
+    const ruled = watched ?? DUPLICATE_RULE_FALLBACK_OBJECTS;
+    logger.info(
+      `[forge] writing through the Bulk API: a job per ${FORGE_BULK_JOB_ROWS} rows of an ` +
+        `object from ${FORGE_BULK_MIN_ROWS}, one at a time on a job limiter of the run's ` +
+        `own; by REST: ${[...FORGE_REST_ONLY_OBJECTS, ...ruled].join(', ')}` +
+        (watched ? '' : ' (the target did not say which objects its duplicate rules watch)'),
+    );
+    this.bulkCancel = new AbortController();
+    if (this.isAborted) this.bulkCancel.abort();
+    return {
+      signal: this.bulkCancel.signal,
+      restOnly: new Set([...FORGE_REST_ONLY_OBJECTS, ...ruled]),
+      bulkUnsupported: new Set<string>(),
+      manager: new BulkApiManager(1),
+    };
+  }
+
+  /**
+   * What the second pass sends an object's updates as Bulk API jobs with, for
+   * a run that sends jobs: from `FORGE_BULK_MIN_ROWS` of them, the run's own
+   * limiter and cancel, by REST for the objects the run writes by REST alone,
+   * and the objects the org said no job writes shared with the first pass.
+   * Nothing for a run that sends none.
+   */
+  private bulkUpdatesOf(
+    state: ExecutionState,
+  ): Pick<CycleFkPatchInput, 'bulkUpdate' | 'restOnly' | 'bulkUnsupported'> {
+    const { bulk } = state;
+    const send = this.deps.bulkWriteRecords;
+    if (!bulk || !send) return {};
+    return {
+      bulkUpdate: (objectName, records) =>
+        send(state.targetOrgId, objectName, 'update', records, {
+          bulkManager: bulk.manager,
+          signal: bulk.signal,
+        }),
+      restOnly: bulk.restOnly,
+      bulkUnsupported: bulk.bulkUnsupported,
+    };
   }
 
   /**
@@ -4075,7 +4179,9 @@ export class ForgeExecutor {
     store?.beginPart(new Date());
     // 2 000 smaller calls until a gate that read the target's requests allows fewer.
     const splitting = limitSplitting();
+    const bulk = await this.bulkTransportOf(config, targetOrgId);
     const state: ExecutionState = {
+      ...(bulk ? { bulk } : {}),
       config,
       sourceOrgId,
       targetOrgId,
@@ -4957,6 +5063,7 @@ export class ForgeExecutor {
             stillPending,
             stopped: () => this.isAborted,
             splitting: state.splitting,
+            ...this.bulkUpdatesOf(state),
             onPatched: this.patchedInTheJournal(state),
             onAnswered: () => state.store?.flush(),
             onRefusedByFilter: (object, field, recordId) =>
@@ -4988,6 +5095,7 @@ export class ForgeExecutor {
           onProgress,
           stopped: () => this.isAborted,
           splitting: state.splitting,
+          ...this.bulkUpdatesOf(state),
           onPatched: this.patchedInTheJournal(state),
           onAnswered: () => state.store?.flush(),
           onRefusedByFilter: (object, field, recordId) =>
@@ -12699,6 +12807,7 @@ export class ForgeExecutor {
       onProgress: state.onProgress,
       stopped: () => this.isAborted,
       splitting: state.splitting,
+      ...this.bulkUpdatesOf(state),
       // Each lookup the target filled in is marked, on disk before the pass
       // sends anything else: a part that takes up a run stopped during the
       // pass sends only those the marks leave.
@@ -14143,6 +14252,8 @@ export class ForgeExecutor {
                     ),
                   }
                 : {}),
+              // A run that writes through the Bulk API: see `WriteNodeInput.bulk`.
+              ...(state.bulk ? { bulk: state.bulk } : {}),
               waitIfPaused: () => this.waitIfPaused(),
               stopped: () => this.isAborted,
               onProgress,
