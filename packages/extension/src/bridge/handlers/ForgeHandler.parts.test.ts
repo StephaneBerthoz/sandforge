@@ -580,6 +580,36 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
     });
   }
 
+  it('the resume first, its quote synced with the cut part’s opportunity: its result counts the line the platform copied onto the quote, and its question reads what fires on quote lines', async () => {
+    // Live, the resume's removal took the copies of its lines under its quote
+    // without counting them: told against the resume's own records, which
+    // hold no opportunity, they were no copies of the run's.
+    theRun(at('10:00:03'), 0, true);
+    const reader = {
+      read: vi.fn(async (_orgId: string, objects: readonly string[]) => ({
+        objectsRead: [...objects],
+        objects: [],
+        unread: [],
+      })),
+    };
+    handler.setForgeOrchestrator({ on: vi.fn() } as never, { targetAutomation: reader } as never);
+
+    await handler.handle(buildMsg('forge:undo-automation:request', { forgeId: 'run-resumed' }));
+    const resumed = await remove('run-resumed', at('10:05:00'));
+
+    expect([...(reader.read.mock.calls[0]?.[1] ?? [])].sort()).toEqual([
+      'OpportunityLineItem',
+      'Quote',
+      'QuoteLineItem',
+    ]);
+    expect(resumed?.objects.find((o) => o.objectApiName === 'QuoteLineItem')).toMatchObject({
+      planned: 1,
+      platformCopies: 1,
+      deleted: 1,
+    });
+    expect(org.all('QuoteLineItem')).toEqual([]);
+  });
+
   it('says nothing of the other part when the resume goes first and the cut part takes the rest', async () => {
     theRun();
 

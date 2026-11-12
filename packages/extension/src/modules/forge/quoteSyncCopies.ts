@@ -32,6 +32,14 @@
  *
  * A line a colleague added, one added after the run, and one whose pair is
  * not the run's are not copies: they stay, and hold the quote as they did.
+ *
+ * Of a run cut and taken up, the opportunity may be another part's: the cut
+ * part wrote it, the resume its quote and lines, and the platform copied the
+ * resume's lines onto the quote. Live, the resume's removal said the copies
+ * were counted apart, and its preview and its result had none: told only
+ * against the part's own records, they went with the resume's lines unsaid.
+ * The copies are still told by the part's own lines and span; the
+ * opportunity alone may be of another part.
  */
 
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
@@ -78,6 +86,12 @@ export interface QuoteSyncRun {
    * creator of the run's record a copy is paired with stands for it.
    */
   user?: string;
+  /**
+   * The records of the run's other parts, by key, and their objects: an
+   * opportunity among them that syncs with a quote of this part is the
+   * run's, and no record of theirs is a copy. Absent for a run of one part.
+   */
+  otherParts?: { has(key: string): boolean; readonly objects: ReadonlySet<string> };
 }
 
 /** A record the platform copied as the run wrote. */
@@ -106,6 +120,11 @@ export interface QuoteSyncReading {
 /** The copies of a run, per object: quote lines first, then line items. Empty when there is none. */
 export type PlatformCopies = Array<{ objectApiName: string; copies: PlatformCopy[] }>;
 
+/** Whether a record is the run's: of the part removed, or of another part of it. */
+function ofTheRun(run: QuoteSyncRun, key: string): boolean {
+  return run.has(key) || run.otherParts?.has(key) === true;
+}
+
 /**
  * Of what the org holds under a run's synced quotes, the records the platform
  * copied as the run wrote: see the module's comment. Reads nothing.
@@ -117,7 +136,7 @@ export function quoteSyncCopiesAmong(reading: QuoteSyncReading, run: QuoteSyncRu
   for (const row of reading.syncing) {
     const opportunity = referenceOf(row, 'Id');
     const quote = referenceOf(row, 'SyncedQuoteId');
-    if (!opportunity || !quote || !run.has(opportunity) || !run.has(quote)) continue;
+    if (!opportunity || !quote || !ofTheRun(run, opportunity) || !run.has(quote)) continue;
     syncedQuotes.add(quote);
     syncingOpportunities.add(opportunity);
   }
@@ -146,7 +165,7 @@ export function quoteSyncCopiesAmong(reading: QuoteSyncReading, run: QuoteSyncRu
     pair: Readonly<Record<string, unknown>> | undefined,
   ): boolean => {
     const key = referenceOf(row, 'Id');
-    if (!key || run.has(key) || !pair) return false;
+    if (!key || ofTheRun(run, key) || !pair) return false;
     const user = run.user ?? creatorOf(pair);
     const created = epochOf(row.CreatedDate);
     return (
@@ -210,10 +229,18 @@ export function quoteSyncCopiesAmong(reading: QuoteSyncReading, run: QuoteSyncRu
  * A run whose opportunity syncs with no quote of its own has no copy, and its
  * removal reads that object's automation all the same: it cannot tell which
  * until it reads the org.
+ *
+ * @param otherParts - The objects the run's other parts created records of,
+ *   for the removal of one part of a run cut and taken up: an opportunity
+ *   among them may sync with a quote of this part.
  */
-export function quoteSyncCopyObjectsOf(objects: Iterable<string>): string[] {
+export function quoteSyncCopyObjectsOf(
+  objects: Iterable<string>,
+  otherParts: Iterable<string> = [],
+): string[] {
   const of = new Set(objects);
-  if (!of.has(QUOTE_OBJECT) || !of.has(OPPORTUNITY_OBJECT)) return [];
+  const opportunity = of.has(OPPORTUNITY_OBJECT) || new Set(otherParts).has(OPPORTUNITY_OBJECT);
+  if (!of.has(QUOTE_OBJECT) || !opportunity) return [];
   const quoteLines = of.has(QUOTE_LINE_OBJECT);
   const opportunityLines = of.has(OPPORTUNITY_LINE_OBJECT);
   if (quoteLines === opportunityLines) return [];
@@ -257,8 +284,9 @@ async function rowsNaming(
  * are deleted, the platform deletes the line items they were paired with,
  * and its copies lose the pairing that tells them.
  *
- * Nothing is read for a run that created no quote, no opportunity, or
- * neither quote lines nor line items: no copy of it can be told. A read the
+ * Nothing is read for a run that created no quote, no opportunity — of
+ * this part or another —, or neither quote lines nor line items: no copy of
+ * it can be told. A read the
  * org refuses, or one that fills its limit, tells none: the lines stay, and
  * hold the quote as any record that stays.
  *
@@ -272,7 +300,9 @@ export async function quoteSyncCopiesOf(
   objects: ReadonlySet<string>,
 ): Promise<PlatformCopies> {
   const lines = objects.has(QUOTE_LINE_OBJECT) || objects.has(OPPORTUNITY_LINE_OBJECT);
-  if (quotes.length === 0 || !objects.has(OPPORTUNITY_OBJECT) || !lines) return [];
+  const opportunities =
+    objects.has(OPPORTUNITY_OBJECT) || run.otherParts?.objects.has(OPPORTUNITY_OBJECT) === true;
+  if (quotes.length === 0 || !opportunities || !lines) return [];
   try {
     const syncing = await rowsNaming(
       org,
@@ -283,7 +313,7 @@ export async function quoteSyncCopiesOf(
     );
     const synced = syncing.filter((row) => {
       const opportunity = referenceOf(row, 'Id');
-      return opportunity !== undefined && run.has(opportunity);
+      return opportunity !== undefined && ofTheRun(run, opportunity);
     });
     if (synced.length === 0) return [];
     const quoteLines = await rowsNaming(

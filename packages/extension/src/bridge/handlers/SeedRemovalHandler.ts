@@ -1013,8 +1013,9 @@ export class SeedRemovalHandler implements DomainHandler {
         store,
         ...(sweepParts
           ? {
-              sweep: () => sweepParts.first(),
-              afterRemoval: () => sweepParts.afterRemoval(),
+              // The removal's sizes and smaller calls, which the sweep spends with it.
+              sweep: (splitting) => sweepParts.first(splitting),
+              afterRemoval: (splitting) => sweepParts.afterRemoval(splitting),
               automationMade: sweepParts.automationMade,
             }
           : {}),

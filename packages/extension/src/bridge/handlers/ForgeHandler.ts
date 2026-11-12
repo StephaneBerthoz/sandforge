@@ -1067,7 +1067,9 @@ function runSpanOf(
 /**
  * Of what a removal kept for records that stay, what the run's other parts no
  * removal was asked for yet hold: each such part whose records left are of
- * objects among the holders, with those objects (`heldByOtherParts`).
+ * objects among the holders, with those objects (`heldByOtherParts`). The
+ * lines the platform copied onto a quote of that part count as its own, as
+ * its removal takes them (`objectsRemovedOf`).
  */
 function heldByOtherPartsOf(
   objects: readonly ForgeUndoObjectResult[],
@@ -1076,7 +1078,12 @@ function heldByOtherPartsOf(
   const holders = [...new Set(objects.flatMap((o) => (o.keptDependents > 0 ? o.heldBy : [])))];
   return parts.flatMap((part) => {
     if (part.undo) return [];
-    const held = holders.filter((object) => part.objects.includes(object));
+    const others = [
+      ...objects.map((o) => o.objectApiName),
+      ...parts.flatMap((other) => (other === part ? [] : other.objects)),
+    ];
+    const takes = objectsRemovedOf(part.objects, others);
+    const held = holders.filter((object) => takes.includes(object));
     return held.length > 0 ? [{ forgeId: part.forgeId, objects: held }] : [];
   });
 }
@@ -3664,19 +3671,21 @@ export class ForgeHandler implements DomainHandler {
    * runs as it deletes the records of `objects` — the platform's copies of the
    * run's lines on an object the run never wrote among them — and sets those
    * past Draft back to Draft first, and as its sweep deletes those of `swept`,
-   * none of which it sets back: as the removal's question reads it.
+   * none of which it sets back: as the removal's question reads it. Of a run
+   * cut and taken up, `otherParts` are the objects its other parts left: the
+   * opportunity whose quote this part synced may be among them.
    */
   private async removalMute(
     targetOrgId: string,
     objects: readonly string[],
     swept: readonly string[],
+    otherParts: readonly string[] = [],
   ): Promise<RunMute> {
     const reader = this.targetAutomation;
+    const removed = [...new Set([...objectsRemovedOf(objects, otherParts), ...swept])];
     const read: ForgeTargetAutomation | { unread: string } = reader
       ? await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
-          .withTimeout('forge:undo-automation', () =>
-            reader.read(targetOrgId, [...new Set([...objectsRemovedOf(objects), ...swept])]),
-          )
+          .withTimeout('forge:undo-automation', () => reader.read(targetOrgId, removed))
           .catch((err: unknown) => ({ unread: extractErrorMessage(err) }))
       : { unread: "no reader of the target org's automation is set up" };
     const drafted = new Set(setBackToDraftOf(objects));
@@ -5898,7 +5907,12 @@ export class ForgeHandler implements DomainHandler {
       const sweptObjects = sweepParts?.takes ?? [];
       const removalMute: RunMute | undefined =
         asked.muteAutomation === true && (total > 0 || sweptObjects.length > 0)
-          ? await this.removalMute(targetOrgId, objectsIn(plan), sweptObjects)
+          ? await this.removalMute(
+              targetOrgId,
+              objectsIn(plan),
+              sweptObjects,
+              parts?.parts.flatMap((part) => part.objects) ?? [],
+            )
           : undefined;
       // The lease, taken right before the first delete, once every question
       // is answered, and given back once the removal ends, whatever it ended
@@ -6201,6 +6215,27 @@ export class ForgeHandler implements DomainHandler {
       laterParts: laterOf(forgeId),
       close: () => closes.forEach((close) => close()),
     };
+  }
+
+  /**
+   * The objects of what the run's other parts left in the target, read from
+   * the history and the plans kept, without the org: what the removal's
+   * question reads the target's automation on (`objectsRemovedOf`), as the
+   * removal hands them over ({@link otherPartsOf}).
+   */
+  private async otherPartObjectsOf(forgeId: string, targetOrgId: string): Promise<string[]> {
+    const history = this.loadHistory();
+    const listed = new Set(history.map((entry) => entry.forgeId));
+    const plans = (await this.keptRemovalPlans()).filter((plan) => !listed.has(plan.forgeId));
+    const objects = new Set<string>();
+    for (const other of await this.runLineOf(forgeId, history, plans)) {
+      const entry = history.find((e) => e.forgeId === other);
+      const kept = entry ? undefined : plans.find((plan) => plan.forgeId === other);
+      if ((entry ?? kept)?.targetOrgId !== targetOrgId) continue;
+      const left = entry ? forgeRunCountsLeft(entry) : kept ? forgeRemovalPlanCountsLeft(kept) : [];
+      for (const { objectApiName } of left) objects.add(objectApiName);
+    }
+    return [...objects];
   }
 
   /**
@@ -7377,8 +7412,12 @@ export class ForgeHandler implements DomainHandler {
       // What a sweep ticked in the confirmation deletes too, and sets nothing
       // back to Draft: the page names its objects, as the list it shows reads
       // them. So do the copies the platform made of the run's lines on an
-      // object the run never wrote, which the removal takes with its own.
-      const read = [...new Set([...objectsRemovedOf(objects), ...(parsed.sweptObjects ?? [])])];
+      // object the run never wrote, which the removal takes with its own —
+      // of a run cut and taken up, under the opportunity of another part.
+      const otherParts = await this.otherPartObjectsOf(parsed.forgeId, targetOrgId);
+      const read = [
+        ...new Set([...objectsRemovedOf(objects, otherParts), ...(parsed.sweptObjects ?? [])]),
+      ];
       const automation = await new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout(
         'forge:undo-automation',
         () => reader.read(targetOrgId, read),

@@ -36,6 +36,29 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 vi.mock('../../core/common/sforceLimitParser.js', () => ({
   checkApiLimits: vi.fn(),
 }));
+// The real sweep, what each of its parts is handed read back by the case
+// that asks whether it spends the removal's smaller calls.
+const handed = vi.hoisted(() => ({ splittings: [] as Array<[string, unknown]> }));
+vi.mock('./removalSweep.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./removalSweep.js')>();
+  return {
+    ...actual,
+    removalSweepOf: async (request: Parameters<typeof actual.removalSweepOf>[0]) => {
+      const sweep = await actual.removalSweepOf(request);
+      const { first, afterRemoval } = sweep;
+      return Object.assign(sweep, {
+        first: (splitting?: unknown) => {
+          handed.splittings.push(['first', splitting]);
+          return first(splitting as Parameters<typeof first>[0]);
+        },
+        afterRemoval: (splitting?: unknown) => {
+          handed.splittings.push(['afterRemoval', splitting]);
+          return afterRemoval(splitting as Parameters<typeof afterRemoval>[0]);
+        },
+      });
+    },
+  };
+});
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 
@@ -428,6 +451,19 @@ describe('a sweep asked with the removal of a Sync run', () => {
       ['req-sync:remove', 'sync'],
       ['req-sync:remove-sweep', 'sync'],
     ]);
+  });
+
+  it('hands both parts of the sweep the removal’s sizes and smaller calls, which they spend with it', async () => {
+    handed.splittings.length = 0;
+
+    await handler.handle(buildMsg('sync:remove', { runId: 'run-sync', sweep: true }));
+
+    // Handed nothing, each part kept an allowance of its own, of 2 000
+    // smaller calls more than the removal's.
+    expect(handed.splittings.map(([part]) => part)).toEqual(['first', 'afterRemoval']);
+    const [[, first], [, last]] = handed.splittings;
+    expect(first).toEqual(expect.objectContaining({ allowance: expect.anything() }));
+    expect(last).toBe(first);
   });
 
   it('leaves the task the flow opened to a removal asked without the sweep', async () => {

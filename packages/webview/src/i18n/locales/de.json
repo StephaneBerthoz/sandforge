@@ -5762,6 +5762,8 @@
       "staysOtherMachines": "Was ein anderer Rechner oder eine CI im selben Zeitfenster geschrieben hat: Das Aufräumen sieht diese Durchläufe nicht.",
       "resultAfterRemoval_one": "{{formatted}} davon, nachdem die Datensätze des Durchlaufs, die darauf verweisen, weg waren",
       "resultAfterRemoval_other": "{{formatted}} davon, nachdem die Datensätze des Durchlaufs, die darauf verweisen, weg waren",
+      "resultWithRemoval_one": "{{formatted}} davon mit dem Datensatz des Durchlaufs mitgenommen, an dem er hing, als das Entfernen ihn löschte",
+      "resultWithRemoval_other": "{{formatted}} davon mit den Datensätzen des Durchlaufs mitgenommen, an denen sie hingen, als das Entfernen diese löschte",
       "resultSuccessLeft": "Was das Aufräumen genommen hat, ist nicht mehr in {{org}}; was es gelassen hat, bleibt, wie unten angegeben.",
       "leftLate_one": "{{formatted}} spät gekommener Datensatz bleibt ({{objects}}).",
       "leftLate_other": "{{formatted}} spät gekommene Datensätze bleiben ({{objects}}).",

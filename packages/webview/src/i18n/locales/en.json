@@ -5762,6 +5762,8 @@
       "staysOtherMachines": "What another machine or a CI wrote in the same window: a sweep does not see those runs.",
       "resultAfterRemoval_one": "{{formatted}} of them once the records of the run that point at it were gone",
       "resultAfterRemoval_other": "{{formatted}} of them once the records of the run that point at them were gone",
+      "resultWithRemoval_one": "{{formatted}} of them taken along with the record of the run it hung from, as the removal deleted it",
+      "resultWithRemoval_other": "{{formatted}} of them taken along with the records of the run they hung from, as the removal deleted those",
       "resultSuccessLeft": "What the sweep took is gone from {{org}}; what it left stays, as said below.",
       "leftLate_one": "{{formatted}} record that came late stays ({{objects}}).",
       "leftLate_other": "{{formatted}} records that came late stay ({{objects}}).",

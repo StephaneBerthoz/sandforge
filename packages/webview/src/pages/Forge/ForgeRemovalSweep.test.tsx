@@ -824,6 +824,35 @@ describe('ForgeRunSweepResult', () => {
     );
   });
 
+  it('says of what it found gone what went with the records of the run it hung from, as the removal deleted those', () => {
+    // Live, a contact role made by hand went with the run's contact the
+    // removal deleted, and the sweep said "1 already gone" alone.
+    render(
+      <ForgeRunSweepResult
+        result={{
+          ...RESULT,
+          objects: [
+            {
+              objectApiName: 'OpportunityContactRole',
+              found: 1,
+              deleted: 0,
+              alreadyGone: 1,
+              keptChanged: 0,
+              refused: 0,
+              reasons: [],
+              withRemoval: 1,
+            },
+          ],
+        }}
+        org="DEV-SANDBOX"
+      />,
+    );
+    expect(screen.getByTestId('forge-sweep-result-OpportunityContactRole').textContent).toBe(
+      'OpportunityContactRole: 1 already gone · 1 of them taken along with the record of the run ' +
+        'it hung from, as the removal deleted it',
+    );
+  });
+
   it('says a refused sweep deleted nothing, and why', () => {
     render(
       <ForgeRunSweepResult

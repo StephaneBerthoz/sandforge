@@ -583,11 +583,16 @@ export const ForgeRemovalSweep: React.FC<ForgeRemovalSweepProps> = ({
 /** What became of one object's records in a sweep, the counts that are not zero. */
 function sweepParts(t: TFunction, object: ForgeSweepObjectResult): string[] {
   const after = object.afterRemoval ?? 0;
+  const along = object.withRemoval ?? 0;
   return [
     object.deleted > 0 ? counted(t, 'runRemoval.resultDeleted', object.deleted) : '',
     // Why they went last: the org refuses them while a record of the run names them.
     after > 0 ? counted(t, 'runRemoval.sweep.resultAfterRemoval', after) : '',
     object.alreadyGone > 0 ? counted(t, 'runRemoval.resultGone', object.alreadyGone) : '',
+    // Why they were gone: the removal deleted the record of the run they hung
+    // from, and the org took them along. Said "already gone" alone, a contact
+    // role made by hand read as taken by someone else.
+    along > 0 ? counted(t, 'runRemoval.sweep.resultWithRemoval', along) : '',
     object.keptChanged > 0 ? counted(t, 'runRemoval.resultChanged', object.keptChanged) : '',
     object.refused > 0 ? counted(t, 'runRemoval.resultRefused', object.refused) : '',
   ].filter(Boolean);

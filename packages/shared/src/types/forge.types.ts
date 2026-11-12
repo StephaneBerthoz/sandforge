@@ -875,10 +875,19 @@ export interface ForgeUndoObjectResult {
   /**
    * Of `keptDependents`, those held by records created under the run's own
    * during the run, as its user — likely by the target's automation — which
-   * a sweep takes first. Absent when none, and from a removal made before
-   * they were told apart.
+   * a sweep takes. Absent when none, and from a removal made before they
+   * were told apart.
    */
   heldByAutomation?: number;
+  /**
+   * Of `heldByAutomation`, those held only by records that hang from them
+   * through a relationship the org deletes along: a sweep does not delete
+   * those first, it lets them hold the run's records no more, and they go
+   * with them as the removal deletes them. The others are held by a record
+   * that restricts their delete, which a sweep deletes first. Absent when
+   * none.
+   */
+  heldByAutomationAlong?: number;
   /**
    * Of `heldByAutomation`, those held by a record created after the last
    * write of the run, or of its part that wrote them, as the org dated it:
@@ -1177,6 +1186,13 @@ export interface ForgeSweepObjectResult {
    * none waited.
    */
   afterRemoval?: number;
+  /**
+   * Of `alreadyGone`, those that hung from a record of the run through a
+   * relationship the org deletes along, which the sweep left to go with it:
+   * gone once the run's records were deleted, the org taking them along.
+   * Absent when none went so.
+   */
+  withRemoval?: number;
 }
 
 /** What a sweep of a removal did, before the run's own records went. */

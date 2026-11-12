@@ -657,6 +657,62 @@ describe('sweepRunRecords', () => {
     expect(result.status).toBe('partial');
   });
 
+  it('sends again on its own, after a wait, what the org could not lock, and says so as a removal does', async () => {
+    const org = orgAfterRun();
+    org.add('Task', onCase(1, 'Locked a moment'), onCase(2, 'Free'));
+    let locked = 1;
+    const destroy = org.destroy.bind(org);
+    org.destroy = async (objectApiName: string, ids: string[]): Promise<unknown> => {
+      const held = objectApiName === 'Task' && locked > 0 && ids.includes(id('00T', 1));
+      if (!held) return destroy(objectApiName, ids);
+      locked--;
+      const rest = ids.filter((recordId) => recordId !== id('00T', 1));
+      const answers = rest.length > 0 ? ((await destroy(objectApiName, rest)) as unknown[]) : [];
+      return ids.map((recordId) =>
+        recordId === id('00T', 1)
+          ? {
+              id: recordId,
+              success: false,
+              errors: [
+                {
+                  statusCode: 'UNABLE_TO_LOCK_ROW',
+                  message: 'unable to obtain exclusive access to this record',
+                },
+              ],
+            }
+          : answers[rest.indexOf(recordId)],
+      );
+    };
+
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const swept = sweepRunRecords(org, input(), NO_SPANS);
+      let done = false;
+      void swept.finally(() => {
+        done = true;
+      });
+      while (!done) {
+        await vi.advanceTimersByTimeAsync(1_000);
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      const result = await swept;
+
+      // Sent again, the record went: the sweep's result said nothing of it.
+      expect(org.ids('Task')).toEqual([]);
+      expect(result.objects[0]).toMatchObject({
+        found: 2,
+        deleted: 2,
+        refused: 0,
+        reasons: [
+          'The org could not lock 1 record(s) (UNABLE_TO_LOCK_ROW), each sent again up to 3 ' +
+            'times, a wait before each: 1 deleted.',
+        ],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   /** What a trap org answered every record of a delete its trigger, querying per record, refused. */
   const LIMIT = {
     statusCode: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY',

@@ -39,6 +39,29 @@ vi.mock('../../modules/forge/ForgeRunRemoval.js', async (importOriginal) => {
 vi.mock('../../core/common/sforceLimitParser.js', () => ({
   checkApiLimits: vi.fn(),
 }));
+// The real sweep, what each of its parts is handed read back by the case
+// that asks whether it spends the removal's smaller calls.
+const handed = vi.hoisted(() => ({ splittings: [] as Array<[string, unknown]> }));
+vi.mock('./removalSweep.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./removalSweep.js')>();
+  return {
+    ...actual,
+    removalSweepOf: async (request: Parameters<typeof actual.removalSweepOf>[0]) => {
+      const sweep = await actual.removalSweepOf(request);
+      const { first, afterRemoval } = sweep;
+      return Object.assign(sweep, {
+        first: (splitting?: unknown) => {
+          handed.splittings.push(['first', splitting]);
+          return first(splitting as Parameters<typeof first>[0]);
+        },
+        afterRemoval: (splitting?: unknown) => {
+          handed.splittings.push(['afterRemoval', splitting]);
+          return afterRemoval(splitting as Parameters<typeof afterRemoval>[0]);
+        },
+      });
+    },
+  };
+});
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 
@@ -415,6 +438,19 @@ describe('a sweep asked with the removal of a Frozen load', () => {
     expect(sweep).toMatchObject({ module: 'frozen', action: 'cleanup_delete' });
     expect(sweep?.details).toMatchObject({ deleted: 1, loadedAt: LAST_WRITE });
     expect(sweep?.details).not.toHaveProperty('forgeId');
+  });
+
+  it('hands both parts of the sweep the removal’s sizes and smaller calls, which they spend with it', async () => {
+    handed.splittings.length = 0;
+
+    await remove({ sweep: true });
+
+    // Handed nothing, each part kept an allowance of its own, of 2 000
+    // smaller calls more than the removal's.
+    expect(handed.splittings.map(([part]) => part)).toEqual(['first', 'afterRemoval']);
+    const [[, first], [, last]] = handed.splittings;
+    expect(first).toEqual(expect.objectContaining({ allowance: expect.anything() }));
+    expect(last).toBe(first);
   });
 
   it('removes the load’s work order though deleting the task the automation opened on it restamped it, a roll-up counting tasks', async () => {

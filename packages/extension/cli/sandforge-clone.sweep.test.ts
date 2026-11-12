@@ -1060,6 +1060,34 @@ describe('sweepLines', () => {
       '  Asset: 1 deleted (1 once the records of the run that point at them were gone) of 1',
     );
   });
+
+  it('says what it left to go with the records of the run it hung from went with them, the removal deleting those', () => {
+    // Live, a contact role made by hand under the run's contact went with the
+    // contact the removal deleted, and the sweep said "1 already gone" alone,
+    // as if someone else had taken it.
+    expect(
+      sweepLines({
+        status: 'success',
+        objects: [
+          {
+            objectApiName: 'OpportunityContactRole',
+            found: 1,
+            deleted: 0,
+            alreadyGone: 1,
+            keptChanged: 0,
+            refused: 0,
+            reasons: [],
+            withRemoval: 1,
+          },
+        ],
+        unread: [],
+        handWork: [],
+      }),
+    ).toContain(
+      '  OpportunityContactRole: 1 already gone (1 with the records of the run they hung from, ' +
+        'as the removal deleted those: the org took them along) of 1',
+    );
+  });
 });
 
 /** One object's removal, every record deleted unless said otherwise. */
@@ -1216,6 +1244,35 @@ describe('automationHeldLines', () => {
         "--remove of part 0's summary with --sweep takes them first",
     );
     expect(swept).not.toContain('the sweep left them');
+  });
+
+  it('says that a sweep lets what hangs from them through a relationship the org deletes along go with them, never that it takes it first', () => {
+    // Live, a removal said "--sweep takes them first" of a contact role made
+    // by hand under the run's contact: the sweep left it to go with the
+    // contact, which the removal deleted, and found it gone.
+    const along = held.map((object) => ({
+      ...object,
+      heldByAutomationAlong: object.heldByAutomation,
+    }));
+
+    const [line] = automationHeldLines(along, {});
+
+    expect(line).toContain(
+      "(QuoteLineItem, Task): --sweep takes them with the run's records they hang from: the " +
+        'removal deletes those, and the org takes them along (--sweep-list shows them); ',
+    );
+    expect(line).not.toContain('first');
+    // Some of each: each said.
+    const some = [held[0], { ...held[1], heldByAutomationAlong: 5 }];
+    expect(automationHeldLines(some, {})[0]).toContain(
+      "--sweep takes them first, but for those under 5 of the run's records, which go with " +
+        'them: the removal deletes those, and the org takes them along (--sweep-list shows them)',
+    );
+    // Of another part's records, that part's own sweep.
+    expect(automationHeldLines(along, { inParts: true, part: 0 })[0]).toContain(
+      "--remove of part 0's summary with --sweep takes them with the run's records they hang " +
+        'from: the removal deletes those, and the org takes them along (--remove of part 0',
+    );
   });
 
   it('says why a removal that swept left them, and what takes them', () => {

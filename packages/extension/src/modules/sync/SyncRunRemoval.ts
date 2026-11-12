@@ -45,6 +45,7 @@ import {
   type SyncRunKept,
   type SyncRunRemovalState,
 } from './SyncRunCreations.js';
+import type { LimitSplitting } from '../../core/common/governorLimit.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { idLists } from '../dataops/RecordRemoval.js';
 import {
@@ -121,9 +122,10 @@ export interface SyncRunRemovalInput {
    * The sweep of what the target's automation created during the run, made
    * once the removal has read the run's records and before its first delete
    * (`RunRemovalOptions.sweep`); it resolves to whether it deleted anything.
-   * A Seed run's removal offers it, and a Sync run's.
+   * A Seed run's removal offers it, and a Sync run's. It is handed the
+   * removal's sizes and smaller calls, which it spends with the removal.
    */
-  sweep?: () => Promise<boolean>;
+  sweep?: RunRemovalOptions['sweep'];
   /**
    * The last part of a granted sweep, made once the run's records are
    * deleted: what one of them points at through a lookup the org restricts
@@ -319,7 +321,7 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
   const sweep = input.sweep;
   const beforeDeletes =
     (back.length > 0 && backups) || (bringBack.length > 0 && undelete) || sweep
-      ? async (): Promise<boolean> => {
+      ? async (splitting?: LimitSplitting): Promise<boolean> => {
           // What it deleted first: a record it wrote over may name one of them.
           if (bringBack.length > 0 && undelete) {
             // An undelete puts back the lookups the run's delete cleared, and
@@ -375,7 +377,7 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
           }
           const wroteBefore = (undeleted?.wrote ?? false) || (restored?.wrote ?? false);
           if (restored?.cancelled || input.signal?.aborted) return wroteBefore;
-          const swept = sweep ? await sweep() : false;
+          const swept = sweep ? await sweep(splitting) : false;
           return wroteBefore || swept;
         }
       : undefined;

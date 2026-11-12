@@ -5450,6 +5450,7 @@
       "staysOverBound": "1 つのオブジェクトで 10,000 件を超えるレコード: オブジェクトの名前を示し、どれも一掃しません。",
       "staysOtherMachines": "別のマシンや CI が同じ期間に書き込んだもの: 一掃はそれらの実行を確認できません。",
       "resultAfterRemoval_other": "うち {{formatted}} 件は、それを指す実行のレコードがなくなった後に削除",
+      "resultWithRemoval_other": "うち {{formatted}} 件は、ぶら下がっていた実行のレコードを削除が消した際に一緒に削除",
       "resultSuccessLeft": "一掃が対象としたものは {{org}} からなくなりました。残したものは下記のとおり残っています。",
       "leftLate_other": "遅れて作成された {{formatted}} 件のレコードが残っています ({{objects}})。",
       "leftUntied_other": "実行と結び付かない {{formatted}} 件のレコードが残っています ({{objects}})。",

@@ -5762,6 +5762,8 @@
       "staysOtherMachines": "Lo que otra máquina o una CI escribió en la misma ventana: un barrido no ve esas ejecuciones.",
       "resultAfterRemoval_one": "{{formatted}} de ellos una vez idos los registros de la ejecución que lo señalan",
       "resultAfterRemoval_other": "{{formatted}} de ellos una vez idos los registros de la ejecución que los señalan",
+      "resultWithRemoval_one": "{{formatted}} de ellos se fue con el registro de la ejecución del que dependía, al borrarlo la eliminación",
+      "resultWithRemoval_other": "{{formatted}} de ellos se fueron con los registros de la ejecución de los que dependían, al borrarlos la eliminación",
       "resultSuccessLeft": "Lo que tomó el barrido ya no está en {{org}}; lo que dejó sigue ahí, como se indica abajo.",
       "leftLate_one": "Queda {{formatted}} registro que llegó tarde ({{objects}}).",
       "leftLate_other": "Quedan {{formatted}} registros que llegaron tarde ({{objects}}).",

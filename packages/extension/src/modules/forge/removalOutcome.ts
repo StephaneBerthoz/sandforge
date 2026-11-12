@@ -209,6 +209,7 @@ export function mergedUndoObjects(
         was.heldByAutomationAfterRun,
         object.heldByAutomationAfterRun,
       ),
+      heldByAutomationAlong: sumOf(was.heldByAutomationAlong, object.heldByAutomationAlong),
       platformCopies: sumOf(was.platformCopies, object.platformCopies),
     };
     const holders = bothOf(was.automationHolders ?? [], object.automationHolders ?? []);

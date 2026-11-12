@@ -4730,6 +4730,13 @@ export function sweepUnsaid(
  * part's records, and its own sweep, looking in the resume's window, found
  * nothing.
  *
+ * What a sweep does with them is said as it does it: one that hangs from a
+ * record of the run through a relationship the org deletes along is not
+ * deleted first, it holds that record no more, and goes with it as the
+ * removal deletes it (`heldByAutomationAlong`). Live, a removal said
+ * "--sweep takes them first" of a contact role made by hand under the run's
+ * contact, which went with the contact.
+ *
  * @param asked - Whether the removal had a sweep: what it left of them, it
  *   left for a reason its listing says; whether a sweep could not tell the
  *   window the run wrote in now (`windowUntold`); whether the run was cut and
@@ -4740,7 +4747,10 @@ export function automationHeldLines(
   objects: ReadonlyArray<
     Pick<
       ForgeUndoObjectResult,
-      'heldByAutomation' | 'heldByAutomationAfterRun' | 'automationHolders'
+      | 'heldByAutomation'
+      | 'heldByAutomationAfterRun'
+      | 'heldByAutomationAlong'
+      | 'automationHolders'
     >
   >,
   asked: { sweep?: boolean; windowUntold?: boolean; inParts?: boolean; part?: number },
@@ -4751,6 +4761,11 @@ export function automationHeldLines(
     held,
     objects.reduce((sum, object) => sum + (object.heldByAutomationAfterRun ?? 0), 0),
   );
+  const along = Math.min(
+    held,
+    objects.reduce((sum, object) => sum + (object.heldByAutomationAlong ?? 0), 0),
+  );
+  const takes = sweepTakesWords(held, along);
   const holders = [...new Set(objects.flatMap((object) => object.automationHolders ?? []))];
   const named = holders.length > 0 ? ` (${someOf(holders)})` : '';
   const by = `likely by the target's automation${named}`;
@@ -4795,7 +4810,7 @@ export function automationHeldLines(
         (asked.sweep === true
           ? "this removal's sweep looked in its own part's window alone, and did not see them; "
           : "a sweep of this summary looks in its own part's window alone, and leaves them; ") +
-        `${ofPart('--sweep')} takes them first (${ofPart('--sweep-list')} shows them; ` +
+        `${ofPart('--sweep')} ${takes} (${ofPart('--sweep-list')} shows them; ` +
         `${handWork}: check the names before it), or ${byHand}`,
     ];
   }
@@ -4804,10 +4819,26 @@ export function automationHeldLines(
       ? `${what}: the sweep left them — ${sweepOptionWords('--sweep-list')} says why; ` +
         `${sweepOptionWords('--sweep-late')} takes those it lists as late, ` +
         `${ownOptionWords('--include-changed', 'removal')} those changed after the run's last write`
-      : `${what}: ${sweepOptionWords('--sweep')} takes them first ` +
+      : `${what}: ${sweepOptionWords('--sweep')} ${takes} ` +
         `(${sweepOptionWords('--sweep-list')} shows them); ${handWork}: check the names before ` +
         (relayTakes('--sweep') ? 'a --sweep' : sweepOptionWords('--sweep')),
   ];
+}
+
+/**
+ * What a sweep does with what holds `held` records of the run, `along` of
+ * them held only by records that hang from them through a relationship the
+ * org deletes along: it deletes the others first; those, it lets go with the
+ * records they hang from, which then hold nothing back.
+ */
+function sweepTakesWords(held: number, along: number): string {
+  const withThem = 'the removal deletes those, and the org takes them along';
+  if (along <= 0) return 'takes them first';
+  if (along >= held) return `takes them with the run's records they hang from: ${withThem}`;
+  return (
+    `takes them first, but for those under ${along} of the run's records, which go with ` +
+    `them: ${withThem}`
+  );
 }
 
 /** What a sweep's result calls each class of what it left. */
@@ -4833,15 +4864,18 @@ function sweepLeftLines(left: readonly ForgeSweepLeftClass[]): string[] {
 
 /**
  * What a sweep did: how it ended, per object what became of the records it
- * found — deleted, already gone, kept as changed since the run, refused with
- * the org's words — what it found and left, by class, what it could not look
- * at, and why it was refused when it was. Exported so it can be tested.
+ * found — deleted, already gone, and of those, what went with the run's
+ * records it left to go along with them, kept as changed since the run,
+ * refused with the org's words — what it found and left, by class, what it
+ * could not look at, and why it was refused when it was. Exported so it can
+ * be tested.
  */
 export function sweepLines(result: ForgeSweepResult): string[] {
   return [
     `sweep: ${result.status.toUpperCase()}`,
     ...result.objects.flatMap((object) => {
       const after = object.afterRemoval ?? 0;
+      const along = object.withRemoval ?? 0;
       const counts = [
         object.deleted > 0
           ? `${object.deleted} deleted` +
@@ -4849,7 +4883,13 @@ export function sweepLines(result: ForgeSweepResult): string[] {
               ? ` (${after} once the records of the run that point at them were gone)`
               : '')
           : '',
-        object.alreadyGone > 0 ? `${object.alreadyGone} already gone` : '',
+        object.alreadyGone > 0
+          ? `${object.alreadyGone} already gone` +
+            (along > 0
+              ? ` (${along} with the records of the run they hung from, as the removal ` +
+                'deleted those: the org took them along)'
+              : '')
+          : '',
         object.keptChanged > 0 ? `${object.keptChanged} kept, changed since the run` : '',
         object.refused > 0 ? `${object.refused} refused` : '',
       ]
@@ -5624,7 +5664,9 @@ export function journalPartsOf(
  * lines under the opportunity the cut part wrote —, which the removal of that
  * part takes first, then what this one left. Live, removing the cut part
  * first kept seven records for the resume's, and said only that
- * `--include-changed` took them. Empty when nothing was so kept.
+ * `--include-changed` took them. Empty when nothing was so kept. The lines
+ * the platform copied onto a quote of that part count as its own, as its
+ * removal takes them (`objectsRemovedOf`).
  */
 function heldByOtherParts(
   run: Pick<RunInParts, 'parts' | 'part' | 'earlier'>,
@@ -5632,10 +5674,15 @@ function heldByOtherParts(
 ): Array<{ part: number; objects: string[] }> {
   const holders = [...new Set(objects.flatMap((o) => (o.keptDependents > 0 ? o.heldBy : [])))];
   const asked = new Set(run.earlier?.partsRemoved ?? []);
+  const objectsOf = (part: RunPart): string[] =>
+    stillLeft(part.created, run.earlier?.removalLeft).map((o) => o.objectApiName);
   return run.parts.flatMap((part) => {
     if (part.part === run.part || asked.has(part.part)) return [];
     const wrote = new Set(
-      stillLeft(part.created, run.earlier?.removalLeft).map((o) => o.objectApiName),
+      objectsRemovedOf(
+        objectsOf(part),
+        run.parts.flatMap((other) => (other.part === part.part ? [] : objectsOf(other))),
+      ),
     );
     const held = holders.filter((object) => wrote.has(object));
     return held.length > 0 ? [{ part: part.part, objects: held }] : [];
@@ -5683,6 +5730,28 @@ export function otherPartsOf(
       },
     ];
   });
+}
+
+/**
+ * The objects of what the run's other parts left in the org, beside the
+ * summary's part: an opportunity among them may sync with a quote of this
+ * part, whose lines the platform copied, and the removal takes those copies
+ * on an object the part never wrote (`objectsRemovedOf`). None for the
+ * journal's own removal, whose plan holds every part, or a run of one part.
+ */
+function otherPartObjectsOf(
+  run: Pick<RunInParts, 'parts' | 'earlier' | 'part'> | undefined,
+): string[] {
+  if (run?.part === undefined) return [];
+  return [
+    ...new Set(
+      run.parts.flatMap((other) =>
+        other.part === run.part
+          ? []
+          : stillLeft(other.created, run.earlier?.removalLeft).map((o) => o.objectApiName),
+      ),
+    ),
+  ];
 }
 
 /**
@@ -6363,7 +6432,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         ),
       ),
     ];
-    const removed = [...new Set([...objectsRemovedOf(runObjects), ...swept])];
+    const removed = [
+      ...new Set([...objectsRemovedOf(runObjects, otherPartObjectsOf(ofTheRun)), ...swept]),
+    ];
     const drafted = setBackToDraftOf(runObjects);
     const read = await targetAutomationReader(conn).read(args.target, removed);
     say('');
@@ -6934,7 +7005,9 @@ async function previewRemoval(
     ),
   ];
   const swept = sweepListing ? sweepTakenObjects(sweepListing, args) : [];
-  const removed = [...new Set([...objectsRemovedOf(runObjects), ...swept])];
+  const removed = [
+    ...new Set([...objectsRemovedOf(runObjects, otherPartObjectsOf(ofTheRun)), ...swept]),
+  ];
   const drafted = setBackToDraftOf(runObjects);
   const automation = await targetAutomationReader(conn).read(args.target, removed);
   say('');
@@ -6981,6 +7054,21 @@ async function previewRemoval(
   const firstPart = ofTheRun?.part ?? first?.part.part;
   const laterParts =
     runParts && firstPart !== undefined ? laterPartsOf(runParts.parts, firstPart) : [];
+  // The run's other parts, as the removal hands them over: the opportunity
+  // whose quote a part synced may be another's, and the lines the platform
+  // copied onto that quote are counted then, as the removal takes them.
+  // Live, the resume's preview had none, and its removal deleted them.
+  const alongside =
+    runParts && firstPart !== undefined
+      ? otherPartsOf(runParts, firstPart, earlier?.removalStamps ?? {})
+      : [];
+  const takenByPart = [
+    ...(firstPart !== undefined ? [{ part: firstPart, plan: first ? first.plan : plan }] : []),
+    ...[...partsBefore, ...leftByOtherParts].map((left) => ({
+      part: left.part.part,
+      plan: left.plan,
+    })),
+  ];
   try {
     outcome = await removeRunRecords(
       removalOrg(conn, 'sandforge-clone --remove --preview'),
@@ -6991,6 +7079,7 @@ async function previewRemoval(
           ? { removalStamps: earlier.removalStamps, removalSpans: earlier.removalSpans }
           : {}),
         ...(laterParts.length > 0 ? { laterParts } : {}),
+        ...(alongside.length > 0 ? { otherParts: alongside.map((other) => other.alongside) } : {}),
         includeChanged: args.includeChanged,
         previewOnly: true,
         signal: stop.signal,
@@ -7007,6 +7096,9 @@ async function previewRemoval(
             ? { removalStamps: earlier.removalStamps, removalSpans: earlier.removalSpans }
             : {}),
           ...(later.length > 0 ? { laterParts: later } : {}),
+          otherPartRecords: takenByPart.flatMap((taken) =>
+            taken.part === part.part ? [] : taken.plan,
+          ),
           includeChanged: args.includeChanged,
           previewOnly: true,
           signal: stop.signal,

@@ -4868,8 +4868,10 @@ export class FrozenDatasetHandler implements DomainHandler {
               ...removalSpanOf(load),
               ...(sweepParts
                 ? {
-                    sweep: () => inTurn((one) => one.first()),
-                    afterRemoval: () => inTurn((one) => one.afterRemoval()),
+                    // The removal's sizes and smaller calls, which every
+                    // sweep spends with it.
+                    sweep: (splitting) => inTurn((one) => one.first(splitting)),
+                    afterRemoval: (splitting) => inTurn((one) => one.afterRemoval(splitting)),
                     // The other loads' records all went: what their sweeps
                     // take holds none of this one's back.
                     automationMade: sweepParts.automationMade,

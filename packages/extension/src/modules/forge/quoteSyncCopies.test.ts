@@ -259,6 +259,50 @@ class LinesOrg {
 
 const RUN_OBJECTS = new Set(['Opportunity', 'Quote', 'OpportunityLineItem', 'QuoteLineItem']);
 
+describe('quoteSyncCopiesAmong, of one part of a run cut and taken up', () => {
+  /** The resume: the quote and its lines, the opportunity the cut part's. */
+  const resume = (otherParts?: QuoteSyncRun['otherParts']): QuoteSyncRun => {
+    const keys = new Set(
+      [QUOTE, ...LINE_ITEMS, ...RUN_QUOTE_LINES].map((recordId) => recordId.slice(0, 15)),
+    );
+    return { ...runOf({ has: (key) => keys.has(key) }), ...(otherParts ? { otherParts } : {}) };
+  };
+  const cutPart = {
+    has: (key: string) => key === OPPORTUNITY.slice(0, 15),
+    objects: new Set(['Account', 'Opportunity']),
+  };
+
+  it('tells the copies of its lines under its quote, the opportunity that syncs with it another part’s', () => {
+    expect(quoteSyncCopiesAmong(reading(), resume(cutPart))).toEqual([
+      {
+        objectApiName: 'QuoteLineItem',
+        copies: COPIES.map((copy) => ({ id: copy, modified: Date.parse(LINE_ITEMS_WRITTEN) })),
+      },
+    ]);
+    // Told against the part's own records alone, none: live, the resume's
+    // removal took them uncounted.
+    expect(quoteSyncCopiesAmong(reading(), resume())).toEqual([]);
+  });
+
+  it('takes no record of another part for a copy', () => {
+    const theirs = { has: (key: string) => key === COPIES[0].slice(0, 15) || cutPart.has(key) };
+
+    const copies = quoteSyncCopiesAmong(reading(), resume({ ...cutPart, ...theirs }));
+
+    expect(copies.flatMap((object) => object.copies.map((copy) => copy.id))).toEqual([COPIES[1]]);
+  });
+
+  it('reads the lines of a part without an opportunity when another part wrote one', async () => {
+    const org = new LinesOrg(reading());
+    const objects = new Set(['Quote', 'OpportunityLineItem']);
+
+    expect(await quoteSyncCopiesOf(org, resume(), [QUOTE], objects)).toEqual([]);
+    expect(org.queries).toEqual([]);
+    const copies = await quoteSyncCopiesOf(org, resume(cutPart), [QUOTE], objects);
+    expect(copies.flatMap((object) => object.copies.map((copy) => copy.id))).toEqual(COPIES);
+  });
+});
+
 describe('quoteSyncCopiesOf', () => {
   it('reads the syncing opportunities by the run quotes, then the lines under them', async () => {
     const org = new LinesOrg(reading());
@@ -331,6 +375,15 @@ describe('quoteSyncCopyObjectsOf', () => {
     expect(quoteSyncCopyObjectsOf(new Set(['Opportunity', 'Quote', 'QuoteLineItem']))).toEqual([
       'OpportunityLineItem',
     ]);
+  });
+
+  it('names the quote lines for a part that wrote a quote and line items, another part its opportunity', () => {
+    expect(quoteSyncCopyObjectsOf(['Quote', 'OpportunityLineItem'], ['Opportunity'])).toEqual([
+      'QuoteLineItem',
+    ]);
+    expect(quoteSyncCopyObjectsOf(['Quote', 'OpportunityLineItem'])).toEqual([]);
+    // Its quote another part's, no copy of its lines is its removal's.
+    expect(quoteSyncCopyObjectsOf(['OpportunityLineItem'], ['Opportunity', 'Quote'])).toEqual([]);
   });
 
   it('names nothing for a run whose plan holds both lines, neither, or no quote and opportunity', () => {

@@ -1843,6 +1843,7 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
           heldBy: string[];
           heldByAutomation?: number;
           heldByAutomationAfterRun?: number;
+          heldByAutomationAlong?: number;
           automationHolders?: string[];
           platformCopies?: number;
           unchecked: string[];

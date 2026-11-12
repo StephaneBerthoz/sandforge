@@ -75,6 +75,7 @@ import { limitSplitting, type LimitSplitting } from '../../core/common/governorL
 import { readOtherColumns, wideStatement } from '../../core/common/wideRead.js';
 import { emptyCounts } from '../audit/auditTrail.js';
 import type { CompositeReader } from '../checkpoint/compositeQueries.js';
+import { lockResendNote } from '../../core/removal/deleteRecords.js';
 import { describedObjectSchema, type DescribedObject } from '../dataops/DataQualityScanner.js';
 import { idLists, readRecordsById, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import {
@@ -1556,6 +1557,17 @@ interface ObjectSweep {
   limited: Set<string>;
   /** The records that wait for the run's own: under them in cascade, or pointed at by them. */
   later: string[];
+  /**
+   * Of `later`, those under them in cascade: the org takes them along as the
+   * removal deletes the run's records, and the sweep finds them gone.
+   */
+  along: Set<string>;
+  /**
+   * The records the org could not lock, sent again (`DeleteOutcome.lockResends`),
+   * by id, with what their last answer was: what the object's result says of
+   * them (`lockResendNote`), as a removal's says it.
+   */
+  lockResent: Map<string, DeleteOutcome['kind']>;
 }
 
 /**
@@ -1671,6 +1683,16 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
     handWork: [],
   };
 
+  /**
+   * Count a record found gone at its delete, and apart, one the sweep left to
+   * go in cascade with a record of the run: live, a contact role made by hand
+   * went with the run's contact the removal deleted, and the sweep said
+   * "1 already gone", as if someone else had taken it.
+   */
+  const goneAlready = (sweep: ObjectSweep, id: string): void => {
+    sweep.result.alreadyGone++;
+    if (sweep.along.has(id)) sweep.result.withRemoval = (sweep.result.withRemoval ?? 0) + 1;
+  };
   const settle = (
     sweep: ObjectSweep,
     batch: readonly string[],
@@ -1678,6 +1700,9 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
   ): void => {
     batch.forEach((id, index) => {
       const outcome = outcomes[index];
+      if (outcome.lockResends !== undefined || sweep.lockResent.has(id)) {
+        sweep.lockResent.set(id, outcome.kind);
+      }
       if (outcome.kind === 'refused') {
         sweep.refused.set(id, outcome.reason);
         if (outcome.limit) sweep.limited.add(id);
@@ -1687,7 +1712,7 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       sweep.limited.delete(id);
       gone.add(id);
       if (outcome.kind === 'deleted') sweep.result.deleted++;
-      else sweep.result.alreadyGone++;
+      else goneAlready(sweep, id);
     });
   };
   /** Delete `ids` of one object, a call at a time; false when a stop came first. */
@@ -1868,6 +1893,8 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
           refused: new Map(),
           limited: new Set(),
           later: [],
+          along: new Set(),
+          lockResent: new Map(),
         };
         sweeps.push(sweep);
         const before: string[] = [];
@@ -1879,6 +1906,7 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
           automationMade.add(row.id);
           if (row.turn === 'before') before.push(row.id);
           else sweep.later.push(row.id);
+          if (row.turn === 'with') sweep.along.add(row.id);
         }
         now.push([sweep, before]);
       }
@@ -1931,7 +1959,8 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
         );
         for (const id of seen) {
           sweep.refused.delete(id);
-          sweep.result.alreadyGone++;
+          if (sweep.lockResent.has(id)) sweep.lockResent.set(id, 'gone');
+          goneAlready(sweep, id);
           gone.add(id);
         }
       }
@@ -1947,10 +1976,16 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       if (state === 'new' || state === 'asked') {
         return { status: 'cancelled', objects: [], ...base };
       }
-      const objects = sweeps.map(({ result, refused }) => {
+      const objects = sweeps.map(({ result, refused, lockResent }) => {
         result.refused = refused.size;
         result.reasons = [
-          ...new Set([...deleteLimitNotes(result.objectApiName, splitting), ...refused.values()]),
+          ...new Set([
+            ...deleteLimitNotes(result.objectApiName, splitting),
+            // Sent again after a wait, a record the org could not lock was
+            // said only once it was refused for good.
+            ...lockResendNote(lockResent.values()),
+            ...refused.values(),
+          ]),
         ].slice(0, REASON_LIMIT);
         return result;
       });

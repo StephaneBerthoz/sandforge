@@ -753,14 +753,17 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     const resumedLines = [...stderr];
 
     // The cut part's removal: its own contact, held by the role, which its
-    // sweep — a minute past its last write — would take as the automation's.
+    // sweep — a minute past its last write — would take as the automation's,
+    // the role going with the contact: live, it said "--sweep takes them
+    // first", and the sweep found the role gone with the contact.
     expect(cutLines).toContain(
       '1 record(s) of the run kept for records created under them as its user after the last ' +
         "write of the run's part that wrote them, within a minute of them, by the target's " +
-        'automation or by hand (OpportunityContactRole): --sweep takes them first (--sweep-list ' +
-        "shows them); a record made by hand as the run's user under the run's records within a " +
-        "minute of them reads as the automation's, and one changed by hand before the run's " +
-        'last write as unchanged: check the names before a --sweep',
+        "automation or by hand (OpportunityContactRole): --sweep takes them with the run's " +
+        'records they hang from: the removal deletes those, and the org takes them along ' +
+        "(--sweep-list shows them); a record made by hand as the run's user under the run's " +
+        "records within a minute of them reads as the automation's, and one changed by hand " +
+        "before the run's last write as unchanged: check the names before a --sweep",
     );
     // The resume's removal took up the cut part's records the first left: the
     // role holds them, and the resume's sweep, looking in the resume's
@@ -771,15 +774,17 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
         "them as its user after that part's last write, within a minute of them, by the " +
         "target's automation or by hand (OpportunityContactRole): a sweep of this summary looks " +
         "in its own part's window alone, and leaves them; --remove of part 0's summary with " +
-        "--sweep takes them first (--remove of part 0's summary with --sweep-list shows them; a " +
-        "record made by hand as the run's user under the run's records within a minute of them " +
-        "reads as the automation's, and one changed by hand before the run's last write as " +
-        'unchanged: check the names before it), or delete them by hand, then remove the run ' +
+        "--sweep takes them with the run's records they hang from: the removal deletes those, " +
+        "and the org takes them along (--remove of part 0's summary with --sweep-list shows " +
+        "them; a record made by hand as the run's user under the run's records within a minute " +
+        "of them reads as the automation's, and one changed by hand before the run's last " +
+        'write as unchanged: check the names before it), or delete them by hand, then remove the run ' +
         'again; --preview says what of it their delete leaves changed since, which ' +
         '--include-changed takes',
     );
     expect(resumedLines.join('\n')).not.toContain('during the run');
-    expect(resumedLines.join('\n')).not.toMatch(/: --sweep takes them first/);
+    expect(resumedLines.join('\n')).not.toMatch(/: --sweep takes them/);
+    expect(resumedLines.join('\n')).not.toContain('takes them first');
   });
 
   it('the cut part, the resume having written under its opportunity within the minute: the resume’s records hold it as the run’s, not as what a sweep takes, and the line counts the contact the hand-made role holds', async () => {
@@ -808,6 +813,8 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
       heldBy: ['OpportunityContactRole'],
       heldByAutomation: 1,
       heldByAutomationAfterRun: 1,
+      // The role hangs from the contact through a lookup the org deletes along.
+      heldByAutomationAlong: 1,
       automationHolders: ['OpportunityContactRole'],
     });
     expect(cut.result).toMatchObject({
@@ -816,10 +823,11 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     expect(cutLines).toContain(
       '1 record(s) of the run kept for records created under them as its user after the last ' +
         "write of the run's part that wrote them, within a minute of them, by the target's " +
-        'automation or by hand (OpportunityContactRole): --sweep takes them first (--sweep-list ' +
-        "shows them); a record made by hand as the run's user under the run's records within a " +
-        "minute of them reads as the automation's, and one changed by hand before the run's " +
-        'last write as unchanged: check the names before a --sweep',
+        "automation or by hand (OpportunityContactRole): --sweep takes them with the run's " +
+        'records they hang from: the removal deletes those, and the org takes them along ' +
+        "(--sweep-list shows them); a record made by hand as the run's user under the run's " +
+        "records within a minute of them reads as the automation's, and one changed by hand " +
+        "before the run's last write as unchanged: check the names before a --sweep",
     );
   });
 
@@ -959,6 +967,28 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     expect(stderr).toContain(LEAVES_THE_RESUME_AND_COPY);
   });
 
+  it('the cut part, the resume within the minute: the line the platform copied under the resume’s quote, holding the cut part’s product by its restricted lookup alone, holds it as the resume’s, never as what a sweep takes', async () => {
+    // The cut part's sweep reads the copy as the resume's, hanging from its
+    // quote; its removal read it as the target's automation's, which a sweep
+    // takes first. On the gate's target the resume's price held the product
+    // too, which hid it; here only the copy names the product.
+    const { s1 } = theRun(at('10:00:03'), 70, true);
+    for (const line of org.all('OpportunityLineItem')) delete line.Product2Id;
+
+    stderr = [];
+    const cut = await remove(s1, at('10:05:00'));
+
+    const product = cut.result.objects.find((o) => o.objectApiName === 'Product2');
+    expect(product).toMatchObject({ keptDependents: 1, heldBy: ['QuoteLineItem'] });
+    expect(product).not.toHaveProperty('heldByAutomation');
+    expect(product).not.toHaveProperty('automationHolders');
+    expect(cut.result).toMatchObject({
+      heldByOtherParts: [{ part: 1, objects: ['QuoteLineItem', 'OpportunityLineItem', 'Quote'] }],
+    });
+    expect(stderr.join('\n')).not.toContain('kept for records created under them');
+    expect(org.all('QuoteLineItem').map((r) => r.Id)).toEqual([QUOTE_LINE_COPY]);
+  });
+
   it('the cut part’s --sweep --sweep-late, the resume within the minute: deletes neither the platform’s copy of the resume’s line nor that line, which the resume’s removal takes', async () => {
     const { s1, s2 } = theRun(at('10:00:03'), 70, true);
 
@@ -968,6 +998,34 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     const resumed = await remove(s2, at('10:08:00'));
     expect(resumed.result.status).toBe('success');
     expect(left()).toEqual({});
+  });
+
+  it('the cut part’s --sweep, the resume within the minute: the contact role made by hand goes with the contact, and the sweep says the removal’s delete took it, not someone else', async () => {
+    // The gate's real sweep: "OpportunityContactRole: found 1, deleted 0,
+    // alreadyGone 1", the role gone in cascade with the contact the removal
+    // deleted, the same second, and nothing said so.
+    const { s1 } = theRun(at('10:00:03'), 70);
+    roleMadeByHandAfterTheCut();
+
+    setClock(at('10:05:00'));
+    stdout = [];
+    await run(['--remove', s1, '--target', 'TGT', '--json', '--sweep']);
+    const { result } = JSON.parse(stdout.join('')) as {
+      result: { sweep: { status: string; objects: unknown[] } };
+    };
+
+    expect(org.all('OpportunityContactRole').map((r) => r.Id)).not.toContain(HAND_ROLE);
+    expect(org.all('Contact')).toEqual([]);
+    expect(result.sweep.status).toBe('success');
+    expect(result.sweep.objects).toEqual([
+      expect.objectContaining({
+        objectApiName: 'OpportunityContactRole',
+        found: 1,
+        deleted: 0,
+        alreadyGone: 1,
+        withRemoval: 1,
+      }),
+    ]);
   });
 
   it('the cut part’s --sweep --sweep-late, the resume within the minute: deletes none of the resume’s records, which its own removal then takes', async () => {
@@ -982,6 +1040,64 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     expect(left()).toMatchObject({ Quote: 1, OpportunityLineItem: 1 });
     const resumed = await remove(s2, at('10:08:00'));
     expect(resumed.result.status).toBe('success');
+    expect(left()).toEqual({});
+  });
+
+  /** What `--remove <file> --preview --json` says at `time` of the quote lines, and how many it reads. */
+  async function quoteLinesPreviewed(file: string, time: string): Promise<unknown> {
+    setClock(time);
+    stdout = [];
+    expect(await run(['--remove', file, '--target', 'TGT', '--preview', '--json'])).toBeUndefined();
+    const answer = JSON.parse(stdout.join('')) as {
+      preview: { objects: Array<{ objectApiName: string }> };
+    };
+    return answer.preview.objects.find((o) => o.objectApiName === 'QuoteLineItem');
+  }
+
+  it('the resume first, its quote synced with the cut part’s opportunity: its preview and its result count the line the platform copied onto the quote, and what fires on quote lines is read', async () => {
+    // Live, with quote lines left out of the clone, the resume's removal said
+    // the copies were "counted apart (--preview counts them)": neither its
+    // preview nor its result had a quote line, and the copies were deleted.
+    const { s2 } = theRun(at('10:00:03'), 0, true);
+
+    expect(await quoteLinesPreviewed(s2, at('10:05:00'))).toMatchObject({
+      planned: 1,
+      platformCopies: 1,
+      toDelete: 1,
+    });
+    stderr = [];
+    const resumed = await remove(s2, at('10:05:30'));
+
+    expect(resumed.result.objects.find((o) => o.objectApiName === 'QuoteLineItem')).toMatchObject({
+      planned: 1,
+      platformCopies: 1,
+      deleted: 1,
+    });
+    expect(org.all('QuoteLineItem')).toEqual([]);
+    // Read on quote lines too, which it deletes: the resume's quote, line and
+    // the copy, never the cut part's records, which stay.
+    expect(stderr).toContain('  nothing fires on the 3 object(s) it deletes records of');
+    expect(left()).toMatchObject({ Account: 1, Contact: 1, Opportunity: 1, Product2: 1 });
+  });
+
+  it('the cut part, then the resume: the resume’s preview and result count the line the platform copied onto its quote, the cut part’s opportunity taken up with it', async () => {
+    // The gate's order: the cut part kept its opportunity, product and price
+    // book for the resume's records; the resume's removal took them up.
+    const { s1, s2 } = theRun(at('10:00:03'), 70, true);
+    await remove(s1, at('10:05:00'));
+
+    expect(await quoteLinesPreviewed(s2, at('10:06:00'))).toMatchObject({
+      planned: 1,
+      platformCopies: 1,
+    });
+    const resumed = await remove(s2, at('10:06:30'));
+
+    expect(resumed.result.status).toBe('success');
+    expect(resumed.result.objects.find((o) => o.objectApiName === 'QuoteLineItem')).toMatchObject({
+      planned: 1,
+      platformCopies: 1,
+      deleted: 1,
+    });
     expect(left()).toEqual({});
   });
 

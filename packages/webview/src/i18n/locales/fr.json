@@ -5762,6 +5762,8 @@
       "staysOtherMachines": "Ce qu'une autre machine ou une CI a écrit dans la même fenêtre : un balayage ne voit pas ces exécutions.",
       "resultAfterRemoval_one": "{{formatted}} d'entre eux une fois partis les enregistrements de l'exécution qui le désignent",
       "resultAfterRemoval_other": "{{formatted}} d'entre eux une fois partis les enregistrements de l'exécution qui les désignent",
+      "resultWithRemoval_one": "{{formatted}} d'entre eux emporté avec l'enregistrement de l'exécution dont il dépendait, quand le retrait l'a supprimé",
+      "resultWithRemoval_other": "{{formatted}} d'entre eux emportés avec les enregistrements de l'exécution dont ils dépendaient, quand le retrait les a supprimés",
       "resultSuccessLeft": "Ce que le balayage a pris a quitté {{org}} ; ce qu'il a laissé reste, comme dit ci-dessous.",
       "leftLate_one": "{{formatted}} enregistrement arrivé tard reste ({{objects}}).",
       "leftLate_other": "{{formatted}} enregistrements arrivés tard restent ({{objects}}).",

@@ -61,6 +61,7 @@ import {
   quoteSyncCopiesOf,
   quoteSyncCopyObjectsOf,
   type PlatformCopies,
+  type QuoteSyncRun,
 } from './quoteSyncCopies.js';
 import { MADE_WITHIN_MS, TIE_LEAD_MS } from './sweepTies.js';
 
@@ -805,6 +806,18 @@ function otherPartRecordsOf(
   return { has: (key) => records.some((part) => part.has(key)) };
 }
 
+/** The objects the records of `parts` and of `more` are of. */
+function otherPartObjectsOf(
+  parts: readonly RunPartAlongside[] = [],
+  more: readonly ForgeRunObjectRecords[] = [],
+): Set<string> {
+  return new Set(
+    [...parts.map(({ plan }) => (isRunRecords(plan) ? plan.objects : plan)), more]
+      .flat()
+      .map((object) => object.objectApiName),
+  );
+}
+
 /** {@link laterSpansOf}, each record's end alone. */
 function laterEndsOf(
   parts: readonly RunLaterPart[] | undefined,
@@ -1102,6 +1115,12 @@ class ObjectRemoval {
    */
   readonly automationHeldAfter = new Set<string>();
   /**
+   * Of `automationHeld`, by key, those every holder of which hangs from them
+   * through a relationship the org deletes along: see
+   * {@link ForgeUndoObjectResult.heldByAutomationAlong}.
+   */
+  readonly automationHeldAlong = new Set<string>();
+  /**
    * The records not the run's that the org took along with the ones deleted,
    * as the request included what was added or changed since the run: each by
    * its key, with its object. See {@link ForgeUndoObjectResult.tookAlong}.
@@ -1220,14 +1239,21 @@ class ObjectRemoval {
       const key = recordKey(id);
       return this.automationHeld.has(key) && this.automationHeldAfter.has(key);
     }).length;
+    const along = this.held.filter((id) => {
+      const key = recordKey(id);
+      return this.automationHeld.has(key) && this.automationHeldAlong.has(key);
+    }).length;
     if (byAutomation.length > 0) {
       this.result.heldByAutomation = byAutomation.length;
       if (after > 0) this.result.heldByAutomationAfterRun = after;
       else delete this.result.heldByAutomationAfterRun;
+      if (along > 0) this.result.heldByAutomationAlong = along;
+      else delete this.result.heldByAutomationAlong;
       this.result.automationHolders = [...new Set(byAutomation.flatMap((holders) => [...holders]))];
     } else {
       delete this.result.heldByAutomation;
       delete this.result.heldByAutomationAfterRun;
+      delete this.result.heldByAutomationAlong;
       delete this.result.automationHolders;
     }
     const reasons = [
@@ -1466,11 +1492,22 @@ export async function removeRunRecords(
   // and deleted by hand they had the quote's totals recalculated, read by the
   // next removal as a change since the run. Read with the rest, before the
   // first write, the quote they restamp is no change. A preview names them.
+  // Of a run cut and taken up, the opportunity may be another part's.
   if (stopped()) return untouched();
+  const otherPartRecords = otherPartRecordsOf(options.otherParts, options.otherPartRecords);
+  const otherPartObjects = otherPartObjectsOf(options.otherParts, options.otherPartRecords);
   const copies = await platformCopiesOf(session, records, {
     start: runStart,
     end: runEnd,
     ...(options.runUserId ? { user: recordKey(options.runUserId) } : {}),
+    ...(otherPartRecords
+      ? {
+          otherParts: {
+            has: (key: string) => otherPartRecords.has(key),
+            objects: otherPartObjects,
+          },
+        }
+      : {}),
     undeletable: undeletableNames,
     snapshots,
   });
@@ -1487,7 +1524,6 @@ export async function removeRunRecords(
   );
   // What a later part of the run wrote to a record of this one is the run's doing.
   const writtenLater = laterEndsOf(options.laterParts, clock.aheadMs);
-  const otherPartRecords = otherPartRecordsOf(options.otherParts, options.otherPartRecords);
   const changed = new Set<string>();
   for (const { objectApiName } of records.objects) {
     const snapshot = snapshots.get(objectApiName);
@@ -1548,7 +1584,7 @@ export async function removeRunRecords(
                 ...(options.laterParts
                   ? { linkedLater: laterSpansOf(options.laterParts, 'linked', clock.aheadMs) }
                   : {}),
-                ...(otherPartRecords ? { otherPartRecords } : {}),
+                ...(otherPartRecords ? { otherPartRecords, otherPartObjects } : {}),
               }),
             },
           }
@@ -1604,7 +1640,7 @@ export async function removeRunRecords(
     ...(options.laterParts
       ? { linkedLater: laterSpansOf(options.laterParts, 'linked', clock.aheadMs) }
       : {}),
-    ...(otherPartRecords ? { otherPartRecords } : {}),
+    ...(otherPartRecords ? { otherPartRecords, otherPartObjects } : {}),
   });
 
   if (stopped()) return untouched();
@@ -2184,9 +2220,16 @@ async function settleTakenAlong(
  * mute planned from it: read on the run's objects alone, a clone without
  * quote lines in its plan had its removal delete the copies the platform made
  * of its line items, the flow on quote lines never read.
+ *
+ * @param otherParts - The objects the run's other parts created records of,
+ *   for the removal of one part of a run cut and taken up: the opportunity
+ *   whose quote the part synced may be another part's.
  */
-export function objectsRemovedOf(objects: readonly string[]): string[] {
-  return [...new Set([...objects, ...quoteSyncCopyObjectsOf(objects)])];
+export function objectsRemovedOf(
+  objects: readonly string[],
+  otherParts: readonly string[] = [],
+): string[] {
+  return [...new Set([...objects, ...quoteSyncCopyObjectsOf(objects, otherParts)])];
 }
 
 /**
@@ -2443,6 +2486,8 @@ async function removeCandidates(
     else removal.automationHeld.delete(key);
     if (holders && verdict.automationAfter.has(key)) removal.automationHeldAfter.add(key);
     else removal.automationHeldAfter.delete(key);
+    if (holders && verdict.automationAlong.has(key)) removal.automationHeldAlong.add(key);
+    else removal.automationHeldAlong.delete(key);
   }
   hooks.onHeld?.(heldNow.length);
 
@@ -2576,6 +2621,8 @@ interface CopiesReading {
   end: number;
   /** The key of the user the run wrote as, where it kept it. */
   user?: string;
+  /** The records of the run's other parts, and their objects: see {@link QuoteSyncRun.otherParts}. */
+  otherParts?: QuoteSyncRun['otherParts'];
   /** The objects of the plan whose records the user may not delete. */
   undeletable: ReadonlySet<string>;
   /** What the removal read of the run's records, per object. */
@@ -2606,6 +2653,7 @@ async function platformCopiesOf(
       start: reading.start,
       end: reading.end,
       ...(reading.user !== undefined ? { user: reading.user } : {}),
+      ...(reading.otherParts ? { otherParts: reading.otherParts } : {}),
     },
     quotes,
     objects,
@@ -2883,6 +2931,8 @@ interface DependentsContext {
    * leaves what the run's id map holds.
    */
   otherPartRecords?: RecordKeys;
+  /** The objects of {@link otherPartRecords}. */
+  otherPartObjects?: ReadonlySet<string>;
   /**
    * Whether the check reads for a preview, nothing deleted nor set to Draft
    * yet: the rows a record past Draft locks under it are not held, as a
@@ -2932,6 +2982,12 @@ interface HeldVerdict {
    */
   automationAfter: Set<string>;
   /**
+   * Of `byAutomation`, the keys of those every holder of which hangs from
+   * them through a relationship the org deletes along: a sweep lets those go
+   * with them, rather than delete them first.
+   */
+  automationAlong: Set<string>;
+  /**
    * By the key of a record about to go, the records not the run's that the
    * org would take along with it only because the request includes what was
    * added or changed since the run: each by its key, with its object.
@@ -2975,6 +3031,12 @@ interface AutomationHolder {
   created: number;
   /** The key of who created it. */
   creator: string;
+  /**
+   * Whether it hangs from that record through a relationship the org deletes
+   * along: a sweep that takes it lets it go with that record. Otherwise it
+   * restricts that record's delete, and a sweep deletes it first.
+   */
+  along: boolean;
 }
 
 /** A file attached to a record: its document's key, and its title or its id. */
@@ -3020,6 +3082,12 @@ class DependentsCheck {
    * keep: the ones before it named a column it does not have.
    */
   private readonly datesKept = new Map<string, number>();
+  /**
+   * Per dependent object, its lookups to the objects of the run's other
+   * parts that the org deletes along: read once, from those objects'
+   * describes ({@link ofOtherParts}).
+   */
+  private readonly cascadeEnds = new Map<string, Promise<string[]>>();
 
   constructor(
     private readonly org: RemovalOrg,
@@ -3058,6 +3126,7 @@ class DependentsCheck {
       otherwise: new Set(),
       byAutomation: new Map(),
       automationAfter: new Set(),
+      automationAlong: new Set(),
       along: new Map(),
       unchecked: new Set(),
     };
@@ -3160,6 +3229,7 @@ class DependentsCheck {
     );
     verdict.byAutomation = byAutomation.objects;
     verdict.automationAfter = byAutomation.after;
+    verdict.automationAlong = byAutomation.along;
     return verdict;
   }
 
@@ -3233,18 +3303,26 @@ class DependentsCheck {
    * the removal of a cut part's summary said a contact role made by hand five
    * seconds after the part's last write was created "during the run".
    *
+   * Of those, the ones every holder of which hangs from them through a
+   * relationship the org deletes along are said apart too: a sweep does not
+   * delete those first, it lets them go with the record they hold. Live, a
+   * removal said "--sweep takes them first" of a contact role made by hand
+   * under the run's contact; the sweep left it to go with the contact, and
+   * found it gone.
+   *
    * @returns The objects of their holders, by the key of each record held,
-   *   and the keys of those held by a record created after the run's end.
+   *   the keys of those held by a record created after the run's end, and
+   *   the keys of those held only by records that go along with them.
    */
   private async byAutomationOnly(
     objectApiName: string,
     holders: readonly AutomationHolder[],
     otherwise: ReadonlySet<string>,
-  ): Promise<{ objects: Map<string, Set<string>>; after: Set<string> }> {
+  ): Promise<{ objects: Map<string, Set<string>>; after: Set<string>; along: Set<string> }> {
     const byAutomation = new Map<string, Set<string>>();
     const after = new Set<string>();
     const pending = holders.filter((holder) => !otherwise.has(recordKey(holder.parent)));
-    if (pending.length === 0) return { objects: byAutomation, after };
+    if (pending.length === 0) return { objects: byAutomation, after, along: new Set() };
     let anchors: Map<string, Record<string, unknown>>;
     try {
       const rows = await readRecordsById(
@@ -3257,10 +3335,12 @@ class DependentsCheck {
         rows.flatMap((row) => (typeof row.Id === 'string' ? [[recordKey(row.Id), row]] : [])),
       );
     } catch {
-      return { objects: byAutomation, after };
+      return { objects: byAutomation, after, along: new Set() };
     }
     /** Keys of the records one of whose holders is not the automation's after all. */
     const notOnly = new Set<string>();
+    /** Keys of the records one of whose holders restricts their delete. */
+    const notAlong = new Set<string>();
     for (const holder of pending) {
       const key = recordKey(holder.parent);
       const anchor = anchors.get(key);
@@ -3283,12 +3363,14 @@ class DependentsCheck {
       objects.add(holder.object);
       byAutomation.set(key, objects);
       if (holder.created > this.context.runEnd) after.add(key);
+      if (!holder.along) notAlong.add(key);
     }
     for (const key of notOnly) {
       byAutomation.delete(key);
       after.delete(key);
     }
-    return { objects: byAutomation, after };
+    const along = new Set([...byAutomation.keys()].filter((key) => !notAlong.has(key)));
+    return { objects: byAutomation, after, along };
   }
 
   /**
@@ -3385,6 +3467,8 @@ class DependentsCheck {
       const automation: AutomationHolder[] = [];
       const along: Array<{ parent: string; key: string }> = [];
       const goes: Array<{ parent: string; id: string }> = [];
+      /** Of `automation`, by its own id, what holds through a restricted lookup. */
+      const restrictedBy = new Map<string, AutomationHolder>();
       for (const record of answer.records) {
         if (typeof record !== 'object' || record === null) continue;
         const row = record as Record<string, unknown>;
@@ -3402,8 +3486,19 @@ class DependentsCheck {
           continue;
         }
         const made = this.mayBeAutomation(row);
-        if (made) automation.push({ parent, object: child, ...made });
-        else holding.add(recordKey(parent));
+        if (made) {
+          const holder = { parent, object: child, along: !relationship.restricted, ...made };
+          automation.push(holder);
+          if (relationship.restricted) restrictedBy.set(row.Id, holder);
+        } else holding.add(recordKey(parent));
+      }
+      // One that holds through a restricted lookup alone, and hangs in
+      // cascade from a record of another part of the run, is that part's.
+      const theirs = await this.ofOtherParts(child, [...restrictedBy.keys()]);
+      for (const [id, holder] of restrictedBy) {
+        if (!theirs.has(recordKey(id))) continue;
+        automation.splice(automation.indexOf(holder), 1);
+        holding.add(recordKey(holder.parent));
       }
       return { holding, automation, along, goes, unchecked: false };
     }
@@ -3433,6 +3528,60 @@ class DependentsCheck {
       automationMade?.has(key) !== true &&
       goesWithParent?.(row, runEnd) !== true
     );
+  }
+
+  /**
+   * Of the records `ids` of `child`, by key, those that hang through a
+   * relationship the org deletes along from a record of another part of the
+   * run, and from none of the part removed: that part's, held for its
+   * removal, as a sweep of the part removed reads them — never what the
+   * target's automation made for the run, which a sweep takes first. The line
+   * the platform copied under the resume's synced quote holds the cut part's
+   * product by its restricted lookup alone: the cut part's sweep, live, left
+   * it as the resume's, and its removal read it as the automation's. Read
+   * only for a removal of one part, and only those records; a read that
+   * fails tells none.
+   */
+  private async ofOtherParts(child: string, ids: readonly string[]): Promise<Set<string>> {
+    const theirs = new Set<string>();
+    const { otherPartRecords, otherPartObjects, runRecords } = this.context;
+    if (ids.length === 0 || !otherPartRecords || !otherPartObjects) return theirs;
+    let ends = this.cascadeEnds.get(child);
+    if (!ends) {
+      ends = (async () => {
+        const fields = new Set<string>();
+        for (const parent of otherPartObjects) {
+          try {
+            const described = describedObjectSchema.parse(await this.org.describe(parent));
+            for (const r of described.childRelationships ?? []) {
+              if (r.childSObject === child && r.cascadeDelete === true) fields.add(r.field);
+            }
+          } catch {
+            // Not described: no lookup to it is told.
+          }
+        }
+        return [...fields];
+      })();
+      this.cascadeEnds.set(child, ends);
+    }
+    const fields = await ends;
+    if (fields.length === 0) return theirs;
+    let rows: Array<Record<string, unknown>>;
+    try {
+      rows = await readRecordsById(this.org, child, fields, ids);
+    } catch {
+      return theirs;
+    }
+    for (const row of rows) {
+      if (typeof row.Id !== 'string') continue;
+      const named = fields.flatMap((name) => {
+        const value = row[name];
+        return typeof value === 'string' ? [recordKey(value)] : [];
+      });
+      if (named.some((key) => runRecords.has(key))) continue;
+      if (named.some((key) => otherPartRecords.has(key))) theirs.add(recordKey(row.Id));
+    }
+    return theirs;
   }
 
   /**

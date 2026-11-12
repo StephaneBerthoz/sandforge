@@ -5762,6 +5762,8 @@
       "staysOtherMachines": "O que outra máquina ou uma CI gravou na mesma janela: uma varredura não vê essas execuções.",
       "resultAfterRemoval_one": "{{formatted}} deles depois que os registros da execução que apontam para ele saíram",
       "resultAfterRemoval_other": "{{formatted}} deles depois que os registros da execução que apontam para eles saíram",
+      "resultWithRemoval_one": "{{formatted}} deles levado junto com o registro da execução do qual dependia, quando a remoção o excluiu",
+      "resultWithRemoval_other": "{{formatted}} deles levados junto com os registros da execução dos quais dependiam, quando a remoção os excluiu",
       "resultSuccessLeft": "O que a varredura pegou saiu de {{org}}; o que ela deixou continua lá, como dito abaixo.",
       "leftLate_one": "{{formatted}} registro que chegou tarde ficou ({{objects}}).",
       "leftLate_other": "{{formatted}} registros que chegaram tarde ficaram ({{objects}}).",
