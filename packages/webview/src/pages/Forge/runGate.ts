@@ -23,11 +23,19 @@ export interface ForgeRunGateState {
   checkpointAsked: boolean;
   /** What became of a checkpoint the run had taken when it stopped, when its error says. */
   checkpoint: RunCheckpointInfo | undefined;
-  /** Keep why a run stopped at its gate. */
+  /**
+   * Whether the notice has been brought into view and handed the keyboard
+   * for this stop. Once per stop: the page drawn again with the same stop —
+   * left and come back to — does not scroll to it again.
+   */
+  revealed: boolean;
+  /** Keep why a run stopped at its gate, yet to be brought into view. */
   setStop: (
     stop: ForgeRunGateStop,
     run?: { checkpointAsked: boolean; checkpoint?: RunCheckpointInfo | undefined },
   ) => void;
+  /** Say the notice of this stop has been brought into view. */
+  markRevealed: () => void;
   /** Forget it: a run starts, or the notice is dismissed. */
   clear: () => void;
 }
@@ -37,15 +45,20 @@ export const useForgeRunGateStore = create<ForgeRunGateState>((set) => ({
   stop: null,
   checkpointAsked: false,
   checkpoint: undefined,
+  revealed: false,
   setStop(stop, run) {
     set({
       stop,
       checkpointAsked: run?.checkpointAsked ?? false,
       checkpoint: run?.checkpoint,
+      revealed: false,
     });
   },
+  markRevealed() {
+    set({ revealed: true });
+  },
   clear() {
-    set({ stop: null, checkpointAsked: false, checkpoint: undefined });
+    set({ stop: null, checkpointAsked: false, checkpoint: undefined, revealed: false });
   },
 }));
 

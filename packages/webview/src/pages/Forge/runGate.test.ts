@@ -258,3 +258,37 @@ describe('a retry stopped at its gate', () => {
     });
   });
 });
+
+describe('the notice of a stop, brought into view once', () => {
+  beforeEach(() => {
+    useForgeRunGateStore.getState().clear();
+  });
+
+  it('is yet to be brought into view when a run stops, and stays shown once it was', () => {
+    useForgeRunGateStore
+      .getState()
+      .setStop({ code: 'API_BUDGET_EXCEEDED' }, { checkpointAsked: true });
+    expect(useForgeRunGateStore.getState().revealed).toBe(false);
+
+    useForgeRunGateStore.getState().markRevealed();
+
+    expect(useForgeRunGateStore.getState()).toMatchObject({
+      stop: { code: 'API_BUDGET_EXCEEDED' },
+      checkpointAsked: true,
+      revealed: true,
+    });
+  });
+
+  it('is to be brought into view again for the next stop, and forgotten with the stop', () => {
+    useForgeRunGateStore.getState().setStop({ code: 'WRITE_DECLINED' });
+    useForgeRunGateStore.getState().markRevealed();
+
+    useForgeRunGateStore.getState().clear();
+    expect(useForgeRunGateStore.getState()).toMatchObject({ stop: null, revealed: false });
+
+    useForgeRunGateStore.getState().setStop({ code: 'WRITE_DECLINED' });
+    useForgeRunGateStore.getState().markRevealed();
+    useForgeRunGateStore.getState().setStop({ code: 'PRODUCTION_TARGET' });
+    expect(useForgeRunGateStore.getState().revealed).toBe(false);
+  });
+});

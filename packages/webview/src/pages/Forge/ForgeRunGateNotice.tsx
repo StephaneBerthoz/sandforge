@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useReducedMotion } from 'framer-motion';
 import { ShieldAlert, X } from 'lucide-react';
 import {
   FORGE_READ_CEILING_PER_OBJECT,
@@ -55,6 +56,18 @@ function sentenceOf(stop: ForgeRunGateStop, checkpointAsked: boolean): string {
  * target, rows the target has no storage left for — or cancelled at a
  * question. Nothing was written either way. Shown until the next run starts
  * or it is dismissed.
+ *
+ * Brought into view and handed the keyboard once per stop. The page comes
+ * back as far down as the execution screen was: followed down while the run
+ * read and asked its questions, or, once that screen's step had loaded, kept
+ * as far down as Review was when Execute was pressed at its foot. In a panel
+ * too narrow for Review's run column, the notice at the head of the rows was
+ * then above the fold, nothing changed where the user looked, and the
+ * keyboard on the step around it. The scroll is smooth unless the system
+ * asks for reduced motion — the stylesheet's rule for it does not stop a
+ * smooth scroll asked for in code — and the focus is taken only when it is
+ * free: nowhere, or within the page, as the phase group the page hands it to
+ * on each phase. A control elsewhere keeps it.
  */
 export const ForgeRunGateNotice: React.FC = () => {
   const { t } = useTranslation();
@@ -62,15 +75,47 @@ export const ForgeRunGateNotice: React.FC = () => {
   const checkpointAsked = useForgeRunGateStore((s) => s.checkpointAsked);
   const checkpoint = useForgeRunGateStore((s) => s.checkpoint);
   const clear = useForgeRunGateStore((s) => s.clear);
+  const revealed = useForgeRunGateStore((s) => s.revealed);
+  const markRevealed = useForgeRunGateStore((s) => s.markRevealed);
   const targetOrgId = useForgeStore((s) => s.config?.targetOrgId);
+  const noticeRef = useRef<HTMLDivElement>(null);
+  const reduceMotion = useReducedMotion();
+
+  /*
+   * A frame later rather than in the effect: the page hands the phase drawn
+   * the focus in its own effect (`useFocusOnChange`), and a parent's effect
+   * runs after its children's. Review drawn in the commit that changes the
+   * phase would see the focus taken back; the transition between phases
+   * draws it a commit later, which the frame does not count on. Marked
+   * revealed within the frame, so a mount StrictMode undoes at once, its
+   * frame cancelled, marks nothing.
+   */
+  useEffect(() => {
+    if (!stop || revealed) return undefined;
+    const id = requestAnimationFrame(() => {
+      const el = noticeRef.current;
+      if (!el) return;
+      el.scrollIntoView?.({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
+      const focused = document.activeElement;
+      if (focused === null || focused === document.body || focused.contains(el)) {
+        el.focus({ preventScroll: true });
+      }
+      markRevealed();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [stop, revealed, reduceMotion, markRevealed]);
+
   if (!stop) return null;
   const cancelled = CANCELLED.has(stop.code);
   return (
     <div
+      ref={noticeRef}
+      // Focusable from code only, never a stop of the Tab key.
+      tabIndex={-1}
       role={cancelled ? 'status' : 'alert'}
       data-testid="forge-run-gate-notice"
       data-code={stop.code}
-      className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs text-text-primary ${
+      className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs text-text-primary focus:outline-hidden ${
         cancelled ? 'border-subtle bg-surface-1' : 'border-status-warning/40 bg-status-warning/10'
       }`}
     >

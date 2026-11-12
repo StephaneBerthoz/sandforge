@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '../../i18n';
 import { ForgePage } from './ForgePage';
+import { useForgeRunGateStore } from './runGate';
 
 /* ---- Mocks ---- */
 
@@ -382,6 +383,30 @@ describe('ForgePage', () => {
         </>,
       );
       expect(document.activeElement).toBe(screen.getByTestId('outside'));
+    });
+
+    it('leaves the focus on the notice of a run stopped at its gate, back on Review, not on the phase', async () => {
+      // The page hands the phase drawn the focus in its own effect; the notice
+      // takes it a frame later, from inside the page, once Review is drawn.
+      const scrollIntoView = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = vi.fn();
+      try {
+        act(() => useForgeRunGateStore.getState().clear());
+        mockPhase = 'execution';
+        const { rerender } = render(<ForgePage />);
+        await screen.findByTestId('forge-execution');
+
+        act(() => useForgeRunGateStore.getState().setStop({ code: 'STORAGE_EXCEEDED' }));
+        mockPhase = 'review';
+        rerender(<ForgePage />);
+
+        const notice = await screen.findByTestId('forge-run-gate-notice');
+        await waitFor(() => expect(document.activeElement).toBe(notice));
+        expect(screen.getByTestId('forge-phase').contains(notice)).toBe(true);
+      } finally {
+        Element.prototype.scrollIntoView = scrollIntoView;
+        act(() => useForgeRunGateStore.getState().clear());
+      }
     });
   });
 });

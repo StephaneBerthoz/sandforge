@@ -93,8 +93,8 @@ async function answerAll(
   }
 }
 
-/** Run a clone of the account from the SOQL tab up to its execution screen; the run's request id. */
-async function startRun(page: Page, theme: Theme): Promise<{ bridge: MockBridge; run: string }> {
+/** Discover a clone of the account from the SOQL tab, up to its Review. */
+async function openReview(page: Page, theme: Theme): Promise<MockBridge> {
   const bridge = new MockBridge();
   await bridge.setup(page);
   await paintHostTheme(page, theme);
@@ -112,6 +112,13 @@ async function startRun(page: Page, theme: Theme): Promise<{ bridge: MockBridge;
   await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
   await answerAll(page, 'forge:discover', 'forge:discover:response', { graph: GRAPH });
   await page.getByTestId('forge-execute-btn').click();
+  await expect(page.getByTestId('forge-review')).toBeVisible();
+  return bridge;
+}
+
+/** Run a clone of the account from the SOQL tab up to its execution screen; the run's request id. */
+async function startRun(page: Page, theme: Theme): Promise<{ bridge: MockBridge; run: string }> {
+  const bridge = await openReview(page, theme);
   await page.getByTestId('execute-button').click();
   await page.waitForSelector('[data-testid="forge-execution"]', { timeout: 10_000 });
   const request = await bridge.waitForMessage('forge:execute', { timeout: 10_000 });
@@ -220,4 +227,84 @@ test('a run that failed stays on the execution screen with its error, not on Rev
 
   await expect(page.getByTestId('forge-execution-error')).toBeVisible();
   await expect(page.getByTestId('forge-run-gate-notice')).toHaveCount(0);
+});
+
+test.describe('a panel too narrow for Review’s run column beside the rows', () => {
+  // Under 860 pixels the column goes under the rows, Execute held to the foot
+  // of the panel, and the notice stays at the head of the rows.
+  test.use({ viewport: { width: 600, height: 560 } });
+
+  test('the notice of a refusal is scrolled into view and handed the keyboard, wherever the page was scrolled', async ({
+    page,
+  }) => {
+    const bridge = await openReview(page, 'Dark 2026');
+    const panel = page.getByTestId('panel-app');
+    const toFoot = (el: HTMLElement): void => {
+      el.scrollTop = el.scrollHeight;
+    };
+    await panel.evaluate(toFoot);
+    await page.getByTestId('execute-button').click();
+    await expect(page.getByTestId('forge-execution')).toBeVisible();
+    const request = await bridge.waitForMessage('forge:execute', { timeout: 10_000 });
+    // The execution screen is drawn from the panel's top, and the run reads
+    // and asks its questions under it: followed down that screen, the page
+    // came back to Review as far down, the notice some 290 pixels above the
+    // fold and the keyboard on the step around it.
+    await panel.evaluate(toFoot);
+    await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBeGreaterThan(400);
+
+    await stopAtTheGate(page, String(request.id), 'The records to write take about 66.9 MB.', {
+      code: 'STORAGE_EXCEEDED',
+      storage: { estimateMB: 66.9, remainingMB: 12 },
+    });
+
+    await expect(page.getByTestId('forge-review')).toBeVisible();
+    const notice = page.getByTestId('forge-run-gate-notice');
+    await expect(notice).toBeInViewport({ ratio: 1 });
+    await expect(notice).toBeFocused();
+    // Once per stop: a scroll of the user's own is not undone.
+    await panel.evaluate(toFoot);
+    await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBeGreaterThan(400);
+    await expect(notice).not.toBeInViewport();
+    const results = await checkAccessibility(page);
+    expect(results.violations.length, formatViolations(results.violations)).toBe(0);
+  });
+
+  test('the notice of a second run cancelled is scrolled into view, Review scrolled to Execute before it', async ({
+    page,
+  }) => {
+    const { bridge, run } = await startRun(page, 'Dark 2026');
+    await stopAtTheGate(page, run, 'The records to write take about 66.9 MB.', {
+      code: 'STORAGE_EXCEEDED',
+      storage: { estimateMB: 66.9, remainingMB: 12 },
+    });
+    await page.getByTestId('forge-run-gate-dismiss').click();
+    await expect(page.getByTestId('forge-run-gate-notice')).toHaveCount(0);
+    const panel = page.getByTestId('panel-app');
+
+    // The first run drew the execution screen from the panel's top while its
+    // step loaded. The second finds it loaded: the page keeps Review's scroll
+    // across it, as far down as that screen goes.
+    await panel.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await page.getByTestId('execute-button').click();
+    await expect(page.getByTestId('forge-execution')).toBeVisible();
+    await expect.poll(async () => (await bridge.getMessages('forge:execute')).length).toBe(2);
+    const second = (await bridge.getMessages('forge:execute'))[1];
+    await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBeGreaterThan(400);
+
+    await stopAtTheGate(
+      page,
+      String(second.id),
+      'Forge execution was cancelled before it wrote the records it had read. Nothing was written.',
+      { code: 'WRITE_DECLINED' },
+    );
+
+    await expect(page.getByTestId('forge-review')).toBeVisible();
+    const notice = page.getByTestId('forge-run-gate-notice');
+    await expect(notice).toHaveAttribute('data-code', 'WRITE_DECLINED');
+    await expect(notice).toBeInViewport({ ratio: 1 });
+    await expect(notice).toBeFocused();
+  });
 });

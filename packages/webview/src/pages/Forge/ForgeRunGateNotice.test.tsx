@@ -1,10 +1,21 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { useForgeRunGateStore } from './runGate';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
+
+/*
+ * Whether the system asks for reduced motion, as framer-motion reads it. It
+ * reads the setting once, the first time a component asks: the hook stands in
+ * here, so that each test sets its own.
+ */
+const motion = vi.hoisted(() => ({ reduced: false }));
+vi.mock('framer-motion', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('framer-motion')>()),
+  useReducedMotion: () => motion.reduced,
+}));
 
 describe('ForgeRunGateNotice', () => {
   beforeEach(() => {
@@ -175,5 +186,159 @@ describe('ForgeRunGateNotice', () => {
     expect(screen.getByTestId('forge-run-gate-checkpoint-deleted').textContent).toBe(
       'The checkpoint taken before the run was deleted: the run wrote nothing.',
     );
+  });
+});
+
+describe('ForgeRunGateNotice brought into view', () => {
+  /** The frames asked for and not yet drawn, by id. */
+  let frames: Map<number, FrameRequestCallback>;
+  let scrolled: ReturnType<typeof vi.fn<(arg?: boolean | ScrollIntoViewOptions) => void>>;
+  const scrollIntoView = Element.prototype.scrollIntoView;
+
+  /** Draw the frames asked for, as the browser does once the page is painted. */
+  function nextFrame(): void {
+    const pending = [...frames.values()];
+    frames.clear();
+    act(() => {
+      for (const callback of pending) callback(0);
+    });
+  }
+
+  beforeEach(() => {
+    act(() => useForgeRunGateStore.getState().clear());
+    motion.reduced = false;
+    frames = new Map();
+    let lastId = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      lastId += 1;
+      frames.set(lastId, callback);
+      return lastId;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+      frames.delete(id);
+    });
+    scrolled = vi.fn<(arg?: boolean | ScrollIntoViewOptions) => void>();
+    Element.prototype.scrollIntoView = scrolled;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    (document.activeElement as HTMLElement | null)?.blur();
+  });
+
+  it('scrolls the notice of a refusal into view and hands it the keyboard, once the page is painted', () => {
+    // Followed down the execution screen while the run read and asked, the
+    // page came back to Review as far down, the notice above the fold and
+    // nothing changed where the user looked.
+    act(() => useForgeRunGateStore.getState().setStop({ code: 'STORAGE_EXCEEDED' }));
+    render(<ForgeRunGateNotice />);
+    const notice = screen.getByTestId('forge-run-gate-notice');
+    expect(scrolled).not.toHaveBeenCalled();
+
+    nextFrame();
+
+    expect(scrolled).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+    expect(scrolled.mock.contexts[0]).toBe(notice);
+    expect(document.activeElement).toBe(notice);
+    expect(useForgeRunGateStore.getState().revealed).toBe(true);
+  });
+
+  it('is focusable from code only, never a stop of the Tab key, and draws no outline', () => {
+    act(() => useForgeRunGateStore.getState().setStop({ code: 'PRODUCTION_TARGET' }));
+    render(<ForgeRunGateNotice />);
+
+    const notice = screen.getByTestId('forge-run-gate-notice');
+    expect(notice.getAttribute('tabindex')).toBe('-1');
+    expect(notice.className).toContain('focus:outline-hidden');
+  });
+
+  it('jumps to the notice rather than scrolling smoothly when the system asks for reduced motion', () => {
+    motion.reduced = true;
+    act(() => useForgeRunGateStore.getState().setStop({ code: 'STORAGE_EXCEEDED' }));
+    render(<ForgeRunGateNotice />);
+
+    nextFrame();
+
+    expect(scrolled).toHaveBeenCalledWith({ block: 'nearest', behavior: 'auto' });
+  });
+
+  it('leaves the keyboard on a control outside the page, scrolling the notice into view all the same', () => {
+    render(<button data-testid="outside">outside</button>);
+    const outside = screen.getByTestId('outside');
+    outside.focus();
+    act(() => useForgeRunGateStore.getState().setStop({ code: 'STORAGE_EXCEEDED' }));
+    render(<ForgeRunGateNotice />);
+
+    nextFrame();
+
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(outside);
+    expect(useForgeRunGateStore.getState().revealed).toBe(true);
+  });
+
+  it('takes the keyboard from the group around it, which the page hands each phase', () => {
+    act(() => useForgeRunGateStore.getState().setStop({ code: 'STORAGE_EXCEEDED' }));
+    render(
+      <div role="group" tabIndex={-1} data-testid="phase">
+        <ForgeRunGateNotice />
+      </div>,
+    );
+    screen.getByTestId('phase').focus();
+
+    nextFrame();
+
+    expect(document.activeElement).toBe(screen.getByTestId('forge-run-gate-notice'));
+  });
+
+  it('does the same for a run the user cancelled at a question, said without alarm', () => {
+    act(() => useForgeRunGateStore.getState().setStop({ code: 'WRITE_DECLINED' }));
+    render(<ForgeRunGateNotice />);
+    const notice = screen.getByTestId('forge-run-gate-notice');
+    expect(notice.getAttribute('role')).toBe('status');
+
+    nextFrame();
+
+    expect(scrolled).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+    expect(document.activeElement).toBe(notice);
+  });
+
+  it('is not brought into view again when the page is drawn again with the same stop', () => {
+    act(() => useForgeRunGateStore.getState().setStop({ code: 'STORAGE_EXCEEDED' }));
+    const first = render(<ForgeRunGateNotice />);
+    nextFrame();
+    first.unmount();
+    scrolled.mockClear();
+
+    render(<ForgeRunGateNotice />);
+    nextFrame();
+
+    expect(scrolled).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('is brought into view again for the next stop, once the last was dismissed', () => {
+    act(() => useForgeRunGateStore.getState().setStop({ code: 'STORAGE_EXCEEDED' }));
+    render(<ForgeRunGateNotice />);
+    nextFrame();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    scrolled.mockClear();
+
+    act(() => useForgeRunGateStore.getState().setStop({ code: 'PRODUCTION_TARGET' }));
+    nextFrame();
+
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(screen.getByTestId('forge-run-gate-notice'));
+  });
+
+  it('marks nothing when it goes before the page is painted, as a mount StrictMode undoes', () => {
+    act(() => useForgeRunGateStore.getState().setStop({ code: 'STORAGE_EXCEEDED' }));
+    const { unmount } = render(<ForgeRunGateNotice />);
+    expect(frames.size).toBe(1);
+
+    unmount();
+
+    expect(frames.size).toBe(0);
+    expect(useForgeRunGateStore.getState().revealed).toBe(false);
   });
 });
