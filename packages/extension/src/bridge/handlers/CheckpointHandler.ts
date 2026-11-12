@@ -196,6 +196,40 @@ function writtenOutcome(outcome: {
   };
 }
 
+/** The sentence each refusal of a rewind or an undo ends on: it wrote nothing. */
+const WROTE_NOTHING = /\s*\b(?:No record was (?:read or )?written|Nothing was written)\./g;
+
+/**
+ * A rewind or an undo its gate refused, each refusal in the words of who
+ * asked: the first as its refusal, the others beside it, each whole. The
+ * page shows one message: under the first one's code, it says each in turn,
+ * that nothing was written said once, as a GDPR erasure refused for more
+ * than one reason does. Said the first alone, the page named the records to
+ * make again, and a rewind with that box ticked was refused next for its
+ * automation, then its emails.
+ */
+function refusedOutcome(
+  refusal: CheckpointRefusal,
+  alsoRefused: readonly CheckpointRefusal[] | undefined,
+  words: (refusal: CheckpointRefusal) => CheckpointRefusal,
+  fromPage: boolean,
+): WriteOutcome {
+  const first = words(refusal);
+  const also = (alsoRefused ?? []).map(words);
+  if (also.length === 0) return { done: false, refusal: first };
+  if (!fromPage) return { done: false, refusal: first, alsoRefused: also };
+  let said = false;
+  const message = [first, ...also]
+    .map(({ message: each }) => {
+      const quiet = each.replace(WROTE_NOTHING, '').trim();
+      if (said) return quiet;
+      said = quiet !== each.trim();
+      return each;
+    })
+    .join(' ');
+  return { done: false, refusal: { code: first.code, message }, alsoRefused: also };
+}
+
 /** Refusals worth trying again once what refused them has passed: a run writing, the day's requests. */
 const RETRYABLE_REFUSALS: ReadonlySet<CheckpointRefusalCode> = new Set([
   'RUN_WRITING',
@@ -1204,7 +1238,8 @@ export class CheckpointHandler implements DomainHandler {
    *    answered, which stays as it was: the guard read live (production, the
    *    same Organization Id, the user's permissions), then the org's lock, a
    *    run writing, the day's requests, the emails and the file storage its
-   *    writes would take;
+   *    writes would take, those of the rewind its configuration asks for
+   *    (`acceptOutside` among it);
    * 4. the bounds (`rewindBounds.ts`): records past `maxRecords`, people at
    *    work in the org in the hour before (`refuseWhenActive`), an acceptance
    *    it needs and the configuration does not give, the emails of a daily
@@ -1311,6 +1346,11 @@ export class CheckpointHandler implements DomainHandler {
             // The rewind acts on this preview as read: priced so.
             reusesPreview: true,
             ...(config.muteAutomation ? { muteAutomation: true } : {}),
+            // Its emails are those of what the rewind writes, as the page's and
+            // the command line's previews count them: not told, it counted
+            // those of a rewind that deletes the records outside the
+            // checkpoint, and of some objects those of one that keeps them.
+            acceptOutside: config.acceptOutside,
           },
         );
       } catch (err: unknown) {
@@ -2740,13 +2780,13 @@ export class CheckpointHandler implements DomainHandler {
             },
           );
           if (outcome.rewound) return writtenOutcome(outcome);
-          return {
-            done: false,
-            refusal:
-              parsed.fromPage === true
-                ? m.pageEmailsRefusal(outcome.refusal, 'rewind', orgName)
-                : outcome.refusal,
-          };
+          const fromPage = parsed.fromPage === true;
+          return refusedOutcome(
+            outcome.refusal,
+            outcome.alsoRefused,
+            (refusal) => (fromPage ? m.pageEmailsRefusal(refusal, 'rewind', orgName) : refusal),
+            fromPage,
+          );
         },
         (err) => err instanceof m.RewindStopped,
         { acceptEmails: parsed.acceptEmails === true },
@@ -2819,13 +2859,13 @@ export class CheckpointHandler implements DomainHandler {
             },
           );
           if (outcome.undone) return writtenOutcome(outcome);
-          const words = (refusal: CheckpointRefusal): CheckpointRefusal =>
-            parsed.fromPage === true ? m.pageEmailsRefusal(refusal, 'undo', orgName) : refusal;
-          return {
-            done: false,
-            refusal: words(outcome.refusal),
-            ...(outcome.alsoRefused ? { alsoRefused: outcome.alsoRefused.map(words) } : {}),
-          };
+          const fromPage = parsed.fromPage === true;
+          return refusedOutcome(
+            outcome.refusal,
+            outcome.alsoRefused,
+            (refusal) => (fromPage ? m.pageEmailsRefusal(refusal, 'undo', orgName) : refusal),
+            fromPage,
+          );
         },
         (err) => err instanceof m.UndoStopped,
         { rewindId: parsed.rewindId, acceptEmails: parsed.acceptEmails === true },

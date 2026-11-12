@@ -14,7 +14,9 @@
  * (`rewindEmails.ts`), and the deletions Undo couldn't bring back and the
  * automation the writes fire were accepted — and, where the org delivers the
  * emails of what still runs or would not say whether it does, the emails too.
- * Each refusal names why, and writes nothing. Asked to mute, the lease is
+ * Each refusal names why, and writes nothing; once the org was read again,
+ * every refusal of its gate is said at once, the first as its refusal, the
+ * others beside it (`alsoRefused`). Asked to mute, the lease is
  * read back before the first write: a set it does not hold that leaves a
  * sender running unaccepted refuses the rewind there, the lease given back.
  *
@@ -879,7 +881,17 @@ export type RewindOutcome =
        */
       deliverability?: NonNullable<DeliverabilityGate['audit']>;
     }
-  | { rewound: false; refusal: CheckpointRefusal };
+  | {
+      rewound: false;
+      refusal: CheckpointRefusal;
+      /**
+       * What else its gate refused it for, once the org was read again, in
+       * order: its automation and its emails beside the records Undo
+       * couldn't bring back or it would make again. Absent when the refusal
+       * is the only one.
+       */
+      alsoRefused?: CheckpointRefusal[];
+    };
 
 /** Why a rewind ended before it wrote anything: it was stopped. Nothing was written. */
 export class RewindStopped extends Error {
@@ -956,6 +968,18 @@ function guardConnectionOf(org: RewindOrg): CheckpointGuardConnection {
 /** A refusal under `code`. */
 function refusedWith(code: CheckpointRefusalCode, message: string): RewindOutcome {
   return { rewound: false, refusal: { code, message } };
+}
+
+/** A gate's refusals, in order: the first its refusal, the others beside it. */
+function refusedFor(
+  refusal: CheckpointRefusal,
+  alsoRefused: readonly CheckpointRefusal[],
+): RewindOutcome {
+  return {
+    rewound: false,
+    refusal,
+    ...(alsoRefused.length > 0 ? { alsoRefused: [...alsoRefused] } : {}),
+  };
 }
 
 /** The refusal of a rewind while a take, another rewind or an undo of the org holds its lock. */
@@ -2015,14 +2039,19 @@ class Rewind {
     }
 
     // ─── What it refuses before it writes ───
+    // Every refusal of its gate, in order, each read before it answers: told
+    // of one at a time, a rewind given what lifts the first was refused next
+    // for its automation, then its emails, where its preview had named all
+    // of them.
+    const refusals: CheckpointRefusal[] = [];
     const noUndo = first.plan.left.filter((entry) => NO_UNDO_LEFT.has(entry.reason));
-    if (noUndo.length > 0) return { rewound: false, refusal: noUndoRefusal(noUndo) };
+    if (noUndo.length > 0) refusals.push(noUndoRefusal(noUndo));
     const notMade = first.plan.left.filter((entry) => entry.reason === 'recreateNotAccepted');
-    if (notMade.length > 0) return { rewound: false, refusal: recreateRefusal(notMade) };
+    if (notMade.length > 0) refusals.push(recreateRefusal(notMade));
     // What its deletions take along out of its user's sight goes uncounted.
     const unseen = unseenOfPlan(fresh.diff, first.plan);
     if (unseen.length > 0 && !this.request.acceptUnseen) {
-      return { rewound: false, refusal: unseenRefusal(this.request.username, unseen) };
+      refusals.push(unseenRefusal(this.request.username, unseen));
     }
     // The files it brings back take file storage again, which the bin took
     // none of: past what the org has left, nothing is written.
@@ -2032,14 +2061,18 @@ class Rewind {
       budget.fileStorage?.remaining,
       orgName,
     );
-    if (overStorage) return { rewound: false, refusal: overStorage };
+    if (overStorage) refusals.push(overStorage);
     // A rewind stopped part way that wrote, whose work the fresh read finds
     // done: its journal is taken up to end it, and its Undo stays offered.
     const last = checkpoint.lastRewind;
     const stoppedBefore =
       last !== undefined && last.endedAt === undefined && last.undoneAt === undefined;
     const writing = writes(first.plan);
-    if (!writing && !stoppedBefore) return this.wroteNothing(fresh, first, budget.remaining);
+    if (!writing) {
+      const [refused, ...also] = refusals;
+      if (refused) return refusedFor(refused, also);
+      if (!stoppedBefore) return this.wroteNothing(fresh, first, budget.remaining);
+    }
     const steps = stepsWithLinks(first.plan);
     let automation: ForgeTargetAutomation | undefined;
     if (writing && this.deps.readAutomation) {
@@ -2061,10 +2094,17 @@ class Rewind {
       this.count.add(automation.requests);
     }
     // Asked to mute, the rewind plans it from what it read, and its gate asks
-    // only for what still runs; refused, it writes nothing.
+    // only for what still runs; refused, it writes nothing, and its refusal
+    // ends the list, as an undo's does: what still runs, which the gates
+    // after it judge, is then not known.
     const read = automation;
     const muting = writing ? await muteOfSteps(this.deps.mute, automation, steps) : {};
-    if ('refusal' in muting) return { rewound: false, refusal: muting.refusal };
+    if ('refusal' in muting) {
+      const [refused, ...also] = refusals;
+      return refused
+        ? refusedFor(refused, [...also, muting.refusal])
+        : refusedFor(muting.refusal, []);
+    }
     if (muting.automation) automation = muting.automation;
     const plan = muting.mute?.plan;
     const acceptEmails = this.request.acceptEmails === true;
@@ -2104,7 +2144,7 @@ class Rewind {
       budget,
       orgName,
     );
-    if (writing && overBudget) return { rewound: false, refusal: overBudget };
+    if (writing && overBudget) refusals.push(overBudget);
     this.splitting = limitSplitting(
       splitAllowanceOf(budget.remaining, this.count.used() + rest.apiRequests),
     );
@@ -2116,7 +2156,7 @@ class Rewind {
     const overEmails = automation
       ? emailsRefusal('rewind', checkpointEmails(written, automation, budget.emails), orgName)
       : undefined;
-    if (writing && overEmails) return { rewound: false, refusal: overEmails };
+    if (writing && overEmails) refusals.push(overEmails);
     const uncounted = automation ? checkpointEmailsUncounted(written, automation) : undefined;
     if (
       automation &&
@@ -2125,16 +2165,18 @@ class Rewind {
         blindedBy(automation.unread) ||
         uncounted !== undefined)
     ) {
-      return { rewound: false, refusal: automationRefusal(orgName, automation, steps, uncounted) };
-    }
-    if (automation) {
-      this.asked = { automation, steps, accepted: this.request.acceptAutomation };
-      this.emailsCounted = { written: [...written], limits: budget.emails };
+      refusals.push(automationRefusal(orgName, automation, steps, uncounted));
     }
     // The emails of what still runs, where the org delivers them all or would
     // not say: written only once they were accepted, which the acceptance of
     // the automation never stands for.
-    if (writing && emails?.refusal) return { rewound: false, refusal: emails.refusal };
+    if (writing && emails?.refusal) refusals.push(emails.refusal);
+    const [refused, ...also] = refusals;
+    if (refused) return refusedFor(refused, also);
+    if (automation) {
+      this.asked = { automation, steps, accepted: this.request.acceptAutomation };
+      this.emailsCounted = { written: [...written], limits: budget.emails };
+    }
     if (this.stopped()) throw new RewindStopped();
     // The user it writes as, read once it will write: what its own writes
     // and the automation they fire are told by, from the first write on.

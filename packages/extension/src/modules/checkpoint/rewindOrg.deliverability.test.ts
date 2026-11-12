@@ -7,6 +7,7 @@ import type {
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import {
+  account,
   automationOf,
   changedSince,
   clock,
@@ -246,6 +247,55 @@ describe('a rewind on the emails what still runs sends', () => {
     expect(outcome.rewound ? '' : outcome.refusal.message).toContain(
       '--mute-automation keeps quiet flow "Account changed" on Account',
     );
+  });
+});
+
+describe('a rewind its gate refuses for more than one reason', () => {
+  it('names each, the first under its refusal and the others beside it, then goes once all are lifted', async () => {
+    // A colleague emptied the bin of the account the rewind brings back,
+    // and the org went to All email after the preview. Refused for the
+    // records to make again alone, a rewind given that acceptance was refused
+    // next for its automation, then for its emails: one reason at a time,
+    // where the command line's dry run names all three.
+    const t = await taken();
+    changedSince(t.org);
+    t.org.purge(account(2));
+    const { previewId } = await previewed(t);
+    t.org.anonymousApex = ALL_EMAIL;
+    const before = stateOf(t.org);
+
+    const outcome = await rewound(t, previewId, { deps: { readAutomation: SENDING } });
+
+    expect(outcome).toMatchObject({
+      rewound: false,
+      refusal: { code: 'RECREATE' },
+      alsoRefused: [
+        {
+          code: 'AUTOMATION',
+          message: expect.stringContaining('accept that it runs to rewind all the same') as unknown,
+        },
+        {
+          code: 'EMAILS_DELIVERED',
+          message: expect.stringContaining('Add --accept-emails to rewind all the same') as unknown,
+        },
+      ],
+    });
+    expect(stateOf(t.org)).toEqual(before);
+    expect(t.org.creates).toEqual([]);
+
+    // Each lifted but the last: that one alone, nothing beside it.
+    const last = await rewound(t, previewId, {
+      deps: { readAutomation: SENDING },
+      request: { acceptRecreate: true, acceptAutomation: true },
+    });
+    expect(last).toMatchObject({ rewound: false, refusal: { code: 'EMAILS_DELIVERED' } });
+    expect(last).not.toHaveProperty('alsoRefused');
+
+    const lifted = await rewound(t, previewId, {
+      deps: { readAutomation: SENDING },
+      request: { acceptRecreate: true, acceptAutomation: true, acceptEmails: true },
+    });
+    expect(resultOf(lifted).status).toBe('success');
   });
 });
 

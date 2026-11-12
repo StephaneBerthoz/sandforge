@@ -440,9 +440,7 @@ describe('docs/modules/checkpoint.md', () => {
     expect(STORE).toContain(
       'return Date.parse(checkpoint.readFrom) < reach ? new Date(reach).toISOString() : undefined;',
     );
-    expect(REWIND).toContain(
-      'if (notMade.length > 0) return { rewound: false, refusal: recreateRefusal(notMade) };',
-    );
+    expect(REWIND).toContain('if (notMade.length > 0) refusals.push(recreateRefusal(notMade));');
 
     const list = section(DOC, '## The list');
     expect(list).toContain(
@@ -663,9 +661,7 @@ describe('docs/modules/checkpoint.md', () => {
     // Anchor: the preview counts the emails and says the refusal a rewind
     // would meet; the rewind and the undo refuse past them, before writing.
     expect(PREVIEW).toContain("emailsRefusal('rewind', emails, orgName)");
-    expect(REWIND).toContain(
-      'if (writing && overEmails) return { rewound: false, refusal: overEmails };',
-    );
+    expect(REWIND).toContain('if (writing && overEmails) refusals.push(overEmails);');
     // The undo gathers each refusal of its gate, then is refused for the first.
     expect(UNDO).toContain('if (objects.length > 0 && overEmails) refusals.push(overEmails);');
     expect(UNDO).toContain('return {\n        undone: false,\n        refusal: refused,');
@@ -888,9 +884,7 @@ describe('docs/modules/checkpoint.md', () => {
       "return !object.leftOutFields.some((field) => field.reason === 'base64');",
     );
     expect(unionOf(TYPES, 'CheckpointRefusalCode')).toContain('RECREATE');
-    expect(REWIND).toContain(
-      'if (notMade.length > 0) return { rewound: false, refusal: recreateRefusal(notMade) };',
-    );
+    expect(REWIND).toContain('if (notMade.length > 0) refusals.push(recreateRefusal(notMade));');
     expect(REWIND).toContain('await this.recreate(journal, recreate, tally);');
     expect(JOURNAL).toContain("if (line.kind === 'recreated') {");
     expect(CLI).toContain("acceptRecreate: args.includes('--accept-recreate'),");
@@ -1225,9 +1219,7 @@ describe('the README lines of the module', () => {
 
   it('says a rewind makes again with new Ids, once accepted, what the recycle bin no longer gives back', () => {
     // Anchor: the rewind refuses such records unaccepted, and makes them in a step of its own.
-    expect(REWIND).toContain(
-      'if (notMade.length > 0) return { rewound: false, refusal: recreateRefusal(notMade) };',
-    );
+    expect(REWIND).toContain('if (notMade.length > 0) refusals.push(recreateRefusal(notMade));');
     expect(REWIND).toContain('await this.recreate(journal, recreate, tally);');
 
     const steps = section(source('README.md'), '## Rewind an org to a checkpoint')

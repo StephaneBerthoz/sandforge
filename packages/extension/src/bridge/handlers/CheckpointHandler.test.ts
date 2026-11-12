@@ -1908,6 +1908,112 @@ describe('CheckpointHandler — the rewind and its undo', () => {
     expect(h.org.all('Account').map((row) => row.Id)).not.toContain(id('001', 3));
   });
 
+  it('names every refusal a rewind’s gate meets once the org is read again: to the page in one message in its words, saying once that nothing was written, to the command line the first beside the others, each whole', async () => {
+    // A colleague emptied the bin of a case the rewind brings back, and the
+    // org went to All email after the preview. The page said the records to
+    // make again alone; its box ticked, the rewind was refused for its
+    // automation, then for its emails.
+    const h = harness();
+    sendingEmail(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    h.org.purge(id('500', 1));
+    const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+    h.org.anonymousApex = { compiled: true, success: true };
+    const before = stateOf(h.org);
+
+    await h.send('wv-rewind-1', 'checkpoint:rewind', {
+      ...rewindOf(checkpointId, previewId),
+      fromPage: true,
+    });
+
+    const page = answerOf(h, 'wv-rewind-1');
+    expect(page.type).toBe('checkpoint:error');
+    const said = page.payload as {
+      code: string;
+      message: string;
+      alsoRefused?: Array<{ code: string; message: string }>;
+    };
+    expect(said.code).toBe('RECREATE');
+    expect(said.alsoRefused?.map(({ code }) => code)).toEqual(['AUTOMATION', 'EMAILS_DELIVERED']);
+    // Each in turn, the page's box for the emails named, no flag.
+    expect(said.message).toMatch(
+      /^1 Case record\(s\) deleted since are no longer in the recycle bin[^]*accept that they get new Ids to rewind all the same\. No record was written\. DEV-SB: [^]*accept that it runs to rewind all the same\. DEV-SB delivers every email[^]*Tick "Let DEV-SB send these emails" in the preview to rewind all the same/,
+    );
+    expect(said.message.match(/No record was (read or )?written\./g)).toEqual([
+      'No record was written.',
+    ]);
+    expect(said.message).not.toMatch(/--[a-z]/);
+    expect(said.alsoRefused?.[1]?.message).toContain(
+      'Tick "Let DEV-SB send these emails" in the preview to rewind all the same',
+    );
+    expect(stateOf(h.org)).toEqual(before);
+    expect(operationMessages(h, 'operation:completed', 'wv-rewind-1')).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          result: { status: 'refused', code: 'RECREATE' },
+        }) as unknown,
+      }),
+    ]);
+
+    // The command line's and MCP's request: the first whole, the others beside it.
+    await h.send('wv-rewind-2', 'checkpoint:rewind', rewindOf(checkpointId, previewId));
+
+    const line = answerOf(h, 'wv-rewind-2').payload as typeof said;
+    expect(line.code).toBe('RECREATE');
+    expect(line.message).toMatch(/to rewind all the same\. No record was written\.$/);
+    expect(line.message).not.toContain('DEV-SB delivers every email');
+    expect(line.alsoRefused).toEqual([
+      { code: 'AUTOMATION', message: expect.stringMatching(/^DEV-SB: /) as unknown },
+      {
+        code: 'EMAILS_DELIVERED',
+        message: expect.stringContaining('Add --accept-emails to rewind all the same') as unknown,
+      },
+    ]);
+    expect(stateOf(h.org)).toEqual(before);
+  });
+
+  it('names to the page every refusal an undo’s gate meets in one message, in its words, saying once that nothing was written', async () => {
+    // Refused on the page for its automation alone, an undo whose box was
+    // ticked was refused next for its emails.
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+    h.org.ticking = true;
+    await h.send('wv-rewind-1', 'checkpoint:rewind', rewindOf(checkpointId, previewId));
+    const { rewindId } = resultOf(h, 'wv-rewind-1', 'checkpoint:rewind:response');
+    h.org.ticking = false;
+    clock = T0 + 240_000;
+    sendingEmail(h);
+    h.org.anonymousApex = { compiled: true, success: true };
+    const rewound = stateOf(h.org);
+
+    await h.send('wv-undo-1', 'checkpoint:undo', {
+      checkpointId,
+      rewindId,
+      acceptAutomation: false,
+      fromPage: true,
+    });
+
+    const said = answerOf(h, 'wv-undo-1').payload as {
+      code: string;
+      message: string;
+      alsoRefused?: Array<{ code: string; message: string }>;
+    };
+    expect(said.code).toBe('AUTOMATION');
+    expect(said.alsoRefused?.map(({ code }) => code)).toEqual(['EMAILS_DELIVERED']);
+    expect(said.message).toMatch(
+      /^DEV-SB: [^]*accept that it runs to undo the rewind all the same\. No record was written\. DEV-SB delivers every email[^]*Tick the box for these emails in the undo's confirmation to undo all the same/,
+    );
+    expect(said.message.match(/No record was (read or )?written\./g)).toEqual([
+      'No record was written.',
+    ]);
+    expect(said.message).not.toMatch(/--[a-z]/);
+    expect(stateOf(h.org)).toEqual(rewound);
+  });
+
   it('refuses a rewind and an undo while a run of this window writes to the org, as its handler says, writing nothing; each goes once the run has ended', async () => {
     let writing = false;
     const h = harness({ writers: { writingTo: (orgId) => writing && orgId === REGISTERED } });
@@ -3621,6 +3727,123 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
 
     expect(refused.code).toBe('EMAILS');
     expect(writesOf(h.org)).toEqual(before);
+  });
+
+  describe('of a checkpoint of picked objects whose records outside it hang from what it deletes', () => {
+    /**
+     * A checkpoint of the accounts alone, the cases going with their account;
+     * since, an account renamed, and a new one with a case under it. A flow
+     * emails an account's owner as it is deleted, and the org has no single
+     * email left today.
+     */
+    async function outsideHangs(h: Harness): Promise<string> {
+      h.handler.setTargetAutomation({
+        read: (_orgId, objects) =>
+          Promise.resolve({
+            objectsRead: [...objects],
+            objects: [
+              {
+                objectApiName: 'Account',
+                flows: [
+                  {
+                    apiName: 'Account_gone',
+                    label: 'Account gone',
+                    timing: 'beforeSave',
+                    startsOn: 'delete',
+                    condition: 'read',
+                    permissions: [],
+                    messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+                  },
+                ],
+                triggers: [],
+              },
+            ],
+            unread: [],
+            conditionsNotRead: 0,
+            conditionsBound: 0,
+            requests: 0,
+          } satisfies ForgeTargetAutomation),
+      });
+      await h.send('wv-take-1', 'checkpoint:take', {
+        ...TAKE,
+        mode: 'picked',
+        objects: ['Account'],
+      });
+      const checkpointId = (answerOf(h, 'wv-take-1').payload.checkpoint as { checkpointId: string })
+        .checkpointId;
+      clock = T0 + 60_000;
+      h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+      h.org.add('Account', { Id: id('001', 3), Name: 'New', LastModifiedById: COLLEAGUE });
+      h.org.add('Case', {
+        Id: id('500', 3),
+        Subject: 'Under it',
+        AccountId: id('001', 3),
+        LastModifiedById: COLLEAGUE,
+      });
+      clock = T0 + 120_000;
+      h.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 0 } };
+      return checkpointId;
+    }
+
+    const cascading = () =>
+      new HandlerTestOrg(
+        {},
+        { Account: [{ childSObject: 'Case', field: 'AccountId', cascadeDelete: true }] },
+      );
+
+    const ACCEPTED = {
+      acceptAutomation: true,
+      acceptNoUndo: true,
+      acceptRecreate: true,
+      acceptUnseen: true,
+    };
+
+    it('rewinds, its emails counted as its own rewind keeps the account the case hangs from: none', async () => {
+      // Its check before the rewind counted the account's delete, which the
+      // rewind without acceptOutside never makes, and refused the step for
+      // an email it would not have sent.
+      const h = harness({ org: cascading() });
+      const checkpointId = await outsideHangs(h);
+      h.org.ticking = true;
+
+      const rewound = await h.handler.rewindForPipeline(rewindStep(checkpointId, ACCEPTED));
+
+      expect(rewound.result.status).not.toBe('failure');
+      expect(h.org.all('Account').map((row) => [row.Id, row.Name])).toEqual([
+        [id('001', 1), 'Northwind'],
+        [id('001', 2), 'Contoso'],
+        [id('001', 3), 'New'],
+      ]);
+      expect(h.org.all('Case').map((row) => row.Id)).toContain(id('500', 3));
+    });
+
+    it('refuses, by its own count before the rewind starts, one of its objects that deletes the account along', async () => {
+      // Of some objects with acceptOutside, its check counted the rewind that
+      // keeps the account, and let the step through to a rewind that read
+      // the org again and refused it for the email.
+      const h = harness({ org: cascading() });
+      const checkpointId = await outsideHangs(h);
+      const before = writesOf(h.org);
+
+      const refused = await stepRefusal(
+        h.handler.rewindForPipeline(
+          rewindStep(checkpointId, { ...ACCEPTED, objects: ['Account'], acceptOutside: true }),
+        ),
+      );
+
+      expect(refused.code).toBe('EMAILS');
+      expect(refused.message).toContain('0 of 15 left today');
+      expect(
+        h.posted.filter(
+          (message) =>
+            message.type === 'operation:started' &&
+            String((message.payload as { operationId?: unknown }).operationId).startsWith(
+              'checkpoint:pipeline:',
+            ),
+        ),
+      ).toEqual([]);
+      expect(writesOf(h.org)).toEqual(before);
+    });
   });
 
   it('refuses a rewind the org delivers the emails of, naming the step’s setting and no flag of a command line, before it writes; acceptEmails lets it through', async () => {
