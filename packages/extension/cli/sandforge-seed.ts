@@ -146,6 +146,7 @@ import {
   seedFitBudgetOf,
   seedStorageBytes,
   seedStorageGate,
+  watchedBy,
   type SeedWritePath,
 } from '../src/modules/seed/seedStorage.js';
 import { duplicateRulesOf } from '../src/modules/seed/seedDuplicateRules.js';
@@ -1685,16 +1686,20 @@ export function seedOrchestrator(deps: {
 /**
  * How the panel's write path sends an insert of `count` records, as a dry run
  * says it of a slice: past `bulkThreshold`, a Bulk API job — or REST, for an
- * object an active duplicate rule watches, which a run finds out as it
- * writes; under it, REST calls. A slice holds 10 000 records at most
+ * object an active duplicate rule watches; under it, REST calls. Which of the
+ * two is said once the read of the target's automation said whether a rule
+ * watches the object (`watched`, `duplicateRulesOf`), as the gate prices it;
+ * both, when it could not say. A slice holds 10 000 records at most
  * (`SEED_SLICE_RECORDS`), never past the count from which `seedInsert`
  * gathers a job's records a chunk at a time. Exported so it can be tested.
  */
-export function seedWritePathOf(count: number, bulkThreshold: number): string {
-  if (count > bulkThreshold) {
-    return '(a Bulk API job, or REST when an active duplicate rule watches the object)';
+export function seedWritePathOf(count: number, bulkThreshold: number, watched?: boolean): string {
+  if (count <= bulkThreshold) return '(REST)';
+  if (watched === true) {
+    return '(REST: an active duplicate rule watches the object, which a Bulk API job cannot waive)';
   }
-  return '(REST)';
+  if (watched === false) return '(a Bulk API job)';
+  return '(a Bulk API job, or REST when an active duplicate rule watches the object)';
 }
 
 /** What the run says of the data storage its records take, against what the target has left. */
@@ -2253,8 +2258,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // What it counts: an optional object the org does not take is skipped by the run.
   let taken = await templateTheOrgTakes(template, objectAccess);
   // Its requests priced as the insert sends them: an object a duplicate rule
-  // watches through REST, as the read of the automation found the rules.
-  const writePath: SeedWritePath = { duplicateRules: duplicateRulesOf(read) };
+  // watches through REST, as the read of the automation found the rules; and
+  // the reads of what the target is, which a real run sends before it writes
+  // and a dry run says it would.
+  const writePath: SeedWritePath = {
+    duplicateRules: duplicateRulesOf(read),
+    bulkThreshold: DEFAULT_ROBUSTNESS_CONFIG.bulk.threshold,
+    typedFirst: true,
+  };
   let storage = await seedStorageGate(
     conn,
     taken,
@@ -2493,7 +2504,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   ): Promise<InsertResult> => {
     if (args.dryRun) {
       log(
-        `  [dry-run] ${objectApiName}: ${records.length} record(s) ${seedWritePathOf(records.length, robustness.bulk.threshold)}`,
+        `  [dry-run] ${objectApiName}: ${records.length} record(s) ` +
+          seedWritePathOf(
+            records.length,
+            robustness.bulk.threshold,
+            watchedBy(writePath.duplicateRules, objectApiName),
+          ),
       );
       // Answered record by record, as the REST path answers: rows placed by
       // key under these are then planned as the run places them.

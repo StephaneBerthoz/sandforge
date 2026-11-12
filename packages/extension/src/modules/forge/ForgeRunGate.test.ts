@@ -2035,9 +2035,10 @@ describe('the daily API requests', () => {
       ]),
     ).toBe(
       // 12,000 rows in one job: opened, sent, closed, its state read once
-      // closed and after each five seconds of its forty, its results read
-      // three ways. Counted five per 10,000, two jobs' worth: ten.
-      3 + (3 + 9 + 3) + 3,
+      // closed and after each five seconds of its 144, a job saving 100
+      // records a second, its results read three ways. Counted five per
+      // 10,000, two jobs' worth: ten.
+      3 + (3 + 30 + 3) + 3,
     );
   });
 

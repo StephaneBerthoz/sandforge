@@ -12,9 +12,10 @@
  * job of 200 deletes — opened, its CSV sent, closed, its state read twice —
  * took five off the day, as many as it sent. Once through, a job's results
  * are read three ways, each a call of its own. Its time was measured on
- * deletes (`BULK_JOB_WAIT_SECONDS`, `BULK_JOB_RECORDS_PER_SECOND`): nothing
- * measured an insert, and the slower figures are taken, so a job is read as
- * often as it may be.
+ * deletes (`BULK_JOB_WAIT_SECONDS`, `BULK_JOB_RECORDS_PER_SECOND`), and a job
+ * that saves records — an insert, an update, an upsert — runs slower
+ * (`BULK_SAVE_RECORDS_PER_SECOND`); the slower figures are taken, so a job is
+ * read as often as it may be.
  */
 
 import { BULK_POLL_INTERVAL_MS } from './BulkApiExecutor.js';
@@ -63,6 +64,24 @@ export const FORGE_BULK_POLL_SCHEDULE: BulkPollSchedule = (attempt) =>
   [5_000, 10_000, 20_000][attempt] ?? 30_000;
 
 /**
+ * Records a Bulk API job saves a second once under way — an insert, an
+ * update, an upsert, each record through the target's save path, its
+ * triggers and its rules, which a delete is not —, about: asked live, a seed
+ * of 12,000 cases on a scratch org, sent as jobs of 10,000 and 2,000, took 42
+ * requests more than its dry run. Less the two reads that typed the org and
+ * the query of the duplicate rules, the jobs took about 39, some 27 of them
+ * reads of their state, where the cadence of deletes priced them 28 calls
+ * with 16 such reads. Its records went at about 160 a second, its wait taken
+ * as a delete's; 100 are taken, slower than that one run. A floor of reads a
+ * job would not do: what the deletes' cadence missed grows with the job's
+ * records, and a floor set by these two jobs would price one of 50,000 short.
+ */
+const BULK_SAVE_RECORDS_PER_SECOND = 100;
+
+/** What a Bulk API job does with its records, as far as its time goes. */
+export type BulkJobWork = 'delete' | 'save';
+
+/**
  * The calls one Bulk API 2.0 job sends the org, each one of its daily
  * requests: opened, its CSV sent, closed, each read of its state, and its
  * results read three ways once it is through, unless told how many.
@@ -71,9 +90,13 @@ export function bulkJobRequests(job: { stateReads: number; resultReads?: number 
   return BULK_JOB_FIXED_CALLS + job.stateReads + (job.resultReads ?? BULK_RESULT_READS);
 }
 
-/** Seconds a Bulk API job of `records` takes, about: its wait, then its records. */
-export function bulkJobSeconds(records: number): number {
-  return BULK_JOB_WAIT_SECONDS + Math.max(0, records) / BULK_JOB_RECORDS_PER_SECOND;
+/**
+ * Seconds a Bulk API job of `records` takes, about: its wait, then its
+ * records, deleted or saved (`work`).
+ */
+export function bulkJobSeconds(records: number, work: BulkJobWork = 'delete'): number {
+  const perSecond = work === 'save' ? BULK_SAVE_RECORDS_PER_SECOND : BULK_JOB_RECORDS_PER_SECOND;
+  return BULK_JOB_WAIT_SECONDS + Math.max(0, records) / perSecond;
 }
 
 /**
@@ -81,12 +104,14 @@ export function bulkJobSeconds(records: number): number {
  * then one after each wait of `schedule`, until the waits cover its time.
  *
  * @param schedule - The waits between two reads; five seconds each unless told.
+ * @param work - What the job does with its records, which sets its time (`bulkJobSeconds`).
  */
 export function bulkJobStateReads(
   records: number,
   schedule: BulkPollSchedule = FIXED_POLL_SCHEDULE,
+  work: BulkJobWork = 'delete',
 ): number {
-  const ms = bulkJobSeconds(records) * 1000;
+  const ms = bulkJobSeconds(records, work) * 1000;
   let waited = 0;
   let waits = 0;
   while (waited < ms) {
@@ -100,8 +125,9 @@ export function bulkJobStateReads(
 /**
  * Everything one Bulk API 2.0 job of `records` sends the org, from its
  * opening to the last read of its results: what a writer that sends an
- * object's records in one job pays for them, whatever their number.
+ * object's records in one job pays for them, whatever their number, priced
+ * as a job that saves them — a writer's delete, quicker, is priced so too.
  */
 export function bulkJobCost(records: number): number {
-  return bulkJobRequests({ stateReads: bulkJobStateReads(records) });
+  return bulkJobRequests({ stateReads: bulkJobStateReads(records, FIXED_POLL_SCHEDULE, 'save') });
 }

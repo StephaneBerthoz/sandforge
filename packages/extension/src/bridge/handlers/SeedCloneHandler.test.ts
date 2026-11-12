@@ -2433,14 +2433,14 @@ describe('SeedCloneHandler', () => {
         expect(writer.insert).not.toHaveBeenCalled();
         expect(posted(deps, 'operation:started')).toEqual([]);
         // The writer sends 400 contacts as one Bulk API job: opened, sent,
-        // closed, its state read six times, its results three ways. Counted
+        // closed, its state read seven times, its results three ways. Counted
         // as two REST calls.
         expect(posted(deps, 'operation:failed')).toEqual([
           expect.objectContaining({
             payload: expect.objectContaining({
               code: 'API_BUDGET_EXCEEDED',
               error: expect.stringContaining(
-                'The run takes about 12 API requests, and my-dev-org has 1 of its 15000 daily requests left',
+                'The run takes about 13 API requests, and my-dev-org has 1 of its 15000 daily requests left',
               ),
             }),
           }),
@@ -2455,12 +2455,41 @@ describe('SeedCloneHandler', () => {
           buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
         );
 
-        // The job's twelve calls, and the two that send its 400 rows again
+        // The job's thirteen calls, and the two that send its 400 rows again
         // should the rule refuse them all.
         expect(posted(deps, 'operation:failed')).toEqual([
           expect.objectContaining({
             payload: expect.objectContaining({
-              error: expect.stringContaining('The run takes about 14 API requests'),
+              error: expect.stringContaining('The run takes about 15 API requests'),
+            }),
+          }),
+        ]);
+      });
+
+      it('counts the updates of the second pass its preview leaves, one a record of each object written without a lookup', async () => {
+        // 400 contacts whose ReportsToId names another contact: written
+        // without it, then given it in two updates of 200. Counted the job
+        // alone, the clone said 13 where it sends 15.
+        oneRequestLeft([]);
+        linker.lookupsFilledAfter.mockReturnValue([
+          {
+            from: 'Contact',
+            to: 'Contact',
+            fieldApiName: 'ReportsToId',
+            relationshipType: 'lookup',
+            required: false,
+          },
+        ]);
+        await previewContacts(400);
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        expect(posted(deps, 'operation:failed')).toEqual([
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              error: expect.stringContaining('The run takes about 15 API requests'),
             }),
           }),
         ]);

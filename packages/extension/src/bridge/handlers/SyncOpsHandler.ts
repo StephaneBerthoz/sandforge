@@ -606,6 +606,8 @@ export class SyncOpsHandler implements DomainHandler {
           keepsAddresses: config.keepContactPoints === true,
         },
         confirmAboveRecords: this.confirmAboveRecords(),
+        // The threshold the run's writer sends a job past, its requests priced by it.
+        bulkThreshold: robustnessConfigOf(this.deps).bulk.threshold,
         ...(checkpointFirst ? { checkpointFirst } : {}),
       },
       {

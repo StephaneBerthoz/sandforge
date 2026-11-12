@@ -296,8 +296,10 @@ describe('SeedOpsHandler — a seed fitted to the storage', () => {
     const [error] = posted('seed:error');
     expect(error.payload).toMatchObject({ code: 'API_BUDGET_EXCEEDED' });
     const fit = error.payload.fit as SeedFitProposal;
+    // Six calls of its records, and the ten reads it sends as it writes,
+    // whatever its counts.
     expect(fit.cannotFit).toMatch(
-      /takes about 6 API requests, past the 0 that leave the org a tenth of its daily requests$/,
+      /takes about 16 API requests, past the 0 that leave the org a tenth of its daily requests$/,
     );
   });
 

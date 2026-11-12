@@ -393,6 +393,67 @@ describe('measureSyncWrite', () => {
   });
 });
 
+describe('the API requests of a run, priced as its writer sends them', () => {
+  /** What the target runs, a standard duplicate rule watching each of `ruled`. */
+  const ruledBy = (...ruled: string[]): ForgeTargetAutomation => ({
+    ...QUIET,
+    objectsRead: ['Account', 'Contact', 'Lead'],
+    objects: ruled.map((objectApiName) => ({
+      objectApiName,
+      flows: [],
+      triggers: [],
+      duplicateRules: [{ name: 'Standard rule', developerName: 'Standard_Rule' }],
+    })),
+  });
+  const estimateOf = async (
+    objects: SyncCountedWrite['objects'],
+    overrides: Partial<SyncWriteMeasures> = {},
+  ): Promise<number> => {
+    // The run's own part: an automation that could not be read has its
+    // deliverability read besides.
+    const { api } = await measureSyncWrite(counted(objects), measures(overrides));
+    return api.parts?.run ?? api.estimate;
+  };
+
+  it('prices an object past the Bulk API threshold as the job its writer opens, and what a duplicate rule refused in it again by REST', async () => {
+    // 201 contacts went as one job of thirteen calls, and what the
+    // standard rule refused in it went again in two REST calls: counted
+    // two, a REST call per 200 rows.
+    const contacts = [{ objectApiName: 'Contact', operation: 'insert' as const, rows: 201 }];
+    expect(await estimateOf(contacts, { readAutomation: async () => ruledBy('Contact') })).toBe(
+      13 + 2,
+    );
+    // No rule watches them: the job alone.
+    expect(await estimateOf(contacts)).toBe(13);
+    // The rules not read: every row may go again.
+    expect(
+      await estimateOf(contacts, {
+        readAutomation: async () => Promise.reject(new Error('INSUFFICIENT_ACCESS')),
+      }),
+    ).toBe(13 + 2);
+  });
+
+  it('sends nothing of a delete again, and prices each object by its own batch size under the threshold', async () => {
+    expect(
+      await estimateOf([{ objectApiName: 'Contact', operation: 'delete', rows: 600 }], {
+        readAutomation: async () => ruledBy('Contact'),
+      }),
+    ).toBe(13);
+    expect(
+      await estimateOf([
+        { objectApiName: 'Account', operation: 'upsert', rows: 200, batchSize: 50 },
+        { objectApiName: 'Contact', operation: 'update', rows: 150 },
+      ]),
+    ).toBe(4 + 1);
+  });
+
+  it("prices by the threshold the run's writer is given: set to 500, 300 records go by REST", async () => {
+    const accounts = [{ objectApiName: 'Account', operation: 'insert' as const, rows: 300 }];
+    expect(await estimateOf(accounts, { bulkThreshold: 500 })).toBe(2);
+    expect(await estimateOf(accounts)).toBe(3 + 7 + 3);
+  });
+});
+
 describe('gateSyncWrite', () => {
   const pastEmails = counted([{ objectApiName: 'Contact', operation: 'insert', rows: 20 }], 3);
 
@@ -764,8 +825,9 @@ describe('gateSyncWrite', () => {
       }),
     );
 
+    // 1,000 contacts in one Bulk API job of fourteen calls, no rule watching them.
     expect(measured.check).toMatchObject({
-      apiRequests: { verdict: 'exceeds', estimate: 5, remaining: 4, max: 15_000 },
+      apiRequests: { verdict: 'exceeds', estimate: 14, remaining: 4, max: 15_000 },
       verdict: 'refused',
     });
     for (const policy of ['ask', 'unattended', 'refuse'] as const) {
@@ -793,8 +855,9 @@ describe('gateSyncWrite', () => {
 
     await gateSyncWrite(measured, { policy: 'ask', org: 'TRAP', orgTier: 'development', confirm });
 
+    // 3,000 contacts in one job of eighteen calls.
     expect(confirm.mock.calls[0][0]).toMatchObject({
-      apiRequests: { estimate: 15, remaining: 1_000, max: 15_000 },
+      apiRequests: { estimate: 18, remaining: 1_000, max: 15_000 },
     });
   });
 

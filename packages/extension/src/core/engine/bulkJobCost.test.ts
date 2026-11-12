@@ -26,15 +26,36 @@ describe('what a Bulk API job costs', () => {
     expect(bulkJobStateReads(50_000)).toBe(1 + Math.ceil((24 + 50_000 / 750) / 5));
   });
 
-  it('prices a whole job from its records: 600 take twelve calls, 10,000 fifteen, 25,000 nineteen', () => {
-    // 600: 24.8 seconds, five waits. Twelve calls, where a REST write of
+  it('reads the state of a job that saves its records as long as a slower cadence: 100 records a second after its wait', () => {
+    // A delete's cadence stays the rewind's.
+    expect(bulkJobSeconds(10_000)).toBeCloseTo(24 + 10_000 / 750);
+    expect(bulkJobSeconds(10_000, 'save')).toBe(124);
+    expect(bulkJobStateReads(10_000, undefined, 'save')).toBe(1 + 25);
+    expect(bulkJobStateReads(2_000, undefined, 'save')).toBe(1 + 9);
+  });
+
+  it('prices a whole job from its records as one that saves them: 600 take thirteen calls, 10,000 thirty-two, 25,000 sixty-two', () => {
+    // 600: 30 seconds, six waits. Thirteen calls, where a REST write of
     // the same records sends three.
-    expect(bulkJobCost(600)).toBe(3 + (1 + 5) + 3);
-    // 10,000: 37.3 seconds, eight waits.
-    expect(bulkJobCost(10_000)).toBe(3 + (1 + 8) + 3);
-    // 25,000 in one job: 57.3 seconds, twelve waits — not three jobs of
+    expect(bulkJobCost(600)).toBe(3 + (1 + 6) + 3);
+    // 10,000: 124 seconds, twenty-five waits.
+    expect(bulkJobCost(10_000)).toBe(3 + (1 + 25) + 3);
+    // 25,000 in one job: 274 seconds, fifty-five waits — not three jobs of
     // five calls each.
-    expect(bulkJobCost(25_000)).toBe(3 + (1 + 12) + 3);
+    expect(bulkJobCost(25_000)).toBe(3 + (1 + 55) + 3);
+  });
+
+  it('prices no less than a seed of 12,000 cases took live: its jobs of 10,000 and 2,000 took about 39 calls, priced 28 at the cadence of deletes', () => {
+    // On a scratch org, no duplicate rule on the object: 42 requests more
+    // than the dry run, the two reads that typed the org and the query of
+    // the rules among them. Priced at the deletes' cadence, the jobs came to
+    // 15 and 13.
+    expect(
+      bulkJobRequests({ stateReads: bulkJobStateReads(10_000) }) +
+        bulkJobRequests({ stateReads: bulkJobStateReads(2_000) }),
+    ).toBe(28);
+    expect(bulkJobCost(10_000) + bulkJobCost(2_000)).toBe(32 + 16);
+    expect(bulkJobCost(10_000) + bulkJobCost(2_000)).toBeGreaterThanOrEqual(42);
   });
 
   it('takes a count below nothing for no record, never a job quicker than its wait', () => {

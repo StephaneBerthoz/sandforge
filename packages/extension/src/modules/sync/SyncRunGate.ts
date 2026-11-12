@@ -31,7 +31,7 @@ import type {
   SyncUnwritableReason,
   SyncWriteCheck,
 } from '@sandforge/shared';
-import { emailSendersOf, stillRunningOf } from '@sandforge/shared';
+import { emailSendersOf, SF_LIMITS, stillRunningOf } from '@sandforge/shared';
 import type { BeforeRunTake } from '../checkpoint/beforeRunCheckpoint.js';
 import { beforeRunFailedWords } from '../checkpoint/beforeRunCheckpoint.js';
 import type { ForgeWriteGateAnswer } from '../forge/ForgeExecutor.js';
@@ -63,7 +63,6 @@ import {
   emailRefusal,
   formatMB,
   overEmailOf,
-  runRequestsEstimate,
   storageCheckOf,
   takeCheckpointFirst,
   unreadEmailOf,
@@ -78,6 +77,8 @@ import {
   type WritePlan,
 } from '../forge/ForgeRunGate.js';
 import { emailsRefusalWords, runEmailsSaidOf, type RunEmailsSaid } from '../forge/runEmailsSaid.js';
+import { duplicateRulesOf } from '../seed/seedDuplicateRules.js';
+import { importRequestsEstimate } from '../seed/seedStorage.js';
 import type { SyncHeldBackObject } from './syncHeldBack.js';
 import {
   heldPlanOf,
@@ -95,6 +96,11 @@ export interface SyncCountedObject {
   rows: number;
   /** Of an account's or a contact's rows, those of person accounts: sized as Salesforce counts them. */
   personAccounts?: number;
+  /**
+   * The records of each REST call its write sends (`SyncObjectConfig.batchSize`):
+   * what its requests are priced by under the Bulk API threshold. 200 when absent.
+   */
+  batchSize?: number;
 }
 
 /** An object of a run the target will take no record of as the run writes it, and why. */
@@ -184,6 +190,47 @@ export function syncWritePlan(counted: SyncCountedWrite): WritePlan {
   );
 }
 
+/** Records past which the run's writer sends an object as a Bulk API job, unless told. */
+const SYNC_BULK_THRESHOLD = SF_LIMITS.REST_API_BATCH_SIZE;
+
+/**
+ * The API requests a run's writes make of its target, as its writer sends
+ * them (`BulkDataWriter`), which the CSV import and the clone from an org
+ * write through too (`importRequestsEstimate`): an object of no more than
+ * the Bulk API threshold by REST calls of its batch size; past it, one Bulk
+ * API job over its whole time, and the rows a duplicate rule refused in it
+ * sent again by REST — every row of an object a rule watches, or that the
+ * read of the rules did not say of, none of a delete.
+ *
+ * Every object was counted a REST call per 200 rows, as though the writer
+ * never opened a job: 201 contacts, one job of thirteen calls and two more
+ * for what a rule refused in it, were counted two.
+ *
+ * @param path.duplicateRules - Whether a rule watches each object, as the
+ *   read of the target's automation said it (`duplicateRulesOf`).
+ */
+export function syncRequestsEstimate(
+  objects: ReadonlyArray<
+    Pick<SyncCountedObject, 'objectApiName' | 'operation' | 'rows' | 'batchSize'>
+  >,
+  path: { bulkThreshold?: number; duplicateRules?: ReadonlyMap<string, boolean> },
+): number {
+  return importRequestsEstimate(
+    objects
+      .filter((object) => object.rows > 0)
+      .map(({ objectApiName, operation, rows, batchSize }) => ({
+        objectApiName,
+        rows,
+        ...(batchSize !== undefined ? { perCall: batchSize } : {}),
+        ...(operation === 'delete' ? { deletes: true } : {}),
+      })),
+    {
+      threshold: path.bulkThreshold ?? SYNC_BULK_THRESHOLD,
+      ...(path.duplicateRules ? { duplicateRules: path.duplicateRules } : {}),
+    },
+  );
+}
+
 /** What a run's checks read of the target. */
 export interface SyncWriteMeasures {
   /** The data storage the target has, as its `/limits` say, and its daily API requests with it. */
@@ -208,6 +255,12 @@ export interface SyncWriteMeasures {
   emails: Pick<RunEmailsInput, 'target' | 'accepted' | 'keepsAddresses' | 'mayMute'>;
   /** `sandforge.safety.confirmAboveRecords`: the volume past which a run asks; 0 never asks. */
   confirmAboveRecords: number;
+  /**
+   * The records of an object's write past which the run's writer sends it as
+   * a Bulk API job (`RobustnessConfig.bulk.threshold`, `BulkApiExecutor`'s):
+   * what its requests are priced by. 200 when absent, the writer's own.
+   */
+  bulkThreshold?: number;
   /** The checkpoint the run takes of what it writes before its first write; absent when not asked. */
   checkpointFirst?: SyncCheckpointFirst;
 }
@@ -406,7 +459,10 @@ export async function measureSyncWrite(
   // run's own.
   const api: ApiBudgetCheck = apiBudgetCheckOf(
     {
-      run: runRequestsEstimate(objects),
+      run: syncRequestsEstimate(counted.objects, {
+        bulkThreshold: measures.bulkThreshold,
+        duplicateRules: read !== undefined ? duplicateRulesOf(read) : undefined,
+      }),
       ...checkpointPartOf(checkpoint),
       ...(counted.readBack !== undefined && counted.readBack > 0
         ? { readBack: counted.readBack }

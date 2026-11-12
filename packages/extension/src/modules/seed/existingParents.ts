@@ -43,7 +43,7 @@ export async function readExistingParentIds(
 }
 
 /** The ids one `Id IN (…)` names at most: a statement well inside what an org takes. */
-const IDS_PER_QUERY = 200;
+export const PARENT_IDS_PER_QUERY = 200;
 
 /** A record id as an org writes one: 15 letters and digits, or 18. */
 const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
@@ -68,9 +68,9 @@ export async function readPresentParentIds(
     if (!RECORD_ID.test(id)) throw new Error(`Not a record id: "${id}".`);
   }
   const present: string[] = [];
-  for (let at = 0; at < ids.length; at += IDS_PER_QUERY) {
+  for (let at = 0; at < ids.length; at += PARENT_IDS_PER_QUERY) {
     const list = ids
-      .slice(at, at + IDS_PER_QUERY)
+      .slice(at, at + PARENT_IDS_PER_QUERY)
       .map((id) => `'${id}'`)
       .join(', ');
     let page = await conn.query<Record<string, unknown>>(

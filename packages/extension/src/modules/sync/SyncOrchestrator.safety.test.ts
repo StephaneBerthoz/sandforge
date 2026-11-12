@@ -368,8 +368,8 @@ describe('SyncOrchestrator — before the first write', () => {
     expect(held).toEqual([
       {
         objects: [
-          { objectApiName: 'Account', operation: 'insert', rows: 1 },
-          { objectApiName: 'Contact', operation: 'insert', rows: 0 },
+          { objectApiName: 'Account', operation: 'insert', rows: 1, batchSize: 200 },
+          { objectApiName: 'Contact', operation: 'insert', rows: 0, batchSize: 200 },
         ],
         alreadyCopied: 4,
       },
@@ -435,10 +435,16 @@ describe('SyncOrchestrator — before the first write', () => {
 
     expect(held).toEqual([
       {
-        objects: [{ objectApiName: 'Account', operation: 'insert', rows: 2 }],
+        objects: [{ objectApiName: 'Account', operation: 'insert', rows: 2, batchSize: 200 }],
         alreadyCopied: 0,
         unwritable: [
-          { objectApiName: 'Contact', operation: 'insert', rows: 2, why: 'notCreateable' },
+          {
+            objectApiName: 'Contact',
+            operation: 'insert',
+            rows: 2,
+            why: 'notCreateable',
+            batchSize: 200,
+          },
         ],
       },
     ]);
@@ -462,7 +468,13 @@ describe('SyncOrchestrator — before the first write', () => {
     }).simulate(config());
 
     expect(measured[0].unwritable).toEqual([
-      { objectApiName: 'Contact', operation: 'insert', rows: 2, why: 'notCreateable' },
+      {
+        objectApiName: 'Contact',
+        operation: 'insert',
+        rows: 2,
+        why: 'notCreateable',
+        batchSize: 200,
+      },
     ]);
     expect(simulation.objects.find((o) => o.objectApiName === 'Contact')).toMatchObject({
       read: 2,
@@ -558,7 +570,7 @@ describe('SyncOrchestrator — before the first write', () => {
     }).execute(config({ objects }));
 
     const counted = {
-      objects: [{ objectApiName: 'Contact', operation: 'insert', rows: 1 }],
+      objects: [{ objectApiName: 'Contact', operation: 'insert', rows: 1, batchSize: 200 }],
       alreadyCopied: 0,
       unwritable: [
         {
@@ -567,6 +579,7 @@ describe('SyncOrchestrator — before the first write', () => {
           rows: 2,
           why: 'notAKey',
           key: 'Name',
+          batchSize: 200,
         },
       ],
       heldBack: [
@@ -623,8 +636,8 @@ describe('SyncOrchestrator — before the first write', () => {
     ).rejects.toBeInstanceOf(SyncRunRefused);
 
     expect(ran.held[0]?.objects).toEqual([
-      { objectApiName: 'Contact', operation: 'insert', rows: 0 },
-      { objectApiName: 'Case', operation: 'insert', rows: 1 },
+      { objectApiName: 'Contact', operation: 'insert', rows: 0, batchSize: 200 },
+      { objectApiName: 'Case', operation: 'insert', rows: 1, batchSize: 200 },
     ]);
     expect(ran.held[0]?.heldBack).toEqual([
       {

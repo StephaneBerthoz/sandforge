@@ -262,7 +262,10 @@ describe('a seed run without the environment’s lines', () => {
           },
           apiRequests: {
             verdict: 'unread',
-            estimate: 1,
+            // Three assets in one REST call; the object list, its describe and
+            // who the run writes as, read as it writes; the two reads that
+            // type the org before a real run writes.
+            estimate: 1 + (1 + 1 + 2) + 2,
             unread: 'the limits the org answered list no DailyApiRequests',
           },
         }

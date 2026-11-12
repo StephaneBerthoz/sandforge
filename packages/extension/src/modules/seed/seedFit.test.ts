@@ -14,7 +14,7 @@ import {
 } from '@sandforge/shared';
 
 import { fitBudgetOf, roomBytesOf, type FitBudget } from '../forge/fitBudget.js';
-import { seedRequestsEstimate, seedStorageBytes } from './seedStorage.js';
+import { seedRequestsEstimate, seedRunReads, seedStorageBytes } from './seedStorage.js';
 import {
   fitSeedTemplate,
   fittedTemplate,
@@ -483,22 +483,26 @@ describe('fitSeedTemplate', () => {
 
   it('says the requests held it when they leave less room than the storage', () => {
     // Every object past 200 records is a Bulk API job: under 200, a REST call each.
+    // What the run reads as it writes takes the same whatever the share.
+    const reads = seedRunReads(SERVICE_CLOUD_STARTER);
     const fit = fitSeedTemplate({
       template: SERVICE_CLOUD_STARTER,
       personObjects: [],
-      budget: budgetOf(500 * BYTES_PER_MB, 9),
+      budget: budgetOf(500 * BYTES_PER_MB, reads + 9),
       room: NO_ROOM,
     });
     expect(fit.heldBy).toBe('apiRequests');
-    expect(fit.requests).toBeLessThanOrEqual(9);
+    expect(fit.requests).toBeLessThanOrEqual(reads + 9);
     const cannot = fitSeedTemplate({
       template: SERVICE_CLOUD_STARTER,
       personObjects: [],
-      budget: budgetOf(500 * BYTES_PER_MB, 1),
+      budget: budgetOf(500 * BYTES_PER_MB, reads + 1),
       room: NO_ROOM,
     });
     expect(cannot.proposal.cannotFit).toMatch(
-      /takes about 5 API requests, past the 1 that leave the org a tenth of its daily requests$/,
+      new RegExp(
+        `takes about ${reads + 5} API requests, past the ${reads + 1} that leave the org a tenth of its daily requests$`,
+      ),
     );
     expect(cannot.heldBy).toBe('apiRequests');
   });
@@ -562,17 +566,18 @@ describe('fitSeedTemplate', () => {
       fitSeedTemplate({
         template: contacts,
         personObjects: [],
-        budget: budgetOf(500 * BYTES_PER_MB, 50),
+        budget: budgetOf(500 * BYTES_PER_MB, 100),
         room: NO_ROOM,
         ...(path ? { path } : {}),
       });
-    // No rule watches the contacts: jobs of 10,000, 10,000 and 5,000 (44
-    // calls) and the query of the rules, within the 50 left.
-    expect(fit(noRule)).toMatchObject({ heldBy: 'whole', requests: 45 });
+    // No rule watches the contacts: jobs of 10,000, 10,000 and 5,000 (86
+    // calls), the query of the rules and the four reads of the run as it
+    // writes, within the 100 left.
+    expect(fit(noRule)).toMatchObject({ heldBy: 'whole', requests: 91 });
     // Not told, a rule may: 125 REST calls, and the share is cut.
     expect(fit().heldBy).toBe('apiRequests');
     expect(
-      seedFitProposalOf(budgetOf(500 * BYTES_PER_MB, 50), contacts, [], NO_ROOM, noRule)?.share,
+      seedFitProposalOf(budgetOf(500 * BYTES_PER_MB, 100), contacts, [], NO_ROOM, noRule)?.share,
     ).toBe(1);
   });
 });

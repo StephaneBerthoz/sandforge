@@ -1822,10 +1822,12 @@ export class SeedOpsHandler implements DomainHandler {
     const taken = await templateTheOrgTakes(kinds.template, seedObjectAccess(conn));
     // Its requests priced as its insert sends them: an object a duplicate
     // rule watches through REST, as the automation read above found the
-    // rules, and each partition of a run the setting partitions on its own.
+    // rules, each partition of a run the setting partitions on its own, and
+    // a job past the threshold the run's insert is given.
     const writePath: SeedWritePath = {
       duplicateRules: duplicateRulesOf(read),
       partition: seedPartitionOf(readGrappeConfig(this.deps.services), kinds.template),
+      bulkThreshold: robustnessConfigOf(this.deps).bulk.threshold,
     };
     const storage = await seedStorageGate(
       conn,

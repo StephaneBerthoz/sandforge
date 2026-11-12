@@ -937,6 +937,7 @@ function countedWriteOf(
       operation: objectConfig.operation,
       rows: Math.max(0, count.rows - left - apart),
       ...(count.personAccounts !== undefined ? { personAccounts: count.personAccounts } : {}),
+      batchSize: objectConfig.batchSize,
     };
   });
   // An object the target will take no record of is counted apart: its rows

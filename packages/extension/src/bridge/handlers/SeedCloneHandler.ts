@@ -101,7 +101,7 @@ import {
   type ApiBudget,
   type DataStorage,
 } from '../../modules/forge/ForgeRunGate.js';
-import { importRequestsEstimate } from '../../modules/seed/seedStorage.js';
+import { cloneRequestsEstimate } from '../../modules/seed/seedStorage.js';
 import { duplicateRulesOf } from '../../modules/seed/seedDuplicateRules.js';
 import {
   NO_APEX_IN_PRODUCTION,
@@ -227,6 +227,12 @@ interface PreviewedOrgs {
 interface HeldPreview extends PreviewedOrgs {
   /** The records the clone sends, per object, as the preview counted them. */
   recordCounts: ReadonlyMap<string, number>;
+  /**
+   * The objects written without a lookup the order writes after them, which
+   * the second pass fills in, as the preview ordered them: what its
+   * updates are counted on.
+   */
+  secondPass: ReadonlySet<string>;
 }
 
 /**
@@ -708,6 +714,7 @@ export class SeedCloneHandler implements DomainHandler {
         msg.id,
         parsed,
         new Map(counted.map((object) => [object.objectApiName, object.recordCount])),
+        new Set(linker.lookupsFilledAfter(insertOrder, edges).map((edge) => edge.to)),
       );
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'seed:clone:preview', 'seed:clone:error', msg, err);
@@ -715,18 +722,21 @@ export class SeedCloneHandler implements DomainHandler {
   }
 
   /**
-   * Keep the orgs an answered preview was made for, and the records it
-   * counted, forgetting the oldest past {@link PREVIEWS_KEPT}.
+   * Keep the orgs an answered preview was made for, the records it counted
+   * and the objects its order leaves to the second pass, forgetting the
+   * oldest past {@link PREVIEWS_KEPT}.
    */
   private rememberPreview(
     previewId: string,
     orgs: PreviewedOrgs,
     recordCounts: ReadonlyMap<string, number>,
+    secondPass: ReadonlySet<string>,
   ): void {
     this.previewedOrgs.set(previewId, {
       sourceOrgId: orgs.sourceOrgId,
       targetOrgId: orgs.targetOrgId,
       recordCounts,
+      secondPass,
     });
     for (const oldest of this.previewedOrgs.keys()) {
       if (this.previewedOrgs.size <= PREVIEWS_KEPT) break;
@@ -929,7 +939,8 @@ export class SeedCloneHandler implements DomainHandler {
       // into a Developer Edition went past. The records are those the preview
       // counted. A read that fails is said, and holds nothing back.
       const targetName = targetOrg?.alias || targetOrg?.username || parsed.targetOrgId;
-      const recordCounts = this.previewedOrgs.get(parsed.previewId ?? '')?.recordCounts;
+      const previewed = this.previewedOrgs.get(parsed.previewId ?? '');
+      const recordCounts = previewed?.recordCounts;
       /** The records the clone sends, per object, as its preview counted them. */
       const counted = parsed.objects.map((o) => ({
         objectApiName: o.objectApiName,
@@ -1058,15 +1069,17 @@ export class SeedCloneHandler implements DomainHandler {
       // The records priced as the writer sends them, as an import's: past
       // the Bulk API threshold one job an object, and what a duplicate rule
       // refused in it again by REST, as the automation read above found the
-      // rules.
+      // rules; then the roles of contacts the platform wrote, given their
+      // fields, and the second pass the preview's order leaves.
       const api = apiBudgetCheckOf(
         {
-          run: importRequestsEstimate(
+          run: cloneRequestsEstimate(
             counted.map((o) => ({ objectApiName: o.objectApiName, rows: o.recordCount })),
             {
               threshold: robustnessConfigOf(this.deps).bulk.threshold,
               perCall: this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200),
               duplicateRules: duplicateRulesOf(automationRead),
+              ...(previewed ? { secondPass: previewed.secondPass } : {}),
             },
           ),
           ...checkpointPartOf(checkpoint?.planned),

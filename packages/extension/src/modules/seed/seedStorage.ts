@@ -15,6 +15,7 @@ import type {
   RunCheckpointEstimate,
   SeedTemplate,
 } from '@sandforge/shared';
+import { seedsStandardPricebook } from '@sandforge/shared';
 import {
   apiBudgetCheckOf,
   apiBudgetRefusal,
@@ -33,16 +34,45 @@ import {
 } from '../forge/ForgeRunGate.js';
 import { fitBudgetOf, type FitBudget } from '../forge/fitBudget.js';
 import { seedSliceOf } from './SeedOrchestrator.js';
+import { PARENT_IDS_PER_QUERY } from './existingParents.js';
 
 /** Records past which a seed sends an object as a Bulk API job (`seedInsert`'s default). */
 const SEED_BULK_THRESHOLD = 200;
 
 /**
  * The query of the org's active duplicate rules a seed's insert sends once,
- * before the first insert past {@link SEED_BULK_THRESHOLD} records
+ * before the first insert past the Bulk API threshold
  * (`objectsUnderDuplicateRules`).
  */
 const DUPLICATE_RULES_READ = 1;
+
+/** The read of the org's object list a seed's run sends once (`seedObjectAccess`). */
+const OBJECT_LIST_READ = 1;
+
+/**
+ * The calls jsforce's `identity` sends a connection that has not asked it
+ * before: the API's root, for the identity URL, then that URL.
+ */
+const IDENTITY_CALLS = 2;
+
+/**
+ * What the command line sends to type its target before a real run writes
+ * (`typeTarget`): `Organization` read once, and once more for an org that is
+ * no sandbox — a scratch org, a Developer Edition.
+ */
+const ORG_TYPE_READS = 2;
+
+/** The read of the org's standard price book, once a run, for a seed that points at it. */
+const STANDARD_PRICEBOOK_READ = 1;
+
+/**
+ * The opportunities whose contact roles one query reads (`contactRolesOf`):
+ * those the platform wrote as it took them, found before the roles go.
+ */
+const PLATFORM_ROLES_PER_READ = 200;
+
+/** The object whose records a run writes only for a Marketing User, which it reads first. */
+const CAMPAIGN = 'Campaign';
 
 /** How a seed's records reach its target, as far as what they cost it goes. */
 export interface SeedWritePath {
@@ -60,10 +90,23 @@ export interface SeedWritePath {
    * (`seedSliceOf`).
    */
   partition?: number;
+  /**
+   * The records of an insert past which it goes as a Bulk API job, as the
+   * run's insert is given it (`RobustnessConfig.bulk.threshold`): 200 when
+   * absent. A panel set to 500 sends 300 records by REST; set to 100, it sends
+   * 150 as a job, thirteen calls where REST takes one.
+   */
+  bulkThreshold?: number;
+  /**
+   * Whether the run reads what its target is before it writes, as the
+   * command line does to refuse a production org (`refuseProductionTarget`):
+   * a dry run reads none of it, and says what a run would send.
+   */
+  typedFirst?: boolean;
 }
 
 /** Whether `rules` say a duplicate rule watches `objectApiName`, whatever its case; nothing when they do not say. */
-function watchedBy(
+export function watchedBy(
   rules: ReadonlyMap<string, boolean> | undefined,
   objectApiName: string,
 ): boolean | undefined {
@@ -90,8 +133,8 @@ function insertsOf(count: number, size: number): number[] {
  * The API requests a seed's writes make of its target, as its insert sends
  * them (`seedInsert`): each object a slice of up to 10,000 records at a time
  * — fewer for a wide one, a partition each when the run partitions the seed
- * —, each slice by REST calls of its batch size up to
- * {@link SEED_BULK_THRESHOLD} records, and past it as one Bulk API job over
+ * —, each slice by REST calls of its batch size up to the Bulk API threshold
+ * ({@link SeedWritePath.bulkThreshold}), and past it as one Bulk API job over
  * its whole time, unless a duplicate rule watches the object, which then goes
  * by REST however many its records. Where the read of the rules did not say,
  * the dearer of the two. With a job, the query of the rules; and the calls of
@@ -103,16 +146,17 @@ function insertsOf(count: number, size: number): number[] {
  * validation rule refused, sent again without its fields; a call tried again
  * — is left out.
  */
-export function seedRequestsEstimate(
+export function seedWritesEstimate(
   template: Pick<SeedTemplate, 'objects'>,
   path: SeedWritePath = {},
 ): number {
+  const threshold = path.bulkThreshold ?? SEED_BULK_THRESHOLD;
   let jobs = false;
   const writes = template.objects.flatMap((object) => {
     const watched = watchedBy(path.duplicateRules, object.objectApiName);
     return insertsOf(object.recordCount, path.partition ?? seedSliceOf(object)).map((records) => {
       const rest = runRequestsEstimate([{ rows: records, perCall: object.batchSize }]);
-      if (records <= SEED_BULK_THRESHOLD) return rest;
+      if (records <= threshold) return rest;
       jobs = true;
       if (watched === true) return rest;
       const job = runRequestsEstimate([{ rows: records, bulk: true }]);
@@ -123,6 +167,60 @@ export function seedRequestsEstimate(
     writes.reduce((sum, calls) => sum + calls, 0) +
     (jobs ? DUPLICATE_RULES_READ : 0) +
     runRequestsEstimate(platformRoleCalls(template))
+  );
+}
+
+/**
+ * The API requests a seed's run makes of its target: its writes
+ * ({@link seedWritesEstimate}), and what it reads of the target as it writes
+ * them ({@link seedRunReads}). What the gate holds the run to, and a fit.
+ */
+export function seedRequestsEstimate(
+  template: Pick<SeedTemplate, 'objects' | 'relations'>,
+  path: SeedWritePath = {},
+): number {
+  return seedWritesEstimate(template, path) + seedRunReads(template, path);
+}
+
+/**
+ * What a seed's run reads of its target as it writes, at most, each read one
+ * of its daily requests: the org's object list, once (`seedObjectAccess`);
+ * each object's describe, once (`describedFieldsOf`), for the fields it
+ * takes; who the run writes as, for the sweep of its removal (`keepRunUser`);
+ * with a campaign, who again, and the Marketing User box of that user; the
+ * parents of each relation, a page of 2,000 of those the org holds already,
+ * a query of 200 of those named by id; the standard price book, for a seed
+ * that points at it; and, from the command line, what the target is
+ * ({@link SeedWritePath.typedFirst}).
+ *
+ * Asked live, a seed of 600 contacts under the standard duplicate rule took
+ * six requests more than its dry run, and was counted four, the three calls
+ * of its records and the query of the rules: the reads that typed the org
+ * before it wrote, and who it writes as, were counted nowhere, nor were the
+ * object list and the describes each run reads as it writes.
+ */
+export function seedRunReads(
+  template: Pick<SeedTemplate, 'objects' | 'relations'>,
+  path: Pick<SeedWritePath, 'typedFirst'> = {},
+): number {
+  const names = new Set(template.objects.map((object) => object.objectApiName));
+  const pricebook = template.objects.some((object) =>
+    object.fieldRules.some((rule) => seedsStandardPricebook(rule, names)),
+  );
+  const parents = (template.relations ?? []).reduce((sum, { parents: from }) => {
+    if (from.kind === 'existing')
+      return sum + runRequestsEstimate([{ rows: 0, readRows: from.limit }]);
+    if (from.kind === 'records') return sum + Math.ceil(from.ids.length / PARENT_IDS_PER_QUERY);
+    return sum;
+  }, 0);
+  return (
+    OBJECT_LIST_READ +
+    template.objects.length +
+    IDENTITY_CALLS +
+    (names.has(CAMPAIGN) ? IDENTITY_CALLS + 1 : 0) +
+    parents +
+    (pricebook ? STANDARD_PRICEBOOK_READ : 0) +
+    (path.typedFirst ? ORG_TYPE_READS : 0)
   );
 }
 
@@ -150,21 +248,63 @@ export function seedPartitionOf(
  * an object a rule watches may be refused so, and is counted again; so is
  * every row of one the read of the rules did not say of.
  *
- * The clone priced its records as REST calls: 600 rows, one job of twelve
+ * The clone priced its records as REST calls: 600 rows, one job of thirteen
  * calls, were counted three. The CSV import priced its rows as jobs of 10,000
- * at five calls each: 25,000 rows, one job of nineteen, were counted fifteen.
+ * at five calls each: 25,000 rows, one job of sixty-two, were counted fifteen.
+ *
+ * An object may say its own `perCall`, as each of a sync's says its batch
+ * size; and that it `deletes`: the writer sends nothing of a delete again,
+ * a duplicate rule refusing no delete.
  */
 export function importRequestsEstimate(
-  objects: ReadonlyArray<{ objectApiName: string; rows: number }>,
+  objects: ReadonlyArray<{
+    objectApiName: string;
+    rows: number;
+    perCall?: number;
+    deletes?: boolean;
+  }>,
   path: { threshold: number; perCall?: number; duplicateRules?: ReadonlyMap<string, boolean> },
 ): number {
-  return objects.reduce((sum, { objectApiName, rows }) => {
+  return objects.reduce((sum, { objectApiName, rows, perCall, deletes }) => {
     if (rows <= path.threshold) {
-      return sum + runRequestsEstimate([{ rows, perCall: path.perCall }]);
+      return sum + runRequestsEstimate([{ rows, perCall: perCall ?? path.perCall }]);
     }
-    const refusedAgain = watchedBy(path.duplicateRules, objectApiName) === false ? 0 : rows;
+    const refusedAgain =
+      deletes === true || watchedBy(path.duplicateRules, objectApiName) === false ? 0 : rows;
     return sum + runRequestsEstimate([{ rows, bulk: true }, { rows: refusedAgain }]);
   }, 0);
+}
+
+/**
+ * The API requests a clone from an org makes of its target, as it sends
+ * them: its records as an import's ({@link importRequestsEstimate}); the
+ * roles the platform writes with the opportunities it creates, read 200
+ * opportunities a query and given the source's fields by the same writer,
+ * as many as there are opportunities and roles to link; and its second pass,
+ * an update of each record of an object written without a lookup the order
+ * writes after it (`secondPass`), 200 a call (`fillOwedLookups`).
+ *
+ * Its records alone were counted: a clone of 600 accounts whose parent
+ * account goes in on the second pass sends three updates more than them.
+ */
+export function cloneRequestsEstimate(
+  objects: ReadonlyArray<{ objectApiName: string; rows: number }>,
+  path: Parameters<typeof importRequestsEstimate>[1] & { secondPass?: ReadonlySet<string> },
+): number {
+  const rows = (name: string): number =>
+    objects.find((object) => object.objectApiName === name)?.rows ?? 0;
+  const roles = Math.min(rows('Opportunity'), rows('OpportunityContactRole'));
+  const secondPass = objects
+    .filter(({ objectApiName }) => path.secondPass?.has(objectApiName) === true)
+    .map(({ rows: owing }) => ({ rows: owing }));
+  return (
+    importRequestsEstimate(objects, path) +
+    (roles > 0
+      ? Math.ceil(roles / PLATFORM_ROLES_PER_READ) +
+        importRequestsEstimate([{ objectApiName: 'OpportunityContactRole', rows: roles }], path)
+      : 0) +
+    runRequestsEstimate(secondPass)
+  );
 }
 
 /**
@@ -255,11 +395,12 @@ export const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
  *   delivers its emails sent (`deliverabilityPartOf`), counted with the seed's.
  * @param path - How its records reach the target, as its requests are
  *   priced: the duplicate rules read with the target's automation, the
- *   partitions of the run (`seedRequestsEstimate`).
+ *   partitions of the run, its Bulk API threshold, whether it types the org
+ *   first (`seedRequestsEstimate`).
  */
 export async function seedStorageGate(
   transport: LimitsTransport,
-  template: Pick<SeedTemplate, 'objects'>,
+  template: Pick<SeedTemplate, 'objects' | 'relations'>,
   personObjects: readonly string[],
   target: string,
   checkpoint?: RunCheckpointEstimate,

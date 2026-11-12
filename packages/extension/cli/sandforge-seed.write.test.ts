@@ -240,9 +240,52 @@ describe('a seed from the command line', () => {
 
     const summary = JSON.parse(stdout.join('')) as { apiRequests: { estimate: number } };
     // A job for each slice, of 10,000 and of 2,000, each read as long as it
-    // runs and its results three ways, and the query of the rules: 29. Not
-    // told of the rules, 64: the REST calls a rule would make of the first.
-    expect(summary.apiRequests.estimate).toBe(3 + 9 + 3 + (3 + 7 + 3) + 1);
+    // runs at 100 records a second and its results three ways, and the query
+    // of the rules; then what the run reads as it writes — the object list,
+    // a describe, who it writes as — and the two reads that type the org
+    // before a real run writes. Not told of the rules, the REST calls a rule
+    // would make of the first.
+    expect(summary.apiRequests.estimate).toBe(3 + 26 + 3 + (3 + 10 + 3) + 1 + (1 + 1 + 2 + 2));
+    // Asked live, a seed of 12,000 records no rule watched took 42 requests
+    // more than its dry run, and was counted 29.
+    expect(summary.apiRequests.estimate).toBeGreaterThanOrEqual(42);
+  });
+
+  it('says on a dry run which way an object past the threshold goes, as the read of the rules found them', async () => {
+    const reads = (ruled: boolean) =>
+      ({
+        read: async (_target: string, objects: readonly string[]) => ({
+          objectsRead: [...objects],
+          objects: ruled
+            ? [
+                {
+                  objectApiName: 'Asset',
+                  flows: [],
+                  triggers: [],
+                  duplicateRules: [{ name: 'Asset rule', developerName: 'Asset_Rule' }],
+                },
+              ]
+            : [],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+        }),
+      }) as never;
+    fakeOrg();
+    vi.mocked(targetAutomationReader).mockReturnValueOnce(reads(false));
+    await main(argv(500, '--dry-run'));
+    expect(stdout.join('')).toContain('[dry-run] Asset: 500 record(s) (a Bulk API job)\n');
+
+    stdout.length = 0;
+    fakeOrg();
+    vi.mocked(targetAutomationReader).mockReturnValueOnce(reads(true));
+    await main(argv(500, '--dry-run'));
+    expect(stdout.join('')).toContain(
+      '[dry-run] Asset: 500 record(s) (REST: an active duplicate rule watches the object, ' +
+        'which a Bulk API job cannot waive)\n',
+    );
+    expect(seedWritePathOf(201, 200, false)).toBe('(a Bulk API job)');
+    expect(seedWritePathOf(200, 200, true)).toBe('(REST)');
   });
 
   it('skips an --object the user may not create, saying why, and writes the others', async () => {
