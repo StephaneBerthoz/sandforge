@@ -178,7 +178,15 @@ const FIXTURE_FILE = /\.fixtures\.[cm]?[tj]sx?$/;
  * exists, or that shipping code has since started importing by value, fails
  * the gate so the list can neither rot nor quietly grant amnesty.
  */
-const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [];
+const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
+  ...['emptyCost', 'emptyCounts', 'emptyOrder', 'emptyPreview', 'emptyRelations', 'emptyScope'].map(
+    (name) => ({
+      path: `packages/extension/src/modules/dataops/empty/${name}.ts`,
+      reason:
+        'the dry run of an emptying: the DataOps Cleanup host calls it once its handler lands',
+    }),
+  ),
+];
 
 /** True for a spec/test/story file — never part of the production graph. */
 function isTestFile(path: string): boolean {

@@ -529,6 +529,21 @@ export function namespaceOf(objectApiName: string): string | undefined {
   return parts.length >= 3 && parts[0] !== '' ? parts[0] : undefined;
 }
 
+/** A child relationship as an object's describe lists it. */
+export type DescribedRelationship = NonNullable<CheckpointDescribe['childRelationships']>[number];
+
+/**
+ * How one child relationship places the two objects it ties in
+ * {@link childrenFirst}: which goes first, and how firmly; nothing when it
+ * does not order them.
+ */
+export type RelationshipPlacing = (
+  relationship: DescribedRelationship,
+) => { first: 'child' | 'parent'; firmness: number } | undefined;
+
+/** Every relationship as a removal reads it: the child first, all alike. */
+const CHILD_FIRST: RelationshipPlacing = () => ({ first: 'child', firmness: 0 });
+
 /**
  * `names` children first: each object after every other one whose records
  * point at it, otherwise in the order given — the order a removal deletes
@@ -537,42 +552,67 @@ export function namespaceOf(objectApiName: string): string | undefined {
  * reading far more often than deleted. Where objects point at each other, the
  * order given decides.
  *
- * Read from the child relationships each object's describe lists.
+ * Read from the child relationships each object's describe lists. `placing`
+ * may say otherwise of a relationship — its parent first, or nothing — and how
+ * firmly: where objects point at each other, the constraints of the lowest
+ * firmness give way first, and the order given decides only once none is left
+ * to give way.
  */
 export function childrenFirst(
   names: readonly string[],
   describes: ReadonlyMap<string, CheckpointDescribe>,
+  placing: RelationshipPlacing = CHILD_FIRST,
 ): string[] {
   const index = new Map(names.map((name, at) => [name.toLowerCase(), at]));
-  /** Per object, by its place in `names`, the objects of `names` it points at. */
-  const parentsOf = names.map(() => new Set<number>());
-  /** Per object, how many objects not yet placed point at it. */
-  const children = names.map(() => 0);
+  /** Per object, by its place in `names`, the objects it goes before, each at its firmest. */
+  const goesBefore = names.map(() => new Map<number, number>());
   names.forEach((name, parent) => {
     for (const relationship of describes.get(name)?.childRelationships ?? []) {
       const child = index.get(relationship.childSObject.toLowerCase());
-      if (child === undefined || child === parent || parentsOf[child].has(parent)) continue;
-      parentsOf[child].add(parent);
-      children[parent]++;
+      if (child === undefined || child === parent) continue;
+      const placed = placing(relationship);
+      if (placed === undefined) continue;
+      const [first, then] = placed.first === 'child' ? [child, parent] : [parent, child];
+      const firmest = goesBefore[first].get(then);
+      if (firmest === undefined || placed.firmness > firmest) {
+        goesBefore[first].set(then, placed.firmness);
+      }
     }
   });
+  /** Per object, by firmness, how many objects not yet placed must go before it. */
+  const waiting = names.map(() => new Map<number, number>());
+  const firmnesses = new Set<number>();
+  for (const before of goesBefore) {
+    for (const [then, firmness] of before) {
+      waiting[then].set(firmness, (waiting[then].get(firmness) ?? 0) + 1);
+      firmnesses.add(firmness);
+    }
+  }
+  const floors = [...firmnesses].sort((a, b) => a - b);
+  const free = (at: number, floor: number): boolean =>
+    [...waiting[at]].every(([firmness, count]) => count === 0 || firmness < floor);
   const placed = names.map(() => false);
   const ordered: string[] = [];
   while (ordered.length < names.length) {
     let next = -1;
     let first = -1;
-    for (let at = 0; at < names.length; at++) {
-      if (placed[at]) continue;
-      if (first < 0) first = at;
-      if (children[at] === 0) {
-        next = at;
-        break;
+    for (const floor of floors.length > 0 ? floors : [0]) {
+      for (let at = 0; at < names.length; at++) {
+        if (placed[at]) continue;
+        if (first < 0) first = at;
+        if (free(at, floor)) {
+          next = at;
+          break;
+        }
       }
+      if (next >= 0) break;
     }
     if (next < 0) next = first;
     placed[next] = true;
     ordered.push(names[next]);
-    for (const parent of parentsOf[next]) children[parent]--;
+    for (const [then, firmness] of goesBefore[next]) {
+      waiting[then].set(firmness, (waiting[then].get(firmness) ?? 0) - 1);
+    }
   }
   return ordered;
 }

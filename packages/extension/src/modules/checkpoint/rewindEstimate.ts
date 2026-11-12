@@ -259,7 +259,7 @@ const REMOVAL_FIXED_REQUESTS = 3;
  * Rows a page of a read takes, in an estimate. The org gives about as many,
  * not always as many: nothing reads this into a page.
  */
-const ESTIMATE_PAGE_ROWS = 2_000;
+export const ESTIMATE_PAGE_ROWS = 2_000;
 
 /**
  * Columns past which a read by id names a quarter as many ids a statement,
@@ -280,14 +280,14 @@ const CARRIED_COLUMNS = ['Id', 'SystemModstamp'];
 const UNDESCRIBED_RELATIONSHIPS = 23;
 
 /** Seconds a call of 25 describes takes, about (2.1 to 2.9 s measured). */
-const SECONDS_PER_DESCRIBE_CALL = 2.5;
+export const SECONDS_PER_DESCRIBE_CALL = 2.5;
 /**
  * Seconds a composite of five small queries takes, about (0.23 to 0.45 s
  * measured); a SOAP call of the clock or the user too.
  */
-const SECONDS_PER_SMALL_CALL = 0.35;
+export const SECONDS_PER_SMALL_CALL = 0.35;
 /** Seconds a page of the snapshot takes, about. */
-const SECONDS_PER_PAGE = 1;
+export const SECONDS_PER_PAGE = 1;
 /**
  * Seconds a call of pages of ids takes, about: five pages of 2,000 ids in one
  * composite, 0.86 to 0.91 s measured.
@@ -301,7 +301,7 @@ const SECONDS_PER_DEPENDENTS_READ = 0.25;
  * Seconds a write of up to 200 records takes, about: 2,000 contacts deleted
  * in 8.6 s by ten calls.
  */
-const SECONDS_PER_WRITE = 0.86;
+export const SECONDS_PER_WRITE = 0.86;
 
 /** The file version, whose records a removal deletes by their document, never by a job. */
 const FILE_VERSION = 'ContentVersion';

@@ -1,0 +1,309 @@
+import { describe, expect, it } from 'vitest';
+import { EmptyFixtureOrg, salesOrg, type FixtureObject } from '../../../test/emptyFixtureOrg';
+import {
+  affectedBy,
+  anyRouteCondition,
+  carriersOf,
+  countedWithArchived,
+  deletedRowsOf,
+  emptyDescribeSchema,
+  keptRowsOf,
+  MOST_ROUTES,
+  namesDeletedCondition,
+  relationKindOf,
+  relationsOf,
+  stepsCondition,
+  type EmptyDescribe,
+} from './emptyRelations';
+
+/** The describes `org` gives of `names`, those it refuses left out. */
+async function describesOf(
+  org: EmptyFixtureOrg,
+  names: readonly string[],
+): Promise<Map<string, EmptyDescribe>> {
+  const describes = new Map<string, EmptyDescribe>();
+  for (const name of names) {
+    try {
+      describes.set(name, emptyDescribeSchema.parse(await org.describe(name)));
+    } catch {
+      // Refused: left undescribed.
+    }
+  }
+  return describes;
+}
+
+const SALES = [
+  'Account',
+  'AccountContactRelation',
+  'Asset',
+  'Campaign',
+  'CampaignMember',
+  'Case',
+  'CaseComment',
+  'Contact',
+  'Contract',
+  'Event',
+  'Lead',
+  'Opportunity',
+  'OpportunityContactRole',
+  'OpportunityLineItem',
+  'Order',
+  'OrderItem',
+  'Pricebook2',
+  'PricebookEntry',
+  'Product2',
+  'Quote',
+  'QuoteLineItem',
+  'Task',
+  'User',
+];
+
+describe('relationKindOf', () => {
+  it('reads a lookup flagged both ways as one that takes its records along, as the removal and the checkpoint read it', () => {
+    expect(relationKindOf({ cascadeDelete: true, restrictedDelete: true })).toBe('cascade');
+    expect(relationKindOf({ cascadeDelete: true })).toBe('cascade');
+    expect(relationKindOf({ restrictedDelete: true })).toBe('restricted');
+    expect(relationKindOf({})).toBe('lookup');
+  });
+});
+
+describe('relationsOf', () => {
+  it('lists every lookup the parents’ describes name, by the names the org gives the objects', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, ['Pricebook2']);
+
+    expect(relationsOf(describes, (name) => (name === 'quote' ? 'Quote' : name))).toEqual([
+      { parent: 'Pricebook2', child: 'PricebookEntry', field: 'Pricebook2Id', kind: 'cascade' },
+      { parent: 'Pricebook2', child: 'Opportunity', field: 'Pricebook2Id', kind: 'restricted' },
+      { parent: 'Pricebook2', child: 'Quote', field: 'Pricebook2Id', kind: 'restricted' },
+      { parent: 'Pricebook2', child: 'Order', field: 'Pricebook2Id', kind: 'restricted' },
+      { parent: 'Pricebook2', child: 'Contract', field: 'Pricebook2Id', kind: 'restricted' },
+    ]);
+  });
+});
+
+describe('the rows an emptying keeps', () => {
+  it('keeps the standard price book, read by IsStandard and never by its name, and deletes every other row of every object', () => {
+    expect(keptRowsOf('Pricebook2')).toBe('IsStandard = true');
+    expect(deletedRowsOf('pricebook2')).toBe('IsStandard = false');
+    expect(keptRowsOf('Account')).toBeUndefined();
+    expect(deletedRowsOf('Account')).toBeUndefined();
+  });
+
+  it('counts tasks and events through queryAll, which alone reads the archived ones', () => {
+    expect(countedWithArchived('Task')).toBe(true);
+    expect(countedWithArchived('Event')).toBe(true);
+    expect(countedWithArchived('Case')).toBe(false);
+  });
+});
+
+describe('affectedBy', () => {
+  it('takes along, from an account, its contacts, opportunities, orders and what hangs from them, never its cases, whose lookup refuses its delete', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+
+    const affected = affectedBy(['Account'], SALES, describes);
+
+    expect(affected.along).toEqual(
+      [
+        'AccountContactRelation',
+        'Asset',
+        'CampaignMember',
+        'Contact',
+        'Contract',
+        'Event',
+        'OpportunityContactRole',
+        'OpportunityLineItem',
+        'Opportunity',
+        'Order',
+        'OrderItem',
+        'Quote',
+        'QuoteLineItem',
+        'Task',
+      ].sort(),
+    );
+    expect(affected.routes.has('Case')).toBe(false);
+    expect(affected.undescribed).toEqual([]);
+  });
+
+  it('reads a route up every lookup that takes records along, the emptied object at its top', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+
+    const affected = affectedBy(['Account'], SALES, describes);
+
+    expect(affected.routes.get('QuoteLineItem')).toEqual([
+      {
+        object: 'QuoteLineItem',
+        steps: [
+          { object: 'QuoteLineItem', field: 'QuoteId', parent: 'Quote' },
+          { object: 'Quote', field: 'OpportunityId', parent: 'Opportunity' },
+          { object: 'Opportunity', field: 'AccountId', parent: 'Account' },
+        ],
+        emptied: 'Account',
+      },
+    ]);
+  });
+
+  it('ends a route at an emptied object: what hangs from it is read from it', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+
+    const affected = affectedBy(['Account', 'Opportunity'], SALES, describes);
+
+    expect(affected.along).not.toContain('Opportunity');
+    expect(affected.routes.get('Opportunity')?.map((route) => route.emptied)).toEqual(['Account']);
+    expect(affected.routes.get('OpportunityLineItem')?.map((route) => route.emptied)).toEqual([
+      'Opportunity',
+    ]);
+  });
+
+  it('leaves out of what goes along the objects no one works in: histories, sharing, feeds', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+
+    const affected = affectedBy(['Account'], SALES, describes);
+
+    expect(affected.routes.has('AccountHistory')).toBe(false);
+    expect(affected.routes.has('AccountShare')).toBe(false);
+    expect(affected.routes.has('AccountFeed')).toBe(false);
+  });
+
+  it('names the objects going along it could not read further for want of a describe', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, ['Account']);
+
+    const affected = affectedBy(['Account'], SALES, describes);
+
+    expect(affected.undescribed).toContain('Contact');
+    expect(affected.undescribed).toContain('Opportunity');
+    expect(affected.routes.has('OpportunityLineItem')).toBe(false);
+  });
+
+  it('reads at most a few routes into one object, and says it cut the rest', async () => {
+    const parents: FixtureObject[] = Array.from({ length: MOST_ROUTES + 2 }, (_, at) => ({
+      name: `Parent${at}__c`,
+      children: [{ childSObject: 'Child__c', field: `Parent${at}__c`, cascadeDelete: true }],
+    }));
+    const org = new EmptyFixtureOrg([...parents, { name: 'Child__c' }]);
+    const names = [...parents.map((parent) => parent.name), 'Child__c'];
+    const describes = await describesOf(org, names);
+
+    const affected = affectedBy(
+      parents.map((parent) => parent.name),
+      names,
+      describes,
+    );
+
+    expect(affected.routes.get('Child__c')).toHaveLength(MOST_ROUTES);
+    expect([...affected.routesCut]).toEqual(['Child__c']);
+  });
+});
+
+describe('carriersOf', () => {
+  it('names every emptied object whose deletes take an object’s records away, up the lookups that take them along', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+    const affected = affectedBy(
+      ['Account', 'Opportunity', 'OpportunityLineItem'],
+      SALES,
+      describes,
+    );
+
+    expect([...carriersOf('OpportunityLineItem', affected)].sort()).toEqual([
+      'Account',
+      'Opportunity',
+      'OpportunityLineItem',
+    ]);
+    expect([...carriersOf('Quote', affected)].sort()).toEqual(['Account', 'Opportunity']);
+    expect([...carriersOf('Case', affected)]).toEqual([]);
+  });
+});
+
+describe('the conditions of a count', () => {
+  it('reads a path of lookups by their relationship names, the last lookup filled', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+    const affected = affectedBy(['Account'], SALES, describes);
+    const route = affected.routes.get('QuoteLineItem')?.[0];
+    if (!route) throw new Error('A quote line goes with its account');
+
+    expect(stepsCondition(route.steps, describes)).toEqual({
+      soql: 'Quote.Opportunity.AccountId != null',
+      exact: true,
+    });
+  });
+
+  it('reads a lookup to several objects by the type of what it names, and goes no further through it, saying it may count more', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+
+    expect(
+      stepsCondition([{ object: 'Task', field: 'WhatId', parent: 'Account' }], describes),
+    ).toEqual({ soql: "What.Type = 'Account'", exact: true });
+    expect(
+      stepsCondition(
+        [
+          { object: 'Task', field: 'WhoId', parent: 'Contact' },
+          { object: 'Contact', field: 'AccountId', parent: 'Account' },
+        ],
+        describes,
+      ),
+    ).toEqual({ soql: "Who.Type = 'Contact'", exact: false });
+  });
+
+  it('reads a lookup to the price book as one to a price book it deletes: the standard one is kept', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+
+    expect(
+      stepsCondition(
+        [{ object: 'Opportunity', field: 'Pricebook2Id', parent: 'Pricebook2' }],
+        describes,
+      ),
+    ).toEqual({ soql: 'Pricebook2.IsStandard = false', exact: true });
+  });
+
+  it('reads nothing through a lookup the user cannot see, and the lookup alone of an object not described', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, ['Contact']);
+
+    expect(
+      stepsCondition([{ object: 'Contact', field: 'Hidden__c', parent: 'Account' }], describes),
+    ).toBe(undefined);
+    expect(
+      stepsCondition([{ object: 'User', field: 'ContactId', parent: 'Contact' }], describes),
+    ).toEqual({
+      soql: 'ContactId != null',
+      exact: false,
+    });
+  });
+
+  it('joins the routes into one object by OR, each in parentheses', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+    const affected = affectedBy(['Opportunity', 'Contact'], SALES, describes);
+
+    expect(
+      anyRouteCondition(affected.routes.get('OpportunityContactRole') ?? [], describes),
+    ).toEqual({
+      soql: '(OpportunityId != null) OR (ContactId != null)',
+      exact: true,
+    });
+  });
+
+  it('reads a lookup to an object going along through that object’s own routes', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+    const affected = affectedBy(['Account'], SALES, describes);
+
+    expect(namesDeletedCondition('Case', 'ContactId', 'Contact', affected, describes)).toEqual({
+      soql: 'Contact.AccountId != null',
+      exact: true,
+    });
+    expect(namesDeletedCondition('Case', 'AccountId', 'Account', affected, describes)).toEqual({
+      soql: 'AccountId != null',
+      exact: true,
+    });
+  });
+});
