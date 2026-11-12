@@ -137,6 +137,42 @@ describe('reads of a statement too wide for one query', () => {
     }
   });
 
+  it("reads every group of a read through queryAll through queryAll: an archived row the org's query no longer answers keeps every field", async () => {
+    // The org's `query` leaves out the archived rows, here every other one;
+    // its `queryAll` answers them all.
+    const source = org();
+    const archived = (row: SourceRow): boolean => Number(String(row['Id']).slice(3, 15)) % 2 === 0;
+    const queryRecords = vi.fn(async (_org: string, soql: string) =>
+      source.answer(soql).filter((row) => !archived(row)),
+    );
+    const queryPages = vi.fn((_org: string, soql: string, options?: { all?: true }) =>
+      from([
+        options?.all ? source.answer(soql) : source.answer(soql).filter((row) => !archived(row)),
+      ]),
+    );
+    const deps = readingInColumnGroups<PagedReadDeps>({ queryRecords, queryPages });
+
+    const pages = await all(
+      pagesOfStatement(deps, 'src', wide, undefined, undefined, { all: true }),
+    );
+
+    expect(pages.flat()).toHaveLength(40);
+    expect(pages.flat().every((row) => Object.keys(row).length === fields.length)).toBe(true);
+    expect(queryRecords).not.toHaveBeenCalled();
+    expect(queryPages.mock.calls.length).toBeGreaterThan(1);
+    for (const [, , options] of queryPages.mock.calls) expect(options).toEqual({ all: true });
+  });
+
+  it('refuses a read through queryAll of deps that give no cursor, rather than read without the archived rows', () => {
+    const queryRecords = vi.fn(async () => rows(3));
+    expect(() =>
+      pagesOfStatement({ queryRecords }, 'src', 'SELECT Id FROM Task', undefined, undefined, {
+        all: true,
+      }),
+    ).toThrow('The deps read no archived row: no cursor to read through queryAll.');
+    expect(queryRecords).not.toHaveBeenCalled();
+  });
+
   /**
    * A source of three wide accounts at their `SystemModstamp`, which answers
    * the fields a statement names, by id when it names ids; `before` runs

@@ -6,6 +6,8 @@ import type {
   ForgeGap,
   ForgeRecordTypeMapping,
   ForgeFieldsLeftOut,
+  ForgeFileObject,
+  ForgeFileObjectReport,
   ForgeFilesReport,
   ForgeGraph,
   ForgeGraphEdge,
@@ -31,8 +33,10 @@ import {
   ForgeBatchStrategy as ForgeBatchStrategyService,
 } from './ForgeBatchStrategy.js';
 import { isNotFound } from './ForgeMetadataDiff.js';
-import { isNeverCopied } from './excludedObjects.js';
+import { isNeverCopied, isNeverCopiedWhenPicked } from './excludedObjects.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { isNetworkError } from '../../core/common/isNetworkError.js';
+import { ARCHIVED_ACTIVITIES } from '../../core/removal/tableIds.js';
 import { logger } from '../../logger.js';
 import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
 import { RecordScopeCache } from './RecordScopeCache.js';
@@ -113,7 +117,11 @@ import {
 } from './stages/SyncedQuoteLines.js';
 import { pagesOfStatement, readingInColumnGroups } from './stages/PagedRows.js';
 import { FORGE_QUERY_MAX_RECORDS } from './queryAllPages.js';
-import { ContactPointNeutralizer, contactPointFieldsOf } from './stages/ContactPointNeutralizer.js';
+import {
+  ContactPointNeutralizer,
+  FICTIONAL_NUMBERS,
+  contactPointFieldsOf,
+} from './stages/ContactPointNeutralizer.js';
 import {
   cleanNodeRecords,
   describeTargetFieldSets,
@@ -263,6 +271,7 @@ import {
   storageShortfall,
   takeUpFilesCopiedBefore,
   type FileCopyDeps,
+  type FileHost,
   type FileToCopy,
 } from './stages/FileCopier.js';
 import {
@@ -272,7 +281,8 @@ import {
 } from './ForgeAnonymizer.js';
 import { keepPartialSummary } from './interruptedRun.js';
 import { maskedEncryptedFields, viewsEncryptedDataOnce } from '../sync/encryptedFields.js';
-import type { ForgeRunStore, StoredOwedLookup } from './ForgeRunStore.js';
+import { checkpointKey, type ForgeRunStore, type StoredOwedLookup } from './ForgeRunStore.js';
+import { JOURNAL_LAST_WRITE_SLACK_MS } from './ForgeRunJournal.js';
 import { externalIdKey, fingerprintFields, rowFingerprint } from './ForgeInFlight.js';
 import type { FieldBounds } from './describeBounds.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
@@ -281,6 +291,7 @@ import {
   type BulkWriteAnswer,
   type ForgeBulkWriteOptions,
 } from './forgeBulkWrite.js';
+import type { WholeOrgMeasures } from './ForgeRunGate.js';
 import {
   findUnavailableRecordTypes,
   parseRecordTypeCounts,
@@ -700,7 +711,8 @@ export interface ExecuteOptions {
    * object before its first page (`keysOfTheTable`). A run read from a
    * record, one that copies files, and one whose graph holds emails are read
    * whole as before: their reads are bounded by what a record reaches, or
-   * their writes take an object whole.
+   * their writes take an object whole — but for a clone of the whole org
+   * (`ForgeStreamOptions.everything`), read page by page whatever it holds.
    */
   stream?: ForgeStreamOptions;
 }
@@ -753,10 +765,54 @@ export interface ForgeStreamOptions {
   summaryBound?: number;
   /**
    * Lookups the second pass takes from the journal at a time (2 000 when
-   * absent): a test seam, as `pageSize` is.
+   * absent): a test seam, as `pageSize` is — and a clone of the whole org's
+   * own size, a Bulk API job's worth ({@link WHOLE_ORG_WINDOW}).
    */
   secondPassPageSize?: number;
+  /**
+   * Rows of an object read page by page the run writes at a time: the org's
+   * pages of up to 2 000 rows gathered into windows of this many, each
+   * written — and told to `onPage` — before the next is read. A run that
+   * writes through the Bulk API sends a window as one job, where a page of
+   * 2 000 would be cut into ten REST calls. Absent, each page as the org
+   * gives it (or `pageSize`).
+   */
+  writeWindow?: number;
+  /**
+   * The run copies the whole org (the ALL depth): every node it can is read
+   * page by page, whatever else the run holds — the emails and the tasks
+   * too, which a run of whole tables otherwise reads whole, and a run that
+   * copies files — so that what it holds is a window of rows whatever the
+   * org holds. Each object's rows are let go once written (`releaseRows`);
+   * the emails on a case go in a second pass once the tasks they name are
+   * written (`streamEmailsAfterTheirTask`); archived tasks and events are
+   * read too (`readsArchived`); an object of a managed package the graph
+   * holds is written as any other node (`neverCopiedIn`); the opportunity's
+   * synced quote is left empty (`withoutSyncedQuotes`); the files are found
+   * from the files once every record is written (`copyFilesOfTheOrg`), and
+   * its gate is told what a count cannot say (`ForgeWriteBoundary.wholeOrg`).
+   * For a run of `inputMode: 'org'`, never set by a person.
+   */
+  everything?: true;
+  /**
+   * The most rows a clone of the whole org (`everything`) reads of a node it
+   * reads whole — the price catalog — which it holds to the end of its turn:
+   * the `sandforge.forge.maxRecordsPerObject` setting, the bound of the deps'
+   * reads too. Past it, the gate is told (`WholeOrgBoundary.readWholeOver`)
+   * and refuses the run before anything is written; a read that still meets
+   * it fails the run rather than write part of the catalog. Absent, the
+   * deps' bound alone.
+   */
+  wholeReadBound?: number;
 }
+
+/**
+ * Rows of an object a clone of the whole org writes at a time, and lookups
+ * its second pass takes at a time: a Bulk API job's worth
+ * (`FORGE_BULK_JOB_ROWS`), as the run that sets `stream.everything` sets
+ * `writeWindow` and `secondPassPageSize`.
+ */
+export const WHOLE_ORG_WINDOW = FORGE_BULK_JOB_ROWS;
 
 /** Where a run read page by page stands with one object: see {@link ForgeStreamOptions.resumeAfter}. */
 export interface ForgeStreamCheckpoint {
@@ -828,8 +884,94 @@ export interface ForgeWriteBoundary {
    * dry run, which reads none back, and when there is none to read.
    */
   readBack?: number;
+  /**
+   * Of a clone of the whole org (`stream.everything`), what it measured of
+   * both orgs besides the counts, for its gate to weigh the run on: see
+   * {@link WholeOrgBoundary}. Absent for any other run.
+   */
+  wholeOrg?: WholeOrgBoundary;
   /** Whether the run is a dry run, which writes none of them. */
   dryRun: boolean;
+}
+
+/**
+ * What a clone of the whole org measured before its gate, besides the counts
+ * of {@link ForgeWriteBoundary.objects} — read of both orgs before anything
+ * is written, on a dry run as on a run (`measureTheWholeOrg`): what the gate
+ * holds the run to ({@link WholeOrgMeasures}), and what its confirmation says.
+ */
+export interface WholeOrgBoundary extends WholeOrgMeasures {
+  /**
+   * Per object the run writes, as its count says it (`counted.rows`), how the
+   * writes go: the rows sent as Bulk API jobs and the jobs they take, and the
+   * rows sent by REST calls of 200. A window of `stream.writeWindow` rows —
+   * an object read whole: its rows, in jobs of `FORGE_BULK_JOB_ROWS` — goes
+   * as one job from `FORGE_BULK_MIN_ROWS` rows, by REST under it; an object a
+   * job cannot write (`FORGE_REST_ONLY_OBJECTS`), one an active duplicate
+   * rule of the target watches (`restOnly`), and every object of a run that
+   * does not write through the Bulk API (`writeApi`) by REST alone. The
+   * second pass, whose lookups no count can tell before the run, is not among
+   * them.
+   */
+  writes: Array<{
+    objectApiName: string;
+    rows: number;
+    jobs: number;
+    jobRows: number;
+    restRows: number;
+  }>;
+  /**
+   * The text the emails the run writes hold, in bytes (UTF-8), summed page by
+   * page (`emailBytesOf`): what they take of the target's data storage, which
+   * no count says. Absent when the run writes no email, or the text could
+   * not be read: the gate then sizes them by their count.
+   */
+  emailTextBytes?: number;
+  /**
+   * Of a run that copies files, the files it may copy as the source sums
+   * them: the latest version of every Salesforce File kept in Salesforce and
+   * every attachment within the largest file copied (`count`, `bytes`) —
+   * those on the records the run creates are copied, so these are the most it
+   * copies — and how many are past that size, which no clone copies
+   * (`overCeiling`); `unmeasured` when the source would neither sum nor list
+   * them. Absent when the run copies none.
+   */
+  files?: { count: number; bytes: number; overCeiling: number } | { unmeasured: true };
+  /**
+   * The requests the run's reads of the source take still, past those made
+   * before the gate (the counts, the describes, the text of the emails): a
+   * page per 2 000 rows of each object it reads, the emails on a case read
+   * again once their tasks are written, and, of a run that copies files, a
+   * page per 2 000 files of each kind, a read of the links of each 200
+   * Salesforce Files, and a read of each file's content. At least: an object
+   * too wide for one statement is read a statement per group of columns.
+   */
+  sourceReads: number;
+  /**
+   * Of a run that writes through the Bulk API, every object it writes by REST
+   * whatever their number: those no job writes (`FORGE_REST_ONLY_OBJECTS`)
+   * and those an active duplicate rule of the target watches, as the target
+   * said, or the standard rules' objects when it would not. Absent for a run
+   * that sends no job.
+   */
+  restOnly?: ReadonlySet<string>;
+  /**
+   * The nodes the run reads whole — the price catalog — whose count is past
+   * the bound of such a read (`stream.wholeReadBound`): read so, the run
+   * would write part of them, and stops on it (`WholeReadPastBoundError`).
+   * Absent when none is.
+   */
+  readWholeOver?: Array<{ objectApiName: string; rows: number; bound: number }>;
+  /**
+   * Of a run that neutralizes the contact points it writes, the phone
+   * numbers past the `FICTIONAL_NUMBERS` the fiction holds, at most: they go
+   * in empty (`ContactPointNeutralizer`). Each value of a phone field, or of
+   * a text named for a phone, counted where the source holds one, though the
+   * same number takes one fictional number however often it is met; a text
+   * holding two numbers is the one case counted short. Absent when none is,
+   * or the run keeps the contact points.
+   */
+  contactPointsBlanked?: number;
 }
 
 /**
@@ -926,14 +1068,22 @@ export interface ForgeExecutorDeps {
    * statement's own `LIMIT`: what a run of whole tables reads page by page
    * with (`ExecuteOptions.stream`). Optional: without it such a run reads
    * each statement whole through `queryRecords` and pages its writes alone.
+   * Given `all`, through the org's `queryAll`, which answers the archived
+   * tasks and events `query` leaves out (and the deleted rows, which the
+   * statement leaves out itself): see {@link ReadOptions}.
    */
-  queryPages?: (orgId: string, soql: string) => AsyncIterable<Record<string, unknown>[]>;
+  queryPages?: (
+    orgId: string,
+    soql: string,
+    options?: ReadOptions,
+  ) => AsyncIterable<Record<string, unknown>[]>;
   /**
    * How many rows a `SELECT COUNT() …` statement selects: what a run read
    * page by page shows its gate in place of the rows it does not hold yet.
-   * Optional: without it the gate is shown discovery's counts.
+   * Given `all`, counted through `queryAll`, as `queryPages` reads. Optional:
+   * without it the gate is shown discovery's counts.
    */
-  countRecords?: (orgId: string, soql: string) => Promise<number>;
+  countRecords?: (orgId: string, soql: string, options?: ReadOptions) => Promise<number>;
   /**
    * A query of an org's Tooling API: its currency settings, which say whether
    * advanced currency management is on whatever the user may do with
@@ -1080,6 +1230,18 @@ export interface ForgeExecutorDeps {
    * rule, so a run that sends jobs writes these by REST.
    */
   duplicateRuleObjects?: (orgId: string) => Promise<ReadonlySet<string> | undefined>;
+}
+
+/**
+ * How a statement is read: `all`, through the org's `queryAll` rather than
+ * `query`. A clone of the whole org reads tasks and events so: an org
+ * archives an activity a year after it is done, and `query` answers none of
+ * those — the clone would have left out every activity older than a year
+ * without a word. `queryAll` answers the rows in the recycle bin as well,
+ * which the statement leaves out (`IsDeleted = false`).
+ */
+export interface ReadOptions {
+  all?: true;
 }
 
 /** How one write is sent as a Bulk API job: see {@link ForgeExecutorDeps.bulkWriteRecords}. */
@@ -1409,6 +1571,14 @@ export interface ExecutionSummary {
    * are left empty — the counts beside them stand.
    */
   remapInJournal?: true;
+  /**
+   * Of a run whose ids are in its journal (`remapInJournal`), the records of
+   * `linkedCount` the platform wrote with one the run created, and deletes
+   * with it: what `withTheirRecordSourceIds` would have listed, counted, the
+   * ids being marks of the journal (`ForgeRunStore.withTheirRecord`). Absent
+   * when there were none.
+   */
+  withTheirRecordCount?: number;
 }
 
 /**
@@ -1533,6 +1703,49 @@ interface NodeCursor {
   targetSets?: PrereadNode['targetSetsPending'];
   /** What its pages written so far came to. */
   readonly carry: PageCarry;
+  /** The pass that reads the object again after its turn, when this read is one. */
+  readonly pass?: StreamPass;
+}
+
+/**
+ * A second read of an object read page by page, after its turn: the emails
+ * on a case of a clone of the whole org, read again once the tasks they name
+ * are written (`streamEmailsAfterTheirTask`). Its pages are read under the
+ * object's filter and `where`, in the order of their ids, after its own
+ * checkpoint (`name`), and only the rows `keep` keeps are written.
+ */
+interface StreamPass {
+  /** Its name, as its checkpoint is kept under: see `checkpointKey`. */
+  readonly name: string;
+  /** What its statement adds to the object's filter. */
+  readonly where: string;
+  /** The rows it writes, of those it reads. */
+  readonly keep: (row: Record<string, unknown>) => boolean;
+  /** The rows it expects to write: what a cancel between two pages keeps from the target. */
+  readonly expected: number;
+  /** How the line a cancel stops it with begins. */
+  readonly stopped: string;
+  /** How the line that ends it is said. */
+  readonly end: StreamedNodeEnd;
+}
+
+/**
+ * How the line that ends an object read page by page is said, when not as
+ * any object's: the emails, whose two passes end on one line
+ * (`streamEmailsAfterTheirTask`).
+ */
+interface StreamedNodeEnd {
+  /** Where the line goes: the run's progress by default. */
+  readonly say?: (event: ForgeProgressEvent) => void;
+  /** How it begins, in place of `Completed <object>`. */
+  readonly label?: string;
+  /** Said after the counts. */
+  readonly note?: string;
+  /**
+   * The object's second read (a {@link StreamPass}): its turn said the rows
+   * held back for an exclusion, which this line does not say again.
+   */
+  readonly again?: true;
 }
 
 /** A Salesforce id, 15 or 18 characters: what a checkpoint's id must be to go into a statement. */
@@ -1580,6 +1793,8 @@ interface PageCarry {
   writtenBefore: number;
   /** Person accounts' contacts linked to the one the platform wrote. */
   withTheirAccount: number;
+  /** Tasks linked to the one the platform wrote with an email of the run. */
+  withTheirEmail: number;
   /**
    * Rows of an opportunity's team linked to the target opportunity owner's
    * member or split, which the platform writes with the opportunity, and to
@@ -1665,6 +1880,7 @@ function emptyPageCarry(): PageCarry {
     unidentified: 0,
     writtenBefore: 0,
     withTheirAccount: 0,
+    withTheirEmail: 0,
     teamOwners: 0,
     teamOthers: 0,
     teamValues: { notKept: new Map(), unread: new Map() },
@@ -1697,6 +1913,7 @@ function settledOfCarry(carry: PageCarry): number {
     carry.linked +
     carry.writtenBefore +
     carry.withTheirAccount +
+    carry.withTheirEmail +
     carry.teamOwners +
     carry.teamOthers +
     carry.rolesOfTheirOpportunity
@@ -1750,6 +1967,26 @@ type LeftEmptyLookups = Map<
 
 /** Lookups the second pass of a run with a journal takes from it at a time. */
 const SECOND_PASS_PAGE = 2_000;
+
+/**
+ * The pass of a clone of the whole org that reads the emails on a case once
+ * the tasks they name are written, as its checkpoints name it: see
+ * `streamEmailsAfterTheirTask`.
+ */
+const EMAILS_AFTER_THEIR_TASK = 'afterTask';
+
+/**
+ * How many times a page of a table read page by page is asked again when
+ * the org could not answer it — its cursor expired, the connection dropped,
+ * the org was briefly unavailable — before the read fails: see `nextPage`.
+ */
+const CURSOR_RETRIES = 3;
+
+/** The wait before the first of those, doubled before each next one. */
+const CURSOR_RETRY_DELAY_MS = 1_000;
+
+/** Rows the org answers a page of a query with, at most: what a read is counted in requests by. */
+const ROWS_PER_PAGE = 2_000;
 
 /** The source ids a run read: held in memory, or kept in its journal. See `ExecutionState.idsRead`. */
 interface ReadIds {
@@ -2160,8 +2397,12 @@ interface ExecutionState {
   /**
    * The source ids linked to a record the platform wrote with one this run
    * created, and deletes with it. See `ExecutionSummary.withTheirRecordSourceIds`.
+   * Of a run that keeps a journal, none: they are marks of the journal, as
+   * its other ids are (`keepWithTheirRecord`).
    */
   readonly withTheirRecord: Set<string>;
+  /** When the run began, by this machine's clock: what a clone of the whole org dates its records from (`readWrittenBetweenByObject`). */
+  readonly startedAt: Date;
   /** See `ExecutionSummary.writtenByThePlatform`: per object, the rows. */
   readonly writtenByThePlatform: Map<string, number>;
   /**
@@ -2196,6 +2437,22 @@ interface ExecutionState {
   emailsAllWaiting?: ForgeProgressEvent;
   /** Whether the task node's turn to be written is over, whatever it wrote. */
   taskTurnOver: boolean;
+  /**
+   * Whether the emails go in two passes, a page at a time: a clone of the
+   * whole org (`stream.everything`) read page by page. The emails on a case
+   * are left out of the email node's turn, never held — a million of them
+   * would be — and read again once the tasks they name are written. See
+   * `streamEmailsAfterTheirTask`.
+   */
+  emailsInTwoPasses: boolean;
+  /** Of those, the emails on a case the email node's turn left for the task's, in this part. */
+  emailsLeftForTheirTask: number;
+  /** Whether the email node had its turn, read page by page: the second pass follows it. */
+  emailsFirstPassRan: boolean;
+  /** The synced quotes a clone of the whole org left empty: see `withoutSyncedQuotes`. */
+  syncedQuotesLeft: number;
+  /** Whether the tasks of a page of emails could not be looked up: said once. */
+  emailTasksNotLookedUp?: true;
   /** When the target dated the run's writes, once read back at its end. */
   writtenBetween?: ForgeWrittenBetween;
   /** What the deps' `requestsSent` said as the run began; absent when they count none. */
@@ -3022,6 +3279,10 @@ function pagedCounts(
     carry.withTheirAccount > 0
       ? `, ${carry.withTheirAccount} written by the platform with their person account`
       : '';
+  const withTheirEmail =
+    carry.withTheirEmail > 0
+      ? `, ${carry.withTheirEmail} written by the platform with their email`
+      : '';
   const withTheirOpportunity =
     teamLinkedNote(carry.teamOwners, carry.teamOthers) +
     rolesWithTheirOpportunityNote(carry.rolesOfTheirOpportunity, carry.rolesGiven);
@@ -3032,7 +3293,7 @@ function pagedCounts(
       ? ` (${carry.unidentified} already in the target without Salesforce naming the record — their children lose the link)`
       : '';
   return (
-    `${carry.succeeded} ${succeeded}${updated}${linked}${withTheirAccount}${withTheirOpportunity}${already}, ` +
+    `${carry.succeeded} ${succeeded}${updated}${linked}${withTheirEmail}${withTheirAccount}${withTheirOpportunity}${already}, ` +
     `${carry.failed + heldBackCount(held)} failed${unidentified}${ofThemHeldBack(held)}`
   );
 }
@@ -3480,6 +3741,197 @@ function endedBeforeTheEmailsThatWaited(
   };
 }
 
+/**
+ * Keep that the record `sourceId` is linked to is one the platform wrote with
+ * a record the run created, and deletes with it (see
+ * `ExecutionSummary.withTheirRecordSourceIds`): a mark of the run's journal
+ * when it keeps one, as every other id of the run is. Held in memory, a clone
+ * of the whole org held one id per contact of a person account, per task of
+ * an email, to the end of the run: millions of them.
+ */
+function keepWithTheirRecord(state: ExecutionState, sourceId: string): void {
+  if (state.store) state.store.withTheirRecord(sourceId);
+  else state.withTheirRecord.add(sourceId);
+}
+
+/** Whether {@link keepWithTheirRecord} kept `sourceId` in this part of the run. */
+function isWithTheirRecord(state: ExecutionState, sourceId: string): boolean {
+  return state.store
+    ? state.store.markedWithTheirRecord(sourceId)
+    : state.withTheirRecord.has(sourceId);
+}
+
+/**
+ * The source ids of {@link keepWithTheirRecord}: this part's marks of the
+ * journal, read from it, or those held in memory.
+ */
+function withTheirRecordOf(state: ExecutionState): string[] {
+  return state.store ? [...state.store.withTheirRecordIds()] : [...state.withTheirRecord];
+}
+
+/**
+ * A node a clone of the whole org reads whole — the price catalog — met the
+ * bound of such a read (`stream.wholeReadBound`): its gate should have
+ * refused the run before anything was written, and the run stops rather than
+ * write part of it. See `ForgeExecutor.readWhole`.
+ */
+class WholeReadPastBoundError extends Error {
+  constructor(objectApiName: string, bound: number | undefined) {
+    super(
+      `Internal error: ${objectApiName} holds more rows than a clone of the whole org reads ` +
+        `whole${bound === undefined ? '' : ` (${bound})`}, which its gate should have refused ` +
+        'before anything was written. The run stopped rather than write part of it: raise ' +
+        'sandforge.forge.maxRecordsPerObject, or leave the object out.',
+    );
+    this.name = 'WholeReadPastBoundError';
+  }
+}
+
+/**
+ * The name of the last pass of a clone of the whole org, as its checkpoints
+ * name it: the files, by the object each kind is counted under
+ * (`ContentDocument/files`, `Attachment/files`). See `copyFilesOfTheOrg`.
+ */
+const FILES_PASS = 'files';
+
+/** Documents whose links a clone of the whole org reads at a time: an `IN` list's worth. */
+const FILE_LINKS_AT_ONCE = 200;
+
+/**
+ * Files a clone of the whole org lists at a time, each page a statement of
+ * its own (`LIMIT`): a page of the org's cursor, which no cursor is kept open
+ * for while its files are copied. See `copyFilesOfTheOrg`.
+ */
+const FILES_PAGE = ROWS_PER_PAGE;
+
+/**
+ * The files a clone of the whole org copies, by the object their content is
+ * read from: the latest version of each Salesforce File kept in Salesforce —
+ * one kept outside it has no content to read — and each attachment; each
+ * with the field its size is in, and the object it is counted under. See
+ * `copyFilesOfTheOrg`.
+ */
+const WHOLE_ORG_FILES = [
+  {
+    object: 'ContentVersion',
+    counted: 'ContentDocument',
+    size: 'ContentSize',
+    where: "IsLatest = true AND ContentLocation = 'S'",
+  },
+  { object: 'Attachment', counted: 'Attachment', size: 'BodyLength', where: '' },
+] as const satisfies ReadonlyArray<{
+  object: string;
+  counted: ForgeFileObject;
+  size: string;
+  where: string;
+}>;
+
+/** The entry of a run's report of its files for `objectApiName`, made when it has none. */
+function entryOfFiles(
+  report: ForgeFilesReport,
+  objectApiName: ForgeFileObject,
+): ForgeFileObjectReport {
+  let entry = report.objects.find((o) => o.objectApiName === objectApiName);
+  if (!entry) {
+    entry = { objectApiName, planned: 0, plannedBytes: 0, copied: 0, failed: 0 };
+    report.objects.push(entry);
+  }
+  return entry;
+}
+
+/**
+ * Of a page of attachments a clone of the whole org reads, those under a
+ * record the run created, each as the file to copy under it. One under a
+ * record the run did not create — the target held it, or refused it — is not
+ * copied, and not listed: see `copyFilesOfTheOrg`.
+ */
+function attachmentsOnTheRunsRecords(
+  state: ExecutionState,
+  attachments: readonly Record<string, unknown>[],
+): FileToCopy[] {
+  const files: FileToCopy[] = [];
+  for (const attachment of attachments) {
+    const id = attachment['Id'];
+    const parent = attachment['ParentId'];
+    if (typeof id !== 'string' || typeof parent !== 'string') continue;
+    if (!state.remapper.wasCreated(parent)) continue;
+    const named = attachment['Name'];
+    const name = typeof named === 'string' && named !== '' ? named : id;
+    const type = attachment['ContentType'];
+    const size = attachment['BodyLength'];
+    files.push({
+      objectApiName: 'Attachment',
+      sourceId: id,
+      body: { objectApiName: 'Attachment', id },
+      name,
+      bytes: typeof size === 'number' && Number.isFinite(size) ? size : 0,
+      hosts: [{ id: parent }],
+      fields: {
+        Name: name,
+        ...(typeof type === 'string' && type !== '' ? { ContentType: type } : {}),
+        IsPrivate: attachment['IsPrivate'] === true,
+      },
+    });
+  }
+  return files;
+}
+
+/** Whether a read failed because the org let its cursor expire: `INVALID_QUERY_LOCATOR`. */
+function isExpiredCursor(err: unknown): boolean {
+  const code = (err as { errorCode?: unknown } | null)?.errorCode;
+  return (
+    code === 'INVALID_QUERY_LOCATOR' || extractErrorMessage(err).includes('INVALID_QUERY_LOCATOR')
+  );
+}
+
+/**
+ * Whether a read failed for a reason that may be gone a moment later: the
+ * connection dropped or timed out (`isNetworkError`), or the org said it was
+ * unavailable for a while (`SERVER_UNAVAILABLE`, an HTTP 502, 503 or 504).
+ */
+function isPassingFailure(err: unknown): boolean {
+  if (isNetworkError(err)) return true;
+  const { errorCode, statusCode } = (err ?? {}) as { errorCode?: unknown; statusCode?: unknown };
+  if (errorCode === 'SERVER_UNAVAILABLE') return true;
+  if (statusCode === 502 || statusCode === 503 || statusCode === 504) return true;
+  return extractErrorMessage(err).includes('SERVER_UNAVAILABLE');
+}
+
+/** Wait `ms` milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** An object's filter, and what a pass that reads it again adds to it: see `StreamPass.where`. */
+function withTheWhereOfAPass(
+  filter: string | undefined,
+  pass: StreamPass | undefined,
+): string | undefined {
+  if (!pass) return filter;
+  return filter ? `(${filter}) AND ${pass.where}` : pass.where;
+}
+
+/**
+ * Whether no clone of the run creates records of `objectApiName`: one
+ * `isNeverCopied` names — but an object of a managed package the run writes.
+ *
+ * Those are left out of a walk from a record by their namespace alone
+ * (`isNeverCopied` against `isNeverCopiedWhenPicked`): following a record's
+ * reverse lookups pulled a package's configuration catalogue in. A clone of
+ * the whole org holds them as nodes, as a checkpoint holds them as data, and
+ * writes them as any other: taken for objects no clone creates, the lookups
+ * at them were asked of the target, and a row naming one the run had not
+ * written yet was held back as a row whose parent the target lacks. Every
+ * other object of the list — what only the platform writes, setup, files —
+ * stays one no clone creates, whatever the run holds: a node of it would be
+ * one the run could not write.
+ */
+function neverCopiedIn(state: ExecutionState, objectApiName: string): boolean {
+  if (!isNeverCopied(objectApiName)) return false;
+  if (isNeverCopiedWhenPicked(objectApiName)) return true;
+  return !state.writtenObjects.has(objectApiName);
+}
+
 /** Whether a row read is one the run this one retries wrote: it is in the target already. */
 function wasWrittenBefore(config: ForgeStageConfig, row: Record<string, unknown>): boolean {
   const id = row['Id'];
@@ -3713,6 +4165,28 @@ const WRITTEN_DATE_COLUMNS: readonly (readonly string[])[] = [
 
 /** The audit dates an org may let a user set on the records they create. */
 const AUDIT_DATE_FIELDS: ReadonlySet<string> = new Set(['CreatedDate', 'LastModifiedDate']);
+
+/**
+ * The types of the fields whose values are text a record holds: what the
+ * size of an email is measured by (`emailBytesOf`), as a record read whole
+ * is measured by its string values.
+ */
+const TEXT_FIELD_TYPES: ReadonlySet<string> = new Set([
+  'string',
+  'textarea',
+  'email',
+  'phone',
+  'url',
+  'picklist',
+  'multipicklist',
+  'combobox',
+  'encryptedstring',
+]);
+
+/** A moment as a SOQL date-time literal, to the second: `2026-11-02T08:00:00Z`. */
+function soqlDateTime(epochMs: number): string {
+  return new Date(epochMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
 
 /** A date the org wrote, in epoch milliseconds; NaN when there is none to read. */
 function epochOf(value: unknown): number {
@@ -4176,7 +4650,8 @@ export class ForgeExecutor {
     const readRecordType = this.deps.recordTypePicklists;
     // A simulation writes nothing to keep, and its ids are its own.
     const store = config.dryRun ? undefined : config.stream?.store;
-    store?.beginPart(new Date());
+    const startedAt = new Date();
+    store?.beginPart(startedAt);
     // 2 000 smaller calls until a gate that read the target's requests allows fewer.
     const splitting = limitSplitting();
     const bulk = await this.bulkTransportOf(config, targetOrgId);
@@ -4307,11 +4782,16 @@ export class ForgeExecutor {
       leftEmptyByFilter: new Map(),
       contactsOnTheirOwn: new Set<string>(),
       withTheirRecord: new Set<string>(),
+      startedAt,
       writtenByThePlatform: new Map<string, number>(),
       contactSentWith: new Map<string, string>(),
       leftToThePlatform: new RowsLeftToThePlatform(),
       emailsAfterTheirTask: [],
       taskTurnOver: false,
+      emailsInTwoPasses: false,
+      emailsLeftForTheirTask: 0,
+      emailsFirstPassRan: false,
+      syncedQuotesLeft: 0,
       requestsBefore,
       simulated,
       gaps: config.dryRun ? new SimulationGaps() : null,
@@ -4360,9 +4840,10 @@ export class ForgeExecutor {
       // unsaid. The emails that waited are never written.
       this.endBeforeTheEmailsThatWaited(
         state,
-        state.emailsAfterTheirTask.length,
+        state.emailsAfterTheirTask.length + state.emailsLeftForTheirTask,
         err instanceof ForgeAbortedError,
       );
+      this.saySyncedQuotesLeft(state);
       // What the run had done before it stopped goes with the error: thrown
       // bare, an abort or a failure past the first object took the tallies
       // with it, and the run was recorded as failed with nothing written.
@@ -4563,6 +5044,10 @@ export class ForgeExecutor {
    */
   private async readWrittenBetween(state: ExecutionState): Promise<void> {
     if (state.config.dryRun || state.writtenBetween) return;
+    if (state.config.stream?.everything === true && state.store) {
+      await this.readWrittenBetweenByObject(state, state.store);
+      return;
+    }
     let first = Number.POSITIVE_INFINITY;
     let last = Number.NEGATIVE_INFINITY;
     for (const { objectApiName, sourceIds } of state.remapper.createdByObject()) {
@@ -4589,6 +5074,81 @@ export class ForgeExecutor {
           if (Number.isFinite(modified)) last = Math.max(last, modified);
         }
       }
+    }
+    if (Number.isFinite(first) && Number.isFinite(last)) {
+      state.writtenBetween = {
+        first: new Date(first).toISOString(),
+        last: new Date(Math.max(first, last)).toISOString(),
+      };
+    }
+  }
+
+  /**
+   * When the target dated the writes of a clone of the whole org: per object
+   * it created records of, the earliest creation and the latest system stamp
+   * of its records created since the run began — one aggregate an object,
+   * where reading the dates of each record back took a read per 200 of
+   * millions of them (`readWrittenBetween`). Of an object whose audit dates
+   * the run may have copied (`auditDatesCopied`), by the system stamp alone,
+   * which no one sets.
+   *
+   * By the latest stamp of any of them, never by the first and last writes
+   * alone: the second pass fills in the lookups of records written long
+   * before it, whose stamp is then later than the last write of their object,
+   * and a removal dated by that write read them as changed since the run,
+   * and kept them. The records of the object that others created or touched
+   * since the run began are taken with the run's: they date it no later than
+   * now, and no earlier than it began, so a record changed after the run is
+   * still read so.
+   *
+   * An object whose dates cannot be summed — refused, or keeping neither
+   * column — dates the run to now, by this machine's clock, and
+   * `JOURNAL_LAST_WRITE_SLACK_MS` past it: as a removal dates a run whose
+   * journal is all it has, by its last line. Undated, a removal of a run of
+   * millions of records read every record by itself.
+   */
+  private async readWrittenBetweenByObject(
+    state: ExecutionState,
+    store: ForgeRunStore,
+  ): Promise<void> {
+    // The org's clock may be behind this machine's: the run's records are
+    // asked from a while before it began, which takes none of another's but
+    // those the run's user wrote just before.
+    const since = soqlDateTime(state.startedAt.getTime() - JOURNAL_LAST_WRITE_SLACK_MS);
+    let first = Number.POSITIVE_INFINITY;
+    let last = Number.NEGATIVE_INFINITY;
+    let undated = false;
+    for (const { objectApiName, created } of store.countsByObject()) {
+      if (created === 0) continue;
+      const object = assertSoqlIdentifier(objectApiName);
+      const stampOnly = await this.auditDatesCopied(state, objectApiName);
+      const statements = [
+        ...(stampOnly
+          ? []
+          : [
+              `SELECT MIN(CreatedDate) f, MAX(SystemModstamp) l FROM ${object} WHERE CreatedDate >= ${since}`,
+            ]),
+        `SELECT MIN(SystemModstamp) f, MAX(SystemModstamp) l FROM ${object} WHERE SystemModstamp >= ${since}`,
+      ];
+      let dated = false;
+      for (const soql of statements) {
+        try {
+          const [row] = await this.deps.queryRecords(state.targetOrgId, soql);
+          const from = epochOf(row?.['f']);
+          const to = epochOf(row?.['l']);
+          if (Number.isFinite(from)) first = Math.min(first, from);
+          if (Number.isFinite(to)) last = Math.max(last, to);
+          dated = true;
+          break;
+        } catch {
+          // The next statement, or none.
+        }
+      }
+      if (!dated) undated = true;
+    }
+    if (undated) {
+      first = Math.min(first, state.startedAt.getTime());
+      last = Math.max(last, Date.now() + JOURNAL_LAST_WRITE_SLACK_MS);
     }
     if (Number.isFinite(first) && Number.isFinite(last)) {
       state.writtenBetween = {
@@ -4685,6 +5245,9 @@ export class ForgeExecutor {
     const streamed = this.streamsTheRun(state);
     const twoPhase = !streamed && readsBeforeWriting(config);
     state.readsEverythingFirst = twoPhase;
+    // A clone of the whole org reads its emails page by page, in two passes:
+    // see `streamEmailsAfterTheirTask`.
+    state.emailsInTwoPasses = streamed && config.stream?.everything === true;
     // A run that writes each object as it reads it owes its second pass to
     // the journal, when it keeps one; one that reads every node first settles
     // the pass after each node it writes, from memory.
@@ -4888,6 +5451,9 @@ export class ForgeExecutor {
         await this.readInTurn(node, state);
       } else if (streamed && this.streamsNode(node, state)) {
         await this.streamNode(node, state);
+        // The tasks of a clone of the whole org are read page by page too:
+        // the emails on a case go in after their turn.
+        if (node.objectApiName === TASK) await this.writeEmailsAfterTheirTask(state);
       } else {
         if (await this.readNode(node, state, false, true)) await this.writeNode(node, state);
         // The emails that wait for the task each names go in once the task
@@ -4896,6 +5462,7 @@ export class ForgeExecutor {
         // And the contacts the platform wrote with the person accounts are
         // known once the accounts have had theirs.
         if (node.objectApiName === ACCOUNT) await this.mapContactsOfPersonAccounts(state);
+        this.releaseRows(state, node.objectApiName);
       }
     }
 
@@ -4948,6 +5515,7 @@ export class ForgeExecutor {
         );
       } else if (await this.readNode(node, state, false, true)) {
         await this.writeNode(node, state);
+        this.releaseRows(state, node.objectApiName);
       }
     }
 
@@ -4957,6 +5525,11 @@ export class ForgeExecutor {
       state,
       lastOfTheCatalog < 0 ? [] : deferred.slice(lastOfTheCatalog + 1),
     );
+    // The catalog's rows are read again no more: a clone of the whole org
+    // lets them go with the rest.
+    for (const objectApiName of [...state.preread.keys()]) {
+      this.releaseRows(state, objectApiName, true);
+    }
 
     // Every row is read: what was read before a row it cannot be written
     // without was held back is held back with it, and a row of the catalog
@@ -4976,8 +5549,11 @@ export class ForgeExecutor {
     }
 
     // The files of what was read, chosen and measured while nothing is
-    // written yet: a run whose files do not fit in the target stops here.
-    const filesToCopy = config.files ? await this.prepareFiles(state) : [];
+    // written yet: a run whose files do not fit in the target stops here. A
+    // clone of the whole org holds no record by then: its files were summed
+    // at its gate, and are found from the files once the records are written.
+    const everything = config.stream?.everything === true;
+    const filesToCopy = config.files && !everything ? await this.prepareFiles(state) : [];
 
     // Every row the run writes is in hand, and none is written: the caller
     // sees them all before the first goes, and what it throws stops the run
@@ -5116,6 +5692,8 @@ export class ForgeExecutor {
     // record the run created, and there is nothing to publish it on before.
     if (filesToCopy.length > 0 && !config.dryRun) {
       await this.writeFiles(state, filesToCopy);
+    } else if (everything && config.files && !config.dryRun) {
+      await this.copyFilesOfTheOrg(state, config.files.maxFileBytes);
     }
 
     // Statuses come back last, once everything the records carry is written —
@@ -5131,6 +5709,7 @@ export class ForgeExecutor {
     if (orphanExpansionError) {
       state.errors.push(orphanExpansionError);
     }
+    this.saySyncedQuotesLeft(state);
 
     // Every write is done: the target's dates of them are final, and so are
     // the record types it gave the records sent without one.
@@ -5338,12 +5917,18 @@ export class ForgeExecutor {
    * takes its own size of storage, which no count says. One that upserts
    * judges an object's keys on all its rows before its first page, by them
    * alone: see `keysOfTheTable`.
+   *
+   * A clone of the whole org (`stream.everything`) is read page by page
+   * whatever it holds: read whole, its emails and its files would be held to
+   * the end of the run. Its emails go in two passes
+   * (`streamEmailsAfterTheirTask`), its files are found once its records are
+   * written (`copyFilesOfTheOrg`), and its gate is shown counts.
    */
   private streamsTheRun(state: ExecutionState): boolean {
     const { config, graph } = state;
+    if (config.stream === undefined || config.isScoped) return false;
+    if (config.stream.everything === true) return true;
     return (
-      config.stream !== undefined &&
-      !config.isScoped &&
       config.files === undefined &&
       !graph.nodes.some((n) => n.included && n.objectApiName === EMAIL_MESSAGE)
     );
@@ -5396,7 +5981,7 @@ export class ForgeExecutor {
         fieldInfos: [...(idField ? [idField] : []), ...candidates],
         scopedBuilder: null,
         scopeCache: null,
-        extraWhere: config.objectSoqlFilters?.[object],
+        extraWhere: this.filterOf(state, object),
         maxRecordsPerObject: this.readBound(state, node),
         inIdOrder: {},
       });
@@ -5410,6 +5995,8 @@ export class ForgeExecutor {
         sourceOrgId,
         query.statements[0],
         config.stream?.pageSize,
+        undefined,
+        this.readOptionsOf(state, object),
       );
       try {
         for await (const page of pages) {
@@ -5446,15 +6033,107 @@ export class ForgeExecutor {
    * product and book, which the rows of every page decide together; not the
    * tasks, which the platform writes with the emails; not an object mapped by
    * name. Those are read whole, within the run, as before.
+   *
+   * A clone of the whole org reads its tasks page by page as well: an org
+   * holds millions of them. The task the platform wrote with an email of the
+   * run is known by then — linked as each page of emails went in
+   * (`linkTasksOfTheEmailsWritten`) — and a page of tasks only sends the
+   * others (`tasksLinkedBeforeTheirTurn`).
    */
   private streamsNode(node: ForgeGraphNode, state: ExecutionState): boolean {
     const object = node.objectApiName;
     return (
       !CATALOG_OBJECTS.has(object) &&
       !isPricebookEntry(object) &&
-      object !== TASK &&
+      (object !== TASK || state.config.stream?.everything === true) &&
       !state.config.referenceDataObjects.has(object)
     );
+  }
+
+  /**
+   * Let go of the rows of `objectApiName` a clone of the whole org has
+   * written: its read keeps what the write of a next page, a second pass and
+   * the end of the run read of it — the fields described, those the target
+   * takes, its describe of the target — and none of the rows. Kept, the last
+   * page of each object, or each object read whole, stayed in memory to the
+   * end of the run: some two thousand objects of up to ten thousand rows.
+   *
+   * The catalog keeps its rows until it is read again no more
+   * (`readCatalogAgain`), and is let go then (`catalogToo`). Any other run
+   * keeps its rows, as before: a run read whole reads them again at its end.
+   */
+  private releaseRows(state: ExecutionState, objectApiName: string, catalogToo = false): void {
+    if (state.config.stream?.everything !== true) return;
+    if (!catalogToo && (CATALOG_OBJECTS.has(objectApiName) || isPricebookEntry(objectApiName))) {
+      return;
+    }
+    const read = state.preread.get(objectApiName);
+    if (!read || read.records.length === 0) return;
+    state.preread.set(objectApiName, { ...read, records: [] });
+  }
+
+  /**
+   * Whether a clone of the whole org reads `objectApiName` with its archived
+   * rows: a task or an event, which an org archives a year after it is done,
+   * and `query` then no longer answers. Read and counted through `queryAll`
+   * (`ReadOptions.all`), the deleted rows left out by the statement
+   * (`filterOf`). Any other run reads them as it always did.
+   */
+  private readsArchived(state: ExecutionState, objectApiName: string): boolean {
+    return state.config.stream?.everything === true && ARCHIVED_ACTIVITIES.has(objectApiName);
+  }
+
+  /**
+   * The `WHERE` of what the run reads of `objectApiName`, without the
+   * parentheses: the object's filter, and, of an object read with its
+   * archived rows (`readsArchived`), `IsDeleted = false` — `queryAll` answers
+   * the recycle bin's rows too, which no copy writes. Undefined for none.
+   */
+  private filterOf(state: ExecutionState, objectApiName: string): string | undefined {
+    const filter = state.config.objectSoqlFilters?.[objectApiName];
+    if (!this.readsArchived(state, objectApiName)) return filter;
+    return filter ? `(${filter}) AND IsDeleted = false` : 'IsDeleted = false';
+  }
+
+  /** How a statement of `objectApiName` is read: through `queryAll` when `readsArchived`. */
+  private readOptionsOf(state: ExecutionState, objectApiName: string): ReadOptions | undefined {
+    return this.readsArchived(state, objectApiName) ? { all: true } : undefined;
+  }
+
+  /**
+   * Every row of `soql`, a statement of `objectApiName` on the source, at
+   * once: through `queryRecords`, but of an object read with its archived rows
+   * (`readsArchived`), whose pages are read through the cursor's `queryAll`
+   * and gathered here — `queryRecords` has no `queryAll`, and the archived
+   * rows a count or a read of the record types left out were then met only
+   * on the pages, past the judgement made before the first of them. Deps
+   * with no cursor have no read of the archived rows: the read fails, as
+   * `pagesOfStatement` refuses one, and the caller does without it.
+   *
+   * @param onTruncated - See `ForgeExecutorDeps.queryRecords`: no bound cuts
+   *   a read through the cursor short but the statement's own `LIMIT`.
+   */
+  private async readWholeOf(
+    state: ExecutionState,
+    objectApiName: string,
+    soql: string,
+    onTruncated?: () => void,
+  ): Promise<Record<string, unknown>[]> {
+    const options = this.readOptionsOf(state, objectApiName);
+    if (!options) return this.deps.queryRecords(state.sourceOrgId, soql, onTruncated);
+    const rows: Record<string, unknown>[] = [];
+    const pages = pagesOfStatement(
+      this.deps,
+      state.sourceOrgId,
+      soql,
+      undefined,
+      undefined,
+      options,
+    );
+    for await (const page of pages) {
+      for (const row of page) rows.push(row);
+    }
+    return rows;
   }
 
   /**
@@ -5476,6 +6155,11 @@ export class ForgeExecutor {
    * accounts and their contacts apart. A count that fails, or deps that count
    * nothing, leave discovery's count. What the run writes nothing of — an
    * object left out, refused by the target, mapped by name — is not shown.
+   *
+   * A clone of the whole org is measured where a count says too little: the
+   * size of its emails, read page by page (`emailBytesOf`); its files, the
+   * nodes it reads whole past their bound, the phone numbers past those the
+   * fiction holds, and how its writes and reads go (`measureTheWholeOrg`).
    */
   private async countBeforeWrite(
     state: ExecutionState,
@@ -5484,6 +6168,7 @@ export class ForgeExecutor {
     const { config } = state;
     const beforeWrite = config.beforeWrite;
     if (!beforeWrite) return;
+    const everything = config.stream?.everything === true;
     const objects: Array<{
       objectApiName: string;
       rows: Record<string, unknown>[];
@@ -5495,6 +6180,10 @@ export class ForgeExecutor {
     const pastTheCap: string[] = [];
     /** The objects the run reads part of their table of, by the cap or the ceiling. */
     const readInPart = new Set<string>();
+    /** Of a clone of the whole org, the nodes it reads whole, and their rows. */
+    const readWhole: Array<{ objectApiName: string; rows: number }> = [];
+    /** Of a clone of the whole org, the nodes it writes: what it reads of each, and whether whole. */
+    const written: Array<{ node: ForgeGraphNode; read: number; whole: boolean }> = [];
     for (const node of runOrder) {
       if (this.isAborted) {
         throw new ForgeAbortedError(
@@ -5503,11 +6192,20 @@ export class ForgeExecutor {
       }
       const object = node.objectApiName;
       if (!node.included || !state.writtenObjects.has(object)) continue;
-      if (config.referenceDataObjects.has(object)) continue;
+      const wholeRead = everything && !this.streamsNode(node, state);
+      if (config.referenceDataObjects.has(object)) {
+        // Mapped by name, never written: read whole all the same.
+        if (wholeRead) {
+          readWhole.push({ objectApiName: object, rows: await this.rowsOf(state, node) });
+        }
+        continue;
+      }
       const { read, counted, leftOut, capped, partial } = await this.countToWrite(state, node);
       state.counted.set(object, read);
       if (capped) pastTheCap.push(object);
       if (partial) readInPart.add(object);
+      if (wholeRead) readWhole.push({ objectApiName: object, rows: read });
+      if (everything) written.push({ node, read, whole: wholeRead });
       objects.push({ objectApiName: object, rows: [], counted, ...(leftOut ? { leftOut } : {}) });
     }
     // The contact roles the platform writes with the opportunities the run
@@ -5543,6 +6241,14 @@ export class ForgeExecutor {
         'Forge execution was aborted by user request. Remaining objects were not processed.',
       );
     }
+    const wholeOrg = everything
+      ? await this.measureTheWholeOrg(state, objects, readWhole, written)
+      : undefined;
+    if (this.isAborted) {
+      throw new ForgeAbortedError(
+        'Forge execution was aborted by user request. Remaining objects were not processed.',
+      );
+    }
     const perObject = capOnEachObject(config);
     const readBack = config.dryRun ? 0 : await this.readBackRequests(state, objects);
     const answer = await beforeWrite({
@@ -5551,9 +6257,371 @@ export class ForgeExecutor {
         ? { capped: { perObject, objects: pastTheCap } }
         : {}),
       ...(readBack > 0 ? { readBack } : {}),
+      ...(wholeOrg ? { wholeOrg } : {}),
       dryRun: config.dryRun,
     });
     await this.afterTheGate(state, answer, objects);
+  }
+
+  /**
+   * What a clone of the whole org tells its gate besides the counts
+   * ({@link WholeOrgBoundary}): how its writes go, by object, and the
+   * objects it writes by REST whatever their number; the text of its emails,
+   * which takes their storage and no count says; the files it may copy; the
+   * requests its reads of the source take still; the nodes it reads whole
+   * whose rows are past the bound of such a read; and the phone numbers past
+   * those the fiction holds. Each read is the source's — the target's
+   * duplicate rules but — counted among the run's requests as the others are.
+   *
+   * @param objects - What the gate is shown of each object, as counted.
+   * @param readWhole - The nodes the run reads whole, and their rows.
+   * @param written - The nodes it writes: what it reads of each, and whether whole.
+   */
+  private async measureTheWholeOrg(
+    state: ExecutionState,
+    objects: ReadonlyArray<{ objectApiName: string; counted?: ForgeCountedObject }>,
+    readWhole: ReadonlyArray<{ objectApiName: string; rows: number }>,
+    written: ReadonlyArray<{ node: ForgeGraphNode; read: number; whole: boolean }>,
+  ): Promise<WholeOrgBoundary> {
+    const { config } = state;
+    const bound = config.stream?.wholeReadBound;
+    const over =
+      bound === undefined
+        ? []
+        : readWhole
+            .filter(({ rows }) => rows > bound)
+            .map(({ objectApiName, rows }) => ({ objectApiName, rows, bound }));
+    const whole = new Set(written.filter((w) => w.whole).map((w) => w.node.objectApiName));
+    const { writes, restOnly } = await this.writesOfTheWholeOrg(state, objects, whole);
+    // An email takes the size of its text, which no count says.
+    const emails = written.find(
+      ({ node }) => node.objectApiName === EMAIL_MESSAGE && node.included,
+    );
+    const counted = objects.find((o) => o.objectApiName === EMAIL_MESSAGE)?.counted?.rows ?? 0;
+    const emailTextBytes =
+      emails && counted > 0 ? await this.emailBytesOf(state, emails.node) : undefined;
+    const files = config.files
+      ? await this.filesOfTheOrg(state, config.files.maxFileBytes)
+      : undefined;
+    const blanked = config.keepContactPoints
+      ? 0
+      : await this.phoneNumbersPastTheFiction(state, written);
+    return {
+      writes,
+      ...(restOnly ? { restOnly } : {}),
+      ...(emailTextBytes !== undefined ? { emailTextBytes } : {}),
+      ...(config.files ? { files: files ?? { unmeasured: true as const } } : {}),
+      sourceReads: await this.sourceReadsOf(state, written, readWhole, files),
+      ...(over.length > 0 ? { readWholeOver: over } : {}),
+      ...(blanked > 0 ? { contactPointsBlanked: blanked } : {}),
+    };
+  }
+
+  /**
+   * How the writes of a clone of the whole org go, per object it writes, as
+   * its count says it: see `WholeOrgBoundary.writes`. By REST alone for a run
+   * that sends no job, and for the objects the run writes so whatever their
+   * number — those a job cannot write, and those an active duplicate rule of
+   * the target watches, which no job can waive (`bulkTransportOf`): asked of
+   * the target here on a dry run, which sends no job and would write so.
+   *
+   * @param whole - The objects the run reads whole, written in one go.
+   * @returns The writes, and of a run that sends jobs the objects it writes
+   *   by REST whatever their number (`WholeOrgBoundary.restOnly`).
+   */
+  private async writesOfTheWholeOrg(
+    state: ExecutionState,
+    objects: ReadonlyArray<{ objectApiName: string; counted?: ForgeCountedObject }>,
+    whole: ReadonlySet<string>,
+  ): Promise<{ writes: WholeOrgBoundary['writes']; restOnly?: ReadonlySet<string> }> {
+    const { config } = state;
+    const sendsJobs = config.writeApi === 'auto' && this.deps.bulkWriteRecords !== undefined;
+    let restOnly: ReadonlySet<string> = state.bulk?.restOnly ?? new Set<string>();
+    if (sendsJobs && !state.bulk) {
+      const watched = await this.deps
+        .duplicateRuleObjects?.(state.targetOrgId)
+        .catch((): undefined => undefined);
+      restOnly = new Set([
+        ...FORGE_REST_ONLY_OBJECTS,
+        ...(watched ?? DUPLICATE_RULE_FALLBACK_OBJECTS),
+      ]);
+    }
+    const window = config.stream?.writeWindow ?? config.stream?.pageSize ?? ROWS_PER_PAGE;
+    const writes = objects.map(({ objectApiName, counted }) => {
+      const rows = Math.max(0, counted?.rows ?? 0);
+      const asJobs = sendsJobs && !restOnly.has(objectApiName);
+      // A window — the whole object, read whole — goes in jobs of a job's
+      // worth at most, the rest of it under the threshold by REST.
+      const sizes = whole.has(objectApiName)
+        ? [rows]
+        : [
+            ...Array.from({ length: Math.floor(rows / window) }, () => window),
+            ...(rows % window > 0 ? [rows % window] : []),
+          ];
+      let jobs = 0;
+      let jobRows = 0;
+      for (const size of asJobs ? sizes : []) {
+        for (let start = 0; start < size; start += FORGE_BULK_JOB_ROWS) {
+          const chunk = Math.min(FORGE_BULK_JOB_ROWS, size - start);
+          if (chunk < FORGE_BULK_MIN_ROWS) continue;
+          jobs++;
+          jobRows += chunk;
+        }
+      }
+      return { objectApiName, rows, jobs, jobRows, restRows: rows - jobRows };
+    });
+    return sendsJobs ? { writes, restOnly } : { writes };
+  }
+
+  /**
+   * The requests a clone of the whole org's reads of the source take still:
+   * see `WholeOrgBoundary.sourceReads`. The emails on a case, read again once
+   * their tasks are written, are counted by the emails that name a task, or
+   * by every email when the source will not count them.
+   */
+  private async sourceReadsOf(
+    state: ExecutionState,
+    written: ReadonlyArray<{ node: ForgeGraphNode; read: number }>,
+    readWhole: ReadonlyArray<{ objectApiName: string; rows: number }>,
+    files: { count: number } | undefined,
+  ): Promise<number> {
+    const pages = (rows: number): number =>
+      Math.max(1, Math.ceil(Math.max(0, rows) / ROWS_PER_PAGE));
+    const readOnce = new Map<string, number>();
+    for (const { node, read } of written) readOnce.set(node.objectApiName, read);
+    for (const { objectApiName, rows } of readWhole) readOnce.set(objectApiName, rows);
+    let requests = 0;
+    for (const rows of readOnce.values()) requests += pages(rows);
+    const emails = written.find(({ node }) => node.objectApiName === EMAIL_MESSAGE);
+    if (emails && emails.read > 0 && written.some(({ node }) => node.objectApiName === TASK)) {
+      const naming = await this.countOf(state, EMAIL_MESSAGE, 'ActivityId != null');
+      requests += pages(Math.min(naming ?? emails.read, emails.read));
+    }
+    if (state.config.files) {
+      const count = files?.count ?? 0;
+      // Each kind listed a page at a time, the links of each 200 Salesforce
+      // Files read, and each file's content.
+      requests += WHOLE_ORG_FILES.length + Math.ceil(count / ROWS_PER_PAGE);
+      requests += Math.ceil(count / FILE_LINKS_AT_ONCE) + count;
+    }
+    return requests;
+  }
+
+  /**
+   * The rows of a node under the run's filter, as a count says, or
+   * discovery's count when the count fails or the deps count nothing.
+   */
+  private async rowsOf(state: ExecutionState, node: ForgeGraphNode): Promise<number> {
+    return (await this.countOf(state, node.objectApiName)) ?? node.recordCount;
+  }
+
+  /**
+   * How many rows of `objectApiName` the source holds under the run's filter
+   * and `extra`, read as the object is (`readOptionsOf`); undefined when the
+   * count fails or the deps count nothing.
+   */
+  private async countOf(
+    state: ExecutionState,
+    objectApiName: string,
+    extra?: string,
+  ): Promise<number | undefined> {
+    const countRecords = this.deps.countRecords;
+    if (!countRecords) return undefined;
+    const filter = this.filterOf(state, objectApiName);
+    const terms = [...(filter ? [`(${filter})`] : []), ...(extra ? [extra] : [])];
+    const where = terms.length > 0 ? ` WHERE ${terms.join(' AND ')}` : '';
+    const soql = `SELECT COUNT() FROM ${assertSoqlIdentifier(objectApiName)}${where}`;
+    const options = this.readOptionsOf(state, objectApiName);
+    try {
+      return await (options
+        ? countRecords(state.sourceOrgId, soql, options)
+        : countRecords(state.sourceOrgId, soql));
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * The data storage the emails a clone of the whole org writes take: the
+   * size of their text, which no count says and one email may hold a hundred
+   * thousand characters of. Read page by page — the id and the text fields
+   * the run writes, under its filter, after where a run it resumes stopped —
+   * and summed a page at a time, never held. Undefined when the read fails:
+   * the gate then measures the emails by their count.
+   */
+  private async emailBytesOf(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+  ): Promise<number | undefined> {
+    const object = node.objectApiName;
+    const left = new Set(state.config.fieldExclusions[object] ?? []);
+    try {
+      const fields = await this.deps.describeFields(state.sourceOrgId, object);
+      const texts = fields.filter(
+        (f) =>
+          f.createable &&
+          f.queryable &&
+          !f.isReference &&
+          !left.has(f.name) &&
+          (f.type === undefined || TEXT_FIELD_TYPES.has(f.type)),
+      );
+      if (texts.length === 0) return 0;
+      const resumed = state.config.stream?.resumeAfter.get(object);
+      const filter = this.filterOf(state, object);
+      const terms = [
+        ...(filter ? [`(${filter})`] : []),
+        ...(resumed && SALESFORCE_ID.test(resumed.lastId) ? [`Id > '${resumed.lastId}'`] : []),
+      ];
+      const where = terms.length > 0 ? ` WHERE ${terms.join(' AND ')}` : '';
+      const columns = ['Id', ...texts.map((f) => f.name)].join(', ');
+      let bytes = 0;
+      const pages = pagesOfStatement(
+        this.deps,
+        state.sourceOrgId,
+        `SELECT ${columns} FROM ${assertSoqlIdentifier(object)}${where} ORDER BY Id`,
+        state.config.stream?.pageSize,
+        undefined,
+        this.readOptionsOf(state, object),
+      );
+      try {
+        for await (const page of pages) {
+          for (const row of page) {
+            for (const [name, value] of Object.entries(row)) {
+              if (name !== 'Id' && typeof value === 'string') {
+                bytes += Buffer.byteLength(value, 'utf8');
+              }
+            }
+          }
+          if (this.isAborted) break;
+        }
+      } finally {
+        await pages.return(undefined);
+      }
+      return bytes;
+    } catch (err) {
+      logger.warn(
+        '[forge] the size of the emails could not be read — measured by their count: ' +
+          extractErrorMessage(err),
+      );
+      return undefined;
+    }
+  }
+
+  /**
+   * The files a clone of the whole org may copy, as the source sums them:
+   * the latest version of each Salesforce File kept in Salesforce, and each
+   * attachment, within `maxFileBytes` — and how many are past it. Summed by
+   * the org (`SUM`), or, refused so, page by page; undefined when neither
+   * answers, which the gate is told (`WholeOrgBoundary.files`).
+   */
+  private async filesOfTheOrg(
+    state: ExecutionState,
+    maxFileBytes: number,
+  ): Promise<{ bytes: number; count: number; overCeiling: number } | undefined> {
+    let bytes = 0;
+    let count = 0;
+    let overCeiling = 0;
+    for (const { object, size, where } of WHOLE_ORG_FILES) {
+      const within = [where, `${size} <= ${maxFileBytes}`].filter(Boolean).join(' AND ');
+      const past = [where, `${size} > ${maxFileBytes}`].filter(Boolean).join(' AND ');
+      const summed = await this.sumOfFiles(state, object, size, within);
+      if (!summed) return undefined;
+      bytes += summed.bytes;
+      count += summed.count;
+      const beyond = await this.deps
+        .countRecords?.(state.sourceOrgId, `SELECT COUNT() FROM ${object} WHERE ${past}`)
+        .catch((): undefined => undefined);
+      overCeiling += beyond ?? 0;
+    }
+    return { bytes, count, overCeiling };
+  }
+
+  /** The bytes and number of the files of `object` under `where`: see `filesOfTheOrg`. */
+  private async sumOfFiles(
+    state: ExecutionState,
+    object: string,
+    size: string,
+    where: string,
+  ): Promise<{ bytes: number; count: number } | undefined> {
+    try {
+      const [row] = await this.deps.queryRecords(
+        state.sourceOrgId,
+        `SELECT SUM(${size}) total, COUNT(Id) n FROM ${object} WHERE ${where}`,
+      );
+      const total = Number(row?.['total'] ?? 0);
+      const n = Number(row?.['n'] ?? 0);
+      if (Number.isFinite(total) && Number.isFinite(n)) return { bytes: total, count: n };
+    } catch {
+      // Summed page by page instead: an org may refuse to sum a large table.
+    }
+    try {
+      let bytes = 0;
+      let count = 0;
+      const pages = pagesOfStatement(
+        this.deps,
+        state.sourceOrgId,
+        `SELECT Id, ${size} FROM ${object} WHERE ${where} ORDER BY Id`,
+        state.config.stream?.pageSize,
+      );
+      try {
+        for await (const page of pages) {
+          for (const row of page) {
+            const value = row[size];
+            bytes += typeof value === 'number' && Number.isFinite(value) ? value : 0;
+            count++;
+          }
+          if (this.isAborted) break;
+        }
+      } finally {
+        await pages.return(undefined);
+      }
+      return { bytes, count };
+    } catch (err) {
+      logger.warn(
+        `[forge] the files of ${object} could not be measured: ${extractErrorMessage(err)}`,
+      );
+      return undefined;
+    }
+  }
+
+  /**
+   * Of a clone of the whole org that neutralizes the contact points it
+   * writes, the phone numbers past the `FICTIONAL_NUMBERS` the fiction holds,
+   * at most: each field of each object it writes that the neutralizer gives
+   * a fictional number to (`contactPointFieldsOf`) — a phone field, and a
+   * text its API name gives to a phone, `Mobile_Phone__c` of type string —
+   * counted where it holds a value, under the run's filter. The same number
+   * takes one fictional number however often it is met, so this says too
+   * much rather than too little. A field the source will not count — a long
+   * text, which SOQL cannot filter on — is counted as many times as the
+   * object has rows read. One thing it cannot count: a text holding two
+   * numbers or more, counted as one. An object whose fields cannot be read is
+   * left out.
+   */
+  private async phoneNumbersPastTheFiction(
+    state: ExecutionState,
+    written: ReadonlyArray<{ node: ForgeGraphNode; read: number }>,
+  ): Promise<number> {
+    let numbers = 0;
+    for (const { node, read } of written) {
+      if (read === 0 || this.isAborted) continue;
+      const object = node.objectApiName;
+      const left = new Set(state.config.fieldExclusions[object] ?? []);
+      const fields = await this.deps
+        .describeFields(state.sourceOrgId, object)
+        .catch((): FieldInfo[] => []);
+      const kept = fields.filter((field) => field.createable && !left.has(field.name));
+      for (const field of contactPointFieldsOf(kept)) {
+        if (field.kind !== 'phone') continue;
+        const held = await this.countOf(
+          state,
+          object,
+          `${assertSoqlIdentifier(field.name)} != null`,
+        );
+        numbers += Math.min(held ?? read, read);
+      }
+    }
+    return Math.max(0, numbers - FICTIONAL_NUMBERS);
   }
 
   /**
@@ -5577,7 +6645,9 @@ export class ForgeExecutor {
     const object = node.objectApiName;
     const streamed = this.streamsNode(node, state);
     const resumed = streamed ? state.config.stream?.resumeAfter.get(object) : undefined;
-    const filter = state.config.objectSoqlFilters?.[object];
+    // Archived activities counted as they are read: see `readsArchived`.
+    const filter = this.filterOf(state, object);
+    const options = this.readOptionsOf(state, object);
     const countRecords = this.deps.countRecords;
     const count = async (extra?: string): Promise<number | undefined> => {
       if (!countRecords) return undefined;
@@ -5587,11 +6657,11 @@ export class ForgeExecutor {
         ...(resumed && SALESFORCE_ID.test(resumed.lastId) ? [`Id > '${resumed.lastId}'`] : []),
       ];
       const where = terms.length > 0 ? ` WHERE ${terms.join(' AND ')}` : '';
+      const soql = `SELECT COUNT() FROM ${assertSoqlIdentifier(object)}${where}`;
       try {
-        return await countRecords(
-          state.sourceOrgId,
-          `SELECT COUNT() FROM ${assertSoqlIdentifier(object)}${where}`,
-        );
+        return await (options
+          ? countRecords(state.sourceOrgId, soql, options)
+          : countRecords(state.sourceOrgId, soql));
       } catch {
         return undefined;
       }
@@ -5738,6 +6808,7 @@ export class ForgeExecutor {
       // asked without its `IsActive`: see `inactiveOwnersToLeaveOut`.
       inactive: state.inactiveUsers,
       query: (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+      neverCopied: (objectApiName) => neverCopiedIn(state, objectApiName),
     });
   }
 
@@ -5845,7 +6916,7 @@ export class ForgeExecutor {
         field.isReference &&
         carried(field.name) &&
         targets.length === 1 &&
-        !isNeverCopied(targets[0]) &&
+        !neverCopiedIn(state, targets[0]) &&
         this.isOutsideTheRun(state, targets[0]) &&
         isRequiredLookup(node.objectApiName, field.name, field.nillable)
       );
@@ -5906,13 +6977,16 @@ export class ForgeExecutor {
     const filter = state.config.objectSoqlFilters?.[object];
     const countRecords = this.deps.countRecords;
     if (!filter || ids.length === 0 || !countRecords) return ids.length;
+    // Archived activities counted as they are read: see `readsArchived`.
+    const options = this.readOptionsOf(state, object);
+    const under = this.filterOf(state, object) ?? filter;
     try {
       let underTheFilter = 0;
       for (const list of idLists(ids)) {
-        underTheFilter += await countRecords(
-          state.sourceOrgId,
-          `SELECT COUNT() FROM ${assertSoqlIdentifier(object)} WHERE (${filter}) AND Id IN (${list})`,
-        );
+        const soql = `SELECT COUNT() FROM ${assertSoqlIdentifier(object)} WHERE (${under}) AND Id IN (${list})`;
+        underTheFilter += await (options
+          ? countRecords(state.sourceOrgId, soql, options)
+          : countRecords(state.sourceOrgId, soql));
       }
       return underTheFilter;
     } catch {
@@ -5929,18 +7003,31 @@ export class ForgeExecutor {
    * Between two pages a cancel stops the run, as between two calls. Each page
    * written is told to `onPage`: where the object stands, and what the page
    * created.
+   *
+   * Given a `pass`, the object is read a second time, after its turn: the
+   * rows the pass reads, those of them it keeps, its own checkpoint and its
+   * own line (see {@link StreamPass}). Nothing of the object's turn is judged
+   * again: its record types, its cap, its keys.
    */
-  private async streamNode(node: ForgeGraphNode, state: ExecutionState): Promise<void> {
+  private async streamNode(
+    node: ForgeGraphNode,
+    state: ExecutionState,
+    pass?: StreamPass,
+  ): Promise<void> {
     const object = node.objectApiName;
-    const resumed = state.config.stream?.resumeAfter.get(object);
+    const twoPassEmails = object === EMAIL_MESSAGE && state.emailsInTwoPasses && !pass;
+    // The second pass of the emails follows this turn, whatever it reads.
+    if (twoPassEmails) state.emailsFirstPassRan = true;
+    const resumed = state.config.stream?.resumeAfter.get(checkpointKey(object, pass?.name));
     const cursor: NodeCursor = {
       ended: false,
       taken: 0,
       read: resumed?.read ?? 0,
       ...(resumed ? { resumeAfter: resumed.lastId, lastId: resumed.lastId } : {}),
       carry: emptyPageCarry(),
+      ...(pass ? { pass } : {}),
     };
-    const bound = this.readBound(state, node);
+    const bound = pass ? undefined : this.readBound(state, node);
     // Read whole by the run it resumes: nothing left to read of it.
     if (resumed?.done || (bound !== undefined && cursor.read >= bound)) return;
     // A record type closed to the user the run writes as holds the object
@@ -5948,18 +7035,23 @@ export class ForgeExecutor {
     // Judged page by page, the pages before the one that carried it were
     // written and the rest held back: judged before the first page instead,
     // from the record types the table holds.
-    const types = await this.recordTypesOfTable(state, node);
+    const types = pass ? undefined : await this.recordTypesOfTable(state, node);
     if (types && types.closed.length > 0) {
       const rows = bound === undefined ? types.rows : Math.min(types.rows, bound - cursor.read);
       this.holdBackTableForRecordTypes(node, state, types, rows);
       return;
     }
-    const expected = state.counted.get(object) ?? tableRowsToRead(node, bound);
-    cursor.carry.rowsLeft = () => Math.max(0, expected - (cursor.read - (resumed?.read ?? 0)));
+    const expected = pass
+      ? pass.expected
+      : (state.counted.get(object) ?? tableRowsToRead(node, bound));
+    cursor.carry.rowsLeft = pass
+      ? () => Math.max(0, expected - cursor.carry.rows)
+      : () => Math.max(0, expected - (cursor.read - (resumed?.read ?? 0)));
+    const stoppedLabel = pass?.stopped ?? `Stopped ${node.objectApiName}`;
     state.cursors.set(object, cursor);
     try {
       // What an upsert matches every page by, judged on all of them first.
-      const keys = await this.keysOfTheTable(state, node, cursor);
+      const keys = pass ? undefined : await this.keysOfTheTable(state, node, cursor);
       if (keys) cursor.carry.tableKeys = keys;
       for (;;) {
         if (this.isAborted) {
@@ -5967,18 +7059,27 @@ export class ForgeExecutor {
           // what it wrote, and what it never read to send — or, its count all
           // read, as an object written whole ends, before the run stops.
           if (cursor.carry.pages > 0 && cursor.carry.rowsLeft() > 0) {
-            this.stopStreamedNode(node, state, cursor.carry, 0, `Stopped ${node.objectApiName}`);
-          } else if (cursor.carry.pages > 0) {
-            this.endStreamedNode(node, state, cursor.carry);
+            this.stopStreamedNode(node, state, cursor.carry, 0, stoppedLabel);
+          } else if (cursor.carry.pages > 0 && !(pass && cursor.carry.rows === 0)) {
+            this.endStreamedNode(
+              node,
+              state,
+              cursor.carry,
+              this.endOfAStreamedNode(state, object, pass),
+            );
           }
           throw new ForgeAbortedError(
             'Forge execution was aborted by user request. Remaining objects were not processed.',
           );
         }
         if (!(await this.readNode(node, state, false, true))) break;
-        await this.writeNode(node, state, undefined, cursor.carry);
+        // A pass writes the rows its read kept, as the emails that waited.
+        const kept = pass ? (state.preread.get(object)?.records ?? []) : undefined;
+        await this.writeNode(node, state, kept, cursor.carry);
         // The contacts the platform wrote with the person accounts of the page.
         if (object === ACCOUNT) await this.mapContactsOfPersonAccounts(state);
+        // The tasks the platform wrote with the emails of the page.
+        if (twoPassEmails) await this.linkTasksOfTheEmailsWritten(state);
         await this.tellPage(state, node, cursor);
         if (cursor.ended) break;
       }
@@ -5988,9 +7089,39 @@ export class ForgeExecutor {
     }
     // Read to its end: a run that resumes this one reads nothing more of it.
     if (state.store && cursor.ended && !cursor.failed && cursor.lastId !== undefined) {
-      state.store.checkpoint(object, { lastId: cursor.lastId, read: cursor.read, done: true });
+      state.store.checkpoint(
+        object,
+        { lastId: cursor.lastId, read: cursor.read, done: true },
+        pass?.name,
+      );
     }
-    if (cursor.carry.pages > 0 && !cursor.failed) this.endStreamedNode(node, state, cursor.carry);
+    // A pass that kept none of the rows it read has nothing to add to the
+    // object's line: the line of its turn ends it (`streamEmailsAfterTheirTask`).
+    if (cursor.carry.pages > 0 && !cursor.failed && !(pass && cursor.carry.rows === 0)) {
+      this.endStreamedNode(node, state, cursor.carry, this.endOfAStreamedNode(state, object, pass));
+    }
+    this.releaseRows(state, object);
+  }
+
+  /**
+   * How the line that ends an object read page by page is said: as any
+   * object's, but for the emails of a run that writes them in two passes,
+   * whose first pass ends on a step that says how many of them wait for their
+   * task, and whose second ends the object on the line of both (see
+   * `endOfTheEmails`).
+   */
+  private endOfAStreamedNode(
+    state: ExecutionState,
+    objectApiName: string,
+    pass?: StreamPass,
+  ): StreamedNodeEnd {
+    if (pass) return { ...pass.end, again: true };
+    if (objectApiName !== EMAIL_MESSAGE || !state.emailsInTwoPasses) return {};
+    const waiting = state.emailsLeftForTheirTask;
+    return {
+      say: this.endOfTheEmails(state, false),
+      ...(waiting > 0 ? { note: `, ${waitingForTheirTask(waiting)}` } : {}),
+    };
   }
 
   /**
@@ -6047,15 +7178,17 @@ export class ForgeExecutor {
       const sent = sourceFields.some((field) => field.name === 'RecordTypeId' && field.createable);
       if (!sent || (targetSets && !targetSets.creatable.has('RecordTypeId'))) return none;
       const resumed = config.stream?.resumeAfter.get(object);
-      const filter = config.objectSoqlFilters?.[object];
+      // Archived activities counted as they are read: see `readsArchived`.
+      const filter = this.filterOf(state, object);
       const terms = [
         ...(filter ? [`(${filter})`] : []),
         ...(resumed && SALESFORCE_ID.test(resumed.lastId) ? [`Id > '${resumed.lastId}'`] : []),
       ];
       const where = terms.length > 0 ? ` WHERE ${terms.join(' AND ')}` : '';
       const from = `FROM ${assertSoqlIdentifier(object)}${where}`;
-      const answered = await this.deps.queryRecords(
-        sourceOrgId,
+      const answered = await this.readWholeOf(
+        state,
+        object,
         `SELECT RecordTypeId, COUNT(Id) n ${from} GROUP BY RecordTypeId`,
       );
       const rows = answered.reduce(
@@ -6075,7 +7208,7 @@ export class ForgeExecutor {
       const bound = this.readBound(state, node);
       const left = bound === undefined ? undefined : Math.max(0, bound - (resumed?.read ?? 0));
       if (closed.length > 0 && left !== undefined && rows > left) {
-        const read = await this.recordTypesOfTheRowsRead(state, from, left);
+        const read = await this.recordTypesOfTheRowsRead(state, object, from, left);
         if (read) {
           return {
             closed: unavailableRecordTypeUses(
@@ -6123,18 +7256,21 @@ export class ForgeExecutor {
   /**
    * The record types of the first `limit` rows of a table read page by page,
    * in the order of their ids, as the run reads them: `from` is the
-   * statement's `FROM … WHERE …`, its filter and checkpoint. Undefined when
-   * the read stopped short of them, or failed: the table's count stands.
+   * statement's `FROM … WHERE …`, its filter and checkpoint, read as the
+   * object's pages are (`readWholeOf`). Undefined when the read stopped short
+   * of them, or failed: the table's count stands.
    */
   private async recordTypesOfTheRowsRead(
     state: ExecutionState,
+    objectApiName: string,
     from: string,
     limit: number,
   ): Promise<{ counts: Map<string, number>; rows: number } | undefined> {
     let truncated = false;
     try {
-      const read = await this.deps.queryRecords(
-        state.sourceOrgId,
+      const read = await this.readWholeOf(
+        state,
+        objectApiName,
         `SELECT RecordTypeId ${from} ORDER BY Id LIMIT ${limit}`,
         () => {
           truncated = true;
@@ -6204,22 +7340,61 @@ export class ForgeExecutor {
    * The next page of a node read page by page, from the statement its first
    * read opened: the ceiling cuts the page that would pass it, and says the
    * object truncated. None once the statement has no page left.
+   *
+   * Of a clone of the whole org, a page the org could not give is asked
+   * again, from a statement opened anew after the last row the run has
+   * (`fromHere`), up to {@link CURSOR_RETRIES} times: at once when the cursor
+   * expired — an org
+   * keeps one some fifteen minutes unread, and a table of millions written a
+   * job at a time leaves it longer than that between two pages — and after a
+   * growing wait when the connection dropped or the org was briefly
+   * unavailable. The rows a window held of the cursor and had not handed out
+   * are read again with the rest; none the run has is read twice. Anything
+   * else fails the read, as before.
    */
   private async nextPage(
     state: ExecutionState,
     node: ForgeGraphNode,
     cursor: NodeCursor,
     soql: string,
+    fromHere?: (afterId: string) => string | undefined,
   ): Promise<Record<string, unknown>[]> {
     if (cursor.ended) return [];
-    cursor.pages ??= pagesOfStatement(
-      this.deps,
-      state.sourceOrgId,
-      soql,
-      state.config.stream?.pageSize,
-      () => state.truncatedObjects.add(node.objectApiName),
-    );
-    const next = await cursor.pages.next();
+    // A window of rows at a time when the run sets one — a job's worth, for a
+    // run that writes through the Bulk API — else each page as it comes.
+    const open = (statement: string): AsyncGenerator<Record<string, unknown>[]> =>
+      pagesOfStatement(
+        this.deps,
+        state.sourceOrgId,
+        statement,
+        state.config.stream?.writeWindow ?? state.config.stream?.pageSize,
+        () => state.truncatedObjects.add(node.objectApiName),
+        this.readOptionsOf(state, node.objectApiName),
+      );
+    cursor.pages ??= open(soql);
+    const retries = state.config.stream?.everything === true ? CURSOR_RETRIES : 0;
+    let next: IteratorResult<Record<string, unknown>[]>;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        next = await cursor.pages.next();
+        break;
+      } catch (err) {
+        const expired = isExpiredCursor(err);
+        if ((!expired && !isPassingFailure(err)) || attempt >= retries || this.isAborted) {
+          throw err;
+        }
+        // Nothing handed out yet: the statement as first read.
+        const again = cursor.lastId === undefined ? soql : fromHere?.(cursor.lastId);
+        if (again === undefined) throw err;
+        if (!expired) await sleep(CURSOR_RETRY_DELAY_MS * 2 ** attempt);
+        logger.warn(
+          `[forge] ${node.objectApiName}: the source ${expired ? 'let its cursor expire' : 'did not answer'} ` +
+            `after ${cursor.read} row(s) — reading on from the last one (${attempt + 1}/${retries}): ` +
+            extractErrorMessage(err),
+        );
+        cursor.pages = open(again);
+      }
+    }
     if (next.done) {
       cursor.ended = true;
       return [];
@@ -6249,18 +7424,47 @@ export class ForgeExecutor {
    * a page at a time, when the run is given a page size — the diagnostic that
    * shows a paged read against a real org — and to the ceiling; otherwise
    * through `queryRecords`, whose bound is the deps'.
+   *
+   * A clone of the whole org reads so only what it reads whole — the price
+   * catalog, an object mapped by name — bounded by `stream.wholeReadBound`,
+   * which its gate held every such node to before anything was written
+   * (`WholeOrgBoundary.readWholeOver`). A read that still meets the bound —
+   * the table grew between the count and the read — fails the run
+   * (`WholeReadPastBoundError`): read to the bound, the catalog would go in
+   * part, and every line priced from the rest refused, without the run
+   * saying why.
    */
   private async readWhole(
     state: ExecutionState,
     objectApiName: string,
     soql: string,
   ): Promise<Record<string, unknown>[]> {
-    const truncated = (): void => void state.truncatedObjects.add(objectApiName);
-    const pageSize = state.config.stream?.pageSize;
+    let cut = false;
+    const truncated = (): void => {
+      cut = true;
+      state.truncatedObjects.add(objectApiName);
+    };
+    const rows = await this.readWholeRows(state, soql, truncated);
+    if (cut && state.config.stream?.everything === true) {
+      throw new WholeReadPastBoundError(objectApiName, state.config.stream.wholeReadBound);
+    }
+    return rows;
+  }
+
+  /** The rows of {@link readWhole}, `truncated` told when a bound cut them short. */
+  private async readWholeRows(
+    state: ExecutionState,
+    soql: string,
+    truncated: () => void,
+  ): Promise<Record<string, unknown>[]> {
+    const { stream } = state.config;
+    const pageSize = stream?.pageSize;
     if (pageSize === undefined || !this.deps.queryPages) {
       return this.deps.queryRecords(state.sourceOrgId, soql, truncated);
     }
-    const most = state.config.stream?.ceiling ?? FORGE_QUERY_MAX_RECORDS;
+    const most =
+      (stream?.everything === true ? stream.wholeReadBound : stream?.ceiling) ??
+      FORGE_QUERY_MAX_RECORDS;
     const rows: Record<string, unknown>[] = [];
     const pages = pagesOfStatement(this.deps, state.sourceOrgId, soql, pageSize);
     try {
@@ -6303,7 +7507,11 @@ export class ForgeExecutor {
     cursor: NodeCursor,
   ): Promise<void> {
     if (state.store && cursor.lastId !== undefined) {
-      state.store.checkpoint(node.objectApiName, { lastId: cursor.lastId, read: cursor.read });
+      state.store.checkpoint(
+        node.objectApiName,
+        { lastId: cursor.lastId, read: cursor.read },
+        cursor.pass?.name,
+      );
     }
     const onPage = state.config.stream?.onPage;
     if (!onPage) return;
@@ -6318,7 +7526,8 @@ export class ForgeExecutor {
         });
     await onPage({
       objectApiName: node.objectApiName,
-      ...(cursor.lastId !== undefined
+      // Where a pass stands is no checkpoint of the object's read.
+      ...(cursor.lastId !== undefined && !cursor.pass
         ? { checkpoint: { lastId: cursor.lastId, read: cursor.read } }
         : {}),
       created,
@@ -6333,13 +7542,20 @@ export class ForgeExecutor {
    * pages' reports of the rows the target refused, and of the rows it held,
    * go as one, as a node read whole has them.
    */
-  private endStreamedNode(node: ForgeGraphNode, state: ExecutionState, carry: PageCarry): void {
-    const { config, onProgress } = state;
+  private endStreamedNode(
+    node: ForgeGraphNode,
+    state: ExecutionState,
+    carry: PageCarry,
+    end: StreamedNodeEnd = {},
+  ): void {
+    const { config } = state;
+    const onProgress = end.say ?? state.onProgress;
     const object = node.objectApiName;
     this.mergePageReports(state, object, carry);
     this.saySentOnTheirOwn(state, carry.sentOnTheirOwn, carry.onTheirOwnWhy);
-    const excluded = heldForExclusionsOf(state, object);
-    const heldOfNode = state.heldForExclusions.get(object);
+    // The rows held back for an exclusion were said by the object's turn.
+    const excluded = end.again ? [] : heldForExclusionsOf(state, object);
+    const heldOfNode = end.again ? undefined : state.heldForExclusions.get(object);
     const held = [...heldOfCarry(carry), ...excluded];
     const heldCount = heldBackCount(held);
     const fail = (message: string): void => {
@@ -6416,7 +7632,8 @@ export class ForgeExecutor {
       status: 'done',
       progress: 100,
       message:
-        `${config.dryRun ? 'Simulated' : 'Completed'} ${object}: ${pagedCounts(config, carry, held)}` +
+        `${end.label ?? `${config.dryRun ? 'Simulated' : 'Completed'} ${object}`}: ` +
+        `${pagedCounts(config, carry, held)}${end.note ?? ''}` +
         `${ownNote}${flagsNotKept}${picklists}${withoutFields}${sentSmaller}` +
         `${leftToThePlatformNote(state, object)}${readById}`,
     });
@@ -7647,6 +8864,7 @@ export class ForgeExecutor {
       }
     }
     const kept = (sourceId: string): boolean => sourceId in remapTable;
+    const withTheirRecord = withTheirRecordOf(state);
     const mayHaveBeenWritten = [...state.mayHaveBeenWritten].map(([objectApiName, sourceIds]) => ({
       objectApiName,
       sourceIds: [...sourceIds],
@@ -7684,8 +8902,8 @@ export class ForgeExecutor {
       existingRecords: [...state.existingRecords],
       existingSourceIds: state.remapper.existingSourceIds().filter(kept),
       updatedSourceIds: state.remapper.updatedSourceIds().filter(kept),
-      ...(state.withTheirRecord.size > 0 && !simulated
-        ? { withTheirRecordSourceIds: [...state.withTheirRecord] }
+      ...(withTheirRecord.length > 0 && !simulated
+        ? { withTheirRecordSourceIds: withTheirRecord }
         : {}),
       ...(state.writtenByThePlatform.size > 0
         ? {
@@ -7794,11 +9012,15 @@ export class ForgeExecutor {
         stream: state.config.stream && { ...state.config.stream, summaryBound: undefined },
       },
       remapper: new IdRemapper(),
+      // Nor the ids its journal marks: counted below.
+      store: undefined,
       withTheirRecord: new Set<string>(),
     });
+    const withTheirRecord = state.store?.withTheirRecordCount ?? 0;
     return {
       ...summary,
       remapCount: state.remapper.count,
+      ...(withTheirRecord > 0 ? { withTheirRecordCount: withTheirRecord } : {}),
       remapByObject: state.remapper.countsByObject(),
       ...(state.requestsBefore !== undefined && requestsNow !== undefined
         ? { apiCalls: requestsNow - state.requestsBefore }
@@ -7950,6 +9172,315 @@ export class ForgeExecutor {
       // Each file's insert kept before it goes, as the run's records are.
       ...(state.store ? { calls: insertCallsIn(state.store) } : {}),
     });
+  }
+
+  /**
+   * The files of a clone of the whole org, once every record is written: its
+   * last pass, read page by page, as its records are. Found from the files,
+   * not from the records — a clone of the whole org holds no record by now,
+   * and asked by the records, the links of a million of them were a million
+   * ids in `IN` lists:
+   *
+   * - every latest version of a Salesforce File kept in Salesforce, within
+   *   the largest file copied, in the order of its id, a page at a time; the
+   *   links of its documents read 200 documents at a time, and each document
+   *   copied onto the records of the run it is linked to — published on the
+   *   first, linked to the others — as a run read whole copies it
+   *   (`copyFiles`), its insert kept in the journal before it goes;
+   * - then every attachment within that size, in the order of its id, under
+   *   its parent, when the run created it.
+   *
+   * Each page is a statement of its own, after the last id of the page before
+   * (`filesPageAfter`), not a page of one cursor: the files of a page are
+   * downloaded and uploaded one by one before the next is read, which can
+   * take longer than the fifteen minutes an org keeps a cursor unread.
+   *
+   * A file linked to no record the run created — a library's, a user's, one
+   * on a record the target held — is not copied, and not listed: a clone of
+   * the whole org may pass millions of them. Nor is one past the largest
+   * file copied, which the gate counted (`WholeOrgBoundary.files`).
+   *
+   * Each kind keeps where it stands in the journal, as a pass of its own
+   * (`ContentDocument/files`, `Attachment/files`): a run taken up reads on
+   * after the last page copied, and links a file an earlier part copied to
+   * the records it lacks rather than copy it again (`filesCopiedBefore`).
+   *
+   * A page, or the links of its documents, that the source would not give
+   * even asked again ends that kind's pass there, and is said (stage
+   * `query`): the checkpoint stays before the page, so that a run taken up
+   * reads it again, and the run goes on to the next kind, then gives the
+   * records their statuses back and returns what it wrote. Every record is
+   * written by now: a file the source would not list is no reason to leave
+   * them drafts, nor to fail the run that wrote them.
+   */
+  private async copyFilesOfTheOrg(state: ExecutionState, maxFileBytes: number): Promise<void> {
+    const deps = this.fileCopyDeps();
+    if (!deps) return;
+    state.files ??= { maxFileBytes, objects: [], links: 0, leftOut: [] };
+    const report = state.files;
+    let copiedBefore = 0;
+    const tell = (objectApiName: string, message: string): void =>
+      state.onProgress({ objectName: objectApiName, status: 'running', progress: 50, message });
+    const pageSize = state.config.stream?.pageSize ?? FILES_PAGE;
+    for (const kind of WHOLE_ORG_FILES) {
+      const { counted } = kind;
+      const resumed = state.config.stream?.resumeAfter.get(checkpointKey(counted, FILES_PASS));
+      if (resumed?.done) continue;
+      const columns =
+        kind.object === 'ContentVersion'
+          ? 'Id, ContentDocumentId, Title, PathOnClient, ContentSize, SharingPrivacy'
+          : 'Id, ParentId, Name, ContentType, BodyLength, IsPrivate';
+      const statement =
+        `SELECT ${columns} FROM ${kind.object} WHERE ` +
+        [kind.where, `${kind.size} <= ${maxFileBytes}`].filter(Boolean).join(' AND ');
+      let read = resumed?.read ?? 0;
+      let lastId = resumed && SALESFORCE_ID.test(resumed.lastId) ? resumed.lastId : undefined;
+      for (let ended = false; !ended;) {
+        if (this.isAborted) {
+          throw new ForgeAbortedError(
+            'Forge execution was aborted by user request. Remaining objects were not processed.',
+          );
+        }
+        const page = await this.filesPageAfter(state, counted, statement, lastId, pageSize);
+        if (!page) break;
+        ended = page.length < pageSize;
+        let linksRead = true;
+        for (let at = 0; at < page.length; at += FILE_LINKS_AT_ONCE) {
+          const chunk = page.slice(at, at + FILE_LINKS_AT_ONCE);
+          const files =
+            kind.object === 'ContentVersion'
+              ? await this.documentsOnTheRunsRecords(state, chunk)
+              : attachmentsOnTheRunsRecords(state, chunk);
+          if (!files) {
+            linksRead = false;
+            break;
+          }
+          if (files.length === 0) continue;
+          const takenUp = await this.filesCopiedBefore(state, files, deps);
+          for (const file of takenUp) {
+            if (file.into?.unchanged) continue;
+            const entry = entryOfFiles(report, file.objectApiName);
+            entry.planned++;
+            entry.plannedBytes += file.bytes;
+          }
+          copiedBefore += takenUp.filter((file) => file.into?.unchanged).length;
+          state.failedCount += await copyFiles({
+            files: takenUp,
+            sourceOrgId: state.sourceOrgId,
+            targetOrgId: state.targetOrgId,
+            remapper: {
+              isCreated: (sourceId) => state.remapper.wasCreated(sourceId),
+              get: (sourceId) => state.remapper.get(sourceId),
+              add: (sourceId, targetId, objectApiName) =>
+                state.remapper.add(sourceId, targetId, objectApiName),
+              persist: () => state.remapper.persist(),
+            },
+            deps,
+            report,
+            errors: state.errors,
+            waitIfPaused: () => this.waitIfPaused(),
+            // Its lines said here, a page at a time: told per call, every
+            // 200 files would end the object again.
+            onProgress: () => {},
+            ...(state.store ? { calls: insertCallsIn(state.store) } : {}),
+          });
+          const entry = entryOfFiles(report, counted);
+          tell(counted, `Copying files: ${entry.copied} of ${entry.planned} copied so far`);
+        }
+        // Links left unread: the page is not passed, so that a run taken up
+        // reads it again — what this one copied of it then linked, not copied
+        // twice (`filesCopiedBefore`).
+        if (!linksRead) break;
+        read += page.length;
+        const last = page[page.length - 1]?.['Id'];
+        if (typeof last === 'string') lastId = last;
+        if (lastId !== undefined) {
+          state.store?.checkpoint(
+            counted,
+            { lastId, read, ...(ended ? { done: true as const } : {}) },
+            FILES_PASS,
+          );
+        }
+      }
+    }
+    for (const entry of report.objects) {
+      const noun = entry.objectApiName === 'Attachment' ? 'attachment' : 'file';
+      state.onProgress({
+        objectName: entry.objectApiName,
+        status: entry.failed > 0 && entry.copied === 0 ? 'error' : 'done',
+        progress: 100,
+        message:
+          `Copied ${entry.copied} ${noun}${entry.copied === 1 ? '' : 's'} of ${entry.planned}` +
+          (entry.failed > 0 ? `, ${entry.failed} failed` : ''),
+      });
+    }
+    if (copiedBefore > 0) {
+      logger.info(
+        `[forge] ${copiedBefore} file(s) copied by the run this one takes up: linked to the records they lacked`,
+      );
+    }
+  }
+
+  /**
+   * The page of `statement` after `lastId` — from its start without one — in
+   * the order of the id, `pageSize` rows at most: a statement of its own,
+   * read at once, so that no cursor waits while the files of the page before
+   * are copied (see `copyFilesOfTheOrg`). Undefined when the source would
+   * not give it even asked again (`readOnPassingFailure`): said in the run's
+   * errors under `counted`, stage `query`.
+   */
+  private async filesPageAfter(
+    state: ExecutionState,
+    counted: ForgeFileObject,
+    statement: string,
+    lastId: string | undefined,
+    pageSize: number,
+  ): Promise<Record<string, unknown>[] | undefined> {
+    const soql =
+      statement + (lastId ? ` AND Id > '${lastId}'` : '') + ` ORDER BY Id LIMIT ${pageSize}`;
+    try {
+      return await this.readOnPassingFailure(counted, () =>
+        this.deps.queryRecords(state.sourceOrgId, soql),
+      );
+    } catch (err) {
+      state.errors.push({
+        objectApiName: counted,
+        stage: 'query',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: lastId ? `(files after ${lastId})` : '(files)',
+            messages: [
+              `Not read, so not copied — a run taken up reads them again: ${extractErrorMessage(err)}`,
+            ],
+          },
+        ],
+      });
+      return undefined;
+    }
+  }
+
+  /**
+   * What `read` answers, asked again up to {@link CURSOR_RETRIES} times when
+   * the source could not answer for a reason that may pass — at once when a
+   * cursor it read through expired, after a growing wait when the connection
+   * dropped or the org was briefly unavailable — as `nextPage` asks a page
+   * again. Anything else, or the last failure, is thrown.
+   */
+  private async readOnPassingFailure<T>(what: string, read: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await read();
+      } catch (err) {
+        const expired = isExpiredCursor(err);
+        if ((!expired && !isPassingFailure(err)) || attempt >= CURSOR_RETRIES || this.isAborted) {
+          throw err;
+        }
+        if (!expired) await sleep(CURSOR_RETRY_DELAY_MS * 2 ** attempt);
+        logger.warn(
+          `[forge] ${what}: the source ${expired ? 'let its cursor expire' : 'did not answer'} — ` +
+            `asking again (${attempt + 1}/${CURSOR_RETRIES}): ${extractErrorMessage(err)}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Of a page of the latest versions of Salesforce Files, the documents
+   * linked to a record the run created, each as the file to copy onto those
+   * records: their links read by the documents' ids, at most
+   * `FILE_LINKS_AT_ONCE` at a time, asked again as `readOnPassingFailure`
+   * does. A link to a record the run did not create — a user, a library, a
+   * record the target held — is left out; a document with none left is not
+   * copied. Undefined when the links could not be read: said, and the page
+   * left for a run taken up to read again (see `copyFilesOfTheOrg`). Links
+   * past the bound of the read — documents shared on that many records — are
+   * said too, the documents copied onto the records among those read.
+   */
+  private async documentsOnTheRunsRecords(
+    state: ExecutionState,
+    versions: readonly Record<string, unknown>[],
+  ): Promise<FileToCopy[] | undefined> {
+    const byDocument = new Map<string, Record<string, unknown>>();
+    for (const version of versions) {
+      const document = version['ContentDocumentId'];
+      if (typeof document === 'string' && SALESFORCE_ID.test(document)) {
+        byDocument.set(document, version);
+      }
+    }
+    if (byDocument.size === 0) return [];
+    const hostsOf = new Map<string, FileHost[]>();
+    const say = (message: string): void => {
+      state.errors.push({
+        objectApiName: 'ContentDocument',
+        stage: 'query',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [{ recordSummary: `(links of ${byDocument.size} files)`, messages: [message] }],
+      });
+    };
+    let cut = false;
+    try {
+      const links = await this.readOnPassingFailure('ContentDocumentLink', () =>
+        this.deps.queryRecords(
+          state.sourceOrgId,
+          'SELECT ContentDocumentId, LinkedEntityId, ShareType, Visibility FROM ContentDocumentLink ' +
+            `WHERE ContentDocumentId IN (${[...byDocument.keys()].map((id) => `'${id}'`).join(', ')})`,
+          () => (cut = true),
+        ),
+      );
+      for (const link of links) {
+        const document = link['ContentDocumentId'];
+        const host = link['LinkedEntityId'];
+        if (typeof document !== 'string' || typeof host !== 'string') continue;
+        if (!state.remapper.wasCreated(host)) continue;
+        const hosts = hostsOf.get(document) ?? [];
+        if (hosts.some((known) => known.id === host)) continue;
+        const shareType = link['ShareType'];
+        const visibility = link['Visibility'];
+        hosts.push({
+          id: host,
+          ...(typeof shareType === 'string' ? { shareType } : {}),
+          ...(typeof visibility === 'string' ? { visibility } : {}),
+        });
+        hostsOf.set(document, hosts);
+      }
+    } catch (err) {
+      say(`Not read, so not copied — a run taken up reads them again: ${extractErrorMessage(err)}`);
+      return undefined;
+    }
+    if (cut) {
+      say(
+        'More links than the source reads at once: the files were copied onto the records ' +
+          'of the run among those read, and may lack a link to the others.',
+      );
+    }
+    const files: FileToCopy[] = [];
+    for (const [document, hosts] of hostsOf) {
+      const version = byDocument.get(document);
+      const versionId = version?.['Id'];
+      if (!version || typeof versionId !== 'string') continue;
+      const title = version['Title'];
+      const name = typeof title === 'string' && title !== '' ? title : document;
+      const path = version['PathOnClient'];
+      const size = version['ContentSize'];
+      files.push({
+        objectApiName: 'ContentDocument',
+        sourceId: document,
+        body: { objectApiName: 'ContentVersion', id: versionId },
+        name,
+        bytes: typeof size === 'number' && Number.isFinite(size) ? size : 0,
+        hosts,
+        fields: {
+          Title: name,
+          PathOnClient: typeof path === 'string' && path !== '' ? path : name,
+          // Private to its owner in the source, it stays so in the target.
+          ...(version['SharingPrivacy'] === 'P' ? { SharingPrivacy: 'P' } : {}),
+        },
+      });
+    }
+    return files;
   }
 
   /**
@@ -8391,7 +9922,7 @@ export class ForgeExecutor {
           CATALOG_OBJECTS.has(parent) ||
           config.referenceDataObjects.has(parent) ||
           config.excludedObjects.has(parent) ||
-          isNeverCopied(parent)
+          neverCopiedIn(state, parent)
         ) {
           continue;
         }
@@ -8826,7 +10357,7 @@ export class ForgeExecutor {
         scopeCache: state.scopeCache,
         rootObjectApiName: config.rootObjectApiName,
         rootRecordId: config.rootRecordId,
-        extraWhere: config.objectSoqlFilters?.[node.objectApiName],
+        extraWhere: withTheWhereOfAPass(this.filterOf(state, node.objectApiName), cursor?.pass),
         fieldsLeftOut: config.fieldExclusions[node.objectApiName],
         maxRecordsPerObject: cursor ? this.pagedLimit(state, cursor) : config.maxRecordsPerObject,
         ...(cursor
@@ -8903,17 +10434,35 @@ export class ForgeExecutor {
       if (cursor) cursor.targetSets = targetSetsPending;
 
       const reached = state.scopeCache ? new Set<string>() : undefined;
-      const records = await queryNodeRecords(
+      // A page whose cursor the org could not go on with is read again after
+      // the last row the run has: the statement of the rest, as the first
+      // read would have asked it from there. See `nextPage`.
+      const fromHere = cursor
+        ? (afterId: string): string | undefined => {
+            const rest = buildNodeQuery({
+              ...queryInput,
+              maxRecordsPerObject: cursor.room === undefined ? undefined : Math.max(1, cursor.room),
+              inIdOrder: { afterId },
+            });
+            return rest.kind === 'query' && rest.statements.length === 1
+              ? rest.statements[0]
+              : undefined;
+          }
+        : undefined;
+      const fetched = await queryNodeRecords(
         query,
         (soql) =>
           cursor
-            ? this.nextPage(state, node, cursor, soql)
+            ? this.nextPage(state, node, cursor, soql, fromHere)
             : this.readWhole(state, node.objectApiName, soql),
         reached,
         () => state.cappedObjects.add(node.objectApiName),
       );
       // Its statement has no page left: the object is read.
-      if (cursor?.ended && records.length === 0 && cursor.taken > 0) return false;
+      if (cursor?.ended && fetched.length === 0 && cursor.taken > 0) return false;
+      // A pass writes only the rows it is for; the page's last id is where it
+      // stands all the same (`nextPage`).
+      const records = cursor?.pass ? fetched.filter(cursor.pass.keep) : fetched;
       noteIdsRead(state, records);
       this.keepWhatStatusesNeed(state, node, records, reached);
       const heldBack = this.holdBackWhatExclusionsCost(
@@ -9105,8 +10654,9 @@ export class ForgeExecutor {
       // reported with it: copied again, they would be there twice. A row an
       // earlier part of this run wrote keeps its files: that part may have
       // stopped before it copied them, and what it copied its journal says
-      // (`filesCopiedBefore`).
-      if (config.files) {
+      // (`filesCopiedBefore`). A clone of the whole org finds its files from
+      // the files, once every record is written (`copyFilesOfTheOrg`).
+      if (config.files && config.stream?.everything !== true) {
         const ids = records.flatMap((r) =>
           typeof r['Id'] === 'string' && !config.writtenBefore.retried(r['Id']) ? [r['Id']] : [],
         );
@@ -9121,10 +10671,13 @@ export class ForgeExecutor {
       // back for an object the user excluded were read to be cloned too, and
       // are counted with them as they are among the failed.
       if (cursor) cursor.carry.rows += records.length;
-      state.readByObject.set(
-        node.objectApiName,
-        (cursor ? cursor.carry.rows : records.length) + (heldOfNode?.size ?? 0),
-      );
+      // A pass reads again rows the object's turn counted.
+      if (!cursor?.pass) {
+        state.readByObject.set(
+          node.objectApiName,
+          (cursor ? cursor.carry.rows : records.length) + (heldOfNode?.size ?? 0),
+        );
+      }
 
       // Held for the write pass: a simulation's too, which takes them through
       // it with a writer that writes nothing.
@@ -9164,8 +10717,9 @@ export class ForgeExecutor {
       return true;
     } catch (err) {
       // An abort is a control-flow signal, not a node failure. Recording it as
-      // one and continuing is what let a cancelled run carry on writing.
-      if (err instanceof ForgeAbortedError) {
+      // one and continuing is what let a cancelled run carry on writing. Nor
+      // is a whole read a clone of the whole org cut short: the run stops.
+      if (err instanceof ForgeAbortedError || err instanceof WholeReadPastBoundError) {
         throw err;
       }
       // Never going to be written, it is read only to know whether the clone
@@ -9639,7 +11193,14 @@ export class ForgeExecutor {
    * A run that reads every node first knows the tasks it writes, and holds
    * back only an email naming one of them. Another reads the tasks after the
    * emails, and holds back every email on a case that names a task, while the
-   * task node's turn is still to come.
+   * task node's turn is still to come. Which of the two a run is, is what it
+   * does (`readsEverythingFirst`), not what its options would have it do: a
+   * clone of the whole org asks every row before it writes one, and reads
+   * page by page all the same, with no task in hand.
+   *
+   * A run whose emails go in two passes (`emailsInTwoPasses`) holds none of
+   * them: it counts them, and reads them again once the tasks are written
+   * (`streamEmailsAfterTheirTask`).
    */
   private holdEmailsForTheirTask(
     state: ExecutionState,
@@ -9647,13 +11208,14 @@ export class ForgeExecutor {
   ): Record<string, unknown>[] {
     if (state.taskTurnOver) return rows;
     if (!state.graph.nodes.some((n) => n.included && n.objectApiName === TASK)) return rows;
-    const tasks = readsBeforeWriting(state.config)
+    const tasks = state.readsEverythingFirst
       ? new Set((state.preread.get(TASK)?.records ?? []).map((task) => String(task['Id'])))
       : undefined;
     const now: Record<string, unknown>[] = [];
     for (const row of rows) {
       if (waitsForItsTask(row) && (tasks === undefined || tasks.has(String(row['ActivityId'])))) {
-        state.emailsAfterTheirTask.push(row);
+        if (state.emailsInTwoPasses) state.emailsLeftForTheirTask++;
+        else state.emailsAfterTheirTask.push(row);
       } else {
         now.push(row);
       }
@@ -9667,6 +11229,10 @@ export class ForgeExecutor {
    * place of the source's. Nothing is written once the run is aborted.
    */
   private async writeEmailsAfterTheirTask(state: ExecutionState): Promise<void> {
+    if (state.emailsInTwoPasses) {
+      await this.streamEmailsAfterTheirTask(state);
+      return;
+    }
     state.taskTurnOver = true;
     const emails = state.emailsAfterTheirTask.splice(0, state.emailsAfterTheirTask.length);
     const node = state.graph.nodes.find((n) => n.objectApiName === EMAIL_MESSAGE);
@@ -9680,6 +11246,79 @@ export class ForgeExecutor {
     // leave the line said before them to end the node, with the emails
     // never sent.
     this.endBeforeTheEmailsThatWaited(state, emails.length, this.isAborted);
+  }
+
+  /**
+   * The second pass of the emails of a run that writes them in two passes,
+   * once the task node has had its turn, whatever it wrote: the emails on a
+   * case that name a task (`waitsForItsTask`), which the email node's turn
+   * left out, read again page by page — `ActivityId != null` in the order of
+   * their ids, the others of each page dropped — and written with the id
+   * their task has in the target. Held in memory until the task's turn, as a
+   * run read whole holds them, a million of them would be.
+   *
+   * It has a checkpoint of its own (`EmailMessage/afterTask`): a run taken up
+   * part way through it reads on from there, and one taken up before it —
+   * the email node read to its end, the tasks not — reads it whole, though
+   * this part left out none of its emails. Its line ends the email node, on
+   * the line of the first pass when that one said some waited (see
+   * `endOfTheEmails`). Once only: the run's end asks again, for a task node
+   * that never had its turn. Nothing when the email node did not have its
+   * turn page by page, or failed, or read every email in this run and left
+   * none for its task; nothing is written once the run is aborted.
+   */
+  private async streamEmailsAfterTheirTask(state: ExecutionState): Promise<void> {
+    if (state.taskTurnOver) return;
+    state.taskTurnOver = true;
+    const expected = state.emailsLeftForTheirTask;
+    // Counted as waiting no more: the pass says what becomes of them.
+    state.emailsLeftForTheirTask = 0;
+    const node = state.graph.nodes.find((n) => n.included && n.objectApiName === EMAIL_MESSAGE);
+    // The first pass read every email in this run and left none for its task:
+    // nothing to read again. Taken up from an earlier run, it may have left
+    // some before its checkpoint, which this run never counted.
+    const resumeAfter = state.config.stream?.resumeAfter;
+    const resumed =
+      resumeAfter?.has(EMAIL_MESSAGE) === true ||
+      resumeAfter?.has(checkpointKey(EMAIL_MESSAGE, EMAILS_AFTER_THEIR_TASK)) === true;
+    const ready =
+      node !== undefined &&
+      state.emailsFirstPassRan &&
+      (expected > 0 || resumed) &&
+      !state.failedObjects.has(EMAIL_MESSAGE) &&
+      state.graph.nodes.some((n) => n.included && n.objectApiName === TASK);
+    if (!ready || this.isAborted) {
+      // Not read again: the line said before them ends the node, with them.
+      this.endBeforeTheEmailsThatWaited(state, expected, this.isAborted);
+      return;
+    }
+    const first = state.emailsWrittenFirst !== undefined;
+    const ended = state.config.dryRun ? 'Simulated' : 'Completed';
+    try {
+      await this.streamNode(node, state, {
+        name: EMAILS_AFTER_THEIR_TASK,
+        where: 'ActivityId != null',
+        keep: (row) => waitsForItsTask(row),
+        expected,
+        stopped: `Stopped ${EMAIL_MESSAGE} after their task`,
+        end: {
+          say: this.endOfTheEmails(state, true),
+          label: first ? 'after their task' : `${ended} ${EMAIL_MESSAGE} after their task`,
+        },
+      });
+    } catch (err) {
+      // The pass's own line says how it stopped: the first pass's is not said
+      // again by the run's end.
+      state.emailsWrittenFirst = undefined;
+      throw err;
+    }
+    // The pass wrote no page — a run taken up after it, or one whose emails
+    // all went in the first pass — and the first pass's line still waits.
+    const said = state.emailsWrittenFirst;
+    if (said) {
+      state.emailsWrittenFirst = undefined;
+      state.onProgress(said);
+    }
   }
 
   /**
@@ -9741,7 +11380,7 @@ export class ForgeExecutor {
         return;
       }
       if (!late) {
-        if (state.emailsAfterTheirTask.length === 0) {
+        if (state.emailsAfterTheirTask.length === 0 && state.emailsLeftForTheirTask === 0) {
           state.onProgress(event);
           return;
         }
@@ -9781,6 +11420,10 @@ export class ForgeExecutor {
     state: ExecutionState,
     rows: Record<string, unknown>[],
   ): Promise<{ rows: Record<string, unknown>[]; linked: number }> {
+    // A run whose emails go in two passes linked each such task as its email
+    // went in (`linkTasksOfTheEmailsWritten`): a task mapped before its own
+    // turn is one of those. Its emails are let go by now.
+    if (state.emailsInTwoPasses) return this.tasksLinkedBeforeTheirTurn(state, rows);
     /** The email each task was written with, by the task's source id. */
     const emailOfTask = new Map<string, string>();
     for (const email of state.preread.get(EMAIL_MESSAGE)?.records ?? []) {
@@ -9830,7 +11473,7 @@ export class ForgeExecutor {
       // Its email is one the run created, and on no case — a case's email
       // waits for the task the run writes: deleting the email deletes the
       // task with it. See `ExecutionSummary.withTheirRecordSourceIds`.
-      state.withTheirRecord.add(source);
+      keepWithTheirRecord(state, source);
       return false;
     });
     const linked = rows.length - kept.length;
@@ -9840,6 +11483,90 @@ export class ForgeExecutor {
     if (linked > 0) state.linkedCount += linked;
     countWrittenByThePlatform(state, TASK, linked);
     return { rows: kept, linked };
+  }
+
+  /**
+   * Of the rows of a page of tasks of a run whose emails go in two passes,
+   * those still to write: a task the run maps before its own turn is the one
+   * the platform wrote with an email of the run (`linkTasksOfTheEmailsWritten`),
+   * linked and never sent — counted here, as it is a row of the task node,
+   * as `linkTasksWrittenWithEmails` counts it.
+   */
+  private tasksLinkedBeforeTheirTurn(
+    state: ExecutionState,
+    rows: Record<string, unknown>[],
+  ): { rows: Record<string, unknown>[]; linked: number } {
+    const kept = rows.filter((row) => {
+      const id = row['Id'];
+      return typeof id !== 'string' || state.remapper.get(id) === undefined;
+    });
+    const linked = rows.length - kept.length;
+    if (linked > 0) state.linkedCount += linked;
+    countWrittenByThePlatform(state, TASK, linked);
+    return { rows: kept, linked };
+  }
+
+  /**
+   * Link the task the platform wrote with each email of the page a run whose
+   * emails go in two passes has just written, to the task the email names in
+   * the source: what the platform did as it took the email, asked of the
+   * target by the emails' ids (`tasksWrittenWithEmails`). The page of tasks
+   * that holds it then links it and sends it not (`tasksLinkedBeforeTheirTurn`):
+   * sent, it would stand beside the platform's, two for one email. Asked page
+   * by page, as the emails are let go once written; an email on a case, which
+   * names its task from the copy, goes in after it and is not asked about.
+   *
+   * Deleted by the platform with its email, the task is the email's own
+   * (`withTheirRecord`). Not looked up, the tasks of the page go as any
+   * others, and the report says why, once.
+   */
+  private async linkTasksOfTheEmailsWritten(state: ExecutionState): Promise<void> {
+    /** The source task each email of the page names, by the id the email has in the target. */
+    const taskOfEmail = new Map<string, string>();
+    for (const email of state.preread.get(EMAIL_MESSAGE)?.records ?? []) {
+      const task = email['ActivityId'];
+      const id = email['Id'];
+      if (typeof task !== 'string' || task === '' || typeof id !== 'string') continue;
+      if (waitsForItsTask(email) || !state.remapper.isCreated(id)) continue;
+      const written = state.remapper.get(id);
+      if (written) taskOfEmail.set(written, task);
+    }
+    if (taskOfEmail.size === 0) return;
+    const emails = [...taskOfEmail.keys()];
+    const { simulated } = state;
+    let written: Map<string, string>;
+    try {
+      // A simulation's emails are in no target: the platform writes a task
+      // with each one a real run writes, and the simulation says so.
+      written = simulated
+        ? new Map(emails.map((email) => [email, simulated.idFor(null)]))
+        : await tasksWrittenWithEmails(
+            (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+            emails,
+          );
+    } catch (err) {
+      if (state.emailTasksNotLookedUp) return;
+      state.emailTasksNotLookedUp = true;
+      state.errors.push({
+        objectApiName: TASK,
+        stage: 'scope',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: '(tasks the platform wrote with the emails)',
+            messages: [`Not looked up, so written as read: ${extractErrorMessage(err)}`],
+          },
+        ],
+      });
+      return;
+    }
+    for (const [email, task] of written) {
+      const source = taskOfEmail.get(email);
+      if (source === undefined || state.remapper.get(source) !== undefined) continue;
+      state.remapper.addExisting(source, task, TASK);
+      keepWithTheirRecord(state, source);
+    }
   }
 
   /**
@@ -9940,7 +11667,7 @@ export class ForgeExecutor {
       const source = String(row['Id']);
       remapper.addExisting(source, id, objectApiName);
       if (remapper.isCreated(String(row['OpportunityId']))) {
-        state.withTheirRecord.add(source);
+        keepWithTheirRecord(state, source);
         withTheirOpportunity++;
       }
       if (ofTheOwner) owners++;
@@ -10426,7 +12153,7 @@ export class ForgeExecutor {
       // when that opportunity goes: no removal deletes it on its own. One of
       // the run this one retries goes with that run's opportunity.
       if (remapper.wasCreated(opportunity)) {
-        state.withTheirRecord.add(sourceId);
+        keepWithTheirRecord(state, sourceId);
         withTheirs++;
       }
       // The lookups it went without are owed on the record, as on a role inserted.
@@ -10514,7 +12241,7 @@ export class ForgeExecutor {
       for (const [, { contact, account }] of contactOf) {
         if (state.contactsOnTheirOwn.has(contact)) continue;
         state.remapper.addExisting(contact, simulated.idFor(null));
-        if (state.remapper.isCreated(account)) state.withTheirRecord.add(contact);
+        if (state.remapper.isCreated(account)) keepWithTheirRecord(state, contact);
       }
       return;
     }
@@ -10550,7 +12277,7 @@ export class ForgeExecutor {
       state.remapper.addExisting(contact, target);
       // Written by the platform with an account this run created, it goes
       // when that account goes: no removal keeps it, or deletes it on its own.
-      if (state.remapper.isCreated(account)) state.withTheirRecord.add(contact);
+      if (state.remapper.isCreated(account)) keepWithTheirRecord(state, contact);
     }
   }
 
@@ -10827,7 +12554,7 @@ export class ForgeExecutor {
       if (target) {
         state.remapper.addExisting(id, target, CONTACT);
         linked++;
-        if (state.withTheirRecord.has(id)) withTheirAccount++;
+        if (isWithTheirRecord(state, id)) withTheirAccount++;
         continue;
       }
       const account = row['AccountId'];
@@ -11341,7 +13068,7 @@ export class ForgeExecutor {
       // the items read again under it, which its status needs.
       await this.notePastDraft(state, objectApiName, fresh);
       if (fresh.length === 0 && heldNow.length === 0) return [];
-      if (config.files) {
+      if (config.files && config.stream?.everything !== true) {
         const ids = fresh.flatMap((r) => (typeof r['Id'] === 'string' ? [r['Id']] : []));
         state.fileScope.set(objectApiName, [...(state.fileScope.get(objectApiName) ?? []), ...ids]);
       }
@@ -12470,13 +14197,65 @@ export class ForgeExecutor {
    * them all in, its records were linked to by the run that took it up, and
    * the lookups they owed left empty for good.
    */
-  private oweToTheSecondPass(state: ExecutionState, updates: readonly PendingFkUpdate[]): void {
+  private oweToTheSecondPass(state: ExecutionState, owed: readonly PendingFkUpdate[]): void {
+    const updates = this.withoutSyncedQuotes(state, owed);
     if (state.secondPassInStore && state.store) {
       for (const update of updates) state.store.owe(update);
       return;
     }
     if (state.store) for (const update of updates) state.store.owe(update);
     state.pendingFkUpdates.push(...updates);
+  }
+
+  /**
+   * `updates`, but for the quote an opportunity syncs with, in a clone of the
+   * whole org: counted, and said once the run ends (`saySyncedQuotesLeft`).
+   * Filled in, the target starts the sync at once, and writes the quote's
+   * lines over the opportunity's products — products the run copied and
+   * keeps in its journal, deleted and written again by the platform, out of
+   * reach of a removal of the run. How a clone of records fills it in
+   * (`syncedQuoteWriteEdges`, `takeTheSyncCopies`) rests on their write
+   * order, which a clone of the whole org, read and written a window at a
+   * time, does not keep. Any other run fills it in as before.
+   */
+  private withoutSyncedQuotes(
+    state: ExecutionState,
+    updates: readonly PendingFkUpdate[],
+  ): readonly PendingFkUpdate[] {
+    if (state.config.stream?.everything !== true) return updates;
+    const kept = updates.filter(
+      (update) =>
+        update.objectApiName !== OPPORTUNITY_OBJECT || update.fieldName !== SYNCED_QUOTE_FIELD,
+    );
+    state.syncedQuotesLeft += updates.length - kept.length;
+    return kept.length === updates.length ? updates : kept;
+  }
+
+  /**
+   * Say, once, the synced quotes a clone of the whole org left empty: see
+   * `withoutSyncedQuotes`. Not a failure: the opportunities are written, and
+   * a sync started in the target by hand fills them in.
+   */
+  private saySyncedQuotesLeft(state: ExecutionState): void {
+    const left = state.syncedQuotesLeft;
+    if (left === 0) return;
+    state.syncedQuotesLeft = 0;
+    state.errors.push({
+      objectApiName: OPPORTUNITY_OBJECT,
+      stage: 'scope',
+      failedCount: 0,
+      attemptedCount: 0,
+      samples: [
+        {
+          recordSummary: `(${OPPORTUNITY_OBJECT}.${SYNCED_QUOTE_FIELD})`,
+          messages: [
+            `Left empty on ${left} opportunit${left === 1 ? 'y' : 'ies'}: filled in, the ` +
+              "target syncs the quote at once and writes its lines over the opportunity's " +
+              'products the run copied. Start the sync in the target to fill it in.',
+          ],
+        },
+      ],
+    });
   }
 
   /**
@@ -12531,7 +14310,7 @@ export class ForgeExecutor {
     for (const { field, recordId } of written.leftEmptyByFilter ?? []) {
       this.noteLeftEmptyByFilter(state, objectApiName, field, recordId);
     }
-    for (const sourceId of written.withTheirRecord ?? []) state.withTheirRecord.add(sourceId);
+    for (const sourceId of written.withTheirRecord ?? []) keepWithTheirRecord(state, sourceId);
     if (written.linkedExistingCount > 0 || written.unidentifiedExistingCount > 0) {
       state.existingRecords.push({
         objectApiName,
@@ -12668,13 +14447,16 @@ export class ForgeExecutor {
         // without (a journal of 1.61). One whose call said it owes that
         // alone, kept beside it as it was found (`reconcileInFlight`).
         if (config.writtenBefore.has(value) && !state.store?.owesUntold(sourceId)) continue;
-        const owed: PendingFkUpdate = {
-          objectApiName: node.objectApiName,
-          newId,
-          sourceId,
-          fieldName: rename[field.name] ?? field.name,
-          sourceRefId: value,
-        };
+        const [owed] = this.withoutSyncedQuotes(state, [
+          {
+            objectApiName: node.objectApiName,
+            newId,
+            sourceId,
+            fieldName: rename[field.name] ?? field.name,
+            sourceRefId: value,
+          },
+        ]);
+        if (!owed) continue;
         if (state.secondPassInStore && state.store) state.store.owe(owed, true);
         else state.owedToRowsWrittenBefore.push(owed);
       }
@@ -13418,10 +15200,12 @@ export class ForgeExecutor {
           ? 'after their task'
           : `${ended} ${node.objectApiName} after their task`;
     // And how it begins when a cancel stopped the node before one of its calls.
+    // A page of the second pass of the emails ends on a line of its own
+    // (`streamEmailsAfterTheirTask`).
     const stopped =
       afterTheirTask === undefined
         ? `Stopped ${node.objectApiName}`
-        : state.emailsWrittenFirst
+        : state.emailsWrittenFirst && !page
           ? 'stopped after their task'
           : `Stopped ${node.objectApiName} after their task`;
     const read = state.preread.get(node.objectApiName);
@@ -13678,7 +15462,8 @@ export class ForgeExecutor {
           };
           onProgress(step);
           // Kept to end the node on, should the run stop before their write.
-          state.emailsAllWaiting = { ...step, status: 'done', progress: 100 };
+          // A page's says nothing of the node: the line its pages end on does.
+          if (!page) state.emailsAllWaiting = { ...step, status: 'done', progress: 100 };
           return;
         }
       }
@@ -13690,6 +15475,7 @@ export class ForgeExecutor {
         const tasks = await this.linkTasksWrittenWithEmails(state, toWrite);
         toWrite = tasks.rows;
         withTheirEmail = tasks.linked;
+        if (page) page.withTheirEmail += tasks.linked;
       }
 
       // The owner's team member and split the platform wrote with one of the
@@ -13970,6 +15756,7 @@ export class ForgeExecutor {
         referenceFallback: config.referenceFallback,
         failedObjects: state.failedObjects,
         writtenObjects: state.writtenObjects,
+        neverCopied: (objectApiName) => neverCopiedIn(state, objectApiName),
         ownerMappings: config.ownerMappings,
         ...(team.lookups.size > 0 ? { resolvedLookups: team.lookups } : {}),
         ...(targetLacks && targetLacks.size > 0 ? { targetLacks } : {}),

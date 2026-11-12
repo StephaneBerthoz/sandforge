@@ -94,6 +94,14 @@ export interface TargetHoldsQuestion {
   readonly inactive?: Set<string>;
   /** A read of the target. */
   readonly query: (soql: string) => Promise<readonly Record<string, unknown>[]>;
+  /**
+   * Whether no clone of the run creates records of an object: by default
+   * {@link isNeverCopied}. A clone of the whole org writes the objects of a
+   * managed package that list leaves out by their namespace — its graph
+   * holds them as nodes — and says so here: a lookup at one of them names a
+   * record the run writes, which the target is not asked about.
+   */
+  readonly neverCopied?: (objectApiName: string) => boolean;
 }
 
 /**
@@ -104,10 +112,11 @@ export interface TargetHoldsQuestion {
 function isAskedOfTheTarget(
   lookup: TargetHeldLookup,
   outsideTheRun?: (objectApiName: string) => boolean,
+  neverCopied: (objectApiName: string) => boolean = isNeverCopied,
 ): boolean {
   const targets = lookup.referenceTo ?? [];
   if (lookup.name === 'RecordTypeId' || targets.length === 0) return false;
-  if (targets.every((target) => isNeverCopied(target))) return true;
+  if (targets.every((target) => neverCopied(target))) return true;
   return targets.length === 1 && outsideTheRun?.(targets[0]) === true;
 }
 
@@ -131,7 +140,7 @@ export async function idsTheTargetLacks(
 ): Promise<ReadonlySet<string>> {
   const { known, ownerMappings = {}, mapped, refused, inactive } = question;
   const lookups = question.lookups.filter((lookup) =>
-    isAskedOfTheTarget(lookup, question.outsideTheRun),
+    isAskedOfTheTarget(lookup, question.outsideTheRun, question.neverCopied),
   );
   /** Per object asked, the ids not yet asked about. */
   const toAsk = new Map<string, Set<string>>();

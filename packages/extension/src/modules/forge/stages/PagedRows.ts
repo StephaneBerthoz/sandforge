@@ -26,9 +26,11 @@ export type SourceRow = Record<string, unknown>;
  * Without a size, each page as the source gave it. At least one page, empty
  * when the source had no row: the caller hears the read was made.
  *
- * The size is a test seam, not a setting: an org answers a cursor in pages of
- * up to 2 000 rows and takes no page smaller than 200, while a run's paging is
- * proved with pages of a few rows.
+ * The size is the run's window of rows written at a time
+ * (`ForgeStreamOptions.writeWindow`) — pages of the org gathered into a job's
+ * worth for a run that writes through the Bulk API — or a test seam: an org
+ * answers a cursor in pages of up to 2 000 rows and takes no page smaller
+ * than 200, while a run's paging is proved with pages of a few rows.
  */
 export async function* inPagesOf<T>(pages: AsyncIterable<T[]>, size?: number): AsyncGenerator<T[]> {
   const cut = size !== undefined && Number.isFinite(size) && size >= 1 ? Math.floor(size) : 0;
@@ -51,10 +53,19 @@ export async function* inPagesOf<T>(pages: AsyncIterable<T[]>, size?: number): A
   if (held.length > 0 || given === 0) yield held;
 }
 
+/** How a statement is read: see `ReadOptions` of the executor. */
+interface PagedReadOptions {
+  all?: true;
+}
+
 /** What reading a node page by page needs of the run's deps. */
 export interface PagedReadDeps {
   /** Each page of a statement as the org answers it; see `ForgeExecutorDeps.queryPages`. */
-  queryPages?: (orgId: string, soql: string) => AsyncIterable<SourceRow[]>;
+  queryPages?: (
+    orgId: string,
+    soql: string,
+    options?: PagedReadOptions,
+  ) => AsyncIterable<SourceRow[]>;
   /** Every row of a statement at once: what a run reads with when the deps give no pages. */
   queryRecords: (orgId: string, soql: string, onTruncated?: () => void) => Promise<SourceRow[]>;
 }
@@ -64,6 +75,10 @@ export interface PagedReadDeps {
  * deps give one, so that no more than a page is held; otherwise read whole
  * and cut, which holds the table as a run always did and pages its writes
  * all the same — the path of deps that answer a statement at once.
+ *
+ * `options.all` reads through the org's `queryAll`, which only the cursor
+ * does: deps without one have no read of the archived rows, and a read that
+ * leaves them out would say nothing of it, so they are refused one.
  */
 export function pagesOfStatement(
   deps: PagedReadDeps,
@@ -71,9 +86,18 @@ export function pagesOfStatement(
   soql: string,
   size?: number,
   onTruncated?: () => void,
+  options?: PagedReadOptions,
 ): AsyncGenerator<SourceRow[]> {
   const { queryPages } = deps;
-  if (queryPages) return inPagesOf(queryPages(orgId, soql), size);
+  if (queryPages) {
+    return inPagesOf(
+      options?.all ? queryPages(orgId, soql, options) : queryPages(orgId, soql),
+      size,
+    );
+  }
+  if (options?.all) {
+    throw new Error('The deps read no archived row: no cursor to read through queryAll.');
+  }
   return inPagesOf(
     (async function* whole(): AsyncGenerator<SourceRow[]> {
       yield await deps.queryRecords(orgId, soql, onTruncated);
@@ -113,11 +137,26 @@ export function readingInColumnGroups<D extends PagedReadDeps>(deps: D): D {
       ? readOtherColumns(first, wide, byIds)
       : readOtherColumnsAtOneStamp(first, wide, byIds, oneStamp);
   };
-  const queryPages = (orgId: string, soql: string): AsyncIterable<SourceRow[]> =>
+  // A read through `queryAll` reads every group so: the others, by the ids the
+  // first returned, through the cursor's `queryAll` as well, its pages
+  // gathered. Read through `queryRecords`, which has no `queryAll`, an
+  // archived row the org did not answer again kept the first group's fields
+  // alone (`readOtherColumns`), and was written so without a word: a task or
+  // an event an org gave hundreds of custom fields.
+  const queryPages = (
+    orgId: string,
+    soql: string,
+    options?: PagedReadOptions,
+  ): AsyncIterable<SourceRow[]> =>
     pagesColumnsApart(
       soql,
-      (statement) => deps.queryPages?.(orgId, statement) ?? noPages(),
-      (statement) => deps.queryRecords(orgId, statement),
+      (statement) =>
+        (options?.all
+          ? deps.queryPages?.(orgId, statement, options)
+          : deps.queryPages?.(orgId, statement)) ?? noPages(),
+      options?.all
+        ? (statement) => everyRowOf(deps.queryPages?.(orgId, statement, options) ?? noPages())
+        : (statement) => deps.queryRecords(orgId, statement),
       oneStampOf(soql),
     );
   return new Proxy(deps, {
@@ -127,6 +166,15 @@ export function readingInColumnGroups<D extends PagedReadDeps>(deps: D): D {
       return Reflect.get(target, property, receiver);
     },
   });
+}
+
+/** Every row of `pages`, gathered. */
+async function everyRowOf(pages: AsyncIterable<SourceRow[]>): Promise<SourceRow[]> {
+  const rows: SourceRow[] = [];
+  for await (const page of pages) {
+    for (const row of page) rows.push(row);
+  }
+  return rows;
 }
 
 /** No page at all: what a cursor gone from the deps since gives. */

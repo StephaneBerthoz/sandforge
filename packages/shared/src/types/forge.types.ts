@@ -649,9 +649,6 @@ export interface ForgeGraph {
  * - `files`: a file or what hangs on one, copied with the records it hangs
  *   on rather than as an object of its own (`detail: 'withTheirRecords'`),
  *   or a document of the Documents tab.
- * - `neverCopied`: an object the target lets the user write that no Forge
- *   clone writes: the objects of an industry package whose configuration
- *   catalogue every clone leaves out.
  * - `excludedByUser`: the user asked for it to be left out.
  * - `notDescribed`: its describe could not be read.
  */
@@ -671,7 +668,6 @@ export type ForgeLeftOutReason =
   | 'unsupportedKind'
   | 'customSetting'
   | 'files'
-  | 'neverCopied'
   | 'excludedByUser'
   | 'notDescribed';
 

@@ -5,7 +5,7 @@ import * as v8 from 'node:v8';
 import { runInNewContext } from 'node:vm';
 import { describe, it, expect, vi } from 'vitest';
 import type { ForgeGraph } from '@sandforge/shared';
-import { ForgeExecutor } from './ForgeExecutor.js';
+import { ForgeExecutor, WHOLE_ORG_WINDOW } from './ForgeExecutor.js';
 import { ForgeRunStore, nodeRunFile } from './ForgeRunStore.js';
 import type { FieldInfo, ForgeExecutorDeps } from './ForgeExecutor.js';
 
@@ -32,6 +32,16 @@ const MB = 1024 * 1024;
  * memory, the records took several hundred.
  */
 const MOST_HEAP_MB = 150;
+/**
+ * The most the heap may grow, once collected, while a clone of the whole org
+ * of a million rows goes, or the part that takes one up half way: a window of
+ * 10 000 rows and the job built of it, a page of 10 000 lookups owed, and the
+ * journal's index of both parts. Measured on 2026-11-12: 123 MB for the run
+ * and 140 MB for the part taken up, run alone as the extension ships; the
+ * margin is the share the suite as a whole has added above, and held in
+ * memory, the table alone took several hundred.
+ */
+const MOST_HEAP_MB_ALL = 200;
 
 const FIELDS: FieldInfo[] = [
   { name: 'Id', queryable: true, createable: false, isReference: false },
@@ -298,5 +308,231 @@ describeShipped('a run of whole tables read page by page, over a million rows', 
     // 400 000 statuses owed: held in memory, they took several hundred MB.
     // What the run keeps of them is the journal's index, a few bytes a record.
     expect((sampled.most - before) / MB).toBeLessThan(MOST_HEAP_MB);
+  }, 600_000);
+});
+
+/*
+ * A clone of the whole org (`stream.everything`) of a million rows, as the
+ * orchestrator runs one: windows of 10 000 rows sent as Bulk API jobs, its
+ * second pass 10 000 lookups at a time, each a job, and the journal on disk,
+ * each lookup filled in marked there. What it holds is a window of rows, a
+ * page of lookups and the journal's index, never the table: measured on the
+ * heap left once the garbage is collected, sampled as each job goes.
+ *
+ * What it does not run: one table of invoices has no record the platform
+ * writes with the run's — the task of an email, a person account's contact —
+ * no file, and no date to read back per object. A record the platform wrote
+ * is a mark in the same index as a lookup filled in (`ForgeRunStore.marks`),
+ * a few bytes each, which the million lookups of this run fill already, and
+ * there are at most as many of them as rows written; the files pass holds a
+ * page of 2 000 files and the date read one row per object. The bound is set
+ * on what is measured here, its margin the room the marks of such records
+ * would take.
+ */
+describeShipped('a clone of the whole org, over a million rows', () => {
+  /** Rows a clone of the whole org writes at a time, and lookups its second pass takes: a job's worth. */
+  const WINDOW = WHOLE_ORG_WINDOW;
+  const INVOICE_FIELDS: FieldInfo[] = [
+    ...FIELDS,
+    {
+      name: 'Next__c',
+      queryable: true,
+      createable: true,
+      updateable: true,
+      isReference: true,
+      referenceTo: ['Invoice__c'],
+      nillable: true,
+    },
+  ];
+
+  /** One table of invoices, each naming the next: every lookup owed to the second pass. */
+  function invoicesOf(count: number): ForgeGraph {
+    const node = { ...graphOfAccounts().nodes[0], objectApiName: 'Invoice__c', recordCount: count };
+    return {
+      ...graphOfAccounts(),
+      nodes: [{ ...node, batchStrategy: 'auto' }],
+      edges: [
+        {
+          sourceObject: 'Invoice__c',
+          targetObject: 'Invoice__c',
+          relationshipName: 'Previous__r',
+          type: 'lookup',
+        },
+      ],
+      totalRecords: count,
+    };
+  }
+
+  /**
+   * A source of `count` invoices made a page at a time as they are asked
+   * for, after the id a statement reads on from, and a Bulk API that writes
+   * each job it is sent: what it was sent, and the heap sampled every
+   * 100 000 rows of jobs.
+   */
+  function wholeOrgDeps(
+    count: number,
+    heapNow: () => number,
+    options: { stopAfterJobs?: () => void; firstId?: number } = {},
+  ) {
+    const sampled = { most: 0, samples: 0, inserted: 0, updated: 0, jobs: 0, rest: 0, lastAt: 0 };
+    const sample = (): void => {
+      sampled.samples++;
+      sampled.most = Math.max(sampled.most, heapNow());
+    };
+    const deps: ForgeExecutorDeps = {
+      describeFields: async () => INVOICE_FIELDS,
+      queryRecords: async () => [],
+      queryPages: (_org, soql) =>
+        (async function* cursor(): AsyncGenerator<Array<Record<string, unknown>>> {
+          const after = /Id > '(\w+)'/.exec(soql)?.[1];
+          const from = after === undefined ? 0 : Number(after.slice(3)) + 1;
+          for (let at = from; at < count; at += CURSOR_PAGE) {
+            yield Array.from({ length: Math.min(CURSOR_PAGE, count - at) }, (_, i) => {
+              const n = at + i;
+              return {
+                Id: idOf('a0S', n),
+                Name: `INV-${n}`,
+                Next__c: n + 1 < count ? idOf('a0S', n + 1) : null,
+              };
+            });
+          }
+        })(),
+      insertRecords: async (_org, _object, rows) => {
+        sampled.rest += rows.length;
+        return rows.map((_, i) => ({
+          id: idOf('a0R', sampled.rest + i),
+          success: true,
+          errors: [],
+        }));
+      },
+      updateRecords: async (_org, _object, rows) => {
+        sampled.rest += rows.length;
+        return rows.map((row) => ({ id: String(row['Id']), success: true, errors: [] }));
+      },
+      bulkWriteRecords: async (_org, _object, operation, records) => {
+        sampled.jobs++;
+        const from = sampled.inserted;
+        if (operation === 'insert') sampled.inserted += records.length;
+        else sampled.updated += records.length;
+        const done = sampled.inserted + sampled.updated;
+        if (done - sampled.lastAt >= 100_000) {
+          sampled.lastAt = done;
+          sample();
+        }
+        options.stopAfterJobs?.();
+        return {
+          answers: records.map((record, i) => ({
+            id:
+              operation === 'insert'
+                ? idOf('a0T', (options.firstId ?? 0) + from + i)
+                : String(record['Id']),
+            success: true,
+            errors: [],
+          })),
+          rows: records.map(() => 'answered' as const),
+          unmatchedIds: [],
+          requests: 8,
+        };
+      },
+    };
+    return { deps, sampled };
+  }
+
+  /** The heap, and the buffers outside it the index's arrays live in, once collected. */
+  function heapMeter(): () => number {
+    v8.setFlagsFromString('--expose-gc');
+    const collect = runInNewContext('gc') as () => void;
+    return () => {
+      collect();
+      const { heapUsed, arrayBuffers } = process.memoryUsage();
+      return heapUsed + arrayBuffers;
+    };
+  }
+
+  /** The stream a clone of the whole org is given by the orchestrator (`forgeExecuteOptions`). */
+  const wholeOrgStream = (store: ForgeRunStore) =>
+    ({
+      everything: true,
+      store,
+      summaryBound: 1_000,
+      writeWindow: WINDOW,
+      secondPassPageSize: WINDOW,
+    }) as const;
+
+  it('writes a window of rows a job at a time, its second pass a job of lookups at a time, holding neither the table nor what it owes', async () => {
+    const heapNow = heapMeter();
+    const dir = mkdtempSync(join(tmpdir(), 'forge-all-'));
+    const store = ForgeRunStore.open(nodeRunFile(join(dir, 'run.ndjson')));
+    const { deps, sampled } = wholeOrgDeps(ROWS, heapNow);
+    const before = heapNow();
+
+    const summary = await new ForgeExecutor(deps)
+      .execute(invoicesOf(ROWS), 'src', 'tgt', () => {}, {
+        writeApi: 'auto',
+        stream: wholeOrgStream(store),
+      })
+      .finally(() => {
+        store.close();
+        rmSync(dir, { recursive: true, force: true });
+      });
+
+    expect(summary.successCount).toBe(ROWS);
+    expect(summary.errors).toEqual([]);
+    // A job a window, and every lookup owed sent a job of 10 000 at a time.
+    expect(sampled.inserted).toBe(ROWS);
+    expect(sampled.updated).toBe(ROWS - 1);
+    expect(sampled.jobs).toBe(ROWS / WINDOW + Math.ceil((ROWS - 1) / WINDOW));
+    expect(sampled.rest).toBe(0);
+    expect(sampled.samples).toBeGreaterThanOrEqual(15);
+    expect(summary.remapInJournal).toBe(true);
+    expect((sampled.most - before) / MB).toBeLessThan(MOST_HEAP_MB_ALL);
+  }, 600_000);
+
+  it('takes up a clone stopped half way from its journal, holding no more than the run it takes up', async () => {
+    const heapNow = heapMeter();
+    const dir = mkdtempSync(join(tmpdir(), 'forge-all-resume-'));
+    const path = join(dir, 'run.ndjson');
+    try {
+      // The first part, stopped once half the table is written.
+      const first = ForgeRunStore.open(nodeRunFile(path));
+      const executor: { current?: ForgeExecutor } = {};
+      const stopping = wholeOrgDeps(ROWS, heapNow, {
+        stopAfterJobs: () => {
+          if (stopping.sampled.inserted >= ROWS / 2) executor.current?.abort();
+        },
+      });
+      executor.current = new ForgeExecutor(stopping.deps);
+      await expect(
+        executor.current.execute(invoicesOf(ROWS), 'src', 'tgt', () => {}, {
+          writeApi: 'auto',
+          stream: wholeOrgStream(first),
+        }),
+      ).rejects.toThrow(/aborted/);
+      first.close();
+      expect(stopping.sampled.inserted).toBe(ROWS / 2);
+
+      // Taken up: the rest of the table read after where it stood, then
+      // every lookup owed, both parts', filled in.
+      const before = heapNow();
+      const store = ForgeRunStore.open(nodeRunFile(path));
+      // The records it creates are not those the first part created.
+      const { deps, sampled } = wholeOrgDeps(ROWS, heapNow, { firstId: ROWS });
+      const summary = await new ForgeExecutor(deps).execute(
+        invoicesOf(ROWS),
+        'src',
+        'tgt',
+        () => {},
+        { writeApi: 'auto', stream: wholeOrgStream(store) },
+      );
+      store.close();
+
+      expect(sampled.inserted).toBe(ROWS / 2);
+      expect(summary.successCount).toBe(ROWS / 2);
+      expect(sampled.updated).toBe(ROWS - 1);
+      expect(summary.errors).toEqual([]);
+      expect((sampled.most - before) / MB).toBeLessThan(MOST_HEAP_MB_ALL);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }, 600_000);
 });

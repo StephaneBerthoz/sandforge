@@ -104,7 +104,6 @@ describe('wholeOrgCandidates', () => {
         writable('FlowDefinitionView', { createable: false }),
         writable('Locked__c', { deletable: false }),
         writable('Gone__c'),
-        writable('vlocity_cmt__Party__c'),
       ],
       { excluded: ['Gone__c'] },
     );
@@ -123,7 +122,6 @@ describe('wholeOrgCandidates', () => {
         'platformCreated',
         'notWritable',
         'excludedByUser',
-        'neverCopied',
       ].sort(),
     );
     for (const entry of scope.leftOut) {
@@ -183,19 +181,24 @@ describe('wholeOrgCandidates', () => {
     ]);
   });
 
-  it("leaves an industry package's objects out, as every Forge clone does, and keeps another package's", () => {
-    const scope = bothOrgs([
+  it("keeps an industry package's objects, as the checkpoint and an emptying do, which a walk from a record leaves out", () => {
+    const objects = [
       writable('vlocity_cmt__Party__c'),
       writable('vlocity_ins__Policy__c'),
       writable('acme__Ledger__c'),
       writable('Vlocity__c'),
-    ]);
+    ];
+    const scope = bothOrgs(objects);
 
-    expect(scope.candidates).toEqual(['Vlocity__c', 'acme__Ledger__c']);
-    expect(scope.leftOut).toEqual([
-      { objectApiName: 'vlocity_cmt__Party__c', reason: 'neverCopied' },
-      { objectApiName: 'vlocity_ins__Policy__c', reason: 'neverCopied' },
+    expect(scope.candidates).toEqual([
+      'Vlocity__c',
+      'acme__Ledger__c',
+      'vlocity_cmt__Party__c',
+      'vlocity_ins__Policy__c',
     ]);
+    expect(scope.leftOut).toEqual([]);
+    // One scope for both acts: what a clone covers, an emptying covers.
+    expect(wholeOrgScope(objects, [], 'empty').candidates).toEqual(scope.candidates);
   });
 
   it('keeps the objects people work in without a layout, the activities and the emails', () => {

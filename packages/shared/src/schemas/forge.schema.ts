@@ -390,7 +390,6 @@ export const forgeLeftOutReasonSchema = z.enum([
   'unsupportedKind',
   'customSetting',
   'files',
-  'neverCopied',
   'excludedByUser',
   'notDescribed',
 ] as const satisfies readonly ForgeLeftOutReason[]);

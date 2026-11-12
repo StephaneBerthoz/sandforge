@@ -1573,6 +1573,53 @@ describe('initForgeComposition', () => {
     });
   });
 
+  it("reads and counts the archived activities through the org's queryAll when asked, each call counted, and any other read through query", async () => {
+    const sent: Array<{ soql: string; scanAll: boolean }> = [];
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      return {
+        ...connection,
+        query: vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
+          sent.push({ soql, scanAll: options?.scanAll === true });
+          if (/COUNT\(\)/i.test(soql)) return { totalSize: 7, done: true, records: [] };
+          return {
+            totalSize: 2,
+            done: false,
+            // As jsforce 3 gives it, whatever opened the cursor.
+            nextRecordsUrl: '/services/data/v62.0/query/01g-2000',
+            records: [{ Id: '00T000000000001AAA' }],
+          };
+        }),
+        queryMore: vi.fn(async (url: string) => {
+          sent.push({ soql: url, scanAll: false });
+          return { totalSize: 2, done: true, records: [{ Id: '00T000000000002AAA' }] };
+        }),
+      } as unknown as Connection;
+    });
+    const { orchestrator, services } = await compose();
+    const { executor } = (orchestrator as unknown as { deps: { executor: ForgeExecutor } }).deps;
+    const deps = (executor as unknown as { deps: ForgeExecutorDeps }).deps;
+    const before = services.requestsSent?.() ?? 0;
+    const statement = 'SELECT Id FROM Task WHERE IsDeleted = false ORDER BY Id';
+
+    const pages: unknown[][] = [];
+    for await (const page of deps.queryPages?.('src', statement, { all: true }) ?? []) {
+      pages.push(page);
+    }
+    const counted = await deps.countRecords?.('src', 'SELECT COUNT() FROM Task', { all: true });
+    await deps.countRecords?.('src', 'SELECT COUNT() FROM Account');
+
+    expect(pages).toEqual([[{ Id: '00T000000000001AAA' }], [{ Id: '00T000000000002AAA' }]]);
+    expect(counted).toBe(7);
+    expect(sent).toEqual([
+      { soql: statement, scanAll: true },
+      { soql: '/services/data/v62.0/query/01g-2000', scanAll: false },
+      { soql: 'SELECT COUNT() FROM Task', scanAll: true },
+      { soql: 'SELECT COUNT() FROM Account', scanAll: false },
+    ]);
+    expect((services.requestsSent?.() ?? 0) - before).toBe(4);
+  });
+
   describe('the writes a run may send as Bulk API jobs', () => {
     /** The deps the composition wired the orchestrator's executor with. */
     function executorDepsOf(orchestrator: ForgeOrchestrator): ForgeExecutorDeps {

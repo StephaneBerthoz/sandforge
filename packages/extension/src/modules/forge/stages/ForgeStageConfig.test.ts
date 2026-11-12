@@ -45,6 +45,32 @@ describe('resolveStageConfig', () => {
     });
   });
 
+  it('writes in windows of a whole number of rows only when asked', () => {
+    expect(resolveStageConfig({ stream: { writeWindow: 10_000.5 } }).stream?.writeWindow).toBe(
+      10_000,
+    );
+    expect(resolveStageConfig({ stream: { writeWindow: 0 } }).stream).not.toHaveProperty(
+      'writeWindow',
+    );
+    expect(resolveStageConfig({ stream: {} }).stream).not.toHaveProperty('writeWindow');
+  });
+
+  it('copies the whole org only when the stream says so, and says nothing of it otherwise', () => {
+    expect(resolveStageConfig({ stream: { everything: true } }).stream?.everything).toBe(true);
+    expect(resolveStageConfig({ stream: {} }).stream).not.toHaveProperty('everything');
+    expect(resolveStageConfig(undefined).stream).toBeUndefined();
+  });
+
+  it('keeps the bound of the whole reads of a clone of the whole org as a whole count, none for anything else', () => {
+    expect(
+      resolveStageConfig({ stream: { wholeReadBound: 50_000.9 } }).stream?.wholeReadBound,
+    ).toBe(50_000);
+    expect(resolveStageConfig({ stream: { wholeReadBound: 0 } }).stream).not.toHaveProperty(
+      'wholeReadBound',
+    );
+    expect(resolveStageConfig({ stream: {} }).stream).not.toHaveProperty('wholeReadBound');
+  });
+
   it('keeps the contact points as read only when the options say so', () => {
     expect(resolveStageConfig({ keepContactPoints: true }).keepContactPoints).toBe(true);
     expect(resolveStageConfig({ keepContactPoints: false }).keepContactPoints).toBe(false);

@@ -4,6 +4,9 @@ import { ForgeExecutor } from './ForgeExecutor.js';
 import type { ExecuteOptions, FieldInfo, ForgeExecutorDeps } from './ForgeExecutor.js';
 import { partialSummaryOf } from './interruptedRun.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
+import { parseSoql, selectFrom } from '../../test/memorySoql.js';
+import { ForgeRunStore, memoryRunFile } from './ForgeRunStore.js';
+import { JOURNAL_LAST_WRITE_SLACK_MS } from './ForgeRunJournal.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -308,6 +311,141 @@ describe('ForgeExecutor, the dates the target gave the run', () => {
       first: '2026-09-20T10:00:05.000Z',
       last: '2026-09-20T10:00:06.000Z',
     });
+  });
+});
+
+describe('ForgeExecutor, the dates the target gave a clone of the whole org', () => {
+  const PARENT_FIELDS: FieldInfo[] = [
+    field('Id'),
+    field('Name'),
+    field('ParentId', { isReference: true, referenceTo: ['Account'], nillable: true }),
+  ];
+  /** Three accounts, the first naming the last: its parent is filled in by the second pass. */
+  const ACCOUNTS = [1, 2, 3].map((n) => ({
+    Id: id('001', n),
+    Name: `Account ${n}`,
+    ParentId: n === 1 ? id('001', 3) : null,
+  }));
+
+  /**
+   * A source read page by page, and a target that dates what it writes by a
+   * clock of its own — the accounts created five seconds after it starts, the
+   * parent of the first filled in at thirty — and sums those dates as the org
+   * does, `MIN(…) f, MAX(…) l … WHERE <date> >= <since>`.
+   *
+   * @param refuseSums - The target refuses to sum the dates of any object.
+   */
+  function datedOrgs(refuseSums = false) {
+    const clock = Date.now();
+    const at = (seconds: number): string => new Date(clock + seconds * 1_000).toISOString();
+    const target = new Map<string, Record<string, unknown>>();
+    const sums: string[] = [];
+    let next = 0;
+    const deps = {
+      describeFields: vi.fn(async () => PARENT_FIELDS),
+      queryRecords: vi.fn(async (org: string, soql: string) => {
+        if (org === 'src') {
+          const statement = parseSoql(soql);
+          return selectFrom(ACCOUNTS, statement);
+        }
+        const sum =
+          /^SELECT MIN\((\w+)\) f, MAX\((\w+)\) l FROM Account WHERE (\w+) >= (\S+)$/.exec(soql);
+        if (!sum) return [];
+        sums.push(soql);
+        if (refuseSums) throw new Error('INVALID_FIELD: aggregate not supported');
+        const [, min, max, by, since] = sum;
+        const rows = [...target.values()].filter(
+          (row) => Date.parse(String(row[by])) >= Date.parse(since),
+        );
+        const dates = (column: string): number[] =>
+          rows.map((row) => Date.parse(String(row[column])));
+        return rows.length === 0
+          ? [{ f: null, l: null }]
+          : [
+              {
+                f: new Date(Math.min(...dates(min))).toISOString(),
+                l: new Date(Math.max(...dates(max))).toISOString(),
+              },
+            ];
+      }),
+      queryPages: (org: string, soql: string) =>
+        (async function* pages(): AsyncGenerator<Record<string, unknown>[]> {
+          if (org === 'src') yield selectFrom(ACCOUNTS, parseSoql(soql));
+        })(),
+      insertRecords: vi.fn(async (_org: string, _object: string, rows: Record<string, unknown>[]) =>
+        rows.map(() => {
+          const created = id('001', 900 + ++next);
+          target.set(created, { CreatedDate: at(5), SystemModstamp: at(5) });
+          return { id: created, success: true, errors: [] };
+        }),
+      ),
+      updateRecords: vi.fn(async (_org: string, _object: string, rows: Record<string, unknown>[]) =>
+        rows.map((row) => {
+          const record = target.get(String(row['Id']));
+          if (record) record['SystemModstamp'] = at(30);
+          return { id: String(row['Id']), success: true, errors: [] };
+        }),
+      ),
+    } satisfies ForgeExecutorDeps;
+    return { deps, sums, at };
+  }
+
+  const graph: ForgeGraph = {
+    nodes: [node('Account')],
+    edges: [
+      {
+        sourceObject: 'Account',
+        targetObject: 'Account',
+        relationshipName: 'ChildAccounts',
+        type: 'lookup',
+      },
+    ],
+    totalRecords: 3,
+    estimatedSizeMB: 0,
+    estimatedDurationSeconds: 0,
+  };
+
+  it('sums them by object, through the latest stamp: a record the second pass wrote to after its object stays within the run', async () => {
+    const { deps, sums, at } = datedOrgs();
+    const store = ForgeRunStore.open(memoryRunFile());
+
+    const summary = await new ForgeExecutor(deps).execute(graph, 'src', 'tgt', () => undefined, {
+      stream: { everything: true, store },
+    });
+
+    // The first account's parent filled in at 30 s, after every insert.
+    expect(deps.updateRecords).toHaveBeenCalledTimes(1);
+    expect(summary.writtenBetween).toEqual({ first: at(5), last: at(30) });
+    // One sum for the object, never a read of each record's dates.
+    expect(sums).toEqual([
+      expect.stringMatching(
+        /^SELECT MIN\(CreatedDate\) f, MAX\(SystemModstamp\) l FROM Account WHERE CreatedDate >= \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/,
+      ),
+    ]);
+    expect(
+      deps.queryRecords.mock.calls.filter(
+        ([org, soql]) => org === 'tgt' && / WHERE Id IN /.test(soql),
+      ),
+    ).toEqual([]);
+  });
+
+  it('dates the run to the slack past now when the target will not sum the dates of an object it wrote', async () => {
+    const { deps, sums } = datedOrgs(true);
+    const store = ForgeRunStore.open(memoryRunFile());
+    const before = Date.now();
+
+    const summary = await new ForgeExecutor(deps).execute(graph, 'src', 'tgt', () => undefined, {
+      stream: { everything: true, store },
+    });
+
+    // By the creation date, then by the stamp alone: both refused.
+    expect(sums).toHaveLength(2);
+    expect(sums[1]).toMatch(
+      /^SELECT MIN\(SystemModstamp\) f, MAX\(SystemModstamp\) l FROM Account /,
+    );
+    const last = Date.parse(summary.writtenBetween?.last ?? '');
+    expect(last).toBeGreaterThanOrEqual(before + JOURNAL_LAST_WRITE_SLACK_MS);
+    expect(Date.parse(summary.writtenBetween?.first ?? '')).toBeLessThanOrEqual(Date.now());
   });
 });
 

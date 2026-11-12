@@ -45,6 +45,13 @@ export interface QueryPage<T> {
 export interface PagedQuerySource<T> {
   query(soql: string): Promise<QueryPage<T>>;
   queryMore(nextRecordsUrl: string): Promise<QueryPage<T>>;
+  /**
+   * The first page of `soql` through the org's `queryAll`, which answers the
+   * archived tasks and events and the deleted rows `query` leaves out; its
+   * next pages come through `queryMore`, whose locator says which. Only a
+   * read asked to be through it (`cursorPages`'s `all`) needs it.
+   */
+  queryAll?(soql: string): Promise<QueryPage<T>>;
 }
 
 /** Outcome of a paged read. */
@@ -102,12 +109,19 @@ export const FORGE_CURSOR_MAX_EMPTY_PAGES = 5;
  *
  * @param source - Connection-like object exposing `query` / `queryMore`.
  * @param soql - The query to run.
+ * @param options - `all`: read through the source's `queryAll`, the archived
+ *   activities with the rest. A source without one is refused the read: read
+ *   through `query`, it would leave them out without a word.
  */
 export async function* cursorPages<T>(
   source: PagedQuerySource<T>,
   soql: string,
+  options?: { all?: true },
 ): AsyncGenerator<T[]> {
-  let page = await source.query(soql);
+  if (options?.all && !source.queryAll) {
+    throw new Error(`No queryAll to read ${objectOfQuery(soql)} with its archived rows.`);
+  }
+  let page = await (options?.all && source.queryAll ? source.queryAll(soql) : source.query(soql));
   let empty = page.records.length === 0 ? 1 : 0;
   yield page.records;
   while (!page.done && page.nextRecordsUrl && empty < FORGE_CURSOR_MAX_EMPTY_PAGES) {

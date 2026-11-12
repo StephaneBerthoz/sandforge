@@ -83,6 +83,32 @@ describe('idsTheTargetLacks', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it("asks about a lookup at a managed package's object only while no node of the run writes it", async () => {
+    const PARTY = 'a0V000000000001AAA';
+    const question = {
+      lookups: [{ name: 'Party__c', referenceTo: ['vlocity_cmt__Party__c'] }],
+      rows: [{ Party__c: PARTY }],
+      known: new Map<string, boolean>(),
+    };
+
+    // Left out of a clone by its namespace: the target is asked, and lacks it.
+    const asked = targetHolding();
+    expect([...(await idsTheTargetLacks({ ...question, query: asked }))]).toEqual([PARTY]);
+    expect(asked).toHaveBeenCalledTimes(1);
+
+    // A node of a clone of the whole org: a record the run writes, not asked about.
+    const notAsked = targetHolding();
+    const lacking = await idsTheTargetLacks({
+      ...question,
+      known: new Map<string, boolean>(),
+      query: notAsked,
+      neverCopied: (objectApiName) => objectApiName !== 'vlocity_cmt__Party__c',
+      outsideTheRun: () => false,
+    });
+    expect([...lacking]).toEqual([]);
+    expect(notAsked).not.toHaveBeenCalled();
+  });
+
   it('carries an id the target could not be asked about, as before', async () => {
     const lacking = await idsTheTargetLacks({
       lookups: [{ name: 'OwnerId', referenceTo: ['User'] }],

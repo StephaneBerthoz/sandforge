@@ -342,6 +342,25 @@ describe('ForgeRunStore', () => {
       expect([...again.withTheirRecordIds()]).toEqual([src('003', 1), src('003', 3)]);
     });
 
+    it('says whether this part marked a record the platform wrote, not whether an earlier part did', () => {
+      const { store, file } = freshStore();
+      expect(store.markedWithTheirRecord(src('003', 1))).toBe(false);
+      store.withTheirRecord(src('003', 1));
+      expect(store.markedWithTheirRecord(src('003', 1))).toBe(true);
+      expect(store.markedWithTheirRecord(src('003', 2))).toBe(false);
+      store.close();
+
+      const again = ForgeRunStore.open(memoryRunFile(file.text()));
+      again.beginPart(at);
+      // The earlier part's mark, which this part has not met.
+      expect(again.markedWithTheirRecord(src('003', 1))).toBe(false);
+      again.withTheirRecord(src('003', 2));
+      expect(again.markedWithTheirRecord(src('003', 1))).toBe(false);
+      expect(again.markedWithTheirRecord(src('003', 2))).toBe(true);
+      again.withTheirRecord(src('003', 1));
+      expect(again.markedWithTheirRecord(src('003', 1))).toBe(true);
+    });
+
     it('counts a status given back twice once', () => {
       const { store } = freshStore();
       store.oweStatus('Order', tgt('801', 1), 'Activated');

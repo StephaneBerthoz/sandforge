@@ -238,6 +238,13 @@ export interface CleanNodeRecordsInput {
    * `referenceFallback` says — see {@link cleanNodeRecords}.
    */
   writtenObjects?: ReadonlySet<string>;
+  /**
+   * Whether no clone of the run creates records of an object: by default
+   * `isNeverCopied`. A clone of the whole org writes the objects of a
+   * managed package that list leaves out by their namespace, and says so
+   * here. See {@link cleanNodeRecords}.
+   */
+  neverCopied?: (objectApiName: string) => boolean;
   /** Per-object owner remap (source `OwnerId` → target `OwnerId`). */
   ownerMappings: Record<string, string>;
   /**
@@ -367,6 +374,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     referenceFallback,
     failedObjects,
     writtenObjects,
+    neverCopied,
     ownerMappings,
     resolvedLookups,
     targetLacks,
@@ -439,8 +447,18 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
    * for real, an Opportunity's `LastAmountChangedHistoryId` waited for an
    * `OpportunityHistory` no wave would ever write, and pass 2 reported it
    * unresolved on every clone.
+   *
+   * Not an object the run writes: a clone of the whole org holds as nodes the
+   * objects of a managed package every other copy leaves out by their
+   * namespace (`neverCopied`), and a lookup at one of them is one at a record
+   * it writes — remapped, or filled in by the second pass. Taken for one no
+   * clone creates, a party naming a party of a later page went to the target
+   * with the source's id.
    */
-  const uncopyableLookups = lookupsAtObjectsLeftOut(fieldInfos.filter((f) => f.isReference));
+  const uncopyableLookups = lookupsAtObjectsLeftOut(
+    fieldInfos.filter((f) => f.isReference),
+    neverCopied,
+  );
   const targetPicklists = picklistFields ?? new Map<string, PicklistField>();
 
   return records.map((r) => {

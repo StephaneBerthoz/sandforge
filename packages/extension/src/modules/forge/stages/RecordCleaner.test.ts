@@ -1293,6 +1293,42 @@ describe('lookups at objects no clone creates', () => {
 
     expect(out.cleaned.AccountId).toBe('001SOURCE');
   });
+
+  it("owes a lookup at a managed package's object the run writes to the second pass, as one at any object it writes", () => {
+    // A party naming a party of a later page: a clone of the whole org writes
+    // the package's objects, and fills the lookup in once the other is in.
+    const PARTY = 'vlocity_cmt__Party__c';
+    const input = makeInput({
+      objectApiName: PARTY,
+      records: [{ Id: 'a0VA', ParentParty__c: 'a0VLATER' }],
+      fieldInfos: [
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        {
+          name: 'ParentParty__c',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: [PARTY],
+          nillable: true,
+        },
+      ],
+      referenceFallback: 'keep',
+      writtenObjects: new Set([PARTY]),
+      creatableFields: new Set(['ParentParty__c']),
+    });
+
+    // Left out of every other copy by its namespace, the lookup goes as read.
+    const [asRead] = cleanNodeRecords(input);
+    expect(asRead.cleaned['ParentParty__c']).toBe('a0VLATER');
+    expect(asRead.nullifiedFks).toEqual([]);
+
+    const [owed] = cleanNodeRecords({
+      ...input,
+      neverCopied: (objectApiName) => objectApiName !== PARTY,
+    });
+    expect('ParentParty__c' in owed.cleaned).toBe(false);
+    expect(owed.nullifiedFks.map((fk) => fk.field)).toEqual(['ParentParty__c']);
+  });
 });
 
 describe('an owner the target holds inactive', () => {

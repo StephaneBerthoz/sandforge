@@ -152,6 +152,12 @@ export interface ForgeStageConfig {
     readonly summaryBound?: number;
     /** Lookups the second pass takes from the journal at a time. */
     readonly secondPassPageSize?: number;
+    /** Rows of an object the run writes at a time: see `ExecuteOptions.stream.writeWindow`. */
+    readonly writeWindow?: number;
+    /** The run copies the whole org: see `ExecuteOptions.stream.everything`. */
+    readonly everything?: true;
+    /** The most rows of a node a clone of the whole org reads whole: see `ExecuteOptions.stream.wholeReadBound`. */
+    readonly wholeReadBound?: number;
   };
   /** The user's decisions about the rows, applied before they are written. */
   readonly decisions: RunDecisions;
@@ -229,6 +235,14 @@ export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeSt
             : {}),
           ...(positiveWhole(options.stream.secondPassPageSize) !== undefined
             ? { secondPassPageSize: positiveWhole(options.stream.secondPassPageSize) }
+            : {}),
+          ...(positiveWhole(options.stream.writeWindow) !== undefined
+            ? { writeWindow: positiveWhole(options.stream.writeWindow) }
+            : {}),
+          // Set or absent, never false: every test of it reads `=== true`.
+          ...(options.stream.everything === true ? { everything: true as const } : {}),
+          ...(positiveWhole(options.stream.wholeReadBound) !== undefined
+            ? { wholeReadBound: positiveWhole(options.stream.wholeReadBound) }
             : {}),
         }
       : undefined,

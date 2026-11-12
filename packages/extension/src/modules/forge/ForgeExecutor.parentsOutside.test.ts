@@ -469,6 +469,53 @@ describe('ForgeExecutor, a record whose required parent belongs to an object out
     expect(summary.readByObject).toContainEqual({ objectApiName: 'Account', read: 2 });
   });
 
+  it("reads the same way a record of a managed package's object the graph holds as a node: the run writes it as any other", async () => {
+    // A namespaced object no clone creates unless the graph holds it as a
+    // node, as a clone of the whole org does: then it is an object of the
+    // graph like the account, and a party the second invoice cannot be
+    // written without, which no read of the graph took, is read by id.
+    const PARTY = 'vlocity_cmt__Party__c';
+    const OWN_PARTY = 'a0V000000000001AAA';
+    const OTHER_PARTY = 'a0V000000000002AAA';
+    const fields: Record<string, FieldInfo[]> = {
+      ...FIELDS,
+      Invoice__c: [idField, text('Name'), lookup('Party__c', PARTY, true)],
+      [PARTY]: [idField, text('Name'), lookup('vlocity_cmt__AccountId__c', 'Account')],
+    };
+    const tables = sourceRows();
+    tables['Invoice__c'] = [
+      { Id: JANUARY, Name: 'January', Party__c: OWN_PARTY },
+      { Id: FEBRUARY, Name: 'February', Party__c: OTHER_PARTY },
+    ];
+    tables[PARTY] = [
+      { Id: OWN_PARTY, Name: 'Own', vlocity_cmt__AccountId__c: CUSTOMER },
+      { Id: OTHER_PARTY, Name: 'Other', vlocity_cmt__AccountId__c: OTHER_CUSTOMER },
+    ];
+    const graph = graphOf(
+      [node('Case', 0), node('Account', 1), node('InvoiceLink__c', 1), node(PARTY, 2)],
+      [edge('Account', 'Case'), edge('Case', 'InvoiceLink__c', true), edge('Account', PARTY)],
+    );
+    const { deps, asked, inserted } = orgs(tables, { fields });
+
+    const summary = await new ForgeExecutor(deps).execute(
+      graph,
+      'src',
+      'tgt',
+      () => undefined,
+      ROOTED_AT_THE_CASE,
+    );
+
+    expect(statementsOf(asked, PARTY)).toContain(
+      `SELECT Id, Name, vlocity_cmt__AccountId__c FROM ${PARTY} WHERE Id IN ('${OTHER_PARTY}')`,
+    );
+    expect(inserted[PARTY].map((row) => row['Name'])).toEqual(['Own', 'Other']);
+    expect(inserted['Invoice__c']).toEqual([
+      { Name: 'January', Party__c: `${PARTY}:Own` },
+      { Name: 'February', Party__c: `${PARTY}:Other` },
+    ]);
+    expect(summary.failedCount).toBe(0);
+  });
+
   it('says in a dry run that it would insert one more record of an object of the graph, and why', async () => {
     const fields: Record<string, FieldInfo[]> = {
       ...FIELDS,

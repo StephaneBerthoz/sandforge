@@ -8524,8 +8524,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       return records;
     },
     // Each page as the org answers it, the next asked once the one before
-    // is taken: the paged read, which the diagnostic's pages go through.
-    queryPages: (orgId, soql) => {
+    // is taken: the paged read, which the diagnostic's pages go through. A
+    // read asked to take the archived activities goes through the org's
+    // `queryAll`, as the panel's does.
+    queryPages: (orgId, soql, options) => {
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
       pagedReads.statements++;
@@ -8535,18 +8537,23 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
             pagedReads.pages++;
             return c.query<Record<string, unknown>>(q);
           },
+          queryAll: async (q) => {
+            pagedReads.pages++;
+            return c.query<Record<string, unknown>>(q, { scanAll: true });
+          },
           queryMore: async (url) => {
             pagedReads.pages++;
             return c.queryMore<Record<string, unknown>>(url);
           },
         },
         soql,
+        options,
       );
     },
-    countRecords: async (orgId, soql) => {
+    countRecords: async (orgId, soql, options) => {
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
-      return (await c.query(soql)).totalSize;
+      return (await c.query(soql, options?.all ? { scanAll: true } : undefined)).totalSize;
     },
     // The org's currency settings: whether advanced currency management is
     // on, which the user's access to dated rates cannot always tell.

@@ -30,9 +30,12 @@
  *   not let the user query is left out, and so is one only the source has.
  *   An object only the target has is no object of the source's, and is not
  *   listed at all;
- * - an object every Forge clone leaves out (`isNeverCopied`) stays out, the
- *   objects of the industry packages whose configuration catalogue a clone
- *   never copies among them: the checkpoint holds those as data;
+ * - the objects of a managed package stay, as the checkpoint holds them as
+ *   data: every other clone leaves an industry package out by its namespace
+ *   (`isNeverCopied`), because following a record's reverse lookups pulled
+ *   its configuration catalogue in, and a clone of the whole org follows no
+ *   lookup — it copies the catalogue as the rest of the org, and writes the
+ *   package's objects as any node (`neverCopiedIn` of the executor);
  * - the target says who may create what its user may not
  *   (`targetCreators.ts`): an object no user can create there, not even
  *   with Modify All Data, is setup, never one an administrator is asked to
@@ -54,7 +57,7 @@ import {
   type ScopeAccess,
   type ScopeCandidates,
 } from '../checkpoint/checkpointScope.js';
-import { isNeverCopied, isNeverCopiedWhenPicked } from './excludedObjects.js';
+import { isNeverCopiedWhenPicked } from './excludedObjects.js';
 import { notCreatableBy, type CreateFacts, type NotCreatableBy } from './targetCreators.js';
 
 /** What is done to every object of an org: a clone of the whole source org into it, or its emptying. */
@@ -245,8 +248,6 @@ export function wholeOrgCandidates(
       leave(inSource.name, 'notQueryable');
     } else if (COPIED_WITH_THEIR_RECORDS.has(key)) {
       leave(inSource.name, 'files', WITH_THEIR_RECORDS);
-    } else if (isNeverCopied(inSource.name)) {
-      leave(inSource.name, 'neverCopied');
     } else {
       candidates.push(inSource.name);
     }

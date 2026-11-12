@@ -9,6 +9,7 @@ import type {
   InsertResult,
 } from './ForgeExecutor.js';
 import { leftOutLines, writePlanOf } from './ForgeRunGate.js';
+import { ForgeRunStore, memoryRunFile } from './ForgeRunStore.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -1299,6 +1300,23 @@ describe('ForgeExecutor, person accounts', () => {
       expect(summary.existingRecords).toEqual([]);
       expect(summary.writtenByThePlatform).toEqual([{ objectApiName: 'Contact', rows: 2 }]);
       expect(summary.errors).toEqual([]);
+      expect(lastLines(events).get('Contact')).toBe(
+        'Completed Contact: 1 succeeded, 2 written by the platform with their person account, 0 failed',
+      );
+    });
+
+    it("links each person account's contact the same with a journal, which keeps them as its marks rather than in memory", async () => {
+      const { executor } = pagedOrgs();
+      const store = ForgeRunStore.open(memoryRunFile());
+      const events: ForgeProgressEvent[] = [];
+
+      const summary = await executor.execute(TABLES_GRAPH, 'src', 'tgt', (e) => events.push(e), {
+        stream: { pageSize: 1, store },
+      });
+
+      expect(store.withTheirRecordCount).toBe(2);
+      expect(summary.withTheirRecordSourceIds).toEqual([PERSON_CONTACT, SECOND_PERSON_CONTACT]);
+      expect(summary.writtenByThePlatform).toEqual([{ objectApiName: 'Contact', rows: 2 }]);
       expect(lastLines(events).get('Contact')).toBe(
         'Completed Contact: 1 succeeded, 2 written by the platform with their person account, 0 failed',
       );

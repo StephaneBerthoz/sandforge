@@ -921,6 +921,15 @@ export class ForgeRunStore {
     return this.withTheirRecordMarked;
   }
 
+  /** Whether this part marked `sourceId` so (`withTheirRecord`): an earlier part's mark is its own. */
+  markedWithTheirRecord(sourceId: string): boolean {
+    if (this.withTheirRecordMarked === 0) return false;
+    const key = withTheirRecordKey(sourceId);
+    const found = this.marks.find(key, hashA(key), hashB(key));
+    const thisPart = this.partStart === Number.POSITIVE_INFINITY ? 0 : this.partStart;
+    return found >= 0 && this.marks.offsetOf(found) >= thisPart;
+  }
+
   /** Their source ids, in the order marked: this part's lines of the journal, read from its start. */
   *withTheirRecordIds(): Generator<string> {
     if (this.withTheirRecordMarked === 0) return;

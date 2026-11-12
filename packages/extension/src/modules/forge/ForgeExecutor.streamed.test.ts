@@ -6,8 +6,9 @@ import { parseSoql, selectFrom } from '../../test/memorySoql.js';
 import { canonicalRecordId } from '../../core/common/existingRecordMatch.js';
 import { PersonaRegistry } from '../autopilot/SmartAnonymizer.js';
 import { ForgeAnonymizer } from './ForgeAnonymizer.js';
-import { ForgeAbortedError, ForgeExecutor } from './ForgeExecutor.js';
+import { ForgeAbortedError, ForgeExecutor, WHOLE_ORG_WINDOW } from './ForgeExecutor.js';
 import { ForgeRunStore, memoryRunFile, type RunFile } from './ForgeRunStore.js';
+import { wholeOrgCostOf, writePlanOf } from './ForgeRunGate.js';
 import { reconcileInFlight, type InFlightTarget } from './ForgeInFlight.js';
 import { partialSummaryOf } from './interruptedRun.js';
 import { finishedRunStatus } from './runResult.js';
@@ -46,6 +47,16 @@ const KEY_PREFIX: Record<string, string> = {
   Invoice__c: 'a0I',
   Policy__c: 'a0P',
   Region__c: 'a0R',
+  Case: '500',
+  Task: '00T',
+  EmailMessage: '02s',
+  Quote: '0Q0',
+  vlocity_cmt__Party__c: 'a0V',
+  ContentDocument: '069',
+  ContentVersion: '068',
+  ContentDocumentLink: '06A',
+  Attachment: '00P',
+  User: '005',
 };
 
 const idField: FieldInfo = { name: 'Id', queryable: true, createable: false, isReference: false };
@@ -1000,6 +1011,26 @@ describe('a run of whole tables read page by page', () => {
       pages.flatMap((page) => page.created.map(({ sourceId: s, targetId }) => [s, targetId])),
     );
     expect(told).toEqual(paged.summary.remapTable);
+  });
+
+  it('writes an object in windows of the rows the run sets, the pages of the org gathered, each told as it is written', async () => {
+    const { schema, graph } = selfLookups();
+    const pages: ForgeStreamPage[] = [];
+    await runOver(schema, graph, {
+      // The org's pages of 2 rows, gathered into windows of 10.
+      stream: {
+        pageSize: 2,
+        writeWindow: 10,
+        onPage: (page) => void pages.push(structuredClone(page)),
+      },
+    });
+    expect(
+      pages.filter((page) => page.objectApiName === 'Account').map((page) => page.checkpoint),
+    ).toEqual([
+      { lastId: sourceId('Account', 9), read: 10 },
+      { lastId: sourceId('Account', 19), read: 20 },
+      { lastId: sourceId('Account', 22), read: 23 },
+    ]);
   });
 
   it('resumes after the last id a run before it wrote, linking to what that run created', async () => {
@@ -2599,4 +2630,1526 @@ describe('the relations of events read page by page', () => {
         '3 linked without IsInvitee: the target does not let it be updated',
     );
   });
+});
+
+describe('a clone of the whole org, read page by page whatever it holds', () => {
+  /** What the activities and emails of the org look like to a copy. */
+  const what = (name: string): FieldInfo => ({
+    ...lookup(name, 'Account', true),
+    referenceTo: ['Account', 'Case'],
+  });
+  const ACCOUNT = sourceId('Account', 1);
+  const CASE = sourceId('Case', 1);
+  /** The task the platform wrote with the email related to the account. */
+  const TASK_OF_ACCOUNT_EMAIL = sourceId('Task', 1);
+  /** The task the email on the case names from the copy. */
+  const TASK_OF_CASE_EMAIL = sourceId('Task', 2);
+  const PLAIN_TASK = sourceId('Task', 3);
+  /** Done more than a year ago: `query` no longer answers it, `queryAll` does. */
+  const ARCHIVED_TASK = sourceId('Task', 4);
+  /** In the recycle bin: no copy writes it. */
+  const DELETED_TASK = sourceId('Task', 5);
+  const EMAIL_ON_ACCOUNT = sourceId('EmailMessage', 1);
+  const EMAIL_ON_CASE = sourceId('EmailMessage', 2);
+  const EMAIL_ON_CASE_WITHOUT_TASK = sourceId('EmailMessage', 3);
+
+  function activities(): { schema: Schema; graph: ForgeGraph } {
+    const schema: Schema = {
+      Account: { fields: [text('Name')], rows: [{ Id: ACCOUNT, Name: 'Acme' }] },
+      Case: { fields: [text('Subject')], rows: [{ Id: CASE, Subject: 'Broken' }] },
+      Task: {
+        fields: [text('Subject'), what('WhatId')],
+        rows: [
+          { Id: TASK_OF_ACCOUNT_EMAIL, Subject: 'Email: Offer', WhatId: ACCOUNT },
+          { Id: TASK_OF_CASE_EMAIL, Subject: 'Email: Re broken', WhatId: CASE },
+          { Id: PLAIN_TASK, Subject: 'Call back', WhatId: CASE },
+          { Id: ARCHIVED_TASK, Subject: 'Old call', WhatId: ACCOUNT, IsArchived: true },
+          { Id: DELETED_TASK, Subject: 'Binned', WhatId: ACCOUNT, IsDeleted: true },
+        ],
+      },
+      EmailMessage: {
+        fields: [
+          text('Subject'),
+          lookup('ParentId', 'Case', true),
+          what('RelatedToId'),
+          lookup('ActivityId', 'Task', true),
+        ],
+        rows: [
+          {
+            Id: EMAIL_ON_ACCOUNT,
+            Subject: 'Offer',
+            RelatedToId: ACCOUNT,
+            ActivityId: TASK_OF_ACCOUNT_EMAIL,
+          },
+          {
+            Id: EMAIL_ON_CASE,
+            Subject: 'Re broken',
+            ParentId: CASE,
+            ActivityId: TASK_OF_CASE_EMAIL,
+          },
+          { Id: EMAIL_ON_CASE_WITHOUT_TASK, Subject: 'Ack', ParentId: CASE },
+        ],
+      },
+    };
+    const graph = graphOf(
+      [node('Account', 1), node('Case', 1), node('Task', 4), node('EmailMessage', 3)],
+      [
+        edge('Account', 'EmailMessage', false),
+        edge('Case', 'EmailMessage', false),
+        edge('Case', 'Task', false),
+        edge('Account', 'Task', false),
+        edge('Task', 'EmailMessage', false),
+      ],
+    );
+    return { schema, graph };
+  }
+
+  /** The read of the emails' text a clone of the whole org measures them by at its gate. */
+  const EMAIL_SIZE_READ = 'SELECT Id, Subject FROM EmailMessage ORDER BY Id';
+
+  interface WholeOrgOptions {
+    /** Rows a page of the source's cursor holds. */
+    cursorPage?: number;
+    /**
+     * Throw `error` in place of a page of `object`'s statement — the `at`-th
+     * page the source hands out of it, counted from 1 — the first `times`
+     * times that page is reached (once by default).
+     */
+    failPage?: { object: string; at: number; error: unknown; times?: number };
+    /** The record types of each object, as the target's describe gives them. */
+    recordTypes?: Record<string, RecordTypeAvailability[]>;
+  }
+
+  /** What the executor holds of a run under way, as far as these tests look. */
+  type Running = { preread: Map<string, { records: unknown[] }> } | null;
+
+  /**
+   * A pair of orgs as a clone of the whole org meets them: a source whose
+   * `query` leaves out the archived and the deleted rows, which `queryAll`
+   * answers, read through a cursor in pages; and a target that writes the
+   * task of an email related to a record itself, refuses an email naming its
+   * task unless it is on a case, and answers what it wrote by id.
+   */
+  function wholeOrg(schema: Schema, options: WholeOrgOptions = {}) {
+    const target = new Map<string, Map<string, Row>>();
+    const created: Record<string, number> = {};
+    const reads: Array<{ soql: string; all: boolean }> = [];
+    /** The statements of the source read at once (`queryRecords`), in the order asked. */
+    const queries: string[] = [];
+    const counts: Array<{ soql: string; all: boolean }> = [];
+    const inserts: Array<{ object: string; rows: Row[] }> = [];
+    /** Per statement opened, the rows the run held of other objects at that moment. */
+    const heldOfOthers: Array<{ object: string; held: number }> = [];
+    const holder: { executor?: ForgeExecutor } = {};
+    let failures = 0;
+    const visible = (object: string, all: boolean): Row[] =>
+      (schema[object]?.rows ?? [])
+        .filter((row) => all || (row['IsArchived'] !== true && row['IsDeleted'] !== true))
+        .map((row) => ({ IsDeleted: false, ...row }));
+    const columnsOf = (columns: readonly string[] | null, row: Row): Row =>
+      Object.fromEntries((columns ?? []).map((c) => [c, row[c] ?? null]));
+    const select = (soql: string, all: boolean): Row[] => {
+      // The rows of each record type, as the org groups them.
+      const grouped = /^SELECT RecordTypeId, COUNT\(Id\) n (FROM .+) GROUP BY RecordTypeId$/.exec(
+        soql,
+      );
+      if (grouped) {
+        const counts = new Map<unknown, number>();
+        for (const row of select(`SELECT Id, RecordTypeId ${grouped[1]}`, all)) {
+          counts.set(row['RecordTypeId'], (counts.get(row['RecordTypeId']) ?? 0) + 1);
+        }
+        return [...counts].map(([RecordTypeId, n]) => ({ RecordTypeId, n }));
+      }
+      const statement = parseSoql(soql);
+      return selectFrom(visible(statement.object, all), statement).map((row) =>
+        columnsOf(statement.columns, row),
+      );
+    };
+    const newId = (object: string, kind = 'T'): string => {
+      created[object] = (created[object] ?? 0) + 1;
+      const id = canonicalRecordId(
+        `${KEY_PREFIX[object]}${kind}${String(created[object]).padStart(11, '0')}`,
+      );
+      if (!id) throw new Error('no id');
+      return id;
+    };
+    const table = (object: string): Map<string, Row> => {
+      const rows = target.get(object) ?? new Map<string, Row>();
+      target.set(object, rows);
+      return rows;
+    };
+    const running = (): Running => (holder.executor as unknown as { running: Running }).running;
+
+    const deps: ForgeExecutorDeps = {
+      describeFields: vi.fn(async (_org: string, object: string) => {
+        const known = schema[object];
+        if (!known) throw new Error(`NOT_FOUND: ${object}`);
+        return [idField, ...known.fields];
+      }),
+      queryRecords: vi.fn(async (org: string, soql: string) => {
+        if (org !== 'tgt') {
+          queries.push(soql);
+          return select(soql, false);
+        }
+        const statement = parseSoql(soql);
+        const rows = [...table(statement.object)].map(([Id, row]) => ({ ...row, Id }));
+        return selectFrom(rows, statement).map((row) => columnsOf(statement.columns, row));
+      }),
+      queryPages: (org: string, soql: string, read?: { all?: true }) =>
+        (async function* cursor(): AsyncGenerator<Row[]> {
+          if (org !== 'src') return;
+          const all = read?.all === true;
+          reads.push({ soql, all });
+          const object = / FROM (\w+)/.exec(soql)?.[1] ?? '';
+          heldOfOthers.push({
+            object,
+            held: [...(running()?.preread ?? [])]
+              .filter(([other]) => other !== object)
+              .reduce((sum, [, { records }]) => sum + records.length, 0),
+          });
+          const rows = select(soql, all);
+          const size = options.cursorPage ?? 2;
+          if (rows.length === 0) yield [];
+          for (let at = 0, page = 1; at < rows.length; at += size, page++) {
+            const fail = options.failPage;
+            if (fail?.object === object && fail.at === page && failures < (fail.times ?? 1)) {
+              failures++;
+              throw fail.error;
+            }
+            yield rows.slice(at, at + size);
+          }
+        })(),
+      countRecords: vi.fn(async (_org: string, soql: string, read?: { all?: true }) => {
+        counts.push({ soql, all: read?.all === true });
+        const statement = parseSoql(soql);
+        return selectFrom(visible(statement.object, read?.all === true), statement).length;
+      }),
+      insertRecords: vi.fn(async (_org: string, object: string, rows: Row[]) => {
+        inserts.push({ object, rows: rows.map((row) => ({ ...row })) });
+        return rows.map((row) => {
+          if (object === 'EmailMessage' && row['ActivityId'] && !row['ParentId']) {
+            return {
+              id: '',
+              success: false,
+              errors: ['INSUFFICIENT_ACCESS_OR_READONLY: you cannot modify this field'],
+            };
+          }
+          const id = newId(object);
+          const record: Row = { ...row };
+          // The platform writes the task of an email related to a record.
+          if (object === 'EmailMessage' && !row['ParentId'] && row['RelatedToId']) {
+            const task = newId('Task', 'P');
+            table('Task').set(task, { Subject: `Email: ${String(row['Subject'])}` });
+            record['ActivityId'] = task;
+          }
+          table(object).set(id, record);
+          return { id, success: true, errors: [] };
+        });
+      }),
+      updateRecords: vi.fn(async (_org: string, object: string, rows: Row[]) =>
+        rows.map((row) => {
+          const id = String(row['Id']);
+          const record = target.get(object)?.get(id);
+          if (record) Object.assign(record, { ...row, Id: undefined });
+          return { id, success: record !== undefined, errors: record ? [] : ['not found'] };
+        }),
+      ),
+      isObjectCreatable: async () => true,
+      ...(options.recordTypes
+        ? {
+            describeObject: async (_org: string, object: string) => ({
+              keyPrefix: KEY_PREFIX[object] ?? null,
+              recordTypes: options.recordTypes?.[object] ?? [],
+            }),
+          }
+        : {}),
+    };
+    const executor = new ForgeExecutor(deps);
+    holder.executor = executor;
+    return { executor, deps, target, reads, queries, counts, inserts, heldOfOthers };
+  }
+
+  /** Run `graph` over a fresh pair of such orgs, as a clone of the whole org. */
+  async function cloneOver(
+    schema: Schema,
+    graph: ForgeGraph,
+    options: ExecuteOptions = {},
+    orgOptions: WholeOrgOptions = {},
+  ) {
+    const orgs = wholeOrg(schema, orgOptions);
+    const events: ForgeProgressEvent[] = [];
+    const summary = await orgs.executor.execute(graph, 'src', 'tgt', (e) => events.push(e), {
+      ...options,
+      stream: { everything: true, ...options.stream },
+    });
+    return { ...orgs, summary, events };
+  }
+
+  /** Settle `running`, the clock moved on a second at a time while it waits. */
+  async function withTheClockMoving<T>(running: Promise<T>): Promise<T> {
+    let settled = false;
+    void running.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    while (!settled) await vi.advanceTimersByTimeAsync(1_000);
+    return running;
+  }
+
+  describe('its emails and tasks', () => {
+    it('writes the emails on a case after the tasks they name, a page at a time, and links each task the platform wrote with an email', async () => {
+      const { schema, graph } = activities();
+      const gates: ForgeWriteBoundary[] = [];
+      // A gate: the run asks every row before it writes one, and reads page
+      // by page all the same, with no task in hand when the emails go.
+      const run = await cloneOver(
+        schema,
+        graph,
+        { beforeWrite: async (boundary) => void gates.push(boundary) },
+        { cursorPage: 10 },
+      );
+
+      expect(run.inserts.map(({ object }) => object)).toEqual([
+        'Account',
+        'Case',
+        'EmailMessage',
+        'Task',
+        'EmailMessage',
+      ]);
+      const [firstEmails, tasks, emailsAfter] = run.inserts.slice(2);
+      // The email related to the account goes without the task it names,
+      // which the platform writes; the one on the case waits for its own.
+      expect(firstEmails.rows.map((row) => row['Subject'])).toEqual(['Offer', 'Ack']);
+      expect(firstEmails.rows[0]).not.toHaveProperty('ActivityId');
+      // The task the platform wrote with the email is linked, never sent; the
+      // archived one is written, the binned one never read.
+      expect(tasks.rows.map((row) => row['Subject'])).toEqual([
+        'Email: Re broken',
+        'Call back',
+        'Old call',
+      ]);
+      expect(emailsAfter.rows).toEqual([
+        expect.objectContaining({
+          Subject: 'Re broken',
+          ActivityId: run.summary.remapTable[TASK_OF_CASE_EMAIL],
+        }),
+      ]);
+      expect(run.summary.remapTable[TASK_OF_ACCOUNT_EMAIL]).toMatch(/^00TP/);
+      expect(run.summary.existingSourceIds).toContain(TASK_OF_ACCOUNT_EMAIL);
+      expect(run.summary.withTheirRecordSourceIds).toEqual([TASK_OF_ACCOUNT_EMAIL]);
+      expect(run.summary.failedCount).toBe(0);
+      expect(run.summary.remapTable[DELETED_TASK]).toBeUndefined();
+      expect(run.summary.remapTable[PLAIN_TASK]).toBeDefined();
+      expect(run.summary.remapTable[ARCHIVED_TASK]).toBeDefined();
+
+      // The emails on a case read again once the tasks are written — the
+      // read of their text that measured them for the gate apart.
+      const emailReads = run.reads.filter(
+        ({ soql }) => / FROM EmailMessage/.test(soql) && soql !== EMAIL_SIZE_READ,
+      );
+      expect(emailReads.map(({ soql }) => soql.replace(/^SELECT .+? FROM/, 'FROM'))).toEqual([
+        'FROM EmailMessage ORDER BY Id',
+        'FROM EmailMessage WHERE (ActivityId != null) ORDER BY Id',
+      ]);
+
+      const linesOf = (object: string) =>
+        run.events.filter(
+          (e) => e.objectName === object && e.status !== 'running' && e.status !== 'scanning',
+        );
+      expect(linesOf('Task')).toEqual([
+        expect.objectContaining({
+          status: 'done',
+          message:
+            'Completed Task: 3 succeeded, 1 written by the platform with their email, 0 failed',
+        }),
+      ]);
+      expect(linesOf('EmailMessage')).toEqual([
+        expect.objectContaining({
+          status: 'done',
+          message:
+            'Completed EmailMessage: 2 succeeded, 0 failed, 1 on a case waiting for its task; ' +
+            'after their task: 1 succeeded, 0 failed',
+        }),
+      ]);
+      // The gate was shown the archived activities among the rows to write.
+      expect(gates[0]?.objects).toContainEqual(
+        expect.objectContaining({ objectApiName: 'Task', counted: { rows: 4 } }),
+      );
+      // And the emails by the size of their text, read page by page.
+      expect(run.reads.filter(({ soql }) => soql === EMAIL_SIZE_READ)).toHaveLength(1);
+      expect(gates[0]?.objects).toContainEqual(
+        expect.objectContaining({ objectApiName: 'EmailMessage', counted: { rows: 3 } }),
+      );
+      expect(gates[0]?.wholeOrg?.emailTextBytes).toBe(
+        'Offer'.length + 'Re broken'.length + 'Ack'.length,
+      );
+    });
+
+    it('reads no email again when none on a case waited for its task, and ends the emails on the line of their turn', async () => {
+      const { schema, graph } = activities();
+      schema['EmailMessage'] = {
+        ...schema['EmailMessage'],
+        rows: schema['EmailMessage'].rows.filter((row) => row['Id'] !== EMAIL_ON_CASE),
+      };
+      const run = await cloneOver(schema, graph, { beforeWrite: async () => {} });
+
+      const emailReads = run.reads.filter(
+        ({ soql }) => / FROM EmailMessage/.test(soql) && soql !== EMAIL_SIZE_READ,
+      );
+      expect(emailReads.map(({ soql }) => soql.replace(/^SELECT .+? FROM/, 'FROM'))).toEqual([
+        'FROM EmailMessage ORDER BY Id',
+      ]);
+      expect(
+        run.events.filter(
+          (e) =>
+            e.objectName === 'EmailMessage' && e.status !== 'running' && e.status !== 'scanning',
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          status: 'done',
+          message: 'Completed EmailMessage: 2 succeeded, 0 failed',
+        }),
+      ]);
+      expect(run.summary.failedCount).toBe(0);
+    });
+
+    it('reads and counts the archived tasks through queryAll, the binned ones left out by the statement', async () => {
+      const { schema, graph } = activities();
+      const run = await cloneOver(schema, graph, { beforeWrite: async () => {} });
+
+      expect(run.reads.filter(({ soql }) => / FROM Task/.test(soql))).toEqual([
+        {
+          soql: 'SELECT Id, Subject, WhatId FROM Task WHERE (IsDeleted = false) ORDER BY Id',
+          all: true,
+        },
+      ]);
+      expect(run.counts.filter(({ soql }) => / FROM Task/.test(soql))).toEqual([
+        { soql: 'SELECT COUNT() FROM Task WHERE (IsDeleted = false)', all: true },
+      ]);
+      // Any other object read and counted as it always was.
+      expect(run.reads.filter(({ all, soql }) => all && !/ FROM Task/.test(soql))).toEqual([]);
+      expect(run.counts.filter(({ all, soql }) => all && !/ FROM Task/.test(soql))).toEqual([]);
+    });
+
+    it('reads the record types of the tasks through queryAll: one closed to the user that only archived tasks carry holds the tasks back before their first page', async () => {
+      const { schema, graph } = activities();
+      const open = recordType(1, true);
+      const closed = recordType(2, false);
+      schema['Task'] = {
+        fields: [...schema['Task'].fields, lookup('RecordTypeId', 'RecordType', true)],
+        rows: schema['Task'].rows.map((row) => ({
+          ...row,
+          RecordTypeId: row['Id'] === ARCHIVED_TASK ? closed.recordTypeId : open.recordTypeId,
+        })),
+      };
+      const run = await cloneOver(
+        schema,
+        graph,
+        { beforeWrite: async () => {} },
+        { recordTypes: { Task: [open, closed] } },
+      );
+
+      expect(run.reads).toContainEqual({
+        soql: 'SELECT RecordTypeId, COUNT(Id) n FROM Task WHERE (IsDeleted = false) GROUP BY RecordTypeId',
+        all: true,
+      });
+      expect(run.deps.queryRecords).not.toHaveBeenCalledWith(
+        'src',
+        expect.stringMatching(/GROUP BY RecordTypeId/),
+      );
+      // Held back whole, the archived task counted with the others; the
+      // binned one never.
+      expect(run.inserts.filter(({ object }) => object === 'Task')).toEqual([]);
+      expect(run.summary.errors).toContainEqual(
+        expect.objectContaining({ objectApiName: 'Task', stage: 'scope', failedCount: 4 }),
+      );
+    });
+
+    it('keeps where the emails on a case stand apart from where the email node does, in the journal', async () => {
+      const { schema, graph } = activities();
+      const store = ForgeRunStore.open(memoryRunFile());
+      store.beginPart(new Date('2026-11-02T08:00:00.000Z'));
+      await cloneOver(schema, graph, { stream: { store } });
+
+      expect(store.checkpoints().get('EmailMessage')).toEqual({
+        lastId: EMAIL_ON_CASE_WITHOUT_TASK,
+        read: 3,
+        done: true,
+      });
+      // The pass read the two emails that name a task, and wrote the one on a case.
+      expect(store.checkpoints().get('EmailMessage/afterTask')).toEqual({
+        lastId: EMAIL_ON_CASE,
+        read: 2,
+        done: true,
+      });
+    });
+
+    it('reads the emails on a case again in a part taken up once the email node was read to its end', async () => {
+      const { schema, graph } = activities();
+      const first = await cloneOver(schema, graph);
+      // The part before wrote the account, the case and the emails that go
+      // first, and stopped before the tasks.
+      const run = await cloneOver(
+        schema,
+        graph,
+        {
+          stream: {
+            resumeAfter: {
+              Account: { lastId: ACCOUNT, read: 1 },
+              Case: { lastId: CASE, read: 1 },
+              EmailMessage: { lastId: EMAIL_ON_CASE_WITHOUT_TASK, read: 3 },
+            },
+          },
+          writtenBefore: Object.fromEntries(
+            [ACCOUNT, CASE, EMAIL_ON_ACCOUNT, EMAIL_ON_CASE_WITHOUT_TASK].map((id) => [
+              id,
+              first.summary.remapTable[id],
+            ]),
+          ),
+        },
+        { cursorPage: 10 },
+      );
+
+      expect(run.inserts.map(({ object }) => object)).toEqual(['Task', 'EmailMessage']);
+      expect(run.inserts[1].rows.map((row) => row['Subject'])).toEqual(['Re broken']);
+    });
+  });
+
+  it('lets go of the rows of each object once written, where a run of whole tables keeps them', async () => {
+    const { schema, graph } = activities();
+    const all = await cloneOver(schema, graph);
+    expect(all.heldOfOthers.length).toBeGreaterThan(3);
+    expect(all.heldOfOthers.every(({ held }) => held === 0)).toBe(true);
+
+    // Read page by page without copying the whole org, the last page of each
+    // object stays to the end of the run.
+    const tables = wholeOrg(schema);
+    await tables.executor.execute(
+      graphOf(
+        graph.nodes.filter((n) => n.objectApiName === 'Account' || n.objectApiName === 'Case'),
+        [],
+      ),
+      'src',
+      'tgt',
+      () => {},
+      { stream: {} },
+    );
+    expect(tables.heldOfOthers.some(({ held }) => held > 0)).toBe(true);
+  });
+
+  describe('a cursor the source could not go on with', () => {
+    function accounts(count: number): { schema: Schema; graph: ForgeGraph } {
+      const schema: Schema = {
+        Account: {
+          fields: [text('Name')],
+          rows: Array.from({ length: count }, (_, n) => ({
+            Id: sourceId('Account', n),
+            Name: `Account ${n}`,
+          })),
+        },
+      };
+      return { schema, graph: graphOf([node('Account', count)], []) };
+    }
+    const namesWritten = (inserts: Array<{ rows: Row[] }>): unknown[] =>
+      inserts.flatMap(({ rows }) => rows.map((row) => row['Name']));
+
+    it('reads on after the last row it wrote once the cursor expired, each row written once, those a window held of it too', async () => {
+      const { schema, graph } = accounts(7);
+      const run = await cloneOver(
+        schema,
+        graph,
+        // Windows of 3 rows over pages of 2: the third page of the cursor
+        // fails while the window holds a row of the second.
+        { stream: { writeWindow: 3 } },
+        {
+          cursorPage: 2,
+          failPage: {
+            object: 'Account',
+            at: 3,
+            error: Object.assign(new Error('INVALID_QUERY_LOCATOR: invalid query locator'), {
+              errorCode: 'INVALID_QUERY_LOCATOR',
+            }),
+          },
+        },
+      );
+
+      expect(namesWritten(run.inserts)).toEqual(
+        Array.from({ length: 7 }, (_, n) => `Account ${n}`),
+      );
+      expect(run.reads.map(({ soql }) => soql)).toEqual([
+        'SELECT Id, Name FROM Account ORDER BY Id',
+        `SELECT Id, Name FROM Account WHERE Id > '${sourceId('Account', 2)}' ORDER BY Id`,
+      ]);
+      expect(run.summary.failedCount).toBe(0);
+      expect(run.summary.failedReads ?? []).toEqual([]);
+    });
+
+    it('asks a page again after a wait when the connection dropped, and fails the read past three tries', async () => {
+      const { schema, graph } = accounts(8);
+      const dropped = Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      try {
+        const run = await withTheClockMoving(
+          cloneOver(
+            schema,
+            graph,
+            {},
+            { failPage: { object: 'Account', at: 2, error: dropped, times: 2 } },
+          ),
+        );
+        // Dropped on the second page of the read, and of the read after it.
+        expect(namesWritten(run.inserts)).toEqual(
+          Array.from({ length: 8 }, (_, n) => `Account ${n}`),
+        );
+        expect(run.reads.map(({ soql }) => soql)).toEqual([
+          'SELECT Id, Name FROM Account ORDER BY Id',
+          `SELECT Id, Name FROM Account WHERE Id > '${sourceId('Account', 1)}' ORDER BY Id`,
+          `SELECT Id, Name FROM Account WHERE Id > '${sourceId('Account', 3)}' ORDER BY Id`,
+        ]);
+
+        // Dropped on its first page every time: the statement as first read.
+        const failed = await withTheClockMoving(
+          cloneOver(
+            schema,
+            graph,
+            {},
+            { failPage: { object: 'Account', at: 1, error: dropped, times: 99 } },
+          ),
+        );
+        // The first try, and three more.
+        expect(failed.reads.map(({ soql }) => soql)).toEqual(
+          Array.from({ length: 4 }, () => 'SELECT Id, Name FROM Account ORDER BY Id'),
+        );
+        expect(failed.summary.failedReads).toEqual(['Account']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('fails the read at once on anything else', async () => {
+      const { schema, graph } = accounts(4);
+      const run = await cloneOver(
+        schema,
+        graph,
+        {},
+        {
+          failPage: {
+            object: 'Account',
+            at: 2,
+            error: new Error('MALFORMED_QUERY: unexpected token'),
+          },
+        },
+      );
+      expect(run.reads).toHaveLength(1);
+      expect(run.summary.failedReads).toEqual(['Account']);
+    });
+
+    it('fails the read at once, an expired cursor too, of a run of whole tables that copies no whole org', async () => {
+      const { schema, graph } = accounts(7);
+      const orgs = wholeOrg(schema, {
+        failPage: {
+          object: 'Account',
+          at: 2,
+          error: Object.assign(new Error('INVALID_QUERY_LOCATOR: invalid query locator'), {
+            errorCode: 'INVALID_QUERY_LOCATOR',
+          }),
+        },
+      });
+      const summary = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, { stream: {} });
+      expect(orgs.reads).toHaveLength(1);
+      expect(summary.failedReads).toEqual(['Account']);
+    });
+  });
+
+  it('keeps an object only the platform writes one no clone creates, even a node of the graph: a lookup at it is asked of the target, never owed', async () => {
+    // A user is setup, never a node of a clone of the whole org; were the
+    // graph to hold one, written after the account, the account's owner is
+    // still the user the target holds, never left empty for a copy of it the
+    // second pass would point at.
+    const OWNER = sourceId('User', 1);
+    const schema: Schema = {
+      Account: {
+        fields: [text('Name'), lookup('OwnerId', 'User', true)],
+        rows: [{ Id: sourceId('Account', 1), Name: 'Acme', OwnerId: OWNER }],
+      },
+      User: { fields: [text('LastName')], rows: [{ Id: OWNER, LastName: 'Owner' }] },
+    };
+    const graph = graphOf([node('Account', 1), node('User', 1)], []);
+    const orgs = wholeOrg(schema);
+    orgs.target.set('User', new Map([[OWNER, { LastName: 'Owner', IsActive: true }]]));
+    const summary = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+      stream: { everything: true },
+    });
+
+    const [account] = orgs.inserts.filter(({ object }) => object === 'Account');
+    expect(account?.rows.map((row) => row['OwnerId'])).toEqual([OWNER]);
+    expect(updatedIds(orgs.deps)).toEqual([]);
+    expect(summary.remapTable[sourceId('Account', 1)]).toBeDefined();
+  });
+
+  it('copies an object of a managed package the graph holds as any other, its lookups at its own records filled in once they are written', async () => {
+    // Vlocity's parties are data like an account: a clone of the whole org
+    // holds them as a node. Taken for an object no clone creates, a party
+    // naming one on a later page was asked of the target, found nowhere, and
+    // written without it for good.
+    const PARTY = 'vlocity_cmt__Party__c';
+    const schema: Schema = {
+      [PARTY]: {
+        fields: [text('Name'), lookup('vlocity_cmt__ParentPartyId__c', PARTY, true)],
+        rows: Array.from({ length: 4 }, (_, n) => ({
+          Id: sourceId(PARTY, n),
+          Name: `Party ${n}`,
+          vlocity_cmt__ParentPartyId__c: n === 0 ? sourceId(PARTY, 3) : null,
+        })),
+      },
+    };
+    const graph = graphOf([node(PARTY, 4)], []);
+    const orgs = fakeOrgs(schema);
+    const summary = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+      stream: { pageSize: 2, everything: true },
+    });
+
+    expect(summary.failedCount).toBe(0);
+    expect(summary.createdByObject).toContainEqual(
+      expect.objectContaining({ objectApiName: PARTY }),
+    );
+    const parties = orgs.written()[PARTY] ?? {};
+    expect(parties[summary.remapTable[sourceId(PARTY, 0)]]?.['vlocity_cmt__ParentPartyId__c']).toBe(
+      summary.remapTable[sourceId(PARTY, 3)],
+    );
+    expect(
+      vi
+        .mocked(orgs.deps.queryRecords)
+        .mock.calls.filter(
+          ([org, soql]) => org === 'tgt' && soql.startsWith(`SELECT Id FROM ${PARTY} `),
+        ),
+    ).toEqual([]);
+  });
+
+  it('leaves the quote an opportunity syncs with empty, and says so, where a run of whole tables fills it in', async () => {
+    const schema: Schema = {
+      Opportunity: {
+        fields: [text('Name'), lookup('SyncedQuoteId', 'Quote', true)],
+        rows: [
+          { Id: sourceId('Opportunity', 1), Name: 'Deal', SyncedQuoteId: sourceId('Quote', 1) },
+        ],
+      },
+      Quote: {
+        fields: [text('Name'), lookup('OpportunityId', 'Opportunity', false)],
+        rows: [
+          { Id: sourceId('Quote', 1), Name: 'Offer', OpportunityId: sourceId('Opportunity', 1) },
+        ],
+      },
+    };
+    const graph = graphOf(
+      [node('Opportunity', 1), node('Quote', 1)],
+      [edge('Opportunity', 'Quote', true), edge('Quote', 'Opportunity', false)],
+    );
+
+    const tables = await runOver(schema, graph, { stream: {} });
+    const all = await runOver(schema, graph, { stream: { everything: true } });
+
+    const synced = (run: typeof all): unknown[] =>
+      Object.values(run.written()['Opportunity'] ?? {}).map((row) => row['SyncedQuoteId']);
+    expect(synced(tables)).toEqual([tables.summary.remapTable[sourceId('Quote', 1)]]);
+    expect(synced(all)).toEqual([undefined]);
+    expect(updatedIds(all.deps)).toEqual([]);
+    expect(all.summary.errors).toContainEqual(
+      expect.objectContaining({
+        objectApiName: 'Opportunity',
+        failedCount: 0,
+        samples: [
+          expect.objectContaining({
+            recordSummary: '(Opportunity.SyncedQuoteId)',
+            messages: [expect.stringMatching(/^Left empty on 1 opportunity: /)],
+          }),
+        ],
+      }),
+    );
+    expect(tables.summary.errors).toEqual([]);
+  });
+  describe('its files, copied in a last pass once every record is written', () => {
+    const DOC_ON_BOTH = sourceId('ContentDocument', 1);
+    const DOC_OF_A_USER = sourceId('ContentDocument', 2);
+    const DOC_TOO_LARGE = sourceId('ContentDocument', 3);
+    const DOC_ON_A_RECORD_LEFT = sourceId('ContentDocument', 4);
+    const USER = sourceId('User', 1);
+    const LEFT_OUT = sourceId('Account', 9);
+    /** The largest file copied, in bytes, in these tests. */
+    const MAX = 100;
+
+    /** Two accounts, files on them and elsewhere, and attachments. */
+    function withFiles(): { schema: Schema; graph: ForgeGraph } {
+      const [first, second] = [sourceId('Account', 1), sourceId('Account', 2)];
+      const version = (n: number, document: string, size: number): Row => ({
+        Id: sourceId('ContentVersion', n),
+        ContentDocumentId: document,
+        Title: `Doc ${n}`,
+        PathOnClient: `doc-${n}.pdf`,
+        ContentSize: size,
+        ContentLocation: 'S',
+        IsLatest: true,
+        SharingPrivacy: 'N',
+      });
+      const link = (document: string, entity: string): Row => ({
+        ContentDocumentId: document,
+        LinkedEntityId: entity,
+        ShareType: 'V',
+        Visibility: 'AllUsers',
+      });
+      const schema: Schema = {
+        Account: {
+          fields: [text('Name')],
+          rows: [
+            { Id: first, Name: 'Acme' },
+            { Id: second, Name: 'Globex' },
+          ],
+        },
+        ContentVersion: {
+          fields: [],
+          rows: [
+            version(1, DOC_ON_BOTH, 10),
+            version(2, DOC_OF_A_USER, 20),
+            version(3, DOC_TOO_LARGE, MAX + 1),
+            version(4, DOC_ON_A_RECORD_LEFT, 30),
+          ],
+        },
+        ContentDocumentLink: {
+          fields: [],
+          rows: [
+            { ...link(DOC_ON_BOTH, first), Id: sourceId('ContentDocumentLink', 1) },
+            { ...link(DOC_ON_BOTH, second), Id: sourceId('ContentDocumentLink', 2) },
+            { ...link(DOC_ON_BOTH, USER), Id: sourceId('ContentDocumentLink', 3) },
+            { ...link(DOC_OF_A_USER, USER), Id: sourceId('ContentDocumentLink', 4) },
+            { ...link(DOC_TOO_LARGE, first), Id: sourceId('ContentDocumentLink', 5) },
+            { ...link(DOC_ON_A_RECORD_LEFT, LEFT_OUT), Id: sourceId('ContentDocumentLink', 6) },
+          ],
+        },
+        Attachment: {
+          fields: [],
+          rows: [
+            {
+              Id: sourceId('Attachment', 1),
+              ParentId: second,
+              Name: 'scan.png',
+              ContentType: 'image/png',
+              BodyLength: 5,
+              IsPrivate: false,
+            },
+            {
+              Id: sourceId('Attachment', 2),
+              ParentId: LEFT_OUT,
+              Name: 'other.png',
+              BodyLength: 6,
+              IsPrivate: false,
+            },
+          ],
+        },
+      };
+      return { schema, graph: graphOf([node('Account', 2)], []) };
+    }
+
+    /** A pair of such orgs, the target taking files as Salesforce does: a document for each version. */
+    function withFileDeps(schema: Schema) {
+      const orgs = wholeOrg(schema, { cursorPage: 2 });
+      const sizeOf = new Map(
+        [...schema['ContentVersion'].rows, ...schema['Attachment'].rows].map((row) => [
+          String(row['Id']),
+          Number(row['ContentSize'] ?? row['BodyLength']),
+        ]),
+      );
+      let made = 0;
+      const files: Array<{ object: string; record: Row }> = [];
+      Object.assign(orgs.deps, {
+        readFileBody: vi.fn(async (_org: string, _object: string, id: string) =>
+          Buffer.alloc(sizeOf.get(id) ?? 0, 1).toString('base64'),
+        ),
+        insertFile: vi.fn(async (_org: string, object: string, record: Row) => {
+          made++;
+          files.push({ object, record });
+          const id = canonicalRecordId(
+            `${KEY_PREFIX[object]}T${String(made).padStart(11, '0')}`,
+          ) as string;
+          const table = orgs.target.get(object) ?? new Map<string, Row>();
+          orgs.target.set(object, table);
+          table.set(
+            id,
+            object === 'ContentVersion'
+              ? {
+                  ContentDocumentId: canonicalRecordId(
+                    `069T${String(made).padStart(11, '0')}`,
+                  ) as string,
+                }
+              : { ParentId: record['ParentId'] },
+          );
+          return { id, success: true, errors: [] };
+        }),
+        remainingFileStorageMB: vi.fn(async () => 1_000),
+      });
+      return { ...orgs, files };
+    }
+
+    /** The statements the run listed its files with, in the order asked. */
+    const fileReadsOf = (queries: readonly string[]): string[] =>
+      queries.filter((soql) => /^SELECT Id, .* FROM (ContentVersion|Attachment) /.test(soql));
+    const VERSIONS =
+      'SELECT Id, ContentDocumentId, Title, PathOnClient, ContentSize, SharingPrivacy FROM ContentVersion ' +
+      `WHERE IsLatest = true AND ContentLocation = 'S' AND ContentSize <= ${MAX}`;
+    const ATTACHMENTS =
+      'SELECT Id, ParentId, Name, ContentType, BodyLength, IsPrivate FROM Attachment ' +
+      `WHERE BodyLength <= ${MAX}`;
+
+    it('copies each file onto the records the run created, published on the first and linked to the others, and none it did not', async () => {
+      const { schema, graph } = withFiles();
+      const orgs = withFileDeps(schema);
+      const store = ForgeRunStore.open(memoryRunFile());
+      const summary = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        files: { maxFileBytes: MAX, acceptedAsIs: true },
+        stream: { everything: true, store, pageSize: 2 },
+      });
+
+      const accountIn = (n: number): string => summary.remapTable[sourceId('Account', n)];
+      // The document on both accounts, and the attachment under the second:
+      // nothing of a user's file, one past the largest copied, or one on a
+      // record the run did not write.
+      expect(orgs.files).toEqual([
+        {
+          object: 'ContentVersion',
+          record: expect.objectContaining({ Title: 'Doc 1', FirstPublishLocationId: accountIn(1) }),
+        },
+        {
+          object: 'Attachment',
+          record: expect.objectContaining({ Name: 'scan.png', ParentId: accountIn(2) }),
+        },
+      ]);
+      expect(orgs.inserts.filter(({ object }) => object === 'ContentDocumentLink')).toEqual([
+        {
+          object: 'ContentDocumentLink',
+          rows: [expect.objectContaining({ LinkedEntityId: accountIn(2), ShareType: 'V' })],
+        },
+      ]);
+      // Found from the files, a page at a time, never from the records: each
+      // page a statement of its own after the last id of the one before, so
+      // that no cursor waits, unread, while the files of a page are copied.
+      expect(fileReadsOf(orgs.queries)).toEqual([
+        `${VERSIONS} ORDER BY Id LIMIT 2`,
+        `${VERSIONS} AND Id > '${sourceId('ContentVersion', 2)}' ORDER BY Id LIMIT 2`,
+        `${ATTACHMENTS} ORDER BY Id LIMIT 2`,
+        `${ATTACHMENTS} AND Id > '${sourceId('Attachment', 2)}' ORDER BY Id LIMIT 2`,
+      ]);
+      expect(
+        orgs.reads.filter(({ soql }) => / FROM (ContentVersion|Attachment)/.test(soql)),
+      ).toEqual([]);
+      expect(summary.files?.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'ContentDocument', planned: 1, copied: 1 }),
+        expect.objectContaining({ objectApiName: 'Attachment', planned: 1, copied: 1 }),
+      ]);
+      expect(summary.files?.links).toBe(1);
+      expect(summary.files?.leftOut).toEqual([]);
+      // Each kind keeps where it stands, as a pass of its own.
+      expect(store.checkpoints().get('ContentDocument/files')).toEqual({
+        lastId: sourceId('ContentVersion', 4),
+        read: 3,
+        done: true,
+      });
+      expect(store.checkpoints().get('Attachment/files')).toEqual({
+        lastId: sourceId('Attachment', 2),
+        read: 2,
+        done: true,
+      });
+      // A removal of the run takes the document and the attachment.
+      expect(store.mapping(DOC_ON_BOTH)).toMatchObject({
+        kind: 'created',
+        objectApiName: 'ContentDocument',
+      });
+      expect(store.mapping(sourceId('Attachment', 1))).toMatchObject({
+        kind: 'created',
+        objectApiName: 'Attachment',
+      });
+      expect(summary.failedCount).toBe(0);
+    });
+
+    it('reads on after where a run it takes up stood: the Salesforce Files done, the attachments after the last copied', async () => {
+      const { schema, graph } = withFiles();
+      const orgs = withFileDeps(schema);
+      await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        files: { maxFileBytes: MAX, acceptedAsIs: true },
+        stream: {
+          everything: true,
+          resumeAfter: {
+            'ContentDocument/files': { lastId: sourceId('ContentVersion', 4), read: 3 },
+            'Attachment/files': { lastId: sourceId('Attachment', 0), read: 1 },
+          },
+        },
+      });
+      // Each read after its last id, in pages of the org's 2 000.
+      expect(fileReadsOf(orgs.queries)).toEqual([
+        `${VERSIONS} AND Id > '${sourceId('ContentVersion', 4)}' ORDER BY Id LIMIT 2000`,
+        `${ATTACHMENTS} AND Id > '${sourceId('Attachment', 0)}' ORDER BY Id LIMIT 2000`,
+      ]);
+
+      // Read to its end, a kind is read no more.
+      const done = withFileDeps(schema);
+      await done.executor.execute(graph, 'src', 'tgt', () => {}, {
+        files: { maxFileBytes: MAX, acceptedAsIs: true },
+        stream: {
+          everything: true,
+          resumeAfter: {
+            'ContentDocument/files': {
+              lastId: sourceId('ContentVersion', 4),
+              read: 3,
+              done: true,
+            } as { lastId: string; read: number },
+          },
+        },
+      });
+      expect(fileReadsOf(done.queries).filter((soql) => / FROM ContentVersion/.test(soql))).toEqual(
+        [],
+      );
+      expect(done.files.map(({ object }) => object)).toEqual(['Attachment']);
+    });
+
+    it('asks a page of files again when the source did not answer, after a wait', async () => {
+      const { schema, graph } = withFiles();
+      const orgs = withFileDeps(schema);
+      const read = vi.mocked(orgs.deps.queryRecords).getMockImplementation();
+      let refused = 0;
+      vi.mocked(orgs.deps.queryRecords).mockImplementation(async (org, soql, onTruncated) => {
+        if (org === 'src' && soql.startsWith(VERSIONS) && refused++ === 0) {
+          throw Object.assign(new Error('SERVER_UNAVAILABLE: try again'), {
+            errorCode: 'SERVER_UNAVAILABLE',
+          });
+        }
+        return read ? read(org, soql, onTruncated) : [];
+      });
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      try {
+        const summary = await withTheClockMoving(
+          orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+            files: { maxFileBytes: MAX, acceptedAsIs: true },
+            stream: { everything: true },
+          }),
+        );
+        expect(fileReadsOf(orgs.queries)).toEqual([
+          `${VERSIONS} ORDER BY Id LIMIT 2000`,
+          `${ATTACHMENTS} ORDER BY Id LIMIT 2000`,
+        ]);
+        expect(orgs.files.map(({ object }) => object)).toEqual(['ContentVersion', 'Attachment']);
+        expect(summary.errors).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('says the files the source would not list, leaves them for a run that takes it up, and still ends the run with what it wrote', async () => {
+      const { schema, graph } = withFiles();
+      const orgs = withFileDeps(schema);
+      const read = vi.mocked(orgs.deps.queryRecords).getMockImplementation();
+      vi.mocked(orgs.deps.queryRecords).mockImplementation(async (org, soql, onTruncated) => {
+        if (org === 'src' && soql.startsWith(VERSIONS)) {
+          throw Object.assign(
+            new Error('QUERY_TIMEOUT: Your query request was running for too long'),
+            {
+              errorCode: 'QUERY_TIMEOUT',
+            },
+          );
+        }
+        return read ? read(org, soql, onTruncated) : [];
+      });
+      const store = ForgeRunStore.open(memoryRunFile());
+      const summary = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        files: { maxFileBytes: MAX, acceptedAsIs: true },
+        stream: { everything: true, store },
+      });
+
+      // Said, once, and the attachments copied all the same.
+      expect(summary.errors).toEqual([
+        expect.objectContaining({
+          objectApiName: 'ContentDocument',
+          stage: 'query',
+          samples: [
+            expect.objectContaining({
+              messages: [expect.stringMatching(/^Not read, so not copied .*QUERY_TIMEOUT/)],
+            }),
+          ],
+        }),
+      ]);
+      expect(orgs.files.map(({ object }) => object)).toEqual(['Attachment']);
+      expect(summary.successCount).toBe(2);
+      // Nothing passed: a run that takes it up lists them from the start.
+      expect(store.checkpoints().get('ContentDocument/files')).toBeUndefined();
+      expect(store.checkpoints().get('Attachment/files')).toMatchObject({ done: true });
+    });
+
+    it('leaves a page whose links could not be read for a run that takes it up, and says so', async () => {
+      const { schema, graph } = withFiles();
+      const orgs = withFileDeps(schema);
+      const read = vi.mocked(orgs.deps.queryRecords).getMockImplementation();
+      vi.mocked(orgs.deps.queryRecords).mockImplementation(async (org, soql, onTruncated) => {
+        if (org === 'src' && / FROM ContentDocumentLink /.test(soql)) {
+          throw new Error('MALFORMED_QUERY: too complicated');
+        }
+        return read ? read(org, soql, onTruncated) : [];
+      });
+      const store = ForgeRunStore.open(memoryRunFile());
+      const summary = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        files: { maxFileBytes: MAX, acceptedAsIs: true },
+        stream: { everything: true, store, pageSize: 2 },
+      });
+
+      expect(summary.errors).toEqual([
+        expect.objectContaining({
+          objectApiName: 'ContentDocument',
+          stage: 'query',
+          samples: [expect.objectContaining({ recordSummary: '(links of 2 files)' })],
+        }),
+      ]);
+      // The first page not passed, and no page after it read.
+      expect(store.checkpoints().get('ContentDocument/files')).toBeUndefined();
+      expect(fileReadsOf(orgs.queries).filter((soql) => / FROM ContentVersion/.test(soql))).toEqual(
+        [`${VERSIONS} ORDER BY Id LIMIT 2`],
+      );
+      expect(orgs.files.map(({ object }) => object)).toEqual(['Attachment']);
+
+      // Links past the bound of the read: said, the file copied onto the
+      // records among those read.
+      const cut = withFileDeps(schema);
+      const readCut = vi.mocked(cut.deps.queryRecords).getMockImplementation();
+      vi.mocked(cut.deps.queryRecords).mockImplementation(async (org, soql, onTruncated) => {
+        if (org === 'src' && / FROM ContentDocumentLink /.test(soql)) onTruncated?.();
+        return readCut ? readCut(org, soql, onTruncated) : [];
+      });
+      const cutSummary = await cut.executor.execute(graph, 'src', 'tgt', () => {}, {
+        files: { maxFileBytes: MAX, acceptedAsIs: true },
+        stream: { everything: true },
+      });
+      expect(cutSummary.errors).toEqual([
+        expect.objectContaining({
+          objectApiName: 'ContentDocument',
+          stage: 'query',
+          samples: [
+            expect.objectContaining({
+              messages: [expect.stringMatching(/^More links than the source reads at once/)],
+            }),
+          ],
+        }),
+      ]);
+      expect(cut.files.map(({ object }) => object)).toEqual(['ContentVersion', 'Attachment']);
+    });
+
+    it('tells its gate the files it may copy and those past the largest, as the source sums them', async () => {
+      const { schema, graph } = withFiles();
+      const orgs = withFileDeps(schema);
+      const read = vi.mocked(orgs.deps.queryRecords).getMockImplementation();
+      // The org sums the versions; it holds no attachment, and sums them to null.
+      vi.mocked(orgs.deps.queryRecords).mockImplementation(async (org, soql, onTruncated) => {
+        if (org === 'src' && soql.startsWith('SELECT SUM(ContentSize) total, COUNT(Id) n ')) {
+          return [{ total: 123_456, n: 7 }];
+        }
+        if (org === 'src' && soql.startsWith('SELECT SUM(BodyLength) total, COUNT(Id) n ')) {
+          return [{ total: null, n: 0 }];
+        }
+        return read ? read(org, soql, onTruncated) : [];
+      });
+      vi.mocked(orgs.deps.countRecords!).mockImplementation(async (_org, soql) => {
+        if (/FROM ContentVersion WHERE .*ContentSize > /.test(soql)) return 2;
+        if (/FROM Attachment WHERE BodyLength > /.test(soql)) return 0;
+        return 2;
+      });
+      const gates: ForgeWriteBoundary[] = [];
+      await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        files: { maxFileBytes: MAX, acceptedAsIs: true },
+        beforeWrite: async (boundary) => void gates.push(boundary),
+        stream: { everything: true },
+      });
+
+      expect(gates[0]?.wholeOrg?.files).toEqual({ bytes: 123_456, count: 7, overCeiling: 2 });
+
+      const asked = vi.mocked(orgs.deps.queryRecords).mock.calls.map(([, soql]) => soql);
+      expect(asked.filter((soql) => /^SELECT SUM\(/.test(soql))).toEqual([
+        'SELECT SUM(ContentSize) total, COUNT(Id) n FROM ContentVersion ' +
+          `WHERE IsLatest = true AND ContentLocation = 'S' AND ContentSize <= ${MAX}`,
+        `SELECT SUM(BodyLength) total, COUNT(Id) n FROM Attachment WHERE BodyLength <= ${MAX}`,
+      ]);
+      expect(vi.mocked(orgs.deps.countRecords!).mock.calls.map(([, soql]) => soql)).toEqual(
+        expect.arrayContaining([
+          'SELECT COUNT() FROM ContentVersion ' +
+            `WHERE IsLatest = true AND ContentLocation = 'S' AND ContentSize > ${MAX}`,
+          `SELECT COUNT() FROM Attachment WHERE BodyLength > ${MAX}`,
+        ]),
+      );
+      // Summed by the org: no file listed to measure them.
+      expect(
+        orgs.reads.filter(({ soql }) => / FROM (ContentVersion|Attachment)/.test(soql)),
+      ).toEqual([]);
+    });
+
+    it('tells its gate the files it may copy and those past the largest, summed page by page when the source will not sum them', async () => {
+      const { schema, graph } = withFiles();
+      const orgs = withFileDeps(schema);
+      const gates: ForgeWriteBoundary[] = [];
+      await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        files: { maxFileBytes: MAX, acceptedAsIs: true },
+        beforeWrite: async (boundary) => void gates.push(boundary),
+        stream: { everything: true },
+      });
+
+      // Every file within the largest — of the run's records or not, those
+      // being known once they are written — and the one past it.
+      expect(gates[0]?.wholeOrg?.files).toEqual({
+        bytes: 10 + 20 + 30 + 5 + 6,
+        count: 5,
+        overCeiling: 1,
+      });
+    });
+
+    it('tells its gate it could not measure the files when the source will neither sum nor list them', async () => {
+      const { schema, graph } = withFiles();
+      const orgs = withFileDeps(schema);
+      const open = orgs.deps.queryPages;
+      orgs.deps.queryPages = (org, soql, options) => {
+        if (/^SELECT Id, ContentSize FROM ContentVersion /.test(soql)) {
+          return (async function* refused(): AsyncGenerator<Row[]> {
+            yield await Promise.reject(new Error('INSUFFICIENT_ACCESS: ContentVersion'));
+          })();
+        }
+        return open ? open(org, soql, options) : (async function* none() {})();
+      };
+      const gates: ForgeWriteBoundary[] = [];
+      await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        files: { maxFileBytes: MAX, acceptedAsIs: true },
+        beforeWrite: async (boundary) => void gates.push(boundary),
+        stream: { everything: true },
+      });
+
+      expect(gates[0]?.wholeOrg?.files).toEqual({ unmeasured: true });
+    });
+  });
+
+  describe('its gate', () => {
+    it('is told a node read whole whose rows are past the bound of such a read, and the phone numbers past those the fiction holds', async () => {
+      const schema: Schema = {
+        Account: {
+          fields: [
+            text('Name'),
+            text('Phone', 'phone'),
+            text('Fax', 'phone'),
+            // Texts the neutralizer gives fictional numbers to as well, by
+            // their name: one the source counts, one it cannot filter on.
+            text('Mobile_Phone__c'),
+            text('Phone_Notes__c', 'textarea'),
+          ],
+          rows: [{ Id: sourceId('Account', 1), Name: 'Acme', Phone: '+33 1 23 45 67 89' }],
+        },
+        BusinessHours: {
+          fields: [text('Name')],
+          rows: [1, 2, 3].map((n) => ({ Id: `01m${String(n).padStart(12, '0')}`, Name: `H${n}` })),
+        },
+      };
+      const graph = graphOf([node('BusinessHours', 3), node('Account', 1)], []);
+      const orgs = wholeOrg(schema);
+      // An org of thousands of accounts with a phone number, and a fax for some.
+      vi.mocked(orgs.deps.countRecords!).mockImplementation(async (_org, soql) => {
+        if (/FROM BusinessHours/.test(soql)) return 3;
+        if (/ Phone != null/.test(soql)) return 9_000;
+        if (/Fax != null/.test(soql)) return 2_500;
+        if (/Mobile_Phone__c != null/.test(soql)) return 700;
+        if (/Phone_Notes__c != null/.test(soql)) {
+          throw new Error(
+            'INVALID_FIELD: field Phone_Notes__c can not be filtered in a query call',
+          );
+        }
+        return 12_000;
+      });
+      const refused = new Error('refused at the gate');
+      const gates: ForgeWriteBoundary[] = [];
+      const run = orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        beforeWrite: async (boundary) => {
+          gates.push(boundary);
+          throw refused;
+        },
+        stream: { everything: true, wholeReadBound: 2 },
+      });
+
+      await expect(run).rejects.toThrow(refused);
+      expect(gates[0]?.wholeOrg?.readWholeOver).toEqual([
+        { objectApiName: 'BusinessHours', rows: 3, bound: 2 },
+      ]);
+      // The one the source would not count, as many as the accounts written.
+      expect(gates[0]?.wholeOrg?.contactPointsBlanked).toBe(9_000 + 2_500 + 700 + 12_000 - 10_000);
+      // Nothing was written.
+      expect(orgs.inserts).toEqual([]);
+
+      // A run that keeps the contact points blanks none.
+      const kept = wholeOrg(schema);
+      vi.mocked(kept.deps.countRecords!).mockImplementation(async () => 12_000);
+      const keptGates: ForgeWriteBoundary[] = [];
+      await kept.executor
+        .execute(graph, 'src', 'tgt', () => {}, {
+          keepContactPoints: true,
+          beforeWrite: async (boundary) => {
+            keptGates.push(boundary);
+            throw refused;
+          },
+          stream: { everything: true, wholeReadBound: 50_000 },
+        })
+        .catch(() => undefined);
+      expect(keptGates[0]?.wholeOrg).not.toHaveProperty('contactPointsBlanked');
+      expect(keptGates[0]?.wholeOrg).not.toHaveProperty('readWholeOver');
+    });
+
+    it('is told how each object goes, by Bulk API jobs or by REST, and the reads of the source still to come, on a dry run as on a run', async () => {
+      const schema: Schema = {
+        Invoice__c: { fields: [text('Name')], rows: [] },
+        Payment__c: { fields: [text('Name')], rows: [] },
+        Account: { fields: [text('Name')], rows: [] },
+        Task: { fields: [text('Subject')], rows: [] },
+        EmailMessage: {
+          fields: [text('Subject'), lookup('ActivityId', 'Task', true)],
+          rows: [{ Id: sourceId('EmailMessage', 1), Subject: 'Hello', ActivityId: null }],
+        },
+      };
+      const graph = graphOf(
+        [
+          { ...node('Invoice__c', 0), batchStrategy: 'auto' },
+          { ...node('Payment__c', 0), batchStrategy: 'auto' },
+          { ...node('Account', 0), batchStrategy: 'auto' },
+          { ...node('EmailMessage', 0), batchStrategy: 'auto' },
+          { ...node('Task', 0), batchStrategy: 'auto' },
+        ],
+        [edge('Task', 'EmailMessage', false)],
+      );
+      const rows: Record<string, number> = {
+        Invoice__c: 25_000,
+        Payment__c: 21_500,
+        Account: 12_345,
+        Task: 3_000,
+        EmailMessage: 4_000,
+      };
+      const refused = new Error('refused at the gate');
+      const measure = async (
+        options: ExecuteOptions,
+        duplicateRules?: ReadonlySet<string>,
+      ): Promise<ForgeWriteBoundary | undefined> => {
+        const orgs = wholeOrg(schema);
+        vi.mocked(orgs.deps.countRecords!).mockImplementation(async (_org, soql) => {
+          if (/FROM EmailMessage .*ActivityId != null/.test(soql)) return 1_000;
+          return rows[/ FROM (\w+)/.exec(soql)?.[1] ?? ''] ?? 0;
+        });
+        const jobs = vi.fn<NonNullable<ForgeExecutorDeps['bulkWriteRecords']>>();
+        Object.assign(orgs.deps, {
+          bulkWriteRecords: jobs,
+          ...(duplicateRules ? { duplicateRuleObjects: async () => duplicateRules } : {}),
+        });
+        const gates: ForgeWriteBoundary[] = [];
+        await expect(
+          orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+            ...options,
+            beforeWrite: async (boundary) => {
+              gates.push(boundary);
+              throw refused;
+            },
+            stream: { everything: true, writeWindow: WHOLE_ORG_WINDOW },
+          }),
+        ).rejects.toThrow(refused);
+        expect(jobs).not.toHaveBeenCalled();
+        expect(orgs.inserts).toEqual([]);
+        return gates[0];
+      };
+      const writesOf = (boundary: ForgeWriteBoundary | undefined) =>
+        Object.fromEntries(
+          (boundary?.wholeOrg?.writes ?? []).map(({ objectApiName, ...write }) => [
+            objectApiName,
+            write,
+          ]),
+        );
+
+      // Windows of 10 000: each a job, but the last under 2 000, by REST; the
+      // account, watched by the standard duplicate rule until the target says
+      // which rules it has, the tasks and the emails by REST whatever.
+      const auto = await measure({ writeApi: 'auto' });
+      expect(writesOf(auto)).toEqual({
+        Invoice__c: { rows: 25_000, jobs: 3, jobRows: 25_000, restRows: 0 },
+        Payment__c: { rows: 21_500, jobs: 2, jobRows: 20_000, restRows: 1_500 },
+        Account: { rows: 12_345, jobs: 0, jobRows: 0, restRows: 12_345 },
+        EmailMessage: { rows: 4_000, jobs: 0, jobRows: 0, restRows: 4_000 },
+        Task: { rows: 3_000, jobs: 0, jobRows: 0, restRows: 3_000 },
+      });
+      // A page of 2 000 rows read of each object, the emails that name a
+      // task read again.
+      expect(auto?.wholeOrg?.sourceReads).toBe(13 + 11 + 7 + 2 + 2 + 1);
+      expect(auto?.wholeOrg?.emailTextBytes).toBe('Hello'.length);
+      // The account and the standard rules' other objects, as the target did not say.
+      expect([...(auto?.wholeOrg?.restOnly ?? [])].sort()).toEqual([
+        'Account',
+        'Attachment',
+        'Contact',
+        'ContentVersion',
+        'EmailMessage',
+        'Lead',
+        'Task',
+      ]);
+
+      // The gate prices the same jobs from what the run told it, and counts
+      // the reads the run said it still sends.
+      const cost = wholeOrgCostOf({
+        plan: writePlanOf(auto?.objects ?? []),
+        measures: auto?.wholeOrg ?? {},
+      });
+      expect(
+        Object.fromEntries(cost.objects.map(({ objectApiName, jobs }) => [objectApiName, jobs])),
+      ).toEqual(
+        Object.fromEntries(
+          (auto?.wholeOrg?.writes ?? []).map(({ objectApiName, jobs }) => [objectApiName, jobs]),
+        ),
+      );
+      expect(cost.sourceRequests).toBe(auto?.wholeOrg?.sourceReads);
+
+      // The target says no rule watches the account: it goes in jobs too,
+      // its last window of 2 345 one as well.
+      const ruled = await measure({ writeApi: 'auto' }, new Set());
+      expect(writesOf(ruled)['Account']).toEqual({
+        rows: 12_345,
+        jobs: 2,
+        jobRows: 12_345,
+        restRows: 0,
+      });
+      // A dry run sends no job, and says what the run would send.
+      const dry = await measure({ writeApi: 'auto', dryRun: true }, new Set());
+      expect(dry?.wholeOrg?.writes).toEqual(ruled?.wholeOrg?.writes);
+      // A run that does not write through the Bulk API writes all by REST.
+      const rest = await measure({});
+      expect(Object.values(writesOf(rest)).every(({ jobs }) => jobs === 0)).toBe(true);
+      expect(rest?.wholeOrg).not.toHaveProperty('restOnly');
+    });
+
+    it('is told nothing of the whole org on a run that copies none', async () => {
+      const gates: ForgeWriteBoundary[] = [];
+      await runOver(
+        {
+          Account: { fields: [text('Name')], rows: [{ Id: sourceId('Account', 1), Name: 'A' }] },
+        },
+        graphOf([node('Account', 1)], []),
+        { beforeWrite: async (boundary) => void gates.push(boundary), stream: {} },
+      );
+      expect(gates).toHaveLength(1);
+      expect(gates[0]).not.toHaveProperty('wholeOrg');
+    });
+
+    it('stops the run, writing nothing more of it, when a node it reads whole still meets the bound', async () => {
+      const schema: Schema = {
+        BusinessHours: {
+          fields: [text('Name')],
+          rows: [{ Id: `01m${String(1).padStart(12, '0')}`, Name: 'Default' }],
+        },
+      };
+      const orgs = wholeOrg(schema);
+      const read = vi.mocked(orgs.deps.queryRecords).getMockImplementation();
+      // The table grew between its count and its read: the deps' bound cut it.
+      vi.mocked(orgs.deps.queryRecords).mockImplementation(async (org, soql, onTruncated) => {
+        if (org === 'src' && / FROM BusinessHours/.test(soql)) onTruncated?.();
+        return read ? read(org, soql) : [];
+      });
+
+      await expect(
+        orgs.executor.execute(graphOf([node('BusinessHours', 1)], []), 'src', 'tgt', () => {}, {
+          stream: { everything: true, wholeReadBound: 1 },
+        }),
+      ).rejects.toThrow(
+        /^Internal error: BusinessHours holds more rows than a clone of the whole org reads whole \(1\)/,
+      );
+    });
+  });
+
+  it('keeps the records the platform wrote with its own as marks of its journal, listed under the bound and counted past it', async () => {
+    const { schema, graph } = activities();
+    const listed = ForgeRunStore.open(memoryRunFile());
+    const under = await cloneOver(schema, graph, { stream: { store: listed } });
+    expect(under.summary.withTheirRecordSourceIds).toEqual([TASK_OF_ACCOUNT_EMAIL]);
+    expect(listed.withTheirRecordCount).toBe(1);
+
+    const counted = ForgeRunStore.open(memoryRunFile());
+    const past = await cloneOver(schema, graph, {
+      stream: { store: counted, summaryBound: 1 },
+    });
+    expect(past.summary.remapInJournal).toBe(true);
+    expect(past.summary.withTheirRecordSourceIds).toBeUndefined();
+    expect(past.summary.withTheirRecordCount).toBe(1);
+  });
+
+  it('sends the lookups its second pass owes an object as one Bulk API job a window, where pages of 2 000 split them', async () => {
+    // Invoices naming the next one, written in one window: every lookup owed.
+    const COUNT = 2_500;
+    const schema: Schema = {
+      Invoice__c: {
+        fields: [text('Name'), lookup('Next__c', 'Invoice__c', true)],
+        rows: Array.from({ length: COUNT }, (_, n) => ({
+          Id: sourceId('Invoice__c', n),
+          Name: `INV-${n}`,
+          Next__c: n + 1 < COUNT ? sourceId('Invoice__c', n + 1) : null,
+        })),
+      },
+    };
+    // Planned as discovery plans a table of thousands: a job's worth goes as one.
+    const graph = graphOf(
+      [{ ...node('Invoice__c', COUNT), batchStrategy: 'auto' }],
+      [edge('Invoice__c', 'Invoice__c', false)],
+    );
+    const runWith = async (secondPassPageSize?: number) => {
+      const orgs = wholeOrg(schema, { cursorPage: 2_000 });
+      let made = 0;
+      // A job writes every row it is sent; what it created, the target holds,
+      // so a REST update finds it.
+      const jobs = vi.fn<NonNullable<ForgeExecutorDeps['bulkWriteRecords']>>(
+        async (_org, object, operation, records) => {
+          const table = orgs.target.get(object) ?? new Map<string, Row>();
+          orgs.target.set(object, table);
+          const answers = records.map((record) => {
+            const id =
+              operation === 'update'
+                ? String(record['Id'])
+                : (canonicalRecordId(
+                    `${KEY_PREFIX[object]}B${String(++made).padStart(11, '0')}`,
+                  ) as string);
+            table.set(id, { ...table.get(id), ...record, Id: undefined });
+            return { id, success: true, errors: [] };
+          });
+          return {
+            answers,
+            rows: records.map(() => 'answered' as const),
+            unmatchedIds: [],
+            requests: 8,
+          };
+        },
+      );
+      Object.assign(orgs.deps, { bulkWriteRecords: jobs });
+      const store = ForgeRunStore.open(memoryRunFile());
+      const summary = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        writeApi: 'auto',
+        stream: {
+          everything: true,
+          store,
+          writeWindow: 10_000,
+          ...(secondPassPageSize ? { secondPassPageSize } : {}),
+        },
+      });
+      const sent = (operation: string): number[] =>
+        jobs.mock.calls.filter((call) => call[2] === operation).map((call) => call[3].length);
+      const restUpdates = vi
+        .mocked(orgs.deps.updateRecords!)
+        .mock.calls.reduce((sum, call) => sum + call[2].length, 0);
+      return { summary, inserted: sent('insert'), updated: sent('update'), restUpdates };
+    };
+
+    const window = await runWith(10_000);
+    expect(window.inserted).toEqual([COUNT]);
+    expect(window.updated).toEqual([COUNT - 1]);
+    expect(window.restUpdates).toBe(0);
+    expect(window.summary.failedCount).toBe(0);
+
+    // Pages of 2 000: the rest of the second page is under a job's worth.
+    const paged = await runWith();
+    expect(paged.updated).toEqual([2_000]);
+    expect(paged.restUpdates).toBe(COUNT - 1 - 2_000);
+  }, 60_000);
 });

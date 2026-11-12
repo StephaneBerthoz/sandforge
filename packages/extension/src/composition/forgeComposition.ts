@@ -492,8 +492,14 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             return records;
           },
           // A run of whole tables reads each object a page at a time, writing
-          // each before it asks for the next: nothing here holds the rows.
-          queryPages: (orgId, soql) =>
+          // each before it asks for the next: nothing here holds the rows. A
+          // read asked to take the archived activities goes through the org's
+          // `queryAll` (`scanAll`). Its next pages go by the locator that read
+          // gave, which jsforce 3 hands back as `/query/<locator>` whatever
+          // opened it (`Query.locatorToUrl`): the cursor is the org's, opened
+          // by `queryAll`. Unproven against an org: an archived task past the
+          // first page of such a read.
+          queryPages: (orgId, soql, options) =>
             (async function* pages(): AsyncGenerator<Record<string, unknown>[]> {
               const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
               yield* cursorPages<Record<string, unknown>>(
@@ -502,18 +508,23 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
                     countExecutorRequest();
                     return conn.query<Record<string, unknown>>(q);
                   },
+                  queryAll: async (q) => {
+                    countExecutorRequest();
+                    return conn.query<Record<string, unknown>>(q, { scanAll: true });
+                  },
                   queryMore: async (url) => {
                     countExecutorRequest();
                     return conn.queryMore<Record<string, unknown>>(url);
                   },
                 },
                 soql,
+                options,
               );
             })(),
-          countRecords: async (orgId, soql) => {
+          countRecords: async (orgId, soql, options) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             countExecutorRequest();
-            return (await conn.query(soql)).totalSize;
+            return (await conn.query(soql, options?.all ? { scanAll: true } : undefined)).totalSize;
           },
           // The org's currency settings, one row: whether advanced currency
           // management is on, which the user's access cannot always tell.
