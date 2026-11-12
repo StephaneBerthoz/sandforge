@@ -133,6 +133,19 @@ describe('sandforge-clone flag validation', () => {
     expect(stderr).not.toBe('');
   });
 
+  it('refuses --depth all, the clone of a whole org, as it refuses any word it does not take', async () => {
+    expect(await run(argv('--depth', 'all'))).toBe(2);
+    const refusedAll = stderr;
+    stderr = '';
+    expect(await run(argv('--depth', 'deep'))).toBe(2);
+
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(refusedAll).toBe(stderr);
+    expect(refusedAll).toBe(
+      'Invalid --depth: Invalid option: expected one of "direct"|"full"|"custom"\n',
+    );
+  });
+
   it('refuses --files with --anonymize until the files are accepted as they are', async () => {
     expect(await run(argv('--anonymize', '--files'))).toBe(2);
 

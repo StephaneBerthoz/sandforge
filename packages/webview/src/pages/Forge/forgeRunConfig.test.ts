@@ -4,6 +4,7 @@ import {
   carriedChoices,
   clonesOneRecord,
   configSubject,
+  inputModeKeyOf,
   templateFromRun,
   withCarried,
   withoutOrgs,
@@ -70,6 +71,22 @@ describe('configSubject', () => {
     expect(configSubject({ ...RECORD_RUN, inputMode: 'ai', aiPrompt: 'open cases' })).toBe(
       'open cases',
     );
+  });
+
+  it('names nothing of a clone of the whole org, which starts from nothing', () => {
+    expect(
+      configSubject({ ...RECORD_RUN, inputMode: 'org', depth: 'all', recordId: undefined }),
+    ).toBeUndefined();
+  });
+});
+
+describe('inputModeKeyOf', () => {
+  it("names the tab each mode a page starts was run from, and none of the whole org's", () => {
+    expect(inputModeKeyOf('record')).toBe('forge.recordTab');
+    expect(inputModeKeyOf('soql')).toBe('forge.soqlTab');
+    expect(inputModeKeyOf('template')).toBe('forge.templateTab');
+    expect(inputModeKeyOf('ai')).toBe('forge.aiTab');
+    expect(inputModeKeyOf('org')).toBeUndefined();
   });
 });
 

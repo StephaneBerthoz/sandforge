@@ -76,10 +76,17 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
 
   /**
    * Session-scoped discovery cache. Keyed by
-   * `${sourceOrgId}::${inputMode}::${recordId|soql}::${depth}::${customDepth}`.
+   * `${sourceOrgId}::${inputMode}::${recordId|soql}::${depth}::${customDepth}`;
+   * a clone of the whole org has no root, and its place in the key holds the
+   * filters its counts went through instead.
    * Avoids re-running the 30s+ BFS when the user re-discovers the same root
    * within the same VSCode session. TTL 10min, LRU 16 entries (~5MB max)
-   * so stale graphs after schema changes age out without manual reset.
+   * so stale graphs after schema changes age out without manual reset. A
+   * graph of the whole org past that size is still kept: the cache evicts
+   * every other graph to make room for it and holds it alone until it ages
+   * out. That is the trade wanted — its discovery counts and describes every
+   * object of the org, minutes of calls, where a graph from a root takes
+   * seconds to discover again.
    */
   private discoveryCache = new SchemaCache<ForgeGraph>({
     defaultTtl: 10 * 60_000,
@@ -103,14 +110,24 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
    * cache hits never silently swap one configuration for another.
    */
   private cacheKeyFor(config: ForgeConfig): string {
+    // A clone of the whole org starts from no record and no query. What its
+    // graph depends on beside the orgs is the filters its counts go through:
+    // an object a filter keeps no row of is left out as empty, and a filter
+    // carried from a template can change between two discoveries.
     const root =
-      config.inputMode === 'record'
-        ? (config.recordId ?? '')
-        : config.inputMode === 'soql'
-          ? (config.soqlQuery ?? '')
-          : config.inputMode === 'template'
-            ? (config.templateId ?? '')
-            : (config.aiPrompt ?? '');
+      config.inputMode === 'org'
+        ? JSON.stringify(
+            Object.entries(config.objectSoqlFilters ?? {}).sort(([a], [b]) =>
+              a < b ? -1 : a > b ? 1 : 0,
+            ),
+          )
+        : config.inputMode === 'record'
+          ? (config.recordId ?? '')
+          : config.inputMode === 'soql'
+            ? (config.soqlQuery ?? '')
+            : config.inputMode === 'template'
+              ? (config.templateId ?? '')
+              : (config.aiPrompt ?? '');
     return [
       config.sourceOrgId,
       config.targetOrgId,

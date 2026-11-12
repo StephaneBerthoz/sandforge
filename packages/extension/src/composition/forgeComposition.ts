@@ -5,6 +5,7 @@ import { SchemaCache } from '../core/metadata/SchemaCache';
 import { forgeDescribeCache } from '../modules/forge/forgeDescribeCache.js';
 import { TimeoutManager } from '../core/engine/TimeoutManager';
 import type { ObjectDescribe } from '../modules/forge/GraphDiscoveryService';
+import type { GlobalObject } from '../modules/checkpoint/checkpointScope.js';
 import type { ForgeExecutorDeps } from '../modules/forge/ForgeExecutor';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { OrgRegistry } from '../core/connection/OrgRegistry';
@@ -234,9 +235,10 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         // What the describe cache holds, and for how long: `forgeDescribeCache`.
         const describeCache = forgeDescribeCache<ForgeObjectDescribe>();
         const describesUnderWay = new Map<string, Promise<ForgeObjectDescribe>>();
-        const describeGlobalCache = new SchemaCache<
-          Array<{ name: string; keyPrefix: string | null }>
-        >({
+        // Each object with what the user may do with it, which a clone of the
+        // whole org settles its objects by, beside the key prefix a record id
+        // is resolved by.
+        const describeGlobalCache = new SchemaCache<GlobalObject[]>({
           defaultTtl: 5 * 60_000,
           maxSize: 16,
           maxSizeBytes: 50 * 1024 * 1024,
@@ -359,14 +361,19 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
               },
               30_000,
             ),
-          queryCount: (orgId, soql, signal) =>
+          // A count asked to take every row goes through the org's `queryAll`
+          // (`scanAll`), which still answers for the archived activities.
+          queryCount: (orgId, soql, signal, options) =>
             sfTimeouts.withTimeout(
               `queryCount`,
               async (timeoutSignal) => {
                 const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
                 signal?.throwIfAborted();
                 timeoutSignal.throwIfAborted();
-                const result = await conn.query<{ expr0: number }>(soql);
+                const result = await conn.query<{ expr0: number }>(
+                  soql,
+                  options?.all ? { scanAll: true } : undefined,
+                );
                 return result.totalSize;
               },
               15_000,
@@ -386,13 +393,52 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
                 signal?.throwIfAborted();
                 timeoutSignal.throwIfAborted();
                 const r = await conn.describeGlobal();
-                return r.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null }));
+                return r.sobjects.map((s): GlobalObject => ({
+                  name: s.name,
+                  keyPrefix: s.keyPrefix ?? null,
+                  queryable: s.queryable,
+                  createable: s.createable,
+                  updateable: s.updateable,
+                  deletable: s.deletable,
+                  customSetting: s.customSetting,
+                  layoutable: s.layoutable,
+                }));
               },
               60_000,
             );
             describeGlobalCache.set(orgId, result);
             return result;
           },
+          // What the target's Tooling API serves is metadata, which a clone of
+          // the whole org leaves out as such.
+          toolingObjects: (orgId, signal) =>
+            sfTimeouts.withTimeout(
+              'toolingDescribeGlobal',
+              async (timeoutSignal) => {
+                const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+                signal?.throwIfAborted();
+                timeoutSignal.throwIfAborted();
+                const answer = await conn.tooling.describeGlobal();
+                return answer.sobjects.map((sobject) => sobject.name);
+              },
+              60_000,
+            ),
+          // The org's own figure of each object's records, refreshed by the
+          // org now and then, read in one call.
+          recordCounts: (orgId, signal) =>
+            sfTimeouts.withTimeout(
+              'recordCount',
+              async (timeoutSignal) => {
+                const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+                signal?.throwIfAborted();
+                timeoutSignal.throwIfAborted();
+                return conn.request<unknown>(`/services/data/v${conn.version}/limits/recordCount`);
+              },
+              60_000,
+            ),
+          // Who may be given Create on what in the target, read once for
+          // Review's metadata comparison and its gaps (`createFacts` below).
+          createFacts: (orgId) => createFacts(orgId),
         });
 
         const batchStrategyService = new ForgeBatchStrategyService();

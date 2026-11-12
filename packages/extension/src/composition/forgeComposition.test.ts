@@ -40,6 +40,7 @@ import { PIIDetector } from '../core/precheck/PIIDetector.js';
 import { SchemaCache } from '../core/metadata/SchemaCache.js';
 import { BulkApiManager } from '../core/engine/BulkApiManager.js';
 import type { ForgeExecutor, ForgeExecutorDeps } from '../modules/forge/ForgeExecutor.js';
+import { MemoryRemovalOrg, type MemoryOrgRequest } from '../test/memoryRemovalOrg.js';
 
 /** A field as jsforce's describe returns it, reduced to what Forge reads. */
 function field(name: string, type: string, referenceTo: string[] = []) {
@@ -1786,6 +1787,212 @@ describe('initForgeComposition', () => {
       );
       expect(await deps.duplicateRuleObjects?.('tgt')).toBeUndefined();
     });
+  });
+});
+
+describe('the discovery of a clone of the whole org, through the composition', () => {
+  /** An object as the global describe lists it: one the user may query, create, edit and delete. */
+  function listed(name: string, extra: Record<string, unknown> = {}) {
+    return {
+      name,
+      keyPrefix: null,
+      queryable: true,
+      createable: true,
+      updateable: true,
+      deletable: true,
+      customSetting: false,
+      layoutable: true,
+      ...extra,
+    };
+  }
+
+  /** A field as jsforce's describe gives it. */
+  function described(name: string, type: string, referenceTo: string[] = []) {
+    return {
+      name,
+      type,
+      createable: type !== 'id',
+      updateable: type !== 'id',
+      nillable: true,
+      referenceTo,
+      relationshipName: referenceTo.length > 0 ? name.replace(/Id$/, '') : null,
+      cascadeDelete: false,
+    };
+  }
+
+  /**
+   * An org as a clone of the whole org reads it: its rows behind `query` and
+   * `queryAll` as the memory org keeps them — an archived task only through
+   * `queryAll`, a deleted one there too unless the statement says
+   * `IsDeleted = false` — its global describes, and its figures of
+   * `/limits/recordCount`, `{ sObjects: [{ count, name }] }`.
+   */
+  class WholeOrg extends MemoryRemovalOrg {
+    /** The reads of `/limits/recordCount` it answered. */
+    recordCountReads = 0;
+    /** The statements it was asked to count, and whether through `queryAll`. */
+    readonly counted: Array<{ soql: string; all: boolean }> = [];
+    readonly tooling = {
+      describeGlobal: async () => ({ sobjects: [{ name: 'FlowDefinitionView' }] }),
+    };
+
+    constructor(
+      private readonly globals: Array<Record<string, unknown>>,
+      private readonly figures: Record<string, number> = {},
+    ) {
+      super();
+    }
+
+    override async describeGlobal(): Promise<unknown> {
+      this.requests++;
+      return { sobjects: this.globals };
+    }
+
+    override async query(soql: string, options?: { scanAll?: boolean }) {
+      if (/^SELECT COUNT\(\)/.test(soql))
+        this.counted.push({ soql, all: options?.scanAll === true });
+      return super.query(soql, options);
+    }
+
+    override async request(request: MemoryOrgRequest | string): Promise<unknown> {
+      const asked = typeof request === 'string' ? { method: 'GET', url: request } : request;
+      if (/^\/services\/data\/v\d+\.\d+\/limits\/recordCount$/.test(asked.url)) {
+        this.recordCountReads++;
+        this.requests++;
+        return {
+          sObjects: Object.entries(this.figures).map(([name, count]) => ({ count, name })),
+        };
+      }
+      return super.request(asked);
+    }
+  }
+
+  const WHOLE_ORG_CONFIG: ForgeConfig = {
+    inputMode: 'org',
+    depth: 'all',
+    sourceOrgId: 'src',
+    targetOrgId: 'tgt',
+    anonymizePII: false,
+    skipEmpty: false,
+    batchSize: 'auto',
+  };
+
+  let source: WholeOrg;
+  let target: WholeOrg;
+
+  beforeEach(() => {
+    source = new WholeOrg(
+      [
+        listed('Account'),
+        listed('Contact'),
+        listed('Task'),
+        listed('AccountHistory'),
+        listed('Endpoints__c', { customSetting: true }),
+        listed('Empty__c'),
+        listed('Report__c'),
+        listed('Legacy__c'),
+        listed('FlowDefinitionView'),
+      ],
+      { Account: 2, Contact: 1, Task: 1 },
+    );
+    target = new WholeOrg([
+      listed('Account'),
+      listed('Contact'),
+      listed('Task'),
+      listed('AccountHistory'),
+      listed('Endpoints__c', { customSetting: true }),
+      listed('Empty__c'),
+      listed('Report__c', { createable: false }),
+      listed('FlowDefinitionView', { createable: false }),
+      listed('ObjectPermissions'),
+    ]);
+    source.changeSchema('Account', [described('Id', 'id'), described('Name', 'string')]);
+    source.changeSchema('Contact', [
+      described('Id', 'id'),
+      described('LastName', 'string'),
+      described('AccountId', 'reference', ['Account']),
+    ]);
+    source.changeSchema('Task', [
+      described('Id', 'id'),
+      described('Subject', 'string'),
+      described('WhatId', 'reference', ['Account']),
+    ]);
+    source.add('Account', { Id: '001000000000001AAA', Name: 'One' });
+    source.add('Account', { Id: '001000000000002AAA', Name: 'Two' });
+    source.add('Contact', {
+      Id: '003000000000001AAA',
+      LastName: 'Who',
+      AccountId: '001000000000001AAA',
+    });
+    // Three tasks: one live, one the org archived a year on, one in the bin.
+    source.add('Task', { Id: '00T000000000001AAA', Subject: 'Live' });
+    source.add('Task', { Id: '00T000000000002AAA', Subject: 'Archived' });
+    source.archive('Task', '00T000000000002AAA');
+    source.add('Task', { Id: '00T000000000003AAA', Subject: 'Deleted' });
+    source.trash('Task', '00T000000000003AAA');
+    source.add('Report__c', { Id: 'a01000000000001AAA' });
+    source.add('Endpoints__c', { Id: 'a02000000000001AAA' });
+    // What a permission set can give Create on, and Modify All Data held:
+    // no user can create a report as data.
+    target.changeSchema('ObjectPermissions', [
+      {
+        ...described('SobjectType', 'picklist'),
+        picklistValues: ['Account', 'Contact', 'Task'].map((value) => ({ value, active: true })),
+      },
+    ]);
+    target.add('UserPermissionAccess', {
+      Id: '0XA000000000001AAA',
+      PermissionsModifyAllData: true,
+    });
+    vi.mocked(getJsforceConnection).mockReset();
+    vi.mocked(getJsforceConnection).mockImplementation(
+      async (orgId: string) => (orgId === 'src' ? source : target) as unknown as Connection,
+    );
+  });
+
+  it('counts each object as the org does, the archived tasks through queryAll and none in the bin, and says why it leaves each other out', async () => {
+    const { orchestrator } = await compose();
+
+    const graph = await orchestrator.discover(WHOLE_ORG_CONFIG);
+
+    expect(graph.nodes.map((n) => [n.objectApiName, n.recordCount])).toEqual([
+      ['Account', 2],
+      ['Contact', 1],
+      ['Task', 2],
+    ]);
+    expect(graph.edges.map((e) => `${e.sourceObject}>${e.targetObject}`).sort()).toEqual([
+      'Account>Contact',
+      'Account>Task',
+    ]);
+    expect(graph.leftOut).toEqual([
+      { objectApiName: 'AccountHistory', reason: 'history' },
+      { objectApiName: 'Empty__c', reason: 'empty' },
+      { objectApiName: 'Endpoints__c', reason: 'customSetting' },
+      { objectApiName: 'FlowDefinitionView', reason: 'metadata' },
+      { objectApiName: 'Legacy__c', reason: 'missingInTarget' },
+      { objectApiName: 'Report__c', reason: 'setup' },
+    ]);
+    expect(source.counted).toEqual([
+      { soql: 'SELECT COUNT() FROM Account', all: false },
+      { soql: 'SELECT COUNT() FROM Contact', all: false },
+      { soql: 'SELECT COUNT() FROM Empty__c', all: false },
+      { soql: 'SELECT COUNT() FROM Task WHERE IsDeleted = false', all: true },
+    ]);
+    expect(source.recordCountReads).toBe(1);
+    expect(target.recordCountReads).toBe(0);
+  });
+
+  it("keeps an object whose count does not answer at the org's own figure of it", async () => {
+    vi.spyOn(source, 'query').mockImplementation(async (soql: string) => {
+      if (soql.includes('FROM Contact')) throw new Error('socket hang up');
+      return MemoryRemovalOrg.prototype.query.call(source, soql);
+    });
+    const { orchestrator } = await compose();
+
+    const graph = await orchestrator.discover(WHOLE_ORG_CONFIG);
+
+    const contact = graph.nodes.find((n) => n.objectApiName === 'Contact');
+    expect(contact).toMatchObject({ recordCount: 1, recordCountApproximate: true });
   });
 });
 

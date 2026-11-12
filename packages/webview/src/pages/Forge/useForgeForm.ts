@@ -5,7 +5,7 @@ import {
   buildSyntheticForgeGraph,
   getBuiltinTemplateObjects,
 } from '@sandforge/shared';
-import type { ForgeRemovalPlan, SalesforceOrg } from '@sandforge/shared';
+import type { ForgeRemovalPlan, ForgeTraversalDepth, SalesforceOrg } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import type {
@@ -37,21 +37,29 @@ import {
 } from './forgeUtils';
 
 /** Depth option values for the chip selector. */
-export const DEPTH_OPTIONS: ForgeDepth[] = ['direct', 'full', 'custom'];
+export const DEPTH_OPTIONS: ForgeTraversalDepth[] = ['direct', 'full', 'custom'];
 
 /** Map depth value to its i18n key. */
-export const DEPTH_KEYS: Record<ForgeDepth, string> = {
+export const DEPTH_KEYS: Record<ForgeTraversalDepth, string> = {
   direct: 'forge.depthDirect',
   full: 'forge.depthFull',
   custom: 'forge.depthCustom',
 };
 
 /** Map depth value to its tooltip i18n key. */
-export const DEPTH_TOOLTIP_KEYS: Record<ForgeDepth, string> = {
+export const DEPTH_TOOLTIP_KEYS: Record<ForgeTraversalDepth, string> = {
   direct: 'forge.depthDirectTooltip',
   full: 'forge.depthFullTooltip',
   custom: 'forge.depthCustomTooltip',
 };
+
+/**
+ * The label of the depth a past run or a template walked: none for `all`, a
+ * clone of the whole org, which walks none and no chip of the page offers.
+ */
+export function depthKeyOf(depth: ForgeDepth): string | undefined {
+  return depth === 'all' ? undefined : DEPTH_KEYS[depth];
+}
 
 /**
  * The stored half of a past run: the config the extension persists alongside
@@ -410,6 +418,10 @@ export function useForgeForm(): ForgeFormState {
         // A draft is only run once it passed the check against the source org,
         // and only as it reads now: an edit waits for the next check.
         return ai.checked;
+      case 'org':
+        // No tab of the page starts a clone of the whole org: one a past run
+        // or a template brought back is never sent from here.
+        return false;
     }
   }, [inputMode, recordId, soqlQuery, selectedTemplate, templateInput, ai.checked]);
 
@@ -506,7 +518,7 @@ export function useForgeForm(): ForgeFormState {
   /** Arrow-key navigation handler for depth radio chips. */
   const handleDepthKeyDown = useCallback(
     (e: KeyboardEvent, currentDepth: ForgeDepth) => {
-      const idx = DEPTH_OPTIONS.indexOf(currentDepth);
+      const idx = DEPTH_OPTIONS.findIndex((option) => option === currentDepth);
       let nextIdx = idx;
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
         e.preventDefault();

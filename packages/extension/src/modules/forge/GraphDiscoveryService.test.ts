@@ -272,6 +272,60 @@ describe('GraphDiscoveryService', () => {
     });
   });
 
+  describe('a clone of the whole org', () => {
+    it('lists both orgs instead of walking from a root, whatever node cap is given', async () => {
+      // Every object the target can take and the source holds records of is
+      // a node: the cap of a walk from a root does not apply.
+      vi.mocked(deps.describeGlobal).mockResolvedValue(
+        ['Account', 'Contact', 'Opportunity'].map((name) => ({
+          name,
+          keyPrefix: null,
+          queryable: true,
+          createable: true,
+          updateable: true,
+          deletable: true,
+          layoutable: true,
+        })),
+      );
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectApiName) => ({
+        ...makeAccountDescribe(),
+        name: objectApiName,
+      }));
+      const config = createConfig({ inputMode: 'org', depth: 'all', recordId: undefined });
+
+      const graph = await service.discover(config, { maxNodes: 1 });
+
+      expect(graph.nodes.map((n) => n.objectApiName)).toEqual([
+        'Account',
+        'Contact',
+        'Opportunity',
+      ]);
+      expect(graph.nodes.every((n) => n.level >= 1)).toBe(true);
+      expect(graph.leftOut).toEqual([]);
+      expect(deps.describeGlobal).toHaveBeenCalledWith('src-org', undefined);
+      expect(deps.describeGlobal).toHaveBeenCalledWith('tgt-org', undefined);
+      expect(deps.queryCount).toHaveBeenCalledWith(
+        'src-org',
+        'SELECT COUNT() FROM Account',
+        undefined,
+        undefined,
+      );
+    });
+
+    // A walk from a root given the whole org's depth, or the whole org given
+    // a walk's, is neither: refused in words, before any call.
+    it('refuses the depth all from a root, and the whole org with a walk, before any call', async () => {
+      await expect(service.discover(createConfig({ depth: 'all' }))).rejects.toThrow(
+        "The depth 'all' clones the whole org and goes with inputMode 'org' only, not 'record'",
+      );
+      await expect(
+        service.discover(createConfig({ inputMode: 'org', recordId: undefined })),
+      ).rejects.toThrow("takes the depth 'all' and no other");
+      expect(deps.describeGlobal).not.toHaveBeenCalled();
+      expect(deps.queryCount).not.toHaveBeenCalled();
+    });
+  });
+
   describe('depth traversal', () => {
     it('should traverse child relationships with depth=direct (1 level)', async () => {
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {

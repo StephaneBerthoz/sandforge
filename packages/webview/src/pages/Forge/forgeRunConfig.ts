@@ -19,13 +19,21 @@ import { soqlRootFilter } from './forgeUtils';
 /** A run's configuration as History and templates keep it: without the org pair. */
 export type StoredForgeConfig = Omit<ForgeConfig, 'sourceOrgId' | 'targetOrgId'>;
 
-/** The tab label each input mode was run from. */
-export const INPUT_MODE_KEYS: Record<ForgeInputMode, string> = {
+/** The tab label each input mode a tab of the page starts was run from. */
+export const INPUT_MODE_KEYS: Readonly<Record<Exclude<ForgeInputMode, 'org'>, string>> = {
   record: 'forge.recordTab',
   soql: 'forge.soqlTab',
   template: 'forge.templateTab',
   ai: 'forge.aiTab',
 };
+
+/**
+ * The tab label of the input mode a past run or a template was run from:
+ * none for a clone of the whole org, which no tab of the page starts.
+ */
+export function inputModeKeyOf(mode: ForgeInputMode): string | undefined {
+  return mode === 'org' ? undefined : INPUT_MODE_KEYS[mode];
+}
 
 /**
  * Whether the run clones one record's graph: it reads only what that record
@@ -49,6 +57,9 @@ export function configSubject(config: StoredForgeConfig): string | undefined {
       return config.templateId;
     case 'ai':
       return config.aiPrompt;
+    case 'org':
+      // A clone of the whole org starts from no record, query or draft.
+      return undefined;
   }
 }
 

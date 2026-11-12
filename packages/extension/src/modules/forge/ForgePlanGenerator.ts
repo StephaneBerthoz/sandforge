@@ -284,9 +284,13 @@ function cyclesOf(graph: ForgeGraph): { edges: ForgeGraphEdge[]; components: str
  * simulates the recursion: each frame remembers (node v, edge iterator index
  * i); on the way down child frames are pushed, on the way up lowLink is
  * propagated and components are emitted. Equivalent to the recursive form,
- * O(V+E).
+ * O(V+E). A clone of the whole org levels its nodes by it too
+ * (`WholeOrgDiscovery`), up to two thousand objects deep in the worst case.
  */
-function stronglyConnected(names: readonly string[], edges: readonly ForgeGraphEdge[]): string[][] {
+export function stronglyConnected(
+  names: readonly string[],
+  edges: readonly ForgeGraphEdge[],
+): string[][] {
   const adj = new Map<string, string[]>();
   for (const name of names) adj.set(name, []);
   for (const edge of edges) adj.get(edge.sourceObject)?.push(edge.targetObject);

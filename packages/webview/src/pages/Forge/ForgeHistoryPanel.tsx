@@ -27,9 +27,9 @@ import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { takenOrDeleted } from '../../utils/runCheckpoint';
 import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
-import { DEPTH_KEYS } from './useForgeForm';
+import { depthKeyOf } from './useForgeForm';
 import type { ForgeRunConfig } from './useForgeForm';
-import { INPUT_MODE_KEYS, configSubject } from './forgeRunConfig';
+import { configSubject, inputModeKeyOf } from './forgeRunConfig';
 import {
   ForgeRunRemovalConfirm,
   ForgeRunRemovalMark,
@@ -442,6 +442,8 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
         const config = entry.config;
         const when = shown(entry.timestamp) ?? t('common.dateUnknown');
         const subject = config ? configSubject(config) : undefined;
+        const modeKey = config ? inputModeKeyOf(config.inputMode) : undefined;
+        const depthKey = config ? depthKeyOf(config.depth) : undefined;
         const removalBlock = removalOf(entry);
 
         return (
@@ -472,7 +474,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
                 </div>
                 {config && (
                   <span className="block text-[11px] text-text-secondary truncate">
-                    {[t(INPUT_MODE_KEYS[config.inputMode]), subject, t(DEPTH_KEYS[config.depth])]
+                    {[modeKey && t(modeKey), subject, depthKey && t(depthKey)]
                       .filter(Boolean)
                       .join(' · ')}
                   </span>

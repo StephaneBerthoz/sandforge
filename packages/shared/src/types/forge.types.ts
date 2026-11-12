@@ -2,11 +2,28 @@ import type { MutedAutomation } from '../utils/automation-mute.js';
 import type { AnonymizationMethod, CurrencyReplaced, RecordTypeGiven } from './common.types.js';
 import type { RunCheckpointEstimate, RunCheckpointInfo } from './checkpoint.types.js';
 
-/** Mode used to specify the input for a Forge operation */
-export type ForgeInputMode = 'record' | 'soql' | 'template' | 'ai';
+/**
+ * Mode used to specify the input for a Forge operation.
+ *
+ * `org` starts from nothing at all: a clone of the whole source org, every
+ * object the target can take and every record of each. It goes with the
+ * `all` depth and with no other, and takes none of the other modes' inputs.
+ */
+export type ForgeInputMode = 'record' | 'soql' | 'template' | 'ai' | 'org';
 
-/** Depth of relationship traversal during graph construction */
-export type ForgeDepth = 'direct' | 'full' | 'custom';
+/**
+ * How far discovery walks the relationships from the run's root: the depths
+ * a run from a record, a query, a template or an AI draft can take, and the
+ * only ones `sandforge.yaml` and the command line accept.
+ */
+export type ForgeTraversalDepth = 'direct' | 'full' | 'custom';
+
+/**
+ * The depth of a Forge run: a walk from its root, or `all`, which walks
+ * nothing and takes every object of the source org the target can take.
+ * `all` goes with the `org` input mode and with no other.
+ */
+export type ForgeDepth = ForgeTraversalDepth | 'all';
 
 /**
  * Status of a single node within the Forge dependency graph.
@@ -34,7 +51,12 @@ export type ForgeGraphView = 'auto' | 'graph' | 'table';
  * and data-handling options such as PII anonymization and batch sizing.
  */
 export interface ForgeConfig {
-  /** How input records are specified */
+  /**
+   * How input records are specified. `org` — the whole source org — goes with
+   * the `all` depth and with no other, and leaves `recordId`, `soqlQuery`,
+   * `templateId`, `aiPrompt` and `customDepth` unset (`wholeOrgConfigIssue`);
+   * `maxNodes` has nothing to cap there and is ignored.
+   */
   inputMode: ForgeInputMode;
   /** Salesforce record ID when inputMode is 'record' */
   recordId?: string;
@@ -44,7 +66,10 @@ export interface ForgeConfig {
   templateId?: string;
   /** Natural-language AI prompt when inputMode is 'ai' */
   aiPrompt?: string;
-  /** How deep to traverse relationships */
+  /**
+   * How deep to traverse relationships; `all` with the `org` input mode, and
+   * only with it, for every object of the source org.
+   */
   depth: ForgeDepth;
   /** Maximum traversal levels when depth is 'custom' */
   customDepth?: number;
@@ -462,6 +487,15 @@ export interface ForgeGraphNode {
    * reads. Absent on every node discovery counted.
    */
   recordCountUnknown?: boolean;
+  /**
+   * Whether `recordCount` is the org's own approximation rather than a count.
+   *
+   * A clone of the whole org counts each object it takes, and an object whose
+   * count timed out keeps the figure the org's record-count endpoint gave for
+   * it rather than being left out: the run copies every record it reads,
+   * whatever the figure said. Absent on every node that was counted.
+   */
+  recordCountApproximate?: boolean;
   /** Number of fields included in the operation */
   fieldCount: number;
   /** Current processing status of this node */
@@ -569,6 +603,101 @@ export interface ForgeGraph {
   estimatedDurationSeconds: number;
   /** True when BFS hit the node cap and the graph is incomplete. */
   truncated?: boolean;
+  /**
+   * The objects of the source org a clone of the whole org does not take,
+   * each with why: never a node, so Review and the confirmation can name what
+   * the run leaves behind rather than leave it out unsaid. Absent on a graph
+   * walked from a root, whose objects are only those it reached.
+   */
+  leftOut?: ForgeLeftOutObject[];
+  /**
+   * Set on the graph the history keeps of a clone of the whole org, which
+   * keeps its nodes without their relations (`ForgeExecutionResult.leftOutCounts`):
+   * run as it is, its parents would go unordered and its lookups unmapped,
+   * so a run of it is refused, and the org discovered again. Absent from
+   * every graph discovery builds.
+   */
+  withoutEdges?: true;
+}
+
+/**
+ * Why a clone of the whole org leaves an object of the source org out.
+ *
+ * - `missingInTarget`: the target org has no such object.
+ * - `notQueryable`: the source org does not let the user query it.
+ * - `empty`: the source holds no record of it.
+ * - `unreadable`: the source refused to count or read it.
+ * - `notWritable`: the target does not let the user create, edit and delete
+ *   its records, which the run's insert, its second pass and a rewind need;
+ *   `detail: 'feature'` when a feature or licence the target has not turned
+ *   on keeps it closed even to a user with Modify All Data, `'parent'` when
+ *   no permission set opens it and the records it hangs from may.
+ * - `setup`: users, permissions and the rest of setup, the org's logs and
+ *   jobs, and what no user can create in the target, not even one with
+ *   Modify All Data; `detail: 'noLayout'` when it is one the org gives no
+ *   page layout.
+ * - `platformCreated`: records Salesforce alone creates as a feature runs —
+ *   approvals, Einstein's insights, invoices and the like.
+ * - `metadata`: served by the Tooling API: deployed, not kept as data.
+ * - `chatter`, `history`, `sharing`, `changeEvent`: a feed, a history
+ *   object, a sharing object, a change event — what the org keeps itself.
+ * - `unsupportedKind`: a big object, an external or Data Cloud object, a
+ *   Knowledge version or a platform event.
+ * - `customSetting`: a custom setting the run was not asked to take:
+ *   configuration — an integration's endpoint, a switch an admin flipped —
+ *   which no clone writes into another org unasked.
+ * - `files`: a file or what hangs on one, copied with the records it hangs
+ *   on rather than as an object of its own (`detail: 'withTheirRecords'`),
+ *   or a document of the Documents tab.
+ * - `neverCopied`: an object the target lets the user write that no Forge
+ *   clone writes: the objects of an industry package whose configuration
+ *   catalogue every clone leaves out.
+ * - `excludedByUser`: the user asked for it to be left out.
+ * - `notDescribed`: its describe could not be read.
+ */
+export type ForgeLeftOutReason =
+  | 'missingInTarget'
+  | 'notQueryable'
+  | 'empty'
+  | 'unreadable'
+  | 'notWritable'
+  | 'setup'
+  | 'platformCreated'
+  | 'metadata'
+  | 'chatter'
+  | 'history'
+  | 'sharing'
+  | 'changeEvent'
+  | 'unsupportedKind'
+  | 'customSetting'
+  | 'files'
+  | 'neverCopied'
+  | 'excludedByUser'
+  | 'notDescribed';
+
+/** An object of the source org a clone of the whole org leaves out, with why. */
+export interface ForgeLeftOutObject {
+  objectApiName: string;
+  reason: ForgeLeftOutReason;
+  /**
+   * More of why, where there is more to say. Either one of the words the page
+   * translates — `noLayout` for setup the org gives no page layout,
+   * `withTheirRecords` for a file the run copies with the records it hangs
+   * on, `feature` and `parent` for an object the user may not create and
+   * another user might — or, for an object `unreadable` or `notDescribed`,
+   * the org's own words, shown as the org said them.
+   */
+  detail?: string;
+}
+
+/**
+ * How many objects a clone of the whole org left out for one reason: what its
+ * entry in the history keeps of `ForgeGraph.leftOut`, which lists thousands
+ * of them by name (`ForgeExecutionResult.leftOutCounts`).
+ */
+export interface ForgeLeftOutCount {
+  reason: ForgeLeftOutReason;
+  count: number;
 }
 
 /** Sample of a record that failed insertion, with the platform errors. */
@@ -1619,6 +1748,15 @@ export interface ForgeExecutionResult {
    * were taken back. Absent when it was not asked.
    */
   mutedAutomation?: MutedAutomation;
+  /**
+   * Of a clone of the whole org as its entry in the history keeps it, how
+   * many objects it left out for each reason: the entry's graph keeps its
+   * nodes without their relations and without `leftOut`, which name
+   * thousands of objects, in a history the extension's global state rewrites
+   * whole at every change. Absent from every other run, and from the result
+   * a run answers its page with, whose graph is whole.
+   */
+  leftOutCounts?: ForgeLeftOutCount[];
   /**
    * The checkpoint of what the run writes, when it was asked to take one
    * before its first write (`checkpointFirst`): taken, or deleted as the run

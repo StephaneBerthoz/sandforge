@@ -7,9 +7,9 @@ import type { SalesforceOrg } from '@sandforge/shared';
 import { cn } from '../../theme';
 import type { ForgeTemplate } from '../../stores/useForgeStore';
 import type { ForgeTemplatesManager } from './useForgeTemplates';
-import { DEPTH_KEYS } from './useForgeForm';
+import { depthKeyOf } from './useForgeForm';
 import type { TemplateTargetOutcome } from './useForgeForm';
-import { INPUT_MODE_KEYS, configSubject } from './forgeRunConfig';
+import { configSubject, inputModeKeyOf } from './forgeRunConfig';
 import { starterTemplateKeys } from './forgeUtils';
 import type { TemplateFileRefusal } from './forgeTemplateFile';
 
@@ -236,6 +236,8 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
           const selected = selectedTemplate === tpl.id;
           const subject = configSubject(tpl.config);
           const target = targetLabelOf(tpl);
+          const modeKey = inputModeKeyOf(tpl.config.inputMode);
+          const depthKey = depthKeyOf(tpl.config.depth);
           return (
             <div
               key={tpl.id}
@@ -336,9 +338,9 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                       )}
                     >
                       {[
-                        t(INPUT_MODE_KEYS[tpl.config.inputMode]),
+                        modeKey && t(modeKey),
                         subject,
-                        t(DEPTH_KEYS[tpl.config.depth]),
+                        depthKey && t(depthKey),
                         target && t('forge.savedTemplate.summaryTarget', { org: target }),
                       ]
                         .filter(Boolean)

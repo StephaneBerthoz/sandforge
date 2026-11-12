@@ -2,14 +2,23 @@ import * as z from 'zod';
 import { anonymizationMethodSchema } from './autopilot.schema.js';
 import { FILE_COPY_CEILING_MB } from '../constants/file-copy.js';
 import { forgeGapParts } from '../utils/forge-gaps.js';
+import type { ForgeConfig, ForgeLeftOutReason } from '../types/forge.types.js';
 
 // ─── Enum Schemas ────────────────────────────────────────────────────────────
 
 /** Zod schema for ForgeInputMode enum */
-export const forgeInputModeSchema = z.enum(['record', 'soql', 'template', 'ai']);
+export const forgeInputModeSchema = z.enum(['record', 'soql', 'template', 'ai', 'org']);
 
-/** Zod schema for ForgeDepth enum */
+/**
+ * Zod schema for ForgeTraversalDepth: how far discovery walks from a root.
+ * `sandforge.yaml` reuses it, and so the JSON Schema written from it, which
+ * is why it never takes `all`: a file asking for a clone of the whole org is
+ * refused at its parse.
+ */
 export const forgeDepthSchema = z.enum(['direct', 'full', 'custom']);
+
+/** Zod schema for ForgeDepth: a run's depth, the walks above or `all`, the whole org. */
+export const forgeRunDepthSchema = z.enum(['direct', 'full', 'custom', 'all']);
 
 /** Zod schema for ForgeNodeStatus enum */
 export const forgeNodeStatusSchema = z.enum([
@@ -83,7 +92,7 @@ export const forgeConfigSchema = z.object({
   soqlQuery: z.string().min(1).max(20_000).optional(),
   templateId: z.string().min(1).max(200).optional(),
   aiPrompt: z.string().min(1).max(4_000).optional(),
-  depth: forgeDepthSchema,
+  depth: forgeRunDepthSchema,
   customDepth: z.number().int().positive().max(10).optional(),
   // Bounded well below what an org holds: discovery describes and counts each
   // object it reaches, and a cap in the thousands spends an API budget rather
@@ -246,25 +255,76 @@ export const forgeConfigSchema = z.object({
 });
 
 /**
- * Strict ForgeConfig validation: enforces the inputMode→required-field
- * contract via `.refine`. Without this, a payload like
- * `{inputMode:'soql', recordId:'…'}` passes validation, then crashes
- * downstream in `resolveRootObject` with a generic message.
+ * A run's config walked from a root — a record, a query, a template or an AI
+ * draft — never the clone of a whole org: what a template holds, and what
+ * the Forge panel's messages carry. A config of the `org` mode or the `all`
+ * depth is refused at its parse, as any mode or depth they never held.
  */
-export const forgeConfigSchemaStrict = forgeConfigSchema.refine(
-  (c) => {
-    if (c.inputMode === 'record') return c.recordId !== undefined;
-    if (c.inputMode === 'soql') return c.soqlQuery !== undefined;
-    if (c.inputMode === 'template') return c.templateId !== undefined;
-    if (c.inputMode === 'ai') return c.aiPrompt !== undefined;
-    return false;
-  },
-  {
-    message:
-      'inputMode requires the matching field (record→recordId, soql→soqlQuery, template→templateId, ai→aiPrompt)',
-    path: ['inputMode'],
-  },
-);
+export const forgeWalkConfigSchema = forgeConfigSchema.extend({
+  inputMode: forgeInputModeSchema.exclude(['org']),
+  depth: forgeDepthSchema,
+});
+
+/**
+ * Why a config is not a clone of the whole org as one must be, or nothing
+ * when it is one, or is no clone of the whole org at all.
+ *
+ * The `org` input mode and the `all` depth go together and with nothing
+ * else: a run that walks from a root reads what it reaches from it, and one
+ * that takes the whole org reaches nothing from anything, so a record, a
+ * query, a template, an AI draft or a custom depth given with it would be
+ * read as a narrowing the run does not make. Exported beside the strict
+ * schema because the messages the extension receives are parsed by the
+ * plain one, whose `.omit()` the template schema needs, and the extension
+ * asks this of them itself.
+ */
+export function wholeOrgConfigIssue(
+  c: Pick<
+    ForgeConfig,
+    'inputMode' | 'depth' | 'recordId' | 'soqlQuery' | 'templateId' | 'aiPrompt' | 'customDepth'
+  >,
+): string | undefined {
+  const org = c.inputMode === 'org';
+  const all = c.depth === 'all';
+  if (!org && !all) return undefined;
+  if (!all) return "A clone of the whole org (inputMode 'org') takes the depth 'all' and no other";
+  if (!org) {
+    return `The depth 'all' clones the whole org and goes with inputMode 'org' only, not '${c.inputMode}'`;
+  }
+  const given = (
+    ['recordId', 'soqlQuery', 'templateId', 'aiPrompt', 'customDepth'] as const
+  ).filter((field) => c[field] !== undefined);
+  if (given.length === 0) return undefined;
+  return `A clone of the whole org starts from no record, query, template or AI draft and walks no depth: ${given.join(', ')} must be left out`;
+}
+
+/**
+ * Strict ForgeConfig validation: enforces the inputMode→required-field
+ * contract via `.superRefine`. Without this, a payload like
+ * `{inputMode:'soql', recordId:'…'}` passes validation, then crashes
+ * downstream in `resolveRootObject` with a generic message. A clone of the
+ * whole org is held to {@link wholeOrgConfigIssue}, and refused in its words.
+ */
+export const forgeConfigSchemaStrict = forgeConfigSchema.superRefine((c, ctx) => {
+  if (c.inputMode === 'org' || c.depth === 'all') {
+    const issue = wholeOrgConfigIssue(c);
+    if (issue !== undefined) ctx.addIssue({ code: 'custom', message: issue, path: ['inputMode'] });
+    return;
+  }
+  const matched =
+    (c.inputMode === 'record' && c.recordId !== undefined) ||
+    (c.inputMode === 'soql' && c.soqlQuery !== undefined) ||
+    (c.inputMode === 'template' && c.templateId !== undefined) ||
+    (c.inputMode === 'ai' && c.aiPrompt !== undefined);
+  if (!matched) {
+    ctx.addIssue({
+      code: 'custom',
+      message:
+        'inputMode requires the matching field (record→recordId, soql→soqlQuery, template→templateId, ai→aiPrompt, org→none, with the depth all)',
+      path: ['inputMode'],
+    });
+  }
+});
 
 // ─── Graph Schemas ──────────────────────────────────────────────────────────
 
@@ -279,6 +339,10 @@ export const forgeGraphNodeSchema = z.object({
   // keeps in its history, which Reuse last graph brings back to Review,
   // would count a starter template's tables empty.
   recordCountUnknown: z.boolean().optional(),
+  // Parsing drops what the schema does not name: without it, an object of a
+  // clone of the whole org whose count was the org's approximation would
+  // come back from the history read as counted.
+  recordCountApproximate: z.boolean().optional(),
   fieldCount: z.number().int().nonnegative(),
   status: forgeNodeStatusSchema,
   progress: z.number().min(0).max(100),
@@ -309,6 +373,50 @@ export const forgeGraphEdgeSchema = z.object({
   insertOnly: z.boolean().optional(),
 });
 
+/** Zod schema for ForgeLeftOutReason */
+export const forgeLeftOutReasonSchema = z.enum([
+  'missingInTarget',
+  'notQueryable',
+  'empty',
+  'unreadable',
+  'notWritable',
+  'setup',
+  'platformCreated',
+  'metadata',
+  'chatter',
+  'history',
+  'sharing',
+  'changeEvent',
+  'unsupportedKind',
+  'customSetting',
+  'files',
+  'neverCopied',
+  'excludedByUser',
+  'notDescribed',
+] as const satisfies readonly ForgeLeftOutReason[]);
+
+/** Zod schema for ForgeLeftOutObject */
+export const forgeLeftOutObjectSchema = z.object({
+  objectApiName: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+  reason: forgeLeftOutReasonSchema,
+  // The org's own words can be long: a refusal is said as the org said it.
+  detail: z.string().max(2_000).optional(),
+});
+
+/**
+ * The most objects a graph lists as left out of a clone of the whole org.
+ *
+ * Every object of the source's global describe that is not a node is one:
+ * the sharing, history, feed and change event objects the org keeps beside
+ * each object of its own, the empty tables, those the target lacks. An org
+ * may hold three thousand custom objects, each with up to four such objects
+ * beside it, over the fifteen hundred or so of the platform and theirs: some
+ * sixteen thousand names at most. The bound leaves room past that, so that
+ * no real org is refused for what it does not copy, and still bounds a
+ * forged payload; nothing walks the list, it is only shown and counted.
+ */
+export const FORGE_LEFT_OUT_MAX = 50_000;
+
 /**
  * Zod schema for ForgeGraph — bounded by .max() on nodes/edges to block
  * a forged payload from triggering O(n²) or recursive algorithms (Tarjan
@@ -321,6 +429,11 @@ export const forgeGraphSchema = z.object({
   estimatedSizeMB: z.number().nonnegative(),
   estimatedDurationSeconds: z.number().nonnegative(),
   truncated: z.boolean().optional(),
+  // Every object of the source org a clone of the whole org leaves out.
+  leftOut: z.array(forgeLeftOutObjectSchema).max(FORGE_LEFT_OUT_MAX).optional(),
+  // The graph a history entry keeps of a clone of the whole org, without its
+  // relations: kept through the parse so that its run is refused, not run.
+  withoutEdges: z.literal(true).optional(),
 });
 
 // A run's result has no schema, on purpose. Nothing parses one: the extension
@@ -382,7 +495,7 @@ export const forgeTemplateSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string(),
-  config: forgeConfigSchema.omit({ sourceOrgId: true, targetOrgId: true }),
+  config: forgeWalkConfigSchema.omit({ sourceOrgId: true, targetOrgId: true }),
   targetOrgId: z.string().min(1).max(128).optional(),
   anonymization: forgeTemplateAnonymizationSchema.optional(),
   // Parsing drops what the schema does not name: without it, the file choice

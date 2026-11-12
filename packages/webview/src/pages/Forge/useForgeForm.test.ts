@@ -37,7 +37,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
   getVscodeApi: () => stableApi,
 }));
 
-import { useForgeForm, recordLimitOptionFor } from './useForgeForm';
+import { depthKeyOf, useForgeForm, recordLimitOptionFor } from './useForgeForm';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 
@@ -231,6 +231,15 @@ function lastPayload<T>(type: string): T {
   return last.payload.payload;
 }
 
+describe('depthKeyOf', () => {
+  it("names the depth each chip walks, and none of the whole org's, which walks none", () => {
+    expect(depthKeyOf('direct')).toBe('forge.depthDirect');
+    expect(depthKeyOf('full')).toBe('forge.depthFull');
+    expect(depthKeyOf('custom')).toBe('forge.depthCustom');
+    expect(depthKeyOf('all')).toBeUndefined();
+  });
+});
+
 describe('useForgeForm run history', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();
@@ -398,6 +407,25 @@ describe('useForgeForm run history', () => {
     // the AI tab would mean sending the prompt to the model again.
     expect(result.current.inputMode).toBe('record');
     expect(result.current.soqlQuery).toBe('');
+    expect(result.current.canDiscover).toBe(false);
+  });
+
+  it('never discovers a clone of the whole org a stored run brings back: no tab of the page starts one', () => {
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+    });
+    act(() => {
+      result.current.applyHistoryConfig({
+        ...SOQL_RUN.config!,
+        inputMode: 'org',
+        depth: 'all',
+        soqlQuery: undefined,
+      });
+    });
+
     expect(result.current.canDiscover).toBe(false);
   });
 

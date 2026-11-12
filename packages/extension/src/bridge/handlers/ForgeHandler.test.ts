@@ -335,6 +335,47 @@ describe('ForgeHandler', () => {
       expect(errCalls.length).toBeGreaterThanOrEqual(1);
     });
 
+    // No page sends the clone of a whole org: one that arrives in a message is
+    // refused as any mode or depth no page offers, before anything is read.
+    it.each([
+      ['the whole org', { inputMode: 'org', depth: 'all', recordId: undefined }, 'inputMode'],
+      ['the depth all from a record', { depth: 'all' }, 'depth'],
+    ] as const)(
+      'refuses a discovery of %s before anything is read, as a mode or depth no page offers',
+      async (_label, overrides, field) => {
+        const msg = buildMsg('forge:discover', { config: createMockConfig(overrides) });
+
+        expect(await handler.handle(msg)).toBe(true);
+
+        expect(orchestrator.discover).not.toHaveBeenCalled();
+        const errors = vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.map(
+            ([m]) => m as BaseMessage & { payload: { code?: string; message?: string } },
+          )
+          .filter((m) => m.type === 'forge:discover:error');
+        expect(errors.map((m) => m.payload.code)).toEqual(['INVALID_PAYLOAD']);
+        expect(errors[0].payload.message).toContain(field);
+      },
+    );
+
+    it('refuses to run the clone of a whole org a message carries, before anything is written', async () => {
+      const msg = buildMsg('forge:execute', {
+        graph: createMockGraph(),
+        config: createMockConfig({ inputMode: 'org', depth: 'all', recordId: undefined }),
+      });
+
+      expect(await handler.handle(msg)).toBe(true);
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      const codes = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: { code?: string } })
+        .filter((m) => m.type === 'forge:execute:error')
+        .map((m) => m.payload.code);
+      expect(codes).toEqual(['INVALID_PAYLOAD']);
+    });
+
     it('sends error when orchestrator not initialized', async () => {
       const freshHandler = new ForgeHandler(deps);
       const msg = buildMsg('forge:discover', { config: createMockConfig() });

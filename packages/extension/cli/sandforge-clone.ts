@@ -122,6 +122,7 @@ import {
   fileCopyRefusal,
   forgeConfigSchema,
   forgeConfigSchemaStrict,
+  forgeDepthSchema,
   forgeRemovalPlanLeft,
   forgeRunCreatedRecords,
   forgeRunLinkedKept,
@@ -1771,7 +1772,9 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
   // The schema the wizard's ForgeConfig goes through, run on the same fields.
   // Without it `--depth deep` was cast into the union, and a malformed record
   // ID or object name was only refused after both orgs had been authenticated.
-  const checked = forgeConfigSchemaStrict.safeParse({
+  // The command line walks from a record or from tables: its depths are a
+  // walk's, and `all`, the clone of a whole org, is refused as any other word.
+  const checked = forgeConfigSchemaStrict.safeExtend({ depth: forgeDepthSchema }).safeParse({
     ...(tables
       ? { inputMode: 'soql', soqlQuery: tablesQueryOf(tables) }
       : { inputMode: 'record', recordId: record }),
@@ -7612,7 +7615,7 @@ export async function rootNeverCreatedRefusal(
  */
 async function cloneRootsOf(
   args: Pick<CliArgs, 'record' | 'tables' | 'source'>,
-  describeGlobal: (orgId: string) => Promise<Array<{ name: string; keyPrefix: string | null }>>,
+  describeGlobal: (orgId: string) => Promise<Array<{ name: string; keyPrefix?: string | null }>>,
 ): Promise<CloneRoot[]> {
   if (args.tables) {
     return args.tables.map(({ objectApiName }) => ({
@@ -7623,7 +7626,7 @@ async function cloneRootsOf(
   const record = args.record ?? '';
   if (record === '') return [];
   const prefix = record.slice(0, 3);
-  let listed: Array<{ name: string; keyPrefix: string | null }>;
+  let listed: Array<{ name: string; keyPrefix?: string | null }>;
   try {
     listed = await describeGlobal(args.source);
   } catch {

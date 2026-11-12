@@ -33,7 +33,6 @@ import {
   emailsPerInsertOf,
   fileCopyRefusal,
   forgeAnonymizationRulesSchema,
-  forgeConfigSchema,
   forgeFileCopyOptionSchema,
   forgeGraphSchema,
   forgeRemovalPlanCountsLeft,
@@ -44,6 +43,7 @@ import {
   forgeRunCreatedRecords,
   forgeRunRecordsLeft,
   forgeTemplateSchema,
+  forgeWalkConfigSchema,
   idMapCsv,
   idMapCsvLines,
   idMapRows,
@@ -295,10 +295,10 @@ const previewPayloadSchema = z.object({
   recordId: z.string().regex(SF_ID_RE, 'Invalid Salesforce record ID'),
   orgId: orgIdSchema,
 });
-const discoverPayloadSchema = z.object({ config: forgeConfigSchema });
+const discoverPayloadSchema = z.object({ config: forgeWalkConfigSchema });
 const executePayloadSchema = z.object({
   graph: forgeGraphSchema,
-  config: forgeConfigSchema,
+  config: forgeWalkConfigSchema,
   // The method Review holds per PII category. The fields travel on the
   // graph's nodes; a category left out takes its default method.
   anonymizationRules: forgeAnonymizationRulesSchema.optional(),
@@ -356,7 +356,7 @@ const resumeRunPayloadSchema = z
   .object({
     forgeId: z.string().min(1).max(200),
     graph: forgeGraphSchema.optional(),
-    config: forgeConfigSchema.optional(),
+    config: forgeWalkConfigSchema.optional(),
     // Mute the target's automation for the part resumed, as for a run.
     muteAutomation: z.boolean().optional(),
   })
@@ -378,8 +378,11 @@ interface ForgeResumeOf {
   head: ResumableHead;
   /** How the part it resumes ended: what the journal says again of a part that wrote nothing. */
   end: { status: ForgeRunPartEndStatus; forgeId: string };
-  /** What the run was started with, as the journal keeps it: what `forge:execute` would carry. */
-  startedWith: z.infer<typeof executePayloadSchema>;
+  /**
+   * What the run was started with, as the journal keeps it: what
+   * `forge:execute` would carry, its config as the run held it.
+   */
+  startedWith: Omit<z.infer<typeof executePayloadSchema>, 'config'> & { config: ForgeConfig };
 }
 
 /** How a part of a run ended, as its journal says it. */
@@ -464,11 +467,14 @@ const exportIdsPayloadSchema = z.object({ forgeId: z.string().min(1).max(200) })
 /** Rows of the Id map written to its file at a time. */
 const ID_MAP_ROWS_PER_WRITE = 5_000;
 const deleteTemplatePayloadSchema = z.object({ templateId: z.string().min(1).max(200) });
-const planRequestPayloadSchema = z.object({ graph: forgeGraphSchema, config: forgeConfigSchema });
+const planRequestPayloadSchema = z.object({
+  graph: forgeGraphSchema,
+  config: forgeWalkConfigSchema,
+});
 const complianceRequestPayloadSchema = z.object({
   framework: z.string().min(1).max(50),
   graph: forgeGraphSchema,
-  config: forgeConfigSchema,
+  config: forgeWalkConfigSchema,
   // The method Review holds per PII category, as the run is sent it: the
   // report describes what the run would write.
   anonymizationRules: forgeAnonymizationRulesSchema.optional(),
@@ -492,7 +498,7 @@ const metadataDiffRequestPayloadSchema = z.object({
 // the rows a run creates, and copies no file.
 const rehearseRequestPayloadSchema = z.object({
   graph: forgeGraphSchema,
-  config: forgeConfigSchema,
+  config: forgeWalkConfigSchema,
   anonymizationRules: forgeAnonymizationRulesSchema.optional(),
 });
 // The graph, not a list of objects: the objects a run writes are told from it
@@ -503,7 +509,10 @@ const automationRequestPayloadSchema = z.object({
 });
 // The config gives both orgs, and the fields the run leaves out or renames,
 // which tell what it writes.
-const gapsRequestPayloadSchema = z.object({ graph: forgeGraphSchema, config: forgeConfigSchema });
+const gapsRequestPayloadSchema = z.object({
+  graph: forgeGraphSchema,
+  config: forgeWalkConfigSchema,
+});
 const usersRequestPayloadSchema = z.object({ orgId: orgIdSchema });
 
 /**

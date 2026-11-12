@@ -138,6 +138,40 @@ describe('ForgeOrchestrator', () => {
       expect(second).toBe(full);
     });
 
+    it('serves a clone of the whole org discovered again from the cache, and discovers it anew once its filters change', async () => {
+      const org = createMockConfig({ inputMode: 'org', depth: 'all', recordId: undefined });
+
+      await orchestrator.discover(org);
+      await orchestrator.discover({ ...org });
+      expect(deps.discoveryService.discover).toHaveBeenCalledTimes(1);
+
+      // A filter changes the counts, and an object it keeps no row of is
+      // left out as empty: the graph discovered without it is not this one.
+      const filtered = { ...org, objectSoqlFilters: { Account: "Type = 'Customer'" } };
+      await orchestrator.discover(filtered);
+      await orchestrator.discover({
+        ...filtered,
+        objectSoqlFilters: { Account: "Type = 'Customer'" },
+      });
+      expect(deps.discoveryService.discover).toHaveBeenCalledTimes(2);
+
+      // The same filters given in another order are the same filters.
+      const two = {
+        ...org,
+        objectSoqlFilters: { Account: "Type = 'Customer'", Case: "Status = 'New'" },
+      };
+      await orchestrator.discover(two);
+      await orchestrator.discover({
+        ...org,
+        objectSoqlFilters: { Case: "Status = 'New'", Account: "Type = 'Customer'" },
+      });
+      expect(deps.discoveryService.discover).toHaveBeenCalledTimes(3);
+
+      // Nor is a clone of the whole org the graph of one of its records.
+      await orchestrator.discover(createMockConfig());
+      expect(deps.discoveryService.discover).toHaveBeenCalledTimes(4);
+    });
+
     it('should propagate errors from discoveryService', async () => {
       vi.mocked(deps.discoveryService.discover).mockRejectedValue(
         new Error('Cannot resolve root object'),

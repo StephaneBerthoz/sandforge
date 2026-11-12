@@ -427,6 +427,12 @@ describe('a forge resource', () => {
     ]);
   });
 
+  it('refuses the depth all, the clone of a whole org, which no file asks for', () => {
+    expect(refusalsOf(withForge({ tables: [{ object: 'Account' }], depth: 'all' }))).toEqual([
+      'resources.bug-1234.depth: Invalid option: expected one of "direct"|"full"|"custom"',
+    ]);
+  });
+
   it('holds each condition to the rule the clone holds its --where to', () => {
     const refusedWhere = (where: string) =>
       refusalsOf(withForge({ tables: [{ object: 'Case', where }] }));

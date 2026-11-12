@@ -46,6 +46,7 @@
 import * as z from 'zod';
 import {
   isFileBodiedObject,
+  type CheckpointAccessLeftOutCode,
   type CheckpointCustomSettingKind,
   type CheckpointCustomSettings,
   type CheckpointLeftOutCode,
@@ -78,20 +79,38 @@ export type CheckpointScopeMode = 'everything' | 'picked';
 /** Why a scope leaves an object out: what a take counts past its limit is the take's own. */
 export type ScopeLeftOutReason = Exclude<CheckpointLeftOutCode, 'pastTheLimit'>;
 
+/**
+ * Why the global describe alone leaves an object out ({@link scopeCandidates}):
+ * not the reasons only a describe of the object, a read of it or the user's
+ * access can give, which come after.
+ */
+export type CandidateLeftOutReason = Exclude<
+  ScopeLeftOutReason,
+  'notDescribed' | 'noSystemModstamp' | 'noRecycleBin' | 'unreadable' | CheckpointAccessLeftOutCode
+>;
+
 /** An object a checkpoint leaves out, with why. */
-export interface ScopeLeftOut {
+export interface ScopeLeftOut<Reason extends ScopeLeftOutReason = ScopeLeftOutReason> {
   objectApiName: string;
-  reason: ScopeLeftOutReason;
+  reason: Reason;
   /** The org's own words, where it gave any: why it could not be described or read. */
   detail?: string;
 }
+
+/**
+ * What a scope asks of the user on each object it holds: to query, create,
+ * edit and delete its records (`write`), as a checkpoint does — a rewind
+ * puts back what was deleted and gives back what was changed — or to query
+ * and delete them (`delete`), all that emptying an object asks.
+ */
+export type ScopeAccess = 'write' | 'delete';
 
 /** What a checkpoint holds, as the global describe settles it. */
 export interface ScopeCandidates {
   mode: CheckpointScopeMode;
   /** The objects to describe, by the names the org gives them. */
   candidates: string[];
-  leftOut: ScopeLeftOut[];
+  leftOut: Array<ScopeLeftOut<CandidateLeftOutReason>>;
   /**
    * In `picked` mode, the objects of {@link HELD_WHEN_PICKED} the scope holds
    * though they were not picked, by the names the org gives them; none in
@@ -109,6 +128,8 @@ export interface ScopeRequest {
   excluded?: readonly string[];
   /** The custom settings to hold, by name, or `all`, in either mode; none unless given. */
   customSettings?: Readonly<CheckpointCustomSettings>;
+  /** What is asked of the user on each object; `write`, a checkpoint's, unless given. */
+  access?: ScopeAccess;
 }
 
 /** A file, as the org names its object: held, and its versions and links with it. */
@@ -205,7 +226,9 @@ const UNSUPPORTED_SUFFIXES: readonly string[] = ['__b', '__x', '__dlm', '__kav',
  * The objects the org's own describes say no copy writes
  * (`excludedByDescribe`), and of them those the Tooling API serves, in lower
  * case: the second set words the reason, metadata rather than data the user
- * may not write.
+ * may not write. A scope that only deletes reads the first as the second
+ * alone: an object the data API creates none of is still emptied of the
+ * records it holds.
  */
 interface DescribedOut {
   out: ReadonlySet<string>;
@@ -237,13 +260,17 @@ const WORKED_WITHOUT_LAYOUT: ReadonlySet<string> = new Set(
  * org gives it no layout: the person asked for it. So is a custom setting
  * the take names, which needs only that its user may write its rows: the
  * global describe flags it, and no other rule reads it as setup.
+ *
+ * A scope that only deletes (`access: 'delete'`) asks of each object that
+ * its user may query and delete its records, a file's as any other's.
  */
 function leftOutReason(
   object: GlobalObject,
   described: DescribedOut,
   mode: CheckpointScopeMode,
   namedSetting: boolean,
-): ScopeLeftOutReason | undefined {
+  access: ScopeAccess,
+): CandidateLeftOutReason | undefined {
   const name = object.name.toLowerCase();
   if (CHATTER_OBJECTS.has(name) || name.endsWith('feed')) return 'chatter';
   if (name.endsWith('history') || name.endsWith('__hd') || HISTORY_OBJECTS.has(name)) {
@@ -254,15 +281,18 @@ function leftOutReason(
   if (UNSUPPORTED_SUFFIXES.some((suffix) => name.endsWith(suffix))) return 'unsupportedKind';
   if (object.customSetting === true) {
     if (!namedSetting) return 'customSetting';
-    return writableData(object) ? undefined : 'notWritable';
+    return granted(object, access) ? undefined : 'notWritable';
   }
   if (HELD_WITH_FILES.has(name)) return 'heldWithFiles';
   // Every copy leaves both out, a file for its body: a checkpoint holds
   // their records and none of their bodies. A file is held though the data
   // API creates none, as a rewind never makes one.
-  if (name === FILE_OBJECT.toLowerCase()) return editable(object) ? undefined : 'notWritable';
+  if (name === FILE_OBJECT.toLowerCase()) {
+    const held = access === 'delete' ? deletableData(object) : editable(object);
+    return held ? undefined : 'notWritable';
+  }
   if (name === ATTACHMENT_OBJECT.toLowerCase())
-    return writableData(object) ? undefined : 'notWritable';
+    return granted(object, access) ? undefined : 'notWritable';
   if (isFileBodiedObject(object.name)) return 'files';
   if (PLATFORM_CREATED_OBJECTS.has(name)) return 'platformCreated';
   // Users and permissions, and the logs and jobs the platform alone writes:
@@ -274,12 +304,22 @@ function leftOutReason(
     return 'setup';
   }
   if (described.out.has(name)) return described.tooling.has(name) ? 'metadata' : 'notWritable';
-  return writableData(object) ? undefined : 'notWritable';
+  return granted(object, access) ? undefined : 'notWritable';
+}
+
+/** Whether the user may do with an object's records what `access` asks. */
+function granted(object: GlobalObject, access: ScopeAccess): boolean {
+  return access === 'delete' ? deletableData(object) : writableData(object);
 }
 
 /** Whether the user may query, create, edit and delete an object's records. */
 function writableData(object: GlobalObject): boolean {
   return object.createable === true && editable(object);
+}
+
+/** Whether the user may query and delete an object's records: what emptying it asks. */
+function deletableData(object: GlobalObject): boolean {
+  return object.queryable === true && object.deletable === true;
 }
 
 /**
@@ -347,19 +387,22 @@ export function scopeCandidates(
   request: ScopeRequest,
   toolingObjects: readonly string[] = [],
 ): ScopeCandidates {
+  const access = request.access ?? 'write';
+  const notWritten =
+    access === 'delete' ? toolingObjects : excludedByDescribe(globalObjects, toolingObjects);
   const described: DescribedOut = {
-    out: new Set(
-      [...excludedByDescribe(globalObjects, toolingObjects)].map((name) => name.toLowerCase()),
-    ),
+    out: new Set([...notWritten].map((name) => name.toLowerCase())),
     tooling: new Set(toolingObjects.map((name) => name.toLowerCase())),
   };
   const excluded = new Set((request.excluded ?? []).map((name) => name.toLowerCase()));
   const byLowerName = new Map(globalObjects.map((object) => [object.name.toLowerCase(), object]));
   const settings = namedSettings(globalObjects, request.customSettings);
-  const leftOut: ScopeLeftOut[] = settings.unknown.map((objectApiName) => ({
-    objectApiName,
-    reason: 'notCustomSetting',
-  }));
+  const leftOut: Array<ScopeLeftOut<CandidateLeftOutReason>> = settings.unknown.map(
+    (objectApiName) => ({
+      objectApiName,
+      reason: 'notCustomSetting',
+    }),
+  );
   const candidates: string[] = [];
   const asked: GlobalObject[] = [];
   const addedToPicked: string[] = [];
@@ -401,7 +444,7 @@ export function scopeCandidates(
     const key = object.name.toLowerCase();
     const reason = excluded.has(key)
       ? 'excludedByUser'
-      : leftOutReason(object, described, request.mode, settings.held.has(key));
+      : leftOutReason(object, described, request.mode, settings.held.has(key), access);
     if (reason === undefined) candidates.push(object.name);
     else leftOut.push({ objectApiName: object.name, reason });
   }
@@ -569,7 +612,7 @@ export function resolveScope(
   describes: ReadonlyMap<string, CheckpointDescribe>,
   describeErrors: ReadonlyMap<string, string> = new Map(),
 ): CheckpointScope {
-  const leftOut = [...candidates.leftOut];
+  const leftOut: ScopeLeftOut[] = [...candidates.leftOut];
   const kept: string[] = [];
   for (const name of candidates.candidates) {
     const described = describes.get(name);
