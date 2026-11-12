@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { m } from 'framer-motion';
 import {
   Copy,
@@ -68,12 +69,16 @@ import { useForgeRunGateStore } from './runGate';
 import {
   createdTargets,
   isRunNote,
+  isSecondPass,
+  lookupsLeftEmptyOf,
   objectResultsCsv,
   reportCell,
   rootCopyOf,
   runErrorsReportLines,
   runFailureCell,
+  runFailuresOf,
   runNotesReportLines,
+  type RunFailure,
 } from './forgeResultsExport';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
@@ -153,6 +158,29 @@ const statusBadgeStyles: Record<string, string> = {
 export interface ForgeResultsProps {
   /** Additional CSS classes for the root element. */
   className?: string;
+}
+
+/**
+ * A part of what the run failed of an object, in the panel's language, for
+ * its line in the results table: the stage and how many failed there, or the
+ * object skipped whole, then the codes its samples open with. The results
+ * file and the copied report say the same in English (`runFailureCell`).
+ */
+function runFailureWords(t: TFunction, { stage, failed, skipped, codes }: RunFailure): string {
+  const counts = {
+    count: failed,
+    formatted: formatNumber(failed),
+    stage: t(`forgeRun.stage.${stage}`),
+  };
+  // An object skipped before its read counts none of its rows: "0 failed"
+  // would say it lost nothing.
+  const said =
+    skipped && failed === 0
+      ? t('forgeRun.errorsCell.skippedWhole')
+      : skipped
+        ? t('forgeRun.errorsCell.failedSkipped', counts)
+        : t('forgeRun.errorsCell.failed', counts);
+  return codes.length > 0 ? `${said} (${codes.join(', ')})` : said;
 }
 
 /**
@@ -392,6 +420,25 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     }));
     return [...ofGraph, ...beyond];
   }, [nodes, result, readByObject, recordsOf, statusesBeyondGraph]);
+
+  /*
+   * Each row's Errors cell, by object, a line per thing said: what discovery
+   * said of the object, then what the run failed of it, by stage and code, in
+   * the panel's language. It held discovery's words alone, and an object
+   * whose every row the target refused read "Failed" and "-", while the file
+   * the table is saved to and the copied report named the stage and the code.
+   */
+  const errorLines = useMemo(() => {
+    const byObject = new Map<string, string[]>();
+    for (const row of rows) {
+      const lines = [
+        ...(row.errors.length > 0 ? [row.errors.join(', ')] : []),
+        ...runFailuresOf(row.objectApiName, failures).map((part) => runFailureWords(t, part)),
+      ];
+      if (lines.length > 0) byObject.set(row.objectApiName, lines);
+    }
+    return byObject;
+  }, [rows, failures, t]);
 
   // Objects, not records: the run keeps no count of the records of an object
   // it skips, and the count a node carries is discovery's, of its whole table.
@@ -1153,7 +1200,16 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                     </span>
                   </td>
                   <td className="px-4 py-2 text-text-secondary">
-                    {row.errors.length > 0 ? row.errors.join(', ') : '-'}
+                    {errorLines.get(row.objectApiName)?.map((line, index) => (
+                      <span
+                        // A line per report: two can say the same words.
+                        key={index}
+                        data-testid="forge-results-error-line"
+                        className="block"
+                      >
+                        {line}
+                      </span>
+                    )) ?? '-'}
                   </td>
                 </tr>
               ))}
@@ -1728,15 +1784,31 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
     });
   }, []);
 
+  /*
+   * The failed records and their objects, then the lookups the second pass
+   * left empty, apart, as the copied report counts them: those records are
+   * in the target, and the run counts them failed nowhere. Added to the
+   * records, with the pass counted as an object, they read "3 objects · 4
+   * records" of 3 records of 2 objects. An object can have two reports — its
+   * rows refused at insert, and the statuses it was not given back — and
+   * counted per report, it was counted twice.
+   */
   const totals = useMemo(() => {
-    let totalFailed = 0;
-    for (const e of errors) totalFailed += e.failedCount;
-    return totalFailed;
-  }, [errors]);
-  // An object can have two reports — its rows refused at insert, and the
-  // statuses it was not given back — and counted per report, it was counted
-  // twice in the header.
-  const objectCount = useMemo(() => new Set(errors.map((e) => e.objectApiName)).size, [errors]);
+    const ofObjects = errors.filter((e) => !isSecondPass(e));
+    let failedRecords = 0;
+    for (const e of ofObjects) failedRecords += e.failedCount;
+    const objectCount = new Set(ofObjects.map((e) => e.objectApiName)).size;
+    const leftEmpty = lookupsLeftEmptyOf(errors)?.leftEmpty ?? 0;
+    return [
+      ...(objectCount > 0
+        ? [
+            t('common.objectCount', { count: objectCount }),
+            t('common.recordCount', { count: failedRecords }),
+          ]
+        : []),
+      ...(leftEmpty > 0 ? [t('forgeRun.errorsPanel.lookupsLeftEmpty', { count: leftEmpty })] : []),
+    ].join(' · ');
+  }, [errors, t]);
 
   return (
     <m.div
@@ -1752,9 +1824,11 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
         <h3 className="text-sm font-semibold text-text-primary">
           {t('forgeRun.errorsPanel.title', { defaultValue: 'Execution errors' })}
         </h3>
-        <span className="text-xs text-text-secondary ml-auto tabular-nums">
-          {t('common.objectCount', { count: objectCount })} ·{' '}
-          {t('common.recordCount', { count: totals })}
+        <span
+          data-testid="forge-errors-totals"
+          className="text-xs text-text-secondary ml-auto tabular-nums"
+        >
+          {totals}
         </span>
       </div>
       <ul className="divide-y divide-status-error/10">

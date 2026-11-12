@@ -4356,7 +4356,16 @@
       "linksUncheckedRun": "Campos de búsqueda no comprobados: {{reason}}"
     },
     "errorsPanel": {
-      "title": "Errores de ejecución"
+      "title": "Errores de ejecución",
+      "lookupsLeftEmpty_one": "{{count}} vínculo que la segunda pasada dejó vacío",
+      "lookupsLeftEmpty_other": "{{count}} vínculos que la segunda pasada dejó vacíos"
+    },
+    "errorsCell": {
+      "failed_one": "{{stage}}: {{formatted}} registro fallido",
+      "failed_other": "{{stage}}: {{formatted}} registros fallidos",
+      "failedSkipped_one": "{{stage}}: {{formatted}} registro fallido, el objeto omitido por completo",
+      "failedSkipped_other": "{{stage}}: {{formatted}} registros fallidos, el objeto omitido por completo",
+      "skippedWhole": "Omitido por completo"
     },
     "notesPanel": {
       "title": "Notas de ejecución",
@@ -5930,6 +5939,10 @@
       "resultFilesLeft_other": "{{formatted}} archivos adjuntos a ellos se quedan en {{org}}, ya que la carga no los creó: {{names}}",
       "heldByAutomation_one": "{{formatted}} registro de esta carga se conservó por registros creados bajo él durante la carga, como su usuario, probablemente por la automatización del destino: {{objects}}.",
       "heldByAutomation_other": "{{formatted}} registros de esta carga se conservaron por registros creados bajo ellos durante la carga, como su usuario, probablemente por la automatización del destino: {{objects}}.",
+      "heldByAutomationAfter_one": "{{formatted}} registro de esta carga se conservó por registros creados bajo él como su usuario después de la última escritura de la carga, menos de un minuto después de él, por la automatización del destino o a mano: {{objects}}.",
+      "heldByAutomationAfter_other": "{{formatted}} registros de esta carga se conservaron por registros creados bajo ellos como su usuario después de la última escritura de la carga, menos de un minuto después de ellos, por la automatización del destino o a mano: {{objects}}.",
+      "heldByAutomationPartlyAfter_one": "{{formatted}} registro de esta carga se conservó por registros creados bajo él como su usuario, durante la carga o después de su última escritura menos de un minuto después de él, por la automatización del destino o a mano: {{objects}}.",
+      "heldByAutomationPartlyAfter_other": "{{formatted}} registros de esta carga se conservaron por registros creados bajo ellos como su usuario durante la carga o, bajo {{after}} de ellos, después de la última escritura de la carga, menos de un minuto después de ellos, por la automatización del destino o a mano: {{objects}}.",
       "takeBackMade": "Recuperar lo que la automatización del destino hizo para esta carga y eliminar de nuevo",
       "takeBackMadeNote": "Esto toma lo vinculado a los registros de esta carga. Lo que la automatización modificó en registros que ya estaban se queda: solo un retroceso a un punto de control lo recupera."
     },
@@ -5971,6 +5984,10 @@
     "removeQuoteCopies": "Las líneas que la plataforma copió entre un presupuesto sincronizado por la ejecución y su oportunidad también se van: se leen al empezar la eliminación y se cuentan aparte en su resultado.",
     "heldByAutomation_one": "{{formatted}} registro de esta ejecución se conservó por registros creados bajo él durante la ejecución, como su usuario, probablemente por la automatización del destino: {{objects}}.",
     "heldByAutomation_other": "{{formatted}} registros de esta ejecución se conservaron por registros creados bajo ellos durante la ejecución, como su usuario, probablemente por la automatización del destino: {{objects}}.",
+    "heldByAutomationAfter_one": "{{formatted}} registro de esta ejecución se conservó por registros creados bajo él como su usuario después de la última escritura de la ejecución, menos de un minuto después de él, por la automatización del destino o a mano: {{objects}}.",
+    "heldByAutomationAfter_other": "{{formatted}} registros de esta ejecución se conservaron por registros creados bajo ellos como su usuario después de la última escritura de la ejecución, menos de un minuto después de ellos, por la automatización del destino o a mano: {{objects}}.",
+    "heldByAutomationPartlyAfter_one": "{{formatted}} registro de esta ejecución se conservó por registros creados bajo él como su usuario, durante la ejecución o después de su última escritura menos de un minuto después de él, por la automatización del destino o a mano: {{objects}}.",
+    "heldByAutomationPartlyAfter_other": "{{formatted}} registros de esta ejecución se conservaron por registros creados bajo ellos como su usuario durante la ejecución o, bajo {{after}} de ellos, después de la última escritura de la ejecución, menos de un minuto después de ellos, por la automatización del destino o a mano: {{objects}}.",
     "heldSweepLeft": "El barrido los dejó: su lista dice por qué, y lo que llegó tarde se puede pedir.",
     "takeBackMade": "Recuperar lo que la automatización del destino hizo para esta ejecución y eliminar de nuevo",
     "takeBackMadeNote": "Esto toma lo vinculado a los registros de esta ejecución. Lo que la automatización modificó en registros que ya estaban se queda: solo un retroceso a un punto de control lo recupera."

@@ -130,17 +130,28 @@ const RESULT_TITLE_CLASSES: Record<ForgeUndoStatus, string> = {
   cancelled: 'text-status-warning',
 };
 
-/** What a removal says of the records the target's automation likely made, by what it took back. */
+/**
+ * What a removal says of the records the target's automation likely made, by
+ * what it took back: held by records created during it (`held`), after its
+ * last write (`heldAfter`), or some of each (`heldPartlyAfter`).
+ */
 const AUTOMATION_HELD_KEYS: Partial<
-  Record<RemovalSubject, { held: string; takeBack: string; note: string }>
+  Record<
+    RemovalSubject,
+    { held: string; heldAfter: string; heldPartlyAfter: string; takeBack: string; note: string }
+  >
 > = {
   run: {
     held: 'runRemoval.heldByAutomation',
+    heldAfter: 'runRemoval.heldByAutomationAfter',
+    heldPartlyAfter: 'runRemoval.heldByAutomationPartlyAfter',
     takeBack: 'runRemoval.takeBackMade',
     note: 'runRemoval.takeBackMadeNote',
   },
   load: {
     held: 'runRemoval.load.heldByAutomation',
+    heldAfter: 'runRemoval.load.heldByAutomationAfter',
+    heldPartlyAfter: 'runRemoval.load.heldByAutomationPartlyAfter',
     takeBack: 'runRemoval.load.takeBackMade',
     note: 'runRemoval.load.takeBackMadeNote',
   },
@@ -622,7 +633,11 @@ export interface ForgeRunRemovalResultProps {
  *
  * Records kept for what was created under them during the run, as its user,
  * are likely held by the target's automation: the result names it and offers
- * the sweep, the one way that takes those and no colleague's work. Before it,
+ * the sweep, the one way that takes those and no colleague's work. What the
+ * org dated after the run's last write, within a minute of its record, is the
+ * automation run late or a person working as the run's user, and is said so,
+ * as the command line says it: it read "during the run" since the removal
+ * told them apart (`heldByAutomationAfterRun`). Before it,
  * the only way out was to include what changed, which takes that work too.
  */
 export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
@@ -640,6 +655,10 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
   const heldByAutomation = result.objects.reduce(
     (sum, object) => sum + (object.heldByAutomation ?? 0),
     0,
+  );
+  const heldAfterRun = Math.min(
+    heldByAutomation,
+    result.objects.reduce((sum, object) => sum + (object.heldByAutomationAfterRun ?? 0), 0),
   );
   const automationHolders = [
     ...new Set(result.objects.flatMap((object) => object.automationHolders ?? [])),
@@ -781,9 +800,16 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
       {automationKeys && heldByAutomation > 0 && (
         <div data-testid="forge-removal-held-by-automation" className="flex flex-col gap-1">
           <p className="text-status-warning wrap-break-word">
-            {counted(t, automationKeys.held, heldByAutomation, {
-              objects: automationHolders.join(', '),
-            })}
+            {counted(
+              t,
+              heldAfterRun === 0
+                ? automationKeys.held
+                : heldAfterRun === heldByAutomation
+                  ? automationKeys.heldAfter
+                  : automationKeys.heldPartlyAfter,
+              heldByAutomation,
+              { objects: automationHolders.join(', '), after: formatNumber(heldAfterRun) },
+            )}
           </p>
           {/* A sweep that left them left them for a reason its list says. */}
           {result.sweep && (

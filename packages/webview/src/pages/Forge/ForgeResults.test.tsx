@@ -21,6 +21,7 @@ import { useForgeRunGateStore } from './runGate';
 import {
   RUN_NOTES,
   SECOND_PASS_REPORT,
+  SKIPPED_WHOLE,
   TRAP_REFUSALS,
   UNMATCHED_REFERENCE_DATA,
 } from './testing/forgeRunReports';
@@ -917,6 +918,96 @@ describe('ForgeResults', () => {
           '| Contact | Trap_Preferred_Account__c → Account (1 record) — Written without Trap_Preferred_Account__c: the target holds no record of these ids, outside the run. |\n' +
           '| FeedItem | Type=TrackedChange (1 record) — Not written: the platform writes each tracked change itself, and refuses one a copy sends. |\n' +
           '| BusinessHours | Id=01m000000000001AAA matchValue=Office hours — Reference-data row not found on target org |',
+      );
+    });
+
+    it('shows in the table what the run failed of each object, as the results file saves it', () => {
+      // The Errors column held discovery's words alone: the accounts the
+      // target refused every one of read "Failed" and "-", while the file
+      // the table is saved to named the stage and the code.
+      cloneTheTrapRefused([
+        ...TRAP_REFUSALS,
+        { ...SKIPPED_WHOLE, objectApiName: 'Case' },
+        SECOND_PASS_REPORT,
+        ...RUN_NOTES,
+        UNMATCHED_REFERENCE_DATA,
+      ]);
+      render(<ForgeResults />);
+
+      expect(tableRows()).toEqual([
+        ['Account', '2', 'Failed', 'Insert: 2 records failed (REQUIRED_FIELD_MISSING)'],
+        ['Case', '-', 'Skipped', 'Skipped whole'],
+        ['Contact', '1', 'Failed', 'Insert: 1 record failed (FIELD_CUSTOM_VALIDATION_EXCEPTION)'],
+      ]);
+    });
+
+    it('says the rows held back and the object skipped whole in the table, after what discovery said', () => {
+      cloneTheTrapRefused([
+        {
+          objectApiName: 'Contact',
+          stage: 'scope',
+          failedCount: 36,
+          attemptedCount: 0,
+          skipped: true,
+          samples: [],
+        },
+      ]);
+      mockGraph = {
+        ...mockGraph,
+        nodes: mockGraph.nodes.map((node) =>
+          node.objectApiName === 'Contact'
+            ? { ...node, errors: ['FIELD_INTEGRITY_EXCEPTION'] }
+            : node,
+        ),
+      };
+      render(<ForgeResults />);
+
+      const contact = screen
+        .getAllByTestId('forge-results-row')
+        .find((row) => row.querySelector('td')?.textContent === 'Contact');
+      const lines = [
+        ...(contact?.querySelectorAll('[data-testid="forge-results-error-line"]') ?? []),
+      ].map((line) => line.textContent);
+      expect(lines).toEqual([
+        'FIELD_INTEGRITY_EXCEPTION',
+        'Scope: 36 records failed, the object skipped whole',
+      ]);
+    });
+
+    it('says what the run failed of each object in the panel’s language', async () => {
+      cloneTheTrapRefused([...TRAP_REFUSALS]);
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      try {
+        render(<ForgeResults />);
+        expect(tableRows()[0]).toEqual([
+          'Account',
+          '2',
+          'Échoué',
+          'Insertion : 2 enregistrements en échec (REQUIRED_FIELD_MISSING)',
+        ]);
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    });
+
+    it('counts apart, in the errors panel, the lookups the second pass left empty, as the copied report does', () => {
+      // The header added them to the failed records and counted the pass as
+      // an object: "3 objects · 4 records" for 3 records of 2 objects.
+      cloneTheTrapRefused([...TRAP_REFUSALS, SECOND_PASS_REPORT]);
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-errors-totals').textContent).toBe(
+        '2 objects · 3 records · 1 lookup the second pass left empty',
+      );
+    });
+
+    it('counts no object nor record in the errors panel of a run whose second pass alone left something', () => {
+      cloneTheTrapRefused([SECOND_PASS_REPORT, ...RUN_NOTES]);
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-errors-totals').textContent).toBe(
+        '1 lookup the second pass left empty',
       );
     });
 

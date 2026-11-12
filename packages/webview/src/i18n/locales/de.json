@@ -4356,7 +4356,16 @@
       "linksUncheckedRun": "Lookup-Felder nicht geprüft: {{reason}}"
     },
     "errorsPanel": {
-      "title": "Ausführungsfehler"
+      "title": "Ausführungsfehler",
+      "lookupsLeftEmpty_one": "{{count}} Verknüpfung, die der zweite Durchlauf leer ließ",
+      "lookupsLeftEmpty_other": "{{count}} Verknüpfungen, die der zweite Durchlauf leer ließ"
+    },
+    "errorsCell": {
+      "failed_one": "{{stage}}: {{formatted}} Datensatz fehlgeschlagen",
+      "failed_other": "{{stage}}: {{formatted}} Datensätze fehlgeschlagen",
+      "failedSkipped_one": "{{stage}}: {{formatted}} Datensatz fehlgeschlagen, das Objekt ganz übersprungen",
+      "failedSkipped_other": "{{stage}}: {{formatted}} Datensätze fehlgeschlagen, das Objekt ganz übersprungen",
+      "skippedWhole": "Ganz übersprungen"
     },
     "notesPanel": {
       "title": "Ausführungshinweise",
@@ -5930,6 +5939,10 @@
       "resultFilesLeft_other": "{{formatted}} an sie angehängte Dateien bleiben in {{org}}, da der Ladevorgang sie nicht erstellt hat: {{names}}",
       "heldByAutomation_one": "{{formatted}} Datensatz dieses Ladens wurde wegen Datensätzen behalten, die während des Ladens unter ihm als dessen Benutzer erstellt wurden, wohl von der Automatisierung des Ziels: {{objects}}.",
       "heldByAutomation_other": "{{formatted}} Datensätze dieses Ladens wurden wegen Datensätzen behalten, die während des Ladens unter ihnen als dessen Benutzer erstellt wurden, wohl von der Automatisierung des Ziels: {{objects}}.",
+      "heldByAutomationAfter_one": "{{formatted}} Datensatz dieses Ladens wurde wegen Datensätzen behalten, die nach dem letzten Schreiben des Ladens, innerhalb einer Minute nach ihm, unter ihm als dessen Benutzer erstellt wurden, von der Automatisierung des Ziels oder von Hand: {{objects}}.",
+      "heldByAutomationAfter_other": "{{formatted}} Datensätze dieses Ladens wurden wegen Datensätzen behalten, die nach dem letzten Schreiben des Ladens, innerhalb einer Minute nach ihnen, unter ihnen als dessen Benutzer erstellt wurden, von der Automatisierung des Ziels oder von Hand: {{objects}}.",
+      "heldByAutomationPartlyAfter_one": "{{formatted}} Datensatz dieses Ladens wurde wegen Datensätzen behalten, die während des Ladens oder nach seinem letzten Schreiben innerhalb einer Minute nach ihm unter ihm als dessen Benutzer erstellt wurden, von der Automatisierung des Ziels oder von Hand: {{objects}}.",
+      "heldByAutomationPartlyAfter_other": "{{formatted}} Datensätze dieses Ladens wurden wegen Datensätzen behalten, die unter ihnen als dessen Benutzer während des Ladens oder, unter {{after}} von ihnen, nach dem letzten Schreiben des Ladens innerhalb einer Minute nach ihnen erstellt wurden, von der Automatisierung des Ziels oder von Hand: {{objects}}.",
       "takeBackMade": "Zurücknehmen, was die Automatisierung des Ziels für dieses Laden erstellt hat, dann erneut entfernen",
       "takeBackMadeNote": "Das nimmt, was mit den Datensätzen dieses Ladens verbunden ist. Was die Automatisierung an bereits vorhandenen Datensätzen geändert hat, bleibt: Nur das Zurücksetzen auf einen Prüfpunkt nimmt das zurück."
     },
@@ -5971,6 +5984,10 @@
     "removeQuoteCopies": "Die Zeilen, die die Plattform zwischen einem vom Durchlauf synchronisierten Angebot und seiner Opportunity kopiert hat, gehen mit: Sie werden zu Beginn des Entfernens gelesen und im Ergebnis gesondert gezählt.",
     "heldByAutomation_one": "{{formatted}} Datensatz dieses Durchlaufs wurde wegen Datensätzen behalten, die während des Durchlaufs unter ihm als dessen Benutzer erstellt wurden, wohl von der Automatisierung des Ziels: {{objects}}.",
     "heldByAutomation_other": "{{formatted}} Datensätze dieses Durchlaufs wurden wegen Datensätzen behalten, die während des Durchlaufs unter ihnen als dessen Benutzer erstellt wurden, wohl von der Automatisierung des Ziels: {{objects}}.",
+    "heldByAutomationAfter_one": "{{formatted}} Datensatz dieses Durchlaufs wurde wegen Datensätzen behalten, die nach dem letzten Schreiben des Durchlaufs, innerhalb einer Minute nach ihm, unter ihm als dessen Benutzer erstellt wurden, von der Automatisierung des Ziels oder von Hand: {{objects}}.",
+    "heldByAutomationAfter_other": "{{formatted}} Datensätze dieses Durchlaufs wurden wegen Datensätzen behalten, die nach dem letzten Schreiben des Durchlaufs, innerhalb einer Minute nach ihnen, unter ihnen als dessen Benutzer erstellt wurden, von der Automatisierung des Ziels oder von Hand: {{objects}}.",
+    "heldByAutomationPartlyAfter_one": "{{formatted}} Datensatz dieses Durchlaufs wurde wegen Datensätzen behalten, die während des Durchlaufs oder nach seinem letzten Schreiben innerhalb einer Minute nach ihm unter ihm als dessen Benutzer erstellt wurden, von der Automatisierung des Ziels oder von Hand: {{objects}}.",
+    "heldByAutomationPartlyAfter_other": "{{formatted}} Datensätze dieses Durchlaufs wurden wegen Datensätzen behalten, die unter ihnen als dessen Benutzer während des Durchlaufs oder, unter {{after}} von ihnen, nach dem letzten Schreiben des Durchlaufs innerhalb einer Minute nach ihnen erstellt wurden, von der Automatisierung des Ziels oder von Hand: {{objects}}.",
     "heldSweepLeft": "Das Aufräumen hat sie gelassen: Seine Liste sagt warum, und Spätes kann ausgewählt werden.",
     "takeBackMade": "Zurücknehmen, was die Automatisierung des Ziels für diesen Durchlauf erstellt hat, dann erneut entfernen",
     "takeBackMadeNote": "Das nimmt, was mit den Datensätzen dieses Durchlaufs verbunden ist. Was die Automatisierung an bereits vorhandenen Datensätzen geändert hat, bleibt: Nur das Zurücksetzen auf einen Prüfpunkt nimmt das zurück."

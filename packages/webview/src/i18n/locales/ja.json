@@ -4135,7 +4135,13 @@
       "linksUncheckedRun": "参照項目は未確認: {{reason}}"
     },
     "errorsPanel": {
-      "title": "実行エラー"
+      "title": "実行エラー",
+      "lookupsLeftEmpty_other": "2 回目のパスで空のまま残った参照項目 {{count}} 件"
+    },
+    "errorsCell": {
+      "failed_other": "{{stage}}: {{formatted}} 件のレコードが失敗",
+      "failedSkipped_other": "{{stage}}: {{formatted}} 件のレコードが失敗、オブジェクト全体をスキップ",
+      "skippedWhole": "オブジェクト全体をスキップ"
     },
     "notesPanel": {
       "title": "実行メモ",
@@ -5582,6 +5588,8 @@
       "resultTookAlong_other": "このロードのものではない、ロード後に追加または変更されたレコード {{formatted}} 件も一緒に削除しました: {{objects}}",
       "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、このロードが作成したものではないため {{org}} に残ります: {{names}}",
       "heldByAutomation_other": "この読み込みの {{formatted}} 件のレコードは、読み込み中にその下に実行ユーザーとして作成されたレコードのために残しました。おそらくターゲットの自動化によるものです: {{objects}}。",
+      "heldByAutomationAfter_other": "この読み込みの {{formatted}} 件のレコードは、読み込みの最後の書き込みの後、1 分以内にその下に実行ユーザーとして作成されたレコードのために残しました。ターゲットの自動化によるものか、手作業によるものです: {{objects}}。",
+      "heldByAutomationPartlyAfter_other": "この読み込みの {{formatted}} 件のレコードは、読み込み中に、またはそのうち {{after}} 件については読み込みの最後の書き込みの後 1 分以内に、その下に実行ユーザーとして作成されたレコードのために残しました。ターゲットの自動化によるものか、手作業によるものです: {{objects}}。",
       "takeBackMade": "ターゲットの自動化がこの読み込みのために作成したものを取り戻して、もう一度削除",
       "takeBackMadeNote": "この読み込みのレコードに結び付くものを取り戻します。自動化が既存のレコードに加えた変更は残ります。それを取り戻せるのはチェックポイントへの巻き戻しだけです。"
     },
@@ -5610,6 +5618,8 @@
     "resultPlatformCopies_other": "{{formatted}} 件は、実行が同期した見積とその商談の間でプラットフォームがコピーしたもの",
     "removeQuoteCopies": "実行が同期した見積とその商談の間でプラットフォームがコピーした行も削除します。削除の開始時に読み取り、結果では別に数えます。",
     "heldByAutomation_other": "この実行の {{formatted}} 件のレコードは、実行中にその下に実行ユーザーとして作成されたレコードのために残しました。おそらくターゲットの自動化によるものです: {{objects}}。",
+    "heldByAutomationAfter_other": "この実行の {{formatted}} 件のレコードは、実行の最後の書き込みの後、1 分以内にその下に実行ユーザーとして作成されたレコードのために残しました。ターゲットの自動化によるものか、手作業によるものです: {{objects}}。",
+    "heldByAutomationPartlyAfter_other": "この実行の {{formatted}} 件のレコードは、実行中に、またはそのうち {{after}} 件については実行の最後の書き込みの後 1 分以内に、その下に実行ユーザーとして作成されたレコードのために残しました。ターゲットの自動化によるものか、手作業によるものです: {{objects}}。",
     "heldSweepLeft": "一掃はこれらを残しました。理由はリストに示され、遅れて作成されたものは指定できます。",
     "takeBackMade": "ターゲットの自動化がこの実行のために作成したものを取り戻して、もう一度削除",
     "takeBackMadeNote": "この実行のレコードに結び付くものを取り戻します。自動化が既存のレコードに加えた変更は残ります。それを取り戻せるのはチェックポイントへの巻き戻しだけです。"

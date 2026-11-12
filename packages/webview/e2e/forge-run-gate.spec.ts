@@ -234,6 +234,39 @@ test.describe('a panel too narrow for Review’s run column beside the rows', ()
   // of the panel, and the notice stays at the head of the rows.
   test.use({ viewport: { width: 600, height: 560 } });
 
+  test('the first Execute draws the execution step in place, Review’s scroll kept', async ({
+    page,
+  }) => {
+    await openReview(page, 'Dark 2026');
+    // Review fetches the execution step's chunk while it is read.
+    await page.waitForLoadState('networkidle');
+    const panel = page.getByTestId('panel-app');
+    await panel.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    expect(await panel.evaluate((el) => el.scrollTop)).toBeGreaterThan(400);
+    // The step's place, empty while it loads, is all a suspended step draws.
+    await page.evaluate(() => {
+      const seen = { loading: false };
+      (window as unknown as Record<string, unknown>).__forgeStepLoadingSeen = seen;
+      new MutationObserver(() => {
+        if (document.querySelector('[data-testid="forge-step-loading"]')) seen.loading = true;
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+
+    await page.getByTestId('execute-button').click();
+    await expect(page.getByTestId('forge-execution')).toBeVisible();
+
+    // The step fetched ahead still suspended once as it was first drawn: its
+    // empty place took the page's height, and the panel went back to its top.
+    const loadingSeen = await page.evaluate(
+      () =>
+        (window as unknown as Record<string, { loading: boolean }>).__forgeStepLoadingSeen.loading,
+    );
+    expect(loadingSeen).toBe(false);
+    expect(await panel.evaluate((el) => el.scrollTop)).toBeGreaterThan(400);
+  });
+
   test('the notice of a refusal is scrolled into view and handed the keyboard, wherever the page was scrolled', async ({
     page,
   }) => {
@@ -246,10 +279,10 @@ test.describe('a panel too narrow for Review’s run column beside the rows', ()
     await page.getByTestId('execute-button').click();
     await expect(page.getByTestId('forge-execution')).toBeVisible();
     const request = await bridge.waitForMessage('forge:execute', { timeout: 10_000 });
-    // The execution screen is drawn from the panel's top, and the run reads
-    // and asks its questions under it: followed down that screen, the page
-    // came back to Review as far down, the notice some 290 pixels above the
-    // fold and the keyboard on the step around it.
+    // The run reads and asks its questions under the execution screen:
+    // followed down that screen, the page came back to Review as far down,
+    // the notice some 290 pixels above the fold and the keyboard on the step
+    // around it.
     await panel.evaluate(toFoot);
     await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBeGreaterThan(400);
 
@@ -282,9 +315,8 @@ test.describe('a panel too narrow for Review’s run column beside the rows', ()
     await expect(page.getByTestId('forge-run-gate-notice')).toHaveCount(0);
     const panel = page.getByTestId('panel-app');
 
-    // The first run drew the execution screen from the panel's top while its
-    // step loaded. The second finds it loaded: the page keeps Review's scroll
-    // across it, as far down as that screen goes.
+    // The page keeps Review's scroll across the execution screen, as far
+    // down as that screen goes.
     await panel.evaluate((el) => {
       el.scrollTop = el.scrollHeight;
     });

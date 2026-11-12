@@ -535,6 +535,75 @@ describe('ForgeRunRemovalResult of what the automation made', () => {
     );
   });
 
+  it('says records created after the run’s last write were made by its automation or by hand, as the command line does', () => {
+    // A holder the org dated after the run's last write, within a minute of
+    // its record, was said created during the run, likely by the automation:
+    // the command line has said "by the target's automation or by hand" of it
+    // since it told them apart.
+    render(
+      <ForgeRunRemovalResult
+        result={result({
+          status: 'partial',
+          objects: [
+            outcome({
+              objectApiName: 'Contact',
+              keptDependents: 2,
+              heldBy: ['OpportunityContactRole'],
+              heldByAutomation: 2,
+              heldByAutomationAfterRun: 2,
+              automationHolders: ['OpportunityContactRole'],
+            }),
+          ],
+        })}
+        org="DEV-SANDBOX"
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-held-by-automation').textContent).toBe(
+      "2 records of this run were kept for records created under them as its user after the run's last write, within a minute of them, by the target's automation or by hand: OpportunityContactRole.",
+    );
+  });
+
+  it('says which of them were held by records created after the run’s last write, when only some were', () => {
+    render(
+      <ForgeRunRemovalResult
+        result={{
+          ...HELD,
+          objects: HELD.objects.map((object) =>
+            object.objectApiName === 'Contact'
+              ? { ...object, heldByAutomationAfterRun: 1 }
+              : object,
+          ),
+        }}
+        org="DEV-SANDBOX"
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-held-by-automation').textContent).toBe(
+      "3 records of this run were kept for records created under them as its user during the run or, under 1 of them, after the run's last write, within a minute of them, by the target's automation or by hand: Task, FeedItem.",
+    );
+  });
+
+  it('says it of a load whose holders came after its last write in a load’s words', () => {
+    render(
+      <ForgeRunRemovalResult
+        result={{
+          ...HELD,
+          objects: HELD.objects.map((object) => ({
+            ...object,
+            heldByAutomationAfterRun: object.heldByAutomation,
+          })),
+        }}
+        org="DEV-SANDBOX"
+        subject="load"
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-held-by-automation').textContent).toBe(
+      "3 records of this load were kept for records created under them as its user after the load's last write, within a minute of them, by the target's automation or by hand: Task, FeedItem.",
+    );
+  });
+
   it('proposes the sweep, and says what it leaves that a rewind takes back', () => {
     const onTakeBackMade = vi.fn();
     render(

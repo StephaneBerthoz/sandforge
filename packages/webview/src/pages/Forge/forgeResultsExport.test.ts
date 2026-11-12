@@ -3,11 +3,13 @@ import type { ForgeExecutionError, ForgeExecutionResult } from '@sandforge/share
 import {
   createdTargets,
   isRunNote,
+  lookupsLeftEmptyOf,
   objectResultsCsv,
   reportCell,
   rootCopyOf,
   runErrorsReportLines,
   runFailureCell,
+  runFailuresOf,
   runNotesReportLines,
   type ObjectResultRow,
 } from './forgeResultsExport';
@@ -99,6 +101,26 @@ describe('the copy of the record the run cloned', () => {
   });
 });
 
+/**
+ * The second pass refused by a lookup filter of the target: the update that
+ * fills the lookup in is refused, with the filter's default message, and the
+ * lookup stays empty.
+ */
+const SECOND_PASS_REFUSED: ForgeExecutionError = {
+  objectApiName: '__pass2__',
+  stage: 'insert',
+  failedCount: 2,
+  attemptedCount: 5,
+  samples: [
+    {
+      recordSummary: 'Id=003000000000103AAA AccountId=001000000000104AAA',
+      messages: [
+        'FIELD_FILTER_VALIDATION_EXCEPTION: Value does not exist or does not match filter criteria.',
+      ],
+    },
+  ],
+};
+
 describe('the per-object results as a file', () => {
   const rows: ObjectResultRow[] = [
     { objectApiName: 'Account', records: 3, status: 'done', errors: [] },
@@ -180,6 +202,50 @@ describe('the per-object results as a file', () => {
       '"Invoice__c","","skipped","0","0","0","skipped whole"',
     ]);
   });
+
+  it('gives the lookups the second pass left empty a row of their own, in the copied report’s words', () => {
+    // The file had no line for them: those records are in the target without
+    // the lookup, which the copied report says and the run counts failed
+    // nowhere, so they stay out of the Failed column.
+    const lines = objectResultsCsv(
+      [
+        { objectApiName: 'Account', records: 2, status: 'error', errors: [] },
+        { objectApiName: 'Contact', records: 1, status: 'error', errors: [] },
+      ],
+      { idRemapByObject: [], errors: [...TRAP_REFUSALS, SECOND_PASS_REPORT, ...RUN_NOTES] },
+    ).split('\n');
+
+    expect(lines).toEqual([
+      '"Object","Records read","Status","Created","Linked","Failed","Errors"',
+      '"Account","2","error","0","0","2","2 failed at insert: REQUIRED_FIELD_MISSING"',
+      '"Contact","1","error","0","0","1","1 failed at insert: FIELD_CUSTOM_VALIDATION_EXCEPTION"',
+      '"Lookups the second pass left empty","","","","","","1 of 4 left empty"',
+    ]);
+  });
+
+  it('names the codes the second pass was refused with on its row', () => {
+    const lines = objectResultsCsv([], {
+      idRemapByObject: [],
+      errors: [SECOND_PASS_REFUSED],
+    }).split('\n');
+
+    expect(lines).toEqual([
+      '"Object","Records read","Status","Created","Linked","Failed","Errors"',
+      '"Lookups the second pass left empty","","","","","","2 of 5 left empty: FIELD_FILTER_VALIDATION_EXCEPTION"',
+    ]);
+  });
+});
+
+describe('the lookups the second pass left empty', () => {
+  it('adds up what each report of the pass left and tried, and names each code once', () => {
+    expect(lookupsLeftEmptyOf([...TRAP_REFUSALS, SECOND_PASS_REPORT, SECOND_PASS_REFUSED])).toEqual(
+      { leftEmpty: 3, attempted: 9, codes: ['FIELD_FILTER_VALIDATION_EXCEPTION'] },
+    );
+  });
+
+  it('is nothing for a run whose second pass left none', () => {
+    expect(lookupsLeftEmptyOf([...TRAP_REFUSALS, ...RUN_NOTES])).toBeUndefined();
+  });
 });
 
 /** A report of the run, failing one record at insert unless told otherwise. */
@@ -243,6 +309,32 @@ describe('a cell of the copied report', () => {
     expect(cell).toHaveLength(300);
     expect(cell.endsWith('…')).toBe(true);
     expect(reportCell('x'.repeat(300))).toBe('x'.repeat(300));
+  });
+});
+
+describe('what the run failed of an object, in parts the results page words', () => {
+  it('gives each report its stage, its count, whether it skipped the object, and its codes', () => {
+    expect(
+      runFailuresOf('Account', [
+        ...TRAP_REFUSALS,
+        report('Account', { stage: 'query', failedCount: 0, attemptedCount: 0 }),
+      ]),
+    ).toEqual([
+      { stage: 'insert', failed: 2, skipped: false, codes: ['REQUIRED_FIELD_MISSING'] },
+      { stage: 'query', failed: 0, skipped: false, codes: [] },
+    ]);
+    expect(runFailuresOf('Invoice__c', [SKIPPED_WHOLE])).toEqual([
+      { stage: 'scope', failed: 0, skipped: true, codes: [] },
+    ]);
+  });
+
+  it('leaves out notes, reference data, the second pass and other objects', () => {
+    const reports = [...RUN_NOTES, UNMATCHED_REFERENCE_DATA, SECOND_PASS_REPORT, ...TRAP_REFUSALS];
+    expect(runFailuresOf('FeedItem', reports)).toEqual([]);
+    expect(runFailuresOf('BusinessHours', reports)).toEqual([]);
+    expect(runFailuresOf('Contact', reports)).toEqual([
+      { stage: 'insert', failed: 1, skipped: false, codes: ['FIELD_CUSTOM_VALIDATION_EXCEPTION'] },
+    ]);
   });
 });
 

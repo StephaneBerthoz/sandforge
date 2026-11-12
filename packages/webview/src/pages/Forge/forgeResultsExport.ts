@@ -63,9 +63,19 @@ export interface ObjectResultRow {
 }
 
 /**
+ * The words the copied report and the results file give the lookups the
+ * second pass left empty.
+ */
+const LEFT_EMPTY_WORDS = 'Lookups the second pass left empty';
+
+/**
  * The per-object results as a CSV file: the rows the results table lists,
  * each status by its code as the copied report gives it, with what the run
- * created, linked and counted as failed of each object.
+ * created, linked and counted as failed of each object. Then, when its second
+ * pass left lookups empty, a row of their own in the copied report's words:
+ * how many of those it tried, and the codes it was refused with. Their records
+ * are in the target and the run counts them failed nowhere, so the row leaves
+ * the Failed column empty.
  */
 export function objectResultsCsv(
   rows: readonly ObjectResultRow[],
@@ -81,6 +91,7 @@ export function objectResultsCsv(
     if (report.referenceData === true) continue;
     failed.set(report.objectApiName, (failed.get(report.objectApiName) ?? 0) + report.failedCount);
   }
+  const leftEmpty = lookupsLeftEmptyOf(result?.errors ?? []);
   return csv([
     ['Object', 'Records read', 'Status', 'Created', 'Linked', 'Failed', 'Errors'],
     ...rows.map((row) => [
@@ -97,7 +108,31 @@ export function objectResultsCsv(
         .filter(Boolean)
         .join('; '),
     ]),
+    ...(leftEmpty === undefined
+      ? []
+      : [
+          [
+            LEFT_EMPTY_WORDS,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            leftEmptyCell(leftEmpty),
+          ],
+        ]),
   ]);
+}
+
+/**
+ * The Errors cell of the second pass's row: "2 of 5 left empty", with the
+ * codes its samples open with. A pass that counts no attempt says only how
+ * many it left empty.
+ */
+function leftEmptyCell({ leftEmpty, attempted, codes }: LookupsLeftEmpty): string {
+  const named = codes.length > 0 ? `: ${codes.join(', ')}` : '';
+  const ofTried = attempted > 0 ? ` of ${String(attempted)}` : '';
+  return `${String(leftEmpty)}${ofTried} left empty${named}`;
 }
 
 /**
@@ -129,6 +164,42 @@ function failuresOf(reports: readonly ForgeExecutionError[]): ForgeExecutionErro
  * records the target holds, which the run counts in no object's failures.
  */
 const SECOND_PASS = '__pass2__';
+
+/** Whether a report of the run is the second pass's, which names no object. */
+export function isSecondPass(report: ForgeExecutionError): boolean {
+  return report.objectApiName === SECOND_PASS;
+}
+
+/** What the second pass left empty, across its reports. */
+export interface LookupsLeftEmpty {
+  /** The lookups it left empty. */
+  leftEmpty: number;
+  /** The lookups it tried to fill in. */
+  attempted: number;
+  /** The codes its samples open with, each once, in the order first seen. */
+  codes: string[];
+}
+
+/**
+ * The lookups the run's second pass left empty, added up across its reports,
+ * with the codes it was refused with: nothing when it left none. Those
+ * records are in the target, without the lookup, and the run counts them
+ * failed nowhere: the copied report, the results file and the errors panel
+ * count them apart from the failed records and objects.
+ */
+export function lookupsLeftEmptyOf(
+  reports: readonly ForgeExecutionError[],
+): LookupsLeftEmpty | undefined {
+  let leftEmpty = 0;
+  let attempted = 0;
+  const codes = new Set<string>();
+  for (const report of failuresOf(reports).filter(isSecondPass)) {
+    leftEmpty += report.failedCount;
+    attempted += report.attemptedCount;
+    for (const { code } of codesInSamples(report)) codes.add(code);
+  }
+  return leftEmpty > 0 ? { leftEmpty, attempted, codes: [...codes] } : undefined;
+}
 
 /** The longest a cell of the copied report runs before it is cut. */
 const REPORT_CELL_MAX = 300;
@@ -165,6 +236,39 @@ function codesInSamples(report: ForgeExecutionError): Array<{ code: string; samp
   return [...seen].map(([code, samples]) => ({ code, samples }));
 }
 
+/** What the run failed of an object at one stage, as one of its reports says it. */
+export interface RunFailure {
+  /** Where it failed: its read, its scope, or its write. */
+  stage: ForgeExecutionError['stage'];
+  /** The records the report counts failed. */
+  failed: number;
+  /** Whether the run skipped the object whole. */
+  skipped: boolean;
+  /** The codes its samples open with, each once, in the order first seen. */
+  codes: string[];
+}
+
+/**
+ * What the run failed of `objectApiName`, a part per report, for the Errors
+ * column of the results table, of the file it is saved to and of the copied
+ * report: the page words each part in its language, the file and the report
+ * in English. Notes and reference data are left out: they count no failed
+ * record.
+ */
+export function runFailuresOf(
+  objectApiName: string,
+  reports: readonly ForgeExecutionError[],
+): RunFailure[] {
+  return failuresOf(reports)
+    .filter((report) => report.objectApiName === objectApiName)
+    .map((report) => ({
+      stage: report.stage,
+      failed: report.failedCount,
+      skipped: report.skipped === true,
+      codes: codesInSamples(report).map(({ code }) => code),
+    }));
+}
+
 /**
  * What the run failed of `objectApiName`, for its cell of the Errors column:
  * a phrase per report, "2 failed at insert: FIELD_CUSTOM_VALIDATION_EXCEPTION",
@@ -176,19 +280,16 @@ export function runFailureCell(
   objectApiName: string,
   reports: readonly ForgeExecutionError[],
 ): string {
-  return failuresOf(reports)
-    .filter((report) => report.objectApiName === objectApiName)
-    .map((report) => {
-      const codes = codesInSamples(report).map(({ code }) => code);
+  return runFailuresOf(objectApiName, reports)
+    .map(({ stage, failed, skipped, codes }) => {
       const named = codes.length > 0 ? `: ${codes.join(', ')}` : '';
       // An object skipped before its read counts none of its rows: "0 failed"
       // would say it lost nothing.
-      if (report.skipped === true && report.failedCount === 0) return `skipped whole${named}`;
-      const skipped = report.skipped === true ? ' (skipped whole)' : '';
+      if (skipped && failed === 0) return `skipped whole${named}`;
+      const whole = skipped ? ' (skipped whole)' : '';
       // "failed" is the verb here, so the count needs no noun to agree with,
       // and the report is written in English whatever the panel's language.
-      const failed = String(report.failedCount);
-      return `${failed} failed at ${report.stage}${skipped}${named}`;
+      return `${String(failed)} failed at ${stage}${whole}${named}`;
     })
     .join('; ');
 }
@@ -206,13 +307,10 @@ export function runFailureCell(
 export function runErrorsReportLines(reports: readonly ForgeExecutionError[]): string[] {
   const failures = failuresOf(reports);
   if (failures.length === 0) return [];
-  const ofObjects = failures.filter((report) => report.objectApiName !== SECOND_PASS);
+  const ofObjects = failures.filter((report) => !isSecondPass(report));
   let failed = 0;
   for (const report of ofObjects) failed += report.failedCount;
-  let leftEmpty = 0;
-  for (const report of failures) {
-    if (report.objectApiName === SECOND_PASS) leftEmpty += report.failedCount;
-  }
+  const leftEmpty = lookupsLeftEmptyOf(failures)?.leftEmpty ?? 0;
   // Counted as the errors panel counts them: an object with two reports is one.
   const objects = new Set(ofObjects.map((report) => report.objectApiName)).size;
   const lines = ['', '## Run Errors', ''];
@@ -222,7 +320,7 @@ export function runErrorsReportLines(reports: readonly ForgeExecutionError[]): s
     );
   }
   if (leftEmpty > 0) {
-    lines.push(`- Lookups the second pass left empty: ${String(leftEmpty)}`);
+    lines.push(`- ${LEFT_EMPTY_WORDS}: ${String(leftEmpty)}`);
   }
   lines.push(
     '',

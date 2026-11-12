@@ -4356,7 +4356,16 @@
       "linksUncheckedRun": "Champs de référence non vérifiés : {{reason}}"
     },
     "errorsPanel": {
-      "title": "Erreurs d'exécution"
+      "title": "Erreurs d'exécution",
+      "lookupsLeftEmpty_one": "{{count}} lien laissé vide par la seconde passe",
+      "lookupsLeftEmpty_other": "{{count}} liens laissés vides par la seconde passe"
+    },
+    "errorsCell": {
+      "failed_one": "{{stage}} : {{formatted}} enregistrement en échec",
+      "failed_other": "{{stage}} : {{formatted}} enregistrements en échec",
+      "failedSkipped_one": "{{stage}} : {{formatted}} enregistrement en échec, l'objet ignoré en entier",
+      "failedSkipped_other": "{{stage}} : {{formatted}} enregistrements en échec, l'objet ignoré en entier",
+      "skippedWhole": "Ignoré en entier"
     },
     "notesPanel": {
       "title": "Notes d'exécution",
@@ -5930,6 +5939,10 @@
       "resultFilesLeft_other": "{{formatted}} fichiers joints à ces enregistrements restent dans {{org}}, le chargement ne les ayant pas créés : {{names}}",
       "heldByAutomation_one": "{{formatted}} enregistrement de ce chargement a été conservé pour des enregistrements créés sous lui pendant le chargement, au nom de son utilisateur, sans doute par l'automatisation de la cible : {{objects}}.",
       "heldByAutomation_other": "{{formatted}} enregistrements de ce chargement ont été conservés pour des enregistrements créés sous eux pendant le chargement, au nom de son utilisateur, sans doute par l'automatisation de la cible : {{objects}}.",
+      "heldByAutomationAfter_one": "{{formatted}} enregistrement de ce chargement a été conservé pour des enregistrements créés sous lui au nom de son utilisateur après la dernière écriture du chargement, moins d'une minute après lui, par l'automatisation de la cible ou à la main : {{objects}}.",
+      "heldByAutomationAfter_other": "{{formatted}} enregistrements de ce chargement ont été conservés pour des enregistrements créés sous eux au nom de son utilisateur après la dernière écriture du chargement, moins d'une minute après eux, par l'automatisation de la cible ou à la main : {{objects}}.",
+      "heldByAutomationPartlyAfter_one": "{{formatted}} enregistrement de ce chargement a été conservé pour des enregistrements créés sous lui au nom de son utilisateur, pendant le chargement ou après sa dernière écriture moins d'une minute après lui, par l'automatisation de la cible ou à la main : {{objects}}.",
+      "heldByAutomationPartlyAfter_other": "{{formatted}} enregistrements de ce chargement ont été conservés pour des enregistrements créés sous eux au nom de son utilisateur pendant le chargement ou, sous {{after}} d'entre eux, après la dernière écriture du chargement, moins d'une minute après eux, par l'automatisation de la cible ou à la main : {{objects}}.",
       "takeBackMade": "Reprendre ce que l'automatisation de la cible a fait pour ce chargement, puis retirer à nouveau",
       "takeBackMadeNote": "Cela prend ce qui est lié aux enregistrements de ce chargement. Ce que l'automatisation a modifié sur des enregistrements déjà là reste : seul un retour arrière à un point de contrôle le reprend."
     },
@@ -5971,6 +5984,10 @@
     "removeQuoteCopies": "Les lignes que la plateforme a copiées entre un devis synchronisé par l'exécution et son opportunité partent aussi : elles sont lues au début du retrait, et comptées à part dans son résultat.",
     "heldByAutomation_one": "{{formatted}} enregistrement de cette exécution a été conservé pour des enregistrements créés sous lui pendant l'exécution, au nom de son utilisateur, sans doute par l'automatisation de la cible : {{objects}}.",
     "heldByAutomation_other": "{{formatted}} enregistrements de cette exécution ont été conservés pour des enregistrements créés sous eux pendant l'exécution, au nom de son utilisateur, sans doute par l'automatisation de la cible : {{objects}}.",
+    "heldByAutomationAfter_one": "{{formatted}} enregistrement de cette exécution a été conservé pour des enregistrements créés sous lui au nom de son utilisateur après la dernière écriture de l'exécution, moins d'une minute après lui, par l'automatisation de la cible ou à la main : {{objects}}.",
+    "heldByAutomationAfter_other": "{{formatted}} enregistrements de cette exécution ont été conservés pour des enregistrements créés sous eux au nom de son utilisateur après la dernière écriture de l'exécution, moins d'une minute après eux, par l'automatisation de la cible ou à la main : {{objects}}.",
+    "heldByAutomationPartlyAfter_one": "{{formatted}} enregistrement de cette exécution a été conservé pour des enregistrements créés sous lui au nom de son utilisateur, pendant l'exécution ou après sa dernière écriture moins d'une minute après lui, par l'automatisation de la cible ou à la main : {{objects}}.",
+    "heldByAutomationPartlyAfter_other": "{{formatted}} enregistrements de cette exécution ont été conservés pour des enregistrements créés sous eux au nom de son utilisateur pendant l'exécution ou, sous {{after}} d'entre eux, après la dernière écriture de l'exécution, moins d'une minute après eux, par l'automatisation de la cible ou à la main : {{objects}}.",
     "heldSweepLeft": "Le balayage les a laissés : sa liste dit pourquoi, et ce qui est arrivé tard peut être demandé.",
     "takeBackMade": "Reprendre ce que l'automatisation de la cible a fait pour cette exécution, puis retirer à nouveau",
     "takeBackMadeNote": "Cela prend ce qui est lié aux enregistrements de cette exécution. Ce que l'automatisation a modifié sur des enregistrements déjà là reste : seul un retour arrière à un point de contrôle le reprend."

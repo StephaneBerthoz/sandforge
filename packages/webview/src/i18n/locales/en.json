@@ -4356,7 +4356,16 @@
       "linksUncheckedRun": "Lookups not checked: {{reason}}"
     },
     "errorsPanel": {
-      "title": "Execution errors"
+      "title": "Execution errors",
+      "lookupsLeftEmpty_one": "{{count}} lookup the second pass left empty",
+      "lookupsLeftEmpty_other": "{{count}} lookups the second pass left empty"
+    },
+    "errorsCell": {
+      "failed_one": "{{stage}}: {{formatted}} record failed",
+      "failed_other": "{{stage}}: {{formatted}} records failed",
+      "failedSkipped_one": "{{stage}}: {{formatted}} record failed, the object skipped whole",
+      "failedSkipped_other": "{{stage}}: {{formatted}} records failed, the object skipped whole",
+      "skippedWhole": "Skipped whole"
     },
     "notesPanel": {
       "title": "Execution notes",
@@ -5930,6 +5939,10 @@
       "resultFilesLeft_other": "{{formatted}} files attached to them stay in {{org}}, as the load did not create them: {{names}}",
       "heldByAutomation_one": "{{formatted}} record of this load was kept for records created under it during the load, as its user, likely by the target's automation: {{objects}}.",
       "heldByAutomation_other": "{{formatted}} records of this load were kept for records created under them during the load, as its user, likely by the target's automation: {{objects}}.",
+      "heldByAutomationAfter_one": "{{formatted}} record of this load was kept for records created under it as its user after the load's last write, within a minute of it, by the target's automation or by hand: {{objects}}.",
+      "heldByAutomationAfter_other": "{{formatted}} records of this load were kept for records created under them as its user after the load's last write, within a minute of them, by the target's automation or by hand: {{objects}}.",
+      "heldByAutomationPartlyAfter_one": "{{formatted}} record of this load was kept for records created under it as its user, during the load or after its last write within a minute of it, by the target's automation or by hand: {{objects}}.",
+      "heldByAutomationPartlyAfter_other": "{{formatted}} records of this load were kept for records created under them as its user during the load or, under {{after}} of them, after the load's last write, within a minute of them, by the target's automation or by hand: {{objects}}.",
       "takeBackMade": "Take back what the target's automation made for this load, then remove again",
       "takeBackMadeNote": "It takes what is tied to this load's records. What the automation changed on records that were there before stays: only a rewind to a checkpoint takes that back."
     },
@@ -5971,6 +5984,10 @@
     "removeQuoteCopies": "The lines the platform copied between a quote the run synced and its opportunity go too: they are read as the removal begins, and counted apart in its result.",
     "heldByAutomation_one": "{{formatted}} record of this run was kept for records created under it during the run, as its user, likely by the target's automation: {{objects}}.",
     "heldByAutomation_other": "{{formatted}} records of this run were kept for records created under them during the run, as its user, likely by the target's automation: {{objects}}.",
+    "heldByAutomationAfter_one": "{{formatted}} record of this run was kept for records created under it as its user after the run's last write, within a minute of it, by the target's automation or by hand: {{objects}}.",
+    "heldByAutomationAfter_other": "{{formatted}} records of this run were kept for records created under them as its user after the run's last write, within a minute of them, by the target's automation or by hand: {{objects}}.",
+    "heldByAutomationPartlyAfter_one": "{{formatted}} record of this run was kept for records created under it as its user, during the run or after its last write within a minute of it, by the target's automation or by hand: {{objects}}.",
+    "heldByAutomationPartlyAfter_other": "{{formatted}} records of this run were kept for records created under them as its user during the run or, under {{after}} of them, after the run's last write, within a minute of them, by the target's automation or by hand: {{objects}}.",
     "heldSweepLeft": "The sweep left them: its list says why, and what came late can be asked for.",
     "takeBackMade": "Take back what the target's automation made for this run, then remove again",
     "takeBackMadeNote": "It takes what is tied to this run's records. What the automation changed on records that were there before stays: only a rewind to a checkpoint takes that back."
