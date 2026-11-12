@@ -56,10 +56,11 @@ import {
 import { anonymizationTemplateSavePayloadSchema } from '../../../src/bridge/validatePayload.js';
 import { ANONYMIZATION_TEMPLATES } from '../../../src/bridge/templates/anonymizationTemplates.js';
 import { fileConfigStore } from '../../fileConfigStore.js';
-import { masksObject, missingFieldLine } from '../../sandforge-dataops.js';
+import { masksObject, missingFieldLine, notWritableLine } from '../../sandforge-dataops.js';
 import type { RunnableScript } from '../../scriptRunner.js';
 import {
   canonicalJson,
+  codesSaidIn,
   readAnswer,
   refusalAt,
   valueOf,
@@ -206,21 +207,15 @@ export function maskRunOfResource(
       ),
     );
   }
-  if (resource.accept?.automation === true) {
-    warnings.push(
-      refusalAt(
-        ['resources', name, 'accept', 'automation'],
-        'a DataOps masking takes no acceptance of automation: what the org runs as the records ' +
-          'are written over, it runs unasked',
-      ),
-    );
-  }
   return {
     run: {
       source,
       rules,
       ...(object !== undefined ? { object } : {}),
       ...(resource.where !== undefined ? { where: resource.where } : {}),
+      // What the org runs as the records are written over refuses the
+      // masking unless the file accepts it, as it does a seed's and a clone's.
+      ...(resource.accept?.automation === true ? { acceptAutomation: true } : {}),
     },
     warnings,
   };
@@ -312,6 +307,7 @@ function maskSwitches(input: MaskLine): string[] {
       : ['--rules', valueOf('--rules', input.rulesFile)]),
     '--store',
     valueOf('--store', input.store),
+    ...(run.acceptAutomation === true ? ['--accept-automation'] : []),
   ];
 }
 
@@ -388,6 +384,8 @@ const previewSchema = z.object({
         objectApiName: z.string().min(1),
         fields: z.array(z.string()),
         error: z.string().optional(),
+        notCovered: z.literal(true).optional(),
+        writeDenied: z.object({ deniedFields: z.array(z.string()) }).optional(),
       })
       .loose(),
   ),
@@ -398,13 +396,35 @@ const previewSchema = z.object({
 export interface MaskDryRead {
   objects: Array<{ object: string; count: number | null }>;
   refusals: string[];
+  /** The code of each of `refusals` the masking gave one, in their order; empty for those it gave none. */
+  refusalCodes: string[];
+  /** The emails a run makes the org send as it writes the records over, per daily limit. */
+  emails: Array<{ limit: 'SingleEmail' | 'DailyWorkflowEmails'; emails: number }>;
 }
+
+/**
+ * What a dry run read of what the org runs as a run writes the records over:
+ * its emails per daily limit, and why a real run would be refused for it —
+ * what fires not accepted, past the day's emails, emails the org delivers
+ * not accepted.
+ */
+const automationSchema = z
+  .object({
+    emails: z.array(
+      z
+        .object({ limit: z.enum(['SingleEmail', 'DailyWorkflowEmails']), emails: countSchema })
+        .loose(),
+    ),
+    refusals: z.array(z.object({ code: z.string(), message: z.string() }).loose()),
+  })
+  .loose();
 
 /**
  * What a dry run says: per object, the records its condition selects; and
  * what refuses a run now, in the script's words — the handler's refusal, an
  * object the org would not count or read, a field the rules name that the
- * org does not show the user, an object of which they mask no field.
+ * org does not show the user, an object of which they mask no field, what the
+ * user may not edit.
  */
 export function maskDryRead(answer: MaskDryRunAnswer): MaskDryRead {
   const refusals: string[] = [];
@@ -423,8 +443,11 @@ export function maskDryRead(answer: MaskDryRunAnswer): MaskDryRead {
           'blind',
       );
     }
-    return { objects: [], refusals };
+    return { objects: [], refusals, refusalCodes: refusals.map(() => ''), emails: [] };
   }
+  const automation = automationSchema.safeParse(
+    postedOf(answer.posted, 'dataops:automation:response'),
+  );
   const objects = coverage.data.objects.map((object) => ({
     object: object.objectApiName,
     count: object.count,
@@ -437,25 +460,44 @@ export function maskDryRead(answer: MaskDryRunAnswer): MaskDryRead {
   for (const object of preview.data.objects) {
     if (object.error !== undefined) {
       refusals.push(`${object.objectApiName}: not read: ${object.error}`);
-    } else if (object.fields.length === 0) {
+    } else if (object.notCovered === true) {
+      // As the preview marks it: an object with records whose rules mask no
+      // field. One with no record holds nothing to mask, and its run refuses
+      // nothing: read from its empty list of fields, it blocked the plan.
       refusals.push(
         `${object.objectApiName}: its rules mask no field the org shows this user: a run would ` +
           'mask nothing there',
       );
     }
+    const denied = object.writeDenied?.deniedFields;
+    if (denied?.length === 0) refusals.push(notWritableLine(object.objectApiName));
+    for (const field of denied ?? []) refusals.push(notWritableLine(object.objectApiName, field));
   }
   for (const missing of preview.data.fieldsNotFound) {
     refusals.push(missingFieldLine(missing.objectApiName, missing.fieldApiName));
   }
-  return { objects, refusals };
+  const coded = new Map<string, string>();
+  for (const refusal of automation.success ? automation.data.refusals : []) {
+    refusals.push(refusal.message);
+    coded.set(refusal.message, refusal.code);
+  }
+  const emails = automation.success
+    ? automation.data.emails.map(({ limit, emails: n }) => ({ limit, emails: n }))
+    : [];
+  return {
+    objects,
+    refusals,
+    refusalCodes: refusals.map((refusal) => coded.get(refusal) ?? ''),
+    emails,
+  };
 }
 
 /**
  * What a mask dry run counted, read as every kind's is: per object the
- * records a run would write over, and in all. A masking creates no record:
- * what a whole run creates is none, and it takes no data storage. The
- * script estimates no request, nor what the org sends as the records are
- * written over.
+ * records a run would write over, and in all, and the emails the org sends
+ * as they are written over, which the day's email gate sums with the other
+ * resources'. A masking creates no record: what a whole run creates is none,
+ * and it takes no data storage. The script estimates no request.
  */
 export function maskDryRunCount(answer: MaskDryRunAnswer): EnvDryRunCount {
   const read = maskDryRead(answer);
@@ -463,13 +505,16 @@ export function maskDryRunCount(answer: MaskDryRunAnswer): EnvDryRunCount {
     object: object.object,
     wouldCreate: object.count ?? 0,
   }));
+  const refusal = read.refusals.length > 0 ? read.refusals.join(' ') : undefined;
+  const codes = refusal !== undefined ? codesSaidIn(refusal, read.refusals, read.refusalCodes) : [];
   return {
     objects,
     total: objects.reduce((sum, object) => sum + object.wouldCreate, 0),
     created: 0,
     storageBytes: 0,
-    emails: [],
-    ...(read.refusals.length > 0 ? { refusal: read.refusals.join(' ') } : {}),
+    emails: read.emails,
+    ...(refusal !== undefined ? { refusal } : {}),
+    ...(codes.length > 0 ? { refusalCodes: codes } : {}),
   };
 }
 
@@ -508,7 +553,11 @@ export interface MaskRunCount {
   snapshotId?: string;
   /** What refused or stopped it, in the handler's words. */
   refusal?: string;
-  /** Why a run that ended 0 still left values as they were: fields the org lacks. */
+  /**
+   * Why a run that ended 0 still left values as they were: fields the org
+   * lacks, in the answer a journal kept of a run from before such a run was
+   * refused.
+   */
   short?: string;
 }
 

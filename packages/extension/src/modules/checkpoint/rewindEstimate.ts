@@ -62,6 +62,7 @@ import type {
 } from '@sandforge/shared';
 import * as z from 'zod';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { DELETED_PAST_DRAFT, STATUS_LIFECYCLES } from '../../core/common/platformRecords.js';
 import { columnGroups, idsPerStatement } from '../../core/common/wideRead.js';
 import {
   bulkJobRequests,
@@ -78,6 +79,7 @@ import {
   type ApiBudget,
   type EmailLimit,
   type LimitsTransport,
+  type RunRequestParts,
 } from '../forge/ForgeRunGate.js';
 import {
   ONE_ROW_CALLS_IN_FLIGHT,
@@ -991,7 +993,8 @@ function deletesCost(records: number, objectApiName: string | undefined): Cost {
  * relationship asked once whether anything points through it when the object
  * has more than one batch, then read per batch — and the deletes, as REST
  * calls of 200 or, past 10,000 records of an object, as the Bulk API jobs the
- * removal sends them in (`deletesCost`).
+ * removal sends them in (`deletesCost`); before them, an order past Draft set
+ * back to Draft (`toDraftCost`).
  *
  * Which records a record that stays holds is known only once the rest has
  * gone: those it holds are checked again then, and what the removal leaves
@@ -1022,9 +1025,39 @@ export function removalCost(
         calls(1, SECONDS_PER_SMALL_CALL),
         calls(batchCount, SECONDS_PER_READ),
         calls(anyPointing + dependents * batchCount, SECONDS_PER_DEPENDENTS_READ),
+        toDraftCost(objectApiName, batchCount, anyPointing + dependents * batchCount),
         deletesCost(records, objectApiName),
       );
     }),
+  );
+}
+
+/**
+ * What a removal sends to set an object's records past Draft back to Draft
+ * before it deletes them, the one way the platform deletes an order
+ * (`backToDraft`): the org's statuses read once, which tell the Draft one;
+ * per batch, the records' own status read by id and what holds them read as
+ * their delete reads it; and an update of 200 a call, every record counted
+ * as past Draft, which only those are. Nothing for an object with no status
+ * lifecycle, nor for a contract, deleted as it stands.
+ */
+function toDraftCost(
+  objectApiName: string | undefined,
+  batchCount: number,
+  dependentsReads: number,
+): Cost {
+  if (
+    objectApiName === undefined ||
+    STATUS_LIFECYCLES[objectApiName] === undefined ||
+    DELETED_PAST_DRAFT.has(objectApiName)
+  ) {
+    return NOTHING;
+  }
+  return sum(
+    calls(1, SECONDS_PER_SMALL_CALL),
+    calls(batchCount, SECONDS_PER_READ),
+    calls(dependentsReads, SECONDS_PER_DEPENDENTS_READ),
+    calls(batchCount, SECONDS_PER_WRITE),
   );
 }
 
@@ -1411,9 +1444,16 @@ export function diffEstimate(input: DiffEstimateInput): Cost {
  * with a parent. Before the second, the records that came back with a parent
  * are to delete, and the users who last changed them named.
  */
-function readAfterPassCost(input: DiffEstimateInput, secondPassThrough: boolean): Cost {
-  const waiting =
-    !secondPassThrough && input.diff.objects.some((object) => deletedNext(object) > 0);
+function readAfterPassCost(
+  input: DiffEstimateInput,
+  secondPassThrough: boolean,
+  stampedAnew = false,
+): Cost {
+  // Before the second, what it finds to give back — the activation the org
+  // stamped anew on what the first made again — names who last changed it.
+  const names =
+    !secondPassThrough &&
+    (stampedAnew || input.diff.objects.some((object) => deletedNext(object) > 0));
   // What a pass made again in an object nothing moved in moved it: its
   // describe goes with the others', before the change reads.
   const described = input.diff.described;
@@ -1423,7 +1463,7 @@ function readAfterPassCost(input: DiffEstimateInput, secondPassThrough: boolean)
       readAfterPass(object, held, input.relationships, secondPassThrough),
     ),
     new Set(input.diff.unread.map((object) => object.objectApiName)),
-    waiting ? 1 : 0,
+    names ? 1 : 0,
     described === undefined ? undefined : { first: described.first + described.later, later: 0 },
     input.diff.parentsOutsideRequests ?? 0,
     filesReadOf(input.diff),
@@ -1441,6 +1481,13 @@ export interface RewindEstimateInput extends DiffEstimateInput {
    * writes. 0 when the preview read none.
    */
   automationRequests: number;
+  /**
+   * Requests the preview's read of whether the org delivers the emails its
+   * automation sends took (`DeliverabilityRead.requests`): the rewind reads
+   * it again before it writes, when something that still runs sends one.
+   * Absent when the preview read none.
+   */
+  deliverabilityRequests?: number;
   /**
    * The rewind acts on the diff the command line just showed, read in the
    * same command, and reads no fresh one: the objects it brings records back
@@ -1461,6 +1508,38 @@ export function recreateCost(perObject: readonly number[]): Cost {
     ...perObject
       .filter((records) => records > 0)
       .map((records) =>
+        sum(calls(1, SECONDS_PER_SMALL_CALL), calls(batches(records), SECONDS_PER_WRITE)),
+      ),
+  );
+}
+
+/**
+ * The fields the org stamps as an order or a contract is activated — when,
+ * and by whom —, by API name in lower case: a record made again as a draft,
+ * then given its status back, is stamped anew, and the read after the first
+ * pass finds it differing from the checkpoint, which the second pass gives
+ * back. The checkpoint of an activated order of a C1 org held both.
+ */
+const ACTIVATION_STAMPS: ReadonlySet<string> = new Set(['activateddate', 'activatedbyid']);
+
+/**
+ * What giving the orders and contracts a rewind makes again their status
+ * back costs: the platform refuses one made past Draft, so each is made at
+ * the org's Draft status, read once per object from its statuses
+ * (`OrderStatus`, `ContractStatus`), then given its own, 200 an update —
+ * every record counted as past Draft, which only those are. Nothing for an
+ * object with no status lifecycle.
+ */
+export function statusBackCost(
+  objects: ReadonlyArray<{ objectApiName: string; records: number }>,
+): Cost {
+  return sum(
+    ...objects
+      .filter(
+        ({ objectApiName, records }) =>
+          records > 0 && STATUS_LIFECYCLES[objectApiName] !== undefined,
+      )
+      .map(({ records }) =>
         sum(calls(1, SECONDS_PER_SMALL_CALL), calls(batches(records), SECONDS_PER_WRITE)),
       ),
   );
@@ -1565,13 +1644,17 @@ function mayHangFrom(
  * - the user it writes as;
  * - pass 1: the bring back, parents first (`bringBackCost`), and the org's
  *   objects described for it unless the read before did; what it makes again
- *   (`recreateCost`); the give-back, before and after the deletes
+ *   (`recreateCost`), and the status of the orders and contracts it makes as
+ *   drafts (`statusBackCost`); the give-back, before and after the deletes
  *   (`givenBackCost`); the removal of what was created or brought back since
  *   (`removalCost`);
  * - the read after it, which plans pass 2 and is the verify when pass 2 has
  *   nothing to do;
  * - pass 2 and the verify after it, when records come back with a parent:
- *   pass 2 deletes them, and gives back what they held in place;
+ *   pass 2 deletes them, and gives back what they held in place; and when it
+ *   makes again orders or contracts whose activation the checkpoint holds,
+ *   which the org stamps anew as they are given their status back: pass 2
+ *   gives it back;
  * - the links between files and records it removes, inserts again and gives
  *   their sharing back, 200 a call each (`linkWritesCost`).
  *
@@ -1683,6 +1766,12 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
       });
     }),
     recreateCost(objects.map(toRecreate)),
+    statusBackCost(
+      objects.map((object) => ({
+        objectApiName: object.objectApiName,
+        records: toRecreate(object),
+      })),
+    ),
     removalCost(
       objects.map((object) => ({
         objectApiName: object.objectApiName,
@@ -1692,8 +1781,23 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
       RUN_RECORDS_PAGE,
     ),
   );
+  // What it makes again of the orders and contracts whose activation the
+  // checkpoint holds: the second pass gives it back, every record counted as
+  // past Draft, as their status is (`statusBackCost`). Not counted, a rewind
+  // that made an activated order again, live, sent 48 requests for 33
+  // estimated, its second pass giving the order back its checkpoint values,
+  // on both gates of the C1 orgs.
+  const stamped = objects.flatMap((object) => {
+    const held = heldOf.get(object.objectApiName);
+    const records = toRecreate(object);
+    if (records === 0 || held === undefined) return [];
+    if (STATUS_LIFECYCLES[object.objectApiName] === undefined) return [];
+    return held.fields.some((field) => ACTIVATION_STAMPS.has(field.toLowerCase()))
+      ? [restoreCost(records, held.fields)]
+      : [];
+  });
   const passTwo =
-    comingBack.length > 0
+    comingBack.length > 0 || stamped.length > 0
       ? sum(
           removalCost(
             comingBack.map((object) => ({
@@ -1703,6 +1807,7 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
             })),
             RUN_RECORDS_PAGE,
           ),
+          ...stamped,
           readAfterPassCost(input, true),
         )
       : NOTHING;
@@ -1710,7 +1815,7 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
     calls(REWIND_USER_REQUESTS, SECONDS_PER_SMALL_CALL),
     passOne,
     linkWritesCost(input.diff.files),
-    readAfterPassCost(input, false),
+    readAfterPassCost(input, false, stamped.length > 0),
     passTwo,
   );
 }
@@ -1776,6 +1881,7 @@ export function rewindEstimate(
   const cost = sum(
     reads,
     calls(input.automationRequests, SECONDS_PER_READ),
+    calls(input.deliverabilityRequests ?? 0, SECONDS_PER_SMALL_CALL),
     rewindWritesCost(input),
   );
   return {
@@ -2055,21 +2161,48 @@ export async function readBudget(org: LimitsTransport, orgName: string): Promise
 }
 
 /**
+ * What the parts of an act's requests beside its own are for, as its refusal
+ * names them: a rewind's and an undo's read of whether the org delivers the
+ * emails its automation sends is the one a checkpoint's acts make.
+ */
+const ACT_PART_WORDS: Readonly<
+  Partial<Record<Exclude<keyof RunRequestParts, 'run'>, (orgName: string) => string>>
+> = {
+  deliverability: (orgName) => `to read whether ${orgName} delivers its emails`,
+};
+
+/** The parts a refusal names: " (2 of them to read whether DEV delivers its emails)", or nothing. */
+function actPartsWords(parts: RunRequestParts | undefined, orgName: string): string {
+  if (parts === undefined) return '';
+  const named = Object.entries(ACT_PART_WORDS)
+    .flatMap(([part, words]) => {
+      const requests = parts[part as keyof RunRequestParts] ?? 0;
+      return requests > 0 && words ? [{ requests, words: words(orgName) }] : [];
+    })
+    .map(({ requests, words }, i) => `${requests}${i === 0 ? ' of them' : ''} ${words}`);
+  return named.length > 0 ? ` (${named.join(', ')})` : '';
+}
+
+/**
  * The refusal of an act that would take more API requests than `budget`
  * leaves the org today, in the words a person reads; nothing when it fits.
+ * Given its parts, the shared sum counts them (`apiBudgetCheckOf`), and the
+ * refusal names those beside the act's own.
  */
 export function budgetRefusal(
   act: BudgetedAct,
-  apiRequests: number,
+  apiRequests: number | RunRequestParts,
   budget: ApiBudget,
   orgName: string,
 ): CheckpointRefusal | undefined {
-  if (apiBudgetCheckOf(apiRequests, budget).verdict !== 'exceeds') return undefined;
+  const check = apiBudgetCheckOf(apiRequests, budget);
+  if (check.verdict !== 'exceeds') return undefined;
   const words = BUDGET_WORDS[act];
   return {
     code: 'API_BUDGET',
     message:
-      `${words.what} takes about ${apiRequests} API requests; ${orgName} has ` +
+      `${words.what} takes about ${check.estimate} API requests` +
+      `${actPartsWords(check.parts, orgName)}; ${orgName} has ` +
       `${budget.remaining} of its ${budget.max} left today. ${words.then} ${words.done}`,
   };
 }

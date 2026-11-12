@@ -1,0 +1,25 @@
+{
+  "$comment": "The example of related objects on SFDMU's Get Started page: https://forcedotcom.github.io/SFDX-Data-Move-Utility/get-started (BSD 3-Clause license, salesforce.com, inc.)",
+  "objects": [
+    {
+      "query": "SELECT Id, Phone, TestObject3__c FROM Account WHERE Name LIKE 'TEST_ACC_%'",
+      "operation": "Upsert",
+      "externalId": "Name"
+    },
+    {
+      "query": "SELECT Id, Account__c, TestObject3__c, RecordTypeId FROM TestObject__c",
+      "operation": "Upsert",
+      "externalId": "Name"
+    },
+    {
+      "query": "SELECT Id, Account__c, TestObject__c FROM TestObject2__c",
+      "operation": "Upsert",
+      "externalId": "Name"
+    },
+    {
+      "query": "SELECT Id, TestObject2__c FROM TestObject3__c",
+      "operation": "Upsert",
+      "externalId": "Name"
+    }
+  ]
+}

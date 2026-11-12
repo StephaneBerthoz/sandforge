@@ -171,19 +171,16 @@ describe('QuickSyncPreviewStep', () => {
     expect(objects).toContain('7 estimated API calls');
   });
 
-  it('names the two orgs on the screen that runs it, and the target on its button', () => {
-    // The screen that held Sync Now named no org: the header showed the
-    // wizard's pair, or none, and the notice said "these orgs".
+  it('leaves the two orgs to the ribbon over the page, and names the target on its button', () => {
+    // The ribbon names Quick Sync's pair while it is open: two badges here
+    // named both orgs a second time on the screen.
     useOrgStore.setState({ orgs: [org('org-src', 'DevSandbox'), org('org-tgt', 'QASandbox')] });
     render(<QuickSyncPreviewStep {...defaultProps} sourceOrgId="org-src" targetOrgId="org-tgt" />);
 
-    const pair = screen.getByTestId('quick-sync-preview-orgs');
-    expect(
-      within(pair)
-        .getAllByTestId('org-badge-alias')
-        .map((alias) => alias.textContent),
-    ).toEqual(['DevSandbox', 'QASandbox']);
-    expect(within(pair).getByTestId('icon-arrow-right').tagName.toLowerCase()).toBe('svg');
+    const step = screen.getByTestId('quick-sync-preview-step');
+    expect(screen.queryByTestId('quick-sync-preview-orgs')).toBeNull();
+    expect(within(step).queryAllByTestId('org-badge-alias')).toHaveLength(0);
+    expect(step.textContent).not.toContain('DevSandbox');
     expect(screen.getByTestId('quick-sync-go-btn').textContent).toBe('Sync into QASandbox');
     useOrgStore.setState({ orgs: [] });
   });
@@ -213,6 +210,64 @@ describe('QuickSyncPreviewStep', () => {
     );
     fireEvent.click(screen.getByTestId('quick-sync-mute-toggle'));
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it('offers beside Go the checkpoint first, its cost said in the question', () => {
+    useOrgStore.setState({ orgs: [org('org-tgt', 'DEV-SANDBOX')] });
+    const onChange = vi.fn();
+    const { rerender } = render(<QuickSyncPreviewStep {...defaultProps} targetOrgId="org-tgt" />);
+    expect(screen.queryByTestId('quick-sync-checkpoint-first')).toBeNull();
+
+    rerender(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        targetOrgId="org-tgt"
+        checkpoint={{ checked: false, onChange }}
+      />,
+    );
+    expect(screen.getByTestId('quick-sync-checkpoint-first-cost-said').textContent).toContain(
+      'the question before the first write',
+    );
+    fireEvent.click(screen.getByTestId('quick-sync-checkpoint-first-toggle'));
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it('names in the results the checkpoint the run took, and one it deleted', () => {
+    useOrgStore.setState({ orgs: [org('org-tgt', 'DEV-SANDBOX')] });
+    const { rerender } = render(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        targetOrgId="org-tgt"
+        result={{
+          ...mockResult,
+          checkpoint: {
+            state: 'taken',
+            checkpointId: 'ck-20240101-000000-a1b2',
+            name: 'Before Sync run 2024-01-01 00:00 UTC',
+            takenAt: '2024-01-01T00:00:00.000Z',
+            expiresAt: '2024-01-08T00:00:00.000Z',
+            objects: ['Account'],
+            records: 38,
+            bytes: 2_200_000,
+            requests: 68,
+            added: [],
+            notHeld: [],
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId('quick-sync-result-checkpoint-action').textContent).toBe(
+      'Rewind to before this run…',
+    );
+
+    rerender(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        targetOrgId="org-tgt"
+        result={{ ...mockResult, checkpoint: { state: 'deleted', deleted: 'nothingWritten' } }}
+      />,
+    );
+    expect(screen.getByTestId('quick-sync-result-checkpoint-deleted')).toBeDefined();
   });
 
   it('says in the results what the run muted', () => {
@@ -414,6 +469,54 @@ describe('QuickSyncPreviewStep', () => {
 
     fireEvent.click(screen.getByTestId('quick-sync-open-history'));
     expect(onOpenHistory).toHaveBeenCalledWith('op-1');
+  });
+
+  it('names what still ran of its mute where the records hold another record type', () => {
+    render(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        result={{
+          ...mockResult,
+          mutedAutomation: {
+            state: 'muted',
+            assigned: ['Bypass_Automation'],
+            held: [],
+            permissions: ['Bypass_Flows'],
+            silenced: [],
+            stillRan: [
+              { objectApiName: 'Contact', kind: 'flow', name: 'Contact Welcome', why: 'noBypass' },
+            ],
+            released: true,
+          },
+          objectResults: [
+            {
+              objectApiName: 'Contact',
+              operation: 'insert' as const,
+              processed: 2,
+              success: 2,
+              failed: 0,
+              skipped: 0,
+              conflictCount: 0,
+              errors: [],
+              recordTypeGiven: {
+                objectApiName: 'Contact',
+                rows: 2,
+                why: { masterInSource: 2 },
+                predicted: { developerName: 'Retail', label: 'Retail', basis: 'userDefault' },
+                readBack: {
+                  read: 2,
+                  types: [{ developerName: 'Partner', label: 'Partner', rows: 2 }],
+                },
+              },
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('quick-sync-result-written-Contact').textContent).toContain(
+      'Contact Welcome',
+    );
   });
 
   it('says what the run did with emails and phone numbers, and the rows linked or written without a lookup, with no refusal listed', () => {

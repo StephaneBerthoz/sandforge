@@ -16,6 +16,7 @@ import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
+import { auditDetailLines } from './auditDetails';
 import { moduleName, namesModule } from './moduleName';
 
 /** The module and org a trail is narrowed to. */
@@ -89,7 +90,8 @@ const GUARD_VARIANTS: Record<GuardDecision, BadgeVariant> = {
  * written, among which they are counted; the run's
  * results say which refused each field, the entry only how many records went
  * without one. So do the records a stopped run wrote and left unfinished — a
- * lookup its second pass would have filled, a status it set aside. Of the
+ * lookup its second pass would have filled, a status it set aside — and
+ * those whose lookup or status the target refused once the run set it. Of the
  * failed, those a call may have written before its answer was lost follow
  * them: they may be in the org all the same. What the run never sent comes
  * last —
@@ -102,7 +104,9 @@ const COUNT_COLUMNS = [
   'upserted',
   'writtenWithoutFields',
   'lookupsLeftEmpty',
+  'lookupsNotFilled',
   'statusesNotGivenBack',
+  'statusesNotApplied',
   'deleted',
   'failed',
   'mayHaveBeenWritten',
@@ -367,11 +371,12 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
                 onOpenRun && operationId !== undefined && runsWithLineage?.has(operationId)
                   ? operationId
                   : undefined;
-              // Named once: beside "Forge Clone" the module said Forge a
-              // second time, while "Cleanup Delete", which five modules
+              // Named once: beside "Forge clone" the module said Forge a
+              // second time, while "Cleanup delete", which five modules
               // record, needs it to say whose removal it was.
               const action = actionLabel(entry.action);
               const module = moduleName(t, entry.module);
+              const said = auditDetailLines(t, entry.details);
               return (
                 <div key={entry.id} data-testid={`audit-${entry.id}`}>
                   <Card>
@@ -457,11 +462,11 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
                           {setUp.join(' · ')}
                         </div>
                       )}
-                      {Object.keys(entry.details).length > 0 && (
+                      {said.length > 0 && (
                         <div className="mt-1 text-[10px] text-[var(--sf-text-secondary)]">
-                          {Object.entries(entry.details).map(([k, v]) => (
-                            <span key={k} className="mr-2">
-                              {k}: {String(v)}
+                          {said.map(({ key, text }) => (
+                            <span key={key} className="mr-2">
+                              {text}
                             </span>
                           ))}
                         </div>

@@ -4,11 +4,17 @@ import '../../i18n';
 import en from '../../i18n/locales/en.json';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
-import { productionOrg } from '../Checkpoint/testing/checkpointFixtures';
+import { developerOrg, productionOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { QuickSeedFlow } from './QuickSeedFlow';
 import type { QuickSeedState } from './useQuickSeed';
 import { OrgSafetyTier } from '@sandforge/shared';
-import type { SalesforceOrg, SeedTemplate, SeedExecutionResult } from '@sandforge/shared';
+import type {
+  RunCheckpointTaken,
+  SalesforceOrg,
+  SeedTemplate,
+  SeedExecutionResult,
+  SeedFitProposal,
+} from '@sandforge/shared';
 
 /* ------------------------------------------------------------------ */
 /* Bridge double: what the results post                                */
@@ -125,6 +131,9 @@ const baseQuickSeed: QuickSeedState = {
   selectedOrgId: '',
   locale: '',
   muteAutomation: false,
+  checkpointFirst: false,
+  stoppedCheckpoint: undefined,
+  canSetUpAgain: false,
   isRunning: false,
   executionResult: undefined,
   objectProgress: [],
@@ -132,16 +141,51 @@ const baseQuickSeed: QuickSeedState = {
   elapsedMs: 0,
   error: null,
   operationId: null,
+  fitProposal: null,
+  fitApplied: null,
   startQuickSeed: vi.fn(),
   setCount: vi.fn(),
   selectOrg: vi.fn(),
   setLocale: vi.fn(),
   setMuteAutomation: vi.fn(),
+  setCheckpointFirst: vi.fn(),
   execute: vi.fn(),
+  seedFitted: vi.fn(),
   cancel: vi.fn(),
   seedAgain: vi.fn(),
+  backToConfirm: vi.fn(),
   reset: vi.fn(),
   setError: vi.fn(),
+};
+
+const TAKEN: RunCheckpointTaken = {
+  state: 'taken',
+  checkpointId: 'ck-20261101-101500-a1b2',
+  name: 'Before Seed run 2026-11-01 10:15 UTC',
+  takenAt: '2026-11-01T10:15:00.000Z',
+  expiresAt: '2026-11-08T10:15:00.000Z',
+  objects: ['Account'],
+  records: 38,
+  bytes: 2_200_000,
+  requests: 68,
+  added: [],
+  notHeld: [],
+};
+
+/** What fits, enough for the flow to know it has a proposal to show. */
+const FIT_PROPOSAL: SeedFitProposal = {
+  share: 0.5,
+  budget: {
+    budgetMB: 1,
+    remainingMB: 2,
+    maxMB: 5,
+    share: 0.8,
+    roundingMB: 0.5,
+    limitedBy: 'storage',
+    automationMB: 0,
+  },
+  objects: [{ objectApiName: 'Account', before: 10, after: 5 }],
+  estimateMB: 1,
 };
 
 /* Mock GrappeProgressPanel used inside Step7Execute */
@@ -152,6 +196,74 @@ vi.mock('../../stores/useGrappeStore', () => ({
 describe('QuickSeedFlow', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();
+  });
+
+  describe('after a run stopped for its checkpoint', () => {
+    const stopped: QuickSeedState = {
+      ...baseQuickSeed,
+      phase: 'executing',
+      selectedTemplate: mockTemplate,
+      selectedOrgId: 'org-1',
+      error: 'The run was refused before it wrote anything.',
+      canSetUpAgain: true,
+    };
+
+    it('goes back to the confirmation, where the box it says to untick is', () => {
+      const backToConfirm = vi.fn();
+      render(<QuickSeedFlow quickSeed={{ ...stopped, backToConfirm }} orgs={mockOrgs} />);
+
+      fireEvent.click(screen.getByTestId('btn-quick-seed-back-to-confirm'));
+      expect(backToConfirm).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers no second way back under the counts that fit', () => {
+      render(
+        <QuickSeedFlow
+          quickSeed={{ ...stopped, fitProposal: { ...FIT_PROPOSAL } }}
+          orgs={mockOrgs}
+        />,
+      );
+      expect(screen.queryByTestId('btn-quick-seed-back-to-confirm')).toBeNull();
+    });
+
+    it('says what became of the checkpoint it took', () => {
+      useOrgStore.setState({ orgs: [developerOrg({ id: 'org-1' })] });
+      render(
+        <QuickSeedFlow
+          quickSeed={{
+            ...stopped,
+            stoppedCheckpoint: { state: 'deleted', deleted: 'nothingWritten' },
+          }}
+          orgs={mockOrgs}
+        />,
+      );
+      expect(screen.getByTestId('quick-seed-error-checkpoint-deleted').textContent).toBe(
+        'The checkpoint taken before the run was deleted: the run wrote nothing.',
+      );
+    });
+  });
+
+  it('names in the results the checkpoint the run took, with the way to rewind to it', () => {
+    useOrgStore.setState({ orgs: [developerOrg({ id: 'org-1' })] });
+    render(
+      <QuickSeedFlow
+        quickSeed={{
+          ...baseQuickSeed,
+          phase: 'results',
+          selectedTemplate: mockTemplate,
+          selectedOrgId: 'org-1',
+          executionResult: { ...mockExecutionResult, checkpoint: TAKEN },
+        }}
+        orgs={mockOrgs}
+      />,
+    );
+
+    expect(screen.getByTestId('quick-seed-result-checkpoint-taken').textContent).toContain(
+      TAKEN.name,
+    );
+    expect(screen.getByTestId('quick-seed-result-checkpoint-action').textContent).toBe(
+      'Rewind to before this run…',
+    );
   });
 
   describe('the one confirmation of a template', () => {
@@ -398,6 +510,28 @@ describe('QuickSeedFlow', () => {
       expect((screen.getByTestId('btn-quick-seed-start') as HTMLButtonElement).disabled).toBe(
         false,
       );
+    });
+
+    it('offers on the confirmation the checkpoint first of the org picked, off', () => {
+      useOrgStore.setState({ orgs: [developerOrg({ id: 'org-1' })] });
+      const setCheckpointFirst = vi.fn();
+      render(
+        <QuickSeedFlow
+          quickSeed={{
+            ...baseQuickSeed,
+            phase: 'confirm',
+            selectedTemplate: mockTemplate,
+            selectedOrgId: 'org-1',
+            setCheckpointFirst,
+          }}
+          orgs={mockOrgs}
+        />,
+      );
+
+      const toggle = screen.getByTestId('quick-seed-checkpoint-first-toggle') as HTMLInputElement;
+      expect(toggle.checked).toBe(false);
+      fireEvent.click(toggle);
+      expect(setCheckpointFirst).toHaveBeenCalledWith(true);
     });
 
     it('offers on the confirmation the box that mutes what a set of the org silences, ticking the run', () => {
@@ -744,6 +878,40 @@ describe('QuickSeedFlow', () => {
       expect(within(errors).queryAllByText(/Required fields are missing/)).toHaveLength(1);
     });
 
+    it('says on the card of a role object what it linked to the roles the platform wrote, as the Seed results do', () => {
+      // The card said it in its badge alone: "1 linked", nothing of what was
+      // given to the role the platform wrote, nor of what the org refused.
+      const linked: SeedExecutionResult = {
+        ...mockExecutionResult,
+        objectResults: [
+          {
+            objectApiName: 'OpportunityContactRole',
+            recordsCreated: 0,
+            recordsFailed: 0,
+            createdIds: [],
+            errors: [],
+            writtenByThePlatform: {
+              records: 2,
+              given: 1,
+              refusal: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: Role: bad value',
+            },
+          },
+        ],
+      };
+
+      render(<QuickSeedFlow quickSeed={{ ...results, executionResult: linked }} orgs={mockOrgs} />);
+
+      expect(
+        screen.getByTestId('quick-seed-result-written-by-the-platform-OpportunityContactRole')
+          .textContent,
+      ).toBe(
+        '2 contact roles linked to the ones the platform wrote with their opportunity, for the ' +
+          'contact each went in with, not written; given the fields generated for them: 1. ' +
+          "The others stay as the platform wrote them. The target's words: " +
+          'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: Role: bad value',
+      );
+    });
+
     it('calls a quick seed a cancel stopped cancelled, not partially complete', () => {
       render(
         <QuickSeedFlow
@@ -852,6 +1020,88 @@ describe('QuickSeedFlow', () => {
       expect(screen.getByTestId('quick-seed-result-status').textContent).toBe(
         'Cancelled. Written: 20 of 150.',
       );
+    });
+  });
+
+  describe('a template refused for what its org has left', () => {
+    const PROPOSAL: SeedFitProposal = {
+      share: 0.4,
+      budget: {
+        budgetMB: 0.24,
+        remainingMB: 1,
+        maxMB: 5,
+        share: 0.8,
+        roundingMB: 0.5,
+        limitedBy: 'storage',
+        automationMB: 0,
+      },
+      objects: [
+        { objectApiName: 'Account', before: 50, after: 20 },
+        { objectApiName: 'Contact', before: 100, after: 40 },
+      ],
+      estimateMB: 0.1171875,
+    };
+    const refused: QuickSeedState = {
+      ...baseQuickSeed,
+      phase: 'executing',
+      selectedTemplate: mockTemplate,
+      selectedOrgId: 'org-1',
+      error: 'The seed was refused before it wrote anything.',
+      fitProposal: PROPOSAL,
+    };
+
+    it('shows the counts that fit under the refusal, seeds them, or goes back to set them by hand', () => {
+      const seedFitted = vi.fn();
+      const seedAgain = vi.fn();
+      render(<QuickSeedFlow quickSeed={{ ...refused, seedFitted, seedAgain }} orgs={mockOrgs} />);
+
+      const card = screen.getByRole('region', { name: 'What fits in dev1' });
+      expect(within(card).getByTestId('quick-seed-fit-total').textContent).toBe(
+        '60 of 150 records, about 0.12 MB.',
+      );
+      fireEvent.click(within(card).getByRole('button', { name: 'Seed these counts' }));
+      expect(seedFitted).toHaveBeenCalledTimes(1);
+      fireEvent.click(within(card).getByRole('button', { name: 'Change the counts' }));
+      expect(seedAgain).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows no proposal while the fitted run is in flight', () => {
+      render(
+        <QuickSeedFlow
+          quickSeed={{ ...refused, isRunning: true, error: null, operationId: 'op-1' }}
+          orgs={mockOrgs}
+        />,
+      );
+      expect(screen.queryByTestId('quick-seed-fit')).toBeNull();
+    });
+
+    it('says in the results that the counts were fitted, and nothing for a run that was not', () => {
+      const results: QuickSeedState = {
+        ...baseQuickSeed,
+        phase: 'results',
+        selectedTemplate: mockTemplate,
+        selectedOrgId: 'org-1',
+        executionResult: mockExecutionResult,
+      };
+      const { rerender } = render(
+        <QuickSeedFlow
+          quickSeed={{
+            ...results,
+            fitApplied: {
+              counts: { Account: 20, Contact: 40 },
+              records: 60,
+              fit: { share: 0.4, before: 150 },
+            },
+          }}
+          orgs={mockOrgs}
+        />,
+      );
+      expect(screen.getByTestId('quick-seed-result-fitted').textContent).toBe(
+        'Counts fitted to the data storage of dev1: 60 of the 150 records the template asked for, 40% of every count.',
+      );
+
+      rerender(<QuickSeedFlow quickSeed={results} orgs={mockOrgs} />);
+      expect(screen.queryByTestId('quick-seed-result-fitted')).toBeNull();
     });
   });
 });

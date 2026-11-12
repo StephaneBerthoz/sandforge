@@ -4,6 +4,7 @@ import {
   ANSWER_EXCERPT_CHARS,
   StepAnswerError,
   canonicalJson,
+  codesSaidIn,
   pathText,
   readAnswer,
   reasonLineOf,
@@ -92,5 +93,24 @@ describe('why a script stopped, as it said it on stderr', () => {
   it('is nothing when it said nothing there', () => {
     expect(reasonLineOf('')).toBeUndefined();
     expect(reasonLineOf('\n  \nNothing was written.\n')).toBeUndefined();
+  });
+});
+
+describe('codesSaidIn', () => {
+  it('gives the code of each refusal a script named that the words hold, each once, in their order', () => {
+    expect(
+      codesSaidIn(
+        'Runs a flow. Sends emails. Runs a flow.',
+        ['Runs a flow.', 'Too many records.', 'Sends emails.'],
+        ['AUTOMATION_NOT_ACCEPTED', 'MAX_TOTAL_EXCEEDED', 'EMAILS_NOT_ACCEPTED'],
+      ),
+    ).toEqual(['AUTOMATION_NOT_ACCEPTED', 'EMAILS_NOT_ACCEPTED']);
+  });
+
+  it('gives none where the script gave no code for each refusal, nor for a code left empty', () => {
+    expect(codesSaidIn('Runs a flow.', ['Runs a flow.'], undefined)).toEqual([]);
+    expect(codesSaidIn('Runs a flow. Too many.', ['Runs a flow.', 'Too many.'], ['A'])).toEqual([]);
+    expect(codesSaidIn('Runs a flow.', ['Runs a flow.'], [''])).toEqual([]);
+    expect(codesSaidIn('Runs a flow.', undefined, ['A'])).toEqual([]);
   });
 });

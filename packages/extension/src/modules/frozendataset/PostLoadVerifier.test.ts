@@ -836,6 +836,41 @@ describe('PostLoadVerifier — what the load did not write', () => {
       detail: 'Every record the load had to write went in',
     });
   });
+
+  it('fails a load whose records are gone from the target since it wrote them, and says which', async () => {
+    // Run for real, the platform deleted an opportunity's two products as the
+    // load synced its quote: the counts failed, "expected 2, got 0", and the
+    // check beside them said "ok — Every record the load had to write went in".
+    const contractPath = writeContract(makeTmpDir(), {
+      Opportunity: { fromFiles: 1, exclusionReasons: {}, excluded: 0, added: 0, expected: 1 },
+      OpportunityLineItem: {
+        fromFiles: 2,
+        exclusionReasons: {},
+        excluded: 0,
+        added: 0,
+        expected: 2,
+      },
+    });
+    const query = makeQuery([
+      { match: 'FROM OpportunityLineItem', responses: [[{ cnt: 0 }]] },
+      { match: 'FROM Opportunity', responses: [[{ cnt: 1 }]] },
+    ]);
+    const { deps, options } = makeOptions(contractPath, query);
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.status).toBe('failed');
+    expect(verdict.checks.find((c) => c.name === 'counts')?.detail).toBe(
+      'Count mismatches — OpportunityLineItem: expected 2, got 0',
+    );
+    expect(verdict.checks.find((c) => c.name === 'load')).toEqual({
+      name: 'load',
+      passed: false,
+      detail:
+        'The load wrote every record it had to, and 2 record(s) it wrote or linked are no longer ' +
+        'in the target — OpportunityLineItem (2 of 2)',
+    });
+  });
 });
 
 describe('PostLoadVerifier — the verdict per object', () => {

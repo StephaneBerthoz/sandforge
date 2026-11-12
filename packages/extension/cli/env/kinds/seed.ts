@@ -45,16 +45,19 @@ import { LOCALE_DATA } from '../../../src/modules/seed/LocaleData.js';
 import { SeedValidator } from '../../../src/modules/seed/SeedValidator.js';
 import type { RunnableScript } from '../../scriptRunner.js';
 import {
+  codesSaidIn,
   countSchema,
   idSchema,
   readAnswer,
   refusalAt,
   removalObjectSchema,
   removalPreviewSchema,
+  sweepSwitches,
   valueOf,
   type EnvDryRunCount,
   type EnvFileRefusal,
   type EnvRunCount,
+  type EnvSweepAsk,
 } from './common.js';
 
 /** The script a `seed` resource runs. */
@@ -512,20 +515,23 @@ function removalSwitches(input: SeedRemovalLine): string[] {
 }
 
 /** The line of the removal of a seed resource's run, its outcome alone on stdout. */
-export function seedRemoveLine(input: SeedRemovalLine & { sweep?: boolean }): string[] {
+export function seedRemoveLine(input: SeedRemovalLine & EnvSweepAsk): string[] {
   return [
     '--remove',
     valueOf('--remove', input.summary),
     '--target',
     valueOf('--target', input.target),
     ...removalSwitches(input),
-    ...(input.sweep === true ? ['--sweep'] : []),
+    ...sweepSwitches(input),
     '--json',
   ];
 }
 
-/** The line of the preview of that removal: what it would do, nothing written. */
-export function seedPreviewLine(input: SeedRemovalLine): string[] {
+/**
+ * The line of the preview of that removal: what it would do, nothing
+ * written; with its sweep, what that would take and what fires on it.
+ */
+export function seedPreviewLine(input: SeedRemovalLine & EnvSweepAsk): string[] {
   return [
     '--remove',
     valueOf('--remove', input.summary),
@@ -533,6 +539,7 @@ export function seedPreviewLine(input: SeedRemovalLine): string[] {
     valueOf('--target', input.target),
     '--preview',
     ...removalSwitches(input),
+    ...sweepSwitches(input),
     '--json',
   ];
 }
@@ -556,6 +563,18 @@ const emailsSchema = z.object({
   unknown: z.array(z.string()).optional(),
 });
 
+/**
+ * The contact roles of an object linked to the one the platform writes with
+ * an opportunity the run creates, for its contact, rather than written: not
+ * among `recordsCreated`. Read without it, a plan counted fewer roles to
+ * write than the resource asks, and said nothing of the others.
+ */
+const writtenByThePlatformSchema = z.object({
+  records: countSchema,
+  given: countSchema,
+  refusal: z.string().optional(),
+});
+
 /** One object of a seed's result. */
 const seedObjectResultSchema = (ids: z.ZodType<string>) =>
   z.object({
@@ -565,6 +584,7 @@ const seedObjectResultSchema = (ids: z.ZodType<string>) =>
     createdIds: z.array(ids),
     errors: z.array(z.string()),
     truncated: z.boolean().optional(),
+    writtenByThePlatform: writtenByThePlatformSchema.optional(),
   });
 
 /** A seed's result: the orchestrator's, as the summary carries it. */
@@ -641,6 +661,9 @@ export const seedDryRunAnswerSchema = z.object({
   dryRun: z.literal(true),
   storage: dryRunStorageSchema,
   apiRequests: dryRunApiRequestsSchema,
+  /** What a real run would be refused for, each in its own words, and its code. */
+  wouldBeRefused: z.array(z.string()).optional(),
+  wouldBeRefusedCodes: z.array(z.string()).optional(),
   result: seedResultSchema(z.string()),
 });
 
@@ -677,6 +700,8 @@ export const seedPreviewAnswerSchema = z.object({
   includeChanged: z.boolean(),
   preview: removalPreviewSchema,
   refusals: z.array(z.string()),
+  /** The code of each refusal, in their order. */
+  refusalCodes: z.array(z.string()).optional(),
   notes: z.array(z.string()),
   elapsedMs: countSchema,
 });
@@ -739,12 +764,18 @@ export function seedDryRunCount(
   drawn?: ReadonlyMap<string, number>,
 ): EnvDryRunCount {
   const results = answer.result.objectResults;
+  /** The seed's own codes, for what `said` holds of what it said a real run would meet. */
+  const codedFor = (said: string): { refusalCodes?: string[] } => {
+    const codes = codesSaidIn(said, answer.wouldBeRefused, answer.wouldBeRefusedCodes);
+    return codes.length > 0 ? { refusalCodes: codes } : {};
+  };
   if (
     answer.result.status === 'failure' &&
     results.length > 0 &&
     results.every((result) => result.objectApiName === REFUSED_BEFORE_WRITING)
   ) {
     const said = results.flatMap((result) => result.errors);
+    const refusal = said.length > 0 ? said.join(' ') : 'the seed refused its dry run';
     return {
       objects: [],
       total: 0,
@@ -752,7 +783,8 @@ export function seedDryRunCount(
       apiRequests: answer.apiRequests.estimate,
       storageBytes: 0,
       emails: [],
-      refusal: said.length > 0 ? said.join(' ') : 'the seed refused its dry run',
+      refusal,
+      ...codedFor(refusal),
     };
   }
   const objects = answer.result.objectResults.map((result) => {
@@ -766,6 +798,11 @@ export function seedDryRunCount(
       : { object: result.objectApiName, wouldCreate: result.recordsCreated };
   });
   const refusal = answer.storage.refusal ?? answer.apiRequests.refusal ?? answer.emails.refusal;
+  const notes = answer.result.objectResults.flatMap((result) =>
+    result.writtenByThePlatform !== undefined
+      ? [linkedToThePlatformNote(result.objectApiName, result.writtenByThePlatform.records)]
+      : [],
+  );
   return {
     objects,
     total: answer.result.totalRecordsCreated,
@@ -773,8 +810,22 @@ export function seedDryRunCount(
     apiRequests: answer.apiRequests.estimate,
     storageBytes: answer.storage.bytes,
     emails: answer.emails.checks.map((check) => ({ limit: check.limit, emails: check.emails })),
-    ...(refusal !== undefined ? { refusal } : {}),
+    ...(refusal !== undefined ? { refusal, ...codedFor(refusal) } : {}),
+    ...(notes.length > 0 ? { notes } : {}),
   };
+}
+
+/**
+ * What a plan says of the roles a seed's dry run links to those the platform
+ * writes with their opportunity, beside the records it counts to write: they
+ * are among none of them, and the run writes them through the platform's.
+ */
+function linkedToThePlatformNote(objectApiName: string, records: number): string {
+  return (
+    `${objectApiName}: ${records} record(s) linked to the contact role the platform writes ` +
+    'with their opportunity, for its contact, not written: given the fields the seed ' +
+    `generates for ${records === 1 ? 'it' : 'them'}`
+  );
 }
 
 /**

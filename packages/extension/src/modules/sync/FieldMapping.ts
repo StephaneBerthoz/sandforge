@@ -45,7 +45,7 @@ export class FieldMappingService {
  * or not, under their target field: the source field goes there, not under
  * its own name as well.
  */
-const MOVES_ITS_SOURCE: ReadonlySet<MappingType> = new Set<MappingType>([
+export const MOVES_ITS_SOURCE: ReadonlySet<MappingType> = new Set<MappingType>([
   'direct',
   'rename',
   'transform',

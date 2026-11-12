@@ -29,6 +29,7 @@ import {
   scopeJson,
   scopeLines,
   takeLines,
+  undoLine,
   undoLines,
 } from './sandforge-checkpoint.js';
 
@@ -189,6 +190,7 @@ describe('parseArgs', () => {
       objects: [],
       dryRun: false,
       acceptAutomation: false,
+      acceptEmails: false,
       muteAutomation: false,
       acceptNoUndo: false,
       acceptRecreate: false,
@@ -211,6 +213,7 @@ describe('parseArgs', () => {
           '--yes',
           '--dry-run',
           '--accept-automation',
+          '--accept-emails',
           '--accept-no-undo',
           '--accept-recreate',
           '--accept-outside',
@@ -226,6 +229,7 @@ describe('parseArgs', () => {
       yes: true,
       dryRun: true,
       acceptAutomation: true,
+      acceptEmails: true,
       acceptNoUndo: true,
       acceptRecreate: true,
       acceptOutside: true,
@@ -305,13 +309,32 @@ describe('parseArgs', () => {
 
   it('undoes the org’s last rewind unless a checkpoint is named', () => {
     const plain = parseArgs(argv('undo', '--org', 'DEV-SB'));
-    expect(plain).toMatchObject({ command: 'undo', acceptAutomation: false, yes: false });
+    expect(plain).toMatchObject({
+      command: 'undo',
+      acceptAutomation: false,
+      acceptEmails: false,
+      yes: false,
+    });
     expect('checkpoint' in plain).toBe(false);
     expect(
       parseArgs(
-        argv('undo', '--org', 'DEV-SB', '--checkpoint', 'baseline', '--yes', '--accept-automation'),
+        argv(
+          'undo',
+          '--org',
+          'DEV-SB',
+          '--checkpoint',
+          'baseline',
+          '--yes',
+          '--accept-automation',
+          '--accept-emails',
+        ),
       ),
-    ).toMatchObject({ checkpoint: 'baseline', yes: true, acceptAutomation: true });
+    ).toMatchObject({
+      checkpoint: 'baseline',
+      yes: true,
+      acceptAutomation: true,
+      acceptEmails: true,
+    });
   });
 
   it('refuses, exit 2, a rewind or an undo told not to ask that does not name its checkpoint', () => {
@@ -428,7 +451,7 @@ describe('parseArgs', () => {
       '{refusal: {code, message}}',
       '  rewind --dry-run   as preview',
       '  rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,',
-      '  undo               as rewind, without recreated, cannotUndo, carriers and undo, with',
+      '  undo               as rewind, without recreated, cannotUndo, carriers, draftsLeft and undo,',
       'Exit codes: 0 done',
       'rewind or undo with --yes and no checkpoint named, or a question with no terminal',
       '--fail-on-change, the org differs',
@@ -444,7 +467,7 @@ describe('parseArgs', () => {
       'a file given a new version since, which keeps it',
       'the files of a checkpoint taken\nbefore SandForge 1.70, which holds none',
       // What it says of emails it could not count, and of fields gone since.
-      'emailsUncounted?, refusal?}',
+      'emailsUncounted?, deliverability?, refusal?}',
       'emails not counted, which --accept-automation covers',
       '{removed, added, changed, hidden?, uncertain?: {fields, reason?}}',
       'a field added since, deleted since, or hidden since from\nthe user by field-level security, which the preview tells apart and names in an object something\nchanged in since — in an object nothing changed in, which a rewind writes nothing to, the fields\nare not checked',
@@ -774,11 +797,90 @@ describe('previewTotals and orgDiffers', () => {
     expect(orgDiffers(diff)).toBe(false);
     expect(previewExitCode(diff, true)).toBe(0);
   });
+
+  const checkpoint = { name: 'Before UAT', takenAt: '2026-10-20T14:05:31.000Z' };
+  const estimate = { records: 4, apiRequests: 12, apiRequestsLeft: 14_900, seconds: 3, bytes: 0 };
+
+  it.each([
+    ['deleted', { removed: ['Old__c'], added: [], changed: [] }],
+    ['hidden by field-level security', { removed: [], added: [], changed: [], hidden: ['Rating'] }],
+    [
+      'gone, the org not saying which of the two',
+      { removed: [], added: [], changed: [], uncertain: { fields: ['Tier__c'] } },
+    ],
+  ])(
+    'says the org differs for a field %s since, with no record to write, and not that it is as it was',
+    (_label, schemaDrift) => {
+      const diff = diffOf([object({ schemaDrift })]);
+      expect(previewTotals(diff)).toEqual({
+        toDelete: 0,
+        toGiveBack: 0,
+        toBringBack: 0,
+        toRecreate: 0,
+      });
+
+      expect(orgDiffers(diff)).toBe(true);
+      expect(previewExitCode(diff, true)).toBe(3);
+      expect(previewExitCode(diff, false)).toBe(0);
+      expect(
+        previewJson('DEV-SB', { ...checkpoint, checkpointId: 'cp-1' }, { diff, estimate }).differs,
+      ).toBe(true);
+      expect(previewLines('DEV-SB', checkpoint, { diff, estimate }).join('\n')).not.toContain(
+        'is as it was',
+      );
+    },
+  );
+
+  it('lists, among what --fail-on-change exits 3 on in --help, a field deleted or hidden since', () => {
+    const { stdout } = refused('preview', '--help');
+    const exit3 = /3 partial \(([\s\S]*?)\); 4 unstable/.exec(stdout)?.[1].replace(/\s+/g, ' ');
+    expect(exit3).toContain(
+      'a field it compares deleted or hidden since in an object something moved in',
+    );
+  });
+
+  it('says an org is as it was with a field added since, or one whose type changed, as the panel’s preview does', () => {
+    const diff = diffOf([
+      object({ schemaDrift: { removed: [], added: ['New__c'], changed: ['Score__c'] } }),
+    ]);
+
+    expect(orgDiffers(diff)).toBe(false);
+    expect(previewExitCode(diff, true)).toBe(0);
+    const lines = previewLines('DEV-SB', checkpoint, { diff, estimate });
+    expect(lines).toContain(
+      "  DEV-SB is as it was at 'Before UAT' among the objects and fields it holds: nothing to rewind.",
+    );
+    expect(lines).toContain('  fields added since, their values left alone: Account.New__c');
+    expect(lines).toContain('  fields changed since, tried one by one: Account.Score__c');
+  });
 });
 
 describe('previewLines', () => {
   const checkpoint = { name: 'Before UAT', takenAt: '2026-10-20T14:05:31.000Z' };
   const estimate = { records: 4, apiRequests: 12, apiRequestsLeft: 14_900, seconds: 3, bytes: 0 };
+
+  it('says a field was left out by choice only when it was, not when the org lost it', () => {
+    const lines = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf([
+        object({
+          objectApiName: 'Lead',
+          notCompared: ['Gone__c', 'Hidden__c', 'Unsure__c', 'Last_Touched__c'],
+          schemaDrift: {
+            removed: ['Gone__c'],
+            added: [],
+            changed: [],
+            hidden: ['Hidden__c'],
+            uncertain: { fields: ['Unsure__c'] },
+          },
+        }),
+      ]),
+      estimate,
+    });
+    expect(lines).toContain('  not compared (you chose): Lead.Last_Touched__c');
+    expect(lines.join('\n')).toContain(
+      'fields deleted since: Lead.Gone__c — restore them from Deleted Fields, then rewind',
+    );
+  });
 
   it('counts beside the three numbers the records to make again with new Ids, and says what a new Id breaks', () => {
     const lines = previewLines('DEV-SB', checkpoint, {
@@ -789,6 +891,64 @@ describe('previewLines', () => {
     expect(lines).toContain(
       '  to make again, with new Ids: Contact 2 — deleted since and no longer in the recycle bin: made again from the checkpoint, the lookups it holds that named them naming the new Ids; anything outside Salesforce that names their old Ids no longer finds them',
     );
+  });
+
+  it('says an order or a contract it makes again is made as a draft, then given its status back, and what runs on that update: the dry run did not, the rewind did it (GC2)', () => {
+    const automation: ForgeTargetAutomation = {
+      objectsRead: ['Order'],
+      objects: [
+        {
+          objectApiName: 'Order',
+          flows: [
+            {
+              apiName: 'Order_Update_Email',
+              label: 'Order Update Email',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 2,
+    };
+    const remade = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf([
+        object({ objectApiName: 'OrderItem', toRecreate: 1 }),
+        object({ objectApiName: 'Order', toRecreate: 1 }),
+      ]),
+      estimate,
+      automation,
+    });
+    expect(remade).toContain(
+      "  made as drafts first: Order 1 — Salesforce refuses an order or a contract made past Draft, and an order takes its products only as a draft: one past Draft at the checkpoint is made at the org's Draft status, the records under it next, then given its status back, an update, on which runs Order: 'Order Update Email'",
+    );
+
+    // Listed in the bin, it may be gone from it: the rewind makes it again then, the same way.
+    const inBin = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf([
+        object({
+          objectApiName: 'Order',
+          toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+        }),
+      ]),
+      estimate,
+    });
+    expect(inBin).toContain(
+      '  if Salesforce answers that an order or a contract to bring back is no longer in the recycle bin, --accept-recreate makes it again as a draft, then gives it its status back, an update: Order 1',
+    );
+    const accounts = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf([object({ objectApiName: 'Account', toRecreate: 1 })]),
+      estimate,
+      automation,
+    });
+    expect(accounts.join('\n')).not.toContain('Draft');
   });
 
   it('says in how many objects nothing changed in it checked no field, and that a rewind writes nothing there; nothing when it checked every one', () => {
@@ -849,7 +1009,7 @@ describe('previewLines', () => {
     );
     expect(lines).toContain('  about 3 s · about 12 API requests of the 14,900 left today');
     expect(lines.at(-1)).toBe(
-      '  a rewind now would be refused: This rewind takes about 500 API requests.',
+      '  a rewind now would be refused (API_BUDGET): This rewind takes about 500 API requests.',
     );
   });
 
@@ -920,6 +1080,39 @@ describe('previewLines', () => {
     );
     expect(previewJson('DEV-SB', { checkpointId: 'ck-1', ...checkpoint }, answer).emails).toEqual(
       emails,
+    );
+  });
+
+  it('says one email of a daily limit in the singular: "about 1 single emails" was read live', () => {
+    const one = (limit: 'SingleEmail' | 'DailyWorkflowEmails') => ({
+      limit,
+      emails: 1,
+      objects: [
+        {
+          objectApiName: 'Order',
+          write: 'update' as const,
+          records: 1,
+          perRecord: 1,
+          sentBy: ['Order update email'],
+        },
+      ],
+      verdict: 'fits' as const,
+      remaining: 10,
+      max: 15,
+    });
+    const answer = {
+      diff: diffOf([object({ toGiveBack: { records: 1, fields: 1, clearedLookups: 0 } })]),
+      estimate,
+      emails: [one('SingleEmail'), one('DailyWorkflowEmails')],
+    };
+
+    const lines = previewLines('DEV-SB', checkpoint, answer);
+
+    expect(lines).toContain(
+      "  emails: DEV-SB's automation sends about 1 single email as the rewind writes (Order update email); 10 of 15 left today",
+    );
+    expect(lines).toContain(
+      "  emails: DEV-SB's automation sends about 1 workflow email as the rewind writes (Order update email); 10 of 15 left today",
     );
   });
 
@@ -995,6 +1188,153 @@ describe('previewLines', () => {
       estimate,
     });
     expect(giving).not.toContain(offer);
+  });
+
+  it('says which records to bring back --accept-recreate leaves all the same, for what making them again runs that the rewind does not ask about, and that a rewind after it asks (GC2, P11)', () => {
+    const onCreate: ForgeTargetAutomation = {
+      objectsRead: ['Order', 'OrderItem'],
+      objects: [
+        {
+          objectApiName: 'Order',
+          flows: [
+            {
+              apiName: 'Order_Created',
+              label: 'Order created',
+              timing: 'afterSave',
+              startsOn: 'create',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 2,
+    };
+    const diff = diffOf([
+      object({
+        objectApiName: 'OrderItem',
+        toBringBack: { inBin: 0, withParent: 1, deletedWhileTaken: 0 },
+      }),
+      object({
+        objectApiName: 'Order',
+        toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+      }),
+    ]);
+
+    const lines = previewLines('DEV-SB', checkpoint, { diff, estimate, automation: onCreate });
+
+    expect(lines).toContain(
+      "  if Salesforce answers that a record to bring back is no longer in the recycle bin — it still lists one emptied from it as deleted —, --accept-recreate makes it again with a new Id, with what was to come back with it; without it, the rewind leaves them and names them; Order records it leaves all the same, with what was to come back with them, and names them: making them again runs Order: 'Order created', which this rewind does not ask about — a rewind after it counts them to make again, and asks",
+    );
+    // Not said made again as a draft: it is left.
+    expect(lines.join('\n')).not.toContain('makes it again as a draft');
+
+    const blind = previewLines('DEV-SB', checkpoint, {
+      diff,
+      estimate,
+      automation: { ...onCreate, objects: [], unread: [{ part: 'triggers', reason: 'refused' }] },
+    });
+    expect(blind.join('\n')).toContain(
+      'OrderItem, Order records it leaves all the same, with what was to come back with them, and names them: what runs as they are made again could not all be read, which this rewind does not ask about',
+    );
+    // Given --accept-automation, whose question said what runs could not all
+    // be read, it leaves none of them for that: made again as drafts, as it
+    // makes them (checkpoint-tail).
+    const accepted = previewLines(
+      'DEV-SB',
+      checkpoint,
+      {
+        diff,
+        estimate,
+        automation: { ...onCreate, objects: [], unread: [{ part: 'triggers', reason: 'refused' }] },
+      },
+      'tester@example.com',
+      true,
+    ).join('\n');
+    expect(accepted).not.toContain('leaves all the same');
+    expect(accepted).toContain(
+      '  if Salesforce answers that an order or a contract to bring back is no longer in the recycle bin, --accept-recreate makes it again as a draft',
+    );
+    // What it names as running unasked still leaves them.
+    expect(
+      previewLines('DEV-SB', checkpoint, { diff, estimate, automation: onCreate }, 'x', true).join(
+        '\n',
+      ),
+    ).toContain(
+      "making them again runs Order: 'Order created', which this rewind does not ask about",
+    );
+  });
+
+  it('names under what the org runs as a rewind writes only what fires on the writes it makes: not the flow of an order’s creation, for a rewind that brings the order back and makes nothing again (GC4-C2)', () => {
+    const flow = (label: string, startsOn: 'create' | 'update') => ({
+      apiName: label.replace(/ /g, '_'),
+      label,
+      timing: 'afterSave' as const,
+      startsOn,
+      condition: 'read' as const,
+      permissions: [],
+    });
+    const onOrder = (
+      flows: ReturnType<typeof flow>[],
+      triggers: ForgeTargetAutomation['objects'][number]['triggers'] = [],
+    ): ForgeTargetAutomation => ({
+      objectsRead: ['OrderItem', 'Order'],
+      objects: [{ objectApiName: 'Order', flows, triggers }],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 1500,
+      requests: 13,
+    });
+    // GC4, gate 3, P1: an activated order and its product deleted, the order
+    // emptied from the bin, then a flow that emails as an order is created.
+    const diff = diffOf([
+      object({
+        objectApiName: 'OrderItem',
+        toBringBack: { inBin: 0, withParent: 1, deletedWhileTaken: 0 },
+      }),
+      object({
+        objectApiName: 'Order',
+        toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+      }),
+    ]);
+
+    const created = previewLines('SF-C1-TARGET', checkpoint, {
+      diff,
+      estimate,
+      automation: onOrder([flow('GC Gate Order Create Email', 'create')]),
+    }).join('\n');
+
+    expect(created).not.toContain('runs as a rewind writes');
+    // Said where it belongs: what making the order again would run, unasked.
+    expect(created).toContain(
+      "making them again runs Order: 'GC Gate Order Create Email', which this rewind does not ask about",
+    );
+
+    // What does fire on its writes is named, each once: the order brought
+    // back is given back its values, an update; an Apex trigger runs after
+    // its undelete.
+    const fired = previewLines('SF-C1-TARGET', checkpoint, {
+      diff,
+      estimate,
+      automation: onOrder(
+        [flow('GC Gate Order Create Email', 'create'), flow('Order touched', 'update')],
+        [
+          { name: 'OrderBack', events: ['afterUndelete', 'afterUpdate'] },
+          { name: 'OrderNew', events: ['afterInsert'] },
+        ],
+      ),
+    });
+    const at = fired.indexOf(
+      '  what SF-C1-TARGET runs as a rewind writes (updates, deletes, records brought back):',
+    );
+    expect(at).toBeGreaterThan(0);
+    expect(fired[at + 1]).toBe(
+      "    Order: 1 flow(s) or rule(s): 'Order touched'; 1 Apex trigger(s): OrderBack",
+    );
   });
 
   it('says the records it brings back for a moment, in none of the three numbers, and what the org runs on them runs twice; counts them in --json', () => {
@@ -1094,7 +1434,8 @@ describe('rewindStepsOf and acceptanceRefusal', () => {
     expect(rewindStepsOf(diff)).toEqual({
       bringBack: ['Case'],
       recreate: [],
-      giveBack: ['Account'],
+      // What comes back from the bin is given its values back: an update.
+      giveBack: ['Account', 'Case'],
       setToDraft: ['Order'],
       delete: ['Order'],
     });
@@ -1260,6 +1601,57 @@ describe('rewindStepsOf and acceptanceRefusal', () => {
         ),
       ).toBeUndefined();
     }
+  });
+
+  it('refuses the emails of what still runs without --accept-emails, naming it and the mute, --accept-automation given', () => {
+    const sends = automation({
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Welcome',
+              label: 'Welcome',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [{ name: 'Skip_Flows', bypass: true, held: false }],
+              messages: [{ kind: 'email', name: 'Hello', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      bypassGrants: [
+        {
+          permission: 'Skip_Flows',
+          permissionSets: [{ name: 'Skip', label: 'Skip', grants: 1 }],
+        },
+      ],
+    });
+    const sent = {
+      diff,
+      automation: sends,
+      deliverability: {
+        reading: { level: 'all' as const },
+        senders: [
+          {
+            objectApiName: 'Account',
+            kind: 'flow' as const,
+            name: 'Welcome',
+            why: 'email' as const,
+          },
+        ],
+      },
+    };
+    const accepted = { ...NOTHING_ACCEPTED, acceptAutomation: true };
+
+    const refused = acceptanceRefusal('DEV-SB', sent, accepted);
+
+    expect(refused?.code).toBe('EMAILS_DELIVERED');
+    expect(refused?.message).toContain('Add --accept-emails to rewind all the same');
+    expect(refused?.message).toContain('--mute-automation keeps quiet flow "Welcome" on Account');
+    expect(acceptanceRefusal('DEV-SB', sent, { ...accepted, acceptEmails: true })).toBeUndefined();
   });
 
   it('says, refusing automation without --accept-automation, that the emails of what could not be read were not counted', () => {
@@ -1441,6 +1833,25 @@ describe('rewindLines, undoLines and resultJson', () => {
     ignoredFields: ['Case.Last_Touched__c'],
   };
 
+  it('says, before an undo asks, that the orders it sends back to the bin are set back to Draft first: an update, which a flow on an order’s update fires on', () => {
+    const counts = { bringBack: 0, giveBack: 0, remove: 2, along: 0, remade: 2, drafted: 1 };
+
+    expect(undoLine('DEV-SB', checkpoint, 'rw-1', '2026-11-06T17:00:00.000Z', counts)).toBe(
+      "undo the rewind rw-1 of DEV-SB to 'Before UAT' (open until 2026-11-06 17:00 UTC, sooner " +
+        'if the recycle bin fills): it brings back 0 record(s) the rewind deleted, gives 0 ' +
+        'record(s) back the values they had before it, and sends 0 record(s) it brought back to ' +
+        'the recycle bin, deleting again the 2 record(s) it made again — of them, 1 order(s) set ' +
+        'back to Draft first if past it, the one way Salesforce deletes one: an update, which ' +
+        "what runs on an order's update fires on; what anyone changed since the rewind stays",
+    );
+    expect(
+      undoLine('DEV-SB', checkpoint, 'rw-1', '2026-11-06T17:00:00.000Z', {
+        ...counts,
+        drafted: 0,
+      }),
+    ).not.toContain('Draft');
+  });
+
   it('says a rewind that went through, what it did, how long it can be undone and what it sent', () => {
     const lines = rewindLines(
       'DEV-SB',
@@ -1559,8 +1970,13 @@ describe('rewindLines, undoLines and resultJson', () => {
     expect(unstable).toContain(
       '  Account 2 — changed during the rewind by Ada Tester: left as they made them',
     );
-    expect(rewindLines('DEV-SB', checkpoint, resultOf({ status: 'cancelled' }))[0]).toBe(
+    const undo = { until: '2026-11-06T17:00:00.000Z', cannot: [] };
+    expect(rewindLines('DEV-SB', checkpoint, resultOf({ status: 'cancelled', undo }))[0]).toBe(
       "Stopped part way: DEV-SB is between 'Before UAT' and now. Rewind again to finish: it takes up from what still differs, and undo still returns DEV-SB to how it was before the rewind.",
+    );
+    // Stopped before it sent anything, it offers no undo, and is not between.
+    expect(rewindLines('DEV-SB', checkpoint, resultOf({ status: 'cancelled' }))[0]).toBe(
+      "Stopped before it wrote anything: DEV-SB is as it was before this rewind. Rewind again to rewind it to 'Before UAT'.",
     );
   });
 
@@ -1577,6 +1993,21 @@ describe('rewindLines, undoLines and resultJson', () => {
     ]);
     expect(undoLines('DEV-SB', checkpoint, resultOf())[0]).toBe(
       "DEV-SB is back as it was before its rewind to 'Before UAT'.",
+    );
+  });
+
+  it('says an undo stopped before it wrote anything as nothing written, the rewind still to undo, and one stopped after it wrote as between', () => {
+    // Stopped once under way but before its first write, at the question
+    // about what it may not delete say, it said "Stopped part way: … is
+    // between the rewind and how it was before it" of an org it had written
+    // nothing to.
+    expect(undoLines('DEV-SB', checkpoint, resultOf({ status: 'cancelled' }))[0]).toBe(
+      'Stopped before it wrote anything: DEV-SB is as the rewind left it, and the rewind can ' +
+        'still be undone.',
+    );
+    expect(undoLines('DEV-SB', checkpoint, resultOf({ ...DID, status: 'cancelled' }))[0]).toBe(
+      'Stopped part way: DEV-SB is between the rewind and how it was before it. Undo again to ' +
+        'finish: it takes up what this one left.',
     );
   });
 
@@ -1739,6 +2170,29 @@ describe('rewindLines, undoLines and resultJson', () => {
     expect(
       rewindLines('DEV-SB', checkpoint, resultOf({ ...carried, status: 'failure' })).join('\n'),
     ).not.toContain('brought back for a moment');
+  });
+
+  it('names the order a stopped rewind made again as a draft and left before its status went back, with what a rewind again does, and lists it in its JSON (GC2)', () => {
+    const draft = '801000000000007AAA';
+    const stopped = resultOf({
+      status: 'cancelled',
+      deleted: [],
+      restored: [],
+      undeleted: [],
+      recreated: [{ objectApiName: 'Order', planned: 1, created: 1, refused: 0, reasons: [] }],
+      draftsLeft: [{ objectApiName: 'Order', count: 1, ids: [draft] }],
+    });
+
+    const lines = rewindLines('DEV-SB', checkpoint, stopped);
+
+    expect(lines).toContain(
+      `  left as drafts: Order 1 (${draft}) — made again as drafts, the rewind stopped before it gave them back the status the checkpoint holds: rewind again gives it back to them, an update`,
+    );
+    expect(resultJson('rewind', 'DEV-SB', checkpoint, stopped).draftsLeft).toEqual([
+      { object: 'Order', count: 1, ids: [draft] },
+    ]);
+    expect(resultJson('rewind', 'DEV-SB', checkpoint, resultOf())).not.toHaveProperty('draftsLeft');
+    expect(rewindLines('DEV-SB', checkpoint, resultOf()).join('\n')).not.toContain('drafts');
   });
 
   it('says what an undo sent back to the recycle bin on its own that had gone there with a record the rewind brought back for a moment, and lists it in its JSON (P-B1)', () => {
@@ -2029,6 +2483,50 @@ describe('files', () => {
       [],
     );
     expect(resultJson('rewind', 'DEV-SB', checkpoint, resultOf())).not.toHaveProperty('files');
+  });
+
+  it('says once that an object was left out, before why, whichever words its reason starts with', () => {
+    // On a scratch org: "left out: CreditMemoInvApplication, ProcessInstance —
+    // Left out: Salesforce alone creates its records…".
+    const created =
+      'Left out: Salesforce alone creates its records, such as approvals, Einstein insights, ' +
+      'Data.com clean info and invoices, and no permission lets a user create one.';
+    const setup =
+      "Users, permissions and setup are left out, and so are the org's own logs and jobs.";
+    const scope = {
+      mode: 'picked' as const,
+      objects: [],
+      leftOut: [
+        { objectApiName: 'BulkApiResultEventStore', code: 'setup' as const, reason: setup },
+        {
+          objectApiName: 'CreditMemoInvApplication',
+          code: 'platformCreated' as const,
+          reason: created,
+        },
+        { objectApiName: 'ProcessInstance', code: 'platformCreated' as const, reason: created },
+        {
+          objectApiName: 'Widget__c',
+          code: 'excludedByUser' as const,
+          reason: 'Left out as asked.',
+        },
+      ],
+      estimate,
+    };
+
+    const lines = scopeLines('DEV-SB', scope);
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        `  left out: BulkApiResultEventStore — ${setup}`,
+        '  left out: CreditMemoInvApplication, ProcessInstance — Salesforce alone creates its ' +
+          'records, such as approvals, Einstein insights, Data.com clean info and invoices, and ' +
+          'no permission lets a user create one.',
+        '  left out: Widget__c — as asked.',
+      ]),
+    );
+    expect(lines.filter((line) => line.includes('— Left out'))).toEqual([]);
+    // The answer in --json keeps each reason whole: it is read on its own there.
+    expect(scopeJson(scope).leftOut).toEqual(scope.leftOut);
   });
 
   it('says before a take the files it keeps, the objects of files added to those picked, and what a user without Query All Files does not see; and answers them in --json', () => {

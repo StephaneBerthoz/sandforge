@@ -143,12 +143,41 @@ export interface MutedAutomation {
   /** What could not be read of what they lift; absent when everything was. */
   liftsUnread?: MuteLiftsUnread[];
   /**
-   * Whether every assignment made for the run was taken back as it ended.
-   * False leaves them to the lease's end, released by the next run of this
-   * machine that mutes the same org; absent before the run ends, on a dry
-   * run, and when nothing was assigned.
+   * Whether the run's lease was released as it ended: each set it held taken
+   * back, or kept for another run's lease that needs it, and the journal
+   * written. False leaves what `reason` says — a set the org would not take
+   * back, a journal that still names the lease — to the lease's end,
+   * released by the next run of this machine that mutes the same org; absent
+   * before the run ends, on a dry run, and when nothing was assigned.
    */
   released?: boolean;
+  /**
+   * The permission sets taken back as the run ended: those it assigned, and
+   * those another run that ended first kept for it. Absent before the run
+   * ends, and in a result kept before it was said.
+   */
+  takenBack?: string[];
+  /**
+   * The permission sets the run left assigned as it ended for another run of
+   * this machine that mutes the same org as the same user and needs them:
+   * that run's lease holds them now, and takes them back as it ends. Absent
+   * when none.
+   */
+  passed?: string[];
+  /**
+   * The permission sets still assigned for the run once its release ran:
+   * the org would not take them back, or the journal that was to keep them
+   * for another run could not be written. Absent when the release could not
+   * read the journal, and so did not run.
+   */
+  notTakenBack?: string[];
+  /**
+   * The permission sets taken back as the run took its lease, as left by a
+   * run whose process ended as it assigned them: found assigned to the user
+   * by user and set, not by id, so one an admin assigned that user since
+   * went with them. Absent when none.
+   */
+  tookBackOfEnded?: string[];
   /** When the lease ends, by this machine's clock: what is left past it is taken back by the next run that mutes. */
   leaseEndsAt?: string;
   /** Why nothing was muted, or what could not be taken back, in words. */

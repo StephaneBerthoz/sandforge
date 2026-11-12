@@ -4,10 +4,16 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 // otherwise have to provide its initialiser.
 import i18n from 'i18next';
 
-import { TRANSFORM_RULE_NO_FIELD, panelWordingOf, type BaseMessage } from '@sandforge/shared';
+import {
+  TRANSFORM_RULE_BAD_PATTERN,
+  TRANSFORM_RULE_NO_FIELD,
+  type BaseMessage,
+} from '@sandforge/shared';
 import { offerReconnect } from '../bridge/offerReconnect';
 import { listWords } from '../utils/listWords';
+import { maskingRefusalWords } from '../utils/maskingRefusal';
 import { muteRefusalWords } from '../utils/muteRefusal';
+import { panelRefusalWords } from '../utils/runCheckpoint';
 
 /**
  * Options for the useMessageResponse hook.
@@ -68,6 +74,28 @@ function requestError(
   return i18n.isInitialized ? i18n.t(key, options) : key;
 }
 
+/**
+ * The error channels on which a run's `RUN_CANCELLED` says one thing only:
+ * its Stop came while it took the checkpoint it was to take first. A Sync
+ * run, a seed and a CSV import stopped later end with a result saying so;
+ * a Forge run's error carries the code for any cancel.
+ */
+const STOPPED_DURING_THE_TAKE: ReadonlySet<string> = new Set([
+  'sync:error',
+  'seed:error',
+  'seed:csv:error',
+]);
+
+/**
+ * Megabytes as the host says them — rounded up, two decimals under 10 MB —
+ * written in the interface language.
+ */
+function megabytes(value: number): string {
+  const factor = value < 10 ? 100 : 10;
+  const rounded = value <= 0 ? 0 : Math.ceil(value * factor - 1e-9) / factor;
+  return new Intl.NumberFormat(i18n.resolvedLanguage ?? i18n.language ?? 'en').format(rounded);
+}
+
 /** What every write path writes before the reason Production Guard gave. */
 const GUARD_BLOCKED_PREFIX = 'Operation blocked by Production Guard: ';
 
@@ -94,8 +122,8 @@ function guardRefusal(
   // CLI command once: an expired session, an org that failed several times
   // in a row and is left alone for a moment, an import that found no org in
   // the CLI. The error catalogue words them, what happened and what to do.
-  const worded = panelWordingOf(code);
-  if (worded) return `${i18n.t(worded.explanationKey)} ${i18n.t(worded.actionKey)}`;
+  const worded = panelRefusalWords(code, payload, (key) => i18n.t(key));
+  if (worded !== undefined) return worded;
   // A seed its records' data storage stopped before the first write, with the
   // figures the host measured: the host's sentence is English.
   if (code === 'SEED_STORAGE_EXCEEDED') {
@@ -157,12 +185,41 @@ function guardRefusal(
   if (code === 'GUARD_DECLINED') return i18n.t('common.refusal.guardDeclined');
   // Not the guard's, but worded in English the same way and shown as it came.
   if (code === 'TEMPLATE_NOT_FOUND') return i18n.t('common.refusal.templateNotFound');
+  // A masking run that would leave values in clear, refused before it wrote:
+  // the fields and the objects the host named, and what to do about them.
+  const masking = maskingRefusalWords(code, payload, (key, options) => i18n.t(key, options));
+  if (masking !== undefined) return masking;
   // Autopilot asked before its module reached the host: the host's line is English.
   if (code === 'AUTOPILOT_NOT_READY') return i18n.t('common.refusal.autopilotNotReady');
-  // An Autopilot run its write gate stopped before the first write.
+  // An Autopilot run its write gate stopped before the first write: with the
+  // figures it was refused on, when the host sent them.
   if (code === 'AUTOPILOT_STORAGE_EXCEEDED') {
-    return i18n.t('common.refusal.autopilotStorageExceeded');
+    const { estimateMB, remainingMB, maxMB, org } = payload;
+    return typeof estimateMB === 'number' &&
+      typeof remainingMB === 'number' &&
+      typeof maxMB === 'number' &&
+      typeof org === 'string'
+      ? i18n.t('common.refusal.autopilotStorageExceededFigures', {
+          estimate: megabytes(estimateMB),
+          remaining: megabytes(remainingMB),
+          max: megabytes(maxMB),
+          org,
+        })
+      : i18n.t('common.refusal.autopilotStorageExceeded');
   }
+  // A fit of an Autopilot plan the host could not make: the plan under
+  // review stays as it was, and the host's reason is kept as it said it.
+  if (code === 'AUTOPILOT_FIT_STORAGE_UNREAD' || code === 'AUTOPILOT_FIT_READ_REFUSED') {
+    const reason = typeof payload.reason === 'string' ? payload.reason : (message ?? '');
+    return i18n.t(
+      code === 'AUTOPILOT_FIT_READ_REFUSED'
+        ? 'common.refusal.autopilotFitReadRefused'
+        : 'common.refusal.autopilotFitStorageUnread',
+      { reason },
+    );
+  }
+  if (code === 'AUTOPILOT_FIT_STALE') return i18n.t('common.refusal.autopilotFitStale');
+  if (code === 'AUTOPILOT_NO_PLAN') return i18n.t('common.refusal.autopilotNoPlan');
   if (code === 'AUTOPILOT_WRITE_DECLINED') return i18n.t('common.refusal.autopilotWriteDeclined');
   // A second run asked for while one writes to the same target.
   if (code === 'AUTOPILOT_RUNNING') return i18n.t('common.refusal.autopilotRunning');
@@ -174,8 +231,12 @@ function guardRefusal(
   // A Sync run, simulation or save refused for a transform rule that names
   // no field, each such rule named by the host with its object.
   if (code === TRANSFORM_RULE_NO_FIELD) return transformNoFieldWords(payload.rules);
+  // The same for a Regex replace rule whose pattern is no regular expression.
+  // What is wrong with the pattern stays as JavaScript said it.
+  if (code === TRANSFORM_RULE_BAD_PATTERN) return transformBadPatternWords(payload.rules);
   // A run asked to mute the target's automation that could not be: nothing
-  // was assigned and nothing written, and the host said why in English.
+  // written, what a failure had assigned taken back, and the host said in
+  // English why, and what the org would not take back.
   return muteRefusalWords(code, message, (key, options) => i18n.t(key, options));
 }
 
@@ -201,6 +262,40 @@ function transformNoFieldWords(rules: unknown): string | undefined {
     );
   }
   return i18n.t('common.refusal.transformNoField', {
+    count: named.length,
+    rules: listWords(named, (key) => i18n.t(key)),
+  });
+}
+
+/**
+ * A Sync refusal for Regex replace rules whose pattern is no regular
+ * expression, each named on its object and field with its pattern, or
+ * `undefined` when the host named none. Kept in `common`, as
+ * {@link transformNoFieldWords} is.
+ */
+function transformBadPatternWords(rules: unknown): string | undefined {
+  if (!Array.isArray(rules) || rules.length === 0) return undefined;
+  const named: string[] = [];
+  for (const rule of rules as unknown[]) {
+    if (typeof rule !== 'object' || rule === null) return undefined;
+    const { objectApiName, field, pattern, reason } = rule as Record<string, unknown>;
+    if (
+      typeof objectApiName !== 'string' ||
+      typeof pattern !== 'string' ||
+      typeof reason !== 'string'
+    ) {
+      return undefined;
+    }
+    named.push(
+      i18n.t('common.refusal.transformPatternOn', {
+        rule: i18n.t('common.transformTypes.regex_replace'),
+        object: typeof field === 'string' ? `${objectApiName}.${field}` : objectApiName,
+        pattern,
+        reason,
+      }),
+    );
+  }
+  return i18n.t('common.refusal.transformBadPattern', {
     count: named.length,
     rules: listWords(named, (key) => i18n.t(key)),
   });
@@ -401,7 +496,9 @@ export function useMessageResponse<T>(
           const said = typeof payloadMessage === 'string' ? payloadMessage : undefined;
           setErrorCode(code);
           setError(
-            guardRefusal(code, said, eventData.payload) ??
+            (code === 'RUN_CANCELLED' && STOPPED_DURING_THE_TAKE.has(errorType)
+              ? i18n.t('errors.checkpointRefused.stopped')
+              : guardRefusal(code, said, eventData.payload)) ??
               said ??
               requestError('bridge.failed', { request: requestType }),
           );

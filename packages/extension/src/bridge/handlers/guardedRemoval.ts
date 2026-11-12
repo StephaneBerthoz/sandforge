@@ -46,6 +46,13 @@ export interface GuardedRemoval {
     onObject: (objectApiName: string, counts: WriteCounts) => void,
     signal: AbortSignal,
   ) => Promise<Array<{ objectApiName: string; counts: WriteCounts }>>;
+  /**
+   * Called once the write is over, however it ended, before the run is said
+   * ended anywhere (`operation:completed`, `operation:failed`, Live
+   * Operations): a delete that muted gives its lease back here. A cleanup was
+   * listed ended while the set it had assigned was still assigned. Never throws.
+   */
+  beforeEnd?: () => Promise<void>;
 }
 
 /** How a guarded run ended. */
@@ -185,6 +192,7 @@ export async function runGuardedRemoval(
       sendOperationProgress(deps, operationId, percentage, written, removal.recordCount, step);
       live.progress(percentage, written, removal.recordCount, step);
     }, stop.signal);
+    await removal.beforeEnd?.();
     const outcome = removalOutcome(results);
     const cancelled = stop.signal.aborted;
     recordWriteRun(deps, {
@@ -233,11 +241,13 @@ export async function runGuardedRemoval(
       live.fail(refused);
       settle(new Error(refused));
     } else {
-      live.complete();
+      if (outcome.status === 'partial') live.partial();
+      else live.complete();
       settle();
     }
     return { ran: true, operationId, outcome, ...(guard ? { guard } : {}) };
   } catch (err: unknown) {
+    await removal.beforeEnd?.();
     // Stopped half way: recorded as failed, with what it had written.
     const error = extractErrorMessage(err);
     recordWriteRun(deps, {

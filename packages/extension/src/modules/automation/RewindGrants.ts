@@ -38,7 +38,11 @@ const SAVED_PIPELINE_PREFIX = 'pipeline:saved:';
  * - `digest` is `rewindGrantDigest` of the step's configuration as saved when
  *   it was confirmed;
  * - `grantedBy` is the account VS Code ran under, as the audit trail names a
- *   user: a short hash, never the account's name.
+ *   user: a short hash, never the account's name;
+ * - `takenBackAt` is when a save that changed the step took it back: kept so,
+ *   it confirms nothing, whatever the step is saved as next, and says the step
+ *   changed since it was confirmed. Deleted, it said the step had never been
+ *   confirmed, on the page and in the run's refusal.
  */
 export interface RewindGrant {
   pipelineId: string;
@@ -48,6 +52,7 @@ export interface RewindGrant {
   digest: string;
   grantedAt: string;
   grantedBy?: string;
+  takenBackAt?: string;
 }
 
 const rewindGrantSchema = z
@@ -59,6 +64,7 @@ const rewindGrantSchema = z
     digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
     grantedAt: z.iso.datetime(),
     grantedBy: z.string().max(80).optional(),
+    takenBackAt: z.iso.datetime().optional(),
   })
   .strict();
 
@@ -86,7 +92,8 @@ export function grantRefusalWords(stepName: string, refusal: GrantRefusal): stri
   return (
     `Rewind step "${stepName}" has ` +
     (refusal === 'changed' ? 'not been confirmed since it was changed' : 'never been confirmed') +
-    ": open it and type the org's alias. No record was written."
+    ": open it and type the org's alias, or its username for an org that has none. No record " +
+    'was written.'
   );
 }
 
@@ -140,15 +147,29 @@ export class RewindGrants {
    * Take back each confirmation of `pipelineId` that its steps as saved now
    * no longer bear out: a step gone, of another type, whose configuration no
    * longer reads, or whose digest changed. A configuration changed back is
-   * never confirmed again by this: what was taken back stays so.
+   * never confirmed again by this: what was taken back stays so. A Rewind
+   * step still there keeps its confirmation marked taken back
+   * (`takenBackAt`), which says it changed since; one gone loses it.
+   * @param now - When the save was made: this machine's clock unless told.
    * @returns The ids of the steps whose confirmation was taken back.
    */
-  revokeChanged(pipelineId: string, steps: readonly Partial<PipelineStep>[]): string[] {
+  revokeChanged(
+    pipelineId: string,
+    steps: readonly Partial<PipelineStep>[],
+    now: () => Date = () => new Date(),
+  ): string[] {
     const revoked: string[] = [];
     for (const grant of this.all().filter((kept) => kept.pipelineId === pipelineId)) {
       const step = steps.find((candidate) => candidate.id === grant.stepId);
-      if (step?.type === 'rewind' && digestOf(step.config) === grant.digest) continue;
-      if (this.revoke(grant.pipelineId, grant.stepId)) revoked.push(grant.stepId);
+      const stays = step?.type === 'rewind';
+      if (stays && grant.takenBackAt !== undefined) continue;
+      if (stays && digestOf(step.config) === grant.digest) continue;
+      if (stays) {
+        this.write({ ...grant, takenBackAt: now().toISOString() });
+        revoked.push(grant.stepId);
+      } else if (this.revoke(grant.pipelineId, grant.stepId) && grant.takenBackAt === undefined) {
+        revoked.push(grant.stepId);
+      }
     }
     return revoked;
   }
@@ -191,7 +212,9 @@ export class RewindGrants {
     if (!grant || !this.store.has(`${SAVED_PIPELINE_PREFIX}${pipelineId}`)) {
       return { refusal: 'never' };
     }
-    if (digestOf(step.config) !== grant.digest) return { refusal: 'changed' };
+    if (grant.takenBackAt !== undefined || digestOf(step.config) !== grant.digest) {
+      return { refusal: 'changed' };
+    }
     return {
       grant: {
         organizationId: grant.organizationId,

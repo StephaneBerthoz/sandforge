@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type {
   BaseMessage,
@@ -14,8 +18,49 @@ import { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import type { SaveDialogAdapter } from '../../adapters/fs/SaveDialogAdapter.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+
+// What the org runs as an erasure writes over or deletes the records it
+// found: nothing, as an org without flows or triggers on them answers,
+// unless a test says what fires. The erasure reads it before its first write.
+const automation = vi.hoisted(() => ({
+  fires: undefined as
+    | undefined
+    | { label: string; startsOn: 'update' | 'delete'; timing: 'beforeSave' | 'afterSave' },
+}));
+vi.mock('../../modules/forge/TargetAutomationReader.js', () => ({
+  TargetAutomationReader: class {
+    read(_orgId: string, objects: readonly string[]) {
+      const fires = automation.fires;
+      return Promise.resolve({
+        objectsRead: [...objects],
+        objects: fires
+          ? objects.map((objectApiName) => ({
+              objectApiName,
+              flows: [
+                {
+                  apiName: fires.label.replaceAll(' ', '_'),
+                  label: fires.label,
+                  timing: fires.timing,
+                  startsOn: fires.startsOn,
+                  condition: 'read',
+                  permissions: [],
+                },
+              ],
+              triggers: [],
+            }))
+          : [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: fires ? 1 : 0,
+      });
+    }
+  },
+  targetAutomationQueries: () => ({}),
+}));
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -86,10 +131,12 @@ function janeOrg() {
     records.map((r) => ({ success: true, id: r.Id })),
   );
   const destroy = vi.fn(async (ids: string[]) => ids.map((id) => ({ success: true, id })));
-  const query = vi.fn(async (soql: string) => {
-    if (soql.startsWith('SELECT COUNT()')) return { totalSize: 1, records: [] };
-    return { totalSize: 1, records: [janeRecord] };
-  });
+  const query = vi.fn(
+    async (soql: string): Promise<{ totalSize: number; records: unknown[]; done?: boolean }> => {
+      if (soql.startsWith('SELECT COUNT()')) return { totalSize: 1, records: [] };
+      return { totalSize: 1, records: [janeRecord] };
+    },
+  );
   return {
     conn: {
       describe: vi.fn(async () => contactDescribe),
@@ -130,6 +177,7 @@ describe('DataOpsComplianceHandler', () => {
   let org: ReturnType<typeof janeOrg>;
 
   beforeEach(() => {
+    automation.fires = undefined;
     vi.mocked(getJsforceConnection).mockReset();
     org = janeOrg();
     vi.mocked(getJsforceConnection).mockResolvedValue(org.conn as never);
@@ -336,6 +384,87 @@ describe('DataOpsComplianceHandler', () => {
     expect(erased).toMatchObject({ kind: 'erased', mode: 'anonymize', outcome: 'success' });
   });
 
+  it('says what the duplicate rules wrote for the records it overwrote, as a masking says it, and removes none of it', async () => {
+    // The org's standard rule on Contact reports the record the erasure
+    // writes over with the one it now looks like: a set and two items,
+    // written by the org a few seconds after the save.
+    handler.setTargetAutomation({
+      read: async (_orgId, objects) => ({
+        objectsRead: [...objects],
+        objects: objects.map((objectApiName) => ({
+          objectApiName,
+          flows: [],
+          triggers: [],
+          duplicateRules: [
+            {
+              name: 'Standard Contact Duplicate Rule',
+              developerName: 'Standard_Rule_for_Contacts',
+            },
+          ],
+        })),
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 1,
+      }),
+    });
+    handler.setDuplicatesSettle(0);
+    const clock = '2026-11-04T12:31:20.000Z';
+    const reported = new Date(Date.parse(clock) + 3_000).toISOString();
+    const tables = {
+      sets: [] as Array<Record<string, unknown>>,
+      items: [] as Array<Record<string, unknown>>,
+    };
+    org.update.mockImplementation(async (records: Array<Record<string, unknown>>) => {
+      tables.sets.push({ Id: '0GLxx0000000001AAA', CreatedDate: reported });
+      for (const [at, id] of [String(records[0]?.Id), '003000000000009AAA'].entries()) {
+        tables.items.push({
+          Id: `0GMxx000000000${at + 1}AAA`,
+          CreatedDate: reported,
+          DuplicateRecordSetId: '0GLxx0000000001AAA',
+          RecordId: id,
+        });
+      }
+      return records.map((r) => ({ success: true, id: r.Id }));
+    });
+    const janeQuery = org.query.getMockImplementation();
+    org.query.mockImplementation(async (soql: string) => {
+      const object = /FROM (DuplicateRecord(?:Item|Set))\b/.exec(soql)?.[1];
+      if (object === undefined) return janeQuery?.(soql) ?? { totalSize: 0, records: [] };
+      const rows = object === 'DuplicateRecordSet' ? tables.sets : tables.items;
+      return { totalSize: rows.length, records: rows, done: true };
+    });
+    Object.assign(org.conn, { soap: { getServerTimestamp: async () => ({ timestamp: clock }) } });
+    const { requestId } = await searchJane();
+
+    await handler.handle(
+      request('dataops:dsr:erase', {
+        orgId: 'org-1',
+        requestId,
+        mode: 'anonymize',
+        records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+        dryRun: false,
+      }),
+    );
+
+    const reply = answer<{ outcome: unknown; duplicates?: unknown }>('dataops:dsr:erase:response');
+    expect(reply.outcome).toMatchObject({ status: 'success', done: 1 });
+    expect(reply.duplicates).toMatchObject({
+      rules: [{ objectApiName: 'Contact', rules: ['Standard Contact Duplicate Rule'] }],
+      sets: 1,
+      items: 2,
+    });
+    expect(tables.sets).toHaveLength(1);
+    expect(posted().find((m) => m.type === 'notification')?.payload).toMatchObject({
+      level: 'warning',
+      message: expect.stringContaining(
+        'The duplicate rules of dev on Contact ("Standard Contact Duplicate Rule") wrote 1 ' +
+          'duplicate record set(s) and 2 item(s) during the erasure, for records it overwrote: ' +
+          'kept, as they name records that stay.',
+      ),
+    });
+  });
+
   it('says an erasure writes to the org while it writes, and no longer once it ended; a dry run writes to none: a checkpoint of the org is refused meanwhile', async () => {
     const { requestId } = await searchJane();
     const during: boolean[] = [];
@@ -411,6 +540,494 @@ describe('DataOpsComplianceHandler', () => {
     expect(new SubjectRequestLogView(deps).list()[0].events[1]).toMatchObject({
       kind: 'erased',
       outcome: 'stopped',
+    });
+  });
+
+  it('overwrites nothing an update flow fires on, and logs the request as stopped, until the confirmation accepts it', async () => {
+    automation.fires = { label: 'Notify Owner', startsOn: 'update', timing: 'afterSave' };
+    const { requestId } = await searchJane();
+    const erase = (accord: Record<string, unknown>) =>
+      handler.handle(
+        request('dataops:dsr:erase', {
+          orgId: 'org-1',
+          requestId,
+          mode: 'anonymize',
+          records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+          dryRun: false,
+          ...accord,
+        }),
+      );
+
+    await erase({});
+
+    expect(org.update).not.toHaveBeenCalled();
+    expect(posted().at(-1)).toMatchObject({
+      type: 'dataops:error',
+      payload: {
+        code: 'AUTOMATION_NOT_ACCEPTED',
+        message: expect.stringContaining(
+          'dev runs automation as this erasure writes over its records: Contact: flow ' +
+            '"Notify Owner" (as it is masked, after save)',
+        ),
+      },
+    });
+    expect(new AuditTrailStore(deps.configStore).list().entries[0]).toMatchObject({
+      action: 'subject_erase',
+      outcome: 'stopped',
+      details: expect.objectContaining({ code: 'AUTOMATION_NOT_ACCEPTED' }),
+    });
+    expect(new SubjectRequestLogView(deps).list()[0].events[1]).toMatchObject({
+      kind: 'erased',
+      mode: 'anonymize',
+      outcome: 'stopped',
+    });
+
+    await erase({ acceptAutomation: true });
+    expect(org.update).toHaveBeenCalled();
+    expect(answer<{ outcome: unknown }>('dataops:dsr:erase:response').outcome).toMatchObject({
+      status: 'success',
+      done: 1,
+    });
+  });
+
+  it('deletes nothing a flow runs before, until the confirmation accepts it', async () => {
+    automation.fires = { label: 'Guard Delete', startsOn: 'delete', timing: 'beforeSave' };
+    const { requestId } = await searchJane();
+    const erase = (accord: Record<string, unknown>) =>
+      handler.handle(
+        request('dataops:dsr:erase', {
+          orgId: 'org-1',
+          requestId,
+          mode: 'delete',
+          records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+          dryRun: false,
+          ...accord,
+        }),
+      );
+
+    await erase({});
+
+    expect(org.destroy).not.toHaveBeenCalled();
+    expect(posted().at(-1)).toMatchObject({
+      type: 'dataops:error',
+      payload: {
+        code: 'AUTOMATION_NOT_ACCEPTED',
+        message: expect.stringContaining(
+          'dev runs automation as this erasure deletes its records: Contact: flow ' +
+            '"Guard Delete" (before delete)',
+        ),
+      },
+    });
+
+    await erase({ acceptAutomation: true });
+    expect(org.destroy).toHaveBeenCalled();
+  });
+
+  /**
+   * As the gate org answered: an update flow that emails, kept quiet by a
+   * set's bypass, on an org that delivers every email (Setup >
+   * Deliverability: All email) and has every email of the day left.
+   */
+  function emailingUpdateFlow(): void {
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      ...org.conn,
+      request: vi.fn(async ({ url }: { url: string }) =>
+        url === '/limits'
+          ? {
+              SingleEmail: { Max: 15, Remaining: 15 },
+              DailyWorkflowEmails: { Max: 525, Remaining: 525 },
+            }
+          : { compiled: true, success: true },
+      ),
+    } as never);
+    handler.setTargetAutomation({
+      read: async (_orgId: string, objects: readonly string[]) => ({
+        objectsRead: [...objects],
+        objects: objects.map((objectApiName) => ({
+          objectApiName,
+          flows: [
+            {
+              apiName: 'Contact_Update_Email',
+              label: 'Contact Update Email',
+              timing: 'afterSave' as const,
+              startsOn: 'update' as const,
+              condition: 'read' as const,
+              permissions: [{ name: 'Gate_Bypass', bypass: true }],
+              messages: [{ kind: 'email' as const, name: 'Send', limit: 'SingleEmail' as const }],
+            },
+          ],
+          triggers: [],
+        })),
+        bypassGrants: [
+          {
+            permission: 'Gate_Bypass',
+            permissionSets: [{ name: 'Gate_Bypass', label: 'Gate Bypass', grants: 1 }],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 1,
+      }),
+    });
+  }
+
+  it('refuses an erasure in the words of its confirmation, which has boxes where the command line has flags', async () => {
+    emailingUpdateFlow();
+    const { requestId } = await searchJane();
+
+    await handler.handle(
+      request('dataops:dsr:erase', {
+        orgId: 'org-1',
+        requestId,
+        mode: 'anonymize',
+        records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+        dryRun: false,
+      }),
+    );
+
+    expect(org.update).not.toHaveBeenCalled();
+    const refusal = posted().at(-1);
+    expect(refusal).toMatchObject({
+      type: 'dataops:error',
+      payload: { code: 'AUTOMATION_NOT_ACCEPTED' },
+    });
+    const said = String((refusal?.payload as { message?: unknown }).message);
+    // The banner showed "Add --accept-automation", "--accept-emails" and
+    // "--mute-automation": the page has none of them.
+    expect(said).not.toMatch(/--[a-z]/);
+    expect(said).toContain('Confirm the erasure from its confirmation, which lists what fires');
+    expect(said).toContain("Tick the confirmation's box that lets the org send these emails");
+    expect(said).toContain(
+      "With the confirmation's box that mutes the target's automation ticked, the erasure " +
+        'assigns Gate_Bypass',
+    );
+  });
+
+  it('refuses an erasure for what fires and for its emails each under its own code, and says once that nothing was written', async () => {
+    // On the gate org, the two refusals came under AUTOMATION_NOT_ACCEPTED
+    // alone, and the banner said "Nothing was written." twice.
+    emailingUpdateFlow();
+    const { requestId } = await searchJane();
+
+    await handler.handle(
+      request('dataops:dsr:erase', {
+        orgId: 'org-1',
+        requestId,
+        mode: 'anonymize',
+        records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+        dryRun: false,
+      }),
+    );
+
+    expect(org.update).not.toHaveBeenCalled();
+    const payload = posted().at(-1)?.payload as {
+      code: string;
+      message: string;
+      alsoRefused?: Array<{ code: string; message: string }>;
+    };
+    expect(payload.code).toBe('AUTOMATION_NOT_ACCEPTED');
+    expect(payload.alsoRefused).toEqual([
+      {
+        code: 'EMAILS_NOT_ACCEPTED',
+        message: expect.stringContaining(
+          'dev delivers every email its automation sends (Setup > Deliverability: All email)',
+        ),
+      },
+    ]);
+    expect(payload.message.match(/Nothing was (written|deleted)\./g)).toEqual([
+      'Nothing was written.',
+    ]);
+    // Both are said, the automation first, and in the confirmation's words.
+    expect(payload.message).toMatch(
+      /^dev runs automation as this erasure writes over its records: .* Nothing was written\. Confirm the erasure from its confirmation, .* dev delivers every email its automation sends .* Tick the confirmation's box that lets the org send these emails/,
+    );
+    expect(payload.alsoRefused?.[0].message).not.toMatch(/--[a-z]/);
+    // Said once, by the message: on the gate org, the refusal beside it said
+    // "Nothing was written." again.
+    expect(payload.alsoRefused?.[0].message).not.toMatch(/Nothing was (written|deleted)/);
+    expect(payload.alsoRefused?.[0].message).toContain(
+      'and an address an alert names. Tick the confirmation',
+    );
+    expect(new AuditTrailStore(deps.configStore).list().entries[0]).toMatchObject({
+      outcome: 'stopped',
+      details: expect.objectContaining({ code: 'AUTOMATION_NOT_ACCEPTED' }),
+    });
+  });
+
+  /**
+   * Jane's contact, which takes a task along when it is deleted, as a real
+   * describe says, and a flow before a task's delete: the objects each read
+   * of what fires was asked about are told to the list it answers.
+   */
+  function janeWithATask(): string[][] {
+    const asked: string[][] = [];
+    // Contact.childRelationships of a real org: Task.WhoId deletes along
+    // (cascadeDelete), and Task is an object people work with.
+    org.conn.describe.mockResolvedValue({
+      ...contactDescribe,
+      childRelationships: [
+        { childSObject: 'Task', field: 'WhoId', relationshipName: 'Tasks', cascadeDelete: true },
+      ],
+    } as unknown as typeof contactDescribe);
+    org.conn.describeGlobal.mockResolvedValue({
+      sobjects: [
+        { name: 'Contact', label: 'Contact', queryable: true, createable: true, layoutable: true },
+        { name: 'Task', label: 'Task', queryable: true, createable: true, layoutable: true },
+      ],
+    } as unknown as { sobjects: never[] });
+    // A flow before a task's delete, and nothing on the contact itself.
+    handler.setTargetAutomation({
+      read: async (_orgId: string, objects: readonly string[]) => {
+        asked.push([...objects]);
+        return {
+          objectsRead: [...objects],
+          objects: objects.includes('Task')
+            ? [
+                {
+                  objectApiName: 'Task',
+                  flows: [
+                    {
+                      apiName: 'Task_Delete_Guard',
+                      label: 'Task Delete Guard',
+                      timing: 'beforeSave' as const,
+                      startsOn: 'delete' as const,
+                      condition: 'read' as const,
+                      permissions: [],
+                    },
+                  ],
+                  triggers: [],
+                },
+              ]
+            : [],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 1,
+        };
+      },
+    });
+    return asked;
+  }
+
+  /** Delete Jane, as a dry run or for real, with what the confirmation answered. */
+  const eraseJane = (requestId: string, dryRun: boolean, accord: Record<string, unknown> = {}) =>
+    handler.handle(
+      request('dataops:dsr:erase', {
+        orgId: 'org-1',
+        requestId,
+        mode: 'delete',
+        records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+        dryRun,
+        ...accord,
+      }),
+    );
+
+  it("deletes a contact without asking about a flow before a task's delete: the task goes with it, and the platform runs none of it", async () => {
+    // On a scratch org, a task's before delete flow and its before delete
+    // trigger each refused the task's own delete; the delete of its contact
+    // went through, the task went with it, and neither ran. The erasure
+    // asked about them all the same, and refused for them.
+    const asked = janeWithATask();
+    const { requestId } = await searchJane();
+
+    await eraseJane(requestId, false);
+
+    expect(asked).toEqual([['Contact']]);
+    expect(org.destroy).toHaveBeenCalledWith(['003000000000001AAA']);
+    expect(answer<{ outcome: unknown }>('dataops:dsr:erase:response').outcome).toMatchObject({
+      status: 'success',
+      done: 1,
+    });
+  });
+
+  it('plans a delete with the records it takes along, and gives its confirmation the records it deletes itself to read what fires on', async () => {
+    janeWithATask();
+    const { requestId } = await searchJane();
+
+    await eraseJane(requestId, true);
+
+    const planned = answer<{ plan: Array<{ related?: unknown }>; written?: unknown }>(
+      'dataops:dsr:erase:response',
+    );
+    expect(planned.plan[0].related).toEqual([{ objectApiName: 'Task', label: 'Task', records: 1 }]);
+    expect(planned.written).toEqual([{ objectApiName: 'Contact', records: 1 }]);
+    expect(org.destroy).not.toHaveBeenCalled();
+  });
+
+  /**
+   * An update flow a set's bypass keeps quiet, and the permission records the
+   * mute assigns that set through: what it assigns and takes back is told to
+   * `events`, as is each answer of an erasure and the end Live Operations is
+   * told of, with what is still assigned.
+   */
+  function mutableFlow(): { events: string[]; dir: string } {
+    const events: string[] = [];
+    const permissions = memoryPermissionOrg({
+      sets: [{ id: '0PSxx0000000001AAA', name: 'Flow_Bypass' }],
+      beforeWrite: (write) => {
+        events.push(write.kind === 'insert' ? 'assign' : 'unassign');
+      },
+    });
+    const { query, sobject } = org.conn;
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      ...org.conn,
+      query: (soql: string) =>
+        /FROM (Organization|UserPermissionAccess|PermissionSet|PermissionSetAssignment)\b/.test(
+          soql,
+        )
+          ? permissions.connection.query(soql)
+          : query(soql),
+      identity: permissions.connection.identity,
+      sobject: (name: string) =>
+        name === 'PermissionSetAssignment' ? permissions.connection.sobject(name) : sobject(),
+    } as never);
+    vi.mocked(deps.broker.postToWebview).mockImplementation((m: BaseMessage) => {
+      if (m.type === 'dataops:dsr:erase:response' || m.type === 'dataops:error') {
+        events.push(`answered, ${permissions.assignments().length} assigned`);
+      }
+      if (m.type === 'operation:completed' || m.type === 'operation:failed') {
+        events.push(`${m.type}, ${permissions.assignments().length} assigned`);
+      }
+    });
+    const dir = mkdtempSync(join(tmpdir(), 'erase-mute-'));
+    handler.setMuteLeases({ dir, renewEveryMs: 0 });
+    handler.setTargetAutomation({
+      read: async (_orgId: string, objects: readonly string[]) => ({
+        objectsRead: [...objects],
+        objects: objects.map((objectApiName) => ({
+          objectApiName,
+          flows: [
+            {
+              apiName: 'Notify_Owner',
+              label: 'Notify Owner',
+              timing: 'afterSave' as const,
+              startsOn: 'update' as const,
+              condition: 'read' as const,
+              permissions: [{ name: 'Skip_Flows', bypass: true }],
+            },
+          ],
+          triggers: [],
+        })),
+        bypassGrants: [
+          {
+            permission: 'Skip_Flows',
+            permissionSets: [{ name: 'Flow_Bypass', label: 'Flow Bypass', grants: 1 }],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 1,
+      }),
+    });
+    return { events, dir };
+  }
+
+  /** Erase Jane in place, the confirmation answered with the mute ticked. */
+  async function eraseMuted(dir: string): Promise<void> {
+    const { requestId } = await searchJane();
+    try {
+      await handler.handle(
+        request('dataops:dsr:erase', {
+          orgId: 'org-1',
+          requestId,
+          mode: 'anonymize',
+          records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+          dryRun: false,
+          acceptAutomation: true,
+          muteAutomation: true,
+        }),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('answers an erasure that muted with what it took back, once it took it back', async () => {
+    const { events, dir } = mutableFlow();
+
+    await eraseMuted(dir);
+
+    expect(org.update).toHaveBeenCalled();
+    // Ended in Live Operations once its set is taken back, as a masking and a
+    // cleanup are: it was said ended while the set was still assigned.
+    expect(events).toEqual([
+      'assign',
+      'unassign',
+      'operation:completed, 0 assigned',
+      'answered, 0 assigned',
+    ]);
+    expect(answer('dataops:dsr:erase:response')).toMatchObject({
+      outcome: { status: 'success', done: 1 },
+      mutedAutomation: { assigned: ['Flow_Bypass'], released: true, takenBack: ['Flow_Bypass'] },
+    });
+  });
+
+  it('says with an erasure cancelled half way what its mute assigned and took back', async () => {
+    // Its cancel said what had been written, and nothing of the set it had
+    // assigned to the user it wrote as, nor whether it had been taken back.
+    const { events, dir } = mutableFlow();
+    let stop: AbortController | undefined;
+    (deps.infraServices as { backgroundRegistry?: unknown }).backgroundRegistry = {
+      register: (
+        _id: string,
+        _module: string,
+        _what: string,
+        _run: unknown,
+        c: AbortController,
+      ) => {
+        stop = c;
+      },
+      abort: vi.fn(),
+    };
+    // Live Operations' Cancel, pressed while the org writes the records over.
+    org.update.mockImplementationOnce(async (records: Array<Record<string, unknown>>) => {
+      stop?.abort();
+      return records.map((r) => ({ success: true, id: r.Id }));
+    });
+
+    await eraseMuted(dir);
+
+    expect(events).toEqual([
+      'assign',
+      'unassign',
+      'operation:completed, 0 assigned',
+      'answered, 0 assigned',
+    ]);
+    expect(posted().at(-1)).toMatchObject({
+      type: 'dataops:error',
+      payload: {
+        code: 'RUN_CANCELLED',
+        message: expect.stringContaining('Cancelled: 1 record(s) overwritten before the cancel'),
+        mutedAutomation: {
+          assigned: ['Flow_Bypass'],
+          released: true,
+          takenBack: ['Flow_Bypass'],
+        },
+      },
+    });
+  });
+
+  it('says an erasure the org refused whole ended once its mute took its set back', async () => {
+    const { events, dir } = mutableFlow();
+    // The org's answer to the update never came: the session ended meanwhile.
+    org.update.mockRejectedValueOnce(new Error('INVALID_SESSION_ID: Session expired or invalid'));
+
+    await eraseMuted(dir);
+
+    expect(events).toEqual([
+      'assign',
+      'unassign',
+      'operation:completed, 0 assigned',
+      'answered, 0 assigned',
+    ]);
+    expect(posted().find((m) => m.type === 'operation:completed')?.payload).toMatchObject({
+      result: { status: 'failure', done: 0, failed: 1 },
+    });
+    expect(answer('dataops:dsr:erase:response')).toMatchObject({
+      outcome: { status: 'failure', failed: 1 },
+      mutedAutomation: { assigned: ['Flow_Bypass'], released: true, takenBack: ['Flow_Bypass'] },
     });
   });
 

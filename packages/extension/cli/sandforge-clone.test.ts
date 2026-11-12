@@ -312,6 +312,17 @@ describe('sandforge-clone usage text', () => {
     expect(stdout).toContain('may reach the');
   });
 
+  it('names under exit 1 the refusals of a run that asks a day’s requests, its emails or a checkpoint', async () => {
+    expect(await run(['node', 'sandforge-clone.ts', '--help'])).toBe(0);
+
+    const one = /\n {2}1 {2}([\s\S]*?)\n {2}2 {2}/.exec(stdout)?.[1].replace(/\s+/g, ' ');
+    expect(one).toContain('more API requests than it has left today');
+    expect(one).toContain('more emails than it has left today');
+    expect(one).toContain('(EMAILS_NOT_ACCEPTED)');
+    expect(one).toContain('the checkpoint asked first was refused or could not be taken');
+    expect(one).toContain('(CHECKPOINT_REFUSED)');
+  });
+
   it('names no bare command anywhere in the script source', () => {
     const source = readFileSync(join(__dirname, 'sandforge-clone.ts'), 'utf8');
     expect(source.split('\n').filter((line) => BARE_COMMAND_LINE.test(line))).toEqual([]);
@@ -453,6 +464,38 @@ describe('sandforge-clone target object info', () => {
     expect(describeCached).toHaveBeenCalledWith('Account');
     expect(describe).not.toHaveBeenCalled();
   });
+
+  it('asks the org again when told, rather than the describe jsforce cached before a lease assigned a set', async () => {
+    const describeCached = vi.fn().mockResolvedValue({ name: 'Account', recordTypeInfos: [] });
+    const describeAgain = vi.fn().mockResolvedValue({
+      name: 'Account',
+      keyPrefix: '001',
+      recordTypeInfos: [
+        {
+          active: true,
+          available: true,
+          defaultRecordTypeMapping: false,
+          developerName: 'Partner',
+          master: false,
+          name: 'Partner',
+          recordTypeId: '012Fk00000RtDeFIAV',
+          urls: {},
+        },
+      ],
+    });
+    const conn = {
+      describe$: describeCached,
+      sobject: (name: string) => ({ describe: () => describeAgain(name) }),
+    } as unknown as Connection;
+
+    const info = await describeObjectInfo(conn, 'Account', true);
+
+    expect(info.recordTypes.map((r) => [r.developerName, r.available])).toEqual([
+      ['Partner', true],
+    ]);
+    expect(describeAgain).toHaveBeenCalledWith('Account');
+    expect(describeCached).not.toHaveBeenCalled();
+  });
 });
 
 describe('sandforge-clone summary', () => {
@@ -499,6 +542,42 @@ describe('sandforge-clone summary', () => {
     expect(lines).toContain(
       '  AccountContactRelation  0 linked, 1 not identified — their children lost the link',
     );
+  });
+
+  it('says apart what the platform wrote with a record the run created, which was in the target no more than that record', () => {
+    // Played for real: "linked: 2 (already in the target, not created)" of
+    // the owner's member and Revenue split the platform wrote with the
+    // opportunity the run created.
+    const ran = summary({
+      successCount: 3,
+      linkedCount: 4,
+      writtenByThePlatform: [
+        { objectApiName: 'OpportunityTeamMember', rows: 1 },
+        { objectApiName: 'OpportunitySplit', rows: 1 },
+        { objectApiName: 'Contact', rows: 1 },
+      ],
+    });
+
+    expect(summaryLines(ran)[1]).toBe(
+      'linked:  4 (1 already in the target, not created; ' +
+        '2 written by the platform with their opportunity, for its owner; ' +
+        '1 written by the platform with their person account)',
+    );
+    expect(
+      summaryLines(
+        summary({ linkedCount: 1, writtenByThePlatform: [{ objectApiName: 'Task', rows: 1 }] }),
+      )[1],
+    ).toBe('linked:  1 (1 written by the platform with their email)');
+    // The count a pipeline reads is the same; what of it the platform wrote is beside it.
+    expect(jsonResult(ran)).toMatchObject({
+      linkedCount: 4,
+      writtenByThePlatform: [
+        { objectApiName: 'OpportunityTeamMember', rows: 1 },
+        { objectApiName: 'OpportunitySplit', rows: 1 },
+        { objectApiName: 'Contact', rows: 1 },
+      ],
+    });
+    expect(jsonResult(summary({ linkedCount: 2 }))).not.toHaveProperty('writtenByThePlatform');
   });
 
   it('counts the records an upsert matched by their external id as updated, not created', () => {
@@ -567,6 +646,29 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({}))).not.toHaveProperty('gaps');
   });
 
+  it('says a unique value the target holds is linked by a real run, as the dry run counts it', () => {
+    expect(
+      simulationGapLines([
+        {
+          id: 'unique_value_collision|Account|Ext_Id__c||',
+          kind: 'unique_value_collision',
+          severity: 'warning',
+          source: 'simulation',
+          objectApiName: 'Account',
+          field: 'Ext_Id__c',
+          rows: 1,
+          detail: { colliding: 1, linkedToTheRecordItNames: true },
+          decisions: ['exclude_object', 'ignore'],
+          defaultDecision: 'ignore',
+        },
+      ]),
+    ).toEqual([
+      'gaps the target holds against the rows (1, dry run):',
+      '  [warning] Account.Ext_Id__c  unique_value_collision: 1 record(s) (1 value(s) already ' +
+        'in the target; a real run links each row to the record the target holds)',
+    ]);
+  });
+
   it("gives a dry run's --json the changes for the target's admin, from its metadata and its rows", () => {
     const simulated: ForgeGap[] = [
       {
@@ -631,6 +733,50 @@ describe('sandforge-clone summary', () => {
     // A run that writes says none, nor a dry run whose gaps no change cures.
     expect(dryRunAdminChanges(false, { gaps: metadata }, simulated)).toEqual({});
     expect(dryRunAdminChanges(true, { gaps: [metadata[1]] }, undefined)).toEqual({});
+  });
+
+  it("asks the target's admin to turn off no validation rule the run's mute lifts", () => {
+    // With --mute-automation, the gap line said the mute lifts the rule, and
+    // adminChanges still asked to deactivate it.
+    const rule: ForgeGap = {
+      id: 'validation_rule|Contact|Email||Email_Required',
+      kind: 'validation_rule',
+      severity: 'warning',
+      source: 'metadata',
+      objectApiName: 'Contact',
+      field: 'Email',
+      rows: 0,
+      detail: { rule: 'Email_Required', message: 'An email is required.' },
+      decisions: ['leave_empty', 'ignore'],
+    };
+    const lifted = [
+      {
+        objectApiName: 'Contact',
+        kind: 'validationRule' as const,
+        name: 'Email_Required',
+        permission: 'Bypass_VR',
+        permissionSet: 'Data_Load',
+      },
+    ];
+
+    expect(dryRunAdminChanges(true, { gaps: [rule] }, undefined, lifted)).toEqual({});
+    // Without the mute, or for another rule, it is still asked.
+    expect(dryRunAdminChanges(true, { gaps: [rule] }, undefined).adminChanges).toEqual([
+      {
+        objectApiName: 'Contact',
+        changes: [
+          expect.objectContaining({
+            change: 'deactivate_validation_rule',
+            value: 'Email_Required',
+          }),
+        ],
+      },
+    ]);
+    expect(
+      dryRunAdminChanges(true, { gaps: [rule] }, undefined, [
+        { ...lifted[0], name: 'Phone_Format' },
+      ]).adminChanges,
+    ).toHaveLength(1);
   });
 
   it('says the decisions the run applied and on how many records', () => {
@@ -712,6 +858,42 @@ describe('sandforge-clone summary', () => {
       false,
     );
     expect(jsonResult(summary({}), 500)).not.toHaveProperty('truncatedObjects');
+  });
+
+  it('says the cap, the read ceiling, contact points kept and what a removal cannot reach in the words of the environment that relays the run', () => {
+    // Relayed by sandforge-env, the summary named --max, --max-records-per-object,
+    // --keep-contact-points and --remove: flags its reader never gives, the
+    // environment setting the clone from its file and taking it back by its destroy.
+    const relayed = summary({
+      cappedObjects: { perObject: 2, objects: ['Contact'] },
+      truncatedObjects: ['Task'],
+      mayHaveBeenWritten: [{ objectApiName: 'Contact', sourceIds: ['003000000000001AAA'] }],
+      contactPoints: { neutralized: false, fields: [], values: 0 },
+    });
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+    let lines: string[];
+    try {
+      lines = summaryLines(relayed, false, 500);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(lines).toContain(
+      'stopped at 2 records per object (maxRecordsPerObject), the source holding more, which ' +
+        'were not cloned (1 object(s)):',
+    );
+    expect(lines).toContain(
+      'TRUNCATED at 500 records per object, the source holding more, which were not cloned ' +
+        '(1 object(s)):',
+    );
+    expect(lines).toContain(
+      'may be in the target, under ids the run never learned (destroy cannot reach them):',
+    );
+    expect(lines).toContain(
+      "contact points: written as read (keepContactPoints): the target's flows and email alerts " +
+        'may reach the people the records name',
+    );
+    expect(lines.join('\n')).not.toMatch(/--max|--keep-contact-points|--remove/);
   });
 
   it('says how many calls the run sent to both orgs, where it counted them', () => {
@@ -1122,6 +1304,155 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({})).currenciesReplaced).toBeUndefined();
   });
 
+  describe('the record type the target gives the records sent without one', () => {
+    const RETAIL = { developerName: 'SFX_Retail', label: 'SFX Retail' };
+
+    it('says on a dry run the type the only one open to the user would give them, and why they go without one', () => {
+      const recordTypesGiven = [
+        {
+          objectApiName: 'Opportunity',
+          rows: 23,
+          why: { masterInSource: 22, decidedDefault: 1 },
+          predicted: { ...RETAIL, basis: 'onlyOneOpen' as const },
+        },
+        {
+          objectApiName: 'Account',
+          rows: 1,
+          why: { masterInSource: 1 },
+          predicted: {
+            developerName: 'Business_Account',
+            label: 'Business Account',
+            basis: 'userDefault' as const,
+          },
+        },
+        { objectApiName: 'Case', rows: 2, why: { notRead: 2 } },
+      ];
+
+      const lines = summaryLines(summary({ recordTypesGiven, wouldInsertCount: 26 }), true);
+
+      expect(lines).toEqual(
+        expect.arrayContaining([
+          'record types the target would give the records created without one (3 object(s)):',
+          '  Opportunity  23 record(s) (22 on Master in the source, 1 sent to the default by ' +
+            'your decision): would go in as SFX_Retail (SFX Retail), the only other Opportunity ' +
+            'record type open to the user the run writes as, whose describe names Master the default',
+          '  Account  1 record(s) on Master in the source: would go in as Business_Account ' +
+            '(Business Account), the default record type of the user the run writes as',
+          '  Case  2 record(s) whose record type the run does not write: would go in on Master, ' +
+            'which the target gives a record sent without one for the user the run writes as',
+        ]),
+      );
+      expect(jsonResult(summary({ recordTypesGiven })).recordTypesGiven).toEqual(recordTypesGiven);
+    });
+
+    it('says once written what they were read back holding, on how many of them', () => {
+      const lines = summaryLines(
+        summary({
+          recordTypesGiven: [
+            {
+              objectApiName: 'Opportunity',
+              rows: 1240,
+              why: { masterInSource: 1240 },
+              predicted: { ...RETAIL, basis: 'onlyOneOpen' },
+              readBack: { read: 200, types: [{ ...RETAIL, rows: 200 }] },
+            },
+          ],
+        }),
+      );
+
+      expect(lines).toEqual(
+        expect.arrayContaining([
+          'record types the target gave the records created without one (1 object(s)):',
+          '  Opportunity  1240 record(s) on Master in the source: went in as SFX_Retail ' +
+            '(SFX Retail), read back on 200 of 1240',
+        ]),
+      );
+    });
+
+    it('says what the target holds when it is not what the describe said, and names its automation', () => {
+      const lines = summaryLines(
+        summary({
+          recordTypesGiven: [
+            {
+              objectApiName: 'Opportunity',
+              rows: 23,
+              why: { masterInSource: 23 },
+              predicted: { ...RETAIL, basis: 'onlyOneOpen' },
+              readBack: {
+                read: 23,
+                types: [
+                  { developerName: 'SFX_Other', label: 'SFX Other', rows: 20 },
+                  { ...RETAIL, rows: 3 },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+
+      expect(lines).toContain(
+        '  Opportunity  23 record(s) on Master in the source: read back on 23: 20 SFX_Other ' +
+          '(SFX Other), 3 SFX_Retail (SFX Retail); the describe said SFX_Retail: an automation ' +
+          'of the target sets the record type',
+      );
+    });
+
+    it("says the org's words when what they hold could not be read back", () => {
+      const lines = summaryLines(
+        summary({
+          recordTypesGiven: [
+            {
+              objectApiName: 'Opportunity',
+              rows: 1,
+              why: { masterInSource: 1 },
+              predicted: { ...RETAIL, basis: 'onlyOneOpen' },
+              readBack: {
+                read: 0,
+                types: [],
+                unread: 'INVALID_TYPE: sObject type is not supported.',
+              },
+            },
+          ],
+        }),
+      );
+
+      expect(lines).toContain(
+        '  Opportunity  1 record(s) on Master in the source: went in, its describe says, as ' +
+          'SFX_Retail (SFX Retail), the only other Opportunity record type open to the user the ' +
+          'run writes as, whose describe names Master the default; the record types they hold ' +
+          'could not be read back: INVALID_TYPE: sObject type is not supported.',
+      );
+    });
+
+    it('says on a dry run whose mute would assign sets that they may open other types, which a real run reads again', () => {
+      const recordTypesGiven = [
+        {
+          objectApiName: 'Opportunity',
+          rows: 1,
+          why: { masterInSource: 1 },
+          predicted: { ...RETAIL, basis: 'onlyOneOpen' as const },
+        },
+      ];
+      const said =
+        '  the permission sets a real run assigns to mute the automation may open other record ' +
+        'types to the user it writes as: it reads them again once assigned, and its summary says ' +
+        'what the target gave';
+
+      expect(summaryLines(summary({ recordTypesGiven }), true, undefined, true)).toContain(said);
+      expect(summaryLines(summary({ recordTypesGiven }), true, undefined, false)).not.toContain(
+        said,
+      );
+      expect(summaryLines(summary({ recordTypesGiven }), false, undefined, true)).not.toContain(
+        said,
+      );
+    });
+
+    it('says nothing, and gives nothing under --json, of a run that created none without one', () => {
+      expect(summaryLines(summary({})).some((line) => line.includes('record type'))).toBe(false);
+      expect(jsonResult(summary({})).recordTypesGiven).toBeUndefined();
+    });
+  });
+
   it('says on a dry run the currency a gap of an inactive currency writes its rows in, and the amounts converted', () => {
     const gaps: ForgeGap[] = [
       {
@@ -1429,6 +1760,24 @@ describe('sandforge-clone object outcomes', () => {
         `  ${SURVEY_SKIP}`,
         '  Skipped Campaign (out of scope: no parent in cache)',
       ]);
+    });
+
+    it('names no --list-objects to the reader of a command that relays the run and lists nothing', () => {
+      // Relayed by sandforge-env plan, the dry run said "--list-objects names
+      // them": a flag of this script the environment does not take.
+      for (const relay of ['sandforge-env plan', 'sandforge-mcp']) {
+        vi.stubEnv('SANDFORGE_RELAYED_BY', relay);
+        try {
+          expect(
+            printed(graph(['Lead', 'Asset']), [
+              of('Lead', 'skipped', 'Skipped Lead (excluded)'),
+              of('Asset', 'skipped', 'Skipped Asset (excluded)'),
+            ]),
+          ).toEqual(['  Skipped 2 objects (excluded: empty tables)']);
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      }
     });
 
     it('names an empty table when it is the only one left out', () => {
@@ -1852,9 +2201,11 @@ describe('sandforge-clone describes', () => {
       expect(recordTypes).toHaveLength(2);
       expect(reads.length).toBeGreaterThan(0);
       expect(sent.length).toBeGreaterThan(recordTypes.length + reads.length);
-      // And the target's limits, read once every row is in hand.
+      // And the target's limits, read once every row is in hand, then again
+      // for its daily API requests, which an answer without its storage
+      // does not give.
       expect(printed).toContain(
-        `calls:   ${recordTypes.length + reads.length + 1} (requests the run sent to both orgs)`,
+        `calls:   ${recordTypes.length + reads.length + 2} (requests the run sent to both orgs)`,
       );
     });
 
@@ -1912,9 +2263,11 @@ describe('sandforge-clone describes', () => {
       );
       expect(recordTypes).toHaveLength(4);
       expect(printed).toContain('record-types: 2 mappings');
-      // And the target's limits, read once every row is in hand.
+      // And the target's limits, read once every row is in hand, then again
+      // for its daily API requests, which an answer without its storage
+      // does not give.
       expect(printed).toContain(
-        `calls:   ${recordTypes.length + reads.length + 1} (requests the run sent to both orgs)`,
+        `calls:   ${recordTypes.length + reads.length + 2} (requests the run sent to both orgs)`,
       );
     });
 

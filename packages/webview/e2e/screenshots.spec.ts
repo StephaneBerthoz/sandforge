@@ -10,7 +10,9 @@ import { encodeGif, type GifFrame } from './helpers/gifEncoder';
 import { readPng } from './helpers/readPng';
 import { MOCK_ORGS } from './fixtures';
 import { diffObject, listEntry, readyCheckpoint, USERS } from './fixtures/checkpoints';
+import { VSCODE_DEFAULT_STYLES } from './fixtures/vscode-default-styles';
 import { sendExtensionMessage } from './mocks/vscode-api';
+import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
 
 /**
  * Marketplace screenshot generator.
@@ -137,6 +139,34 @@ function generatorFingerprint(): string {
   return createHash('sha256').update(source).digest('hex').slice(0, 16);
 }
 
+/**
+ * Paint the panel as VS Code paints it under Light 2026, the theme a new
+ * install opens on: the host's colours on `<html>`, and the stylesheet it
+ * prepends to every webview.
+ */
+async function paintLightHost(page: import('@playwright/test').Page): Promise<void> {
+  await page.addInitScript(
+    ({ colours, defaultStyles }: { colours: Record<string, string>; defaultStyles: string }) => {
+      const paint = (): void => {
+        for (const [name, value] of Object.entries(colours)) {
+          document.documentElement.style.setProperty(`--vscode-${name}`, value);
+        }
+      };
+      const prependDefaultStyles = (): void => {
+        const style = document.createElement('style');
+        style.id = '_defaultStyles';
+        style.textContent = defaultStyles;
+        document.head.prepend(style);
+      };
+      if (document.documentElement) paint();
+      else document.addEventListener('DOMContentLoaded', paint);
+      if (document.head) prependDefaultStyles();
+      else document.addEventListener('DOMContentLoaded', prependDefaultStyles);
+    },
+    { colours: hostColours(vscodeTheme('Light 2026')), defaultStyles: VSCODE_DEFAULT_STYLES },
+  );
+}
+
 /** Boot the app straight into one module panel, orgs already connected. */
 async function openModule(
   page: import('@playwright/test').Page,
@@ -147,6 +177,7 @@ async function openModule(
   // Before goto: the clock has to be in place for the first render, not just
   // for the ticks after it.
   await freezeClock(page);
+  await paintLightHost(page);
   await page.addInitScript((id) => {
     (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = id;
   }, moduleId);
@@ -882,6 +913,13 @@ async function answerReviewReads(
   opening: number,
 ): Promise<void> {
   await waitForRequests(page, 'forge:gaps:request', opening);
+  // The plan the extension makes of the graph, or the Plan row reads
+  // "Working…" in every shot of the review.
+  await sendExtensionMessage(page, {
+    type: 'forge:plan:response',
+    id: `plan-${opening}`,
+    payload: { plan: REVIEW_PLAN },
+  });
   await respondToAll(page, 'forge:metadata-diff:request', 'forge:metadata-diff:response', {
     diffs: [],
   });
@@ -892,6 +930,23 @@ async function answerReviewReads(
     gaps: MOCK_FORGE_METADATA_GAPS,
   });
 }
+
+/** The plan of the review's graph: 8 records of 4 objects, in two waves. */
+const REVIEW_PLAN = {
+  waves: [
+    { order: 0, objectApiNames: ['Account'], estimatedApiCalls: 1, estimatedDurationSeconds: 0.5 },
+    {
+      order: 1,
+      objectApiNames: ['Contact', 'Opportunity', 'Case'],
+      estimatedApiCalls: 3,
+      estimatedDurationSeconds: 1.5,
+    },
+  ],
+  totalRecords: 8,
+  totalApiCalls: 4,
+  estimatedDurationSeconds: 2,
+  cycleResolutions: [],
+};
 
 /** Have the extension say each object of the graph is done: the results table reads its status. */
 async function finishEveryObject(
@@ -1000,9 +1055,8 @@ async function previewRecord(
   await page.waitForSelector('[data-testid="forge-record-preview"]');
 }
 
-/** Decide the simulation's three gaps on Review's Gaps tab, as a user would before the run. */
+/** Decide the simulation's three gaps in Review's Gaps row, which they opened, as a user would. */
 async function decideSimulationGaps(page: import('@playwright/test').Page): Promise<void> {
-  await page.getByTestId('tab-gaps').click();
   await page.waitForSelector('[data-testid="gaps-severity-blocking"]');
   await page
     .getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[0].id}`)
@@ -1011,6 +1065,8 @@ async function decideSimulationGaps(page: import('@playwright/test').Page): Prom
   const region = page.getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[1].id}`);
   await region.getByTestId('gap-default-value').fill('EMEA');
   await region.getByTestId('gap-set-default').click();
+  // Under the gaps that refuse rows, those that may are folded.
+  await page.getByTestId('gaps-severity-warning-more').locator('summary').click();
   await page
     .getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[2].id}`)
     .getByTestId('gap-truncate')
@@ -1253,6 +1309,7 @@ test.describe('Marketplace Screenshots', () => {
     const bridge = new MockBridge();
     await bridge.setup(page);
     await freezeClock(page);
+    await paintLightHost(page);
     await page.addInitScript(() => {
       (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'sidepanel';
     });
@@ -1328,14 +1385,14 @@ test.describe('Marketplace Screenshots', () => {
     await page.waitForSelector('[data-testid="forge-review"]');
     await answerReviewReads(page, 2);
 
-    // Two gaps decided, one left open: the tab counts the gap that still
+    // Two gaps decided, one left open: the row counts the gap that still
     // refuses rows, and the shot shows both a decision and the choices.
-    await page.getByTestId('tab-gaps').click();
     await page.waitForSelector('[data-testid="gaps-severity-blocking"]');
     await page
       .getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[0].id}`)
       .getByTestId('gap-map-value')
       .selectOption('Customer');
+    await page.getByTestId('gaps-severity-warning-more').locator('summary').click();
     await page
       .getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[2].id}`)
       .getByTestId('gap-truncate')
@@ -1343,11 +1400,15 @@ test.describe('Marketplace Screenshots', () => {
     await page.getByTestId('gap-decided').nth(1).waitFor();
     // The last click leaves its button focused, ringed in the shot.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    // The Gaps row scrolls within itself since it holds a screen's worth of
+    // gaps: the clicks above left it on the last ones, past the gap that
+    // still refuses rows.
+    await page.getByTestId('review-gaps-scroll').evaluate((el) => el.scrollTo(0, 0));
     await settle(page);
     // The tabs take a second row since Controls joined them, and the graph
     // search keeps lines for what it finds: at 1400 pixels Rehearse, Simulate
     // and Execute fell off the foot again.
-    await shoot(page, 'forge-review', { maxHeight: 1600 });
+    await shoot(page, 'forge-review', { maxHeight: 1700 });
   });
 
   test('forge-results', async ({ page }) => {
@@ -1409,7 +1470,7 @@ test.describe('Marketplace Screenshots', () => {
     await simulateFromReview(page, bridge);
     frames.push(await flowFrame(page, FLOW_FRAME_MS));
 
-    // Back on Review, every gap that refuses rows decided: the tabs at the
+    // Back on Review, every gap that refuses rows decided: the rows at the
     // top, for the decisions to fill the screen below them.
     await page.getByTestId('forge-results-simulation-review').click();
     await page.waitForSelector('[data-testid="forge-review"]');

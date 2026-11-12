@@ -5,17 +5,19 @@ import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { CheckpointFirstOption } from '../../components/ui/CheckpointFirstOption';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Input } from '../../components/ui/Input';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { useFocusOnChange } from '../../hooks/useFocusOnChange';
 import { orgOptionLabel } from '../../utils/orgFormatters';
 import { Step7Execute } from './Step7_Execute';
 import { SeedRunRemoval } from './SeedRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { SeedOpenRecord } from './SeedOpenRecord';
-import { SeedObjectBadge } from './SeedObjectBadge';
+import { SeedObjectBadge, SeedWrittenByThePlatformLine } from './SeedObjectBadge';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import { SeedAutomationNotice } from './SeedAutomationNotice';
 import { SeedLocalePicker } from './SeedLocalePicker';
@@ -24,6 +26,7 @@ import type { QuickSeedState } from './useQuickSeed';
 import { typedCount, templateWithCounts } from './templateCounts';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
+import { SeedFitProposalCard, SeedFitResultLine } from './SeedFitProposal';
 
 /** Props for the QuickSeedFlow component. */
 export interface QuickSeedFlowProps {
@@ -190,6 +193,17 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                 />
               )}
 
+              {/* The run's question says its cost, before anything is taken. */}
+              {quickSeed.selectedOrgId && written.length > 0 && (
+                <CheckpointFirstOption
+                  checked={quickSeed.checkpointFirst}
+                  onChange={quickSeed.setCheckpointFirst}
+                  orgId={quickSeed.selectedOrgId}
+                  costSaid="question"
+                  testId="quick-seed-checkpoint-first"
+                />
+              )}
+
               <div className="flex gap-2">
                 <Button
                   variant="secondary"
@@ -230,6 +244,41 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
             overallPercent={quickSeed.overallPercent}
             elapsedMs={quickSeed.elapsedMs}
           />
+          {/* Refused for what the org has left: the counts that fit, the one
+              click that seeds them, and the way back to set them by hand. */}
+          {!quickSeed.isRunning && quickSeed.fitProposal && (
+            <SeedFitProposalCard
+              proposal={quickSeed.fitProposal}
+              org={runOrgName}
+              onSeed={quickSeed.seedFitted}
+              onChangeCounts={quickSeed.seedAgain}
+              testId="quick-seed-fit"
+            />
+          )}
+          {/* What became of the checkpoint a stopped run took first. */}
+          {!quickSeed.isRunning && (
+            <RewindBeforeRun
+              checkpoint={quickSeed.stoppedCheckpoint}
+              orgId={quickSeed.selectedOrgId}
+              beside="run"
+              compact
+              testId="quick-seed-error-checkpoint"
+            />
+          )}
+          {/* Stopped with no counts to offer: back to what the refusal says to
+              change, Checkpoint first among it. The screen had no way out. */}
+          {quickSeed.canSetUpAgain && !quickSeed.fitProposal && (
+            <div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={quickSeed.backToConfirm}
+                data-testid="btn-quick-seed-back-to-confirm"
+              >
+                {t('common.back')}
+              </Button>
+            </div>
+          )}
           {/* Offered once the run has reported progress, i.e. is registered:
               the wizard's Cancel, which the one-click path did not have. */}
           {quickSeed.isRunning && quickSeed.operationId && (
@@ -289,6 +338,15 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                 </span>
               </div>
 
+              {/* The counts the run set out with, when they came from a fit. */}
+              {quickSeed.fitApplied && (
+                <SeedFitResultLine
+                  fitted={quickSeed.fitApplied}
+                  org={runOrgName}
+                  testId="quick-seed-result-fitted"
+                />
+              )}
+
               {/* What the run muted of the org's automation, when its box was ticked. */}
               <MutedAutomationResult
                 muted={quickSeed.executionResult.mutedAutomation}
@@ -299,15 +357,23 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
               {quickSeed.executionResult.objectResults.map((obj) => (
                 <Card key={obj.objectApiName}>
                   <CardHeader title={obj.objectApiName} action={<SeedObjectBadge result={obj} />} />
-                  {obj.errors.length > 0 && (
+                  {(obj.errors.length > 0 || obj.writtenByThePlatform) && (
                     <CardBody>
-                      <RecordErrorGroups
-                        objectApiName={obj.objectApiName}
-                        errors={obj.errors}
-                        recordsFailed={obj.recordsFailed}
-                        module="seed"
-                        testIdPrefix="seed-result"
+                      {/* The contact roles linked to the one the platform wrote
+                          with their opportunity, which the badge alone said. */}
+                      <SeedWrittenByThePlatformLine
+                        result={obj}
+                        testId={`quick-seed-result-written-by-the-platform-${obj.objectApiName}`}
                       />
+                      {obj.errors.length > 0 && (
+                        <RecordErrorGroups
+                          objectApiName={obj.objectApiName}
+                          errors={obj.errors}
+                          recordsFailed={obj.recordsFailed}
+                          module="seed"
+                          testIdPrefix="seed-result"
+                        />
+                      )}
                     </CardBody>
                   )}
                 </Card>
@@ -316,6 +382,14 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
               {quickSeed.executionResult.totalRecordsCreated > 0 && (
                 <SeedRunRemoval runId={quickSeed.executionResult.operationId} />
               )}
+              {/* Under the removal, which takes back what the run wrote alone. */}
+              <RewindBeforeRun
+                checkpoint={quickSeed.executionResult.checkpoint}
+                orgId={quickSeed.selectedOrgId}
+                beside="run"
+                muted={quickSeed.executionResult.mutedAutomation !== undefined}
+                testId="quick-seed-result-checkpoint"
+              />
 
               <div className="flex flex-wrap gap-2 pt-2" data-testid="quick-seed-result-actions">
                 {/* The seeded data, in the org: the payoff, first. */}

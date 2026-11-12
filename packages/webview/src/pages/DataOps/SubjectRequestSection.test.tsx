@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
-import type { SubjectSearchResult } from '@sandforge/shared';
+import type { MutedAutomation, SubjectSearchResult } from '@sandforge/shared';
 import { SubjectRequestSection, selectedRecords } from './SubjectRequestSection';
 
 /* ------------------------------------------------------------------ */
@@ -40,6 +40,25 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     return states[type];
   },
 }));
+
+/** What the org runs as the erasure writes over the records, as the extension answers a read of it: nothing. */
+const NOTHING_FIRES = {
+  act: 'masking',
+  objects: [{ objectApiName: 'Contact', records: 2 }],
+  steps: { giveBack: ['Contact'] },
+  automation: {
+    objectsRead: ['Contact'],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 1,
+  },
+  lines: [],
+  emails: [],
+  emailsAsk: false,
+  refusals: [],
+};
 
 /** What `backup:list` answers for the org, once the erasure asks. */
 let backupsListed: { backups: Array<{ operationId: string }> } | null = null;
@@ -82,6 +101,7 @@ beforeEach(() => {
     review: idle(),
     erase: idle(),
     'backup:delete': idle(),
+    'dataops:automation': { ...idle(), data: NOTHING_FIRES },
   };
   backupsListed = null;
 });
@@ -232,13 +252,88 @@ describe('SubjectRequestSection', () => {
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
+    expect(states['dataops:automation'].mutate).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      act: 'masking',
+      objects: [{ objectApiName: 'Contact', records: 2 }],
+      erasure: true,
+    });
+    // Confirmed once what the org runs as the records are written was listed.
     expect(states.erase.mutate).toHaveBeenCalledWith({
       orgId: 'org-1',
       requestId: REQUEST,
       mode: 'anonymize',
       records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA', '003000000000002AAA'] }],
       dryRun: false,
+      acceptAutomation: true,
     });
+  });
+
+  it('holds a delete until what the org runs as the records go is read, and names it the erasure', () => {
+    states['dataops:dsr:search'].data = found;
+    states.review.data = {
+      requestId: REQUEST,
+      mode: 'delete',
+      dryRun: true,
+      plan: [{ objectApiName: 'Contact', label: 'Contact', records: 2 }],
+    };
+    states['dataops:automation'].data = null;
+    const { rerender } = section();
+    fireEvent.click(screen.getByTestId('dsr-mode-delete'));
+    fireEvent.click(screen.getByTestId('dsr-erase-btn'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
+
+    expect(states['dataops:automation'].mutate).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      act: 'cleanup',
+      objects: [{ objectApiName: 'Contact', records: 2 }],
+      erasure: true,
+    });
+    expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('danger-held').textContent).toContain('Waiting for what dev1 runs');
+
+    // The read lands: a flow before the delete.
+    states['dataops:automation'].data = {
+      ...NOTHING_FIRES,
+      act: 'cleanup',
+      steps: { delete: ['Contact'] },
+      automation: {
+        ...NOTHING_FIRES.automation,
+        objects: [
+          {
+            objectApiName: 'Contact',
+            flows: [
+              {
+                apiName: 'Guard_Delete',
+                label: 'Guard Delete',
+                timing: 'beforeSave',
+                startsOn: 'delete',
+                condition: 'read',
+                permissions: [],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+      },
+    };
+    rerender(
+      <SubjectRequestSection
+        orgId="org-1"
+        orgName="dev1"
+        objects={['Contact']}
+        onLogged={vi.fn()}
+      />,
+    );
+
+    const listed = screen.getByTestId('dataops-automation-cleanup').textContent ?? '';
+    expect(listed).toContain('As the erasure deletes these records, dev1 runs:');
+    expect(listed).toContain('Guard Delete');
+    expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(states.erase.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'delete', dryRun: false, acceptAutomation: true }),
+    );
   });
 
   describe('the confirmation of an erasure', () => {
@@ -286,6 +381,38 @@ describe('SubjectRequestSection', () => {
     });
   });
 
+  it('reads what fires on the records the dry run says the erasure deletes itself, while its review counts what goes along', () => {
+    // A contact's tasks go with it, and the platform runs none of what fires
+    // before a task's delete as they go: the dry run counts them in its plan,
+    // and names the contacts alone as what the confirmation reads it on.
+    states['dataops:dsr:search'].data = found;
+    states.review.data = {
+      requestId: REQUEST,
+      mode: 'delete',
+      dryRun: true,
+      plan: [
+        {
+          objectApiName: 'Contact',
+          label: 'Contact',
+          records: 2,
+          related: [{ objectApiName: 'Task', label: 'Task', records: 3 }],
+        },
+      ],
+      written: [{ objectApiName: 'Contact', records: 2 }],
+    };
+    section();
+    fireEvent.click(screen.getByTestId('dsr-mode-delete'));
+    fireEvent.click(screen.getByTestId('dsr-erase-btn'));
+
+    expect(screen.getByTestId('removal-plan-related').textContent).toContain('Task: 3 records');
+    expect(states['dataops:automation'].mutate).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      act: 'cleanup',
+      objects: [{ objectApiName: 'Contact', records: 2 }],
+      erasure: true,
+    });
+  });
+
   it('shows what the erasure did', () => {
     states['dataops:dsr:search'].data = found;
     states.erase.data = {
@@ -304,6 +431,83 @@ describe('SubjectRequestSection', () => {
     section();
 
     expect(screen.getByTestId('removal-outcome').textContent).toBe('2 records deleted.');
+  });
+
+  /** What an erasure that muted says it did of the org's automation, as its lease answers it. */
+  const MUTED: MutedAutomation = {
+    state: 'muted',
+    assigned: ['Flow_Bypass'],
+    held: [],
+    permissions: ['Skip_Flows'],
+    silenced: [
+      { objectApiName: 'Contact', kind: 'flow', name: 'Notify Owner', permission: 'Skip_Flows' },
+    ],
+    stillRan: [],
+    released: true,
+    takenBack: ['Flow_Bypass'],
+  };
+
+  it('shows what the erasure muted: what it assigned, kept quiet and took back', () => {
+    // The page said how many records were erased, and nothing of the set the
+    // erasure had assigned to the user it wrote as.
+    states['dataops:dsr:search'].data = found;
+    states.erase.data = {
+      requestId: REQUEST,
+      mode: 'anonymize',
+      dryRun: false,
+      plan: [],
+      outcome: {
+        status: 'success',
+        done: 2,
+        failed: 0,
+        objects: [{ objectApiName: 'Contact', done: 2, failed: 0 }],
+        errors: [],
+      },
+      mutedAutomation: MUTED,
+    };
+    section();
+
+    expect(screen.getByTestId('dsr-erase-muted-said').textContent).toBe(
+      'Flow_Bypass was assigned to the user the run wrote as in dev1, for the run alone.',
+    );
+    expect(screen.getByTestId('dsr-erase-muted-released').textContent).toBe(
+      'Taken back as the run ended: Flow_Bypass.',
+    );
+    expect(screen.getByTestId('dsr-erase-muted-silenced-Contact').textContent).toContain(
+      'Notify Owner',
+    );
+  });
+
+  it('shows, beside the failure of an erasure cancelled half way, what its mute did', () => {
+    states['dataops:dsr:search'].data = found;
+    states.erase.requestId = 'req-erase';
+    states.erase.error = 'Cancelled: 1 record(s) overwritten before the cancel.';
+    section();
+    expect(screen.queryByTestId('dsr-erase-muted')).toBeNull();
+
+    // Another request's failure says nothing of this erasure.
+    const failure = (correlationId: string): void =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: `err-${correlationId}`,
+              type: 'dataops:error',
+              timestamp: Date.now(),
+              correlationId,
+              payload: { message: 'Cancelled', code: 'RUN_CANCELLED', mutedAutomation: MUTED },
+            },
+          }),
+        );
+      });
+    failure('req-other');
+    expect(screen.queryByTestId('dsr-erase-muted')).toBeNull();
+
+    failure('req-erase');
+    expect(screen.getByTestId('dsr-erase-error').textContent).toContain('Cancelled: 1 record');
+    expect(screen.getByTestId('dsr-erase-muted-released').textContent).toBe(
+      'Taken back as the run ended: Flow_Bypass.',
+    );
   });
 
   it('offers, once the erasure is done, to delete the backups that would bring the person back', () => {

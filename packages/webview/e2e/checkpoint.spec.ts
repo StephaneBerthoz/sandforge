@@ -288,6 +288,7 @@ async function rewindFromPreview(
     acceptRecreate: false,
     acceptOutside: false,
     acceptUnseen: false,
+    fromPage: true,
   });
   return rewind;
 }
@@ -335,7 +336,7 @@ for (const theme of THEMES) {
         '1 belongs to the vlocity_cmt package',
       );
       await expect(page.getByTestId('checkpoint-left-out')).toContainText(
-        'FeedItem — Chatter posts are left out.',
+        'FeedItem — Chatter posts, comments and feeds are left out',
       );
       await expectReadable(page, theme, '[data-testid="checkpoint-before-it-runs"]');
 
@@ -846,6 +847,7 @@ for (const theme of THEMES) {
       expect(started.payload).toEqual({
         checkpointId: 'ck-picked',
         previewId: 'pv-everything',
+        fromPage: true,
         acceptAutomation: true,
         acceptNoUndo: true,
         acceptRecreate: true,
@@ -883,6 +885,7 @@ for (const theme of THEMES) {
         result: rewindResult('ck-picked', {
           status: 'cancelled',
           carriers: [{ objectApiName: 'Account', count: 1 }],
+          draftsLeft: [{ objectApiName: 'Order', count: 1, ids: ['801000000000007AAA'] }],
         }),
         operationId: started.id,
       });
@@ -891,6 +894,10 @@ for (const theme of THEMES) {
       );
       await expect(page.getByTestId('checkpoint-result-carriers-stopped')).toHaveText(
         `Stopped before the rewind was through: what of them it had not deleted again yet is still in ${ORG}. Rewind again deletes it, with what came back with it.`,
+      );
+      // An order made again as a draft, its status not given back yet, named.
+      await expect(page.getByTestId('checkpoint-result-drafts-left-Order')).toHaveText(
+        'Order: 1 record made again as a draft (801000000000007AAA), its status not given back yet',
       );
       await expect(page.getByTestId('checkpoint-result-rewind-again')).toBeVisible();
       await expectReadable(page, theme, '[data-testid="checkpoint-result"]');
@@ -1122,6 +1129,7 @@ for (const theme of THEMES) {
       expect(started.payload).toEqual({
         checkpointId: 'ck-per-object',
         previewId: 'pv-per-object',
+        fromPage: true,
         acceptAutomation: false,
         acceptNoUndo: false,
         acceptRecreate: false,
@@ -1273,12 +1281,13 @@ for (const theme of THEMES) {
       );
       await expectReadable(page, theme, '[data-testid="checkpoint-result"]');
 
-      // Stopped before it answered with a result.
+      // Stopped before it answered with a result: the handler answers
+      // CANCELLED only before the rewind's first write, so nothing changed.
       await page.getByTestId('checkpoint-result-rewind-again').click();
       await rewindFromPreview(page, host, checkpoint, 'pv-4');
       await host.refuse('checkpoint:rewind', 'CANCELLED', 'The rewind was stopped.');
       await expect(page.getByTestId('checkpoint-run-stopped')).toHaveText(
-        `Stopped part way: ${ORG} is between “Before UAT” and now. Rewind again to finish: it takes up from what still differs.`,
+        `Stopped before it wrote anything: ${ORG} is as it was before this rewind. Rewind again to rewind it to “Before UAT”.`,
       );
       await expectReadable(page, theme, '[data-testid="checkpoint-run"]');
 
@@ -1342,6 +1351,7 @@ for (const theme of THEMES) {
       expect(undo.payload).toEqual({
         checkpointId: id,
         rewindId: 'rw-new',
+        fromPage: true,
         acceptAutomation: false,
       });
       await expect(
@@ -1381,6 +1391,7 @@ for (const theme of THEMES) {
       expect(undo.payload).toEqual({
         checkpointId: id,
         rewindId: 'rw-last',
+        fromPage: true,
         acceptAutomation: false,
       });
       await host.answer('checkpoint:undo', {
@@ -1421,6 +1432,7 @@ for (const theme of THEMES) {
       expect(undo.payload).toEqual({
         checkpointId: id,
         rewindId: 'rw-last',
+        fromPage: true,
         acceptAutomation: true,
       });
       // The rewind had made one account again, the bin no longer giving it back.

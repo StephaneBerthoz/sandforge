@@ -166,8 +166,8 @@ export class PipelineOrchestrator {
    *   {@link handedOn}); they are laid over the run's variables. Every step
    *   that ran hands on how it went, as `previousStepStatus`: `succeeded` or
    *   `failed`.
-   * - A step whose work was cancelled (its result says `cancelled`) ends the
-   *   run there, cancelled, whatever its `continueOnError` says.
+   * - A step that was stopped (its status says `stopped`) ends the run there,
+   *   cancelled, whatever its `continueOnError` says.
    *
    * A pipeline with a step that cannot do its work does not start: see
    * {@link refuseUnrunnable}.
@@ -239,12 +239,12 @@ export class PipelineOrchestrator {
       // set to continue on error can fail, and the run go one way or another.
       values[PREVIOUS_STEP_STATUS] = result.status === 'completed' ? 'succeeded' : 'failed';
 
-      // A step cut short by the abort failed because the run was stopped, not
-      // on its own: the run is cancelled, and nothing is routed from it. So is
-      // a step whose own work was cancelled, a Backup cancelled from Live
-      // Operations: the steps after it would go on without that work, and the
-      // run used to be written as failed.
-      if (aborter.signal.aborted || result.cancelled) {
+      // A step cut short by the abort is stopped, and failed nothing on its
+      // own: the run is cancelled, and nothing is routed from it. So is a step
+      // whose own work was cancelled, a Backup cancelled from Live Operations:
+      // the steps after it would go on without that work, and the run used to
+      // be written as failed.
+      if (aborter.signal.aborted || result.status === 'stopped') {
         run.status = 'cancelled';
         break;
       }

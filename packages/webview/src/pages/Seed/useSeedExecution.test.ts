@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import type { TFunction } from 'i18next';
-import type { SeedTemplate } from '@sandforge/shared';
+import type { SeedFitProposal, SeedTemplate } from '@sandforge/shared';
 
 import { useSeedExecution } from './useSeedExecution';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
@@ -242,6 +242,31 @@ describe('useSeedExecution', () => {
     expect(bridge.mutate.mock.calls[1][0]).toMatchObject({ orgId: 'org-1', muteAutomation: true });
   });
 
+  it('asks the run to take a checkpoint first only once its box is ticked, a fitted run too', () => {
+    const { result } = renderHook(() =>
+      useSeedExecution(
+        'org-1',
+        ['Case'],
+        { Case: { count: 5, batchSize: 200 } },
+        FIELD_CONFIGS,
+        ((key: string) => key) as unknown as TFunction,
+      ),
+    );
+    act(() => {
+      result.current.handleExecute();
+    });
+    expect(result.current.checkpointFirst).toBe(false);
+    expect(bridge.mutate.mock.calls[0][0]).not.toHaveProperty('checkpointFirst');
+
+    act(() => {
+      result.current.setCheckpointFirst(true);
+    });
+    act(() => {
+      result.current.handleExecute();
+    });
+    expect(bridge.mutate.mock.calls[1][0]).toMatchObject({ orgId: 'org-1', checkpointFirst: {} });
+  });
+
   it('sends no lookup rule to an object the run does not seed', () => {
     const configs: ObjectFieldConfig[] = [
       {
@@ -254,7 +279,7 @@ describe('useSeedExecution', () => {
             type: 'reference',
             required: false,
             ruleType: 'reference',
-            config: { referenceObject: 'User', referenceField: 'Id' },
+            config: { referenceObject: 'User' },
           },
           {
             fieldApiName: 'AccountId',
@@ -262,7 +287,7 @@ describe('useSeedExecution', () => {
             type: 'reference',
             required: false,
             ruleType: 'reference',
-            config: { referenceObject: 'Account', referenceField: 'Id' },
+            config: { referenceObject: 'Account' },
           },
         ],
       },
@@ -298,7 +323,7 @@ describe('useSeedExecution', () => {
             type: 'reference',
             required: true,
             ruleType: 'reference',
-            config: { referenceObject: 'Invoice__c', referenceField: 'Id' },
+            config: { referenceObject: 'Invoice__c' },
           },
         ],
       },
@@ -332,7 +357,7 @@ describe('useSeedExecution', () => {
       type: 'reference',
       required,
       ruleType: 'reference' as const,
-      config: { referenceObject: object, referenceField: 'Id' },
+      config: { referenceObject: object },
     });
     const configs: ObjectFieldConfig[] = [
       {
@@ -398,7 +423,7 @@ describe('useSeedExecution', () => {
       type: 'reference',
       required: false,
       ruleType: 'reference' as const,
-      config: { referenceObject: object, referenceField: 'Id' },
+      config: { referenceObject: object },
     });
     const configs: ObjectFieldConfig[] = [
       {
@@ -465,7 +490,7 @@ describe('useSeedExecution', () => {
             type: 'reference',
             required: false,
             ruleType: 'reference',
-            config: { referenceObject: 'Account', referenceField: 'Id' },
+            config: { referenceObject: 'Account' },
           },
         ],
       },
@@ -585,7 +610,7 @@ describe('useSeedExecution', () => {
             type: 'reference',
             required: true,
             ruleType: 'reference',
-            config: { referenceObject: 'RecordType', referenceField: 'Id' },
+            config: { referenceObject: 'RecordType' },
           },
         ],
       },
@@ -665,5 +690,165 @@ describe('useSeedExecution', () => {
 
     expect(run({ Account: [PERSON_TYPE] })).toEqual(['LastName', 'PersonEmail', 'RecordTypeId']);
     expect(run({})).toEqual(['Name']);
+  });
+});
+
+describe('useSeedExecution — a run refused for what its org has left', () => {
+  /** The extension's fit of 100 accounts and 100 contacts to an org with room for 80 records. */
+  const PROPOSAL: SeedFitProposal = {
+    share: 0.4,
+    budget: {
+      budgetMB: 0.16,
+      remainingMB: 1,
+      maxMB: 5,
+      share: 0.8,
+      roundingMB: 0.5,
+      limitedBy: 'storage',
+      automationMB: 0,
+    },
+    objects: [
+      { objectApiName: 'Account', before: 100, after: 40 },
+      { objectApiName: 'Contact', before: 100, after: 40 },
+    ],
+    estimateMB: 0.15625,
+  };
+  const OBJECTS = ['Account', 'Contact'];
+  const VOLUMES = {
+    Account: { count: 100, batchSize: 200 },
+    Contact: { count: 100, batchSize: 200 },
+  };
+  const t = ((key: string) => key) as unknown as TFunction;
+  /** No fields described, no relation, no record type: held by reference, as the wizard's state is. */
+  const FIELDS: ObjectFieldConfig[] = [];
+  const RELATIONS: CheckedRelation[] = [];
+  const CHOICES: Record<string, string[]> = {};
+
+  beforeEach(() => {
+    bridge.mutate.mockClear();
+    bridge.loading = false;
+    bridge.requestId = null;
+  });
+
+  /** The extension refusing the request `id` for its storage, with `fit`. */
+  function refused(id: string, fit: unknown = PROPOSAL): void {
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'seed:error',
+            id: `err-${id}`,
+            correlationId: id,
+            payload: { code: 'SEED_STORAGE_EXCEEDED', message: 'Too big.', fit },
+          },
+        }),
+      );
+    });
+  }
+
+  /** The wizard's hook, its inputs held by reference as the wizard holds them; refused once. */
+  function refusedRun() {
+    const hook = renderHook(
+      ({ volumes }) =>
+        useSeedExecution('org-1', OBJECTS, volumes, FIELDS, t, RELATIONS, CHOICES, 'fr_FR'),
+      { initialProps: { volumes: VOLUMES } },
+    );
+    act(() => {
+      hook.result.current.handleExecute();
+    });
+    bridge.requestId = 'run-1';
+    hook.rerender({ volumes: VOLUMES });
+    refused('run-1');
+    return hook;
+  }
+
+  it('offers the counts its refusal carried, and sends nothing more until they are seeded', () => {
+    const { result } = refusedRun();
+
+    expect(result.current.fitProposal).toEqual(PROPOSAL);
+    expect(result.current.fitApplied).toBeNull();
+    // Nothing goes back to the org on its own: a person seeds the counts.
+    expect(bridge.mutate).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.seedFitted();
+    });
+
+    expect(bridge.mutate).toHaveBeenCalledTimes(2);
+    const first = bridge.mutate.mock.calls[0][0] as { template: SeedTemplate };
+    const fitted = bridge.mutate.mock.calls[1][0] as {
+      orgId: string;
+      locale: string;
+      template: SeedTemplate;
+      fit: unknown;
+    };
+    expect(fitted).toMatchObject({ orgId: 'org-1', locale: 'fr_FR' });
+    expect(fitted.template.objects.map((o) => [o.objectApiName, o.recordCount])).toEqual([
+      ['Account', 40],
+      ['Contact', 40],
+    ]);
+    // The refused run's template, its counts alone changed.
+    expect(fitted.template.objects.map((o) => o.fieldRules)).toEqual(
+      first.template.objects.map((o) => o.fieldRules),
+    );
+    expect(fitted.template.id).toBe(first.template.id);
+    expect(fitted.fit).toEqual({ share: 0.4, before: 200 });
+    expect(result.current.fitApplied).toMatchObject({ records: 80, fit: { before: 200 } });
+    expect(result.current.lastTemplate).toEqual(fitted.template);
+  });
+
+  it('counts the progress of a fitted run against its fitted counts', () => {
+    const { result, rerender } = refusedRun();
+    act(() => {
+      result.current.seedFitted();
+    });
+    bridge.loading = true;
+    bridge.requestId = 'run-2';
+    rerender({ volumes: VOLUMES });
+
+    expect(result.current.objectProgress.map((o) => o.total)).toEqual([40, 40]);
+  });
+
+  it('drops the counts once the wizard changes what the refused run was built from', () => {
+    // They were of a run the wizard would no longer send.
+    const { result, rerender } = refusedRun();
+    expect(result.current.fitProposal).not.toBeNull();
+
+    rerender({ volumes: { ...VOLUMES, Account: { count: 60, batchSize: 200 } } });
+    expect(result.current.fitProposal).toBeNull();
+    act(() => {
+      result.current.seedFitted();
+    });
+    expect(bridge.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('says no fit for a run sent from the wizard after a fitted one', () => {
+    const { result, rerender } = refusedRun();
+    act(() => {
+      result.current.seedFitted();
+    });
+    bridge.requestId = 'run-2';
+    rerender({ volumes: VOLUMES });
+    act(() => {
+      result.current.handleExecute();
+    });
+
+    expect(bridge.mutate.mock.calls[2][0]).not.toHaveProperty('fit');
+    expect(result.current.fitApplied).toBeNull();
+  });
+
+  it('seeds nothing from a refusal that cannot be fitted', () => {
+    const hook = renderHook(() => useSeedExecution('org-1', OBJECTS, VOLUMES, FIELDS, t));
+    act(() => {
+      hook.result.current.handleExecute();
+    });
+    bridge.requestId = 'run-1';
+    hook.rerender();
+    refused('run-1', { ...PROPOSAL, cannotFit: 'the least it can be cut to takes 0.1 MB' });
+
+    expect(hook.result.current.fitProposal?.cannotFit).toBeDefined();
+    act(() => {
+      hook.result.current.seedFitted();
+    });
+    expect(bridge.mutate).toHaveBeenCalledTimes(1);
   });
 });

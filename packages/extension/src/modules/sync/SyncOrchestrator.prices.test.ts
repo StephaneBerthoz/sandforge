@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import type { SyncConfig, SyncObjectConfig } from '@sandforge/shared';
+import type { SyncConfig, SyncObjectConfig, SyncWriteCheck } from '@sandforge/shared';
 import { SyncOrchestrator } from './SyncOrchestrator.js';
+import {
+  syncWriteGate,
+  type SyncCountedWrite,
+  type SyncWriteGate,
+  type SyncWriteMeasures,
+} from './SyncRunGate.js';
+import { SyncRunRefused } from './SyncRunFailure.js';
 import { DataSync, type OperationOutcome } from './DataSync.js';
 import { targetWriteFieldsOf, type TargetWriteFields } from './targetWriteFields.js';
 import { FieldMappingService } from './FieldMapping.js';
@@ -144,7 +151,10 @@ function targetOrg() {
         }
         const deal = held.get(String(record['OpportunityId']));
         const priced = held.get(String(record['PricebookEntryId']));
-        if (!priced || priced['CurrencyIsoCode'] !== deal?.['CurrencyIsoCode']) {
+        // An id the target holds no record of, as the source's own is: an
+        // org refuses a lookup at a record of another org.
+        if (!priced) return refused('INVALID_CROSS_REFERENCE_KEY: invalid cross reference id');
+        if (priced['CurrencyIsoCode'] !== deal?.['CurrencyIsoCode']) {
           return refused('FIELD_INTEGRITY_EXCEPTION: pricebook entry currency code');
         }
       }
@@ -294,5 +304,1008 @@ describe('SyncOrchestrator — a catalog and the lines priced from it', () => {
     const result = await orchestrator(target, false).execute(CONFIG);
 
     expect(result.objectResults.find((r) => r.objectApiName === 'PricebookEntry')?.success).toBe(0);
+  });
+});
+
+describe('SyncOrchestrator — a catalog whose price books the target takes none of', () => {
+  /*
+   * The price books upserted on a key the target does not match an upsert
+   * on, so the run leaves them out. The standard book is matched all the
+   * same, never written: its price goes, and so do the deal and the line on
+   * it. Only what names the custom book is held back. The describes name
+   * each lookup's object, as an org's do.
+   */
+  const lookup = (name: string, object: string) => ({
+    ...field(name, 'reference'),
+    referenceTo: [object],
+  });
+  const KEYED: Record<string, TargetWriteFields> = {
+    ...DESCRIBES,
+    Pricebook2: targetWriteFieldsOf({
+      name: 'Pricebook2',
+      createable: true,
+      updateable: true,
+      fields: [
+        { name: 'Id', type: 'id', createable: false, idLookup: true, externalId: false },
+        { ...field('Name'), idLookup: false, externalId: false },
+        { ...field('Catalog_Key__c'), idLookup: false, externalId: false },
+      ],
+    }),
+    PricebookEntry: targetWriteFieldsOf({
+      name: 'PricebookEntry',
+      fields: [
+        lookup('Pricebook2Id', 'Pricebook2'),
+        lookup('Product2Id', 'Product2'),
+        { ...field('UnitPrice', 'currency'), scale: 2 },
+      ],
+    }),
+    Opportunity: targetWriteFieldsOf({
+      name: 'Opportunity',
+      fields: [field('Name'), lookup('Pricebook2Id', 'Pricebook2')],
+    }),
+    OpportunityLineItem: targetWriteFieldsOf({
+      name: 'OpportunityLineItem',
+      fields: [
+        lookup('OpportunityId', 'Opportunity'),
+        lookup('PricebookEntryId', 'PricebookEntry'),
+        { ...field('UnitPrice', 'currency'), scale: 2 },
+      ],
+    }),
+  };
+  const STANDARD_PRICE = '01u000000000011AAA';
+  const BOOK_PRICE = '01u000000000012AAA';
+  const BOOK_DEAL = '006000000000002AAA';
+  const ROWS: Record<string, Array<Record<string, unknown>>> = {
+    Product2: [{ Id: WIDGET, Name: 'Widget' }],
+    Pricebook2: [
+      { Id: SOURCE_STANDARD, Name: 'Standard Price Book', Catalog_Key__c: 'STD' },
+      { Id: BOOK, Name: 'Partners', Catalog_Key__c: 'PARTNERS' },
+    ],
+    PricebookEntry: [
+      { Id: STANDARD_PRICE, Pricebook2Id: SOURCE_STANDARD, Product2Id: WIDGET, UnitPrice: 100 },
+      { Id: BOOK_PRICE, Pricebook2Id: BOOK, Product2Id: WIDGET, UnitPrice: 90 },
+    ],
+    Opportunity: [
+      { Id: DEAL, Name: 'Direct deal', Pricebook2Id: SOURCE_STANDARD },
+      { Id: BOOK_DEAL, Name: 'Partner deal', Pricebook2Id: BOOK },
+    ],
+    OpportunityLineItem: [
+      {
+        Id: '00k000000000011AAA',
+        OpportunityId: DEAL,
+        PricebookEntryId: STANDARD_PRICE,
+        UnitPrice: 100,
+      },
+      {
+        Id: '00k000000000012AAA',
+        OpportunityId: BOOK_DEAL,
+        PricebookEntryId: BOOK_PRICE,
+        UnitPrice: 90,
+      },
+    ],
+  };
+  const KEYED_CONFIG: SyncConfig = {
+    ...CONFIG,
+    objects: CONFIG.objects.map((o) =>
+      o.objectApiName === 'Pricebook2'
+        ? { ...o, operation: 'upsert' as const, externalIdField: 'Catalog_Key__c' }
+        : o,
+    ),
+  };
+
+  /** A gate that lets the run write, as a user who confirmed leaving the books out, and keeps what it counted. */
+  function gate() {
+    const held: SyncCountedWrite[] = [];
+    const measured: SyncCountedWrite[] = [];
+    const check: SyncWriteCheck = {
+      objects: [],
+      total: 0,
+      alreadyCopied: 0,
+      storage: { verdict: 'fits', estimateMB: 0 },
+      emails: [],
+      verdict: 'asks',
+    };
+    const writeGate: SyncWriteGate = {
+      measure: async (counted) => {
+        measured.push(counted);
+        return check;
+      },
+      hold: async (counted) => {
+        held.push(counted);
+        return { check, answer: { go: true, asked: true } };
+      },
+    };
+    return { writeGate, held, measured };
+  }
+
+  function keyedOrchestrator(target: ReturnType<typeof targetOrg>, writeGate: SyncWriteGate) {
+    const unused = async (): Promise<OperationOutcome[]> => [];
+    const describeTargetFields = async (object: string) => KEYED[object];
+    return new SyncOrchestrator({
+      dataSync: new DataSync({
+        insert: (object, records) => target.insert(object, records),
+        update: unused,
+        upsert: unused,
+        delete: unused,
+        describeTargetFields,
+      }),
+      conflictResolver: new ConflictResolver(),
+      fieldMapping: new FieldMappingService(),
+      transformPipeline: new TransformPipeline(),
+      querySource: async (_org, config) => ROWS[config.objectApiName].map((r) => ({ ...r })),
+      countSource: async (_org, config) => ROWS[config.objectApiName].length,
+      queryTarget: async () => [],
+      findInTarget: async () => new Map(),
+      describeTargetFields,
+      standardPricebooks: async () => ({ source: SOURCE_STANDARD, target: TARGET_STANDARD }),
+      writeGate,
+    });
+  }
+
+  it('counts at its gate only what names the custom book as held back, the standard price being written', async () => {
+    const target = targetOrg();
+    const ran = gate();
+
+    const result = await keyedOrchestrator(target, ran.writeGate).execute(KEYED_CONFIG);
+
+    expect(result.objectResults.map((r) => [r.objectApiName, r.success, r.failed])).toEqual([
+      ['Product2', 1, 0],
+      ['Pricebook2', 0, 0],
+      ['PricebookEntry', 1, 1],
+      ['Opportunity', 1, 1],
+      ['OpportunityLineItem', 1, 1],
+    ]);
+    // What the gate counted held back is what the run held back: the price,
+    // the deal and the line under the custom book, one each.
+    expect(ran.held[0]?.heldBack).toEqual([
+      {
+        objectApiName: 'PricebookEntry',
+        rows: 1,
+        parent: 'Pricebook2',
+        field: 'Pricebook2Id',
+        parents: [{ parent: 'Pricebook2', field: 'Pricebook2Id', rows: 1 }],
+      },
+      {
+        objectApiName: 'Opportunity',
+        rows: 1,
+        parent: 'Pricebook2',
+        field: 'Pricebook2Id',
+        parents: [{ parent: 'Pricebook2', field: 'Pricebook2Id', rows: 1 }],
+      },
+      {
+        objectApiName: 'OpportunityLineItem',
+        rows: 1,
+        parent: 'Opportunity',
+        field: 'OpportunityId',
+        parents: [{ parent: 'Opportunity', field: 'OpportunityId', rows: 1 }],
+      },
+    ]);
+    expect(ran.held[0]?.objects.map((o) => [o.objectApiName, o.rows])).toEqual([
+      ['Product2', 1],
+      ['PricebookEntry', 1],
+      ['Opportunity', 1],
+      ['OpportunityLineItem', 1],
+    ]);
+  });
+
+  it('counts in its dry run what the run holds back, as the dry run’s own objects count it', async () => {
+    const simulated = gate();
+
+    const simulation = await keyedOrchestrator(targetOrg(), simulated.writeGate).simulate(
+      KEYED_CONFIG,
+    );
+
+    expect(simulation.error).toBeUndefined();
+    expect(simulated.measured[0]?.heldBack?.map((h) => [h.objectApiName, h.rows])).toEqual([
+      ['PricebookEntry', 1],
+      ['Opportunity', 1],
+      ['OpportunityLineItem', 1],
+    ]);
+    expect(
+      simulation.objects.map((o) => [o.objectApiName, o.insert + o.update, o.refused ?? 0]),
+    ).toEqual([
+      ['Product2', 1, 0],
+      ['Pricebook2', 0, 1],
+      ['PricebookEntry', 1, 1],
+      ['Opportunity', 1, 1],
+      ['OpportunityLineItem', 1, 1],
+    ]);
+  });
+
+  describe('a price left out for one the run holds back', () => {
+    /*
+     * The products upserted on a key the target does not match an upsert
+     * on, so the run leaves them out, and the source's prices in a currency
+     * the target does not hold: each GBP price is left out for the source's
+     * own USD price of the same product and book, which the run holds back
+     * with its product. The deal goes, its book written; its line names the
+     * GBP price. Neither linked nor refused, that price let the line go with
+     * the source's id of it, which the target refuses, where the gate had
+     * counted the line held back.
+     */
+    const PRICED: Record<string, TargetWriteFields> = {
+      ...KEYED,
+      Product2: targetWriteFieldsOf({
+        name: 'Product2',
+        createable: true,
+        updateable: true,
+        fields: [
+          { name: 'Id', type: 'id', createable: false, idLookup: true, externalId: false },
+          { ...field('Name'), idLookup: false, externalId: false },
+          { ...field('Catalog_Key__c'), idLookup: false, externalId: false },
+        ],
+      }),
+      PricebookEntry: targetWriteFieldsOf({
+        name: 'PricebookEntry',
+        fields: [
+          lookup('Pricebook2Id', 'Pricebook2'),
+          lookup('Product2Id', 'Product2'),
+          field('CurrencyIsoCode', 'picklist'),
+          { ...field('UnitPrice', 'currency'), scale: 2 },
+        ],
+      }),
+      Opportunity: targetWriteFieldsOf({
+        name: 'Opportunity',
+        fields: [
+          field('Name'),
+          lookup('Pricebook2Id', 'Pricebook2'),
+          field('CurrencyIsoCode', 'picklist'),
+          { ...field('Amount', 'currency'), scale: 2 },
+        ],
+      }),
+      OpportunityLineItem: targetWriteFieldsOf({
+        name: 'OpportunityLineItem',
+        fields: [
+          lookup('OpportunityId', 'Opportunity'),
+          lookup('PricebookEntryId', 'PricebookEntry'),
+          field('CurrencyIsoCode', 'picklist', false),
+          { ...field('UnitPrice', 'currency'), scale: 2 },
+          { ...field('TotalPrice', 'currency'), scale: 2 },
+        ],
+      }),
+    };
+    const PRICED_ROWS: Record<string, Array<Record<string, unknown>>> = {
+      ...SOURCE_ROWS,
+      Product2: [{ Id: WIDGET, Name: 'Widget', Catalog_Key__c: 'WIDGET' }],
+    };
+    const PRICED_CONFIG: SyncConfig = {
+      ...CONFIG,
+      objects: CONFIG.objects.map((o) =>
+        o.objectApiName === 'Product2'
+          ? { ...o, operation: 'upsert' as const, externalIdField: 'Catalog_Key__c' }
+          : o,
+      ),
+    };
+
+    function pricedOrchestrator(
+      target: ReturnType<typeof targetOrg>,
+      writeGate: SyncWriteGate,
+      describes: Record<string, TargetWriteFields> = PRICED,
+    ) {
+      const unused = async (): Promise<OperationOutcome[]> => [];
+      const describeTargetFields = async (object: string) => describes[object];
+      return new SyncOrchestrator({
+        dataSync: new DataSync({
+          insert: (object, records) => target.insert(object, records),
+          update: unused,
+          upsert: unused,
+          delete: unused,
+          describeTargetFields,
+        }),
+        conflictResolver: new ConflictResolver(),
+        fieldMapping: new FieldMappingService(),
+        transformPipeline: new TransformPipeline(),
+        querySource: async (_org, config) =>
+          PRICED_ROWS[config.objectApiName].map((r) => ({ ...r })),
+        countSource: async (_org, config) => PRICED_ROWS[config.objectApiName].length,
+        queryTarget: async () => [],
+        findInTarget: async () => new Map(),
+        describeTargetFields,
+        currencies: async () => CURRENCIES,
+        standardPricebooks: async () => ({ source: SOURCE_STANDARD, target: TARGET_STANDARD }),
+        writeGate,
+      });
+    }
+
+    it('holds back the line that names it, as its gate counted it, and sends the target nothing of it', async () => {
+      const target = targetOrg();
+      const ran = gate();
+
+      const result = await pricedOrchestrator(target, ran.writeGate).execute(PRICED_CONFIG);
+
+      expect(ran.held[0]?.heldBack?.find((h) => h.objectApiName === 'OpportunityLineItem')).toEqual(
+        {
+          objectApiName: 'OpportunityLineItem',
+          rows: 1,
+          parent: 'PricebookEntry',
+          field: 'PricebookEntryId',
+          parents: [{ parent: 'PricebookEntry', field: 'PricebookEntryId', rows: 1 }],
+        },
+      );
+      const line = result.objectResults.find((r) => r.objectApiName === 'OpportunityLineItem');
+      expect([line?.success, line?.failed]).toEqual([0, 1]);
+      expect(line?.errors.join(' ')).toContain(
+        'PARENT_REFUSED: 1 OpportunityLineItem record held back, not sent: the PricebookEntry ' +
+          'record their PricebookEntryId names was refused in this run',
+      );
+      expect(target.calls.filter((c) => c.object === 'OpportunityLineItem')).toEqual([]);
+      // The deal it is on goes all the same: only the line waits on its price.
+      expect(result.objectResults.find((r) => r.objectApiName === 'Opportunity')?.success).toBe(1);
+    });
+
+    it('holds back with their product the prices in GBP, as its gate counted them, and says none replaced', async () => {
+      // The gate counted the four prices held back; the run held back the
+      // two in USD and said the two in GBP "replaced by the source's own
+      // price", a price it never wrote.
+      const target = targetOrg();
+      const ran = gate();
+
+      const result = await pricedOrchestrator(target, ran.writeGate).execute(PRICED_CONFIG);
+
+      expect(ran.held[0]?.heldBack?.find((h) => h.objectApiName === 'PricebookEntry')?.rows).toBe(
+        4,
+      );
+      const prices = result.objectResults.find((r) => r.objectApiName === 'PricebookEntry');
+      expect([prices?.success, prices?.failed]).toEqual([0, 4]);
+      expect(prices?.errors.join(' ')).toContain(
+        'PARENT_REFUSED: 4 PricebookEntry records held back, not sent: the Product2 record ' +
+          'their Product2Id names was refused in this run',
+      );
+      expect(prices?.pricesSettled).toBeUndefined();
+      expect(target.calls.filter((c) => c.object === 'PricebookEntry')).toEqual([]);
+    });
+
+    it('counts them held back in its dry run, as its gate does, and says none replaced', async () => {
+      const simulated = gate();
+
+      const simulation = await pricedOrchestrator(targetOrg(), simulated.writeGate).simulate(
+        PRICED_CONFIG,
+      );
+
+      expect(
+        simulated.measured[0]?.heldBack?.find((h) => h.objectApiName === 'PricebookEntry')?.rows,
+      ).toBe(4);
+      const prices = simulation.objects.find((o) => o.objectApiName === 'PricebookEntry');
+      expect([prices?.read, prices?.insert, prices?.refused]).toEqual([4, 0, 4]);
+      expect(prices?.notes).toContain(
+        'PARENT_REFUSED: 4 PricebookEntry records held back, not sent: the Product2 record ' +
+          'their Product2Id names was refused in this run, and written without it they would ' +
+          'stand without their Product2.',
+      );
+      expect(prices?.notes.join(' ')).not.toContain('replaced by the source');
+    });
+
+    it('counts the line held back in its dry run, as the dry run’s gate counts it', async () => {
+      const simulated = gate();
+
+      const simulation = await pricedOrchestrator(targetOrg(), simulated.writeGate).simulate(
+        PRICED_CONFIG,
+      );
+
+      expect(simulation.error).toBeUndefined();
+      expect(
+        simulated.measured[0]?.heldBack?.find((h) => h.objectApiName === 'OpportunityLineItem')
+          ?.rows,
+      ).toBe(1);
+      const line = simulation.objects.find((o) => o.objectApiName === 'OpportunityLineItem');
+      expect([line?.insert, line?.refused ?? 0]).toEqual([0, 1]);
+    });
+
+    it('holds back the line on a price left out with the prices the target takes none of', async () => {
+      // The prices upserted on a key the target does not match an upsert on:
+      // the run leaves them out, the one in GBP among them.
+      const target = targetOrg();
+      const ran = gate();
+      const config: SyncConfig = {
+        ...CONFIG,
+        objects: CONFIG.objects.map((o) =>
+          o.objectApiName === 'PricebookEntry'
+            ? { ...o, operation: 'upsert' as const, externalIdField: 'Catalog_Key__c' }
+            : o,
+        ),
+      };
+      const keyedPrices: Record<string, TargetWriteFields> = {
+        ...PRICED,
+        Product2: DESCRIBES.Product2,
+        PricebookEntry: targetWriteFieldsOf({
+          name: 'PricebookEntry',
+          createable: true,
+          updateable: true,
+          fields: [
+            { name: 'Id', type: 'id', createable: false, idLookup: true, externalId: false },
+            { ...field('Catalog_Key__c'), idLookup: false, externalId: false },
+            lookup('Pricebook2Id', 'Pricebook2'),
+            lookup('Product2Id', 'Product2'),
+            field('CurrencyIsoCode', 'picklist'),
+            { ...field('UnitPrice', 'currency'), scale: 2 },
+          ],
+        }),
+      };
+
+      const result = await pricedOrchestrator(target, ran.writeGate, keyedPrices).execute(config);
+
+      expect(
+        ran.held[0]?.heldBack?.find((h) => h.objectApiName === 'OpportunityLineItem')?.rows,
+      ).toBe(1);
+      const line = result.objectResults.find((r) => r.objectApiName === 'OpportunityLineItem');
+      expect([line?.success, line?.failed]).toEqual([0, 1]);
+      expect(target.calls.filter((c) => c.object === 'OpportunityLineItem')).toEqual([]);
+    });
+  });
+
+  describe('a price left out for one a custom lookup holds back', () => {
+    /*
+     * The prices name a region, an object the target takes none of (the user
+     * the run writes as may not create its records), so the run leaves the
+     * regions out. The custom book's USD price names one and is held back
+     * with it; its GBP price names none, and is left out for that USD price.
+     * Only a book, a product or a selling model took a price out of the
+     * currencies' plan: the GBP price was neither written nor counted held
+     * back or failed, the gate counted it among the rows matched, and the run
+     * and its dry run said it "replaced by the source's own price", a price
+     * they never wrote.
+     */
+    const REGION = 'a01000000000001AAA';
+    const BOOK_USD = '01u000000000003AAA';
+    const BOOK_GBP = '01u000000000004AAA';
+    const REGIONAL: Record<string, TargetWriteFields> = {
+      ...KEYED,
+      Product2: DESCRIBES.Product2,
+      Pricebook2: DESCRIBES.Pricebook2,
+      Region__c: targetWriteFieldsOf({
+        name: 'Region__c',
+        createable: false,
+        updateable: false,
+        fields: [field('Name')],
+      }),
+      PricebookEntry: targetWriteFieldsOf({
+        name: 'PricebookEntry',
+        fields: [
+          lookup('Pricebook2Id', 'Pricebook2'),
+          lookup('Product2Id', 'Product2'),
+          lookup('Region__c', 'Region__c'),
+          field('CurrencyIsoCode', 'picklist'),
+          { ...field('UnitPrice', 'currency'), scale: 2 },
+        ],
+      }),
+      Opportunity: targetWriteFieldsOf({
+        name: 'Opportunity',
+        fields: [
+          field('Name'),
+          lookup('Pricebook2Id', 'Pricebook2'),
+          field('CurrencyIsoCode', 'picklist'),
+          { ...field('Amount', 'currency'), scale: 2 },
+        ],
+      }),
+      OpportunityLineItem: targetWriteFieldsOf({
+        name: 'OpportunityLineItem',
+        fields: [
+          lookup('OpportunityId', 'Opportunity'),
+          lookup('PricebookEntryId', 'PricebookEntry'),
+          field('CurrencyIsoCode', 'picklist', false),
+          { ...field('UnitPrice', 'currency'), scale: 2 },
+          { ...field('TotalPrice', 'currency'), scale: 2 },
+        ],
+      }),
+    };
+    const REGIONAL_ROWS: Record<string, Array<Record<string, unknown>>> = {
+      ...SOURCE_ROWS,
+      Region__c: [{ Id: REGION, Name: 'North' }],
+      PricebookEntry: SOURCE_ROWS.PricebookEntry.map((row) =>
+        row['Id'] === BOOK_USD ? { ...row, Region__c: REGION } : { ...row, Region__c: null },
+      ),
+    };
+    const REGIONAL_CONFIG: SyncConfig = {
+      ...CONFIG,
+      objects: [
+        'Product2',
+        'Pricebook2',
+        'Region__c',
+        'PricebookEntry',
+        'Opportunity',
+        'OpportunityLineItem',
+      ].map(objectConfig),
+    };
+
+    function regionalOrchestrator(target: ReturnType<typeof targetOrg>, writeGate: SyncWriteGate) {
+      const unused = async (): Promise<OperationOutcome[]> => [];
+      const describeTargetFields = async (object: string) => REGIONAL[object];
+      return new SyncOrchestrator({
+        dataSync: new DataSync({
+          insert: (object, records) => target.insert(object, records),
+          update: unused,
+          upsert: unused,
+          delete: unused,
+          describeTargetFields,
+        }),
+        conflictResolver: new ConflictResolver(),
+        fieldMapping: new FieldMappingService(),
+        transformPipeline: new TransformPipeline(),
+        querySource: async (_org, config) =>
+          REGIONAL_ROWS[config.objectApiName].map((r) => ({ ...r })),
+        countSource: async (_org, config) => REGIONAL_ROWS[config.objectApiName].length,
+        queryTarget: async () => [],
+        findInTarget: async () => new Map(),
+        describeTargetFields,
+        currencies: async () => CURRENCIES,
+        standardPricebooks: async () => ({ source: SOURCE_STANDARD, target: TARGET_STANDARD }),
+        writeGate,
+      });
+    }
+
+    it('holds the GBP price back with the USD price it is left out for, as its gate counts it', async () => {
+      const target = targetOrg();
+      const ran = gate();
+
+      const result = await regionalOrchestrator(target, ran.writeGate).execute(REGIONAL_CONFIG);
+
+      // The gate: the USD price held back by its region, and the GBP price
+      // with it; only the standard GBP price stands in, for the standard USD.
+      const held = ran.held[0]?.heldBack?.find((h) => h.objectApiName === 'PricebookEntry');
+      expect(held?.rows).toBe(2);
+      expect(ran.held[0]?.objects.find((o) => o.objectApiName === 'PricebookEntry')?.rows).toBe(1);
+      // The run: the standard USD price written, and nothing else of the four.
+      const prices = result.objectResults.find((r) => r.objectApiName === 'PricebookEntry');
+      expect([prices?.success, prices?.failed]).toEqual([1, 2]);
+      expect(target.calls.filter((c) => c.object === 'PricebookEntry')).toEqual([
+        { object: 'PricebookEntry', rows: 1 },
+      ]);
+      expect(prices?.errors.join(' ')).toContain(
+        'PARENT_REFUSED: 1 PricebookEntry record held back, not sent: the Region__c record ' +
+          'their Region__c names was refused in this run',
+      );
+      expect(prices?.errors).toContain(
+        '1 PricebookEntry record held back, not sent: read in a currency the target org does ' +
+          "not hold active, it stands for the source's own price of its product and price book " +
+          'in the currency written, which this run did not write.',
+      );
+      // Said replaced: the standard GBP price alone, whose USD price went.
+      expect(prices?.pricesSettled).toEqual([
+        { from: 'GBP', to: 'USD', how: 'replaced', forLines: false, prices: 1 },
+      ]);
+      // The line on the GBP price waits on it, as before.
+      const line = result.objectResults.find((r) => r.objectApiName === 'OpportunityLineItem');
+      expect([line?.success, line?.failed]).toEqual([0, 1]);
+      expect(BOOK_GBP).toBe(SOURCE_ROWS.OpportunityLineItem[0]?.['PricebookEntryId']);
+    });
+
+    it('counts it refused in its dry run, as its gate does, and says one price replaced', async () => {
+      const simulated = gate();
+
+      const simulation = await regionalOrchestrator(targetOrg(), simulated.writeGate).simulate(
+        REGIONAL_CONFIG,
+      );
+
+      expect(simulation.error).toBeUndefined();
+      expect(
+        simulated.measured[0]?.heldBack?.find((h) => h.objectApiName === 'PricebookEntry')?.rows,
+      ).toBe(2);
+      const prices = simulation.objects.find((o) => o.objectApiName === 'PricebookEntry');
+      expect([prices?.read, prices?.insert, prices?.refused]).toEqual([4, 1, 2]);
+      expect(prices?.notes).toContain(
+        '1 PricebookEntry record held back, not sent: read in a currency the target org does ' +
+          "not hold active, it stands for the source's own price of its product and price book " +
+          'in the currency written, which this run did not write.',
+      );
+      const said = prices?.notes.join(' ') ?? '';
+      expect(said).toContain('1 GBP → USD');
+      expect(said).not.toContain('2 GBP → USD');
+    });
+  });
+});
+
+describe('SyncOrchestrator — a catalog of three currencies whose price books the target takes none of', () => {
+  /*
+   * Replayed from a dry run between two scratch orgs. The source holds USD
+   * (corporate), EUR and GBP, the target USD and EUR. Three products, each
+   * priced in the three currencies in the standard book, and a custom book
+   * of four prices; three deals, two on the custom book and one in GBP on the
+   * standard book, with four lines. The books are upserted on Description,
+   * which the target does not match an upsert on, so the run leaves them out:
+   * the standard book matched, the custom one refused, and what names it
+   * held back. The dry run's check counted 9 prices to write where its
+   * simulation inserted 6, the 3 in GBP left out for the source's own USD
+   * price, and its refusal said "Pricebook2 (2 records)" where its simulation
+   * refused 1.
+   */
+  const lookup = (name: string, object: string) => ({
+    ...field(name, 'reference'),
+    referenceTo: [object],
+  });
+  const THREE: RunCurrencies = {
+    source: orgCurrenciesOf([
+      { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+      { IsoCode: 'EUR', ConversionRate: 0.92, IsActive: true },
+      { IsoCode: 'GBP', ConversionRate: 0.79, IsActive: true },
+    ])!,
+    target: orgCurrenciesOf([
+      { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+      { IsoCode: 'EUR', ConversionRate: 0.92, IsActive: true },
+    ])!,
+  };
+  const DESCRIBED: Record<string, TargetWriteFields> = {
+    Product2: targetWriteFieldsOf({ name: 'Product2', fields: [field('Name')] }),
+    // As the target's describe of Pricebook2 reads: Description is neither
+    // an External ID nor an idLookup field.
+    Pricebook2: targetWriteFieldsOf({
+      name: 'Pricebook2',
+      createable: true,
+      updateable: true,
+      fields: [
+        { name: 'Id', type: 'id', createable: false, idLookup: true, externalId: false },
+        { ...field('Name'), idLookup: true, externalId: false },
+        { ...field('Description', 'textarea'), idLookup: false, externalId: false },
+      ],
+    }),
+    PricebookEntry: targetWriteFieldsOf({
+      name: 'PricebookEntry',
+      fields: [
+        lookup('Pricebook2Id', 'Pricebook2'),
+        lookup('Product2Id', 'Product2'),
+        field('CurrencyIsoCode', 'picklist'),
+        { ...field('UnitPrice', 'currency'), scale: 2 },
+        field('IsActive', 'boolean'),
+      ],
+    }),
+    Opportunity: targetWriteFieldsOf({
+      name: 'Opportunity',
+      fields: [
+        field('Name'),
+        lookup('Pricebook2Id', 'Pricebook2'),
+        field('CurrencyIsoCode', 'picklist'),
+        { ...field('Amount', 'currency'), scale: 2 },
+      ],
+    }),
+    OpportunityLineItem: targetWriteFieldsOf({
+      name: 'OpportunityLineItem',
+      fields: [
+        lookup('OpportunityId', 'Opportunity'),
+        lookup('PricebookEntryId', 'PricebookEntry'),
+        field('CurrencyIsoCode', 'picklist', false),
+        { ...field('UnitPrice', 'currency'), scale: 2 },
+      ],
+    }),
+  };
+  const PRODUCTS = ['01t000000000101AAA', '01t000000000102AAA', '01t000000000103AAA'];
+  const CUSTOM = '01s000000000102AAA';
+  /** A price of product `p` (1 to 3) in a book. */
+  const priceOf = (id: string, book: string, p: number, currency: string, unitPrice: number) => ({
+    Id: id,
+    Pricebook2Id: book,
+    Product2Id: PRODUCTS[p - 1],
+    CurrencyIsoCode: currency,
+    UnitPrice: unitPrice,
+    IsActive: true,
+  });
+  /** A line of a deal, priced by `price`. */
+  const lineOf = (
+    id: string,
+    deal: string,
+    price: string,
+    currency: string,
+    unitPrice: number,
+  ) => ({
+    Id: id,
+    OpportunityId: deal,
+    PricebookEntryId: price,
+    CurrencyIsoCode: currency,
+    UnitPrice: unitPrice,
+  });
+  const DEALS = ['006000000000101AAA', '006000000000102AAA', '006000000000103AAA'];
+  const ROWS: Record<string, Array<Record<string, unknown>>> = {
+    Product2: PRODUCTS.map((Id, at) => ({ Id, Name: `Catalog ${at + 1}` })),
+    Pricebook2: [
+      { Id: SOURCE_STANDARD, Name: 'Standard Price Book', Description: null },
+      { Id: CUSTOM, Name: 'Partners', Description: 'Partner prices' },
+    ],
+    PricebookEntry: [
+      priceOf('01u000000000111AAA', SOURCE_STANDARD, 1, 'USD', 120.5),
+      priceOf('01u000000000112AAA', SOURCE_STANDARD, 1, 'EUR', 110.86),
+      priceOf('01u000000000113AAA', SOURCE_STANDARD, 1, 'GBP', 95.2),
+      priceOf('01u000000000121AAA', SOURCE_STANDARD, 2, 'USD', 249.99),
+      priceOf('01u000000000122AAA', SOURCE_STANDARD, 2, 'EUR', 229.99),
+      priceOf('01u000000000123AAA', SOURCE_STANDARD, 2, 'GBP', 197.49),
+      priceOf('01u000000000131AAA', SOURCE_STANDARD, 3, 'USD', 39.95),
+      priceOf('01u000000000132AAA', SOURCE_STANDARD, 3, 'EUR', 36.75),
+      priceOf('01u000000000133AAA', SOURCE_STANDARD, 3, 'GBP', 31.56),
+      priceOf('01u000000000141AAA', CUSTOM, 1, 'USD', 115),
+      priceOf('01u000000000142AAA', CUSTOM, 2, 'USD', 239),
+      priceOf('01u000000000143AAA', CUSTOM, 1, 'EUR', 105),
+      { ...priceOf('01u000000000144AAA', CUSTOM, 3, 'EUR', 35), IsActive: false },
+    ],
+    Opportunity: [
+      { Id: DEALS[0], Name: 'Deal 1', Pricebook2Id: CUSTOM, CurrencyIsoCode: 'USD', Amount: 469 },
+      {
+        Id: DEALS[1],
+        Name: 'Deal 2',
+        Pricebook2Id: SOURCE_STANDARD,
+        CurrencyIsoCode: 'GBP',
+        Amount: 592.47,
+      },
+      { Id: DEALS[2], Name: 'Deal 3', Pricebook2Id: CUSTOM, CurrencyIsoCode: 'EUR', Amount: 105 },
+    ],
+    OpportunityLineItem: [
+      lineOf('00k000000000101AAA', DEALS[0], '01u000000000141AAA', 'USD', 115),
+      lineOf('00k000000000102AAA', DEALS[0], '01u000000000142AAA', 'USD', 239),
+      lineOf('00k000000000103AAA', DEALS[1], '01u000000000123AAA', 'GBP', 197.49),
+      lineOf('00k000000000104AAA', DEALS[2], '01u000000000143AAA', 'EUR', 105),
+    ],
+  };
+  const BOOKS_ON_DESCRIPTION: SyncConfig = {
+    ...CONFIG,
+    objects: CONFIG.objects.map((o) =>
+      o.objectApiName === 'Pricebook2'
+        ? { ...o, operation: 'upsert' as const, externalIdField: 'Description' }
+        : o,
+    ),
+  };
+
+  /** What the gate reads of a target with room and nothing that runs on what the sync writes. */
+  const measures: SyncWriteMeasures = {
+    readStorage: async () => ({ maxMB: 500, remainingMB: 500 }),
+    readApiBudget: async () => ({ max: 5_000_000, remaining: 4_996_651 }),
+    readAutomation: async () => ({
+      objectsRead: [],
+      objects: [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 1,
+    }),
+    readLimits: async () => ({}),
+    readDeliverability: async () => ({ reading: { level: 'withheld' }, requests: 2 }),
+    emails: { target: 'TARGET', accepted: false },
+    confirmAboveRecords: 2_000,
+  };
+
+  function catalogOrchestrator(
+    target: ReturnType<typeof targetOrg>,
+    describes: Record<string, TargetWriteFields> = DESCRIBED,
+    reads: string[] = [],
+  ) {
+    const unused = async (): Promise<OperationOutcome[]> => [];
+    const describeTargetFields = async (object: string) => describes[object];
+    return new SyncOrchestrator({
+      dataSync: new DataSync({
+        insert: (object, records) => target.insert(object, records),
+        update: unused,
+        upsert: unused,
+        delete: unused,
+        describeTargetFields,
+      }),
+      conflictResolver: new ConflictResolver(),
+      fieldMapping: new FieldMappingService(),
+      transformPipeline: new TransformPipeline(),
+      querySource: async (_org, config) => {
+        reads.push(config.objectApiName);
+        return ROWS[config.objectApiName].map((r) => ({ ...r }));
+      },
+      countSource: async (_org, config) => ROWS[config.objectApiName].length,
+      queryTarget: async () => [],
+      findInTarget: async () => new Map(),
+      describeTargetFields,
+      currencies: async () => THREE,
+      standardPricebooks: async () => ({ source: SOURCE_STANDARD, target: TARGET_STANDARD }),
+      // A run nobody is asked about, as from the command line.
+      writeGate: syncWriteGate(measures, {
+        policy: 'refuse',
+        org: 'TARGET',
+        orgTier: 'development',
+      }),
+    });
+  }
+
+  it('counts at its dry run’s check the prices its simulation inserts, the GBP ones standing in', async () => {
+    const simulation = await catalogOrchestrator(targetOrg()).simulate(BOOKS_ON_DESCRIPTION);
+
+    expect(simulation.error).toBeUndefined();
+    expect(
+      simulation.objects.map((o) => [o.objectApiName, o.read, o.insert, o.refused ?? 0]),
+    ).toEqual([
+      ['Product2', 3, 3, 0],
+      ['Pricebook2', 2, 0, 1],
+      ['PricebookEntry', 13, 6, 4],
+      ['Opportunity', 3, 1, 2],
+      ['OpportunityLineItem', 4, 1, 3],
+    ]);
+    const check = simulation.writeCheck;
+    expect(check?.objects).toEqual([
+      { objectApiName: 'PricebookEntry', rows: 6 },
+      { objectApiName: 'Product2', rows: 3 },
+      { objectApiName: 'Opportunity', rows: 1 },
+      { objectApiName: 'OpportunityLineItem', rows: 1 },
+    ]);
+    expect(check?.total).toBe(11);
+    expect(check?.notWritten).toBeUndefined();
+    expect(check?.heldBack).toEqual([
+      {
+        objectApiName: 'PricebookEntry',
+        rows: 4,
+        parent: 'Pricebook2',
+        field: 'Pricebook2Id',
+        parents: [{ parent: 'Pricebook2', field: 'Pricebook2Id', rows: 4 }],
+      },
+      {
+        objectApiName: 'Opportunity',
+        rows: 2,
+        parent: 'Pricebook2',
+        field: 'Pricebook2Id',
+        parents: [{ parent: 'Pricebook2', field: 'Pricebook2Id', rows: 2 }],
+      },
+      {
+        objectApiName: 'OpportunityLineItem',
+        rows: 3,
+        parent: 'Opportunity',
+        field: 'OpportunityId',
+        parents: [{ parent: 'Opportunity', field: 'OpportunityId', rows: 3 }],
+      },
+    ]);
+  });
+
+  it('counts at its gate what it writes when it leaves no object out: the standard book and the GBP prices apart', async () => {
+    // The same catalog, its books inserted: the standard one matched, never
+    // written, and the GBP prices left out for the USD ones.
+    const target = targetOrg();
+
+    const simulation = await catalogOrchestrator(target).simulate(CONFIG);
+    const result = await catalogOrchestrator(target).execute(CONFIG);
+
+    const written = result.objectResults.map((r) => [r.objectApiName, r.success, r.failed]);
+    expect(written).toEqual([
+      ['Product2', 3, 0],
+      ['Pricebook2', 1, 0],
+      ['PricebookEntry', 10, 0],
+      ['Opportunity', 3, 0],
+      ['OpportunityLineItem', 4, 0],
+    ]);
+    expect(
+      simulation.writeCheck?.objects
+        .map((o) => [o.objectApiName, o.rows])
+        .sort(([a], [b]) => String(a).localeCompare(String(b))),
+    ).toEqual([
+      ['Opportunity', 3],
+      ['OpportunityLineItem', 4],
+      ['Pricebook2', 1],
+      ['PricebookEntry', 10],
+      ['Product2', 3],
+    ]);
+    expect(simulation.writeCheck?.total).toBe(21);
+    expect(simulation.writeCheck?.notWritten).toBeUndefined();
+  });
+
+  it('reads the price books and the prices once, the run taking what its gate read', async () => {
+    // The gate read the price books and every price, with every field, to
+    // count what the run matches rather than writes; the run, and the dry
+    // run, then read them again.
+    const simulated: string[] = [];
+    const ran: string[] = [];
+
+    await catalogOrchestrator(targetOrg(), DESCRIBED, simulated).simulate(CONFIG);
+    const result = await catalogOrchestrator(targetOrg(), DESCRIBED, ran).execute(CONFIG);
+
+    const once = ['Pricebook2', 'PricebookEntry', 'Product2', 'Opportunity', 'OpportunityLineItem'];
+    expect(simulated).toEqual(once);
+    expect(ran).toEqual(once);
+    // And writes what it wrote when it read them twice.
+    expect(result.objectResults.map((r) => [r.objectApiName, r.success, r.failed])).toEqual([
+      ['Product2', 3, 0],
+      ['Pricebook2', 1, 0],
+      ['PricebookEntry', 10, 0],
+      ['Opportunity', 3, 0],
+      ['OpportunityLineItem', 4, 0],
+    ]);
+  });
+
+  describe('its products upserted on Description too', () => {
+    /*
+     * Replayed from the same dry run, the products upserted on Description
+     * as well: the target matches no upsert on it, so the run leaves the
+     * products out with the books. Its check named one lookup per object,
+     * that of the first row it held back: 13 prices held back by
+     * Pricebook2Id, where its simulation held 9 back by Product2Id (the
+     * standard book is matched) and 4 by Pricebook2Id, and the 4 lines by
+     * OpportunityId, where it held one back by PricebookEntryId.
+     */
+    const PRODUCTS_ON_DESCRIPTION: SyncConfig = {
+      ...BOOKS_ON_DESCRIPTION,
+      objects: BOOKS_ON_DESCRIPTION.objects.map((o) =>
+        o.objectApiName === 'Product2'
+          ? { ...o, operation: 'upsert' as const, externalIdField: 'Description' }
+          : o,
+      ),
+    };
+    // As the target's describe of Product2 reads: Description is a textarea,
+    // neither an External ID nor an idLookup field.
+    const PRODUCT_KEYS: Record<string, TargetWriteFields> = {
+      ...DESCRIBED,
+      Product2: targetWriteFieldsOf({
+        name: 'Product2',
+        createable: true,
+        updateable: true,
+        fields: [
+          { name: 'Id', type: 'id', createable: false, idLookup: true, externalId: false },
+          { ...field('Name'), idLookup: false, externalId: false },
+          { ...field('Description', 'textarea'), idLookup: false, externalId: false },
+        ],
+      }),
+    };
+
+    it('names at its dry run’s check each lookup that holds rows back, with its rows', async () => {
+      const simulation = await catalogOrchestrator(targetOrg(), PRODUCT_KEYS).simulate(
+        PRODUCTS_ON_DESCRIPTION,
+      );
+
+      expect(simulation.error).toBeUndefined();
+      const held = simulation.writeCheck?.heldBack ?? [];
+      expect(held.map((h) => [h.objectApiName, h.rows, h.parents])).toEqual([
+        [
+          'PricebookEntry',
+          13,
+          [
+            { parent: 'Product2', field: 'Product2Id', rows: 9 },
+            { parent: 'Pricebook2', field: 'Pricebook2Id', rows: 4 },
+          ],
+        ],
+        ['Opportunity', 2, [{ parent: 'Pricebook2', field: 'Pricebook2Id', rows: 2 }]],
+        [
+          'OpportunityLineItem',
+          4,
+          [
+            { parent: 'Opportunity', field: 'OpportunityId', rows: 3 },
+            { parent: 'PricebookEntry', field: 'PricebookEntryId', rows: 1 },
+          ],
+        ],
+      ]);
+      // As the simulation holds them back.
+      const prices = simulation.objects.find((o) => o.objectApiName === 'PricebookEntry');
+      expect(prices?.notes.join(' ')).toContain(
+        'PARENT_REFUSED: 9 PricebookEntry records held back, not sent: the Product2 record ' +
+          'their Product2Id names was refused in this run',
+      );
+      expect(prices?.notes.join(' ')).toContain(
+        'PARENT_REFUSED: 4 PricebookEntry records held back, not sent: the Pricebook2 record ' +
+          'their Pricebook2Id names was refused in this run',
+      );
+    });
+
+    it('names at its refusal each lookup that holds rows back, with its rows', async () => {
+      const refused = await catalogOrchestrator(targetOrg(), PRODUCT_KEYS)
+        .execute(PRODUCTS_ON_DESCRIPTION)
+        .then(
+          () => undefined,
+          (err: unknown) => err,
+        );
+
+      expect(refused).toBeInstanceOf(SyncRunRefused);
+      expect((refused as SyncRunRefused).message).toContain(
+        'Left out, they hold back 9 PricebookEntry records, whose Product2Id names a Product2 ' +
+          'record left out; 4 PricebookEntry records, whose Pricebook2Id names a Pricebook2 ' +
+          'record left out; 2 Opportunity records, whose Pricebook2Id names a Pricebook2 record ' +
+          'left out; 3 OpportunityLineItem records, whose OpportunityId names an Opportunity ' +
+          'record held back; 1 OpportunityLineItem record, whose PricebookEntryId names a ' +
+          'PricebookEntry record held back.',
+      );
+    });
+  });
+
+  it('names at its refusal the one price book it refuses, the standard one being matched', async () => {
+    const simulation = await catalogOrchestrator(targetOrg()).simulate(BOOKS_ON_DESCRIPTION);
+
+    expect(simulation.writeCheck?.unwritable).toEqual([
+      { key: 'Description', objectApiName: 'Pricebook2', rows: 1, why: 'notAKey' },
+    ]);
+    // The refusal a real run meets, in the words the command line prints.
+    const refused = await catalogOrchestrator(targetOrg())
+      .execute(BOOKS_ON_DESCRIPTION)
+      .then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+    expect(refused).toBeInstanceOf(SyncRunRefused);
+    expect((refused as SyncRunRefused).code).toBe('SYNC_TARGET_UNWRITABLE');
+    expect((refused as SyncRunRefused).message).toContain(
+      'TARGET would take no record of one object the sync writes — Pricebook2 (1 record): ' +
+        'its upsert matches on Description',
+    );
   });
 });

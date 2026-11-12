@@ -69,6 +69,10 @@ const edgeTypes = { relationEdge: RelationEdge };
  * which takes a `var()`. A `fill-*` class did not reach the node: Tailwind's
  * utilities sit in a cascade layer, and React Flow's own unlayered rule for a
  * minimap node wins over any of them.
+ *
+ * A skipped node is hollow, as its card and the legend draw it. Filled in
+ * the muted grey, it stood 1.46:1 from a waiting node's on the fallbacks, in
+ * a minimap that draws no word to tell them apart.
  */
 const MINIMAP_NODE_FILLS: Record<string, string> = {
   pending: 'var(--color-text-secondary)',
@@ -78,8 +82,21 @@ const MINIMAP_NODE_FILLS: Record<string, string> = {
   loading: 'var(--color-hue-green)',
   completed: 'var(--color-status-success)',
   failed: 'var(--color-status-error)',
-  skipped: 'var(--color-text-muted)',
+  skipped: 'none',
 };
+
+/**
+ * The outline of a skipped node on the minimap, dashed by the stylesheet
+ * (`.autopilot-minimap-skipped`, styles/globals.css). In the secondary grey
+ * rather than the muted one its card's border takes: the outline is all the
+ * minimap draws of it, and the muted grey came under 3:1 against the
+ * minimap on Light 2026, Light Modern and Dark 2026.
+ */
+const MINIMAP_SKIPPED_OUTLINE = 'var(--color-text-secondary)';
+
+/** The status of a node the minimap draws: pending when it carries none. */
+const minimapStatus = (node: Node): string =>
+  (node.data as ObjectNodeData | undefined)?.status ?? 'pending';
 
 /**
  * Convert an AutopilotNode from the store into a ReactFlow Node.
@@ -281,10 +298,15 @@ export const AutopilotGraph: React.FC = () => {
             // Its background and the mask over what is out of view are the
             // theme's, set on React Flow's own variables in styles/globals.css.
             <MiniMap
-              nodeColor={(node) => {
-                const status = (node.data as ObjectNodeData | undefined)?.status ?? 'pending';
-                return MINIMAP_NODE_FILLS[status] ?? MINIMAP_NODE_FILLS.pending;
-              }}
+              nodeColor={(node) =>
+                MINIMAP_NODE_FILLS[minimapStatus(node)] ?? MINIMAP_NODE_FILLS.pending
+              }
+              nodeStrokeColor={(node) =>
+                minimapStatus(node) === 'skipped' ? MINIMAP_SKIPPED_OUTLINE : 'transparent'
+              }
+              nodeClassName={(node) =>
+                minimapStatus(node) === 'skipped' ? 'autopilot-minimap-skipped' : ''
+              }
               style={{ height: MINIMAP_HEIGHT }}
             />
           )}

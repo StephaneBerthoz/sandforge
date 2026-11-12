@@ -52,7 +52,19 @@ import {
 import { BulkApiExecutor, type BulkApiConnection } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { trackedBulkConnection } from '../../core/engine/trackedBulkConnection.js';
-import { withArticleRemoval } from '../seed/articleRemoval.js';
+import {
+  OTHER_VERSIONS_KEPT,
+  isArticleVersionObject,
+  versionsKeptOf,
+  withArticleRemoval,
+} from '../seed/articleRemoval.js';
+import {
+  QUOTE_OBJECT,
+  quoteSyncCopiesOf,
+  quoteSyncCopyObjectsOf,
+  type PlatformCopies,
+} from './quoteSyncCopies.js';
+import { MADE_WITHIN_MS, TIE_LEAD_MS } from './sweepTies.js';
 
 /** Reasons kept per object: an org repeats the same few. */
 const REASON_LIMIT = 5;
@@ -96,11 +108,17 @@ const DEPENDENTS_READ_LIMIT = 2_000;
 
 /**
  * The dates a read of dependents asks for, tried in turn, with who created
- * the record where the object keeps both dates: an object that has neither
- * `CreatedDate` nor `LastModifiedDate` may still keep a system stamp, and one
- * that keeps none is read without dates.
+ * the record and who last modified it where the object keeps both dates: an
+ * object that has neither `CreatedDate` nor `LastModifiedDate` may still keep
+ * a system stamp, and one that keeps none is read without dates. Who last
+ * modified a record tells a change since the run from what a removal of it
+ * made the org write (`DependentsCheck.stays`). A feed item keeps who created
+ * it and not who last modified it: read with its system stamp alone, the
+ * tracked change a removal's delete of line items made the org write passed
+ * for one added since the run, and kept the opportunity and its account.
  */
 const DEPENDENT_DATE_COLUMNS: readonly (readonly string[])[] = [
+  ['CreatedDate', 'LastModifiedDate', 'CreatedById', 'LastModifiedById'],
   ['CreatedDate', 'LastModifiedDate', 'CreatedById'],
   ['SystemModstamp'],
   [],
@@ -250,6 +268,15 @@ class PlaceDates {
 
   at(place: number): number {
     return place < this.dates.length ? this.dates[place] : Number.NaN;
+  }
+
+  /** The latest of the dates from `from` to `to`, both included; NaN when none is. */
+  latestWithin(from: number, to: number): number {
+    let latest = Number.NaN;
+    for (const date of this.dates) {
+      if (date >= from && date <= to && !(date <= latest)) latest = date;
+    }
+    return latest;
   }
 }
 
@@ -508,6 +535,22 @@ export interface RunRemovalOptions {
    */
   runRecordedAt?: Date;
   /**
+   * For a run dated by `runRecordedAt` alone: end it with its last write as
+   * the org dated it — the latest `CreatedDate` or `LastModifiedDate` of its
+   * records, as the removal reads them, that falls within the run as this
+   * machine's clock dates it, and the rest of that second — rather than
+   * {@link CLOCK_LEEWAY_MS} after it was recorded. The leeway stands where
+   * the org gave no such date: no record left, none written within it.
+   *
+   * A part of a clone cut and taken up is dated by its journal, on the
+   * machine's clock. Live, a contact role the run's user made by hand under
+   * the cut part's opportunity, eight seconds after that part ended, fell
+   * within that leeway: removed by the journal, it was read as the run's and
+   * went with the opportunity, unsaid. What the part's second pass wrote to its own
+   * records is within it still: a lookup filled in, a status given back.
+   */
+  endedByItsWrites?: boolean;
+  /**
    * What earlier removals of the run wrote to records they left in the org,
    * by record id: the `LastModifiedDate` the org left on each. A record last
    * modified no later than that was not changed since the run.
@@ -557,6 +600,15 @@ export interface RunRemovalOptions {
    */
   automationMade?: ReadonlySet<string>;
   /**
+   * The user the run wrote as, by Salesforce id, as the run kept it
+   * (`ForgeExecutionResult.runUserId`): what the target's automation made
+   * under the run's records was created as that user, and the platform's
+   * copies of a synced quote's lines too. Absent — a run recorded before it
+   * was kept — the creator of the run's own record each is tied to stands
+   * for it.
+   */
+  runUserId?: string;
+  /**
    * Asked before the removal's first write, when the user it runs as may not
    * delete the records of some objects of the run, as their describes say:
    * whether to remove the rest, leaving those, or to stop with nothing
@@ -565,6 +617,16 @@ export interface RunRemovalOptions {
    * nothing, a removal deleted the children, then had every parent refused.
    */
   onUndeletable?: (objects: readonly UndeletableObject[]) => Promise<boolean>;
+  /**
+   * Called once, right before the removal's first write — its sweep's
+   * included —, once `onUndeletable` has been answered and all it reads first
+   * is read: where a removal that mutes the target's automation takes its
+   * lease. A person answering the question then holds no permission set
+   * assigned; taken before it, the sets stayed assigned, renewed, for as long
+   * as the question stayed open, and for nothing once it was answered no. Not
+   * called by a preview, nor by a removal that stops before it writes.
+   */
+  beforeFirstWrite?: () => Promise<void>;
   /**
    * Stops the removal before its next call to the org, but for the calls that
    * give a status it changed for a delete back to the records it leaves, and
@@ -582,6 +644,20 @@ export interface RunRemovalOptions {
    */
   otherParts?: readonly RunPartAlongside[];
   /**
+   * Records of the run's other parts that `otherParts` does not hand over:
+   * those the same removal takes part by part, before or after this one —
+   * the parts of a journal removed whole, or what earlier removals of the
+   * run's other parts left. As theirs, one under a record of the plan is the
+   * run's own, never what the target's automation made for the run.
+   */
+  otherPartRecords?: readonly ForgeRunObjectRecords[];
+  /**
+   * The run's parts after the one removed, each with what it wrote beyond its
+   * own records: see {@link RunLaterPart}. Absent, the plan's records are read
+   * against the run's own end alone.
+   */
+  laterParts?: readonly RunLaterPart[];
+  /**
    * Whether a record outside the plan, read hanging from one of its records
    * through a relationship the org deletes along, goes with that record
    * whatever its dates: read with them, against `runEnd`, the run's end on
@@ -592,6 +668,14 @@ export interface RunRemovalOptions {
    */
   goesWithParent?: (row: Readonly<Record<string, unknown>>, runEnd: number) => boolean;
   /**
+   * Records outside the plan that go with a parent of the plan and are set to
+   * Draft with its own, before any delete: an order past Draft keeps the
+   * account it hangs from from being deleted, which then refuses it whatever
+   * goes with it (a rewind of a clone, live). What the removal leaves of them
+   * gets its status back as its own do.
+   */
+  alongToDraft?: RunRecords;
+  /**
    * Read the run's records as the removal reads them before its first write —
    * what is still in the org, in its recycle bin or nowhere, what changed
    * since the run and who changed it, which objects the user may not delete —
@@ -599,9 +683,23 @@ export interface RunRemovalOptions {
    * (`RunRemovalOutcome.preview`). The sweep is not made and `onUndeletable`
    * is not asked. What hangs from the records, which a real removal reads at
    * each object's turn, record by record, is not read: a record kept for
-   * records that stay is counted with those it would delete.
+   * records that stay is counted with those it would delete — unless
+   * `previewHeld` asks for it.
    */
   previewOnly?: boolean;
+  /**
+   * With `previewOnly`: read too what hangs from the records it would send,
+   * as a real removal reads it at each object's turn, children first — a
+   * record of the run kept for one that stays then stays itself, and holds
+   * its parents — and count apart the records it would keep for them
+   * (`RemovalPreviewObject.keptDependents`). Not read: the rows a record past
+   * Draft locks under it, which a real removal sets back to Draft first.
+   *
+   * A Frozen reload's purge deleted the records of the loads it replaced
+   * without reading what hung from them: a contact made by hand under one of
+   * their accounts went with the account, unsaid, the reload a success.
+   */
+  previewHeld?: boolean;
   /**
    * The sizes its deletes go at, per object, shared with whoever handed them:
    * a caller that removes in several passes keeps what a limit taught one for
@@ -621,15 +719,25 @@ export interface RunRemovalOptions {
    * in calls half as large what the org refused: {@link RUN_SPLIT_CALLS}
    * unless the caller's budget allows fewer, and 500 per object whatever it
    * allows. Past it, the records stay refused as the org refused them.
+   * Read only without `allowance`.
    */
   splitAllowance?: number;
+  /**
+   * The smaller calls the removal may make, shared with whoever handed them:
+   * a caller that removes a run's parts one removal each spends one bound,
+   * 500 per object and what the first part's sweep took among it, rather than
+   * a fresh one per part. Absent, the removal grants its own, of
+   * `splitAllowance`.
+   */
+  allowance?: SplitAllowance;
 }
 
 /**
  * What a removal would do with one object's records, read before its first
  * write (`RunRemovalOptions.previewOnly`). Every record of the object is
  * counted once: `toDelete`, `alreadyGone`, `keptChanged`, `undeletable`,
- * `notVisible` and `unread` add up to `planned`.
+ * `notVisible`, `unread` and, when it was read, `keptDependents` add up to
+ * `planned`.
  */
 export interface RemovalPreviewObject {
   objectApiName: string;
@@ -649,7 +757,11 @@ export interface RemovalPreviewObject {
    * the parent goes too: no read tells either from one that would come back.
    */
   alreadyGone: number;
-  /** In the org and modified since the run ended, by the org's clock, by anyone. */
+  /**
+   * In the org and modified since the run ended, by the org's clock, by
+   * anyone; or an article version whose article holds a version the run did
+   * not write, which deleting the article would take with it.
+   */
   changedSince: number;
   /** Of those, the ones the removal keeps: all of them, unless changed records are included. */
   keptChanged: number;
@@ -664,6 +776,28 @@ export interface RemovalPreviewObject {
   notVisible: number;
   /** Of an object the removal could not read at all: none of them would be sent. */
   unread: number;
+  /**
+   * Of `planned`, the records the platform copied as the run wrote — the
+   * lines of a quote the run synced — that the run's id map does not hold
+   * (`ForgeUndoObjectResult.platformCopies`). Absent when none.
+   */
+  platformCopies?: number;
+  /**
+   * Read when the preview was asked what hangs from the records
+   * (`RunRemovalOptions.previewHeld`): of the records it would send, those a
+   * record staying in the org hangs from, which a removal keeps
+   * (`ForgeUndoObjectResult.keptDependents`), counted here and no longer in
+   * `toDelete`. Absent otherwise.
+   */
+  keptDependents?: number;
+  /** The objects of the records that hold them, by API name, as a removal names them. */
+  heldBy?: string[];
+  /**
+   * Of `keptDependents`, those held by nothing but records the target's
+   * automation likely made for the run, which a sweep takes first
+   * (`ForgeUndoObjectResult.heldByAutomation`). Absent when none.
+   */
+  heldByAutomation?: number;
   /** Why records stay, or could not be told, in the org's words where it gave them. */
   reasons: string[];
 }
@@ -694,9 +828,94 @@ export interface RunPartAlongside {
   /** Its records left in the org, children before their parents. */
   plan: readonly ForgeRunObjectRecords[] | RunRecords;
   /** Its span, as {@link RunRemovalOptions} takes a run's. */
-  span: Pick<RunRemovalOptions, 'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt'>;
+  span: Pick<
+    RunRemovalOptions,
+    'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt' | 'endedByItsWrites'
+  >;
   /** What its earlier removals stamped: see {@link RunRemovalOptions.removalStamps}. */
   removalStamps?: Readonly<Record<string, string>>;
+  /** The run's parts after it: see {@link RunRemovalOptions.laterParts}. */
+  laterParts?: readonly RunLaterPart[];
+}
+
+/**
+ * A later part of the run — the part a resume took the run up with — as a
+ * removal of an earlier part reads what it wrote beyond the records it
+ * created: the lookups the earlier part's records owed, filled in, a status
+ * given back (`wrote`), and the records it linked to (`linked`).
+ *
+ * Cut right after its opportunity and taken up, a clone was removed part by
+ * part, live: the resume had filled in the opportunity's synced quote, and
+ * given the contact role the platform wrote with it the source's fields. The
+ * cut part's removal, read against its own end, kept the opportunity as
+ * changed since the run, and the contact for a role it took for the target's
+ * automation's. What the run wrote is no change since it, and a record it
+ * linked to that the org made as the run wrote goes with the record it hangs
+ * from: last modified no later than the end of the part that wrote it, as
+ * that part's own records are read. Changed after it, by anyone, it stays.
+ */
+export interface RunLaterPart {
+  /**
+   * Its span, as {@link RunRemovalOptions} takes a run's. Dated by this
+   * machine's clock alone, it ends {@link CLOCK_LEEWAY_MS} after the part was
+   * recorded, whatever `endedByItsWrites` says: the only date the org gave
+   * what it wrote to an earlier part's record, or to one it linked to, is
+   * that record's own, which is what is read against this end.
+   */
+  span: Pick<RunRemovalOptions, 'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt'>;
+  /** Records of earlier parts it wrote to, by id. */
+  wrote?: readonly string[];
+  /**
+   * Records it linked to, by id: one created once the run began, which hangs
+   * from a record of the plan, goes with it.
+   */
+  linked?: readonly string[];
+}
+
+/**
+ * The span of the latest of `parts` that names each record in `which`, by
+ * record key, on the org's clock: a part whose end cannot be read on it
+ * names none.
+ */
+function laterSpansOf(
+  parts: readonly RunLaterPart[] | undefined,
+  which: 'wrote' | 'linked',
+  orgAheadMs: number,
+): Map<string, { start: number; end: number }> {
+  const spans = new Map<string, { start: number; end: number }>();
+  for (const part of parts ?? []) {
+    const span = runSpan(part.span, [], orgAheadMs);
+    if (!Number.isFinite(span.end)) continue;
+    for (const id of part[which] ?? []) {
+      const key = recordKey(id);
+      if (!(span.end <= (spans.get(key)?.end ?? Number.NEGATIVE_INFINITY))) spans.set(key, span);
+    }
+  }
+  return spans;
+}
+
+/**
+ * The keys of the records of `parts` and of `more`, as one: see
+ * {@link DependentsContext.otherPartRecords}.
+ */
+function otherPartRecordsOf(
+  parts: readonly RunPartAlongside[] = [],
+  more: readonly ForgeRunObjectRecords[] = [],
+): RecordKeys | undefined {
+  if (parts.length === 0 && more.length === 0) return undefined;
+  const records = [
+    ...parts.map(({ plan }) => (isRunRecords(plan) ? plan : runRecordsOf(plan))),
+    runRecordsOf(more),
+  ];
+  return { has: (key) => records.some((part) => part.has(key)) };
+}
+
+/** {@link laterSpansOf}, each record's end alone. */
+function laterEndsOf(
+  parts: readonly RunLaterPart[] | undefined,
+  orgAheadMs: number,
+): Map<string, number> {
+  return new Map([...laterSpansOf(parts, 'wrote', orgAheadMs)].map(([key, { end }]) => [key, end]));
 }
 
 /** An object of a run whose records the user a removal runs as may not delete, and how many it holds. */
@@ -738,10 +957,12 @@ function notVisibleNoteOf(count: number, binError: string | undefined): string {
  * to, which only the next removal's plan named.
  *
  * @param plan - The objects the removal set out to take, in its order.
+ * @param copiesOf - How many of an object's records are the platform's copies.
  */
 function withNotReached(
   objects: ForgeUndoObjectResult[],
   plan: ReadonlyArray<{ readonly objectApiName: string; readonly count: number }>,
+  copiesOf: (objectApiName: string) => number,
 ): ForgeUndoObjectResult[] {
   for (const object of objects) {
     const settled =
@@ -757,7 +978,10 @@ function withNotReached(
   for (const { objectApiName, count } of plan) {
     if (count === 0 || named.has(objectApiName)) continue;
     named.add(objectApiName);
-    objects.push({ ...new ObjectRemoval(objectApiName, count).result, notReached: count });
+    objects.push({
+      ...new ObjectRemoval(objectApiName, count, copiesOf(objectApiName)).result,
+      notReached: count,
+    });
   }
   return objects;
 }
@@ -838,6 +1062,15 @@ export interface RunRemovalOutcome {
   sizes?: () => Record<string, number>;
 }
 
+/** What a removal that took none of the run's records hands on: a sweep alone. */
+export const NOTHING_REMOVED: RunRemovalOutcome = {
+  objects: [],
+  cancelled: false,
+  gone: [],
+  stamps: {},
+  left: async function* () {},
+};
+
 /** One row of a delete's answer, or an update's. */
 const writeResultSchema = z
   .object({
@@ -870,6 +1103,20 @@ function recordKey(id: string): string {
 function isMissingColumn(err: unknown): boolean {
   const code = (err as { errorCode?: unknown } | null)?.errorCode;
   return code === 'INVALID_FIELD' || /no such column/i.test(extractErrorMessage(err));
+}
+
+/**
+ * The first of {@link DEPENDENT_DATE_COLUMNS} after `tried` that does not ask
+ * for the column the org said the object lacks: a file's link keeps no
+ * `CreatedDate`, and is not asked it twice. The next one when the org named
+ * none.
+ */
+function datesWithout(err: unknown, tried: number): number {
+  const missing = /no such column '(\w+)'/i.exec(extractErrorMessage(err))?.[1];
+  const next = DEPENDENT_DATE_COLUMNS.findIndex(
+    (dates, at) => at > tried && (missing === undefined || !dates.includes(missing)),
+  );
+  return next === -1 ? DEPENDENT_DATE_COLUMNS.length : next;
 }
 
 /** A date the org wrote, in epoch milliseconds; NaN when there is none to read. */
@@ -907,6 +1154,8 @@ interface ObjectSnapshot {
   modifiedColumn?: string;
   /** The earliest `CreatedDate` among them; NaN when none could be read. */
   firstCreated: number;
+  /** The latest `CreatedDate` among them; NaN when none could be read. */
+  lastCreated: number;
   /** Why the object could not be read, when it could not. */
   error?: string;
   /**
@@ -925,6 +1174,7 @@ function emptySnapshot(): ObjectSnapshot {
     modified: new PlaceDates(),
     missing: new Set(),
     firstCreated: Number.NaN,
+    lastCreated: Number.NaN,
     binned: new Set(),
   };
 }
@@ -991,6 +1241,23 @@ class ObjectRemoval {
    */
   readonly filesLeft = new Map<string, string>();
   /**
+   * Of the records held, by their key, those held by nothing but records the
+   * target's automation likely made for the run, with those records' objects:
+   * what a sweep takes first. Read against `held` as the object settles.
+   */
+  readonly automationHeld = new Map<string, ReadonlySet<string>>();
+  /**
+   * Of `automationHeld`, by key, those one of whose holders was created after
+   * the run's last write: see {@link ForgeUndoObjectResult.heldByAutomationAfterRun}.
+   */
+  readonly automationHeldAfter = new Set<string>();
+  /**
+   * The records not the run's that the org took along with the ones deleted,
+   * as the request included what was added or changed since the run: each by
+   * its key, with its object. See {@link ForgeUndoObjectResult.tookAlong}.
+   */
+  readonly tookAlong = new Map<string, string>();
+  /**
    * What is said of the calls a limit of the target's automation had sent
    * smaller, once the object's turn is over: placed before the org's refusals.
    */
@@ -998,7 +1265,11 @@ class ObjectRemoval {
   /** Records refused for a limit though sent on their own: the automation's doing, whatever the size. */
   alone = 0;
 
-  constructor(objectApiName: string, planned: number) {
+  /**
+   * @param copies - Of `planned`, the records the platform copied as the run
+   *   wrote ({@link ForgeUndoObjectResult.platformCopies}).
+   */
+  constructor(objectApiName: string, planned: number, copies = 0) {
     this.result = {
       objectApiName,
       planned,
@@ -1008,6 +1279,7 @@ class ObjectRemoval {
       keptDependents: 0,
       refused: 0,
       heldBy: [],
+      ...(copies > 0 ? { platformCopies: copies } : {}),
       unchecked: [],
       reasons: [],
     };
@@ -1089,6 +1361,24 @@ class ObjectRemoval {
     this.result.refused = this.refused.size + (this.unread?.count ?? 0);
     if (this.notVisible > 0) this.result.notVisible = this.notVisible;
     if (this.held.length === 0) this.result.heldBy = [];
+    const byAutomation = this.held.flatMap((id) => {
+      const holders = this.automationHeld.get(recordKey(id));
+      return holders ? [holders] : [];
+    });
+    const after = this.held.filter((id) => {
+      const key = recordKey(id);
+      return this.automationHeld.has(key) && this.automationHeldAfter.has(key);
+    }).length;
+    if (byAutomation.length > 0) {
+      this.result.heldByAutomation = byAutomation.length;
+      if (after > 0) this.result.heldByAutomationAfterRun = after;
+      else delete this.result.heldByAutomationAfterRun;
+      this.result.automationHolders = [...new Set(byAutomation.flatMap((holders) => [...holders]))];
+    } else {
+      delete this.result.heldByAutomation;
+      delete this.result.heldByAutomationAfterRun;
+      delete this.result.automationHolders;
+    }
     const reasons = [
       ...(this.notVisibleNote ? [this.notVisibleNote] : []),
       ...this.notes,
@@ -1102,6 +1392,12 @@ class ObjectRemoval {
       this.result.filesLeft = {
         count: this.filesLeft.size,
         names: [...this.filesLeft.values()].slice(0, FILE_NAME_LIMIT),
+      };
+    }
+    if (this.tookAlong.size > 0) {
+      this.result.tookAlong = {
+        count: this.tookAlong.size,
+        objects: [...new Set(this.tookAlong.values())],
       };
     }
     return this.result;
@@ -1191,22 +1487,32 @@ export async function removeRunRecords(
   plan: readonly ForgeRunObjectRecords[] | RunRecords,
   options: RunRemovalOptions,
 ): Promise<RunRemovalOutcome> {
-  const records = isRunRecords(plan) ? plan : runRecordsOf(plan);
-  const total = records.objects.reduce((sum, object) => sum + object.count, 0);
+  /** The run's records as they were handed over: what is said gone, or left. */
+  const handed = isRunRecords(plan) ? plan : runRecordsOf(plan);
+  /**
+   * The records the removal takes: those handed over, and the platform's
+   * copies of them once they are read ({@link withCopies}).
+   */
+  let records = handed;
+  let total = records.objects.reduce((sum, object) => sum + object.count, 0);
+  /** How many of each object's records are the platform's copies. */
+  const copiesCount = new Map<string, number>();
+  const copiesOf = (objectApiName: string): number => copiesCount.get(objectApiName) ?? 0;
   const stopped = (): boolean => options.signal?.aborted === true;
   // The sizes the deletes go at and the smaller calls a limit may cost,
   // shared by every object's pages, its records gathered for a job, and the
   // second try: a size a limit taught one call holds for the rest.
   const sizes = options.callSizes ?? CallSizes.from(options.deleteSizes, 'delete');
-  const allowance = new SplitAllowance(options.splitAllowance ?? RUN_SPLIT_CALLS);
+  const allowance =
+    options.allowance ?? new SplitAllowance(options.splitAllowance ?? RUN_SPLIT_CALLS);
   const sizesKept = (): Record<string, number> => sizes.list('delete');
   /** Every record handed over, left where it is: a removal stopped before it wrote. */
   const untouched = (): RunRemovalOutcome => ({
-    objects: withNotReached([], records.objects),
+    objects: withNotReached([], records.objects, copiesOf),
     cancelled: true,
     gone: [],
     stamps: {},
-    left: () => everyRecordOf(records),
+    left: () => everyRecordOf(handed),
     sizes: sizesKept,
   });
 
@@ -1275,7 +1581,7 @@ export async function removeRunRecords(
   // A Knowledge article's version is deleted by deleting its article, which
   // its describe and its own delete both refuse: see `articleRemoval`.
   const session = withArticleRemoval(counted, { includeChanged: options.includeChanged });
-  const order = await removalOrder(session, records.objects);
+  let order = await removalOrder(session, records.objects);
   // Whether the user may delete each object's records, from the describes the
   // order read, before anything is written: a profile without Delete on
   // Account had the run's contacts deleted, then every account refused.
@@ -1304,9 +1610,36 @@ export async function removeRunRecords(
   // both by the org's clock — or after what an earlier removal of the run
   // wrote to it, which was that removal's doing.
   const { start: runStart, end: runEnd } = runSpan(options, snapshots.values(), clock.aheadMs);
+  // The lines the platform copied as the run wrote under a quote it synced,
+  // read before the first write — once the run's quote lines go, the platform
+  // deletes the line items they are paired with, and its copies lose what
+  // tells them — and taken with the run's own, at their object's turn: left,
+  // they held the quote, its opportunity, account, products and price book,
+  // and deleted by hand they had the quote's totals recalculated, read by the
+  // next removal as a change since the run. Read with the rest, before the
+  // first write, the quote they restamp is no change. A preview names them.
+  if (stopped()) return untouched();
+  const copies = await platformCopiesOf(session, records, {
+    start: runStart,
+    end: runEnd,
+    ...(options.runUserId ? { user: recordKey(options.runUserId) } : {}),
+    undeletable: undeletableNames,
+    snapshots,
+  });
+  if (copies.length > 0) {
+    records = await withCopies(records, copies, snapshots, objectOfPrefix);
+    for (const { objectApiName, copies: of } of copies) copiesCount.set(objectApiName, of.length);
+    total = records.objects.reduce((sum, object) => sum + object.count, 0);
+    // Described once already, but for an object only its copies bring: the
+    // copies go before the prices and products they point at.
+    order = await removalOrder(session, records.objects);
+  }
   const stampedBefore = new Map(
     Object.entries(options.removalStamps ?? {}).map(([id, date]) => [recordKey(id), epochOf(date)]),
   );
+  // What a later part of the run wrote to a record of this one is the run's doing.
+  const writtenLater = laterEndsOf(options.laterParts, clock.aheadMs);
+  const otherPartRecords = otherPartRecordsOf(options.otherParts, options.otherPartRecords);
   const changed = new Set<string>();
   for (const { objectApiName } of records.objects) {
     const snapshot = snapshots.get(objectApiName);
@@ -1318,7 +1651,10 @@ export async function removeRunRecords(
         const key = recordKey(id);
         if (snapshot.missing.has(key)) continue;
         // A date that cannot be read cannot show the record was left alone.
-        const unchanged = modified <= runEnd || modified <= (stampedBefore.get(key) ?? Number.NaN);
+        const unchanged =
+          modified <= runEnd ||
+          modified <= (stampedBefore.get(key) ?? Number.NaN) ||
+          modified <= (writtenLater.get(key) ?? Number.NaN);
         if (!unchanged) changed.add(key);
       }
     }
@@ -1328,12 +1664,46 @@ export async function removeRunRecords(
   // record — is read for its writes.
   if (options.previewOnly === true) {
     if (stopped()) return untouched();
+    /** The run's records the preview would not send: they stay, and hold their parents. */
+    const notSent = new Set<string>();
     const preview = await previewOf(session, records, order, {
       snapshots,
       changed,
       undeletable: undeletableNames,
       includeChanged: options.includeChanged,
       stopped,
+      copiesOf,
+      ...(options.previewHeld === true
+        ? {
+            held: {
+              notSent,
+              // As the removal's own check, but that nothing has gone yet: a
+              // record of the run stays when the preview would not send it.
+              check: new DependentsCheck(session, {
+                runRecords: records,
+                reached: { has: () => false },
+                stays: (key) => notSent.has(key),
+                runStart,
+                runEnd,
+                removalStart: clock.start,
+                removalUser: undefined,
+                earlierRemovals: (options.removalSpans ?? []).map((span) => ({
+                  start: epochOf(span.first),
+                  end: epochOf(span.last),
+                  user: recordKey(span.userId),
+                })),
+                includeChanged: options.includeChanged,
+                previewing: true,
+                ...(options.goesWithParent ? { goesWithParent: options.goesWithParent } : {}),
+                ...(options.runUserId ? { runUser: recordKey(options.runUserId) } : {}),
+                ...(options.laterParts
+                  ? { linkedLater: laterSpansOf(options.laterParts, 'linked', clock.aheadMs) }
+                  : {}),
+                ...(otherPartRecords ? { otherPartRecords } : {}),
+              }),
+            },
+          }
+        : {}),
     });
     if (!preview) return untouched();
     return {
@@ -1342,7 +1712,7 @@ export async function removeRunRecords(
       cancelled: false,
       gone: [],
       stamps: {},
-      left: () => everyRecordOf(records),
+      left: () => everyRecordOf(handed),
       preview,
       sizes: sizesKept,
     };
@@ -1379,9 +1749,17 @@ export async function removeRunRecords(
     })),
     includeChanged: options.includeChanged,
     ...(options.goesWithParent ? { goesWithParent: options.goesWithParent } : {}),
+    ...(options.alongToDraft ? { alongToDraft: options.alongToDraft } : {}),
+    ...(options.runUserId ? { runUser: recordKey(options.runUserId) } : {}),
+    ...(options.automationMade ? { automationMade: keysAsAsked(options.automationMade) } : {}),
+    ...(options.laterParts
+      ? { linkedLater: laterSpansOf(options.laterParts, 'linked', clock.aheadMs) }
+      : {}),
+    ...(otherPartRecords ? { otherPartRecords } : {}),
   });
 
   if (stopped()) return untouched();
+  await options.beforeFirstWrite?.();
   // The sweep, once what changed since the run has been read: a roll-up its
   // deletes recalculate stamps a record of the run as modified, which that
   // reading, taken before, never takes for a change. Swept first, on a
@@ -1394,18 +1772,20 @@ export async function removeRunRecords(
   const removalOf = (objectApiName: string): ObjectRemoval | undefined =>
     removals.find((removal) => removal.result.objectApiName === objectApiName);
   /**
-   * Of the records of `objects`, a page at a time, those `keep` keeps, told
-   * each record with whether the removal took it — deleted it, or found it
-   * gone.
+   * Of the records of `objects` in `source`, a page at a time, those `keep`
+   * keeps, told each record with whether the removal took it — deleted it, or
+   * found it gone. The platform's copies come after the records handed over,
+   * in each object's pages: a record has the same place in both.
    */
   async function* recordsWhere(
+    source: RunRecords,
     objects: ReadonlyArray<{ objectApiName: string }>,
     keep: (objectApiName: string, id: string, gone: boolean) => boolean,
   ): AsyncGenerator<ForgeRunObjectRecords> {
     for (const { objectApiName } of objects) {
       const removal = removalOf(objectApiName);
       let place = 0;
-      for await (const page of records.pages(objectApiName)) {
+      for await (const page of source.pages(objectApiName)) {
         const ids = page.filter((id) =>
           keep(objectApiName, id, removal?.isGone(id, place++) === true),
         );
@@ -1419,7 +1799,7 @@ export async function removeRunRecords(
    * `LastModifiedDate`, that it has not deleted or found gone since.
    */
   const leftUnchanged = (): AsyncIterable<ForgeRunObjectRecords> =>
-    recordsWhere(order, (objectApiName, id, gone) => {
+    recordsWhere(records, order, (objectApiName, id, gone) => {
       const snapshot = snapshots.get(objectApiName);
       const key = recordKey(id);
       return (
@@ -1444,7 +1824,7 @@ export async function removeRunRecords(
         if (!removal) {
           if (!failed) return;
           const planned = records.objects.find((object) => object.objectApiName === objectApiName);
-          removal = new ObjectRemoval(objectApiName, planned?.count ?? 0);
+          removal = new ObjectRemoval(objectApiName, planned?.count ?? 0, copiesOf(objectApiName));
           removals.push(removal);
         }
         removal.note(reason);
@@ -1464,9 +1844,11 @@ export async function removeRunRecords(
     const span = wrote ? removalSpanOf(clock, removalUser) : undefined;
     // Handed over in memory, the records taken are said by their ids; read a
     // page at a time, they are not gathered — what is left is read instead.
+    // The platform's copies are not the run's to keep but the removal's to
+    // find again: said neither gone nor left.
     const gone: string[] = [];
     if (!isRunRecords(plan)) {
-      for await (const { ids } of recordsWhere(order, (_object, _id, taken) => taken)) {
+      for await (const { ids } of recordsWhere(handed, order, (_object, _id, taken) => taken)) {
         for (const id of ids) gone.push(id);
       }
     }
@@ -1476,10 +1858,10 @@ export async function removeRunRecords(
     const settled = removals.map((removal) => removal.settle());
     return {
       ...(undeletable.length > 0 ? { undeletable } : {}),
-      objects: cancelled ? withNotReached(settled, order) : settled,
+      objects: cancelled ? withNotReached(settled, order, copiesOf) : settled,
       cancelled,
       gone,
-      left: () => recordsWhere(records.objects, (_object, _id, taken) => !taken),
+      left: () => recordsWhere(handed, handed.objects, (_object, _id, taken) => !taken),
       stamps,
       ...(span ? { span } : {}),
       ...(otherPartStamps.length > 0 ? { otherPartStamps } : {}),
@@ -1509,10 +1891,22 @@ export async function removeRunRecords(
   );
   drafted = drafting.drafted;
   if (drafting.cancelled) return outcome(true);
+  if (options.alongToDraft) {
+    const along = await backToDraft(
+      session,
+      dependents,
+      options.alongToDraft.objects,
+      options.alongToDraft,
+      () => true,
+      stopped,
+    );
+    drafted = [...drafted, ...along.drafted];
+    if (along.cancelled) return outcome(true);
+  }
   let settled = 0;
   for (const { objectApiName, count } of order) {
     if (stopped()) return outcome(true);
-    const removal = new ObjectRemoval(objectApiName, count);
+    const removal = new ObjectRemoval(objectApiName, count, copiesOf(objectApiName));
     removals.push(removal);
     reachedObjects.add(objectApiName);
     const snapshot = snapshots.get(objectApiName);
@@ -1666,6 +2060,16 @@ export async function removeRunRecords(
     }
   }
 
+  // The last part of a granted sweep, once every record of the run that will
+  // go has gone, its second try included: what one of them pointed at through
+  // a lookup the org restricts the delete by. Sent before, an Asset a Case of
+  // the run named was refused — DELETE_FAILED, "associated with the following
+  // cases" — and deleting the Case first, then the Asset, took both.
+  if (options.afterRemoval) {
+    if (stopped()) return outcome(true);
+    if (await options.afterRemoval()) wrote = true;
+  }
+
   for (const removal of removals) {
     if (stopped()) return outcome(true);
     await settleTakenAlong(session, removal, snapshots.get(removal.result.objectApiName));
@@ -1682,6 +2086,14 @@ interface PreviewReading {
   undeletable: ReadonlySet<string>;
   includeChanged: boolean;
   stopped: () => boolean;
+  /** How many of an object's records are the platform's copies. */
+  copiesOf: (objectApiName: string) => number;
+  /**
+   * What hangs from the records, read when asked (`RunRemovalOptions.previewHeld`):
+   * the check, and the keys of the run's records the preview would not send,
+   * which it fills as it goes.
+   */
+  held?: { check: DependentsCheck; notSent: Set<string> };
 }
 
 /**
@@ -1693,6 +2105,35 @@ interface PreviewReading {
  *
  * @returns Undefined when the removal was stopped meanwhile.
  */
+/**
+ * What a removal reads of the articles of `objectApiName`'s versions before it
+ * deletes any: the versions it would keep for their article, or why the org
+ * refused the read, which refuses every one of them in a removal. A preview
+ * that asked nothing of the articles said "6 to delete of 6", and said it
+ * again after the removal had every one refused (`articleRemoval`).
+ */
+async function articlesReadOf(
+  org: RemovalOrg,
+  records: RunRecords,
+  objectApiName: string,
+  missing: ReadonlySet<string>,
+  reading: Pick<PreviewReading, 'changed' | 'includeChanged'>,
+): Promise<{ kept: ReadonlySet<string>; unread?: string }> {
+  const { changed, includeChanged } = reading;
+  const sent: string[] = [];
+  for await (const page of records.pages(objectApiName)) {
+    for (const id of page) {
+      const key = recordKey(id);
+      if (!missing.has(key) && (includeChanged || !changed.has(key))) sent.push(id);
+    }
+  }
+  try {
+    return { kept: await versionsKeptOf(org, objectApiName, sent, { includeChanged }) };
+  } catch (err: unknown) {
+    return { kept: new Set(), unread: extractErrorMessage(err) };
+  }
+}
+
 async function previewOf(
   org: RemovalOrg,
   records: RunRecords,
@@ -1702,6 +2143,7 @@ async function previewOf(
   const objects: RemovalPreviewObject[] = [];
   const modifiers = new Set<string>();
   for (const { objectApiName, count } of order) {
+    const copies = reading.copiesOf(objectApiName);
     const object: RemovalPreviewObject = {
       objectApiName,
       planned: count,
@@ -1713,6 +2155,7 @@ async function previewOf(
       undeletable: 0,
       notVisible: 0,
       unread: 0,
+      ...(copies > 0 ? { platformCopies: copies } : {}),
       reasons: [],
     };
     objects.push(object);
@@ -1720,9 +2163,24 @@ async function previewOf(
     if (!snapshot || snapshot.error !== undefined) {
       object.unread = count;
       object.reasons.push(snapshot?.error ?? 'The org gave no reason.');
+      // Never sent, its records stay, and hold their parents.
+      if (reading.held) {
+        for await (const page of records.pages(objectApiName)) {
+          for (const id of page) reading.held.notSent.add(recordKey(id));
+        }
+      }
       continue;
     }
+    const articles =
+      isArticleVersionObject(objectApiName) && !reading.undeletable.has(objectApiName)
+        ? await articlesReadOf(org, records, objectApiName, snapshot.missing, reading)
+        : undefined;
     const changedIds: string[] = [];
+    /** The records it would send, read for what hangs from them when asked. */
+    const sent: string[] = [];
+    const notSent = (key: string): void => {
+      reading.held?.notSent.add(key);
+    };
     for await (const page of records.pages(objectApiName)) {
       for (const id of page) {
         const key = recordKey(id);
@@ -1731,15 +2189,54 @@ async function previewOf(
           else object.notVisible++;
         } else if (reading.undeletable.has(objectApiName)) {
           object.undeletable++;
+          notSent(key);
+        } else if (articles?.unread !== undefined) {
+          object.unread++;
+          notSent(key);
         } else if (reading.changed.has(key)) {
           object.changedSince++;
           changedIds.push(id);
-          if (reading.includeChanged) object.toDelete++;
-          else object.keptChanged++;
+          if (reading.includeChanged) {
+            object.toDelete++;
+            sent.push(id);
+          } else {
+            object.keptChanged++;
+            notSent(key);
+          }
+        } else if (articles?.kept.has(key)) {
+          object.changedSince++;
+          object.keptChanged++;
+          notSent(key);
         } else {
           object.toDelete++;
+          sent.push(id);
         }
       }
+    }
+    if (reading.held && sent.length > 0) {
+      if (reading.stopped()) return undefined;
+      const verdict = await reading.held.check.heldAmong(objectApiName, sent);
+      const kept = sent.filter((id) => verdict.held.has(recordKey(id)));
+      if (kept.length > 0) {
+        object.toDelete -= kept.length;
+        object.keptDependents = kept.length;
+        object.heldBy = [...verdict.holders];
+        for (const id of kept) reading.held.notSent.add(recordKey(id));
+        const byAutomation = kept.filter((id) => verdict.byAutomation.has(recordKey(id)));
+        if (byAutomation.length > 0) object.heldByAutomation = byAutomation.length;
+      }
+      if (verdict.reason !== undefined) object.reasons.push(verdict.reason);
+      if (verdict.unchecked.size > 0) {
+        object.reasons.push(
+          `Not checked: what hangs from them through ${[...verdict.unchecked].join(', ')}, ` +
+            'which the org deletes along but does not let be read by the record it hangs from.',
+        );
+      }
+    }
+    if (articles?.unread !== undefined) {
+      object.reasons.push(`Its articles could not be read: ${articles.unread}`);
+    } else if (articles !== undefined && articles.kept.size > 0) {
+      object.reasons.push(OTHER_VERSIONS_KEPT);
     }
     if (object.notVisible > 0) {
       object.reasons.push(notVisibleNoteOf(object.notVisible, snapshot.binError));
@@ -1952,6 +2449,19 @@ interface Drafted {
   draft: string;
   /** The status it had, and gets back if it stays in the org. */
   status: string;
+}
+
+/**
+ * The objects whose records a removal of a run's `objects` deletes: those,
+ * then the objects outside them the platform's copies of the run's lines are
+ * on, which it takes with the run's own ({@link quoteSyncCopyObjectsOf}). What
+ * the target runs as records go is read on these, the question asked and the
+ * mute planned from it: read on the run's objects alone, a clone without
+ * quote lines in its plan had its removal delete the copies the platform made
+ * of its line items, the flow on quote lines never read.
+ */
+export function objectsRemovedOf(objects: readonly string[]): string[] {
+  return [...new Set([...objects, ...quoteSyncCopyObjectsOf(objects)])];
 }
 
 /**
@@ -2244,10 +2754,14 @@ async function unchangedOfOtherParts(
   const read: PartUnchanged[] = [];
   for (const part of parts) {
     const records = isRunRecords(part.plan) ? part.plan : runRecordsOf(part.plan);
+    // Read without its records' dates, a part asked to end with its last
+    // write ends with its leeway: its own records read the same either way,
+    // the dates that would end it being theirs.
     const { end } = runSpan(part.span, [], orgAheadMs);
     const stamped = new Map(
       Object.entries(part.removalStamps ?? {}).map(([id, date]) => [recordKey(id), epochOf(date)]),
     );
+    const writtenLater = laterEndsOf(part.laterParts, orgAheadMs);
     const marks = new Map<string, PlaceMarks>();
     if (Number.isFinite(end)) {
       for (const { objectApiName } of records.objects) {
@@ -2282,7 +2796,11 @@ async function unchangedOfOtherParts(
             const key = recordKey(id);
             const modified = modifiedOf.get(key);
             if (modified === undefined) return;
-            if (modified <= end || modified <= (stamped.get(key) ?? Number.NaN)) {
+            if (
+              modified <= end ||
+              modified <= (stamped.get(key) ?? Number.NaN) ||
+              modified <= (writtenLater.get(key) ?? Number.NaN)
+            ) {
               unchanged.add(place + offset);
             }
           });
@@ -2553,6 +3071,16 @@ async function removeCandidates(
     removal.result.heldBy = [...verdict.holders];
   }
   for (const id of heldNow) removal.refused.delete(id);
+  // Which of them nothing but what the automation likely made holds, settled
+  // afresh for every candidate.
+  for (const id of candidates) {
+    const key = recordKey(id);
+    const holders = verdict.byAutomation.get(key);
+    if (holders) removal.automationHeld.set(key, holders);
+    else removal.automationHeld.delete(key);
+    if (holders && verdict.automationAfter.has(key)) removal.automationHeldAfter.add(key);
+    else removal.automationHeldAfter.delete(key);
+  }
   hooks.onHeld?.(heldNow.length);
 
   const toDelete = candidates.filter((id) => !verdict.held.has(recordKey(id)));
@@ -2593,7 +3121,10 @@ async function removeCandidates(
     }
     const requeued = sendAgainSmaller(batch, answer, byJob, { key, sizes, allowance, files });
     queue.unshift(...requeued.calls);
-    settleOutcomes(removal, hooks, batch, answer, requeued.indices, files);
+    settleOutcomes(removal, hooks, batch, answer, requeued.indices, {
+      files,
+      along: verdict.along,
+    });
     if (next.reduced) sizes.countSmallCallRows(key, batch.length - requeued.indices.size);
   }
   return false;
@@ -2659,7 +3190,9 @@ function sendAgainSmaller(
  * those sent again smaller (`requeued`), counted once their own call is
  * answered: deleted, already gone, or refused with the org's reason — for
  * good when it was a limit's, the record sent on its own or kept from smaller
- * calls by the allowance.
+ * calls by the allowance. A record deleted names the files left that hung
+ * from it (`read.files`) and what the org took along with it that was not
+ * the run's (`read.along`).
  */
 function settleOutcomes(
   removal: ObjectRemoval,
@@ -2667,7 +3200,10 @@ function settleOutcomes(
   batch: readonly string[],
   outcomes: readonly DeleteOutcome[],
   requeued: ReadonlySet<number>,
-  files: ReadonlyMap<string, readonly AttachedFile[]>,
+  read: {
+    files: ReadonlyMap<string, readonly AttachedFile[]>;
+    along: ReadonlyMap<string, ReadonlyMap<string, string>>;
+  },
 ): void {
   const settled: string[] = [];
   batch.forEach((id, index) => {
@@ -2692,8 +3228,11 @@ function settleOutcomes(
     if (result.kind === 'deleted') {
       removal.result.deleted++;
       if (place === undefined) removal.deletedLater.add(key);
-      for (const file of files.get(key) ?? []) {
+      for (const file of read.files.get(key) ?? []) {
         removal.filesLeft.set(file.key, file.name);
+      }
+      for (const [taken, object] of read.along.get(key) ?? []) {
+        removal.tookAlong.set(taken, object);
       }
     } else removal.result.alreadyGone++;
   });
@@ -2779,7 +3318,10 @@ async function readSnapshotPage(
       const dates = new Map<string, number>();
       for (const row of rows) {
         if (typeof row.Id === 'string') dates.set(recordKey(row.Id), epochOf(row[modified]));
-        if (created) snapshot.firstCreated = earliest(snapshot.firstCreated, epochOf(row[created]));
+        if (created) {
+          snapshot.firstCreated = earliest(snapshot.firstCreated, epochOf(row[created]));
+          snapshot.lastCreated = latest(snapshot.lastCreated, epochOf(row[created]));
+        }
       }
       snapshot.modifiedColumn = modified;
       const missing: string[] = [];
@@ -2809,6 +3351,116 @@ async function* everyRecordOf(records: RunRecords): AsyncGenerator<ForgeRunObjec
       if (ids.length > 0) yield { objectApiName, ids: [...ids] };
     }
   }
+}
+
+/** What {@link platformCopiesOf} tells the platform's copies against. */
+interface CopiesReading {
+  /** The run's span, by the org's clock. */
+  start: number;
+  end: number;
+  /** The key of the user the run wrote as, where it kept it. */
+  user?: string;
+  /** The objects of the plan whose records the user may not delete. */
+  undeletable: ReadonlySet<string>;
+  /** What the removal read of the run's records, per object. */
+  snapshots: ReadonlyMap<string, ObjectSnapshot>;
+}
+
+/**
+ * The lines the platform copied as the run wrote under a quote it synced
+ * (`quoteSyncCopiesOf`), but for those of an object the removal would not
+ * send: one the user may not delete, or one whose records it could not read.
+ * Those stay, and hold the quote as they did.
+ */
+async function platformCopiesOf(
+  org: RemovalOrg,
+  records: RunRecords,
+  reading: CopiesReading,
+): Promise<PlatformCopies> {
+  const objects = new Set(
+    records.objects.filter((object) => object.count > 0).map((object) => object.objectApiName),
+  );
+  if (!objects.has(QUOTE_OBJECT)) return [];
+  const quotes: string[] = [];
+  for await (const page of records.pages(QUOTE_OBJECT)) quotes.push(...page);
+  const copies = await quoteSyncCopiesOf(
+    org,
+    {
+      has: (key) => records.has(key),
+      start: reading.start,
+      end: reading.end,
+      ...(reading.user !== undefined ? { user: reading.user } : {}),
+    },
+    quotes,
+    objects,
+  );
+  const taken: PlatformCopies = [];
+  for (const object of copies) {
+    const { objectApiName } = object;
+    if (reading.undeletable.has(objectApiName)) continue;
+    const snapshot = reading.snapshots.get(objectApiName);
+    if (snapshot) {
+      if (snapshot.error !== undefined || snapshot.modifiedColumn !== 'LastModifiedDate') continue;
+    } else if (!(await deletable(org, objectApiName))) continue;
+    taken.push(object);
+  }
+  return taken;
+}
+
+/** Whether the describe of an object says the user may delete its records; not described, no. */
+async function deletable(org: RemovalOrg, objectApiName: string): Promise<boolean> {
+  try {
+    const described = describedObjectSchema.safeParse(await org.describe(objectApiName));
+    return described.success && described.data.deletable !== false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `records` with the platform's `copies` after each object's own records, a
+ * page of their own, and read into the object's snapshot as the run's records
+ * were: in the org, last modified when the read of them said.
+ */
+async function withCopies(
+  records: RunRecords,
+  copies: PlatformCopies,
+  snapshots: Map<string, ObjectSnapshot>,
+  objectOfPrefix: Map<string, string>,
+): Promise<RunRecords> {
+  const extra = new Map(copies.map(({ objectApiName, copies: of }) => [objectApiName, of]));
+  const keys = new Set(copies.flatMap(({ copies: of }) => of.map((copy) => recordKey(copy.id))));
+  const objects = records.objects.map((object) => {
+    const of = extra.get(object.objectApiName);
+    return of ? { objectApiName: object.objectApiName, count: object.count + of.length } : object;
+  });
+  for (const [objectApiName, of] of extra) {
+    if (!records.objects.some((object) => object.objectApiName === objectApiName)) {
+      objects.push({ objectApiName, count: of.length });
+    }
+    let snapshot = snapshots.get(objectApiName);
+    if (!snapshot) {
+      snapshot = { ...emptySnapshot(), modifiedColumn: 'LastModifiedDate' };
+      snapshots.set(objectApiName, snapshot);
+    }
+    // Their places come after the object's own records, however many its pages hold.
+    let at = 0;
+    for await (const page of records.pages(objectApiName)) at += page.length;
+    for (const copy of of) snapshot.modified.set(at++, copy.modified);
+    const prefix = of[0]?.id.slice(0, 3);
+    if (prefix !== undefined && !objectOfPrefix.has(prefix)) {
+      objectOfPrefix.set(prefix, objectApiName);
+    }
+  }
+  return {
+    objects,
+    pages: async function* (objectApiName) {
+      yield* records.pages(objectApiName);
+      const of = extra.get(objectApiName);
+      if (of && of.length > 0) yield of.map((copy) => copy.id);
+    },
+    has: (key) => records.has(key) || keys.has(key),
+  };
 }
 
 /**
@@ -2906,6 +3558,36 @@ function earliest(a: number, b: number): number {
   return b < a ? b : a;
 }
 
+/** The later of two dates, either of which may be NaN for a date not read. */
+function latest(a: number, b: number): number {
+  if (Number.isNaN(a)) return b;
+  return b > a ? b : a;
+}
+
+/**
+ * What is left of the second a date the org gave falls in: the org dates its
+ * writes to the second, truncated, so what it made later in that second
+ * reads as made at the same time, and cannot be told from it.
+ */
+const REST_OF_THE_SECOND_MS = 999;
+
+/**
+ * The latest date the org gave the run's records from `from` to `to`, both
+ * included: when one was created, or last modified. NaN when none falls
+ * there. A `CreatedDate` the run copied from the source falls years before;
+ * a change made after the run, past `to`.
+ */
+function lastWriteOf(snapshots: readonly ObjectSnapshot[], from: number, to: number): number {
+  let last = Number.NaN;
+  for (const snapshot of snapshots) {
+    if (snapshot.lastCreated >= from && snapshot.lastCreated <= to) {
+      last = latest(last, snapshot.lastCreated);
+    }
+    last = latest(last, snapshot.modified.latestWithin(from, to));
+  }
+  return last;
+}
+
 /**
  * The run's span, in the target's dates: the one given, or, for a run whose
  * dates the org did not give back, read from its records and from when it
@@ -2922,6 +3604,12 @@ function earliest(a: number, b: number): number {
  * run's user may set audit fields, the clone writes the source's, years
  * before the run.
  *
+ * Asked to (`endedByItsWrites`), it ends instead with the latest date the
+ * org gave the run's records within that span — when one was created, or
+ * last modified — and the rest of that second: see
+ * {@link RunRemovalOptions.endedByItsWrites}. The leeway stands where the org
+ * gave none.
+ *
  * Without that time, or from an org that does not tell its clock, the span
  * runs from the first record's `CreatedDate` for as long as the run took:
  * late rather than early, as the run's first write came after it started.
@@ -2931,20 +3619,26 @@ function earliest(a: number, b: number): number {
 function runSpan(
   options: Pick<
     RunRemovalOptions,
-    'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt'
+    'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt' | 'endedByItsWrites'
   >,
   snapshots: Iterable<ObjectSnapshot>,
   orgAheadMs: number,
 ): { start: number; end: number } {
+  const read = [...snapshots];
   let firstCreated = Number.NaN;
-  for (const snapshot of snapshots) firstCreated = earliest(firstCreated, snapshot.firstCreated);
+  for (const snapshot of read) firstCreated = earliest(firstCreated, snapshot.firstCreated);
   const duration = options.runDurationMs ?? 0;
   const recordedOnOrg = (options.runRecordedAt?.getTime() ?? Number.NaN) + orgAheadMs;
   if (options.runEndedAt === undefined && Number.isFinite(recordedOnOrg)) {
     const began = recordedOnOrg - duration - CLOCK_LEEWAY_MS;
+    const recordedEnd = recordedOnOrg + CLOCK_LEEWAY_MS;
+    const lastWrite =
+      options.endedByItsWrites === true ? lastWriteOf(read, began, recordedEnd) : Number.NaN;
     return {
       start: options.runStartedAt?.getTime() ?? (firstCreated > began ? firstCreated : began),
-      end: recordedOnOrg + CLOCK_LEEWAY_MS,
+      end: Number.isFinite(lastWrite)
+        ? Math.min(lastWrite + REST_OF_THE_SECOND_MS, recordedEnd)
+        : recordedEnd,
     };
   }
   const start = options.runStartedAt?.getTime() ?? firstCreated;
@@ -3139,6 +3833,56 @@ interface DependentsContext {
   includeChanged: boolean;
   /** As {@link RunRemovalOptions.goesWithParent}. */
   goesWithParent?: (row: Readonly<Record<string, unknown>>, runEnd: number) => boolean;
+  /** As {@link RunRemovalOptions.alongToDraft}. */
+  alongToDraft?: RunRecords;
+  /**
+   * The key of the user the run wrote as, where the run kept it; absent, the
+   * creator of the run's record a dependent hangs from stands for it.
+   */
+  runUser?: string;
+  /** Keys of what a granted sweep found made for the run: see {@link RunRemovalOptions.automationMade}. */
+  automationMade?: Pick<ReadonlySet<string>, 'has'>;
+  /**
+   * By key, the records a later part of the run linked to, with that part's
+   * span on the org's clock: see {@link RunLaterPart.linked}.
+   */
+  linkedLater?: ReadonlyMap<string, { start: number; end: number }>;
+  /**
+   * Keys of the records the run's other parts created, left in the org: see
+   * {@link RunRemovalOptions.otherParts} and
+   * {@link RunRemovalOptions.otherPartRecords}. One under a record of this
+   * part is the run's own, which its part's removal takes, never what the
+   * target's automation made for the run, which a sweep takes: a sweep
+   * leaves what the run's id map holds.
+   */
+  otherPartRecords?: RecordKeys;
+  /**
+   * Whether the check reads for a preview, nothing deleted nor set to Draft
+   * yet: the rows a record past Draft locks under it are not held, as a
+   * removal sets the record back to Draft before its deletes.
+   */
+  previewing?: true;
+}
+
+/**
+ * The keys of `ids` as they stand each time one is asked about: a granted
+ * sweep fills its set (`SweepParts.automationMade`) once the removal has read
+ * the run's records, after the dependents check was made. Copied when the
+ * check was made, the set was still empty, and a child the sweep took held
+ * its parent back all the same.
+ */
+function keysAsAsked(ids: ReadonlySet<string>): Pick<ReadonlySet<string>, 'has'> {
+  let keys = new Set<string>();
+  let read = -1;
+  return {
+    has: (key) => {
+      if (ids.size !== read) {
+        keys = new Set([...ids].map(recordKey));
+        read = ids.size;
+      }
+      return keys.has(key);
+    },
+  };
 }
 
 /** What {@link DependentsCheck.heldAmong} found for some records of one object. */
@@ -3147,6 +3891,25 @@ interface HeldVerdict {
   held: Set<string>;
   /** The objects whose staying records hold them, by API name. */
   holders: Set<string>;
+  /** Of `held`, the keys of those held by something other than what the automation likely made. */
+  otherwise: Set<string>;
+  /**
+   * Of `held`, by key, those held by nothing but records the target's
+   * automation likely made for the run — created as its user, under the
+   * record, within a sweep's `made` of it — with those records' objects.
+   */
+  byAutomation: Map<string, Set<string>>;
+  /**
+   * Of `byAutomation`, the keys of those one of whose holders was created
+   * after the run's last write, as the org dated it.
+   */
+  automationAfter: Set<string>;
+  /**
+   * By the key of a record about to go, the records not the run's that the
+   * org would take along with it only because the request includes what was
+   * added or changed since the run: each by its key, with its object.
+   */
+  along: Map<string, Map<string, string>>;
   /** Relationships the org deletes along that could not be read by the record, by child object. */
   unchecked: Set<string>;
   /** Why the object's relationships could not be read at all; every record is then held. */
@@ -3170,6 +3933,22 @@ interface DependentRelationship {
 
 /** The person account's flag, on an account and on its contact, in an org that has them. */
 const PERSON_ACCOUNT_FLAG = 'IsPersonAccount';
+
+/**
+ * A record that stays under one of the run's that may be what the target's
+ * automation made for the run, until the record it hangs from is read: see
+ * {@link DependentsCheck.byAutomationOnly}.
+ */
+interface AutomationHolder {
+  /** The record of the run it holds, by its id. */
+  parent: string;
+  /** Its object. */
+  object: string;
+  /** When it was created, by the org's clock. */
+  created: number;
+  /** The key of who created it. */
+  creator: string;
+}
 
 /** A file attached to a record: its document's key, and its title or its id. */
 interface AttachedFile {
@@ -3234,7 +4013,15 @@ class DependentsCheck {
    * named as not checked.
    */
   async heldAmong(objectApiName: string, candidates: readonly string[]): Promise<HeldVerdict> {
-    const verdict: HeldVerdict = { held: new Set(), holders: new Set(), unchecked: new Set() };
+    const verdict: HeldVerdict = {
+      held: new Set(),
+      holders: new Set(),
+      otherwise: new Set(),
+      byAutomation: new Map(),
+      automationAfter: new Set(),
+      along: new Map(),
+      unchecked: new Set(),
+    };
     if (candidates.length === 0) return verdict;
     let relationships: DependentRelationship[];
     try {
@@ -3259,7 +4046,7 @@ class DependentsCheck {
         }));
     } catch (err: unknown) {
       verdict.reason = extractErrorMessage(err);
-      candidates.forEach((id) => verdict.held.add(recordKey(id)));
+      candidates.forEach((id) => this.hold(verdict, recordKey(id)));
       return verdict;
     }
 
@@ -3290,20 +4077,122 @@ class DependentsCheck {
     // Read a few at a time, and settled in the order they were asked: the
     // objects holding records are named in the same order however the reads
     // came back.
-    for (const { relationship, holding, unchecked } of await inPool(
+    const mayBeAutomation: AutomationHolder[] = [];
+    for (const { relationship, holding, unchecked, automation, along } of await inPool(
       reads,
       DEPENDENT_READS_AT_ONCE,
     )) {
       if (unchecked) verdict.unchecked.add(relationship.childSObject);
-      if (holding.size > 0) verdict.holders.add(relationship.childSObject);
-      holding.forEach((key) => verdict.held.add(key));
+      if (holding.size > 0 || automation.length > 0) {
+        verdict.holders.add(relationship.childSObject);
+      }
+      holding.forEach((key) => this.hold(verdict, key));
+      for (const holder of automation) verdict.held.add(recordKey(holder.parent));
+      mayBeAutomation.push(...automation);
+      for (const { parent, key } of along) {
+        const goes = verdict.along.get(parent) ?? new Map<string, string>();
+        goes.set(key, relationship.childSObject);
+        verdict.along.set(parent, goes);
+      }
     }
-    await this.lockedPastDraft(objectApiName, candidates, verdict);
+    if (this.context.previewing !== true) {
+      await this.lockedPastDraft(objectApiName, candidates, verdict);
+    }
     if (isPricebookEntry(objectApiName)) await this.standardPricesHeld(candidates, verdict);
     if (objectApiName === SELLING_MODEL_OPTION_OBJECT) {
       await this.sellingModelOptionsHeld(candidates, verdict);
     }
+    const byAutomation = await this.byAutomationOnly(
+      objectApiName,
+      mayBeAutomation,
+      verdict.otherwise,
+    );
+    verdict.byAutomation = byAutomation.objects;
+    verdict.automationAfter = byAutomation.after;
     return verdict;
+  }
+
+  /** Hold a record for something other than what the target's automation likely made. */
+  private hold(verdict: HeldVerdict, key: string): void {
+    verdict.held.add(key);
+    verdict.otherwise.add(key);
+  }
+
+  /**
+   * Of the records `holders` hold, those nothing else holds — not in
+   * `otherwise` — and every one of whose holders the target's automation
+   * likely made for the run: created as the run's user — the one it kept, or
+   * else the one who created the record it holds — from
+   * {@link TIE_LEAD_MS} before that record to {@link MADE_WITHIN_MS} after
+   * it, a sweep's `made`: the sweep's own bounds, so that what is counted held
+   * by the automation is what a sweep takes. A sweep takes those first, and
+   * the record they hold goes then; one past that minute a sweep takes only
+   * when asked, and is not counted. The records held are read for when they were created and by
+   * whom, only when some holder may be the automation's; a read that fails
+   * counts none.
+   *
+   * Of those, the ones a holder of which came after the run's last write are
+   * said apart: a sweep takes them too, within its minute, but what came then
+   * is the automation run late, or a person working as the run's user. Live,
+   * the removal of a cut part's summary said a contact role made by hand five
+   * seconds after the part's last write was created "during the run".
+   *
+   * @returns The objects of their holders, by the key of each record held,
+   *   and the keys of those held by a record created after the run's end.
+   */
+  private async byAutomationOnly(
+    objectApiName: string,
+    holders: readonly AutomationHolder[],
+    otherwise: ReadonlySet<string>,
+  ): Promise<{ objects: Map<string, Set<string>>; after: Set<string> }> {
+    const byAutomation = new Map<string, Set<string>>();
+    const after = new Set<string>();
+    const pending = holders.filter((holder) => !otherwise.has(recordKey(holder.parent)));
+    if (pending.length === 0) return { objects: byAutomation, after };
+    let anchors: Map<string, Record<string, unknown>>;
+    try {
+      const rows = await readRecordsById(
+        this.org,
+        objectApiName,
+        ['CreatedDate', 'CreatedById'],
+        [...new Set(pending.map((holder) => holder.parent))],
+      );
+      anchors = new Map(
+        rows.flatMap((row) => (typeof row.Id === 'string' ? [[recordKey(row.Id), row]] : [])),
+      );
+    } catch {
+      return { objects: byAutomation, after };
+    }
+    /** Keys of the records one of whose holders is not the automation's after all. */
+    const notOnly = new Set<string>();
+    for (const holder of pending) {
+      const key = recordKey(holder.parent);
+      const anchor = anchors.get(key);
+      const anchorCreated = epochOf(anchor?.CreatedDate);
+      const anchorCreator = anchor?.CreatedById;
+      const user =
+        this.context.runUser ??
+        (typeof anchorCreator === 'string' ? recordKey(anchorCreator) : undefined);
+      const gap = holder.created - anchorCreated;
+      const made =
+        user !== undefined &&
+        holder.creator === user &&
+        gap >= -TIE_LEAD_MS &&
+        gap <= MADE_WITHIN_MS;
+      if (!made) {
+        notOnly.add(key);
+        continue;
+      }
+      const objects = byAutomation.get(key) ?? new Set<string>();
+      objects.add(holder.object);
+      byAutomation.set(key, objects);
+      if (holder.created > this.context.runEnd) after.add(key);
+    }
+    for (const key of notOnly) {
+      byAutomation.delete(key);
+      after.delete(key);
+    }
+    return { objects: byAutomation, after };
   }
 
   /**
@@ -3328,12 +4217,27 @@ class DependentsCheck {
    * link refused `CreatedDate` for every 200 records, and was read twice each
    * time.
    *
-   * @returns The keys held, and whether the relationship could not be read.
+   * A record that stays and may be what the target's automation made for the
+   * run is said apart (`automation`), until the record it holds is read
+   * ({@link byAutomationOnly}): it holds that record all the same.
+   *
+   * A record that goes with its parent only because the request includes
+   * what was added or changed since the run is said apart (`along`): not the
+   * run's, it is taken all the same, and the removal names it.
+   *
+   * @returns The keys held, the records that may be the automation's, those
+   *   taken along only as the request includes changes, and whether the
+   *   relationship could not be read.
    */
   private async holdingIn(
     relationship: DependentRelationship,
     chunk: readonly string[],
-  ): Promise<{ holding: Set<string>; unchecked: boolean }> {
+  ): Promise<{
+    holding: Set<string>;
+    automation: AutomationHolder[];
+    along: Array<{ parent: string; key: string }>;
+    unchecked: boolean;
+  }> {
     const child = assertSoqlIdentifier(relationship.childSObject);
     const field = assertSoqlIdentifier(relationship.field);
     const [list] = idLists(chunk, chunk.length);
@@ -3345,8 +4249,8 @@ class DependentsCheck {
       ...(PLATFORM_ADDED[child]?.ends ?? []),
       ...(relationship.personContacts ? [PERSON_ACCOUNT_FLAG] : []),
     ]);
-    const first = this.datesKept.get(child) ?? 0;
-    for (let tried = first; tried < DEPENDENT_DATE_COLUMNS.length; tried++) {
+    let tried = this.datesKept.get(child) ?? 0;
+    while (tried < DEPENDENT_DATE_COLUMNS.length) {
       const dates = DEPENDENT_DATE_COLUMNS[tried];
       let answer: { records: unknown[] };
       try {
@@ -3356,15 +4260,27 @@ class DependentsCheck {
         );
       } catch (err: unknown) {
         // A column the object does not have, never one that failed by chance.
-        if (isMissingColumn(err)) this.datesKept.set(child, tried + 1);
+        if (isMissingColumn(err)) {
+          tried = datesWithout(err, tried);
+          this.datesKept.set(child, tried);
+        } else {
+          tried++;
+        }
         continue;
       }
       // A read that filled its limit may hold more than it read: every
       // record of the chunk is kept rather than guessed about.
       if (answer.records.length >= DEPENDENTS_READ_LIMIT) {
-        return { holding: new Set(chunk.map(recordKey)), unchecked: false };
+        return {
+          holding: new Set(chunk.map(recordKey)),
+          automation: [],
+          along: [],
+          unchecked: false,
+        };
       }
       const holding = new Set<string>();
+      const automation: AutomationHolder[] = [];
+      const along: Array<{ parent: string; key: string }> = [];
       for (const record of answer.records) {
         if (typeof record !== 'object' || record === null) continue;
         const row = record as Record<string, unknown>;
@@ -3373,13 +4289,53 @@ class DependentsCheck {
         if (child === FILE_LINK && field === 'LinkedEntityId') this.noteFile(row);
         // Locked under this very record, the row stays because the record does.
         if (this.lockedUnder.get(recordKey(row.Id)) === recordKey(parent)) continue;
-        if (this.stays(row, child, relationship.restricted, relationship.personContacts)) {
-          holding.add(recordKey(parent));
+        const asked = { onlyIncluded: false };
+        if (!this.stays(row, child, relationship.restricted, relationship.personContacts, asked)) {
+          if (asked.onlyIncluded) along.push({ parent: recordKey(parent), key: recordKey(row.Id) });
+          continue;
         }
+        const made = this.mayBeAutomation(row);
+        if (made) automation.push({ parent, object: child, ...made });
+        else holding.add(recordKey(parent));
       }
-      return { holding, unchecked: false };
+      return { holding, automation, along, unchecked: false };
     }
-    return { holding: new Set(), unchecked: !relationship.restricted };
+    return { holding: new Set(), automation: [], along: [], unchecked: !relationship.restricted };
+  }
+
+  /**
+   * Whether a record that stays under one of the run's may be what the
+   * target's automation made for the run, as far as its own row tells: not
+   * the run's, created as the run's user — any user, when the run did not
+   * keep it, until the record it holds says who wrote it — within a sweep's
+   * reach of the run, and changed since by no one else. A record someone else
+   * changed since is theirs now, and a sweep would keep it too.
+   *
+   * @returns When it was created and by whom, or nothing.
+   */
+  private mayBeAutomation(
+    row: Record<string, unknown>,
+  ): Pick<AutomationHolder, 'created' | 'creator'> | undefined {
+    const { runRecords, runStart, runEnd, runUser, otherPartRecords } = this.context;
+    if (typeof row.Id !== 'string' || runRecords.has(recordKey(row.Id))) return undefined;
+    // A record of another part of the run is the run's, held for that part's
+    // removal. Live, a resume that wrote 52 s after the cut part's
+    // opportunity had its quote and line read as the automation's, which a
+    // sweep takes first, while the same removal named them the resume's and
+    // the cut part's sweep listed neither.
+    if (otherPartRecords?.has(recordKey(row.Id)) === true) return undefined;
+    if (typeof row.CreatedById !== 'string') return undefined;
+    const creator = recordKey(row.CreatedById);
+    if (runUser !== undefined && creator !== runUser) return undefined;
+    const created = epochOf(row.CreatedDate);
+    if (!(created >= runStart - TIE_LEAD_MS && created <= runEnd + MADE_WITHIN_MS)) {
+      return undefined;
+    }
+    const modified = epochOf(row.LastModifiedDate);
+    const modifier =
+      typeof row.LastModifiedById === 'string' ? recordKey(row.LastModifiedById) : undefined;
+    if (modified > runEnd && modifier !== undefined && modifier !== creator) return undefined;
+    return { created, creator };
   }
 
   /**
@@ -3507,7 +4463,7 @@ class DependentsCheck {
         const parent = row[lookup];
         if (typeof row.Id !== 'string' || typeof parent !== 'string') continue;
         if (!pastDraft.has(recordKey(parent))) continue;
-        verdict.held.add(recordKey(row.Id));
+        this.hold(verdict, recordKey(row.Id));
         verdict.holders.add(parentObject);
         this.lockedUnder.set(recordKey(row.Id), recordKey(parent));
       }
@@ -3560,7 +4516,7 @@ class DependentsCheck {
       }
       for (const row of own) {
         if (typeof row.Id !== 'string' || !needed.has(valuesKey(row, fields))) continue;
-        verdict.held.add(recordKey(row.Id));
+        this.hold(verdict, recordKey(row.Id));
         verdict.holders.add(PRICEBOOK_ENTRY_OBJECT);
       }
     } catch {
@@ -3601,7 +4557,7 @@ class DependentsCheck {
       );
       for (const option of options) {
         if (typeof option.Id !== 'string' || !sold.has(valuesKey(option, fields))) continue;
-        verdict.held.add(recordKey(option.Id));
+        this.hold(verdict, recordKey(option.Id));
         verdict.holders.add(PRICEBOOK_ENTRY_OBJECT);
       }
     } catch {
@@ -3679,8 +4635,11 @@ class DependentsCheck {
    * What the platform adds on its own to a record of the run comes with the
    * run, whatever its date: see `PLATFORM_ADDED`; and what the user a removal
    * of the run ran as created while it went — this one, or an earlier one —
-   * is that removal's doing. An object that keeps no created and modified
-   * dates is read by its system stamp; one that keeps no date at all stays.
+   * is that removal's doing, as is the last change of a record created while
+   * the run went that such a user made while it went. What a granted sweep
+   * found made for the run goes too (`automationMade`). An object that keeps
+   * no created and modified dates is read by its system stamp; one that keeps
+   * no date at all stays.
    *
    * A record that has the org refuse the delete of the one it points at,
    * rather than go with it, stays whatever its dates, unless it is the run's.
@@ -3699,12 +4658,16 @@ class DependentsCheck {
    *   points at over it.
    * @param personContacts - Whether the record is a contact read under its
    *   account in an org with person accounts.
+   * @param asked - Set `onlyIncluded` when the record goes only because the
+   *   request includes what was added or changed since the run: someone's,
+   *   not the run's, taken along all the same.
    */
   private stays(
     row: Record<string, unknown>,
     object: string,
     restricted = false,
     personContacts = false,
+    asked?: { onlyIncluded: boolean },
   ): boolean {
     const key = recordKey(row.Id as string);
     const {
@@ -3719,7 +4682,12 @@ class DependentsCheck {
     } = this.context;
     if (runRecords.has(key)) return reached.has(key) || this.context.stays(key);
     if (restricted) return true;
+    // What a granted sweep found made for the run goes with the record it
+    // hangs from, whatever its dates: the sweep deletes it anyway.
+    if (this.context.automationMade?.has(key) === true) return false;
     if (this.context.goesWithParent?.(row, runEnd) === true) return false;
+    // Set to Draft by this removal, it holds that write's date, not a change.
+    if (this.context.alongToDraft?.has(key) === true) return false;
     if (PLATFORM_ADDED[object]?.cameWithRun(row, runRecords)) return false;
     if (personContacts && row[PERSON_ACCOUNT_FLAG] === true) {
       // A date that cannot be read cannot show the contact was left alone.
@@ -3733,6 +4701,13 @@ class DependentsCheck {
     const modified = epochOf(dated === 'CreatedDate' ? row.LastModifiedDate : row.SystemModstamp);
     // A date that cannot be read cannot show the record came with the run.
     if (!(created >= runStart)) return true;
+    // Made as the run wrote — as this part went, or the later part that
+    // linked to it — and last written then: the run's, as the record it hangs
+    // from. One made between the parts is someone's, the run's user's too.
+    const linked = this.context.linkedLater?.get(key);
+    if (linked && (created <= runEnd || created >= linked.start) && modified <= linked.end) {
+      return false;
+    }
     // Created once this removal was under way, by the user it runs as: the
     // org answering what the removal did. Deleting an opportunity's line
     // items changes its amount, and feed tracking records the change on the
@@ -3744,15 +4719,30 @@ class DependentsCheck {
     // else created meanwhile — a colleague's task, an integration's contact —
     // is theirs: taken for the removal's, it went with its parent, unreported.
     const creator = typeof row.CreatedById === 'string' ? recordKey(row.CreatedById) : undefined;
-    const byRemoval =
-      creator !== undefined &&
-      ((creator === removalUser && created >= removalStart) ||
+    /** Whether `user` wrote at `at` as a removal of the run: this one, or one before it. */
+    const asRemoval = (user: string | undefined, at: number): boolean =>
+      user !== undefined &&
+      ((user === removalUser && at >= removalStart) ||
         earlierRemovals.some(
-          (earlier) =>
-            creator === earlier.user && created >= earlier.start && created <= earlier.end,
+          (earlier) => user === earlier.user && at >= earlier.start && at <= earlier.end,
         ));
-    if (byRemoval) return false;
+    if (asRemoval(creator, created)) return false;
     if (modified <= runEnd) return false;
+    // Created while the run went and last modified by a removal of it, as
+    // its user, while that removal went: the org's answer to what the
+    // removal deleted, not a change since the run. Deleting a quote line of
+    // the run had the platform delete the line item it was paired with, and
+    // clear and restamp the line it had copied from that item: read as
+    // changed since the run, the copy kept its quote. Who last modified a
+    // record is all the org says: one someone changed in between, then a
+    // removal restamped, reads the same.
+    const modifier =
+      typeof row.LastModifiedById === 'string' ? recordKey(row.LastModifiedById) : undefined;
+    if (created <= runEnd && asRemoval(modifier, modified)) return false;
+    // Taken along unsaid, a contact made by hand under an account of a load
+    // went with the account a removal including changes deleted, and the
+    // removal said "Contact: 4 deleted of 4", the four the load wrote.
+    if (includeChanged && asked) asked.onlyIncluded = true;
     return !includeChanged;
   }
 

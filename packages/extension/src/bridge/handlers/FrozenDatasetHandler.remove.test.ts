@@ -536,13 +536,14 @@ describe('frozen:remove', () => {
 
       await handler.handle(buildMsg('frozen:verify', { targetOrgId: TARGET_ORG }));
 
-      const refusals = posted<BaseMessage & { payload: { code: string; message: string } }>(
-        'frozen:verify:error',
-      );
+      const refusals = posted<
+        BaseMessage & { payload: { code: string; message: string; left?: number } }
+      >('frozen:verify:error');
       expect(refusals.map((e) => e.payload.code)).toEqual(['LOAD_REMOVED']);
       expect(refusals[0].payload.message).toBe(
         `The removal of ${first?.finishedAt} took part of the records the last load created and left 2 in the org: a verification would read the ones it took as missing. Remove what is left, or reload the dataset, which purges or finds it again; then verify.`,
       );
+      expect(refusals[0].payload.left).toBe(2);
     });
 
     it('counts in the mark a removal cancelled between two others, and offers what it did not reach', async () => {
@@ -1020,6 +1021,43 @@ describe('frozen:remove', () => {
         { objectApiName: 'Account', deleted: 1, keptDependents: 0 },
       ],
     });
+  });
+
+  it('keeps, of a load the target did not date, a contact made by hand seconds after it under its account, and the account it holds', async () => {
+    // The load wrote its last record a second before it ended by this
+    // machine's clock; five seconds after, the load's user made a contact by
+    // hand under its account. Dated by that clock, ten seconds of leeway
+    // after its end, the contact read as the load's: it went with the
+    // account, unsaid, as a contact role went with a cut clone part's
+    // opportunity live.
+    const lastWrite = '2026-09-20T10:04:59.000+0000';
+    for (const row of [...(org.rows.get('Account') ?? []), ...(org.rows.get('Contact') ?? [])]) {
+      row.CreatedDate = lastWrite;
+      row.LastModifiedDate = lastWrite;
+      row.CreatedById = USER;
+      row.LastModifiedById = USER;
+    }
+    const byHand = id('003', 9);
+    org.rows.get('Contact')?.push({
+      Id: byHand,
+      AccountId: ACCOUNT,
+      CreatedDate: '2026-09-20T10:05:05.000+0000',
+      LastModifiedDate: '2026-09-20T10:05:05.000+0000',
+      CreatedById: USER,
+      LastModifiedById: USER,
+    });
+
+    await remove();
+
+    expect(answer()).toMatchObject({
+      status: 'partial',
+      objects: [
+        { objectApiName: 'Contact', deleted: 2 },
+        { objectApiName: 'Account', deleted: 0, keptDependents: 1, heldBy: ['Contact'] },
+      ],
+    });
+    expect(org.rows.get('Contact')?.map((row) => row.Id)).toEqual([byHand]);
+    expect(org.rows.get('Account')?.map((row) => row.Id)).toEqual([ACCOUNT]);
   });
 
   describe('a load before the last one', () => {

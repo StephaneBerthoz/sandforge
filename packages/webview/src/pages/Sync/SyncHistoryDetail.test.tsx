@@ -17,7 +17,9 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 }));
 
 import { SyncHistoryDetail } from './SyncHistoryDetail';
+import { useOrgStore } from '../../stores/useOrgStore';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
+import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
 import type { SyncHistoryEntry } from '@sandforge/shared';
 
 const makeMockEntry = (): SyncHistoryEntry => ({
@@ -95,6 +97,51 @@ describe('SyncHistoryDetail', () => {
     });
   });
 
+  it('names the checkpoint the run took, with the way to rewind to it, and one it deleted', () => {
+    const entry = makeMockEntry();
+    useOrgStore.setState({ orgs: [developerOrg({ id: 'org-2' })] });
+    useSyncHistoryStore.setState({
+      selectedEntry: {
+        ...entry,
+        result: {
+          ...entry.result,
+          checkpoint: {
+            state: 'taken',
+            checkpointId: 'ck-20240101-000000-a1b2',
+            name: 'Before Sync run 2024-01-01 00:00 UTC',
+            takenAt: '2024-01-01T00:00:00.000Z',
+            expiresAt: '2024-01-08T00:00:00.000Z',
+            objects: ['Account'],
+            records: 38,
+            bytes: 2_200_000,
+            requests: 68,
+            added: [],
+            notHeld: [],
+          },
+        },
+      },
+    });
+    const { unmount } = render(<SyncHistoryDetail />);
+    expect(screen.getByTestId('history-checkpoint-taken').textContent).toContain(
+      'Before Sync run 2024-01-01 00:00 UTC',
+    );
+    expect(screen.getByTestId('history-checkpoint-action').textContent).toBe(
+      'Rewind to before this run…',
+    );
+    unmount();
+
+    useSyncHistoryStore.setState({
+      selectedEntry: {
+        ...entry,
+        result: { ...entry.result, checkpoint: { state: 'deleted', deleted: 'nothingWritten' } },
+      },
+    });
+    render(<SyncHistoryDetail />);
+    expect(screen.getByTestId('history-checkpoint-deleted').textContent).toBe(
+      'The checkpoint taken before the run was deleted: the run wrote nothing.',
+    );
+  });
+
   it('asks, before Run again, what the last run between the orgs left of the objects it inserts', () => {
     mockPostMessage.mockClear();
     useSyncHistoryStore.setState({ selectedEntry: makeMockEntry() });
@@ -110,12 +157,20 @@ describe('SyncHistoryDetail', () => {
 
   it('says what an object left as an earlier run of the configuration copied it', () => {
     const entry = makeMockEntry();
-    entry.result.objectResults[0] = { ...entry.result.objectResults[0], alreadyCopied: 2 };
+    entry.result.objectResults[0] = {
+      ...entry.result.objectResults[0],
+      alreadyCopied: 2,
+      alreadyLinked: 1,
+    };
     useSyncHistoryStore.setState({ selectedEntry: entry });
     render(<SyncHistoryDetail />);
 
     expect(screen.getByTestId('history-copied-Account').textContent).toBe(
       '2 records already copied by an earlier run of this configuration, left as they were.',
+    );
+    // Linked by it to a record the target held: no run copied it.
+    expect(screen.getByTestId('history-linked-Account').textContent).toBe(
+      '1 record already linked by an earlier run of this configuration to a record the target held, left as it was.',
     );
   });
 
@@ -303,6 +358,33 @@ describe('SyncHistoryDetail', () => {
     expect(screen.queryByTestId('sync-history-errors-Contact')).toBeNull();
   });
 
+  it('counts the records linked to one the target holds and the contact roles the platform wrote as linked, not skipped', () => {
+    // The result keeps them among its skipped: the counts read "Skipped: 2"
+    // over "2 records linked to records the target org already holds".
+    const entry = makeMockEntry();
+    entry.result.objectResults[1] = {
+      ...entry.result.objectResults[1],
+      objectApiName: 'OpportunityContactRole',
+      processed: 3,
+      success: 2,
+      skipped: 3,
+      errors: [],
+      alreadyCopied: 1,
+      linkedToExisting: { records: 1 },
+      writtenByThePlatform: { records: 1, given: 1 },
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    expect(screen.getByTestId('history-counts-OpportunityContactRole').textContent).toBe(
+      'Processed: 3Succeeded: 2Failed: 0Skipped: 1Linked: 2',
+    );
+    // Nothing linked, and no linked count.
+    expect(screen.getByTestId('history-counts-Account').textContent).toBe(
+      'Processed: 100Succeeded: 90Failed: 8Skipped: 2',
+    );
+  });
+
   it('says what its runs did with a record the target held, not a direction no run took', () => {
     // "Bidirectional" read as a run writing both ways: every run writes to
     // the target, and on any other direction the strategy was never read.
@@ -432,6 +514,50 @@ describe('SyncHistoryDetail', () => {
     );
     // A full configuration's object has no such line.
     expect(screen.queryByTestId('history-delta-Account')).toBeNull();
+  });
+
+  it('keeps the record type the target gave a run’s records, and names what still ran of its mute where the target set another', () => {
+    const entry = makeMockEntry();
+    entry.result.mutedAutomation = {
+      state: 'muted',
+      assigned: ['Bypass_Automation'],
+      held: [],
+      permissions: ['Bypass_Flows'],
+      silenced: [],
+      stillRan: [
+        { objectApiName: 'Account', kind: 'trigger', name: 'AccountTypeTrigger', why: 'noBypass' },
+        { objectApiName: 'Contact', kind: 'flow', name: 'Contact Welcome', why: 'noBypass' },
+      ],
+      released: true,
+    };
+    entry.result.objectResults[0] = {
+      ...entry.result.objectResults[0]!,
+      recordTypeGiven: {
+        objectApiName: 'Account',
+        rows: 90,
+        why: { masterInSource: 90 },
+        predicted: {
+          developerName: 'Business_Account',
+          label: 'Business Account',
+          basis: 'userDefault',
+        },
+        readBack: {
+          read: 90,
+          types: [{ developerName: 'Partner', label: 'Partner', rows: 90 }],
+        },
+      },
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    const line = screen.getByTestId('history-written-Account-recordType');
+    expect(line.textContent).toBe(
+      '90 Account records created without a record type, on Master in the source: read back ' +
+        'on 90, 90 with Partner, where Business_Account (Business Account) was predicted. ' +
+        "The target org's automation sets the record type, among what still ran on Account: " +
+        'Apex trigger: AccountTypeTrigger.',
+    );
+    expect(screen.queryByTestId('history-written-Contact-recordType')).toBeNull();
   });
 
   it("says a pipeline's run was started by a pipeline, not by a schedule", () => {

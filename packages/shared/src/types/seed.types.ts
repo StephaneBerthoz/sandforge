@@ -192,7 +192,6 @@ export interface FieldRuleConfig {
   sequencePrefix?: string;
   formula?: string;
   referenceObject?: string;
-  referenceField?: string;
   picklistValues?: string[];
   regexPattern?: string;
   csvColumn?: string;
@@ -324,6 +323,14 @@ export interface SeedObjectResult {
    * other objects make it.
    */
   optional?: boolean;
+  /**
+   * The contact roles linked to the one the platform wrote itself as it took
+   * an opportunity the run created, for the contact the opportunity went in
+   * with, rather than written beside it: not among `recordsCreated`; how many
+   * an update gave the fields the run generated for them, and what the target
+   * answered one it refused. Absent when none.
+   */
+  writtenByThePlatform?: { records: number; given: number; refusal?: string };
 }
 
 /**
@@ -550,6 +557,12 @@ export interface SeedRunRemovalInfo {
    */
   unfinished?: true;
   /**
+   * Of a run that stopped part way, the call it had under way, which no line
+   * of its file answers: the rows of it the target took are in the org and
+   * not in `created`, until a line of the call says them.
+   */
+  inFlight?: { objectApiName: string; rows: number };
+  /**
    * Set for a run still writing in this window: it has no end yet because it
    * has not ended, not because its window closed. Its removal is refused
    * until it ends, as a Sync run's is.
@@ -671,6 +684,12 @@ export interface SeedEmailsPerRecord {
   perRecord: number;
   /** The flows, processes and rules that send them, by label. */
   sentBy: string[];
+  /**
+   * Set on the single emails of an object whose records fire email alerts,
+   * where the org counts its alerts against its single emails too: the
+   * alerts are among `perRecord`.
+   */
+  alertsAmong?: true;
 }
 
 /**
@@ -783,14 +802,27 @@ export interface SeedFitProposal {
    * "the 40 rows the scenario gives take 0.2 MB". Nothing is proposed then.
    */
   cannotFit?: string;
+  /**
+   * Why no room is kept for what the target's automation creates under the
+   * records: it could not be read. Absent when it was read, the room then
+   * what `budget.automationMB` says, none when nothing that still runs
+   * creates records under them.
+   */
+  automationUnread?: string;
 }
 
 /**
  * What a seed run says of the fit its counts came from, for the audit trail:
- * the share applied and the bound asked. Absent from a seed whose counts
- * were not fitted.
+ * the share applied, the bound asked, and the records of the template the
+ * fit was taken of. Absent from a seed whose counts were not fitted.
  */
 export interface SeedFitApplied {
   share: number;
   withinMB?: number;
+  /**
+   * The records the template held before the fit, every object's count
+   * added: what the audit trail sets beside those the fitted run set out to
+   * write (`AuditFit.inSource`).
+   */
+  before: number;
 }

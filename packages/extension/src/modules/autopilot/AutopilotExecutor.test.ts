@@ -30,6 +30,7 @@ import { RECORD_TYPES_SOQL } from '../sync/RecordTypeMapper.js';
 import { logger } from '../../logger.js';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
 import { RecordIdRemapper } from './RecordIdRemapper.js';
+import { autopilotRunStatus } from './autopilotRunStatus.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 
 /** Local alias matching the autopilot domain name. */
@@ -1699,7 +1700,69 @@ describe('AutopilotExecutor — records the platform owns or makes', () => {
             message: 'Commande sans produit',
           },
         ],
+        leftDraft: 1,
       });
+    });
+
+    it('counts once an order whose status the target refused for two reasons', async () => {
+      // Each reason counts the record: summed, one order read as two drafts,
+      // more than the run wrote of them.
+      const update = vi.fn<NonNullable<AutopilotExecutorDeps['update']>>(async () => [
+        {
+          id: '',
+          success: false,
+          errors: ['two'],
+          errorDetails: [
+            {
+              statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+              message: 'Commande sans produit',
+              fields: ['Status'],
+            },
+            { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: 'Bon requis', fields: [] },
+          ],
+        },
+      ]);
+
+      const { result } = await orderRun(update);
+
+      expect(result.statuses?.['Order']?.refusals).toHaveLength(2);
+      expect(result.statuses?.['Order']?.leftDraft).toBe(1);
+    });
+
+    it('gives no status back while the run is paused, and gives it back on resume', async () => {
+      // Paused as the last wave went in: the orders were activated all the
+      // same, the target's automation on them run, the run listed paused.
+      const queryTarget = vi.fn<SoqlQuery>(async (soql) =>
+        soql === 'SELECT ApiName, StatusCode FROM OrderStatus' ? orderStatuses : [],
+      );
+      const update = vi.fn<NonNullable<AutopilotExecutorDeps['update']>>(async (_name, records) =>
+        written(...records.map((r) => String(r['Id']))),
+      );
+      const deps = makeDeps({
+        query: sourceOf(rows),
+        remapper: new RecordIdRemapper(),
+        queryTarget,
+        update,
+        batchSize: 200,
+      });
+      const executor = new AutopilotExecutor(deps);
+      const insert = insertAs({ Order: '801', OrderItem: '802' });
+      deps.insert = vi.fn<InsertFn>(async (objectApiName, records) => {
+        if (objectApiName === 'OrderItem') executor.pause();
+        return insert(objectApiName, records);
+      });
+
+      const run = executor.execute(wavesOf('Order', 'OrderItem'), [itemEdge], [], countsOf(rows));
+      await vi.waitFor(() =>
+        expect(vi.mocked(deps.insert).mock.calls.map(([name]) => name)).toContain('OrderItem'),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(update).not.toHaveBeenCalled();
+      executor.resume();
+      const result = await run;
+      expect(update).toHaveBeenCalledWith('Order', [{ Id: '8010', Status: 'ST004' }]);
+      expect(result.statuses).toEqual({ Order: { applied: 1, refusals: [] } });
     });
 
     it('sends the status as it is when the run could not write it back afterwards', async () => {
@@ -2070,8 +2133,298 @@ describe('AutopilotExecutor — the second pass', () => {
             message: 'Le parent doit être actif',
           },
         ],
+        leftEmpty: 1,
       },
     });
+  });
+
+  it('names the lookup a refused update left, when the target names no field', async () => {
+    // What an org answers an update of a lookup at a record the running user
+    // may not see: a code and no field. The line said why, and not what.
+    const update = vi.fn<UpdateFn>(async () => [
+      refused(
+        'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
+        'insufficient access rights on cross-reference id',
+      ),
+    ]);
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: insertAs({ Account: '001T' }),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(rows),
+    );
+
+    expect(result.lookups?.['Account']).toEqual({
+      filled: 0,
+      refusals: [
+        {
+          statusCode: 'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
+          fields: ['ParentId'],
+          count: 1,
+          message: 'insufficient access rights on cross-reference id',
+        },
+      ],
+      leftEmpty: 1,
+    });
+    expect(result.totalSuccess).toBe(2);
+    expect(result.totalFailure).toBe(0);
+  });
+
+  it('names every lookup a refused update left, whichever field the target named', async () => {
+    // One update per record: refused on one field, it fills neither.
+    const two = {
+      Account: [
+        { Id: 'child', Name: 'Child', ParentId: 'parent', Partner__c: 'parent' },
+        { Id: 'parent', Name: 'Parent', ParentId: null, Partner__c: null },
+      ],
+    };
+    const update = vi.fn<UpdateFn>(async () => [
+      refused('FIELD_INTEGRITY_EXCEPTION', 'Parent Account: id value of incorrect type', [
+        'ParentId',
+      ]),
+    ]);
+    const deps = makeDeps({
+      query: sourceOf(two),
+      insert: insertAs({ Account: '001T' }),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [
+        parentEdge,
+        makeEdge({
+          from: 'Account' as ApiName,
+          to: 'Account' as ApiName,
+          fieldApiName: 'Partner__c',
+          relationshipType: 'hierarchical',
+        }),
+      ],
+      [],
+      countsOf(two),
+    );
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(result.lookups?.['Account']?.refusals).toEqual([
+      expect.objectContaining({ fields: ['ParentId', 'Partner__c'], count: 1 }),
+    ]);
+    expect(result.lookups?.['Account']?.leftEmpty).toBe(1);
+  });
+
+  it('counts once a record the target refused for two reasons', async () => {
+    const twoReasons: SaveOutcome = {
+      id: '',
+      success: false,
+      errors: ['two'],
+      errorDetails: [
+        { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: 'Parent inactif', fields: [] },
+        {
+          statusCode: 'INVALID_CROSS_REFERENCE_KEY',
+          message: 'invalid cross reference',
+          fields: [],
+        },
+      ],
+    };
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: insertAs({ Account: '001T' }),
+      update: vi.fn<UpdateFn>(async () => [twoReasons]),
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(rows),
+    );
+
+    expect(result.lookups?.['Account']?.refusals).toHaveLength(2);
+    expect(result.lookups?.['Account']?.leftEmpty).toBe(1);
+  });
+
+  it('names the lookups of a batch whose update threw, every record of it refused', async () => {
+    const update = vi.fn<UpdateFn>(async () => {
+      throw new Error('UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record');
+    });
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: insertAs({ Account: '001T' }),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(rows),
+    );
+
+    expect(result.lookups?.['Account']).toMatchObject({
+      filled: 0,
+      refusals: [expect.objectContaining({ fields: ['ParentId'], count: 1 })],
+      leftEmpty: 1,
+    });
+  });
+
+  it('keeps what a wave’s second pass refused when a stop comes before the next wave', async () => {
+    // The run returned from the stop without them: the refusal was said
+    // nowhere, on a run that had met the target's answer.
+    const controller = new AbortController();
+    const update = vi.fn<UpdateFn>(async () => {
+      controller.abort();
+      return [refused('FIELD_CUSTOM_VALIDATION_EXCEPTION', 'Le parent doit être actif')];
+    });
+    const later = { ...rows, Contact: [{ Id: 'con', LastName: 'Doe' }] };
+    const deps = makeDeps({
+      query: sourceOf(later),
+      insert: insertAs({ Account: '001T', Contact: '003T' }),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account', 'Contact'),
+      [parentEdge],
+      [],
+      countsOf(later),
+      controller.signal,
+    );
+
+    expect(result.stopped).toBe(true);
+    expect(result.lookups?.['Account']).toMatchObject({
+      filled: 0,
+      refusals: [expect.objectContaining({ fields: ['ParentId'], count: 1 })],
+      leftEmpty: 1,
+    });
+  });
+
+  it('sends no update of the second pass while the run is paused, and sends it on resume', async () => {
+    // Paused as the wave's last batch went in: the pass sent every update
+    // all the same, the run listed paused the while.
+    const update = updateAll();
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+    const executor = new AutopilotExecutor(deps);
+    const insert = insertAs({ Account: '001T' });
+    deps.insert = vi.fn<InsertFn>(async (objectApiName, records) => {
+      executor.pause();
+      return insert(objectApiName, records);
+    });
+
+    const run = executor.execute(wavesOf('Account'), [parentEdge], [], countsOf(rows));
+    await vi.waitFor(() => expect(deps.insert).toHaveBeenCalled());
+    // Whatever the run does next without waiting is done by the next tick.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(update).not.toHaveBeenCalled();
+    executor.resume();
+    const result = await run;
+    expect(update).toHaveBeenCalledWith('Account', [{ Id: '001T0', ParentId: '001T1' }]);
+    expect(result.lookups?.['Account']).toMatchObject({ filled: 1, refusals: [] });
+  });
+
+  it('sends none of the second pass when stopped while paused before it, and says what it left', async () => {
+    const controller = new AbortController();
+    const update = updateAll();
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+    const executor = new AutopilotExecutor(deps);
+    const insert = insertAs({ Account: '001T' });
+    deps.insert = vi.fn<InsertFn>(async (objectApiName, records) => {
+      executor.pause();
+      return insert(objectApiName, records);
+    });
+
+    const run = executor.execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(rows),
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(deps.insert).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    const result = await run;
+
+    expect(update).not.toHaveBeenCalled();
+    expect(result.stopped).toBe(true);
+    expect(result.objectOutcomes?.['Account']).toMatchObject({ written: 2, lookupsLeftEmpty: 1 });
+  });
+
+  it('says a lookup left empty at a record the target refused when a stop comes in a later wave', async () => {
+    // The stop's count kept only the lookups it had left empty: this one,
+    // whose record the target had refused a wave before, went nowhere — not
+    // in the lookups, not in what the stop left — while the same run without
+    // the stop said it under PARENT_REFUSED.
+    const controller = new AbortController();
+    const later = { ...rows, Contact: [{ Id: 'con', LastName: 'Doe' }] };
+    const update = updateAll();
+    const deps = makeDeps({
+      query: sourceOf(later),
+      insert: vi.fn<InsertFn>(async (objectApiName) => {
+        if (objectApiName === 'Contact') {
+          controller.abort();
+          return written('003T_con');
+        }
+        return [
+          ...written('001T_child'),
+          refused('REQUIRED_FIELD_MISSING', 'Champ obligatoire manquant', ['Industry']),
+        ];
+      }),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account', 'Contact'),
+      [parentEdge],
+      [],
+      countsOf(later),
+      controller.signal,
+    );
+
+    expect(result.stopped).toBe(true);
+    expect(update).not.toHaveBeenCalled();
+    expect(result.lookups?.['Account']).toEqual({
+      filled: 0,
+      refusals: [
+        {
+          statusCode: 'PARENT_REFUSED',
+          fields: ['ParentId'],
+          count: 1,
+          message:
+            'the Account record its ParentId names was refused in this run, and this ' +
+            'record, written before it, keeps its ParentId empty.',
+        },
+      ],
+      leftEmpty: 1,
+    });
+    expect(result.objectOutcomes?.['Account']).not.toHaveProperty('lookupsLeftEmpty');
   });
 
   it('never writes to a record the target already held', async () => {
@@ -2154,6 +2507,7 @@ describe('AutopilotExecutor — the second pass', () => {
               'record, written before it, keeps its ParentId empty.',
           },
         ],
+        leftEmpty: 1,
       },
     });
   });
@@ -4086,6 +4440,69 @@ describe('AutopilotExecutor — a record whose parent the run was to write and d
     expect(codesOf(result)).not.toContain('REQUIRED_FIELD_MISSING');
   });
 
+  it('counts what a write that threw part way wrote: the node fails with the error, and the run is partial', async () => {
+    // The two deals of the first page went in, and the read of the second
+    // threw. Counted nowhere, they left a run that said it wrote no deal: an
+    // audit at 0 created, and a run that wrote nothing else read as a failure.
+    const read = sourceOf(rows);
+    const query = vi.fn<QueryFn>(async (objectApiName, afterId, limit) => {
+      if (objectApiName === 'Opportunity' && afterId !== undefined) {
+        throw new Error('QUERY_TIMEOUT: Your query request was running for too long.');
+      }
+      return read(objectApiName, afterId, limit);
+    });
+    const target = new MemoryTarget(edges);
+    const executor = new AutopilotExecutor(
+      makeDeps({ query, insert: target.insert, remapper: new RecordIdRemapper(), batchSize: 2 }),
+    );
+    const failedNodes: AutopilotNodeFailedEvent[] = [];
+    executor.on('node-failed', (event) => failedNodes.push(event));
+
+    const result = await executor.execute(plan(), edges, [], countsOf(rows));
+
+    expect(target.of('Opportunity')).toHaveLength(2);
+    expect(result.objectOutcomes?.['Opportunity']).toEqual({
+      written: 2,
+      linked: 0,
+      failed: 0,
+      refusals: [],
+      threw: 'QUERY_TIMEOUT: Your query request was running for too long.',
+    });
+    // Two accounts, two deals and the line under the first.
+    expect(result.totalSuccess).toBe(5);
+    expect(result.failedObjects).toEqual(['Opportunity']);
+    expect(result.nodeErrors?.['Opportunity']).toBe(
+      'QUERY_TIMEOUT: Your query request was running for too long.',
+    );
+    expect(
+      failedNodes.map((event) => [event.objectApiName, event.partialSuccessCount, event.errors[0]]),
+    ).toEqual([['Opportunity', 2, 'QUERY_TIMEOUT: Your query request was running for too long.']]);
+    expect(autopilotRunStatus(result)).toBe('partial');
+  });
+
+  it('says a run whose one object threw after its first page partial, never a run that wrote nothing', async () => {
+    // One object of five records, two a call: the first call went in, the
+    // insert of the second threw. The run had written two records.
+    const leads = { Lead: [1, 2, 3, 4, 5].map((n) => ({ Id: `led${n}`, LastName: `L${n}` })) };
+    const target = new MemoryTarget([]);
+    let calls = 0;
+    const insert = vi.fn<InsertFn>(async (objectApiName, records) => {
+      calls++;
+      if (calls === 2) throw new Error('UNABLE_TO_LOCK_ROW: unable to obtain exclusive access');
+      return target.insert(objectApiName, records);
+    });
+    const executor = new AutopilotExecutor(
+      makeDeps({ query: sourceOf(leads), insert, remapper: new RecordIdRemapper(), batchSize: 2 }),
+    );
+
+    const result = await executor.execute(wavesOf('Lead'), [], [], countsOf(leads));
+
+    expect(target.of('Lead')).toHaveLength(2);
+    expect(result).toMatchObject({ totalSuccess: 2, totalFailure: 0, failedObjects: ['Lead'] });
+    expect(result.objectOutcomes?.['Lead']).toMatchObject({ written: 2, failed: 0 });
+    expect(autopilotRunStatus(result)).toBe('partial');
+  });
+
   it('sends nothing under a parent a stop cut short: its children are among what the stop never sent', async () => {
     // The stop comes as the first page of deals is answered. Nothing is
     // written after it, so no line goes without its deal: each is counted
@@ -4364,6 +4781,8 @@ describe('AutopilotExecutor — a record on a record type the running user canno
           message: closedTo(1, 'Partner_Deal', 'Partner deal'),
         },
       ],
+      // The one on Master went in without a type, which the run says.
+      recordTypeGiven: expect.objectContaining({ rows: 1, why: { masterInSource: 1 } }),
     });
     expect(result.completedObjects).toContain('Opportunity');
     expect(result.failedObjects).toEqual([]);

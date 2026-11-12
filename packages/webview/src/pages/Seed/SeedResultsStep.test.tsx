@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import type { SeedExecutionResult, SeedObjectResult, SeedTemplate } from '@sandforge/shared';
-import '../../i18n';
+import type {
+  RunCheckpointTaken,
+  SeedExecutionResult,
+  SeedObjectResult,
+  SeedTemplate,
+} from '@sandforge/shared';
+import i18n from '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { developerOrg, productionOrg } from '../Checkpoint/testing/checkpointFixtures';
@@ -115,6 +120,20 @@ function executionResult(objectResults: SeedObjectResult[]): SeedExecutionResult
   };
 }
 
+const TAKEN: RunCheckpointTaken = {
+  state: 'taken',
+  checkpointId: 'ck-20261101-101500-a1b2',
+  name: 'Before Seed run 2026-11-01 10:15 UTC',
+  takenAt: '2026-11-01T10:15:00.000Z',
+  expiresAt: '2026-11-08T10:15:00.000Z',
+  objects: ['Account'],
+  records: 38,
+  bytes: 2_200_000,
+  requests: 68,
+  added: [],
+  notHeld: [],
+};
+
 describe('SeedResultsStep', () => {
   beforeEach(() => {
     saveTemplateMutate.mockClear();
@@ -125,6 +144,78 @@ describe('SeedResultsStep', () => {
     saveTemplateState.saving = false;
     saveTemplateState.real = false;
     mockVSCodeApi.postMessage.mockClear();
+  });
+
+  describe('before it has a result', () => {
+    const shown = (props: { isRunning?: boolean; stopped?: boolean }) =>
+      render(
+        <SeedResultsStep
+          orgName="dev1"
+          executionResult={undefined}
+          onSeedAgain={vi.fn()}
+          template={null}
+          {...props}
+        />,
+      );
+
+    it('says what Confirm does, where it said no data was available', () => {
+      shown({});
+      expect(screen.getByTestId('seed-results-waiting').textContent).toBe(
+        'Nothing has been written yet: Confirm starts the seed.',
+      );
+      expect(screen.queryByText('No data available')).toBeNull();
+    });
+
+    it('says the run goes while it goes', () => {
+      shown({ isRunning: true });
+      expect(screen.getByTestId('seed-results-waiting').textContent).toBe(i18n.t('seed.running'));
+    });
+
+    it('says nothing beside the refusal of a run stopped: nothing is missing', () => {
+      shown({ stopped: true });
+      expect(screen.queryByTestId('seed-results-waiting')).toBeNull();
+      expect(screen.queryByText('No data available')).toBeNull();
+    });
+  });
+
+  it('names under the removal the checkpoint the run took, with the way to rewind to it', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    render(
+      <SeedResultsStep
+        orgName="DEV-SB"
+        orgId="org-dev"
+        executionResult={{ ...executionResult([objectResult()]), checkpoint: TAKEN }}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    expect(screen.getByTestId('seed-result-checkpoint-taken').textContent).toContain(TAKEN.name);
+    fireEvent.click(screen.getByTestId('seed-result-checkpoint-action'));
+    expect(useAppStore.getState().navigationIntent).toMatchObject({
+      previewCheckpointId: TAKEN.checkpointId,
+      targetOrgId: 'org-dev',
+    });
+  });
+
+  it('says a run that wrote nothing deleted its checkpoint', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    render(
+      <SeedResultsStep
+        orgName="DEV-SB"
+        orgId="org-dev"
+        executionResult={{
+          ...executionResult([]),
+          checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+        }}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    expect(screen.getByTestId('seed-result-checkpoint-deleted').textContent).toBe(
+      'The checkpoint taken before the run was deleted: the run wrote nothing.',
+    );
   });
 
   it('offers the removal of what the run created, asking for it by the run’s id', () => {
@@ -399,12 +490,82 @@ describe('SeedResultsStep', () => {
     expect(sent.suggestedName).toMatch(/^sandforge-seed-results-\d{4}-\d{2}-\d{2}\.csv$/);
     expect(sent.extensions).toEqual(['csv']);
     expect(sent.content.split('\n')).toEqual([
-      '"Object","Requested","Created","Failed","Created IDs","Created IDs not listed"',
+      '"Object","Requested","Created","Failed","Created IDs","Created IDs not listed","Linked to a record the platform wrote"',
       // Only the first ids of a long list reach the step; the rest are counted.
-      '"Contact","10","8","2","003000000000001AAA 003000000000002AAA","6"',
-      '"Account","5","5","0","001000000000001AAA 001000000000002AAA 001000000000003AAA 001000000000004AAA 001000000000005AAA","0"',
+      '"Contact","10","8","2","003000000000001AAA 003000000000002AAA","6","0"',
+      '"Account","5","5","0","001000000000001AAA 001000000000002AAA 001000000000003AAA 001000000000004AAA 001000000000005AAA","0","0"',
     ]);
     expect(saveTemplateMutate).not.toHaveBeenCalled();
+  });
+
+  it('exports the contact roles linked to the ones the platform wrote in a last column, apart from those created', () => {
+    // The file had no column for them: a role object whose roles were all
+    // linked read as one that wrote nothing, 0 created and 0 failed. The
+    // column goes last, so the columns before it stay where a reader finds them.
+    const template = seedTemplate();
+    template.objects = [
+      { ...template.objects[0], objectApiName: 'Opportunity', recordCount: 3 },
+      { ...template.objects[0], objectApiName: 'OpportunityContactRole', recordCount: 3 },
+    ];
+    render(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={executionResult([
+          objectResult({
+            objectApiName: 'Opportunity',
+            recordsCreated: 3,
+            createdIds: [1, 2, 3].map((n) => `00600000000000${n}AAA`),
+          }),
+          objectResult({
+            objectApiName: 'OpportunityContactRole',
+            recordsCreated: 0,
+            writtenByThePlatform: { records: 3, given: 3 },
+          }),
+        ])}
+        onSeedAgain={vi.fn()}
+        template={template}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('btn-export-csv'));
+
+    const { content } = fileSaveMutate.mock.calls[0][0] as { content: string };
+    const [header, opportunities, roles] = content
+      .split('\n')
+      .map((line) => line.slice(1, -1).split('","'));
+    expect(header.slice(0, 6)).toEqual([
+      'Object',
+      'Requested',
+      'Created',
+      'Failed',
+      'Created IDs',
+      'Created IDs not listed',
+    ]);
+    expect(header[6]).toBe('Linked to a record the platform wrote');
+    expect(opportunities[6]).toBe('0');
+    expect(roles).toEqual(['OpportunityContactRole', '3', '0', '0', '', '0', '3']);
+  });
+
+  it('says on the card of a role object whose roles were all linked that they were linked, not 0/0', () => {
+    render(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={executionResult([
+          objectResult({ objectApiName: 'Opportunity', recordsCreated: 2 }),
+          objectResult({
+            objectApiName: 'OpportunityContactRole',
+            recordsCreated: 0,
+            writtenByThePlatform: { records: 2, given: 2 },
+          }),
+        ])}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    expect(screen.getByText('2/2')).toBeTruthy();
+    expect(screen.getByText('2 linked')).toBeTruthy();
+    expect(screen.queryByText('0/0')).toBeNull();
   });
 
   it('leaves the requested count empty when the step has no template', () => {
@@ -420,7 +581,7 @@ describe('SeedResultsStep', () => {
     fireEvent.click(screen.getByTestId('btn-export-csv'));
 
     const { content } = fileSaveMutate.mock.calls[0][0] as { content: string };
-    expect(content.split('\n')[1]).toBe('"Contact","","10","0","","10"');
+    expect(content.split('\n')[1]).toBe('"Contact","","10","0","","10","0"');
   });
 
   it('cannot export twice while the host’s save dialog is open', () => {
@@ -491,6 +652,59 @@ describe('SeedResultsStep', () => {
     expect(row.textContent).toContain('Title');
     expect(row.textContent).toContain('left values out');
     expect(row.textContent).not.toContain('refused');
+  });
+
+  it('says the contact roles linked to the ones the platform wrote with their opportunity, and the target’s words for those it kept as it wrote them', () => {
+    render(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={executionResult([
+          objectResult({
+            objectApiName: 'OpportunityContactRole',
+            recordsCreated: 1,
+            writtenByThePlatform: {
+              records: 2,
+              given: 1,
+              refusal: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: A role is set by the account team.',
+            },
+          }),
+          objectResult({ objectApiName: 'Opportunity' }),
+        ])}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    const rows = screen.getAllByTestId('seed-result-written-by-the-platform');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toBe(
+      '2 contact roles linked to the ones the platform wrote with their opportunity, for the ' +
+        'contact each went in with, not written; given the fields generated for them: 1. ' +
+        "The others stay as the platform wrote them. The target's words: " +
+        'FIELD_CUSTOM_VALIDATION_EXCEPTION: A role is set by the account team.',
+    );
+  });
+
+  it('says one role linked without the target’s words when it took the fields', () => {
+    render(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={executionResult([
+          objectResult({
+            objectApiName: 'OpportunityContactRole',
+            recordsCreated: 0,
+            writtenByThePlatform: { records: 1, given: 1 },
+          }),
+        ])}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    expect(screen.getByTestId('seed-result-written-by-the-platform').textContent).toBe(
+      '1 contact role linked to the one the platform wrote with its opportunity, for the ' +
+        'contact it went in with, not written; given the fields generated for it: 1.',
+    );
   });
 
   it('shows no fallback row when every AI field got an AI value', () => {

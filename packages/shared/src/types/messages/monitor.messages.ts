@@ -140,7 +140,12 @@ export interface LiveOperationSnapshot {
   operationId: string;
   module: string;
   description: string;
-  status: 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+  /**
+   * `partial`: the run ended with part of its work not done, which it says in
+   * its results. It wrote what it could, so it did not fail, and it did not
+   * do what it was asked, so it did not succeed.
+   */
+  status: 'running' | 'paused' | 'completed' | 'partial' | 'failed' | 'cancelled';
   percentage: number;
   processedRecords: number;
   totalRecords: number;

@@ -45,6 +45,19 @@ const COLLEAGUE = '005000000000003AAA';
 
 /** T0 on the org's clock, with its milliseconds. */
 const T0 = Date.parse('2026-10-22T14:05:12.731Z');
+
+// This machine's clock pinned a minute after T0, going on: what the store
+// and the handler date by it — an undo's fifteen days, a checkpoint's expiry —
+// reads as the tests' org does, whatever day they run. Left to the real one,
+// every undo these tests offer was refused fifteen days after they were written.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: T0 + 60_000, shouldAdvanceTime: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 /** Long before the checkpoint: the records and the fields the org held. */
 const LONG_AGO = Date.parse('2026-10-01T09:00:00.000Z');
 
@@ -122,6 +135,7 @@ class PreviewTestOrg extends MemoryRemovalOrg implements TakeOrg {
       PermissionsViewAllData: true,
       PermissionsModifyAllData: true,
       PermissionsViewEncryptedData: false,
+      PermissionsEmailSingle: true,
     });
     this.add('User', { Id: AUTOMATED_PROCESS, UserType: 'AutomatedProcess' });
     this.add('User', { Id: MEMORY_ORG_USER, Name: 'Ada Admin' });
@@ -556,6 +570,159 @@ describe('previewCheckpoint', () => {
     if (!without.previewed) throw new Error(without.refusal.message);
     expect(without.emails).toBeUndefined();
     expect(without.refusal).toBeUndefined();
+  });
+
+  it('asked to mute, counts only what still runs: no email, no refusal, no read of the deliverability, the automation left as read (a dry run said the emails its mute kept quiet)', async () => {
+    const t = await taken();
+    changedSince(t.org);
+    t.org.anonymousApex = { compiled: true, success: true };
+    // The only sender, kept quiet for whoever holds the set the org grants its bypass in.
+    const mutable: PreviewDeps['readAutomation'] = async (objects) => ({
+      ...(await automationRead([])(objects)),
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_changed',
+              label: 'Account changed',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [{ name: 'Skip_Account', bypass: true, held: false }],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      bypassGrants: [
+        {
+          permission: 'Skip_Account',
+          permissionSets: [{ name: 'Skip_Account_Set', label: 'Skip', grants: 1 }],
+        },
+      ],
+    });
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 1 } };
+    const unmuted = await previewCheckpoint(
+      { org: t.org, store: t.store, readAutomation: mutable },
+      request(t),
+    );
+    t.org.anonymousAsked.length = 0;
+
+    const muted = await previewCheckpoint(
+      { org: t.org, store: t.store, readAutomation: mutable },
+      { ...request(t), muteAutomation: true },
+    );
+
+    if (!unmuted.previewed || !muted.previewed) throw new Error('refused');
+    expect(unmuted.emails).toHaveLength(1);
+    expect(unmuted.deliverability).toMatchObject({ reading: { level: 'all' } });
+    expect(unmuted.refusal).toMatchObject({ code: 'EMAILS' });
+    expect(muted.emails).toBeUndefined();
+    expect(muted.deliverability).toBeUndefined();
+    expect(muted.refusal).toBeUndefined();
+    expect(t.org.anonymousAsked).toEqual([]);
+    // The mute is planned from the read: a read of what it holds held plans nothing.
+    expect(muted.automation?.objects[0]?.flows[0]?.permissions[0]?.held).toBe(false);
+  });
+
+  describe('whether the org delivers the emails of what fires as it writes', () => {
+    /** A flow that emails an account's owner as it is updated. */
+    const sending: PreviewDeps['readAutomation'] = async (objects) => ({
+      ...(await automationRead([])(objects)),
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_changed',
+              label: 'Account changed',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+    const SENDER = {
+      objectApiName: 'Account',
+      kind: 'flow',
+      name: 'Account changed',
+      why: 'email',
+    };
+
+    it('answers it beside the rest, asks nothing of it as a refusal, and prices the rewind’s own read', async () => {
+      const t = await taken();
+      changedSince(t.org);
+      t.org.anonymousApex = { compiled: true, success: true };
+      const unread = await previewCheckpoint(
+        { org: t.org, store: t.store, readAutomation: automationRead([]) },
+        request(t),
+      );
+
+      const outcome = await previewCheckpoint(
+        { org: t.org, store: t.store, readAutomation: sending },
+        request(t),
+      );
+
+      if (!outcome.previewed || !unread.previewed) throw new Error('refused');
+      expect(outcome.deliverability).toEqual({ reading: { level: 'all' }, senders: [SENDER] });
+      // The page's box and the command line's flag answer it, as for the automation.
+      expect(outcome.refusal).toBeUndefined();
+      expect(outcome.estimate.apiRequests - unread.estimate.apiRequests).toBe(1);
+    });
+
+    it('names the read among the requests the rewind would take, past what the org has left today', async () => {
+      const t = await taken();
+      changedSince(t.org);
+      t.org.anonymousApex = { compiled: true, success: true };
+      t.org.limits = { Max: 15_000, Remaining: 5 };
+
+      const outcome = await previewCheckpoint(
+        { org: t.org, store: t.store, readAutomation: sending },
+        request(t),
+      );
+
+      if (!outcome.previewed) throw new Error(outcome.refusal.message);
+      expect(outcome.refusal).toMatchObject({
+        code: 'API_BUDGET',
+        message: expect.stringMatching(
+          /^This rewind takes about \d+ API requests \(1 of them to read whether DEV-ED delivers its emails\); DEV-ED has 5/,
+        ) as unknown,
+      });
+    });
+
+    it('says an org that withholds them, its user’s Send Email read after its answer', async () => {
+      const t = await taken();
+      changedSince(t.org);
+
+      const outcome = await previewCheckpoint(
+        { org: t.org, store: t.store, readAutomation: sending },
+        request(t),
+      );
+
+      if (!outcome.previewed) throw new Error(outcome.refusal.message);
+      expect(outcome.deliverability).toEqual({ reading: { level: 'withheld' }, senders: [SENDER] });
+    });
+
+    it('reads nothing when nothing that fires sends one', async () => {
+      const t = await taken();
+      changedSince(t.org);
+
+      const outcome = await previewCheckpoint(
+        { org: t.org, store: t.store, readAutomation: automationRead([]) },
+        request(t),
+      );
+
+      if (!outcome.previewed) throw new Error(outcome.refusal.message);
+      expect(outcome.deliverability).toBeUndefined();
+      expect(t.org.anonymousAsked).toEqual([]);
+    });
   });
 
   it('says the emails of a package’s flow on an object the rewind gives back were not counted, though nothing it read sends one, and refuses nothing for it', async () => {

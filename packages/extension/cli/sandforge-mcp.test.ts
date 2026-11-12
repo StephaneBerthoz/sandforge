@@ -9,8 +9,11 @@ import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
 
+import { removalAutomationRefusal } from '../src/modules/forge/ForgeRunGate.js';
+import { refusedLine } from './runRefused.js';
 import { main as envMain } from './sandforge-env.js';
 import { runInProcess } from './testing/envWorld.js';
+import { undeletableRefusal } from './undeletableAnswer.js';
 
 import {
   ERROR,
@@ -20,6 +23,7 @@ import {
   claimStdout,
   exitWords,
   serve,
+  toolRunner,
   type CommandRun,
   type CommandRunner,
   type Script,
@@ -430,7 +434,12 @@ describe('sandforge-mcp: confirm', () => {
     await c.call('checkpoint_take', { org: 'DEV', estimate: true });
     await c.call('checkpoint_list', { org: 'DEV' });
     await c.call('env_plan', { file: 'envs/sandforge.yaml', org: 'SB' });
-    await c.call('env_plan', { file: '/repo/sandforge.yaml', org: 'SB', failOnDrift: true });
+    await c.call('env_plan', {
+      file: '/repo/sandforge.yaml',
+      org: 'SB',
+      failOnDrift: true,
+      acceptEmails: true,
+    });
 
     expect(ran).toEqual([
       {
@@ -469,6 +478,7 @@ describe('sandforge-mcp: confirm', () => {
           '--org',
           'SB',
           '--fail-on-drift',
+          '--accept-emails',
           '--json',
         ],
       },
@@ -521,6 +531,7 @@ describe('sandforge-mcp: confirm', () => {
       checkpoint: 'Before UAT',
       confirm: 'DEV',
       acceptAutomation: true,
+      acceptEmails: true,
       acceptNoUndo: true,
       acceptRecreate: true,
       acceptOutside: true,
@@ -532,6 +543,7 @@ describe('sandforge-mcp: confirm', () => {
       checkpoint: 'Before UAT',
       confirm: 'DEV',
       acceptAutomation: true,
+      acceptEmails: true,
     });
     await c.call('checkpoint_delete', { org: 'DEV', checkpoint: 'Before UAT', confirm: 'DEV' });
     await c.call('env_apply', { file: 'sandforge.yaml', org: 'SB', confirm: 'SB' });
@@ -541,6 +553,7 @@ describe('sandforge-mcp: confirm', () => {
       confirm: 'SB',
       replace: ['accounts', 'case-contacts'],
       acceptNoState: true,
+      acceptEmails: true,
     });
     await c.call('env_destroy', { file: 'sandforge.yaml', org: 'SB', confirm: 'SB' });
     await c.call('env_destroy', {
@@ -625,6 +638,7 @@ describe('sandforge-mcp: confirm', () => {
           'Before UAT',
           '--yes',
           '--accept-automation',
+          '--accept-emails',
           '--accept-no-undo',
           '--accept-recreate',
           '--accept-outside',
@@ -646,6 +660,7 @@ describe('sandforge-mcp: confirm', () => {
           'Before UAT',
           '--yes',
           '--accept-automation',
+          '--accept-emails',
           '--json',
         ],
       },
@@ -670,6 +685,7 @@ describe('sandforge-mcp: confirm', () => {
           '--replace',
           'case-contacts',
           '--accept-no-state',
+          '--accept-emails',
           '--yes',
           '--json',
         ],
@@ -922,6 +938,132 @@ describe("sandforge-mcp: a script's answer", () => {
     await c.close();
   });
 
+  it('names acceptEmails where a rewind or an undo is refused for the emails the org delivers, and never takes it from acceptAutomation', async () => {
+    const refusal =
+      'DEV delivers every email its automation sends (Setup > Deliverability: All email). ' +
+      'Nothing was written. Add --accept-emails to rewind all the same.';
+    const { run, ran } = scripts(() => ({
+      code: 1,
+      stdout: JSON.stringify({ refusal: { code: 'EMAILS_DELIVERED', message: refusal } }),
+      stderr: `${refusal}\n`,
+    }));
+    const c = client(run);
+    await c.initialized();
+
+    const result = await c.call('checkpoint_rewind', {
+      org: 'DEV',
+      checkpoint: 'baseline',
+      confirm: 'DEV',
+      acceptAutomation: true,
+    });
+
+    expect(textOf(result)).toContain(
+      "--accept-emails, named above, is this tool's acceptEmails: true. Give it only once the " +
+        'person using you has accepted what it lets through.',
+    );
+    expect(ran[0]?.args).toContain('--accept-automation');
+    expect(ran[0]?.args).not.toContain('--accept-emails');
+    await c.close();
+  });
+
+  it('hands muteAutomation to a rewind and an undo as --mute-automation, and names it where their refusal names the flag', async () => {
+    // The rewind's refusal for the emails said "--mute-automation keeps quiet
+    // ..." to a reader whose checkpoint_rewind and checkpoint_undo took no
+    // such parameter, though the script's rewind and undo take the flag.
+    const refusal =
+      'DEV delivers every email its automation sends (Setup > Deliverability: All email), and ' +
+      'flow "Welcome Email" on Contact sends some as the rewind writes. Nothing was written. ' +
+      "Add --accept-emails to rewind all the same, set the org's deliverability to System " +
+      'email only, or turn off what sends them. --mute-automation keeps quiet flow "Welcome ' +
+      'Email" on Contact, which tests a bypass a permission set of DEV holds.';
+    const { run, ran } = scripts((_script, args) =>
+      args.includes('--mute-automation')
+        ? { code: 0, stdout: '{}' }
+        : {
+            code: 1,
+            stdout: JSON.stringify({ refusal: { code: 'EMAILS_DELIVERED', message: refusal } }),
+            stderr: `${refusal}\n`,
+          },
+    );
+    const c = client(run);
+    await c.initialized();
+    const asked = { org: 'DEV', checkpoint: 'baseline', confirm: 'DEV' };
+
+    const rewound = await c.call('checkpoint_rewind', asked);
+    const undone = await c.call('checkpoint_undo', asked);
+    const muted = await c.call('checkpoint_rewind', { ...asked, muteAutomation: true });
+    const undoMuted = await c.call('checkpoint_undo', { ...asked, muteAutomation: true });
+
+    for (const answered of [rewound, undone]) {
+      expect(textOf(answered)).toContain(
+        "--mute-automation, named above, is this tool's muteAutomation: true. Give it only once " +
+          'the person using you has accepted what it lets through.',
+      );
+    }
+    for (const answered of [muted, undoMuted]) expect(answered.isError).toBe(false);
+    expect(ran.map(({ args }) => args.includes('--mute-automation'))).toEqual([
+      false,
+      false,
+      true,
+      true,
+    ]);
+    await c.close();
+  });
+
+  it('hands acceptEmails to a seed and a clone as --accept-emails, never from acceptAutomation, and names it where they are refused for the emails', async () => {
+    const refusal =
+      'DEV delivers every email its automation sends (Setup > Deliverability: All email). ' +
+      'Nothing was written. Add --accept-emails to seed all the same.';
+    const { run, ran } = scripts(() => ({ code: 1, stderr: `${refusal}\n` }));
+    const c = client(run);
+    await c.initialized();
+
+    const seeded = await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: false,
+      confirm: 'DEV',
+    });
+    await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: false,
+      confirm: 'DEV',
+      acceptEmails: true,
+    });
+    const cloned = await c.call('clone_record', {
+      source: 'SRC',
+      target: 'SB',
+      recordId: '001000000000001AAA',
+      dryRun: false,
+      confirm: 'SB',
+      acceptAutomation: true,
+    });
+    await c.call('clone_record', {
+      source: 'SRC',
+      target: 'SB',
+      recordId: '001000000000001AAA',
+      dryRun: false,
+      confirm: 'SB',
+      acceptEmails: true,
+    });
+
+    const named =
+      "--accept-emails, named above, is this tool's acceptEmails: true. Give it only once the " +
+      'person using you has accepted what it lets through.';
+    expect(textOf(seeded)).toContain(named);
+    expect(textOf(cloned)).toContain(named);
+    expect(ran.map((line) => line.args.includes('--accept-emails'))).toEqual([
+      false,
+      true,
+      false,
+      true,
+    ]);
+    expect(ran[2]?.args).toContain('--accept-automation');
+    expect(ran[3]?.args).not.toContain('--accept-automation');
+    await c.close();
+  });
+
   it('says how to take a seed or a clone back, from the run file or the journal its answer names', async () => {
     const { run } = scripts((script) => ({
       stdout: JSON.stringify(
@@ -962,6 +1104,250 @@ describe("sandforge-mcp: a script's answer", () => {
     await c.close();
   });
 
+  it('hands includeChanged, muteAutomation and leaveUndeletable to the line of a removal, each only once asked', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    for (const module of ['seed', 'forge', 'sync']) {
+      await c.call('run_remove', {
+        module,
+        org: 'DEV',
+        run: 'run.json',
+        confirm: 'DEV',
+        includeChanged: true,
+        acceptAutomation: true,
+        muteAutomation: true,
+        leaveUndeletable: true,
+      });
+    }
+
+    const line = [
+      '--remove',
+      'run.json',
+      '--target',
+      'DEV',
+      '--include-changed',
+      '--accept-automation',
+      '--mute-automation',
+      '--leave-undeletable',
+      '--json',
+    ];
+    expect(ran).toEqual([
+      { script: 'sandforge-seed', args: line },
+      { script: 'sandforge-clone', args: line },
+      { script: 'sandforge-sync', args: line },
+    ]);
+    await c.close();
+  });
+
+  it("names the parameter each answer a removal's lines give stands for: the records changed since, the mute, what its user may not delete", async () => {
+    // run_remove relayed these flags and took none of them: the person using
+    // the agent was sent to a parameter the tool refused.
+    const automation = {
+      objectsRead: ['Account'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [],
+          triggers: [{ name: 'AccountCleanup', events: ['beforeDelete' as const] }],
+        },
+      ],
+      unread: [],
+    };
+    const fires = removalAutomationRefusal(automation, 'DEV', {
+      assign: [{ permission: 'Skip_Cleanup', permissionSet: 'Cleanup_Bypass', others: [] }],
+      mayMute: true,
+    });
+    const answers: Array<Partial<CommandRun>> = [
+      {
+        code: 1,
+        stderr: `${refusedLine({ code: 'AUTOMATION_NOT_ACCEPTED', message: fires ?? '' })}\n`,
+      },
+      {
+        code: 1,
+        stderr: `${refusedLine(undeletableRefusal([{ objectApiName: 'Account', records: 2 }], 'DEV'))}\n`,
+      },
+      {
+        code: 0,
+        stderr:
+          'records changed since the run stay, as do those records added since depend on ' +
+          '(--include-changed takes them)\n',
+      },
+    ];
+    const { run } = scripts(() => answers.shift() ?? {});
+    const c = client(run);
+    await c.initialized();
+    const remove = (module: string) =>
+      c.call('run_remove', { module, org: 'DEV', run: 'run.json', confirm: 'DEV' });
+
+    const muted = textOf(await remove('seed'));
+    const left = textOf(await remove('sync'));
+    const changed = textOf(await remove('forge'));
+
+    expect(muted).toContain('With --mute-automation, the removal assigns Cleanup_Bypass');
+    expect(muted).toContain(
+      "--mute-automation, named above, is this tool's muteAutomation: true. Give it only once " +
+        'the person using you has accepted what it lets through.',
+    );
+    expect(muted).toContain(
+      "--accept-automation, named above, is this tool's acceptAutomation: true.",
+    );
+    expect(left).toContain('run again with --leave-undeletable');
+    expect(left).toContain(
+      "--leave-undeletable, named above, is this tool's leaveUndeletable: true.",
+    );
+    expect(changed).toContain(
+      "--include-changed, named above, is this tool's includeChanged: true.",
+    );
+    await c.close();
+  });
+
+  it('hands muteAutomation to a seed and a clone as --mute-automation, a dry run as a write, and names it where their lines name the flag', async () => {
+    // seed_run and clone_record relayed "--mute-automation keeps quiet ..."
+    // and took no such parameter. A script asked to mute names the flag no
+    // more, as a seed under it did not on the trap org: its lines say the
+    // mute it plans, and the refusal it would have met without it is gone.
+    const sends =
+      'refused (EMAILS_NOT_ACCEPTED): DEV delivers every email its automation sends. ' +
+      'Nothing was written. --mute-automation keeps quiet flow "Welcome Email" on Contact, ' +
+      'which tests a bypass a permission set of DEV holds.\n';
+    const muted =
+      'mute: planned, the permission set(s) holding Welcome_Bypass for the user it writes as ' +
+      'in DEV, for the run alone; nothing is assigned yet\n' +
+      '  silenced: flow "Welcome Email" on Contact (bypass Welcome_Bypass)\n';
+    const { ran, run } = scripts((_script, args) =>
+      args.includes('--mute-automation')
+        ? { code: 0, stdout: '{}', stderr: muted }
+        : { code: 1, stderr: sends },
+    );
+    const c = client(run);
+    await c.initialized();
+
+    const seededMuted = await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: true,
+      muteAutomation: true,
+    });
+    const clonedMuted = await c.call('clone_record', {
+      source: 'SRC',
+      target: 'SB',
+      recordId: '001000000000001AAA',
+      dryRun: false,
+      confirm: 'SB',
+      muteAutomation: true,
+    });
+    const seeded = await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: true,
+    });
+    const cloned = await c.call('clone_record', {
+      source: 'SRC',
+      target: 'SB',
+      recordId: '001000000000001AAA',
+      dryRun: false,
+      confirm: 'SB',
+    });
+
+    expect(ran.map(({ args }) => args.includes('--mute-automation'))).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
+    for (const answered of [seededMuted, clonedMuted]) {
+      expect(textOf(answered)).toContain('mute: planned, the permission set(s) holding');
+      expect(textOf(answered)).not.toContain('named above');
+    }
+    for (const answered of [seeded, cloned]) {
+      expect(textOf(answered)).toContain(
+        "--mute-automation, named above, is this tool's muteAutomation: true.",
+      );
+    }
+    await c.close();
+  });
+
+  it('hands store to the removal of a Sync run as its --store, names it where the line asks for it, and refuses it for any other module', async () => {
+    // run_remove relayed "Give --store with the next removal" and took no store.
+    const unsaid =
+      'The run was of the saved configuration cfg-1, and its store was not given: its next ' +
+      'delta run is not told what this removal took, and a later run may point a lookup at a ' +
+      'record it deleted. Give --store with the next removal, or run the configuration full ' +
+      'next time.\n';
+    const { ran, run } = scripts(() => ({ stdout: '{}', stderr: unsaid }));
+    const c = client(run);
+    await c.initialized();
+
+    const removed = await c.call('run_remove', {
+      module: 'sync',
+      org: 'DEV',
+      run: 'run.json',
+      confirm: 'DEV',
+      store: 'configs/sync',
+    });
+    const seed = await c.call('run_remove', {
+      module: 'seed',
+      org: 'DEV',
+      run: 'run.json',
+      confirm: 'DEV',
+      store: 'configs/sync',
+    });
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-sync',
+        args: ['--remove', 'run.json', '--target', 'DEV', '--store', 'configs/sync', '--json'],
+      },
+    ]);
+    expect(textOf(removed)).toContain(
+      "--store, named above, is this tool's store: the directory of the run's saved " +
+        'configuration, as the person using you names it.',
+    );
+    expect(seed).toMatchObject({
+      isError: true,
+      structuredContent: { refusal: { code: 'ARGUMENTS' } },
+    });
+    expect(textOf(seed)).toContain('store goes with module "sync"');
+    await c.close();
+  });
+
+  it("says what to write in the file where an environment's removal asks for --accept-automation, which neither env tool takes", async () => {
+    const fires =
+      'refused (AUTOMATION_NOT_ACCEPTED): SB runs automation on the records this removal ' +
+      'deletes: Account: Apex trigger AccountCleanup (before delete). Nothing was deleted. Add ' +
+      '--accept-automation to remove all the same, or turn that automation off in SB first.\n';
+    const { run } = scripts(() => ({ code: 1, stderr: fires }));
+    const c = client(run);
+    await c.initialized();
+
+    const destroyed = await c.call('env_destroy', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      confirm: 'SB',
+    });
+    const applied = await c.call('env_apply', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      confirm: 'SB',
+    });
+
+    for (const [answered, tool] of [
+      [destroyed, 'env_destroy'],
+      [applied, 'env_apply'],
+    ] as const) {
+      expect(textOf(answered)).toContain(
+        `--accept-automation, named above, is no parameter of ${tool}: an environment's ` +
+          "acceptance of automation is its file's. Write accept: { automation: true } on the " +
+          'resource whose run it names, in the file, once the person using you has accepted ' +
+          `what fires, then call ${tool} again.`,
+      );
+      expect(textOf(answered)).not.toContain("is this tool's acceptAutomation");
+    }
+    await c.close();
+  });
+
   it('answers a script that could not be started with why', async () => {
     const c = client(() => Promise.reject(new Error('spawn ENOENT')));
     await c.initialized();
@@ -972,6 +1358,21 @@ describe("sandforge-mcp: a script's answer", () => {
     expect(textOf(result)).toContain('sandforge-checkpoint could not be started: spawn ENOENT');
     await c.close();
   });
+
+  it('tells each script it runs that its lines are relayed, so that what a removal says takes what it kept is what this reader can run', async () => {
+    // run_remove takes no sweep: relayed as they were, "--sweep takes them
+    // first" and "(--sweep-untied takes them)" named flags of no tool.
+    const inherited = process.execArgv;
+    process.execArgv = ['--import', 'tsx'];
+    try {
+      const run = toolRunner({ scriptPath: () => join(__dirname, 'testing', 'stopProbe.ts') });
+      const ran = await run('sandforge-clone', ['exit'], new AbortController().signal);
+
+      expect(JSON.parse(ran.stdout)).toMatchObject({ relayedBy: 'sandforge-mcp' });
+    } finally {
+      process.execArgv = inherited;
+    }
+  }, 120_000);
 });
 
 describe('sandforge-mcp: the environment tools', () => {
@@ -1257,4 +1658,221 @@ describe('sandforge-mcp over the pipes of a process of its own', () => {
     expect(stderr).toContain('sandforge-mcp: 13 tools on stdio');
     expect(stderr).toContain('No checkpoint is kept in');
   }, 60_000);
+});
+
+describe('sandforge-mcp: a seed fitted to the storage', () => {
+  it('hands fit and its bound to the seed’s line, a dry run as a write', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-sales-cloud-starter',
+      dryRun: true,
+      fit: 'share',
+      fitWithinMB: 2.5,
+    });
+    await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-sales-cloud-starter',
+      dryRun: false,
+      fit: 'share',
+      confirm: 'DEV',
+    });
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-seed',
+        args: [
+          '--target',
+          'DEV',
+          '--template',
+          'prebuilt-sales-cloud-starter',
+          '--dry-run',
+          '--fit',
+          'share',
+          '--fit-within',
+          '2.5',
+          '--json',
+        ],
+      },
+      {
+        script: 'sandforge-seed',
+        args: [
+          '--target',
+          'DEV',
+          '--template',
+          'prebuilt-sales-cloud-starter',
+          '--fit',
+          'share',
+          '--json',
+        ],
+      },
+    ]);
+    await c.close();
+  });
+
+  it('refuses a bound with no fit, and a fit that is not by share, before any script runs', async () => {
+    const { ran, run } = scripts();
+    const c = client(run);
+    await c.initialized();
+
+    const refusals = [
+      await c.call('seed_run', {
+        org: 'DEV',
+        template: 'prebuilt-sales-cloud-starter',
+        dryRun: true,
+        fitWithinMB: 2,
+      }),
+      await c.call('seed_run', {
+        org: 'DEV',
+        template: 'prebuilt-sales-cloud-starter',
+        dryRun: true,
+        fit: 'caps',
+      }),
+      await c.call('seed_run', {
+        org: 'DEV',
+        template: 'prebuilt-sales-cloud-starter',
+        dryRun: true,
+        fit: 'share',
+        fitWithinMB: 0,
+      }),
+    ];
+
+    for (const result of refusals) {
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({ refusal: { code: 'ARGUMENTS' } });
+    }
+    expect(textOf(refusals[0] as CallResult)).toContain('fitWithinMB goes with fit: "share"');
+    expect(ran).toEqual([]);
+    await c.close();
+  });
+});
+
+describe('sandforge-mcp: a checkpoint before a run', () => {
+  const CHECKPOINT = 'ck-20261101-110000-c3d4';
+
+  it('hands checkpointFirst, its days and what it leaves out to the line of a seed and of a clone, a dry run as a write', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: true,
+      checkpointFirst: {},
+    });
+    await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: false,
+      confirm: 'DEV',
+      checkpointFirst: { keepDays: 0, excluded: ['Task', 'Event'] },
+    });
+    await c.call('clone_record', {
+      source: 'SRC',
+      target: 'SB',
+      recordId: '001000000000001AAA',
+      dryRun: false,
+      confirm: 'SB',
+      checkpointFirst: { keepDays: 30 },
+    });
+
+    expect(ran.map(({ args }) => args.slice(args.indexOf('--checkpoint-first')))).toEqual([
+      ['--checkpoint-first', '--json'],
+      [
+        '--checkpoint-first',
+        '--checkpoint-keep-days',
+        '0',
+        '--checkpoint-exclude-object',
+        'Task',
+        '--checkpoint-exclude-object',
+        'Event',
+        '--json',
+      ],
+      ['--checkpoint-first', '--checkpoint-keep-days', '30', '--json'],
+    ]);
+    await c.close();
+  });
+
+  it('leaves the option off the line unless it is asked', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('seed_run', { org: 'DEV', template: 'prebuilt-crm-starter', dryRun: true });
+
+    expect(ran[0]?.args.join(' ')).not.toContain('--checkpoint');
+    await c.close();
+  });
+
+  it('refuses days past what a checkpoint is kept, a name that is no object, and any other key, before any script runs', async () => {
+    const { ran, run } = scripts();
+    const c = client(run);
+    await c.initialized();
+    const seed = { org: 'DEV', template: 'prebuilt-crm-starter', dryRun: true };
+
+    const refusals = [
+      await c.call('seed_run', { ...seed, checkpointFirst: { keepDays: 3651 } }),
+      await c.call('seed_run', { ...seed, checkpointFirst: { keepDays: 1.5 } }),
+      await c.call('seed_run', { ...seed, checkpointFirst: { excluded: ['--dry-run'] } }),
+      await c.call('seed_run', { ...seed, checkpointFirst: { excluded: [] } }),
+      await c.call('seed_run', { ...seed, checkpointFirst: { keep: 3 } }),
+      await c.call('seed_run', { ...seed, checkpointFirst: true }),
+    ];
+
+    for (const result of refusals) {
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({ refusal: { code: 'ARGUMENTS' } });
+    }
+    expect(ran).toEqual([]);
+    await c.close();
+  });
+
+  it('says how to rewind to the checkpoint a run kept, from its answer, and of no other', async () => {
+    const answers: Array<Record<string, unknown>> = [
+      { checkpoint: { state: 'taken', checkpointId: CHECKPOINT } },
+      { checkpoint: { state: 'deleted', deleted: 'nothingWritten' } },
+      {},
+    ];
+    const { run } = scripts(() => ({ stdout: JSON.stringify(answers.shift()) }));
+    const c = client(run);
+    await c.initialized();
+    const clone = {
+      source: 'SRC',
+      target: 'SB',
+      recordId: '001000000000001AAA',
+      dryRun: false,
+      confirm: 'SB',
+    };
+
+    const kept = await c.call('clone_record', clone);
+    const deleted = await c.call('clone_record', clone);
+    const none = await c.call('clone_record', clone);
+
+    expect(textOf(kept)).toContain(`checkpoint_rewind with checkpoint "${CHECKPOINT}" returns`);
+    expect(textOf(deleted)).not.toContain('checkpoint_rewind with');
+    expect(textOf(none)).not.toContain('checkpoint_rewind with');
+    await c.close();
+  });
+
+  it('says nothing of a rewind after a seed’s dry run, which took no checkpoint', async () => {
+    const { run } = scripts(() => ({
+      stdout: JSON.stringify({ checkpoint: { state: 'planned' } }),
+    }));
+    const c = client(run);
+    await c.initialized();
+
+    const dry = await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: true,
+      checkpointFirst: {},
+    });
+
+    expect(textOf(dry)).not.toContain('checkpoint_rewind with');
+    await c.close();
+  });
 });

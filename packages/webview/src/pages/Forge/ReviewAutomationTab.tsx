@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  EmailDeliverability,
   ForgeAutomationFired,
   ForgeFlowPath,
   ForgeMessageAction,
@@ -9,22 +10,25 @@ import type {
   ForgeTargetAutomation,
   ForgeTargetAutomationUnread,
   ForgeTargetObjectAutomation,
+  MutePlan,
 } from '@sandforge/shared';
 import {
   automationByWrite,
   blindedBy,
   bypassAssignmentsOf,
   bypassPermissionsOf,
+  emailSendersOf,
   heldBypassPermissionsOf,
   mutePlanOf,
   removalRisksOf,
+  stillRunningOf,
 } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { formatNumber, uiLocale } from '../../utils/formatters';
 import { BypassAssistant, ReadAgainButton, type BypassTarget } from './BypassAssistant';
-import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import type { MuteOffer } from '../../utils/muteOffer';
+import { RunDeliverabilityLine } from '../shared/RunDeliverabilityLine';
 
 /** The heading of each write of a run, as the tab says it. */
 const WRITE_KEYS: Readonly<Record<ForgeRunWrite, string>> = {
@@ -109,6 +113,59 @@ export function forgeRunMuteOffer(
   );
 }
 
+/**
+ * The parts of the target's automation that send emails: one the read was
+ * refused whole lists nothing it sends, which is not the same as sending
+ * nothing, and the run asks for them all the same.
+ */
+const SENDING_PARTS: ReadonlySet<ForgeTargetAutomationUnread['part']> = new Set([
+  'flows',
+  'processes',
+  'workflowRules',
+]);
+
+/**
+ * Whether the target delivers the emails of what still runs, from what Review
+ * read, and who sends them: planned on the same writes as the mute's offer, so
+ * every update is counted, the mute's plan taken as held once it is ticked,
+ * and what the user left out gone. Absent when the read found nothing that
+ * sends, and said beside the box when the mute leaves nothing to.
+ */
+const ReviewEmails: React.FC<{
+  reading: EmailDeliverability | undefined;
+  automation: ForgeTargetAutomation;
+  leftOut: ReadonlySet<string>;
+  plan: Pick<MutePlan, 'assign'> | undefined;
+  org: string | undefined;
+}> = ({ reading, automation, leftOut, plan, org }) => {
+  const { t } = useTranslation();
+  const applyAssignmentRules = useForgeStore((s) => s.config?.applyAssignmentRules === true);
+  if (reading === undefined || org === undefined) return null;
+  const writes = (objectApiName: string, write: string): boolean =>
+    !leftOut.has(objectApiName) && (write === 'insert' || write === 'update');
+  const sendersOf = (held: Pick<MutePlan, 'assign'> | undefined) =>
+    emailSendersOf(stillRunningOf(automation, held, writes), { writes, applyAssignmentRules });
+  const senders = sendersOf(plan);
+  const unlisted = automation.unread.some(({ part }) => SENDING_PARTS.has(part));
+  if (senders.length === 0 && !unlisted) {
+    return plan !== undefined && sendersOf(undefined).length > 0 ? (
+      <p data-testid="automation-deliverability-quiet" className="text-text-secondary">
+        {t('runResults.deliverability.quiet')}
+      </p>
+    ) : null;
+  }
+  return (
+    <RunDeliverabilityLine
+      reading={reading}
+      senders={senders}
+      unlisted={unlisted}
+      org={org}
+      testId="automation-deliverability"
+      className="rounded-sm border border-subtle bg-surface-2 p-2 text-text-primary"
+    />
+  );
+};
+
 /** Props for {@link ReviewAutomationTab}. */
 export interface ReviewAutomationTabProps {
   /** What the target runs, once `forge:automation:response` answered; null before. */
@@ -138,13 +195,12 @@ export interface ReviewAutomationTabProps {
   readingAgain?: boolean;
   /**
    * The mute of the target's automation the run would make, planned from
-   * this read (`forgeRunMuteOffer`), whether it is ticked, and its toggle.
-   * Without it, no box is offered.
+   * this read (`forgeRunMuteOffer`), and whether it is ticked, in the run's
+   * column beside Execute: what it keeps quiet sends no email.
    */
   mute?: {
     offer: MuteOffer | null;
     checked: boolean;
-    onChange: (checked: boolean) => void;
     /** The target org, as the user knows it. */
     org: string;
   };
@@ -227,15 +283,13 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
             ? t('forgeRun.review.automation.nothingSeen')
             : t('forgeRun.review.automation.none', { count: written })}
       </p>
-      {mute && (
-        <AutomationMuteBox
-          offer={mute.offer}
-          checked={mute.checked}
-          onChange={mute.onChange}
-          org={mute.org}
-          testId="automation-mute"
-        />
-      )}
+      <ReviewEmails
+        reading={automation.deliverability}
+        automation={automation}
+        leftOut={leftOut}
+        plan={mute?.checked && mute.offer && mute.offer !== 'atStart' ? mute.offer : undefined}
+        org={mute?.org || target?.alias}
+      />
       {toAssign.length > 0 && (
         <div
           data-testid="automation-bypass"

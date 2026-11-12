@@ -11,6 +11,7 @@ import type { DataTableColumn } from '../../../components/ui/DataTable';
 import { Pagination } from '../../../components/ui/Pagination';
 import { ForgeContactPointsResult } from '../../Forge/ForgeContactPointsResult';
 import { SeedRunRemoval } from '../SeedRunRemoval';
+import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { TakeCheckpointNow } from '../../../components/ui/TakeCheckpointNow';
 
 /** Page size for ID mapping tables. */
@@ -138,6 +139,14 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({
         {(objResult.linkedCount ?? 0) > 0 && (
           <span className="text-xs text-status-success" data-testid="clone-object-linked">
             {t('seed.clone.results.linked')}: {objResult.linkedCount}
+          </span>
+        )}
+        {(objResult.writtenByThePlatform ?? 0) > 0 && (
+          <span
+            className="text-xs text-(--sf-text-secondary)"
+            data-testid="clone-object-written-by-the-platform"
+          >
+            {t('seed.clone.results.writtenByThePlatform')}: {objResult.writtenByThePlatform}
           </span>
         )}
         {(objResult.leftToThePlatform ?? 0) > 0 && (
@@ -287,6 +296,13 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({
           back from here, or later from Earlier seeds. What it linked to was
           the target's, and stays. */}
       {result.runId && <SeedRunRemoval runId={result.runId} />}
+      {/* Under the removal, which takes back what the clone created alone. */}
+      <RewindBeforeRun
+        checkpoint={result.checkpoint}
+        orgId={targetOrgId}
+        beside="run"
+        testId="clone-results-checkpoint"
+      />
 
       {/* The lookups written empty and filled in once the record they point
           at was in: how many were, and why the others were not. */}

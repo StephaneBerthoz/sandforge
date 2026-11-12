@@ -1,4 +1,4 @@
-import type { CsvValidationResult } from '@sandforge/shared';
+import type { CsvValidationResult, RunCheckpointInfo, RunCheckpointTaken } from '@sandforge/shared';
 import { guardTierOf } from '@sandforge/shared';
 import type {
   HandlerDeps,
@@ -28,9 +28,41 @@ import {
   API_BUDGET_EXCEEDED,
   apiBudgetCheckOf,
   apiBudgetRefusal,
+  checkpointPartOf,
+  checkpointScopeStop,
+  confirmationApiOf,
+  confirmationStorageOf,
+  countedStorageBytes,
+  deliverabilityPartOf,
   readApiBudget,
+  readDataStorage,
   runRequestsEstimate,
+  storageCheckOf,
+  type ApiBudget,
+  type DataStorage,
 } from '../../modules/forge/ForgeRunGate.js';
+import {
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+  runEmailsOf,
+} from '../../modules/forge/targetDeliverability.js';
+import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
+import { BEFORE_RUN_DELETED_WORDS } from '../../modules/checkpoint/beforeRunCheckpoint.js';
+import type { BeforeRunCheckpoints } from '../../modules/checkpoint/beforeRunCheckpoint.js';
+import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
+import { PIPELINE_SEED_REFUSAL } from './seedPipeline.js';
+import {
+  SEED_WRITE_DECLINED,
+  SeedCheckpointStopped,
+  emailsAuditDetails,
+  scopeSeedCheckpoint,
+  seedImportRunning,
+  seedImportWrites,
+  settleSeedCheckpoint,
+  takeSeedCheckpoint,
+  type SeedCheckpointPlanned,
+} from './SeedOpsHandler.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { CsvValidator } from '../../modules/seed/CsvValidator.js';
 import type { DescribeField } from '../../modules/seed/describeField.js';
@@ -42,6 +74,7 @@ import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { SeedRunCreations, SeedRunRecorder } from '../../modules/seed/SeedRunCreations.js';
+import { keepRunUser } from '../../modules/sync/runUser.js';
 import { seedWriterCalls } from '../../modules/seed/seedRunCalls.js';
 
 /** Message types handled by SeedCsvHandler. */
@@ -52,6 +85,9 @@ const MAX_RESPONSE_ERRORS = 100;
 
 /** Why an import the cancel stopped before its first row was stopped, as the audit trail records it. */
 const IMPORT_CANCELLED = 'IMPORT_CANCELLED';
+
+/** How long the read of what the target runs on the object imported may take, as a seed's may. */
+const AUTOMATION_TIMEOUT_MS = 60_000;
 
 /** Shape of the `seed:csv:execute:response` payload (see useCsvImport.CsvExecutionResult). */
 interface CsvExecutionResultPayload {
@@ -65,6 +101,12 @@ interface CsvExecutionResultPayload {
    * results or Earlier seeds (`seed:remove`): set when it created a record.
    */
   runId?: string;
+  /**
+   * The checkpoint of the object it writes, when it was asked to take one
+   * before its first write (`checkpointFirst`): taken, or deleted as it wrote
+   * nothing. Absent when it was not asked.
+   */
+  checkpoint?: RunCheckpointInfo;
 }
 
 /**
@@ -125,6 +167,48 @@ export class SeedCsvHandler implements DomainHandler {
   }
 
   /**
+   * The checkpoints of this window, which an import asked to take one of the
+   * object it writes before its first write (Checkpoint first) takes it
+   * through, as a seed does. Unset, such an import is refused, nothing written.
+   */
+  setBeforeRunCheckpoints(checkpoints: BeforeRunCheckpoints): void {
+    this.beforeRunCheckpoints = checkpoints;
+  }
+
+  /** See {@link setBeforeRunCheckpoints}. */
+  private beforeRunCheckpoints?: BeforeRunCheckpoints;
+
+  /**
+   * Reads what the target runs as the import's records go in, for the scope
+   * of the checkpoint it takes first: a reader of the handler's own, over its
+   * connections, loaded on its first read, as the clone's.
+   */
+  private targetAutomation: Pick<TargetAutomationReader, 'read'> = {
+    read: async (orgId, objectApiNames) => (await this.ownReader()).read(orgId, objectApiNames),
+  };
+
+  /** The reader {@link targetAutomation} reads through, once loaded. */
+  private reader?: Promise<TargetAutomationReader>;
+
+  /** Another reader of what the target runs than the handler's own. */
+  setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
+    this.targetAutomation = reader;
+  }
+
+  /** The handler's own reader of the org's automation, as Forge reads it. */
+  private ownReader(): Promise<TargetAutomationReader> {
+    this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
+      ({ TargetAutomationReader, targetAutomationQueries }) =>
+        new TargetAutomationReader(
+          targetAutomationQueries((orgId) =>
+            getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
+          ),
+        ),
+    );
+    return this.reader;
+  }
+
+  /**
    * Handle an incoming bridge message.
    *
    * @param msg - The typed base message from the webview.
@@ -175,6 +259,72 @@ export class SeedCsvHandler implements DomainHandler {
     } finally {
       this.runningRuns.delete(operationId);
     }
+  }
+
+  /**
+   * An import stopped for its checkpoint once it was announced, before its
+   * first row: recorded as stopped under its code, the take's own beside it,
+   * and said on both channels; its Stop while the take read ends it as an
+   * import cancelled before its first row ends.
+   */
+  private stoppedForCheckpoint(
+    msg: InboundRequest,
+    run: WriteRun,
+    err: SeedCheckpointStopped,
+    failure: OperationFailureContext,
+  ): void {
+    const { operationId } = run;
+    if (err.code === RUN_CANCELLED) {
+      recordWriteRun(this.deps, {
+        ...run,
+        outcome: 'stopped',
+        source: undefined,
+        code: IMPORT_CANCELLED,
+      });
+      this.registry?.abort(operationId);
+      sendOperationCompleted(this.deps, operationId, {
+        aborted: true,
+        insertedCount: 0,
+        failedCount: 0,
+      });
+      this.liveTracker?.cancel(operationId);
+      const answered: CsvExecutionResultPayload = {
+        insertedCount: 0,
+        failedCount: 0,
+        errors: [],
+        cancelled: true,
+      };
+      this.deps.broker.postToWebview(
+        buildResponse(
+          this.deps,
+          msg,
+          'seed:csv:execute:response',
+          answered as unknown as Record<string, unknown>,
+        ),
+      );
+      return;
+    }
+    const takeRefusal = err.refusal?.code;
+    const beside: Record<string, string> =
+      takeRefusal !== undefined ? { checkpointRefusal: takeRefusal } : {};
+    recordWriteRun(this.deps, {
+      ...run,
+      outcome: 'stopped',
+      source: undefined,
+      code: err.code,
+      ...(takeRefusal !== undefined ? { details: beside } : {}),
+    });
+    sendHandlerError(this.deps, 'seed:csv:execute', 'seed:csv:error', msg, err, {
+      code: err.code,
+      retryable: false,
+      ...(takeRefusal !== undefined ? { extraPayload: beside } : {}),
+    });
+    sendOperationFailed(this.deps, operationId, err.message, false, {
+      context: failure,
+      authored: true,
+      extraPayload: { code: err.code, ...beside },
+    });
+    this.liveTracker?.fail(operationId, err.message);
   }
 
   /** Validate mapped CSV rows against the target object's live describe metadata. */
@@ -256,6 +406,10 @@ export class SeedCsvHandler implements DomainHandler {
     let kept: SeedRunRecorder | undefined;
     /** Records the import created, as its calls answered: an upsert's rows the org created. */
     let created = 0;
+    /** The checkpoint the import took first, until it is settled. */
+    let taken: RunCheckpointTaken | undefined;
+    /** Whether the import sent a row to the org: its checkpoint is kept once it did. */
+    let wrote = false;
 
     try {
       // Production guard check on target org (mirror SyncOpsHandler), and no
@@ -329,16 +483,114 @@ export class SeedCsvHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
+      const targetName = targetOrg?.alias || targetOrg?.username || parsed.orgId;
+      /** Refuse the import before it is announced, nothing written, under its code. */
+      const refuse = (code: string, message: string, checkpointRefusal?: string): void => {
+        const beside: Record<string, string> =
+          checkpointRefusal !== undefined ? { checkpointRefusal } : {};
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code,
+          ...(checkpointRefusal !== undefined ? { details: beside } : {}),
+        });
+        sendHandlerError(this.deps, 'seed:csv:execute', 'seed:csv:error', msg, new Error(message), {
+          code,
+          retryable: false,
+          ...(checkpointRefusal !== undefined ? { extraPayload: beside } : {}),
+        });
+        sendOperationFailed(this.deps, operationId, message, false, {
+          context: failure,
+          authored: true,
+          extraPayload: { code, ...beside },
+        });
+        settle(new Error(message));
+      };
+
+      // What the target's automation does as the rows go in, read once for
+      // the emails and the checkpoint alike: no record read, nothing kept.
+      const reader = this.targetAutomation;
+      const writes = seedImportWrites([parsed.objectApiName], Boolean(parsed.externalIdField));
+      const read = await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
+        .withTimeout('csv automation', () => reader.read(parsed.orgId, [parsed.objectApiName]))
+        .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
+      if (typeof read.unread === 'string') {
+        this.deps.log(
+          `[WARN] seed:csv:execute ${operationId}: what the org runs on ` +
+            `${parsed.objectApiName} could not be read (${read.unread}): it is asked about its ` +
+            'emails, and a checkpoint holds the object alone',
+        );
+      }
+      // Whether the target delivers the emails of what runs as the rows go
+      // in, read only when something may send one, and asked with the
+      // import's one question. No Apex runs in a production org. The file's
+      // rows go in as they are: their addresses are not put under `.invalid`.
+      const emailsOfRun = await runEmailsOf({
+        read,
+        writes,
+        readDeliverability: () =>
+          guardTierOf(targetOrg) === 'production'
+            ? Promise.resolve(NO_APEX_IN_PRODUCTION)
+            : readEmailDeliverability(conn),
+        accepted: false,
+        target: targetName,
+        run: 'seed',
+        keepsAddresses: true,
+      });
+      const emailsAsked = emailsOfRun.gate.verdict === 'asks';
+
+      // The checkpoint asked first, scoped from the object the import writes
+      // and what that automation creates. Refused, or unread, the import is
+      // refused before anything is asked or written.
+      let checkpoint: SeedCheckpointPlanned | undefined;
+      if (parsed.checkpointFirst !== undefined) {
+        try {
+          checkpoint = await scopeSeedCheckpoint(this.beforeRunCheckpoints, {
+            module: 'seed',
+            orgId: parsed.orgId,
+            operationId,
+            written: [parsed.objectApiName],
+            running: seedImportRunning(read, writes),
+            request: parsed.checkpointFirst,
+          });
+        } catch (err: unknown) {
+          if (!(err instanceof SeedCheckpointStopped)) throw err;
+          refuse(err.code, err.message);
+          return;
+        }
+        const stop = checkpointScopeStop(checkpoint.planned);
+        if (stop) {
+          refuse(stop.code, stop.message, stop.refusal.code);
+          return;
+        }
+      }
 
       // The import's Bulk API jobs against the daily API requests the org has
       // left, before anything is written: an import into an org whose
       // integrations had used the day's requests stopped part way through.
       // An org that would not say is said in the log, and holds nothing back.
-      const budget = await readApiBudget(conn).catch((err: unknown) => ({
-        unread: extractErrorMessage(err),
-      }));
+      // With a checkpoint asked, its requests among them, and the storage
+      // read from the same answer, for its question to say; so for the
+      // question about the emails.
+      const limits: DataStorage | { unread: string } | undefined =
+        checkpoint || emailsAsked
+          ? await readDataStorage(conn).catch((err: unknown) => ({
+              unread: extractErrorMessage(err),
+            }))
+          : undefined;
+      const budget: ApiBudget | { unread: string } | undefined =
+        limits !== undefined && !('unread' in limits)
+          ? limits.dailyApiRequests
+          : await readApiBudget(conn).catch((err: unknown) => ({
+              unread: extractErrorMessage(err),
+            }));
       const api = apiBudgetCheckOf(
-        runRequestsEstimate([{ rows: parsed.records.length, bulk: true }]),
+        {
+          run: runRequestsEstimate([{ rows: parsed.records.length, bulk: true }]),
+          ...checkpointPartOf(checkpoint?.planned),
+          ...deliverabilityPartOf(emailsOfRun.ofRun),
+        },
         budget,
       );
       if (api.verdict === 'unread') {
@@ -375,6 +627,50 @@ export class SeedCsvHandler implements DomainHandler {
         return;
       }
 
+      // A checkpoint asked first is asked about before anything is taken or
+      // written, its cost that of the target's whole tables: declined, or
+      // with nobody to answer for it, the import writes nothing. So are the
+      // emails of a target that delivers them all or would not say: going on
+      // is the accord to send them.
+      let emailsAccepted = false;
+      if (checkpoint || emailsAsked) {
+        const rows = parsed.records.length;
+        const answer = await guard.confirmRun({
+          stage: 'write',
+          module: 'seed',
+          org: targetName,
+          orgTier: guardTierOf(targetOrg),
+          objects: [{ objectApiName: parsed.objectApiName, rows }],
+          total: rows,
+          storage: confirmationStorageOf(
+            storageCheckOf(
+              { storageBytes: countedStorageBytes(parsed.objectApiName, { rows }) },
+              limits ?? { unread: 'not read' },
+            ),
+          ),
+          ...confirmationApiOf(api),
+          ...(checkpoint ? { checkpoint: checkpoint.planned } : {}),
+          ...emailsOfRun.gate.confirmation,
+        });
+        if (answer !== 'confirmed') {
+          const stop = emailsOfRun.gate.stop;
+          if (answer !== 'declined' && !checkpoint && stop) refuse(stop.code, stop.message);
+          else {
+            refuse(
+              answer === 'declined' ? SEED_WRITE_DECLINED : PIPELINE_SEED_REFUSAL.unanswered,
+              answer === 'declined'
+                ? 'The import was cancelled before it wrote anything. Nothing was written.'
+                : `The import needed an answer before it wrote — the checkpoint it takes first ` +
+                    `reads whole tables of ${targetName} — and there was no one to ask. Nothing ` +
+                    'was written.',
+            );
+          }
+          return;
+        }
+        emailsAccepted = emailsAsked;
+      }
+      run.details = emailsAuditDetails({ read: emailsOfRun, accepted: emailsAccepted }).details;
+
       sendOperationStarted(
         this.deps,
         operationId,
@@ -389,6 +685,29 @@ export class SeedCsvHandler implements DomainHandler {
         `CSV import ${parsed.records.length} record(s) into ${parsed.objectApiName}`,
         parsed.records.length,
       );
+
+      // The checkpoint, taken once the question was answered, as close to the
+      // first row as it can be, under the import's Cancel: refused, failed or
+      // stopped, the import writes nothing.
+      if (checkpoint) {
+        try {
+          taken = await takeSeedCheckpoint(
+            this.beforeRunCheckpoints,
+            checkpoint,
+            operationId,
+            abortController.signal,
+            (percent, processed, total, label) => {
+              sendOperationProgress(this.deps, operationId, percent, processed, total, label);
+              this.liveTracker?.updateProgress(operationId, percent, processed, total, label);
+            },
+          );
+        } catch (err: unknown) {
+          if (!(err instanceof SeedCheckpointStopped)) throw err;
+          this.stoppedForCheckpoint(msg, run, err, failure);
+          settle(err.code === RUN_CANCELLED ? undefined : err);
+          return;
+        }
+      }
       unrecorded = true;
 
       const robustnessConfig = robustnessConfigOf(this.deps);
@@ -406,6 +725,10 @@ export class SeedCsvHandler implements DomainHandler {
         startedAt: new Date().toISOString(),
         origin: 'csv',
       });
+      // The checkpoint it took is named in its file, with its first line, and
+      // the user it writes as is asked of the org, waited for by nothing.
+      if (taken) kept?.checkpoint?.(taken);
+      keepRunUser(kept, () => conn.identity(), `seed:csv:execute ${operationId}`);
       if (kept) this.runningRuns.add(operationId);
       const writer = new BulkDataWriter({
         connection: conn,
@@ -442,6 +765,7 @@ export class SeedCsvHandler implements DomainHandler {
       let cancelled = abortController.signal.aborted;
       let outcomes: Awaited<ReturnType<BulkDataWriter['insert']>> = [];
       if (!cancelled) {
+        if (writeRecords.length > 0) wrote = true;
         try {
           outcomes = parsed.externalIdField
             ? await writer.upsert(
@@ -477,6 +801,15 @@ export class SeedCsvHandler implements DomainHandler {
           ? (errors[0] ?? 'No row could be imported.')
           : undefined;
       unrecorded = false;
+      // The checkpoint taken first, kept once a row went, deleted when none did.
+      const checkpointInfo = await settleSeedCheckpoint(
+        this.beforeRunCheckpoints,
+        taken,
+        wrote,
+        this.deps.log,
+        `seed:csv:execute ${operationId}`,
+      );
+      taken = undefined;
       if (cancelled && outcomes.length === 0) {
         // Stopped before its first row, which went nowhere and was refused
         // nowhere: recorded as a run a check of its own stopped before it
@@ -506,6 +839,9 @@ export class SeedCsvHandler implements DomainHandler {
               failed: failedCount,
             },
           ],
+          ...(checkpointInfo?.state === 'taken'
+            ? { checkpointId: checkpointInfo.checkpointId }
+            : {}),
         });
       }
 
@@ -522,6 +858,7 @@ export class SeedCsvHandler implements DomainHandler {
         errors,
         ...(cancelled ? { cancelled: true } : {}),
         ...(keptAll && created > 0 ? { runId: operationId } : {}),
+        ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}),
       };
       if (cancelled) {
         // Ended the way a cancelled Sync or Seed ends: aborted in the registry
@@ -544,6 +881,8 @@ export class SeedCsvHandler implements DomainHandler {
         });
         if (importFailed !== undefined) {
           this.liveTracker?.fail(operationId, importFailed);
+        } else if (reached === 'partial') {
+          this.liveTracker?.partial(operationId);
         } else {
           this.liveTracker?.complete(operationId);
         }
@@ -562,22 +901,41 @@ export class SeedCsvHandler implements DomainHandler {
       // row was listed completed and announced as such.
       settle(importFailed === undefined ? undefined : new Error(importFailed));
     } catch (err: unknown) {
-      if (unrecorded) recordWriteRun(this.deps, run);
+      // The checkpoint taken first, kept once a row went, deleted when none did.
+      const settled = await settleSeedCheckpoint(
+        this.beforeRunCheckpoints,
+        taken,
+        wrote,
+        this.deps.log,
+        `seed:csv:execute ${operationId}`,
+      );
+      if (unrecorded) {
+        recordWriteRun(this.deps, {
+          ...run,
+          ...(settled?.state === 'taken' ? { checkpointId: settled.checkpointId } : {}),
+        });
+      }
       // What it created before it failed stays removable, the import ended failed.
       await this.endKept(kept, operationId, { status: 'failure', cancelled: false });
+      const failed =
+        settled?.state === 'deleted'
+          ? `${extractErrorMessage(err)} ${BEFORE_RUN_DELETED_WORDS}`
+          : extractErrorMessage(err);
       // Dual channel, as seed:execute and sync:execute fail: `operation:failed`
       // carries the lifecycle, and seed:csv:error settles the page's request,
       // which waits on it — it was sent `operation:failed` alone, and the page
       // waited out its two minutes on an import Production Guard had refused.
+      // The page says what became of the checkpoint itself, in its language.
       sendHandlerError(this.deps, 'seed:csv:execute', 'seed:csv:error', msg, err, {
         code: guardRefusalCode(err),
         retryable: true,
+        ...(settled ? { extraPayload: { checkpoint: settled } } : {}),
       });
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+      sendOperationFailed(this.deps, operationId, failed, true, {
         context: failure,
       });
       // Nothing when the import was stopped before it was listed.
-      this.liveTracker?.fail(operationId, extractErrorMessage(err));
+      this.liveTracker?.fail(operationId, failed);
       settle(err);
     }
   }

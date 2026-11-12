@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useQuickSeed, isSeedTargetCandidate } from './useQuickSeed';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { RUN_OUTLIVED_WAIT } from '../../hooks/useMessageResponse';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
-import { CRM_STARTER, OrgSafetyTier } from '@sandforge/shared';
-import type { SalesforceOrg, SeedTemplate } from '@sandforge/shared';
+import { CRM_STARTER, OrgSafetyTier, SERVICE_CLOUD_STARTER } from '@sandforge/shared';
+import type { SalesforceOrg, SeedFitProposal, SeedTemplate } from '@sandforge/shared';
 
 function createMockOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
   return {
@@ -37,6 +38,7 @@ let mockMutationState = {
   data: null as Record<string, unknown> | null,
   loading: false,
   error: null as string | null,
+  errorCode: null as string | null,
   reset: mockReset,
   requestId: null as string | null,
 };
@@ -123,6 +125,7 @@ describe('useQuickSeed', () => {
       data: null,
       loading: false,
       error: null,
+      errorCode: null,
       reset: mockReset,
       requestId: null,
     };
@@ -337,6 +340,88 @@ describe('useQuickSeed', () => {
       result.current.startQuickSeed(mockTemplate);
     });
     expect(result.current.muteAutomation).toBe(false);
+  });
+
+  it('takes a checkpoint first only once the confirmation’s box is ticked, unticked for every template', () => {
+    const { result } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+      result.current.selectOrg('org-456');
+    });
+    act(() => {
+      result.current.execute();
+    });
+    expect(mockMutate.mock.calls[0][0]).not.toHaveProperty('checkpointFirst');
+
+    act(() => {
+      result.current.setCheckpointFirst(true);
+    });
+    act(() => {
+      result.current.execute();
+    });
+    expect(mockMutate.mock.calls[1][0]).toMatchObject({ orgId: 'org-456', checkpointFirst: {} });
+
+    act(() => {
+      result.current.seedAgain();
+    });
+    expect(result.current.checkpointFirst).toBe(false);
+    act(() => {
+      result.current.setCheckpointFirst(true);
+      result.current.reset();
+    });
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+    });
+    expect(result.current.checkpointFirst).toBe(false);
+  });
+
+  it('goes back from a refusal to the confirmation with the boxes as they were set', () => {
+    const { result, rerender } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+      result.current.selectOrg('org-456');
+      result.current.setMuteAutomation(true);
+      result.current.setCheckpointFirst(true);
+    });
+    act(() => {
+      result.current.execute();
+    });
+    mockMutationState = {
+      ...mockMutationState,
+      error: 'Refused.',
+      errorCode: 'CHECKPOINT_REFUSED',
+    };
+    rerender();
+    expect(result.current.phase).toBe('executing');
+    expect(result.current.canSetUpAgain).toBe(true);
+
+    act(() => {
+      result.current.backToConfirm();
+    });
+    expect(result.current.phase).toBe('confirm');
+    expect(result.current.error).toBeNull();
+    expect(result.current.checkpointFirst).toBe(true);
+    expect(result.current.muteAutomation).toBe(true);
+    expect(mockMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no way back while a run the page stopped waiting for may still be writing', () => {
+    const { result, rerender } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+      result.current.selectOrg('org-456');
+    });
+    act(() => {
+      result.current.execute();
+    });
+    mockMutationState = {
+      ...mockMutationState,
+      error: 'The wait ended.',
+      errorCode: RUN_OUTLIVED_WAIT,
+    };
+    rerender();
+
+    expect(result.current.canSetUpAgain).toBe(false);
   });
 
   it('keeps the locale chosen for the next template, as it keeps the org', () => {
@@ -645,6 +730,26 @@ describe('useQuickSeed', () => {
     ]);
   });
 
+  it('sends an object the template marks optional as optional, for an org without it to seed the rest', () => {
+    // Sent without the mark, the articles were a required object: the
+    // storage gate counted them in an org without Knowledge, and the run
+    // that skipped them ended partial.
+    const { result } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(SERVICE_CLOUD_STARTER);
+      result.current.selectOrg('org-456');
+    });
+    act(() => {
+      result.current.execute();
+    });
+
+    const sent = (mockMutate.mock.calls[0][0] as { template: SeedTemplate }).template;
+    expect(sent.objects.find((o) => o.objectApiName === 'Knowledge__kav')?.optional).toBe(true);
+    expect(sent.objects.filter((o) => o.optional === true).map((o) => o.objectApiName)).toEqual([
+      'Knowledge__kav',
+    ]);
+  });
+
   it('sends nothing once every object is set to 0', () => {
     const { result } = renderHook(() => useQuickSeed());
     act(() => {
@@ -724,6 +829,158 @@ describe('useQuickSeed', () => {
     expect(result.current.objectProgress[0].total).toBe(300);
     expect(result.current.objectProgress[1].objectApiName).toBe('Contact');
     expect(result.current.objectProgress[1].total).toBe(100);
+  });
+});
+
+describe('useQuickSeed — a template refused for what its org has left', () => {
+  /** The extension's fit of the CRM starter, products left out, to an org with little room. */
+  const PROPOSAL: SeedFitProposal = {
+    share: 0.4,
+    budget: {
+      budgetMB: 0.4,
+      remainingMB: 1,
+      maxMB: 5,
+      share: 0.8,
+      roundingMB: 0.5,
+      limitedBy: 'storage',
+      automationMB: 0,
+    },
+    objects: [
+      { objectApiName: 'Account', before: 25, after: 10 },
+      { objectApiName: 'Contact', before: 75, after: 30 },
+      { objectApiName: 'Opportunity', before: 50, after: 20 },
+      { objectApiName: 'Case', before: 50, after: 20 },
+    ],
+    estimateMB: 0.15625,
+  };
+
+  beforeEach(() => {
+    mockMutate.mockClear();
+    mockReset.mockClear();
+    mockMutationState = {
+      mutate: mockMutate,
+      data: null,
+      loading: false,
+      error: null,
+      errorCode: null,
+      reset: mockReset,
+      requestId: null,
+    };
+    useOrgStore.setState({ orgs: [], selectedOrgId: null });
+  });
+
+  /** The extension refusing the request `id`, with `payload`. */
+  function refused(id: string, payload: Record<string, unknown>): void {
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'seed:error', id: `err-${id}`, correlationId: id, payload },
+        }),
+      );
+    });
+  }
+
+  /** The CRM starter sent with its products left out, then refused for its storage. */
+  function refusedRun() {
+    const hook = renderHook(() => useQuickSeed());
+    act(() => {
+      hook.result.current.startQuickSeed(CRM_STARTER);
+      hook.result.current.selectOrg('org-1');
+      hook.result.current.setLocale('de_DE');
+    });
+    act(() => {
+      hook.result.current.setCount('Product2', 0);
+    });
+    act(() => {
+      hook.result.current.execute();
+    });
+    mockMutationState = { ...mockMutationState, requestId: 'run-1', error: 'Too big.' };
+    hook.rerender();
+    refused('run-1', { code: 'SEED_STORAGE_EXCEEDED', message: 'Too big.', fit: PROPOSAL });
+    return hook;
+  }
+
+  it('offers the counts its refusal carried, and sends nothing more until they are seeded', () => {
+    const { result } = refusedRun();
+
+    expect(result.current.phase).toBe('executing');
+    expect(result.current.fitProposal).toEqual(PROPOSAL);
+    expect(result.current.error).toBe('Too big.');
+    expect(mockMutate).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.seedFitted();
+    });
+
+    expect(mockMutate).toHaveBeenCalledTimes(2);
+    const fitted = mockMutate.mock.calls[1][0] as {
+      orgId: string;
+      locale: string;
+      template: SeedTemplate;
+      fit: unknown;
+    };
+    expect(fitted).toMatchObject({ orgId: 'org-1', locale: 'de_DE' });
+    // The products stay out, as they were; the rest at the counts that fit.
+    expect(fitted.template.objects.map((o) => [o.objectApiName, o.recordCount])).toEqual([
+      ['Account', 10],
+      ['Contact', 30],
+      ['Opportunity', 20],
+      ['Case', 20],
+    ]);
+    expect(fitted.fit).toEqual({ share: 0.4, before: 200 });
+    // The counts become the confirmation's, and the refusal no longer stands over the run.
+    expect(result.current.customizedCounts).toMatchObject({
+      Account: 10,
+      Contact: 30,
+      Product2: 0,
+      Case: 20,
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.fitApplied).toMatchObject({ records: 80, fit: { before: 200 } });
+    expect(result.current.objectProgress.map((o) => o.total)).toEqual([10, 30, 20, 20]);
+  });
+
+  it('takes no counts from another request’s refusal, nor from a refusal for its emails', () => {
+    const { result, rerender } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(CRM_STARTER);
+      result.current.selectOrg('org-1');
+    });
+    act(() => {
+      result.current.execute();
+    });
+    mockMutationState = { ...mockMutationState, requestId: 'run-1' };
+    rerender();
+    refused('run-0', { code: 'SEED_STORAGE_EXCEEDED', fit: PROPOSAL });
+    refused('run-1', { code: 'SEED_EMAILS_EXCEEDED', fit: PROPOSAL });
+
+    expect(result.current.fitProposal).toBeNull();
+    act(() => {
+      result.current.seedFitted();
+    });
+    expect(mockMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('says no fit for a run started again from the confirmation', () => {
+    const { result, rerender } = refusedRun();
+    act(() => {
+      result.current.seedFitted();
+    });
+    act(() => {
+      result.current.seedAgain();
+    });
+    mockMutationState = { ...mockMutationState, requestId: null };
+    rerender();
+    expect(result.current.fitApplied).toBeNull();
+    expect(result.current.fitProposal).toBeNull();
+    act(() => {
+      result.current.selectOrg('org-1');
+    });
+    act(() => {
+      result.current.execute();
+    });
+
+    expect(mockMutate.mock.calls[2][0]).not.toHaveProperty('fit');
   });
 });
 

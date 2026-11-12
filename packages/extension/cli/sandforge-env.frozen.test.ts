@@ -8,6 +8,7 @@ import {
   envRunResultSchema,
   envValidationSchema,
   type EnvPlan,
+  type ForgeTargetAutomation,
 } from '@sandforge/shared';
 
 vi.mock('../src/logger.js', () => ({
@@ -291,9 +292,8 @@ describe('plan and apply a frozen resource', () => {
     expect(planned.actions[1]?.why).toContain(
       'it draws its parents from the records claims creates in this apply, which nobody knows before it runs: counted at most as the file gives it',
     );
-    expect(planned.warnings).toContain(
-      'the emails the org sends as the records of claims are loaded are not counted: a Frozen load’s dry run does not count them, and the day’s email gate holds without them',
-    );
+    // A load's dry run counts its emails now, and the day's gate adds them.
+    expect((planned.warnings ?? []).join('\n')).not.toContain('are loaded are not counted');
     expect(world.records('Account')).toEqual([]);
     expect(linesOf('sandforge-frozen')).toEqual([
       expect.arrayContaining(['load', '--target', 'TGT', '--dry-run', '--json']),
@@ -496,6 +496,26 @@ describe('plan and apply a frozen resource', () => {
     );
   });
 
+  it('leaves the load partial, exit 3, when the verification it chains finds a record it wrote gone, and says what it found', async () => {
+    // Run for real, the platform deleted two products a load had just
+    // written: the load exited 0, and only the verdict it chained said FAILED.
+    let contacts = 0;
+    world.onCreate = (object) => {
+      if (object !== 'Contact' || ++contacts !== 2) return;
+      const [first] = named('Contact', 'claim');
+      world.org.trash('Contact', String(first?.['Id']));
+    };
+
+    const applied = await apply();
+    world.onCreate = undefined;
+
+    expect(applied.code, applied.said).toBe(3);
+    const step = applied.result.steps.find((each) => each.resource === 'claims');
+    expect(step).toMatchObject({ status: 'partial', exitCode: 3 });
+    expect(step?.objects[0]?.reason).toBe('its verification found Contact FAILED (1 of 2 found)');
+    expect((await stateOf()).state?.resources['claims']?.status).toBe('partial');
+  });
+
   it('reads its drift by its verification: a contact of the load deleted since FAILS its object, named, and plan --fail-on-drift exits 3', async () => {
     await apply();
     const [contact] = named('Contact', 'claim');
@@ -578,6 +598,46 @@ describe('plan and apply a frozen resource', () => {
     expect(named('Account', 'claim')).toHaveLength(2);
   });
 
+  it('blocks a replace whose reload would take along a contact made by hand under its accounts, what the apply takes back first apart', async () => {
+    await apply();
+    const [account] = named('Account', 'claim');
+    // A colleague's contact under a loaded account, made once the apply was through.
+    world.org.add(
+      'Contact',
+      {
+        Id: '003000000000990AAA',
+        LastName: 'By hand',
+        AccountId: String(account?.['Id']),
+        CreatedById: '005000000000099AAA',
+        LastModifiedById: '005000000000099AAA',
+      },
+      new Date(Date.now() + 60_000).toISOString(),
+    );
+    vi.setSystemTime(Date.now() + 120_000);
+    const refrozen = await freezeDataset(join(dir, 'datasets', 'claims-2'), {
+      accounts: 3,
+      perAccount: 1,
+      mark: 'claim',
+      version: '1.1.0',
+    });
+    process.env['SANDFORGE_CLAIMS_DATASET'] = refrozen;
+    writeFile(file({}, { version: '1.1.0', digest: await frozenDatasetDigest(refrozen) }));
+
+    const { plan: planned } = await plan();
+
+    // The followers drawn under the accounts are taken back first, and hold
+    // nothing; the colleague's contact holds its account.
+    const claims = planned.actions.find((each) => each.resource === 'claims');
+    expect(claims?.action).toBe('blocked');
+    expect(claims?.refusal).toContain(
+      'A removal of the loads this reload replaces would leave 1 of their records in the org — ' +
+        'Account (1: 1 kept for records that stay under them (Contact))',
+    );
+    const applied = await apply();
+    expect(applied.code).toBe(1);
+    expect(world.org.all('Contact').map((row) => row['Id'])).toContain('003000000000990AAA');
+  });
+
   it('takes it back with destroy, the drawing resource first: the org holds none of it after, the state every resource destroyed', async () => {
     await apply();
 
@@ -602,5 +662,240 @@ describe('plan and apply a frozen resource', () => {
       'destroyed',
       'destroyed',
     ]);
+  });
+
+  it('takes up a sweep that left records: destroy --sweep runs it alone, and the run stays partial until it took all it was to', async () => {
+    await apply();
+    /** What `remove --sweep` answered, each time. */
+    const answers: Array<{ posted: Array<{ type: string; payload?: { code?: string } }> }> = [];
+    let refused = true;
+    /** The org refuses what the sweep was to take: the script ends 3, as its answer says. */
+    const sweepRefused: CommandRunner = async (script, args, signal) => {
+      const ran = await world.runner(script, args, signal);
+      if (script !== 'sandforge-frozen' || !args.includes('--sweep')) return ran;
+      answers.push(JSON.parse(ran.stdout) as (typeof answers)[number]);
+      return refused ? { ...ran, code: 3 } : ran;
+    };
+    const destroy = () =>
+      run(['destroy', '--org', 'TGT', '--sweep', '--yes', '--json'], { runner: sweepRefused });
+    const claims = async () => (await stateOf()).state?.resources['claims'];
+
+    expect((await destroy()).code).toBe(3);
+    expect(world.records('Account')).toEqual([]);
+    expect((await claims())?.status).toBe('partial');
+
+    expect((await destroy()).code).toBe(3);
+    expect((await claims())?.status).toBe('partial');
+    expect((await claims())?.runs.map((each) => each.takenBack)).toEqual([undefined]);
+    // The script swept: it did not answer that the load's records were gone.
+    expect(answers.at(-1)?.posted.flatMap((message) => message.payload?.code ?? [])).toEqual([]);
+    expect(answers.at(-1)?.posted.map((message) => message.type)).toContain(
+      'frozen:remove:response',
+    );
+
+    refused = false;
+    expect((await destroy()).code).toBe(0);
+    expect((await claims())?.status).toBe('destroyed');
+    expect((await claims())?.runs.map((each) => each.takenBack)).toEqual([true]);
+  });
+
+  describe('while the org runs automation as the records of the load go', () => {
+    /** A trigger on the accounts the load created, as the org's automation reads. */
+    const FIRING = {
+      objectsRead: ['Account', 'Contact'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [],
+          triggers: [{ name: 'AccountCleanup', events: ['beforeDelete'] }],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 1,
+    } as unknown as ForgeTargetAutomation;
+
+    it('blocks a destroy, what fires named, and the load’s records stay', async () => {
+      await apply();
+      world.automation = FIRING;
+
+      const destroyed = await run(['destroy', '--org', 'TGT', '--yes', '--json']);
+
+      expect(destroyed.code).toBe(1);
+      const result = envRunResultSchema.parse(destroyed.answer);
+      expect(result.refusal).toContain('claims: a removal of its runs would be refused now:');
+      expect(result.refusal).toContain('AccountCleanup');
+      expect(result.refusal).toContain('--accept-automation');
+      expect(named('Account', 'claim')).toHaveLength(2);
+    });
+
+    it('gives its refusal, with --json, the code the removal is refused with, beside its words', async () => {
+      // Live, the refusal of a destroy was a sentence alone: its code,
+      // AUTOMATION_NOT_ACCEPTED, was only in the removal's line on stderr.
+      await apply();
+      world.automation = FIRING;
+
+      const destroyed = await run(['destroy', '--org', 'TGT', '--yes', '--json']);
+
+      expect(destroyed.code).toBe(1);
+      const result = envRunResultSchema.parse(destroyed.answer);
+      expect(result.refusalCodes).toEqual(['AUTOMATION_NOT_ACCEPTED']);
+      expect(result.plan.refusalCodes).toEqual(['AUTOMATION_NOT_ACCEPTED']);
+      expect(result.plan.actions.find((each) => each.resource === 'claims')).toMatchObject({
+        action: 'blocked',
+        refusalCodes: ['AUTOMATION_NOT_ACCEPTED'],
+      });
+      expect(typeof result.refusal).toBe('string');
+    });
+
+    it('takes it back once the line accepts it, handing the acceptance to the load’s removal', async () => {
+      await apply();
+      world.automation = FIRING;
+
+      const destroyed = await run([
+        'destroy',
+        '--org',
+        'TGT',
+        '--accept-automation',
+        '--yes',
+        '--json',
+      ]);
+
+      expect(destroyed.code, destroyed.said).toBe(0);
+      expect(world.records('Account')).toEqual([]);
+      const removal = linesOf('sandforge-frozen').find(
+        (args) => args[0] === 'remove' && !args.includes('--preview'),
+      );
+      expect(removal).toContain('--accept-automation');
+    });
+
+    it('takes it back once the file accepts it on the resource, and warns of nothing', async () => {
+      const accepted = file();
+      writeFile({
+        ...accepted,
+        resources: {
+          ...accepted.resources,
+          claims: { ...accepted.resources.claims, accept: { automation: true } },
+        },
+      });
+      await apply();
+      world.automation = FIRING;
+
+      const destroyed = await run(['destroy', '--org', 'TGT', '--yes', '--json']);
+
+      expect(destroyed.code, destroyed.said).toBe(0);
+      expect(destroyed.said).not.toContain('takes no acceptance');
+      expect(world.records('Account')).toEqual([]);
+    });
+
+    /** The file with `claims` accepting what the org runs as its records go. */
+    const accepting = (document: ReturnType<typeof file>): ReturnType<typeof file> => ({
+      ...document,
+      resources: {
+        ...document.resources,
+        claims: {
+          ...document.resources.claims,
+          accept: { automation: true },
+        } as ReturnType<typeof file>['resources']['claims'],
+      },
+    });
+
+    /** The dataset frozen again: the next apply reloads it, its purge deleting the load before. */
+    const refreeze = async (
+      keep: (document: ReturnType<typeof file>) => ReturnType<typeof file> = (same) => same,
+    ): Promise<void> => {
+      vi.setSystemTime(Date.now() + 120_000);
+      const refrozen = await freezeDataset(join(dir, 'datasets', 'claims-2'), {
+        accounts: 3,
+        perAccount: 1,
+        mark: 'claim',
+        version: '1.1.0',
+      });
+      process.env['SANDFORGE_CLAIMS_DATASET'] = refrozen;
+      writeFile(keep(file({}, { version: '1.1.0', digest: await frozenDatasetDigest(refrozen) })));
+    };
+
+    it('blocks a replace, what its purge fires named: a reload deletes as a removal does', async () => {
+      await apply();
+      world.automation = FIRING;
+      await refreeze();
+
+      const { plan: planned } = await plan();
+
+      const claims = planned.actions.find((each) => each.resource === 'claims');
+      expect(claims?.action).toBe('blocked');
+      expect(claims?.refusal).toContain('AccountCleanup');
+      expect(claims?.refusal).toContain('--accept-automation');
+      const applied = await apply();
+      expect(applied.code).toBe(1);
+      expect(named('Account', 'claim')).toHaveLength(2);
+    });
+
+    it('replaces it once the line accepts it, handing the acceptance to its dry run and its reload', async () => {
+      await apply();
+      world.automation = FIRING;
+      await refreeze();
+      const from = world.calls.length;
+
+      const applied = await apply('--accept-automation');
+
+      expect(applied.code, applied.said).toBe(0);
+      expect(named('Account', 'claim')).toHaveLength(3);
+      const reloads = world.calls
+        .slice(from)
+        .filter((call) => call.script === 'sandforge-frozen' && call.args.includes('--reload'));
+      expect(reloads).toHaveLength(2);
+      for (const call of reloads) expect(call.args).toContain('--accept-automation');
+    });
+
+    it('replaces it once the file accepts it on the resource', async () => {
+      await apply();
+      world.automation = FIRING;
+      await refreeze(accepting);
+
+      const applied = await apply();
+
+      expect(applied.code, applied.said).toBe(0);
+      expect(named('Account', 'claim')).toHaveLength(3);
+    });
+
+    it('lets a first load by what fires only as records go, and hands it the acceptance it was given', async () => {
+      world.automation = FIRING;
+
+      const applied = await apply('--accept-automation');
+
+      expect(applied.code, applied.said).toBe(0);
+      const loads = linesOf('sandforge-frozen').filter((args) => args[0] === 'load');
+      expect(loads.length).toBeGreaterThan(0);
+      for (const load of loads) expect(load).toContain('--accept-automation');
+    });
+
+    it('blocks a first load while a trigger runs as its accounts go in, unless accepted', async () => {
+      // A load ran what fires on its inserts unasked: only its verification
+      // saw a flow that deleted each record the second it went in.
+      world.automation = {
+        ...FIRING,
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [],
+            triggers: [{ name: 'AccountStamp', events: ['beforeInsert'] }],
+          },
+        ],
+      } as unknown as ForgeTargetAutomation;
+
+      const { plan: planned } = await plan();
+      const claims = planned.actions.find((each) => each.resource === 'claims');
+      expect(claims?.action).toBe('blocked');
+      expect(claims?.refusal).toContain('AccountStamp');
+      expect(claims?.refusal).toContain('--accept-automation');
+      expect((await apply()).code).toBe(1);
+      expect(named('Account', 'claim')).toEqual([]);
+
+      const applied = await apply('--accept-automation');
+      expect(applied.code, applied.said).toBe(0);
+      expect(named('Account', 'claim')).toHaveLength(2);
+    });
   });
 });

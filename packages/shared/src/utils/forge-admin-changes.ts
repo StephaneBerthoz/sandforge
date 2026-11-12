@@ -15,13 +15,20 @@ import { forgeGapParts } from './forge-gaps.js';
  * - `lengthen_field`: a text field made as long as the longest value;
  * - `widen_number`: a number field given more digits before its point;
  * - `create_record_type`: a record type of the source created in the target;
+ * - `install_package`: the package that brings a record type of the source
+ *   installed in the target, or upgraded there: a namespaced record type is
+ *   its package's to create, and New in Setup would make another one;
  * - `open_record_type`: a record type made available to the user the run
  *   writes as;
  * - `activate_currency`: a currency activated;
  * - `loosen_lookup_filter`: a lookup filter made optional, or widened;
  * - `deactivate_validation_rule`, `deactivate_duplicate_rule`: a rule turned
  *   off, or kept quiet for the user the run writes as;
- * - `grant_create`: Create on the object given to the user the run writes as.
+ * - `grant_create`: Create on the object given to the user the run writes as;
+ * - `grant_edit`: Edit given to that user on a record an object hangs from,
+ *   which opens an object no permission set gives Create on;
+ * - `enable_feature`: the feature or licence an object comes with turned on
+ *   for that user, which Modify All Data does not open.
  */
 export type ForgeAdminChangeKind =
   | 'add_picklist_value'
@@ -31,12 +38,15 @@ export type ForgeAdminChangeKind =
   | 'lengthen_field'
   | 'widen_number'
   | 'create_record_type'
+  | 'install_package'
   | 'open_record_type'
   | 'activate_currency'
   | 'loosen_lookup_filter'
   | 'deactivate_validation_rule'
   | 'deactivate_duplicate_rule'
-  | 'grant_create';
+  | 'grant_create'
+  | 'grant_edit'
+  | 'enable_feature';
 
 /** One change to make in the target's metadata, and the gap it answers. */
 export interface ForgeAdminChange {
@@ -47,11 +57,13 @@ export interface ForgeAdminChange {
   field?: string;
   /**
    * What the change is about: a picklist value, a currency code, the source
-   * record type's name, a rule's name.
+   * record type's name, a rule's name, the object Edit is given on.
    */
   value?: string;
   /** Of a dependent value, the field whose value decides. */
   controllingField?: string;
+  /** Of a package to install, its namespace. */
+  namespace?: string;
   /** Of a text, the length of the longest value the rows hold. */
   length?: number;
   /** How many of the run's rows it touches; 0 when read from metadata alone. */
@@ -91,6 +103,15 @@ function ruleName(gap: ForgeGap): string {
   );
 }
 
+/**
+ * The namespace a record type's name says, as the host writes one: `ns__Retail`
+ * is package `ns`'s Retail, a bare `Retail` the org's own.
+ */
+function recordTypeNamespace(name: string | undefined): string | undefined {
+  const at = name?.indexOf('__') ?? -1;
+  return name !== undefined && at > 0 && at < name.length - 2 ? name.slice(0, at) : undefined;
+}
+
 /** The step in Setup a change takes, in English. */
 function setupOf(change: Omit<ForgeAdminChange, 'setup'>, recordType: string | undefined): string {
   const object = `Setup > Object Manager > ${change.objectApiName}`;
@@ -116,6 +137,8 @@ function setupOf(change: Omit<ForgeAdminChange, 'setup'>, recordType: string | u
       return `${field} > Edit: give it more digits before the decimal point`;
     case 'create_record_type':
       return `${object} > Record Types > New: ${change.value ?? ''}`;
+    case 'install_package':
+      return `Install or upgrade the package with namespace ${change.namespace ?? ''} in the target: record type ${change.value ?? ''} comes with it, and Setup cannot create it`;
     case 'open_record_type':
       return `${user} > Edit: make record type ${recordType ?? ''} available`;
     case 'activate_currency':
@@ -128,6 +151,46 @@ function setupOf(change: Omit<ForgeAdminChange, 'setup'>, recordType: string | u
       return `Setup > Duplicate Rules > ${change.value ?? ''}: deactivate it, or set it to Allow on create`;
     case 'grant_create':
       return `${user} > Edit: tick Create`;
+    case 'grant_edit':
+      return `Setup > Users > the profile or a permission set of the user SandForge writes as > Object Settings > ${change.value ?? ''} > Edit: tick Read and Edit`;
+    case 'enable_feature':
+      return `Turn on in the target the feature ${change.objectApiName} comes with, or assign the user SandForge writes as the permission set licence that includes it; then ${user} > Edit: tick Create`;
+  }
+}
+
+/** The texts a gap's detail holds under `key`, when it holds a list of them. */
+function detailTexts(gap: ForgeGap, key: string): string[] {
+  const value = gap.detail?.[key];
+  return Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === 'string' && v !== '')
+    : [];
+}
+
+/**
+ * What a gap asks of the target's metadata: one change, several — Edit on
+ * each record an object hangs from — or none when no metadata change cures it.
+ */
+function changesOf(gap: ForgeGap): Array<Omit<ForgeAdminChange, 'setup'>> {
+  const base = {
+    gapId: gap.id,
+    objectApiName: gap.objectApiName,
+    rows: gap.rows,
+  };
+  switch (gap.kind) {
+    case 'object_through_parent':
+      // No Object Settings page holds the object: asked to tick Create on an
+      // opportunity's products, the admin found none to tick.
+      return detailTexts(gap, 'editOn').map((parent) => ({
+        ...base,
+        value: parent,
+        change: 'grant_edit' as const,
+      }));
+    case 'object_feature_off':
+      return [{ ...base, change: 'enable_feature' }];
+    default: {
+      const change = changeOf(gap);
+      return change ? [change] : [];
+    }
   }
 }
 
@@ -179,8 +242,12 @@ function changeOf(gap: ForgeGap): Omit<ForgeAdminChange, 'setup'> | undefined {
     }
     case 'number_out_of_range':
       return { ...base, change: 'widen_number' };
-    case 'record_type_unmapped':
-      return { ...base, ...value, change: 'create_record_type' };
+    case 'record_type_unmapped': {
+      const namespace = recordTypeNamespace(gap.value);
+      return namespace !== undefined
+        ? { ...base, ...value, namespace, change: 'install_package' }
+        : { ...base, ...value, change: 'create_record_type' };
+    }
     case 'record_type_unavailable':
       return { ...base, change: 'open_record_type' };
     case 'currency_inactive':
@@ -218,8 +285,8 @@ export function adminChangesOf(gaps: readonly ForgeGap[]): ForgeAdminChangeGroup
   const groups = new Map<string, ForgeAdminChangeGroup>();
   for (const gap of gaps) {
     if (gap.severity === 'info') continue;
-    const change = changeOf(gap);
-    if (!change) continue;
+    const changes = changesOf(gap);
+    if (changes.length === 0) continue;
     const recordType = gap.recordType;
     const key = `${gap.objectApiName}|${recordType ?? ''}`;
     const group = groups.get(key) ?? {
@@ -227,7 +294,8 @@ export function adminChangesOf(gaps: readonly ForgeGap[]): ForgeAdminChangeGroup
       ...(recordType !== undefined ? { recordType } : {}),
       changes: [],
     };
-    group.changes.push({ ...change, setup: setupOf(change, recordType) });
+    for (const change of changes)
+      group.changes.push({ ...change, setup: setupOf(change, recordType) });
     groups.set(key, group);
   }
   return [...groups.values()]

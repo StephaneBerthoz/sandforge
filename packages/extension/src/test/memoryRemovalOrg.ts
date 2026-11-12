@@ -37,6 +37,10 @@
  * - Deleting a record clears a lookup to it that does not cascade (a
  *   contact's `ReportsToId`) and restamps the child; undeleting the record
  *   puts the lookup back and restamps the child again.
+ * - A record an activated order goes with is refused its delete, the order
+ *   with it, in the org's words (`DELETE_FAILED`): the order must be a draft
+ *   first (seen live, an account of a clone a rewind deleted). So is the
+ *   activated order itself, in words of its own (P8).
  * - An update that points a lookup at a record in the recycle bin is refused,
  *   `ENTITY_IS_DELETED` "entity is deleted", the record left as it was: a
  *   contact's account, a contact's `ReportsToId` and an account's parent,
@@ -154,7 +158,11 @@ export interface MemoryOrgFacts {
    * Whether it comes back with its parent is {@link childDeletedAloneStays}.
    * The same holds of a record deleted on its own before one it points at
    * through a lookup that restricts that one's delete, which never brings it
-   * back. Off: either comes back on its own, as any record deleted on its own.
+   * back, and of one that went with its parent before such a record, with what
+   * hangs from it: an opportunity deleted with its account, its price book
+   * deleted next, no longer comes back with the account (probed live, in that
+   * order and the other, one delete or several). Off: either comes back on its
+   * own, as any record deleted on its own.
    */
   childDeletedAloneThenParentLimbo: boolean;
   /**
@@ -358,6 +366,17 @@ interface ReadAnswer {
 /** The person account's flag, on its account and on its contact. */
 const PERSON_ACCOUNT = 'IsPersonAccount';
 
+/**
+ * The org's answer to the delete of an activated order itself, live (P8): it
+ * deletes one only once it is a draft again. The account it hangs from is
+ * refused in words of its own.
+ */
+const ACTIVATED_ORDER_REFUSAL = {
+  statusCode: 'DELETE_FAILED',
+  message:
+    'unable to modify activated order:  cannot delete order, or add or remove order products',
+};
+
 /** The org's answer when a person account's contact is created or deleted on its own. */
 const PERSON_CONTACT_REFUSAL = {
   // A code of the API's own list; the case is documented, not seen live.
@@ -440,6 +459,20 @@ export class MemoryRemovalOrg implements RemovalOrg {
   refuseTooling?: { errorCode: string; message: string };
   /** The statements of the Tooling API it was asked, in order. */
   readonly toolingAsked: string[] = [];
+  /**
+   * What it answers a block of anonymous Apex with: the one a run's read of
+   * the org's deliverability sends. An org that delivers none of its
+   * automation's emails unless told, as System email only and No access
+   * answer; a user's Send Email is read from `UserPermissionAccess` after it.
+   */
+  anonymousApex: unknown = {
+    compiled: true,
+    success: false,
+    compileProblem: null,
+    exceptionMessage: 'System.NoAccessException: The organization is not permitted to send email',
+  };
+  /** The blocks of anonymous Apex it was asked to run, in order. */
+  readonly anonymousAsked: string[] = [];
   /** REST requests answered: a composite is one, whatever it holds. */
   requests = 0;
   /** SOAP calls answered (the clock, the user, undeletes), which a count of REST requests misses. */
@@ -792,6 +825,11 @@ export class MemoryRemovalOrg implements RemovalOrg {
       this.toolingAsked.push(soql);
       return answered(() => this.fieldDefinitions(soql));
     }
+    const anonymous = /^\/tooling\/executeAnonymous\/?\?anonymousBody=(.*)$/.exec(path);
+    if (anonymous) {
+      this.anonymousAsked.push(decodeURIComponent(anonymous[1]));
+      return { status: 200, body: this.anonymousApex };
+    }
     const described = /^\/sobjects\/(\w+)\/describe\/?$/.exec(path);
     if (described) {
       const since = headers['If-Modified-Since'];
@@ -1037,6 +1075,18 @@ export class MemoryRemovalOrg implements RemovalOrg {
       return PERSON_CONTACT_REFUSAL;
     }
     const taken = this.cascadeOf(objectApiName, id);
+    const active = taken.find(
+      (held) => held.objectApiName === 'Order' && held.row.Status === 'Activated',
+    );
+    if (active && keyOf(active.row.Id) === keyOf(id)) return ACTIVATED_ORDER_REFUSAL;
+    if (active) {
+      return {
+        statusCode: 'DELETE_FAILED',
+        message:
+          `Your attempt to delete ${id} could not be completed because it is associated ` +
+          `with the following active orders.: ${String(active.row.Id)}`,
+      };
+    }
     const goes = new Set(taken.map((held) => keyOf(held.row.Id)));
     for (const held of taken) {
       for (const child of this.children[held.objectApiName] ?? []) {
@@ -1106,6 +1156,7 @@ export class MemoryRemovalOrg implements RemovalOrg {
         for (const [, held] of this.deletedAloneUnder({ objectApiName: object, row }, strands)) {
           held.stuck = true;
         }
+        this.strandPointingAt({ objectApiName: object, row });
       }
       this.table(object).delete(key);
       row.IsDeleted = true;
@@ -1176,6 +1227,38 @@ export class MemoryRemovalOrg implements RemovalOrg {
     );
   }
 
+  /**
+   * What the bin holds that went with another record and points at `parent`
+   * through a lookup that restricts its delete stays there for good, with what
+   * hangs from it: see {@link MemoryOrgFacts.childDeletedAloneThenParentLimbo}.
+   */
+  private strandPointingAt(parent: Pick<Binned, 'objectApiName' | 'row'>): void {
+    const key = keyOf(parent.row.Id);
+    const pointing = (this.children[parent.objectApiName] ?? []).filter(
+      (child) => child.restrictedDelete === true,
+    );
+    const strand = (held: Binned): void => {
+      if (held.stuck) return;
+      held.stuck = true;
+      const own = keyOf(held.row.Id);
+      for (const child of this.children[held.objectApiName] ?? []) {
+        if (child.cascadeDelete !== true) continue;
+        for (const under of this.binned.values()) {
+          if (under.objectApiName === child.childSObject && names(under.row[child.field], own)) {
+            strand(under);
+          }
+        }
+      }
+    };
+    for (const held of this.binned.values()) {
+      if (held.hard || held.emptied || held.deletedWith === undefined) continue;
+      const points = pointing.some(
+        (child) => child.childSObject === held.objectApiName && names(held.row[child.field], key),
+      );
+      if (points) strand(held);
+    }
+  }
+
   /** Bring back `ids` as `by`, each with what was deleted with it: see {@link MemoryOrgFacts}. */
   private undeleteAs(ids: readonly string[], by: string): WriteAnswer[] {
     return ids.map((id): WriteAnswer => {
@@ -1213,7 +1296,8 @@ export class MemoryRemovalOrg implements RemovalOrg {
       }
       const back = [...this.binned].filter(
         ([other, entry]) =>
-          other === key || (!entry.hard && !entry.emptied && entry.deletedWith === key),
+          other === key ||
+          (!entry.hard && !entry.emptied && !entry.stuck && entry.deletedWith === key),
       );
       if (!this.facts.childDeletedAloneStays) back.push(...this.deletedAloneUnder(held));
       const at = orgStamp(this.now());

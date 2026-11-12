@@ -18,6 +18,7 @@
  */
 
 import type { ForgeWrittenBetween, FrozenExclusionCost } from '@sandforge/shared';
+import type { GivenRecordType } from '../../core/metadata/recordTypeGiven.js';
 import type { RecordTypeNameParts } from '../../core/metadata/recordTypeNames.js';
 import type { RowsLeftOut } from '../../core/common/platformRecords.js';
 
@@ -115,6 +116,16 @@ export interface FrozenRecord {
    * record's `referenceId`; `RecordTypeId` carries the RecordType Name.
    */
   fields: Record<string, unknown>;
+  /**
+   * The record type the record had in the source, as metadata names it:
+   * `ns__Retail` for package `ns`'s, `Retail` for the org's own. What the load
+   * resolves it by: the label `RecordTypeId` carries is one two record types
+   * of an object can share — a package's and the org's own — and then says
+   * nothing of which the record had. Absent from a record on Master, of an
+   * object with no record type, and from a dataset extracted before it was
+   * kept, whose label is then all there is.
+   */
+  recordTypeDeveloperName?: string;
 }
 
 /** Pseudonymized records for one object. */
@@ -202,6 +213,12 @@ export interface RecordTypeIdResolver {
     developerName: string,
     namespacePrefix?: string | null,
   ): Promise<string | null | UnavailableRecordType | AmbiguousRecordType>;
+  /**
+   * What the target gives a record of the object sent without a record type,
+   * for the user the load writes as, from the describe the resolver holds;
+   * undefined when it holds none. What a record whose type was dropped gets.
+   */
+  givenRecordType?(orgId: string, sobjectType: string): Promise<GivenRecordType | undefined>;
 }
 
 /**
@@ -260,8 +277,11 @@ export interface PersistedLoad {
    * has to find them. `settled` names, by record id, what this load took from
    * them — purged, reused as its own, or, of a load that does not say what it
    * created, judged by the purge. Absent, the mapping holds this load alone.
+   * `stillToSweep` names, by when each wrote its last record, the loads whose
+   * sweep asked with this reload left what it was to take: kept, none of
+   * their records left, for the next sweep of them.
    */
-  earlier?: { settled: readonly string[] };
+  earlier?: { settled: readonly string[]; stillToSweep?: readonly string[] };
   /**
    * The person accounts' contacts the load linked to the one the platform
    * wrote with each account, by their key, each with the key of its account.
@@ -282,6 +302,12 @@ export interface PersistedLoad {
    * never deleted on their own. Absent when the load linked none.
    */
   withTheirRecord?: Readonly<Record<string, string>>;
+  /**
+   * The user the load wrote as, by Salesforce id: what a removal and its
+   * sweep hold the records the target's automation made to. Absent when the
+   * target did not say.
+   */
+  runUserId?: string;
 }
 
 /**
@@ -339,6 +365,11 @@ export interface LoadJournal {
    * {@link flush}.
    */
   created(objectApiName: string, records: ReadonlyArray<readonly [key: string, id: string]>): void;
+  /**
+   * The user the load writes as, told before its first batch: a load killed
+   * part way is read back with it, as one that ended keeps it with its mapping.
+   */
+  writtenAs(userId: string): void;
   /** Waits for what was appended to be written; says why some could not be, once. */
   flush(): Promise<string | undefined>;
   /**

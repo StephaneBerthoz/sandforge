@@ -8,8 +8,11 @@ export interface RecentOp {
   type: 'forge' | 'seed' | 'sync' | 'compare' | 'dataops' | 'automation' | 'frozen' | 'grappe';
   /** Short human-readable label. */
   label: string;
-  /** Current execution status: `cancelled` is a run the user or a caller stopped. */
-  status: 'success' | 'running' | 'failed' | 'cancelled';
+  /**
+   * Current execution status: `partial` is a run that ended with part of its
+   * work not done, `cancelled` a run the user or a caller stopped.
+   */
+  status: 'success' | 'partial' | 'running' | 'failed' | 'cancelled';
   /** Unix-ms timestamp of last status change. */
   timestamp: number;
   /** Optional record count. */

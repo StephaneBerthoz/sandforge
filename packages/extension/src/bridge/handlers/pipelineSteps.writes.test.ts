@@ -94,7 +94,6 @@ function maskingResult(overrides: Partial<MaskingResult> = {}): MaskingResult {
     objects: [{ objectApiName: 'Contact', total: 6, processed: 6, failed: 0, notMasked: 0 }],
     message: 'Masked',
     errors: [],
-    fieldsNotFound: [],
     snapshot: { operationId: 'snap-1', totalRecords: 6 },
     ...overrides,
   };
@@ -345,7 +344,7 @@ describe('the Seed step', () => {
       })),
     });
     const result = await executorWith(flows).execute(step('seed', SEED), context());
-    expect(result.cancelled).toBe(true);
+    expect(result.status).toBe('stopped');
     expect(result.error).toContain(
       "3 records in dev, which stay there; take them back from Seed's",
     );
@@ -415,6 +414,65 @@ describe('the Anonymize step', () => {
     expect(result.error).toContain('2 of Contact still hold their values');
   });
 
+  it('says why the org refused the rows, and keeps its reasons and the run’s message', async () => {
+    // As the trap org answered a step muted and accepted: a validation rule
+    // the mute does not lift refused both contacts, and the step said only
+    // that they still held their values.
+    const message =
+      'Anonymization failure: 0 masked, 2 rejected by the org — those records still hold their ' +
+      'original values. Resume masks only what this run left.';
+    const errors = [
+      { objectApiName: 'Contact', message: 'Phone must be written +33 X XX XX XX XX.' },
+      { objectApiName: 'Contact', message: 'Phone must be written +33 X XX XX XX XX.' },
+    ];
+    const flows = runners({
+      anonymize: vi.fn(async () => ({
+        operationId: 'op',
+        result: maskingResult({
+          status: 'failure',
+          recordsProcessed: 0,
+          recordsFailed: 2,
+          recordsNotMasked: 2,
+          objects: [{ objectApiName: 'Contact', total: 2, processed: 0, failed: 2, notMasked: 2 }],
+          message,
+          errors,
+        }),
+      })),
+    });
+
+    const result = await executorWith(flows).execute(step('anonymize', MASK), context());
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toContain(
+      '2 of Contact still hold their values, refused by the org: Contact: Phone must be written ' +
+        '+33 X XX XX XX XX.; the snapshot snap-1 keeps',
+    );
+    expect(result.output).toMatchObject({ message, errors });
+  });
+
+  it('says what the run said of rows it left unreached, when the org refused none', async () => {
+    const message =
+      "Anonymization stopped at 95% of the org's daily API requests (950 of 1000): 4 masked — 2 " +
+      'still hold their original values (Contact 2). Resume it once the org has requests to spare.';
+    const flows = runners({
+      anonymize: vi.fn(async () => ({
+        operationId: 'op',
+        result: maskingResult({
+          status: 'partial',
+          recordsProcessed: 4,
+          recordsNotMasked: 2,
+          objects: [{ objectApiName: 'Contact', total: 6, processed: 4, failed: 0, notMasked: 2 }],
+          message,
+          stoppedAtApiLimit: true,
+        }),
+      })),
+    });
+
+    const result = await executorWith(flows).execute(step('anonymize', MASK), context());
+
+    expect(result.error).toContain(`2 of Contact still hold their values (${message})`);
+  });
+
   it('fails with the refusal, naming the snapshot it took, when it is refused', async () => {
     const anonymize = vi.fn(async () => {
       throw Object.assign(new Error('Phone is not shown to the user. Nothing was masked.'), {
@@ -427,6 +485,86 @@ describe('the Anonymize step', () => {
     );
     expect(result.status).toBe('failed');
     expect(result.output).toMatchObject({ code: 'MASKING_FIELDS_UNSEEN' });
+  });
+
+  it('masks with nothing accepted unless its configuration says yes to each, as a Rewind step does', async () => {
+    const flows = runners();
+    const executor = executorWith(flows);
+
+    await executor.execute(step('anonymize', MASK), context());
+    await executor.execute(
+      step('anonymize', { ...MASK, acceptAutomation: true, muteAutomation: true }),
+      context(),
+    );
+
+    const asked = vi.mocked(flows.anonymize!).mock.calls.map(([request]) => request.accord);
+    expect(asked).toEqual([
+      { acceptAutomation: false, acceptEmails: false, muteAutomation: false },
+      { acceptAutomation: true, acceptEmails: false, muteAutomation: true },
+    ]);
+  });
+
+  it('is refused before the run for an acceptance that is not a yes or a no', () => {
+    const target = step('anonymize', { ...MASK, acceptAutomation: 'yes' });
+    expect(executorWith(runners()).check(target, placed(target))).toContain(
+      'acceptAutomation: Invalid input',
+    );
+  });
+
+  it('fails, nothing masked, when what fires is not accepted, with the code and the setting that lets it', async () => {
+    const anonymize = vi.fn(async () => {
+      throw Object.assign(
+        new Error(
+          'dev runs automation as this masking writes over its records: Contact: flow "Notify" ' +
+            '(as it is masked, after save). Nothing was written. Turn on acceptAutomation in the ' +
+            'step to mask all the same, or turn that automation off in dev first.',
+        ),
+        { code: 'AUTOMATION_NOT_ACCEPTED' },
+      );
+    });
+    const result = await executorWith(runners({ anonymize })).execute(
+      step('anonymize', MASK),
+      context(),
+    );
+    expect(result.status).toBe('failed');
+    expect(result.output).toMatchObject({ code: 'AUTOMATION_NOT_ACCEPTED' });
+    expect(result.error).toContain('Turn on acceptAutomation in the step to mask all the same');
+  });
+
+  it('says what its mute assigned and that it was taken back', async () => {
+    const mutedAutomation = {
+      state: 'muted' as const,
+      assigned: ['Skip_Contact_Set'],
+      held: [],
+      permissions: ['Skip_Contact'],
+      silenced: [
+        {
+          objectApiName: 'Contact',
+          kind: 'flow' as const,
+          name: 'Notify',
+          permission: 'Skip_Contact',
+        },
+      ],
+      stillRan: [],
+      released: true,
+    };
+    const anonymize = vi.fn(async () => ({
+      operationId: 'op-mask',
+      result: maskingResult({ mutedAutomation }),
+    }));
+
+    const result = await executorWith(runners({ anonymize })).execute(
+      step('anonymize', { ...MASK, muteAutomation: true }),
+      context(),
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.output).toMatchObject({ mutedAutomation: { released: true } });
+    expect(result.summary).toContain(
+      'mute: assigned Skip_Contact_Set to the user the run writes as in dev, for the run alone; ' +
+        'silenced: Contact: flow "Notify" (bypass Skip_Contact); taken back: Skip_Contact_Set, ' +
+        'as the run ended.',
+    );
   });
 });
 
@@ -489,7 +627,7 @@ describe('the Rewind step', () => {
   it('is refused before the run, never confirmed, and confirmed before a change', () => {
     const executor = executorWith(runners());
     expect(executor.check(step('rewind', { ...REWIND, maxRecords: 50 }))).toBe(
-      'Rewind step "Step" has never been confirmed: open it and type the org\'s alias. No record was written.',
+      'Rewind step "Step" has never been confirmed: open it and type the org\'s alias, or its username for an org that has none. No record was written.',
     );
     expect(executor.check(step('rewind', { ...REWIND, maxRecords: 99 }))).toContain(
       'has not been confirmed since it was changed',
@@ -584,6 +722,33 @@ describe('the Rewind step', () => {
     expect(result.error).toContain("past this step's limit of 2");
   });
 
+  it('hands the rewind the emails its configuration accepts, none unless it says so, and fails on the refusal of those it does not', async () => {
+    const said =
+      'dev delivers every email its automation sends (Setup > Deliverability: All email). ' +
+      'Nothing was written. Turn on acceptEmails in the step and confirm it again to rewind all ' +
+      'the same.';
+    const rewind = vi.fn<NonNullable<PipelineStepRunners['rewind']>>(async () => {
+      throw new CheckpointStepRefused('EMAILS_DELIVERED', said);
+    });
+
+    const result = await executorWith(runners({ rewind })).execute(
+      step('rewind', REWIND),
+      context(),
+    );
+
+    expect(rewind.mock.calls[0][0].config.acceptEmails).toBe(false);
+    expect(result.status).toBe('failed');
+    expect(result.error).toBe(said);
+    expect(result.output).toMatchObject({ code: 'EMAILS_DELIVERED' });
+
+    const accepted = runners();
+    await executorWith(accepted).execute(
+      step('rewind', { ...REWIND, acceptEmails: true }),
+      context(),
+    );
+    expect(vi.mocked(accepted.rewind!).mock.calls[0][0].config.acceptEmails).toBe(true);
+  });
+
   it('fails with the counts of a rewind left untouched where nobody could be asked', async () => {
     const rewind = vi.fn(async () => {
       throw new CheckpointStepRefused(
@@ -598,6 +763,81 @@ describe('the Rewind step', () => {
     );
     expect(result.status).toBe('failed');
     expect(result.output).toMatchObject({ code: 'UNDELETABLE_UNATTENDED', deleted: 0 });
+  });
+
+  it('says what the mute assigned, and that it was not taken back, of a rewind left untouched where nobody could be asked after its first pass wrote', async () => {
+    const mutedAutomation = {
+      state: 'muted' as const,
+      assigned: ['Skip_Account_Set'],
+      held: [],
+      permissions: ['Skip_Account'],
+      silenced: [
+        {
+          objectApiName: 'Account',
+          kind: 'flow' as const,
+          name: 'Account changed',
+          permission: 'Skip_Account',
+        },
+      ],
+      stillRan: [],
+      released: false,
+      reason: 'the assignments could not be taken back (INVALID_SESSION_ID: Session expired)',
+    };
+    const rewind = vi.fn(async () => {
+      throw new CheckpointStepRefused(
+        'UNDELETABLE_UNATTENDED',
+        'The user may not delete the Account (2) record(s). What the rewind’s first pass wrote stays.',
+        rewindResult({ status: 'partial', mutedAutomation }),
+      );
+    });
+
+    const result = await executorWith(runners({ rewind })).execute(
+      step('rewind', { ...REWIND, muteAutomation: true }),
+      context(),
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.output).toMatchObject({
+      code: 'UNDELETABLE_UNATTENDED',
+      mutedAutomation: { state: 'muted', released: false },
+    });
+    expect(result.error).toContain(
+      'mute: assigned Skip_Account_Set to the user the run writes as in dev, for the run alone',
+    );
+    expect(result.error).toContain(
+      'not taken back: the assignments could not be taken back (INVALID_SESSION_ID: Session expired)',
+    );
+  });
+
+  it('says what the mute assigned, and that it was not taken back, of a rewind that threw under it', async () => {
+    const rewind = vi.fn(async () => {
+      throw Object.assign(new Error('INVALID_SESSION_ID: Session expired or invalid'), {
+        mutedAutomation: {
+          state: 'muted',
+          assigned: ['Skip_Account_Set'],
+          held: [],
+          permissions: ['Skip_Account'],
+          silenced: [],
+          stillRan: [],
+          released: false,
+          reason: 'the assignments could not be taken back (INVALID_SESSION_ID)',
+        },
+      });
+    });
+
+    const result = await executorWith(runners({ rewind })).execute(
+      step('rewind', { ...REWIND, muteAutomation: true }),
+      context(),
+    );
+
+    expect(rewind).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe('failed');
+    expect(result.output).toMatchObject({ mutedAutomation: { released: false } });
+    expect(result.error).toBe(
+      'INVALID_SESSION_ID: Session expired or invalid mute: assigned Skip_Account_Set to the ' +
+        'user the run writes as in dev, for the run alone; not taken back: the assignments ' +
+        'could not be taken back (INVALID_SESSION_ID).',
+    );
   });
 
   it('fails, with what still differs, on a rewind that did not complete', async () => {
@@ -631,7 +871,7 @@ describe('the Rewind step', () => {
       step('rewind', REWIND),
       context(),
     );
-    expect(result.cancelled).toBe(true);
+    expect(result.status).toBe('stopped');
     expect(result.error).toContain('Undo on the Checkpoints page takes it back');
   });
 
@@ -644,7 +884,7 @@ describe('the Rewind step', () => {
       context(),
     );
     expect(rewind).toHaveBeenCalledTimes(1);
-    expect(result.cancelled).toBe(true);
+    expect(result.status).toBe('stopped');
   });
 });
 
@@ -672,6 +912,49 @@ describe('the templates and steps the page checks against', () => {
       },
       { id: 'tpl-mine', name: 'Mine', builtIn: false, objects: ['Case'] },
     ]);
+  });
+
+  it('says what a step that muted assigned, silenced and took back, and hands the rewind its configuration', async () => {
+    const flows = runners({
+      rewind: vi.fn(async () => ({
+        operationId: 'op-rewind',
+        checkpointId: CHECKPOINT_ID,
+        result: rewindResult({
+          mutedAutomation: {
+            state: 'muted',
+            assigned: ['Skip_Account_Set'],
+            held: [],
+            permissions: ['Skip_Account'],
+            silenced: [
+              {
+                objectApiName: 'Account',
+                kind: 'flow',
+                name: 'Account changed',
+                permission: 'Skip_Account',
+              },
+            ],
+            stillRan: [],
+            released: true,
+          },
+        }),
+        notes: [],
+        estimate: {} as never,
+      })),
+    });
+
+    const result = await executorWith(flows).execute(
+      step('rewind', { ...REWIND, muteAutomation: true }),
+      context(),
+    );
+
+    expect(vi.mocked(flows.rewind!).mock.calls[0][0].config.muteAutomation).toBe(true);
+    expect(result.status).toBe('completed');
+    expect(result.output).toMatchObject({ mutedAutomation: { state: 'muted' } });
+    expect(result.summary).toContain(
+      'mute: assigned Skip_Account_Set to the user the run writes as in dev, for the run alone; ' +
+        'silenced: Account: flow "Account changed" (bypass Skip_Account); taken back: ' +
+        'Skip_Account_Set, as the run ended.',
+    );
   });
 
   it('describes a Rewind step with its checkpoint and its confirmation', () => {

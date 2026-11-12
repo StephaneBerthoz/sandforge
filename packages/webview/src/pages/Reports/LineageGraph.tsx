@@ -20,11 +20,35 @@ type NodeType = LineageNode['type'];
  * A node's width, and the distance from one column to the next. The edge
  * between two columns carries its label, "1,200 records" or "upsert": columns
  * 220 apart for nodes 180 wide left it 40 pixels, and the nodes on either
- * side cut "1,200 records" to "00 recor". 140 pixels hold it, and React
- * Flow's fitView still fits four columns to the panel.
+ * side cut "1,200 records" to "00 recor". 140 pixels hold it.
  */
 const NODE_WIDTH = 180;
 const COLUMN_STEP = 320;
+
+/** The distance from one row of a column to the next, and a node of two lines of label. */
+const ROW_STEP = 90;
+const NODE_HEIGHT = 50;
+
+/**
+ * The smallest zoom the graph is drawn at. Fitted to whatever the panel held,
+ * five columns in an 800-pixel panel fell to React Flow's own floor of 0.5:
+ * 11-pixel text read as 5.5, and the first and last nodes were cut. At 0.9 it
+ * reads as the 10 pixels of the page's smallest text, and a graph the panel
+ * cannot hold at that zoom scrolls in its box.
+ */
+const READABLE_ZOOM = 0.9;
+
+/** What React Flow's fit adds around the graph: its default padding of 0.1. */
+const FIT_ROOM = 1.1;
+
+/** The box the fit draws a graph of `columns` by `rows` in at {@link READABLE_ZOOM}, or larger. */
+function readableBox(columns: number, rows: number): { minWidth: number; height: number } {
+  const room = FIT_ROOM * READABLE_ZOOM;
+  return {
+    minWidth: Math.ceil(((columns - 1) * COLUMN_STEP + NODE_WIDTH) * room),
+    height: Math.max(250, Math.ceil(((rows - 1) * ROW_STEP + NODE_HEIGHT) * room)),
+  };
+}
 
 /** Left to right, the order a record passes through the node types. */
 const COLUMN_ORDER: readonly NodeType[] = [
@@ -67,8 +91,8 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
     [lineage],
   );
 
-  const { nodes, edges } = useMemo(() => {
-    if (!lineage) return { nodes: [] as Node[], edges: [] as Edge[] };
+  const { nodes, edges, box } = useMemo(() => {
+    if (!lineage) return { nodes: [] as Node[], edges: [] as Edge[], box: readableBox(1, 1) };
 
     /** A source that is not an org is named by what it is, then by its own label. */
     const labelOf = (node: LineageNode): string => {
@@ -88,7 +112,7 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
 
       return {
         id: node.id,
-        position: { x: col * COLUMN_STEP + 20, y: row * 90 + 20 },
+        position: { x: col * COLUMN_STEP + 20, y: row * ROW_STEP + 20 },
         data: { label: labelOf(node) },
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
@@ -112,12 +136,16 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
         edge.label ??
         (edge.recordCount ? t('common.recordCount', { count: edge.recordCount }) : undefined),
       style: { stroke: 'var(--sf-border)' },
-      labelStyle: { fontSize: 9, fill: 'var(--sf-text-secondary)' },
+      labelStyle: { fontSize: 11, fill: 'var(--sf-text-secondary)' },
       // React Flow draws the label on a white rectangle unless told otherwise.
       labelBgStyle: { fill: 'var(--sf-bg-primary)' },
     }));
 
-    return { nodes: flowNodes, edges: flowEdges };
+    return {
+      nodes: flowNodes,
+      edges: flowEdges,
+      box: readableBox(presentTypes.length, Math.max(...Object.values(columnCounts))),
+    };
   }, [lineage, presentTypes, t]);
 
   return (
@@ -147,24 +175,29 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
               {/* React Flow graph */}
               {nodes.length > 0 && (
                 <div
-                  style={{
-                    width: '100%',
-                    height: Math.max(250, nodes.length * 40),
-                  }}
-                  className={cn('border border-[var(--sf-border)] rounded')}
-                  data-testid="lineage-flow"
+                  role="region"
+                  aria-label={t('reports.lineage')}
+                  // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a graph wider than the panel scrolls, and the drawing pans by no key: the region takes the focus itself, so the keyboard can scroll it (axe scrollable-region-focusable).
+                  tabIndex={0}
+                  className={cn(
+                    'overflow-x-auto rounded border border-[var(--sf-border)]',
+                    'focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--sf-accent)',
+                  )}
+                  data-testid="lineage-scroll"
                 >
-                  <ReactFlow
-                    nodes={nodes}
-                    edges={edges}
-                    fitView
-                    nodesDraggable={false}
-                    nodesConnectable={false}
-                    panOnDrag={false}
-                    zoomOnScroll={false}
-                    preventScrolling={false}
-                    proOptions={{ hideAttribution: true }}
-                  />
+                  <div style={{ width: '100%', ...box }} data-testid="lineage-flow">
+                    <ReactFlow
+                      nodes={nodes}
+                      edges={edges}
+                      fitView
+                      nodesDraggable={false}
+                      nodesConnectable={false}
+                      panOnDrag={false}
+                      zoomOnScroll={false}
+                      preventScrolling={false}
+                      proOptions={{ hideAttribution: true }}
+                    />
+                  </div>
                 </div>
               )}
             </div>

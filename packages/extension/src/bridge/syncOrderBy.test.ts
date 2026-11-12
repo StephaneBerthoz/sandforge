@@ -52,7 +52,7 @@ describe('a sync object may only order on a field list', () => {
     },
   );
 
-  it('refuses an SFDMU export whose orderBy carries more than a field list', async () => {
+  it('leaves out, and names, an SFDMU order that carries more than a field list', async () => {
     const exportJson = JSON.stringify({
       objects: [
         {
@@ -66,9 +66,19 @@ describe('a sync object may only order on a field list', () => {
     });
     const importer = new SfdmuImporter({ readFile: async () => exportJson });
 
-    const config = await importer.import('/workspace/export.json');
+    const { config, notes } = await importer.import('/workspace/export.json');
 
-    expect(config.objects[0].orderBy).toBe('Id ASC LIMIT 1');
-    expect(syncObjectPayloadSchema.safeParse(config.objects[0]).success).toBe(false);
+    // No box on the Migration page holds an order: carried, it could only have
+    // stopped the save, and an order changes which record is written first alone.
+    expect(config.objects[0].orderBy).toBeUndefined();
+    expect(notes).toContainEqual({
+      code: 'queryClause',
+      object: 'Account',
+      detail: 'ORDER BY Id ASC LIMIT 1',
+    });
+    expect(
+      syncObjectPayloadSchema.safeParse({ ...config.objects[0], orderBy: 'Id ASC LIMIT 1' })
+        .success,
+    ).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../i18n';
-import type { SyncSimulationResult } from '@sandforge/shared';
+import type { RunDeliverability, SyncSimulationResult } from '@sandforge/shared';
 import { SyncSimulationResults } from './SyncSimulationResults';
 
 function simulation(overrides: Partial<SyncSimulationResult> = {}): SyncSimulationResult {
@@ -45,10 +45,51 @@ function simulation(overrides: Partial<SyncSimulationResult> = {}): SyncSimulati
 }
 
 describe('SyncSimulationResults', () => {
+  it('says what the checkpoint asked first would hold and cost, and the refusal a run would meet', () => {
+    render(
+      <SyncSimulationResults
+        targetOrg="TGT-DEV"
+        simulation={simulation({
+          checkpoint: {
+            state: 'planned',
+            estimate: {
+              records: 7_588,
+              apiRequests: 43,
+              apiRequestsLeft: 14_000,
+              seconds: 22,
+              bytes: 2_200_000,
+            },
+            objects: ['Account', 'Contact'],
+            added: [{ objectApiName: 'Task', reason: "The target's flow creates Task records." }],
+            notHeld: [{ objectApiName: 'FeedItem', reason: 'Chatter posts are never held.' }],
+            keepDays: 7,
+            refusal: { code: 'DISK', message: 'No room on this machine.' },
+          },
+        })}
+        onRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-simulation-checkpoint-cost').textContent).toContain(
+      'A real run would take a checkpoint first: about 7,588 records of Account and Contact, 43 API requests',
+    );
+    expect(screen.getByTestId('sync-simulation-checkpoint-added-Task')).toBeDefined();
+    expect(screen.getByTestId('sync-simulation-checkpoint-not-held-FeedItem')).toBeDefined();
+    expect(screen.getByTestId('sync-simulation-checkpoint-refusal').textContent).toBe(
+      "A real run would be refused for its checkpoint. This machine's disk has too little room for it.",
+    );
+  });
+
+  it('says nothing of a checkpoint a simulation was not asked about', () => {
+    render(<SyncSimulationResults targetOrg="TGT-DEV" simulation={simulation()} onRun={vi.fn()} />);
+    expect(screen.queryByTestId('sync-simulation-checkpoint')).toBeNull();
+  });
+
   it('says what a run would meet before its first write, and what an earlier run copied', () => {
     const base = simulation();
     render(
       <SyncSimulationResults
+        targetOrg="TGT-DEV"
         simulation={{
           ...base,
           objects: [{ ...base.objects[1], read: 5, skipped: 2, alreadyCopied: 2 }],
@@ -74,10 +115,34 @@ describe('SyncSimulationResults', () => {
     );
   });
 
+  it('says linked, apart from what an earlier run copied, what it linked to records the target held', () => {
+    const base = simulation();
+    render(
+      <SyncSimulationResults
+        targetOrg="TGT-DEV"
+        simulation={{
+          ...base,
+          objects: [
+            { ...base.objects[1], read: 5, skipped: 3, alreadyCopied: 2, alreadyLinked: 1 },
+          ],
+        }}
+        onRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-simulation-copied-Contact').textContent).toBe(
+      '2 already copied by an earlier run of this configuration, left as they are.',
+    );
+    expect(screen.getByTestId('sync-simulation-linked-Contact').textContent).toBe(
+      '1 already linked by an earlier run of this configuration to a record the target holds, left as it is.',
+    );
+  });
+
   it('names beside an object the encrypted fields a run would leave out, read masked from the source', () => {
     const base = simulation();
     render(
       <SyncSimulationResults
+        targetOrg="TGT-DEV"
         simulation={{
           ...base,
           objects: [{ ...base.objects[1], encryptedLeftOut: ['Tax_Id__c'] }, base.objects[0]],
@@ -92,10 +157,49 @@ describe('SyncSimulationResults', () => {
     expect(screen.queryByTestId('sync-simulation-encrypted-Account')).toBeNull();
   });
 
+  it('says beside an object the record type the target would give the records a run would create without one, and nothing of an object whose records carry theirs', () => {
+    const base = simulation();
+    render(
+      <SyncSimulationResults
+        targetOrg="TGT-DEV"
+        simulation={{
+          ...base,
+          objects: [
+            base.objects[0]!,
+            {
+              ...base.objects[1]!,
+              objectApiName: 'Opportunity',
+              recordTypeGiven: {
+                objectApiName: 'Opportunity',
+                rows: 1,
+                why: { masterInSource: 1 },
+                predicted: {
+                  developerName: 'SFX_Retail',
+                  label: 'SFX Retail',
+                  basis: 'onlyOneOpen',
+                },
+              },
+            },
+          ],
+        }}
+        onRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-simulation-record-type-Opportunity').textContent).toBe(
+      '1 Opportunity record to create without a record type, on Master in the source: the ' +
+        'target org would give it SFX_Retail (SFX Retail), the only other Opportunity record ' +
+        "type open to the user SandForge writes as — its describe names Master that user's " +
+        'default, yet a record written without one gets this one.',
+    );
+    expect(screen.queryByTestId('sync-simulation-record-type-Account')).toBeNull();
+  });
+
   it("lists beside an object the target's validation rules, which a simulation cannot evaluate", () => {
     const base = simulation();
     render(
       <SyncSimulationResults
+        targetOrg="TGT-DEV"
         simulation={{
           ...base,
           objects: [
@@ -123,6 +227,7 @@ describe('SyncSimulationResults', () => {
   it("says when the target's validation rules could not be listed", () => {
     render(
       <SyncSimulationResults
+        targetOrg="TGT-DEV"
         simulation={simulation({ validationRulesUnread: 'INSUFFICIENT_ACCESS' })}
         onRun={vi.fn()}
       />,
@@ -134,7 +239,7 @@ describe('SyncSimulationResults', () => {
   });
 
   it('adds up what the run would do and says that nothing was written', () => {
-    render(<SyncSimulationResults simulation={simulation()} onRun={vi.fn()} />);
+    render(<SyncSimulationResults targetOrg="TGT-DEV" simulation={simulation()} onRun={vi.fn()} />);
 
     const summary = screen.getByTestId('sync-simulation-summary');
     expect(summary.textContent).toContain('Simulation — nothing written');
@@ -155,7 +260,7 @@ describe('SyncSimulationResults', () => {
   });
 
   it('gives each object its own line, with the reasons the counts leave unsaid', () => {
-    render(<SyncSimulationResults simulation={simulation()} onRun={vi.fn()} />);
+    render(<SyncSimulationResults targetOrg="TGT-DEV" simulation={simulation()} onRun={vi.fn()} />);
 
     const account = screen.getByTestId('sync-simulation-object-Account');
     expect(account.textContent).toContain('Upsert — 12 records read');
@@ -187,7 +292,9 @@ describe('SyncSimulationResults', () => {
       ],
     });
 
-    render(<SyncSimulationResults simulation={bidirectional} onRun={vi.fn()} />);
+    render(
+      <SyncSimulationResults targetOrg="TGT-DEV" simulation={bidirectional} onRun={vi.fn()} />,
+    );
 
     expect(screen.getByTestId('sync-simulation-summary').textContent).toContain('In conflict: 2');
     const account = screen.getByTestId('sync-simulation-object-Account');
@@ -201,6 +308,7 @@ describe('SyncSimulationResults', () => {
   it('says where a simulation stopped, and that a run would stop there too', () => {
     render(
       <SyncSimulationResults
+        targetOrg="TGT-DEV"
         simulation={simulation({ objects: [], error: 'INVALID_TYPE', failedObject: 'Case' })}
         onRun={vi.fn()}
       />,
@@ -214,7 +322,13 @@ describe('SyncSimulationResults', () => {
   });
 
   it('calls a simulation a cancel stopped cancelled', () => {
-    render(<SyncSimulationResults simulation={simulation({ cancelled: true })} onRun={vi.fn()} />);
+    render(
+      <SyncSimulationResults
+        targetOrg="TGT-DEV"
+        simulation={simulation({ cancelled: true })}
+        onRun={vi.fn()}
+      />,
+    );
 
     expect(screen.getByTestId('sync-simulation-summary').textContent).toContain(
       'Simulation cancelled',
@@ -223,7 +337,7 @@ describe('SyncSimulationResults', () => {
 
   it('runs the sync for real from the findings', () => {
     const onRun = vi.fn();
-    render(<SyncSimulationResults simulation={simulation()} onRun={onRun} />);
+    render(<SyncSimulationResults targetOrg="TGT-DEV" simulation={simulation()} onRun={onRun} />);
 
     fireEvent.click(screen.getByTestId('sync-run-after-simulation'));
 
@@ -234,6 +348,7 @@ describe('SyncSimulationResults', () => {
     const [account] = simulation().objects;
     render(
       <SyncSimulationResults
+        targetOrg="TGT-DEV"
         simulation={simulation({
           objects: [
             {
@@ -260,5 +375,70 @@ describe('SyncSimulationResults', () => {
     expect(screen.getByTestId('sync-simulation-summary').textContent).toContain('Would delete: 2');
     const card = screen.getByTestId('sync-simulation-object-Account');
     expect(within(card).getByText('Would delete:')).toBeDefined();
+  });
+
+  describe('the emails of what still runs', () => {
+    const SENDS: RunDeliverability = {
+      reading: { level: 'all' },
+      senders: [{ objectApiName: 'Contact', kind: 'flow', name: 'Welcome email', why: 'email' }],
+    };
+    const simulated = (deliverability?: RunDeliverability): void => {
+      render(
+        <SyncSimulationResults
+          targetOrg="TGT-DEV"
+          simulation={simulation({
+            writeCheck: {
+              objects: [{ objectApiName: 'Contact', rows: 3 }],
+              total: 3,
+              alreadyCopied: 0,
+              storage: { verdict: 'fits', estimateMB: 0.01, maxMB: 5, remainingMB: 4 },
+              emails: [],
+              verdict: deliverability ? 'asks' : 'writes',
+              ...(deliverability ? { deliverability } : {}),
+            },
+          })}
+          onRun={vi.fn()}
+        />,
+      );
+    };
+
+    it('says the target delivers them, who sends, and that the run reads it again', () => {
+      simulated(SENDS);
+
+      expect(screen.getByTestId('sync-simulation-deliverability-reading').textContent).toBe(
+        'TGT-DEV delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the run writes may send some: Flow “Welcome email” on Contact.',
+      );
+      expect(screen.getByTestId('sync-simulation-deliverability-read-again')).toBeDefined();
+      expect(screen.getByTestId('sync-write-check-verdict').textContent).toBe(
+        'The run asks you before it writes.',
+      );
+    });
+
+    it('says an org that withholds them lets nothing out', () => {
+      simulated({ ...SENDS, reading: { level: 'withheld' } });
+
+      expect(screen.getByTestId('sync-simulation-deliverability-reading').textContent).toContain(
+        'TGT-DEV delivers none of the emails',
+      );
+      expect(screen.queryByTestId('sync-simulation-deliverability-addresses')).toBeNull();
+    });
+
+    it('says why the org would not say, and what of the automation could not be read', () => {
+      simulated({
+        reading: { unread: 'the read was refused' },
+        senders: [],
+        sendersUnread: "the target's flows: refused",
+      });
+
+      const said = screen.getByTestId('sync-simulation-deliverability-reading').textContent;
+      expect(said).toContain('could not be read (the read was refused)');
+      expect(said).toContain('may send some: what of its automation could not be read.');
+    });
+
+    it('says nothing of them when nothing sends', () => {
+      simulated();
+
+      expect(screen.queryByTestId('sync-simulation-deliverability')).toBeNull();
+    });
   });
 });

@@ -5,6 +5,8 @@ import { useBridgeQuery } from '../../../hooks/useBridgeQuery';
 import { useLatestRef } from '../../../hooks/useLatestRef';
 import { useOperationCancel } from '../../../hooks/useOperationCancel';
 import { Button } from '../../../components/ui/Button';
+import { CheckpointFirstOption } from '../../../components/ui/CheckpointFirstOption';
+import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { Select } from '../../../components/ui/Select';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { Badge } from '../../../components/ui/Badge';
@@ -189,6 +191,16 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack, onRunn
       {csv.error && (
         <ErrorBanner message={csv.error} code={null} module="seed" data-testid="csv-error" />
       )}
+      {/* What became of the checkpoint a stopped import took first. */}
+      {!running && !csv.executionResult && (
+        <RewindBeforeRun
+          checkpoint={csv.stoppedCheckpoint}
+          orgId={csv.targetOrgId}
+          beside="run"
+          compact
+          testId="csv-error-checkpoint"
+        />
+      )}
 
       {/* Step content. Named after the step it shows, and focusable: the Seed
           page hands it the keyboard when the import opens, in place of the
@@ -310,6 +322,15 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack, onRunn
                 <Badge variant="default">
                   {t('common.recordCount', { count: csv.parsedRows.length })}
                 </Badge>
+                {/* The import's question says its cost, before anything is taken. */}
+                <CheckpointFirstOption
+                  checked={csv.checkpointFirst}
+                  onChange={csv.setCheckpointFirst}
+                  orgId={csv.targetOrgId}
+                  costSaid="question"
+                  testId="csv-checkpoint-first"
+                  className="self-stretch max-w-md mx-auto w-full"
+                />
                 <Button
                   variant="primary"
                   size="sm"
@@ -386,6 +407,14 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack, onRunn
                     <SeedRunRemoval runId={csv.executionResult.runId} />
                   </div>
                 )}
+                {/* Under the removal, which takes back what the import wrote alone. */}
+                <RewindBeforeRun
+                  checkpoint={csv.executionResult.checkpoint}
+                  orgId={csv.targetOrgId}
+                  beside="run"
+                  testId="csv-result-checkpoint"
+                  className="self-stretch max-w-md mx-auto w-full"
+                />
                 {/* The org as the import filled it, kept before the testers
                     start: above Done, which leaves the results. */}
                 <TakeCheckpointNow

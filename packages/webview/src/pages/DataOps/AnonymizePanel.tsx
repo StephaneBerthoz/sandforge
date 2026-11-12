@@ -7,6 +7,7 @@ import type {
   ListedAnonymizationTemplate,
 } from '@sandforge/shared';
 import { formatNumber, formatStoredDate, uiLocale } from '../../utils/formatters';
+import { maskingGapWords, type MaskingGaps } from '../../utils/maskingRefusal';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -19,6 +20,7 @@ import { AnonymizationTemplateEditor, ruleTypeLabel } from './AnonymizationTempl
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
 import { RunStopControl } from './RunStopControl';
 import { DeleteQuestion } from './DeleteQuestion';
+import { DataOpsAutomation, NO_ACCORD, type DataOpsAutomationAccord } from './DataOpsAutomation';
 
 /** AnonymizePanel component props. */
 export interface AnonymizePanelProps {
@@ -28,6 +30,12 @@ export interface AnonymizePanelProps {
    * with one.
    */
   orgName?: string;
+  /**
+   * The org a run masks, by its id in the registry: its confirmation reads
+   * what the org runs as the records are written over, and waits for it.
+   * Without it, no such read, and the run carries no acceptance of what fires.
+   */
+  orgId?: string;
   /** The templates the host lists: those that ship, then those the user saved. */
   templates?: ListedAnonymizationTemplate[];
   selectedTemplateId?: string;
@@ -44,12 +52,15 @@ export interface AnonymizePanelProps {
    * Masks every row of the template's objects; `snapshot` takes, before the
    * first write, a backup of the fields it masks, which Restore puts back.
    */
-  onApply?: (templateId: string, options: { snapshot: boolean }) => void;
+  onApply?: (
+    templateId: string,
+    options: { snapshot: boolean; accord?: DataOpsAutomationAccord },
+  ) => void;
   /**
    * Resumes the run of the template that stopped short, the checkpoint the
    * coverage answer names: only what that run left is masked.
    */
-  onResume?: (templateId: string, resumeFrom: string) => void;
+  onResume?: (templateId: string, resumeFrom: string, accord?: DataOpsAutomationAccord) => void;
   isApplying?: boolean;
   /**
    * Reads the first rows of each object the template masks and masks them as
@@ -93,24 +104,40 @@ type PreviewLine = {
   after: AnonymizePreviewValue;
 };
 
+/** What a preview found Apply would be refused for, or `undefined` when it would not be. */
+function refusedFor(preview: AnonymizePreview): MaskingGaps | undefined {
+  const objectsNotCovered = preview.objects.filter((o) => o.notCovered).map((o) => o.objectApiName);
+  // A field shown read-only passed Preview, and Apply was then refused for it.
+  const notWritable = preview.objects.flatMap((o) =>
+    o.writeDenied === undefined
+      ? []
+      : o.writeDenied.deniedFields.length === 0
+        ? [o.objectApiName]
+        : o.writeDenied.deniedFields.map((field) => `${o.objectApiName}.${field}`),
+  );
+  return preview.fieldsNotFound.length > 0 || objectsNotCovered.length > 0 || notWritable.length > 0
+    ? {
+        fieldsNotFound: preview.fieldsNotFound,
+        objectsNotCovered,
+        ...(notWritable.length > 0 ? { notWritable } : {}),
+      }
+    : undefined;
+}
+
 /**
- * The fields a template names that Apply masks nothing in, with why and what
- * to do: the org lacks them, or field-level security hides them from the user
- * SandForge connects as.
+ * What Apply would be refused for, before the click, in the words the refusal
+ * uses: the fields the org lacks or field-level security hides from the user
+ * SandForge connects as, the objects left with no field, what that user may
+ * not edit, and what to do.
  */
-const FieldsNotMasked: React.FC<{
-  fields: AnonymizePreview['fieldsNotFound'];
-  testId: string;
-}> = ({ fields, testId }) => {
+const ApplyRefusedFor: React.FC<{ gaps: MaskingGaps; testId: string }> = ({ gaps, testId }) => {
   const { t } = useTranslation();
   return (
     <p
       className="rounded border border-status-warning p-2 text-xs text-text-primary"
       data-testid={testId}
     >
-      {t('dataops.preview.fieldsNotFound', {
-        fields: fields.map((f) => `${f.objectApiName}.${f.fieldApiName}`).join(', '),
-      })}
+      {`${t('dataops.preview.applyRefused')} ${maskingGapWords(gaps, t)}`}
     </p>
   );
 };
@@ -124,6 +151,7 @@ const PreviewResult: React.FC<{ preview: AnonymizePreview }> = ({ preview }) => 
   const { t } = useTranslation();
   const shown = (value: AnonymizePreviewValue): string =>
     value === null || value === '' ? t('dataops.preview.empty') : String(value);
+  const gaps = refusedFor(preview);
   return (
     <div data-testid="preview-data">
       <Card>
@@ -137,9 +165,7 @@ const PreviewResult: React.FC<{ preview: AnonymizePreview }> = ({ preview }) => 
                 one field-level security hides from the user: said with what
                 to do, as a line the eye stops at — it read as if no data were
                 at risk, and Contact.Birthdate stayed as it was. */}
-            {preview.fieldsNotFound.length > 0 && (
-              <FieldsNotMasked fields={preview.fieldsNotFound} testId="preview-fields-not-found" />
-            )}
+            {gaps && <ApplyRefusedFor gaps={gaps} testId="preview-fields-not-found" />}
             {preview.objects.map((object) => {
               const lines: PreviewLine[] = object.rows.flatMap((row) =>
                 object.fields.map((field) => ({
@@ -165,7 +191,13 @@ const PreviewResult: React.FC<{ preview: AnonymizePreview }> = ({ preview }) => 
                     </span>
                   ) : lines.length === 0 ? (
                     <span className="text-xs text-text-secondary">
-                      {t('dataops.preview.noRecords')}
+                      {/* Its rows are read and none of its fields is masked:
+                          "No records" read as if it held nothing to mask. */}
+                      {object.notCovered
+                        ? t('common.refusal.maskingObjectNotCovered', {
+                            objects: object.objectApiName,
+                          })
+                        : t('dataops.preview.noRecords')}
                     </span>
                   ) : (
                     <DataTable<PreviewLine>
@@ -306,6 +338,7 @@ const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }
 /** Panel for anonymizing sensitive data. */
 export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   orgName,
+  orgId,
   templates = [],
   selectedTemplateId,
   onSelectTemplate,
@@ -336,6 +369,10 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
    */
   const [keepValues, setKeepValues] = useState(true);
   const keepHintId = useId();
+  /** What the confirmation's read of the org's automation lets through and mutes. */
+  const [accord, setAccord] = useState<DataOpsAutomationAccord>(NO_ACCORD);
+  /** Why the confirmation waits on that read, if it does. */
+  const [automationHeld, setAutomationHeld] = useState<string | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   // Held by id: a delete asked about one template is not a delete of the next one picked.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -351,6 +388,7 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   // Nor is a preview of another template this one's.
   const selectedPreview =
     preview && selectedTemplate && preview.templateId === selectedTemplate.id ? preview : null;
+  const refusal = selectedPreview ? refusedFor(selectedPreview) : undefined;
 
   // The editor closes when a save it sent lands, and stays open, with what was
   // typed, when the host refuses it.
@@ -583,13 +621,28 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
           {orgName && (
             <DangerConfirm
               open={confirming !== null}
-              onClose={() => setConfirming(null)}
+              onClose={() => {
+                setConfirming(null);
+                setAccord(NO_ACCORD);
+              }}
               onConfirm={() => {
                 const resumeFrom = confirming === 'resume' ? checkpoint?.id : undefined;
+                // Confirmed once what the org runs was listed above: what
+                // fires is accepted, the emails as their box says.
+                const given = orgId ? accord : undefined;
                 setConfirming(null);
-                if (resumeFrom !== undefined) onResume?.(selectedTemplate.id, resumeFrom);
-                else onApply?.(selectedTemplate.id, { snapshot: keepValues });
+                setAccord(NO_ACCORD);
+                if (resumeFrom !== undefined) {
+                  if (given) onResume?.(selectedTemplate.id, resumeFrom, given);
+                  else onResume?.(selectedTemplate.id, resumeFrom);
+                } else {
+                  onApply?.(selectedTemplate.id, {
+                    snapshot: keepValues,
+                    ...(given ? { accord: given } : {}),
+                  });
+                }
               }}
+              {...(orgId && automationHeld !== undefined ? { held: automationHeld } : {})}
               // It was titled Apply over "Anonymize sensitive data", naming
               // neither the org nor the template, and asked to type the word
               // Anonymize — 匿名化 in Japanese, typed only through an input
@@ -636,12 +689,22 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                   </p>
                 </div>
               )}
-              {/* What the preview found Apply cannot mask, said again where
-                the user confirms it. */}
-              {selectedPreview && selectedPreview.fieldsNotFound.length > 0 && (
-                <FieldsNotMasked
-                  fields={selectedPreview.fieldsNotFound}
-                  testId="confirm-fields-not-found"
+              {/* What the preview found Apply would be refused for, said again
+                where the user confirms it. The host decides: a preview can
+                be out of date once the user has given the access it asks for. */}
+              {refusal && <ApplyRefusedFor gaps={refusal} testId="confirm-fields-not-found" />}
+              {orgId && confirming !== null && (
+                <DataOpsAutomation
+                  orgId={orgId}
+                  org={orgName}
+                  act="masking"
+                  objects={(selectedCoverage?.objects ?? []).map((o) => ({
+                    objectApiName: o.objectApiName,
+                    records: o.count ?? 0,
+                  }))}
+                  accord={accord}
+                  onAccordChange={setAccord}
+                  onHeld={setAutomationHeld}
                 />
               )}
               {/* What a restore cannot bring back, unless the run keeps the

@@ -12,7 +12,6 @@ export const fieldRuleConfigSchema = z.object({
   sequencePrefix: z.string().optional(),
   formula: z.string().optional(),
   referenceObject: z.string().optional(),
-  referenceField: z.string().optional(),
   picklistValues: z.array(z.string()).optional(),
   regexPattern: z.string().optional(),
   csvColumn: z.string().optional(),

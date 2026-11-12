@@ -74,6 +74,63 @@ describe('CsvUploadWizard, once the import is asked to run', () => {
     expect(screen.getByTestId('execute-button').getAttribute('aria-describedby')).toBeNull();
   });
 
+  it('offers before Execute the checkpoint first of the org it writes to, off', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    const setCheckpointFirst = vi.fn();
+    csvState = executeStep({ targetOrgId: 'org-dev', checkpointFirst: false, setCheckpointFirst });
+    render(<CsvUploadWizard onBack={vi.fn()} />);
+
+    const toggle = screen.getByTestId('csv-checkpoint-first-toggle') as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(screen.getByTestId('csv-checkpoint-first-cost-said').textContent).toContain(
+      'the question before the first write',
+    );
+    fireEvent.click(toggle);
+    expect(setCheckpointFirst).toHaveBeenCalledWith(true);
+  });
+
+  it('names on its results the checkpoint the import took, and says one was deleted', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    csvState = executeStep({
+      targetOrgId: 'org-dev',
+      executionStatus: 'complete',
+      executionResult: {
+        insertedCount: 3,
+        failedCount: 0,
+        errors: [],
+        runId: 'op-1',
+        checkpoint: {
+          state: 'taken',
+          checkpointId: 'ck-20261101-101500-a1b2',
+          name: 'Before Seed run 2026-11-01 10:15 UTC',
+          takenAt: '2026-11-01T10:15:00.000Z',
+          expiresAt: '2026-11-08T10:15:00.000Z',
+          objects: ['Account'],
+          records: 38,
+          bytes: 2_200_000,
+          requests: 68,
+          added: [],
+          notHeld: [],
+        },
+      },
+    });
+    const { unmount } = render(<CsvUploadWizard onBack={vi.fn()} />);
+    expect(screen.getByTestId('csv-result-checkpoint-action').textContent).toBe(
+      'Rewind to before this run…',
+    );
+    unmount();
+
+    csvState = executeStep({
+      targetOrgId: 'org-dev',
+      executionStatus: 'error',
+      stoppedCheckpoint: { state: 'deleted', deleted: 'nothingWritten' },
+    });
+    render(<CsvUploadWizard onBack={vi.fn()} />);
+    expect(screen.getByTestId('csv-error-checkpoint-deleted').textContent).toBe(
+      'The checkpoint taken before the run was deleted: the run wrote nothing.',
+    );
+  });
+
   it('offers on its results the removal of what the import created, by the id it is kept under', () => {
     queried = {
       'seed:removal:info': {

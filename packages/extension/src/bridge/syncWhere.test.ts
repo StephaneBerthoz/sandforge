@@ -89,7 +89,7 @@ describe('a sync object may only filter with its WHERE clause', () => {
     });
     const importer = new SfdmuImporter({ readFile: async () => exportJson });
 
-    const config = await importer.import('/workspace/export.json');
+    const { config } = await importer.import('/workspace/export.json');
 
     expect(config.objects[0].where).toBe('Id != null LIMIT 1');
     expect(syncObjectPayloadSchema.safeParse(config.objects[0]).success).toBe(false);

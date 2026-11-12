@@ -55,13 +55,17 @@ function stepStatusBadge(status: PipelineStepResult['status']): BadgeVariant {
     case 'failed':
       return 'error';
     case 'skipped':
+    case 'stopped':
       return 'default';
     default:
       return 'default';
   }
 }
 
-/** Badge variant for run status. */
+/**
+ * Badge variant for run status. A run someone stopped reads as History reads
+ * it, in the neutral colour: nothing failed.
+ */
 function runStatusBadge(status: PipelineRunStatus): BadgeVariant {
   switch (status) {
     case 'completed':
@@ -71,8 +75,6 @@ function runStatusBadge(status: PipelineRunStatus): BadgeVariant {
     case 'running':
       return 'info';
     case 'failed':
-      return 'error';
-    case 'cancelled':
       return 'error';
     default:
       return 'default';
@@ -177,6 +179,7 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-(--sf-text-muted,#868686)" />
               )}
               {step.status === 'skipped' && <span className="text-text-secondary">{'\u2014'}</span>}
+              {step.status === 'stopped' && <span className="text-text-secondary">{'\u25A0'}</span>}
               <span className="text-(--sf-text-primary,#d4d4d4)">{step.stepName}</span>
               <Badge variant="default">{t(`automation.stepTypes.${step.stepType}`)}</Badge>
             </div>
@@ -260,7 +263,13 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
             .map((s) => (
               <div
                 key={`error-${s.stepId}`}
-                className="text-[10px] px-2 py-1 rounded-sm bg-status-error/10 text-status-error border border-status-error/40"
+                className={cn(
+                  'text-[10px] px-2 py-1 rounded-sm border',
+                  // What a stop left is no failure: it reads in no failure's colour.
+                  s.status === 'stopped'
+                    ? 'text-text-secondary border-subtle'
+                    : 'bg-status-error/10 text-status-error border-status-error/40',
+                )}
                 data-testid={`exec-error-${s.stepId}`}
               >
                 <strong>{s.stepName}:</strong> {s.error}

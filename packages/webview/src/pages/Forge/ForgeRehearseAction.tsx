@@ -79,13 +79,15 @@ export const ForgeRehearseAction: React.FC<ForgeRehearseActionProps> = ({ unavai
   const running = rehearsal.status === 'running';
   const line = statusLine(t, rehearsal);
   return (
-    <div className="flex items-start gap-3">
+    // Its two parts are cells of the grid it sits in, beside Simulate's: the
+    // line of where it stands goes under both, the wider of what the column has.
+    <div className="contents">
       <p
         id="forge-rehearse-status"
         data-testid="forge-rehearse-status"
         role="status"
         aria-live="polite"
-        className={`flex min-h-9 max-w-md items-center text-xs ${rehearsal.status === 'error' ? 'text-status-error' : 'text-text-secondary'}`}
+        className={`order-last col-span-2 text-xs ${rehearsal.status === 'error' ? 'text-status-error' : 'text-text-secondary'}`}
       >
         {line}
       </p>
@@ -93,7 +95,7 @@ export const ForgeRehearseAction: React.FC<ForgeRehearseActionProps> = ({ unavai
           Simulate, the same outlined button, with its difference in a hover
           title and an sr-only line, though it creates rows in the target and
           costs API calls. */}
-      <div className="flex flex-col items-center gap-1">
+      <div className="flex min-w-0 flex-col items-stretch gap-1">
         <button
           type="button"
           data-testid="rehearse-button"
@@ -113,7 +115,7 @@ export const ForgeRehearseAction: React.FC<ForgeRehearseActionProps> = ({ unavai
         <p
           id="forge-rehearse-hint"
           data-testid="forge-rehearse-caption"
-          className="max-w-[12rem] text-center text-[10px] text-text-secondary"
+          className="text-center text-[10px] text-text-secondary"
         >
           {t('forgeRun.rehearsal.caption')}
         </p>

@@ -22,7 +22,9 @@
 
 import {
   PRICEBOOK_ENTRY_BOOK_FIELD,
+  PRICEBOOK_ENTRY_CURRENCY_FIELD,
   PRICEBOOK_ENTRY_OBJECT,
+  PRICEBOOK_ENTRY_PRODUCT_FIELD,
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   PRICEBOOK_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
@@ -100,7 +102,19 @@ export interface SettledSyncRows extends SyncRows {
    * "4 GBP → USD: price(s) … replaced …" among the object's refusals.
    */
   readonly prices: PriceCurrencySettled[];
+  /**
+   * Each price left out, by its source id, with the currency it was read in
+   * and the one written for it: what `prices` counts it under, `replaced`.
+   */
+  readonly leftIn: ReadonlyMap<string, { readonly from: string; readonly to: string }>;
 }
+
+/** The fields a price is known by: its book, its product and its selling model. */
+const PRICE_KEY_FIELDS = [
+  PRICEBOOK_ENTRY_BOOK_FIELD,
+  PRICEBOOK_ENTRY_PRODUCT_FIELD,
+  PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
+] as const;
 
 /**
  * The rows of a write as the platform takes them: of the price books, the
@@ -108,12 +122,21 @@ export interface SettledSyncRows extends SyncRows {
  * target does not hold active left out where the source's own price in the
  * currency they would go in is among the rows, then the standard prices
  * first. Any other object's rows are handed back as they are.
+ *
+ * @param refused - Whether the run refused the record an id names. A price
+ *   whose book, product or selling model it refused is held back by the
+ *   write, and so is every price of them in another currency: it neither
+ *   stands for one nor is left out for one, and goes to the write as it is.
+ *   Left out for the source's own USD price of a product the run held back,
+ *   a GBP price was said "replaced by the source's own price", a price never
+ *   written, and was not counted among those held back, where the gate had.
  */
 export function settleSyncPrices(
   objectApiName: string,
   rows: SyncRows,
   standard: StandardPricebooks | undefined,
   currencies: RunCurrencies | undefined,
+  refused: (id: string) => boolean = () => false,
 ): SettledSyncRows {
   const none: SettledSyncRows = {
     ...rows,
@@ -121,6 +144,7 @@ export function settleSyncPrices(
     standardFirst: 0,
     standardMatched: false,
     prices: [],
+    leftIn: new Map(),
   };
   if (!standard) return none;
   const at = rows.records.map((_, index) => index);
@@ -138,16 +162,26 @@ export function settleSyncPrices(
       standardFirst: 0,
       standardMatched: true,
       prices: [],
+      leftIn: new Map(),
     };
   }
   if (objectApiName !== PRICEBOOK_ENTRY_OBJECT) return none;
 
   let kept = at;
   const standsFor = new Map<string, string>();
+  const leftIn = new Map<string, { from: string; to: string }>();
   let settledPrices: PriceCurrencySettled[] = [];
   if (currencies) {
     const { target } = currencies;
-    const prices = rows.sources;
+    const prices = rows.sources.filter(
+      (row) =>
+        !PRICE_KEY_FIELDS.some((field) => {
+          const id = row[field];
+          return typeof id === 'string' && id !== '' && refused(id);
+        }),
+    );
+    const writtenIn = (code: string): string | undefined =>
+      target.active.has(code) ? code : replacementCurrency(undefined, target)?.to;
     const plan = settlePriceCurrencies(
       {
         prices,
@@ -155,8 +189,7 @@ export function settleSyncPrices(
         sellingModels: prices.some(
           (row) => typeof row[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD] === 'string',
         ),
-        writtenIn: (code) =>
-          target.active.has(code) ? code : replacementCurrency(undefined, target)?.to,
+        writtenIn,
         active: target.active,
       },
       [],
@@ -166,7 +199,13 @@ export function settleSyncPrices(
       const id = rows.sourceIds[i];
       return id === undefined || !left.has(id);
     });
-    for (const [price, stand] of plan.standsFor) standsFor.set(price, stand);
+    const read = new Map(prices.map((row) => [row['Id'], row[PRICEBOOK_ENTRY_CURRENCY_FIELD]]));
+    for (const [price, stand] of plan.standsFor) {
+      standsFor.set(price, stand);
+      const from = read.get(price);
+      const to = typeof from === 'string' ? writtenIn(from) : undefined;
+      if (typeof from === 'string' && to !== undefined) leftIn.set(price, { from, to });
+    }
     settledPrices = settledPricesOf(plan.said);
   }
   const isStandard = (i: number): boolean =>
@@ -178,7 +217,52 @@ export function settleSyncPrices(
     standardFirst: kept.filter(isStandard).length,
     standardMatched: false,
     prices: settledPrices,
+    leftIn,
   };
+}
+
+/**
+ * What a write settled of its prices once it has answered, the prices left
+ * out for one it did not write — held back, whatever lookup held it, or
+ * refused by the target — taken out of those said replaced
+ * (`SettledSyncRows.leftIn`): each is held back with that one
+ * (`linkWhatStoodIn`), and a line naming it waits on it. Said replaced, a
+ * GBP price left out for a USD price its region held back was "replaced by
+ * the source's own price", a price the run never wrote, and counted neither
+ * held back nor failed.
+ *
+ * @param heldWith - The prices left out, by source id, whose own the write did not take.
+ */
+export function pricesHeldWithTheirs(
+  settled: Pick<SettledSyncRows, 'prices' | 'leftIn'>,
+  heldWith: readonly string[],
+): PriceCurrencySettled[] {
+  const prices = settled.prices.map((entry) => ({ ...entry }));
+  for (const id of heldWith) {
+    const left = settled.leftIn.get(id);
+    const entry =
+      left &&
+      (prices.find(
+        (e) => e.from === left.from && e.to === left.to && e.how === 'replaced' && !e.forLines,
+      ) ??
+        prices.find((e) => e.from === left.from && e.to === left.to && e.how === 'replaced'));
+    if (entry) entry.prices--;
+  }
+  return prices.filter((entry) => entry.prices > 0);
+}
+
+/**
+ * What a run and a simulation say of the prices held back with the one they
+ * stand for (`pricesHeldWithTheirs`), apart from the write's own refusals.
+ */
+export function pricesHeldWithTheirsNote(objectApiName: string, count: number): string {
+  return count === 1
+    ? `1 ${objectApiName} record held back, not sent: read in a currency the target org does ` +
+        "not hold active, it stands for the source's own price of its product and price book " +
+        'in the currency written, which this run did not write.'
+    : `${count} ${objectApiName} records held back, not sent: read in a currency the target ` +
+        "org does not hold active, they stand for the source's own prices of their product and " +
+        'price book in the currency written, which this run did not write.';
 }
 
 /**

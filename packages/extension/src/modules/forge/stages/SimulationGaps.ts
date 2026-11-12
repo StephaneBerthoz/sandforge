@@ -15,12 +15,21 @@ import type {
   ForgeGapKind,
   ForgeGapSeverity,
 } from '@sandforge/shared';
-import { forgeGapId, mergeGaps } from '@sandforge/shared';
+import { forgeGapId, ignoredGapEntry, mergeGaps } from '@sandforge/shared';
 import type { FieldInfo } from '../ForgeExecutor.js';
 import { allowsControllingValue } from '../describeBounds.js';
 import { isPersonAccountRow } from '../../../core/common/platformRecords.js';
 import type { PicklistChange, PicklistField } from './RecordTypePicklists.js';
 import { CURRENCY_FIELD } from '../../../core/common/recordCurrencies.js';
+import {
+  partsOfRecordType,
+  type RecordTypeAvailability,
+} from '../../../core/metadata/recordTypeAvailability.js';
+import {
+  partsOfRecordTypeName,
+  qualifiedRecordTypeName,
+  type RecordTypeNameParts,
+} from '../../../core/metadata/recordTypeNames.js';
 
 /** A gap as a detector finds it: its id and source are the collector's to give. */
 export type FoundGap = Omit<ForgeGap, 'id' | 'source'>;
@@ -64,10 +73,38 @@ const LARGEST_KEPT: ReadonlySet<string> = new Set(['longest', 'colliding']);
  */
 export class SimulationGaps {
   private readonly gaps = new Map<string, ForgeGap>();
+  /** Per object, each org's record types by namespace and DeveloperName, as the run named them. */
+  private readonly recordTypes = new Map<
+    string,
+    Partial<Record<RecordTypesOf, RecordTypeNameParts[]>>
+  >();
 
   /** How many gaps were found. */
   get size(): number {
     return this.gaps.size;
+  }
+
+  /**
+   * The record types of `objectApiName` in one org, as the run's describe of
+   * it gives them: what the gap of a package's record type there says of the
+   * others that carry its DeveloperName (`detail.sameDeveloperName`). Nothing
+   * is kept when one of them was not named by its `RecordType` row, as the
+   * run then tells the org's own from a package's by nothing either.
+   *
+   * @param org - The target's, for the record types rows go in with; the
+   *   source's, for one the target has no counterpart of.
+   */
+  knowRecordTypes(
+    objectApiName: string,
+    org: RecordTypesOf,
+    types: readonly RecordTypeAvailability[],
+  ): void {
+    const named = recordTypesNamed(types);
+    if (named === undefined) return;
+    this.recordTypes.set(objectApiName, {
+      ...this.recordTypes.get(objectApiName),
+      [org]: named,
+    });
   }
 
   /** Count a gap found, on `found.rows` rows. */
@@ -102,14 +139,92 @@ export class SimulationGaps {
 
   /**
    * Every gap found, gravest first, those the user chose to leave as they are
-   * marked so in their detail: reported still, never applied.
+   * marked so in their detail: reported still, never applied. The gap of a
+   * package's record type says which others of its org carry its
+   * DeveloperName ({@link withSameDeveloperName}).
    */
   list(ignored: ReadonlySet<string>): ForgeGap[] {
-    const gaps = [...this.gaps.values()].map((gap) =>
-      ignored.has(gap.id) ? { ...gap, detail: { ...(gap.detail ?? {}), ignored: true } } : gap,
-    );
+    const read = [...this.gaps.keys()];
+    const gaps = [...this.gaps.values()]
+      .map((gap) => this.withSameDeveloperName(gap))
+      .map((gap) =>
+        ignoredGapEntry(ignored, gap, read) !== undefined
+          ? { ...gap, detail: { ...(gap.detail ?? {}), ignored: true } }
+          : gap,
+      );
     return mergeGaps(gaps);
   }
+
+  /**
+   * `gap`, of a package's record type, with the names of the other record
+   * types of its org that carry its DeveloperName in its detail
+   * (`sameDeveloperName`): the target's for the record type its rows go in
+   * with, the source's for one unmapped. A bare name names one of those, as
+   * the run reads it, and never the package's: a decision kept before
+   * namespaces under the bare name is not the gap's.
+   *
+   * Told by the gaps of the read alone, the org's own Retail of the target
+   * taking a value the package's refused had no gap of it, and Review read a
+   * hold-back kept under `Retail` as the package's gap's, said it decided,
+   * and Execute no longer asked: the run held back the org's own rows, and
+   * sent the package's, which the target refused.
+   */
+  private withSameDeveloperName(gap: ForgeGap): ForgeGap {
+    const unmapped = gap.kind === 'record_type_unmapped';
+    return withSameDeveloperName(
+      gap,
+      this.recordTypes.get(gap.objectApiName)?.[unmapped ? 'source' : 'target'],
+    );
+  }
+}
+
+/** The org whose record types a gap names: see {@link SimulationGaps.knowRecordTypes}. */
+type RecordTypesOf = 'source' | 'target';
+
+/**
+ * An org's record types of an object by namespace and DeveloperName, its
+ * master left out — or undefined when one of them was not named by its
+ * `RecordType` row, as the run then tells the org's own from a package's by
+ * nothing either.
+ */
+export function recordTypesNamed(
+  types: readonly RecordTypeAvailability[],
+): RecordTypeNameParts[] | undefined {
+  const named = types.filter((type) => !type.master);
+  if (named.some((type) => type.namespacePrefix === undefined)) return undefined;
+  return named.map(partsOfRecordType);
+}
+
+/**
+ * `gap`, of a package's record type, with the names of the other record
+ * types of its org that carry its DeveloperName in its detail
+ * (`sameDeveloperName`), from `types` ({@link recordTypesNamed}): the
+ * target's for the record type its rows go in with, the source's for one
+ * unmapped. A bare name names one of those, as the run reads it, and never
+ * the package's: a decision kept before namespaces under the bare name is not
+ * the gap's ({@link ignoredGapEntry}). `gap` as it is without them, or for
+ * the org's own record type.
+ */
+export function withSameDeveloperName(
+  gap: ForgeGap,
+  types: readonly RecordTypeNameParts[] | undefined,
+): ForgeGap {
+  const name = gap.kind === 'record_type_unmapped' ? gap.value : gap.recordType;
+  if (name === undefined || types === undefined) return gap;
+  const parts = partsOfRecordTypeName(name);
+  if (!parts.namespacePrefix) return gap;
+  const others = types
+    .filter(
+      (type) =>
+        type.developerName === parts.developerName &&
+        type.namespacePrefix !== parts.namespacePrefix,
+    )
+    .map((type) => qualifiedRecordTypeName(type.namespacePrefix, type.developerName));
+  if (others.length === 0) return gap;
+  return {
+    ...gap,
+    detail: { ...(gap.detail ?? {}), sameDeveloperName: [...new Set(others)].sort() },
+  };
 }
 
 /** A list of values as a gap's detail lists them: sorted, at most {@link LISTED_VALUES}. */
@@ -233,6 +348,28 @@ function filledForPersons(
   return objectApiName === 'Account' && field === 'Name' && isPersonAccountRow(source);
 }
 
+/**
+ * The fields the target requires at insert that a row leaves empty, as a run
+ * sends it: what a `required_field_missing` gap counts, and what a simulation
+ * counts the row refused for (`ForgeExecutor.simulateWrite`), as the target
+ * refuses it — `REQUIRED_FIELD_MISSING`.
+ *
+ * @param fields - The target's describe of the object.
+ */
+export function requiredLeftEmpty(
+  objectApiName: string,
+  payload: Readonly<Record<string, unknown>>,
+  source: Readonly<Record<string, unknown>>,
+  fields: readonly FieldInfo[],
+): FieldInfo[] {
+  return fields.filter(
+    (field) =>
+      requiredInTarget(field) &&
+      isEmpty(payload[field.name]) &&
+      !filledForPersons(objectApiName, field.name, source),
+  );
+}
+
 /** A number's value, read as a payload holds it: a number, or a numeric text. */
 function numberOf(value: unknown): number | undefined {
   if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
@@ -301,10 +438,7 @@ export function rowGapsOf(input: RowChecksInput, gaps: SimulationGaps): void {
   );
 
   for (const { payload, source, typed } of rows) {
-    for (const field of required) {
-      if (!isEmpty(payload[field.name]) || filledForPersons(objectApiName, field.name, source)) {
-        continue;
-      }
+    for (const field of requiredLeftEmpty(objectApiName, payload, source, required)) {
       gaps.add({
         kind: 'required_field_missing',
         severity: 'blocking',
@@ -452,7 +586,11 @@ export function currencyGapOf(
 
 /**
  * The gap of a unique field whose values the target already holds, on as many
- * rows: it refuses each of them as a duplicate.
+ * rows: it refuses each of them as a duplicate of the record holding the
+ * value, which it names, and the write links the row to that record — a
+ * warning, as the rehearsal says the same refusal (`linkedGapOf`). Said
+ * blocking, it stood beside a run that linked the row and lost nothing
+ * under it.
  *
  * @param colliding - How many distinct values the target already holds.
  */
@@ -464,12 +602,13 @@ export function uniqueCollisionGapOf(
 ): FoundGap {
   return {
     kind: 'unique_value_collision',
-    severity: 'blocking',
+    severity: 'warning',
     objectApiName,
     field,
     rows,
-    detail: { colliding },
+    detail: { colliding, linkedToTheRecordItNames: true },
     decisions: decisionsOf('unique_value_collision'),
+    defaultDecision: 'ignore',
   };
 }
 

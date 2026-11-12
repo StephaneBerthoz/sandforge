@@ -180,6 +180,28 @@ export function loadToRemove(loads: readonly RecordedLoad[]): RecordedLoad | und
 }
 
 /**
+ * The loads a sweep asked with the removal of `removed` sweeps beside it, as
+ * a reload sweeps every load it replaces: the others the mapping records
+ * whose records all went and that say what they created — a load a reload
+ * replaced, kept with none of its records for what its sweep left. Run for
+ * real, a removal swept the window of the last load alone, and the sixty tasks
+ * the sweeps of two reloads had left stayed in the org until deleted by hand.
+ * A load whose records are still to take is no part of it: its own removal
+ * sweeps it.
+ */
+export function loadsSweptWith(
+  loads: readonly RecordedLoad[],
+  removed: Pick<RecordedLoad, 'endedAt'>,
+): RecordedLoad[] {
+  return loads.filter(
+    (load) =>
+      load.endedAt !== removed.endedAt &&
+      load.created !== undefined &&
+      loadRecordsLeft(load).length === 0,
+  );
+}
+
+/**
  * What the page says of a load's records: counts only, the ids staying in
  * the sas.
  */

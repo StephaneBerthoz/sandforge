@@ -146,6 +146,9 @@ describe('org:connect answers on every branch', () => {
     expect(error?.payload.message).toBe(toast?.payload.message);
     // The page opens the browser sign-in on this code.
     expect(error?.payload.code).toBe('NO_CLI_ORGS');
+    // And the panel words the toast on it: the banner under it was in the
+    // reader's language, the toast in English.
+    expect(toast?.payload.code).toBe('NO_CLI_ORGS');
   });
 
   it('tells the Organizations page whether the CLI answers and how many orgs it holds', async () => {

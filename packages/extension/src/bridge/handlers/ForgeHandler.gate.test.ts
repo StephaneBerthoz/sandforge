@@ -11,7 +11,10 @@ import type {
   ForgeGraphNode,
   ForgeRemovalPlan,
   ForgeTargetAutomation,
+  RunCheckpointEstimate,
+  RunCheckpointTaken,
 } from '@sandforge/shared';
+import type { BeforeRunCheckpoints } from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { ForgeOrchestratorDeps } from '../../modules/forge/ForgeOrchestrator.js';
 import { ForgeExecutor } from '../../modules/forge/ForgeExecutor.js';
@@ -30,7 +33,7 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { inboundRequest } from '../../test/mockFactories.js';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { muteOrgOf } from '../../modules/forge/AutomationMuteLease.js';
@@ -1807,9 +1810,11 @@ describe('forge:execute, the gate before the first write', () => {
     });
 
     it('asks nothing of emails when the target says it has enough of them left', async () => {
+      // A Developer Edition's /limits, which list both.
       limits = {
         DataStorageMB: { Max: 200, Remaining: 150 },
         SingleEmail: { Max: 15, Remaining: 15 },
+        DailyWorkflowEmails: { Max: 8_040, Remaining: 8_040 },
       };
       const sending: ForgeTargetAutomation = {
         ...FIRES,
@@ -2408,6 +2413,57 @@ describe('forge:execute, the gate before the first write', () => {
       rmSync(dir, { recursive: true, force: true });
     });
 
+    // The journal of the leases written again once the set is assigned, to a
+    // folder turned read only: the run failed uncoded, the set left assigned
+    // to the user, and the lease held for its hour by the editor's process.
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+      'stops at the write gate with its code, the set taken back, when the journal cannot be written once it is assigned',
+      async () => {
+        const dir = mkdtempSync(path.join(tmpdir(), 'forge-mute-'));
+        let readOnly = false;
+        const org = memoryPermissionOrg({
+          sets: [{ id: SET, name: 'Data_Load' }],
+          beforeWrite: (write) => {
+            if (write.kind === 'insert' && !readOnly) {
+              chmodSync(dir, 0o500);
+              readOnly = true;
+            }
+          },
+        });
+        handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(1)), {
+          targetAutomation: readerOf(MUTABLE),
+          muteOrg: async () => muteOrgOf(org.connection),
+          muteLeases: { dir, renewEveryMs: 0 },
+        });
+
+        try {
+          await executeMuted();
+        } finally {
+          chmodSync(dir, 0o700);
+        }
+
+        expect(calls).not.toContain('written');
+        expect(org.writes.map((write) => write.kind)).toEqual(['insert', 'delete']);
+        expect(org.assignments()).toEqual([]);
+        const payload = posted('forge:execute:error')[0]?.payload;
+        expect(payload).toMatchObject({ code: 'MUTE_FAILED' });
+        expect(payload?.['message']).toBe(
+          `The journal of the mute leases in ${dir} could not be written (EACCES): the user ` +
+            'SandForge runs as must read and write that folder, or SANDFORGE_MUTE_LEASES_DIR ' +
+            'name another, the same for every run that mutes the org. What this run had ' +
+            'assigned was taken back: Data_Load.',
+        );
+        expect(runs()).toEqual([
+          expect.objectContaining({
+            outcome: 'stopped',
+            objects: [],
+            details: expect.objectContaining({ code: 'MUTE_FAILED' }),
+          }),
+        ]);
+        rmSync(dir, { recursive: true, force: true });
+      },
+    );
+
     it('writes nothing, and assigns nothing, for a user who cannot assign permission sets', async () => {
       const { org, done } = muting({ canAssign: false });
 
@@ -2434,9 +2490,15 @@ describe('forge:execute, the gate before the first write', () => {
        * A muted run that loses a job once its rows went, over a target whose
        * job answers `states` one read after another, the last for good; each
        * read and each wait said in `calls`, beside the assignments. The
-       * run answers `result`.
+       * run answers `result`. With `givesBackAfterWrite`, the executor gives
+       * the lease back after its last write, as it does before the run ends.
        */
-      function losingAJob(states: string[], waitMs = 60_000, result = RESULT) {
+      function losingAJob(
+        states: string[],
+        waitMs = 60_000,
+        result = RESULT,
+        givesBackAfterWrite = false,
+      ) {
         const dir = mkdtempSync(path.join(tmpdir(), 'forge-mute-'));
         const org = memoryPermissionOrg({
           sets: [{ id: SET, name: 'Data_Load' }],
@@ -2463,10 +2525,14 @@ describe('forge:execute, the gate before the first write', () => {
         lost.note({ ...LOST, jobId: '750000000000009AAA' });
         const orchestrator = orchestratorHanding(boundaryOf(1));
         orchestrator.execute.mockImplementation(async (_graph, _config, options) => {
-          await options?.beforeWrite?.(boundaryOf(1));
+          const answer = await options?.beforeWrite?.(boundaryOf(1));
           calls.push('written');
           lost.note(LOST);
           lost.note({ ...LOST, orgId: 'other-org', jobId: '750000000000002AAA' });
+          if (givesBackAfterWrite) {
+            await answer?.lease?.giveBack();
+            calls.push('given back by the executor');
+          }
           return result;
         });
         handler.setForgeOrchestrator(orchestrator, {
@@ -2557,6 +2623,42 @@ describe('forge:execute, the gate before the first write', () => {
         const [entry] = store.get<ForgeExecutionResult[]>('forge:history') ?? [];
         expect(entry?.bulkJobsPastMute).toEqual(result.bulkJobsPastMute);
         expect(entry?.errors).toEqual(result.errors);
+        done();
+      });
+
+      it('waits for the job before the mute when the executor gives the lease back after its last write, and once though the run gives it back again', async () => {
+        const { org, done } = losingAJob(['InProgress', 'JobComplete'], 60_000, RESULT, true);
+
+        await executeMuted();
+
+        expect(past()).toEqual([
+          'assignment insert',
+          'written',
+          `read ${LOST.jobId} InProgress`,
+          `read ${LOST.jobId} JobComplete`,
+          'assignment delete',
+          'given back by the executor',
+        ]);
+        expect(org.assignments()).toEqual([]);
+        const [response] = posted('forge:execute:response');
+        const result = response.payload.result as ForgeExecutionResult;
+        expect(result.mutedAutomation).toMatchObject({ state: 'muted', released: true });
+        expect(result).not.toHaveProperty('bulkJobsPastMute');
+        done();
+      });
+
+      it('names the job written without the mute when the executor gave the lease back past the bound of the wait', async () => {
+        const { done } = losingAJob(['InProgress'], 60_000, RESULT, true);
+
+        await executeMuted();
+
+        // The wait's five reads, once: the run's own give-back waits no more.
+        expect(past().filter((call) => call.startsWith('read'))).toHaveLength(5);
+        expect(past().slice(-2)).toEqual(['assignment delete', 'given back by the executor']);
+        const [response] = posted('forge:execute:response');
+        const result = response.payload.result as ForgeExecutionResult;
+        expect(result.bulkJobsPastMute).toEqual([{ objectApiName: 'Contact', jobId: LOST.jobId }]);
+        expect(result.mutedAutomation).toMatchObject({ released: true });
         done();
       });
 
@@ -2651,13 +2753,16 @@ describe('forge:execute, the gate before the first write', () => {
       });
     });
 
-    function cloneTheOrg(config: ForgeConfig = ORG_CONFIG): Promise<boolean> {
+    function cloneTheOrg(
+      config: ForgeConfig = ORG_CONFIG,
+      payload: Record<string, unknown> = {},
+    ): Promise<boolean> {
       return handler.handle(
         inboundRequest({
           id: 'wv-execute',
           type: 'forge:execute',
           timestamp: Date.now(),
-          payload: { graph: wholeGraph(), config },
+          payload: { graph: wholeGraph(), config, ...payload },
         } as BaseMessage),
       );
     }
@@ -2959,6 +3064,120 @@ describe('forge:execute, the gate before the first write', () => {
         storage: { estimateMB: 950, remainingMB: 900, kind: 'files' },
       });
       expect(String(error.payload.message)).toContain('take about 950 MB of file storage');
+    });
+
+    describe('with Checkpoint first', () => {
+      /** The checkpoint of the whole target, every object it writes held whole: 4 000 requests. */
+      const SCOPED: RunCheckpointEstimate = {
+        state: 'planned',
+        estimate: {
+          records: 25_030,
+          apiRequests: 4_000,
+          apiRequestsLeft: 90_000,
+          seconds: 600,
+          bytes: 50 * MB,
+        },
+        objects: ['Invoice__c', 'Account'],
+        added: [],
+        notHeld: [],
+        keepDays: 7,
+      };
+      const TAKEN: RunCheckpointTaken = {
+        state: 'taken',
+        checkpointId: 'ck-before-forge-all',
+        name: 'Before Forge run 2026-11-12 10:00 UTC',
+        takenAt: '2026-11-12T10:00:00.000Z',
+        expiresAt: null,
+        objects: ['Invoice__c', 'Account'],
+        records: 25_030,
+        bytes: 50 * MB,
+        requests: 4_000,
+        added: [],
+        notHeld: [],
+      };
+
+      /** The checkpoints the run scopes and takes its checkpoint through, each step in `calls`. */
+      function checkpoints(): BeforeRunCheckpoints {
+        const port = {
+          scope: vi.fn(async () => {
+            calls.push('checkpointScope');
+            return SCOPED;
+          }),
+          take: vi.fn(async () => {
+            calls.push('checkpointTake');
+            return { taken: true as const, checkpoint: TAKEN };
+          }),
+          settle: vi.fn(async (taken: RunCheckpointTaken) => taken),
+        } satisfies BeforeRunCheckpoints;
+        handler.setBeforeRunCheckpoints(port);
+        return port;
+      }
+
+      it('counts the checkpoint among the target’s requests and names its part in the question', async () => {
+        checkpoints();
+        wholeOrgRun();
+
+        await cloneTheOrg(ORG_CONFIG, { checkpointFirst: {} });
+
+        const [question] = questions;
+        expect(question.stage).toBe('write');
+        const api = question.stage === 'write' ? question.apiRequests : undefined;
+        expect(api?.parts?.checkpoint).toBe(4_000);
+        expect(api?.estimate).toBe((api?.parts?.run ?? 0) + 4_000);
+        expect(calls).toContain('checkpointTake');
+        expect(calls).toContain('written');
+      });
+
+      it('refuses a run the checkpoint takes past what the target has left, the checkpoint named among its requests', async () => {
+        // Room for the run's own writes, not for them and the checkpoint.
+        limitsOf['tgt-org'] = {
+          DataStorageMB: { Max: 2_000, Remaining: 1_500 },
+          DailyApiRequests: { Max: 100_000, Remaining: 2_000 },
+          DailyBulkApiBatches: { Max: 15_000, Remaining: 14_000 },
+        };
+        checkpoints();
+        wholeOrgRun();
+
+        await cloneTheOrg(ORG_CONFIG, { checkpointFirst: {} });
+
+        expect(questions).toEqual([]);
+        expect(calls).not.toContain('checkpointTake');
+        expect(calls).not.toContain('written');
+        expectStoppedAtTheGate('API_BUDGET_EXCEEDED');
+        const [error] = posted('forge:execute:error');
+        expect(error.payload.gate).toMatchObject({
+          code: 'API_BUDGET_EXCEEDED',
+          api: { kind: 'requests', org: 'target', remaining: 2_000 },
+        });
+        const gate = error.payload.gate as { api: { estimate: number } };
+        expect(gate.api.estimate).toBeGreaterThan(4_000);
+        expect(gate.api.estimate - 4_000).toBeLessThanOrEqual(2_000);
+        expect(String(error.payload.message)).toContain('checkpoint');
+      });
+
+      it('refuses files past the file storage before it scopes the checkpoint', async () => {
+        checkpoints();
+        wholeOrgRun(counted({ files: { bytes: 950 * MB, count: 40, overCeiling: 0 } }));
+
+        await cloneTheOrg(ORG_CONFIG, { checkpointFirst: {} });
+
+        expectStoppedAtTheGate('STORAGE_EXCEEDED');
+        expect(calls).not.toContain('checkpointScope');
+      });
+
+      it('refuses the source’s requests before it scopes the checkpoint', async () => {
+        limitsOf['src-org'] = { DailyApiRequests: { Max: 500_000, Remaining: 3 } };
+        checkpoints();
+        wholeOrgRun();
+
+        await cloneTheOrg(ORG_CONFIG, { checkpointFirst: {} });
+
+        expectStoppedAtTheGate('API_BUDGET_EXCEEDED');
+        expect(posted('forge:execute:error')[0].payload.gate).toMatchObject({
+          api: { kind: 'requests', org: 'source' },
+        });
+        expect(calls).not.toContain('checkpointScope');
+      });
     });
 
     it('refuses an object it reads whole past the setting, before reading any limit, and not as a cancel', async () => {

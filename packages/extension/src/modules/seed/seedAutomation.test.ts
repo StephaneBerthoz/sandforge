@@ -8,6 +8,7 @@ import {
   seedEmailGate,
   type SeedAutomationRead,
 } from './seedAutomation.js';
+import { seedWritesOfObjects } from './seedFit.js';
 
 /** A flow of the target that runs after a contact is saved. */
 function contactFlow(overrides: Partial<ForgeTargetFlow>): ForgeTargetFlow {
@@ -138,18 +139,22 @@ describe('seedAutomationPreview', () => {
         ],
       },
     ]);
+    // As the trap Developer Edition took them, a contact at a time: the rule's
+    // alert one single and one workflow email, the flow's two single emails
+    // two of each.
     expect(preview.emailsPerRecord).toEqual([
       {
         objectApiName: 'Contact',
         limit: 'DailyWorkflowEmails',
-        perRecord: 1,
-        sentBy: ['Contact_Welcome'],
+        perRecord: 3,
+        sentBy: ['Contact_Welcome', 'Welcome Email'],
       },
       {
         objectApiName: 'Contact',
         limit: 'SingleEmail',
         perRecord: 3,
         sentBy: ['Welcome Email', 'Contact_Welcome'],
+        alertsAmong: true,
       },
     ]);
     expect(preview).toMatchObject({
@@ -249,6 +254,133 @@ describe('readSeedAutomation', () => {
     expect('preview' in sending && sending.preview.limits).toEqual(DE_LIMITS);
   });
 
+  it('says what may send and whether the org delivers it, read only when something may', async () => {
+    const readDeliverability = vi.fn(async () => ({
+      reading: { level: 'all' as const },
+      requests: 1,
+    }));
+    const quiet = await readSeedAutomation({
+      org: 'my-dev-org',
+      objects: ['Account'],
+      readAutomation: async () => ({ ...trapAutomation(), objects: [] }),
+      readLimits: async () => DE_LIMITS,
+      readDeliverability,
+    });
+    expect(readDeliverability).not.toHaveBeenCalled();
+    expect('preview' in quiet && quiet.preview).not.toHaveProperty('deliverability');
+
+    const sending = await readSeedAutomation({
+      org: 'my-dev-org',
+      objects: ['Contact'],
+      readAutomation: async () => trapAutomation(),
+      readLimits: async () => DE_LIMITS,
+      readDeliverability,
+    });
+    expect(readDeliverability).toHaveBeenCalledOnce();
+    expect('preview' in sending && sending.preview.deliverability).toMatchObject({
+      reading: { level: 'all' },
+      senders: expect.arrayContaining([
+        expect.objectContaining({ objectApiName: 'Contact', name: 'Welcome Email', why: 'email' }),
+      ]),
+    });
+  });
+
+  it('counts the senders of what its inserts fire, not of what fires on an update it does not make', async () => {
+    const onUpdate = trapAutomation();
+    const contact = onUpdate.objects[0];
+    if (contact === undefined) throw new Error('the trap automation has a Contact');
+    const sending = await readSeedAutomation({
+      org: 'my-dev-org',
+      objects: ['Contact'],
+      readAutomation: async () => ({
+        ...onUpdate,
+        objects: [
+          {
+            ...contact,
+            flows: contact.flows.map((flow) => ({ ...flow, startsOn: 'update' as const })),
+            workflowRules: [],
+          },
+        ],
+      }),
+      readLimits: async () => DE_LIMITS,
+      readDeliverability: async () => ({ reading: { level: 'all' }, requests: 1 }),
+    });
+
+    expect('preview' in sending && sending.preview).not.toHaveProperty('deliverability');
+  });
+
+  it('plans no mute for a flow that starts on an update a seed does not make, and one for the article versions a scenario publishes', async () => {
+    /** One flow a bypass keeps quiet, on an update of `objectApiName`. */
+    const onUpdateOf = (objectApiName: string) => ({
+      objectsRead: [objectApiName],
+      objects: [
+        {
+          objectApiName,
+          flows: [
+            {
+              apiName: 'On_update',
+              label: 'On update',
+              timing: 'afterSave' as const,
+              startsOn: 'update' as const,
+              condition: 'read' as const,
+              permissions: [{ name: 'Skip_Flows', bypass: true, held: false }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 0,
+      bypassGrants: [
+        {
+          permission: 'Skip_Flows',
+          permissionSets: [{ name: 'Skip_Flows_Set', label: 'Skip', grants: 1 }],
+        },
+      ],
+    });
+    const planOf = async (objectApiName: string, publishes?: boolean) => {
+      const read = await readSeedAutomation({
+        org: 'my-dev-org',
+        objects: [objectApiName],
+        readAutomation: async () => onUpdateOf(objectApiName),
+        readLimits: async () => DE_LIMITS,
+        ...(publishes === undefined
+          ? {}
+          : { writes: seedWritesOfObjects([objectApiName], publishes) }),
+      });
+      return 'preview' in read ? read.preview.mute : undefined;
+    };
+
+    expect(await planOf('Contact')).toBeUndefined();
+    expect(await planOf('Contact', true)).toBeUndefined();
+    // A template's seed inserts its articles and writes them no more.
+    expect(await planOf('Knowledge__kav')).toBeUndefined();
+    expect(await planOf('Knowledge__kav', false)).toBeUndefined();
+    expect((await planOf('Knowledge__kav', true))?.assign).toHaveLength(1);
+  });
+
+  it('says what a run’s gate read as it is, reading nothing of its own', async () => {
+    const readDeliverability = vi.fn(async () => ({
+      reading: { level: 'all' as const },
+      requests: 1,
+    }));
+    const said = { reading: { level: 'withheld' as const }, senders: [] };
+
+    const read = await readSeedAutomation({
+      org: 'my-dev-org',
+      objects: ['Contact'],
+      readAutomation: async () => trapAutomation(),
+      readLimits: async () => DE_LIMITS,
+      deliverability: said,
+      readDeliverability,
+    });
+
+    expect(readDeliverability).not.toHaveBeenCalled();
+    expect('preview' in read && read.preview.deliverability).toEqual(said);
+  });
+
   it('says why when the automation or the limits could not be read, and never throws', async () => {
     expect(
       await readSeedAutomation({
@@ -316,7 +448,7 @@ describe('seedEmailGate', () => {
     );
     expect(gate.refusal).toBeUndefined();
     expect(gate.checks.map((c) => [c.limit, c.emails, c.verdict])).toEqual([
-      ['DailyWorkflowEmails', 5, 'fits'],
+      ['DailyWorkflowEmails', 15, 'fits'],
       ['SingleEmail', 15, 'fits'],
     ]);
   });
@@ -341,6 +473,35 @@ describe('seedEmailGate', () => {
       'about 75 workflow emails, but what my-dev-org has left today could not be read (INSUFFICIENT_ACCESS)',
       'about 150 single emails, but what my-dev-org has left today could not be read (INSUFFICIENT_ACCESS)',
     ]);
+  });
+
+  it('says one email of a limit in the singular, past what is left and unread alike', () => {
+    // A seed of one contact said "about 1 workflow emails".
+    const one = [{ objectApiName: 'Contact', recordCount: 1 }];
+    const unread = seedEmailGate(
+      read(trapAutomation(), { unread: 'INSUFFICIENT_ACCESS' }),
+      one,
+      'my-dev-org',
+    );
+    expect(unread.unknown).toContain(
+      'about 1 workflow email, but what my-dev-org has left today could not be read (INSUFFICIENT_ACCESS)',
+    );
+
+    // The workflow rule alone, which emails each contact once.
+    const trap = trapAutomation();
+    const ruleAlone = {
+      ...trap,
+      objects: trap.objects.map((object) => ({ ...object, flows: [] })),
+    };
+    const over = seedEmailGate(
+      read(ruleAlone, {
+        SingleEmail: { max: 15, remaining: 15 },
+        DailyWorkflowEmails: { max: 8040, remaining: 0 },
+      }),
+      one,
+      'my-dev-org',
+    );
+    expect(over.refusal).toContain('about 1 workflow email (1 per Contact), 0 of 8040 left today');
   });
 
   it('warns and does not refuse when the automation could not be read at all', () => {

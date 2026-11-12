@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import en from '../i18n/locales/en.json';
 import { runElapsedSeconds, settledPercent, useForgeStore } from './useForgeStore';
+import type { ForgeGap } from '@sandforge/shared';
 import type {
   ForgeConfig,
   ForgeGraph,
@@ -626,6 +628,38 @@ describe('useForgeStore', () => {
       expect(getState().history).toEqual([]);
     });
 
+    it('keeps what its checkpoint would hold and cost, for Review’s option, past its results', () => {
+      const estimate = {
+        state: 'planned' as const,
+        estimate: {
+          records: 38,
+          apiRequests: 68,
+          apiRequestsLeft: 14_000,
+          seconds: 44,
+          bytes: 2_200_000,
+        },
+        objects: ['Account'],
+        added: [],
+        notHeld: [],
+        keepDays: 7,
+      };
+      getState().setGraph(createMockGraph());
+      getState().setExecutionRequestId('wv-sim');
+      getState().markSimulation();
+      getState().setPhase('execution');
+      getState().finishRun('wv-sim', createMockResult({ dryRun: true, checkpoint: estimate }));
+      expect(getState().checkpointEstimate).toEqual(estimate);
+
+      getState().reviewSimulation();
+      expect(getState().checkpointEstimate).toEqual(estimate);
+
+      // One asked with no checkpoint says nothing of the last one's.
+      getState().setExecutionRequestId('wv-sim-2');
+      getState().setPhase('execution');
+      getState().finishRun('wv-sim-2', createMockResult({ dryRun: true }));
+      expect(getState().checkpointEstimate).toBeNull();
+    });
+
     it('goes back to Review from its results, the graph idle again and the gaps kept', () => {
       simulated();
       getState().updateNodeStatus('Account', 'done', 100);
@@ -737,6 +771,39 @@ describe('useForgeStore', () => {
 
       getState().decideGap(refused, null);
       expect(getState().config).not.toHaveProperty('picklistValueMappings');
+    });
+
+    it('takes not away the decision of the org’s own record type’s gap when one is taken on a package’s', () => {
+      // The org's own Support and a package's ns__Support, each closed: the
+      // ignore of the first was the id the second had before its namespace,
+      // and deciding the second took it out.
+      const closed = (recordType: string): ForgeGap => ({
+        id: `record_type_unavailable|Case|RecordTypeId|${recordType}|`,
+        kind: 'record_type_unavailable',
+        severity: 'blocking',
+        source: 'simulation',
+        objectApiName: 'Case',
+        field: 'RecordTypeId',
+        recordType,
+        rows: 1,
+        detail: { mapTo: ['General'] },
+        decisions: ['map_record_type', 'exclude_object', 'ignore'],
+      });
+      const own = closed('Support');
+      const packaged = closed('ns__Support');
+      getState().setConfig(createMockConfig());
+      getState().setGaps('simulation', [own, packaged]);
+
+      getState().decideGap(own, { kind: 'ignore' });
+      getState().decideGap(packaged, { kind: 'map_record_type', to: 'General' });
+
+      expect(getState().config?.ignoredGaps).toEqual([own.id]);
+      expect(getState().config?.recordTypeMappings).toEqual([
+        { object: 'Case', from: 'ns__Support', to: 'General' },
+      ]);
+      getState().decideGap(packaged, null);
+      expect(getState().config?.ignoredGaps).toEqual([own.id]);
+      expect(getState().config).not.toHaveProperty('recordTypeMappings');
     });
 
     it('changes the config from Review’s controls and keeps the plan, the diffs and the gaps read', () => {
@@ -907,6 +974,28 @@ describe('useForgeStore', () => {
       addLog({ id: 'log-1', timestamp: Date.now(), level: 'info', message: 'Test log' });
       expect(useForgeStore.getState().logs).toHaveLength(1);
       expect(useForgeStore.getState().logs[0].message).toBe('Test log');
+    });
+  });
+
+  describe('the checkpoint first', () => {
+    it('is off, and a new clone takes it off again, with what a simulation said of it', () => {
+      expect(getState().checkpointFirst).toBe(false);
+      getState().setCheckpointFirst(true);
+      useForgeStore.setState({
+        checkpointEstimate: {
+          state: 'planned',
+          estimate: { records: 1, apiRequests: 1, apiRequestsLeft: 1, seconds: 1, bytes: 1 },
+          objects: [],
+          added: [],
+          notHeld: [],
+          keepDays: 7,
+        },
+      });
+
+      getState().forgeAgain();
+
+      expect(getState().checkpointFirst).toBe(false);
+      expect(getState().checkpointEstimate).toBeNull();
     });
   });
 
@@ -1296,6 +1385,20 @@ describe('useForgeStore', () => {
       expect(getState().phase).toBe('execution');
     });
 
+    it('keeps what became of the checkpoint the run took first, when its error says', () => {
+      runOnScreen();
+      post('forge:execute:error', 'wv-run-1', {
+        message: 'The mute was refused.',
+        code: 'MUTE_REFUSED',
+        checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+      });
+
+      expect(getState().runError?.checkpoint).toEqual({
+        state: 'deleted',
+        deleted: 'nothingWritten',
+      });
+    });
+
     it('keeps what the run had written, when its error carries it', () => {
       runOnScreen();
       const kept = createMockResult({
@@ -1370,6 +1473,22 @@ describe('useForgeStore', () => {
         code: 'MUTE_PRODUCTION',
         stoppedRun: null,
       });
+    });
+
+    it('says a run refused for its emails after its lease in the catalogue’s words, with no flag of a command line', () => {
+      runOnScreen();
+      post('forge:execute:error', 'wv-run-1', {
+        message:
+          "The mute's lease does not hold every permission set it was to assign. Nothing was written. Add --accept-emails to clone all the same.",
+        code: 'EMAILS_NOT_ACCEPTED',
+        retryable: true,
+      });
+      expect(getState().runError).toEqual({
+        message: `${en.errors.emailsNotAccepted.explanation} ${en.errors.emailsNotAccepted.action}`,
+        code: 'EMAILS_NOT_ACCEPTED',
+        stoppedRun: null,
+      });
+      expect(getState().runError?.message).not.toContain('--accept-emails');
     });
 
     it('keeps what the org answered of a permission set it would not assign', () => {

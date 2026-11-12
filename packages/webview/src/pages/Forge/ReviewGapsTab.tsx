@@ -10,8 +10,9 @@ import type {
   ForgeGapKind,
   ForgeGapSeverity,
   ForgeGapSource,
+  MutedAutomationAlsoLifted,
 } from '@sandforge/shared';
-import { adminChangesOf, gapAssignments } from '@sandforge/shared';
+import { adminChangesOf, gapAssignments, gapLiftedBy } from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
 import { cn } from '../../theme';
 import { useForgeStore } from '../../stores/useForgeStore';
@@ -52,13 +53,18 @@ const DETAIL_KEYS: Readonly<Record<string, string>> = {
   allowed: 'forgeRun.gaps.detail.allowedValues',
   targetRecordTypes: 'forgeRun.gaps.detail.targetRecordTypes',
   mapTo: 'forgeRun.gaps.detail.targetRecordTypes',
+  editOn: 'forgeRun.gaps.detail.editOn',
 };
 
 /**
- * Detail entries the tab shows in a part of its own: the permission sets
- * that would keep a validation rule quiet, with the command that assigns one.
+ * Detail entries the tab leaves out of a gap's detail: the permission sets
+ * that would keep a validation rule quiet, shown in a part of their own with
+ * the command that assigns one; and the other record types a package's record
+ * type shares its name with (`sameDeveloperName`), which the tab reads a
+ * decision back by — one kept under the bare name answers not the gap, shown
+ * undecided — and which a name of the code would have said to the reader.
  */
-const DETAIL_SHOWN_APART: ReadonlySet<string> = new Set(['assign']);
+const DETAIL_SHOWN_APART: ReadonlySet<string> = new Set(['assign', 'sameDeveloperName']);
 
 /** The select value that maps a record type to the object's default: no DeveloperName is. */
 const DEFAULT_RECORD_TYPE = '*';
@@ -179,6 +185,10 @@ const KINDS: ReadonlySet<string> = new Set<ForgeGapKind>([
   'duplicate_rule',
   'api_budget',
   'object_not_createable',
+  'object_platform_only',
+  'object_setup_only',
+  'object_feature_off',
+  'object_through_parent',
   'rehearsal_refusal',
   'rehearsal_update_refusal',
 ]);
@@ -218,6 +228,11 @@ function adminStep(t: TFunction, change: ForgeAdminChange, recordType: string | 
       return t('forgeRun.gaps.admin.step.widenNumber', named);
     case 'create_record_type':
       return t('forgeRun.gaps.admin.step.createRecordType', named);
+    case 'install_package':
+      return t('forgeRun.gaps.admin.step.installPackage', {
+        ...named,
+        namespace: change.namespace ?? '',
+      });
     case 'open_record_type':
       return t('forgeRun.gaps.admin.step.openRecordType', named);
     case 'activate_currency':
@@ -230,6 +245,10 @@ function adminStep(t: TFunction, change: ForgeAdminChange, recordType: string | 
       return t('forgeRun.gaps.admin.step.deactivateDuplicateRule', named);
     case 'grant_create':
       return t('forgeRun.gaps.admin.step.grantCreate', named);
+    case 'grant_edit':
+      return t('forgeRun.gaps.admin.step.grantEdit', named);
+    case 'enable_feature':
+      return t('forgeRun.gaps.admin.step.enableFeature', named);
   }
 }
 
@@ -262,10 +281,21 @@ function adminListText(t: TFunction, groups: readonly ForgeAdminChangeGroup[]): 
  * copies it. Shown, never made: the run changes nothing of the target's
  * metadata, and the user is seldom the one who may. Nothing when no gap asks
  * a change of it.
+ *
+ * A validation rule the mute ticked lifts (`lifted`) is left out, as a gap
+ * that refuses nothing is: its rows go in whole with nothing changed in the
+ * target. Ticked, the tab said the rule lifted while the list under it still
+ * said to turn it off.
  */
-const AdminChanges: React.FC<{ gaps: readonly ForgeGap[] }> = ({ gaps }) => {
+const AdminChanges: React.FC<{
+  gaps: readonly ForgeGap[];
+  lifted: readonly MutedAutomationAlsoLifted[] | undefined;
+}> = ({ gaps, lifted }) => {
   const { t } = useTranslation();
-  const groups = useMemo(() => adminChangesOf(gaps), [gaps]);
+  const groups = useMemo(
+    () => adminChangesOf(gaps.filter((gap) => !gapLiftedBy(gap, lifted))),
+    [gaps, lifted],
+  );
   const [copied, setCopied] = useState(false);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -291,35 +321,41 @@ const AdminChanges: React.FC<{ gaps: readonly ForgeGap[] }> = ({ gaps }) => {
   }, [text]);
   if (groups.length === 0) return null;
   const count = groups.reduce((sum, group) => sum + group.changes.length, 0);
+  // One line until asked for, its copy at hand: a heading, a paragraph, the
+  // disclosure and the button took four lines under a single gap, and pushed
+  // Plan to Automation off a 1280 by 800 panel. What it is and the list fold
+  // together; opened, they take the whole width under the line.
   return (
     <section
       data-testid="gaps-admin"
       aria-labelledby="gaps-admin-title"
-      className="flex flex-col gap-1 border-t border-subtle pt-2"
+      className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"
     >
-      <h3 id="gaps-admin-title" className="font-semibold text-text-primary">
-        {t('forgeRun.gaps.admin.title')}
-      </h3>
-      <p className="text-text-secondary">{t('forgeRun.gaps.admin.hint')}</p>
-      <details data-testid="gaps-admin-list">
+      <details data-testid="gaps-admin-list" className="min-w-0 open:basis-full">
         <summary className="cursor-pointer text-text-primary">
-          {t('forgeRun.gaps.admin.show', { count })}
+          <h3 id="gaps-admin-title" className="inline font-semibold">
+            {t('forgeRun.gaps.admin.title')}
+          </h3>{' '}
+          <span className="text-text-secondary">{t('forgeRun.gaps.admin.show', { count })}</span>
         </summary>
-        <pre
-          data-testid="gaps-admin-text"
-          className="mt-1 whitespace-pre-wrap break-words rounded-sm bg-surface-1 p-1.5 font-mono text-text-primary"
-        >
-          {text}
-        </pre>
+        <div className="mt-1 flex flex-col gap-1">
+          <p className="text-text-secondary">{t('forgeRun.gaps.admin.hint')}</p>
+          <pre
+            data-testid="gaps-admin-text"
+            className="whitespace-pre-wrap break-words rounded-sm bg-surface-1 p-1.5 font-mono text-text-primary"
+          >
+            {text}
+          </pre>
+        </div>
       </details>
-      <div className="flex items-center gap-2">
+      <span className="flex items-center gap-2">
         <Button variant="secondary" size="sm" data-testid="gaps-admin-copy" onClick={copy}>
           {t('forgeRun.gaps.admin.copy')}
         </Button>
         <span role="status" data-testid="gaps-admin-copied" className="text-text-secondary">
           {copied ? t('forgeRun.gaps.admin.copied') : ''}
         </span>
-      </div>
+      </span>
     </section>
   );
 };
@@ -327,6 +363,8 @@ const AdminChanges: React.FC<{ gaps: readonly ForgeGap[] }> = ({ gaps }) => {
 /** Props of {@link GapItem}. */
 interface GapItemProps {
   gap: ForgeGap;
+  /** Every gap the tab shows: a decision kept for one of them answers no other. */
+  shown: readonly ForgeGap[];
   config: ForgeConfig | null;
   decide: (gap: ForgeGap, choice: ForgeGapChoice | null) => void;
   /** The target org and the user the run writes as, whom a bypass's command names. */
@@ -335,24 +373,29 @@ interface GapItemProps {
   onReadAgain?: () => void;
   /** The read asked for with {@link onReadAgain} is on its way. */
   readingAgain: boolean;
+  /** What of the mute ticked for the run lifts this validation rule, if it does. */
+  lifted?: MutedAutomationAlsoLifted;
 }
 
 /**
  * One gap: what it is and where it was found, what would keep a validation
- * rule quiet for the user the run writes as, then the decisions it offers,
- * or the one taken and the way to take it back.
+ * rule quiet for the user the run writes as — or that the mute ticked lifts
+ * it, as the clone's lines say it —, then the decisions it offers, or the one
+ * taken and the way to take it back.
  */
 const GapItem: React.FC<GapItemProps> = ({
   gap,
+  shown,
   config,
   decide,
   target,
   onReadAgain,
   readingAgain,
+  lifted,
 }) => {
   const { t } = useTranslation();
   const id = useId();
-  const kept = decisionOf(config, gap);
+  const kept = decisionOf(config, gap, shown);
   const chosen = kept ? choiceOf(kept) : null;
   const offered = offeredDecisions(gap);
   const [defaultValue, setDefaultValue] = useState('');
@@ -389,19 +432,30 @@ const GapItem: React.FC<GapItemProps> = ({
   return (
     <li
       data-testid={`gap-${gap.id}`}
-      className="flex flex-col gap-1 rounded-sm border border-subtle bg-surface-2 p-2 text-xs"
+      className="flex flex-col gap-1 rounded-sm border border-subtle bg-surface-2 px-2 py-1.5 text-xs"
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className="font-medium text-text-primary">{t(`forgeRun.gaps.kind.${gap.kind}`)}</span>
+      {/* What it is, what it is about and which read found it on one line,
+          the rows it refuses at its end, and its decisions on the next: a
+          line each, and a label over each field of a decision, a single gap
+          took six lines of the row. Narrow, the line wraps. */}
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 [overflow-wrap:anywhere]">
+          <span className="font-medium text-text-primary">
+            {t(`forgeRun.gaps.kind.${gap.kind}`)}
+          </span>
+          <span data-testid="gap-subject" className="text-text-primary">
+            {subject.join(' · ')}
+          </span>
+          <span data-testid="gap-source" className="text-text-secondary">
+            {t(`forgeRun.gaps.source.${gap.source}`)}
+          </span>
+        </p>
         {gap.rows > 0 && (
           <span data-testid="gap-rows" className="shrink-0 text-text-secondary">
             {t('forgeRun.gaps.rows', { count: gap.rows })}
           </span>
         )}
       </div>
-      <p data-testid="gap-subject" className="text-text-primary">
-        {subject.join(' · ')}
-      </p>
       {/* What the read says of the gap, under the names it gives: the tab
           names in its own words the entries it knows. */}
       {details.length > 0 && (
@@ -422,15 +476,23 @@ const GapItem: React.FC<GapItemProps> = ({
           shown and never run. Named without what held it, the bypass was
           left for the user to look up in Setup. Read again once the command
           has run, the rule shows as kept quiet: the tab showed what Review
-          read as it opened until Review was opened again. */}
-      <BypassAssistant
-        assignments={assignments}
-        {...(target ? { target } : {})}
-        {...(onReadAgain ? { onReadAgain, readingAgain } : {})}
-      />
-      <p data-testid="gap-source" className="text-text-secondary">
-        {t(`forgeRun.gaps.source.${gap.source}`)}
-      </p>
+          read as it opened until Review was opened again. A rule the mute
+          lifts needs no command, the mute assigning the set for the run, and
+          its rows go in whole, never again without its field. */}
+      {lifted ? (
+        <p data-testid="gap-lifted" className="text-text-primary">
+          {t('forgeRun.gaps.lifted', {
+            permission: lifted.permission,
+            set: lifted.permissionSet,
+          })}
+        </p>
+      ) : (
+        <BypassAssistant
+          assignments={assignments}
+          {...(target ? { target } : {})}
+          {...(onReadAgain ? { onReadAgain, readingAgain } : {})}
+        />
+      )}
       {chosen ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p data-testid="gap-decided" className="font-medium text-text-primary">
@@ -449,7 +511,7 @@ const GapItem: React.FC<GapItemProps> = ({
         </div>
       ) : (
         <>
-          {gap.defaultDecision && (
+          {gap.defaultDecision && !lifted && (
             <p data-testid="gap-default" className="text-text-secondary">
               {t('forgeRun.gaps.byDefault', {
                 decision: t(`forgeRun.gaps.decision.${gap.defaultDecision}`),
@@ -463,7 +525,7 @@ const GapItem: React.FC<GapItemProps> = ({
               tabIndex={-1}
               aria-label={t('forgeRun.gaps.decisionsLabel')}
               data-testid="gap-decisions"
-              className="flex flex-wrap items-end gap-2 outline-hidden"
+              className="flex flex-wrap items-center gap-2 outline-hidden"
             >
               {offered.map((kind) => (
                 <DecisionControl
@@ -511,13 +573,15 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
 }) => {
   const { t } = useTranslation();
   const selectClass = cn(
-    'rounded-sm px-2 py-1 text-xs',
+    'min-w-0 rounded-sm px-2 py-1 text-xs',
     'bg-(--sf-bg-input) text-(--sf-text-input) border border-(--sf-border-input)',
   );
+  /** A label beside its field, on the line of the other decisions, wrapping under it when narrow. */
+  const fieldClass = 'flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5';
   switch (kind) {
     case 'map_value':
       return (
-        <div className="flex flex-col gap-0.5">
+        <div className={fieldClass}>
           <label htmlFor={`${idPrefix}-map`} className="text-text-secondary">
             {t('forgeRun.gaps.mapValueLabel')}
           </label>
@@ -541,7 +605,7 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
       );
     case 'map_record_type':
       return (
-        <div className="flex flex-col gap-0.5">
+        <div className={fieldClass}>
           <label htmlFor={`${idPrefix}-rt`} className="text-text-secondary">
             {t('forgeRun.gaps.recordTypeLabel')}
           </label>
@@ -569,13 +633,13 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
     case 'set_default':
       return (
         <form
-          className="flex items-end gap-1"
+          className="flex min-w-0 flex-wrap items-center gap-1"
           onSubmit={(e) => {
             e.preventDefault();
             if (defaultValue.trim() !== '') choose({ kind: 'set_default', value: defaultValue });
           }}
         >
-          <div className="flex flex-col gap-0.5">
+          <div className={fieldClass}>
             <label htmlFor={`${idPrefix}-default`} className="text-text-secondary">
               {t('forgeRun.gaps.defaultLabel')}
             </label>
@@ -676,12 +740,19 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
  * @param onReadAgain - Read the target's gaps again, as it stands now: the
  *   gaps read stay shown until the answer lands. Without it, nothing offers to.
  * @param readingAgain - A read of the gaps is on its way.
+ * @param lifted - What the mute ticked for the run lifts beside what it
+ *   silences (`MutePlan.alsoLifts`); absent while it is not ticked. A
+ *   validation rule it lifts refuses nothing, as one whose bypass the user
+ *   holds, is said lifted in the clone's words, and asks nothing of the
+ *   target's admin: the tab said the rule might refuse the contacts the mute
+ *   let in whole.
  */
 export const ReviewGapsTab: React.FC<{
   target?: BypassTarget;
   onReadAgain?: () => void;
   readingAgain?: boolean;
-}> = ({ target, onReadAgain, readingAgain = false }) => {
+  lifted?: readonly MutedAutomationAlsoLifted[];
+}> = ({ target, onReadAgain, readingAgain = false, lifted }) => {
   const { t, i18n } = useTranslation();
   const gaps = useForgeStore((s) => s.gaps);
   const gapReads = useForgeStore((s) => s.gapReads);
@@ -722,25 +793,103 @@ export const ReviewGapsTab: React.FC<{
     keptTitleRef.current?.focus();
   });
 
+  /** A gap's severity for this run: a rule the mute lifts refuses nothing. */
+  const severityOf = (gap: ForgeGap): ForgeGapSeverity =>
+    gapLiftedBy(gap, lifted) ? 'info' : gap.severity;
+
+  /** The gravest severity a gap shown has: its group is open, the others fold under their heading. */
+  const gravest = SEVERITIES.find((severity) => shown.some((gap) => severityOf(gap) === severity));
+
+  /*
+   * The gaps and their decisions first, then what they leave: what the reads
+   * could not see, the decisions no gap names, and the list for the target's
+   * admin and the template on one line. Opened on a single gap, the row was
+   * 420 pixels high and held Plan to Automation under the fold of a 1280 by
+   * 800 panel. Which reads were made is said when they found nothing: a gap
+   * shown says which read found it.
+   */
   return (
-    <div data-testid="review-gaps-tab" className="flex flex-col gap-3 text-xs">
+    <div data-testid="review-gaps-tab" className="flex flex-col gap-2 text-xs">
       {shown.length === 0 && read.length === 0 && (
         <p data-testid="gaps-not-read" className="text-text-secondary">
           {t('forgeRun.gaps.notRead')}
         </p>
       )}
-      {read.length > 0 && (
-        <p data-testid="gaps-read" className="text-text-secondary">
-          {t('forgeRun.gaps.readBy', {
-            sources: read.map((source) => t(`forgeRun.gaps.readName.${source}`)).join(', '),
-          })}
-        </p>
-      )}
       {shown.length === 0 && read.length > 0 && (
-        <p data-testid="gaps-none" className="text-text-primary">
-          {t('forgeRun.gaps.none')}
-        </p>
+        <>
+          <p data-testid="gaps-read" className="text-text-secondary">
+            {t('forgeRun.gaps.readBy', {
+              sources: read.map((source) => t(`forgeRun.gaps.readName.${source}`)).join(', '),
+            })}
+          </p>
+          <p data-testid="gaps-none" className="text-text-primary">
+            {t('forgeRun.gaps.none')}
+          </p>
+        </>
       )}
+      {SEVERITIES.map((severity) => {
+        const ofSeverity = shown.filter((gap) => severityOf(gap) === severity);
+        if (ofSeverity.length === 0) return null;
+        const objects = [...new Set(ofSeverity.map((gap) => gap.objectApiName))];
+        const heading = (
+          <h3
+            id={`gaps-severity-${severity}-title`}
+            className={cn(
+              'inline-block rounded-sm px-1.5 py-0.5 font-semibold',
+              SEVERITY_STYLES[severity],
+            )}
+          >
+            {t(`forgeRun.gaps.severity.${severity}`)} ({ofSeverity.length})
+          </h3>
+        );
+        const list = objects.map((object) => (
+          <div key={object} data-testid={`gaps-object-${object}`} className="flex flex-col gap-1">
+            <h4 className="font-medium text-text-primary">{object}</h4>
+            <ul className="flex flex-col gap-1">
+              {ofSeverity
+                .filter((gap) => gap.objectApiName === object)
+                .map((gap) => {
+                  const liftedBy = gapLiftedBy(gap, lifted);
+                  return (
+                    <GapItem
+                      key={gap.id}
+                      gap={gap}
+                      shown={shown}
+                      config={config}
+                      decide={decide}
+                      {...(target ? { target } : {})}
+                      {...(onReadAgain ? { onReadAgain } : {})}
+                      readingAgain={readingAgain}
+                      {...(liftedBy ? { lifted: liftedBy } : {})}
+                    />
+                  );
+                })}
+            </ul>
+          </div>
+        ));
+        return (
+          <section
+            key={severity}
+            data-testid={`gaps-severity-${severity}`}
+            aria-labelledby={`gaps-severity-${severity}-title`}
+            className="flex flex-col gap-2"
+          >
+            {/* A graver group above it holds what refuses rows: this one is
+                counted on its heading, and opened when asked for. */}
+            {severity === gravest ? (
+              <>
+                <div>{heading}</div>
+                {list}
+              </>
+            ) : (
+              <details data-testid={`gaps-severity-${severity}-more`}>
+                <summary className="cursor-pointer">{heading}</summary>
+                <div className="mt-2 flex flex-col gap-2">{list}</div>
+              </details>
+            )}
+          </section>
+        );
+      })}
       {unread.length > 0 && (
         <ul data-testid="gaps-unread" className="flex flex-col gap-0.5 text-status-warning">
           {/* A part can be unread more than once: the fields of two objects. */}
@@ -755,54 +904,6 @@ export const ReviewGapsTab: React.FC<{
           ))}
         </ul>
       )}
-      {SEVERITIES.map((severity) => {
-        const ofSeverity = shown.filter((gap) => gap.severity === severity);
-        if (ofSeverity.length === 0) return null;
-        const objects = [...new Set(ofSeverity.map((gap) => gap.objectApiName))];
-        return (
-          <section
-            key={severity}
-            data-testid={`gaps-severity-${severity}`}
-            aria-labelledby={`gaps-severity-${severity}-title`}
-            className="flex flex-col gap-2"
-          >
-            <h3
-              id={`gaps-severity-${severity}-title`}
-              className={cn(
-                'self-start rounded-sm px-1.5 py-0.5 font-semibold',
-                SEVERITY_STYLES[severity],
-              )}
-            >
-              {t(`forgeRun.gaps.severity.${severity}`)} ({ofSeverity.length})
-            </h3>
-            {objects.map((object) => (
-              <div
-                key={object}
-                data-testid={`gaps-object-${object}`}
-                className="flex flex-col gap-1"
-              >
-                <h4 className="font-medium text-text-primary">{object}</h4>
-                <ul className="flex flex-col gap-1">
-                  {ofSeverity
-                    .filter((gap) => gap.objectApiName === object)
-                    .map((gap) => (
-                      <GapItem
-                        key={gap.id}
-                        gap={gap}
-                        config={config}
-                        decide={decide}
-                        {...(target ? { target } : {})}
-                        {...(onReadAgain ? { onReadAgain } : {})}
-                        readingAgain={readingAgain}
-                      />
-                    ))}
-                </ul>
-              </div>
-            ))}
-          </section>
-        );
-      })}
-      <AdminChanges gaps={shown} />
       {answeringNoGap.length > 0 && (
         <section
           data-testid="gaps-kept-decisions"
@@ -843,11 +944,18 @@ export const ReviewGapsTab: React.FC<{
           </ul>
         </section>
       )}
-      <ForgeSaveTemplate
-        idPrefix="review-save-template"
-        openerTestId="review-save-template-open"
-        className="border-t border-subtle pt-2"
-      />
+      <div
+        data-testid="gaps-tools"
+        className="flex flex-wrap items-start gap-x-6 gap-y-2 border-t border-subtle pt-2"
+      >
+        <AdminChanges gaps={shown} lifted={lifted} />
+        {/* Its form takes the line's width once opened. */}
+        <ForgeSaveTemplate
+          idPrefix="review-save-template"
+          openerTestId="review-save-template-open"
+          className="has-[form]:basis-full"
+        />
+      </div>
     </div>
   );
 };

@@ -1,7 +1,8 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, Play, RotateCw, ShieldCheck, Square } from 'lucide-react';
 import type {
+  BaseMessage,
   ErrorHint,
   ForgeFieldRefusal,
   FrozenFieldRemoval,
@@ -9,9 +10,13 @@ import type {
   FrozenLoadProgress,
   FrozenLoadReportInfo,
   FrozenLoadResponse,
+  FrozenReloadSweep as FrozenReloadSwept,
+  FrozenReloadSweepListing,
   FrozenVerifyVerdict,
+  MutedAutomation,
+  RunCheckpointInfo,
 } from '@sandforge/shared';
-import { translateError } from '@sandforge/shared';
+import { sweepTakenObjects, translateError } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useFrozenStore } from '../../stores/useFrozenStore';
 import { Button } from '../../components/ui/Button';
@@ -23,17 +28,35 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 import { KPICard } from '../../components/ui/KPICard';
 import { OrgDropdown } from '../../components/ui/OrgDropdown';
+import { LazyOrgRibbon } from '../../components/ui/lazyOrgRibbon';
+import { ribbonOrg } from '../../components/ui/ribbonOrg';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
 import { useFrozenMutation } from './useFrozenBridge';
-import { FrozenLoadRemoval } from './FrozenLoadRemoval';
+import {
+  FrozenLoadRemoval,
+  FrozenReloadSweep,
+  FrozenRemovalAutomation,
+  ReloadSweeps,
+} from './FrozenLoadRemoval';
+import { useRemovalSweep, type RemovalSweepAsked } from '../Forge/ForgeRemovalSweep';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import { failureReasons, purgeFailureReasons } from './frozenFailureReasons';
 import type { FrozenFailureReason } from './frozenFailureReasons';
 import { unresolvedCycleLookups, unresolvedLinks } from './frozenUnresolvedLinks';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
+import { FrozenLoadEmails } from './FrozenLoadEmails';
+import { FrozenLoadAutomation } from './FrozenLoadAutomation';
+import {
+  CheckpointFirstEstimate,
+  CheckpointFirstOption,
+} from '../../components/ui/CheckpointFirstOption';
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
+import { RecordTypesGivenSection, stillRanOf } from '../shared/RecordTypeGivenLine';
+import { useMessageListener } from '../../hooks/useMessageBus';
+import { runCheckpointOf } from '../../utils/runCheckpoint';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 
 /**
@@ -44,6 +67,42 @@ const RELOAD_LEAVES_RECORDS = 'REPLACE_LEAVES_RECORDS';
 
 /** The requests a reload is refused on: the load, and its preview. */
 const RELOAD_REQUESTS: ReadonlySet<string> = new Set(['frozen:load', 'frozen:load:preview']);
+
+/**
+ * What the sweeps asked with a reload did, as the error that ended it carries
+ * them (`sweeps`), or none: read from the host's message, each kept only when
+ * it reads as one.
+ */
+function reloadSweepsOf(value: unknown): FrozenReloadSwept[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is FrozenReloadSwept => {
+    if (typeof entry !== 'object' || entry === null) return false;
+    const { loadedAt, result } = entry as Record<string, unknown>;
+    if (typeof loadedAt !== 'string' || typeof result !== 'object' || result === null) {
+      return false;
+    }
+    const { status, objects, unread, handWork } = result as Record<string, unknown>;
+    return (
+      typeof status === 'string' &&
+      Array.isArray(objects) &&
+      Array.isArray(unread) &&
+      Array.isArray(handWork)
+    );
+  });
+}
+
+/**
+ * What the mute of a load did, as the error that ended it carries it once
+ * its lease was taken (`mutedAutomation`), or nothing: read from the host's
+ * message, kept only when it reads as one.
+ */
+function mutedAfterErrorOf(value: unknown): MutedAutomation | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { state, assigned, held } = value as Record<string, unknown>;
+  return typeof state === 'string' && Array.isArray(assigned) && Array.isArray(held)
+    ? (value as MutedAutomation)
+    : undefined;
+}
 
 /** Props for the load tab. */
 export interface FrozenLoadTabProps {
@@ -176,6 +235,37 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const [reload, setReload] = useState(false);
   /** The box beside Load: the load mutes the target's automation, through its own bypass. */
   const [muteAutomation, setMuteAutomation] = useState(false);
+  /**
+   * The box under it: the load writes although the target delivers the
+   * emails what still runs sends, or would not say. Never ticked unasked:
+   * unticked, such a load is refused before it writes, as a seed is.
+   */
+  const [acceptEmails, setAcceptEmails] = useState(false);
+  /**
+   * The box beside it: the load writes although the target runs flows, Apex
+   * triggers, processes or workflow rules as the records go in, or would not
+   * say what it runs. Never ticked unasked: unticked, such a load is refused
+   * before it writes, as a clone is; Preview names what runs.
+   */
+  const [acceptAutomation, setAcceptAutomation] = useState(false);
+  /** The option beside it: the load takes a checkpoint of what it writes first. */
+  const [checkpointFirst, setCheckpointFirst] = useState(false);
+  /** What became of the checkpoint of a load its error ended, as the error says. */
+  const [checkpointAfterError, setCheckpointAfterError] = useState<RunCheckpointInfo | undefined>(
+    undefined,
+  );
+  /**
+   * What the sweep asked with a reload did before a cancel or a failure ended
+   * it, as the error says: its deletes were said only in the audit trail,
+   * under a message that the load had purged nothing.
+   */
+  const [sweepsAfterError, setSweepsAfterError] = useState<FrozenReloadSwept[]>([]);
+  /**
+   * What the mute of a load a cancel or a failure ended assigned and took
+   * back, as the error says: a reload stopped in its sweep, run on the trap
+   * org, named nothing of the set the org had assigned and taken back.
+   */
+  const [mutedAfterError, setMutedAfterError] = useState<MutedAutomation | undefined>(undefined);
   const [writeEncrypted, setWriteEncrypted] = useState(false);
   // A dataset whose manifest does not say its extraction left out the
   // encrypted fields it read masked may hold their masks: its load leaves out
@@ -199,6 +289,23 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   // stops before its next write. The page had no Cancel, and could not have
   // named the load: its id was minted where the page never saw it.
   const loadRequestId = loadMutation.requestId;
+  // The mutation is reset as its error is taken: the last id sent stays here,
+  // for the error that says what became of its checkpoint.
+  const lastLoadId = useRef<string | null>(null);
+  useEffect(() => {
+    if (loadRequestId !== null) lastLoadId.current = loadRequestId;
+  }, [loadRequestId]);
+  useMessageListener<
+    BaseMessage & {
+      payload?: { checkpoint?: unknown; sweeps?: unknown; mutedAutomation?: unknown };
+    }
+  >('frozen:load:error', (msg) => {
+    if (msg.correlationId === lastLoadId.current) {
+      setCheckpointAfterError(runCheckpointOf(msg.payload?.checkpoint));
+      setSweepsAfterError(reloadSweepsOf(msg.payload?.sweeps));
+      setMutedAfterError(mutedAfterErrorOf(msg.payload?.mutedAutomation));
+    }
+  });
   const { requested: cancelRequested, cancel: cancelLoad } = useOperationCancel(loadRequestId, {
     title: t('frozen.load.cancelRefused'),
     message: t('frozen.load.cancelRefusedDetail'),
@@ -270,16 +377,29 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     ...(pilot ? { pilot: true } : {}),
     ...(reload ? { reload: true } : {}),
     ...(encryptedUnchecked && writeEncrypted ? { writeEncrypted: true } : {}),
+    // Asked of the preview too, which says what it would hold and cost.
+    ...(checkpointFirst ? { checkpointFirst: {} } : {}),
+    // And what the emails come to: the preview plans the mute, assigning
+    // nothing, and says whether a load would be refused for them.
+    ...(muteAutomation ? { muteAutomation: true } : {}),
+    ...(acceptEmails ? { acceptEmails: true } : {}),
+    // And whether a load would be refused for what runs as it writes.
+    ...(acceptAutomation ? { acceptAutomation: true } : {}),
   });
 
-  const handleLoad = (): void => {
+  /** Send the load; `sweepAsked`, the sweep its reload's confirmation ticked. */
+  const handleLoad = (
+    sweepAsked: RemovalSweepAsked['asked'] & { includeChanged?: true } = {},
+  ): void => {
     dismissRefusal();
     clearProgress();
     setLoadReport(null);
     setVerdict(null);
+    setCheckpointAfterError(undefined);
+    setSweepsAfterError([]);
+    setMutedAfterError(undefined);
     previewMutation.reset();
-    // Only the load mutes: its preview writes nothing.
-    loadMutation.mutate({ ...loadOptions(), ...(muteAutomation ? { muteAutomation: true } : {}) });
+    loadMutation.mutate({ ...loadOptions(), ...sweepAsked });
   };
 
   /*
@@ -293,6 +413,49 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const purges = reload && !pilot;
   /** What the reload being confirmed would purge, by its plan; null when none is asked. */
   const [reloadPurge, setReloadPurge] = useState<ReturnType<typeof purgeOf> | null>(null);
+  /**
+   * The confirmation's sweep: what the target's automation made for the loads
+   * the reload replaces, which its purge alone leaves. Never ticked unasked.
+   */
+  const reloadSweep = useRemovalSweep();
+  const { setSweep: setReloadSweep } = reloadSweep;
+  /**
+   * With the sweep: take too what it finds changed since the load it sweeps,
+   * as a removal's box takes the records changed since. Kept otherwise, said
+   * kept, and the reload is not partial for it. Never ticked unasked.
+   */
+  const [reloadIncludeChanged, setReloadIncludeChanged] = useState(false);
+  /** What the sweep's lists say, while they are shown: what fires as their records go is read with the purge's. */
+  const [reloadSweepListings, setReloadSweepListings] = useState<
+    readonly FrozenReloadSweepListing[] | 'failed' | null
+  >(null);
+  /** What the automation section's read covers, or that it failed: see `FrozenRemovalAutomation`. */
+  const [reloadAutomationRead, setReloadAutomationRead] = useState<
+    readonly string[] | 'failed' | undefined
+  >(undefined);
+  /** What the sweep's lists say it takes, ticked: what fires as those records go. */
+  const reloadSweptObjects =
+    reloadSweep.sweep && reloadSweepListings && reloadSweepListings !== 'failed'
+      ? [
+          ...new Set(
+            reloadSweepListings.flatMap(({ listing }) =>
+              sweepTakenObjects(listing, reloadSweep.ticks),
+            ),
+          ),
+        ]
+      : [];
+  // Confirmed once what the sweep takes has been read, and what fires as it
+  // deletes it, as a removal's sweep is: before, the section had read the
+  // purge's objects alone, and the sweep's deletes would fire their flows unasked.
+  const reloadSweepHeld = !reloadSweep.sweep
+    ? undefined
+    : reloadSweepListings === 'failed'
+      ? t('frozen.load.reloadConfirm.heldUnread', { org: targetName })
+      : reloadSweepListings === null ||
+          (reloadAutomationRead !== 'failed' &&
+            !reloadSweptObjects.every((object) => reloadAutomationRead?.includes(object)))
+        ? t('frozen.load.reloadConfirm.heldReading', { org: targetName })
+        : undefined;
   /** A reload asked for whose plan the preview is reading. */
   const [reloadAwaitingPlan, setReloadAwaitingPlan] = useState(false);
   /** The plan of a reload into the target as it is asked now, or undefined. */
@@ -308,8 +471,11 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   /** Ask before a reload that purges anything; load at once one that purges nothing. */
   const confirmOrLoad = (reloadPlan: FrozenLoadPlanInfo): void => {
     const purge = purgeOf(reloadPlan);
-    if (purge.deleted + purge.deactivated > 0) setReloadPurge(purge);
-    else handleLoad();
+    if (purge.deleted + purge.deactivated > 0) {
+      setReloadSweep(false);
+      setReloadIncludeChanged(false);
+      setReloadPurge(purge);
+    } else handleLoad();
   };
   const handleRun = (): void => {
     if (!purges) {
@@ -496,6 +662,19 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
         <ErrorBanner message={lastError.message} code={lastError.code} data-testid="frozen-error" />
       )}
 
+      {/* What the dataset was frozen from, known by its alias alone once this
+          machine no longer holds that org — or, with no alias, said in words
+          with its id second —, and where the load writes. */}
+      {status?.manifest && sourceOrgId && (
+        <Suspense fallback={null}>
+          <LazyOrgRibbon
+            kind="load"
+            source={ribbonOrg(orgs, sourceOrgId, status.manifest.source.orgAlias)}
+            target={ribbonOrg(orgs, effectiveTarget)}
+          />
+        </Suspense>
+      )}
+
       {/* ── Entry guards ──────────────────────────────────────────────── */}
       <Card className="border border-subtle bg-surface-1">
         <CardBody className="flex flex-col gap-2">
@@ -627,6 +806,45 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               testId="frozen-load-mute"
             />
           )}
+          {/* Its own box: an org on All email, or one that would not say,
+              sends what fires as the load writes, and the mute's box never
+              lets it. Unticked, the load reads the org as it starts and is
+              refused where it would, nothing written; Preview says which. */}
+          {effectiveTarget !== '' && (
+            <label className="flex items-start gap-2 text-[11px] text-text-primary">
+              <input
+                type="checkbox"
+                checked={acceptEmails}
+                onChange={(event) => setAcceptEmails(event.target.checked)}
+                data-testid="frozen-load-accept-emails"
+              />
+              <span>{t('frozen.load.acceptEmails', { org: targetName })}</span>
+            </label>
+          )}
+          {/* What the target runs as the load inserts and updates, flows that
+              send nothing among it: unticked, a load where something runs is
+              refused before it writes, nothing written; Preview names it. A
+              load asked nothing of it, and a flow that deleted each record
+              the second it went in ran unasked. */}
+          {effectiveTarget !== '' && (
+            <label className="flex items-start gap-2 text-[11px] text-text-primary">
+              <input
+                type="checkbox"
+                checked={acceptAutomation}
+                onChange={(event) => setAcceptAutomation(event.target.checked)}
+                data-testid="frozen-load-accept-automation"
+              />
+              <span>{t('frozen.load.acceptAutomation', { org: targetName })}</span>
+            </label>
+          )}
+          {/* A load asks nothing of its own: the preview says the cost. */}
+          <CheckpointFirstOption
+            checked={checkpointFirst}
+            onChange={setCheckpointFirst}
+            orgId={effectiveTarget}
+            costSaid="preview"
+            testId="frozen-load-checkpoint-first"
+          />
           {/* The check that writes nothing first, then the write, as Forge
               orders Simulate and its run. */}
           <div className="flex items-center gap-2">
@@ -696,7 +914,10 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
             onClose={() => setReloadPurge(null)}
             onConfirm={() => {
               setReloadPurge(null);
-              handleLoad();
+              handleLoad({
+                ...reloadSweep.asked,
+                ...(reloadSweep.sweep && reloadIncludeChanged ? { includeChanged: true } : {}),
+              });
             }}
             title={t('frozen.load.reloadConfirm.title', { org: targetName })}
             description={t('frozen.load.reloadConfirm.description', {
@@ -704,6 +925,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               org: targetName,
             })}
             confirmText={targetName}
+            {...(reloadSweepHeld !== undefined ? { held: reloadSweepHeld } : {})}
           >
             {(reloadPurge?.deactivated ?? 0) > 0 && (
               <p
@@ -714,6 +936,54 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   count: reloadPurge?.deactivated ?? 0,
                 })}
               </p>
+            )}
+            {/* What the purge fires, before the org's name is typed, with the box
+                that mutes it: the one beside Load, which the load is sent with. */}
+            {reloadPurge !== null && targetRecords !== undefined && (
+              <FrozenRemovalAutomation
+                orgId={targetRecords.orgId}
+                loadedAt={targetRecords.loadedAt}
+                org={targetName}
+                sweptObjects={reloadSweptObjects}
+                reload
+                mute={{ checked: muteAutomation, onChange: setMuteAutomation }}
+                onRead={setReloadAutomationRead}
+              />
+            )}
+            {/* Never ticked unasked: a sweep deletes records no load wrote. */}
+            {reloadPurge !== null && targetRecords !== undefined && (
+              <label className="flex items-center gap-2 mt-1 cursor-pointer text-xs">
+                <input
+                  type="checkbox"
+                  checked={reloadSweep.sweep}
+                  onChange={(e) => setReloadSweep(e.target.checked)}
+                  data-testid="frozen-reload-sweep-toggle"
+                />
+                {t('frozen.load.reloadConfirm.sweep')}
+              </label>
+            )}
+            {/* The removal's box, for what the sweep finds changed since the
+                load it sweeps: unticked, that is kept, and said. */}
+            {reloadPurge !== null && targetRecords !== undefined && reloadSweep.sweep && (
+              <label className="flex items-center gap-2 mt-1 cursor-pointer text-xs">
+                <input
+                  type="checkbox"
+                  checked={reloadIncludeChanged}
+                  onChange={(e) => setReloadIncludeChanged(e.target.checked)}
+                  data-testid="frozen-reload-include-changed"
+                />
+                {t('frozen.load.reloadConfirm.includeChanged')}
+              </label>
+            )}
+            {reloadPurge !== null && targetRecords !== undefined && reloadSweep.sweep && (
+              <FrozenReloadSweep
+                orgId={targetRecords.orgId}
+                loadedAt={targetRecords.loadedAt}
+                org={targetName}
+                ticks={reloadSweep.ticks}
+                onTicksChange={reloadSweep.setTicks}
+                onListings={setReloadSweepListings}
+              />
             )}
           </DangerConfirm>
           {noLoadIntoTarget && (
@@ -737,6 +1007,32 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
           {loadMutation.error && (
             <ErrorBanner message={loadMutation.error} code={loadMutation.errorCode} />
           )}
+          <RewindBeforeRun
+            checkpoint={loadReport ? undefined : checkpointAfterError}
+            orgId={effectiveTarget}
+            beside="load"
+            compact
+            testId="frozen-load-error-checkpoint"
+          />
+          {!loadReport && (
+            <MutedAutomationResult
+              muted={mutedAfterError}
+              org={targetName}
+              testId="frozen-load-error-muted"
+            />
+          )}
+          {!loadReport && sweepsAfterError.length > 0 && (
+            <div className="flex flex-col gap-1" data-testid="frozen-load-error-sweeps">
+              <span className="text-xs font-medium text-text-primary">
+                {t('frozen.load.sweptBeforeEnd')}
+              </span>
+              <ReloadSweeps
+                sweeps={sweepsAfterError}
+                org={targetName}
+                testId="frozen-load-error-sweeps-list"
+              />
+            </div>
+          )}
           {verifyMutation.error && (
             <ErrorBanner message={verifyMutation.error} code={verifyMutation.errorCode} />
           )}
@@ -756,6 +1052,28 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 {plan.mode.reload && <Badge variant="info">{t('frozen.load.reload')}</Badge>}
               </div>
               <p className="text-[11px] text-text-secondary">{t('frozen.preview.hint')}</p>
+              {plan.checkpoint && (
+                <CheckpointFirstEstimate
+                  estimate={plan.checkpoint}
+                  lead={t('runResults.checkpoint.estimate.preview')}
+                  testId="frozen-preview-checkpoint"
+                  className="text-[11px] text-text-primary"
+                />
+              )}
+              {plan.automation && (
+                <FrozenLoadAutomation
+                  automation={plan.automation}
+                  org={planOrg}
+                  testId="frozen-preview-automation"
+                />
+              )}
+              {plan.emails && (
+                <FrozenLoadEmails
+                  emails={plan.emails}
+                  org={planOrg}
+                  testId="frozen-preview-emails"
+                />
+              )}
               {plan.mode.reload && !plan.mode.pilot && (
                 <p className="text-[11px] text-text-secondary" data-testid="frozen-preview-reload">
                   {t('frozen.preview.earlierLoads', { count: plan.earlierLoads })}
@@ -796,6 +1114,54 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   {t('frozen.preview.heldForExcludedParents', {
                     objects: (plan.heldForExcludedParents ?? [])
                       .map((held) => `${held.objectApiName} (${held.count})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
+              {(plan.quotesLeftUnsynced?.length ?? 0) > 0 && (
+                <p
+                  className="text-[11px] text-status-warning"
+                  data-testid="frozen-preview-quotes-left-unsynced"
+                >
+                  {t('frozen.preview.quotesLeftUnsynced', {
+                    objects: (plan.quotesLeftUnsynced ?? [])
+                      .map((left) => `${left.objectApiName} (${left.count})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
+              {/* A key field the rules cleared and no default fills: the
+                  record is never looked up, and goes in beside the one the
+                  target holds. */}
+              {(plan.keysLeftEmpty?.length ?? 0) > 0 && (
+                <p
+                  className="text-[11px] text-status-warning"
+                  data-testid="frozen-preview-keys-left-empty"
+                >
+                  {t('frozen.preview.keysLeftEmpty', {
+                    objects: (plan.keysLeftEmpty ?? [])
+                      .map(
+                        (left) =>
+                          `${left.objectApiName} (${left.count}: ${left.fields.join(', ')})`,
+                      )
+                      .join(', '),
+                  })}
+                </p>
+              )}
+              {/* The role of the contact an opportunity goes in with, a
+                  contact's direct relation, an email's task: the platform
+                  writes each with the record it goes with, and the load
+                  links it once that one is in. Counted to insert, the
+                  preview said one record more than the load wrote. */}
+              {plan.perObject.some((o) => (o.writtenByThePlatform ?? 0) > 0) && (
+                <p
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-preview-written-by-platform"
+                >
+                  {t('frozen.preview.writtenByThePlatform', {
+                    objects: plan.perObject
+                      .filter((o) => (o.writtenByThePlatform ?? 0) > 0)
+                      .map((o) => `${o.objectApiName} (${o.writtenByThePlatform ?? 0})`)
                       .join(', '),
                   })}
                 </p>
@@ -856,6 +1222,14 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   {t('frozen.preview.recordTypeIssues', { count: plan.recordTypeIssues })}
                 </p>
               )}
+              {/* The type the target would give the records the load creates
+                  without one — on Master at the extraction, or theirs dropped
+                  —, as the describe of the user it writes as says. */}
+              <RecordTypesGivenSection
+                entries={plan.recordTypesGiven}
+                stage="predicted"
+                testId="frozen-preview-record-types"
+              />
               {Object.keys(plan.leftUnrecorded ?? {}).length > 0 && (
                 <p className="text-[11px] text-text-secondary">
                   {t('frozen.report.purge.leftUnrecorded', {
@@ -934,6 +1308,25 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                     })}
                   </p>
                 ))}
+              {/* The lookup filters of what it inserts, which only the write
+                  meets: on the trap org, one refused six contacts a preview
+                  had counted to insert, and nothing named it. */}
+              {plan.perObject
+                .filter((o) => (o.lookupFilters?.length ?? 0) > 0)
+                .map((o) => (
+                  <p
+                    key={o.objectApiName}
+                    className="text-[11px] text-status-warning"
+                    data-testid={`frozen-preview-lookup-filters-${o.objectApiName}`}
+                  >
+                    {t('frozen.preview.lookupFilters', {
+                      object: o.objectApiName,
+                      fields: (o.lookupFilters ?? [])
+                        .map((f) => `${f.field} → ${f.referenceTo.join(', ')} (${f.records})`)
+                        .join(', '),
+                    })}
+                  </p>
+                ))}
               {/* A placeholder goes in with its name alone, and one refused
                   stops the load. */}
               {[
@@ -974,6 +1367,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
         records={targetRecords}
         onAnswered={onRefetchStatus}
         busy={loadMutation.loading}
+        {...(loadReport ? { lastReport: loadReport } : {})}
         {...(refusalOnCard
           ? {
               reloadRefusal: {
@@ -1040,7 +1434,10 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   {t('frozen.report.title')}
                 </h2>
                 <Badge variant={loadReport.status === 'completed' ? 'success' : 'warning'}>
-                  {t(`frozen.report.status.${loadReport.status}`)}
+                  {/* Partial for the verification chained after it, which found it short. */}
+                  {loadReport.status === 'partial' && loadReport.verification !== undefined
+                    ? t('frozen.report.status.verificationFailed')
+                    : t(`frozen.report.status.${loadReport.status}`)}
                 </Badge>
                 <span className="text-[10px] text-text-secondary">
                   {Math.round(loadReport.durationMs / 1000)}s
@@ -1051,6 +1448,13 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 muted={loadReport.mutedAutomation}
                 org={orgs.find((o) => o.id === loadReport.orgId)?.alias ?? loadReport.orgId}
                 testId="frozen-load-report-muted"
+              />
+              <RewindBeforeRun
+                checkpoint={loadReport.checkpoint}
+                orgId={loadReport.orgId}
+                beside="load"
+                muted={loadReport.mutedAutomation !== undefined}
+                testId="frozen-load-report-checkpoint"
               />
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <KPICard
@@ -1079,6 +1483,16 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   }
                 />
               </div>
+
+              {/* The type the target gave the records the load created
+                  without one, read back from them, and what still ran of a
+                  muted load named where it set another. */}
+              <RecordTypesGivenSection
+                entries={loadReport.recordTypesGiven}
+                stage="written"
+                stillRan={stillRanOf(loadReport.mutedAutomation)}
+                testId="frozen-load-report-record-types"
+              />
 
               {failureRows.length > 0 && (
                 <div data-testid="frozen-report-failures">
@@ -1205,6 +1619,16 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* What the sweep asked with the reload took for each load it
+                  replaced, and what it left, as a removal's result says it. */}
+              {(loadReport.sweeps ?? []).length > 0 && (
+                <ReloadSweeps
+                  sweeps={loadReport.sweeps ?? []}
+                  org={targetName}
+                  testId="frozen-report-sweeps"
+                />
               )}
 
               {removalRows.length > 0 && (
@@ -1354,6 +1778,35 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   {t('frozen.report.heldForExcludedParents', {
                     objects: (loadReport.heldForExcludedParents ?? [])
                       .map((held) => `${held.objectApiName} (${held.count})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
+              {/* Written, but not synced with their quote: synced, they would have lost their products. */}
+              {(loadReport.quotesLeftUnsynced?.length ?? 0) > 0 && (
+                <p
+                  className="text-[11px] text-status-warning"
+                  data-testid="frozen-report-quotes-left-unsynced"
+                >
+                  {t('frozen.report.quotesLeftUnsynced', {
+                    objects: (loadReport.quotesLeftUnsynced ?? [])
+                      .map((left) => `${left.objectApiName} (${left.count})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
+              {/* Written beside what the target holds: their key was left empty, never looked up. */}
+              {(loadReport.keysLeftEmpty?.length ?? 0) > 0 && (
+                <p
+                  className="text-[11px] text-status-warning"
+                  data-testid="frozen-report-keys-left-empty"
+                >
+                  {t('frozen.report.keysLeftEmpty', {
+                    objects: (loadReport.keysLeftEmpty ?? [])
+                      .map(
+                        (left) =>
+                          `${left.objectApiName} (${left.count}: ${left.fields.join(', ')})`,
+                      )
                       .join(', '),
                   })}
                 </p>

@@ -11,8 +11,14 @@ import type {
   BackupExportObject,
   BackupObjectHeld,
   BackupSummary,
+  DataOpsAct,
   DataOpsAnonymizationRule,
+  DataOpsAutomationObject,
+  DataOpsAutomationRefusal,
+  DataOpsWriteAccord,
   ListedAnonymizationTemplate,
+  MaskingDuplicatesWritten,
+  MutedAutomation,
 } from '@sandforge/shared';
 import { recordWriteHeaders, sanitizeSoqlObjectName, guardTierOf } from '@sandforge/shared';
 import type {
@@ -69,6 +75,7 @@ import {
   dataOpsBackupDeletePayloadSchema,
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
+  dataOpsAutomationPayloadSchema,
   dataOpsAnonymizeCoveragePayloadSchema,
   dataOpsAnonymizePreviewPayloadSchema,
   dataOpsQualityScanPayloadSchema,
@@ -102,11 +109,13 @@ import {
   PERSON_ACCOUNT_FLAG,
   personAccountMasking,
   personAccountRules,
+  personFieldsHidden,
   rulesOfRow,
   type MaskableField,
 } from '../../modules/dataops/personAccountMasking.js';
 import {
   ACCOUNT,
+  CONTACT,
   accountKindOf,
   leftOutForAccountKind,
 } from '../../core/common/platformRecords.js';
@@ -135,6 +144,31 @@ import { listLive } from './liveRun.js';
 import type { LiveRun } from './liveRun.js';
 import { payloadText, WritingOrgs } from './writingOrgs.js';
 import { backupMaxAgeDays } from '../../modules/dataops/backupRetention.js';
+import {
+  alsoRefusedPayload,
+  dataOpsAutomationOrgOf,
+  dataOpsStop,
+  dataOpsVoiceOf,
+  holdDataOpsMute,
+  readDataOpsAct,
+  type DataOpsActRead,
+  type DataOpsVoice,
+} from '../../modules/dataops/dataOpsAutomation.js';
+import {
+  DUPLICATES_SETTLE_MS,
+  duplicateRulesOn,
+  duplicatesLeft,
+  maskingDuplicatesSentence,
+  watchDuplicates,
+  type DuplicatesWatch,
+} from '../../modules/dataops/maskingDuplicates.js';
+import {
+  muteLines,
+  type HeldMute,
+  type MuteLeaseOptions,
+} from '../../modules/forge/AutomationMuteLease.js';
+import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import {
   PIPELINE_MASKING_REFUSAL,
   pipelineMaskingAsked,
@@ -219,8 +253,12 @@ const DATAOPS_TYPES = new Set([
   'dataops:anonymization-template:delete',
   'dataops:anonymize:coverage',
   'dataops:anonymize:preview',
+  'dataops:automation',
   'precheck:pii-scan',
 ]);
+
+/** How long the read of what the org runs may take before an act: Seed's and Forge's bound. */
+const AUTOMATION_TIMEOUT_MS = 60_000;
 
 /** How many rejected rows are echoed back: an org repeats a handful of reasons. */
 const DML_ERROR_SAMPLE_LIMIT = 10;
@@ -400,6 +438,11 @@ function collectDmlError(
  * and birthdate in clear. Empty for an unknown template — such a request
  * stops at the template lookup, before any write.
  *
+ * An object is the same whatever its case, as Salesforce takes it, and goes
+ * under the name the template's rules give it: asked for `contact`, a run of
+ * rules naming `Contact` counted nothing, said there was nothing to mask and
+ * exited 0 on an org full of contacts.
+ *
  * @param personAccounts - Whether the org has person accounts
  *   (`orgHasPersonAccounts`); read only for a request that names no object.
  */
@@ -408,13 +451,23 @@ function plannedAnonymizeObjects(
   template: ListedAnonymizationTemplate | undefined,
   personAccounts = false,
 ): string[] {
-  if (payload.objects) return payload.objects;
-  if (!template) return [];
-  const objects = template.rules
+  const named = (template?.rules ?? [])
     .map((r) => r.fieldPattern.split('.')[0])
-    .filter((v, i, a) => a.indexOf(v) === i);
+    .filter((v, i, a) => a.findIndex((w) => sameObject(w, v)) === i);
+  if (payload.objects) {
+    return payload.objects.map(
+      (o) => named.find((n) => sameObject(n, o)) ?? (sameObject(o, ACCOUNT) ? ACCOUNT : o),
+    );
+  }
+  if (!template) return [];
+  const objects = [...named];
   if (personAccounts && personRowsOnly(payload, template, ACCOUNT)) objects.push(ACCOUNT);
   return objects;
+}
+
+/** Whether two API names name one object: Salesforce reads them whatever their case. */
+function sameObject(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 /** The filter that holds the rows of Account to its person accounts. */
@@ -473,13 +526,17 @@ async function orgHasPersonAccounts(
   }
 }
 
-/** The rules of a template a masking run applies to one object: those naming it, and a wildcard. */
+/**
+ * The rules of a template a masking run applies to one object: those naming
+ * it, whatever the case they name it in, and a wildcard.
+ */
 function rulesOfObject(
   template: ListedAnonymizationTemplate,
   objectName: string,
 ): AnonymizationTemplateRule[] {
+  const prefix = `${objectName.toLowerCase()}.`;
   return template.rules.filter(
-    (r) => r.fieldPattern.startsWith(`${objectName}.`) || (r.fieldPattern as string) === '*',
+    (r) => r.fieldPattern.toLowerCase().startsWith(prefix) || (r.fieldPattern as string) === '*',
   );
 }
 
@@ -496,6 +553,64 @@ function personRulesOfObject(
   return objectName.toLowerCase() === ACCOUNT.toLowerCase()
     ? personAccountRules(template.rules)
     : [];
+}
+
+/** What a masking run asks of the org for what it masks: the fields of an object's describe. */
+interface MaskingDescribes {
+  describe(objectApiName: string): Promise<{ fields: MaskableField[] }>;
+}
+
+/**
+ * A connection's describes, each object asked once however often it is read.
+ * A masking run read an object's describe for its coverage, twice to check the
+ * user's access, for its snapshot and again when it reached the object: five
+ * requests for one answer, and a sixth of Account to plan its person accounts.
+ * And what a run checked is then what it masks: a field hidden while it waits
+ * on Production Guard's question is still read by name, which the org refuses
+ * aloud, where a later describe left it out of the run without a word.
+ */
+function describedOnce(conn: Pick<Connection, 'describe'>): {
+  describe: (objectApiName: string) => ReturnType<Connection['describe']>;
+} {
+  const asked = new Map<string, ReturnType<Connection['describe']>>();
+  return {
+    describe: (objectApiName) => {
+      const answer = asked.get(objectApiName) ?? conn.describe(objectApiName);
+      asked.set(objectApiName, answer);
+      return answer;
+    },
+  };
+}
+
+/**
+ * What of a masking run the user SandForge connects as may not write: per
+ * object, its edit access to the object and to each field its rules name, read
+ * from the describe the run reads (`CrudFlsGuard`). A run is refused for any
+ * before anything is asked or written, and its preview says so first: a field
+ * shown read-only passed Preview, the dry run and an environment's plan, and
+ * Apply was then refused for it.
+ *
+ * @param objects - The objects that hold rows, each with the rules the run
+ *   applies to it, those derived for its person accounts included.
+ */
+async function maskingWritesDenied(
+  conn: { describe: (objectApiName: string) => Promise<Record<string, unknown>> },
+  objects: ReadonlyArray<{ objectApiName: string; rules: readonly AnonymizationTemplateRule[] }>,
+): Promise<CrudFlsDenial[]> {
+  const guard = new CrudFlsGuard(async (objectApiName: string) =>
+    describeToObjectDescribe(await conn.describe(objectApiName)),
+  );
+  return guard.deniedOf(
+    objects.map(({ objectApiName, rules }) => ({
+      objectApiName,
+      operation: 'update' as const,
+      // A field of a person account the org lacks is not asked about, as any
+      // field it lacks.
+      fieldNames: rules
+        .map((r) => (r.fieldPattern.includes('.') ? r.fieldPattern.split('.')[1] : r.fieldPattern))
+        .filter((f) => f !== '*'),
+    })),
+  );
 }
 
 /** Whether a template has anything to mask on an object: a rule of its own, or one for person accounts. */
@@ -668,12 +783,38 @@ interface MaskingReplies {
   refused(err: unknown, options: { code?: string; extraPayload?: Record<string, unknown> }): void;
   /** Given the run's result once it ended: the page's `dataops:anonymize:response`. */
   ended(result: MaskingResult): void;
-  /**
-   * The pipeline a pipeline's run is a step of, which Live Operations names.
-   * Such a run is refused before the guard is asked for a field the org does
-   * not show, or for rules that mask nothing (`maskingNotCovered`).
-   */
+  /** The pipeline a pipeline's run is a step of, which Live Operations names. */
   pipeline?: { name: string };
+  /**
+   * What the run carries of its question — the page's confirmation, the
+   * command line's flags, a pipeline step's settings: the run reads what the
+   * org runs as it updates the records it counted, and is refused on what it
+   * was not accepted for. A pipeline's step read none of it, and masked over
+   * the org's update flows, their emails among them, with nobody asked.
+   */
+  accord: DataOpsWriteAccord;
+  /** Whose words its refusals are said in: a pipeline's step names its settings. */
+  voice?: DataOpsVoice;
+  /** Told what its mute assigned and took back, once it gave its lease back. */
+  muted?: (outcome: MutedAutomation) => void;
+}
+
+/**
+ * What a masking run could not cover, as a refusal hands it to the page, which
+ * words it in the interface language.
+ */
+interface MaskingGaps {
+  /** The fields its template names that their object's describe does not list. */
+  fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }>;
+  /** The objects with rows of which it could mask no field at all. */
+  objectsNotCovered: string[];
+}
+
+/** Why a masking run is refused before it writes: its code, its English and what it could not cover. */
+interface MaskingNotCovered {
+  code: string;
+  message: string;
+  gaps: MaskingGaps;
 }
 
 /** What a masking run said when it was refused, stopped or failed (`MaskingReplies.refused`). */
@@ -821,24 +962,6 @@ function maskingAuditOutcome(
   return recordsProcessed + recordsFailed > 0
     ? { outcome: 'cancelled' }
     : { outcome: 'stopped', code: RUN_CANCELLED };
-}
-
-/**
- * What a run says of the fields its template names that their object's
- * describe does not list. A describe lists only the fields the connected user
- * can read: field-level security that hides `Contact.Birthdate` from that user
- * leaves it out as an org without it would. The run said the org had no such
- * field, as if no data were at risk, and recorded itself as a success.
- */
-function unseenFieldsSentence(
-  fields: ReadonlyArray<{ objectApiName: string; fieldApiName: string }>,
-): string {
-  return (
-    `The values of ${fields.map((f) => `${f.objectApiName}.${f.fieldApiName}`).join(', ')} ` +
-    'were NOT masked: the org has no such field, or field-level security hides it from the ' +
-    'user SandForge connects as. Give that user read and edit access to it, or connect as an ' +
-    'administrator.'
-  );
 }
 
 /** Per object, the rows a run left holding their original values: `Contact 500, Lead 450`. */
@@ -1248,6 +1371,176 @@ export class DataOpsHandler implements DomainHandler {
   }
 
   /**
+   * Reads what the org runs as a masking or a restore writes its records: a
+   * reader of the handler's own over its connections, as Forge reads it,
+   * loaded on its first read.
+   */
+  private targetAutomation: Pick<TargetAutomationReader, 'read'> = {
+    read: async (orgId, objectApiNames) => (await this.ownReader()).read(orgId, objectApiNames),
+  };
+
+  /** The reader {@link targetAutomation} reads through, once loaded. */
+  private reader?: Promise<TargetAutomationReader>;
+
+  /** Where and how a write that mutes keeps its lease, when not the home directory's. */
+  private muteLeases: MuteLeaseOptions = {};
+
+  /** Another reader of what the org runs than the handler's own. */
+  setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
+    this.targetAutomation = reader;
+  }
+
+  /** Where and how a write that mutes keeps its lease, in place of the home directory's. */
+  setMuteLeases(options: MuteLeaseOptions): void {
+    this.muteLeases = options;
+  }
+
+  /**
+   * Whether whoever reads a masking's or a restore's refusals can ask it to
+   * mute: not when an environment relays the command's lines, which mutes
+   * nothing. Told so, a refusal names no `--mute-automation`.
+   */
+  setMuteOffered(offered: boolean): void {
+    this.muteOffered = offered;
+  }
+
+  /** See {@link setMuteOffered}. */
+  private muteOffered = true;
+
+  /** How long after a masking's last write what its duplicate rules wrote is read. */
+  private duplicatesSettleMs = DUPLICATES_SETTLE_MS;
+
+  /** Another wait than the org's few seconds before a masking's duplicate rules are read. */
+  setDuplicatesSettle(ms: number): void {
+    this.duplicatesSettleMs = ms;
+  }
+
+  /**
+   * Watch what the duplicate rules of the objects a masking or a restore
+   * writes over write during it, for the records it writes: read once their
+   * reports had time to land after its last write of such an object, never
+   * when it wrote none (`watchDuplicates`).
+   */
+  private duplicatesWatchOf(
+    conn: Connection,
+    rules: MaskingDuplicatesWritten['rules'],
+  ): DuplicatesWatch {
+    return watchDuplicates(
+      {
+        query: async (soql) => conn.query<Record<string, unknown>>(soql),
+        serverTime: async () => (await conn.soap.getServerTimestamp()).timestamp,
+      },
+      rules,
+      { settleMs: this.duplicatesSettleMs },
+    );
+  }
+
+  /** The handler's own reader of the org's automation, as Forge reads it. */
+  private ownReader(): Promise<TargetAutomationReader> {
+    this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
+      ({ TargetAutomationReader, targetAutomationQueries }) =>
+        new TargetAutomationReader(
+          targetAutomationQueries((orgId) =>
+            getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
+          ),
+        ),
+    );
+    return this.reader;
+  }
+
+  /** The org as the user knows it: its alias, else its id. */
+  private orgNameOf(orgId: string): string {
+    return this.deps.orgManager.getOrg(orgId)?.alias ?? orgId;
+  }
+
+  /**
+   * What the org runs as a masking or a restore writes the records it
+   * counted, its emails and the mute asked for, read again before the first
+   * write — the page's read may be minutes old — and what refuses the write:
+   * see `readDataOpsAct`. Read only: the mute is planned, nothing assigned.
+   */
+  private readAct(
+    conn: Connection,
+    orgId: string,
+    act: DataOpsAct,
+    objects: readonly DataOpsAutomationObject[],
+    accord: DataOpsWriteAccord,
+    voice?: DataOpsVoice,
+  ): Promise<DataOpsActRead> {
+    const reader = this.targetAutomation;
+    return readDataOpsAct({
+      act,
+      target: this.orgNameOf(orgId),
+      objects,
+      org: dataOpsAutomationOrgOf(
+        conn,
+        (names) =>
+          new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('dataops automation', () =>
+            reader.read(orgId, names),
+          ),
+        guardTierOf(this.deps.orgManager.getOrg(orgId)) === 'production',
+      ),
+      accord,
+      mayMute: this.muteOffered,
+      muteLeases: this.muteLeases,
+      ...(voice ? { voice } : {}),
+    });
+  }
+
+  /** Give a write's lease back once it ended, say what it took back, and answer it. */
+  private async releaseMute(
+    held: HeldMute | undefined,
+    orgId: string,
+  ): Promise<MutedAutomation | undefined> {
+    if (!held) return undefined;
+    const released = await held.release();
+    for (const line of muteLines(released, this.orgNameOf(orgId))) {
+      this.deps.log(`[INFO] ${line}`);
+    }
+    return released;
+  }
+
+  /**
+   * Answer `dataops:automation`: what the org runs as a masking, a restore or
+   * a cleanup would write the records of these objects — what fires, its
+   * emails against what the org has left today, whether the org delivers
+   * them, what a mute asked for would assign —, and why the act would be
+   * refused as asked. The page lists it before the act's question, and the
+   * command line before it writes and in its dry run. Read only.
+   */
+  private async handleAutomation(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(dataOpsAutomationPayloadSchema, msg, 'dataops:error', this.deps);
+    if (!parsed) return;
+    try {
+      const conn = await getJsforceConnection(
+        parsed.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      // A subject erasure's question names the erasure, not the act it writes as;
+      // the page's names its confirmation and its boxes, not the command line's flags.
+      const read = await this.readAct(
+        conn,
+        parsed.orgId,
+        parsed.act,
+        parsed.objects,
+        parsed,
+        dataOpsVoiceOf(parsed),
+      );
+      const response = buildResponse(this.deps, msg, 'dataops:automation:response', {
+        ...read.answer,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(
+        `[TX] ${response.type} id=${response.id} refusals=${read.answer.refusals.length}`,
+      );
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'dataops:automation', 'dataops:error', msg, err);
+    }
+  }
+
+  /**
    * Told of each backup the retention removes, as it removes it: the
    * command lines say every one on stderr, a Sync run's named, where the
    * extension's log alone said it.
@@ -1367,6 +1660,9 @@ export class DataOpsHandler implements DomainHandler {
       case 'dataops:anonymize:preview':
         await this.handleAnonymizePreview(msg);
         return true;
+      case 'dataops:automation':
+        await this.handleAutomation(msg);
+        return true;
       case 'precheck:pii-scan':
         await this.handlePIIScan(msg);
         return true;
@@ -1431,8 +1727,9 @@ export class DataOpsHandler implements DomainHandler {
    * fields are masked too (`personAccountMasking`), and each row is read with
    * the flag that tells a person account's: the rules a row is masked by are
    * those its kind of account can hold (`rulesOf`). A rule derived for person
-   * accounts whose field the org lacks is never said to be missing: the
-   * template does not name it.
+   * accounts whose field the describe leaves out is said to be missing when
+   * the org hides the field rather than lacks it (`personFieldsHidden`), which
+   * asks Contact's describe.
    *
    * @param conn - Connection used for the describe call.
    * @param objectApiName - Already-sanitized SObject API name.
@@ -1440,7 +1737,7 @@ export class DataOpsHandler implements DomainHandler {
    * @param personRules - The rules the template derives for its person accounts.
    */
   private async maskedFields(
-    conn: { describe: (objectApiName: string) => Promise<{ fields: MaskableField[] }> },
+    conn: MaskingDescribes,
     objectApiName: string,
     rules: readonly DataOpsAnonymizationRule[],
     personRules: readonly DataOpsAnonymizationRule[] = [],
@@ -1469,6 +1766,15 @@ export class DataOpsHandler implements DomainHandler {
       derived: personRules,
       detector: this.deps.infraServices?.piiDetector ?? new PIIDetector(),
     });
+    if (persons && persons.unseen.length > 0) {
+      const contactFields = await conn.describe(CONTACT).then(
+        (desc) => desc.fields,
+        () => undefined,
+      );
+      for (const field of personFieldsHidden(persons.unseen, contactFields)) {
+        if (!missing.includes(field)) missing.push(field);
+      }
+    }
     const all = persons ? [...kept, ...persons.rules] : kept;
     const masked = all
       .map((r) => r.fieldApiName)
@@ -1914,9 +2220,11 @@ export class DataOpsHandler implements DomainHandler {
           recordCount: r.recordCount,
         })),
         totalRecords: backupMeta.totalRecords,
+        ...(backupMeta.partial ? { status: 'partial' } : {}),
       });
       this.dmlTracker.markCompleted(operationId);
-      live?.complete();
+      if (backupMeta.partial) live?.partial();
+      else live?.complete();
 
       return {
         operationId,
@@ -2795,6 +3103,15 @@ export class DataOpsHandler implements DomainHandler {
     let settleRestore: (error?: unknown) => void = () => {};
     /** Its entry in Live Operations, once it is listed. */
     let live: LiveRun | undefined;
+    /** The lease of the mute it was asked for, held from its first write to its end. */
+    let held: HeldMute | undefined;
+    /**
+     * What the duplicate rules of the objects it puts back write during it,
+     * for the records it writes, as a masking's are watched: a restore writes
+     * the values a rule matched on before the masking, and its question named
+     * the rules without anything reading what they wrote.
+     */
+    let duplicatesWatch: DuplicatesWatch | undefined;
 
     try {
       if (this.dmlTracker.isDuplicate(rollbackOpId)) {
@@ -2924,6 +3241,49 @@ export class DataOpsHandler implements DomainHandler {
         return;
       }
 
+      /** Refuse the restore before its first write, under its code, and record it so. */
+      const refuseBeforeWrite = (
+        code: string,
+        message: string,
+        written: WriteRun,
+        alsoRefused: DataOpsAutomationRefusal[] = [],
+      ): void => {
+        recordWriteRun(this.deps, { ...written, outcome: 'stopped', source: undefined, code });
+        sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message), {
+          code,
+          ...alsoRefusedPayload({ alsoRefused }),
+        });
+        sendOperationFailed(this.deps, rollbackOpId, message, false, {
+          context: failure,
+          authored: true,
+        });
+      };
+      // What the org runs as the restore brings records back from the recycle
+      // bin and writes the backup's values over them, before the guard is
+      // asked and before anything is written: a restore fired the org's update
+      // flows on every record it put back, unasked. The page's and the command
+      // line's question answer it; the backup's counts are what it may write.
+      const gated = await this.readAct(
+        conn,
+        payload.orgId,
+        'restore',
+        backupMeta.objects.map((o) => ({ objectApiName: o.objectApiName, records: o.recordCount })),
+        payload,
+        dataOpsVoiceOf(payload),
+      );
+      const gateRefused = dataOpsStop(gated.answer);
+      if (gateRefused) {
+        refuseBeforeWrite(gateRefused.code, gateRefused.message, run, gateRefused.alsoRefused);
+        return;
+      }
+      duplicatesWatch = this.duplicatesWatchOf(
+        conn,
+        duplicateRulesOn(
+          gated.answer.automation,
+          backupMeta.objects.filter((o) => o.recordCount > 0).map((o) => o.objectApiName),
+        ),
+      );
+
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
         orgId: payload.orgId,
@@ -3002,6 +3362,20 @@ export class DataOpsHandler implements DomainHandler {
           }
         }
       }
+
+      // The mute's lease, once the guard let the restore go: held from its
+      // first write to its end, given back however it ends.
+      const holding = await holdDataOpsMute(
+        gated,
+        rollbackOpId,
+        payload.acceptEmails === true,
+        dataOpsVoiceOf(payload),
+      );
+      if ('refused' in holding) {
+        refuseBeforeWrite(holding.refused.code, holding.refused.message, run);
+        return;
+      }
+      held = holding.held;
 
       sendOperationStarted(
         this.deps,
@@ -3212,12 +3586,30 @@ export class DataOpsHandler implements DomainHandler {
             unchangedCount += diff.unchanged;
           }
           if (toWrite.length === 0) continue;
-          const results = (await conn
-            .sobject(safeObj)
-            .upsert(toWrite as Array<Record<string, unknown> & { Id: string }>, 'Id', {
-              headers: recordWriteHeaders(),
-            })) as unknown as JsforceResult[];
+          duplicatesWatch.beforeWrite(safeObj);
+          let results: JsforceResult[];
+          try {
+            results = (await conn
+              .sobject(safeObj)
+              .upsert(toWrite as Array<Record<string, unknown> & { Id: string }>, 'Id', {
+                headers: recordWriteHeaders(),
+              })) as unknown as JsforceResult[];
+          } catch (err: unknown) {
+            // No answer came: the org may have put back any row of it, and a
+            // duplicate rule reported it.
+            if (whatTheWriteLeft(err) === 'may-have-written') {
+              duplicatesWatch.wrote(
+                safeObj,
+                toWrite.map((row) => row.Id),
+              );
+            }
+            throw err;
+          }
           const arr = Array.isArray(results) ? results : [results];
+          duplicatesWatch.wrote(
+            safeObj,
+            arr.flatMap((r, at) => (r.success ? [toWrite[at]?.Id] : [])),
+          );
           // Only the successes used to be counted, so a row the org refused
           // (validation rule, required field, trigger) vanished between the
           // upsert and the report. `errors` was declared above and read by
@@ -3280,6 +3672,15 @@ export class DataOpsHandler implements DomainHandler {
           objects: restored,
         });
       }
+      // Given back before the restore is said ended anywhere, its answer
+      // saying what it took back: the answer of a restore that muted left while
+      // its set was still assigned, and Live Operations and `operation:completed`
+      // still did.
+      const released = await this.releaseMute(held, payload.orgId);
+      held = undefined;
+      // What the duplicate rules wrote for the records it put back, once
+      // their reports had time to land: said, and kept, as a masking says it.
+      const duplicates = await duplicatesWatch.read();
       if (cancelled) {
         this.deps.infraServices?.backgroundRegistry?.abort(rollbackOpId);
         sendOperationCompleted(this.deps, rollbackOpId, {
@@ -3299,6 +3700,7 @@ export class DataOpsHandler implements DomainHandler {
       this.dmlTracker.markCompleted(rollbackOpId);
       if (cancelled) live.cancel();
       else if (status === 'failure') live.fail(`The org refused the ${totalFailed} record(s)`);
+      else if (status === 'partial') live.partial();
       else live.complete();
 
       // A backup that holds only part of an object — stopped at the cap, a
@@ -3328,11 +3730,21 @@ export class DataOpsHandler implements DomainHandler {
               : '') +
             'unless the restore includes them'
           : '');
-      const message =
+      const duplicatesSaid = maskingDuplicatesSentence(
+        duplicates,
+        this.orgNameOf(payload.orgId),
+        'restore',
+      );
+      const shortfallSaid =
         shortfall === ''
           ? ranMessage
           : `${ranMessage}. The backup held only part of the org's records, and the rest were ` +
-            `left as they are: ${shortfall}.`;
+            `left as they are: ${shortfall}`;
+      const message = duplicatesSaid
+        ? `${shortfallSaid}. ${duplicatesSaid}`
+        : shortfall === ''
+          ? shortfallSaid
+          : `${shortfallSaid}.`;
       const response = buildResponse(this.deps, msg, 'dataops:rollback:response', {
         operationId: payload.operationId,
         status,
@@ -3354,13 +3766,21 @@ export class DataOpsHandler implements DomainHandler {
         errors: restoreErrors,
         ...(shortfall !== '' ? { partial: true } : {}),
         ...(cancelled ? { cancelled: true } : {}),
+        ...(released ? { mutedAutomation: released } : {}),
+        ...(duplicates ? { duplicates } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
       // The DataOps page reads only the error and notification channels: a
       // `partial` left in the response alone is as invisible as the count that
-      // was dropped.
-      if (totalFailed > 0 || shortfall !== '' || cancelled || totalKeptChanged > 0) {
+      // was dropped, and so are the sets a duplicate rule wrote, or could not say.
+      if (
+        totalFailed > 0 ||
+        shortfall !== '' ||
+        cancelled ||
+        totalKeptChanged > 0 ||
+        duplicatesLeft(duplicates)
+      ) {
         sendNotification(
           this.deps,
           status === 'failure' ? 'error' : 'warning',
@@ -3370,15 +3790,34 @@ export class DataOpsHandler implements DomainHandler {
       }
     } catch (err: unknown) {
       this.dmlTracker.markFailed(rollbackOpId);
+      await this.releaseMute(held, payload.orgId);
+      held = undefined;
+      // What the duplicate rules wrote for the records it put back before it
+      // failed, read as a restore that ended reads it.
+      const duplicates = await duplicatesWatch?.read();
+      const duplicatesSaid = maskingDuplicatesSentence(
+        duplicates,
+        this.orgNameOf(payload.orgId),
+        'restore',
+      );
       // Dual channel, single display (see handleBackup).
-      sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, err, {
-        code: guardRefusalCode(err),
-      });
+      sendHandlerError(
+        this.deps,
+        'dataops:rollback',
+        'dataops:error',
+        msg,
+        duplicatesSaid ? new Error(`${extractErrorMessage(err)} ${duplicatesSaid}`) : err,
+        {
+          code: guardRefusalCode(err),
+          ...(duplicates ? { extraPayload: { duplicates } } : {}),
+        },
+      );
       sendOperationFailed(this.deps, rollbackOpId, extractErrorMessage(err), true, {
         context: failure,
       });
       live?.fail(extractErrorMessage(err));
     } finally {
+      await this.releaseMute(held, payload.orgId);
       this.activeOrgOperations.delete(lockKey);
       settleRestore();
       // A restore that stopped at an object it may not write, or threw, after
@@ -3407,7 +3846,7 @@ export class DataOpsHandler implements DomainHandler {
    *   run must not write, and whether trying again may help.
    */
   private async snapshotBeforeMasking(
-    conn: Connection,
+    conn: MaskingDescribes,
     operationId: string,
     orgId: string,
     work: readonly MaskingWork[],
@@ -3471,63 +3910,79 @@ export class DataOpsHandler implements DomainHandler {
   }
 
   /**
-   * Why a pipeline's masking run would leave values it was asked to mask, or
-   * undefined when it masks every field its template names on the rows it
-   * reads: no rule of the template names an object of the run; a field it
-   * names is not one the object's describe lists — the org has none, or
-   * field-level security hides it from the user SandForge connects as, which
-   * a describe does not tell apart; or an object with rows has rules that
-   * mask none of its fields. An object with no row holds nothing to mask, and
-   * is not described.
+   * Why a masking run would leave values it was asked to mask, or undefined
+   * when it masks every field its template names on the rows it reads: no rule
+   * of the template names an object of the run; a field it names is not one
+   * the object's describe lists — the org has none, or field-level security
+   * hides it from the user SandForge connects as, which a describe does not
+   * tell apart; or an object with rows has rules that mask none of its fields.
+   * An object with no row holds nothing to mask, and is not described.
+   *
+   * The page's run went on and masked the rest, ending partial: a person who
+   * saw the masked fields took the org for anonymized, with every birthdate
+   * still in it, and a command line ended 0 on it. Whether a page is watching
+   * changes nothing: a run masks all it was asked to, or nothing.
    *
    * @param planned - The objects the run addresses.
    * @param work - The run's objects with a rule, counted.
    */
   private async maskingNotCovered(
-    conn: Connection,
+    conn: MaskingDescribes,
     template: ListedAnonymizationTemplate,
     planned: readonly string[],
     work: readonly MaskingWork[],
-  ): Promise<{ code: string; message: string } | undefined> {
+  ): Promise<MaskingNotCovered | undefined> {
     if (work.length === 0) {
       return {
         code: PIPELINE_MASKING_REFUSAL.masksNothing,
         message:
-          `The template "${template.name}" has no rule for ${planned.join(', ')}: the step ` +
+          `The template "${template.name}" has no rule for ${planned.join(', ')}: the run ` +
           'would mask nothing. Choose an object its rules name, or another template. Nothing ' +
           'was masked.',
+        gaps: { fieldsNotFound: [], objectsNotCovered: [...planned] },
       };
     }
-    const unseen: string[] = [];
-    const maskedNothing: string[] = [];
+    const fieldsNotFound: MaskingGaps['fieldsNotFound'] = [];
+    const objectsNotCovered: string[] = [];
     for (const w of work) {
       if (w.tally.total === 0) continue;
+      const { objectApiName } = w.tally;
       const { rules, missing } = await this.maskedFields(
         conn,
-        w.tally.objectApiName,
+        objectApiName,
         this.maskingRules(w.objectName, w.objectRules),
         this.maskingRules(w.objectName, w.personRules),
       );
-      unseen.push(...missing.map((field) => `${w.tally.objectApiName}.${field}`));
-      if (rules.length === 0 && missing.length === 0) maskedNothing.push(w.tally.objectApiName);
+      fieldsNotFound.push(...missing.map((fieldApiName) => ({ objectApiName, fieldApiName })));
+      if (rules.length === 0) objectsNotCovered.push(objectApiName);
     }
-    if (unseen.length > 0) {
+    const gaps = { fieldsNotFound, objectsNotCovered };
+    if (fieldsNotFound.length > 0) {
+      const named = fieldsNotFound.map((f) => `${f.objectApiName}.${f.fieldApiName}`).join(', ');
       return {
         code: PIPELINE_MASKING_REFUSAL.fieldsUnseen,
         message:
-          `The template "${template.name}" masks ${unseen.join(', ')}, which the org does not ` +
-          'show the user SandForge connects as: it has no such field, or field-level security ' +
-          'hides it. A pipeline masks every field its template names, or nothing: give that ' +
-          'user read and edit access, or take the rule out of the template. Nothing was masked.',
+          `The template "${template.name}" masks ${named}, which the org does not show the ` +
+          'user SandForge connects as: it has no such field, or field-level security hides it. ' +
+          (objectsNotCovered.length > 0
+            ? `No field of ${objectsNotCovered.join(', ')} can be masked. `
+            : '') +
+          'A run masks every field its template names, or nothing: give that user read and ' +
+          'edit access to the field, or take the field out of the template. Nothing was masked.',
+        gaps,
       };
     }
-    if (maskedNothing.length > 0) {
+    // Every field the template names that the org hides was named above, a
+    // person account's among them: here it names none of the object's, and
+    // no access would change that.
+    if (objectsNotCovered.length > 0) {
       return {
         code: PIPELINE_MASKING_REFUSAL.masksNothing,
         message:
-          `The template "${template.name}" masks no field of ${maskedNothing.join(', ')} in ` +
-          'this org: the step would write nothing over its records. Choose an object its rules ' +
-          'name, or another template. Nothing was masked.',
+          `The template "${template.name}" masks no field of ${objectsNotCovered.join(', ')} ` +
+          'in this org: the run would write nothing over its records. Choose an object its ' +
+          'rules name, or another template. Nothing was masked.',
+        gaps,
       };
     }
     return undefined;
@@ -3549,13 +4004,15 @@ export class DataOpsHandler implements DomainHandler {
    * object, or a template neither shipped nor saved (`pipelineMaskingAsked`).
    * Once its objects are counted, and before Production Guard is asked, it
    * is refused for a field its template names that the org does not show,
-   * and for rules that mask nothing there (`maskingNotCovered`). Production
-   * Guard's question is answered by the request's answer (`withGivenAnswer`),
-   * and no modal opens: a masking run puts no other question. A snapshot of
-   * what it writes over is always taken, whole, before its first write, or
-   * nothing is masked.
+   * and for rules that mask nothing there (`maskingNotCovered`); then for
+   * what the org runs as it writes, its emails and a mute that cannot be,
+   * as the page's run is (`readDataOpsAct`), on the step's own acceptances,
+   * which no Approval stands for. Production Guard's question is answered by
+   * the request's answer (`withGivenAnswer`), and no modal opens. A snapshot
+   * of what it writes over is always taken, whole, before its first write,
+   * or nothing is masked.
    *
-   * @param request - The org, the template, its scope, the pipeline and the Approval's answer.
+   * @param request - The org, the template, its scope, its acceptances, the pipeline and the Approval's answer.
    * @param signal - The step's: aborted, the run stops as the page's Stop
    *   stops it, at the next batch.
    * @returns How the run ended: its result, whole, a cancelled one and one
@@ -3592,9 +4049,18 @@ export class DataOpsHandler implements DomainHandler {
     const operationId = crypto.randomUUID();
     let refusal: MaskingStop | undefined;
     let ended: MaskingResult | undefined;
+    let muted: MutedAutomation | undefined;
     const replies: MaskingReplies = {
       origin: 'pipeline:execute',
       pipeline: request.pipeline,
+      // The step's settings, each off unless it says yes, as a Rewind
+      // step's: what fires as the masking writes is read, and refused on
+      // what they did not accept, in the words of the step's settings.
+      accord: request.accord ?? {},
+      voice: 'step',
+      muted: (outcome) => {
+        muted = outcome;
+      },
       refused: (err, options) => {
         refusal ??= { err, ...options };
         this.deps.log(
@@ -3613,6 +4079,7 @@ export class DataOpsHandler implements DomainHandler {
     // Set by the replies as the run went: read through their declared type,
     // which the closures' assignments do not narrow.
     const stopped = refusal as MaskingStop | undefined;
+    const mutedAutomation = muted as MutedAutomation | undefined;
     if (stopped) {
       const message = extractErrorMessage(stopped.err);
       const said = stopped.err as { code?: unknown } | undefined;
@@ -3621,6 +4088,7 @@ export class DataOpsHandler implements DomainHandler {
       const details = {
         ...(code !== undefined ? { code } : {}),
         ...(snapshot !== undefined ? { snapshot } : {}),
+        ...(mutedAutomation ? { mutedAutomation } : {}),
       };
       if (code === ABORTED_BEFORE_START) {
         throw Object.assign(new StepCancelledError(message), details);
@@ -3629,7 +4097,9 @@ export class DataOpsHandler implements DomainHandler {
     }
     const result = ended as MaskingResult | undefined;
     if (result === undefined) throw new Error('The masking run ended without a result.');
-    return { operationId, result };
+    // What its mute took back is known once the lease was given back, after
+    // the result: said with it, as a rewind's step says it.
+    return { operationId, result: mutedAutomation ? { ...result, mutedAutomation } : result };
   }
 
   private async handleAnonymize(msg: InboundRequest): Promise<void> {
@@ -3638,12 +4108,22 @@ export class DataOpsHandler implements DomainHandler {
     if (!parsed) return;
     // The id of the request, as a backup and a restore run under theirs: the
     // page's Stop names the run by it. A fresh id per run left the page, and
-    // its Stop, nothing to name it with.
-    await this.mask(parsed, msg.id, this.pageMaskingReplies(msg));
+    // its Stop, nothing to name it with. Refused in the words of where it was
+    // asked: the page's confirmation, or the command line's flags.
+    const voice = dataOpsVoiceOf(parsed);
+    await this.mask(parsed, msg.id, {
+      ...this.pageMaskingReplies(msg),
+      accord: {
+        acceptAutomation: parsed.acceptAutomation === true,
+        acceptEmails: parsed.acceptEmails === true,
+        muteAutomation: parsed.muteAutomation === true,
+      },
+      ...(voice ? { voice } : {}),
+    });
   }
 
   /** Where a masking run of the DataOps page answers: the channels the page listens on. */
-  private pageMaskingReplies(msg: InboundRequest): MaskingReplies {
+  private pageMaskingReplies(msg: InboundRequest): Omit<MaskingReplies, 'accord'> {
     return {
       origin: msg.type,
       refused: (err, options) =>
@@ -3654,8 +4134,8 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.log(`[TX] ${response.type} id=${response.id} status=${result.status}`);
         // The page shows a run's end through this notification and nothing
         // else: a run that left records unmasked, for whatever reason, says so,
-        // as does one whose template named a field the org does not have.
-        if (result.recordsNotMasked > 0 || result.fieldsNotFound.length > 0) {
+        // as does one whose duplicate rules wrote what it keeps, or could not say.
+        if (result.recordsNotMasked > 0 || duplicatesLeft(result.duplicates)) {
           sendNotification(
             this.deps,
             result.status === 'failure' ? 'error' : 'warning',
@@ -3669,26 +4149,70 @@ export class DataOpsHandler implements DomainHandler {
 
   /**
    * Mask an org as the template says, the DataOps page's run and a
-   * pipeline's alike: every object counted, the user's access to each field
-   * it writes checked, Production Guard consulted, the snapshot taken when
+   * pipeline's alike: every object counted, every field its template names
+   * found (`maskingNotCovered`), the user's access to each field it writes
+   * checked, Production Guard consulted, the snapshot taken when
    * asked, then the rows masked page by page, two hundred an update, with
    * where the run got kept for a resume when it stops short. Each refusal and
    * the run's end are recorded in the audit trail here, and said through
-   * `replies`.
+   * `asked`: once the lease of its mute was given back, when it held one.
    *
    * @param payload - The run as it was asked for.
    * @param operationId - The id it runs under: its registry entry, its
    *   checkpoint and the name of its snapshot.
-   * @param replies - Where the run says why it stopped and how it ended.
+   * @param asked - Where the run says why it stopped and how it ended.
    * @param signal - A pipeline step's: aborted, the run stops as the page's
    *   Stop stops it.
    */
   private async mask(
     payload: MaskingAsked,
     operationId: string,
-    replies: MaskingReplies,
+    asked: MaskingReplies,
     signal?: AbortSignal,
   ): Promise<void> {
+    /** The lease of the mute it was asked for, held from before its snapshot to its end. */
+    let held: HeldMute | undefined;
+    /** Its answer, once its lease is given back: what it took back said with it. */
+    const deferred: { answer?: (released: MutedAutomation | undefined) => void } = {};
+    /** What its lease gave back, once given back: once, whichever way the run ends. */
+    let givenBack: { released: MutedAutomation | undefined } | undefined;
+    // Given back before the run is said ended anywhere: Live Operations and
+    // `operation:completed` said a masking that muted had ended while the set
+    // it had assigned was still assigned.
+    const giveBack = async (): Promise<MutedAutomation | undefined> => {
+      givenBack ??= { released: await this.releaseMute(held, payload.orgId) };
+      return givenBack.released;
+    };
+    // A run's answer left while its lease was held: on the trap org, the
+    // page was told the masking had ended while the bypass it had assigned
+    // was still assigned, and its answer named nothing taken back. Forge,
+    // Sync, Seed and Autopilot give theirs back before their result
+    // (`writePathOrderDefects`); so does the run, however it ends once it
+    // holds one.
+    const replies: MaskingReplies = {
+      ...asked,
+      refused: (err, options) => {
+        if (!held) {
+          asked.refused(err, options);
+          return;
+        }
+        deferred.answer ??= (released) =>
+          asked.refused(
+            err,
+            released
+              ? { ...options, extraPayload: { ...options.extraPayload, mutedAutomation: released } }
+              : options,
+          );
+      },
+      ended: (result) => {
+        if (!held) {
+          asked.ended(result);
+          return;
+        }
+        deferred.answer ??= (released) =>
+          asked.ended(released ? { ...result, mutedAutomation: released } : result);
+      },
+    };
     // Follows the object in progress (see handleBackup).
     const failure: OperationFailureContext = { module: 'dataops', operation: replies.origin };
 
@@ -3752,6 +4276,21 @@ export class DataOpsHandler implements DomainHandler {
     let runError: unknown;
     /** Its entry in Live Operations, once it is listed. */
     let live: LiveRun | undefined;
+    /**
+     * What the active duplicate rules of the objects it masks — as the read
+     * before its question found them — write during the run, for the records
+     * it masks: read once its last write of such an object is in, and said
+     * with its result. None until the run's gate has read them.
+     */
+    let duplicatesWatch: DuplicatesWatch | undefined;
+    /**
+     * What the duplicate rules wrote for the records it masked, read once
+     * their reports had time to land, however the run ends: nothing until it
+     * reaches the org, nor when it masked no record of an object that has one.
+     * Never throws.
+     */
+    const duplicatesOfRun = async (): Promise<MaskingDuplicatesWritten | undefined> =>
+      duplicatesWatch?.read();
     // Held under its id from the request on: the page's Stop can come while
     // the run counts its rows, waits on Production Guard's question or takes
     // its snapshot, before it is registered, and a stop then is taken: the
@@ -3767,7 +4306,7 @@ export class DataOpsHandler implements DomainHandler {
      * Stop a run the user stopped before its first write, as every write path
      * records such a stop and tells the page: under the code that says so.
      */
-    const stoppedBeforeStart = (): void => {
+    const stoppedBeforeStart = async (): Promise<void> => {
       recordWriteRun(this.deps, {
         ...run,
         outcome: 'stopped',
@@ -3779,6 +4318,7 @@ export class DataOpsHandler implements DomainHandler {
         code: ABORTED_BEFORE_START,
         ...(snapshot ? { extraPayload: { snapshot } } : {}),
       });
+      await giveBack();
       sendOperationCompleted(this.deps, operationId, { aborted: true });
     };
 
@@ -3789,22 +4329,32 @@ export class DataOpsHandler implements DomainHandler {
      * a run that failed half-way through used to say only what the org said,
      * and nothing told the user half the org was still unmasked.
      */
-    const failRun = (err: unknown, retryable: boolean): void => {
+    const failRun = (
+      err: unknown,
+      retryable: boolean,
+      duplicates?: MaskingDuplicatesWritten,
+    ): void => {
       runError = err;
       const reason = extractErrorMessage(err);
       const totals = maskingTotals(tallies);
       const left = counted && totals.recordsNotMasked > 0;
+      // What its duplicate rules wrote for what it masked before it stopped,
+      // said as a finished run says it: a failure said nothing of the sets
+      // they wrote.
+      const duplicatesSaid = maskingDuplicatesSentence(duplicates, this.orgNameOf(payload.orgId));
       const extraPayload = {
         ...(counted ? { ...totals, objects: maskingResultObjects(tallies) } : {}),
         ...(snapshot ? { snapshot } : {}),
+        ...(duplicates ? { duplicates } : {}),
       };
+      const told = left
+        ? `${reason} — ${totals.recordsProcessed} masked before it stopped; ` +
+          `${totals.recordsNotMasked} still hold their original values ` +
+          `(${leftByObject(tallies)}).`
+        : reason;
       replies.refused(
-        left
-          ? new Error(
-              `${reason} — ${totals.recordsProcessed} masked before it stopped; ` +
-                `${totals.recordsNotMasked} still hold their original values ` +
-                `(${leftByObject(tallies)}).`,
-            )
+        left || duplicatesSaid
+          ? new Error(duplicatesSaid ? `${told} ${duplicatesSaid}` : told)
           : err,
         { code: guardRefusalCode(err), extraPayload },
       );
@@ -3936,7 +4486,9 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      if (withPersons && (await orgHasPersonAccounts(conn, this.deps.log))) {
+      // One answer per object for the whole run, whatever asks: see `describedOnce`.
+      const described = describedOnce(conn);
+      if (withPersons && (await orgHasPersonAccounts(described, this.deps.log))) {
         plannedObjects = withPersons;
         fingerprint = fingerprints[1];
       }
@@ -4024,49 +4576,38 @@ export class DataOpsHandler implements DomainHandler {
       }
       const grandTotal = tallies.reduce((sum, t) => sum + t.total, 0);
 
-      // A pipeline's run masks every field its template names on the rows it
-      // reads, or nothing: what the page's run ends partial on once it has
-      // masked the rest, nobody would see in a run nobody watches. Before the
-      // guard is asked and before anything is written.
-      if (replies.pipeline) {
-        const uncovered = await this.maskingNotCovered(conn, template, plannedObjects, work);
-        if (uncovered) {
-          recordWriteRun(this.deps, {
-            ...run,
-            outcome: 'stopped',
-            source: undefined,
-            code: uncovered.code,
-          });
-          replies.refused(new Error(uncovered.message), { code: uncovered.code });
-          sendOperationFailed(this.deps, operationId, uncovered.message, false, {
-            context: failure,
-            authored: true,
-          });
-          return;
-        }
+      // A run masks every field its template names on the rows it reads, or
+      // nothing. Before the guard is asked and before anything is written.
+      const uncovered = await this.maskingNotCovered(described, template, plannedObjects, work);
+      if (uncovered) {
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code: uncovered.code,
+        });
+        replies.refused(new Error(uncovered.message), {
+          code: uncovered.code,
+          extraPayload: { ...uncovered.gaps },
+        });
+        sendOperationFailed(this.deps, operationId, uncovered.message, false, {
+          context: failure,
+          authored: true,
+        });
+        return;
       }
 
       // Whether the user may write every object and field the run masks,
       // before anything is asked or written: checked object by object as the
       // run reached each one, a refusal stopped it after the objects before
       // it were masked, and named only the first object it could not write.
-      const crudFlsGuard = new CrudFlsGuard(async (objectApiName: string) => {
-        const desc = await conn.describe(objectApiName);
-        return describeToObjectDescribe(desc);
-      });
-      const denials = await crudFlsGuard.deniedOf(
+      const denials = await maskingWritesDenied(
+        described,
         work
           .filter((w) => w.tally.total > 0)
           .map((w) => ({
             objectApiName: w.tally.objectApiName,
-            operation: 'update' as const,
-            // A field of a person account the org lacks is not asked about,
-            // as any field it lacks.
-            fieldNames: [...w.objectRules, ...w.personRules]
-              .map((r) =>
-                r.fieldPattern.includes('.') ? r.fieldPattern.split('.')[1] : r.fieldPattern,
-              )
-              .filter((f) => f !== '*'),
+            rules: [...w.objectRules, ...w.personRules],
           })),
       );
       if (denials.length > 0) {
@@ -4085,6 +4626,45 @@ export class DataOpsHandler implements DomainHandler {
         });
         return;
       }
+
+      /** Refuse the run before its first write, under its code, and record it so. */
+      const refuseBeforeWrite = (
+        code: string,
+        message: string,
+        alsoRefused: DataOpsAutomationRefusal[] = [],
+      ): void => {
+        recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined, code });
+        replies.refused(new Error(message), { code, ...alsoRefusedPayload({ alsoRefused }) });
+        sendOperationFailed(this.deps, operationId, message, false, {
+          context: failure,
+          authored: true,
+        });
+      };
+      // What the org runs as the run updates the records it counted, before
+      // the guard is asked and before anything is written: a masking of every
+      // contact ran the org's update flows, emails among them, unasked; a
+      // pipeline's, which nobody watches, did so on every refresh.
+      const gated = await this.readAct(
+        conn,
+        payload.orgId,
+        'masking',
+        tallies.map((t) => ({ objectApiName: t.objectApiName, records: t.total })),
+        replies.accord,
+        replies.voice,
+      );
+      const gateRefused = dataOpsStop(gated.answer);
+      if (gateRefused) {
+        refuseBeforeWrite(gateRefused.code, gateRefused.message, gateRefused.alsoRefused);
+        return;
+      }
+      const watch = this.duplicatesWatchOf(
+        conn,
+        duplicateRulesOn(
+          gated.answer.automation,
+          tallies.filter((t) => t.total > 0).map((t) => t.objectApiName),
+        ),
+      );
+      duplicatesWatch = watch;
 
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
@@ -4125,9 +4705,22 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.log(`[WARN] dataops:anonymize ${operationId}: ${warning}`);
       }
       if (stop.signal.aborted) {
-        stoppedBeforeStart();
+        await stoppedBeforeStart();
         return;
       }
+      // The mute's lease, once the guard let the run go: held from before
+      // its snapshot to its end, given back however it ends.
+      const holding = await holdDataOpsMute(
+        gated,
+        operationId,
+        replies.accord.acceptEmails === true,
+        replies.voice,
+      );
+      if ('refused' in holding) {
+        refuseBeforeWrite(holding.refused.code, holding.refused.message);
+        return;
+      }
+      held = holding.held;
       counted = true;
 
       // The org's tier sets how many rows a page reads: 2,000 on a sandbox, 500
@@ -4140,14 +4733,14 @@ export class DataOpsHandler implements DomainHandler {
       // A snapshot of what the run is about to write over, when asked: after
       // the guard, which may stop the run, and before the first write.
       if (payload.snapshot === true) {
-        const kept = await this.snapshotBeforeMasking(conn, operationId, payload.orgId, work, {
+        const kept = await this.snapshotBeforeMasking(described, operationId, payload.orgId, work, {
           origin: replies.origin,
           stop: stop.signal,
         });
         // Stopped while the snapshot was read: the snapshot is not kept, and
         // nothing was masked.
         if ('refused' in kept && stop.signal.aborted) {
-          stoppedBeforeStart();
+          await stoppedBeforeStart();
           return;
         }
         if ('refused' in kept) {
@@ -4158,6 +4751,7 @@ export class DataOpsHandler implements DomainHandler {
             code: SNAPSHOT_NOT_TAKEN,
           });
           replies.refused(new Error(kept.refused), { code: SNAPSHOT_NOT_TAKEN });
+          await giveBack();
           sendOperationFailed(this.deps, operationId, kept.refused, kept.retryable, {
             context: failure,
             authored: true,
@@ -4166,7 +4760,7 @@ export class DataOpsHandler implements DomainHandler {
         }
         snapshot = kept.taken;
         if (stop.signal.aborted) {
-          stoppedBeforeStart();
+          await stoppedBeforeStart();
           return;
         }
       }
@@ -4209,8 +4803,6 @@ export class DataOpsHandler implements DomainHandler {
       }
 
       const maskErrors: Array<{ objectApiName: string; message: string }> = [];
-      /** The fields the template's rules name that their object does not have. */
-      const fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }> = [];
       /** Whether a cancel stopped the run before every record it was for was masked. */
       let cancelled = false;
 
@@ -4244,27 +4836,12 @@ export class DataOpsHandler implements DomainHandler {
         const safeObj = tally.objectApiName;
         failure.objectName = safeObj;
 
-        const templateRules = this.maskingRules(objectName, objectRules);
-        const {
-          select: fields,
-          missing,
-          rulesOf,
-        } = await this.maskedFields(
-          conn,
+        const { select: fields, rulesOf } = await this.maskedFields(
+          described,
           safeObj,
-          templateRules,
+          this.maskingRules(objectName, objectRules),
           this.maskingRules(objectName, personRules),
         );
-        if (missing.length > 0) {
-          fieldsNotFound.push(
-            ...missing.map((fieldApiName) => ({ objectApiName: safeObj, fieldApiName })),
-          );
-          this.deps.log(
-            `[WARN] dataops:anonymize ${operationId}: ${safeObj} lists no field ` +
-              `${missing.join(', ')} to this user (the org has none, or field-level security ` +
-              "hides it) — the template's rule masks nothing there.",
-          );
-        }
         failure.batchSize = MASKING_BATCH_SIZE;
 
         /**
@@ -4336,6 +4913,10 @@ export class DataOpsHandler implements DomainHandler {
             // an edit as it blocks a create, and a masked record that the rule
             // refuses keeps its real values.
             let updateResults: JsforceResult[];
+            // When it went out: the org's clock, read once the org saved a
+            // record of an object a duplicate rule covers, is dated back to
+            // it, and what the rule writes from then on is read as the run ends.
+            watch.beforeWrite(safeObj);
             try {
               updateResults = (await conn
                 .sobject(objectName)
@@ -4348,10 +4929,15 @@ export class DataOpsHandler implements DomainHandler {
               // that sent them again would mask those a second time, another
               // way. What was sent is kept, as a digest, for the resume to
               // read back first. A call the org never had, or refused whole,
-              // wrote nothing, and is sent again as it was.
+              // wrote nothing, and is sent again as it was. A duplicate rule
+              // may have reported the rows it saved: they are read for.
               if (whatTheWriteLeft(err) === 'may-have-written') {
                 tally.unanswered += batch.length;
                 onUnanswered(batch, batch.flatMap(unconfirmedRowOf));
+                watch.wrote(
+                  safeObj,
+                  batch.map((row) => row.Id),
+                );
               }
               throw err;
             }
@@ -4360,6 +4946,10 @@ export class DataOpsHandler implements DomainHandler {
             // its real PII, and reporting only the successes hid exactly that.
             const refusedIds: string[] = [];
             const answers = Array.isArray(updateResults) ? updateResults : [updateResults];
+            watch.wrote(
+              safeObj,
+              answers.flatMap((r, i) => (r.success ? [batch[i]?.Id] : [])),
+            );
             answers.forEach((r, i) => {
               if (r.success) {
                 tally.masked++;
@@ -4516,10 +5106,7 @@ export class DataOpsHandler implements DomainHandler {
       }
 
       const limitHit = usageAtStop();
-      // A field the template names and the run could not mask leaves its
-      // values in every record: the run did not do all it was asked.
-      const byRows = maskingStatus(tallies, cancelled);
-      const status = byRows === 'success' && fieldsNotFound.length > 0 ? 'partial' : byRows;
+      const status = maskingStatus(tallies, cancelled);
       const { recordsProcessed, recordsFailed, recordsNotMasked } = maskingTotals(tallies);
       const left = leftByObject(tallies);
       unrecorded = false;
@@ -4540,6 +5127,10 @@ export class DataOpsHandler implements DomainHandler {
             `not masked — ${left}`,
         );
       }
+      await giveBack();
+      // What the duplicate rules wrote for the records it masked, once their
+      // reports had time to land: said, and kept.
+      const duplicates = await duplicatesOfRun();
       if (cancelled) {
         // Ended the way a cancelled Sync or Seed ends: aborted in the registry
         // — already, when the cancel came through it — and posted as a
@@ -4560,6 +5151,7 @@ export class DataOpsHandler implements DomainHandler {
           totalNotMasked: recordsNotMasked,
         });
         if (status === 'failure') live?.fail(`The org refused the ${recordsFailed} record(s)`);
+        else if (status === 'partial') live?.partial();
         else live?.complete();
       }
 
@@ -4579,10 +5171,8 @@ export class DataOpsHandler implements DomainHandler {
       // that left nothing.
       const resumeHint =
         resumable && recordsNotMasked > 0 ? ' Resume masks only what this run left.' : '';
-      const message =
-        (fieldsNotFound.length > 0
-          ? `${ranMessage} ${unseenFieldsSentence(fieldsNotFound)}`
-          : ranMessage) + resumeHint;
+      const duplicatesSaid = maskingDuplicatesSentence(duplicates, this.orgNameOf(payload.orgId));
+      const message = ranMessage + resumeHint + (duplicatesSaid ? ` ${duplicatesSaid}` : '');
       replies.ended({
         templateId: payload.templateId,
         status,
@@ -4592,17 +5182,24 @@ export class DataOpsHandler implements DomainHandler {
         objects: maskingResultObjects(tallies),
         message,
         errors: maskErrors,
-        fieldsNotFound,
         ...(cancelled ? { cancelled: true } : {}),
         ...(limitHit ? { stoppedAtApiLimit: true } : {}),
         ...(snapshot ? { snapshot } : {}),
+        ...(held ? { mutedAutomation: held.outcome } : {}),
+        ...(duplicates ? { duplicates } : {}),
       });
     } catch (err: unknown) {
       // An error the org answered while a cancel was pending is still the
       // run's failure: only the loop, stopping at the cancel, says a run was
-      // cancelled. Dual channel, single display (see handleBackup).
-      failRun(err, true);
+      // cancelled. Dual channel, single display (see handleBackup). What its
+      // duplicate rules wrote for the records it masked before it failed is
+      // read, once its lease is given back, as a run that ended reads it.
+      await giveBack();
+      const duplicates = await duplicatesOfRun().catch(() => undefined);
+      failRun(err, true, duplicates);
     } finally {
+      const released = await giveBack();
+      if (released) replies.muted?.(released);
       // A run that threw after it started: recorded with what it masked — partial once it wrote a row,
       // failed otherwise — and, per object, the rows it never reached.
       if (unrecorded) {
@@ -4618,6 +5215,9 @@ export class DataOpsHandler implements DomainHandler {
       settleRun(runError);
       pending?.release();
       signal?.removeEventListener('abort', onStepAbort);
+      // Answered last, its lease given back and its entries settled: an
+      // answer that cannot be posted leaves nothing of the run unsettled.
+      deferred.answer?.(released);
     }
   }
 
@@ -4813,6 +5413,10 @@ export class DataOpsHandler implements DomainHandler {
    * not describe or read is listed with what it said rather than failing the
    * answer. Asked with the objects and the filter a run would be given, it
    * shows the first rows that run would mask.
+   *
+   * It says what Apply would be refused for (`maskingNotCovered`, and what the
+   * user may not edit, `maskingWritesDenied`), and nothing Apply would not: a
+   * hidden field of an object with no row stops no run, so it is not named.
    */
   private async handleAnonymizePreview(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -4839,17 +5443,20 @@ export class DataOpsHandler implements DomainHandler {
       const engine = new AnonymizationEngine(undefined, this.maskingKey);
       const objects: AnonymizePreviewObject[] = [];
       const fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }> = [];
+      // Its fields and the user's access to them read from one describe, as a run reads them.
+      const described = describedOnce(conn);
       for (const objectName of await this.plannedObjectsIn(conn, parsed, template)) {
         if (!masksObject(template, objectName)) continue;
         const objectApiName = sanitizeSoqlObjectName(objectName);
         try {
+          const objectRules = rulesOfObject(template, objectName);
+          const personRules = personRulesOfObject(template, objectName);
           const { rules, select, missing, rulesOf } = await this.maskedFields(
-            conn,
+            described,
             objectApiName,
-            this.maskingRules(objectName, rulesOfObject(template, objectName)),
-            this.maskingRules(objectName, personRulesOfObject(template, objectName)),
+            this.maskingRules(objectName, objectRules),
+            this.maskingRules(objectName, personRules),
           );
-          fieldsNotFound.push(...missing.map((fieldApiName) => ({ objectApiName, fieldApiName })));
           const page = await maskingPage(
             conn,
             objectApiName,
@@ -4859,6 +5466,18 @@ export class DataOpsHandler implements DomainHandler {
             whereOfObject(parsed, template, objectName),
           );
           checkApiLimits(conn.limitInfo, `dataops:anonymize:preview ${objectApiName}`);
+          const holdsRows = page.records.length > 0;
+          if (holdsRows) {
+            fieldsNotFound.push(
+              ...missing.map((fieldApiName) => ({ objectApiName, fieldApiName })),
+            );
+          }
+          // What Apply's own check refuses, `CRUD_FLS_DENIED`, said before the click.
+          const [denied] = holdsRows
+            ? await maskingWritesDenied(described, [
+                { objectApiName, rules: [...objectRules, ...personRules] },
+              ])
+            : [];
           // Each row by the rules its kind of account can hold, as Apply masks it.
           const rulesOfEach = page.records.map(rulesOf);
           const masked = page.records.map(
@@ -4870,6 +5489,8 @@ export class DataOpsHandler implements DomainHandler {
           objects.push({
             objectApiName,
             fields,
+            ...(holdsRows && rules.length === 0 ? { notCovered: true as const } : {}),
+            ...(denied ? { writeDenied: { deniedFields: [...denied.deniedFields] } } : {}),
             methods: Object.fromEntries(rules.map((r) => [r.fieldApiName, r.method])),
             rows: page.records.slice(0, PREVIEW_ROWS).map((original, index) => {
               const before: Record<string, AnonymizePreviewValue> = {};

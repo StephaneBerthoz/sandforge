@@ -1,4 +1,5 @@
 import type {
+  CheckpointAccessLeftOutCode,
   CheckpointLeftOutObject,
   CheckpointListEntry,
   CheckpointRefusal,
@@ -69,18 +70,24 @@ export function refusedBeforeScope<T extends ScopeFacts>(
 }
 
 /**
- * How the extension opens the reason of an object a take leaves out for its
- * user's permissions alone: the user has no View All Data and Modify All
- * Data, and nothing else proves they see and put back every record of it
- * (`LEFT_OUT_WORDS` in the extension's takeCheckpoint.ts, each of whose
- * permission reasons opens so, and no other). The scope's answer names a
- * reason in words only, so the page tells these apart by them.
+ * The reasons a take leaves an object out for its user's permissions alone:
+ * the user has no View All Data and Modify All Data, and nothing else proves
+ * they see and put back every record of it. One added to the type fails to
+ * compile here.
  */
-export const LEFT_OUT_FOR_ACCESS = 'Without View All Data and Modify All Data,';
+const LEFT_OUT_FOR_ACCESS: Readonly<Record<CheckpointAccessLeftOutCode, true>> = {
+  noViewAll: true,
+  noModifyAll: true,
+  activities: true,
+  catalog: true,
+  filesNotProven: true,
+  settingNotProven: true,
+  parentNotSeen: true,
+};
 
 /** Whether an object a scope left out was left out for its user's permissions: see {@link LEFT_OUT_FOR_ACCESS}. */
-export function leftOutForAccess(object: Pick<CheckpointLeftOutObject, 'reason'>): boolean {
-  return object.reason.startsWith(LEFT_OUT_FOR_ACCESS);
+export function leftOutForAccess(object: Pick<CheckpointLeftOutObject, 'code'>): boolean {
+  return object.code !== undefined && object.code in LEFT_OUT_FOR_ACCESS;
 }
 
 /**

@@ -36,6 +36,11 @@ import { RestorePanel, type RestoreCounts } from './RestorePanel';
 import { AnonymizePanel } from './AnonymizePanel';
 import { CleanupPanel, CompliancePanel, QualityPanel } from './dataOpsParts';
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
+import {
+  accordPayloadOf,
+  ASKED_FROM_PAGE,
+  type DataOpsAutomationAccord,
+} from './DataOpsAutomation';
 import { formatNumber } from '../../utils/formatters';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
@@ -428,7 +433,7 @@ export const DataOpsPage: React.FC = () => {
   // extension side all along — CRUD/FLS guard, 200-record upsert batching, api
   // limit checks, progress events — and nothing had ever sent it. The Restore
   // button voided its argument behind a comment saying it "could be extended".
-  const handleRestore = (operationId: string) => {
+  const handleRestore = (operationId: string, accord?: DataOpsAutomationAccord) => {
     if (!currentOrg) return;
     setError(null);
     rollbackMutation.mutate({
@@ -436,6 +441,8 @@ export const DataOpsPage: React.FC = () => {
       operationId,
       ...(rewriteAll ? { rewriteAll: true } : {}),
       ...(includeChanged ? { includeChanged: true } : {}),
+      ...accordPayloadOf(accord),
+      ...ASKED_FROM_PAGE,
     });
   };
   /** What the last restore wrote, left alone and had refused, from its answer. */
@@ -532,7 +539,10 @@ export const DataOpsPage: React.FC = () => {
   // goes with it. Unless unticked, it keeps the values it masks first, as the
   // command line's runs always did: the panel's took no snapshot, and a run
   // on an org with no backup had no way back.
-  const handleApplyAnonymize = (templateId: string, options: { snapshot: boolean }) => {
+  const handleApplyAnonymize = (
+    templateId: string,
+    options: { snapshot: boolean; accord?: DataOpsAutomationAccord },
+  ) => {
     if (!currentOrg) return;
     setError(null);
     previewMutation.reset();
@@ -540,6 +550,8 @@ export const DataOpsPage: React.FC = () => {
       orgId: currentOrg.id,
       templateId,
       ...(options.snapshot ? { snapshot: true } : {}),
+      ...accordPayloadOf(options.accord),
+      ...ASKED_FROM_PAGE,
     });
   };
 
@@ -550,11 +562,21 @@ export const DataOpsPage: React.FC = () => {
   };
 
   // Masks only what the run that stopped short left, from where it stopped.
-  const handleResumeAnonymize = (templateId: string, resumeFrom: string) => {
+  const handleResumeAnonymize = (
+    templateId: string,
+    resumeFrom: string,
+    accord?: DataOpsAutomationAccord,
+  ) => {
     if (!currentOrg) return;
     setError(null);
     previewMutation.reset();
-    anonymizeMutation.mutate({ orgId: currentOrg.id, templateId, resumeFrom });
+    anonymizeMutation.mutate({
+      orgId: currentOrg.id,
+      templateId,
+      resumeFrom,
+      ...accordPayloadOf(accord),
+      ...ASKED_FROM_PAGE,
+    });
   };
 
   const navigate = useAppStore((s) => s.navigate);
@@ -736,6 +758,7 @@ export const DataOpsPage: React.FC = () => {
           {activeTab === 'restore' && !tabLoading && (
             <RestorePanel
               orgName={orgName}
+              {...(currentOrg ? { orgId: currentOrg.id } : {})}
               onCreateBackup={() => setActiveTab('backup')}
               backups={backups}
               selectedBackupId={selectedBackupId}
@@ -764,6 +787,7 @@ export const DataOpsPage: React.FC = () => {
           {activeTab === 'anonymize' && !tabLoading && (
             <AnonymizePanel
               orgName={orgName}
+              {...(currentOrg ? { orgId: currentOrg.id } : {})}
               templates={templates}
               selectedTemplateId={selectedTemplateId}
               onSelectTemplate={setSelectedTemplateId}

@@ -4,9 +4,10 @@
  *
  * Per record, in order:
  *   1. `Id` is dropped — the stable `referenceId` is the identity;
- *   2. `RecordTypeId` is replaced by the RecordType **Name** via rt-map
- *      (resolution back to an ID happens at load time, by DeveloperName —
- *      see the RecordTypeIdResolver extension point);
+ *   2. `RecordTypeId` is replaced by the RecordType **Name** via rt-map,
+ *      and the record keeps its record type's namespace and DeveloperName
+ *      (`recordTypeDeveloperName`), which resolution back to an ID at load
+ *      time goes by — see the RecordTypeIdResolver extension point;
  *   3. in-scope lookup values (source IDs of extracted records) are
  *      replaced by the target record's `referenceId`;
  *   4. every other field goes through its rules-file generator, default
@@ -24,6 +25,7 @@
 
 import { DeterministicPseudonymizer } from './DeterministicPseudonymizer.js';
 import { isValidSalesforceId18 } from '../../core/common/salesforceId.js';
+import { qualifiedRecordTypeName } from '../../core/metadata/recordTypeNames.js';
 import { resolveGenerator, type PseudonymRulesFile } from './rulesFile.js';
 import type {
   ExtractedDataset,
@@ -109,7 +111,23 @@ export class FrozenDatasetAnonymizer {
           rules,
           pseudonymizer,
         );
-        return { referenceId: record.referenceId, fields };
+        // Its record type by name, beside the label: two of the object
+        // under one label — a package's and the org's own — left a load
+        // nothing to tell which the record had, and the load was refused.
+        const recordTypeId = record.fields.RecordTypeId;
+        const rt = typeof recordTypeId === 'string' ? rtById.get(recordTypeId) : undefined;
+        return {
+          referenceId: record.referenceId,
+          fields,
+          ...(rt
+            ? {
+                recordTypeDeveloperName: qualifiedRecordTypeName(
+                  rt.namespacePrefix,
+                  rt.developerName,
+                ),
+              }
+            : {}),
+        };
       });
       objects.push({ objectApiName: objectData.objectApiName, records });
     }

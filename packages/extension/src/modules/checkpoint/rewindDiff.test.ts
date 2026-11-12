@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fc from 'fast-check';
 import { paced } from '../../test/runnerPace.js';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
@@ -56,6 +56,19 @@ const SNAPSHOT = 'op-1792700000000';
 
 /** T0, with milliseconds, as the org's clock gives it. */
 const T0_MS = Date.parse('2026-10-22T10:00:00.400Z');
+
+// This machine's clock pinned a minute after T0_MS, going on: what the store
+// and the handler date by it — an undo's fifteen days, a checkpoint's expiry —
+// reads as the tests' org does, whatever day they run. Left to the real one,
+// every undo these tests offer was refused fifteen days after they were written.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: T0_MS + 60_000, shouldAdvanceTime: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 const T0 = new Date(T0_MS).toISOString();
 const DAY_MS = 24 * 60 * 60_000;
 /** A day before the checkpoint, when its records were made. */
@@ -1104,6 +1117,46 @@ describe('rewindDiff: what changed in the objects’ fields since the take', () 
       "SELECT QualifiedApiName FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = 'Account' AND QualifiedApiName IN ('Due__c')",
     ]);
     expect(diff.fieldsRequests).toBe(1);
+  });
+
+  it('names no field it does not compare as gone: one set aside with --ignore-field, or a formula the take described and never held, deleted since', async () => {
+    const taken = await take({
+      objects: [
+        {
+          ...ACCOUNT,
+          described: [
+            ...ACCOUNT_DESCRIBED,
+            { name: 'Score__c', type: 'double', createable: false, updateable: false },
+          ],
+        },
+      ],
+      before: (org) => org.add('Account', subject()),
+      since: (org) => {
+        org.edit('Account', SUBJECT, { Industry: 'Retail' });
+        org.changeSchema(
+          'Account',
+          ACCOUNT_DESCRIBED.filter(({ name }) => name !== 'Due__c'),
+        );
+      },
+    });
+
+    const diff = await diffOf(taken, {
+      ignoredFields: ['Account.Due__c'],
+      conn: refusingField(taken.org, 'Due__c'),
+    });
+
+    // Neither makes the org differ: the rewind reads, compares and writes
+    // neither, so nothing of them is asked of FieldDefinition either.
+    expect(diff.unread).toEqual([]);
+    expect(diff.objects).toEqual([
+      objectOf(
+        'Account',
+        { giveBack: [{ Id: SUBJECT, fields: ['Industry'] }] },
+        { ...bySession(1), notCompared: ['Due__c'] },
+      ),
+    ]);
+    expect(taken.org.toolingAsked).toEqual([]);
+    expect(diff.fieldsRequests).toBeUndefined();
   });
 
   it('asks whether an object changed since a day before the checkpoint: a field deleted after the take described it and before T0 is named, though no record changed', async () => {

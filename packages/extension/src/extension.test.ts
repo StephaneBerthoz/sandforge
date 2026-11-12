@@ -167,7 +167,7 @@ vi.mock('vscode', () => ({
 }));
 
 import { activate, deactivate, buildStatusBarLabel, localizedFixSuggestion } from './extension';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { OrgManager } from './core/connection/OrgManager';
@@ -263,6 +263,25 @@ describe('extension', () => {
     const statusBarItem = calls[0]?.value as typeof mockStatusBarItem;
     expect(statusBarItem.text).toBe('$(flame) SandForge: 0 orgs');
     expect(statusBarItem.command).toBe('sandforge.openOrgs');
+  });
+
+  it('sets up the status bar in the editor’s language, with its plural', async () => {
+    const vscode = await import('vscode');
+    (vscode.env as { language?: string }).language = 'fr';
+    speaking('fr');
+    try {
+      activate(createContext());
+
+      const calls = vi.mocked(vscode.window.createStatusBarItem).mock.results;
+      const statusBarItem = calls[0]?.value as typeof mockStatusBarItem;
+      expect(statusBarItem.text).toBe('$(flame) SandForge : 0 org');
+      expect(statusBarItem.tooltip).toBe(
+        'SandForge — Cliquez pour connecter une org depuis la page Organisations',
+      );
+    } finally {
+      mockL10nT.mockImplementation(substituteL10n);
+      (vscode.env as { language?: string }).language = undefined;
+    }
   });
 
   it('should refresh the status bar when the sidebar selects an org', async () => {
@@ -787,8 +806,12 @@ describe('buildStatusBarLabel', () => {
     status: 'expired',
   };
 
+  afterEach(() => {
+    mockL10nT.mockImplementation(substituteL10n);
+  });
+
   it('falls back to the bare org count, and opens Organizations, when there are no orgs', () => {
-    expect(buildStatusBarLabel([], undefined)).toEqual({
+    expect(buildStatusBarLabel([], undefined, 'en')).toEqual({
       text: '$(flame) SandForge: 0 orgs',
       tooltip: 'SandForge — Click to connect an org in Organizations',
       command: 'sandforge.openOrgs',
@@ -796,33 +819,167 @@ describe('buildStatusBarLabel', () => {
   });
 
   it('keeps the bare count when no org is selected and none is connected', () => {
-    const label = buildStatusBarLabel([expiredOrg], undefined);
+    const label = buildStatusBarLabel([expiredOrg], undefined, 'en');
     expect(label.text).toBe('$(flame) SandForge: 1 org');
     expect(label.tooltip).toBe('SandForge — Click to open Home');
     expect(label.command).toBe('sandforge.openHome');
   });
 
   it('opens Home, not Monitor, once an org is registered', () => {
-    expect(buildStatusBarLabel([connectedOrg], 'o1').command).toBe('sandforge.openHome');
+    expect(buildStatusBarLabel([connectedOrg], 'o1', 'en').command).toBe('sandforge.openHome');
   });
 
   it('shows the selected org alias with the org count', () => {
-    const label = buildStatusBarLabel([connectedOrg, expiredOrg], 'o2');
+    const label = buildStatusBarLabel([connectedOrg, expiredOrg], 'o2', 'en');
     expect(label.text).toBe('$(flame) SandForge: prod (2 orgs)');
-    expect(label.tooltip).toBe('prod — admin@prod.com (expired)');
+    expect(label.tooltip).toBe('prod — admin@prod.com (session expired)');
   });
 
   it('falls back to the first connected org when nothing is selected', () => {
-    const label = buildStatusBarLabel([expiredOrg, connectedOrg], undefined);
+    const label = buildStatusBarLabel([expiredOrg, connectedOrg], undefined, 'en');
     expect(label.text).toBe('$(flame) SandForge: dev (2 orgs)');
     expect(label.tooltip).toBe('dev — admin@dev.com (connected)');
   });
 
   it('falls back to the first connected org when the selection no longer exists', () => {
-    const label = buildStatusBarLabel([connectedOrg], 'ghost');
+    const label = buildStatusBarLabel([connectedOrg], 'ghost', 'en');
     expect(label.text).toBe('$(flame) SandForge: dev (1 org)');
   });
+
+  it('says every org status in words, never the stored one', () => {
+    const tooltips = (['connected', 'expired', 'error', 'refreshing'] as const).map(
+      (status) => buildStatusBarLabel([{ ...connectedOrg, status }], 'o1', 'en').tooltip,
+    );
+    expect(tooltips).toEqual([
+      'dev — admin@dev.com (connected)',
+      'dev — admin@dev.com (session expired)',
+      'dev — admin@dev.com (connection error)',
+      'dev — admin@dev.com (refreshing)',
+    ]);
+  });
+
+  it('says the whole label in French, from the French host bundle', () => {
+    speaking('fr');
+
+    expect(buildStatusBarLabel([], undefined, 'fr')).toEqual({
+      text: '$(flame) SandForge : 0 org',
+      tooltip: 'SandForge — Cliquez pour connecter une org depuis la page Organisations',
+      command: 'sandforge.openOrgs',
+    });
+    expect(buildStatusBarLabel([expiredOrg], undefined, 'fr')).toEqual({
+      text: '$(flame) SandForge : 1 org',
+      tooltip: 'SandForge — Cliquez pour ouvrir la page Accueil',
+      command: 'sandforge.openHome',
+    });
+    const selected = buildStatusBarLabel([connectedOrg, expiredOrg], 'o2', 'fr');
+    expect(selected.text).toBe('$(flame) SandForge : prod (2 orgs)');
+    expect(selected.tooltip).toBe('prod — admin@prod.com (session expirée)');
+    const statuses = (['connected', 'error', 'refreshing'] as const).map(
+      (status) => buildStatusBarLabel([{ ...connectedOrg, status }], 'o1', 'fr').tooltip,
+    );
+    expect(statuses).toEqual([
+      'dev — admin@dev.com (connectée)',
+      'dev — admin@dev.com (erreur de connexion)',
+      'dev — admin@dev.com (actualisation en cours)',
+    ]);
+  });
+
+  it.each(['fr', 'de', 'es', 'pt-br', 'ja'])(
+    'leaves no English word in any state of the label in %s',
+    (language) => {
+      const orgs = (statuses: StatusBarOrg['status'][]): StatusBarOrg[] =>
+        statuses.map((status, i) => ({ ...connectedOrg, id: `o${i}`, status }));
+      const states: Array<[StatusBarOrg[], string | undefined]> = [
+        [[], undefined],
+        [orgs(['expired']), undefined],
+        [orgs(['connected']), undefined],
+        [orgs(['connected', 'expired']), 'o1'],
+        [orgs(['error', 'refreshing']), 'o0'],
+        [orgs(['error', 'refreshing']), 'o1'],
+      ];
+      const english = states.map(([list, selected]) => buildStatusBarLabel(list, selected, 'en'));
+
+      speaking(language);
+      const translated = states.map(([list, selected]) =>
+        buildStatusBarLabel(list, selected, language),
+      );
+
+      // The alias and username are the org's own; everything else is the bundle's.
+      for (const [i, label] of translated.entries()) {
+        expect(label.tooltip).not.toBe(english[i].tooltip);
+        expect(label.command).toBe(english[i].command);
+      }
+      // Spanish and Portuguese write "SandForge:" and "org" as English does, so
+      // their bar reads the same; French spaces its colon, German and Japanese
+      // name the org with a word of their own.
+      if (language !== 'es' && language !== 'pt-br') {
+        for (const [i, label] of translated.entries()) {
+          expect(label.text).not.toBe(english[i].text);
+        }
+      }
+    },
+  );
+
+  it('counts by the plural rule of the editor’s language, where 0 is singular in French and Portuguese', () => {
+    const counted = (count: number, language: string): string =>
+      buildStatusBarLabel(
+        Array.from({ length: count }, (_, i) => ({ ...expiredOrg, id: `o${i}` })),
+        undefined,
+        language,
+      ).text;
+
+    expect([0, 1, 2].map((count) => counted(count, 'en'))).toEqual([
+      '$(flame) SandForge: 0 orgs',
+      '$(flame) SandForge: 1 org',
+      '$(flame) SandForge: 2 orgs',
+    ]);
+    // The source strings are shown, so the key each count asks for is what tells.
+    expect([0, 1, 2].map((count) => counted(count, 'fr'))).toEqual([
+      '$(flame) SandForge: 0 org',
+      '$(flame) SandForge: 1 org',
+      '$(flame) SandForge: 2 orgs',
+    ]);
+    // VS Code names Brazilian Portuguese in lower case.
+    expect(counted(0, 'pt-br')).toBe('$(flame) SandForge: 0 org');
+    expect(counted(0, 'de')).toBe('$(flame) SandForge: 0 orgs');
+  });
+
+  it('asks Japanese for the one form it has, whatever the count', () => {
+    mockL10nT.mockClear();
+    buildStatusBarLabel([expiredOrg], undefined, 'ja');
+    buildStatusBarLabel([connectedOrg], 'o1', 'ja');
+
+    expect(mockL10nT).toHaveBeenCalledWith('SandForge: {0} orgs', 1);
+    expect(mockL10nT).toHaveBeenCalledWith('SandForge: {0} ({1} orgs)', 'dev', 1);
+    expect(mockL10nT).not.toHaveBeenCalledWith('SandForge: {0} org', 1);
+  });
+
+  it('counts by the English rule in a language the extension ships no bundle for', () => {
+    // Russian takes its singular for 21; VS Code shows that editor the English strings.
+    const orgs = Array.from({ length: 21 }, (_, i) => ({ ...expiredOrg, id: `o${i}` }));
+
+    expect(buildStatusBarLabel(orgs, undefined, 'ru').text).toBe('$(flame) SandForge: 21 orgs');
+    expect(buildStatusBarLabel(orgs, undefined, undefined).text).toBe(
+      '$(flame) SandForge: 21 orgs',
+    );
+  });
 });
+
+/**
+ * `vscode.l10n.t` as VS Code answers in an editor set to `language`: the
+ * shipped host bundle's text, and a failed test for a string it lacks, which
+ * the host would show in English.
+ */
+function speaking(language: string): void {
+  const bundle = JSON.parse(
+    readFileSync(join(__dirname, '..', 'l10n', `bundle.l10n.${language}.json`), 'utf8'),
+  ) as Record<string, string>;
+  mockL10nT.mockImplementation((message: string, ...args: unknown[]) => {
+    const text = bundle[message];
+    if (text === undefined) throw new Error(`bundle.l10n.${language}.json has no "${message}"`);
+    return substituteL10n(text, ...args);
+  });
+}
 
 /** A packaged locales folder holding the error catalogue's rowLocked action in English and French. */
 function writeLocales(root: string): string {

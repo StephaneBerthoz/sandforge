@@ -34,6 +34,7 @@ vi.mock('../src/modules/forge/RunVerifier.js', async (importOriginal) => {
 import { loadOrg, makeConn } from './sfSession.js';
 import type { RunToVerify, RunVerifierDeps } from '../src/modules/forge/RunVerifier.js';
 import { main, verificationLines } from './sandforge-clone';
+import { refusedSummary } from './runRefused.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -223,6 +224,27 @@ describe('sandforge-clone --verify', () => {
       expect(loadOrg).not.toHaveBeenCalled();
     });
 
+    it("refuses a refused run's summary, which wrote nothing, before contacting any org", async () => {
+      const path = file(
+        refusedSummary(
+          { tool: 'sandforge-clone', source: 'SRC', target: 'TGT', elapsedMs: 12 },
+          {
+            code: 'MAX_TOTAL_EXCEEDED',
+            message: 'The run would write 6 records. Nothing was written.',
+          },
+        ),
+      );
+
+      expect(await run(['--verify', path, '--target', 'TGT'])).toBe(2);
+
+      expect(stderr.join('')).toBe(
+        `--verify ${path} is the summary of a run refused before its first write ` +
+          '(MAX_TOTAL_EXCEEDED), which wrote nothing to the target: there is nothing of it to ' +
+          'verify.\n',
+      );
+      expect(loadOrg).not.toHaveBeenCalled();
+    });
+
     it('refuses a file that is not a summary of the command', async () => {
       expect(await run(['--verify', file({ tool: 'sandforge-frozen' }), '--target', 'TGT'])).toBe(
         2,
@@ -241,6 +263,28 @@ describe('sandforge-clone --verify', () => {
       organization = { Id: '00D000000000009AAA', IsSandbox: true };
       expect(await run(['--verify', file(runSummary()), '--target', 'TGT'])).toBe(1);
       expect(stderr.join('')).toContain('is not the org the run wrote to');
+      expect(verifierCalls).toEqual([]);
+    });
+
+    it('refuses another org under its code, its line and, with --json, stdout naming it, as a removal refuses it', async () => {
+      // Refused so, it said a sentence with no code on stderr and left stdout
+      // empty, where the removal of the same summary names OTHER_ORG.
+      organization = { Id: '00D000000000009AAA', IsSandbox: true };
+      const path = file(runSummary());
+
+      expect(await run(['--verify', path, '--target', 'TGT', '--json'])).toBe(1);
+
+      expect(stderr.join('')).toContain(
+        `refused (OTHER_ORG): TGT is not the org the run wrote to (${TARGET_ORG}), and its ` +
+          'records are verified in that org only. Nothing of the run was read.\n',
+      );
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        tool: 'sandforge-clone',
+        action: 'verify',
+        summary: path,
+        target: 'TGT',
+        refused: { code: 'OTHER_ORG' },
+      });
       expect(verifierCalls).toEqual([]);
     });
   });

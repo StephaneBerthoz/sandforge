@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
-import { forgeGapId } from '@sandforge/shared';
+import {
+  forgeGapId,
+  ignoredGapEntry,
+  picklistMappingEntry,
+  skippedRowsEntry,
+} from '@sandforge/shared';
 import { ForgeExecutor } from './ForgeExecutor.js';
 import type {
   ExecuteOptions,
@@ -260,19 +265,27 @@ async function run(deps: ForgeExecutorDeps, options: ExecuteOptions) {
 const gapOf = (summary: ExecutionSummary, gapId: string) =>
   summary.gaps?.find((gap) => gap.id === gapId);
 
+/** The region the target requires of an order, given each row by a decision. */
+const REGION_GIVEN: NonNullable<ExecuteOptions['decisions']> = {
+  defaultValues: [{ object: 'Order__c', field: 'Region__c', value: 'North' }],
+};
+
 describe('ForgeExecutor, a simulation through the write stage', () => {
   it('writes nothing, and gives back none of the ids it used in place of the target’s', async () => {
     const { deps } = fakeOrgs();
 
-    const { summary } = await run(deps, { ...OPTIONS, dryRun: true });
+    // The region the target requires given, as a real run would have to.
+    const { summary } = await run(deps, { ...OPTIONS, dryRun: true, decisions: REGION_GIVEN });
 
     expect(deps.insertRecords).not.toHaveBeenCalled();
     expect(deps.updateRecords).not.toHaveBeenCalled();
     expect(deps.upsertRecords).not.toHaveBeenCalled();
     expect(summary.dryRun).toBe(true);
     // The account and its three orders, none held back for want of the
-    // account it would have written first.
-    expect(summary.wouldInsertCount).toBe(4);
+    // account it would have written first: two orders inserted, the one
+    // holding a code the target holds linked to its record.
+    expect(summary.wouldInsertCount).toBe(3);
+    expect(summary.linkedCount).toBe(1);
     expect(summary.successCount).toBe(0);
     expect(summary.remapTable).toEqual({});
     expect(summary.remapCount).toBe(0);
@@ -304,11 +317,27 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
   it('ends each object on what its write would have done', async () => {
     const { deps } = fakeOrgs();
 
-    const { events } = await run(deps, { ...OPTIONS, dryRun: true });
+    const { events } = await run(deps, { ...OPTIONS, dryRun: true, decisions: REGION_GIVEN });
 
     const last = events.filter((e) => e.objectName === 'Order__c').at(-1);
     expect(last?.status).toBe('done');
-    expect(last?.message).toMatch(/^Simulated Order__c: 3 would be inserted, 0 failed/);
+    expect(last?.message).toMatch(
+      /^Simulated Order__c: 2 would be inserted, 1 linked to records already in the target, 0 failed/,
+    );
+  });
+
+  it('ends an object whose every row leaves a field the target requires empty on its refusal', async () => {
+    const { deps } = fakeOrgs();
+
+    const { summary, events } = await run(deps, { ...OPTIONS, dryRun: true });
+
+    const last = events.filter((e) => e.objectName === 'Order__c').at(-1);
+    expect(last?.status).toBe('error');
+    expect(summary.wouldInsertCount).toBe(1);
+    expect(summary.failedCount).toBe(3);
+    expect(
+      summary.errors.find((error) => error.objectApiName === 'Order__c')?.samples[0]?.messages,
+    ).toEqual(['REQUIRED_FIELD_MISSING: Required fields are missing: [Region__c]']);
   });
 
   it('finds the picklist values a record type refuses, with what a real run writes instead', async () => {
@@ -375,6 +404,97 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
     const gap = gapOf(summary, forgeGapId('unique_value_collision', 'Order__c', 'Code__c'));
     expect(gap).toMatchObject({ rows: 1, detail: { colliding: 1 } });
     expect(JSON.stringify(summary.gaps)).not.toContain('TAKEN');
+  });
+
+  it('counts a row whose unique value the target holds as linked, as the run that links it to the record its refusal names', async () => {
+    // A real target refuses the row "DUPLICATE_VALUE: duplicate value found:
+    // Code__c duplicates value on record with id: <its id>", and the run
+    // links it. Run on a Developer Edition, the dry run of a contact's clone
+    // said 3 to insert and 0 linked, and the run inserted 2 and linked 1.
+    const held = id('a01', 500);
+    const { deps } = fakeOrgs();
+    const real = fakeOrgs();
+    const inserting = real.deps.insertRecords.getMockImplementation();
+    real.deps.insertRecords.mockImplementation(async (org, object, rows) => {
+      const answers = (await inserting?.(org, object, rows)) ?? [];
+      return answers.map((answer, at) =>
+        rows[at]?.['Code__c'] === 'TAKEN'
+          ? {
+              id: '',
+              success: false,
+              errors: [
+                `DUPLICATE_VALUE: duplicate value found: Code__c duplicates value on record with id: ${held}`,
+              ],
+            }
+          : answer,
+      );
+    });
+
+    const { summary, events } = await run(deps, {
+      ...OPTIONS,
+      dryRun: true,
+      decisions: REGION_GIVEN,
+    });
+    const { summary: written } = await run(real.deps, { ...OPTIONS, decisions: REGION_GIVEN });
+
+    expect(written).toMatchObject({ successCount: 3, linkedCount: 1 });
+    expect(written.existingRecords).toEqual([
+      { objectApiName: 'Order__c', linked: 1, unidentified: 0 },
+    ]);
+    expect(summary).toMatchObject({ wouldInsertCount: 3, linkedCount: 1, failedCount: 0 });
+    expect(summary.existingRecords).toEqual([
+      { objectApiName: 'Order__c', linked: 1, unidentified: 0 },
+    ]);
+    expect(events.filter((e) => e.objectName === 'Order__c').at(-1)?.message).toMatch(
+      /^Simulated Order__c: 2 would be inserted, 1 linked to records already in the target, 0 failed/,
+    );
+    // Said as the rehearsal says the target's refusal of it: the run links it.
+    expect(
+      gapOf(summary, forgeGapId('unique_value_collision', 'Order__c', 'Code__c')),
+    ).toMatchObject({
+      severity: 'warning',
+      rows: 1,
+      detail: { colliding: 1, linkedToTheRecordItNames: true },
+      defaultDecision: 'ignore',
+    });
+    // Its id is the simulation's own, never given back.
+    expect(summary.remapTable).toEqual({});
+    expect(summary.existingSourceIds).toEqual([]);
+  });
+
+  it('says on its dry-run lines one fewer to insert for a row linked by its unique value, as its Simulated line and summary count it', async () => {
+    // Run on a Developer Edition, the dry run of a contact's clone said
+    // "[dry-run] Account: 2 record(s) would be inserted" where its Simulated
+    // line and its summary said 1 inserted and 1 linked, as the run did.
+    const { deps } = fakeOrgs();
+
+    const { summary, events } = await run(deps, {
+      ...OPTIONS,
+      dryRun: true,
+      decisions: REGION_GIVEN,
+    });
+
+    const lines = events
+      .filter((e) => e.objectName === 'Order__c' && e.message.startsWith('[dry-run] '))
+      .map((e) => e.message);
+    // What the lines come to, as one reads them down: the rows the read
+    // brings, more as more are read, fewer as fewer go.
+    const said = lines.reduce((sum, line) => {
+      const more = /^\[dry-run\] Order__c: (\d+) (?:more )?record\(s\) would be inserted/.exec(
+        line,
+      );
+      const fewer = /^\[dry-run\] Order__c: (\d+) fewer would be inserted/.exec(line);
+      return sum + (more ? Number(more[1]) : 0) - (fewer ? Number(fewer[1]) : 0);
+    }, 0);
+    expect(said).toBe(2);
+    expect(lines).toContain(
+      '[dry-run] Order__c: 1 fewer would be inserted, linked to the record the target holds ' +
+        'under the same Code__c, which its refusal of the row names',
+    );
+    expect(events.filter((e) => e.objectName === 'Order__c').at(-1)?.message).toMatch(
+      /^Simulated Order__c: 2 would be inserted, 1 linked to records already in the target, 0 failed/,
+    );
+    expect(summary).toMatchObject({ linkedCount: 1 });
   });
 
   it('says a currency the target does not hold active, read once, with the currency its rows go in and the amounts converted', async () => {
@@ -681,10 +801,13 @@ describe('ForgeExecutor, the rows the user chose to hold back', () => {
     const { summary } = await run(deps, {
       ...OPTIONS,
       dryRun: true,
-      decisions: { skippedRows: [{ object: 'Order__c', gapId: RETAIL_OLD }] },
+      decisions: { ...REGION_GIVEN, skippedRows: [{ object: 'Order__c', gapId: RETAIL_OLD }] },
     });
 
-    expect(summary.wouldInsertCount).toBe(3);
+    // The account and one order: the order holding a code the target holds is
+    // linked to its record.
+    expect(summary.wouldInsertCount).toBe(2);
+    expect(summary.linkedCount).toBe(1);
     expect(gapOf(summary, RETAIL_OLD)).toBeUndefined();
   });
 
@@ -895,5 +1018,253 @@ describe('ForgeExecutor, a package’s record type beside the org’s own of the
     // The org's own Retail goes where the decision says; the package's keeps its own.
     expect(sentTypes(sent)).toEqual([TARGET_WHOLESALE, TARGET_WHOLESALE, TARGET_PACKAGED]);
     expect(JSON.stringify(summary.errors)).not.toContain('was not applied');
+  });
+
+  it('maps and holds back by a decision taken on the org’s own Retail its rows alone, the package’s going as read', async () => {
+    // The org's own Retail refuses Old, which the package's Retail keeps:
+    // Review offers the gap of the first, under its bare name. A real run
+    // took the decision for the package's rows too, and wrote its order with
+    // New, or held it back, while nobody had decided anything of them.
+    const ownRefusesOld = forgeGapId(
+      'picklist_value_refused',
+      'Order__c',
+      'Status__c',
+      'Retail',
+      'Old',
+    );
+    const decided: Array<NonNullable<ExecuteOptions['decisions']>> = [
+      {
+        ...REGION_GIVEN,
+        picklistValueMappings: [
+          { object: 'Order__c', field: 'Status__c', recordType: 'Retail', from: 'Old', to: 'New' },
+        ],
+      },
+      { ...REGION_GIVEN, skippedRows: [{ object: 'Order__c', gapId: ownRefusesOld }] },
+    ];
+    const statuses: unknown[][] = [];
+    for (const decisions of decided) {
+      const { deps, sent, options } = namespacedOrgs({ packageInTarget: true });
+      await run(deps, { ...options, decisions });
+      statuses.push(
+        sent
+          .filter((s) => s.object === 'Order__c')
+          .map((s) => [s.row['RecordTypeId'], s.row['Status__c']]),
+      );
+    }
+
+    expect(statuses).toEqual([
+      [
+        [TARGET_RETAIL, 'New'],
+        [TARGET_RETAIL, 'Open'],
+        [TARGET_PACKAGED, 'Old'],
+      ],
+      [
+        [TARGET_RETAIL, 'Open'],
+        [TARGET_PACKAGED, 'Old'],
+      ],
+    ]);
+  });
+
+  it('leaves the package’s unmapped Retail undecided by an ignore kept under the bare name the org’s own carries', async () => {
+    // The source's own Retail goes in as the target's own, and has no gap:
+    // the read holds the package's alone. An ignore kept before namespaces,
+    // under the bare name, is the org's own's as the run names it, and said
+    // the package's "left as it is", which nobody had decided.
+    const { deps, options } = namespacedOrgs({ packageInTarget: false });
+    const unmapped = (name: string) =>
+      forgeGapId('record_type_unmapped', 'Order__c', 'RecordTypeId', undefined, name);
+
+    const { summary } = await run(deps, {
+      ...options,
+      dryRun: true,
+      decisions: { ...REGION_GIVEN, ignoredGaps: [unmapped('Retail')] },
+    });
+
+    const ids = (summary.gaps ?? []).map((gap) => gap.id);
+    const packaged = gapOf(summary, unmapped('ns__Retail'));
+    expect(ids).not.toContain(unmapped('Retail'));
+    expect(packaged).toMatchObject({ severity: 'blocking', rows: 1 });
+    expect(packaged?.detail).toMatchObject({ sameDeveloperName: ['Retail'] });
+    expect(packaged?.detail?.['ignored']).toBeUndefined();
+    expect(packaged && ignoredGapEntry([unmapped('Retail')], packaged, ids)).toBeUndefined();
+  });
+
+  it('leaves the package’s refused value undecided by a decision kept under the bare name of the org’s own Retail, which takes the value', async () => {
+    // The target's own Retail takes Open, which the package's refuses: the
+    // read holds the package's gap of Open alone. Held back or mapped under
+    // the bare name, as a template kept it before namespaces, the run applies
+    // it to the org's own rows alone and sends the package's order with
+    // Open; Review read the decision as the package's gap's, and said it
+    // decided.
+    const ownOpen = forgeGapId('picklist_value_refused', 'Order__c', 'Status__c', 'Retail', 'Open');
+    const packagedOpen = forgeGapId(
+      'picklist_value_refused',
+      'Order__c',
+      'Status__c',
+      'ns__Retail',
+      'Open',
+    );
+    const mapping = {
+      object: 'Order__c',
+      field: 'Status__c',
+      recordType: 'Retail',
+      from: 'Open',
+      to: 'New',
+    };
+    const skipped = { object: 'Order__c', gapId: ownOpen };
+    const decided: Array<NonNullable<ExecuteOptions['decisions']>> = [
+      { ...REGION_GIVEN, skippedRows: [skipped] },
+      { ...REGION_GIVEN, picklistValueMappings: [mapping] },
+    ];
+    const found: Array<{ ids: string[]; gap: ExecutionSummary['gaps'] }> = [];
+    for (const decisions of decided) {
+      const { deps, options } = namespacedOrgs({ packageInTarget: true });
+      const answer = deps.queryRecords.getMockImplementation()!;
+      deps.queryRecords.mockImplementation(async (org: string, soql: string) =>
+        org === 'src' && soql.includes(' FROM Order__c')
+          ? selectRows({ Order__c: [...SOURCE.Order__c, order(4, PACKAGED, 'Open')] }, soql)
+          : answer(org, soql),
+      );
+      const { summary } = await run(deps, { ...options, dryRun: true, decisions });
+      const ids = (summary.gaps ?? []).map((gap) => gap.id);
+      found.push({ ids, gap: summary.gaps?.filter((gap) => gap.id === packagedOpen) });
+    }
+
+    for (const { ids, gap } of found) {
+      expect(ids).not.toContain(ownOpen);
+      expect(gap).toEqual([
+        expect.objectContaining({
+          recordType: 'ns__Retail',
+          rows: 1,
+          detail: expect.objectContaining({ sameDeveloperName: ['Retail'] }),
+        }),
+      ]);
+    }
+    const [held, mapped] = found;
+    expect(skippedRowsEntry([skipped], held.gap![0], held.ids)).toBeUndefined();
+    expect(picklistMappingEntry([mapping], mapped.gap![0], mapped.ids)).toBeUndefined();
+  });
+});
+
+describe('ForgeExecutor, a simulation of the rows the target refuses for a field it requires', () => {
+  const OPPORTUNITY = id('006', 1);
+  const MEMBER = id('00q', 1);
+  const SOURCE_OWNER = id('005', 1);
+
+  const opportunityFields: FieldInfo[] = [field('Id'), field('Name', { type: 'string' })];
+  /**
+   * An opportunity team member, as both orgs describe it: its user is
+   * required, and a user is never copied, so the lookup goes empty.
+   */
+  const memberFields: FieldInfo[] = [
+    field('Id'),
+    field('OpportunityId', { isReference: true, referenceTo: ['Opportunity'], nillable: false }),
+    field('UserId', { isReference: true, referenceTo: ['User'], nillable: false }),
+    field('TeamMemberRole', { type: 'picklist' }),
+  ];
+  const graph: ForgeGraph = {
+    nodes: [node('Opportunity', 0), node('OpportunityTeamMember', 1)],
+    edges: [
+      {
+        sourceObject: 'Opportunity',
+        targetObject: 'OpportunityTeamMember',
+        relationshipName: 'OpportunityTeamMembers',
+        type: 'lookup',
+      },
+    ],
+    totalRecords: 2,
+    estimatedSizeMB: 0,
+    estimatedDurationSeconds: 0,
+  };
+  const source: Record<string, FakeRow[]> = {
+    Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal 05' }],
+    OpportunityTeamMember: [
+      {
+        Id: MEMBER,
+        OpportunityId: OPPORTUNITY,
+        UserId: SOURCE_OWNER,
+        TeamMemberRole: 'Opportunity Owner',
+      },
+    ],
+  };
+
+  /** Both orgs, the target refusing a member without its user as a real org refused it. */
+  function teamOrgs() {
+    let next = 0;
+    const deps = {
+      describeFields: vi.fn(async (_org: string, object: string) =>
+        object === 'Opportunity' ? opportunityFields : memberFields,
+      ),
+      queryRecords: vi.fn(async (org: string, soql: string) =>
+        org === 'src' ? selectRows(source, soql) : [],
+      ),
+      insertRecords: vi.fn(async (_org: string, object: string, rows: Record<string, unknown>[]) =>
+        rows.map((row): InsertResult => {
+          if (object === 'OpportunityTeamMember' && !row['UserId']) {
+            return {
+              id: '',
+              success: false,
+              errors: ['REQUIRED_FIELD_MISSING: Required fields are missing: [UserId]'],
+            };
+          }
+          next++;
+          return { id: id('006', 100 + next), success: true, errors: [] };
+        }),
+      ),
+      updateRecords: vi.fn(async () => []),
+      upsertRecords: vi.fn(async () => []),
+      describeObject: vi.fn(async (_org: string, object: string): Promise<TargetObjectInfo> => ({
+        keyPrefix: object === 'Opportunity' ? '006' : '00q',
+        recordTypes: [],
+      })),
+    } satisfies ForgeExecutorDeps;
+    return deps;
+  }
+
+  const options: ExecuteOptions = {
+    rootRecordId: OPPORTUNITY,
+    rootObjectApiName: 'Opportunity',
+  };
+  const execute = (deps: ForgeExecutorDeps, more: Partial<ExecuteOptions>) =>
+    new ForgeExecutor(deps).execute(graph, 'src', 'tgt', () => {}, { ...options, ...more });
+  const refused = (summary: ExecutionSummary) =>
+    summary.errors.find((error) => error.objectApiName === 'OpportunityTeamMember');
+
+  it('holds back, in a dry run as in the real run, a member whose user the target has no counterpart of, where it said all would be inserted', async () => {
+    // Run for real with Team Selling on, the clone of an opportunity had its
+    // team member refused, REQUIRED_FIELD_MISSING [UserId], and its dry run
+    // had said it would be inserted, nothing refused. The user is none the
+    // target has — not the opportunity's owner, which the source does not
+    // say here, nor one a mapping gives — so neither sends it.
+    const real = await execute(teamOrgs(), {});
+    const dry = await execute(teamOrgs(), { dryRun: true });
+
+    const why = [
+      "Not written: UserId names a user the target has no counterpart of: a team member and a split go in for the opportunity's owner, which is the owner of its copy in the target, for a user an owner mapping gives, or for a user of the same id the target holds active.",
+    ];
+    expect(real.successCount).toBe(1);
+    expect(real.failedCount).toBe(1);
+    expect(refused(real)).toMatchObject({ failedCount: 1, attemptedCount: 0 });
+    expect(refused(real)?.samples[0]?.messages).toEqual(why);
+    expect(dry.wouldInsertCount).toBe(1);
+    expect(dry.failedCount).toBe(1);
+    expect(refused(dry)).toMatchObject({ failedCount: 1, attemptedCount: 0 });
+    expect(refused(dry)?.samples[0]?.messages).toEqual(why);
+    // The gap a decision can close, as for any field the target requires.
+    expect(
+      gapOf(dry, forgeGapId('required_field_missing', 'OpportunityTeamMember', 'UserId')),
+    ).toMatchObject({ severity: 'blocking', rows: 1 });
+  });
+
+  it('counts the row as would be inserted once a decision gives the field a value', async () => {
+    const dry = await execute(teamOrgs(), {
+      dryRun: true,
+      decisions: {
+        defaultValues: [{ object: 'OpportunityTeamMember', field: 'UserId', value: id('005', 9) }],
+      },
+    });
+
+    expect(dry.wouldInsertCount).toBe(2);
+    expect(dry.failedCount).toBe(0);
   });
 });

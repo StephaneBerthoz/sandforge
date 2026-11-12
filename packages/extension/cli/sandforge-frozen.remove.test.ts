@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
@@ -24,7 +24,17 @@ vi.mock('../src/core/connection/ConnectionHelper.js', async (original) => ({
 import { makeConn } from './sfSession.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { SasReferenceIdMappingStore } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
-import { failsTheStep, frozenStepExit, main, messageLines } from './sandforge-frozen.js';
+import { otherRunsInSweep } from '../src/bridge/handlers/removalSweep.js';
+import { indexLoad } from '../src/modules/frozendataset/otherSasLoads.js';
+import {
+  commandLineOtherRuns,
+  failsTheStep,
+  frozenStepExit,
+  main,
+  messageLines,
+  parseArgs,
+  removalAsked,
+} from './sandforge-frozen.js';
 
 /** The target, a sandbox, as its `Organization` record answers. */
 const ORG_ID = '00D000000000009AAA';
@@ -166,6 +176,187 @@ describe('sandforge-frozen remove, with nothing to take', () => {
   });
 });
 
+describe('sandforge-frozen remove --sweep-list of a load the target no longer dates', () => {
+  /**
+   * A load that kept no dates of the target's, whose account the target no
+   * longer holds: the window its automation wrote in cannot be read.
+   */
+  async function undatedLoad(): Promise<void> {
+    await new SasReferenceIdMappingStore(sasDir, {
+      orgId: ORG_ID,
+      organizationId: ORG_ID,
+      now: () => new Date('2026-10-17T08:00:10.000Z'),
+    }).persist(new Map([['Account-000001', '001000000000001AAA']]), {
+      created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+      startedAt: new Date('2026-10-17T08:00:00.000Z'),
+    });
+  }
+  const REFUSED =
+    'sweep refused: The target did not date this run’s writes: the window its automation ' +
+    'wrote in cannot be told, and nothing is swept.';
+
+  it('exits 3, as the refused sweep does, where it ended 0 as an empty list', async () => {
+    await undatedLoad();
+
+    await main(argv('remove', '--config', configPath, '--target', 'TGT', '--sweep-list'));
+
+    expect(printed.join('')).toContain(REFUSED);
+    expect(process.exitCode).toBe(3);
+  });
+
+  it('exits 3 under --json, the refusal said in the listing it posted, as before', async () => {
+    await undatedLoad();
+    let stderr = '';
+    vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string) => {
+      stderr += chunk;
+      return true;
+    }) as never);
+
+    await main(argv('remove', '--config', configPath, '--target', 'TGT', '--sweep-list', '--json'));
+
+    expect(stderr).toContain(REFUSED);
+    const answer = JSON.parse(printed.join('')) as {
+      posted: Array<{ type: string; payload: { listing?: { refusal?: string } } }>;
+    };
+    expect(
+      answer.posted.find((m) => m.type === 'frozen:remove:sweep:response')?.payload.listing
+        ?.refusal,
+    ).toBe(REFUSED.replace('sweep refused: ', ''));
+    expect(process.exitCode).toBe(3);
+  });
+});
+
+describe('what a sweep of a load is asked, and what the removal says', () => {
+  it('asks the panel’s handler for what came late and what is tied to nothing only when told', () => {
+    const line = ['remove', '--config', 'c.json', '--target', 'TGT'];
+
+    expect(removalAsked(parseArgs(argv(...line, '--sweep')))).toEqual({ sweep: true });
+    expect(
+      removalAsked(parseArgs(argv(...line, '--sweep', '--sweep-late', '--sweep-untied'))),
+    ).toEqual({ sweep: true, sweepLate: true, sweepUntied: true });
+    expect(removalAsked(parseArgs(argv(...line)))).toEqual({});
+  });
+
+  it('says what a removal including changes took along that the load never wrote', () => {
+    // Run for real: the contact made by hand under an account of the load
+    // went with the account, and the removal said "Contact: 4 deleted of 4",
+    // keptDependents 0, nothing of it.
+    const account = {
+      objectApiName: 'Account',
+      planned: 2,
+      deleted: 2,
+      alreadyGone: 0,
+      keptChanged: 0,
+      keptDependents: 0,
+      refused: 0,
+      heldBy: [],
+      unchecked: [],
+      reasons: [],
+      tookAlong: { count: 1, objects: ['Contact'] },
+    };
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        result: {
+          status: 'success',
+          includeChanged: true,
+          objects: [
+            { ...account, objectApiName: 'Contact', planned: 4, deleted: 4, tookAlong: undefined },
+            account,
+          ],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'removal: SUCCESS',
+      '  Contact: 4 deleted of 4',
+      '  Account: 2 deleted of 2',
+      "      took along 1 record(s) that were not the load's, added or changed since it: Contact",
+    ]);
+  });
+
+  it('names the platform’s copies beside their object, and what the automation likely made that kept records', () => {
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        result: {
+          status: 'partial',
+          objects: [
+            {
+              objectApiName: 'QuoteLineItem',
+              planned: 4,
+              deleted: 4,
+              alreadyGone: 0,
+              keptChanged: 0,
+              keptDependents: 0,
+              refused: 0,
+              heldBy: [],
+              platformCopies: 2,
+              unchecked: [],
+              reasons: [],
+            },
+            {
+              objectApiName: 'Account',
+              planned: 1,
+              deleted: 0,
+              alreadyGone: 0,
+              keptChanged: 0,
+              keptDependents: 1,
+              refused: 0,
+              heldBy: ['Task'],
+              heldByAutomation: 1,
+              automationHolders: ['Task'],
+              unchecked: [],
+              reasons: [],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      '  QuoteLineItem: 4 deleted of 4 (2 the run wrote, and 2 the platform copied between the quote the run synced and its opportunity)',
+    );
+    expect(lines).toContain(
+      "1 record(s) of the run kept for records created under them during the run, as its user, likely by the target's automation (Task): --sweep takes them first (--sweep-list shows them); a record made by hand as the run's user under the run's records within a minute of them reads as the automation's, and one changed by hand before the run's last write as unchanged: check the names before a --sweep",
+    );
+  });
+
+  it('says what kept records of the load was created after its last write when it was, and what its sweep would take that may not be the load’s', () => {
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        result: {
+          status: 'partial',
+          objects: [
+            {
+              objectApiName: 'Account',
+              planned: 1,
+              deleted: 0,
+              alreadyGone: 0,
+              keptChanged: 0,
+              keptDependents: 1,
+              refused: 0,
+              heldBy: ['Task'],
+              heldByAutomation: 1,
+              heldByAutomationAfterRun: 1,
+              automationHolders: ['Task'],
+              unchecked: [],
+              reasons: [],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      "1 record(s) of the run kept for records created under them as its user after the run's last write, within a minute of them, by the target's automation or by hand (Task): --sweep takes them first (--sweep-list shows them); a record made by hand as the run's user under the run's records within a minute of them reads as the automation's, and one changed by hand before the run's last write as unchanged: check the names before a --sweep",
+    );
+    expect(lines.join('\n')).not.toContain('during the run');
+  });
+});
+
 describe('the exit code of a step', () => {
   const verdict = (status: string) => ({
     type: 'frozen:verify:result',
@@ -187,8 +378,149 @@ describe('the exit code of a step', () => {
     });
     expect(frozenStepExit('load', [load('completed'), verdict('passed')])).toBe(0);
     expect(frozenStepExit('load', [load('completed-with-errors'), verdict('passed')])).toBe(3);
-    // The verification a load runs after it is said; `verify` gives it a code.
+    // A verification that did not pass ends the load's report partial.
+    expect(frozenStepExit('load', [load('partial'), verdict('failed')])).toBe(3);
+    // One whose readings never agreed is said; `verify` gives it a code.
     expect(frozenStepExit('load', [load('completed'), verdict('unstable')])).toBe(0);
+  });
+
+  it('gives a reload whose sweep did not take all it was to 3, as the removal its sweep belongs to', () => {
+    const reload = (...statuses: string[]) => ({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          sweeps: statuses.map((status, n) => ({
+            loadedAt: `2026-10-0${n + 1}T10:00:00.000Z`,
+            result: { status, objects: [], unread: [], handWork: [] },
+          })),
+        },
+      },
+    });
+    expect(frozenStepExit('load', [reload('success', 'success')])).toBe(0);
+    expect(frozenStepExit('load', [reload('success', 'refused')])).toBe(3);
+    expect(frozenStepExit('load', [reload('partial')])).toBe(3);
+    expect(frozenStepExit('load', [reload('cancelled')])).toBe(3);
+  });
+
+  it('says what the sweep of each load a reload replaced did, after its purge', () => {
+    const lines = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          durationMs: 1,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: { Contact: 30 }, deactivated: {}, failures: [] },
+          sweeps: [
+            {
+              loadedAt: '2026-10-01T10:05:00.000Z',
+              result: {
+                status: 'success',
+                objects: [
+                  {
+                    objectApiName: 'Task',
+                    found: 30,
+                    deleted: 30,
+                    alreadyGone: 0,
+                    keptChanged: 0,
+                    refused: 0,
+                    reasons: [],
+                  },
+                ],
+                unread: [],
+                handWork: [],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const purge = lines.indexOf('purge of earlier loads: 30 deleted, 0 deactivated, 0 failed');
+    expect(purge).toBeGreaterThanOrEqual(0);
+    expect(lines.slice(purge + 1, purge + 4)).toEqual([
+      'sweep of the load of 2026-10-01T10:05:00.000Z:',
+      'sweep: SUCCESS',
+      '  Task: 30 deleted of 30',
+    ]);
+  });
+
+  it('says what a removal’s sweep did for each other load it swept, after its own', () => {
+    const sweep = (deleted: number) => ({
+      status: 'success',
+      objects: [
+        {
+          objectApiName: 'Task',
+          found: deleted,
+          deleted,
+          alreadyGone: 0,
+          keptChanged: 0,
+          refused: 0,
+          reasons: [],
+        },
+      ],
+      unread: [],
+      handWork: [],
+    });
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        result: {
+          status: 'success',
+          objects: [],
+          sweep: sweep(30),
+          otherLoadSweeps: [{ loadedAt: '2026-10-01T10:05:00.000Z', result: sweep(60) }],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'sweep: SUCCESS',
+      '  Task: 30 deleted of 30',
+      'sweep of the load of 2026-10-01T10:05:00.000Z:',
+      'sweep: SUCCESS',
+      '  Task: 60 deleted of 60',
+    ]);
+  });
+
+  it('lists, with --sweep-list, what the sweep takes for each other load apart, by the load', () => {
+    const listing = (count: number) => ({
+      window: { from: '2026-10-01T10:00:00Z', to: '2026-10-01T10:06:00Z' },
+      looked: ['Task'],
+      found: [
+        {
+          objectApiName: 'Task',
+          count,
+          names: [],
+          classes: { made: count, madeOver: 0, late: 0, untied: 0 },
+        },
+      ],
+      unread: [],
+      handWork: [],
+    });
+    const alone = messageLines({
+      type: 'frozen:remove:sweep:response',
+      payload: { loadedAt: '2026-10-02T10:05:00.000Z', listing: listing(1) },
+    });
+    const both = messageLines({
+      type: 'frozen:remove:sweep:response',
+      payload: {
+        loadedAt: '2026-10-02T10:05:00.000Z',
+        listing: listing(1),
+        otherLoads: [{ loadedAt: '2026-10-01T10:05:00.000Z', listing: listing(30) }],
+      },
+    });
+
+    expect(alone.join('\n')).not.toContain('sweep of the load of');
+    expect(both.filter((line) => line.startsWith('sweep of the load of'))).toEqual([
+      'sweep of the load of 2026-10-02T10:05:00.000Z:',
+      'sweep of the load of 2026-10-01T10:05:00.000Z:',
+    ]);
+    expect(both.join('\n')).toContain('  Task: 30 — 30 made for the run');
   });
 
   it('gives a removal that left records of the load 3, as the other removals give it', () => {
@@ -219,5 +551,81 @@ describe('failsTheStep', () => {
     ).toBe(true);
     expect(failsTheStep({ type: 'frozen:remove:response', payload: {} })).toBe(false);
     expect(messageLines(removal('ALREADY_REMOVED'))).toEqual(['nothing to remove: refused']);
+  });
+});
+
+describe('commandLineOtherRuns', () => {
+  let dir: string;
+  const ORG = '00D000000000001AAA';
+  /** When the load being removed wrote. */
+  const WRITTEN = { first: '2026-11-03T15:00:00.000Z', last: '2026-11-03T15:05:00.000Z' };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'sandforge-frozen-other-runs-'));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** A Sync run's file in the folder, as sandforge-sync keeps one. */
+  function syncRan(runId: string, from: string, to: string, ids: string[]): void {
+    mkdirSync(join(dir, 'sync-runs'), { recursive: true });
+    const lines = [
+      {
+        run: {
+          runId,
+          configId: 'sandforge-sync',
+          configName: runId,
+          sourceOrgId: 'SRC',
+          targetOrgId: 'TGT',
+          targetOrganizationId: ORG,
+          startedAt: from,
+        },
+      },
+      { object: 'Task', created: ids, at: from },
+      { end: { at: to, status: 'success' } },
+    ];
+    writeFileSync(
+      join(dir, 'sync-runs', `${runId}.ndjson`),
+      `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`,
+    );
+  }
+
+  it('names a Sync run of this machine that wrote in the load’s window, which a sweep then never takes', async () => {
+    syncRan('beside', '2026-11-03T15:02:00.000Z', '2026-11-03T15:03:00.000Z', [
+      '00T000000000007AAA',
+    ]);
+    const runs = await commandLineOtherRuns('TGT', dir)(ORG, WRITTEN);
+    expect(otherRunsInSweep(WRITTEN, runs)).toEqual([{ ids: ['00T000000000007AAA'] }]);
+  });
+
+  it('names none written well apart from the load, and none when the load’s window is not known', async () => {
+    syncRan('before', '2026-11-03T10:00:00.000Z', '2026-11-03T10:01:00.000Z', [
+      '00T000000000008AAA',
+    ]);
+    expect(await commandLineOtherRuns('TGT', dir)(ORG, WRITTEN)).toEqual([]);
+    expect(await commandLineOtherRuns('TGT', dir)(ORG, undefined)).toEqual([]);
+  });
+
+  it('names a load this command ran from another sas into the org in the window, and none of its own sas', async () => {
+    // Read from clones, Sync and Seed alone, a --sweep-untied of one sas took
+    // the tasks a load from another sas had just made its flow open.
+    indexLoad(dir, {
+      organizationId: ORG,
+      sas: 'sha256:other',
+      startedAt: '2026-11-03T15:01:00.000Z',
+      endedAt: '2026-11-03T15:04:00.000Z',
+    });
+    indexLoad(dir, {
+      organizationId: ORG,
+      sas: 'sha256:this',
+      startedAt: '2026-11-03T15:00:00.000Z',
+      endedAt: '2026-11-03T15:05:00.000Z',
+    });
+
+    const runs = await commandLineOtherRuns('TGT', dir, 'sha256:this')(ORG, WRITTEN);
+
+    expect(otherRunsInSweep(WRITTEN, runs)).toEqual([{ ids: [], idsUntold: true }]);
   });
 });

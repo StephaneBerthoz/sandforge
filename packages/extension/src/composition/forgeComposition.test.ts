@@ -100,8 +100,18 @@ function sfId(object: string, n: number): string {
 /** Describe calls per `org::object`, across every connection handed out. */
 let describeCalls: Map<string, number>;
 
+/** The statements every connection was sent, as `org: soql`. */
+let queriesSent: string[];
+
 /** The headers each create sent, in the order the creates went out. */
 let createHeaders: Array<{ objectApiName: string; headers?: Record<string, string> }>;
+
+/** What a query answers: rows of the object asked, or the permissions of the user. */
+interface QueryResult {
+  totalSize: number;
+  done: boolean;
+  records: Array<Record<string, unknown>>;
+}
 
 /** A connection to `orgId` that counts describes and answers queries and writes. */
 function fakeConnection(orgId: string) {
@@ -114,7 +124,11 @@ function fakeConnection(orgId: string) {
     describeGlobal: vi.fn(async () => ({
       sobjects: Object.keys(PREFIX).map((name) => ({ name, keyPrefix: PREFIX[name] })),
     })),
-    query: vi.fn(async (soql: string) => {
+    query: vi.fn(async (soql: string): Promise<QueryResult> => {
+      queriesSent.push(`${orgId}: ${soql}`);
+      if (soql === 'SELECT PermissionsModifyAllData FROM UserPermissionAccess') {
+        return { totalSize: 1, done: true, records: [{ PermissionsModifyAllData: true }] };
+      }
       const object = /\bFROM\s+(\w+)/i.exec(soql)?.[1] ?? '';
       if (/COUNT\(\)/i.test(soql)) return { totalSize: 2, done: true, records: [] };
       const records = [1, 2].map((n) => ({
@@ -182,6 +196,7 @@ const SOQL_CONFIG: ForgeConfig = {
 describe('initForgeComposition', () => {
   beforeEach(() => {
     describeCalls = new Map();
+    queriesSent = [];
     createHeaders = [];
     vi.mocked(getJsforceConnection).mockReset();
     vi.mocked(getJsforceConnection).mockImplementation(
@@ -211,6 +226,103 @@ describe('initForgeComposition', () => {
     for (const [key, count] of describeCalls) {
       expect({ key, count }).toEqual({ key, count: 1 });
     }
+  });
+
+  it("says a report no user can create in Review's metadata and gaps alike, from one read of who may be given Create", async () => {
+    // The Metadata tab and the Gaps tab, read at the same moment, both asked
+    // the target's administrator to give a Create no user can be given.
+    DESCRIBES['Report'] = {
+      name: 'Report',
+      createable: false,
+      fields: [field('Id', 'id'), field('Name', 'string')],
+      childRelationships: [],
+    };
+    DESCRIBES['ObjectPermissions'] = {
+      name: 'ObjectPermissions',
+      createable: true,
+      fields: [
+        field('Id', 'id'),
+        {
+          ...field('SobjectType', 'picklist'),
+          picklistValues: ['Account', 'Contact', 'Opportunity'].map((value) => ({
+            value,
+            active: true,
+          })),
+        },
+      ],
+      childRelationships: [],
+    };
+    try {
+      const { services } = await compose();
+      const graph = buildSyntheticForgeGraph(['Account', 'Report']);
+
+      const [diff, gaps] = await Promise.all([
+        services.metadataDiff?.compare('src', 'tgt', ['Report']),
+        services.targetGaps?.read('src', 'tgt', graph),
+      ]);
+
+      expect(diff).toEqual([
+        expect.objectContaining({
+          objectApiName: 'Report',
+          severity: 'info',
+          notCreatableBy: 'setup',
+        }),
+      ]);
+      expect(gaps?.gaps.find((gap) => gap.objectApiName === 'Report')).toMatchObject({
+        kind: 'object_setup_only',
+        severity: 'info',
+      });
+      expect(describeCalls.get('tgt::ObjectPermissions')).toBe(1);
+      expect(queriesSent.filter((sent) => sent.includes('UserPermissionAccess'))).toEqual([
+        'tgt: SELECT PermissionsModifyAllData FROM UserPermissionAccess',
+      ]);
+    } finally {
+      delete DESCRIBES['Report'];
+      delete DESCRIBES['ObjectPermissions'];
+    }
+  });
+
+  it('reads the record types of an object it writes again from the org once the lease assigned a set, past the describe it holds', async () => {
+    // A contact type besides Master, which a set the lease assigns may open:
+    // the describe the window holds from before the assignment says the
+    // types as they were.
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      return {
+        ...connection,
+        describe: vi.fn(async (objectApiName: string) => {
+          const described = (await connection.describe(objectApiName)) as Record<string, unknown>;
+          if (objectApiName !== 'Contact') return described;
+          return {
+            ...described,
+            keyPrefix: '003',
+            recordTypeInfos: [
+              {
+                active: true,
+                available: true,
+                defaultRecordTypeMapping: true,
+                developerName: 'Partner',
+                master: false,
+                name: 'Partner',
+                recordTypeId: '012000000000009AAA',
+                urls: {},
+              },
+            ],
+          };
+        }),
+      } as unknown as Connection;
+    });
+    const { orchestrator } = await compose();
+    const graph = await orchestrator.discover(SOQL_CONFIG);
+    const before = describeCalls.get('tgt::Contact') ?? 0;
+
+    await orchestrator.execute(graph, SOQL_CONFIG, {
+      beforeWrite: async (boundary) =>
+        boundary.dryRun ? undefined : { lease: { assigned: 1, giveBack: async () => undefined } },
+    });
+
+    // Once for the run, as every describe, and once more from the org under the lease.
+    expect((describeCalls.get('tgt::Contact') ?? 0) - before).toBe(2);
   });
 
   it('gives each node of the graph its object’s label, from the describe discovery read', async () => {

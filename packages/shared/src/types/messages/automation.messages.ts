@@ -30,12 +30,12 @@ export interface PipelineStepUpdate extends BaseMessage {
   payload: {
     operationId: string;
     stepId: string;
-    status: 'running' | 'completed' | 'failed' | 'skipped';
+    status: 'running' | 'completed' | 'failed' | 'skipped' | 'stopped';
     /** How long the step ran, in milliseconds, once it has ended. */
     duration?: number;
     /** What the step did (see `PipelineStepResult.summary`). */
     summary?: string;
-    /** Why the step failed. */
+    /** Why the step failed, or what its stop left. */
     error?: string;
     /**
      * Set while an Approval step waits for an answer: the message it asks
@@ -253,6 +253,27 @@ export interface PipelineSaveResponse extends BaseMessage {
 }
 
 /**
+ * Delete a saved pipeline (AutomationHandler): its schedules and sandbox
+ * refresh triggers no longer start it, and the confirmations of its Rewind
+ * steps are taken back. Its runs stay in the history. A pipeline a run holds,
+ * from the page, a trigger or another window, is refused on `pipeline:error`
+ * with the code `PIPELINE_RUNNING`, and stays saved.
+ */
+export interface PipelineDeleteRequest extends BaseMessage {
+  type: 'pipeline:delete';
+  payload: { id: string };
+}
+
+/**
+ * Response after deleting a saved pipeline. `deleted` is false when nothing
+ * was saved under `id`: another window deleted it first.
+ */
+export interface PipelineDeleteResponse extends BaseMessage {
+  type: 'pipeline:delete:response';
+  payload: { id: string; deleted: boolean };
+}
+
+/**
  * Browse… on the Migration page: the window's open dialog, for an SFDMU
  * export.json. The page had only a field to type an absolute path in.
  */
@@ -275,6 +296,75 @@ export interface MigrationImportSfdmuRequest extends BaseMessage {
   payload: { filePath: string };
 }
 
+/**
+ * Why an export.json was refused, as a code the page words in the reader's
+ * language. Nothing of a refused file is imported.
+ *
+ * - `TARGET_OBJECT_MAPPED`: it sends an object to another object, which a Sync
+ *   configuration cannot say.
+ * - `NOT_JSON`: the file is not JSON.
+ * - `NO_OBJECTS`: it lists no object, under `objects` or `objectSets`.
+ * - `OBJECT_NOT_NAMED`: an entry names no object, in its query or under `name`.
+ * - `INVALID_EXPORT`: a value is not of the kind SFDMU's format holds there.
+ */
+export type MigrationImportRefusal =
+  'TARGET_OBJECT_MAPPED' | 'NOT_JSON' | 'NO_OBJECTS' | 'OBJECT_NOT_NAMED' | 'INVALID_EXPORT';
+
+/**
+ * What an imported export.json asked that the Sync configuration does not do
+ * as SFDMU would, as a code the page words in the reader's language.
+ *
+ * An object left out of the configuration: `excluded`, `readonly`, `noQuery`,
+ * `unknownOperation`, `deletesElsewhere`, `mockAllFields`, `duplicate`.
+ *
+ * An object kept, doing less or more than SFDMU would: `delete`, `updateKey`,
+ * `defaultKey`, `upsertKey`, `unusableKey`, `fieldMappingOff`, `valueRows`,
+ * `notMaster`, `limit`, `queryClause`, `queryUnread`, `whereRefused`,
+ * `deleteOldData`, `mockFields`, `nameDiffers`, `settings`, and `everyField`,
+ * whose query's SELECT names no list of fields: its detail is what it names
+ * instead, `Id`, `all`, `FIELDS(ALL)` or another of SFDMU's keywords.
+ *
+ * The file as a whole: `contactPoints`, `objectSets`, `mappingFileUnread`,
+ * and `settings` when it names no object.
+ */
+export type MigrationImportNoteCode =
+  | 'excluded'
+  | 'readonly'
+  | 'noQuery'
+  | 'unknownOperation'
+  | 'deletesElsewhere'
+  | 'mockAllFields'
+  | 'duplicate'
+  | 'delete'
+  | 'updateKey'
+  | 'defaultKey'
+  | 'upsertKey'
+  | 'unusableKey'
+  | 'fieldMappingOff'
+  | 'valueRows'
+  | 'notMaster'
+  | 'limit'
+  | 'queryClause'
+  | 'queryUnread'
+  | 'whereRefused'
+  | 'deleteOldData'
+  | 'mockFields'
+  | 'nameDiffers'
+  | 'settings'
+  | 'everyField'
+  | 'contactPoints'
+  | 'objectSets'
+  | 'mappingFileUnread';
+
+/** One thing an import did not carry over as SFDMU would have done it. */
+export interface MigrationImportNote {
+  code: MigrationImportNoteCode;
+  /** The object it is about, by its API name. A note on the whole file names none. */
+  object?: string;
+  /** What it names, as the file spells it: fields, settings, a clause, a number. */
+  detail?: string;
+}
+
 /** Response after importing an SFDMU export.json with detected dependencies */
 export interface MigrationImportSfdmuResponse extends BaseMessage {
   type: 'migration:import-sfdmu:response';
@@ -282,7 +372,17 @@ export interface MigrationImportSfdmuResponse extends BaseMessage {
     success: boolean;
     config?: Record<string, unknown>;
     dependencies?: Array<{ from: string; to: string }>;
+    /** With a success: what the file asked that the configuration does not do as SFDMU would. */
+    notes?: MigrationImportNote[];
     error?: string;
+    /** Why it was refused, as a code the page words in the reader's language. */
+    code?: MigrationImportRefusal;
+    /**
+     * With a refusal, what it is about: with `TARGET_OBJECT_MAPPED` each object,
+     * as `Account → Lead (Name → Company)`, and with `OBJECT_NOT_NAMED` and
+     * `INVALID_EXPORT` each entry, by its place in the file.
+     */
+    objects?: string[];
   };
 }
 

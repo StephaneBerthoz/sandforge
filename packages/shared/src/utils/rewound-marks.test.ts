@@ -121,6 +121,33 @@ describe('rewoundMarkOf', () => {
     expect(rewoundMarkOf(edge, [rewind({ orgAheadMs: undefined })], NOW)).toBeUndefined();
   });
 
+  it('marks rewound whole a run that took the checkpoint first, its reads begun before the take', () => {
+    // Read from 09:58, the checkpoint taken first from 10:00 to 10:05, then written to 10:20.
+    const tookItFirst = run(ms(at('09:58')), ms(at('10:20')), {
+      checkpointId: 'ck-20261028-100000-aaaa',
+    });
+
+    expect(rewoundMarkOf(tookItFirst, [rewind()], NOW)?.kind).toBe('rewound');
+    // Dated alone, the same run reads as one that ran as the checkpoint was taken.
+    expect(rewoundMarkOf({ ...tookItFirst, checkpointId: undefined }, [rewind()], NOW)?.kind).toBe(
+      'partly',
+    );
+    // Another checkpoint's id says nothing of when the run wrote.
+    expect(
+      rewoundMarkOf({ ...tookItFirst, checkpointId: 'ck-20261028-090000-bbbb' }, [rewind()], NOW)
+        ?.kind,
+    ).toBe('partly');
+  });
+
+  it('marks in part a run that took the checkpoint first and still wrote as the rewind read', () => {
+    const stillWriting = run(ms(at('09:58')), TR, { checkpointId: 'ck-20261028-100000-aaaa' });
+
+    expect(rewoundMarkOf(stillWriting, [rewind()], NOW)?.kind).toBe('partly');
+    expect(rewoundMarkOf(stillWriting, [rewind({ status: 'cancelled' })], NOW)?.kind).toBe(
+      'stopped',
+    );
+  });
+
   it('marks nothing on another org’s run', () => {
     const other = run(ms(at('11:00')), ms(at('11:05')), { orgId: 'org-other' });
 

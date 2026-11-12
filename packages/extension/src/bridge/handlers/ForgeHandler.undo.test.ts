@@ -618,6 +618,16 @@ describe('forge:undo', () => {
     expect(history()[0].undo).toMatchObject({ deleted: 1, kept: 2 });
   });
 
+  it('lists a removal that kept records as partial in Live Operations', async () => {
+    (org.rows.get('Contact') ?? [])[0].LastModifiedDate = AFTER_RUN;
+
+    await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+    expect(tracker.getAll()).toEqual([
+      expect.objectContaining({ module: 'forge', status: 'partial' }),
+    ]);
+  });
+
   it('removes a contact modified since the run when the request includes it', async () => {
     (org.rows.get('Contact') ?? [])[0].LastModifiedDate = AFTER_RUN;
 
@@ -2090,6 +2100,104 @@ describe('forge:undo-automation', () => {
         'forge:undo-automation:response',
       ).map((m) => m.payload.drafted),
     ).toEqual([[], ['Order']]);
+  });
+
+  it('reads what a sweep ticked with the removal deletes too, setting none of it back to Draft', async () => {
+    await handler.handle(
+      buildMsg('forge:undo-automation:request', {
+        forgeId: 'forge-1',
+        sweptObjects: ['Asset', 'Account', 'Order__c'],
+      }),
+    );
+
+    const objects = reader.read.mock.calls[0]?.[1];
+    expect([...(objects ?? [])].sort()).toEqual([
+      'Account',
+      'Asset',
+      'Contact',
+      'Order',
+      'Order__c',
+    ]);
+    const [response] = posted<BaseMessage & { payload: { drafted: string[] } }>(
+      'forge:undo-automation:response',
+    );
+    expect(response?.payload.drafted).toEqual(['Order']);
+  });
+
+  it('reads what fires on the quote lines the platform copied from a synced quote’s line items the run wrote, none of the quote’s lines in its plan', async () => {
+    const entry = (store.get<ForgeExecutionResult[]>('forge:history') ?? [])[0];
+    store.set(
+      'forge:history',
+      [
+        {
+          ...entry,
+          idRemapTable: {
+            [src('0Q0', 1)]: id('0Q0', 1),
+            [src('006', 1)]: id('006', 1),
+            [src('00k', 1)]: id('00k', 1),
+          },
+          idRemapCreated: [
+            { objectApiName: 'Opportunity', sourceIds: [src('006', 1)] },
+            { objectApiName: 'Quote', sourceIds: [src('0Q0', 1)] },
+            { objectApiName: 'OpportunityLineItem', sourceIds: [src('00k', 1)] },
+          ],
+        },
+      ],
+      'forge',
+    );
+    const QUOTE_LINE_FLOW = {
+      objectApiName: 'QuoteLineItem',
+      flows: [
+        {
+          apiName: 'Quote_Line_Delete_Note',
+          label: 'Quote line delete note',
+          timing: 'beforeDelete',
+          startsOn: 'delete',
+          condition: 'none',
+          permissions: [],
+        },
+      ],
+      triggers: [],
+    };
+    reader.read.mockImplementationOnce(async (_orgId: string, objects: readonly string[]) => ({
+      objectsRead: [...objects],
+      objects: (objects.includes('QuoteLineItem') ? [QUOTE_LINE_FLOW] : []) as never[],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 5,
+    }));
+
+    await handler.handle(buildMsg('forge:undo-automation:request', { forgeId: 'forge-1' }));
+
+    const objects = reader.read.mock.calls[0]?.[1];
+    expect([...(objects ?? [])].sort()).toEqual([
+      'Opportunity',
+      'OpportunityLineItem',
+      'Quote',
+      'QuoteLineItem',
+    ]);
+    const [response] = posted<
+      BaseMessage & { payload: { automation: { objects: Array<{ objectApiName: string }> } } }
+    >('forge:undo-automation:response');
+    expect(response?.payload.automation.objects.map((o) => o.objectApiName)).toEqual([
+      'QuoteLineItem',
+    ]);
+  });
+
+  it('refuses what is no API name among what a sweep deletes, and reads nothing', async () => {
+    await handler.handle(
+      buildMsg('forge:undo-automation:request', {
+        forgeId: 'forge-1',
+        sweptObjects: ["Asset' OR Id != null"],
+      }),
+    );
+
+    expect(reader.read).not.toHaveBeenCalled();
+    expect(
+      posted<BaseMessage & { payload: { code: string } }>('forge:undo-automation:error')[0]?.payload
+        .code,
+    ).toBe('INVALID_PAYLOAD');
   });
 
   it('refuses a run the history no longer holds, and reads nothing', async () => {

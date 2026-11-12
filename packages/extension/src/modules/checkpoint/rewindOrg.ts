@@ -12,8 +12,11 @@
  * this machine writes to the org, the day's requests are enough, the emails
  * the writes make it send fit what it has left of each daily limit
  * (`rewindEmails.ts`), and the deletions Undo couldn't bring back and the
- * automation the writes fire were accepted. Each refusal names why, and
- * writes nothing.
+ * automation the writes fire were accepted — and, where the org delivers the
+ * emails of what still runs or would not say whether it does, the emails too.
+ * Each refusal names why, and writes nothing. Asked to mute, the lease is
+ * read back before the first write: a set it does not hold that leaves a
+ * sender running unaccepted refuses the rewind there, the lease given back.
  *
  * **What it acts on.** Tr is read on the org's clock, then the org is read
  * again since the checkpoint (`rewindDiff`), and the first pass is planned
@@ -58,7 +61,10 @@
  *   every read of the checkpoint from then on names them by their new Ids, so
  *   the give-back that follows points every lookup the checkpoint holds that
  *   named one at its new Id. A record the org refuses to make is named, in
- *   its words, and left gone.
+ *   its words, and left gone. An order or a contract past Draft is made at
+ *   the org's Draft status, then given its own once every record of the pass
+ *   is made: the org refuses one made past Draft, and an order takes its
+ *   products only as a draft.
  * - Brought back: a page of 2,000 ids at a time, the undelete's own batches
  *   of 200. Before each batch goes, the children the recycle bin holds of
  *   each of its records, through every relationship its object deletes
@@ -212,8 +218,16 @@ import {
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { CallSizes, RUN_SPLIT_CALLS } from '../../core/common/governorLimit.js';
+import {
+  STATUS_LIFECYCLES,
+  draftStartOf,
+  statusCategories,
+  type StatusCategories,
+} from '../../core/common/platformRecords.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
-import { isMuteRefusedError, type RunMute } from '../forge/AutomationMuteLease.js';
+import { isMuteRefusedError, type HeldMute, type RunMute } from '../forge/AutomationMuteLease.js';
+import { deliverabilityPartOf, type DeliverabilityGate } from '../forge/ForgeRunGate.js';
+import { readEmailDeliverability } from '../forge/targetDeliverability.js';
 import { readColumnsApart } from '../../core/common/wideRead.js';
 import { idLists, RECORDS_PER_CALL, workedObjects } from '../dataops/RecordRemoval.js';
 import {
@@ -283,6 +297,7 @@ import {
   RECYCLE_BIN_DAYS,
   newFolderId,
   previewDirOf,
+  rewindDirOf,
   type CheckpointFolder,
   type OrgCheckpointStore,
   type OrgLock,
@@ -290,13 +305,21 @@ import {
 } from './OrgCheckpointStore.js';
 import { deletedSpoolOf, liveSpoolOf, readStreams, spooledRows } from './orgStreams.js';
 import { ORG_ACCESS, actAccessOf, type ActAccess } from './rewindAccess.js';
+import { firedCount, remakeUnasked, type RemakeUnasked } from './rewindBounds.js';
 import { classFileOf, recreatable, rewindDiff, type RewindClass } from './rewindDiff.js';
 import {
+  actDeliverability,
+  afterLeaseEmailsRefusal,
   checkpointEmails,
   checkpointEmailsUncounted,
+  draftedByPlan,
+  emailsOfLimit,
   emailsRefusal,
   emailsUncountedWords,
+  statusBackByPlan,
   writtenByPlan,
+  type EmailLimits,
+  type WrittenRecords,
 } from './rewindEmails.js';
 import {
   budgetRefusal,
@@ -486,6 +509,39 @@ export const NOT_REMADE_WORDS =
 
 /** What a refusal before the first write did not do. */
 const NOTHING_WRITTEN = 'No record was written.';
+
+/** What fires that a line names at most, the rest counted. */
+const FIRED_NAMED = 4;
+
+/**
+ * Why a rewind left a record the org answered is no longer in the recycle
+ * bin, and what was to come back with it, though making records again was
+ * accepted: making it again runs what its question did not ask about — what
+ * the org runs as it is created, or as an order made as a draft is given
+ * its status back — or what runs then could not all be read. The org's
+ * answer is kept with the checkpoint: a rewind after it counts the record to
+ * make again, and asks.
+ */
+export function notAskedWords(
+  orgName: string,
+  objects: readonly string[],
+  unasked: RemakeUnasked,
+): string {
+  const as = objects.some((name) => STATUS_LIFECYCLES[name] !== undefined)
+    ? 'as it is created or given its status back'
+    : 'as it is created';
+  const named = [...new Set(unasked.fired.map((each) => `${each.objectApiName}: '${each.name}'`))];
+  const more = named.length - FIRED_NAMED;
+  const what =
+    named.length > 0
+      ? `making it again runs what ${orgName} runs ${as} (` +
+        `${named.slice(0, FIRED_NAMED).join(', ')}${more > 0 ? ` and ${more} more` : ''})`
+      : `what ${orgName} runs ${as} could not all be read`;
+  return (
+    `Kept as it is: Salesforce answered it is no longer in the recycle bin, and ${what}, which ` +
+    'this rewind did not ask about. Rewind again: its preview counts it to make again, and asks.'
+  );
+}
 
 const ACCOUNT = 'Account';
 const CONTACT = 'Contact';
@@ -720,21 +776,36 @@ export async function muteOfSteps(
 /**
  * Take the lease of `mute` before the act's first write, run `write`, and give
  * the lease back once it ends, whatever it ended on: what was muted, as it
- * ended, is handed to `ended`.
+ * ended, is handed to `ended`. `write` is handed the lease as it was read
+ * back — none when nothing was to be assigned —, which it checks against its
+ * plan before it writes: refused there, it writes nothing, and the lease is
+ * given back all the same.
+ *
+ * A `write` that throws throws on with what was muted, as `whileMuted` hands
+ * it (`mutedOfError`): the act ends with no result to carry it, and a set the
+ * org would not take back went unsaid while it kept muting the user.
  */
 export async function heldWhile<T>(
   mute: RunMute | undefined,
   runId: string,
-  write: () => Promise<T>,
+  write: (held: HeldMute | undefined) => Promise<T>,
   ended: (muted: MutedAutomation) => void,
 ): Promise<T> {
   const held = mute?.prepared ? await mute.prepared.acquire(runId) : undefined;
   if (mute && !held) ended(mute.muted);
+  let written: T;
   try {
-    return await write();
-  } finally {
-    if (held) ended(await held.release());
+    written = await write(held);
+  } catch (err: unknown) {
+    if (!held) throw err;
+    const muted = await held.release();
+    ended(muted);
+    throw Object.assign(err instanceof Error ? err : new Error(String(err)), {
+      mutedAutomation: muted,
+    });
   }
+  if (held) ended(await held.release());
+  return written;
 }
 
 /** What a rewind is asked. */
@@ -764,6 +835,19 @@ export interface RewindRequest {
   objects?: readonly string[];
   /** Rewind even though the org runs automation as the rewind writes. */
   acceptAutomation: boolean;
+  /**
+   * Rewind even though the org delivers every email its automation sends, or
+   * would not say whether it does, and what still runs as the rewind writes
+   * sends some (`EMAILS_DELIVERED`). Not given, not accepted; never lifted by
+   * `acceptAutomation`.
+   */
+  acceptEmails?: boolean;
+  /**
+   * Whether the rewind could have been asked to mute the org's automation:
+   * the page's and the command line's can, a pipeline's step cannot. Not
+   * muting, its refusal for the emails then names what the mute keeps quiet.
+   */
+  canMute?: boolean;
   /** Delete records Undo couldn't bring back. */
   acceptNoUndo: boolean;
   /** Make again, with new Ids, the records deleted since that the recycle bin no longer gives back. */
@@ -784,6 +868,12 @@ export type RewindOutcome =
       result: RewindResult;
       /** What could not be read, kept or said, in plain words; never thrown. */
       notes: string[];
+      /**
+       * Whether the org delivered the emails what still ran sends, as read
+       * before the first write, for the audit trail; absent when nothing that
+       * ran sends one, so it was not read.
+       */
+      deliverability?: NonNullable<DeliverabilityGate['audit']>;
     }
   | { rewound: false; refusal: CheckpointRefusal };
 
@@ -1005,6 +1095,12 @@ function accessChangedRefusal(orgName: string, changed: readonly string[]): Chec
 }
 
 /**
+ * What lifts a rewind's refusal for the org's automation, in the panel's
+ * words: the command line says its flag in their place.
+ */
+export const REWIND_AUTOMATION_LIFTED_BY = 'accept that it runs to rewind all the same';
+
+/**
  * The refusal of a rewind whose writes fire the org's automation, not
  * accepted, and what of it sends emails that were not counted: there is no
  * preview of the rewind to have said it.
@@ -1020,14 +1116,14 @@ function automationRefusal(
   const makes = (steps.recreate ?? []).length > 0 ? 'makes them again, ' : '';
   const what =
     fired.length > 0
-      ? `${fired.length} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
+      ? `${firedCount(fired)} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
         `rewind brings records back, ${makes}gives them their values back or deletes them`
       : 'what runs as the rewind writes could not all be read, so automation may run';
   return {
     code: 'AUTOMATION',
     message:
       `${orgName}: ${what}. ${emailsUncountedWords('rewind', emailsUncounted)}Rewind refused; ` +
-      `accept that it runs to rewind all the same. ${NOTHING_WRITTEN}`,
+      `${REWIND_AUTOMATION_LIFTED_BY}. ${NOTHING_WRITTEN}`,
   };
 }
 
@@ -1201,6 +1297,18 @@ class PassTally {
    * again was not accepted.
    */
   readonly notInBin = new Map<string, RecordKeySet>();
+  /**
+   * By key, such records, and what was to come back with them, left though
+   * making them again was accepted, with why: making them again runs what
+   * the rewind's question did not ask about (`notAskedWords`).
+   */
+  readonly notAsked = new Map<string, string>();
+  /**
+   * Per object, the records it made again as drafts that a stop left before
+   * their status went back, by their new Ids: drafts until a rewind again
+   * gives it them.
+   */
+  readonly draftsLeft = new Map<string, string[]>();
   /** Per object, such records the checkpoint cannot make again: a file, or one it holds no values of. */
   readonly lost = new Map<string, RecordKeySet>();
   /**
@@ -1492,14 +1600,22 @@ function stepsOf(plan: RewindPlan): ForgeRemovalSteps {
     recreate: objects
       .filter((object) => object.recreated > 0)
       .map((object) => object.objectApiName),
+    // What it made again as a draft is given its status back: an update.
     giveBack: objects
       .filter(
-        (object) => object.givenBackFirst + object.givenBackAfter + object.givenBackNextPass > 0,
+        (object) =>
+          object.givenBackFirst +
+            object.givenBackAfter +
+            object.givenBackNextPass +
+            statusBackByPlan(object) >
+          0,
       )
       .map((object) => object.objectApiName),
     // An order activated since is set back to Draft before its delete: the
-    // platform deletes one no other way.
-    setToDraft: deleted.filter((name) => name === 'Order'),
+    // platform deletes one no other way. Its emails count the same records.
+    setToDraft: objects
+      .filter((object) => draftedByPlan(object) > 0)
+      .map((object) => object.objectApiName),
     delete: deleted,
   };
 }
@@ -1697,6 +1813,8 @@ class Rewind {
   private global: Promise<unknown> | undefined;
   /** Per object of records that came back with a parent, the cascades of their own children. */
   private readonly cascadesOfObject = new Map<string, Promise<Cascade[]>>();
+  /** Per object with a status lifecycle made again, the org's statuses and their categories, read once. */
+  private readonly lifecycles = new Map<string, Promise<StatusCategories | undefined>>();
   /** The objects the org does not query, read once from its global describe. */
   private unqueried: Promise<ReadonlySet<string>> | undefined;
   /** The objects the org answered keep no recycle bin: no `IsDeleted` to read. */
@@ -1747,6 +1865,23 @@ class Rewind {
    * back nor set on the record made again.
    */
   private readonly leftFields = new Map<string, Set<string>>();
+  /**
+   * What its question was asked on once it let the rewind write: the writes
+   * of each step, and what of the org's automation still runs. A record the
+   * org answers is no longer in the recycle bin is made again only where
+   * that write ran nothing unasked (`remakeUnasked`), and whether it was
+   * told to let what runs go, what could not be read among it. Absent when
+   * no automation was read, which asks about nothing.
+   */
+  private asked:
+    { automation: ForgeTargetAutomation; steps: ForgeRemovalSteps; accepted: boolean } | undefined;
+  /**
+   * What its emails were counted on against what the org had left today of
+   * each daily limit: the writes of its plan, then those of each record it
+   * makes again of what the org answers is no longer in the recycle bin, as
+   * it settles them. Absent when no automation was read.
+   */
+  private emailsCounted: { written: WrittenRecords[]; limits: EmailLimits } | undefined;
 
   constructor(
     private readonly deps: RewindDeps,
@@ -1952,11 +2087,31 @@ class Rewind {
     }
     // Asked to mute, the rewind plans it from what it read, and its gate asks
     // only for what still runs; refused, it writes nothing.
+    const read = automation;
     const muting = writing ? await muteOfSteps(this.deps.mute, automation, steps) : {};
     if ('refusal' in muting) return { rewound: false, refusal: muting.refusal };
     if (muting.automation) automation = muting.automation;
+    const plan = muting.mute?.plan;
+    const acceptEmails = this.request.acceptEmails === true;
+    // Whether the org delivers the emails of what still runs once the mute's
+    // plan holds, read only when something may send one: as the user it
+    // writes as, through the connection it counts, before anything is asked.
+    const emails =
+      writing && read
+        ? await actDeliverability({
+            act: 'rewind',
+            orgName,
+            automation: read,
+            steps,
+            ...(plan ? { plan } : {}),
+            accepted: acceptEmails,
+            mayMute: this.deps.mute === undefined && this.request.canMute === true,
+            read: () => readEmailDeliverability(this.org),
+          })
+        : undefined;
     // What it sent so far, its reads and the automation's, and what its
-    // writes and the reads after them take.
+    // writes and the reads after them take; the read of the deliverability
+    // named apart.
     const rest = rewindWritesCost({
       objects: checkpoint.objects,
       diff: diffOfPicked(fresh.diff, this.picked),
@@ -1964,9 +2119,13 @@ class Rewind {
       relationships: await this.relationships(),
       ...(reused ? { reusesPreview: true } : {}),
     });
+    const deliverability = deliverabilityPartOf(emails?.ofRun);
     const overBudget = budgetRefusal(
       'rewind',
-      this.count.used() + rest.apiRequests,
+      {
+        run: this.count.used() - (deliverability.deliverability ?? 0) + rest.apiRequests,
+        ...deliverability,
+      },
       budget,
       orgName,
     );
@@ -1991,6 +2150,14 @@ class Rewind {
     ) {
       return { rewound: false, refusal: automationRefusal(orgName, automation, steps, uncounted) };
     }
+    if (automation) {
+      this.asked = { automation, steps, accepted: this.request.acceptAutomation };
+      this.emailsCounted = { written: [...written], limits: budget.emails };
+    }
+    // The emails of what still runs, where the org delivers them all or would
+    // not say: written only once they were accepted, which the acceptance of
+    // the automation never stands for.
+    if (writing && emails?.refusal) return { rewound: false, refusal: emails.refusal };
     if (this.stopped()) throw new RewindStopped();
     // The user it writes as, read once it will write: what its own writes
     // and the automation they fire are told by, from the first write on.
@@ -2013,7 +2180,27 @@ class Rewind {
       const outcome = await heldWhile(
         muting.mute,
         `rewind ${checkpoint.checkpointId} ${tr}`,
-        () => this.passes(journal, tr, fresh, first, budget.remaining),
+        (held) => {
+          // The lease read back against its plan: a set it does not hold
+          // leaves a sender running that no one was asked about.
+          const relit =
+            held && plan && read && emails
+              ? afterLeaseEmailsRefusal({
+                  act: 'rewind',
+                  orgName,
+                  automation: read,
+                  steps,
+                  plan,
+                  held: held.outcome,
+                  planned: emails.ofRun.senders,
+                  ...(emails.ofRun.read ? { reading: emails.ofRun.read.reading } : {}),
+                  accepted: acceptEmails,
+                })
+              : undefined;
+          return relit
+            ? Promise.resolve<RewindOutcome>({ rewound: false, refusal: relit })
+            : this.passes(journal, tr, fresh, first, budget.remaining);
+        },
         (ended) => {
           muted = ended;
         },
@@ -2026,8 +2213,13 @@ class Rewind {
         }
         throw err;
       });
-      return outcome.rewound && muted
-        ? { ...outcome, result: { ...outcome.result, mutedAutomation: muted } }
+      const said = emails?.gate.audit;
+      return outcome.rewound
+        ? {
+            ...outcome,
+            ...(muted ? { result: { ...outcome.result, mutedAutomation: muted } } : {}),
+            ...(said !== undefined ? { deliverability: said } : {}),
+          }
         : outcome;
     } finally {
       await journal.close();
@@ -2075,10 +2267,14 @@ class Rewind {
     // its first pass brought back: what came back with them goes with them.
     for (const { ids } of prior.did.carried ?? []) for (const id of ids) this.carried.add(id);
     const undoUntil = new Date(Date.parse(prior.head.startedAt) + UNDO_WINDOW_MS).toISOString();
-    await this.deps.store.update(checkpoint.checkpointId, (held) => ({
-      ...held,
-      lastRewind: { rewindId: journal.rewindId, undoUntil },
-    }));
+    // What the checkpoint said of its last rewind before this one, given back
+    // should this one write nothing: none when that was this one, stopped
+    // part way and taken up now.
+    let earlier: OrgCheckpoint['lastRewind'];
+    await this.deps.store.update(checkpoint.checkpointId, (held) => {
+      if (held.lastRewind?.rewindId !== journal.rewindId) earlier = held.lastRewind;
+      return { ...held, lastRewind: { rewindId: journal.rewindId, undoUntil } };
+    });
 
     const writing = writes(first.plan);
     const one = writing ? await this.pass(journal, first.plan, fresh.diff, 1) : new PassTally();
@@ -2137,29 +2333,68 @@ class Rewind {
             : 'failure'
           : 'success';
 
+    const files = this.filesOf(residual, [one, ...(second ? [second.tally] : [])]);
+    // Through with no record and no file's link written, it has nothing an
+    // undo would take back, and offers none: live, a rewind every record of
+    // which the org kept said "Nothing of the rewind … went through", then
+    // offered its undo. Taken up after a stop, it has what its journal says
+    // the stopped pass sent, as its ledger line does.
+    const linked = (files?.unlinked ?? 0) + (files?.relinked ?? 0) + (files?.linksUpdated ?? 0);
+    // Stopped, it is undone and taken up as far as its journal names a write
+    // about to go: one stopped before its first sent the org nothing, and
+    // has neither. Said stopped part way, it took the Undo of the rewind
+    // before it away from the list from its start, that rewind's journal
+    // still on disk.
+    const undoable =
+      did ||
+      linked > 0 ||
+      ((cancelled || journal.resumed) && (await journal.facts()).lastWriteAt !== undefined);
     let removedJournals: EarlierJournalRemoved[] = [];
+    if (cancelled && !undoable) {
+      try {
+        await this.deps.store.update(checkpoint.checkpointId, (held) => {
+          delete held.lastRewind;
+          return earlier ? { ...held, lastRewind: earlier } : held;
+        });
+      } catch (err: unknown) {
+        this.notes.push(
+          `The checkpoint could not be told the rewind stopped before it wrote anything ` +
+            `(${extractErrorMessage(err)}): its list may not offer to undo the rewind before it.`,
+        );
+      }
+    }
     if (!cancelled) {
       await journal.end();
       this.ended = true;
       const endedAt = verify?.diff.readAt ?? this.now().toISOString();
+      // Through with nothing written, it is not the org's last rewind: nothing
+      // it did stands between the org and the rewind before it, which stays
+      // the one Undo reaches, its journal kept rather than deleted by a
+      // rewind that changed nothing.
+      const lastRewind = undoable ? { rewindId: journal.rewindId, endedAt, undoUntil } : earlier;
       try {
-        await this.deps.store.update(checkpoint.checkpointId, (held) => ({
-          ...held,
-          lastRewind: { rewindId: journal.rewindId, endedAt, undoUntil },
-        }));
+        await this.deps.store.update(checkpoint.checkpointId, (held) => {
+          delete held.lastRewind;
+          return lastRewind ? { ...held, lastRewind } : held;
+        });
       } catch (err: unknown) {
         this.notes.push(
-          `The checkpoint could not be told when the rewind ended (${extractErrorMessage(err)}): ` +
-            'its list may not offer to undo it.',
+          undoable
+            ? `The checkpoint could not be told when the rewind ended (${extractErrorMessage(err)}): ` +
+                'its list may not offer to undo it.'
+            : `The checkpoint could not be told the rewind wrote nothing (${extractErrorMessage(err)}): ` +
+                'its list may not offer to undo the rewind before it.',
         );
       }
       // Undo reaches the org's last rewind alone: the journals of its earlier
       // rewinds, which hold the values they wrote over, go now, each named.
       try {
-        removedJournals = await removeEarlierJournals(this.deps.store, this.lock, {
-          checkpointId: checkpoint.checkpointId,
-          rewindId: journal.rewindId,
-        });
+        if (undoable) {
+          removedJournals = await removeEarlierJournals(this.deps.store, this.lock, {
+            checkpointId: checkpoint.checkpointId,
+            rewindId: journal.rewindId,
+          });
+        }
       } catch (err: unknown) {
         this.notes.push(
           `The journals of the earlier rewinds of ${this.request.orgName} could not be deleted ` +
@@ -2169,7 +2404,6 @@ class Rewind {
     }
     const read = await journal.read();
     const undoCannot = this.undoCannotOf(read);
-    const files = this.filesOf(residual, [one, ...(second ? [second.tally] : [])]);
     const carriers = (read.did.carriers ?? []).map(({ objectApiName, ids }) => ({
       objectApiName,
       count: ids.length,
@@ -2192,6 +2426,18 @@ class Rewind {
         );
       }
     }
+    // Made again as drafts, a stop left before their status went back.
+    const drafts = new Map<string, string[]>();
+    for (const passTally of [one, ...(second ? [second.tally] : [])]) {
+      for (const [objectApiName, ids] of passTally.draftsLeft) {
+        drafts.set(objectApiName, [...(drafts.get(objectApiName) ?? []), ...ids]);
+      }
+    }
+    const draftsLeft = [...drafts].map(([objectApiName, ids]) => ({
+      objectApiName,
+      count: ids.length,
+      ids: ids.slice(0, REWIND_RESIDUAL_IDS),
+    }));
     const outcome: RewindOutcome & { rewound: true } = {
       rewound: true,
       result: this.resultOf({
@@ -2202,9 +2448,10 @@ class Rewind {
         unread,
         passes: second ? 2 : 1,
         leftToday: remaining,
-        undo: { until: undoUntil, cannot: undoCannot },
+        ...(undoable ? { undo: { until: undoUntil, cannot: undoCannot } } : {}),
         removedJournals,
         carriers,
+        draftsLeft,
         ...(files ? { files } : {}),
         ...(scope ? { scope } : {}),
       }),
@@ -2225,6 +2472,25 @@ class Rewind {
         clock: this.clock,
       });
       if (note !== undefined) this.notes.push(note);
+    }
+    // Through with nothing written, or stopped before it sent anything, its
+    // journal holds nothing to undo or take up, and only values it kept to
+    // write over and never did: it goes, closed first, as the journals of
+    // earlier rewinds go once a later one ends.
+    if (!undoable) {
+      await journal.close();
+      try {
+        await rm(rewindDirOf(this.request.folder, journal.rewindId), {
+          recursive: true,
+          force: true,
+        });
+      } catch (err: unknown) {
+        this.notes.push(
+          `The journal of this rewind, which wrote nothing, could not be deleted ` +
+            `(${extractErrorMessage(err)}): it stays until a later rewind that writes ends, ` +
+            'or its checkpoint goes.',
+        );
+      }
     }
     return outcome;
   }
@@ -2337,6 +2603,8 @@ class Rewind {
     removedJournals?: EarlierJournalRemoved[];
     /** Per object, the carriers it brought back for a moment. */
     carriers?: RewindResult['carriers'];
+    /** Per object, what it made again as drafts that a stop left before their status went back. */
+    draftsLeft?: RewindResult['draftsLeft'];
     /** What it did to the links between files and records. */
     files?: RewindFilesResult;
     /** Of a rewind limited to some objects, those objects, and what it left of the others. */
@@ -2356,6 +2624,7 @@ class Rewind {
       undeleted: parts.tally.undeleted.filter((object) => object.planned > 0),
       ...(parts.tally.recreated.length > 0 ? { recreated: parts.tally.recreated } : {}),
       ...((parts.carriers ?? []).length > 0 ? { carriers: parts.carriers } : {}),
+      ...((parts.draftsLeft ?? []).length > 0 ? { draftsLeft: parts.draftsLeft } : {}),
       residual: parts.residual,
       ...(parts.unread.length > 0 ? { unread: [...parts.unread] } : {}),
       passes: parts.passes,
@@ -2593,6 +2862,7 @@ class Rewind {
         ...(this.carried.size + plan.carriers.size + plan.goesAlong.size > 0
           ? { goesWithParent }
           : {}),
+        ...(plan.alongToDraft.spool.count > 0 ? { alongToDraft: plan.alongToDraft } : {}),
         ...(plan.bringBack.count + plan.recreate.count + plan.giveBack.beforeDeletes.count > 0
           ? { sweep }
           : {}),
@@ -2980,6 +3250,8 @@ class Rewind {
     const heldKeyOf = (id: string): string => made.originalOf(id.slice(0, 15)) ?? id.slice(0, 15);
     /** Lookups left empty for a record not made yet, by the keys the checkpoint holds both by. */
     const owed: Array<{ objectApiName: string; from: string; field: string; target: string }> = [];
+    /** Records made as drafts, by object: their new Id, and the status the checkpoint holds. */
+    const owedStatus = new Map<string, Array<{ id: string; field: string; status: string }>>();
     for (const { objectApiName, count } of spool.objects) {
       if (tally.cancelled || this.stopped()) {
         tally.recreate({ ...emptyRecreated(objectApiName), planned: count, notReached: count });
@@ -3006,6 +3278,13 @@ class Rewind {
           tally.leftBy('recreate', objectApiName, ids);
         continue;
       }
+      // Past Draft, a record of an object with a status lifecycle is refused
+      // as it is made — an activated order made again was, live: "for a new
+      // or cloned order, choose Draft" — and its products after it, for want
+      // of it. Made at the org's Draft status, as Forge writes one, it gets
+      // the status the checkpoint holds back once the rows under it are made.
+      const status = insert.fields.find((field) => field.toLowerCase() === 'status');
+      const lifecycle = status !== undefined ? await this.lifecycleOf(objectApiName) : undefined;
       for await (const ids of spool.pages(objectApiName, SNAPSHOT_CHUNK_IDS)) {
         if (tally.cancelled || this.stopped()) {
           tally.recreate({
@@ -3047,9 +3326,19 @@ class Rewind {
           }
           const batch = rows.slice(at, at + RECORDS_PER_CALL);
           const from = batch.map((row) => index.snapshotIdOf(String(row.Id)));
+          /** The status each record made as a draft is owed, by its place in the batch. */
+          const drafts = new Map<number, string>();
           const records = batch.map((row, place) => {
             const written = rowToWriteBack(objectApiName, row, insert.fields);
             delete written.Id;
+            const draft =
+              status !== undefined && lifecycle
+                ? draftStartOf(written[status], lifecycle)
+                : undefined;
+            if (status !== undefined && draft !== undefined) {
+              drafts.set(place, String(written[status]));
+              written[status] = draft;
+            }
             // Named by a record the rewind leaves deleted, which the org refuses: made without it.
             withoutLeft(written, this.leftFields.get(keyOf(from[place])));
             for (const field of insert.lookups) {
@@ -3077,6 +3366,12 @@ class Rewind {
             const answer = answers[place];
             if (answer?.success === true && typeof answer.id === 'string') {
               pairs.push({ objectApiName, from: from[place], to: answer.id });
+              const owes = drafts.get(place);
+              if (status !== undefined && owes !== undefined) {
+                const of = owedStatus.get(objectApiName) ?? [];
+                of.push({ id: answer.id, field: status, status: owes });
+                owedStatus.set(objectApiName, of);
+              }
               return;
             }
             result.refused++;
@@ -3102,6 +3397,73 @@ class Rewind {
       }
     }
     await this.fillOwed(owed, made, madeNow, tally);
+    await this.giveStatusesBack(owedStatus, tally);
+  }
+
+  /**
+   * The org's statuses of an object with a status lifecycle and their
+   * categories, read once a rewind — or nothing, for an object with none, or
+   * when the org will not say which statuses are drafts: its records are then
+   * made as the checkpoint holds them, and the org says what it refuses.
+   */
+  private lifecycleOf(objectApiName: string): Promise<StatusCategories | undefined> {
+    const lifecycle = STATUS_LIFECYCLES[objectApiName];
+    if (lifecycle === undefined) return Promise.resolve(undefined);
+    let read = this.lifecycles.get(objectApiName);
+    if (!read) {
+      read = statusCategories(async (soql) => (await this.org.query(soql)).records, lifecycle);
+      this.lifecycles.set(objectApiName, read);
+    }
+    return read;
+  }
+
+  /**
+   * Give the records made again as drafts the status the checkpoint holds,
+   * once the pass made every record under them, 200 an update: an order takes
+   * its products only as a draft. One the org refuses is said in its object's
+   * result, made again but left a draft. Those a stop leaves before their
+   * update are named, drafts (`draftsLeft`): a stopped rewind said it made
+   * an activated order again, and not that it stayed a draft.
+   */
+  private async giveStatusesBack(
+    owed: ReadonlyMap<string, ReadonlyArray<{ id: string; field: string; status: string }>>,
+    tally: PassTally,
+  ): Promise<void> {
+    const objects = [...owed];
+    for (const [place, [objectApiName, records]] of objects.entries()) {
+      for (let at = 0; at < records.length; at += RECORDS_PER_CALL) {
+        if (this.stopped()) {
+          const left = [[objectApiName, records.slice(at)] as const, ...objects.slice(place + 1)];
+          for (const [name, drafts] of left) {
+            if (drafts.length === 0) continue;
+            tally.draftsLeft.set(name, [
+              ...(tally.draftsLeft.get(name) ?? []),
+              ...drafts.map(({ id }) => id),
+            ]);
+          }
+          return;
+        }
+        const batch = records.slice(at, at + RECORDS_PER_CALL);
+        const answers = saveAnswersOf(
+          await this.org.update(
+            objectApiName,
+            batch.map(({ id, field, status }) => ({ Id: id, [field]: status })),
+          ),
+        );
+        const result = tally.recreated.get(objectApiName);
+        batch.forEach(({ id }, place) => {
+          const answer = answers[place];
+          if (answer?.success === true) return;
+          if (result) {
+            addReason(
+              result.reasons,
+              `Made again as a draft, but its status was refused: ${answer?.error ?? 'the org gave no answer for it.'}`,
+            );
+          }
+          tally.leftBy('recreate', objectApiName, [id]);
+        });
+      }
+    }
   }
 
   /**
@@ -3286,6 +3648,70 @@ class Rewind {
   }
 
   /**
+   * Why records of `objects` the org answered are no longer in the recycle
+   * bin are not made again in this rewind: what runs as they are made, which
+   * its question did not ask about. Nothing when it did, or ran nothing, and
+   * when no automation was read, which asks about nothing.
+   */
+  private remakeUnaskedWords(objects: readonly string[]): string | undefined {
+    const asked = this.asked;
+    if (!asked) return undefined;
+    const names = [...new Set(objects)];
+    const unasked = remakeUnasked(asked.automation, asked.steps, names, asked.accepted);
+    if (unasked.fired.length === 0 && !unasked.blind) return undefined;
+    return notAskedWords(this.request.orgName, names, unasked);
+  }
+
+  /**
+   * Why a record of `objects[0]` the org answered is no longer in the recycle
+   * bin is not made again, with what was to come back with it: the emails
+   * what runs as each is made — and as an order or a contract made as a
+   * draft is given its status back — sends, past what the org has left today
+   * of a daily limit once what the rewind counted is sent. Nothing when they
+   * fit, or could not be counted against a limit, as the rewind's own gate
+   * judges them; what fits is counted, for the next one.
+   *
+   * Uncounted, the orders a rewind found gone as it brought them back were
+   * made again, their flow emailing each, beyond the emails its gate had held
+   * to what a Developer Edition had left of its fifteen.
+   */
+  private remakeEmailsWords(objects: readonly string[]): string | undefined {
+    const counted = this.emailsCounted;
+    const asked = this.asked;
+    if (!counted || !asked) return undefined;
+    const added = objects.flatMap((objectApiName): WrittenRecords[] => [
+      { objectApiName, write: 'insert', records: 1 },
+      ...(STATUS_LIFECYCLES[objectApiName] !== undefined
+        ? [{ objectApiName, write: 'update' as const, records: 1 }]
+        : []),
+    ]);
+    const before = checkpointEmails(counted.written, asked.automation, counted.limits);
+    const after = checkpointEmails(
+      [...counted.written, ...added],
+      asked.automation,
+      counted.limits,
+    );
+    const over = after.filter((check) => check.verdict === 'exceeds');
+    if (over.length === 0) {
+      counted.written.push(...added);
+      return undefined;
+    }
+    const said = over.map((check) => {
+      const more = check.emails - (before.find((b) => b.limit === check.limit)?.emails ?? 0);
+      return (
+        `${emailsOfLimit(more, check.limit)} more than the ` +
+        `${emailsOfLimit(check.emails - more, check.limit)} it counted, past the ` +
+        `${check.remaining ?? 0} of ${check.max ?? 0} ${this.request.orgName} has left today`
+      );
+    });
+    return (
+      'Kept as it is: Salesforce answered it is no longer in the recycle bin, and making it again ' +
+      `sends ${said.join('; ')}. Rewind again: its preview counts it to make again, and its ` +
+      'emails.'
+    );
+  }
+
+  /**
    * `outcome` once what the org answered is no longer in the recycle bin is
    * settled — what the undelete left of `answered`, each with the records
    * named in the bin as coming back with it: what the checkpoint can make
@@ -3319,6 +3745,8 @@ class Rewind {
     const moved = new Set<string>();
     let notRemade = 0;
     let outOfReach = 0;
+    /** Why what making again would run unasked was left, the last said. */
+    let notAsked: string | undefined;
     const outOfSight = (object: string): boolean => this.access.heldAs(object) === 'parent';
     // Kept by the checkpoint whatever becomes of them here: a later preview
     // takes them as stuck in the bin, and never counts them to bring back.
@@ -3342,10 +3770,22 @@ class Rewind {
           tally.mark('outOfReach', child.objectApiName, child.id);
         } else if (await makesAgain(child.objectApiName, child.id)) along.push(child);
       }
-      if (remake) {
+      // Made again only where what runs as it is made was asked about: what
+      // its question never named stays, said, for a rewind after it to ask.
+      const named = [objectApiName, ...along.map((child) => child.objectApiName)];
+      const unasked = remake
+        ? (this.remakeUnaskedWords(named) ?? this.remakeEmailsWords(named))
+        : undefined;
+      if (remake && unasked === undefined) {
         await remake.add(objectApiName, id);
         for (const child of along) await remake.add(child.objectApiName, child.id);
         moved.add(keyOf(id));
+        continue;
+      }
+      if (unasked !== undefined) {
+        notAsked = unasked;
+        tally.notAsked.set(keyOf(id), unasked);
+        for (const child of along) tally.notAsked.set(keyOf(child.id), unasked);
         continue;
       }
       notRemade++;
@@ -3364,11 +3804,15 @@ class Rewind {
               ? object.reasons.map((reason) =>
                   NOT_IN_BIN.test(reason) ? NOT_REMADE_WORDS : reason,
                 )
-              : outOfReach > 0
+              : notAsked !== undefined
                 ? object.reasons.map((reason) =>
-                    NOT_IN_BIN.test(reason) ? OUT_OF_REACH_WORDS : reason,
+                    NOT_IN_BIN.test(reason) ? (notAsked ?? reason) : reason,
                   )
-                : object.reasons;
+                : outOfReach > 0
+                  ? object.reasons.map((reason) =>
+                      NOT_IN_BIN.test(reason) ? OUT_OF_REACH_WORDS : reason,
+                    )
+                  : object.reasons;
         return {
           ...object,
           planned: object.planned - moved.size,
@@ -3842,6 +4286,13 @@ class Rewind {
           }
           if (tallies.some((tally) => tally.lost.get(name)?.has(id) === true)) {
             add(name, 'goneForGood', id);
+            continue;
+          }
+          const notAsked = tallies
+            .map((tally) => tally.notAsked.get(keyOf(id)))
+            .find((words) => words !== undefined);
+          if (notAsked !== undefined) {
+            add(name, 'kept', id, { message: notAsked });
             continue;
           }
           if (tallies.some((tally) => tally.notInBin.get(name)?.has(id) === true)) {

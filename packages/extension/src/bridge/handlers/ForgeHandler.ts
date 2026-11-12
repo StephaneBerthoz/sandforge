@@ -11,8 +11,9 @@ import type {
   ForgeGraph,
   ForgeRemovalPlan,
   ForgeRemovalSpan,
-  ForgeSweepResult,
   ForgeTemplate,
+  ForgeUndoMark,
+  ForgeUndoObjectResult,
   ForgeUndoResult,
   ForgeRunObjectRecords,
   ForgeTargetAutomation,
@@ -22,6 +23,10 @@ import type {
   ComplianceFrameworkType,
   GuardDecision,
   MutedAutomation,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointTaken,
+  StillRunning,
 } from '@sandforge/shared';
 import {
   auditMutedOf,
@@ -47,6 +52,7 @@ import {
   leftOutByTheUser,
   removalRisksOf,
   guardTierOf,
+  stillRunningOf,
   wholeOrgConfigIssue,
 } from '@sandforge/shared';
 import * as z from 'zod';
@@ -62,7 +68,11 @@ import {
   PRODUCTION_GUARD_MISSING,
   undeletableAsker,
 } from './HandlerTypes.js';
-import { checkpointFirstPayloadSchema, validatePayload } from '../validatePayload.js';
+import {
+  checkpointFirstPayloadSchema,
+  sweptObjectsSchema,
+  validatePayload,
+} from '../validatePayload.js';
 import { logger } from '../../logger.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -81,7 +91,7 @@ import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
 import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
-import { RUN_SPLIT_CALLS, type SplitAllowance } from '../../core/common/governorLimit.js';
+import { RUN_SPLIT_CALLS } from '../../core/common/governorLimit.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 import {
@@ -126,13 +136,16 @@ import {
   largeVolumeThreshold,
 } from '../../core/precheck/ProductionGuard.js';
 import type {
+  AutomationConfirmation,
   OperationRequest,
   ProductionGuard,
   SafetyTier,
   WriteConfirmation,
 } from '../../core/precheck/ProductionGuard.js';
 import {
+  API_BUDGET_EXCEEDED,
   BULK_BATCHES_NOT_TOLD,
+  CHECKPOINT_REFUSED,
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   ForgeRunGateError,
   apiBudgetCheckOf,
@@ -140,9 +153,11 @@ import {
   automationUnreadOf,
   bulkBatchesRefusal,
   bypassesToAssign,
+  checkpointScopeStop,
   confirmationStorageOf,
   confirmationSimulatedOf,
   countedEmailChecksOf,
+  deliverabilityPartOf,
   emailsUncountedOf,
   firedOnInsertOf,
   firedOnUpdateOf,
@@ -154,7 +169,10 @@ import {
   objectsAboveReadCeiling,
   objectsUpdatedAfterInsert,
   overEmailOf,
+  forgeRequestPartsOf,
+  forgeWriteBudgetOf,
   pricesForLinesOf,
+  rolesMayBeOf,
   unreadEmailOf,
   READ_CEILING_PER_OBJECT,
   runBypassesOf,
@@ -168,15 +186,26 @@ import {
   sourceApiBudgetRefusal,
   storageCheckOf,
   storageRefusal,
+  takeCheckpointFirst,
   wholeOrgMeasuresOf,
   writePlanOf,
   type ApiBudget,
   type ApiBudgetCheck,
   type DataStorage,
   type EmailLimit,
+  type ForgeWriteBudget,
   type SimulatedWrite,
+  type WholeOrgMeasures,
   type WritePlan,
 } from '../../modules/forge/ForgeRunGate.js';
+import {
+  DELIVERABILITY_TIMEOUT_MS,
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+  runEmailsOf,
+  type DeliverabilityRead,
+  type RunEmails,
+} from '../../modules/forge/targetDeliverability.js';
 import { recordWriteRun, type WriteRun } from '../../modules/audit/auditTrail.js';
 import {
   RUN_CANCELLED,
@@ -188,12 +217,15 @@ import {
 } from '../../modules/forge/forgeAudit.js';
 import { ForgeRunAudit, RecentTrials, forgeCaseKey } from '../../modules/forge/forgeRunAudit.js';
 import {
+  NOTHING_REMOVED,
   isRunRecords,
   objectsIn,
+  objectsRemovedOf,
   recordsIn,
   removalOrg,
   removeRunRecords,
   setBackToDraftOf,
+  type RunLaterPart,
   type RunPartAlongside,
   type RunRecords,
   type RunRemovalOutcome,
@@ -203,17 +235,30 @@ import {
   sweepAuditDetails,
   sweepAuditObjects,
   sweepAutomationOf,
-  sweepFoundCount,
-  sweepFoundObjects,
   sweepMarkOf,
-  sweepRunRecords,
   type SweepInput,
+  type SweepTies,
 } from '../../modules/forge/ForgeRunSweep.js';
+import { readRunUser } from '../../modules/sync/runUser.js';
+import {
+  inSweepWindow,
+  otherRunsInSweep,
+  removalBeganOf,
+  removalSweepOf,
+  sweepOrgOf,
+  sweepRefusalCode,
+  withoutPlatformCopies,
+  type LocalRun,
+  type OtherModuleRuns,
+  type RemovalSweep,
+} from './removalSweep.js';
 import {
   removalAuditObjects,
   removalAuditOutcome,
   removalMark,
   removalStatus,
+  removalStatusWithSweep,
+  spansOf,
 } from '../../modules/forge/removalOutcome.js';
 import { forgeRunResult } from '../../modules/forge/runResult.js';
 import {
@@ -229,6 +274,13 @@ import type {
   ForgeWriteBoundary,
   ForgeWriteGateAnswer,
 } from '../../modules/forge/ForgeExecutor.js';
+import {
+  beforeRunFailedWords,
+  beforeRunProgressWords,
+  type BeforeRunAsk,
+  type BeforeRunCheckpoints,
+  type BeforeRunOwn,
+} from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import {
   ForgeRunJournal,
   HISTORY_IDS_BOUND,
@@ -455,6 +507,8 @@ const undoPayloadSchema = z.object({
 const undoAutomationPayloadSchema = z.object({
   forgeId: z.string().min(1).max(200),
   again: z.boolean().optional(),
+  // As the sweep's list reads them: its objects, for this read alone.
+  sweptObjects: sweptObjectsSchema.optional(),
 });
 // The run alone, as for its removal: what a sweep looks at is read from the history.
 const undoSweepPayloadSchema = z.object({ forgeId: z.string().min(1).max(200) });
@@ -664,6 +718,53 @@ export interface ForgeServices {
 }
 
 /**
+ * The checkpoint a run took before its first write that the run `forgeId`
+ * of `history` is a part of — itself, the run it retries or resumes, and so
+ * on — or undefined when none of them took one that is kept. A retry and a
+ * resume are the same run: a checkpoint taken in their place would hold the
+ * records the run already wrote, and a rewind to it would keep them.
+ */
+function checkpointOfTheLine(
+  forgeId: string,
+  history: readonly ForgeExecutionResult[],
+): RunCheckpointTaken | undefined {
+  const seen = new Set<string>();
+  let run: ForgeExecutionResult | undefined = history.find((e) => e.forgeId === forgeId);
+  while (run && !seen.has(run.forgeId)) {
+    seen.add(run.forgeId);
+    if (run.checkpoint?.state === 'taken') return run.checkpoint;
+    const previous: string | undefined = run.retryOf;
+    run = previous === undefined ? undefined : history.find((e) => e.forgeId === previous);
+  }
+  return undefined;
+}
+
+/**
+ * Whether a run wrote a record to its target: one it created, or one an
+ * upsert wrote over. A checkpoint taken before a run that wrote none is
+ * deleted again: there is nothing for it to take back.
+ */
+function wroteSome(run: Pick<ExecutionSummary, 'successCount' | 'updatedCount'>): boolean {
+  return run.successCount + run.updatedCount > 0;
+}
+
+/** The checkpoint a run asked for at its write gate, and what the gate tells of it. */
+interface WriteGateCheckpoint {
+  /** What the checkpoint is asked of, but the objects the run writes, which the gate knows. */
+  ask: Omit<BeforeRunAsk, 'written'>;
+  /** The run's own mark, which alone does not refuse the take. */
+  own: BeforeRunOwn;
+  /** The run's Stop: it stops the take between two reads, keeping nothing. */
+  signal: AbortSignal;
+  /** Told, on a simulation, what it would hold and cost, and the refusal it would meet. */
+  onEstimate: (estimate: RunCheckpointEstimate) => void;
+  /** Told once it is taken, before the lease and the first write. */
+  onTaken: (taken: RunCheckpointTaken) => void;
+  /** The take's progress, as a share done: the run says it takes the checkpoint first. */
+  onProgress?: (percentage: number) => void;
+}
+
+/**
  * The entry of `history` in the line of runs `entry` was built on — itself,
  * the run it retries or resumes, and so on — whose records a removal took,
  * or undefined when none was removed.
@@ -728,6 +829,10 @@ function interruptedRunOf(read: ForgeRunJournalRead, graph: ForgeGraph): ForgeEx
     journalId: read.journalId,
     journalPart: Math.max(0, read.parts - 1),
     ...(read.endBefore ? { retryOf: read.endBefore.forgeId, resumed: true as const } : {}),
+    // What the journal names beside its records: the user the run wrote as,
+    // and the checkpoint it took first, which its resume and its rewind go by.
+    ...(read.runUserId ? { runUserId: read.runUserId } : {}),
+    ...(read.checkpoint ? { checkpoint: read.checkpoint } : {}),
   };
 }
 
@@ -774,15 +879,6 @@ const AUTOMATION_TIMEOUT_MS = 60_000;
 /** Timeout for listing what a sweep would take, in milliseconds: the automation read, then one read per object. */
 const SWEEP_LIST_TIMEOUT_MS = 120_000;
 
-/** What a removal that took none of the run's records hands on: a sweep alone. */
-const NOTHING_REMOVED: RunRemovalOutcome = {
-  objects: [],
-  cancelled: false,
-  gone: [],
-  stamps: {},
-  left: async function* () {},
-};
-
 /**
  * The delete sizes a run's plan keeps once a removal said its own: per
  * object, the smaller of the two. A size only goes down — a trigger that
@@ -801,13 +897,20 @@ function smallestSizes(
   return sizes;
 }
 
-/** A sweep that did not run, whose refusal or failure says why. */
-const SWEEP_NOT_RUN: ForgeSweepResult = {
-  status: 'cancelled',
-  objects: [],
-  unread: [],
-  handWork: [],
-};
+/**
+ * When a run wrote, in epoch milliseconds: the target's dates where the run
+ * kept them, from when it was recorded back by how long it took otherwise.
+ */
+function spanOf(run: Pick<ForgeRemovalPlan, 'writtenBetween' | 'timestamp' | 'duration'>): {
+  from: number;
+  to: number;
+} {
+  const first = Date.parse(run.writtenBetween?.first ?? '');
+  const last = Date.parse(run.writtenBetween?.last ?? '');
+  if (Number.isFinite(first) && Number.isFinite(last)) return { from: first, to: last };
+  const recorded = Date.parse(run.timestamp);
+  return { from: recorded - Math.max(0, run.duration), to: recorded };
+}
 
 /** Why a sweep is refused for a run the history dropped. */
 const SWEEP_NEEDS_HISTORY =
@@ -880,6 +983,8 @@ type RunToRemove = Pick<
     /** The run's journal, and its part, which date a run its entry does not (`datedByItsJournal`). */
     journalId?: string;
     journalPart?: number;
+    /** The user the run wrote as, where its entry kept it (`ForgeExecutionResult.runUserId`). */
+    runUserId?: string;
   };
 
 /** Another part of the run a removal takes one part of, as {@link ForgeHandler} reads it. */
@@ -887,12 +992,28 @@ interface OtherPart {
   forgeId: string;
   /** The part of the journal its ids are in, when its entry keeps none. */
   inJournal?: { journalId: string; part: number };
+  /** Its records, its span, its stamps, and its later parts, as its own removal reads them. */
   alongside: RunPartAlongside;
+  /** What its earlier removals took, when one ran. */
+  undo?: ForgeUndoMark;
+  /** The objects of its records left. */
+  objects: string[];
+  /** How many of its records are left. */
+  records: number;
 }
 
 /** The run's other parts, and what lets their journals go once the removal is through. */
 interface OtherParts {
   parts: OtherPart[];
+  /**
+   * When the removals of every part of the run on its org ran, each once, as
+   * each removal reads its own: what one part's removal had the org create —
+   * the tracked change its deletes wrote on another part's opportunity — is
+   * that removal's doing for the next one too.
+   */
+  spans: ForgeRemovalSpan[];
+  /** The parts that took up the run removed: see {@link laterPartsOfRun}. */
+  laterParts: RunLaterPart[];
   close: () => void;
 }
 
@@ -946,6 +1067,93 @@ function runsInItsLine(
     }
   }
   return { inLine, journals };
+}
+
+/**
+ * The parts that took the run `forgeId` up where it stopped, and those that
+ * took them up in turn, as a removal of it, or of what another removal left
+ * of it, reads what they wrote beyond their own records
+ * (`RunRemovalOptions.laterParts`): each history entry of a resume on the
+ * same org whose `retryOf` leads back to it, through the plans kept of runs
+ * the history dropped too, with its span, the records of the parts before it
+ * it wrote to (`wroteToEarlierParts`) and those it linked to. Removed part by
+ * part, the cut part's removal kept its opportunity as changed since the run
+ * for the quote the resume had synced it to, and its contact for the contact
+ * role the resume linked to, which it took for the target's automation's. A
+ * resume is newer than the part it took up, and the history drops the oldest
+ * runs first: one it dropped took up a part it dropped too. A part whose ids
+ * are in its journal, or whose entry names neither, is left out: what it
+ * wrote then reads as a change since, as before.
+ */
+function laterPartsOfRun(
+  forgeId: string,
+  history: readonly ForgeExecutionResult[],
+  plans: ReadonlyArray<Pick<ForgeRemovalPlan, 'forgeId' | 'retryOf'>>,
+  targetOrgId: string,
+): RunLaterPart[] {
+  const resumedFrom = new Map<string, string>();
+  for (const run of [...history, ...plans]) {
+    if (run.retryOf !== undefined && !resumedFrom.has(run.forgeId)) {
+      resumedFrom.set(run.forgeId, run.retryOf);
+    }
+  }
+  const takesUp = (later: string): boolean => {
+    const seen = new Set<string>();
+    for (let at = resumedFrom.get(later); at !== undefined; at = resumedFrom.get(at)) {
+      if (at === forgeId) return true;
+      if (seen.has(at)) return false;
+      seen.add(at);
+    }
+    return false;
+  };
+  return history.flatMap((entry): RunLaterPart[] => {
+    if (!entry.resumed || entry.remapInJournal || entry.targetOrgId !== targetOrgId) return [];
+    if (!takesUp(entry.forgeId)) return [];
+    const table = entry.idRemapTable ?? {};
+    const linked = (entry.idRemapExisting ?? []).flatMap((sourceId) => {
+      const target = table[sourceId];
+      return target !== undefined ? [target] : [];
+    });
+    const wrote = entry.wroteToEarlierParts ?? [];
+    if (wrote.length === 0 && linked.length === 0) return [];
+    return [
+      {
+        span: runSpanOf(entry.writtenBetween, entry),
+        ...(wrote.length > 0 ? { wrote } : {}),
+        ...(linked.length > 0 ? { linked } : {}),
+      },
+    ];
+  });
+}
+
+/**
+ * A run's span as a removal takes it: as the target dated its writes, or,
+ * for a run it did not date, how long it took and when it was recorded.
+ */
+function runSpanOf(
+  span: ForgeWrittenBetween | undefined,
+  run: Pick<ForgeRemovalPlan, 'duration' | 'timestamp'>,
+): RunPartAlongside['span'] {
+  return span
+    ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+    : { runDurationMs: run.duration, runRecordedAt: new Date(run.timestamp) };
+}
+
+/**
+ * Of what a removal kept for records that stay, what the run's other parts no
+ * removal was asked for yet hold: each such part whose records left are of
+ * objects among the holders, with those objects (`heldByOtherParts`).
+ */
+function heldByOtherPartsOf(
+  objects: readonly ForgeUndoObjectResult[],
+  parts: readonly OtherPart[],
+): NonNullable<ForgeUndoResult['heldByOtherParts']> {
+  const holders = [...new Set(objects.flatMap((o) => (o.keptDependents > 0 ? o.heldBy : [])))];
+  return parts.flatMap((part) => {
+    if (part.undo) return [];
+    const held = holders.filter((object) => part.objects.includes(object));
+    return held.length > 0 ? [{ forgeId: part.forgeId, objects: held }] : [];
+  });
 }
 
 /** The rows of a run a call may have written before its answer was lost. */
@@ -1177,6 +1385,47 @@ export function wholeOrgSplitAllowance(targetApi: ApiBudgetCheck): number {
 }
 
 /**
+ * The write gate's check of the API requests a clone of the whole org takes
+ * of its target, as `forgeWriteBudgetOf` judges any run's — refused for its
+ * checkpoint first's own refusal, then past what the target has left on the
+ * sum of the parts — but with the run's own part as its Bulk API jobs take
+ * it (`WholeOrgMeasures.targetRequests`): a REST call per 200 rows counted a
+ * whole org many times over. Such a run is always asked, and its question
+ * says the requests whenever the target told them, near or not, every part
+ * named beside the run's own.
+ *
+ * @param runRequests - What its writes take of the target's requests.
+ */
+function wholeOrgWriteBudgetOf(
+  input: Parameters<typeof forgeWriteBudgetOf>[0],
+  runRequests: number,
+): ForgeWriteBudget {
+  const api = apiBudgetCheckOf({ ...forgeRequestPartsOf(input), run: runRequests }, input.budget);
+  const overBudget = apiBudgetRefusal(api, input.target);
+  const stop =
+    checkpointScopeStop(input.checkpoint) ??
+    (overBudget !== undefined ? { code: API_BUDGET_EXCEEDED, message: overBudget } : undefined);
+  return {
+    api,
+    ...(stop ? { stop } : {}),
+    asks: true,
+    confirmation: {
+      ...(api.verdict === 'unread'
+        ? {}
+        : {
+            apiRequests: {
+              estimate: api.estimate,
+              remaining: api.remaining,
+              max: api.max,
+              ...(api.parts ? { parts: { ...api.parts } } : {}),
+            },
+          }),
+      ...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
+    },
+  };
+}
+
+/**
  * What a clone of the whole org was set to that narrows it — the objects it
  * reads through a filter, those it leaves out by name, those whose rows a
  * decision on Gaps holds back, those it copies without some of their fields
@@ -1331,6 +1580,12 @@ export class ForgeHandler implements DomainHandler {
   private muteLeases?: MuteLeaseOptions;
   /** The Bulk API jobs the runs closed and lost, which a muted run waits for (see {@link ForgeServices}). */
   private lostBulkJobs?: LostBulkJobs;
+  /**
+   * What a run asked to take a checkpoint of what it writes before its first
+   * write takes it through (`Checkpoint first`). Without it, such a run is
+   * refused at its write gate, nothing written: the option promised a rewind.
+   */
+  private beforeRunCheckpoints?: BeforeRunCheckpoints;
   private rehearser?: ForgeRehearser;
   /** The operation of the rehearsal under way, when one is: one at a time. */
   private rehearseOperationId: string | null = null;
@@ -1345,6 +1600,8 @@ export class ForgeHandler implements DomainHandler {
   /** The removal plans of past runs, kept past the history's twenty (see {@link ForgeServices}). */
   private removalPlans?: ForgeRemovalPlanStore;
   private runJournal?: ForgeRunJournal;
+  /** The runs of the other modules on an org, for a sweep to be told of them; none until set. */
+  private otherModuleRuns: OtherModuleRuns = () => Promise.resolve([]);
   /** The journals of the runs under way, which a listing of the runs leaves where they are. */
   private readonly journalsRunning = new Set<string>();
 
@@ -1498,6 +1755,11 @@ export class ForgeHandler implements DomainHandler {
     this.liveTracker = tracker;
   }
 
+  /** Inject what a run takes a checkpoint of what it writes before its first write through. */
+  setBeforeRunCheckpoints(checkpoints: BeforeRunCheckpoints): void {
+    this.beforeRunCheckpoints = checkpoints;
+  }
+
   /**
    * Put a run on the background registry for as long as it lasts.
    *
@@ -1550,9 +1812,13 @@ export class ForgeHandler implements DomainHandler {
     return settle;
   }
 
-  /** Whether a run of this window writes to the org now: a simulation writes to none. */
-  isWritingTo(orgId: string): boolean {
-    return this.writingTo === orgId;
+  /**
+   * Whether a run of this window writes to the org now: a simulation writes to
+   * none. `except` is the operation of a run a checkpoint is taken before:
+   * its own mark does not count, and only its own.
+   */
+  isWritingTo(orgId: string, except?: string): boolean {
+    return this.writingTo === orgId && (except === undefined || except !== this.executeOperationId);
   }
 
   /**
@@ -2058,6 +2324,18 @@ export class ForgeHandler implements DomainHandler {
     // A run taken up where it stopped names the part it resumes, as a retry
     // names the run it retries: the history walks back through both.
     const retryOf = resume ? resume.forgeId : parsed.retryOf;
+    // A retry and a resume are the run they take up: they take no checkpoint
+    // of their own — taken now, it would hold what the run already wrote, and
+    // a rewind to it would keep that — and name the one the run took first.
+    const lineCheckpoint =
+      retryOf !== undefined ? checkpointOfTheLine(retryOf, this.loadHistory()) : undefined;
+    const checkpointFirst = retryOf === undefined ? parsed.checkpointFirst : undefined;
+    if (retryOf !== undefined && parsed.checkpointFirst !== undefined) {
+      logger.info(
+        'Forge run: no checkpoint taken for a retry or a resume, which takes up a run that wrote',
+        { checkpoint: lineCheckpoint?.checkpointId ?? 'none' },
+      );
+    }
     // A simulation reads what the run reads and writes nothing: no question of
     // the run's gate is put for it, nor of Production Guard, and it is neither
     // a write in the audit trail nor a run of the history. A production target
@@ -2366,6 +2644,8 @@ export class ForgeHandler implements DomainHandler {
     let journalId: string | undefined;
     /** The store the run writes its journal through; see `ForgeRunStore`. */
     let store: ForgeRunStore | undefined;
+    /** The user the run writes as, read from the target before its journal begins; see `runUserOf`. */
+    let runUserId: string | undefined;
     /** Of a resume, the rows of the calls under way when its run stopped that the target may hold. */
     let mayBeInTarget: InFlightObjectRows[] | undefined;
     /**
@@ -2451,6 +2731,20 @@ export class ForgeHandler implements DomainHandler {
     let lostJobsAtStart: number | undefined;
     /** The Bulk API jobs of the run still running when its mute was given back (`bulkJobsPastMute`). */
     let jobsPastMute: ForgeBulkJobPastMute[] = [];
+    /**
+     * What still runs of the target's automation as the run writes, once the
+     * mute's plan holds (`stillRunningOf`): the objects its flows create join
+     * those the checkpoint taken first holds. Nothing, when it could not be read.
+     */
+    let running: Pick<StillRunning<unknown>, 'firing'> = { firing: [] };
+    /** The checkpoint the run took before its first write, once taken. */
+    let checkpointTaken: RunCheckpointTaken | undefined;
+    /** Of a simulation asked for one, what the checkpoint would hold and cost. */
+    let checkpointEstimate: RunCheckpointEstimate | undefined;
+    /** The emails of what still runs, as the run's automation question judged them; absent on a simulation. */
+    let emails: RunEmails | undefined;
+    /** Whether a person answered that question, with the emails in it, by going on. */
+    let emailsAccepted = false;
 
     // Throttle execute progress events to ~10/s. With Bulk API 2.0 batches
     // of 200 records, a 50K-record clone fires ~250 events; spamming each
@@ -2518,33 +2812,40 @@ export class ForgeHandler implements DomainHandler {
       // The most rows of one object the run reads: asked about past it, and
       // read to it.
       const readCeiling = this.maxRecordsPerObject();
+      const updated = objectsUpdatedAfterInsert(graph, {
+        leftOut: new Set(graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName)),
+        retry: retryOf !== undefined,
+      });
+      const updatedNames = new Set(updated.map((object) => object.objectApiName));
+      /** The writes the run makes of each object: every insert, and the updates of its second pass. */
+      const writes: Parameters<typeof stillRunningOf>[2] = (objectApiName, write) =>
+        write === 'insert' || (write === 'update' && updatedNames.has(objectApiName));
       if (!dryRun) {
-        const updated = objectsUpdatedAfterInsert(graph, {
-          leftOut: new Set(graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName)),
-          retry: retryOf !== undefined,
-        });
         const read = await this.automationBeforeTheRun(config.targetOrgId, graph);
         // Asked to mute, the run plans it from what it read, and its gate asks
         // only for what still runs: the bypasses it is to hold count as held.
         // Refused on a production org or for a user who cannot assign, it
         // writes nothing; nothing to mute, it goes on as without the option.
         let automation = read;
+        let mutePlan: RunMute['plan'];
         if (muteAutomation === true) {
-          const updatedNames = new Set(updated.map((object) => object.objectApiName));
           const planned = await muteForRun(
             () => this.muteOrg(config.targetOrgId),
             'automation' in read ? read.automation : read,
-            {
-              ...this.muteLeases,
-              writes: (objectApiName, write) =>
-                write === 'insert' || (write === 'update' && updatedNames.has(objectApiName)),
-            },
+            { ...this.muteLeases, writes },
           );
           mute = planned.prepared;
           mutedAutomation = planned.muted;
+          mutePlan = planned.plan;
           if ('automation' in read && planned.automation) {
             automation = { ...read, automation: planned.automation };
           }
+        }
+        // What still runs once the plan holds, from the read itself and the
+        // plan, by the one function every computation before the lease takes
+        // it from: the creations of what the mute keeps quiet are not held.
+        if (checkpointFirst !== undefined && 'automation' in read) {
+          running = stillRunningOf(read.automation, mutePlan, writes);
         }
         targetAutomation = automation;
         if ('automation' in automation) emailsPerInsert = emailsPerInsertOf(automation.automation);
@@ -2553,14 +2854,46 @@ export class ForgeHandler implements DomainHandler {
           throw new Error(ABORTED_BEFORE_START_MESSAGE);
         }
         audit.automationRead(automation, updated);
+        // Whether the target delivers the emails of what still runs, read
+        // once the plan says what does and only when something may send one,
+        // and judged at the question that follows, before the rows are read:
+        // refused only then, a run read for ten minutes first. Read on every
+        // run, never kept: an admin can change it at any time.
+        emails = await runEmailsOf({
+          read: 'automation' in read ? read.automation : read,
+          ...(mutePlan ? { plan: mutePlan } : {}),
+          writes,
+          applyAssignmentRules: config.applyAssignmentRules === true,
+          readDeliverability: () =>
+            this.readDeliverability(config.targetOrgId, runController.signal),
+          accepted: false,
+          target: targetName,
+          run: 'clone',
+          keepsAddresses: config.keepContactPoints === true,
+        });
+        lookup.requests += emails.ofRun.read?.requests ?? 0;
+        if (runController.signal.aborted) {
+          stoppedBeforeStart = true;
+          throw new Error(ABORTED_BEFORE_START_MESSAGE);
+        }
+        audit.emailsRead(emails.gate.audit);
         const automationAnswer = await this.confirmAutomation(
           guard,
           { orgId: config.targetOrgId, org: targetName, orgTier, username: targetOrg?.username },
           automation,
           updated,
           reviewSkipped === true,
+          emails.gate.confirmation,
         );
-        if (automationAnswer === 'confirmed') audit.confirm('automation');
+        if (automationAnswer === 'confirmed') {
+          audit.confirm('automation');
+          // The question held the emails: going on is the accord to send
+          // them, which nothing else gives.
+          if (emails.gate.verdict === 'asks') {
+            emailsAccepted = true;
+            audit.confirm('emails');
+          }
+        }
         guardDecision = strongerDecision(guardDecision, automationAnswer);
         // The tables the run reads with no cap past the most rows of one
         // object it reads, put to the user before the first is read: a run of
@@ -2590,11 +2923,42 @@ export class ForgeHandler implements DomainHandler {
           if (readAnswer === 'confirmed') audit.confirm('volume');
           guardDecision = strongerDecision(guardDecision, readAnswer);
         }
+      } else if (checkpointFirst !== undefined) {
+        // A simulation asked for the checkpoint first says what it would hold
+        // and cost: what still runs is read for it, and the mute planned when
+        // it is asked too — nothing assigned. A plan that cannot be made
+        // leaves what the read says runs.
+        const read = await this.automationBeforeTheRun(config.targetOrgId, graph);
+        if ('automation' in read) {
+          const mutePlan =
+            muteAutomation === true
+              ? await muteForRun(() => this.muteOrg(config.targetOrgId), read.automation, {
+                  ...this.muteLeases,
+                  writes,
+                }).then(
+                  (planned) => planned.plan,
+                  (err: unknown) => {
+                    logger.warn(
+                      `Forge simulation: the mute could not be planned (${extractErrorMessage(err)})`,
+                    );
+                    return undefined;
+                  },
+                )
+              : undefined;
+          running = stillRunningOf(read.automation, mutePlan, writes);
+        }
       }
       if (runController.signal.aborted) {
         stoppedBeforeStart = true;
         throw new Error(ABORTED_BEFORE_START_MESSAGE);
       }
+      // The user the run writes as, kept in its journal's head and on its
+      // result: what the sweep of its removal holds the records the target's
+      // automation made to. A run kept nothing of it, and its sweep read it
+      // back from the creator of its records, which a removal may have taken.
+      // Read beside the record types, and bounded: a target that does not
+      // answer leaves the run to go on as they do, not to wait twice.
+      const runUserRead = dryRun ? undefined : this.runUserOf(config.targetOrgId);
       // RecordType Ids differ between orgs. Without this table every cloned
       // record kept the source org's RecordTypeId, which the target rejects.
       const recordTypeMappings = await this.loadRecordTypeMappings(
@@ -2609,6 +2973,7 @@ export class ForgeHandler implements DomainHandler {
         stoppedBeforeStart = true;
         throw new Error(ABORTED_BEFORE_START_MESSAGE);
       }
+      runUserId = await runUserRead;
       startedAt = Date.now();
       requestsAtStart = this.requestsSent?.();
       lostJobsAtStart = this.lostBulkJobs?.count;
@@ -2649,11 +3014,17 @@ export class ForgeHandler implements DomainHandler {
                 await this.withRowsFoundAfterStop(resumed, reconciled.found);
               }
             })
-          : journal.begin(id, config.targetOrgId, new Date(startedAt), {
-              ...this.resumeHeadOf(graph, config, anonymizationRules, readCeiling),
-              // Kept for the run to be muted again when it is taken up.
-              ...(muteAutomation === true ? { muteAutomation: true as const } : {}),
-            });
+          : journal.begin(
+              id,
+              config.targetOrgId,
+              new Date(startedAt),
+              {
+                ...this.resumeHeadOf(graph, config, anonymizationRules, readCeiling),
+                // Kept for the run to be muted again when it is taken up.
+                ...(muteAutomation === true ? { muteAutomation: true as const } : {}),
+              },
+              runUserId,
+            );
         store = await begun.then(
           () => journal.open(id),
           (err: unknown) => {
@@ -2689,6 +3060,16 @@ export class ForgeHandler implements DomainHandler {
       // gate's question, which waits on a person. It is given back once the
       // run ends, written, failed, stopped or thrown alike.
       let held: HeldMute | undefined;
+      // A job the run closed and lost may be writing still: its rows would go
+      // in with the automation the mute keeps quiet. The lease is given back
+      // once each ended, or past the bound of the wait — once, whether the
+      // executor gives it back after its last write or the run’s end does.
+      let givingBack: Promise<MutedAutomation> | undefined;
+      const giveBack = (lease: HeldMute): Promise<MutedAutomation> =>
+        (givingBack ??= (async () => {
+          jobsPastMute = await this.jobsStillRunning(config.targetOrgId, lostJobsAtStart, lookup);
+          return lease.release();
+        })());
       const writeGate = this.writeGate({
         guard,
         targetOrgId: config.targetOrgId,
@@ -2697,6 +3078,7 @@ export class ForgeHandler implements DomainHandler {
         lookup,
         emailsPerInsert,
         ...(targetAutomation !== undefined ? { automation: targetAutomation } : {}),
+        ...deliverabilityPartOf(emails?.ofRun),
         mayBeInTarget,
         ...(dryRun ? {} : { simulated: this.simulations.of(volumeCase) }),
         ...(wholeOrg
@@ -2707,6 +3089,42 @@ export class ForgeHandler implements DomainHandler {
                 sourceOrgId: config.sourceOrgId,
                 leftOut: graph.leftOut?.length ?? 0,
                 ...carriedOf(config),
+              },
+            }
+          : {}),
+        updatedAfterInsert: [...updatedNames],
+        ...(checkpointFirst !== undefined
+          ? {
+              checkpoint: {
+                ask: {
+                  module: 'forge' as const,
+                  orgId: config.targetOrgId,
+                  operationId,
+                  running,
+                  request: checkpointFirst,
+                },
+                own: { operationId },
+                signal: runController.signal,
+                onEstimate: (estimate) => {
+                  checkpointEstimate = estimate;
+                },
+                onTaken: (taken) => {
+                  checkpointTaken = taken;
+                  // Named in the journal too: a run a closed window stops is
+                  // kept from its journal alone, and named no checkpoint.
+                  if (journal && journalId && store) {
+                    void journal.keepCheckpoint(journalId, taken).catch((err: unknown) => {
+                      logger.warn(
+                        `Forge run journal: the checkpoint taken first not named (${extractErrorMessage(err)})`,
+                      );
+                    });
+                  }
+                },
+                onProgress: (percentage) => {
+                  const words = beforeRunProgressWords(percentage);
+                  sendOperationProgress(this.deps, operationId, percentage, 0, 0, words);
+                  this.liveTracker?.updateProgress(operationId, percentage, 0, 0, words);
+                },
               },
             }
           : {}),
@@ -2736,26 +3154,35 @@ export class ForgeHandler implements DomainHandler {
             ...(store ? { store, summaryBound: HISTORY_IDS_BOUND } : {}),
           },
           ...(wholeOrg ? { wholeReadBound: readCeiling } : {}),
+          ...(runUserId ? { runUserId } : {}),
           // What the gate answers — the smaller calls a clone of the whole
           // org allows itself, from what the target has left today — goes
-          // back to the run, which spends it from its first write.
-          beforeWrite: async (boundary) => {
+          // back to the run, which spends it from its first write. The lease
+          // the gate took is handed to the executor too, which gives it back
+          // once its last write is through, before it reads back the record
+          // types the target gave: the bypass is held no longer than the
+          // writes. Given back again as the run ends, it answers the same.
+          beforeWrite: async (boundary): Promise<ForgeWriteGateAnswer | undefined> => {
             const answer = await writeGate(boundary);
             if (!mute || boundary.dryRun || held) return answer;
-            held = await mute.acquire(operationId);
-            mutedAutomation = held.outcome;
-            return answer;
+            const lease = await mute.acquire(operationId);
+            held = lease;
+            mutedAutomation = lease.outcome;
+            // A set the lease does not hold leaves running what it was to keep
+            // quiet: a sender of it no question named refuses the run, and
+            // the end of the run gives the lease back, nothing written.
+            const relit = emails?.afterLease(lease.outcome, emailsAccepted);
+            if (relit) throw new ForgeRunGateError(relit.code, relit.message);
+            return {
+              ...answer,
+              lease: { assigned: lease.outcome.assigned.length, giveBack: () => giveBack(lease) },
+            };
           },
         })
         // Every line of the journal written before the run's end is said.
         .finally(closeStore)
         .finally(async () => {
-          if (!held) return;
-          // A job the run closed and lost may be writing still: its rows
-          // would go in with the automation the mute keeps quiet. Given
-          // back once each ended, or past the bound of the wait.
-          jobsPastMute = await this.jobsStillRunning(config.targetOrgId, lostJobsAtStart, lookup);
-          mutedAutomation = await held.release();
+          if (held) mutedAutomation = await giveBack(held);
         });
       // A retry names the run it retried, which the history walks back to
       // before a later retry is built on it.
@@ -2778,16 +3205,38 @@ export class ForgeHandler implements DomainHandler {
               : {}),
           }
         : {};
+      // The checkpoint the run took first: kept once it wrote a record,
+      // deleted when it wrote none. A simulation's says what it would hold and
+      // cost; a retry's or a resume's is the one the run it takes up took.
+      const checkpointInfo: RunCheckpointInfo | RunCheckpointEstimate | undefined = dryRun
+        ? checkpointEstimate
+        : checkpointTaken
+          ? await this.settleCheckpoint(
+              checkpointTaken,
+              (counted.createdCount ?? counted.idRemapCount - (counted.linkedExistingCount ?? 0)) +
+                (counted.updatedCount ?? 0) >
+                0,
+            )
+          : lineCheckpoint;
+      const checkpoint = checkpointInfo ? { checkpoint: checkpointInfo } : {};
+      // What a part taking the run up wrote to the parts before it, read from
+      // its journal before the journal goes with the run's end.
+      const wroteEarlier =
+        resume && !dryRun && store && journalId
+          ? await this.wroteToEarlierPartsOf(counted, journalId, store.partCount - 1)
+          : {};
       const result =
         retryOf !== undefined
           ? {
               ...counted,
               ...inJournal,
               ...muted,
+              ...checkpoint,
               retryOf,
               ...(resume ? { resumed: true as const } : {}),
+              ...wroteEarlier,
             }
-          : { ...counted, ...inJournal, ...muted };
+          : { ...counted, ...inJournal, ...muted, ...checkpoint };
       if ('journalId' in inJournal && !dryRun) {
         journalAfter = { keep: true, status: 'success', forgeId: result.forgeId };
       }
@@ -2824,6 +3273,9 @@ export class ForgeHandler implements DomainHandler {
           ...contactPointsAudit(result.contactPoints),
           context: audit.context(result.decisionsApplied),
           ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
+          ...(checkpointInfo?.state === 'taken'
+            ? { checkpointId: checkpointInfo.checkpointId }
+            : {}),
         });
         this.addToHistory(result, config);
       } else {
@@ -2848,6 +3300,8 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { status: result.status });
       if (result.status === 'failure') {
         this.liveTracker?.fail(operationId, 'Forge execution finished with a failure status.');
+      } else if (result.status === 'partial') {
+        this.liveTracker?.partial(operationId);
       } else {
         this.liveTracker?.complete(operationId);
       }
@@ -2904,6 +3358,16 @@ export class ForgeHandler implements DomainHandler {
             : outcome === 'stopped'
               ? RUN_CANCELLED
               : undefined;
+      // The checkpoint the run took first: kept when it wrote a record before
+      // it stopped, deleted when it wrote none — its lease refused, a stop
+      // before its first write. One whose run threw saying nothing of what it
+      // wrote is kept: it may be what takes that back.
+      const checkpointInfo: RunCheckpointInfo | undefined = checkpointTaken
+        ? await this.settleCheckpoint(
+            checkpointTaken,
+            partial ? wroteSome(partial) : !(stoppedBeforeStart || gate || muteRefused),
+          )
+        : lineCheckpoint;
       // A failure is logged by the error it posts; a cancel posts none.
       logger.info('Forge execute stopped', {
         outcome,
@@ -2931,6 +3395,19 @@ export class ForgeHandler implements DomainHandler {
                 ? { journalId, journalPart: Math.max(0, store.partCount - 1) }
                 : {}),
               ...(jobsPastMute.length > 0 ? { bulkJobsPastMute: jobsPastMute } : {}),
+              ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}),
+              ...(runUserId ? { runUserId } : {}),
+              ...(resume && store && journalId
+                ? await this.wroteToEarlierPartsOf(
+                    {
+                      idRemapTable: partial.remapTable,
+                      idRemapCreated: partial.createdByObject,
+                      ...(partial.remapInJournal ? { remapInJournal: true as const } : {}),
+                    },
+                    journalId,
+                    store.partCount - 1,
+                  )
+                : {}),
             })
           : undefined;
       // Kept with its journal, the run can be taken up where it stopped. A
@@ -2963,6 +3440,9 @@ export class ForgeHandler implements DomainHandler {
           ...contactPointsAudit(partial?.contactPoints),
           context: audit.context(partial?.decisionsApplied),
           ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
+          ...(checkpointInfo?.state === 'taken'
+            ? { checkpointId: checkpointInfo.checkpointId }
+            : {}),
         });
       this.dmlTracker.markFailed(forgeOpId);
       // A failed or stopped run is re-runnable at once: clear any cooldown so
@@ -2980,8 +3460,11 @@ export class ForgeHandler implements DomainHandler {
       // English message of a run that failed. A run a cancel stopped once it
       // had written, which the trail records as cancelled under no code, goes
       // under the cancel's code all the same: under EXECUTE_ERROR, the page
-      // said the abort's words as the error it stopped on.
+      // said the abort's words as the error it stopped on. A run kept in no
+      // entry says what became of the checkpoint it took first beside it:
+      // deleted, as it wrote nothing, or kept for what it may have written.
       await endJournal();
+      const taken = checkpointTaken && checkpointInfo ? { checkpoint: checkpointInfo } : {};
       sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, error, {
         code: code ?? (cancelled ? RUN_CANCELLED : 'EXECUTE_ERROR'),
         retryable: true,
@@ -2994,8 +3477,10 @@ export class ForgeHandler implements DomainHandler {
               },
             }
           : gate?.stop
-            ? { extraPayload: { gate: gate.stop } }
-            : {}),
+            ? { extraPayload: { gate: gate.stop, ...taken } }
+            : checkpointTaken
+              ? { extraPayload: taken }
+              : {}),
       });
       if (cancelled) {
         // Aborted in the registry already when the cancel came through it,
@@ -3089,6 +3574,12 @@ export class ForgeHandler implements DomainHandler {
       journalPart?: number;
       /** Its Bulk API jobs still running when its mute was given back. */
       bulkJobsPastMute?: ForgeBulkJobPastMute[];
+      /** The checkpoint it took before its first write, or the one of the run it takes up. */
+      checkpoint?: RunCheckpointInfo;
+      /** The user it wrote as, as the run read it before its first write. */
+      runUserId?: string;
+      /** Of a part that took the run up, what it wrote to the parts before it. */
+      wroteToEarlierParts?: string[];
     },
   ): ForgeExecutionResult | undefined {
     // Past the bound the summary holds no id, and counts what the run created.
@@ -3116,9 +3607,89 @@ export class ForgeHandler implements DomainHandler {
             errors: [...(result.errors ?? []), ...pastMuteNotes(run.bulkJobsPastMute)],
           }
         : {}),
+      ...(run.checkpoint ? { checkpoint: run.checkpoint } : {}),
+      ...(run.runUserId ? { runUserId: run.runUserId } : {}),
+      ...(run.wroteToEarlierParts ? { wroteToEarlierParts: run.wroteToEarlierParts } : {}),
     };
     this.addToHistory(stopped, config);
     return stopped;
+  }
+
+  /**
+   * Of a part that took a run up where it stopped, the records of the parts
+   * before it that it wrote to (`ForgeExecutionResult.wroteToEarlierParts`),
+   * read from its journal before the journal goes: what the lines of its part
+   * say it filled in and gave back, less what it created. A removal of those
+   * parts reads them as the run's doing. None of a run whose ids stay in its
+   * journal, which keeps them, of one past the bound of ids a history entry
+   * keeps, or when the journal cannot be read.
+   */
+  private async wroteToEarlierPartsOf(
+    run: Pick<
+      ForgeExecutionResult,
+      'idRemapTable' | 'idRemapExisting' | 'idRemapCreated' | 'remapInJournal'
+    >,
+    journalId: string,
+    part: number,
+  ): Promise<{ wroteToEarlierParts?: string[] }> {
+    const journal = this.runJournal;
+    if (!journal || run.remapInJournal || part < 1) return {};
+    const own = new Set(
+      forgeRunCreatedRecords(run).flatMap(({ ids }) => ids.map((id) => id.slice(0, 15))),
+    );
+    try {
+      const wrote = (await journal.wroteIn(journalId, part)).filter(
+        (id) => !own.has(id.slice(0, 15)),
+      );
+      return wrote.length > 0 && wrote.length <= HISTORY_IDS_BOUND
+        ? { wroteToEarlierParts: wrote }
+        : {};
+    } catch (err: unknown) {
+      logger.warn(
+        `Forge run journal not read for what the part wrote: ${extractErrorMessage(err)}`,
+      );
+      return {};
+    }
+  }
+
+  /**
+   * The user a run writes to `targetOrgId` as, by Salesforce id: the
+   * session's, as the org's identity service names it. Undefined when it
+   * cannot be read: the run goes on all the same, and the sweep of its
+   * removal reads the user back from the creator of its records, as for a run
+   * recorded before runs kept it.
+   */
+  private runUserOf(targetOrgId: string): Promise<string | undefined> {
+    return readRunUser(async () => {
+      const conn = await getJsforceConnection(
+        targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      return conn.identity();
+    }, 'forge:execute');
+  }
+
+  /**
+   * What becomes of the checkpoint a run took before its first write once the
+   * run has ended: kept when it wrote a record, deleted when it wrote none.
+   * One the checkpoints cannot settle is kept as it was taken, said in the
+   * log: a checkpoint is never lost for a run that may have written.
+   */
+  private async settleCheckpoint(
+    taken: RunCheckpointTaken,
+    wrote: boolean,
+  ): Promise<RunCheckpointInfo> {
+    const checkpoints = this.beforeRunCheckpoints;
+    if (!checkpoints) return taken;
+    try {
+      return await checkpoints.settle(taken, wrote);
+    } catch (err: unknown) {
+      logger.warn(
+        `Forge run: the checkpoint '${taken.name}' taken before it is kept, as it could not be settled (${extractErrorMessage(err)})`,
+      );
+      return taken;
+    }
   }
 
   /**
@@ -3342,14 +3913,22 @@ export class ForgeHandler implements DomainHandler {
    */
   /**
    * The mute of a removal that asked for one, planned from what the target
-   * runs as it deletes the records of `objects` and sets those past Draft back
-   * to Draft first: as the removal's question reads it.
+   * runs as it deletes the records of `objects` — the platform's copies of the
+   * run's lines on an object the run never wrote among them — and sets those
+   * past Draft back to Draft first, and as its sweep deletes those of `swept`,
+   * none of which it sets back: as the removal's question reads it.
    */
-  private async removalMute(targetOrgId: string, objects: readonly string[]): Promise<RunMute> {
+  private async removalMute(
+    targetOrgId: string,
+    objects: readonly string[],
+    swept: readonly string[],
+  ): Promise<RunMute> {
     const reader = this.targetAutomation;
     const read: ForgeTargetAutomation | { unread: string } = reader
       ? await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
-          .withTimeout('forge:undo-automation', () => reader.read(targetOrgId, [...objects]))
+          .withTimeout('forge:undo-automation', () =>
+            reader.read(targetOrgId, [...new Set([...objectsRemovedOf(objects), ...swept])]),
+          )
           .catch((err: unknown) => ({ unread: extractErrorMessage(err) }))
       : { unread: "no reader of the target org's automation is set up" };
     const drafted = new Set(setBackToDraftOf(objects));
@@ -3424,6 +4003,10 @@ export class ForgeHandler implements DomainHandler {
    * @param target - The org's id, the org as the user knows it, its tier, and
    *   the user the run writes as, whom a bypass's command assigns it to.
    * @param reviewSkipped - Whether the run was started with Clone directly.
+   * @param emails - What the question says of the emails when the target
+   *   delivers them all or would not say: asked whatever else fires, and
+   *   going on is the accord to send them. Empty when nothing sends, or the
+   *   target sends none of them.
    * @returns The decision recorded with the run: `confirmed` once a person
    *   answered, `allowed` when nothing was asked.
    * @throws ForgeRunGateError when the user declines, or nobody can be asked.
@@ -3434,6 +4017,7 @@ export class ForgeHandler implements DomainHandler {
     read: { automation: ForgeTargetAutomation; reused: boolean } | { unread: string },
     updated: readonly UpdatedAfterInsert[],
     reviewSkipped: boolean,
+    emails: Pick<AutomationConfirmation, 'deliverability'> = {},
   ): Promise<GuardDecision> {
     const known = 'automation' in read ? read.automation : undefined;
     const updatedNames = updated.map((object) => object.objectApiName);
@@ -3451,7 +4035,8 @@ export class ForgeHandler implements DomainHandler {
     });
     const quiet = fired.length === 0 && firedOnUpdate.length === 0 && unread.length === 0;
     const removal = known ? removalRisksOf(known) : [];
-    if (quiet && !(reviewSkipped && removal.length > 0)) return 'allowed';
+    const sends = emails.deliverability !== undefined;
+    if (quiet && !sends && !(reviewSkipped && removal.length > 0)) return 'allowed';
     // Asked for the removal alone, the question holds its lines alone: no
     // bypass to name, and no command to copy for a flow that does not fire.
     const bypass = known && !quiet ? runBypassesOf(known, updatedNames) : [];
@@ -3478,13 +4063,14 @@ export class ForgeHandler implements DomainHandler {
           : [],
       // What may refuse taking the run back, said where the user decides on it.
       ...(removal.length > 0 ? { removal } : {}),
+      ...emails,
     });
     if (answer === 'confirmed') return 'confirmed';
     this.readAutomationAgain(target.orgId);
     throw answer === 'declined'
       ? new ForgeRunGateError(
           'AUTOMATION_DECLINED',
-          quiet
+          quiet && !sends
             ? 'Forge execution was cancelled at the confirmation of what may refuse a removal ' +
                 'of the records it creates. Nothing was read or written.'
             : 'Forge execution was cancelled at the confirmation of what the target org runs as ' +
@@ -3613,17 +4199,25 @@ export class ForgeHandler implements DomainHandler {
    * - The files it copies, as the source summed them, against the target's
    *   file storage from the `/limits` the gate read for the data storage:
    *   past it, refused (`STORAGE_EXCEEDED`, `storage.kind: 'files'`).
-   * - The API requests its writes take of the target, against what the same
-   *   answer said it has left, and the Bulk API batches its jobs take of the
-   *   target's day: past either, refused (`API_BUDGET_EXCEEDED`, `api.kind`
-   *   `requests` or `bulkBatches`). Not told, the question says so.
+   * - The Bulk API batches its jobs take of the target's day, against what
+   *   the same answer said it has left: past them, refused
+   *   (`API_BUDGET_EXCEEDED`, `api.kind: 'bulkBatches'`). Not told, the
+   *   question says so.
    * - The API requests its reads take of the source, read from its own
    *   `/limits`: past them, refused (`API_BUDGET_EXCEEDED`, `api.org`
    *   `source`). The source is often a production org whose integrations
    *   draw on the same requests.
    *
-   * @returns What the question adds: the target's API requests whenever it
-   *   told them, and the whole org's own part (`WriteConfirmation.wholeOrg`);
+   * These need nothing of the checkpoint asked first, so they refuse the run
+   * before it is scoped: a clone refused for its files, its batches or the
+   * source's requests spends no describe or count of the objects it writes.
+   * The API requests it takes of the target are judged after the scope, with
+   * every other part of them (`wholeOrgWriteBudgetOf`): what they leave says
+   * the smaller calls the run allows itself, which is why the question comes
+   * back as a function of them.
+   *
+   * @returns Given the target's API requests the gate judged, what the
+   *   question adds: the whole org's own part (`WriteConfirmation.wholeOrg`);
    *   and the smaller calls the run allows itself (`wholeOrgSplitAllowance`).
    * @throws ForgeRunGateError for what it refuses.
    */
@@ -3639,15 +4233,16 @@ export class ForgeHandler implements DomainHandler {
       };
     },
     boundary: ForgeWriteBoundary,
-    plan: WritePlan,
+    measures: WholeOrgMeasures,
     targetLimits: DataStorage | { unread: string },
-  ): Promise<{
-    question: Pick<WriteConfirmation, 'apiRequests' | 'wholeOrg'>;
-    splitAllowance?: number;
-  }> {
+  ): Promise<
+    (targetApi: ApiBudgetCheck) => {
+      question: Pick<WriteConfirmation, 'wholeOrg'>;
+      splitAllowance?: number;
+    }
+  > {
     const whole = run.wholeOrg;
-    if (!whole) return { question: {} };
-    const measures = wholeOrgMeasuresOf(plan, boundary.files);
+    if (!whole) return () => ({ question: {} });
     const told = 'unread' in targetLimits ? undefined : targetLimits;
 
     // The files, against the target's file storage: none to copy when the
@@ -3668,23 +4263,6 @@ export class ForgeHandler implements DomainHandler {
         estimateMB: Number(formatMB(fileCheck.estimateMB)),
         remainingMB: fileCheck.remainingMB,
         kind: 'files',
-      });
-    }
-
-    // The target's API requests, from the answer the storage came in.
-    const targetApi = apiBudgetCheckOf(
-      { run: measures.targetRequests },
-      'unread' in targetLimits ? targetLimits : targetLimits.dailyApiRequests,
-    );
-    const targetRefused = apiBudgetRefusal(targetApi, run.org);
-    if (targetRefused && targetApi.verdict === 'exceeds') {
-      throw new ForgeRunGateError('API_BUDGET_EXCEEDED', targetRefused, undefined, undefined, {
-        api: {
-          kind: 'requests',
-          org: 'target',
-          estimate: targetApi.estimate,
-          remaining: targetApi.remaining,
-        },
       });
     }
 
@@ -3726,85 +4304,78 @@ export class ForgeHandler implements DomainHandler {
         },
       });
     }
-    // Calls the target's automation refuses for a limit go again smaller,
-    // within half of what the run leaves of the target's requests today.
-    const splitAllowance = wholeOrgSplitAllowance(targetApi);
-    logger.info('Forge write gate: a clone of the whole org', {
-      targetRequests: targetApi.estimate,
-      targetApi: targetApi.verdict,
-      sourceRequests: sourceApi.estimate,
-      sourceApi: sourceApi.verdict,
-      bulkBatches: measures.bulkBatches,
-      ...(batches ? { batches: batches.verdict } : {}),
-      ...(fileCheck ? { fileStorage: fileCheck.verdict } : {}),
-      durationSeconds: Math.round(measures.durationSeconds),
-      restObjects: measures.restObjects.length,
-      splitAllowance,
-    });
+    return (targetApi) => {
+      // Calls the target's automation refuses for a limit go again smaller,
+      // within half of what the run leaves of the target's requests today.
+      const splitAllowance = wholeOrgSplitAllowance(targetApi);
+      logger.info('Forge write gate: a clone of the whole org', {
+        targetRequests: targetApi.estimate,
+        targetApi: targetApi.verdict,
+        sourceRequests: sourceApi.estimate,
+        sourceApi: sourceApi.verdict,
+        bulkBatches: measures.bulkBatches,
+        ...(batches ? { batches: batches.verdict } : {}),
+        ...(fileCheck ? { fileStorage: fileCheck.verdict } : {}),
+        durationSeconds: Math.round(measures.durationSeconds),
+        restObjects: measures.restObjects.length,
+        splitAllowance,
+      });
 
-    return {
-      splitAllowance,
-      question: {
-        ...(targetApi.verdict === 'unread'
-          ? {}
-          : {
-              apiRequests: {
-                estimate: targetApi.estimate,
-                remaining: targetApi.remaining,
-                max: targetApi.max,
-              },
-            }),
-        wholeOrg: {
-          source: whole.source,
-          leftOut: whole.leftOut,
-          ...(whole.carried ? { carried: whole.carried } : {}),
-          // The question says every budget, near or not: one the run would
-          // leave short is said as such, as a run of any other module says it.
-          ...(targetApi.verdict === 'near' ? { targetApiNear: true as const } : {}),
-          durationSeconds: measures.durationSeconds,
-          restObjects: measures.restObjects,
-          ...(files && fileCheck
-            ? {
-                fileStorage: {
-                  estimateMB: fileCheck.estimateMB,
-                  files: files.count,
-                  overCeiling: files.overCeiling,
-                  ...(fileCheck.verdict === 'unread'
-                    ? {}
-                    : { remainingMB: fileCheck.remainingMB, maxMB: fileCheck.maxMB }),
-                  ...(fileCheck.verdict === 'near' ? { near: true as const } : {}),
-                },
-              }
-            : {}),
-          ...(boundary.filesUnmeasured ? { filesUnmeasured: true as const } : {}),
-          ...(sourceApi.verdict === 'unread'
-            ? { sourceApiUnread: sourceApi.unread }
-            : {
-                sourceApi: {
-                  estimate: sourceApi.estimate,
-                  remaining: sourceApi.remaining,
-                  max: sourceApi.max,
-                  ...(sourceApi.verdict === 'near' ? { near: true as const } : {}),
-                },
-              }),
-          ...(batches
-            ? {
-                bulkBatches:
-                  batches.verdict === 'unread'
-                    ? { estimate: batches.estimate }
-                    : {
-                        estimate: batches.estimate,
-                        remaining: batches.remaining,
-                        max: batches.max,
-                        ...(batches.verdict === 'near' ? { near: true as const } : {}),
-                      },
-              }
-            : {}),
-          ...(boundary.contactPointsBlanked !== undefined && boundary.contactPointsBlanked > 0
-            ? { contactPointsBlanked: boundary.contactPointsBlanked }
-            : {}),
+      return {
+        splitAllowance,
+        question: {
+          wholeOrg: {
+            source: whole.source,
+            leftOut: whole.leftOut,
+            ...(whole.carried ? { carried: whole.carried } : {}),
+            // The question says every budget, near or not: one the run would
+            // leave short is said as such, as a run of any other module says it.
+            ...(targetApi.verdict === 'near' ? { targetApiNear: true as const } : {}),
+            durationSeconds: measures.durationSeconds,
+            restObjects: measures.restObjects,
+            ...(files && fileCheck
+              ? {
+                  fileStorage: {
+                    estimateMB: fileCheck.estimateMB,
+                    files: files.count,
+                    overCeiling: files.overCeiling,
+                    ...(fileCheck.verdict === 'unread'
+                      ? {}
+                      : { remainingMB: fileCheck.remainingMB, maxMB: fileCheck.maxMB }),
+                    ...(fileCheck.verdict === 'near' ? { near: true as const } : {}),
+                  },
+                }
+              : {}),
+            ...(boundary.filesUnmeasured ? { filesUnmeasured: true as const } : {}),
+            ...(sourceApi.verdict === 'unread'
+              ? { sourceApiUnread: sourceApi.unread }
+              : {
+                  sourceApi: {
+                    estimate: sourceApi.estimate,
+                    remaining: sourceApi.remaining,
+                    max: sourceApi.max,
+                    ...(sourceApi.verdict === 'near' ? { near: true as const } : {}),
+                  },
+                }),
+            ...(batches
+              ? {
+                  bulkBatches:
+                    batches.verdict === 'unread'
+                      ? { estimate: batches.estimate }
+                      : {
+                          estimate: batches.estimate,
+                          remaining: batches.remaining,
+                          max: batches.max,
+                          ...(batches.verdict === 'near' ? { near: true as const } : {}),
+                        },
+                }
+              : {}),
+            ...(boundary.contactPointsBlanked !== undefined && boundary.contactPointsBlanked > 0
+              ? { contactPointsBlanked: boundary.contactPointsBlanked }
+              : {}),
+          },
         },
-      },
+      };
     };
   }
 
@@ -3874,10 +4445,34 @@ export class ForgeHandler implements DomainHandler {
   }
 
   /**
+   * The daily API requests the target has, read on their own when its storage
+   * could not be: a Standard User's `/limits` list the requests and not the
+   * storage. Why they could not be read, otherwise.
+   */
+  private async readTargetApiBudget(targetOrgId: string): Promise<ApiBudget | { unread: string }> {
+    try {
+      const conn = await getJsforceConnection(
+        targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      return await new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('forge:limits', () =>
+        readApiBudget(conn),
+      );
+    } catch (err: unknown) {
+      return { unread: extractErrorMessage(err) };
+    }
+  }
+
+  /**
    * What the executor hands every row it is about to write, before the first
    * goes (`ExecuteOptions.beforeWrite`): the run's gate on what it writes.
    *
-   * Rows that take more data storage than the target has left are refused.
+   * Rows that take more data storage than the target has left are refused, and
+   * so are rows whose requests — the checkpoint taken first and the read-backs
+   * of the record types given among them — take more than the target has left
+   * today: Forge's gate held no budget, and a clone into an org whose
+   * integrations had spent the day's requests stopped part way through.
    * Past `sandforge.safety.confirmAboveRecords`, near what the target has
    * left, or when the target would not say what it has left, the user is
    * asked, with the records per object; the guard's large-volume warning goes
@@ -3886,17 +4481,28 @@ export class ForgeHandler implements DomainHandler {
    * has left of, or that were not counted: what sends could not be read. What
    * is refused or declined throws, and the run stops with nothing written.
    *
+   * A run asked to take a checkpoint of what it writes first (`checkpoint`)
+   * is refused before its question when the checkpoint's scope is refused,
+   * and is always asked: the checkpoint reads whole tables of the target, not
+   * the run's rows, and the question says its cost. Once the question is
+   * answered, the checkpoint is taken — before the mute's lease, which the
+   * run takes once this gate returns — and a take refused or failed refuses
+   * the run, a Stop during it stops it: nothing written either way.
+   *
    * A clone of the whole org (`run.wholeOrg`) is always asked, whatever the
-   * setting, with what else it takes: the target's API requests and Bulk API
-   * batches, read from the same `/limits` as its storage, the source's API
-   * requests, its file storage, how long it writes and what goes by REST. It
-   * is refused, before the question, for an object it would read whole past
-   * the setting's bound (`READ_BOUND_EXCEEDED`), files past the target's
-   * file storage (`STORAGE_EXCEEDED`), or requests or batches past what an
-   * org has left today (`API_BUDGET_EXCEEDED`).
+   * setting, with what else it takes: the target's API requests, its own
+   * part counted as its Bulk API jobs take it, and Bulk API batches, read
+   * from the same `/limits` as its storage, the source's API requests, its
+   * file storage, how long it writes and what goes by REST. It is refused,
+   * before the question, for an object it would read whole past the
+   * setting's bound (`READ_BOUND_EXCEEDED`), files past the target's file
+   * storage (`STORAGE_EXCEEDED`), or requests or batches past what an org
+   * has left today (`API_BUDGET_EXCEEDED`).
    *
    * @param run.lookup - The requests made for the run besides the executor's:
    *   the read of the target's limits is one of them, and of the source's.
+   * @param run.updatedAfterInsert - The objects whose rows the run writes a
+   *   second time, counted among its requests.
    * @param run.onConfirmed - Called once a person confirmed the run.
    * @returns For a clone of the whole org let through, the smaller calls the
    *   run allows itself (`wholeOrgSplitAllowance`); nothing for another run,
@@ -3925,6 +4531,11 @@ export class ForgeHandler implements DomainHandler {
     simulated?: SimulatedWrite;
     /** Told, on a simulation, what it would write, measured as the run's rows are. */
     onSimulated?: (plan: WritePlan) => void;
+    updatedAfterInsert?: readonly string[];
+    /** The checkpoint the run takes of what it writes before its first write; absent when not asked. */
+    checkpoint?: WriteGateCheckpoint;
+    /** What the read of whether the target delivers its emails sent: counted with the run's. */
+    deliverability?: number;
     /**
      * Of a clone of the whole org: the source, as the user knows it and by
      * id, the objects discovery left out, and what the run was set to that
@@ -3938,11 +4549,27 @@ export class ForgeHandler implements DomainHandler {
     };
     onConfirmed: () => void;
   }): (boundary: ForgeWriteBoundary) => Promise<ForgeWriteGateAnswer | undefined> {
+    const first = run.checkpoint;
+    /** The checkpoint's ask, given the objects the rows are of: every one the run writes. */
+    const askOf = (plan: WritePlan): BeforeRunAsk | undefined =>
+      first && {
+        ...first.ask,
+        written: plan.objects.filter(({ rows }) => rows > 0).map((o) => o.objectApiName),
+      };
     return async (boundary) => {
       // A simulation writes nothing to hold back: what it would write is kept
-      // for the run of its case that follows.
+      // for the run of its case that follows. Asked for the checkpoint first,
+      // it says what that would hold and cost, and the refusal a real run
+      // would meet; nothing is taken.
       if (boundary.dryRun) {
-        run.onSimulated?.(writePlanOf(boundary.objects));
+        const simulated = writePlanOf(boundary.objects);
+        run.onSimulated?.(simulated);
+        const ask = askOf(simulated);
+        if (first && ask && this.beforeRunCheckpoints && simulated.totalRows > 0) {
+          await this.beforeRunCheckpoints.scope(ask, first.own).then(first.onEstimate, (err) => {
+            logger.warn(`Forge simulation: ${beforeRunFailedWords(err)}`);
+          });
+        }
         return;
       }
       const plan = writePlanOf(boundary.objects);
@@ -3970,8 +4597,8 @@ export class ForgeHandler implements DomainHandler {
       }
       if (plan.totalRows === 0) return;
       run.lookup.requests++;
-      const targetLimits = await this.readTargetDataStorage(run.targetOrgId);
-      const storage = storageCheckOf(plan, targetLimits);
+      const limits = await this.readTargetDataStorage(run.targetOrgId);
+      const storage = storageCheckOf(plan, limits);
       const threshold = this.confirmAboveRecords();
       const aboveRecords = threshold > 0 && plan.totalRows > threshold ? threshold : undefined;
       const line = largeVolumeThreshold(run.orgTier);
@@ -3994,9 +4621,6 @@ export class ForgeHandler implements DomainHandler {
           remainingMB: storage.remainingMB,
         });
       }
-      const whole = run.wholeOrg
-        ? await this.wholeOrgChecks(run, boundary, plan, targetLimits)
-        : undefined;
       if (storage.verdict === 'near') {
         logger.warn(
           'Forge write gate: the records take more than 80 % of the data storage the target has left',
@@ -4007,6 +4631,115 @@ export class ForgeHandler implements DomainHandler {
       if (largeVolume !== undefined) {
         logger.warn(`Forge write gate: more than ${largeVolume} records, a large volume`);
       }
+      // A clone of the whole org counts its own part as its Bulk API jobs
+      // take it (`wholeOrgMeasuresOf`): a REST call per 200 rows counted a
+      // whole org many times over, and refused clones the target had room for.
+      // What else it is held to — its files, the Bulk API batches of the
+      // target's day and the source's API requests — needs nothing of the
+      // checkpoint asked first, so it refuses the clone before the scope.
+      const measures = run.wholeOrg ? wholeOrgMeasuresOf(plan, boundary.files) : undefined;
+      const wholeOrgQuestion =
+        run.wholeOrg && measures
+          ? await this.wholeOrgChecks(run, boundary, measures, limits)
+          : undefined;
+      // The requests the rows take of what the target has left today, read
+      // with its storage, or on their own when the storage could not be. The
+      // checkpoint asked first is scoped here, from the rows the run is about
+      // to write and what still runs as it writes them, reading no record,
+      // and counted among them; refused, it refuses the run before its
+      // question, nothing taken.
+      let budget: ApiBudget | { unread: string } | undefined;
+      if ('unread' in limits) {
+        run.lookup.requests++;
+        budget = await this.readTargetApiBudget(run.targetOrgId);
+      } else {
+        budget = limits.dailyApiRequests;
+      }
+      const ask = askOf(plan);
+      let estimate: RunCheckpointEstimate | undefined;
+      if (first && ask) {
+        const checkpoints = this.beforeRunCheckpoints;
+        if (!checkpoints) {
+          throw new ForgeRunGateError(
+            CHECKPOINT_REFUSED,
+            beforeRunFailedWords(
+              new Error("SandForge's checkpoints are not set up in this window"),
+            ),
+          );
+        }
+        estimate = await checkpoints.scope(ask, first.own).catch((err: unknown) => {
+          throw new ForgeRunGateError(CHECKPOINT_REFUSED, beforeRunFailedWords(err));
+        });
+      }
+      const requestsAsked = {
+        plan,
+        ...(run.updatedAfterInsert ? { updatedAfterInsert: run.updatedAfterInsert } : {}),
+        ...(boundary.readBack !== undefined ? { readBack: boundary.readBack } : {}),
+        ...(estimate ? { checkpoint: estimate } : {}),
+        ...(run.deliverability !== undefined ? { deliverability: run.deliverability } : {}),
+        budget,
+        target: run.org,
+      };
+      const requests = measures
+        ? wholeOrgWriteBudgetOf(requestsAsked, measures.targetRequests)
+        : forgeWriteBudgetOf(requestsAsked);
+      logger.info('Forge write gate: API requests', {
+        estimate: requests.api.estimate,
+        verdict: requests.api.verdict,
+        ...(requests.api.verdict === 'unread'
+          ? { unread: requests.api.unread }
+          : { remaining: requests.api.remaining, max: requests.api.max }),
+        ...(requests.api.parts ? { parts: requests.api.parts } : {}),
+      });
+      if (requests.stop) {
+        // A clone of the whole org says which allowance of which org refused
+        // it, as its other budgets do.
+        throw measures &&
+          requests.stop.code === API_BUDGET_EXCEEDED &&
+          requests.api.verdict === 'exceeds'
+          ? new ForgeRunGateError(
+              API_BUDGET_EXCEEDED,
+              requests.stop.message,
+              undefined,
+              undefined,
+              {
+                api: {
+                  kind: 'requests',
+                  org: 'target',
+                  estimate: requests.api.estimate,
+                  remaining: requests.api.remaining,
+                },
+              },
+            )
+          : ForgeRunGateError.of(requests.stop);
+      }
+      // What the target's requests leave says the smaller calls a clone of
+      // the whole org allows itself, and its question says them.
+      const whole = wholeOrgQuestion?.(requests.api);
+      // The checkpoint asked first, taken once the rows may be written: after
+      // the question, as close to the first write as the answer lets it, and
+      // before the lease the run takes once this gate returns. A take refused
+      // or failed refuses the run; the run's Stop during it stops the run as
+      // the executor's abort does, nothing of the take kept.
+      const takeFirst = async (): Promise<void> => {
+        const checkpoints = this.beforeRunCheckpoints;
+        if (!first || !ask || !estimate || !checkpoints) return;
+        const planned = estimate;
+        const took = await takeCheckpointFirst(() =>
+          checkpoints.take(ask, first.own, {
+            planned,
+            signal: first.signal,
+            onProgress: ({ percentage }) => first.onProgress?.(percentage),
+          }),
+        );
+        if ('stop' in took) {
+          if (took.stop.code === CHECKPOINT_REFUSED) {
+            throw ForgeRunGateError.of({ ...took.stop, code: CHECKPOINT_REFUSED });
+          }
+          throw Object.assign(new Error(took.stop.message), { name: 'ForgeAbortedError' });
+        }
+        first.onTaken(took.checkpoint);
+      };
       // The emails the target's flows send as these records go in, against
       // what it has left today: read only when they send some. Past it, a
       // record whose flow fails in the save is refused; the user is asked. A
@@ -4077,10 +4810,12 @@ export class ForgeHandler implements DomainHandler {
         uncounted === undefined &&
         uncertain.length === 0 &&
         simulated?.farAbove !== true &&
+        !requests.asks &&
         // A clone of the whole org is always asked, even with the setting at
         // 0: what it writes, takes and lasts is put to the user first.
         whole === undefined
       ) {
+        await takeFirst();
         return;
       }
       const answer = await run.guard.confirmRun({
@@ -4098,15 +4833,18 @@ export class ForgeHandler implements DomainHandler {
         ...(unreadEmails.length > 0 ? { emailsUnread: unreadEmails } : {}),
         ...(uncounted !== undefined ? { emailsUncounted: uncounted } : {}),
         ...pricesForLinesOf(plan),
+        ...rolesMayBeOf(plan),
         ...(uncertain.length > 0
           ? { mayBeInTarget: uncertain.map(({ objectApiName, rows }) => ({ objectApiName, rows })) }
           : {}),
         ...(boundary.capped ? { capped: boundary.capped } : {}),
         ...(simulated ? { simulated } : {}),
+        ...requests.confirmation,
         ...(whole ? whole.question : {}),
       });
       if (answer === 'confirmed') {
         run.onConfirmed();
+        await takeFirst();
         return whole?.splitAllowance !== undefined
           ? { splitAllowance: whole.splitAllowance }
           : undefined;
@@ -4334,10 +5072,12 @@ export class ForgeHandler implements DomainHandler {
    * and the entry is marked once records went, so the removal is not offered
    * again once none is left.
    *
-   * Asked with a sweep, the removal is preceded by one (`sweepBeforeRemoval`):
-   * what the target's automation created during the run, as its user. A sweep
-   * needs the run's id map, which only the history holds: one asked of a run
-   * the history dropped is refused. Asked of a run whose records were all
+   * Asked with a sweep, the removal makes one around the run's records
+   * (`sweepOfRemoval`): what the target's automation made for the run, as
+   * its user, tied to the run's records — what came late or is tied to
+   * nothing only when asked too (`sweepLate`, `sweepUntied`). A sweep needs
+   * the run's id map, which only the history holds: one asked of a run the
+   * history dropped is refused. Asked of a run whose records were all
    * removed already, the sweep runs alone.
    *
    * Asked `again`, the removal takes every record the run created rather
@@ -4355,6 +5095,9 @@ export class ForgeHandler implements DomainHandler {
     const sweep = parsed.sweep === true;
     const again = parsed.again === true;
     const muteAutomation = parsed.muteAutomation === true;
+    // Asked with the sweep: what it lists as made late, or tied to nothing of the run, goes too.
+    const sweepLate = sweep && parsed.sweepLate === true;
+    const sweepUntied = sweep && parsed.sweepUntied === true;
     const refuse = (message: string, code: string): void => this.refuseUndo(msg, message, code);
 
     let entry = this.loadHistory().find((e) => e.forgeId === forgeId);
@@ -4510,7 +5253,7 @@ export class ForgeHandler implements DomainHandler {
           msg,
           run,
           plan,
-          { includeChanged, again, muteAutomation },
+          { includeChanged, again, muteAutomation, sweepLate, sweepUntied },
           sweep ? entry : undefined,
           pending,
         );
@@ -5570,7 +6313,13 @@ export class ForgeHandler implements DomainHandler {
     msg: InboundRequest,
     entry: RunToRemove,
     plan: ForgeRunObjectRecords[] | RunRecords,
-    asked: { includeChanged: boolean; again: boolean; muteAutomation?: boolean },
+    asked: {
+      includeChanged: boolean;
+      again: boolean;
+      muteAutomation?: boolean;
+      sweepLate?: boolean;
+      sweepUntied?: boolean;
+    },
     sweepOf?: ForgeExecutionResult,
     pending?: PendingStart,
   ): Promise<void> {
@@ -5664,28 +6413,6 @@ export class ForgeHandler implements DomainHandler {
       );
       return;
     }
-    // Asked to mute, the removal reads what its deletes fire and plans the
-    // mute from it before it deletes anything: refused on a production org or
-    // for a user who cannot assign, it deletes nothing.
-    let removalMute: RunMute | undefined;
-    if (asked.muteAutomation === true && total > 0) {
-      try {
-        removalMute = await this.removalMute(targetOrgId, objectsIn(plan));
-      } catch (err: unknown) {
-        if (!isMuteRefusedError(err)) throw err;
-        recordWriteRun(this.deps, {
-          action: 'cleanup_delete',
-          module: 'forge',
-          operationId: msg.id,
-          orgId: targetOrgId,
-          outcome: 'stopped',
-          guard: decision,
-          code: err.code,
-        });
-        refuse(err.message, err.code);
-        return;
-      }
-    }
 
     const operationId = msg.id;
     const description =
@@ -5700,6 +6427,10 @@ export class ForgeHandler implements DomainHandler {
     let runError: unknown;
     /** The run's other parts, read as the removal begins; let go once it is through. */
     let parts: OtherParts | undefined;
+    /** The sweep asked with the removal, in its parts around the run's records; see `sweepOfRemoval`. */
+    let sweeping: RemovalSweep | undefined;
+    /** What the removal muted of what it fires, when asked. */
+    let mutedAutomation: MutedAutomation | undefined;
 
     try {
       const conn = await getJsforceConnection(
@@ -5737,62 +6468,102 @@ export class ForgeHandler implements DomainHandler {
               })
           : {}),
       };
-      // The sweep comes before the run's own records go, as a Frozen load's
-      // does: a record the target's automation hung under one of them after
-      // the run's last write — a task or a feed item its asynchronous path
-      // opened — is not of the run, and would hold its parent back as a
-      // record that stays. The removal makes it once it has read the run's
+      // The sweep comes in parts around the run's own records, as a Frozen
+      // load's does. Before them, what neither goes with one of them nor
+      // waits for one: a record the target's automation hung under one of
+      // them after the run's last write — a task or a feed item its
+      // asynchronous path opened — would hold its parent back as a record
+      // that stays. The removal makes that part once it has read the run's
       // records: a child it deletes under one of them restamps that record
       // when a roll-up counts it, which read afterwards was a change since
-      // the run. A cancel during the sweep stops the removal too.
-      const sweepMade: { result?: ForgeSweepResult } = {};
-      // The sweep spends the removal's allowance of smaller calls with it,
-      // as the removal hands it over: one bound for the two.
-      const sweep = sweepOf
-        ? async (allowance?: SplitAllowance): Promise<boolean> => {
-            sweepMade.result = await this.sweepBeforeRemoval({
-              conn,
-              entry: sweepOf,
-              includeChanged,
-              ...(allowance ? { allowance } : {}),
-              removalSpans: entry.removalSpans ?? [],
-              signal: stop.signal,
-              guard,
-              orgTier,
-              operationId,
-            });
-            return sweepMade.result.objects.some((object) => object.deleted > 0);
-          }
-        : undefined;
-      // Nothing of the run to remove: the sweep alone, and no record of the run goes.
-      if (total === 0) await sweep?.();
+      // the run. With them, what goes in cascade, which holds none of them
+      // back (`automationMade`). After them, what one of them points at by a
+      // lookup the org refuses the delete for — the asset a case of the run
+      // names (`afterRemoval`). A cancel during the sweep stops the removal too.
       // The run's other parts, removed apart from this one: what this
-      // removal's deletes restamp of their records is kept on each.
+      // removal's deletes restamp of their records is kept on each, and what
+      // the removals of each had the org create is read as theirs.
       if (total > 0) parts = await this.otherPartsOf(forgeId, targetOrgId, conn);
-      // The lease is taken before the first delete, and given back once the
-      // removal ends, whatever it ended on.
-      const held = removalMute?.prepared
-        ? await removalMute.prepared.acquire(operationId)
-        : undefined;
-      let mutedAutomation = held?.outcome ?? removalMute?.muted;
-      const outcome: RunRemovalOutcome =
+      const removalSpans = spansOf(entry.removalSpans, parts?.spans);
+      if (sweepOf) {
+        sweeping = await this.sweepOfRemoval({
+          conn,
+          entry: sweepOf,
+          includeChanged,
+          sweepLate: asked.sweepLate === true,
+          sweepUntied: asked.sweepUntied === true,
+          removalSpans,
+          signal: stop.signal,
+          guard,
+          orgTier,
+          operationId,
+          muted: () => (total === 0 ? mutedAutomation : undefined),
+        });
+      }
+      const sweepParts = sweeping;
+      // The sweep reads what it takes and asks Production Guard here, before
+      // the lease: a person answering holds no permission set assigned. It
+      // deletes at its turn, once the removal has read the run's records.
+      await sweepParts?.ask();
+      // Asked to mute, the removal reads what its deletes fire, what the sweep
+      // deletes among them, and plans the mute from it before it deletes
+      // anything: refused on a production org or for a user who cannot assign,
+      // it deletes nothing. Planned before the sweep had read, an asset's Flow
+      // that refused its delete was left out of a mute that said it had
+      // nothing to do. A sweep that goes alone mutes too.
+      const sweptObjects = sweepParts?.takes ?? [];
+      const removalMute: RunMute | undefined =
+        asked.muteAutomation === true && (total > 0 || sweptObjects.length > 0)
+          ? await this.removalMute(targetOrgId, objectsIn(plan), sweptObjects)
+          : undefined;
+      // The lease, taken right before the first delete, once every question
+      // is answered, and given back once the removal ends, whatever it ended
+      // on: the removal asks what to do of the records its user may not
+      // delete once it has read them, and a lease taken before it kept the
+      // sets assigned while the question stayed open, for nothing once it was
+      // answered no. A stop before then assigns nothing.
+      let held: HeldMute | undefined;
+      mutedAutomation = removalMute?.muted;
+      const takeLease = async (): Promise<void> => {
+        const prepared = removalMute?.prepared;
+        if (!prepared || stop.signal.aborted) return;
+        held = await prepared.acquire(operationId);
+        mutedAutomation = held.outcome;
+      };
+      // Nothing of the run to remove: the sweep alone, and no record of the run goes.
+      const sweepAlone = async (): Promise<RunRemovalOutcome> => {
+        await takeLease();
+        await sweepParts?.first();
+        await sweepParts?.afterRemoval();
+        return NOTHING_REMOVED;
+      };
+      const outcome: RunRemovalOutcome = await (
         total === 0
-          ? NOTHING_REMOVED
-          : await removeRunRecords(removalOrg(conn, 'forge:undo'), plan, {
+          ? sweepAlone()
+          : removeRunRecords(removalOrg(conn, 'forge:undo'), plan, {
               ...(span
                 ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
                 : { runDurationMs: entry.duration, runRecordedAt: new Date(entry.timestamp) }),
               ...(Object.keys(stampedBefore).length > 0 ? { removalStamps: stampedBefore } : {}),
-              ...(entry.removalSpans ? { removalSpans: entry.removalSpans } : {}),
+              ...(removalSpans.length > 0 ? { removalSpans } : {}),
               // What a limit of the target's automation taught an earlier
               // removal: those objects go at the size it called for.
               ...(entry.deleteSizes ? { deleteSizes: entry.deleteSizes } : {}),
-              ...(sweep ? { sweep } : {}),
+              ...(parts && parts.laterParts.length > 0 ? { laterParts: parts.laterParts } : {}),
+              ...(sweepParts
+                ? {
+                    sweep: (allowance) => sweepParts.first(allowance),
+                    afterRemoval: () => sweepParts.afterRemoval(),
+                    automationMade: sweepParts.automationMade,
+                  }
+                : {}),
+              ...(entry.runUserId ? { runUserId: entry.runUserId } : {}),
               ...(parts && parts.parts.length > 0
                 ? { otherParts: parts.parts.map((part) => part.alongside) }
                 : {}),
               includeChanged,
               onUndeletable: undeletableAsker(this.deps, targetOrgId, 'forge:undo'),
+              beforeFirstWrite: takeLease,
               signal: stop.signal,
               onProgress: (settled, of, objectApiName) => {
                 const percent = Math.min(100, Math.round((settled / Math.max(of, 1)) * 100));
@@ -5804,11 +6575,14 @@ export class ForgeHandler implements DomainHandler {
                 }
                 this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
               },
-            }).finally(async () => {
-              if (held) mutedAutomation = await held.release();
-            });
+            })
+      ).finally(async () => {
+        if (held) mutedAutomation = await held.release();
+      });
       if (parts) await this.keepOtherPartStamps(parts.parts, outcome.otherPartStamps ?? []);
-      const sweepResult = sweepMade.result;
+      // What the sweep did, in all its parts: recorded beside the removal,
+      // and what it found made for the run kept for the next one.
+      const sweepResult = await sweeping?.settle();
       // A removal after one that marked the run takes what that one left:
       // the result and the audit trail say so, with when it ended. One taking
       // every record again picks up after none.
@@ -5816,6 +6590,16 @@ export class ForgeHandler implements DomainHandler {
       // What a call of the run may have written before its answer was lost:
       // in the org maybe, under ids no one knows, and out of this removal's reach.
       const unreachable = entry.unreachable;
+      // Of a run cut and taken up, what one part's removal leaves to another:
+      // what it kept for the records of a part no removal was asked for yet,
+      // which that part's removal takes first, and what an earlier removal
+      // of another part left, which records of this one may have held. Each
+      // part is removed from its own entry, after its own confirmation: one
+      // removal takes no record another part's question counted.
+      const heldByOtherParts = parts ? heldByOtherPartsOf(outcome.objects, parts.parts) : [];
+      const otherPartsLeft = (parts?.parts ?? []).flatMap((part) =>
+        part.undo && part.records > 0 ? [{ forgeId: part.forgeId, records: part.records }] : [],
+      );
       const removed: ForgeUndoResult = {
         forgeId,
         status: removalStatus(outcome.objects, outcome.cancelled),
@@ -5826,6 +6610,8 @@ export class ForgeHandler implements DomainHandler {
         ...(unreachable > 0 ? { mayHaveBeenWritten: unreachable } : {}),
         ...(entry.notLookedFor ? { notLookedFor: entry.notLookedFor } : {}),
         ...(mutedAutomation ? { mutedAutomation } : {}),
+        ...(heldByOtherParts.length > 0 ? { heldByOtherParts } : {}),
+        ...(otherPartsLeft.length > 0 ? { otherPartsLeft } : {}),
       };
 
       // A sweep alone removed none of the run's records: its own entry says what it did.
@@ -5845,6 +6631,7 @@ export class ForgeHandler implements DomainHandler {
 
       const result: ForgeUndoResult = {
         ...removed,
+        status: removalStatusWithSweep(removed.status, sweepResult),
         ...(sweepResult ? { sweep: sweepResult } : {}),
       };
 
@@ -5952,13 +6739,20 @@ export class ForgeHandler implements DomainHandler {
         if (failed) {
           runError = new Error(failed);
           this.liveTracker?.fail(operationId, failed);
+        } else if (result.status === 'partial') {
+          this.liveTracker?.partial(operationId);
         } else {
           this.liveTracker?.complete(operationId);
         }
       }
     } catch (error: unknown) {
       runError = error;
-      // A lease that could not be taken stopped the removal before its first delete.
+      // What the sweep deleted before the removal threw is recorded all the same.
+      await sweeping?.settle().catch((err: unknown) => {
+        logger.warn(`Forge sweep not recorded: ${extractErrorMessage(err)}`);
+      });
+      // A mute refused, or a lease that could not be taken, stopped the
+      // removal before its first delete.
       const muteRefused = isMuteRefusedError(error) ? error : undefined;
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
@@ -5993,8 +6787,10 @@ export class ForgeHandler implements DomainHandler {
    * its removal kept as changed since the run the parent the other part's
    * removal had restamped. Each with its records, read from its journal a
    * page at a time when its entry keeps no ids, its span as its own removal
-   * dates it, and what its earlier removals stamped. A part whose journal
-   * cannot be read is left out: its own removal says so.
+   * dates it, what its earlier removals stamped, and what the parts that took
+   * it up wrote to it. A part whose journal cannot be read is left out: its
+   * own removal says so. With them, when the removals of every part of the
+   * run on that org ran, and the parts that took up the one removed.
    */
   private async otherPartsOf(
     forgeId: string,
@@ -6006,20 +6802,28 @@ export class ForgeHandler implements DomainHandler {
     const history = this.loadHistory();
     const listed = new Set(history.map((entry) => entry.forgeId));
     const plans = (await this.keptRemovalPlans()).filter((plan) => !listed.has(plan.forgeId));
+    const laterOf = (run: string): RunLaterPart[] =>
+      laterPartsOfRun(run, history, plans, targetOrgId);
+    const spans: ForgeRemovalSpan[][] = [];
     for (const other of await this.runLineOf(forgeId, history, plans)) {
       const entry = history.find((e) => e.forgeId === other);
+      const plan = entry ? undefined : plans.find((kept) => kept.forgeId === other);
+      // Whatever it has left, a part's removals ran in the org this one reads.
+      if ((entry ?? plan)?.targetOrgId === targetOrgId)
+        spans.push((entry ?? plan)?.removalSpans ?? []);
       const part = entry
-        ? await this.otherPartFromEntry(entry, targetOrgId, conn)
-        : await this.otherPartFromPlan(
-            plans.find((plan) => plan.forgeId === other),
-            targetOrgId,
-            conn,
-          );
+        ? await this.otherPartFromEntry(entry, targetOrgId, conn, laterOf(other))
+        : await this.otherPartFromPlan(plan, targetOrgId, conn, laterOf(other));
       if (!part) continue;
       if (part.close) closes.push(part.close);
       parts.push(part.part);
     }
-    return { parts, close: () => closes.forEach((close) => close()) };
+    return {
+      parts,
+      spans: spansOf(...spans),
+      laterParts: laterOf(forgeId),
+      close: () => closes.forEach((close) => close()),
+    };
   }
 
   /**
@@ -6080,6 +6884,7 @@ export class ForgeHandler implements DomainHandler {
     other: ForgeExecutionResult,
     targetOrgId: string,
     conn: JournalDatesTarget,
+    laterParts: readonly RunLaterPart[],
   ): Promise<{ part: OtherPart; close?: () => void } | undefined> {
     if (other.targetOrgId !== targetOrgId || !other.idRemapCreated) return undefined;
     if (this.removing.has(other.forgeId) || forgeRunCountsLeft(other).length === 0) {
@@ -6106,7 +6911,17 @@ export class ForgeHandler implements DomainHandler {
       part: {
         forgeId: other.forgeId,
         ...(inJournal ? { inJournal } : {}),
-        alongside: await this.alongside(plan, span, other, other.removalStamps, inJournal),
+        alongside: await this.alongside(
+          plan,
+          span,
+          other,
+          other.removalStamps,
+          inJournal,
+          laterParts,
+        ),
+        ...(other.undo ? { undo: other.undo } : {}),
+        objects: forgeRunCountsLeft(other).map((object) => object.objectApiName),
+        records: forgeRunCountsLeft(other).reduce((sum, object) => sum + object.count, 0),
       },
       ...(close ? { close } : {}),
     };
@@ -6120,6 +6935,7 @@ export class ForgeHandler implements DomainHandler {
     kept: ForgeRemovalPlan | undefined,
     targetOrgId: string,
     conn: JournalDatesTarget,
+    laterParts: readonly RunLaterPart[],
   ): Promise<{ part: OtherPart; close?: () => void } | undefined> {
     if (!kept || kept.targetOrgId !== targetOrgId) return undefined;
     if (this.removing.has(kept.forgeId) || forgeRemovalPlanCountsLeft(kept).length === 0) {
@@ -6148,7 +6964,17 @@ export class ForgeHandler implements DomainHandler {
       part: {
         forgeId: kept.forgeId,
         ...(inJournal ? { inJournal } : {}),
-        alongside: await this.alongside(plan, span, kept, kept.removalStamps, inJournal),
+        alongside: await this.alongside(
+          plan,
+          span,
+          kept,
+          kept.removalStamps,
+          inJournal,
+          laterParts,
+        ),
+        ...(kept.undo ? { undo: kept.undo } : {}),
+        objects: forgeRemovalPlanCountsLeft(kept).map((object) => object.objectApiName),
+        records: forgeRemovalPlanCountsLeft(kept).reduce((sum, object) => sum + object.count, 0),
       },
       ...(close ? { close } : {}),
     };
@@ -6157,8 +6983,8 @@ export class ForgeHandler implements DomainHandler {
   /**
    * What a removal of one part reads of another: its records, its span — or,
    * for a part its target did not date, how long it took and when it was
-   * recorded — and what its earlier removals stamped, on it and beside its
-   * journal.
+   * recorded — what its earlier removals stamped, on it and beside its
+   * journal, and what the parts that took it up wrote to it.
    */
   private async alongside(
     plan: ForgeRunObjectRecords[] | RunRecords,
@@ -6166,6 +6992,7 @@ export class ForgeHandler implements DomainHandler {
     run: Pick<ForgeRemovalPlan, 'duration' | 'timestamp'>,
     stamped: Record<string, string> | undefined,
     inJournal: { journalId: string; part: number } | undefined,
+    laterParts: readonly RunLaterPart[],
   ): Promise<RunPartAlongside> {
     const removalStamps = {
       ...stamped,
@@ -6175,10 +7002,9 @@ export class ForgeHandler implements DomainHandler {
     };
     return {
       plan,
-      span: span
-        ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
-        : { runDurationMs: run.duration, runRecordedAt: new Date(run.timestamp) },
+      span: runSpanOf(span, run),
       ...(Object.keys(removalStamps).length > 0 ? { removalStamps } : {}),
+      ...(laterParts.length > 0 ? { laterParts } : {}),
     };
   }
 
@@ -6222,100 +7048,104 @@ export class ForgeHandler implements DomainHandler {
   }
 
   /**
-   * The sweep of a removal, before the run's own records go: what the
-   * target's automation created during the run, as its user, that the run's
-   * id map does not hold, found (`sweepRunRecords`), judged by Production
+   * The sweep of a removal, in its parts around the run's own records: what
+   * the target's automation made for the run, as its user, that the run's id
+   * map does not hold, found (`sweepParts`) — only what is tied to the run's
+   * records, what came late or is tied to nothing listed and kept unless the
+   * request asks for it (`sweepLate`, `sweepUntied`) — judged by Production
    * Guard as a delete before the first one — refused on a production org, a
    * Developer Edition counting as development — then deleted, children
    * first, until the removal's Cancel. The audit trail records it beside the
-   * removal, as a `cleanup_delete` with a `sweep` detail, whatever it ended on.
+   * removal, as a `cleanup_delete` with a `sweep` detail, whatever it ended
+   * on, and what it found made for the run is kept for the next one.
    *
    * Swept after the removal, a run's side effects held its records back: a
    * record the automation created under one of them a few seconds after the
    * run's last write — on an asynchronous path, out of the run's span — was
    * a record that stays, and the removal kept its parent "for records that
    * stay". Swept first, it is gone when the removal reads what hangs from
-   * the run's records.
+   * the run's records. What a record of the run points at by a lookup the
+   * org refuses the delete for goes last, once that record is gone.
    */
-  private async sweepBeforeRemoval(context: {
+  private sweepOfRemoval(context: {
     conn: Parameters<typeof removalOrg>[0];
     entry: ForgeExecutionResult;
     includeChanged: boolean;
+    sweepLate: boolean;
+    sweepUntied: boolean;
     removalSpans: ForgeRemovalSpan[];
     signal: AbortSignal;
     guard: ProductionGuard;
     orgTier: SafetyTier;
     operationId: string;
-    /** The removal's allowance of smaller calls, which the sweep spends with it. */
-    allowance?: SplitAllowance;
-  }): Promise<ForgeSweepResult> {
-    const { conn, entry, guard, orgTier } = context;
+    /** What a sweep alone muted, which no entry of the removal's records. */
+    muted: () => MutedAutomation | undefined;
+  }): Promise<RemovalSweep> {
+    const { conn, entry } = context;
     const targetOrgId = entry.targetOrgId ?? '';
-    let guardDecision: GuardDecision | undefined;
-    let result: ForgeSweepResult;
-    try {
-      const input = await this.sweepInputOf(entry, context.signal);
-      if ('gone' in input) {
-        result = { ...SWEEP_NOT_RUN, status: 'refused', refusal: input.gone };
-      } else {
-        result = await sweepRunRecords(removalOrg(conn, 'forge:undo sweep'), input, {
-          includeChanged: context.includeChanged,
-          removalSpans: context.removalSpans,
-          ...(context.allowance ? { allowance: context.allowance } : {}),
-          approve: async (listing) => {
-            const { check, decision } = await consultProductionGuard(guard, {
-              orgId: targetOrgId,
-              orgTier,
-              operation: 'delete',
-              objectName: sweepFoundObjects(listing).join(', '),
-              recordCount: sweepFoundCount(listing),
-              module: 'forge',
-            });
-            guardDecision = decision;
-            if (decision === 'refused') {
-              return `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
-            }
-            if (decision === 'declined') {
-              return 'Operation cancelled by user (confirmation declined).';
-            }
-            return undefined;
-          },
+    return removalSweepOf({
+      input: async () => {
+        const input = await this.sweepInputOf(entry, conn, context.signal);
+        return 'gone' in input ? { refused: input.gone } : input;
+      },
+      org: sweepOrgOf(conn, 'forge:undo sweep', context.signal),
+      options: {
+        includeChanged: context.includeChanged,
+        removalSpans: context.removalSpans,
+        sweepLate: context.sweepLate,
+        sweepUntied: context.sweepUntied,
+      },
+      guard: context.guard,
+      guardOf: {
+        orgId: targetOrgId,
+        orgTier: context.orgTier,
+        operation: 'delete',
+        module: 'forge',
+      },
+      onGuardDecision: (result, guard) => {
+        const muted = context.muted();
+        recordWriteRun(this.deps, {
+          action: 'cleanup_delete',
+          module: 'forge',
+          operationId: `${context.operationId}-sweep`,
+          orgId: targetOrgId,
+          outcome: result.status === 'refused' ? 'stopped' : result.status,
+          ...(guard ? { guard } : {}),
+          ...(result.status === 'refused' ? { code: sweepRefusalCode(guard) } : {}),
+          objects: sweepAuditObjects(result),
+          details: sweepAuditDetails(result, entry.forgeId),
+          ...(muted ? { muted: auditMutedOf(muted) } : {}),
         });
-      }
-    } catch (err: unknown) {
-      result = { ...SWEEP_NOT_RUN, status: 'failure', refusal: extractErrorMessage(err) };
-    }
-    recordWriteRun(this.deps, {
-      action: 'cleanup_delete',
-      module: 'forge',
-      operationId: `${context.operationId}-sweep`,
-      orgId: targetOrgId,
-      outcome: result.status === 'refused' ? 'stopped' : result.status,
-      ...(guardDecision ? { guard: guardDecision } : {}),
-      ...(result.status === 'refused'
-        ? { code: guardDecision ? 'GUARD_BLOCKED' : 'SWEEP_REFUSED' }
-        : {}),
-      objects: sweepAuditObjects(result),
-      details: sweepAuditDetails(result, entry.forgeId),
+      },
+      keepMade: async (made, late, gone) => {
+        await this.removalPlans?.keepMade(entry.forgeId, made, late, gone).catch((err: unknown) => {
+          logger.warn(`Forge sweep finds not kept: ${extractErrorMessage(err)}`);
+        });
+      },
     });
-    return result;
   }
 
   /**
    * What a sweep of a run is told of it, from its history entry: when the
-   * target dated its writes, what it created, every record its id map holds
-   * — read from its journal for a run past the bound — and what the target's
-   * automation creates as the run's objects are written, read now. `gone`
-   * when the journal that holds its ids cannot be read.
+   * target dated its writes, the user it wrote as, what it created, every
+   * record its id map holds — read from its journal for a run past the bound
+   * — and the lines the platform copied under a quote it synced, which its
+   * removal takes and names (`platformCopies`); what the target's automation
+   * creates as the run's objects are written, read now; what ties a record to
+   * the run (`SweepTies`); and what the other runs of its line created
+   * (`sweepPartsBeside`). `gone` when the journal that holds its ids cannot be
+   * read.
    */
   private async sweepInputOf(
     entry: ForgeExecutionResult,
+    conn: Parameters<typeof removalOrg>[0],
     signal?: AbortSignal,
   ): Promise<SweepInput | { gone: string }> {
     const read = await this.withIdsOf(entry);
     if ('gone' in read) return read;
     const withIds = read.entry;
     const created = forgeRunCreatedRecords(withIds);
+    const otherParts = await this.sweepPartsBeside(entry);
     const remap = new Set(
       Object.values(withIds.idRemapTable ?? {}).map((recordId) => recordId.slice(0, 15)),
     );
@@ -6338,13 +7168,149 @@ export class ForgeHandler implements DomainHandler {
         automation = { error: extractErrorMessage(err) };
       }
     }
+    return withoutPlatformCopies(
+      {
+        writtenBetween: entry.writtenBetween,
+        created,
+        remap,
+        automation: sweepAutomationOf(automation),
+        ...(entry.runUserId ? { runUserId: entry.runUserId } : {}),
+        ties: await this.tiesOf(entry),
+        ...(otherParts.length > 0 ? { otherParts } : {}),
+        ...(signal ? { signal } : {}),
+      },
+      removalOrg(conn, 'forge:undo-sweep copies'),
+    );
+  }
+
+  /**
+   * The other runs in the line of a run — the part a resume took it up with,
+   * the part it resumed, a retry — each with what it created, as its sweep is
+   * told them (`SweepInput.otherParts`): what hangs from their records alone
+   * is theirs. Each is numbered by its part of the journal, or else by its
+   * place in the line. One whose ids cannot be read, or that wrote to another
+   * org, is left out.
+   */
+  private async sweepPartsBeside(
+    entry: ForgeExecutionResult,
+  ): Promise<NonNullable<SweepInput['otherParts']>> {
+    const history = this.loadHistory();
+    const listed = new Set(history.map((other) => other.forgeId));
+    const plans = (await this.keptRemovalPlans()).filter((plan) => !listed.has(plan.forgeId));
+    const parts: Array<NonNullable<SweepInput['otherParts']>[number]> = [];
+    let place = 0;
+    for (const forgeId of await this.runLineOf(entry.forgeId, history, plans)) {
+      place++;
+      const other = history.find((run) => run.forgeId === forgeId);
+      const plan = other ? undefined : plans.find((kept) => kept.forgeId === forgeId);
+      if ((other ?? plan)?.targetOrgId !== entry.targetOrgId) continue;
+      let created: ForgeRunObjectRecords[] | undefined;
+      if (other) {
+        const read = await this.withIdsOf(other);
+        if (!('gone' in read)) created = forgeRunCreatedRecords(read.entry);
+      } else if (plan?.inJournal) {
+        const read = await this.planRecordsOf({ ...plan, inJournal: plan.inJournal }, true);
+        if (!('gone' in read)) created = read.records;
+      } else if (plan) {
+        created = plan.objects;
+      }
+      if (!created) continue;
+      parts.push({
+        part: other?.journalPart ?? plan?.inJournal?.part ?? place,
+        created,
+      });
+    }
+    return parts;
+  }
+
+  /**
+   * What ties a record to the run, beside the records it created, as the
+   * sweep of its removal is told it (`SweepTies`): the records of the other
+   * runs of this machine that wrote to its target in its window, this
+   * module's (`localRunsOn`) and the others', what its mute kept quiet and
+   * what still ran, when its first removal began, and what the sweeps of its
+   * earlier removals found made for it, and made late.
+   */
+  private async tiesOf(entry: ForgeExecutionResult): Promise<SweepTies> {
+    const written = entry.writtenBetween;
+    const runs = await this.localRunsOn(entry.targetOrgId, written, entry.forgeId);
+    if (entry.targetOrgId !== undefined) {
+      runs.push(...(await this.otherModuleRuns(entry.targetOrgId, written).catch(() => [])));
+    }
+    const muted = entry.mutedAutomation;
+    const began = removalBeganOf(entry.removalSpans);
+    const madeEarlier = await this.removalPlans?.madeOf(entry.forgeId).catch(() => []);
+    const lateEarlier = await this.removalPlans?.lateOf(entry.forgeId).catch(() => []);
     return {
-      writtenBetween: entry.writtenBetween,
-      created,
-      remap,
-      automation: sweepAutomationOf(automation),
-      ...(signal ? { signal } : {}),
+      otherRuns: otherRunsInSweep(written, runs),
+      ...(muted?.state === 'muted'
+        ? { muted: { silenced: muted.silenced, stillRan: muted.stillRan } }
+        : {}),
+      ...(began ? { removalBegan: began } : {}),
+      ...(madeEarlier && madeEarlier.length > 0 ? { madeEarlier } : {}),
+      ...(lateEarlier && lateEarlier.length > 0 ? { lateEarlier } : {}),
     };
+  }
+
+  /**
+   * The runs kept here that wrote to an org, from the history and the plans
+   * kept of the runs it dropped, for the sweep of another run: each with what
+   * it created, read from its journal for a run past the bound that wrote in
+   * the window `written` says. A journal gone leaves such a run to count by
+   * when it wrote, its records unnamed: while the entry held no ids it counted
+   * for nothing, and what it wrote read as tied to nothing.
+   */
+  async localRunsOn(
+    targetOrgId: string | undefined,
+    written: ForgeWrittenBetween | undefined,
+    except?: string,
+  ): Promise<LocalRun[]> {
+    const plans = await this.removalPlans?.list().catch(() => []);
+    const listed = new Set<string>();
+    const runs: LocalRun[] = [];
+    const inJournal = async (
+      span: Pick<LocalRun, 'from' | 'to'>,
+      read: () => Promise<ForgeRunObjectRecords[] | undefined>,
+    ): Promise<LocalRun> => {
+      if (!inSweepWindow(written, span)) return { ids: [], ...span };
+      const records = await read();
+      return records
+        ? { ids: records.flatMap(({ ids }) => ids), ...span }
+        : { ids: [], idsUntold: true, ...span };
+    };
+    for (const other of this.loadHistory()) {
+      listed.add(other.forgeId);
+      if (other.forgeId === except || other.targetOrgId !== targetOrgId) continue;
+      const span = spanOf(other);
+      runs.push(
+        other.remapInJournal
+          ? await inJournal(span, async () => {
+              const read = await this.withIdsOf(other);
+              return 'gone' in read ? undefined : forgeRunCreatedRecords(read.entry);
+            })
+          : { ids: forgeRunCreatedRecords(other).flatMap(({ ids }) => ids), ...span },
+      );
+    }
+    for (const plan of plans ?? []) {
+      if (listed.has(plan.forgeId) || plan.forgeId === except) continue;
+      if (plan.targetOrgId !== targetOrgId) continue;
+      const span = spanOf(plan);
+      const kept = plan.inJournal;
+      runs.push(
+        kept
+          ? await inJournal(span, async () => {
+              const read = await this.planRecordsOf({ ...plan, inJournal: kept }, true);
+              return 'gone' in read ? undefined : read.records;
+            })
+          : { ids: plan.objects.flatMap(({ ids }) => ids), ...span },
+      );
+    }
+    return runs;
+  }
+
+  /** Where the runs of the other modules on an org are read from, for a sweep to be told of them. */
+  setOtherModuleRuns(runs: OtherModuleRuns): void {
+    this.otherModuleRuns = runs;
   }
 
   /**
@@ -6383,14 +7349,16 @@ export class ForgeHandler implements DomainHandler {
       const listing = await new TimeoutManager(SWEEP_LIST_TIMEOUT_MS).withTimeout(
         'forge:undo-sweep',
         async () => {
-          const input = await this.sweepInputOf(entry);
-          if ('gone' in input) return input;
           const conn = await getJsforceConnection(
             targetOrgId,
             this.deps.orgRegistry,
             this.deps.orgManager,
           );
-          return listSweep(removalOrg(conn, 'forge:undo-sweep'), input);
+          const input = await this.sweepInputOf(entry, conn);
+          if ('gone' in input) return input;
+          // What the run's earlier removals changed while they ran is no
+          // change since the run, as the sweep they ask reads it.
+          return listSweep(sweepOrgOf(conn, 'forge:undo-sweep'), input, entry.removalSpans ?? []);
         },
       );
       if ('gone' in listing) {
@@ -6906,7 +7874,7 @@ export class ForgeHandler implements DomainHandler {
         this.targetAutomation!.readForGraph(targetOrgId, graph),
       );
       this.keepAutomationRead(targetOrgId, graph, read);
-      const automation = await read;
+      const automation = await this.withDeliverability(targetOrgId, graph, await read);
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'forge:automation:response', { automation }),
       );
@@ -6932,6 +7900,73 @@ export class ForgeHandler implements DomainHandler {
       });
       sendOperationCompleted(this.deps, operationId, { status: 'failure' });
     }
+  }
+
+  /**
+   * Whether the target delivers its emails, as the user the run writes as:
+   * within the read's time, the connection's wait among it, and until the
+   * run's Stop, which reaches a run still at its gate.
+   */
+  private async readDeliverability(
+    targetOrgId: string,
+    signal?: AbortSignal,
+  ): Promise<DeliverabilityRead> {
+    let onAbort: () => void = () => {};
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(new Error(ABORTED_BEFORE_START_MESSAGE));
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      return await Promise.race([
+        new TimeoutManager(DELIVERABILITY_TIMEOUT_MS).withTimeout(
+          'forge:deliverability',
+          async () =>
+            readEmailDeliverability(
+              await getJsforceConnection(targetOrgId, this.deps.orgRegistry, this.deps.orgManager),
+            ),
+        ),
+        aborted,
+      ]);
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+    }
+  }
+
+  /**
+   * What Review says of `automation`: with it, whether the target delivers
+   * the emails of what fires, read only when something may send one. The read
+   * kept for the run does not hold it: the run reads the org again. No Apex
+   * runs in a production org, which Review may be asked to read.
+   */
+  private async withDeliverability(
+    targetOrgId: string,
+    graph: ForgeGraph,
+    automation: ForgeTargetAutomation,
+  ): Promise<ForgeTargetAutomation> {
+    const org = this.deps.orgManager.getOrg(targetOrgId);
+    const updated = objectsUpdatedAfterInsert(graph, {
+      leftOut: new Set(graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName)),
+    });
+    const updatedNames = new Set(updated.map((object) => object.objectApiName));
+    const { ofRun } = await runEmailsOf({
+      read: automation,
+      writes: (objectApiName, write) =>
+        write === 'insert' || (write === 'update' && updatedNames.has(objectApiName)),
+      readDeliverability: () =>
+        guardTierOf(org) === 'production'
+          ? Promise.resolve(NO_APEX_IN_PRODUCTION)
+          : this.readDeliverability(targetOrgId),
+      accepted: false,
+      target: org?.alias ?? targetOrgId,
+      run: 'clone',
+    });
+    return ofRun.read
+      ? {
+          ...automation,
+          deliverability: ofRun.read.reading,
+          requests: automation.requests + ofRun.read.requests,
+        }
+      : automation;
   }
 
   /**
@@ -6978,9 +8013,14 @@ export class ForgeHandler implements DomainHandler {
     ).map((object) => object.objectApiName);
     const targetOrgId = entry.targetOrgId;
     try {
+      // What a sweep ticked in the confirmation deletes too, and sets nothing
+      // back to Draft: the page names its objects, as the list it shows reads
+      // them. So do the copies the platform made of the run's lines on an
+      // object the run never wrote, which the removal takes with its own.
+      const read = [...new Set([...objectsRemovedOf(objects), ...(parsed.sweptObjects ?? [])])];
       const automation = await new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout(
         'forge:undo-automation',
-        () => reader.read(targetOrgId, objects),
+        () => reader.read(targetOrgId, read),
       );
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'forge:undo-automation:response', {

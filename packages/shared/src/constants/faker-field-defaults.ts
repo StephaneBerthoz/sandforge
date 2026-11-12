@@ -214,7 +214,7 @@ export function describedFieldRule(field: DescribedSeedField): {
   if (field.referenceTo.length > 0) {
     return {
       ruleType: 'reference',
-      config: { referenceObject: field.referenceTo[0], referenceField: 'Id' },
+      config: { referenceObject: field.referenceTo[0] },
     };
   }
   if (field.type === 'picklist') {

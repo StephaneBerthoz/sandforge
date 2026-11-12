@@ -37,6 +37,15 @@ describe('listLive', () => {
     expect(tracker.get('op-3')?.error).toBeUndefined();
   });
 
+  it('ends a partial run once: the completion after it leaves it partial', () => {
+    const live = listLive(tracker, 'op-6', 'dataops', 'Restoring');
+    live.partial();
+    live.complete();
+    live.fail('late');
+    expect(tracker.get('op-6')?.status).toBe('partial');
+    expect(tracker.get('op-6')?.error).toBeUndefined();
+  });
+
   it('keeps the reason of a run that failed, and ignores progress after its end', () => {
     const live = listLive(tracker, 'op-4', 'automation', 'Pipeline');
     live.fail('INSUFFICIENT_ACCESS');

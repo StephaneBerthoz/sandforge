@@ -1,9 +1,17 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { RecordTypeGiven } from '@sandforge/shared';
 import {
   discoveryLine,
+  frozenInterruptedLine,
+  frozenRecordTypeLines,
   FROZEN_PREVIEW_UNREAD,
+  goneFirstIdsOf,
   messageLines,
   parseArgs,
+  refusedFirstOf,
   removalAsks,
   removalPlanLines,
   removalPreviewLines,
@@ -137,8 +145,131 @@ describe('parseArgs', () => {
     ).toMatchObject({ code: 2, message: expect.stringContaining('give one of them') });
     expect(refuse('load', '--config', 'f.json', '--target', 'TGT', '--sweep')).toMatchObject({
       code: 2,
-      message: expect.stringContaining('go with remove'),
+      message: expect.stringContaining('--sweep goes with remove or load --reload'),
     });
+    expect(
+      refuse('load', '--config', 'f.json', '--target', 'TGT', '--reload', '--pilot', '--sweep'),
+    ).toMatchObject({ code: 2, message: expect.stringContaining('a pilot purges nothing') });
+    expect(
+      refuse('load', '--config', 'f.json', '--target', 'TGT', '--reload', '--sweep-list'),
+    ).toMatchObject({
+      code: 2,
+      message: expect.stringContaining(
+        'a reload lists what its sweep would take with --dry-run --sweep',
+      ),
+    });
+  });
+
+  it('reads a reload told to sweep what the automation made for the loads it replaces, and what it takes beside', () => {
+    expect(
+      parseArgs(
+        argv(
+          'load',
+          '--config',
+          'f.json',
+          '--target',
+          'TGT',
+          '--reload',
+          '--sweep',
+          '--sweep-untied',
+        ),
+      ),
+    ).toMatchObject({ step: 'load', reload: true, sweep: true, sweepUntied: true });
+    expect(
+      parseArgs(argv('load', '--config', 'f.json', '--target', 'TGT', '--reload')),
+    ).toMatchObject({ sweep: false });
+  });
+
+  it('reads --accept-emails with load, and refuses it with any other step', () => {
+    expect(
+      parseArgs(argv('load', '--config', 'f.json', '--target', 'TGT', '--accept-emails')),
+    ).toMatchObject({ acceptEmails: true });
+    expect(parseArgs(argv('load', '--config', 'f.json', '--target', 'TGT'))).toMatchObject({
+      acceptEmails: false,
+    });
+    expect(
+      refuse('remove', '--config', 'f.json', '--target', 'TGT', '--accept-emails'),
+    ).toMatchObject({
+      code: 2,
+      message: expect.stringContaining('--accept-emails goes with load'),
+    });
+  });
+
+  it('reads --include-changed for the sweep of a reload, and refuses it where nothing takes it', () => {
+    // Given with a load, it was dropped without a word: what a reload's sweep
+    // kept as changed since was kept by every reload after.
+    expect(
+      parseArgs(
+        argv(
+          'load',
+          '--config',
+          'f.json',
+          '--target',
+          'TGT',
+          '--reload',
+          '--sweep',
+          '--include-changed',
+        ),
+      ),
+    ).toMatchObject({ reload: true, sweep: true, includeChanged: true });
+    for (const step of [['load', '--reload'], ['load'], ['verify']]) {
+      expect(
+        refuse(...step, '--config', 'f.json', '--target', 'TGT', '--include-changed'),
+      ).toMatchObject({
+        code: 2,
+        message: expect.stringContaining(
+          '--include-changed goes with remove, or with load --reload --sweep',
+        ),
+      });
+    }
+  });
+
+  it('reads --gone-first for the dry run of a reload alone: a reload that runs reads what is still there', () => {
+    expect(
+      parseArgs(
+        argv(
+          'load',
+          '--config',
+          'f.json',
+          '--target',
+          'TGT',
+          '--reload',
+          '--dry-run',
+          '--gone-first',
+          'gone.json',
+        ),
+      ),
+    ).toMatchObject({ reload: true, dryRun: true, goneFirst: 'gone.json' });
+    for (const step of [['load', '--reload'], ['load', '--dry-run'], ['remove']]) {
+      expect(
+        refuse(...step, '--config', 'f.json', '--target', 'TGT', '--gone-first', 'gone.json'),
+      ).toMatchObject({
+        code: 2,
+        message: expect.stringContaining('--gone-first goes with load --reload --dry-run'),
+      });
+    }
+  });
+
+  it('reads the ids --gone-first names, and refuses a file that holds anything else', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-gone-first-'));
+    try {
+      const ids = join(dir, 'ids.json');
+      writeFileSync(ids, JSON.stringify(['003000000000001AAA', '003000000000002']));
+      expect(goneFirstIdsOf(ids)).toEqual(['003000000000001AAA', '003000000000002']);
+
+      const other = join(dir, 'other.json');
+      writeFileSync(other, JSON.stringify({ ids: ['003000000000001AAA'] }));
+      let code: number | undefined;
+      vi.spyOn(process, 'exit').mockImplementation(((c?: number) => {
+        code = c;
+        throw new Error('exit');
+      }) as never);
+      vi.spyOn(process.stderr, 'write').mockImplementation((() => true) as never);
+      expect(() => goneFirstIdsOf(other)).toThrow('exit');
+      expect(code).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('reads a removal told only to say what it would do, which removes nothing unasked', () => {
@@ -148,16 +279,31 @@ describe('parseArgs', () => {
     ).toMatchObject({ step: 'remove', preview: true, json: true });
   });
 
-  it('refuses a preview of another step than remove, pointing a load at its dry run, and a preview with a sweep', () => {
+  it('refuses a preview of another step than remove, pointing a load at its dry run, and a preview with a sweep list', () => {
     expect(refuse('load', '--config', 'f.json', '--target', 'TGT', '--preview')).toMatchObject({
       code: 2,
       message: expect.stringContaining('a load says what it would do with --dry-run'),
     });
-    for (const sweep of ['--sweep', '--sweep-list']) {
-      expect(
-        refuse('remove', '--config', 'f.json', '--target', 'TGT', '--preview', sweep),
-      ).toMatchObject({ code: 2, message: expect.stringContaining('--preview deletes nothing') });
-    }
+    expect(
+      refuse('remove', '--config', 'f.json', '--target', 'TGT', '--preview', '--sweep-list'),
+    ).toMatchObject({ code: 2, message: expect.stringContaining('--preview deletes nothing') });
+  });
+
+  it('reads a preview with a sweep, which lists what the sweep would take and reads what fires on it', () => {
+    expect(
+      parseArgs(
+        argv(
+          'remove',
+          '--config',
+          'f.json',
+          '--target',
+          'TGT',
+          '--preview',
+          '--sweep',
+          '--sweep-late',
+        ),
+      ),
+    ).toMatchObject({ step: 'remove', preview: true, sweep: true, sweepLate: true });
   });
 
   it('reads the most records a load may insert, a whole number, with load alone', () => {
@@ -216,6 +362,7 @@ describe('removalPreviewLines', () => {
         userNames: { '005000000000002AAA': 'A Tester' },
         keptByThePlatform: [{ objectApiName: 'BusinessHours', count: 1 }],
         refusals: ['Operation blocked by Production Guard: delete is not allowed'],
+        refusalCodes: ['GUARD_BLOCKED'],
       }),
     ).toEqual([
       'preview: what a removal would do; nothing was deleted',
@@ -223,7 +370,8 @@ describe('removalPreviewLines', () => {
       '      last changed by: A Tester 1',
       '  Account: 1 to delete of 1',
       'kept: the platform does not delete them — BusinessHours (1)',
-      'a removal would be refused: Operation blocked by Production Guard: delete is not allowed',
+      'a removal would be refused (GUARD_BLOCKED): Operation blocked by Production Guard: ' +
+        'delete is not allowed',
       FROZEN_PREVIEW_UNREAD,
     ]);
   });
@@ -420,6 +568,17 @@ describe('removalAsks', () => {
     ).toBe(false);
     expect(removalAsks({ ...loaded, created: [], recorded: false })).toBe(false);
   });
+
+  it('asks before a sweep alone deletes what it found, and of nothing it did not', () => {
+    const removed = {
+      ...loaded,
+      created: [],
+      removed: { removedAt: '2026-09-29T15:51:27.295Z' },
+    };
+
+    expect(removalAsks(removed, { delete: ['Asset'] })).toBe(true);
+    expect(removalAsks(removed, { delete: [] })).toBe(false);
+  });
 });
 
 describe('messageLines — a selection as it runs', () => {
@@ -510,6 +669,76 @@ describe('messageLines — where the graph of a step came from', () => {
     expect(discoveryLine({ rediscovered: "the source's schema changed since" })).toBe(
       "rediscovered: the source's schema changed since",
     );
+  });
+});
+
+describe('what the command says of the record type the target gave', () => {
+  const PREDICTED: RecordTypeGiven = {
+    objectApiName: 'Opportunity',
+    rows: 3,
+    why: { masterInSource: 2, dropped: 1 },
+    predicted: { developerName: 'SFX_Retail', label: 'SFX Retail', basis: 'onlyOneOpen' },
+  };
+  const READ_BACK: RecordTypeGiven = {
+    ...PREDICTED,
+    readBack: {
+      read: 3,
+      types: [{ developerName: 'SFX_Retail', label: 'SFX Retail', rows: 3 }],
+    },
+  };
+  const report = (recordTypesGiven?: RecordTypeGiven[]) => ({
+    type: 'frozen:load:response',
+    payload: {
+      report: {
+        status: 'completed',
+        durationMs: 1,
+        alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+        placeholders: [],
+        perObject: [],
+        pass2: { resolved: 0, unresolved: [] },
+        purge: { deleted: {}, failures: [] },
+        ...(recordTypesGiven ? { recordTypesGiven } : {}),
+      },
+    },
+  });
+
+  it('says of a load what the first records were read back holding, and why they went without one', () => {
+    const lines = messageLines(report([READ_BACK]));
+
+    expect(lines).toContain(
+      'record types the target gave the records created without one (1 object(s)):',
+    );
+    const line = lines.find((said) => said.startsWith('  Opportunity  3 record(s)'));
+    expect(line).toContain('2 on Master in the source');
+    expect(line).toContain('1 whose record type the target lacks or keeps from the user');
+    expect(line).toContain('SFX_Retail');
+  });
+
+  it('says what the describe gave, and why the read failed, when the read back was refused', () => {
+    const lines = messageLines(
+      report([
+        { ...PREDICTED, readBack: { read: 0, types: [], unread: 'REQUEST_LIMIT_EXCEEDED' } },
+      ]),
+    );
+
+    expect(lines.join('\n')).toContain('could not be read back: REQUEST_LIMIT_EXCEEDED');
+  });
+
+  it('says nothing of a load with nothing to say', () => {
+    expect(messageLines(report()).join('\n')).not.toContain('record types the target');
+  });
+
+  it('says of a dry run what the describe gives, and what a real load’s mute may open', () => {
+    const quiet = frozenRecordTypeLines([PREDICTED], true);
+    const muted = frozenRecordTypeLines([PREDICTED], true, true);
+
+    expect(quiet[0]).toBe(
+      'record types the target would give the records created without one (1 object(s)):',
+    );
+    expect(quiet.join('\n')).toContain('would go in as SFX_Retail');
+    expect(quiet.join('\n')).not.toContain('may open other record types');
+    expect(muted.join('\n')).toContain('may open other record types');
+    expect(frozenRecordTypeLines(undefined, true, true)).toEqual([]);
   });
 });
 
@@ -619,6 +848,136 @@ describe('messageLines', () => {
       '  ErrorLog__c: not loaded — Not createable in target org',
       'placeholder for Contact.Owner__c: 2 record(s)',
       '1 person account contact(s) go in with their account, not counted above',
+    ]);
+  });
+
+  it('says what the mute of a load stopped under its lease assigned and took back', () => {
+    // Run on the trap org, a reload stopped in its sweep said nothing of its
+    // mute, while the org had assigned the bypass set and taken it back.
+    const lines = messageLines({
+      type: 'frozen:load:error',
+      payload: {
+        code: 'LOAD_CANCELLED',
+        message:
+          'The load was cancelled before it created or purged a record: the mapping is left as it was.',
+        written: 0,
+        mutedAutomation: {
+          state: 'muted',
+          assigned: ['Trap_Bypass'],
+          held: [],
+          permissions: ['Trap_Bypass_Flow'],
+          silenced: [],
+          stillRan: [],
+          released: true,
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      'mute: assigned Trap_Bypass to the user the run writes as in the target, for the run alone',
+    );
+    expect(lines).toContain('  taken back: Trap_Bypass, as the run ended');
+  });
+
+  it('ends a load stopped before it wrote on a line that says its sas is as it was', () => {
+    expect(frozenInterruptedLine('load', false)).toBe(
+      'interrupted: the load stopped before it created or purged a record: the sas is as it ' +
+        'was, and `remove` has nothing of this load to take back',
+    );
+    expect(frozenInterruptedLine('load')).toContain('`remove` takes it back');
+  });
+
+  it('names in a dry run the lookup filters of what the load inserts, which it cannot check', () => {
+    // Run on the trap org, a dry run said 76 to insert, and the filter of the
+    // contacts' preferred account refused six: nothing named it.
+    const lines = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          mode: { pilot: false, reload: false },
+          perObject: [
+            {
+              objectApiName: 'Contact',
+              fromFiles: 72,
+              toInsert: 72,
+              reusedByKeys: 0,
+              reusedFromCatalog: 0,
+              fieldsDropped: 0,
+              picklistsRewritten: 0,
+              notSent: 0,
+              toPurge: 0,
+              toDeactivate: 0,
+              lookupFilters: [
+                { field: 'Preferred_Account__c', referenceTo: ['Account'], records: 72 },
+              ],
+            },
+          ],
+          excludedObjects: [],
+          removals: [],
+          placeholders: [],
+          requiredDefaults: [],
+          personContacts: 0,
+          earlierLoads: 0,
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      'Contact: 1 lookup filter(s) of the target, which a preview cannot check — a record whose ' +
+        'lookup it refuses is refused, and what hangs from it: Preferred_Account__c (Account, ' +
+        '72 record(s))',
+    );
+  });
+
+  it('counts the contact role the platform writes with its opportunity among what a dry run links, never to insert', () => {
+    // The plan of a scratch org's load, the role counted as its load then
+    // took it: linked to the one the platform wrote, given its role.
+    const object = (objectApiName: string, counts: Record<string, number>) => ({
+      objectApiName,
+      fromFiles: 1,
+      toInsert: 1,
+      reusedByKeys: 0,
+      reusedFromCatalog: 0,
+      fieldsDropped: 0,
+      picklistsRewritten: 0,
+      notSent: 0,
+      toPurge: 0,
+      toDeactivate: 0,
+      ...counts,
+    });
+    const lines = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          mode: { pilot: false, reload: false },
+          perObject: [
+            object('Contact', {}),
+            object('Opportunity', {}),
+            object('OpportunityContactRole', { toInsert: 0, writtenByThePlatform: 1 }),
+            object('AccountContactRelation', { toInsert: 0, writtenByThePlatform: 1 }),
+            object('EmailMessage', {}),
+            object('Task', { toInsert: 0, writtenByThePlatform: 1 }),
+          ],
+          excludedObjects: [],
+          removals: [],
+          placeholders: [],
+          requiredDefaults: [],
+          personContacts: 0,
+          earlierLoads: 0,
+        },
+      },
+    });
+
+    expect(lines.slice(0, 7)).toEqual([
+      'dry run: 3 record(s) to insert, 3 to link, 0 not sent — nothing written',
+      '  Contact: 1 to insert of 1',
+      '  Opportunity: 1 to insert of 1',
+      '  OpportunityContactRole: 0 to insert, 1 to link (written by the platform with their opportunity, for its contact) of 1',
+      // A contact's direct relation and an email's task, which the load
+      // links as it links the role: its dry run counted them to insert.
+      '  AccountContactRelation: 0 to insert, 1 to link (written by the platform with their contact) of 1',
+      '  EmailMessage: 1 to insert of 1',
+      '  Task: 0 to insert, 1 to link (written by the platform with their email) of 1',
     ]);
   });
 
@@ -986,15 +1345,297 @@ describe('messageLines', () => {
         listing: {
           window: { from: '2026-10-16T09:59:59Z', to: '2026-10-16T10:06:01Z' },
           looked: ['Contact', 'Task'],
-          found: [{ objectApiName: 'Task', count: 3, names: ['Call'], overBound: false }],
+          found: [
+            {
+              objectApiName: 'Task',
+              count: 3,
+              names: ['Call'],
+              classes: { made: 3, madeOver: 0, late: 0, untied: 0 },
+            },
+          ],
           unread: [],
           handWork: [],
         },
       },
     });
 
-    expect(lines).toContain('it would delete 3 record(s), children first:');
-    expect(lines).toContain('  Task: 3 (Call, …)');
+    expect(lines).toContain(
+      'it found 3 record(s) and would delete 3 of them, children first; per object, all it found:',
+    );
+    expect(lines).toContain('  Task: 3 — 3 made for the run (Call, …)');
+  });
+
+  it('lists for a removal asked what is tied to nothing what --sweep-untied would take, and names it no more as kept', () => {
+    // Run for real on the trap org, the line refused (exit 2): the list could
+    // not show what a removal with --sweep-untied would take.
+    const lines = messageLines(
+      {
+        type: 'frozen:remove:sweep:response',
+        payload: {
+          loadedAt: '2026-10-16T10:05:00.000Z',
+          listing: {
+            window: { from: '2026-10-16T09:59:59Z', to: '2026-10-16T10:06:01Z' },
+            looked: ['Contact', 'Task'],
+            found: [
+              {
+                objectApiName: 'Task',
+                count: 30,
+                names: [],
+                classes: { made: 0, madeOver: 0, late: 0, untied: 30 },
+              },
+            ],
+            untied: { objects: [{ objectApiName: 'Task', count: 30 }] },
+            unread: [],
+            handWork: [],
+          },
+        },
+      },
+      { sweepUntied: true },
+    );
+
+    expect(lines).toContain(
+      'it found 30 record(s) and would delete 30 of them, children first; per object, all it found:',
+    );
+    expect(lines).toContain(
+      'with --sweep-untied, it would delete too what is tied to nothing of the run: Task: 30',
+    );
+    expect(lines.join('\n')).not.toContain('(--sweep-untied takes them)');
+  });
+
+  it('counts with a reload’s dry run what --sweep-untied takes, and names it no more as what would take it', () => {
+    // Run for real on the trap org: "would delete 1 of them" and "Task: 30
+    // (--sweep-untied takes them)", the flag given, and the reload then
+    // deleted the 30 tasks.
+    const listed = {
+      type: 'frozen:remove:sweep:response',
+      payload: {
+        loadedAt: '2026-10-16T10:05:00.000Z',
+        reload: true,
+        loads: [
+          {
+            loadedAt: '2026-10-16T10:05:00.000Z',
+            listing: {
+              window: { from: '2026-10-16T09:59:59Z', to: '2026-10-16T10:06:01Z' },
+              looked: ['Contact', 'Task', 'FeedItem'],
+              found: [
+                {
+                  objectApiName: 'Task',
+                  count: 30,
+                  names: [],
+                  classes: { made: 0, madeOver: 0, late: 0, untied: 30 },
+                },
+                {
+                  objectApiName: 'FeedItem',
+                  count: 1,
+                  names: [],
+                  classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+                },
+              ],
+              untied: { objects: [{ objectApiName: 'Task', count: 30 }] },
+              late: [],
+              unread: [],
+              handWork: [],
+            },
+          },
+        ],
+      },
+    };
+
+    const taken = messageLines(listed, { sweepUntied: true });
+    expect(taken).toContain(
+      'it found 31 record(s) and would delete 31 of them, children first; per object, all it found:',
+    );
+    expect(taken.join('\n')).not.toContain('--sweep-untied takes them');
+
+    const kept = messageLines(listed);
+    expect(kept).toContain(
+      'it found 31 record(s) and would delete 1 of them, children first; per object, all it found:',
+    );
+    expect(kept.join('\n')).toContain('Task: 30 (--sweep-untied takes them)');
+  });
+
+  it('counts out of a reload’s list what changed since the load, which the reload keeps unless told to include it', () => {
+    // Run for real on the trap org: "would delete 31 of them" above "1 changed
+    // since by someone else" — the load's own user had edited it — and the
+    // reload then said "Task: 29 deleted, 1 kept, changed since the run of 30".
+    const listed = {
+      type: 'frozen:remove:sweep:response',
+      payload: {
+        loadedAt: '2026-11-04T09:27:50.691Z',
+        reload: true,
+        loads: [
+          {
+            loadedAt: '2026-11-04T09:27:50.691Z',
+            listing: {
+              window: { from: '2026-11-04T09:27:44Z', to: '2026-11-04T09:28:47Z' },
+              looked: ['Contact', 'Task', 'FeedItem'],
+              found: [
+                {
+                  objectApiName: 'Task',
+                  count: 30,
+                  names: [],
+                  classes: {
+                    made: 0,
+                    madeOver: 0,
+                    late: 0,
+                    untied: 30,
+                    changed: 1,
+                    changedIn: { untied: 1 },
+                  },
+                },
+                {
+                  objectApiName: 'FeedItem',
+                  count: 1,
+                  names: [],
+                  classes: { made: 1, madeOver: 0, late: 0, untied: 0, sameSave: 1 },
+                },
+              ],
+              untied: { objects: [{ objectApiName: 'Task', count: 30 }] },
+              late: [],
+              unread: [],
+              handWork: [],
+            },
+          },
+        ],
+      },
+    };
+    const command = (...more: string[]) =>
+      parseArgs(
+        argv('load', '--config', 'frozen.json', '--target', 'TGT', '--reload', '--sweep', ...more),
+      );
+
+    const lines = messageLines(listed, command('--sweep-untied'));
+    expect(lines).toContain(
+      'it found 31 record(s) and would delete 30 of them, children first; per object, all it found:',
+    );
+    expect(lines).toContain(
+      '  Task: 30 — 30 tied to nothing of the run, 1 of them changed since the run, kept',
+    );
+    expect(messageLines(listed, command('--sweep-untied', '--include-changed'))).toContain(
+      'it found 31 record(s) and would delete 31 of them, children first; per object, all it found:',
+    );
+  });
+
+  it('says with a reload’s list, read before anything is deleted, what --sweep-untied takes and what it cannot tell from the automation’s', () => {
+    // Run for real on the trap org: the dry run of a reload with --sweep-untied
+    // counted thirty follow-up tasks among what it deletes, one of them edited
+    // by the load's user 48 seconds after the load, and said nothing of hand
+    // work, where a --sweep-list of the same load warns of it.
+    const lines = messageLines(
+      {
+        type: 'frozen:remove:sweep:response',
+        payload: {
+          loadedAt: '2026-11-04T12:01:33.704Z',
+          reload: true,
+          loads: [
+            {
+              loadedAt: '2026-11-04T12:01:33.704Z',
+              listing: {
+                window: { from: '2026-11-04T12:01:29Z', to: '2026-11-04T12:02:31Z' },
+                looked: ['Contact', 'Task', 'FeedItem'],
+                found: [
+                  {
+                    objectApiName: 'Task',
+                    count: 30,
+                    names: [],
+                    classes: { made: 0, madeOver: 0, late: 0, untied: 30 },
+                  },
+                ],
+                untied: { objects: [{ objectApiName: 'Task', count: 30 }] },
+                late: [],
+                unread: [],
+                handWork: [],
+              },
+            },
+          ],
+        },
+      },
+      { sweepUntied: true },
+    );
+
+    expect(lines).toContain(
+      'with --sweep-untied, it would delete too what is tied to nothing of the run: Task: 30',
+    );
+    expect(lines.at(-1)).toBe(
+      "a record made by hand as the run's user anywhere in the run's window with " +
+        "--sweep-untied reads as the automation's, and one changed by hand before the run's " +
+        'last write as unchanged: check the names before a --sweep',
+    );
+  });
+
+  it('says beside the error of a reload what its sweep had taken before the load ended', () => {
+    // Said in the audit trail alone, under a message that nothing was purged.
+    const lines = messageLines({
+      type: 'frozen:load:error',
+      payload: {
+        message:
+          'The load was cancelled before it created or purged a record: the mapping is left as it was.',
+        code: 'LOAD_CANCELLED',
+        sweeps: [
+          {
+            loadedAt: '2026-10-16T10:05:00.000Z',
+            result: {
+              status: 'cancelled',
+              objects: [
+                {
+                  objectApiName: 'Task',
+                  found: 230,
+                  deleted: 200,
+                  alreadyGone: 0,
+                  keptChanged: 0,
+                  refused: 0,
+                  reasons: [],
+                },
+              ],
+              unread: [],
+              handWork: [],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(lines[0]).toBe(
+      '! frozen:load:error: The load was cancelled before it created or purged a record: the mapping is left as it was. [LOAD_CANCELLED]',
+    );
+    expect(lines.slice(1, 3)).toEqual([
+      'before the load ended, its sweep had already done this:',
+      'sweep of the load of 2026-10-16T10:05:00.000Z:',
+    ]);
+    expect(lines.join('\n')).toContain('Task: 200 deleted of 230');
+  });
+
+  it('ends a load refused for its emails on the line a refused run ends on, not on its error', () => {
+    const message =
+      "The target's automation would make TGT send about 108 single emails, 15 of 15 left today. Nothing was written.";
+
+    expect(
+      messageLines({
+        type: 'frozen:load:error',
+        payload: { message, code: 'FROZEN_EMAILS_EXCEEDED' },
+      }),
+    ).toEqual([`refused (FROZEN_EMAILS_EXCEEDED): ${message}`]);
+  });
+
+  it('says a removal stopped before its first delete as refused, with its code', () => {
+    const message =
+      'TGT runs automation on the records this removal deletes. Nothing was written or deleted.';
+
+    expect(
+      messageLines({
+        type: 'frozen:remove:error',
+        payload: { message, code: 'AUTOMATION_NOT_ACCEPTED' },
+      }),
+    ).toEqual([`refused (AUTOMATION_NOT_ACCEPTED): ${message}`]);
+  });
+
+  it('says a removal that failed part way as an error, never as refused', () => {
+    expect(
+      messageLines({
+        type: 'frozen:remove:error',
+        payload: { message: 'INVALID_SESSION_ID', code: 'REMOVE_ERROR' },
+      }),
+    ).toEqual(['! frozen:remove:error: INVALID_SESSION_ID [REMOVE_ERROR]']);
   });
 
   it('says a verification that found the load wrote part of the dataset partial', () => {
@@ -1094,6 +1735,40 @@ describe('messageLines', () => {
       '  FeedItem: 1 tracked change left out: the platform writes them itself',
       'pass 2: 0 resolved, 0 unresolved',
     ]);
+  });
+
+  it('says of the contact roles it reused those the platform wrote with their opportunity', () => {
+    // Inserted beside the platform's, the source's role left the opportunity
+    // two of one contact; linked, the line said "1 reused" and no more.
+    const lines = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          durationMs: 5,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [
+            {
+              objectApiName: 'OpportunityContactRole',
+              fromFiles: 2,
+              inserted: 1,
+              reused: 1,
+              writtenByThePlatform: 1,
+              skippedDuplicates: [],
+              failed: [],
+            },
+          ],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: {}, failures: [] },
+        },
+      },
+    });
+
+    expect(lines[1]).toBe(
+      '  OpportunityContactRole: 1 inserted, 1 reused (1 written by the platform with their ' +
+        'opportunity, for its contact), 0 duplicate(s), 0 failed of 2',
+    );
   });
 
   it('names each field the target refused records on that went in written again, with what refused it', () => {
@@ -1217,6 +1892,99 @@ describe('messageLines', () => {
     expect(lines).toContain(
       '  FeedComment: 2 left out: FeedItemId names a FeedItem record, which excludedObjects leaves out',
     );
+  });
+
+  it('says which opportunities a load and its dry run leave unsynced with their quote, and why', () => {
+    // Synced with a quote whose lines the dataset left out, the opportunity
+    // lost the two products the load had just written, and no line said so.
+    const note =
+      "1 left unsynced with its quote: the load wrote 2 of its products and none of the quote's lines, " +
+      'which excludedObjects leaves out — synced, the platform replaces an opportunity’s products';
+    const loaded = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          durationMs: 5,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: {}, failures: [] },
+          quotesLeftUnsynced: [{ objectApiName: 'Opportunity', count: 1, note }],
+        },
+      },
+    });
+    const planned = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          mode: { pilot: false, reload: false },
+          perObject: [],
+          excludedObjects: [],
+          removals: [],
+          placeholders: [],
+          requiredDefaults: [],
+          personContacts: 0,
+          earlierLoads: 0,
+          quotesLeftUnsynced: [
+            { objectApiName: 'Opportunity', count: 1, note: `1 would be ${note.slice(2)}` },
+          ],
+        },
+      },
+    });
+
+    expect(loaded).toContain(`  Opportunity: ${note}`);
+    expect(planned).toContain(`  Opportunity: 1 would be ${note.slice(2)}`);
+  });
+
+  it('says, in a load and its dry run, the records no identity key was looked up for', () => {
+    // Keyed on a name the rules cleared, a reload's dry run said "Quote: 1
+    // to insert" and nothing of the key it never asked the target about.
+    const wrote =
+      '1 not looked up by its identity keys: Description stayed empty in what the load wrote — ' +
+      'the dataset holds no value, and no default fills it — so it was sent to be inserted, never matched';
+    const would =
+      '1 not looked up by its identity keys: Description stays empty in what the load would write — ' +
+      'the dataset holds no value, and no default fills it — so it would be inserted, never matched';
+    const loaded = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          durationMs: 5,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: {}, failures: [] },
+          keysLeftEmpty: [
+            { objectApiName: 'Quote', fields: ['Description'], count: 1, note: wrote },
+          ],
+        },
+      },
+    });
+    const planned = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          mode: { pilot: false, reload: true },
+          perObject: [],
+          excludedObjects: [],
+          removals: [],
+          placeholders: [],
+          requiredDefaults: [],
+          personContacts: 0,
+          earlierLoads: 1,
+          keysLeftEmpty: [
+            { objectApiName: 'Quote', fields: ['Description'], count: 1, note: would },
+          ],
+        },
+      },
+    });
+
+    expect(loaded).toContain(`  Quote: ${wrote}`);
+    expect(planned).toContain(`  Quote: ${would}`);
   });
 
   it('says what a reload purged, and what it left of a load that did not say what it created', () => {
@@ -1491,5 +2259,69 @@ describe('messageLines', () => {
       'not kept, encrypted and read masked: the user the source is read as lacks View ' +
         'Encrypted Data, and the masks are not copied: Contact.SSN__c',
     );
+  });
+});
+
+describe('refusedFirstOf', () => {
+  const error = (type: string, code: string) => ({
+    type,
+    payload: { message: `${code} words`, code },
+  });
+
+  it('takes the codes the handler refuses a load with before its first write', () => {
+    for (const code of [
+      'EMAILS_NOT_ACCEPTED',
+      'FROZEN_EMAILS_EXCEEDED',
+      'AUTOMATION_NOT_ACCEPTED',
+      'MUTE_NO_RIGHT',
+      'MUTE_PRODUCTION',
+      'MUTE_FAILED',
+    ]) {
+      expect(refusedFirstOf(error('frozen:load:error', code))).toEqual({
+        code,
+        message: `${code} words`,
+      });
+    }
+  });
+
+  it('takes the codes the handler refuses a removal with before its first delete', () => {
+    for (const code of [
+      'AUTOMATION_NOT_ACCEPTED',
+      'GUARD_BLOCKED',
+      // Its question answered no, as the removal's preview says it.
+      'GUARD_DECLINED',
+      'MUTE_NO_RIGHT',
+      'MUTE_FAILED',
+    ]) {
+      expect(refusedFirstOf(error('frozen:remove:error', code))?.code).toBe(code);
+    }
+  });
+
+  it('takes the code the handler sends a load or a removal with no Production Guard, and says it as a refusal', () => {
+    // The handler sends NOT_INITIALIZED (`PRODUCTION_GUARD_MISSING.code`):
+    // looked up by the constant's name, the code was never met, and the step
+    // ended on a bare error line with no "refused" for a pipeline to read.
+    const load = error('frozen:load:error', 'NOT_INITIALIZED');
+    expect(refusedFirstOf(load)).toEqual({
+      code: 'NOT_INITIALIZED',
+      message: 'NOT_INITIALIZED words',
+    });
+    expect(refusedFirstOf(error('frozen:remove:error', 'NOT_INITIALIZED'))?.code).toBe(
+      'NOT_INITIALIZED',
+    );
+    expect(messageLines(load)).toEqual(['refused (NOT_INITIALIZED): NOT_INITIALIZED words']);
+    expect(refusedFirstOf(error('frozen:load:error', 'PRODUCTION_GUARD_MISSING'))).toBeUndefined();
+  });
+
+  it('takes none that may come once records were written or deleted, nor one with nothing to do', () => {
+    // Production Guard refusing a batch once others went is a failure with
+    // records written; a removal that threw part way posts REMOVE_ERROR.
+    expect(refusedFirstOf(error('frozen:load:error', 'GUARD_REFUSED'))).toBeUndefined();
+    expect(refusedFirstOf(error('frozen:load:error', 'LOAD_CANCELLED'))).toBeUndefined();
+    expect(refusedFirstOf(error('frozen:remove:error', 'REMOVE_ERROR'))).toBeUndefined();
+    expect(refusedFirstOf(error('frozen:remove:error', 'NO_LOAD'))).toBeUndefined();
+    expect(refusedFirstOf(error('frozen:remove:error', 'REMOVAL_DECLINED'))).toBeUndefined();
+    expect(refusedFirstOf(error('frozen:remove:preview:error', 'GUARD_BLOCKED'))).toBeUndefined();
+    expect(refusedFirstOf(error('constructor', 'AUTOMATION_NOT_ACCEPTED'))).toBeUndefined();
   });
 });

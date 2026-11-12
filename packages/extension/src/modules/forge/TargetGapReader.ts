@@ -54,10 +54,14 @@ import type {
   MutedAutomationAlsoLifted,
 } from '@sandforge/shared';
 import {
+  ignoredGapEntry,
+  picklistMappingEntry,
+  skippedRowsEntry,
   assignPermsetCommand,
   forgeGapId,
   gapAssignEntry,
   gapAssignments,
+  gapLiftedBy,
   mergeGaps,
 } from '@sandforge/shared';
 import * as z from 'zod';
@@ -79,6 +83,15 @@ import {
   type ToolingAnswer,
   type ToolingRetrieve,
 } from './TargetAutomationReader.js';
+import {
+  noUserCreates,
+  notCreatableBy,
+  parentsToEdit,
+  readCreateFacts,
+  readEverCreatable,
+  type CreateFacts,
+  type NotCreatableBy,
+} from './targetCreators.js';
 import { holdsOnlyOnChange } from './validationRuleFormula.js';
 
 /**
@@ -226,6 +239,13 @@ export interface TargetGapDeps {
    * formulas are read with beside `toolingQueries`.
    */
   toolingRetrieves?: (orgId: string, reads: readonly ToolingRetrieve[]) => Promise<ToolingAnswer[]>;
+  /**
+   * What the target says of who may be given Create (`readCreateFacts`), read
+   * once for the read and the metadata comparison Review runs beside it.
+   * Without it, the read asks the target itself, through `describeFields` and
+   * `query`.
+   */
+  createFacts?: (orgId: string) => Promise<CreateFacts>;
 }
 
 /** What of a run's config tells what it writes, and how much. */
@@ -1003,8 +1023,39 @@ export class TargetGapReader {
       );
       requests += sent;
     };
+    /**
+     * Who may create the objects of the run the target's user may not
+     * (`notCreatableBy`): whether any user ever can, as the target's
+     * EntityDefinition says, and what a permission set can give Create on
+     * and whether the user holds Modify All Data. Three requests at most,
+     * whatever the number of objects, sent only when the user may not create
+     * one. A fact unanswered leaves the object blocking with the grant that
+     * opens it: the user may not create it either way, and another one might.
+     */
+    const everCreatable = new Map<string, boolean>();
+    let createFacts: CreateFacts = {};
+    const closed = [...closedInTarget].filter((name) => API_NAME_RE.test(name));
+    const whoCreates = async (): Promise<void> => {
+      const [ever, facts] = await Promise.all([
+        readEverCreatable(
+          (orgId, soql) => this.deps.toolingQuery(orgId, soql),
+          targetOrgId,
+          closed,
+        ),
+        this.deps.createFacts
+          ? this.deps
+              .createFacts(targetOrgId)
+              .then((read) => ({ facts: read, requests: 0 }))
+              .catch(() => ({ facts: {}, requests: 0 }))
+          : readCreateFacts(this.deps, targetOrgId),
+      ]);
+      requests += ever.requests + facts.requests;
+      for (const [name, answer] of ever.answered) everCreatable.set(name, answer);
+      createFacts = facts.facts;
+    };
     await inFlight(
       [
+        ...(closed.length > 0 ? [whoCreates] : []),
         ...(toolingQueries ? [formulasInComposites] : []),
         ...(toolingQueries ? [] : reading).map((rule) => async () => {
           try {
@@ -1091,15 +1142,20 @@ export class TargetGapReader {
       ...objects.flatMap((objectApiName) => {
         // An object the target's user may not create: one gap, which holds
         // Execute until the user leaves it out. Nothing said it before the
-        // run, which wrote its parents, then skipped it.
+        // run, which wrote its parents, then skipped it. One no user can
+        // ever create is said so, and holds nothing: no grant would open it.
         if (closedInTarget.has(objectApiName)) {
           return [
-            gapOf({
-              kind: 'object_not_createable',
-              severity: 'blocking',
+            notCreatableGap(
               objectApiName,
-              decisions: ['exclude_object'],
-            }),
+              notCreatableBy(
+                objectApiName,
+                createFacts,
+                everCreatable.get(objectApiName.toLowerCase()),
+              ),
+              targetFields.get(objectApiName) ?? [],
+              createFacts,
+            ),
           ];
         }
         const target = targetFields.get(objectApiName);
@@ -1117,6 +1173,40 @@ export class TargetGapReader {
     gaps.push(budgetGap(graph, scope, objects[0], budget));
     return { gaps: mergeGaps(gaps), unread, requests };
   }
+}
+
+/** The gap of each answer to who may create an object the user may not. */
+const NOT_CREATABLE_KINDS = {
+  platform: 'object_platform_only',
+  setup: 'object_setup_only',
+  feature: 'object_feature_off',
+  parent: 'object_through_parent',
+  user: 'object_not_createable',
+} as const satisfies Record<NotCreatableBy, ForgeGapKind>;
+
+/**
+ * An object the user the run writes as may not create, as a gap: info, and
+ * holding nothing, when no user can; blocking otherwise, until the user
+ * leaves it out, with what would open it — Create on it, Edit on the records
+ * it hangs from, the feature it comes with.
+ *
+ * @param fields - The object's fields in the target: its required lookups
+ *   name what Edit would open it.
+ */
+function notCreatableGap(
+  objectApiName: string,
+  by: NotCreatableBy,
+  fields: readonly GapField[],
+  facts: CreateFacts,
+): ForgeGap {
+  const editOn = by === 'parent' ? parentsToEdit(fields, facts) : [];
+  return gapOf({
+    kind: NOT_CREATABLE_KINDS[by],
+    severity: noUserCreates(by) ? 'info' : 'blocking',
+    objectApiName,
+    ...(editOn.length > 0 ? { detail: { editOn } } : {}),
+    decisions: ['exclude_object'],
+  });
 }
 
 /**
@@ -1370,16 +1460,28 @@ const RECORD_TYPE_KINDS: ReadonlySet<ForgeGapKind> = new Set<ForgeGapKind>([
  * record type. Review shows such a gap decided, and leaves it out of the gaps
  * it says will refuse rows; the command said it BLOCKING beside the line that
  * applied the default to every row.
+ *
+ * @param read - The ids of the gaps the same read found, `gap`'s alone when
+ *   not said: an entry kept under the id a package's gap had before its
+ *   namespace answers it only when it can be no other's of them.
  */
-export function gapAnsweredBy(gap: ForgeGap, decisions: GapDecisions): string | undefined {
-  if (decisions.ignoredGaps?.includes(gap.id)) return 'left as it is';
+export function gapAnsweredBy(
+  gap: ForgeGap,
+  decisions: GapDecisions,
+  read: Iterable<string> = [gap.id],
+): string | undefined {
+  if (ignoredGapEntry(decisions.ignoredGaps, gap.id, read) !== undefined) return 'left as it is';
   const object = gap.objectApiName;
   if (decisions.excludedObjects?.includes(object)) return `${object} left out of the run`;
   const offers = new Set(gap.decisions);
   const { field, value } = gap;
   if (
     offers.has('skip_rows') &&
-    decisions.skippedRows?.some((entry) => entry.object === object && entry.gapId === gap.id)
+    skippedRowsEntry(
+      (decisions.skippedRows ?? []).filter((entry) => entry.object === object),
+      gap.id,
+      read,
+    )
   ) {
     return 'these rows held back';
   }
@@ -1392,9 +1494,7 @@ export function gapAnsweredBy(gap: ForgeGap, decisions: GapDecisions): string | 
     const mappings = (decisions.picklistValueMappings ?? []).filter(
       (m) => m.object === object && m.field === field && m.from === value,
     );
-    const entry =
-      mappings.find((m) => m.recordType === gap.recordType) ??
-      mappings.find((m) => m.recordType === undefined);
+    const entry = picklistMappingEntry(mappings, gap, read);
     if (entry?.to === null && offers.has('leave_empty'))
       return 'the field left empty in these rows';
     if (entry && entry.to !== null && offers.has('map_value')) return `written as "${entry.to}"`;
@@ -1433,10 +1533,11 @@ export function gapsWithAnswers(
   read: ForgeTargetGaps,
   decisions: GapDecisions,
 ): Omit<ForgeTargetGaps, 'gaps'> & { gaps: Array<ForgeGap & { answeredBy?: string }> } {
+  const ids = read.gaps.map((gap) => gap.id);
   return {
     ...read,
     gaps: read.gaps.map((gap) => {
-      const answeredBy = gapAnsweredBy(gap, decisions);
+      const answeredBy = gapAnsweredBy(gap, decisions, ids);
       return answeredBy === undefined ? gap : { ...gap, answeredBy };
     }),
   };
@@ -1449,30 +1550,16 @@ export function gapsWithAnswers(
 function gapLine(
   gap: ForgeGap,
   decisions: GapDecisions | undefined,
+  read: readonly string[],
   lifted?: MutedAutomationAlsoLifted,
 ): string {
   if (lifted) {
     return `the mute lifts it (${lifted.permission}, in ${lifted.permissionSet}): ${gapWords(gap, true)}`;
   }
-  const answer = decisions ? gapAnsweredBy(gap, decisions) : undefined;
+  const answer = decisions ? gapAnsweredBy(gap, decisions, read) : undefined;
   return answer === undefined
     ? `${SEVERITY_WORDS[gap.severity]}: ${gapWords(gap)}`
     : `answered by the run's decision: ${answer} — ${gapWords(gap)}`;
-}
-
-/** What a run's mute lifts of the validation rule `gap` is, if anything. */
-function liftedRule(
-  gap: ForgeGap,
-  lifted: readonly MutedAutomationAlsoLifted[] | undefined,
-): MutedAutomationAlsoLifted | undefined {
-  if (gap.kind !== 'validation_rule' || !lifted) return undefined;
-  const rule = text(gap.detail?.rule);
-  return lifted.find(
-    (entry) =>
-      entry.kind === 'validationRule' &&
-      entry.name === rule &&
-      entry.objectApiName.toLowerCase() === gap.objectApiName.toLowerCase(),
-  );
 }
 
 /** How each part the read could not read is said in the command's lines. */
@@ -1556,6 +1643,35 @@ function gapWords(gap: ForgeGap, lifted = false): string {
         'the user the run writes as may not create its records in the target: every row is ' +
         'skipped, after the objects written before it, unless the object is left out'
       );
+    case 'object_platform_only':
+      return (
+        'no user can create its records in the target, the platform writes them itself: ' +
+        'the run skips every row of it'
+      );
+    case 'object_setup_only':
+      return (
+        'no user can create its records in the target, not even one with Modify All Data, and ' +
+        "no permission set gives Create on it: setup the org keeps as records, or the platform's " +
+        'own; the run skips every row of it'
+      );
+    case 'object_feature_off':
+      return (
+        'even a user with Modify All Data may not create its records in the target, though a ' +
+        'permission set can give Create on it: a feature or licence the target has not turned ' +
+        'on for that user keeps it closed; turn it on, or every row is skipped, after the ' +
+        'objects written before it, unless the object is left out'
+      );
+    case 'object_through_parent': {
+      const editOn = textsOf(detail.editOn);
+      const through =
+        editOn.length > 0
+          ? `the user the run writes as creates its records with Edit on ${editOn.join(' and ')}, which they hang from, or no user can`
+          : 'the records they hang from may open it to the user the run writes as, or no user can: read as a user with Modify All Data, the target would tell';
+      return (
+        `no permission set gives Create on it: ${through}; every row is skipped, after the ` +
+        'objects written before it, unless the object is left out'
+      );
+    }
     case 'api_budget': {
       const calls = `about ${count(detail.calls)} call(s) (${count(detail.writes)} write(s) of 200 rows, ${count(detail.reads)} read(s))`;
       const bound =
@@ -1629,6 +1745,7 @@ export function gapLines(
   } = {},
 ): string[] {
   const lines = [`target gaps: what ${target} holds against the rows, read from its metadata`];
+  const ids = read.gaps.map((gap) => gap.id);
   const budget = read.gaps.filter((gap) => gap.kind === 'api_budget');
   const others = read.gaps.filter((gap) => gap.kind !== 'api_budget');
   const objects = [...new Set(others.map((gap) => gap.objectApiName))].sort((a, b) =>
@@ -1637,8 +1754,8 @@ export function gapLines(
   for (const object of objects) {
     lines.push(`  ${object}`);
     for (const gap of others.filter((g) => g.objectApiName === object)) {
-      const lifted = liftedRule(gap, options.lifted);
-      lines.push(`    ${gapLine(gap, options.decisions, lifted)}`);
+      const lifted = gapLiftedBy(gap, options.lifted);
+      lines.push(`    ${gapLine(gap, options.decisions, ids, lifted)}`);
       // The mute assigns the set for the run: no command to show.
       if (!lifted) lines.push(...assignLines(gap, target, options.username));
     }
@@ -1650,7 +1767,7 @@ export function gapLines(
         : '  no validation rule, duplicate rule, field only the target requires or lookup filter',
     );
   }
-  for (const gap of budget) lines.push(`  ${gapLine(gap, options.decisions)}`);
+  for (const gap of budget) lines.push(`  ${gapLine(gap, options.decisions, ids)}`);
   const formulasNotRead = others.filter((gap) => gap.detail?.formula === 'notRead').length;
   if (formulasNotRead > 0) {
     lines.push(

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { ExecutionReportView } from './ExecutionReportView';
 import type { GeneratedReport } from '@sandforge/shared';
 
@@ -72,8 +73,21 @@ describe('ExecutionReportView', () => {
 
   it('should show report type badges', () => {
     render(<ExecutionReportView reports={reports} />);
-    expect(screen.getByText('Seed Execution')).toBeDefined();
-    expect(screen.getByText('Sync Execution')).toBeDefined();
+    expect(screen.getByText('Seed run')).toBeDefined();
+    expect(screen.getByText('Sync run')).toBeDefined();
+  });
+
+  it("names a Forge run as Forge's, in the reader's language", async () => {
+    const forge: GeneratedReport = { ...reports[0], id: 'rpt-forge', type: 'forge_execution' };
+    const { unmount } = render(<ExecutionReportView reports={[forge]} />);
+    expect(screen.getByText('Forge clone')).toBeDefined();
+    unmount();
+
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    render(<ExecutionReportView reports={[forge]} />);
+    expect(screen.getByText('Clonage Forge')).toBeDefined();
+    await i18n.changeLanguage('en');
   });
 
   it('should call onSelectReport when clicked', () => {

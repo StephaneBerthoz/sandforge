@@ -119,6 +119,20 @@ export interface CheckpointPreviewRequest extends BaseMessage {
      * object.
      */
     objects?: string[];
+    /**
+     * Whether the rewind is to mute the org's automation: the emails, whether
+     * the org delivers them and the refusal it would meet are then those of
+     * what still runs. `automation` stays as read, and nothing is assigned.
+     */
+    muteAutomation?: boolean;
+    /**
+     * Whether the rewind is to delete the records outside a checkpoint of
+     * picked objects created under records it deletes, as
+     * `checkpoint:rewind`'s `acceptOutside`: said, the emails and the refusal
+     * it would meet are those of what it then writes. Absent, those of every
+     * record it would delete.
+     */
+    acceptOutside?: boolean;
   };
 }
 
@@ -175,6 +189,11 @@ export interface CheckpointRewindRequest extends BaseMessage {
      * (`RewindDiff.unseen`). Without it, a rewind that would writes nothing.
      */
     acceptUnseen: boolean;
+    /**
+     * Set by the page, whose way past a refusal for the emails is a box. The
+     * command line replays this request, and a refusal then names its flags.
+     */
+    fromPage?: true;
   };
 }
 
@@ -207,6 +226,11 @@ export interface CheckpointUndoRequest extends BaseMessage {
      * asked about as ever.
      */
     muteAutomation?: boolean;
+    /**
+     * Set by the page, whose way past a refusal for the emails is a box. The
+     * command line replays this request, and a refusal then names its flags.
+     */
+    fromPage?: true;
   };
 }
 
@@ -387,6 +411,15 @@ export interface CheckpointPreviewResponse extends BaseMessage {
      */
     emails?: CheckpointEmails[];
     /**
+     * Of a checkpoint of picked objects whose records outside it were made
+     * since under records the rewind deletes, asked without saying whether
+     * the rewind may delete them (`acceptOutside`): the emails of the rewind
+     * that keeps the records they hang from, which then send none, an empty
+     * list when it sends none; `emails` are those of the rewind that deletes
+     * them along. Absent otherwise.
+     */
+    emailsKeepingOutside?: CheckpointEmails[];
+    /**
      * Why the emails of what fires as the rewind writes were not all
      * counted: the parts of the org's automation that send them it could not
      * read, and the flows, processes and rules whose definition it was
@@ -528,5 +561,15 @@ export interface CheckpointImportResponse extends BaseMessage {
  */
 export interface CheckpointErrorResponse extends BaseMessage {
   type: 'checkpoint:error';
-  payload: { message: string; code: string; retryable: boolean };
+  payload: {
+    message: string;
+    code: string;
+    retryable: boolean;
+    /**
+     * Of an undo its gate refused for more than one reason, the others, in
+     * order, beside the one `code` and `message` say: its emails beside its
+     * automation. Absent when there is one.
+     */
+    alsoRefused?: CheckpointRefusal[];
+  };
 }

@@ -9,6 +9,8 @@
  * One copy of the ordering, so both write in the same order.
  */
 
+import { isInsertOnlyField, isPlatformRequiredField } from '@sandforge/shared';
+
 /**
  * Insertion groups: the strongly connected components of the dependency
  * graph — each cycle one group, every other object a group of its own —
@@ -130,4 +132,102 @@ export function orderWithinGroup(
     }
   }
   return [...order, ...[...remaining.keys()].sort()];
+}
+
+/** A lookup of an object at another, as the order of a write reads it. */
+export interface OrderingLookup {
+  /** The object it points at. */
+  from: string;
+  /** The object that holds it. */
+  to: string;
+  fieldApiName: string;
+  /** The describe says a record cannot be written without it. */
+  required?: boolean;
+}
+
+/** Each object's lookups as the target describes them; nothing for one it did not. */
+export type DescribedLookupsOf = (
+  objectApiName: string,
+) => ReadonlyArray<{ name: string; createable: boolean; updateable: boolean }> | null | undefined;
+
+/**
+ * Within one cycle, what each object cannot be written without: what its
+ * required lookups point at, and what its lookups the second pass cannot set
+ * — the target takes them on create and not on update — point at. A run
+ * orders its cycles by this, and a fit of its plan reads the same order:
+ * which of two objects of a cycle goes first decides which lookup holds a
+ * record to its parent, and which is filled afterwards and may stay empty.
+ *
+ * @param group - The members of one cycle.
+ * @param edges - The plan's lookups; those outside the cycle are not read.
+ * @param lookupsOf - Each member's lookups, as the target describes them.
+ */
+export function atInsertDeps(
+  group: readonly string[],
+  edges: readonly OrderingLookup[],
+  lookupsOf: DescribedLookupsOf,
+): Map<string, Set<string>> {
+  const members = new Set(group);
+  const needs = new Map<string, Set<string>>();
+  for (const edge of edges) {
+    if (!members.has(edge.to) || !members.has(edge.from)) continue;
+    const lookup = lookupsOf(edge.to)?.find((l) => l.name === edge.fieldApiName);
+    const insertOnly = lookup !== undefined && isInsertOnlyField(lookup);
+    if (!edge.required && !isPlatformRequiredField(edge.to, edge.fieldApiName) && !insertOnly) {
+      continue;
+    }
+    needs.set(edge.to, (needs.get(edge.to) ?? new Set()).add(edge.from));
+  }
+  return needs;
+}
+
+/** How the objects of one wave are written: {@link waveGroupsOf}. */
+export interface WaveGroups<E extends OrderingLookup> {
+  /** The lookups between two objects of the wave. */
+  within: E[];
+  /** Object → the objects of the wave it points at. */
+  deps: Map<string, Set<string>>;
+  /** Its insertion groups ({@link insertionGroups}), in the order they start. */
+  groups: string[][];
+}
+
+/**
+ * The insertion groups of one wave of a plan, from the lookups between its
+ * objects: what a run writes one after the other, and what side by side.
+ */
+export function waveGroupsOf<E extends OrderingLookup>(
+  objects: readonly string[],
+  edges: readonly E[],
+): WaveGroups<E> {
+  const members = new Set(objects);
+  const within = edges.filter(
+    (edge) => edge.from !== edge.to && members.has(edge.from) && members.has(edge.to),
+  );
+  const deps = new Map(objects.map((name) => [name, new Set<string>()]));
+  for (const edge of within) deps.get(edge.to)?.add(edge.from);
+  return { within, deps, groups: insertionGroups(deps) };
+}
+
+/**
+ * The order a plan writes its objects in, wave by wave: each wave's groups in
+ * the order they start, each cycle in the order what its objects cannot be
+ * written without leaves it ({@link orderWithinGroup}). Two groups a run
+ * writes side by side point at nothing of each other: either may come first
+ * here.
+ *
+ * @param waves - The objects of each wave of the plan, in its order.
+ * @param edges - The plan's lookups.
+ * @param lookupsOf - Each object's lookups, as the target describes them.
+ */
+export function writeOrderOf(
+  waves: ReadonlyArray<readonly string[]>,
+  edges: readonly OrderingLookup[],
+  lookupsOf: DescribedLookupsOf,
+): string[] {
+  return waves.flatMap((objects) => {
+    const { groups, within } = waveGroupsOf(objects, edges);
+    return groups.flatMap((group) =>
+      group.length > 1 ? orderWithinGroup(group, atInsertDeps(group, within, lookupsOf)) : group,
+    );
+  });
 }

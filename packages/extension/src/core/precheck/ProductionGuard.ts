@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
+import { BYTES_PER_MB } from '@sandforge/shared';
 import type { ForgeRemovalRisk, RunCheckpointEstimate, RunDeliverability } from '@sandforge/shared';
 
 /** Safety tier classification for Salesforce orgs */
@@ -224,6 +225,18 @@ export interface WriteConfirmation {
    */
   alreadyCopied?: number;
   /**
+   * Of a Sync run of a saved configuration: the records an earlier run of it
+   * linked to a record the target held, which this one leaves as they are
+   * and does not count. Absent when none.
+   */
+  alreadyLinked?: number;
+  /**
+   * Of a Sync run: the contact roles it links to the one the platform writes
+   * with an opportunity it creates, for its contact, which it does not send
+   * and does not count. Absent when none.
+   */
+  rolesLinked?: number;
+  /**
    * Of a Sync run: of `total`, the records an update or an upsert writes,
    * which may write over records the target holds — their values are kept
    * first, and removing the run puts them back. Absent when none.
@@ -243,18 +256,28 @@ export interface WriteConfirmation {
   /**
    * What the run read or counted and will not write, left out of the rows
    * above: the rows the run it retries or resumes wrote, which it links to,
-   * and the objects held back whole for a record type closed to the user it
-   * writes as. Absent when nothing is.
+   * the objects held back whole for a record type closed to the user it
+   * writes as, and the rows the platform writes itself with a record the run
+   * creates, which it links to. Absent when nothing is.
    */
   leftOut?: {
     writtenBefore: number;
     heldBack: Array<{ objectApiName: string; rows: number }>;
+    byThePlatform?: Array<{ objectApiName: string; rows: number }>;
   };
   /**
    * Set when the rows were counted rather than read: a run of whole tables
    * read page by page asks before it reads anything.
    */
   counted?: true;
+  /**
+   * Of a clone: of `total`, the contact roles the platform may write itself
+   * with their opportunity, for its contact, at most — or may have written
+   * with an opportunity the run it takes up wrote (`before`) — which the run
+   * links to and does not send: counted in, where the gate could not tell
+   * them. Absent when none.
+   */
+  rolesMayBeByThePlatform?: { rows: number; before?: true };
   /**
    * Of the prices among the rows, those the run may read as it writes them,
    * at most: a price in the currency of the record its lines belong to, the
@@ -298,7 +321,22 @@ export interface WriteConfirmation {
   unwritable?: Array<{
     objectApiName: string;
     rows: number;
-    why: 'notInTarget' | 'notCreateable' | 'notUpdateable' | 'unread';
+    why: 'notInTarget' | 'notCreateable' | 'notUpdateable' | 'unread' | 'notAKey';
+    key?: string;
+  }>;
+  /**
+   * Of a Sync run with objects in `unwritable`: the rows of the objects after
+   * them it holds back, not among `objects`, a lookup of theirs — `field` —
+   * naming a record of `parent` left out, or held back in turn. Confirmed,
+   * none of them is written, and each counts as failed. Absent when none.
+   */
+  heldBack?: Array<{
+    objectApiName: string;
+    rows: number;
+    parent: string;
+    field: string;
+    /** Each object and lookup that holds rows back, with how many: `rows` in all. */
+    parents?: Array<{ parent: string; field: string; rows: number }>;
   }>;
   /**
    * The API requests the run takes, when it would leave the org under a
@@ -513,6 +551,14 @@ export interface ProductionGuardOptions {
    * absent, there is nobody to ask, and {@link confirmRun} says so.
    */
   requestRunConfirmation?: (question: RunConfirmation) => Promise<boolean>;
+  /**
+   * Why {@link requestConfirmation} answers no for a tier without asking
+   * anyone, when it does: a command line's, for a production org. Undefined
+   * for a tier someone would be asked about, or let through. What a preview,
+   * which asks nothing, says a run there would be answered
+   * ({@link declinedWithoutAsking}).
+   */
+  declinesWithoutAsking?: (orgTier: SafetyTier) => string | undefined;
 }
 
 /**
@@ -538,7 +584,7 @@ export interface GivenAnswer {
 const givenAnswers = new AsyncLocalStorage<GivenAnswer & { live: boolean }>();
 
 /** The answer given for the run under way, while that run lasts. */
-function liveAnswer(): GivenAnswer | undefined {
+export function liveAnswer(): GivenAnswer | undefined {
   const given = givenAnswers.getStore();
   return given?.live ? given : undefined;
 }
@@ -654,6 +700,19 @@ export class ProductionGuard {
     return result.question === undefined
       ? this.options.requestConfirmation(result.impactSummary, orgTier)
       : this.options.requestConfirmation(result.impactSummary, orgTier, result.question);
+  }
+
+  /**
+   * Why the confirmation `result` needs would be answered no without anyone
+   * asked — the answer {@link ProductionGuardOptions.declinesWithoutAsking}
+   * gives its tier —, or undefined when it needs none, is given its answer
+   * beforehand, or would be put to someone. Asks nothing: what a preview says
+   * a run would meet.
+   */
+  declinedWithoutAsking(result: SafetyCheckResult, orgTier: SafetyTier): string | undefined {
+    if (!result.allowed || !result.requiresConfirmation || liveAnswer()) return undefined;
+    if (!this.options.requestConfirmation) return undefined;
+    return this.options.declinesWithoutAsking?.(orgTier);
   }
 
   /**
@@ -924,4 +983,136 @@ function buildImpactSummary(request: OperationRequest): string {
     `${request.objectName} record(s)${besides} on ${request.orgTier} org ${request.orgId} ` +
     `[module: ${request.module}]`
   );
+}
+
+// ─── The checkpoint's block of a run's question ──────────────────────────────
+
+/**
+ * The blocks of a run's one question before it writes, in the order it says
+ * them: what leaves the org — whether the target delivers the emails what
+ * still runs sends, and its daily emails —; the automation that still runs;
+ * the checkpoint the run takes first; then the storage, the API requests and
+ * the fit. Forge says the first two at its automation question, before it
+ * reads its rows, and the last two at its write gate, once they are read.
+ */
+export const WRITE_QUESTION_BLOCKS = [
+  'leavesTheOrg',
+  'stillRunning',
+  'checkpoint',
+  'limits',
+] as const;
+
+/** A block of a run's question ({@link WRITE_QUESTION_BLOCKS}). */
+export type WriteQuestionBlock = (typeof WRITE_QUESTION_BLOCKS)[number];
+
+/** The lines of a run's question, each block's in its place, whatever order they were made in. */
+export function inQuestionOrder(
+  blocks: Partial<Record<WriteQuestionBlock, readonly string[]>>,
+): string[] {
+  return WRITE_QUESTION_BLOCKS.flatMap((block) => [...(blocks[block] ?? [])]);
+}
+
+/** What the checkpoint's block says it costs, as its words are handed it. */
+export interface CheckpointCost {
+  records: number;
+  objects: number;
+  requests: number;
+  seconds: number;
+  /** What it keeps on this machine, in MB as the block says them: to a tenth, rounded up. */
+  megabytes: string;
+  /** The days it is kept; 0 keeps it until it is deleted. */
+  keepDays: number;
+}
+
+/**
+ * The words the checkpoint's block of a run's question is put in, piece by
+ * piece ({@link checkpointQuestionLines}): English by default, the host's
+ * translations in VS Code. Why an object is added or left out is the
+ * engine's sentence, put in as it is.
+ */
+export interface CheckpointQuestionWords {
+  /** What it costs, what it keeps where, and for how long. */
+  cost: (cost: CheckpointCost) => string;
+  /** An object it holds beside those the run writes, and why. */
+  added: (objectApiName: string, reason: string) => string;
+  /** An object it does not hold, and what a rewind does to it. */
+  notHeld: (objectApiName: string, reason: string) => string;
+  /** The objects of a list past those it names. */
+  more: (count: number) => string;
+  /**
+   * What no read tells: the records an Apex trigger, whose code is not read,
+   * or automation that could not be read creates as the run writes.
+   */
+  unknown: string;
+}
+
+/** `count` of `unit`, the unit in the plural but for one. */
+function counted(count: number, unit: string): string {
+  return `${count} ${unit}${count === 1 ? '' : 's'}`;
+}
+
+/** The checkpoint's block in English, as every host without translations says it. */
+export const ENGLISH_CHECKPOINT_WORDS: CheckpointQuestionWords = {
+  cost: ({ records, objects, requests, seconds, megabytes, keepDays }) =>
+    `Checkpoint first: about ${counted(records, 'record')} of ${counted(objects, 'object')}, ` +
+    `${counted(requests, 'API request')}, ${seconds} s, ${megabytes} MB on this machine, ` +
+    "unencrypted, and none of the org's storage, " +
+    (keepDays === 0 ? 'kept until you delete it.' : `kept ${counted(keepDays, 'day')}.`),
+  added: (objectApiName, reason) => `Added: ${objectApiName} — ${reason}`,
+  notHeld: (objectApiName, reason) => `Not in the checkpoint: ${objectApiName} — ${reason}`,
+  more: (count) => `… and ${count} more`,
+  unknown:
+    'What an Apex trigger, or automation that could not be read, creates as the run writes is ' +
+    'not known: a rewind leaves those records as they are.',
+};
+
+/** The objects a list of the checkpoint's block names before it counts the rest. */
+const CHECKPOINT_LISTED = 10;
+
+/** Megabytes as the checkpoint's block says them: to a tenth, rounded up, never 0 of a take that keeps a byte. */
+function megabytesOf(bytes: number): string {
+  if (bytes <= 0) return '0';
+  return Math.max(0.1, Math.ceil((bytes / BYTES_PER_MB) * 10 - 1e-9) / 10).toFixed(1);
+}
+
+/**
+ * What a run's question says of the checkpoint it takes first, its third
+ * block ({@link WRITE_QUESTION_BLOCKS}): what it costs — the target's tables,
+ * not the run's rows — what it keeps on this machine and how long; each
+ * object it adds beside those the run writes, and why; each it does not
+ * hold, and what a rewind does to it; and what no read can tell. A run whose
+ * checkpoint is refused is refused before its question, so the block never
+ * says a refusal.
+ */
+export function checkpointQuestionLines(
+  checkpoint: Pick<
+    RunCheckpointEstimate,
+    'estimate' | 'objects' | 'added' | 'notHeld' | 'keepDays'
+  >,
+  words: CheckpointQuestionWords = ENGLISH_CHECKPOINT_WORDS,
+): string[] {
+  const { estimate } = checkpoint;
+  const lines = [
+    words.cost({
+      records: estimate.records,
+      objects: checkpoint.objects.length,
+      requests: estimate.apiRequests,
+      seconds: Math.ceil(estimate.seconds),
+      megabytes: megabytesOf(estimate.bytes),
+      keepDays: checkpoint.keepDays,
+    }),
+  ];
+  const list = (
+    notes: RunCheckpointEstimate['added'],
+    say: (objectApiName: string, reason: string) => string,
+  ): void => {
+    for (const { objectApiName, reason } of notes.slice(0, CHECKPOINT_LISTED)) {
+      lines.push(say(objectApiName, reason));
+    }
+    if (notes.length > CHECKPOINT_LISTED) lines.push(words.more(notes.length - CHECKPOINT_LISTED));
+  };
+  list(checkpoint.added, words.added);
+  list(checkpoint.notHeld, words.notHeld);
+  lines.push(words.unknown);
+  return lines;
 }

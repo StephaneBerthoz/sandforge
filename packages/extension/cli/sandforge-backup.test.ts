@@ -3,6 +3,28 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+/** What the org runs on the objects a test's restore writes: nothing, unless the test says. */
+const orgRuns = vi.hoisted(() => ({ objects: [] as unknown[] }));
+
+// What the org runs as a restore writes its records: nothing, as an org
+// without flows or triggers on them answers, unless a test gives what it
+// runs. The gate reads it before every write.
+vi.mock('../src/modules/forge/TargetAutomationReader.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/modules/forge/TargetAutomationReader.js')>()),
+  TargetAutomationReader: class {
+    read(_orgId: string, objects: readonly string[]) {
+      return Promise.resolve({
+        objectsRead: [...objects],
+        objects: orgRuns.objects,
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      });
+    }
+  },
+}));
+
 // The org is reached through these three, and through nothing else: the
 // session the sf CLI hands over, the query the extension types an org with,
 // and the connection the handler opens.
@@ -309,6 +331,60 @@ describe('against an org', () => {
 
       expect(restore.code).toBeUndefined();
       expect(upsert).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('refuses a restore whose update flow fires as it writes the values back, without --accept-automation', async () => {
+    await inStore(async (store) => {
+      orgIs('Developer Edition');
+      const rows = contactsOf(2);
+      const { upsert } = orgOf(rows);
+      const backup = await run(store, '--org', 'ORG', '--object', 'Contact');
+      rows[1].Title = 'Changed after the backup';
+      orgRuns.objects = [
+        {
+          objectApiName: 'Contact',
+          flows: [
+            {
+              apiName: 'Notify_Owner',
+              label: 'Notify Owner',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ];
+      try {
+        const id = snapshotOf(backup.posted);
+        const refused = await run(store, '--org', 'ORG', '--restore', id, '--yes');
+
+        expect(refused.code).toBe(1);
+        expect(upsert).not.toHaveBeenCalled();
+        expect(
+          (
+            refused.posted.find((m) => m.type === 'dataops:automation:response')?.payload as {
+              refusals: Array<{ code: string }>;
+            }
+          ).refusals.map((r) => r.code),
+        ).toEqual(['AUTOMATION_NOT_ACCEPTED']);
+
+        const accepted = await run(
+          store,
+          '--org',
+          'ORG',
+          '--restore',
+          id,
+          '--yes',
+          '--accept-automation',
+        );
+        expect(accepted.code).toBeUndefined();
+        expect(upsert).toHaveBeenCalledTimes(1);
+      } finally {
+        orgRuns.objects = [];
+      }
     });
   });
 

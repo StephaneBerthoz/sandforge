@@ -20,7 +20,12 @@ import type {
   ForgeRecordTypeMapping,
   ForgeSkippedRows,
 } from '@sandforge/shared';
-import { mergeGaps } from '@sandforge/shared';
+import {
+  ignoredGapEntry,
+  mergeGaps,
+  picklistMappingEntry,
+  skippedRowsEntry,
+} from '@sandforge/shared';
 
 /** A decision on one gap, with what it needs to be written. */
 export type ForgeGapChoice =
@@ -185,26 +190,46 @@ function sameField(a: ForgeFieldRef, b: ForgeFieldRef): boolean {
  * not answer a value of that field the target refuses. A mapping of a value
  * for every record type answers the gap of one of them, after a mapping for
  * that record type.
+ *
+ * @param read - The gaps the tab shows beside it. An entry kept under the id
+ *   a package's gap had before its namespace answers that gap only when it
+ *   can be no other's of them: on a target with the org's own Support and a
+ *   package's ns__Support, the decision taken on the first answered the
+ *   second, which read "left as it is" while nobody had decided it, and a
+ *   decision taken on the second took the first one's away. Nor when the
+ *   gap's simulation or rehearsal says the org's own carries the name too, with no gap
+ *   of its own (`detail.sameDeveloperName`): the run applies the entry to
+ *   the org's own rows alone.
  */
-export function decisionOf(config: ForgeConfig | null, gap: ForgeGap): ForgeKeptDecision | null {
+export function decisionOf(
+  config: ForgeConfig | null,
+  gap: ForgeGap,
+  read: readonly ForgeGap[],
+): ForgeKeptDecision | null {
   if (!config) return null;
-  if (config.ignoredGaps?.includes(gap.id)) return { kind: 'ignored', gapId: gap.id };
+  const ids = read.map((shown) => shown.id);
+  // The entry the config holds, which may be the id before a package's namespace:
+  // the one Undo takes out.
+  const ignored = ignoredGapEntry(config.ignoredGaps, gap, ids);
+  if (ignored !== undefined) return { kind: 'ignored', gapId: ignored };
   if (config.excludedObjects?.includes(gap.objectApiName)) {
     return { kind: 'object_excluded', object: gap.objectApiName };
   }
   const offers = new Set(gap.decisions);
   const object = gap.objectApiName;
   if (offers.has('skip_rows')) {
-    const entry = config.skippedRows?.find((e) => e.object === object && e.gapId === gap.id);
+    const entry = skippedRowsEntry(
+      (config.skippedRows ?? []).filter((e) => e.object === object),
+      gap,
+      ids,
+    );
     if (entry) return { kind: 'skipped_rows', entry };
   }
   if (aboutAValue(gap) && (offers.has('map_value') || offers.has('leave_empty'))) {
     const mappings = (config.picklistValueMappings ?? []).filter(
       (m) => m.object === object && m.field === gap.field && m.from === gap.value,
     );
-    const entry =
-      mappings.find((m) => m.recordType === gap.recordType) ??
-      mappings.find((m) => m.recordType === undefined);
+    const entry = picklistMappingEntry(mappings, gap, ids);
     if (entry && (entry.to === null ? offers.has('leave_empty') : offers.has('map_value'))) {
       return { kind: 'picklist', entry };
     }
@@ -373,24 +398,29 @@ export function withoutKept(config: ForgeConfig, kept: ForgeKeptDecision): Forge
   }
 }
 
-/** `config` with no decision answering `gap`. */
-export function withoutGapDecision(config: ForgeConfig, gap: ForgeGap): ForgeConfig {
-  const kept = decisionOf(config, gap);
+/** `config` with no decision answering `gap`, among the gaps of `read` ({@link decisionOf}). */
+export function withoutGapDecision(
+  config: ForgeConfig,
+  gap: ForgeGap,
+  read: readonly ForgeGap[],
+): ForgeConfig {
+  const kept = decisionOf(config, gap, read);
   return kept ? withoutKept(config, kept) : config;
 }
 
 /**
  * `config` with `choice` answering `gap`, in place of the decision that
- * answered it. A choice the gap cannot carry — a mapping of a value on a gap
- * about no value, a record type mapping with no record type — leaves the
- * config as it was.
+ * answered it among the gaps of `read` ({@link decisionOf}). A choice the gap
+ * cannot carry — a mapping of a value on a gap about no value, a record type
+ * mapping with no record type — leaves the config as it was.
  */
 export function withGapDecision(
   config: ForgeConfig,
   gap: ForgeGap,
   choice: ForgeGapChoice,
+  read: readonly ForgeGap[],
 ): ForgeConfig {
-  const base = withoutGapDecision(config, gap);
+  const base = withoutGapDecision(config, gap, read);
   const object = gap.objectApiName;
   const picklist = (to: string | null): ForgeConfig => {
     if (!aboutAValue(gap)) return config;
@@ -500,7 +530,7 @@ export function decisionsAnsweringNoGap(
 ): ForgeKeptDecision[] {
   const answering = new Set(
     gaps.flatMap((gap) => {
-      const kept = decisionOf(config, gap);
+      const kept = decisionOf(config, gap, gaps);
       return kept ? [keptDecisionKey(kept)] : [];
     }),
   );
@@ -513,7 +543,8 @@ export function undecidedBlockingGaps(
   config: ForgeConfig | null,
   graph?: ForgeGraph | null,
 ): number {
-  return gapsToShow(gaps, objectsLeftOut(config, graph)).filter(
-    (gap) => gap.severity === 'blocking' && decisionOf(config, gap) === null,
+  const shown = gapsToShow(gaps, objectsLeftOut(config, graph));
+  return shown.filter(
+    (gap) => gap.severity === 'blocking' && decisionOf(config, gap, shown) === null,
   ).length;
 }

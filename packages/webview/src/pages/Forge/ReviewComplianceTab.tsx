@@ -5,6 +5,7 @@ import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type { ComplianceReport } from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import type { ComplianceRowStatus } from './reviewSummaries';
 
 /** What `forge:compliance:response` carries: no report for the framework `none`. */
 interface CompliancePayload {
@@ -14,11 +15,14 @@ interface CompliancePayload {
 /** Supported compliance frameworks. */
 const FRAMEWORKS = ['none', 'gdpr', 'ccpa', 'hipaa', 'pci_dss'] as const;
 
+/** A framework the report can be made against. */
+type FrameworkId = Exclude<(typeof FRAMEWORKS)[number], 'none'>;
+
 /**
  * The name of each framework. The regulations are named by their acronyms in
  * every language; "none" is a word, and it was written in English in all six.
  */
-const FRAMEWORK_LABELS: Record<Exclude<(typeof FRAMEWORKS)[number], 'none'>, string> = {
+const FRAMEWORK_LABELS: Record<FrameworkId, string> = {
   gdpr: 'GDPR',
   ccpa: 'CCPA',
   hipaa: 'HIPAA',
@@ -48,7 +52,10 @@ const STATUS_KEYS: Record<ComplianceReport['overallStatus'], string> = {
  * answers on `forge:compliance:error`, left the tab on "Analyzing
  * compliance..." for good. It says what went wrong now, with a retry.
  */
-export const ReviewComplianceTab: React.FC = () => {
+export const ReviewComplianceTab: React.FC<{
+  /** Told where the report stands, for the row that says so with the tab closed. */
+  onStatus?: (status: ComplianceRowStatus) => void;
+}> = ({ onStatus }) => {
   const { t } = useTranslation();
   const [framework, setFramework] = useState<string>('none');
   const complianceReport = useForgeStore((s) => s.complianceReport);
@@ -86,6 +93,17 @@ export const ReviewComplianceTab: React.FC = () => {
     framework !== 'none' && !loading && !error && complianceReport?.framework === framework
       ? complianceReport
       : null;
+
+  const framed = framework === 'none' ? null : FRAMEWORK_LABELS[framework as FrameworkId];
+  const verdict = report ? t(STATUS_KEYS[report.overallStatus]) : null;
+  const passed = report?.overallStatus === 'pass';
+  useEffect(() => {
+    if (!onStatus) return;
+    if (framed === null) onStatus({ step: 'none' });
+    else if (verdict !== null) onStatus({ step: 'report', framework: framed, verdict, passed });
+    else if (loading) onStatus({ step: 'loading', framework: framed });
+    else onStatus({ step: error ? 'failed' : 'waiting', framework: framed });
+  }, [onStatus, framed, verdict, passed, loading, error]);
 
   return (
     <div data-testid="review-compliance-tab" className="flex flex-col gap-3">

@@ -10409,6 +10409,82 @@ describe('ForgeExecutor', () => {
         });
       });
 
+      it('lists the task the platform wrote with the email among no records the target held, in a run or a dry run', async () => {
+        // Listed there, the results said "the target refused these records
+        // because it already holds them" of a task that did not exist before
+        // the run, and that nothing had sent.
+        for (const dryRun of [false, true]) {
+          const { orgDeps } = orgs();
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph(),
+            'src',
+            'tgt',
+            onProgress,
+            { ...scoped, dryRun },
+          );
+
+          expect(summary.linkedCount, `dryRun ${String(dryRun)}`).toBe(1);
+          expect(summary.existingRecords, `dryRun ${String(dryRun)}`).toEqual([]);
+          expect(summary.writtenByThePlatform, `dryRun ${String(dryRun)}`).toEqual([
+            { objectApiName: 'Task', rows: 1 },
+          ]);
+        }
+      });
+
+      it('counts at its gate the task the platform writes with an email the run creates, which the run may yet send, in a run or a dry run', async () => {
+        for (const dryRun of [false, true]) {
+          const { orgDeps, inserted } = orgs();
+          let shown: ForgeWriteBoundary | undefined;
+
+          await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress, {
+            ...scoped,
+            dryRun,
+            beforeWrite: async (boundary) => {
+              shown = boundary;
+            },
+          });
+
+          const plan = writePlanOf(shown?.objects ?? []);
+          expect(plan.objects.find((o) => o.objectApiName === 'Task')?.rows).toBe(1);
+          expect(plan.leftOut?.byThePlatform).toBeUndefined();
+          // Linked to the platform's, as ever, once the email is in.
+          if (!dryRun) expect(inserted['Task'] ?? []).toEqual([]);
+        }
+      });
+
+      it('counts at its gate the task of an email whose record the target then refuses, which the run sends itself', async () => {
+        // The quote refused, the email goes in related to nothing and the
+        // platform writes it no task: the run sends the task, which its gate
+        // had left out of the records --max-total holds it to.
+        const { orgDeps, inserted } = orgs();
+        const insert = orgDeps.insertRecords;
+        orgDeps.insertRecords = async (org, object, records) =>
+          object === 'Quote'
+            ? records.map(() => ({
+                id: '',
+                success: false,
+                errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Quotes are closed'],
+              }))
+            : insert(org, object, records);
+        let shown: ForgeWriteBoundary | undefined;
+
+        await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress, {
+          ...scoped,
+          beforeWrite: async (boundary) => {
+            shown = boundary;
+          },
+        });
+
+        const plan = writePlanOf(shown?.objects ?? []);
+        const sent = Object.entries(inserted)
+          .filter(([object]) => object !== 'Quote')
+          .reduce((sum, [, rows]) => sum + rows.length, 0);
+        expect(inserted['Task']).toHaveLength(1);
+        expect(plan.totalRows).toBeGreaterThanOrEqual(sent);
+        expect(plan.objects.find((o) => o.objectApiName === 'Task')?.rows).toBe(1);
+      });
+
       it('writes the task itself, after the email, when the platform wrote none with it', async () => {
         // Each email a clone wrote into a sandbox whose quote it could not
         // write went in related to nothing, and the target gave it no task.

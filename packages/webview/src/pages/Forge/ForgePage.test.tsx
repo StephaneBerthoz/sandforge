@@ -75,6 +75,7 @@ vi.mock('../../stores/useForgeStore', async (importOriginal) => {
     reset: vi.fn(),
     fileCopy: { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false },
     setFileCopy: vi.fn(),
+    gapReads: {},
   };
 
   const store = Object.assign(
@@ -221,6 +222,41 @@ describe('ForgePage', () => {
     // The mock's discovery has yet to answer, so ForgeDiscovery renders the
     // loading state, once its chunk has come.
     expect(await screen.findByTestId('forge-discovery-loading')).toBeDefined();
+  });
+
+  it.each([
+    ['input', false],
+    ['discovery', false],
+    ['review', true],
+    ['execution', true],
+    ['results', true],
+  ])('in the %s phase, shows the ribbon of the two orgs: %s', async (phase, shown) => {
+    // The discovery keeps its own pickers: the ribbon comes once they are gone.
+    mockPhase = phase as typeof mockPhase;
+    render(<ForgePage />);
+    if (shown) expect(await screen.findByTestId('org-ribbon')).toBeDefined();
+    else expect(screen.queryByTestId('org-ribbon')).toBeNull();
+  });
+
+  it.each(['review', 'execution', 'results'])(
+    'in the %s phase, names the two orgs over the How to, not under it',
+    async (phase) => {
+      // Under the How to, the ribbon came some 210 pixels before the run's
+      // sentence on a 1280 by 800 panel.
+      mockPhase = phase as typeof mockPhase;
+      render(<ForgePage />);
+      const ribbon = await screen.findByTestId('org-ribbon');
+      const howTo = screen.getByTestId('how-to-forge');
+      expect(ribbon.compareDocumentPosition(howTo) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    },
+  );
+
+  it('does not hold a step for the ribbon, whose chunk comes on its own', () => {
+    mockPhase = 'review';
+    render(<ForgePage />);
+    expect(screen.getByTestId('forge-review')).toBeDefined();
   });
 
   it('should show review view when phase is review', () => {

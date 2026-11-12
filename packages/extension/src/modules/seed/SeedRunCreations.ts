@@ -49,7 +49,7 @@
  * summary kept what it created in memory alone.
  */
 
-import type { ApiName } from '@sandforge/shared';
+import type { ApiName, RunCheckpointTaken } from '@sandforge/shared';
 import {
   IDS_PER_LINE,
   nodeSyncRunCreations,
@@ -94,7 +94,17 @@ export interface SeedRunStart {
    * whatever org the alias names by then.
    */
   targetOrganizationId?: string;
+  /**
+   * The user the run writes as, by Salesforce id, when the run read it before
+   * its first write: kept in its file's first line, what the sweep of its
+   * removal holds the records the target's automation made to. Absent, the
+   * sweep reads it back from the creator of the run's records.
+   */
+  runUserId?: string;
 }
+
+/** A 15- or 18-character Salesforce id: what a sweep's queries take a user by. */
+const SF_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
 
 /** A Seed run as its result says it ended: what `seedRunKept` reads. */
 export interface SeedRunEnded {
@@ -107,6 +117,8 @@ export interface SeedRunEnded {
   /** Whether a cancel stopped it. */
   cancelled?: boolean;
   objectResults: ReadonlyArray<{ objectApiName: ApiName; createdIds: readonly string[] }>;
+  /** The user it wrote as, by Salesforce id, as its result keeps it (`SeedExecutionResult.runUserId`). */
+  runUserId?: string;
 }
 
 /**
@@ -128,6 +140,9 @@ export function seedRunKept(run: SeedRunEnded, removal?: SyncRunRemovalState): S
     created: run.objectResults
       .filter((object) => object.createdIds.length > 0)
       .map((object) => ({ objectApiName: object.objectApiName, ids: [...object.createdIds] })),
+    ...(run.runUserId !== undefined && SF_ID.test(run.runUserId)
+      ? { runUserId: run.runUserId }
+      : {}),
     ...(removal ? { removal } : {}),
   };
 }
@@ -161,6 +176,20 @@ export interface SeedRunRecorder {
    * An id the run did not create is not one of them.
    */
   wroteAgain(objectApiName: ApiName, ids: readonly string[]): void;
+  /**
+   * The run took `taken`, a checkpoint of what it writes, before its first
+   * write: written with the file's first line, never alone, a run that writes
+   * nothing leaving no file and deleting its checkpoint
+   * (`SyncCreationRecorder.checkpoint`). What the list of earlier seeds offers
+   * a rewind to the moment before the run from, after a reload too.
+   */
+  checkpoint?(taken: RunCheckpointTaken): void;
+  /**
+   * The user the run writes as, once it was read, which nothing waits for
+   * (`SyncCreationRecorder.runUser`). A run that created nothing leaves no
+   * file, and one read after it ended goes nowhere.
+   */
+  runUser?(userId: string): void;
   /**
    * The run ended as its result says: an id the result holds that no insert
    * noted is kept too, then how it ended. A run that created nothing leaves
@@ -220,6 +249,10 @@ export class SeedRunCreations implements SyncRemovalStateStore {
       ...(start.targetOrganizationId !== undefined
         ? { targetOrganizationId: start.targetOrganizationId }
         : {}),
+      // Kept only as an id: the file's first line would not read otherwise.
+      ...(start.runUserId !== undefined && SF_ID.test(start.runUserId)
+        ? { runUserId: start.runUserId }
+        : {}),
     });
     /** The ids noted so far, by their first fifteen characters, as the file reads them back. */
     const noted = new Set<string>();
@@ -239,6 +272,8 @@ export class SeedRunCreations implements SyncRemovalStateStore {
       inLines(fresh(ids), (line) => recorder.note(objectApiName, line, at));
     /** The Bulk API job of each object's call under way, until the call answers. */
     const unanswered = new Map<string, string>();
+    /** Whether the run left no file: a line after would begin one with no run in it. */
+    let forgotten = false;
     return {
       runId: start.runId,
       note: (objectApiName, ids) => note(objectApiName, ids),
@@ -259,6 +294,10 @@ export class SeedRunCreations implements SyncRemovalStateStore {
           ids.filter((id) => noted.has(id.slice(0, 15))),
           (line) => recorder.note(objectApiName, line),
         ),
+      checkpoint: (taken) => recorder.checkpoint?.(taken),
+      runUser: (userId) => {
+        if (!forgotten) recorder.runUser?.(userId);
+      },
       end: async (run) => {
         // Dated when the run ended, as its result says: what a removal reads
         // the org's dates against, a record modified after it being changed since.
@@ -270,6 +309,7 @@ export class SeedRunCreations implements SyncRemovalStateStore {
           // Its calls were kept as they went, and it created nothing: no file.
           // A job the org opened that never answered stays: it ran on, and
           // its records are read back from it.
+          forgotten = true;
           await recorder.flush();
           await this.runs.forget(start.runId);
           return;
@@ -300,6 +340,7 @@ export class SeedRunCreations implements SyncRemovalStateStore {
       runId: run.runId,
       targetOrgId: run.targetOrgId,
       ...(startedAt !== undefined ? { startedAt } : {}),
+      ...(run.runUserId !== undefined ? { runUserId: run.runUserId } : {}),
     }).end(run);
   }
 

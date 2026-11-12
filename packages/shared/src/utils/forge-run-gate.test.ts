@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FORGE_RUN_GATE_CODES, forgeRunGateStopOf, isForgeRunGateCode } from './forge-run-gate.js';
 
 describe('forge run gate stops', () => {
-  it('names the eight ways a run stops at its gate', () => {
+  it('names the nine ways a run stops at its gate', () => {
     expect(FORGE_RUN_GATE_CODES).toEqual([
       'PRODUCTION_TARGET',
       'AUTOMATION_DECLINED',
@@ -10,9 +10,40 @@ describe('forge run gate stops', () => {
       'WRITE_DECLINED',
       'STORAGE_EXCEEDED',
       'CONFIRMATION_UNAVAILABLE',
+      'CHECKPOINT_REFUSED',
       'API_BUDGET_EXCEEDED',
       'READ_BOUND_EXCEEDED',
     ]);
+  });
+
+  it('reads a stop for the checkpoint taken first and for the API requests left, as the page words them', () => {
+    expect(isForgeRunGateCode('CHECKPOINT_REFUSED')).toBe(true);
+    expect(isForgeRunGateCode('API_BUDGET_EXCEEDED')).toBe(true);
+    expect(forgeRunGateStopOf({ code: 'CHECKPOINT_REFUSED' })).toEqual({
+      code: 'CHECKPOINT_REFUSED',
+    });
+    expect(forgeRunGateStopOf({ code: 'API_BUDGET_EXCEEDED' })).toEqual({
+      code: 'API_BUDGET_EXCEEDED',
+    });
+  });
+
+  it('reads what refused the checkpoint taken first, by the refusal code the page words', () => {
+    expect(forgeRunGateStopOf({ code: 'CHECKPOINT_REFUSED', reason: 'DISK' })).toEqual({
+      code: 'CHECKPOINT_REFUSED',
+      reason: 'DISK',
+    });
+    expect(forgeRunGateStopOf({ code: 'CHECKPOINT_REFUSED', reason: 'RUN_WRITING' })).toEqual({
+      code: 'CHECKPOINT_REFUSED',
+      reason: 'RUN_WRITING',
+    });
+    // A reason on any other stop says nothing of it, and is dropped.
+    expect(forgeRunGateStopOf({ code: 'API_BUDGET_EXCEEDED', reason: 'DISK' })).toEqual({
+      code: 'API_BUDGET_EXCEEDED',
+    });
+    // A reason is a code, never words a page would show as they came.
+    expect(
+      forgeRunGateStopOf({ code: 'CHECKPOINT_REFUSED', reason: 'The disk is full' }),
+    ).toBeNull();
   });
 
   it('tells a gate code from any other code an execute error carries', () => {

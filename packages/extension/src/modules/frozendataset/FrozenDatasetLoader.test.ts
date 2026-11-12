@@ -16,6 +16,7 @@ import {
   FrozenLoadCancelledError,
   FrozenLoadFailedError,
   LoadConfigError,
+  loadPlanRecords,
   type FrozenDatasetLoaderDeps,
   type FrozenLoadOptions,
 } from './FrozenDatasetLoader.js';
@@ -246,6 +247,8 @@ describe('FrozenDatasetLoader — guards', () => {
 
     expect(error).toBeInstanceOf(LoadGuardError);
     expect((error as LoadGuardError).code).toBe('guard-refused');
+    // What the panel says it from, as every module's page says a decline.
+    expect((error as LoadGuardError).params).toEqual({ decision: 'declined' });
     // Refusal happens on the FIRST batch: nothing reached the target org.
     expect(calls).toEqual([]);
   });
@@ -780,10 +783,52 @@ describe('FrozenDatasetLoader — fresh load', () => {
           'and ns__Retail, of package ns. Extract the dataset again: a dataset extracted now ' +
           'names each record type with its namespace. Nothing was written.',
       );
+      // Named for the panel to say it in the interface language.
+      expect((error as LoadConfigError).recordTypesUntold).toEqual({
+        reason: 'namespace',
+        objectApiName: 'Account',
+        name: 'Retail',
+        recordTypes: ['Retail', 'ns__Retail'],
+      });
       expect(calls).toEqual([]);
     });
 
-    it('refuses a dataset whose records name by one label two record types of an object', async () => {
+    it('loads each record as the record type it kept the name of, where two of the object share its label', async () => {
+      // Named by its label alone, which a package's record type and the org's
+      // own shared, a record left nothing to tell which it had: the load was
+      // refused.
+      const dataset = makeAccountContactDataset();
+      dataset.recordTypes = {
+        Account: [
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: null },
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: 'ns' },
+        ],
+      };
+      const [account] = dataset.objects[0].records;
+      account.fields.RecordTypeId = 'Retail';
+      account.recordTypeDeveloperName = 'ns__Retail';
+      dataset.objects[0].records.push({
+        referenceId: 'Account-000002',
+        fields: { Name: 'Anon Account 2', RecordTypeId: 'Retail' },
+        recordTypeDeveloperName: 'Retail',
+      });
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, writer: makeWriter(calls) });
+      targetWith(deps, [
+        { Id: ORG_OWN, NamespacePrefix: null },
+        { Id: PACKAGED, NamespacePrefix: 'ns' },
+      ]);
+
+      const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      const sent = calls.find((c) => c.objectApiName === 'Account')?.payload as Array<
+        Record<string, unknown>
+      >;
+      expect(sent.map((row) => row.RecordTypeId)).toEqual([PACKAGED, ORG_OWN]);
+      expect(report.alignment.recordTypeIssues).toEqual([]);
+    });
+
+    it('refuses a dataset extracted before records kept their record type’s name, whose label two record types share', async () => {
       const dataset = makeAccountContactDataset();
       dataset.recordTypes = {
         Account: [
@@ -799,8 +844,67 @@ describe('FrozenDatasetLoader — fresh load', () => {
         .load(makeOptions(deps, dataset))
         .catch((e: unknown) => e);
 
-      expect((error as Error).message).toContain('which Retail and ns__Retail share in the source');
+      expect((error as Error).message).toBe(
+        'The dataset\'s Account records name record type "Retail" by its label, which Retail and ' +
+          'ns__Retail share in the source: which one each record had cannot be told, the dataset ' +
+          "having been extracted before SandForge kept each record's record type by its name. " +
+          'Extract the dataset again. Nothing was written.',
+      );
+      // Its words were English in every locale: the panel says them from this.
+      expect((error as LoadConfigError).recordTypesUntold).toEqual({
+        reason: 'label',
+        objectApiName: 'Account',
+        name: 'Retail',
+        recordTypes: ['Retail', 'ns__Retail'],
+      });
       expect(calls).toEqual([]);
+    });
+
+    it('refuses such a dataset at its gate, before the mute and the checkpoint are taken, on the line of the record types', async () => {
+      // Refused only once the load had started, it had the bypass assigned,
+      // then taken back, for a load that wrote nothing: run for real on a trap
+      // org, three times for three refusals.
+      const dataset = makeAccountContactDataset();
+      dataset.recordTypes = {
+        Account: [
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: null },
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: 'ns' },
+        ],
+      };
+      dataset.objects[0].records[0].fields.RecordTypeId = 'Retail';
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, writer: makeWriter(calls) });
+      const lines: FrozenLoadProgressEvent[] = [];
+
+      const error: unknown = await new FrozenDatasetLoader(deps)
+        .gateLoad({ ...makeOptions(deps, dataset), onProgress: (event) => lines.push(event) })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(LoadConfigError);
+      expect((error as LoadConfigError).recordTypesUntold).toMatchObject({ reason: 'label' });
+      expect(lines.map((line) => [line.phase, line.status])).toEqual([
+        ['align', 'started'],
+        ['align', 'error'],
+      ]);
+      expect(vi.mocked(deps.orgAccess.describe)).not.toHaveBeenCalled();
+      expect(calls).toEqual([]);
+    });
+
+    it('lets through its gate a dataset whose records each kept the name of their record type', async () => {
+      const dataset = makeAccountContactDataset();
+      dataset.recordTypes = {
+        Account: [
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: null },
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: 'ns' },
+        ],
+      };
+      dataset.objects[0].records[0].fields.RecordTypeId = 'Retail';
+      dataset.objects[0].records[0].recordTypeDeveloperName = 'ns__Retail';
+      const deps = makeDeps({ dataset, writer: makeWriter([]) });
+
+      await expect(
+        new FrozenDatasetLoader(deps).gateLoad(makeOptions(deps, dataset)),
+      ).resolves.toBe('allowed');
     });
   });
 
@@ -1395,6 +1499,69 @@ describe('FrozenDatasetLoader — records the platform owns', () => {
       guard: new SasPathGuard(repoRoot),
     }).load();
     expect(mapping.get('AccountContactRelation-000001')).toBe('07kDIRECT');
+  });
+
+  it('counts in its preview the direct relation of a contact it inserts as linked, written by the platform, as the load links it', async () => {
+    // Its dry run said "AccountContactRelation: 1 to insert" of a load that
+    // inserted none and linked the one the platform wrote with the contact.
+    const dataset = makeAccountContactDataset();
+    dataset.objects.push({
+      objectApiName: 'AccountContactRelation',
+      records: [
+        {
+          referenceId: 'AccountContactRelation-000001',
+          fields: { AccountId: 'Account-000001', ContactId: 'Contact-000001' },
+        },
+      ],
+    });
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      writer: makeWriter(calls),
+      queryImpl: async (_org, soql) =>
+        soql.includes('FROM AccountContactRelation WHERE IsDirect = true')
+          ? [{ Id: '07kDIRECT', AccountId: 'REAL-Account-1', ContactId: 'REAL-Contact-2' }]
+          : [],
+    });
+    const loader = new FrozenDatasetLoader(deps);
+
+    const plan = await loader.planLoad(makeOptions(deps, dataset));
+
+    expect(plan.perObject.find((o) => o.objectApiName === 'AccountContactRelation')).toMatchObject({
+      fromFiles: 1,
+      toInsert: 0,
+      writtenByThePlatform: 1,
+    });
+    expect(loadPlanRecords(plan)).toBe(2);
+    expect(calls).toEqual([]);
+    // What the load then inserts, as its preview counted it.
+    const report = await loader.load(makeOptions(deps, dataset));
+    expect(report.perObject.reduce((sum, o) => sum + o.inserted, 0)).toBe(loadPlanRecords(plan));
+  });
+
+  it('counts to insert a relation of a contact to another account than the one it goes in with', async () => {
+    const dataset = makeAccountContactDataset();
+    dataset.objects[0].records.push({
+      referenceId: 'Account-000002',
+      fields: { Name: 'Other Account', ExternalId__c: 'ACC-2' },
+    });
+    dataset.objects.push({
+      objectApiName: 'AccountContactRelation',
+      records: [
+        {
+          referenceId: 'AccountContactRelation-000001',
+          fields: { AccountId: 'Account-000002', ContactId: 'Contact-000001' },
+        },
+      ],
+    });
+    const deps = makeDeps({ dataset, writer: makeWriter([]), queryImpl: async () => [] });
+
+    const plan = await new FrozenDatasetLoader(deps).planLoad(makeOptions(deps, dataset));
+
+    // No direct relation of the platform's stands for it: the load inserts it.
+    const relations = plan.perObject.find((o) => o.objectApiName === 'AccountContactRelation');
+    expect(relations).toMatchObject({ toInsert: 1 });
+    expect(relations).not.toHaveProperty('writtenByThePlatform');
   });
 
   it('keeps the direct relation with the contact it inserted, which a removal neither takes nor keeps', async () => {
@@ -2656,6 +2823,148 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
     const deleted = calls.filter((c) => c.op === 'delete').flatMap((c) => c.payload as string[]);
     expect(deleted).toEqual(['003OLD-CONTACT']);
     expect(report.purge.deleted).toEqual({ Contact: 1 });
+  });
+
+  describe('the sweep its caller hands it around the purge', () => {
+    /** The sweep's two parts, each noting how many writes went before it. */
+    function sweepNoted(calls: DmlCall[]) {
+      const at: { first?: number; after?: number } = {};
+      return {
+        at,
+        first: vi.fn(async () => {
+          at.first = calls.length;
+        }),
+        afterPurge: vi.fn(async () => {
+          at.after = calls.length;
+        }),
+      };
+    }
+
+    it('runs its first part before the purge’s first delete and its last once the purge is through, before the inserts', async () => {
+      // Purged alone, the loads replaced left what the target's automation
+      // made for them: the tasks a flow opened on each contact, one set per load.
+      const dataset = makeAccountContactDataset();
+      const sasDir = makeTmpDir();
+      await seedPreviousMapping(sasDir, {
+        'Account-000001': '001OLD-ACCOUNT',
+        'Contact-000001': '003OLD-CONTACT',
+      });
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, sasDir, writer: makeWriter(calls) });
+      const sweep = sweepNoted(calls);
+
+      await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { reload: true, purgeSweep: sweep }),
+      );
+
+      const ops = calls.map((c) => c.op);
+      // Nothing written before its first part; the purge's deletes, children
+      // first, before its last; the inserts after it.
+      expect(sweep.at.first).toBe(0);
+      expect(ops.slice(0, 2)).toEqual(['delete', 'delete']);
+      expect(calls.slice(0, 2).map((c) => c.objectApiName)).toEqual(['Contact', 'Account']);
+      expect(sweep.at.after).toBe(2);
+      expect(ops.indexOf('insert')).toBe(2);
+      expect(sweep.first).toHaveBeenCalledTimes(1);
+      expect(sweep.afterPurge).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs it with nothing of the loads replaced left to purge: what the automation made for them may be', async () => {
+      const dataset = makeAccountContactDataset();
+      const sasDir = makeTmpDir();
+      await seedPreviousMapping(sasDir, {});
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, sasDir, writer: makeWriter(calls) });
+      const sweep = sweepNoted(calls);
+
+      await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { reload: true, purgeSweep: sweep }),
+      );
+
+      expect(sweep.first).toHaveBeenCalledTimes(1);
+      expect(sweep.afterPurge).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the load it replaced whose sweep still owes, its records purged, and lets the others go', async () => {
+      // Dropped once the purge took its records, the load replaced took with
+      // it what tied to it what its sweep left: the next sweep found nothing.
+      const recorded = async (sasDir: string) =>
+        new SasReferenceIdMappingStore(sasDir, {
+          guard: new SasPathGuard(repoRoot),
+        }).recordedLoads();
+      const reloadOwing = async (owes: boolean) => {
+        const dataset = makeAccountContactDataset();
+        const sasDir = makeTmpDir();
+        await seedPreviousMapping(sasDir, {
+          'Account-000001': '001OLD-ACCOUNT',
+          'Contact-000001': '003OLD-CONTACT',
+        });
+        const [replaced] = await recorded(sasDir);
+        const calls: DmlCall[] = [];
+        const deps = makeDeps({ dataset, sasDir, writer: makeWriter(calls) });
+        const sweep = {
+          ...sweepNoted(calls),
+          stillToSweep: () => (owes ? [replaced.endedAt] : []),
+        };
+        await new FrozenDatasetLoader(deps).load(
+          makeOptions(deps, dataset, { reload: true, purgeSweep: sweep }),
+        );
+        return { replaced, after: await recorded(sasDir) };
+      };
+
+      const owing = await reloadOwing(true);
+      expect(owing.after).toHaveLength(2);
+      expect(owing.after[1]).toMatchObject({
+        endedAt: owing.replaced.endedAt,
+        created: [],
+        earlier: true,
+      });
+      expect([...owing.after[1].mapping.values()]).toEqual([]);
+
+      const through = await reloadOwing(false);
+      expect(through.after.map((load) => load.endedAt)).not.toContain(through.replaced.endedAt);
+    });
+
+    it('runs none of it for a pilot, which purges nothing, nor its last part once a cancel stopped the purge', async () => {
+      const dataset = makeAccountContactDataset();
+      const sasDir = makeTmpDir();
+      await seedPreviousMapping(sasDir, {
+        'Account-000001': '001OLD-ACCOUNT',
+        'Contact-000001': '003OLD-CONTACT',
+      });
+      const pilotCalls: DmlCall[] = [];
+      const pilotDeps = makeDeps({
+        dataset,
+        sasDir,
+        writer: makeWriter(pilotCalls),
+        config: { rootObjectApiName: 'Account' },
+      });
+      const pilotSweep = sweepNoted(pilotCalls);
+      await new FrozenDatasetLoader(pilotDeps).load(
+        makeOptions(pilotDeps, dataset, { reload: true, pilot: {}, purgeSweep: pilotSweep }),
+      );
+      expect(pilotSweep.first).not.toHaveBeenCalled();
+      expect(pilotSweep.afterPurge).not.toHaveBeenCalled();
+
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, sasDir, writer: makeWriter(calls) });
+      const stop = new AbortController();
+      const sweep = {
+        first: vi.fn(async () => {
+          // The cancel comes as the sweep's first part ends.
+          stop.abort();
+        }),
+        afterPurge: vi.fn(async () => undefined),
+      };
+      await expect(
+        new FrozenDatasetLoader(deps).load(
+          makeOptions(deps, dataset, { reload: true, signal: stop.signal, purgeSweep: sweep }),
+        ),
+      ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
+      expect(sweep.first).toHaveBeenCalledTimes(1);
+      expect(sweep.afterPurge).not.toHaveBeenCalled();
+      expect(calls.filter((c) => c.op === 'delete')).toEqual([]);
+    });
   });
 
   it('purges the record the last load created when its key now names another one', async () => {
@@ -7428,6 +7737,58 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
     expect(recorded?.mapping.get(ref('Task'))).toBe(TASK);
     expect(recorded && loadRecordsInfo(recorded).linked).toBe(0);
     expect(recorded && loadCreatedRecords(recorded).flatMap(({ ids }) => ids)).not.toContain(TASK);
+  });
+
+  it('counts in its preview the task of an email it inserts related to a record as linked, written by the platform, as the load links it', async () => {
+    // Its dry run said "Task: 1 to insert" of a load that inserted none and
+    // linked the one the platform wrote as it took the email.
+    const dataset = emailDataset();
+    const calls: DmlCall[] = [];
+    const emails: Array<Record<string, unknown>> = [];
+    const deps = makeDeps({
+      dataset,
+      writer: platformWriter(calls, emails),
+      queryImpl: platformReads(emails),
+    });
+    const loader = new FrozenDatasetLoader(deps);
+
+    const plan = await loader.planLoad(makeOptions(deps, dataset));
+
+    expect(plan.perObject.find((o) => o.objectApiName === 'Task')).toMatchObject({
+      fromFiles: 1,
+      toInsert: 0,
+      writtenByThePlatform: 1,
+    });
+    expect(calls).toEqual([]);
+    const report = await loader.load(makeOptions(deps, dataset));
+    expect(report.perObject.find((o) => o.objectApiName === 'Task')).toMatchObject({
+      inserted: 0,
+      reused: 1,
+    });
+    expect(report.perObject.reduce((sum, o) => sum + o.inserted, 0)).toBe(loadPlanRecords(plan));
+  });
+
+  it('counts to insert the task an email on a case names, and that of an email related to nothing', async () => {
+    // On a case, the email names its task from the copy, which the load
+    // inserts first; related to no record, the platform writes it no task.
+    const onACase = emailDataset(true);
+    const deps = makeDeps({ dataset: onACase, writer: makeWriter([]), queryImpl: async () => [] });
+    const plan = await new FrozenDatasetLoader(deps).planLoad(makeOptions(deps, onACase));
+    const tasks = plan.perObject.find((o) => o.objectApiName === 'Task');
+    expect(tasks).toMatchObject({ toInsert: 1 });
+    expect(tasks).not.toHaveProperty('writtenByThePlatform');
+
+    const unrelated = emailDataset();
+    delete unrelated.objects[2].records[0].fields.RelatedToId;
+    const alone = makeDeps({
+      dataset: unrelated,
+      writer: makeWriter([]),
+      queryImpl: async () => [],
+    });
+    const planned = await new FrozenDatasetLoader(alone).planLoad(makeOptions(alone, unrelated));
+    expect(planned.perObject.find((o) => o.objectApiName === 'Task')).toMatchObject({
+      toInsert: 1,
+    });
   });
 
   it('inserts the task after the email when the platform wrote none with it', async () => {

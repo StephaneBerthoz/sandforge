@@ -419,6 +419,68 @@ describe('removeSyncRun, of a run that wrote over records of the target', () => 
   });
 });
 
+describe('removeSyncRun, with what the target automation made for the run', () => {
+  const C2 = fakeId('003', 2);
+
+  /** The target, with a contact the automation made under the second account as the run wrote, touched since. */
+  function withMadeContact(): MemoryRemovalOrg {
+    const org = target();
+    org.add('Contact', { Id: C2, AccountId: A2, CreatedById: MEMORY_ORG_USER }, minutesAgo(10));
+    org.touch('Contact', C2, minutesAgo(1));
+    return org;
+  }
+
+  it('hands the removal what a granted sweep found made, and its last part, made after the last delete', async () => {
+    const org = withMadeContact();
+    const deletesBefore: number[] = [];
+    const afterRemoval = vi.fn(async () => {
+      deletesBefore.push(org.deletes.length);
+      return false;
+    });
+
+    const { result } = await removeSyncRun({
+      run: run(),
+      org,
+      includeChanged: false,
+      store: stateStore(),
+      afterRemoval,
+      automationMade: new Set([C2]),
+    });
+
+    expect(result.status).toBe('success');
+    expect(org.all('Contact')).toEqual([]);
+    expect(afterRemoval).toHaveBeenCalledTimes(1);
+    expect(deletesBefore).toEqual([org.deletes.length]);
+  });
+
+  it('counts apart, by the run user it is handed, what the automation made that holds a record of the run', async () => {
+    const handed = await removeSyncRun({
+      run: run(),
+      org: withMadeContact(),
+      includeChanged: false,
+      store: stateStore(),
+      runUserId: MEMORY_ORG_USER,
+    });
+    const notHanded = await removeSyncRun({
+      run: run(),
+      org: withMadeContact(),
+      includeChanged: false,
+      store: stateStore(),
+    });
+
+    expect(handed.result.status).toBe('partial');
+    expect(handed.result.objects.find((o) => o.objectApiName === 'Account')).toMatchObject({
+      keptDependents: 1,
+      heldByAutomation: 1,
+      automationHolders: ['Contact'],
+    });
+    // Nothing tells who the run wrote as: its account names no creator here.
+    expect(
+      notHanded.result.objects.find((o) => o.objectApiName === 'Account')?.heldByAutomation,
+    ).toBeUndefined();
+  });
+});
+
 describe('removeSyncRun, of a run that deleted the record a lookup it does not compare names', () => {
   const BOSS = fakeId('003', 5);
   const REPORT = fakeId('003', 6);

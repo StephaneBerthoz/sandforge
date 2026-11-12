@@ -14,11 +14,12 @@ import { PriceCurrenciesResult } from '../../Forge/PriceCurrenciesResult';
 import { SyncEarlierCopiesNotice } from '../SyncEarlierCopies';
 import { SyncRunRemoval } from '../syncRemovalParts';
 import { SyncWrittenLines, hasWrittenLines } from '../SyncWrittenLines';
+import { stillRanOf } from '../../shared/RecordTypeGivenLine';
 import { ForgeContactPointsResult } from '../../Forge/ForgeContactPointsResult';
 import { AutomationMuteBox } from '../../../components/ui/AutomationMuteBox';
+import { CheckpointFirstOption } from '../../../components/ui/CheckpointFirstOption';
 import { MutedAutomationResult } from '../../../components/ui/MutedAutomationResult';
-import { OrgBadge } from '../../../components/ui/OrgBadge';
-import { Icon } from '../../../components/ui/Icon';
+import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { useOrgStore } from '../../../stores/useOrgStore';
 
 /** Props for the QuickSyncPreviewStep component. */
@@ -44,6 +45,8 @@ export interface QuickSyncPreviewStepProps {
   onOpenHistory?: (operationId: string) => void;
   /** Whether the run mutes the target's automation, and the box's toggle; no box without. */
   mute?: { checked: boolean; onChange: (mute: boolean) => void; org: string };
+  /** Whether the run takes a checkpoint first, and the box's toggle; no box without. */
+  checkpoint?: { checked: boolean; onChange: (first: boolean) => void };
 }
 
 const statusVariant: Record<string, BadgeVariant> = {
@@ -55,9 +58,9 @@ const statusVariant: Record<string, BadgeVariant> = {
 /**
  * Quick Sync Screen 3: Preview and execute.
  *
- * Before execution: the two orgs, the preview data with object breakdown,
- * record counts and API call estimates, and a prominent button naming the
- * target it writes into.
+ * Before execution: the preview data with object breakdown, record counts
+ * and API call estimates, and a prominent button naming the target it writes
+ * into; the ribbon over the Sync page names the two orgs.
  * During execution: shows a progress bar.
  * After execution: reuses the SyncPage Step6 results pattern.
  */
@@ -73,10 +76,10 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
   targetOrgId = '',
   onOpenHistory,
   mute,
+  checkpoint,
 }) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
-  const sourceOrg = orgs.find((o) => o.id === sourceOrgId);
   const targetOrg = orgs.find((o) => o.id === targetOrgId);
   const targetName = targetOrg?.alias || targetOrg?.username || targetOrgId;
 
@@ -134,6 +137,14 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
         {result.created && (
           <SyncRunRemoval runId={result.created.runId} testId="quick-sync-result-removal" />
         )}
+        {/* Under the removal, which takes back what the run wrote alone. */}
+        <RewindBeforeRun
+          checkpoint={result.checkpoint}
+          orgId={targetOrgId}
+          beside="run"
+          muted={result.mutedAutomation !== undefined}
+          testId="quick-sync-result-checkpoint"
+        />
         {/* The emails and phone numbers it wrote, said once for the run. */}
         {result.contactPoints && <ForgeContactPointsResult report={result.contactPoints} />}
         {result.objectResults.map((obj) => (
@@ -155,6 +166,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
                 <SyncWrittenLines
                   result={obj}
                   testId={`quick-sync-result-written-${obj.objectApiName}`}
+                  stillRan={stillRanOf(result.mutedAutomation)}
                 />
                 <RecordErrorGroups
                   objectApiName={obj.objectApiName}
@@ -209,20 +221,10 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
   // Before execution — preview view
   return (
     <div className="flex flex-col gap-4" data-testid="quick-sync-preview-step">
+      {/* The orgs it copies between are named once, by the ribbon over the
+          page, which names Quick Sync's pair while it is open: two badges
+          here named them a second time. */}
       <p className="text-xs text-(--sf-text-secondary)">{t('quickSync.preview')}</p>
-
-      {/* The orgs it copies between, on the screen that runs it: the preview
-          listed objects and counts, and its notice said "these orgs". */}
-      {(sourceOrg || targetOrg) && (
-        <div
-          className="flex flex-wrap items-center gap-(--sf-space-2)"
-          data-testid="quick-sync-preview-orgs"
-        >
-          {sourceOrg && <OrgBadge org={sourceOrg} />}
-          {sourceOrg && targetOrg && <Icon name="arrow-right" className="text-text-secondary" />}
-          {targetOrg && <OrgBadge org={targetOrg} />}
-        </div>
-      )}
 
       {preview && (
         <>
@@ -298,6 +300,17 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
           onChange={mute.onChange}
           org={mute.org}
           testId="quick-sync-mute"
+        />
+      )}
+
+      {/* Quick Sync simulates nothing: the run's question says the cost. */}
+      {preview && checkpoint && (
+        <CheckpointFirstOption
+          checked={checkpoint.checked}
+          onChange={checkpoint.onChange}
+          orgId={targetOrgId}
+          costSaid="question"
+          testId="quick-sync-checkpoint-first"
         />
       )}
 

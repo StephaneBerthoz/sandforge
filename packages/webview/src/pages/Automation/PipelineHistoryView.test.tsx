@@ -141,6 +141,34 @@ describe('PipelineHistoryView', () => {
     ]);
   });
 
+  it('lists a stopped step as stopped, what the stop left in no red, and counts no error', () => {
+    render(
+      <PipelineHistoryView
+        entries={[
+          {
+            ...entries[1],
+            status: 'cancelled',
+            errorCount: 0,
+            steps: [
+              {
+                stepName: 'Pause',
+                stepType: 'delay',
+                status: 'stopped',
+                duration: 300,
+                error: 'Step "Pause" was stopped before it finished.',
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const step = screen.getByTestId('history-steps-run-2').querySelector('li');
+    expect(step?.textContent).toBe('PauseStopped300msStep "Pause" was stopped before it finished.');
+    expect(step?.innerHTML).not.toContain('status-error');
+    expect(screen.queryByText(/error/i)).toBeNull();
+  });
+
   it('says how each Approval step was answered: what, where and when, or that nobody did', () => {
     render(
       <PipelineHistoryView

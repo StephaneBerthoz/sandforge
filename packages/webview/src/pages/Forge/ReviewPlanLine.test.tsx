@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { buildSyntheticForgeGraph } from '@sandforge/shared';
 import type { ForgeGraph, ForgeGraphNode, ForgePlan } from '@sandforge/shared';
 import '../../i18n';
-import { ForgePreviewCard } from './ForgePreviewCard';
+import { ReviewPlanLine } from './ReviewPlanLine';
 
 function node(objectApiName: string, overrides: Partial<ForgeGraphNode> = {}): ForgeGraphNode {
   return {
@@ -42,19 +42,19 @@ function graphOf(nodes: ForgeGraphNode[]): ForgeGraph {
   };
 }
 
-/** What a tile says: its label, its count, and the objects it names. */
+/** What a part of the line says: its label, its count, and the objects it names. */
 function tile(testId: string): string {
   return screen.getByTestId(testId).textContent ?? '';
 }
 
 function renderCard(nodes: ForgeGraphNode[]): void {
-  render(<ForgePreviewCard graph={graphOf(nodes)} plan={null} cycleCount={0} truncated={false} />);
+  render(<ReviewPlanLine graph={graphOf(nodes)} plan={null} cycleCount={0} truncated={false} />);
 }
 
-describe('ForgePreviewCard', () => {
+describe('ReviewPlanLine', () => {
   it('counts the empty tables discovery left out as empty, and only what the user left out as excluded', () => {
     // With "Skip empty objects" on, discovery leaves every empty table out,
-    // and the tile counted each as excluded: a clone of one opportunity read
+    // and each was counted as excluded: a clone of one opportunity read
     // hundreds of objects "Skipped (excluded)" that nobody had unchecked, and
     // none "Skipped (empty)".
     renderCard([
@@ -66,10 +66,10 @@ describe('ForgePreviewCard', () => {
       node('Contact', { recordCount: 8, included: false, leftOutByUser: true }),
     ]);
 
-    expect(tile('forge-preview-skipped-excluded')).toBe('Skipped (excluded)1Contact');
-    expect(tile('forge-preview-skipped-empty')).toBe('Skipped (empty)3Quote, Case, Contract');
+    expect(tile('forge-preview-skipped-excluded')).toBe('Skipped (excluded) 1 Contact');
+    expect(tile('forge-preview-skipped-empty')).toBe('Skipped (empty) 3 Quote, Case, Contract');
     expect(tile('forge-preview-clone')).toBe(
-      'Will clone2 objects · 42 recordsOpportunity, OpportunityLineItem',
+      'Will clone 2 objects · 42 records Opportunity, OpportunityLineItem',
     );
   });
 
@@ -81,8 +81,8 @@ describe('ForgePreviewCard', () => {
       node('Quote', { recordCount: 0, included: false, leftOutByUser: true }),
     ]);
 
-    expect(tile('forge-preview-skipped-excluded')).toBe('Skipped (excluded)1Quote');
-    expect(tile('forge-preview-skipped-empty')).toBe('Skipped (empty)0');
+    expect(tile('forge-preview-skipped-excluded')).toBe('Skipped (excluded) 1 Quote');
+    expect(screen.queryByTestId('forge-preview-skipped-empty')).toBeNull();
   });
 
   it('keeps an object discovery could not count among the excluded, never among the empty tables', () => {
@@ -98,12 +98,12 @@ describe('ForgePreviewCard', () => {
       emptyTable('Quote'),
     ]);
 
-    expect(tile('forge-preview-skipped-excluded')).toBe('Skipped (excluded)1Invoice__c');
-    expect(tile('forge-preview-skipped-empty')).toBe('Skipped (empty)1Quote');
+    expect(tile('forge-preview-skipped-excluded')).toBe('Skipped (excluded) 1 Invoice__c');
+    expect(tile('forge-preview-skipped-empty')).toBe('Skipped (empty) 1 Quote');
   });
 
   it('clones every object of a starter template, whose counts nobody took, and says they come with discovery', () => {
-    // The template's graph skips discovery and counts every table 0: the card
+    // The template's graph skips discovery and counts every table 0: Review
     // read "Will clone 0 objects", every object "Skipped (empty)", and the
     // plan's "0 API calls · ~0s", of a run that reads them all.
     const graph = buildSyntheticForgeGraph(['Account', 'Contact', 'Case']);
@@ -114,12 +114,12 @@ describe('ForgePreviewCard', () => {
       estimatedDurationSeconds: 0,
       cycleResolutions: [],
     };
-    render(<ForgePreviewCard graph={graph} plan={plan} cycleCount={0} truncated={false} />);
+    render(<ReviewPlanLine graph={graph} plan={plan} cycleCount={0} truncated={false} />);
 
     expect(tile('forge-preview-clone')).toBe(
-      'Will clone3 objects · records not countedAccount, Contact, Case',
+      'Will clone 3 objects · records not counted Account, Contact, Case',
     );
-    expect(tile('forge-preview-skipped-empty')).toBe('Skipped (empty)0');
+    expect(screen.queryByTestId('forge-preview-skipped-empty')).toBeNull();
     expect(screen.getByTestId('forge-preview-not-counted').textContent).toBe(
       'Record counts come with discovery, and this graph skipped it: the run counts the records as it reads them.',
     );
@@ -138,7 +138,7 @@ describe('ForgePreviewCard', () => {
       cycleResolutions: [],
     };
     render(
-      <ForgePreviewCard
+      <ReviewPlanLine
         graph={graphOf([node('Opportunity', { level: 0 }), node('Quote', { recordCount: 3 })])}
         plan={plan}
         cycleCount={0}
@@ -146,8 +146,10 @@ describe('ForgePreviewCard', () => {
       />,
     );
 
-    expect(tile('forge-preview-clone')).toBe('Will clone2 objects · 15 recordsOpportunity, Quote');
-    expect(screen.getByText('2 estimated API calls')).toBeDefined();
+    expect(tile('forge-preview-clone')).toBe(
+      'Will clone 2 objects · 15 records Opportunity, Quote',
+    );
+    expect(tile('forge-preview-reckoned')).toBe('2 estimated API calls · ~4s');
     expect(screen.queryByTestId('forge-preview-not-counted')).toBeNull();
   });
 
@@ -161,7 +163,7 @@ describe('ForgePreviewCard', () => {
       cycleResolutions: [],
     };
     render(
-      <ForgePreviewCard
+      <ReviewPlanLine
         graph={graphOf([node('Account', { level: 0, recordCount: 900_000 })])}
         plan={plan}
         cycleCount={0}
@@ -169,7 +171,7 @@ describe('ForgePreviewCard', () => {
       />,
     );
 
-    expect(screen.getByText('~2h 30min')).toBeDefined();
+    expect(tile('forge-preview-reckoned')).toBe('400 estimated API calls · ~2h 30min');
     expect(screen.queryByText(/~9000s/)).toBeNull();
   });
 
@@ -184,7 +186,7 @@ describe('ForgePreviewCard', () => {
       cycleResolutions: [],
     };
     render(
-      <ForgePreviewCard
+      <ReviewPlanLine
         graph={graphOf([
           node('Case', { level: 0, recordCount: 200_000 }),
           node('CaseComment', { recordCount: 1_000_000 }),
@@ -197,7 +199,7 @@ describe('ForgePreviewCard', () => {
     );
 
     expect(tile('forge-preview-clone')).toBe(
-      `Will clone2 objects · ${(1_200_000).toLocaleString('en')} records in the source tablesCase, CaseComment`,
+      `Will clone 2 objects · ${(1_200_000).toLocaleString('en')} records in the source tables Case, CaseComment`,
     );
     expect(screen.getByTestId('forge-preview-source-tables').textContent).toBe(
       'The clone reads only what its record reaches: these counts are of the source tables, not of what it will write.',
@@ -213,8 +215,33 @@ describe('ForgePreviewCard', () => {
       node('BusinessHours', { included: false }),
     ]);
 
-    expect(tile('forge-preview-skipped-empty')).toBe('Skipped (empty)1Quote');
-    expect(tile('forge-preview-map')).toBe('Will map1BusinessHours');
-    expect(tile('forge-preview-skipped-excluded')).toBe('Skipped (excluded)0');
+    expect(tile('forge-preview-skipped-empty')).toBe('Skipped (empty) 1 Quote');
+    expect(tile('forge-preview-map')).toBe('Will map 1 BusinessHours');
+    expect(screen.queryByTestId('forge-preview-skipped-excluded')).toBeNull();
+  });
+
+  it('names four objects, counts the rest, and keeps them all in its title', () => {
+    renderCard(['A', 'B', 'C', 'D', 'E', 'F'].map((name) => node(`${name}__c`)));
+
+    const clone = screen.getByTestId('forge-preview-clone');
+    expect(clone.textContent).toContain('A__c, B__c, C__c, D__c +2');
+    expect(clone.getAttribute('title')).toBe('A__c, B__c, C__c, D__c, E__c, F__c');
+  });
+
+  it('says a graph cut short and the cycles the run writes in two passes', () => {
+    render(
+      <ReviewPlanLine graph={graphOf([node('Account')])} plan={null} cycleCount={2} truncated />,
+    );
+
+    expect(tile('forge-preview-cycles')).toBe('2 cycles (2-pass UPDATE)');
+    expect(tile('forge-preview-truncated')).toContain('Graph cut short by the object cap');
+  });
+
+  it('holds only what a button may: no heading, list or block', () => {
+    // It sits inside the row's button, where anything else is invalid markup.
+    renderCard([node('Account')]);
+    const line = screen.getByTestId('forge-preview-card');
+    const tags = new Set([...line.querySelectorAll('*')].map((element) => element.tagName));
+    expect([...tags].filter((tag) => tag !== 'SPAN' && tag !== 'svg')).toEqual([]);
   });
 });

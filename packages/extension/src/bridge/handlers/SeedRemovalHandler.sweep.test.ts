@@ -11,11 +11,19 @@ import type {
 
 import { SeedRemovalHandler } from './SeedRemovalHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import {
+  writePathOrderDefects,
+  type WritePathStep,
+} from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import { nodeSeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import { compositeOver } from '../../test/compositeOver.js';
+import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
+import { addSyncedQuote, tiedTargetOrg, type TiedTargetOrg } from '../../test/tiedTargetOrg.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../logger.js', () => ({
@@ -86,6 +94,11 @@ function targetOrg() {
     ['Account', [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: false }]],
     ['Contact', [{ childSObject: 'Task', field: 'WhoId', cascadeDelete: false }]],
   ]);
+  /** The lookups a tie is read from, per object, to the objects each names. */
+  const lookups = new Map<string, Record<string, string[]>>([
+    ['Contact', { AccountId: ['Account'] }],
+    ['Task', { WhoId: ['Contact'], WhatId: ['Account'] }],
+  ]);
   const bin = new Map<string, Row>();
   const pick = (row: Row, columns: string): Record<string, unknown> =>
     Object.fromEntries(columns.split(', ').map((c) => [c, row[c]]));
@@ -98,60 +111,66 @@ function targetOrg() {
     );
     bin.set(recordId, { ...row, object });
   };
+  const query = vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
+    const answer = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+    const deleted = /^SELECT Id FROM \w+ WHERE Id IN \((.*)\) AND IsDeleted = true$/.exec(soql);
+    if (deleted) {
+      const wanted = deleted[1].split(', ').map((q) => q.slice(1, -1));
+      return answer(
+        wanted.filter((x) => options?.scanAll === true && bin.has(x)).map((Id) => ({ Id })),
+      );
+    }
+    const created =
+      /^SELECT (.+) FROM (\w+) WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+?)(?: AND Id > '(\w+)')?(?: ORDER BY Id LIMIT \d+)?$/.exec(
+        soql,
+      );
+    if (created) {
+      const [, columns, object, user, from, to, after] = created;
+      const found = (rows.get(object) ?? []).filter((row) => {
+        const at = Date.parse(String(row.CreatedDate));
+        return (
+          row.CreatedById === user &&
+          at >= Date.parse(from) &&
+          at <= Date.parse(to) &&
+          (!after || row.Id > after)
+        );
+      });
+      if (columns === 'COUNT()') return { totalSize: found.length, done: true, records: [] };
+      return answer(found.map((row) => pick(row, columns)));
+    }
+    const match = /^SELECT (.+) FROM (\w+) WHERE (\w+) IN \((.*)\)(?: LIMIT \d+)?$/.exec(soql);
+    if (!match) throw new Error(`unexpected query: ${soql}`);
+    const [, columns, object, field, list] = match;
+    const wanted = new Set(list.split(', ').map((q) => q.slice(1, -1)));
+    const held = [
+      ...(rows.get(object) ?? []),
+      ...(options?.scanAll ? [...bin.values()].filter((row) => row.object === object) : []),
+    ];
+    return answer(
+      held.filter((row) => wanted.has(String(row[field]))).map((row) => pick(row, columns)),
+    );
+  });
   const conn = {
     limitInfo: undefined,
-    query: vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
-      const answer = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
-      const deleted = /^SELECT Id FROM \w+ WHERE Id IN \((.*)\) AND IsDeleted = true$/.exec(soql);
-      if (deleted) {
-        const wanted = deleted[1].split(', ').map((q) => q.slice(1, -1));
-        return answer(
-          wanted.filter((x) => options?.scanAll === true && bin.has(x)).map((Id) => ({ Id })),
-        );
-      }
-      const created =
-        /^SELECT (.+) FROM (\w+) WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+?)(?: AND Id > '(\w+)')?(?: ORDER BY Id LIMIT \d+)?$/.exec(
-          soql,
-        );
-      if (created) {
-        const [, columns, object, user, from, to, after] = created;
-        const found = (rows.get(object) ?? []).filter((row) => {
-          const at = Date.parse(String(row.CreatedDate));
-          return (
-            row.CreatedById === user &&
-            at >= Date.parse(from) &&
-            at <= Date.parse(to) &&
-            (!after || row.Id > after)
-          );
-        });
-        if (columns === 'COUNT()') return { totalSize: found.length, done: true, records: [] };
-        return answer(found.map((row) => pick(row, columns)));
-      }
-      const match = /^SELECT (.+) FROM (\w+) WHERE (\w+) IN \((.*)\)(?: LIMIT \d+)?$/.exec(soql);
-      if (!match) throw new Error(`unexpected query: ${soql}`);
-      const [, columns, object, field, list] = match;
-      const wanted = new Set(list.split(', ').map((q) => q.slice(1, -1)));
-      const held = [
-        ...(rows.get(object) ?? []),
-        ...(options?.scanAll ? [...bin.values()].filter((row) => row.object === object) : []),
-      ];
-      return answer(
-        held.filter((row) => wanted.has(String(row[field]))).map((row) => pick(row, columns)),
-      );
-    }),
+    // The sweep's counts go five to a composite, each answered as a query.
+    ...compositeOver(query),
+    query,
     describe: vi.fn(async (object: string) => ({
       name: object,
       label: object,
       queryable: true,
       deletable: true,
       fields: [
-        'Id',
-        'Name',
-        'CreatedById',
-        'CreatedDate',
-        'LastModifiedDate',
-        'LastModifiedById',
-      ].map((name) => ({ name, label: name, type: 'string', nameField: name === 'Name' })),
+        ...['Id', 'Name', 'CreatedById', 'CreatedDate', 'LastModifiedDate', 'LastModifiedById'].map(
+          (name) => ({ name, label: name, type: 'string', nameField: name === 'Name' }),
+        ),
+        ...Object.entries(lookups.get(object) ?? {}).map(([name, referenceTo]) => ({
+          name,
+          label: name,
+          type: 'reference',
+          referenceTo,
+        })),
+      ],
       childRelationships: children.get(object) ?? [],
     })),
     describeGlobal: vi.fn(async () => ({
@@ -209,6 +228,66 @@ const AUTOMATION = {
   ],
   unread: [],
 } as unknown as ForgeTargetAutomation;
+
+/** What a deleted record fires, which `Data_Load` keeps quiet. */
+const ON_DELETE = {
+  objectsRead: ['Account', 'Contact', 'Case'],
+  objects: [
+    {
+      objectApiName: 'Contact',
+      flows: [
+        {
+          apiName: 'Contact_Gone',
+          label: 'Contact gone',
+          timing: 'afterSave',
+          startsOn: 'delete',
+          condition: 'read',
+          permissions: [{ name: 'Load_Data', bypass: true }],
+        },
+      ],
+      triggers: [],
+    },
+  ],
+  bypassGrants: [
+    {
+      permission: 'Load_Data',
+      permissionSets: [{ name: 'Data_Load', label: 'Data load', grants: 1 }],
+    },
+  ],
+  unread: [],
+} as unknown as ForgeTargetAutomation;
+
+/** The objects the permission org answers for: the mute's reads of the permission sets. */
+const PERMISSION_OBJECTS =
+  /\bFROM\s+(Organization|UserPermissionAccess|PermissionSetAssignment|SetupEntityAccess|ObjectPermissions|CustomPermission|PermissionSet)\b/i;
+
+/**
+ * The tied org with permission sets to assign: a lease's reads and writes go
+ * to `permissions`, the rest to `tied`, as one connection answers both, each
+ * of the lease's writes put down among the org's events.
+ */
+function leasedConnection(tied: TiedTargetOrg, user: string) {
+  const permissions = memoryPermissionOrg({
+    userId: user,
+    sets: [{ id: '0PS000000000001AAA', name: 'Data_Load' }],
+    beforeWrite: (write) => {
+      (tied.events as string[]).push(write.kind === 'insert' ? 'leaseAcquire' : 'leaseRelease');
+    },
+  });
+  const conn = {
+    ...tied.conn,
+    identity: permissions.connection.identity,
+    query: (soql: string, options?: { scanAll?: boolean }) =>
+      PERMISSION_OBJECTS.test(soql)
+        ? permissions.connection.query(soql)
+        : tied.conn.query(soql, options),
+    sobject: (name: string) =>
+      name === 'PermissionSetAssignment'
+        ? permissions.connection.sobject(name)
+        : tied.conn.sobject(name),
+  };
+  return { conn, permissions };
+}
 
 function buildMsg(type: string, payload?: unknown): InboundRequest {
   return inboundRequest({
@@ -364,19 +443,31 @@ describe('a sweep asked with the removal of a Seed run', () => {
         }),
         queryMore: vi.fn(async () => page([])),
       },
-      // The flow version, retrieved by id in a Tooling composite: it opens a task.
+      // The flow version, retrieved by id in a Tooling composite: it opens a
+      // task. The sweep's counts, five to a data composite, are answered as
+      // queries.
       request: vi.fn(async ({ body }: { body: string }) => {
         const { compositeRequest } = JSON.parse(body) as {
           compositeRequest: Array<{ url: string; referenceId: string }>;
         };
         return {
-          compositeResponse: compositeRequest.map((sub) => ({
-            referenceId: sub.referenceId,
-            httpStatusCode: 200,
-            body: sub.url.endsWith(`/Flow/${VERSION}`)
-              ? { Id: VERSION, Metadata: { recordCreates: [{ name: 'Task', object: 'Task' }] } }
-              : { totalSize: 0, done: true, records: [] },
-          })),
+          compositeResponse: await Promise.all(
+            compositeRequest.map(async (sub) => {
+              const counted = /\/query\?q=(.*)$/.exec(sub.url);
+              return {
+                referenceId: sub.referenceId,
+                httpStatusCode: 200,
+                body: counted
+                  ? await conn.query(decodeURIComponent(counted[1]))
+                  : sub.url.endsWith(`/Flow/${VERSION}`)
+                    ? {
+                        Id: VERSION,
+                        Metadata: { recordCreates: [{ name: 'Task', object: 'Task' }] },
+                      }
+                    : { totalSize: 0, done: true, records: [] },
+              };
+            }),
+          ),
         };
       }),
     };
@@ -397,10 +488,564 @@ describe('a sweep asked with the removal of a Seed run', () => {
     ]);
   });
 
+  describe('told what ties a record to the run', () => {
+    const LOOSE = id('00T', 6);
+    let tied: TiedTargetOrg;
+
+    /**
+     * The target after a seed of an account and a contact: the welcome call
+     * the contact's flow opened under it, and a task the seed's user typed in
+     * the seed's window, tied to nothing of it.
+     */
+    const tiedOrg = (): TiedTargetOrg => {
+      const org = tiedTargetOrg(USER);
+      org.shape('Account', {
+        children: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+      });
+      org.shape('Contact', {
+        references: { AccountId: ['Account'] },
+        children: [{ childSObject: 'Task', field: 'WhoId' }],
+      });
+      org.shape('Task', { references: { WhoId: ['Contact'] } });
+      const made = (recordId: string, name: string, at: string, more = {}) => ({
+        ...rec(recordId, name, USER, at, more),
+        SystemModstamp: at,
+      });
+      org.add('Account', made(ACCOUNT, 'Seeded Co', SEEDED));
+      org.add('Contact', made(CONTACT, 'Seeded Person', SEEDED, { AccountId: ACCOUNT }));
+      org.add(
+        'Task',
+        made(FLOW_TASK, 'Welcome call', JUST_AFTER, { WhoId: CONTACT }),
+        made(LOOSE, 'Loose task', JUST_AFTER),
+      );
+      return org;
+    };
+
+    /** Keep a seed of this machine, as the panel's Seed keeps one. */
+    const keep = async (runId: string, created: Array<[string, string[]]>, runUserId?: string) => {
+      const runs = nodeSeedRunCreations(storage);
+      await runs.record({
+        runId,
+        targetOrgId: TARGET_ORG,
+        startedAt: STARTED,
+        finishedAt: FINISHED,
+        status: 'success',
+        objectResults: created.map(([objectApiName, createdIds]) => ({
+          objectApiName,
+          createdIds,
+        })),
+        ...(runUserId ? { runUserId } : {}),
+      });
+      handler.setRunCreations(runs);
+    };
+
+    beforeEach(() => {
+      tied = tiedOrg();
+      vi.mocked(getJsforceConnection).mockResolvedValue(tied.conn as never);
+    });
+
+    it('takes the welcome call, and keeps what is tied to nothing unasked', async () => {
+      await handler.handle(buildMsg('seed:remove', { runId: 'op-seed', sweep: true }));
+
+      expect(errors()).toEqual([]);
+      expect(tied.ids('Task')).toEqual([LOOSE]);
+      expect(answer()?.sweep?.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'Task', found: 1, deleted: 1 }),
+      ]);
+    });
+
+    describe('the duplicate record sets the org wrote as the seed went in', () => {
+      const THE_RUNS = id('0GK', 1);
+      const SHARED = id('0GK', 2);
+      const OTHER_CONTACT = id('003', 9);
+      /** A duplicate rule's report: the set, as the org keeps it, and an item per record. */
+      const reported = (recordId: string, item: number, set: string) => ({
+        ...rec(id('0GL', item), `Item ${item}`, USER, JUST_AFTER),
+        RecordId: recordId,
+        DuplicateRecordSetId: set,
+      });
+
+      beforeEach(() => {
+        // The item goes with its record, as the org cascades it, and the set stays.
+        tied.shape('Contact', {
+          references: { AccountId: ['Account'] },
+          children: [
+            { childSObject: 'Task', field: 'WhoId' },
+            { childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true },
+          ],
+        });
+        tied.shape('DuplicateRecordItem', {
+          references: { RecordId: ['Contact'], DuplicateRecordSetId: ['DuplicateRecordSet'] },
+        });
+        tied.add('DuplicateRecordSet', rec(THE_RUNS, 'The run’s set', USER, JUST_AFTER));
+        tied.add('DuplicateRecordSet', rec(SHARED, 'A shared set', USER, JUST_AFTER));
+        tied.add('Contact', rec(OTHER_CONTACT, 'Someone else', USER, LONG_AFTER));
+        tied.add('DuplicateRecordItem', reported(CONTACT, 1, THE_RUNS));
+        tied.add('DuplicateRecordItem', reported(CONTACT, 2, SHARED));
+        tied.add('DuplicateRecordItem', reported(OTHER_CONTACT, 3, SHARED));
+      });
+
+      it('takes the set the removal left empty, says it, and leaves one that still names a record', async () => {
+        await handler.handle(buildMsg('seed:remove', { runId: 'op-seed' }));
+
+        expect(errors()).toEqual([]);
+        expect(tied.ids('Contact')).toEqual([OTHER_CONTACT]);
+        expect(tied.ids('DuplicateRecordSet')).toEqual([SHARED]);
+        expect(answer()).toMatchObject({ status: 'success' });
+        expect(answer()?.objects.at(-1)).toMatchObject({
+          objectApiName: 'DuplicateRecordSet',
+          planned: 1,
+          deleted: 1,
+          refused: 0,
+        });
+        expect(
+          new AuditTrailStore(store)
+            .list()
+            .entries.flatMap((entry) => entry.objects ?? [])
+            .find((object) => object.objectApiName === 'DuplicateRecordSet'),
+        ).toMatchObject({ deleted: 1 });
+      });
+
+      it('touches no set while a record the set names stays, kept as changed since the run', async () => {
+        const contact = tied.row('Contact', CONTACT);
+        if (contact) contact.LastModifiedDate = LONG_AFTER;
+
+        await handler.handle(buildMsg('seed:remove', { runId: 'op-seed' }));
+
+        expect(tied.ids('Contact')).toContain(CONTACT);
+        expect(tied.ids('DuplicateRecordSet')).toEqual([THE_RUNS, SHARED]);
+      });
+
+      it('says the set the org refused, the run’s own records gone, and stays a success', async () => {
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          ...tied.conn,
+          sobject: (object: string) =>
+            object === 'DuplicateRecordSet'
+              ? {
+                  destroy: async (ids: string[]) =>
+                    ids.map((recordId) => ({
+                      id: recordId,
+                      success: false,
+                      errors: [
+                        { statusCode: 'INSUFFICIENT_ACCESS_OR_READONLY', message: 'No access.' },
+                      ],
+                    })),
+                }
+              : tied.conn.sobject(object),
+        } as never);
+
+        await handler.handle(buildMsg('seed:remove', { runId: 'op-seed' }));
+
+        expect(answer()).toMatchObject({ status: 'success' });
+        expect(answer()?.objects.at(-1)).toMatchObject({
+          objectApiName: 'DuplicateRecordSet',
+          refused: 1,
+          reasons: [expect.stringContaining('INSUFFICIENT_ACCESS_OR_READONLY')],
+        });
+        expect(tied.ids('DuplicateRecordSet')).toEqual([THE_RUNS, SHARED]);
+      });
+    });
+
+    it('takes what is tied to nothing when asked', async () => {
+      await handler.handle(
+        buildMsg('seed:remove', { runId: 'op-seed', sweep: true, sweepUntied: true }),
+      );
+
+      expect(errors()).toEqual([]);
+      expect(tied.ids('Task')).toEqual([]);
+    });
+
+    it('ends partial when the org refused what the sweep was to take, the seed’s records gone: no success on the page', async () => {
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        ...tied.conn,
+        sobject: (object: string) => {
+          const records = tied.conn.sobject(object);
+          if (object !== 'Task') return records;
+          return {
+            ...records,
+            destroy: async (ids: string[]) =>
+              ids.map((recordId) => ({
+                id: recordId,
+                success: false,
+                errors: [
+                  {
+                    statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                    message: 'A task cannot be deleted without the bypass.',
+                  },
+                ],
+              })),
+          };
+        },
+      } as never);
+
+      await handler.handle(buildMsg('seed:remove', { runId: 'op-seed', sweep: true }));
+
+      expect(tied.ids('Task')).toContain(FLOW_TASK);
+      expect(answer()).toMatchObject({ status: 'partial', sweep: { status: 'failure' } });
+    });
+
+    it('keeps what is tied to nothing while another seed of this machine wrote in the window', async () => {
+      await keep('op-other', [['Contact', [id('003', 7)]]]);
+      tied.add('Contact', rec(id('003', 7), 'Their person', USER, SEEDED));
+
+      await handler.handle(buildMsg('seed:remove:sweep', { runId: 'op-seed' }));
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'seed:remove:sweep:response',
+      );
+      expect(response.payload.listing.untied?.refusal).toMatch(/^Another run of this machine/);
+
+      await handler.handle(
+        buildMsg('seed:remove', { runId: 'op-seed', sweep: true, sweepUntied: true }),
+      );
+      expect(tied.ids('Task')).toEqual([LOOSE]);
+      expect(tied.ids('Contact')).toEqual([id('003', 7)]);
+    });
+
+    it('lists none of the lines the platform copied under a quote the seed synced: its removal names them', async () => {
+      const { created } = addSyncedQuote(tied, USER, SEEDED);
+      await keep(
+        'op-quote',
+        created.map(({ objectApiName, ids: recordIds }) => [objectApiName, recordIds]),
+      );
+
+      await handler.handle(buildMsg('seed:remove:sweep', { runId: 'op-quote' }));
+
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'seed:remove:sweep:response',
+      );
+      expect(response.payload.listing.looked).toContain('QuoteLineItem');
+      expect(response.payload.listing.found.map((found) => found.objectApiName)).not.toContain(
+        'QuoteLineItem',
+      );
+    });
+
+    it('keeps what it found made, and takes it once the record that told the tie is gone', async () => {
+      // A colleague edits the contact after the seed: the removal keeps it,
+      // and the call under it.
+      Object.assign(tied.row('Contact', CONTACT) ?? {}, {
+        LastModifiedDate: LONG_AFTER,
+        SystemModstamp: LONG_AFTER,
+        LastModifiedById: id('005', 2),
+      });
+      Object.assign(tied.row('Task', FLOW_TASK) ?? {}, {
+        LastModifiedDate: LONG_AFTER,
+        SystemModstamp: LONG_AFTER,
+        LastModifiedById: id('005', 2),
+      });
+      await handler.handle(buildMsg('seed:remove', { runId: 'op-seed', sweep: true }));
+      expect(tied.ids('Task')).toContain(FLOW_TASK);
+      const kept = await nodeSeedRunCreations(storage).get('op-seed');
+      expect(kept?.removal?.madeEarlier).toEqual([FLOW_TASK]);
+
+      // Then the contact goes by hand, and the org empties the task's lookup.
+      const contact = tied.row('Contact', CONTACT);
+      tied.rows.set('Contact', []);
+      if (contact) tied.bin.set('Contact', [contact]);
+      Object.assign(tied.row('Task', FLOW_TASK) ?? {}, { WhoId: null });
+      vi.mocked(deps.broker.postToWebview).mockClear();
+
+      await handler.handle(buildMsg('seed:remove:sweep', { runId: 'op-seed' }));
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'seed:remove:sweep:response',
+      );
+      expect(
+        response.payload.listing.found.find((found) => found.objectApiName === 'Task')?.classes,
+      ).toMatchObject({ made: 1, untied: 1 });
+
+      await handler.handle(
+        buildMsg('seed:remove', { runId: 'op-seed', sweep: true, includeChanged: true }),
+      );
+      expect(tied.ids('Task')).toEqual([LOOSE]);
+    });
+
+    it('keeps what it found made late and left, and takes it with what came late once the record that told the tie is gone', async () => {
+      // Five minutes after the contact: what a scheduled path of its flow opens.
+      const LATE = '2026-09-20T10:07:00.000+0000';
+      Object.assign(tied.row('Task', FLOW_TASK) ?? {}, {
+        CreatedDate: LATE,
+        LastModifiedDate: LATE,
+        SystemModstamp: LATE,
+      });
+      // A colleague edits the contact after the seed: the removal keeps it.
+      Object.assign(tied.row('Contact', CONTACT) ?? {}, {
+        LastModifiedDate: LONG_AFTER,
+        SystemModstamp: LONG_AFTER,
+        LastModifiedById: id('005', 2),
+      });
+      await handler.handle(buildMsg('seed:remove', { runId: 'op-seed', sweep: true }));
+      expect(tied.ids('Task')).toContain(FLOW_TASK);
+      expect(answer()?.sweep?.left).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ class: 'late', option: '--sweep-late' }),
+        ]),
+      );
+      const kept = await nodeSeedRunCreations(storage).get('op-seed');
+      expect(kept?.removal?.lateEarlier).toEqual([FLOW_TASK]);
+
+      // Then the contact goes by hand, and the org empties the task's lookup.
+      const contact = tied.row('Contact', CONTACT);
+      tied.rows.set('Contact', []);
+      if (contact) tied.bin.set('Contact', [contact]);
+      Object.assign(tied.row('Task', FLOW_TASK) ?? {}, { WhoId: null });
+      vi.mocked(deps.broker.postToWebview).mockClear();
+
+      await handler.handle(buildMsg('seed:remove:sweep', { runId: 'op-seed' }));
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'seed:remove:sweep:response',
+      );
+      expect(
+        response.payload.listing.found.find((found) => found.objectApiName === 'Task')?.classes,
+      ).toMatchObject({ made: 0, late: 1, untied: 1 });
+
+      await handler.handle(
+        buildMsg('seed:remove', { runId: 'op-seed', sweep: true, sweepLate: true }),
+      );
+      expect(tied.ids('Task')).toEqual([LOOSE]);
+    });
+
+    it('keeps what is tied to nothing while a run of another module wrote in the window', async () => {
+      const during = Date.parse(FINISHED) - 1_000;
+      handler.setOtherModuleRuns(async () => [
+        { ids: [], idsUntold: true, from: during, to: during },
+      ]);
+
+      await handler.handle(buildMsg('seed:remove:sweep', { runId: 'op-seed' }));
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'seed:remove:sweep:response',
+      );
+      expect(response.payload.listing.untied?.refusal).toMatch(/^Another run of this machine/);
+
+      await handler.handle(
+        buildMsg('seed:remove', { runId: 'op-seed', sweep: true, sweepUntied: true }),
+      );
+      expect(tied.ids('Task')).toEqual([LOOSE]);
+    });
+
+    it('names its runs on an org for the sweep of another module’s run', async () => {
+      const [run] = await handler.localRunsOn(TARGET_ORG);
+
+      expect(run?.ids).toEqual([ACCOUNT, CONTACT]);
+      expect(await handler.localRunsOn('another-org')).toEqual([]);
+    });
+
+    it('asks about the records its user may not delete before it assigns anything, and assigns nothing once told to stop', async () => {
+      // Taken before the question, the lease held the sets assigned while it
+      // stayed open, for nothing once it was answered no.
+      const leases = mkdtempSync(join(tmpdir(), 'sandforge-seed-sweep-undeletable-'));
+      try {
+        handler.setMuteLeases({ dir: leases, renewEveryMs: 0 });
+        handler.setTargetAutomation({ read: vi.fn(async () => ON_DELETE) });
+        const { conn } = leasedConnection(tied, USER);
+        const describe = (conn as unknown as { describe: (o: string) => Promise<object> }).describe;
+        // The contact's describe, as a profile without Delete on it gives it.
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          ...conn,
+          describe: async (object: string) => ({
+            ...(await describe(object)),
+            deletable: object !== 'Contact',
+          }),
+        } as never);
+        const seenAsked: string[][] = [];
+        (
+          deps.infraServices as { confirmRemovalLeavingUndeletable?: () => Promise<boolean> }
+        ).confirmRemovalLeavingUndeletable = vi.fn(async () => {
+          seenAsked.push([...(tied.events as string[])]);
+          return false;
+        });
+
+        await handler.handle(
+          buildMsg('seed:remove', { runId: 'op-seed', sweep: true, muteAutomation: true }),
+        );
+
+        expect(seenAsked).toHaveLength(1);
+        expect(tied.events as string[]).not.toContain('leaseAcquire');
+        expect(tied.ids('Contact')).toEqual([CONTACT]);
+      } finally {
+        rmSync(leases, { recursive: true, force: true });
+      }
+    });
+
+    it('assigns nothing once a stop came while the sweep asked', async () => {
+      const leases = mkdtempSync(join(tmpdir(), 'sandforge-seed-sweep-stop-'));
+      try {
+        handler.setMuteLeases({ dir: leases, renewEveryMs: 0 });
+        handler.setTargetAutomation({ read: vi.fn(async () => ON_DELETE) });
+        const { conn } = leasedConnection(tied, USER);
+        vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+        const registry = new BackgroundOperationRegistry();
+        handler.setRegistry(registry);
+        const guard = deps.infraServices?.productionGuard as ProductionGuard;
+        const confirmed = guard.confirmIfNeeded.bind(guard);
+        vi.spyOn(guard, 'confirmIfNeeded').mockImplementation((asked, tier) => {
+          for (const op of registry.getRunning()) registry.abort(op.operationId);
+          return confirmed(asked, tier);
+        });
+
+        await handler.handle(
+          buildMsg('seed:remove', { runId: 'op-seed', sweep: true, muteAutomation: true }),
+        );
+
+        expect(answer()?.status).toBe('cancelled');
+        expect(tied.events as string[]).not.toContain('leaseAcquire');
+        expect(tied.ids('Contact')).toEqual([CONTACT]);
+      } finally {
+        rmSync(leases, { recursive: true, force: true });
+      }
+    });
+
+    it('plans the mute on the task the sweep deletes, read once it has read, or the org refuses it', async () => {
+      const leases = mkdtempSync(join(tmpdir(), 'sandforge-seed-sweep-leases-task-'));
+      try {
+        handler.setMuteLeases({ dir: leases, renewEveryMs: 0 });
+        // What the org runs: a Flow on the task alone, as the real reader says
+        // only what it is asked of.
+        const read = vi.fn(
+          async (_orgId: string, objects: readonly string[]) =>
+            ({
+              ...ON_DELETE,
+              objectsRead: [...objects],
+              objects: objects.includes('Task')
+                ? [{ ...ON_DELETE.objects[0], objectApiName: 'Task' }]
+                : [],
+            }) as ForgeTargetAutomation,
+        );
+        handler.setTargetAutomation({ read });
+        const { conn, permissions } = leasedConnection(tied, USER);
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          ...conn,
+          sobject: (object: string) => {
+            const records = conn.sobject(object);
+            if (object !== 'Task') return records;
+            return {
+              ...records,
+              destroy: async (ids: string[]) =>
+                permissions.assignments().length > 0
+                  ? (records as ReturnType<typeof tied.conn.sobject>).destroy(ids)
+                  : ids.map((recordId) => ({
+                      id: recordId,
+                      success: false,
+                      errors: [
+                        {
+                          statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                          message: 'A task cannot be deleted without the bypass.',
+                        },
+                      ],
+                    })),
+            };
+          },
+        } as never);
+
+        await handler.handle(
+          buildMsg('seed:remove', { runId: 'op-seed', sweep: true, muteAutomation: true }),
+        );
+
+        expect(errors()).toEqual([]);
+        expect(tied.ids('Task')).toEqual([LOOSE]);
+        expect(answer()?.sweep?.status).toBe('success');
+        expect(answer()?.mutedAutomation).toMatchObject({
+          state: 'muted',
+          assigned: ['Data_Load'],
+          silenced: [expect.objectContaining({ objectApiName: 'Task' })],
+        });
+        expect(read.mock.calls.at(-1)?.[1]).toContain('Task');
+        expect(permissions.assignments()).toEqual([]);
+      } finally {
+        rmSync(leases, { recursive: true, force: true });
+      }
+    });
+
+    it('asks the sweep’s question before the lease, and holds none while it waits', async () => {
+      const leases = mkdtempSync(join(tmpdir(), 'sandforge-seed-sweep-leases-'));
+      try {
+        handler.setMuteLeases({ dir: leases, renewEveryMs: 0 });
+        handler.setTargetAutomation({ read: vi.fn(async () => ON_DELETE) });
+        const { conn, permissions } = leasedConnection(tied, USER);
+        vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+        const guard = deps.infraServices?.productionGuard as ProductionGuard;
+        const check = guard.check.bind(guard);
+        const steps: string[] = tied.events;
+        vi.spyOn(guard, 'check').mockImplementation((request) => {
+          steps.push('question');
+          return check(request);
+        });
+        let held: number | undefined;
+        const confirmed = guard.confirmIfNeeded.bind(guard);
+        vi.spyOn(guard, 'confirmIfNeeded').mockImplementation((asked, orgName) => {
+          held = permissions.assignments().length;
+          return confirmed(asked, orgName);
+        });
+
+        await handler.handle(
+          buildMsg('seed:remove', { runId: 'op-seed', sweep: true, muteAutomation: true }),
+        );
+
+        expect(errors()).toEqual([]);
+        expect(answer()?.mutedAutomation).toMatchObject({
+          state: 'muted',
+          assigned: ['Data_Load'],
+        });
+        expect(held).toBe(0);
+        expect(steps.filter((step) => step === 'question')).toHaveLength(2);
+        expect(steps.indexOf('leaseAcquire')).toBeGreaterThan(steps.lastIndexOf('question'));
+        expect(writePathOrderDefects([...steps, 'result'] as WritePathStep[])).toEqual([]);
+        expect(permissions.assignments()).toEqual([]);
+      } finally {
+        rmSync(leases, { recursive: true, force: true });
+      }
+    });
+
+    it('takes the user the seed’s file keeps, reading none of its records to tell it', async () => {
+      await keep(
+        'op-user',
+        [
+          ['Account', [ACCOUNT]],
+          ['Contact', [CONTACT]],
+        ],
+        USER,
+      );
+
+      await handler.handle(buildMsg('seed:remove:sweep', { runId: 'op-user' }));
+
+      expect(errors('seed:remove:sweep:error')).toEqual([]);
+      expect(tied.queries.some((soql) => soql.startsWith('SELECT CreatedById FROM'))).toBe(false);
+      expect(tied.queries.some((soql) => soql.includes(`CreatedById = '${USER}'`))).toBe(true);
+    });
+  });
+
   it('leaves the task the flow opened to a removal asked without the sweep', async () => {
     await handler.handle(buildMsg('seed:remove', { runId: 'op-seed' }));
 
     expect(answer()?.sweep).toBeUndefined();
     expect(ids('Task')).toEqual([FLOW_TASK, TYPED_TASK]);
+  });
+
+  it('lists a run with the checkpoint it took first, kept in its file: what the list offers a rewind from', async () => {
+    const taken = {
+      state: 'taken' as const,
+      checkpointId: 'ck-20261101-101500-a1b2',
+      name: 'Before Seed run 2026-11-01 10:15 UTC',
+      takenAt: '2026-11-01T10:15:04.000Z',
+      expiresAt: null,
+      objects: ['Account'],
+      records: 12,
+      bytes: 400_000,
+      requests: 68,
+      added: [],
+      notHeld: [],
+    };
+    const runs = nodeSeedRunCreations(storage);
+    const recorder = runs.recorder({ runId: 'op-ck', targetOrgId: TARGET_ORG });
+    recorder.checkpoint?.(taken);
+    recorder.note('Account', [id('001', 3)]);
+    await recorder.end({ status: 'success', objectResults: [] });
+
+    await handler.handle(buildMsg('seed:removal:list'));
+
+    const [response] = posted<
+      BaseMessage & { payload: { runs: Array<{ runId: string; checkpoint?: unknown }> } }
+    >('seed:removal:list:response');
+    const lines = new Map(response.payload.runs.map((run) => [run.runId, run]));
+    expect(lines.get('op-ck')?.checkpoint).toEqual(taken);
+    expect(lines.get('op-seed')).not.toHaveProperty('checkpoint');
   });
 });

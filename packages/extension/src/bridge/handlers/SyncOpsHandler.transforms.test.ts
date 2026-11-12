@@ -210,6 +210,66 @@ describe('SyncOpsHandler — a transform rule that names no field', () => {
     });
   });
 
+  it.each(['sync:execute', 'sync:simulate', 'sync:config:save'])(
+    'refuses %s for a pattern that is no regular expression under its code, naming each rule',
+    async (type) => {
+      const regex = (field: string, pattern: string): TransformRule => ({
+        type: 'regex_replace',
+        field,
+        config: { regex: pattern },
+      });
+      const config = configWith([regex('Name', '[a-'), regex('Phone', '(')]);
+
+      await handler.handle(
+        inboundRequest({ id: 'req-1', type, timestamp: Date.now(), payload: { config } }),
+      );
+
+      const [error] = posted().filter((m) => m.type === 'sync:error');
+      expect(error).toMatchObject({
+        correlationId: 'req-1',
+        payload: {
+          code: 'TRANSFORM_RULE_BAD_PATTERN',
+          rules: [
+            {
+              objectApiName: 'Account',
+              field: 'Name',
+              pattern: '[a-',
+              reason: 'Unterminated character class',
+            },
+            {
+              objectApiName: 'Account',
+              field: 'Phone',
+              pattern: '(',
+              reason: 'Unterminated group',
+            },
+          ],
+        },
+      });
+      nothingStarted();
+      expect(stored).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps the code of an invalid payload for one wrong in anything else too', async () => {
+    const config = {
+      ...configWith([{ type: 'regex_replace', field: 'Name', config: { regex: '[a-' } }]),
+      direction: 'sideways',
+    };
+
+    await handler.handle(
+      inboundRequest({
+        id: 'req-1',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config },
+      }),
+    );
+
+    const [error] = posted().filter((m) => m.type === 'sync:error');
+    expect(error).toMatchObject({ payload: { code: 'INVALID_PAYLOAD' } });
+    nothingStarted();
+  });
+
   it('starts a run whose every rule names its field', async () => {
     // The control: the same run, its rule on Name, goes on to Production
     // Guard and to the orgs (here unreachable).

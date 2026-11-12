@@ -518,6 +518,24 @@ const SAVED_CONFIG = {
   updatedAt: '2026-10-01T09:00:00.000Z',
 };
 
+/** Answer every `sync:config:load` posted so far with `config`; returns how many there were. */
+async function answerLoads(bridge: MockBridge, config: unknown): Promise<number> {
+  const loads = await bridge.getMessages('sync:config:load');
+  for (const load of loads) {
+    await bridge.respond('sync:config:load:response', { config }, load.id as string);
+  }
+  return loads.length;
+}
+
+/** The `sync:config:load` posted after the first `answered`, once there is one. */
+async function nextLoad(bridge: MockBridge, answered: number): Promise<Record<string, unknown>> {
+  await expect
+    .poll(async () => (await bridge.getMessages('sync:config:load')).length, { timeout: 10_000 })
+    .toBeGreaterThan(answered);
+  const loads = await bridge.getMessages('sync:config:load');
+  return loads[loads.length - 1];
+}
+
 test.describe('Sync panel — saved configurations', () => {
   test('Run now reads a saved configuration back and runs it on the request the wizard runs with', async ({
     page,
@@ -567,6 +585,59 @@ test.describe('Sync panel — saved configurations', () => {
     const running = await checkAccessibility(page);
     expect(running.violations, formatViolations(running.violations)).toEqual([]);
   });
+
+  test('Run now opens a configuration that deletes on the execute step, which says so, and Run runs it there', async ({
+    page,
+  }) => {
+    // Run now sent it to sync:execute at once: the delete fired on a sandbox
+    // with no word of what it deleted.
+    const deleting = {
+      ...SAVED_CONFIG,
+      objects: [{ ...SAVED_CONFIG.objects[0], operation: 'delete', transformRules: [] }],
+    };
+    const bridge = await openSyncOnDraft(page, { ...READY_DRAFT, currentStep: 0 });
+    await page.getByTestId('tab-schedules').click();
+    await bridge.waitForMessage('sync:config:list', { timeout: 10_000 });
+    for (const asked of await bridge.getMessages('sync:config:list')) {
+      await bridge.respond(
+        'sync:config:list:response',
+        {
+          configs: [
+            {
+              id: 'cfg-saved',
+              name: 'Nightly accounts',
+              description: 'Saved from Migration',
+              updatedAt: '2026-10-01T09:00:00.000Z',
+            },
+          ],
+        },
+        asked.id as string,
+      );
+    }
+
+    await page.getByTestId('run-saved-config-cfg-saved').click();
+    await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
+    let answered = await answerLoads(bridge, deleting);
+    // Opened, then read back for the execute step to say what it does.
+    const opened = await nextLoad(bridge, answered);
+    expect(opened.payload).toEqual({ id: 'cfg-saved' });
+    answered = await answerLoads(bridge, deleting);
+
+    await expect(page.getByTestId('sync-review-object-Account')).toHaveText(
+      "Account — Delete by Id: the target record holding the source record's Id is deleted.",
+    );
+    expect(await bridge.getMessages('sync:execute')).toEqual([]);
+    const shown = await checkAccessibility(page);
+    expect(shown.violations, formatViolations(shown.violations)).toEqual([]);
+
+    // Every read so far answered: the next one is Run's.
+    answered = await answerLoads(bridge, deleting);
+    await page.getByTestId('sync-run').click();
+    const load = await nextLoad(bridge, answered);
+    await bridge.respond('sync:config:load:response', { config: deleting }, load.id as string);
+    const run = await bridge.waitForMessage('sync:execute', { timeout: 10_000 });
+    expect(run.payload).toEqual({ config: deleting });
+  });
 });
 
 test.describe('Sync panel — a configuration Migration saved and opened here', () => {
@@ -611,10 +682,20 @@ test.describe('Sync panel — a configuration Migration saved and opened here', 
     await page.getByTestId('migration-open-in-sync-btn').click();
 
     await expect(page.getByTestId('sync-page')).toBeVisible();
-    const types = page.getByTestId('page-header-actions').getByTestId('org-badge-alias');
-    await expect(types).toHaveText([DEV_SANDBOX.alias, QA_SANDBOX.alias]);
+    await expect(page.getByTestId('org-ribbon-source-name')).toHaveText(DEV_SANDBOX.alias);
+    await expect(page.getByTestId('org-ribbon-target-name')).toHaveText(QA_SANDBOX.alias);
+    // Read back as it opens: Run waits until what each object does is said.
+    await expect(page.getByTestId('sync-run')).toBeDisabled();
+    const opened = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
+    expect(opened.payload).toEqual({ id: 'cfg-saved' });
+    await answerLoads(bridge, SAVED_CONFIG);
+    await expect(page.getByTestId('sync-review-object-Account')).toHaveText(
+      'Account — Insert: each record read is created in the target.',
+    );
+    // Every read so far answered: the next one is Run's.
+    const answered = await answerLoads(bridge, SAVED_CONFIG);
     await page.getByTestId('sync-run').click();
-    const load = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
+    const load = await nextLoad(bridge, answered);
     expect(load.payload).toEqual({ id: 'cfg-saved' });
     await bridge.respond('sync:config:load:response', { config: SAVED_CONFIG }, load.id as string);
 
@@ -628,7 +709,7 @@ test.describe('Sync panel — a configuration Migration saved and opened here', 
   });
 });
 
-test.describe('Sync panel — the orgs in the header', () => {
+test.describe('Sync panel — the orgs in the ribbon', () => {
   test('names each org by the type the pickers give it, a sandbox marked Staging as one', async ({
     page,
   }) => {
@@ -639,7 +720,7 @@ test.describe('Sync panel — the orgs in the header', () => {
     await source.selectOption(DEV_SANDBOX.id);
     await page.getByLabel('Target', { exact: true }).selectOption(QA_SANDBOX.id);
 
-    const types = page.getByTestId('page-header-actions').getByTestId('org-badge-type');
+    const types = page.getByTestId('org-ribbon').getByTestId('org-badge-type');
     await expect(types).toHaveText(['SANDBOX', 'STAGING']);
     await expect(source.locator(`option[value="${DEV_SANDBOX.id}"]`)).toHaveText(
       'DevSandbox [SANDBOX]',

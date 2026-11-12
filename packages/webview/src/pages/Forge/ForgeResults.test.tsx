@@ -1142,6 +1142,132 @@ describe('ForgeResults', () => {
     expect(btn).toBeDefined();
   });
 
+  describe('the checkpoint the run took first', () => {
+    beforeEach(() => {
+      useOrgStore.setState({
+        orgs: [developerOrg({ id: 'org-tgt', alias: 'DEV-SB' })],
+        selectedOrgId: 'org-tgt',
+      });
+      useAppStore.setState({ currentRoute: 'forge', navigationIntent: null });
+    });
+
+    it('names it under the removal, with the way to a rewind of the org it wrote to', () => {
+      mockResult = {
+        ...makeMockResult(),
+        targetOrgId: 'org-tgt',
+        checkpoint: {
+          state: 'taken' as const,
+          checkpointId: 'ck-20260214-170000-a1b2',
+          name: 'Before Forge run 2026-02-14 17:00 UTC',
+          takenAt: '2026-02-14T17:00:00.000Z',
+          expiresAt: '2026-02-21T17:00:00.000Z',
+          objects: ['Account', 'Contact'],
+          records: 38,
+          bytes: 2_100_000,
+          requests: 66,
+          added: [],
+          notHeld: [],
+        },
+      } as typeof mockResult;
+      mockConfig = { ...RUN_CONFIG, targetOrgId: 'org-tgt' };
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-results-checkpoint-taken').textContent).toContain(
+        '“Before Forge run 2026-02-14 17:00 UTC”, 38 records of Account and Contact.',
+      );
+      expect(screen.getByTestId('forge-results-checkpoint-beside').textContent).toContain(
+        'Removing this run takes back what the run wrote, and nothing else.',
+      );
+      fireEvent.click(screen.getByTestId('forge-results-checkpoint-action'));
+      expect(useAppStore.getState().navigationIntent).toEqual({
+        route: 'checkpoint',
+        previewCheckpointId: 'ck-20260214-170000-a1b2',
+        targetOrgId: 'org-tgt',
+      });
+    });
+
+    it('opens the preview of a rewind to it with its mute ticked once the run muted', () => {
+      mockResult = {
+        ...makeMockResult(),
+        checkpoint: {
+          state: 'taken',
+          checkpointId: 'ck-20260214-170000-a1b2',
+          name: 'Before Forge run 2026-02-14 17:00 UTC',
+          objects: ['Account'],
+          records: 38,
+          keepDays: 7,
+          added: [],
+          notHeld: [],
+        },
+        mutedAutomation: {
+          state: 'muted',
+          assigned: ['Data_Load'],
+          held: [],
+          permissions: ['Load_Data'],
+          silenced: [],
+          stillRan: [],
+          released: true,
+        },
+      } as typeof mockResult;
+      mockConfig = { ...RUN_CONFIG, targetOrgId: 'org-tgt' };
+      render(<ForgeResults />);
+
+      fireEvent.click(screen.getByTestId('forge-results-checkpoint-action'));
+      expect(useAppStore.getState().navigationIntent).toEqual(
+        expect.objectContaining({ previewMuted: true }),
+      );
+    });
+
+    it('says a run that wrote nothing deleted it', () => {
+      mockResult = {
+        ...makeMockResult(),
+        checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+      } as typeof mockResult;
+      render(<ForgeResults />);
+      expect(screen.getByTestId('forge-results-checkpoint-deleted').textContent).toBe(
+        'The checkpoint taken before the run was deleted: the run wrote nothing.',
+      );
+    });
+
+    it('says nothing of a run that took none', () => {
+      mockResult = makeMockResult();
+      render(<ForgeResults />);
+      expect(screen.queryByTestId('forge-results-checkpoint')).toBeNull();
+      expect(screen.queryByTestId('forge-results-checkpoint-deleted')).toBeNull();
+    });
+
+    it('says what a simulation found it would hold and cost, and the refusal it would meet', () => {
+      mockResult = {
+        ...makeMockResult(),
+        dryRun: true,
+        checkpoint: {
+          state: 'planned' as const,
+          estimate: {
+            records: 38,
+            apiRequests: 68,
+            apiRequestsLeft: 14_000,
+            seconds: 44,
+            bytes: 2_306_867,
+          },
+          objects: ['Account'],
+          added: [],
+          notHeld: [],
+          keepDays: 7,
+          refusal: { code: 'RUN_WRITING' as const, message: 'A Sync run is writing.' },
+        },
+      } as typeof mockResult;
+      render(<ForgeResults />);
+      expect(screen.getByTestId('forge-results-simulation-checkpoint-cost').textContent).toBe(
+        'A real run would take a checkpoint first: about 38 records of Account, 68 API requests, 44s, 2.2 MB on this machine, kept 7 days.',
+      );
+      expect(
+        screen.getByTestId('forge-results-simulation-checkpoint-refusal').textContent,
+      ).toContain('A real run would be refused for its checkpoint. Another SandForge run');
+      // A simulation took none: nothing to rewind to.
+      expect(screen.queryByTestId('forge-results-checkpoint')).toBeNull();
+    });
+  });
+
   describe('a simulation', () => {
     /** A simulation that would insert 7 records, failed 2, and found one gap. */
     function simulation(): void {
@@ -2603,6 +2729,102 @@ describe('ForgeResults', () => {
     mockResult = makeMockResult();
     render(<ForgeResults />);
     expect(screen.queryByTestId('forge-results-currencies')).toBeNull();
+  });
+
+  it('says the record type the target would give the records a simulation would create without one, the one read back after a run, and nothing for a run whose records carried theirs', () => {
+    const opportunity = {
+      objectApiName: 'Opportunity',
+      rows: 3,
+      why: { masterInSource: 2, decidedDefault: 1 },
+      predicted: {
+        developerName: 'SFX_Retail',
+        label: 'SFX Retail',
+        basis: 'onlyOneOpen' as const,
+      },
+    };
+    mockResult = {
+      ...makeMockResult(),
+      dryRun: true,
+      recordTypesGiven: [opportunity],
+    } as typeof mockResult;
+    const { unmount } = render(<ForgeResults />);
+
+    const predicted = screen.getByTestId('forge-results-record-types');
+    expect(
+      within(predicted).getByRole('heading', { name: 'Record types the target org would give' }),
+    ).toBeDefined();
+    expect(screen.getByTestId('forge-results-record-types-Opportunity').textContent).toMatch(
+      /^3 Opportunity records to create without a record type, 2 on Master in the source and 1 given the default by your decision: the target org would give them SFX_Retail \(SFX Retail\), /,
+    );
+    unmount();
+
+    mockResult = Object.assign(makeMockResult(), {
+      recordTypesGiven: [
+        {
+          ...opportunity,
+          readBack: {
+            read: 3,
+            types: [{ developerName: 'SFX_Retail', label: 'SFX Retail', rows: 3 }],
+          },
+        },
+      ],
+    });
+    const { unmount: unmountRun } = render(<ForgeResults />);
+    expect(screen.getByRole('heading', { name: 'Record types the target org gave' })).toBeDefined();
+    expect(screen.getByTestId('forge-results-record-types-Opportunity').textContent).toBe(
+      '3 Opportunity records created without a record type, 2 on Master in the source and 1 ' +
+        'given the default by your decision: they went in as SFX_Retail (SFX Retail), read back on 3.',
+    );
+    unmountRun();
+
+    mockResult = makeMockResult();
+    render(<ForgeResults />);
+    expect(screen.queryByTestId('forge-results-record-types')).toBeNull();
+  });
+
+  it('names what still ran of a muted run where the target set another record type than was predicted', () => {
+    mockResult = Object.assign(makeMockResult(), {
+      mutedAutomation: {
+        state: 'muted' as const,
+        assigned: ['Bypass_Automation'],
+        held: [],
+        permissions: ['Bypass_Flows'],
+        silenced: [],
+        stillRan: [
+          {
+            objectApiName: 'Opportunity',
+            kind: 'flow' as const,
+            name: 'Set Opportunity Type',
+            why: 'managedPackage' as const,
+          },
+        ],
+        released: true,
+      },
+      recordTypesGiven: [
+        {
+          objectApiName: 'Opportunity',
+          rows: 2,
+          why: { masterInSource: 2 },
+          predicted: {
+            developerName: 'SFX_Retail',
+            label: 'SFX Retail',
+            basis: 'onlyOneOpen' as const,
+          },
+          readBack: {
+            read: 2,
+            types: [{ developerName: 'SFX_Other', label: 'SFX Other', rows: 2 }],
+          },
+        },
+      ],
+    });
+    render(<ForgeResults />);
+
+    const line = screen.getByTestId('forge-results-record-types-Opportunity');
+    expect(line.textContent).toContain(
+      "where SFX_Retail (SFX Retail) was predicted. The target org's automation sets the " +
+        'record type, among what still ran on Opportunity: Flow: Set Opportunity Type.',
+    );
+    expect(line.textContent).not.toContain('went in as SFX_Retail');
   });
 
   it('lists the decisions the run applied, each with its rows, and none for a run that applied none', () => {

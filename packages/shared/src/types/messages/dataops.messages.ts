@@ -19,6 +19,10 @@ import type {
   SavedTemplateRuleConfig,
 } from '../../constants/saved-anonymization-templates.js';
 import type { GovernancePolicySummary } from '../governance.types.js';
+import type { CheckpointEmails } from '../checkpoint.types.js';
+import type { ForgeTargetAutomation, RunDeliverability } from '../forge.types.js';
+import type { ForgeRemovalSteps } from '../../utils/forge-target-automation.js';
+import type { MutedAutomation, MutePlan } from '../../utils/automation-mute.js';
 
 /** Backup messages */
 export interface BackupExecuteRequest extends BaseMessage {
@@ -305,6 +309,18 @@ export interface AnonymizePreviewObject {
   /** The fields the template masks that the object has, as the org names them. */
   fields: string[];
   /**
+   * Present when the object holds rows and its rules mask no field of it,
+   * every one hidden or absent: Apply is refused for it, and masks nothing.
+   */
+  notCovered?: true;
+  /**
+   * Present when the object holds rows and the connected user may not edit
+   * what Apply writes there: the fields it names, or the object itself when
+   * `deniedFields` is empty. Apply is refused for it (`CRUD_FLS_DENIED`), and
+   * masks nothing.
+   */
+  writeDenied?: { deniedFields: string[] };
+  /**
    * How each of them is masked, by field: the template's method, or, on the
    * fields of a person account the template does not name, the method a
    * contact's rule or an erasure gives it.
@@ -333,7 +349,8 @@ export interface DataOpsAnonymizePreviewResponse extends BaseMessage {
     /**
      * The fields the template's rules name that their object's describe does
      * not list — the org has none, or field-level security hides them from
-     * the connected user: Apply masks nothing there.
+     * the connected user — on the objects that hold a row: Apply is refused
+     * for them, as it is for an object marked `notCovered`, and masks nothing.
      */
     fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }>;
   };
@@ -360,6 +377,110 @@ export interface PIIScanResponse extends BaseMessage {
 
 // ─── DataOps operation messages ──────────────────────────────────────────────
 
+/**
+ * A DataOps act that writes records the org already holds, as the org's
+ * automation is read for it: a masking updates them, a restore of a backup
+ * brings back from the recycle bin what was deleted since and writes the
+ * backup's values back, a cleanup deletes them. Each fires what the org runs
+ * on that write, as a Forge run's inserts fire what it runs on insert.
+ */
+export type DataOpsAct = 'masking' | 'restore' | 'cleanup';
+
+/**
+ * What a DataOps write carries of the question put before it, as the panel
+ * and the command line answer it: the automation that fires accepted
+ * (`--accept-automation`, the panel's confirmation once it listed it), the
+ * emails the org delivers accepted (`--accept-emails`, the panel's box), and
+ * the mute asked for (`--mute-automation`, the panel's box). Absent, none of
+ * them: a write that fires something, or whose emails the org delivers, is
+ * refused before anything is written.
+ */
+export interface DataOpsWriteAccord {
+  acceptAutomation?: boolean;
+  acceptEmails?: boolean;
+  muteAutomation?: boolean;
+}
+
+/**
+ * Where a DataOps write was asked from: the DataOps page marks its masking,
+ * restore and cleanup, and the read of what fires it lists before them
+ * (`fromPage`, as a rewind's page marks its own). The command line sends the
+ * same requests, and their refusals named its flags: told to add
+ * `--mute-automation` and `--accept-emails`, the page had neither. Marked,
+ * they name the page's confirmation and its boxes.
+ */
+export interface DataOpsAskedFrom {
+  fromPage?: true;
+}
+
+/** The records of one object a DataOps act writes. */
+export interface DataOpsAutomationObject {
+  objectApiName: string;
+  records: number;
+}
+
+/**
+ * What the org runs as a DataOps act writes the records of these objects,
+ * read before the act's question (validated by dataOpsAutomationPayloadSchema):
+ * read only, its mute planned when asked, nothing assigned. The act reads it
+ * again before its first write.
+ */
+export interface DataOpsAutomationRequest extends BaseMessage {
+  type: 'dataops:automation';
+  payload: {
+    orgId: string;
+    act: DataOpsAct;
+    objects: DataOpsAutomationObject[];
+    /** A subject erasure's, which writes as a masking or a cleanup and is named so. */
+    erasure?: boolean;
+  } & DataOpsWriteAccord &
+    DataOpsAskedFrom;
+}
+
+/** Why a DataOps act would be refused before it writes, with its code. */
+export interface DataOpsAutomationRefusal {
+  code: string;
+  message: string;
+}
+
+/**
+ * What a DataOps act would run into: what fires as it writes, step by step,
+ * the emails that sends against what the org has left today, whether the org
+ * delivers them, what a mute asked for would assign, and why the act would
+ * be refused as it was asked.
+ */
+export interface DataOpsAutomationAnswer {
+  act: DataOpsAct;
+  /** The objects it writes records of, those with none left out. */
+  objects: DataOpsAutomationObject[];
+  /** What each step of the act writes, as what fires is read on it. */
+  steps: ForgeRemovalSteps;
+  /** What the org runs on them; absent when it could not be read, and `automationUnread` says why. */
+  automation?: ForgeTargetAutomation;
+  automationUnread?: string;
+  /** What the command line says of it, as a dry run prints it. */
+  lines: string[];
+  /** The emails the act makes the org send, per daily limit, against what it has left today. */
+  emails: CheckpointEmails[];
+  /** Why some emails were not counted: what sends them was not read. */
+  emailsUncounted?: string;
+  /** What may send, and whether the org delivers it; absent when nothing that still runs sends. */
+  deliverability?: RunDeliverability;
+  /** Whether the act needs its emails accepted: the org delivers them, or would not say. */
+  emailsAsk: boolean;
+  /** Why the act would be refused as asked, the first one stopping it; empty when it may go. */
+  refusals: DataOpsAutomationRefusal[];
+  /** Asked to mute: what a real act's mute would assign, silence and leave running. */
+  mutedAutomation?: MutedAutomation;
+  mutePlan?: MutePlan;
+}
+
+/** What `dataops:automation` answers. */
+export interface DataOpsAutomationResponse extends BaseMessage {
+  type: 'dataops:automation:response';
+  payload: DataOpsAutomationAnswer;
+}
+
 /** Request to roll back a previous data operation (validated by dataOpsRollbackPayloadSchema). */
 export interface DataOpsRollbackRequest extends BaseMessage {
   type: 'dataops:rollback';
@@ -377,7 +498,8 @@ export interface DataOpsRollbackRequest extends BaseMessage {
      * Sync leaves them.
      */
     includeChanged?: boolean;
-  };
+  } & DataOpsWriteAccord &
+    DataOpsAskedFrom;
 }
 
 /** Request to anonymize data with a masking template (validated by dataOpsAnonymizePayloadSchema). */
@@ -407,7 +529,8 @@ export interface DataOpsAnonymizeRequest extends BaseMessage {
      * already wrote over some of those rows.
      */
     snapshot?: boolean;
-  };
+  } & DataOpsWriteAccord &
+    DataOpsAskedFrom;
 }
 
 /** Response after a successful backup of the selected objects. */
@@ -443,6 +566,8 @@ export interface DataOpsRollbackResponse extends BaseMessage {
     rewriteAll?: boolean;
     /** Of a Sync run's backup, the restore was asked to include the records changed since the run. */
     includeChanged?: boolean;
+    /** What the restore's mute assigned, kept quiet and left running, when it was asked to mute. */
+    mutedAutomation?: MutedAutomation;
     /**
      * Of a Sync run's backup, the records changed or deleted since the run —
      * modified after its last write, or in the recycle bin — which the
@@ -464,7 +589,33 @@ export interface DataOpsRollbackResponse extends BaseMessage {
     partial?: boolean;
     /** A cancel stopped the restore between two batches: what it restored before is counted. */
     cancelled?: boolean;
+    /** What the duplicate rules wrote during it; absent when it put back no record of an object that has one. */
+    duplicates?: MaskingDuplicatesWritten;
   };
+}
+
+/**
+ * What the duplicate rules of the org wrote while a masking ran — or a
+ * restore, or an erasure in place —, for the records it wrote: read once its
+ * last write was in, and kept. A masking writes the same address over every
+ * record, and a rule that reports writes a duplicate record set of the
+ * records alike.
+ */
+export interface MaskingDuplicatesWritten {
+  /** The objects it masked whose duplicate rules are active, and the rules' names. */
+  rules: Array<{ objectApiName: string; rules: string[] }>;
+  /** Duplicate record sets created during the run that hold an item naming a record it masked. */
+  sets: number;
+  /** Items created during the run in such a set: the masked records', and those they match. */
+  items: number;
+  /** More items were created during the run than one read takes: the counts are at least these. */
+  atLeast?: true;
+  /** Why it could not be read; the counts are then 0. */
+  unread?: string;
+  /** The requests it took: the org's clock before the first write, the items, then their sets. */
+  requests?: number;
+  /** How long it waited after the last write for the rules' reports to land, in milliseconds. */
+  waitedMs?: number;
 }
 
 /**
@@ -499,13 +650,6 @@ export interface DataOpsAnonymizeResponse extends BaseMessage {
     message: string;
     /** Why the org refused them, per object. */
     errors: Array<{ objectApiName: string; message: string }>;
-    /**
-     * The fields the template's rules name that their object's describe does
-     * not list in this org — it has none, or field-level security hides them
-     * from the connected user — among the objects the run read: their rules
-     * masked nothing, and the run is partial.
-     */
-    fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }>;
     /** Present when a cancel stopped the run before every record was masked. */
     cancelled?: true;
     /**
@@ -518,6 +662,10 @@ export interface DataOpsAnonymizeResponse extends BaseMessage {
      * backup a restore names, and the rows it holds.
      */
     snapshot?: { operationId: string; totalRecords: number };
+    /** What the run's mute assigned, kept quiet and left running, when it was asked to mute. */
+    mutedAutomation?: MutedAutomation;
+    /** What the duplicate rules wrote during it; absent when no object it masked has one. */
+    duplicates?: MaskingDuplicatesWritten;
   };
 }
 
@@ -595,8 +743,9 @@ export interface DataOpsSubjectExportResponse extends BaseMessage {
 
 /**
  * Erase records a request found: overwrite their personal data with the
- * DataOps anonymizer, or delete them — both through Production Guard. A dry
- * run answers what it would do and writes nothing.
+ * DataOps anonymizer, or delete them — both through Production Guard, once
+ * what the org runs as they are written was read and accepted, as for a
+ * masking or a cleanup. A dry run answers what it would do and writes nothing.
  */
 export interface DataOpsSubjectEraseRequest extends BaseMessage {
   type: 'dataops:dsr:erase';
@@ -607,7 +756,7 @@ export interface DataOpsSubjectEraseRequest extends BaseMessage {
     /** The records to erase, each one the request found. */
     records: Array<{ objectApiName: string; ids: string[] }>;
     dryRun: boolean;
-  };
+  } & DataOpsWriteAccord;
 }
 
 /** Result of `dataops:dsr:erase`: the plan of a dry run, or what the run did. */
@@ -618,8 +767,22 @@ export interface DataOpsSubjectEraseResponse extends BaseMessage {
     mode: SubjectEraseMode;
     dryRun: boolean;
     plan: RemovalPlanObject[];
+    /**
+     * A dry run's: the records the erasure writes itself, per object, not
+     * those the org deletes along with them (`plan[].related`), whose
+     * automation the platform does not run — what its confirmation reads
+     * what fires on, as the erasure reads it before its first write.
+     */
+    written?: DataOpsAutomationObject[];
     /** Absent on a dry run. */
     outcome?: RemovalOutcome;
+    /** What the erasure's mute assigned, kept quiet and left running, when it was asked to mute. */
+    mutedAutomation?: MutedAutomation;
+    /**
+     * An erasure in place's: what the duplicate rules wrote during it; absent
+     * when it overwrote no record of an object that has one.
+     */
+    duplicates?: MaskingDuplicatesWritten;
   };
 }
 
@@ -684,7 +847,8 @@ export interface DataOpsCleanupDeleteRequest extends BaseMessage {
     objectApiName: string;
     recommendation: CleanupRecommendation;
     dryRun: boolean;
-  };
+  } & DataOpsWriteAccord &
+    DataOpsAskedFrom;
 }
 
 /** Result of `dataops:cleanup:delete`. */
@@ -696,8 +860,17 @@ export interface DataOpsCleanupDeleteResponse extends BaseMessage {
     plan: RemovalPlanObject;
     /** More records are recommended than one delete reads. */
     truncated: boolean;
+    /**
+     * A dry run's: the records the delete takes itself, per object, not those
+     * the org deletes along with them (`plan.related`), whose automation the
+     * platform does not run — what its confirmation reads what fires on, as
+     * the delete reads it before its first write.
+     */
+    written?: DataOpsAutomationObject[];
     /** Absent on a dry run. */
     outcome?: RemovalOutcome;
+    /** What the delete's mute assigned, kept quiet and left running, when it was asked to mute. */
+    mutedAutomation?: MutedAutomation;
   };
 }
 
@@ -709,7 +882,15 @@ export interface DataOpsCleanupDeleteResponse extends BaseMessage {
  */
 export interface DataOpsErrorResponse extends BaseMessage {
   type: 'dataops:error';
-  payload: { message: string; code: string; retryable: boolean };
+  payload: {
+    message: string;
+    code: string;
+    retryable: boolean;
+    /** An erasure refused for several reasons: every one after the first, each under its code. */
+    alsoRefused?: DataOpsAutomationRefusal[];
+    /** A write that muted and stopped: what its mute assigned, kept quiet and took back. */
+    mutedAutomation?: MutedAutomation;
+  };
 }
 
 // ─── Governance messages ─────────────────────────────────────────────────────

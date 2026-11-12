@@ -284,6 +284,17 @@ test('the FAQ answers the person account, currency and empty-org questions', () 
   );
 });
 
+test('no paragraph of the FAQ runs past 1,500 characters', () => {
+  const faq = read('docs', 'faq.md').split('\n');
+  // Positive control: the answers are read as the long lines they are.
+  assert.ok(faq.some((line) => line.length > 1000));
+  assert.deepEqual(
+    faq.filter((line) => line.length > 1500).map((line) => line.slice(0, 60)),
+    [],
+    'an answer that long is not read: move the detail to the page it links to',
+  );
+});
+
 /**
  * What SandForge keeps on disk, each read from the code that writes it: a
  * reader deciding whether to try it on a shared machine is owed the list.
@@ -471,7 +482,29 @@ function helpFlags(script) {
   const source = read(...CLI_DIR, `${script}.ts`);
   const help = /const HELP = `([\s\S]*?)`;/.exec(source)?.[1];
   assert.ok(help, `${script}.ts has no HELP text — re-point this gate`);
-  return new Set([...help.matchAll(/(?<![\w-])--[a-z][a-z-]*/g)].map((m) => m[0]));
+  const flags = new Set([...help.matchAll(/(?<![\w-])--[a-z][a-z-]*/g)].map((m) => m[0]));
+  // The checkpoint's lines are one helper's, put in the HELP by a call: the
+  // regex above sees the call and none of the flags it prints.
+  if (help.includes('${checkpointFirstHelp(')) {
+    const lines = /export function checkpointFirstHelp[\s\S]*?\n}\n/.exec(
+      read(...CLI_DIR, 'beforeRunCheckpoint.ts'),
+    )?.[0];
+    assert.ok(lines, 'beforeRunCheckpoint.ts has no checkpointFirstHelp — re-point this gate');
+    for (const [flag] of lines.matchAll(/(?<=' {2})--[a-z][a-z-]*|(?<=` {2})--[a-z][a-z-]*/g)) {
+      flags.add(flag);
+    }
+  }
+  // So are the DataOps scripts' flags of the org's automation.
+  if (help.includes('${dataOpsAutomationHelp(')) {
+    const lines = /export function dataOpsAutomationHelp[\s\S]*?\n}\n/.exec(
+      read(...CLI_DIR, 'dataOpsAutomationCli.ts'),
+    )?.[0];
+    assert.ok(lines, 'dataOpsAutomationCli.ts has no dataOpsAutomationHelp — re-point this gate');
+    for (const [flag] of lines.matchAll(/(?<=` {2})--[a-z][a-z-]*|(?<=\n {2})--[a-z][a-z-]*/g)) {
+      flags.add(flag);
+    }
+  }
+  return flags;
 }
 
 const NUMBER_WORDS = [
@@ -544,6 +577,16 @@ test('each script row of ci-examples names every flag its --help lists, and no o
  * the checkout has one installed, and a reader comparing two helps read two
  * ways of running them.
  */
+test('the gate of the script rows reads the checkpoint flags a helper prints', () => {
+  for (const script of ['sandforge-clone', 'sandforge-frozen']) {
+    const help = helpFlags(script);
+    for (const flag of ['--checkpoint-first', '--checkpoint-keep-days']) {
+      assert.ok(help.has(flag), `${script}: ${flag} not read`);
+    }
+    assert.ok(help.has('--checkpoint-exclude-object'), `${script}: the exclusion not read`);
+  }
+});
+
 test('every script’s help runs it the way ci-examples says every script is run', () => {
   const said = /is invoked as `(.+?) packages\/extension\/cli\/sandforge-<name>\.ts \.\.\.`/.exec(
     read('ci-examples', 'README.md'),

@@ -362,6 +362,33 @@ describe('a rewind of the environment', () => {
     expect(outcome.result.undo.offered).toBe(false);
   });
 
+  it('hands the line’s --accept-emails to the rewind and to its preview, and asks for none of itself', async () => {
+    const state = await written();
+    const { runner, lines } = scripted({ rewind: answered(0, rewound('success')) });
+
+    await rewindEnvironment(depsOf(runner), { ...input('reset', state), acceptEmails: true });
+    await rewindEnvironment(depsOf(runner), input('reset', state));
+
+    expect(lines[0]).toContain('--accept-emails');
+    expect(lines[1]).not.toContain('--accept-emails');
+  });
+
+  it('refuses a reset the org’s emails hold, exit 1, in the rewind’s own words, the state as it was', async () => {
+    const state = await written();
+    const message =
+      'pool-1 delivers every email its automation sends (Setup > Deliverability: All email). ' +
+      'Add --accept-emails to rewind all the same.';
+    const { runner } = scripted({
+      rewind: answered(1, { refusal: { code: 'EMAILS_DELIVERED', message } }),
+    });
+
+    const outcome = await rewindEnvironment(depsOf(runner), input('reset', state));
+
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.result.refusal).toBe(message);
+    expect(await store.read(ORG_ID, 'pool')).toEqual(state);
+  });
+
   it('refuses, rewinding nothing, while another apply of the org holds its lock, or once the state moved', async () => {
     const state = await written();
     const { runner, lines } = scripted({ rewind: answered(0, rewound('success')) });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { OrgSafetyTier } from '@sandforge/shared';
 import i18n from '../../../i18n';
@@ -8,6 +8,7 @@ import ja from '../../../i18n/locales/ja.json';
 import { Step4Review } from './Step4_Review';
 import { uiLocale } from '../../../utils/formatters';
 import { useOrgStore } from '../../../stores/useOrgStore';
+import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 
 /** An org as the store holds it. */
 function org(overrides: Partial<SalesforceOrg>): SalesforceOrg {
@@ -51,7 +52,6 @@ afterEach(() => {
 });
 
 const defaultProps = {
-  sourceOrgId: 'org-1',
   targetOrgId: 'org-2',
   selectedObjects: ['Account', 'Contact', 'Opportunity'],
   totalRecords: 20700,
@@ -155,26 +155,6 @@ describe('Step4_Review', () => {
   it('should show object count', () => {
     render(<Step4Review {...defaultProps} />);
     expect(screen.getByTestId('stat-objects').textContent).toContain('3');
-  });
-
-  it('names both orgs by their alias, type and instance, never by the id the store keys them on', () => {
-    // The last panel before the write said "Source: org-1 → Target: org-2",
-    // a UUID in a real install, on the one screen where the target is checked.
-    render(<Step4Review {...defaultProps} />);
-
-    const orgs = screen.getByTestId('step4-orgs');
-    expect(orgs.textContent).not.toContain('org-1');
-    expect(orgs.textContent).not.toContain('org-2');
-    const source = within(screen.getByTestId('step4-source-org'));
-    expect(source.getByTestId('org-badge-alias').textContent).toBe('DevSandbox');
-    expect(source.getByTestId('org-badge-type').textContent).toBe('SANDBOX');
-    expect(source.getByTestId('org-badge-url').textContent).toBe('dev.example.my.salesforce.com');
-    const target = within(screen.getByTestId('step4-target-org'));
-    expect(target.getByTestId('org-badge-alias').textContent).toBe('QASandbox');
-    // A sandbox marked Staging is named so, in the warning colour of its tier.
-    expect(target.getByTestId('org-badge-type').textContent).toBe('STAGING');
-    expect(target.getByTestId('org-badge-type').className).toContain('bg-status-warning');
-    expect(target.getByTestId('org-badge-url').textContent).toBe('qa.example.my.salesforce.com');
   });
 
   it('names the target it writes into on the button that starts the run', () => {
@@ -451,5 +431,60 @@ describe('Step4_Review', () => {
 
     expect(screen.queryByTestId('step4-scope')).toBeNull();
     expect(screen.queryByTestId('step4-not-covered')).toBeNull();
+  });
+
+  describe('the checkpoint first', () => {
+    beforeEach(() => {
+      useAutopilotStore.setState({ checkpointFirst: false });
+    });
+
+    it('is off, recommended, and says where its cost is said', () => {
+      render(<Step4Review {...defaultProps} />);
+
+      const toggle = screen.getByTestId('step4-checkpoint-first-toggle') as HTMLInputElement;
+      expect(toggle.checked).toBe(false);
+      expect(screen.getByTestId('step4-checkpoint-first-recommended').textContent).toBe(
+        'An Autopilot run cannot be removed afterwards: tick Checkpoint first to be able to rewind it.',
+      );
+      expect(screen.getByTestId('step4-checkpoint-first-cost-said').textContent).toContain(
+        'is said in the question before the first write',
+      );
+      expect(screen.getByTestId('step4-no-way-back').textContent).toBe(
+        'SandForge cannot remove what this run writes: try it on a scratch org or a sandbox you can refresh.',
+      );
+    });
+
+    it('says what became of the checkpoint of a run its error ended, beside why', () => {
+      useAutopilotStore.setState({
+        runEnd: {
+          orgId: 'org-2',
+          startedAt: '2026-11-01T10:15:00.000Z',
+          endedAt: '2026-11-01T10:16:00.000Z',
+          objects: ['Account'],
+          checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+        },
+      });
+      const { rerender } = render(<Step4Review {...defaultProps} error="The mute was refused." />);
+      expect(screen.getByTestId('step4-checkpoint-deleted').textContent).toBe(
+        'The checkpoint taken before the run was deleted: the run wrote nothing.',
+      );
+
+      // The last run's, once nothing went wrong since: not this review's to say.
+      rerender(<Step4Review {...defaultProps} />);
+      expect(screen.queryByTestId('step4-checkpoint-deleted')).toBeNull();
+      useAutopilotStore.setState({ runEnd: null });
+    });
+
+    it('ticked, keeps it for the run, and says the way back there is', () => {
+      render(<Step4Review {...defaultProps} />);
+
+      fireEvent.click(screen.getByTestId('step4-checkpoint-first-toggle'));
+
+      expect(useAutopilotStore.getState().checkpointFirst).toBe(true);
+      expect(screen.queryByTestId('step4-checkpoint-first-recommended')).toBeNull();
+      expect(screen.getByTestId('step4-no-way-back').textContent).toBe(
+        'SandForge cannot remove what this run writes: the checkpoint taken first is the way back.',
+      );
+    });
   });
 });

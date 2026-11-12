@@ -613,6 +613,31 @@ describe('translateError in every other module', () => {
     }
   });
 
+  it('says a record written before the parent it names keeps the lookup empty, not that it was held back', () => {
+    // The second pass's words, on a record that is in the target: read as one
+    // held back, the hint denied the line above it.
+    const refusedParent = translateError(
+      'PARENT_REFUSED: the Account record its ParentId names was refused in this run, and this ' +
+        'record, written before it, keeps its ParentId empty.',
+    );
+    const skippedParent = translateError(
+      'PARENT_NOT_WRITTEN: the Account record its ParentId names was not written: Account was ' +
+        'skipped in this run, and this record, written before it, keeps its ParentId empty.',
+    );
+    expect(refusedParent).toMatchObject({
+      code: 'PARENT_REFUSED',
+      explanationKey: 'errors.parentRefused.keptEmpty.explanation',
+      actionKey: 'errors.parentRefused.keptEmpty.action',
+      severity: 'warning',
+    });
+    expect(skippedParent).toMatchObject({
+      code: 'PARENT_NOT_WRITTEN',
+      explanationKey: 'errors.parentNotWritten.keptEmpty.explanation',
+      actionKey: 'errors.parentNotWritten.keptEmpty.action',
+    });
+    expect([refusedParent?.docUrl, skippedParent?.docUrl]).toEqual([undefined, undefined]);
+  });
+
   it('says why the parent of a record held back was not written, as Autopilot said it', () => {
     // The message names the parent's object and why in English; the hint
     // says which of the two in the panel's language, and what to do.
@@ -654,6 +679,30 @@ describe('the connection errors a panel words by their code', () => {
     expect(panelWordingOf(null)).toBeUndefined();
   });
 
+  it('words a run refused for its emails in place of the host, whose words name the command line’s flag', () => {
+    expect(panelWordingOf('EMAILS_NOT_ACCEPTED')).toEqual({
+      explanationKey: 'errors.emailsNotAccepted.explanation',
+      actionKey: 'errors.emailsNotAccepted.action',
+    });
+    expect(
+      bannerHintOf('Add --accept-emails to sync all the same.', 'EMAILS_NOT_ACCEPTED'),
+    ).toBeNull();
+  });
+
+  it('keeps the host’s words of a rewind refused for its emails, which name who sends, and hints the way past them', () => {
+    expect(panelWordingOf('EMAILS_DELIVERED')).toBeUndefined();
+    expect(bannerHintOf('DEV-SB delivers every email.', 'EMAILS_DELIVERED')).toMatchObject({
+      code: 'EMAILS_DELIVERED',
+      explanationKey: 'errors.emailsDelivered.explanation',
+      actionKey: 'errors.emailsDelivered.action',
+      severity: 'error',
+    });
+    // A code of SandForge's own: Salesforce Help knows nothing of it.
+    expect(
+      bannerHintOf('DEV-SB delivers every email.', 'EMAILS_DELIVERED')?.docUrl,
+    ).toBeUndefined();
+  });
+
   it("words a Sync run its write gate refused before its first write in place of the host's English", () => {
     expect(panelWordingOf('SYNC_STORAGE_EXCEEDED')).toEqual({
       explanationKey: 'errors.syncStorageExceeded.explanation',
@@ -673,6 +722,17 @@ describe('the connection errors a panel words by their code', () => {
     );
     // Its own codes: no search of Salesforce Help is linked for them.
     expect(translateError('', { code: 'SYNC_STORAGE_EXCEEDED' })?.docUrl).toBeUndefined();
+  });
+
+  it('words a run refused for its checkpoint, and a seed nobody could answer for, in the panel', () => {
+    expect(panelWordingOf('CHECKPOINT_REFUSED')?.explanationKey).toBe(
+      'errors.checkpointRefused.explanation',
+    );
+    expect(panelWordingOf('SEED_CONFIRMATION_UNAVAILABLE')?.actionKey).toBe(
+      'errors.seedConfirmationUnavailable.action',
+    );
+    expect(translateError('', { code: 'CHECKPOINT_REFUSED' })?.docUrl).toBeUndefined();
+    expect(bannerHintOf('Refused.', 'SEED_CONFIRMATION_UNAVAILABLE')).toBeNull();
   });
 
   it('says no hint under a banner whose message the panel already worded by that code', () => {

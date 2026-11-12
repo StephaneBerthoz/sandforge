@@ -43,11 +43,13 @@ describe('FrozenReloadRefused', () => {
     expect(screen.getByRole('region', { name: /Reload refused/ })).toBeTruthy();
   });
 
-  it('offers to take the load back first, the records changed since included, or to cancel', () => {
+  it('offers to take the load back first, the records changed since and what was added under them included, or to cancel', () => {
     const { onTakeBack, onCancel } = refused();
 
+    // A reload is refused too for a contact made by hand under one of the
+    // load's accounts, which the removal the button opens takes along.
     expect(screen.getByTestId('frozen-reload-refused-way-out').textContent).toBe(
-      "Take the load back first: its records go to the recycle bin of DEV-SANDBOX, the ones changed since included — on a shared sandbox, someone else's work — once you have typed the org's name. Then load the dataset again. Or cancel, and nothing changes.",
+      "Take the load back first: its records go to the recycle bin of DEV-SANDBOX, the ones changed since, and what was added under them since, included — on a shared sandbox, someone else's work — once you have typed the org's name. Then load the dataset again. Or cancel, and nothing changes.",
     );
     fireEvent.click(screen.getByTestId('frozen-reload-take-back'));
     expect(onTakeBack).toHaveBeenCalledTimes(1);

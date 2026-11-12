@@ -74,7 +74,7 @@ describe('AuditTrailViewer', () => {
 
   it('names each action in the reader’s language, not by its code', () => {
     render(<AuditTrailViewer entries={[...entries, forgeRun]} />);
-    const badges = screen.getAllByText(/Seed Execute|Backup Create|Settings Change|Forge Clone/);
+    const badges = screen.getAllByText(/Seed run|Backup created|Settings changed|Forge clone/);
     expect(badges.length).toBeGreaterThanOrEqual(4);
     expect(screen.queryByText('seed_execute')).toBeNull();
     expect(screen.queryByText('forge_execute')).toBeNull();
@@ -93,7 +93,7 @@ describe('AuditTrailViewer', () => {
     };
 
     it('is named as the navigation names its page, not by the id it was recorded under', () => {
-      // "Cleanup Delete frozen into QASandbox": the id, in lower case, beside
+      // "Cleanup delete frozen into QASandbox": the id, in lower case, beside
       // a navigation that says Frozen Dataset.
       render(<AuditTrailViewer entries={[frozenRemoval, entries[1]]} />);
 
@@ -104,12 +104,12 @@ describe('AuditTrailViewer', () => {
     });
 
     it('is said once, where the action already names it', () => {
-      // "Forge Clone forge into …" said it twice.
+      // "Forge clone forge into …" said it twice.
       render(<AuditTrailViewer entries={[forgeRun, entries[0]]} />);
 
       expect(screen.queryByTestId('audit-module-aud-forge')).toBeNull();
       expect(screen.queryByTestId('audit-module-aud-1')).toBeNull();
-      expect(screen.getByTestId('audit-aud-forge').textContent).toContain('Forge Clone');
+      expect(screen.getByTestId('audit-aud-forge').textContent).toContain('Forge clone');
     });
 
     it('is shown as recorded when the navigation has no name for it', () => {
@@ -143,7 +143,7 @@ describe('AuditTrailViewer', () => {
 
   it('should show entry details', () => {
     render(<AuditTrailViewer entries={entries} />);
-    expect(screen.getByText(/records: 500/)).toBeDefined();
+    expect(screen.getByText('Records: 500')).toBeDefined();
   });
 
   it('says which org a run wrote, where from, how it ended and what the guard decided', () => {
@@ -269,6 +269,58 @@ describe('AuditTrailViewer', () => {
     );
   });
 
+  it('says the records of a run that kept a lookup it could not fill', () => {
+    const run: AuditLogEntry = {
+      ...forgeRun,
+      id: 'aud-autopilot-lookups',
+      action: 'autopilot_execute',
+      module: 'autopilot',
+      outcome: 'partial',
+      objects: [
+        {
+          objectApiName: 'Account',
+          created: 8,
+          updated: 0,
+          deleted: 0,
+          failed: 0,
+          lookupsNotFilled: 3,
+        },
+      ],
+    };
+    render(<AuditTrailViewer entries={[run]} />);
+
+    expect(screen.getByTestId('audit-aud-autopilot-lookups').querySelector('li')?.textContent).toBe(
+      'Account 8 created · 3 kept a lookup empty, filling it failed',
+    );
+  });
+
+  it('says the records left drafts by a refused status, on a run that never stopped, as such', () => {
+    // Under the stop's column, an order whose activation the target refused
+    // read "left a draft, the run stopped" on a run that ran to its end.
+    const run: AuditLogEntry = {
+      ...forgeRun,
+      id: 'aud-autopilot-statuses',
+      action: 'autopilot_execute',
+      module: 'autopilot',
+      outcome: 'partial',
+      objects: [
+        {
+          objectApiName: 'Order',
+          created: 3,
+          updated: 0,
+          deleted: 0,
+          failed: 0,
+          statusesNotApplied: 1,
+        },
+      ],
+    };
+    render(<AuditTrailViewer entries={[run]} />);
+
+    expect(
+      screen.getByTestId('audit-aud-autopilot-statuses').querySelector('li')?.textContent,
+    ).toBe('Order 3 created · 1 left a draft, its status refused');
+  });
+
   it('names an object of a clone a cancel stopped before it wrote, with the rows it never sent', () => {
     // Nothing created, nothing failed: what the cancel kept from the target
     // is all there is to say of the object, and the entry says why it stopped.
@@ -288,7 +340,7 @@ describe('AuditTrailViewer', () => {
     expect(row.textContent).toContain('Stopped');
     expect(row.querySelectorAll('li')).toHaveLength(1);
     expect(row.querySelector('li')?.textContent).toBe('Account 2 not sent');
-    expect(row.textContent).toContain('code: RUN_CANCELLED');
+    expect(row.textContent).toContain('Code: RUN_CANCELLED');
   });
 
   it('names an object the run skipped whole, told apart from one it did nothing to', () => {

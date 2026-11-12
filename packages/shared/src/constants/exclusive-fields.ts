@@ -66,3 +66,32 @@ export function exclusiveFieldsToDrop(
   }
   return drop;
 }
+
+/**
+ * The field a record has to be given when it would go in holding no field of
+ * its object's group: the platform takes one of a group and needs one, and
+ * the describe says neither, both fields reading nillable. The first of the
+ * group an insert can set; undefined when the record holds one, or its object
+ * has no group.
+ *
+ * Run for real, a dataset whose rules cleared an opportunity's line prices
+ * counted its lines to insert, and the org refused each one:
+ * `FIELD_INTEGRITY_EXCEPTION: field integrity exception: TotalPrice (total
+ * price must be specified)`.
+ *
+ * @param settable - Whether an insert can set a field: a quote line's total is
+ *   the org's own, so a quote line's group comes down to its unit price.
+ * @param holds - Whether the record, or the records, hold a value of a field.
+ */
+export function exclusiveFieldToFill(
+  objectApiName: string,
+  settable: (field: string) => boolean,
+  holds: (field: string) => boolean,
+): string | undefined {
+  for (const group of EXCLUSIVE_FIELD_GROUPS) {
+    if (group.objectApiName !== objectApiName) continue;
+    const sent = group.fields.filter(settable);
+    if (sent.length > 0 && !sent.some(holds)) return sent[0];
+  }
+  return undefined;
+}

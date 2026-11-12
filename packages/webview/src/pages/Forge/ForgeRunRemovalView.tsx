@@ -1,4 +1,4 @@
-import React, { useId, useMemo } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { Square } from 'lucide-react';
@@ -6,6 +6,7 @@ import type {
   ForgeExecutionResult,
   ForgeFileObject,
   ForgeRemovalPlan,
+  ForgeSweepListing,
   ForgeUndoMark,
   ForgeUndoObjectResult,
   ForgeUndoResult,
@@ -16,6 +17,7 @@ import {
   forgeRunCountsCreated,
   forgeRunCountsLeft,
   forgeRunLinkedKeptCount,
+  sweepTakenObjects,
 } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
@@ -25,7 +27,7 @@ import { useOperationCancel } from '../../hooks/useOperationCancel';
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { ForgeRemovalAutomation } from './ForgeRemovalAutomation';
-import { ForgeRemovalSweep, ForgeRunSweepResult } from './ForgeRemovalSweep';
+import { ForgeRemovalSweep, ForgeRunSweepResult, type SweepTicks } from './ForgeRemovalSweep';
 
 /**
  * What a removal takes back — a Forge run, a Frozen load, what was added to
@@ -64,12 +66,41 @@ const RESULT_TITLE_KEYS: Record<RemovalSubject, Record<ForgeUndoStatus, string>>
   },
 };
 
+/**
+ * What that first line says of a removal partial by its sweep alone, where the
+ * title of a partial removal says that records of the run stay: none did, and
+ * what stays is the sweep's, listed under it.
+ */
+const SWEEP_LEFT_KEYS: Partial<Record<RemovalSubject, string>> = {
+  run: 'runRemoval.resultSweepLeft',
+  load: 'runRemoval.load.resultSweepLeft',
+};
+
+/** Whether a removal's own records all went: partial then, its sweep made it so. */
+function tookAllItsRecords(objects: readonly ForgeUndoObjectResult[]): boolean {
+  return objects.every(
+    (object) =>
+      object.keptChanged + object.keptDependents + object.refused + (object.notVisible ?? 0) === 0,
+  );
+}
+
 /** What a record kept for a change since is said to have changed since. */
 const CHANGED_KEYS: Record<RemovalSubject, string> = {
   run: 'runRemoval.resultChanged',
   load: 'runRemoval.load.resultChanged',
   rewind: 'runRemoval.rewind.resultChanged',
   rewindUndo: 'runRemoval.rewindUndo.resultChanged',
+};
+
+/**
+ * What a removal took along that was not what it took back, by what it took
+ * back: records added or changed since, under the ones it deleted.
+ */
+const TOOK_ALONG_KEYS: Record<RemovalSubject, string> = {
+  run: 'runRemoval.resultTookAlong',
+  load: 'runRemoval.load.resultTookAlong',
+  rewind: 'runRemoval.rewind.resultTookAlong',
+  rewindUndo: 'runRemoval.rewindUndo.resultTookAlong',
 };
 
 /** What the files a removal leaves in the org are said not to have come with. */
@@ -99,6 +130,22 @@ const RESULT_TITLE_CLASSES: Record<ForgeUndoStatus, string> = {
   cancelled: 'text-status-warning',
 };
 
+/** What a removal says of the records the target's automation likely made, by what it took back. */
+const AUTOMATION_HELD_KEYS: Partial<
+  Record<RemovalSubject, { held: string; takeBack: string; note: string }>
+> = {
+  run: {
+    held: 'runRemoval.heldByAutomation',
+    takeBack: 'runRemoval.takeBackMade',
+    note: 'runRemoval.takeBackMadeNote',
+  },
+  load: {
+    held: 'runRemoval.load.heldByAutomation',
+    takeBack: 'runRemoval.load.takeBackMade',
+    note: 'runRemoval.load.takeBackMadeNote',
+  },
+};
+
 /** A count in a sentence: the plural the count picks, the number as the reader writes it. */
 function counted(
   t: TFunction,
@@ -107,6 +154,51 @@ function counted(
   extra: Record<string, string> = {},
 ): string {
   return t(key, { count, formatted: formatNumber(count), ...extra });
+}
+
+/**
+ * What a removal's button says: the act and its size, as a plan counts it. A
+ * button that said Confirm under a typed name said nothing of what it deletes.
+ * Nothing in the plan is the sweep alone, "Remove 0 records" being false; or a
+ * plan that counts none, of a run whose ids are in its journal, for which the
+ * size is not known here.
+ *
+ * @param plan - What the removal takes, per object.
+ * @param sweep - Whether a sweep goes with it, which takes records the plan does not count.
+ */
+export function removalConfirmLabel(
+  t: TFunction,
+  plan: ReadonlyArray<{ objectApiName: string; count: number }>,
+  sweep: boolean,
+): string {
+  const count = plan.reduce((sum, object) => sum + object.count, 0);
+  if (count === 0) return t(sweep ? 'runRemoval.confirmSweep' : 'common.confirm');
+  const files = plan.some((object) => FILE_OBJECTS.has(object.objectApiName));
+  if (sweep) {
+    return counted(
+      t,
+      files ? 'runRemoval.confirmRemoveFilesSweep' : 'runRemoval.confirmRemoveSweep',
+      count,
+    );
+  }
+  return counted(t, files ? 'runRemoval.confirmRemoveFiles' : 'runRemoval.confirmRemove', count);
+}
+
+/**
+ * Whether a plan holds a quote and lines under it or under its opportunity:
+ * set as the quote its opportunity syncs, the quote got a copy of each line
+ * item the run inserted, which the run's id map does not hold. A plan counts
+ * none of them before the removal reads them as it begins.
+ */
+function mayHoldQuoteCopies(
+  plan: ReadonlyArray<{ objectApiName: string; count: number }>,
+): boolean {
+  const objects = new Set(
+    plan.filter((object) => object.count > 0).map((object) => object.objectApiName),
+  );
+  return (
+    objects.has('Quote') && (objects.has('QuoteLineItem') || objects.has('OpportunityLineItem'))
+  );
 }
 
 /** What became of one object's records, the counts that are not zero, in reading order. */
@@ -119,6 +211,11 @@ function outcomeParts(
   if (object.deleted > 0) parts.push(counted(t, 'runRemoval.resultDeleted', object.deleted));
   if (object.alreadyGone > 0) {
     parts.push(counted(t, 'runRemoval.resultGone', object.alreadyGone));
+  }
+  // A plan of 2 quote lines ended in 4 deleted, and nothing said where the
+  // other 2 came from.
+  if ((object.platformCopies ?? 0) > 0) {
+    parts.push(counted(t, 'runRemoval.resultPlatformCopies', object.platformCopies ?? 0));
   }
   // Not found, and not in the recycle bin: never said gone.
   if ((object.notVisible ?? 0) > 0) {
@@ -192,6 +289,9 @@ export const ForgeRunRemovalPlan: React.FC<ForgeRunRemovalPlanProps> = ({
           </li>
         ))}
       </ul>
+      {mayHoldQuoteCopies(plan) && (
+        <p data-testid="forge-removal-quote-copies">{t('runRemoval.removeQuoteCopies')}</p>
+      )}
       {linked > 0 && (
         <p data-testid="forge-removal-linked">{counted(t, 'runRemoval.removeLinked', linked)}</p>
       )}
@@ -264,6 +364,9 @@ export interface ForgeRunRemovalConfirmProps {
    */
   sweep?: boolean;
   onSweepChange?: (sweep: boolean) => void;
+  /** The ticks under the sweep's list: what it keeps, taken too (`useRemovalSweep`). */
+  sweepTicks?: SweepTicks;
+  onSweepTicksChange?: (ticks: SweepTicks) => void;
   /**
    * The removal takes every record the run created again, as `forge:undo`
    * does asked `again` (`backAfterRemoval`): when the undo that brought them
@@ -292,9 +395,13 @@ export interface ForgeRunRemovalConfirmProps {
  * the two places never say two things.
  *
  * A run the history holds is offered a sweep beside its removal: what the
- * target's automation created during the run, as its user, that the run's id
- * map does not hold — listed once ticked, before the org's name is typed. A
- * run the history dropped keeps no id map, and is offered none.
+ * target's automation made for the run, as its user, that the run's id map
+ * does not hold — listed once ticked, before the org's name is typed, with
+ * what it keeps and the ticks that take that too. A run the history dropped
+ * keeps no id map, and is offered none.
+ *
+ * Its button says what it does and how much, as every removal's does, the
+ * sweep included once it is ticked.
  *
  * Asked to take every record the run created again — an undo of a rewind
  * brought back what its removal found gone — it lists them all, and says the
@@ -307,6 +414,8 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
   onIncludeChangedChange,
   sweep = false,
   onSweepChange,
+  sweepTicks,
+  onSweepTicksChange,
   againAfter,
   muteAutomation = false,
   onMuteAutomationChange,
@@ -330,6 +439,16 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
   const linked = run ? (isKeptPlan(run) ? run.linked : forgeRunLinkedKeptCount(run)) : 0;
   const sweepOffered =
     onSweepChange !== undefined && run !== null && !isKeptPlan(run) && run.forgeId !== undefined;
+  // What the sweep's list says it deletes: what fires as those records go is
+  // read with the run's, and the box that mutes it offered with them.
+  const [sweepListing, setSweepListing] = useState<ForgeSweepListing | null>(null);
+  const sweptObjects = useMemo(
+    () =>
+      sweepOffered && sweep && sweepListing
+        ? sweepTakenObjects(sweepListing, sweepTicks ?? {})
+        : [],
+    [sweepOffered, sweep, sweepListing, sweepTicks],
+  );
   return (
     <DangerConfirm
       open={run !== null}
@@ -338,6 +457,7 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
       title={t('runRemoval.removeTitle', { org })}
       description={t('runRemoval.removeDescription', { org })}
       confirmText={org}
+      confirmLabel={removalConfirmLabel(t, plan, sweepOffered && sweep)}
     >
       {again && (
         <p data-testid="forge-removal-again-note">
@@ -359,6 +479,7 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
         org={org}
         targetOrgId={run?.targetOrgId}
         again={again}
+        sweptObjects={sweptObjects}
         {...(onMuteAutomationChange
           ? {
               muteBox: (offer) => (
@@ -393,7 +514,15 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
             />
             {t('runRemoval.removeSweep')}
           </label>
-          {sweep && <ForgeRemovalSweep forgeId={run?.forgeId} org={org} />}
+          {sweep && (
+            <ForgeRemovalSweep
+              forgeId={run?.forgeId}
+              org={org}
+              {...(sweepTicks ? { ticks: sweepTicks } : {})}
+              {...(onSweepTicksChange ? { onTicksChange: onSweepTicksChange } : {})}
+              onListing={setSweepListing}
+            />
+          )}
         </>
       )}
     </DangerConfirm>
@@ -460,6 +589,8 @@ export interface ForgeRunRemovalResultProps {
     | 'notLookedFor'
     | 'sweep'
     | 'mutedAutomation'
+    | 'heldByOtherParts'
+    | 'otherPartsLeft'
   >;
   /** The org it removed from, as the user knows it. */
   org: string;
@@ -471,31 +602,67 @@ export interface ForgeRunRemovalResultProps {
    * files leaves only those the checkpoint holds, or attached outside it.
    */
   filesLeftKey?: string;
+  /**
+   * Opens the confirmation again with its sweep ticked and its list read:
+   * offered when records of the run were kept for what the target's
+   * automation likely made. Absent where no removal can follow, as for a run
+   * the history dropped, which is offered no sweep.
+   */
+  onTakeBackMade?: () => void;
 }
 
 /**
  * What a removal did, object by object — deleted, already gone, kept because
  * changed since the run or because records that stay depend on them, refused
- * — with what the org said about the refusals, the files attached to the
- * records deleted that stay in the org (the removal takes only what the run
- * created), and, for a removal of what an earlier one left, which one. A sweep
- * asked with it says what it did after; a sweep that ran alone, with nothing
- * of the run left to remove, says it alone.
+ * — with what the org said about the refusals, the lines the platform copied
+ * as the run wrote, the files attached to the records deleted that stay in the
+ * org (the removal takes only what the run created), and, for a removal of
+ * what an earlier one left, which one. A sweep asked with it says what it did
+ * after; a sweep that ran alone, with nothing of the run left to remove, says
+ * it alone.
+ *
+ * Records kept for what was created under them during the run, as its user,
+ * are likely held by the target's automation: the result names it and offers
+ * the sweep, the one way that takes those and no colleague's work. Before it,
+ * the only way out was to include what changed, which takes that work too.
  */
 export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
   result,
   org,
   subject = 'run',
   filesLeftKey = FILES_LEFT_KEYS[subject],
+  onTakeBackMade,
 }) => {
   const { t } = useTranslation();
   const headingId = useId();
   // Said once for the removal: the same objects go unchecked under every
   // object that has them.
   const unchecked = [...new Set(result.objects.flatMap((object) => object.unchecked))];
+  const heldByAutomation = result.objects.reduce(
+    (sum, object) => sum + (object.heldByAutomation ?? 0),
+    0,
+  );
+  const automationHolders = [
+    ...new Set(result.objects.flatMap((object) => object.automationHolders ?? [])),
+  ];
+  const heldByOtherParts = [
+    ...new Set((result.heldByOtherParts ?? []).flatMap((part) => part.objects)),
+  ];
+  const otherPartsLeft = (result.otherPartsLeft ?? []).reduce((sum, part) => sum + part.records, 0);
+  // Of a rewind, what was created since the checkpoint is what it takes.
+  const automationKeys = AUTOMATION_HELD_KEYS[subject];
   if (result.sweep && result.objects.length === 0) {
     return <ForgeRunSweepResult result={result.sweep} org={org} />;
   }
+  // A sweep that took all it was asked to made nothing partial: a Sync
+  // removal is partial too for a value it could not give back, listed under it.
+  const sweepLeft =
+    result.status === 'partial' &&
+    result.sweep !== undefined &&
+    result.sweep.status !== 'success' &&
+    tookAllItsRecords(result.objects);
+  const titleKey =
+    (sweepLeft ? SWEEP_LEFT_KEYS[subject] : undefined) ?? RESULT_TITLE_KEYS[subject][result.status];
   return (
     <section
       aria-labelledby={headingId}
@@ -506,7 +673,7 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
         id={headingId}
         className={cn('text-[11px] font-semibold', RESULT_TITLE_CLASSES[result.status])}
       >
-        {t(RESULT_TITLE_KEYS[subject][result.status], { org })}
+        {t(titleKey, { org })}
       </h4>
       {result.leftBy !== undefined && (
         <p data-testid="forge-removal-result-left-by" className="text-text-secondary">
@@ -525,6 +692,19 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
             <span className="font-mono text-text-primary">{object.objectApiName}</span>
             {': '}
             {outcomeParts(t, object, subject).join(' · ')}
+            {/* Taken along unsaid, a contact made by hand under an account of
+                a load went with the account, the result counting the load's
+                contacts alone. */}
+            {object.tookAlong && object.tookAlong.count > 0 && (
+              <p
+                data-testid={`forge-removal-took-along-${object.objectApiName}`}
+                className="ml-3 mt-0.5 wrap-break-word"
+              >
+                {counted(t, TOOK_ALONG_KEYS[subject], object.tookAlong.count, {
+                  objects: object.tookAlong.objects.join(', '),
+                })}
+              </p>
+            )}
             {object.reasons.length > 0 && (
               <ul className="ml-3 mt-0.5 list-disc list-inside wrap-break-word">
                 {object.reasons.map((reason) => (
@@ -548,6 +728,22 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
           </li>
         ))}
       </ul>
+      {/* Of a run stopped and taken up, what one part's removal leaves to the
+          other: its own advice was to include what changed, which takes what
+          others added since too; removing the other part takes the holders. */}
+      {heldByOtherParts.length > 0 && (
+        <p
+          data-testid="forge-removal-held-by-other-parts"
+          className="text-text-secondary wrap-break-word"
+        >
+          {t('runRemoval.resultHeldByOtherParts', { objects: heldByOtherParts.join(', ') })}
+        </p>
+      )}
+      {otherPartsLeft > 0 && (
+        <p data-testid="forge-removal-other-parts-left" className="text-text-secondary">
+          {counted(t, 'runRemoval.resultOtherPartsLeft', otherPartsLeft, { org })}
+        </p>
+      )}
       {unchecked.length > 0 && (
         <p data-testid="forge-removal-unchecked" className="text-text-secondary">
           {t('runRemoval.resultUnchecked', { objects: unchecked.join(', ') })}
@@ -583,6 +779,35 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
         </p>
       )}
       {result.sweep && <ForgeRunSweepResult result={result.sweep} org={org} />}
+      {automationKeys && heldByAutomation > 0 && (
+        <div data-testid="forge-removal-held-by-automation" className="flex flex-col gap-1">
+          <p className="text-status-warning wrap-break-word">
+            {counted(t, automationKeys.held, heldByAutomation, {
+              objects: automationHolders.join(', '),
+            })}
+          </p>
+          {/* A sweep that left them left them for a reason its list says. */}
+          {result.sweep && (
+            <p data-testid="forge-removal-held-sweep-left" className="text-text-secondary">
+              {t('runRemoval.heldSweepLeft')}
+            </p>
+          )}
+          {onTakeBackMade && (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onTakeBackMade}
+                data-testid="forge-removal-take-back-made"
+                className="self-start text-[11px]"
+              >
+                {t(automationKeys.takeBack)}
+              </Button>
+              <p className="text-text-secondary">{t(automationKeys.note)}</p>
+            </>
+          )}
+        </div>
+      )}
       {/* What the removal muted of what it fired, when its box was ticked. */}
       <MutedAutomationResult
         muted={result.mutedAutomation}

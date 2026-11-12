@@ -1,15 +1,22 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ForgeFieldRefusal, SyncObjectResult } from '@sandforge/shared';
+import type {
+  ForgeFieldRefusal,
+  MutedAutomationStillRunning,
+  SyncObjectResult,
+} from '@sandforge/shared';
+import { RecordTypeGivenLine } from '../shared/RecordTypeGivenLine';
 
 /** What an object's result says its write did beside its refusals. */
 type WrittenResult = Pick<
   SyncObjectResult,
   | 'linkedToExisting'
+  | 'writtenByThePlatform'
   | 'lookupsLeftOut'
   | 'lookupsSetAfter'
   | 'writtenWithoutFields'
   | 'encryptedLeftOut'
+  | 'recordTypeGiven'
 >;
 
 /** Props for {@link SyncWrittenLines}. */
@@ -18,6 +25,11 @@ export interface SyncWrittenLinesProps {
   result: WrittenResult;
   /** Test id of the list. */
   testId: string;
+  /**
+   * What still ran of the run's mute (`stillRanOf`), named where the records
+   * went in with another record type than the describe said.
+   */
+  stillRan?: readonly MutedAutomationStillRunning[] | undefined;
 }
 
 /**
@@ -35,11 +47,25 @@ const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
 export function hasWrittenLines(result: WrittenResult): boolean {
   return (
     result.linkedToExisting !== undefined ||
+    result.writtenByThePlatform !== undefined ||
     (result.lookupsLeftOut?.length ?? 0) > 0 ||
     result.lookupsSetAfter !== undefined ||
     result.writtenWithoutFields !== undefined ||
-    (result.encryptedLeftOut?.length ?? 0) > 0
+    (result.encryptedLeftOut?.length ?? 0) > 0 ||
+    (result.recordTypeGiven?.rows ?? 0) > 0
   );
+}
+
+/**
+ * Of an object's records its result counts skipped, those the run linked
+ * rather than wrote: refused as a duplicate of a record the target holds, or
+ * the contact roles the platform wrote with their opportunity. Counted apart
+ * from what it skipped, as the lines under the counts say them.
+ */
+export function linkedOf(
+  result: Pick<SyncObjectResult, 'linkedToExisting' | 'writtenByThePlatform'>,
+): number {
+  return (result.linkedToExisting?.records ?? 0) + (result.writtenByThePlatform?.records ?? 0);
 }
 
 /**
@@ -48,18 +74,20 @@ export function hasWrittenLines(result: WrittenResult): boolean {
  * records linked to one the target already holds rather than written, those
  * written without lookups they held, with why, those given lookups at an
  * object written after them, those written again without the fields the
- * target refused them on, and the encrypted fields every record went without,
- * read masked from the source, in the panel's language.
+ * target refused them on, the encrypted fields every record went without,
+ * read masked from the source, and the record type the target gave those it
+ * created without one, in the panel's language.
  *
  * Each was a sentence among the object's errors, which the pages list as
  * refusals: "1 × LINKED_TO_EXISTING", "1 × 12 record(s) written without
  * OwnerId" and "1 × 2 record(s) written again without the fields the target
  * refused them on" in red, in English, under a run that had succeeded.
  */
-export const SyncWrittenLines: React.FC<SyncWrittenLinesProps> = ({ result, testId }) => {
+export const SyncWrittenLines: React.FC<SyncWrittenLinesProps> = ({ result, testId, stillRan }) => {
   const { t } = useTranslation();
   if (!hasWrittenLines(result)) return null;
   const linked = result.linkedToExisting;
+  const byThePlatform = result.writtenByThePlatform;
   const setAfter = result.lookupsSetAfter;
   const without = result.writtenWithoutFields;
   /** The target's words, after a line that names them. */
@@ -82,6 +110,15 @@ export const SyncWrittenLines: React.FC<SyncWrittenLinesProps> = ({ result, test
         <li data-testid={`${testId}-linked`}>
           {t('sync.written.linked', { count: linked.records })}
           {words(linked.refusal)}
+        </li>
+      )}
+      {byThePlatform && (
+        <li data-testid={`${testId}-byThePlatform`}>
+          {t('sync.written.byThePlatform', {
+            count: byThePlatform.records,
+            given: byThePlatform.given,
+          })}
+          {words(byThePlatform.refusal)}
         </li>
       )}
       {(result.lookupsLeftOut ?? []).map(({ records, fields, reason, refusal }, at) => (
@@ -116,6 +153,16 @@ export const SyncWrittenLines: React.FC<SyncWrittenLinesProps> = ({ result, test
           </ul>
         </li>
       )}
+      {/* The type the target gave the records created without one, as they
+          were read back: no refusal, and not always the one its describe
+          names. */}
+      <RecordTypeGivenLine
+        as="li"
+        entry={result.recordTypeGiven}
+        stage="written"
+        stillRan={stillRan}
+        testId={`${testId}-recordType`}
+      />
     </ul>
   );
 };

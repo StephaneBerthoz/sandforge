@@ -1,5 +1,5 @@
 import type { BaseMessage } from './base.messages.js';
-import type { RunCheckpointRequest } from '../checkpoint.types.js';
+import type { RunCheckpointInfo, RunCheckpointRequest } from '../checkpoint.types.js';
 import type {
   SyncEarlierCopies,
   SyncExecutionResult,
@@ -55,7 +55,15 @@ export interface SyncExecuteResponse extends BaseMessage {
  */
 export interface SyncSimulateRequest extends BaseMessage {
   type: 'sync:simulate';
-  payload: { config: Record<string, unknown> };
+  payload: {
+    config: Record<string, unknown>;
+    /**
+     * The checkpoint a run would take first: the simulation says what it
+     * would hold and cost, and the refusal a real run would meet, and takes
+     * nothing.
+     */
+    checkpointFirst?: RunCheckpointRequest;
+  };
 }
 
 /** Response for a simulation — what the run would do, object by object. */
@@ -152,7 +160,19 @@ export interface SyncDescribeFieldsResponse extends BaseMessage {
 /** Error response for sync config/describe/execute failures (emitted via sendHandlerError). */
 export interface SyncErrorResponse extends BaseMessage {
   type: 'sync:error';
-  payload: { message: string; code: string; retryable: boolean };
+  payload: {
+    message: string;
+    code: string;
+    retryable: boolean;
+    /**
+     * Under `CHECKPOINT_REFUSED`: the take's own refusal, by its code
+     * (`CheckpointRefusalCode`), which the page words. Absent for a take that
+     * failed rather than refused.
+     */
+    checkpointRefusal?: string;
+    /** What became of the checkpoint the run took first, when it took one before it stopped. */
+    checkpoint?: RunCheckpointInfo;
+  };
 }
 
 /** Sync describe global objects request. */
@@ -401,12 +421,18 @@ export interface SyncRemoveSweepErrorResponse extends BaseMessage {
  * `sync:remove:automation`. WebView -> Extension. What the target runs as the
  * removal of a run takes it back, read only, for the confirmation to list.
  * The run is named, never its objects: the extension reads them from what
- * the run kept, as the removal does.
+ * the run kept, as the removal does. A sweep's are named, read from the
+ * listing the confirmation shows, for this read alone: the removal's mute
+ * plans from what its own sweep reads.
  */
 export interface SyncRemoveAutomationRequest extends BaseMessage {
   type: 'sync:remove:automation';
-  /** `again`: on the objects of every record the run created, as `sync:remove` takes them `again`. */
-  payload: { runId: string; again?: boolean };
+  /**
+   * `again`: on the objects of every record the run created, as `sync:remove`
+   * takes them `again`. `sweptObjects`: on those a sweep asked with the removal
+   * deletes records of too (`sweepTakenObjects`).
+   */
+  payload: { runId: string; again?: boolean; sweptObjects?: string[] };
 }
 
 /**

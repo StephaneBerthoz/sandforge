@@ -15,6 +15,8 @@ import {
   ForgeReview,
   preloadStepsAfter,
 } from './forgeSteps';
+import { LazyOrgRibbon } from '../../components/ui/lazyOrgRibbon';
+import { ribbonOrg } from '../../components/ui/ribbonOrg';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
 import { useFocusOnChange } from '../../hooks/useFocusOnChange';
@@ -53,6 +55,8 @@ export const ForgePage: React.FC = () => {
   const { t } = useTranslation();
   const phase = useForgeStore((s) => s.phase);
   const stoppedAt = useForgeStore((s) => s.stoppedAt);
+  const sourceOrgId = useForgeStore((s) => s.config?.sourceOrgId);
+  const targetOrgId = useForgeStore((s) => s.config?.targetOrgId);
   const setStoppedAt = useForgeStore((s) => s.setStoppedAt);
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
@@ -120,6 +124,20 @@ export const ForgePage: React.FC = () => {
   return (
     <div ref={pageRef} className="flex flex-col gap-4 p-4" data-testid="forge-page">
       <PageHeader title={t('nav.forge')} subtitle={t('moduleSummary.forge')} icon="flame" />
+      {/* From Review on the two orgs are settled, and the discovery's pickers
+          gone: where the run copies from, and where it writes, stays said,
+          over the How to as on Sync and Autopilot. Under it, the ribbon came
+          past a How to already read, some 210 pixels before the run's
+          sentence. Waited for on its own: the step is not held for it, and
+          the input, which draws none, does not fetch it. */}
+      {phase !== 'input' && phase !== 'discovery' && (
+        <Suspense fallback={null}>
+          <LazyOrgRibbon
+            source={ribbonOrg(orgs, sourceOrgId)}
+            target={ribbonOrg(orgs, targetOrgId)}
+          />
+        </Suspense>
+      )}
       <ModuleHowTo module="forge" />
       {/* A finished run is spoken from the results screen. One an error or an
           abort stopped stays on the execution screen, which the page can

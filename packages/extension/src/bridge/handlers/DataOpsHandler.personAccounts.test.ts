@@ -14,6 +14,25 @@ import { inboundRequest } from '../../test/mockFactories.js';
 import { BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
 
+// What the org runs as a masking or a restore writes its records: nothing,
+// as an org without flows or triggers on them answers. The gate reads it
+// before every write; a test of what it refuses gives a reader of its own.
+vi.mock('../../modules/forge/TargetAutomationReader.js', () => ({
+  TargetAutomationReader: class {
+    read(_orgId: string, objects: readonly string[]) {
+      return Promise.resolve({
+        objectsRead: [...objects],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      });
+    }
+  },
+  targetAutomationQueries: () => ({}),
+}));
+
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));
@@ -63,6 +82,7 @@ const DESCRIBED: FakeField[] = [
       ['PersonBirthdate', 'Birthdate', 'date'],
       ['PersonMailingStreet', 'Mailing Street', 'textarea'],
       ['PersonMailingCity', 'Mailing City', 'string'],
+      ['PersonMailingState', 'Mailing State/Province', 'string'],
       ['PersonMailingPostalCode', 'Mailing Zip/Postal Code', 'string'],
     ] as const
   ).map(([name, label, type]): FakeField => ({
@@ -106,6 +126,7 @@ function accounts(): Array<Record<string, unknown>> {
       PersonBirthdate: '1984-03-09',
       PersonMailingStreet: '12 Harbour Row',
       PersonMailingCity: 'Portwick',
+      PersonMailingState: 'ME',
       PersonMailingPostalCode: '04101-2231',
     },
   ];
@@ -307,13 +328,37 @@ describe('DataOps masking of the accounts of an org with person accounts', () =>
     });
 
     const [business, person] = rows;
-    for (const field of PERSON_FIELDS) {
+    // The template masks no contact's state, nor a person account's.
+    for (const field of PERSON_FIELDS.filter((f) => f !== 'PersonMailingState')) {
       expect(person[field], field).not.toEqual(before[1][field]);
     }
+    expect(person.PersonMailingState).toBe(before[1].PersonMailingState);
     expect(person.Phone).toBe('**************');
     expect(person.Name).toBe('Ottoline Quenneville');
     expect(business).toMatchObject({ Name: 'Birchwood Dental', Phone: '**************' });
     expect(business.BillingStreet).not.toBe('1 Birch Lane');
+  });
+
+  it('masks an object asked for in another case than the template names it by the rules of its own too', async () => {
+    // Asked for `account`, the run found the person accounts' rules and lost
+    // the template's own: every account kept its billing street and phone,
+    // and the run said success.
+    const rows = accounts();
+    const before = accounts();
+    orgOf(rows);
+
+    await send('dataops:anonymize', {
+      orgId: 'org-1',
+      templateId: 'tpl-gdpr-standard',
+      objects: ['account'],
+    });
+
+    expect(last('dataops:anonymize:response')?.payload).toMatchObject({ status: 'success' });
+    const [business, person] = rows;
+    expect(business.BillingStreet).not.toBe(before[0].BillingStreet);
+    expect(business.Phone).toBe('**************');
+    expect(person.Phone).toBe('**************');
+    expect(person.PersonEmail).not.toBe(before[1].PersonEmail);
   });
 
   it("previews a person account's fields as Apply masks them, and a business account's as they stay", async () => {

@@ -46,6 +46,38 @@ describe('SyncWrittenLines', () => {
     expect(list.className).not.toContain('status-error');
   });
 
+  it('says the contact roles linked to the ones the platform wrote with their opportunity, and how many an update gave their fields', async () => {
+    const result = {
+      writtenByThePlatform: {
+        records: 2,
+        given: 1,
+        refusal: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: A role needs a reason',
+      },
+    };
+    const { unmount } = render(<SyncWrittenLines result={result} testId="lines" />);
+
+    expect(hasWrittenLines(result)).toBe(true);
+    expect(screen.getByTestId('lines-byThePlatform').textContent).toBe(
+      '2 contact roles linked to the ones the platform wrote with their opportunity, for the ' +
+        "contact each went in with, not written; given the source's fields they lacked: 1. " +
+        "The target's words: FIELD_CUSTOM_VALIDATION_EXCEPTION: A role needs a reason",
+    );
+    unmount();
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    render(
+      <SyncWrittenLines
+        result={{ writtenByThePlatform: { records: 1, given: 1 } }}
+        testId="lines"
+      />,
+    );
+    expect(screen.getByTestId('lines-byThePlatform').textContent).toBe(
+      fr.sync.written.byThePlatform_one.replace('{{count}}', '1').replace('{{given}}', '1'),
+    );
+  });
+
   it('says nothing of a write that linked no record and left no lookup out', () => {
     render(<SyncWrittenLines result={{}} testId="lines" />);
 
@@ -135,6 +167,66 @@ describe('SyncWrittenLines', () => {
       '1 record written without ParentId: the run was stopped before setting it.',
     );
     expect(screen.getByTestId('lines').className).not.toContain('status-error');
+  });
+
+  it('says the record type the target gave the records created without one, as read back, and names what still ran where it set another', () => {
+    const result = {
+      recordTypeGiven: {
+        objectApiName: 'Opportunity',
+        rows: 1,
+        why: { masterInSource: 1 },
+        predicted: {
+          developerName: 'SFX_Retail',
+          label: 'SFX Retail',
+          basis: 'onlyOneOpen' as const,
+        },
+        readBack: {
+          read: 1,
+          types: [{ developerName: 'SFX_Retail', label: 'SFX Retail', rows: 1 }],
+        },
+      },
+    };
+    const { unmount } = render(<SyncWrittenLines result={result} testId="lines" />);
+
+    expect(hasWrittenLines(result)).toBe(true);
+    expect(screen.getByTestId('lines-recordType').textContent).toBe(
+      '1 Opportunity record created without a record type, on Master in the source: it went ' +
+        'in as SFX_Retail (SFX Retail), as read back.',
+    );
+    unmount();
+
+    render(
+      <SyncWrittenLines
+        result={{
+          recordTypeGiven: {
+            ...result.recordTypeGiven,
+            readBack: {
+              read: 1,
+              types: [{ developerName: 'SFX_Other', label: 'SFX Other', rows: 1 }],
+            },
+          },
+        }}
+        stillRan={[
+          { objectApiName: 'Opportunity', kind: 'flow', name: 'Set Type', why: 'noBypass' },
+        ]}
+        testId="lines"
+      />,
+    );
+    const differs = screen.getByTestId('lines-recordType');
+    expect(differs.textContent).toContain(
+      'read back, it holds SFX_Other (SFX Other), where SFX_Retail (SFX Retail) was predicted. ' +
+        "The target org's automation sets the record type, among what still ran " +
+        'on Opportunity: Flow: Set Type.',
+    );
+    expect(differs.className).toContain('text-status-warning');
+  });
+
+  it('says nothing of the record type when every record created carried its own', () => {
+    const result = { recordTypeGiven: undefined };
+
+    expect(hasWrittenLines(result)).toBe(false);
+    render(<SyncWrittenLines result={result} testId="lines" />);
+    expect(screen.queryByTestId('lines-recordType')).toBeNull();
   });
 
   it('says it in the language of the panel', async () => {

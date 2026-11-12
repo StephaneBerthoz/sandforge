@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { DATA_STORAGE_NOT_TOLD, type ForgeTargetAutomation } from '@sandforge/shared';
 import type { WriteConfirmation } from '../../core/precheck/ProductionGuard.js';
-import { readApiBudget, readDataStorage } from '../forge/ForgeRunGate.js';
+import { API_BUDGET_EXCEEDED, readApiBudget, readDataStorage } from '../forge/ForgeRunGate.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,7 @@ import {
   gateSyncWrite,
   measureSyncWrite,
   mutingSyncWriteGate,
+  syncGateStops,
   syncRunWrites,
   syncWriteGate,
   syncWritePlan,
@@ -49,13 +50,22 @@ const WELCOME_FLOW: ForgeTargetAutomation = {
 
 const QUIET: ForgeTargetAutomation = { ...WELCOME_FLOW, objects: [] };
 
+/** What a gate says of the emails of an org that withholds them: read, and no accord needed. */
+const WITHHELD = { accepted: false, deliverability: 'withheld' } as const;
+
 /** What the gate reads of a target with room, a quiet automation and a Developer Edition's emails. */
 function measures(overrides: Partial<SyncWriteMeasures> = {}): SyncWriteMeasures {
   return {
     readStorage: async () => ({ maxMB: 5, remainingMB: 3 }),
     readApiBudget: async () => ({ max: 15_000, remaining: 14_000 }),
     readAutomation: async () => QUIET,
-    readLimits: async () => ({ SingleEmail: { max: 15, remaining: 12 } }),
+    readLimits: async () => ({
+      SingleEmail: { max: 15, remaining: 12 },
+      DailyWorkflowEmails: { max: 8_040, remaining: 8_040 },
+    }),
+    // An org that delivers none of the emails of its automation: no question.
+    readDeliverability: async () => ({ reading: { level: 'withheld' }, requests: 2 }),
+    emails: { target: 'TRAP', accepted: false },
     confirmAboveRecords: 2_000,
     ...overrides,
   };
@@ -97,6 +107,25 @@ describe('measureSyncWrite', () => {
     );
 
     expect(check).toMatchObject({ total: 0, alreadyCopied: 40, verdict: 'writes', emails: [] });
+    expect(check).not.toHaveProperty('alreadyLinked');
+    const linked = await measureSyncWrite(
+      {
+        ...counted([{ objectApiName: 'Account', operation: 'insert', rows: 0 }], 40),
+        alreadyLinked: 2,
+      },
+      measures({ readStorage, readApiBudget, readAutomation }),
+    );
+    expect(linked.check).toMatchObject({ alreadyCopied: 40, alreadyLinked: 2 });
+    // The contact roles the run links to the platform's, told apart from what it writes.
+    const roles = await measureSyncWrite(
+      {
+        ...counted([{ objectApiName: 'OpportunityContactRole', operation: 'insert', rows: 0 }]),
+        rolesLinked: 1,
+      },
+      measures({ readStorage, readApiBudget, readAutomation }),
+    );
+    expect(roles.check).toMatchObject({ total: 0, rolesLinked: 1 });
+    expect(roles.check).not.toHaveProperty('rolesByThePlatform');
     expect(readStorage).not.toHaveBeenCalled();
     expect(readApiBudget).not.toHaveBeenCalled();
     expect(readAutomation).not.toHaveBeenCalled();
@@ -247,6 +276,8 @@ describe('measureSyncWrite', () => {
       measures({ readAutomation: async () => WELCOME_FLOW }),
     );
 
+    // A Developer Edition counts a flow's single emails against its workflow
+    // emails too, as the trap took them.
     expect(check.emails).toEqual([
       {
         limit: 'SingleEmail',
@@ -254,6 +285,14 @@ describe('measureSyncWrite', () => {
         verdict: 'exceeds',
         remaining: 12,
         max: 15,
+        objects: [{ objectApiName: 'Contact', perRecord: 2 }],
+      },
+      {
+        limit: 'DailyWorkflowEmails',
+        emails: 40,
+        verdict: 'fits',
+        remaining: 8_040,
+        max: 8_040,
         objects: [{ objectApiName: 'Contact', perRecord: 2 }],
       },
     ]);
@@ -383,6 +422,41 @@ describe('gateSyncWrite', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
+  it('lists every reason it stops a run for in the order it meets them, the first the one it stops with', async () => {
+    // Past the storage, the requests and the emails left today at once: the
+    // command line was refused for the storage alone, and a pipeline that
+    // freed it was refused again for the requests.
+    const measured = await measureSyncWrite(
+      counted([{ objectApiName: 'Contact', operation: 'insert', rows: 3_000 }]),
+      measures({
+        readStorage: async () => ({
+          maxMB: 5,
+          remainingMB: 4,
+          dailyApiRequests: { max: 15_000, remaining: 3 },
+        }),
+        readAutomation: async () => WELCOME_FLOW,
+      }),
+    );
+
+    const stops = syncGateStops(measured, { policy: 'refuse', org: 'TRAP' });
+
+    expect(stops.map(({ code }) => code)).toEqual([
+      'SYNC_STORAGE_EXCEEDED',
+      API_BUDGET_EXCEEDED,
+      'SYNC_EMAILS_EXCEEDED',
+    ]);
+    const answer = await gateSyncWrite(measured, {
+      policy: 'refuse',
+      org: 'TRAP',
+      orgTier: 'development',
+    });
+    expect(answer).toEqual({ go: false, ...stops[0] });
+    // Asked, the emails are the user's to answer: no stop of them.
+    expect(syncGateStops(measured, { policy: 'ask', org: 'TRAP' }).map(({ code }) => code)).toEqual(
+      ['SYNC_STORAGE_EXCEEDED', API_BUDGET_EXCEEDED],
+    );
+  });
+
   it('asks the user who started the run past a daily email limit, naming the records left as they are', async () => {
     const confirm = vi.fn(
       async (_question: WriteConfirmation): Promise<'confirmed'> => 'confirmed',
@@ -399,7 +473,9 @@ describe('gateSyncWrite', () => {
       confirm,
     });
 
-    expect(answer).toEqual({ go: true, asked: true });
+    // The org withholds the emails of its automation: said, never asked about.
+    expect(answer).toEqual({ go: true, asked: true, emails: WITHHELD });
+    expect(confirm.mock.calls[0][0].deliverability).toBeUndefined();
     expect(confirm.mock.calls[0][0]).toMatchObject({
       stage: 'write',
       module: 'sync',
@@ -410,6 +486,15 @@ describe('gateSyncWrite', () => {
       alreadyCopied: 3,
       emails: [{ limit: 'SingleEmail', emails: 40, remaining: 12, max: 15 }],
     });
+    expect(confirm.mock.calls[0][0]).not.toHaveProperty('rolesLinked');
+
+    // The roles the run links to the platform's, said in the question too.
+    const withRoles = await measureSyncWrite(
+      { ...pastEmails, rolesLinked: 2 },
+      measures({ readAutomation: async () => WELCOME_FLOW }),
+    );
+    await gateSyncWrite(withRoles, { policy: 'ask', org: 'TRAP', orgTier: 'development', confirm });
+    expect(confirm.mock.calls[1][0]).toMatchObject({ total: 20, rolesLinked: 2 });
   });
 
   it('stops before the first write when the user declines, or when nobody can be asked', async () => {
@@ -491,9 +576,11 @@ describe('gateSyncWrite', () => {
       confirm,
     });
 
+    // What could not be read may send emails: the org's deliverability is
+    // read all the same, and withholds them.
     expect([first, second]).toEqual([
-      { go: true, asked: true },
-      { go: true, asked: true },
+      { go: true, asked: true, emails: WITHHELD },
+      { go: true, asked: true, emails: WITHHELD },
     ]);
     expect(confirm.mock.calls[0][0].emailsUnread).toEqual([
       { limit: 'SingleEmail', emails: 40, unread: 'INSUFFICIENT_ACCESS' },
@@ -518,7 +605,7 @@ describe('gateSyncWrite', () => {
     for (const policy of ['unattended', 'refuse'] as const) {
       expect(
         await gateSyncWrite(measured, { policy, org: 'TRAP', orgTier: 'development' }),
-      ).toEqual({ go: true, asked: false });
+      ).toEqual({ go: true, asked: false, emails: WITHHELD });
     }
   });
 
@@ -582,6 +669,86 @@ describe('gateSyncWrite', () => {
       });
     }
     expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('counts the contacts an account left out holds back apart, writes none of them, and names them in its refusal', async () => {
+    // A run whose account upsert matched on Name said "4 record(s) to write
+    // … Contact 4", and its refusal named the account alone: the run would
+    // have written none of the contacts, each naming an account left out.
+    const confirm = vi.fn();
+    const measured = await measureSyncWrite(
+      {
+        objects: [{ objectApiName: 'Contact', operation: 'insert', rows: 0 }],
+        alreadyCopied: 0,
+        unwritable: [
+          { objectApiName: 'Account', operation: 'upsert', rows: 2, why: 'notAKey', key: 'Name' },
+        ],
+        heldBack: [{ objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' }],
+      },
+      measures(),
+    );
+
+    expect(measured.check).toMatchObject({
+      objects: [],
+      total: 0,
+      heldBack: [{ objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' }],
+      verdict: 'refused',
+    });
+    // Nothing else to write: refused whoever answers, nobody asked.
+    for (const policy of ['ask', 'unattended', 'refuse'] as const) {
+      expect(
+        await gateSyncWrite(measured, { policy, org: 'TRAP', orgTier: 'development', confirm }),
+      ).toEqual({
+        go: false,
+        code: 'SYNC_TARGET_UNWRITABLE',
+        message:
+          'TRAP would take no record of one object the sync writes — Account (2 records): its ' +
+          'upsert matches on Name, neither an External ID nor an idLookup field in TRAP. Left ' +
+          'out, it holds back 4 Contact records, whose AccountId names an Account record left ' +
+          'out. Leave it out of the run, or match on an External ID field of TRAP. Nothing was ' +
+          'written.',
+      });
+    }
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('names in the question that leaves an object out the rows it holds back, which the run writes none of', async () => {
+    // Asked with an account left out, the question listed the opportunities
+    // alone: the contacts, every one naming an account left out, were
+    // neither among the records to write nor said held back, and the result
+    // then counted them failed.
+    const confirm = vi.fn(
+      async (_question: WriteConfirmation): Promise<'confirmed'> => 'confirmed',
+    );
+    const measured = await measureSyncWrite(
+      {
+        objects: [
+          { objectApiName: 'Contact', operation: 'insert', rows: 0 },
+          { objectApiName: 'Opportunity', operation: 'insert', rows: 10 },
+        ],
+        alreadyCopied: 0,
+        unwritable: [
+          { objectApiName: 'Account', operation: 'upsert', rows: 2, why: 'notAKey', key: 'Name' },
+        ],
+        heldBack: [{ objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' }],
+      },
+      measures(),
+    );
+
+    const answer = await gateSyncWrite(measured, {
+      policy: 'ask',
+      org: 'TRAP',
+      orgTier: 'development',
+      confirm,
+    });
+
+    expect(answer).toEqual({ go: true, asked: true });
+    expect(confirm.mock.calls[0][0]).toMatchObject({
+      objects: [{ objectApiName: 'Opportunity', rows: 10 }],
+      total: 10,
+      unwritable: [{ objectApiName: 'Account', rows: 2, why: 'notAKey', key: 'Name' }],
+      heldBack: [{ objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' }],
+    });
   });
 
   it('refuses a run past the API requests the target has left today, whoever answers for it, and says them on the page', async () => {
@@ -705,6 +872,7 @@ describe('mutingSyncWriteGate', () => {
           writes: syncRunWrites,
         }),
       'run-1',
+      { target: 'TRAP' },
     );
     return { muting, org, done: () => rmSync(dir, { recursive: true, force: true }) };
   }

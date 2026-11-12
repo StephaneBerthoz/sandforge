@@ -26,7 +26,7 @@ import type {
 } from './handlers/HandlerTypes.js';
 import { syntheticRequest } from './handlers/HandlerTypes.js';
 import type { UUID } from '@sandforge/shared';
-import { DEFAULT_ROBUSTNESS_CONFIG, guardTierOf } from '@sandforge/shared';
+import { AUDIT_TRAIL_LIMIT, DEFAULT_ROBUSTNESS_CONFIG, guardTierOf } from '@sandforge/shared';
 import { BulkApiManager } from '../core/engine/BulkApiManager.js';
 import { getConnectionPool } from '../core/connection/ConnectionHelper.js';
 import { forgetOrgDescribes } from '../core/connection/describeCache.js';
@@ -69,6 +69,7 @@ import {
 } from './handlers/CheckpointHandler.js';
 import type { DetectedSandboxRefresh } from '../modules/monitor/SandboxRefreshDetector.js';
 import type { OrgCheckpointStore } from '../modules/checkpoint/OrgCheckpointStore.js';
+import type { BeforeRunCheckpoints } from '../modules/checkpoint/beforeRunCheckpoint.js';
 import { secretStorageSaltKeeper } from '../modules/frozendataset/FrozenSalt.js';
 import { MigrationHandler } from './handlers/MigrationHandler.js';
 import type { MigrationFileReader } from './handlers/MigrationHandler.js';
@@ -86,6 +87,8 @@ import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOpera
 import { SyncConfigStore } from '../modules/sync/SyncConfigStore.js';
 import { runPipelineSync, syncGuardVerdict } from './handlers/pipelineSync.js';
 import type { RewindCheckpoint } from './handlers/pipelineSteps.js';
+import { AuditTrailStore } from '../modules/audit/auditTrail.js';
+import { auditedRunsOf, type LocalRun, type OtherModuleRuns } from './handlers/removalSweep.js';
 import { SeedTemplateStore } from '../modules/seed/SeedTemplateStore.js';
 import { AnonymizationTemplateStore } from '../modules/dataops/AnonymizationTemplateStore.js';
 import { ANONYMIZATION_TEMPLATES } from './templates/anonymizationTemplates.js';
@@ -95,6 +98,15 @@ import { ANONYMIZATION_TEMPLATES } from './templates/anonymizationTemplates.js';
  * without importing vscode directly (keeps this module testable in mocked envs).
  */
 export type CommandExecutor = (command: string, ...args: unknown[]) => PromiseLike<unknown>;
+
+/**
+ * A handler whose runs name no org in a file, as the checkpoints ask it
+ * whether one of its runs writes to an org: all but the run of `except`, the
+ * operation a checkpoint is taken before.
+ */
+interface OrgWriter {
+  isWritingTo(orgId: string, except?: string): boolean;
+}
 
 /** The payload of `workbench:open-setting`: one SandForge setting id, as the manifest names it. */
 const OPENABLE_SETTING = z.object({
@@ -194,6 +206,13 @@ export class ExtensionHandlers {
   private readonly refreshDetector: SandboxRefreshDetector;
   /** The store a command line told the checkpoints to be kept in; the default one otherwise. */
   private checkpointStore?: OrgCheckpointStore;
+  /**
+   * What the handlers of the runs that write — Forge, Sync, Seed, Autopilot,
+   * Frozen — take a checkpoint of what a run writes before its first write
+   * through (`Checkpoint first`): its scope at the run's gate, its take once
+   * the question is answered, and what becomes of it once the run has ended.
+   */
+  readonly beforeRunCheckpoints: BeforeRunCheckpoints;
 
   constructor(deps: ExtensionHandlersDeps) {
     // Default to a no-op executor so tests that don't care about the reload
@@ -276,21 +295,50 @@ export class ExtensionHandlers {
     // by its file and the handler writing it; a run whose file names no org,
     // or that keeps none, by its handler: a Forge clone, a Frozen load or its
     // removal, a DataOps restore, masking run or erasure, an Autopilot run, a
-    // Real-Time session that applies what it receives.
+    // Real-Time session that applies what it receives. A run that takes a
+    // checkpoint before its first write names its own operation, `except`,
+    // which each handler compares with the one it runs: a handler that does
+    // not compare refuses the take on the run's own mark too, as before, so
+    // it errs only on the side of refusing.
+    const orgWriters = (): OrgWriter[] => [
+      this.forgeHandler,
+      this.frozenHandler,
+      this.dataOpsHandler,
+      this.complianceHandler,
+      this.autopilotHandler,
+      this.realtimeHandler,
+    ];
     this.checkpointHandler = new CheckpointHandler(this.handlerDeps, {
       isRunning: (runId) =>
         this.syncHandler.isRunning(runId) ||
         this.seedHandler.isRunning(runId) ||
         this.seedCsvHandler.isRunning(runId) ||
         this.seedCloneHandler.isRunning(runId),
-      writingTo: (orgId) =>
-        this.forgeHandler.isWritingTo(orgId) ||
-        this.frozenHandler.isWritingTo(orgId) ||
-        this.dataOpsHandler.isWritingTo(orgId) ||
-        this.complianceHandler.isWritingTo(orgId) ||
-        this.autopilotHandler.isWritingTo(orgId) ||
-        this.realtimeHandler.isWritingTo(orgId),
+      writingTo: (orgId, except) =>
+        orgWriters().some((writer) => writer.isWritingTo(orgId, except)),
     });
+    this.beforeRunCheckpoints = {
+      scope: (ask, own) => this.checkpointHandler.scopeBeforeRun(ask, own),
+      take: (ask, own, options) => this.checkpointHandler.takeBeforeRun(ask, own, options),
+      settle: (taken, wrote) => this.checkpointHandler.settleBeforeRun(taken, wrote),
+    };
+    // The runs of Forge, Autopilot and Frozen Dataset take theirs through it,
+    // each naming its own mark, which its handler compares above; Sync's and
+    // Seed's are told by their run files.
+    this.forgeHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
+    this.autopilotHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
+    this.frozenHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
+    this.syncHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
+    this.seedHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
+    this.seedCsvHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
+    this.seedCloneHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
+    // The sweep of a run's removal is told of the runs of every module on the
+    // org, not of its own module's alone: what is tied to nothing of the run
+    // may be theirs.
+    this.forgeHandler.setOtherModuleRuns(this.otherModuleRuns('forge', orgWriters));
+    this.syncRemovalHandler.setOtherModuleRuns(this.otherModuleRuns('sync', orgWriters));
+    this.seedRemovalHandler.setOtherModuleRuns(this.otherModuleRuns('seed', orgWriters));
+    this.frozenHandler.setOtherModuleRuns(this.otherModuleRuns('frozen', orgWriters));
     this.migrationHandler = new MigrationHandler(this.handlerDeps);
     this.configHandler = new ConfigHandler(this.handlerDeps);
     this.governanceHandler = new GovernanceOpsHandler(
@@ -463,6 +511,42 @@ export class ExtensionHandlers {
     this.syncHandler.setBackupRecordStore(store);
     this.syncRemovalHandler.setBackupRecordStore(store);
     this.realtimeHandler.setBackupRecordStore(store);
+  }
+
+  /**
+   * The runs of this machine on an org, for the sweep of a run of `module`,
+   * beside those it keeps itself: what Forge, Sync and Seed keep of theirs,
+   * the writes the audit trail alone names, a Frozen load among them, each
+   * dated by its end (`auditedRunsOf`), and a run of a handler that writes to
+   * the org now, which no history holds yet.
+   */
+  private otherModuleRuns(
+    module: 'forge' | 'sync' | 'seed' | 'frozen',
+    writers: () => OrgWriter[],
+  ): OtherModuleRuns {
+    return async (orgId, written) => {
+      const own =
+        module === 'forge'
+          ? this.forgeHandler
+          : module === 'frozen'
+            ? this.frozenHandler
+            : undefined;
+      const entries = new AuditTrailStore(this.handlerDeps.configStore).list({
+        orgId,
+        limit: AUDIT_TRAIL_LIMIT,
+      }).entries;
+      const runs: LocalRun[] = [
+        ...(module === 'forge' ? [] : await this.forgeHandler.localRunsOn(orgId, written)),
+        ...(module === 'sync' ? [] : await this.syncRemovalHandler.localRunsOn(orgId)),
+        ...(module === 'seed' ? [] : await this.seedRemovalHandler.localRunsOn(orgId)),
+        ...auditedRunsOf(entries, module === 'frozen' ? 'frozen_load' : undefined),
+      ];
+      if (writers().some((writer) => writer !== own && writer.isWritingTo(orgId))) {
+        const now = Date.now();
+        runs.push({ ids: [], idsUntold: true, from: now, to: now });
+      }
+      return runs;
+    };
   }
 
   /**
@@ -1035,6 +1119,7 @@ export class ExtensionHandlers {
         'dataops:anonymization-template:delete',
         'dataops:anonymize:coverage',
         'dataops:anonymize:preview',
+        'dataops:automation',
         'precheck:pii-scan',
       ],
       this.dataOpsHandler,
@@ -1066,6 +1151,7 @@ export class ExtensionHandlers {
         'pipeline:list',
         'pipeline:history',
         'pipeline:save',
+        'pipeline:delete',
         'pipeline:approval',
         'pipeline:sync-configs',
         'pipeline:seed-templates',
@@ -1109,6 +1195,8 @@ export class ExtensionHandlers {
         'autopilot:count-objects',
         'autopilot:scan-schema',
         'autopilot:generate-plan',
+        'autopilot:fit-plan',
+        'autopilot:fit-undo',
         'autopilot:execute',
         'autopilot:pause',
         'autopilot:resume',
@@ -1162,6 +1250,7 @@ export class ExtensionHandlers {
         'frozen:verify',
         'frozen:remove',
         'frozen:remove:sweep',
+        'frozen:remove:automation',
         'frozen:remove:preview',
         'frozen:status',
         'frozen:rules:clear',

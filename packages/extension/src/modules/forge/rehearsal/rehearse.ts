@@ -1,8 +1,15 @@
 import type {
+  ForgeGap,
   ForgeRehearsal,
   ForgeRehearsalNotJudgedReason,
   ForgeRehearsalProgress,
 } from '@sandforge/shared';
+import type { RecordTypeAvailability } from '../../../core/metadata/recordTypeAvailability.js';
+import {
+  partsOfRecordTypeName,
+  type RecordTypeNameParts,
+} from '../../../core/metadata/recordTypeNames.js';
+import { recordTypesNamed, withSameDeveloperName } from '../stages/SimulationGaps.js';
 import {
   NO_KEY_PREFIX,
   RehearsalWriter,
@@ -37,10 +44,12 @@ import {
 } from './compositeCalls.js';
 import {
   RESTRICTED_PICKLIST_REFUSAL,
+  VALIDATION_RULE_REFUSAL,
   rehearsalGaps,
   type RefusedRow,
   type TargetPicklist,
   type TargetPicklists,
+  type TargetValidationRule,
 } from './rehearsalGaps.js';
 
 /** What a rehearsal is about to cost, put to the user before its first call. */
@@ -78,6 +87,14 @@ export interface RehearsalDeps {
   prepare: (writer: RehearsalWriter) => Promise<void>;
   /** The target's key prefix of an object, from the describe the run holds. */
   keyPrefixOf: (objectApiName: string) => Promise<string | null>;
+  /**
+   * The id of the user the run writes to the target as: the owner the
+   * platform gives an opportunity sent without one, whose member and splits
+   * it writes with the opportunity (`RehearsalWriter.guardQueries`).
+   * Optional: without it, the team of an opportunity the run creates under
+   * that user is held back, as when the target does not say.
+   */
+  runningUser?: () => Promise<string | undefined>;
   /** Send one composite request to the target, and resolve with its answer. */
   composite: (body: CompositeRequestBody) => Promise<unknown>;
   /** The target's REST API path, `/services/data/vXX.X`. */
@@ -87,6 +104,15 @@ export interface RehearsalDeps {
   /** The target's record types, by the first 15 characters of their id, to their DeveloperName. */
   recordTypeNames?: ReadonlyMap<string, string>;
   /**
+   * The target's record types of an object, from the describe the run holds:
+   * what a refusal of a package's record type says of the target's others
+   * that carry its DeveloperName (`withSameDeveloperName`). Asked only of an
+   * object such a refusal names. Optional: without it, the gap says none.
+   */
+  targetRecordTypes?: (
+    objectApiName: string,
+  ) => Promise<readonly RecordTypeAvailability[] | undefined>;
+  /**
    * The target's fields of an object, from the describe the run holds: what
    * says why a restricted picklist refused a value — the field does not hold
    * it, or the record type does not select it. Optional: without it, the
@@ -95,6 +121,14 @@ export interface RehearsalDeps {
   targetFields?: (
     objectApiName: string,
   ) => Promise<ReadonlyArray<{ name: string; picklistValues?: string[]; controllerName?: string }>>;
+  /**
+   * The target's active validation rules of the objects named: what tells the
+   * rule a validation refusal is of, so that a rule the run's mute lifts is
+   * said lifted — a rehearsal takes no mute, and the run under one writes the
+   * row whole. Asked only of the objects a rule refused. Optional: without
+   * it, the refusal names no rule.
+   */
+  validationRules?: (objectApiNames: readonly string[]) => Promise<readonly TargetValidationRule[]>;
   /**
    * Put the plan to the user before the first call. What it throws stops the
    * rehearsal there, with nothing sent to the target.
@@ -107,6 +141,62 @@ export interface RehearsalDeps {
    * rolled back whole, so stopping between two leaves nothing in the target.
    */
   signal?: AbortSignal;
+}
+
+/**
+ * `gaps`, each of a package's record type saying the target's other record
+ * types that carry its DeveloperName (`withSameDeveloperName`), as a
+ * simulation's gaps say them: each object such a gap names described once.
+ * A bare name names one of those, as the run reads it, and a decision kept
+ * under it before namespaces is not the gap's. Said by none, a rehearsal's
+ * gap of a package's Retail, the target's own Retail refusing nothing, read
+ * a decision on the bare name as its own, which the run applies to the
+ * org's own rows alone. An object the target will not describe says none.
+ */
+async function withTheirRecordTypesNamed(
+  gaps: ForgeGap[],
+  deps: Pick<RehearsalDeps, 'targetRecordTypes'>,
+): Promise<ForgeGap[]> {
+  const read = deps.targetRecordTypes;
+  if (!read) return gaps;
+  const objects = new Set(
+    gaps.flatMap((gap) =>
+      gap.recordType !== undefined && partsOfRecordTypeName(gap.recordType).namespacePrefix
+        ? [gap.objectApiName]
+        : [],
+    ),
+  );
+  if (objects.size === 0) return gaps;
+  const typesOf = new Map<string, readonly RecordTypeNameParts[] | undefined>();
+  for (const object of objects) {
+    const types = await read(object).catch(() => undefined);
+    typesOf.set(object, types ? recordTypesNamed(types) : undefined);
+  }
+  return gaps.map((gap) => withSameDeveloperName(gap, typesOf.get(gap.objectApiName)));
+}
+
+/**
+ * The target's active validation rules of the objects whose rows a rule
+ * refused, asked once; none when nothing a rule refused, or the target would
+ * not say.
+ */
+async function rulesRefusing(
+  refused: readonly RefusedRow[],
+  deps: Pick<RehearsalDeps, 'validationRules'>,
+): Promise<readonly TargetValidationRule[]> {
+  const objects = [
+    ...new Set(
+      refused
+        .filter(({ errors }) => errors.some((e) => e.statusCode === VALIDATION_RULE_REFUSAL))
+        .map(({ row }) => row.objectApiName),
+    ),
+  ];
+  if (objects.length === 0 || !deps.validationRules) return [];
+  try {
+    return await deps.validationRules(objects);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -409,7 +499,7 @@ function plannedCallsOf(
  * run alone.
  */
 export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
-  const writer = new RehearsalWriter(deps.keyPrefixOf);
+  const writer = new RehearsalWriter(deps.keyPrefixOf, deps.runningUser);
   await deps.prepare(writer);
   const rows = writer.rows;
   const rowOf = (value: unknown): RehearsedRow | undefined => writer.rowOf(value);
@@ -637,7 +727,15 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
     why.set(key, (why.get(key) ?? 0) + 1);
   }
   return {
-    gaps: rehearsalGaps(refused, deps.recordTypeNames, await picklistsRefused(refused, deps)),
+    gaps: await withTheirRecordTypesNamed(
+      rehearsalGaps(
+        refused,
+        deps.recordTypeNames,
+        await picklistsRefused(refused, deps),
+        await rulesRefusing(refused, deps),
+      ),
+      deps,
+    ),
     rows: rows.length,
     sampled: toJudge.length,
     judged: verdicts.size,

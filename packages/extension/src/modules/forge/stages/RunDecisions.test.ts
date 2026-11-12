@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { RecordTypeAvailability } from '../../../core/metadata/recordTypeAvailability.js';
+import type { RecordTypeNameParts } from '../../../core/metadata/recordTypeNames.js';
 import { forgeGapId } from '@sandforge/shared';
 import {
   DecisionTally,
@@ -96,6 +97,62 @@ describe('RunDecisions.applyToRow', () => {
     expect(row).toEqual({ Origin: 'Phone' });
   });
 
+  describe('a bare name, among the record types the target holds', () => {
+    const own: RecordTypeNameParts = { namespacePrefix: null, developerName: 'Support' };
+    const packaged: RecordTypeNameParts = { namespacePrefix: 'ns', developerName: 'Support' };
+    const other: RecordTypeNameParts = { namespacePrefix: 'other', developerName: 'Support' };
+    const billing: RecordTypeNameParts = { namespacePrefix: null, developerName: 'Billing' };
+    const mapped = (targetTypes: readonly RecordTypeNameParts[]) => {
+      const decisions = new RunDecisions({
+        picklistValueMappings: [
+          { object: 'Case', field: 'Origin', recordType: 'Support', from: 'Fax', to: 'Phone' },
+        ],
+      });
+      const rows = {
+        own: { Origin: 'Fax' } as Record<string, unknown>,
+        packaged: { Origin: 'Fax' } as Record<string, unknown>,
+      };
+      decisions.applyToRow('Case', rows.own, 'Support', new DecisionTally(), targetTypes);
+      decisions.applyToRow('Case', rows.packaged, 'ns__Support', new DecisionTally(), targetTypes);
+      return rows;
+    };
+
+    it('is the org’s own where a package’s carries the name too: the package’s rows go as read', () => {
+      // A decision taken on the org's own Support remapped the rows of the
+      // package's ns__Support, which nobody decided.
+      expect(mapped([own, packaged, billing])).toEqual({
+        own: { Origin: 'Phone' },
+        packaged: { Origin: 'Fax' },
+      });
+    });
+
+    it('is the package’s where it alone carries the name, as a decision kept before namespaces named it', () => {
+      expect(mapped([packaged, billing]).packaged).toEqual({ Origin: 'Phone' });
+    });
+
+    it('is no package’s where two carry it and the org has none of its own', () => {
+      expect(mapped([packaged, other]).packaged).toEqual({ Origin: 'Fax' });
+    });
+
+    it('holds back the rows of the org’s own record type alone where a package’s carries the name too', () => {
+      const decisions = new RunDecisions({
+        skippedRows: [
+          {
+            object: 'Case',
+            gapId: forgeGapId('picklist_value_refused', 'Case', 'Origin', 'Support', 'Fax'),
+          },
+        ],
+      });
+      const fax = (field: string): unknown => (field === 'Origin' ? 'Fax' : undefined);
+      const holds = (recordType: string, targetTypes: readonly RecordTypeNameParts[]) =>
+        decisions.holdsBack('Case', fax, recordType, new DecisionTally(), targetTypes);
+
+      expect(holds('Support', [own, packaged])).toBe(true);
+      expect(holds('ns__Support', [own, packaged])).toBe(false);
+      expect(holds('ns__Support', [packaged])).toBe(true);
+    });
+  });
+
   it('maps a value for the rows of an object without record types when the mapping names its master', () => {
     // A gap found on such rows names their record type Master: a mapping
     // taken on it matched no row, which the run knows no record type of.
@@ -176,6 +233,25 @@ describe('RunDecisions.applyToRow', () => {
 
     expect(row).toEqual({});
     expect(tally.size).toBe(0);
+  });
+});
+
+describe('RunDecisions.defaultOf', () => {
+  it('gives the value a decision gives a field of an object, as a text, and none for the others', () => {
+    const decisions = new RunDecisions({
+      defaultValues: [
+        { object: 'OpportunityTeamMember', field: 'UserId', value: '005T' },
+        { object: 'Account', field: 'NumberOfEmployees', value: 12 },
+      ],
+    });
+
+    expect(decisions.defaultOf('OpportunityTeamMember', 'UserId')).toBe('005T');
+    expect(decisions.defaultOf('Account', 'NumberOfEmployees')).toBe('12');
+    expect(decisions.defaultOf('OpportunitySplit', 'UserId')).toBeUndefined();
+    expect(decisions.defaultOf('OpportunityTeamMember', 'TeamMemberRole')).toBeUndefined();
+    expect(
+      new RunDecisions(undefined).defaultOf('OpportunityTeamMember', 'UserId'),
+    ).toBeUndefined();
   });
 });
 

@@ -208,6 +208,43 @@ describe('ScenarioFlow — a scenario from its review to its test file', () => {
     expect(sent('seed:scenario:agents')[0]?.payload).toEqual({ orgId: 'org-dev' });
   });
 
+  it('says on the card of a role object what it linked to the roles the platform wrote, as the Seed results do', () => {
+    // The card said it in its badge alone.
+    render(
+      <ScenarioFlow
+        picked={{ pack: RETAIL_ORDERS_PACK, source: { kind: 'built-in' } }}
+        orgs={[DEV]}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('btn-scenario-continue'));
+    answer('seed:scenario:prepare', 'seed:scenario:prepare:response', { preparation: PREPARATION });
+    fireEvent.click(screen.getByTestId('btn-scenario-start'));
+    const base = result({ kind: 'kept' });
+    answer('seed:scenario:execute', 'seed:execute:response', {
+      ...base,
+      objectResults: [
+        ...base.objectResults,
+        {
+          objectApiName: 'OpportunityContactRole',
+          recordsCreated: 0,
+          recordsFailed: 0,
+          createdIds: [],
+          errors: [],
+          writtenByThePlatform: { records: 1, given: 1 },
+        },
+      ],
+    });
+
+    expect(
+      screen.getByTestId('scenario-result-written-by-the-platform-OpportunityContactRole')
+        .textContent,
+    ).toBe(
+      '1 contact role linked to the one the platform wrote with its opportunity, for the contact ' +
+        'it went in with, not written; given the fields generated for it: 1.',
+    );
+  });
+
   it('says before the run that the bodies go to Summary and the articles are published and linked, then what was, and the article left a draft in the org’s words', () => {
     render(
       <ScenarioFlow
@@ -246,6 +283,96 @@ describe('ScenarioFlow — a scenario from its review to its test file', () => {
       'Closed cases linked to the article that answers them: 20 of 20',
     );
     expect(screen.getByTestId('scenario-knowledge-drafts-left')).toBeTruthy();
+  });
+
+  it('asks what the org runs for a run that publishes its articles, the mute it offers planned as the run plans its own', () => {
+    render(
+      <ScenarioFlow
+        picked={{ pack: RETAIL_ORDERS_PACK, source: { kind: 'built-in' } }}
+        orgs={[DEV]}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('btn-scenario-continue'));
+    answer('seed:scenario:prepare', 'seed:scenario:prepare:response', { preparation: PREPARATION });
+
+    expect(sent('seed:automation').map((m) => m.payload)).toEqual([
+      {
+        orgId: 'org-dev',
+        objects: ['Account', 'Contact', 'Case', 'CaseComment', 'Knowledge__kav'],
+        publishes: true,
+      },
+    ]);
+  });
+
+  it('offers both boxes on the confirmation, sends them, and names the checkpoint in the results', () => {
+    render(
+      <ScenarioFlow
+        picked={{ pack: RETAIL_ORDERS_PACK, source: { kind: 'built-in' } }}
+        orgs={[DEV]}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('btn-scenario-continue'));
+    answer('seed:scenario:prepare', 'seed:scenario:prepare:response', { preparation: PREPARATION });
+
+    const toggle = screen.getByTestId('scenario-checkpoint-first-toggle') as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByTestId('btn-scenario-start'));
+    expect(sent('seed:scenario:execute')[0]?.payload).toMatchObject({ checkpointFirst: {} });
+
+    answer('seed:scenario:execute', 'seed:execute:response', {
+      ...result({ kind: 'kept' }),
+      checkpoint: {
+        state: 'taken',
+        checkpointId: 'ck-20261028-000000-a1b2',
+        name: 'Before Seed run 2026-10-28 00:00 UTC',
+        takenAt: '2026-10-28T00:00:00.000Z',
+        expiresAt: '2026-11-04T00:00:00.000Z',
+        objects: ['Account'],
+        records: 38,
+        bytes: 2_200_000,
+        requests: 68,
+        added: [],
+        notHeld: [{ objectApiName: 'Knowledge__kav', reason: 'Article versions are never held.' }],
+      },
+    });
+    expect(screen.getByTestId('scenario-result-checkpoint-not-held').textContent).toContain(
+      'Knowledge__kav',
+    );
+    expect(screen.getByTestId('scenario-result-checkpoint-action').textContent).toBe(
+      'Rewind to before this run…',
+    );
+  });
+
+  it('goes back from a refusal to the confirmation, where the box it names is still ticked', () => {
+    render(
+      <ScenarioFlow
+        picked={{ pack: RETAIL_ORDERS_PACK, source: { kind: 'built-in' } }}
+        orgs={[DEV]}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('btn-scenario-continue'));
+    answer('seed:scenario:prepare', 'seed:scenario:prepare:response', { preparation: PREPARATION });
+    fireEvent.click(screen.getByTestId('scenario-checkpoint-first-toggle'));
+    fireEvent.click(screen.getByTestId('btn-scenario-start'));
+    answer('seed:scenario:execute', 'seed:error', {
+      message: 'Refused.',
+      code: 'CHECKPOINT_REFUSED',
+      checkpointRefusal: 'DISK',
+    });
+
+    expect(screen.getByTestId('scenario-error').textContent).toContain(
+      "This machine's disk has too little room for it.",
+    );
+    fireEvent.click(screen.getByTestId('btn-scenario-back-to-confirm'));
+    // The org is read again for the run, as for every confirmation.
+    answer('seed:scenario:prepare', 'seed:scenario:prepare:response', { preparation: PREPARATION });
+    expect(
+      (screen.getByTestId('scenario-checkpoint-first-toggle') as HTMLInputElement).checked,
+    ).toBe(true);
   });
 
   it('says no test file can be written from a run that wrote no open case', () => {

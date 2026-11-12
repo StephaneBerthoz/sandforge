@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { TFunction } from 'i18next';
 import type {
   FieldRule,
+  RunCheckpointInfo,
   SeedExecutionResult,
+  SeedFitProposal,
   SeedTemplate,
   SeedObjectConfig,
 } from '@sandforge/shared';
@@ -11,12 +13,14 @@ import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { useOperationProgress } from '../../hooks/useOperationProgress';
 import { useElapsedSince } from '../../hooks/useElapsedSince';
+import { useStoppedRunCheckpoint } from '../../hooks/useStoppedRunCheckpoint';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { ObjectProgress } from './Step7_Execute';
 import type { CheckedRelation } from './seedRelationDrafts';
 import { lookupsClosingACycle } from './seedLookupCycles';
 import type { RunLookup } from './seedLookupCycles';
 import { fieldsForAccountKind, recordTypeFieldRule } from './seedRecordTypeChoices';
+import { fittedRunOf, useSeedFitRefusal, type FittedSeedRun } from './SeedFitProposal';
 
 /** Return type for the useSeedExecution hook. */
 export interface SeedExecutionState {
@@ -37,6 +41,14 @@ export interface SeedExecutionState {
    */
   muteAutomation: boolean;
   setMuteAutomation: (mute: boolean) => void;
+  /**
+   * Whether the run takes a checkpoint of what it writes before its first
+   * write, as its box on the Execute step is left: off unless ticked.
+   */
+  checkpointFirst: boolean;
+  setCheckpointFirst: (first: boolean) => void;
+  /** What became of the checkpoint the last run took first, when its error says. */
+  stoppedCheckpoint: RunCheckpointInfo | undefined;
   /** Trigger seed execution with the current configuration. */
   handleExecute: () => void;
   /** Per-object progress entries derived from selected objects and volumes. */
@@ -57,6 +69,36 @@ export interface SeedExecutionState {
    * seed:execute request this hook sent.
    */
   operationId: string | null;
+  /**
+   * The counts that fit, as the refusal of the last run for the storage or
+   * the API requests its org has left carried them; null otherwise, and once
+   * the org, the objects, their counts, fields, relations, record types or
+   * locale the refused run was built from change.
+   */
+  fitProposal: SeedFitProposal | null;
+  /** The fit the last run's counts came from; null for a run whose counts were not fitted. */
+  fitApplied: FittedSeedRun | null;
+  /**
+   * Send the refused run again at the counts of {@link fitProposal}, saying
+   * the fit in its request: its gate is met again. Nothing when there is no
+   * proposal, or nothing fits.
+   */
+  seedFitted: () => void;
+}
+
+/** No relations, and no record types chosen: one of each, so a run's sources compare by reference. */
+const NO_RELATIONS: readonly CheckedRelation[] = [];
+const NO_CHOICES: Readonly<Record<string, readonly string[]>> = {};
+
+/** What a run was built from, by reference: a proposal for it holds while none changes. */
+interface SentFrom {
+  orgId: string;
+  objects: readonly string[];
+  volumes: Readonly<Record<string, { count: number; batchSize: number }>>;
+  fieldConfigs: readonly ObjectFieldConfig[];
+  relations: readonly CheckedRelation[];
+  recordTypeChoices: Readonly<Record<string, readonly string[]>>;
+  locale: string;
 }
 
 /**
@@ -74,8 +116,8 @@ export function useSeedExecution(
   volumes: Record<string, { count: number; batchSize: number }>,
   fieldConfigs: ObjectFieldConfig[],
   t: TFunction,
-  relations: readonly CheckedRelation[] = [],
-  recordTypeChoices: Readonly<Record<string, readonly string[]>> = {},
+  relations: readonly CheckedRelation[] = NO_RELATIONS,
+  recordTypeChoices: Readonly<Record<string, readonly string[]>> = NO_CHOICES,
   locale = '',
 ): SeedExecutionState {
   const addNotification = useNotificationStore((s) => s.addNotification);
@@ -86,6 +128,9 @@ export function useSeedExecution(
   /** Set when the run is fired, so elapsed time is real rather than hardcoded 0. */
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [muteAutomation, setMuteAutomation] = useState(false);
+  const [checkpointFirst, setCheckpointFirst] = useState(false);
+  const [sentFrom, setSentFrom] = useState<SentFrom | null>(null);
+  const [fitApplied, setFitApplied] = useState<FittedSeedRun | null>(null);
 
   const executeSeedMutation = useBridgeMutation<SeedExecutionResult>('seed:execute', {
     responseType: 'seed:execute:response',
@@ -97,6 +142,7 @@ export function useSeedExecution(
   });
 
   const isRunning = executeSeedMutation.loading;
+  const stoppedCheckpoint = useStoppedRunCheckpoint('seed:error', executeSeedMutation.requestId);
 
   /* Navigate to results step on completion */
   useEffect(() => {
@@ -217,22 +263,95 @@ export function useSeedExecution(
 
     setStartedAt(Date.now());
     setLastTemplate(template);
+    setFitApplied(null);
+    setSentFrom({
+      orgId: selectedOrgId,
+      objects: selectedObjects,
+      volumes,
+      fieldConfigs,
+      relations,
+      recordTypeChoices,
+      locale,
+    });
     executeSeedMutation.mutate({
       orgId: selectedOrgId,
       template: template as unknown as Record<string, unknown>,
       // The org's own locale unless one was chosen: the extension reads it.
       ...(locale ? { locale } : {}),
       ...(muteAutomation ? { muteAutomation: true } : {}),
+      ...(checkpointFirst ? { checkpointFirst: {} } : {}),
     });
   }, [
     selectedOrgId,
     selectedObjects,
     volumes,
     fieldConfigs,
+    relations,
     sent,
     recordTypeChoices,
     locale,
     muteAutomation,
+    checkpointFirst,
+    executeSeedMutation,
+  ]);
+
+  // The counts that fit, as the refusal of the last run carried them: for
+  // the run as it was built. Once the wizard is changed, they are of a run
+  // it would no longer send, and are not offered.
+  const refused = useSeedFitRefusal(executeSeedMutation.requestId);
+  const fitProposal =
+    refused !== null &&
+    sentFrom !== null &&
+    sentFrom.orgId === selectedOrgId &&
+    sentFrom.objects === selectedObjects &&
+    sentFrom.volumes === volumes &&
+    sentFrom.fieldConfigs === fieldConfigs &&
+    sentFrom.relations === relations &&
+    sentFrom.recordTypeChoices === recordTypeChoices &&
+    sentFrom.locale === locale
+      ? refused
+      : null;
+
+  /*
+   * The refused run sent again at the counts that fit, and nothing else
+   * changed: the template it was built from, its locale, and the mute and
+   * the checkpoint as their boxes are left. Its request says the fit, for the
+   * audit trail; the gate is met again by the counts, as for any run.
+   */
+  const seedFitted = useCallback(() => {
+    if (!selectedOrgId || !lastTemplate || !fitProposal || fitProposal.cannotFit !== undefined) {
+      return;
+    }
+    const fitted = fittedRunOf(fitProposal);
+    const template: SeedTemplate = {
+      ...lastTemplate,
+      objects: lastTemplate.objects.map((object) => ({
+        ...object,
+        recordCount: Math.min(
+          object.recordCount,
+          fitted.counts[object.objectApiName] ?? object.recordCount,
+        ),
+      })),
+      updatedAt: new Date().toISOString(),
+    };
+    setStartedAt(Date.now());
+    setLastTemplate(template);
+    setFitApplied(fitted);
+    executeSeedMutation.mutate({
+      orgId: selectedOrgId,
+      template: template as unknown as Record<string, unknown>,
+      ...(locale ? { locale } : {}),
+      ...(muteAutomation ? { muteAutomation: true } : {}),
+      ...(checkpointFirst ? { checkpointFirst: {} } : {}),
+      fit: fitted.fit,
+    });
+  }, [
+    selectedOrgId,
+    lastTemplate,
+    fitProposal,
+    locale,
+    muteAutomation,
+    checkpointFirst,
     executeSeedMutation,
   ]);
 
@@ -252,9 +371,14 @@ export function useSeedExecution(
       ? selectedObjects.findIndex((name) => progress.currentStep.includes(name))
       : -1;
 
+    // A fitted run writes the counts of its fit, not those set in the wizard.
+    const fittedCounts = isRunning ? fitApplied?.counts : undefined;
     return selectedObjects.map((o, index): ObjectProgress => {
       const total =
-        sent.find((s) => s.relation.childObject === o)?.children ?? volumes[o]?.count ?? 100;
+        fittedCounts?.[o] ??
+        sent.find((s) => s.relation.childObject === o)?.children ??
+        volumes[o]?.count ??
+        100;
       let status: ObjectProgress['status'];
       if (currentIndex === -1) {
         status = isRunning ? 'running' : 'pending';
@@ -274,7 +398,7 @@ export function useSeedExecution(
         status,
       };
     });
-  }, [selectedObjects, volumes, sent, isRunning, progress]);
+  }, [selectedObjects, volumes, sent, isRunning, progress, fitApplied]);
 
   return {
     isRunning,
@@ -282,6 +406,9 @@ export function useSeedExecution(
     lastTemplate,
     muteAutomation,
     setMuteAutomation,
+    checkpointFirst,
+    setCheckpointFirst,
+    stoppedCheckpoint,
     handleExecute,
     objectProgress,
     overallPercent: progress?.percentage ?? 0,
@@ -290,5 +417,8 @@ export function useSeedExecution(
     executionError: executeSeedMutation.error ?? undefined,
     executionCompletedStep,
     operationId: progress ? runId : null,
+    fitProposal,
+    fitApplied,
+    seedFitted,
   };
 }

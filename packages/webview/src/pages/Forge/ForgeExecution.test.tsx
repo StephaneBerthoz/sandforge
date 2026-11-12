@@ -806,6 +806,19 @@ describe('ForgeExecution', () => {
       createdCount: 1,
     };
 
+    it('says the checkpoint it took first was deleted, when the error says it wrote nothing', () => {
+      mockRunError = {
+        message: 'The mute was refused.',
+        stoppedRun: null,
+        checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+      };
+      render(<ForgeExecution />);
+
+      expect(screen.getByTestId('forge-execution-checkpoint-deleted').textContent).toBe(
+        'The checkpoint taken before the run was deleted: the run wrote nothing.',
+      );
+    });
+
     it('says why it stopped, in an alert, and has nothing left to pause or abort', () => {
       // After the error, Pause and Abort stayed on screen, disabled, and
       // nothing else: the only way off was to leave the page.

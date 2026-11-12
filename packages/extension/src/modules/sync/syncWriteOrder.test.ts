@@ -38,6 +38,15 @@ describe('orderSyncObjects', () => {
     expect(order.cycles).toEqual([]);
   });
 
+  it('finds a parent whatever the case it is written in: an SFDMU query keeps `from account`', () => {
+    const { ordered } = orderSyncObjects(
+      [object('contact', 0), object('account', 1)],
+      new Map([['contact', [lookup('AccountId', 'Account')]]]),
+    );
+
+    expect(ordered.map((o) => o.objectApiName)).toEqual(['account', 'contact']);
+  });
+
   it('keeps the order of the configuration where no lookup decides', () => {
     const { order } = orderSyncObjects(
       [object('Lead', 0), object('Product2', 1), object('Account', 2)],

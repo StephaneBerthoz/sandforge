@@ -96,7 +96,8 @@ function createMockDeps(): HandlerDeps {
     // A seed refuses to write without a Production Guard, and the extension
     // always injects one.
     infraServices: {
-      productionGuard: new ProductionGuard(),
+      // What a bare connection leaves unread of the org's automation is asked.
+      productionGuard: new ProductionGuard({ requestRunConfirmation: async () => true }),
     } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };
@@ -1800,6 +1801,45 @@ describe('SeedOpsHandler', () => {
       tracker.dispose();
     });
 
+    it('lists a seed the org refused part of as partial', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn(() => ({
+          execute: vi.fn().mockResolvedValue({ ...seedResult(2), status: 'partial' }),
+        })),
+      } as unknown as HandlerDeps['services'];
+
+      mockGetConn.mockResolvedValue({} as never);
+
+      const msg: InboundRequest & {
+        payload: {
+          orgId: string;
+          template: Record<string, unknown>;
+          dryRun: boolean;
+        };
+      } = inboundRequest({
+        id: 'seed-live-partial',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: {
+          orgId: 'org-1',
+          template: validSeedTemplate(),
+          dryRun: false,
+        },
+      });
+
+      await handler.handle(msg);
+
+      expect(tracker.getAll()).toEqual([
+        expect.objectContaining({ module: 'seed', status: 'partial' }),
+      ]);
+      tracker.dispose();
+    });
+
     it('does NOT register a refused dry run', async () => {
       const tracker = new LiveOperationTracker();
       handler.setLiveOperationTracker(tracker);
@@ -1835,7 +1875,8 @@ describe('SeedOpsHandler', () => {
       const offlineManager = new OfflineManager(deps.configStore);
       deps.infraServices = {
         performanceTracker: undefined,
-        productionGuard: new ProductionGuard(),
+        // What a bare connection leaves unread of the org's automation is asked.
+        productionGuard: new ProductionGuard({ requestRunConfirmation: async () => true }),
         offlineManager,
         piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
@@ -2372,7 +2413,7 @@ describe('SeedOpsHandler', () => {
         expect.objectContaining({
           operationId: 'seed-cancel-early',
           outcome: 'stopped',
-          details: { code: 'RUN_CANCELLED' },
+          details: expect.objectContaining({ code: 'RUN_CANCELLED' }),
         }),
       ]);
     });
@@ -2681,7 +2722,8 @@ describe('SeedOpsHandler', () => {
       const update = vi.fn();
       deps.infraServices = {
         performanceTracker: { start: vi.fn(), update, complete: vi.fn() },
-        productionGuard: new ProductionGuard(),
+        // What a bare connection leaves unread of the org's automation is asked.
+        productionGuard: new ProductionGuard({ requestRunConfirmation: async () => true }),
         offlineManager: undefined,
         piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;

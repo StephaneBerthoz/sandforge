@@ -17,7 +17,12 @@ import type {
   AutopilotEdge,
   AutopilotRefusal,
   ApiName,
+  AutopilotPlanScope,
   ForgeContactPointsReport,
+  RecordTypeGiven,
+  RecordTypeGivenBasis,
+  RecordTypeNamed,
+  WithoutRecordTypeWhy,
 } from '@sandforge/shared';
 import {
   PRICEBOOK_ENTRY_OBJECT,
@@ -32,11 +37,12 @@ import {
 } from '@sandforge/shared';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
 import { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
-import type { FieldInfo } from '../forge/ForgeExecutor.js';
+import type { FieldInfo, ForgeWriteGateAnswer } from '../forge/ForgeExecutor.js';
 import { IDS_PER_READ } from './SchemaScanner.js';
 import type { RecordIdRemapper, UnresolvedLookup } from './RecordIdRemapper.js';
+import type { AutopilotRunFit, FitHold } from './autopilotFit.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
-import { insertionGroups, orderWithinGroup } from '../../core/common/insertionOrder.js';
+import { atInsertDeps, orderWithinGroup, waveGroupsOf } from '../../core/common/insertionOrder.js';
 import { LookupPatchSet } from '../../core/common/lookupPatches.js';
 import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { lookupsAtObjectsLeftOut } from '../forge/excludedObjects.js';
@@ -44,6 +50,7 @@ import type { DescribedLookup } from '../../core/metadata/describedLookups.js';
 import {
   RECORD_TYPES_SOQL,
   RecordTypeMapper,
+  namesMasterRecordType,
   namespaceMismatchWarning,
   namespaceMismatches,
   parseRecordTypeRows,
@@ -90,7 +97,7 @@ import {
 } from '../../core/common/platformRecords.js';
 import {
   RECORD_TYPE_UNAVAILABLE,
-  defaultRecordTypeOf,
+  parseRecordTypeCountsWithMaster,
   recordTypeBlockedMessage,
   recordTypeBlockedReason,
   unavailableRecordTypeUses,
@@ -98,6 +105,14 @@ import {
   type RecordTypeAvailability,
   type UnavailableRecordTypeUse,
 } from '../../core/metadata/recordTypeAvailability.js';
+import {
+  RECORD_TYPE_READ_BACK_IDS,
+  givenRecordTypeId,
+  predictedRecordTypeOf,
+  recordTypeGivenOf,
+  recordTypeReadBackSoql,
+  recordTypesReadBack,
+} from '../../core/metadata/recordTypeGiven.js';
 import {
   CURRENCY_FIELD,
   CurrencyReplacementTally,
@@ -255,6 +270,11 @@ export interface ObjectOutcome {
    */
   notSent?: number;
   /**
+   * Set when a read or a write of the object threw part way, what it threw:
+   * the object failed, and the counts are those of what went before it.
+   */
+  threw?: string;
+  /**
    * Set when the run was stopped: records it wrote without a lookup its
    * second pass would have filled — the record pointed at is in the target,
    * or was in a wave the stop cut short — and never sent that pass. They keep
@@ -292,6 +312,22 @@ export interface ObjectOutcome {
    * `linked`. Absent when there are none.
    */
   withTheirPersonAccount?: number;
+  /**
+   * The records the run created without a record type into a target whose
+   * object has one besides Master — on Master in the source, or with a field
+   * the run does not write — and the type the target gave them: what the
+   * describe of the user the run writes as says, and what the first of them
+   * were read back holding once the last write was through. Absent when
+   * there is nothing to say.
+   */
+  recordTypeGiven?: RecordTypeGiven;
+  /**
+   * Of a plan fitted to the target's storage: records kept by the fit that,
+   * read by the run, name a record it cut — the source moved between the two
+   * — and stayed out with it (`CUT_WITH_PARENT`). Neither written nor refused:
+   * they cost the run nothing it set out to do. Absent when there are none.
+   */
+  cutSinceFit?: number;
 }
 
 /**
@@ -301,8 +337,18 @@ export interface ObjectOutcome {
 export interface LookupOutcome {
   /** Records whose lookups were filled. */
   filled: number;
-  /** Why the others were not: those records keep the lookups empty. */
+  /**
+   * Why the others were not: those records keep the lookups empty. An entry's
+   * `fields` are those lookups, not what the target named: an update is one
+   * per record and a refusal leaves everything it carried empty, and most
+   * refusals name no field at all.
+   */
   refusals: AutopilotRefusal[];
+  /**
+   * Records left with a lookup empty, each counted once whatever it owed and
+   * however many reasons the target gave. Absent when there are none.
+   */
+  leftEmpty?: number;
 }
 
 /** The statuses set aside for records born a draft, as the end of the run applied them. */
@@ -311,6 +357,11 @@ export interface StatusOutcome {
   applied: number;
   /** Why the others were not: those records stay in the target as drafts. */
   refusals: AutopilotRefusal[];
+  /**
+   * Records left drafts, each counted once however many reasons the target
+   * gave: `refusals` counts a record under each. Absent when there are none.
+   */
+  leftDraft?: number;
 }
 
 /** Execution result summary */
@@ -323,6 +374,25 @@ export interface AutopilotRunOptions {
    * number a fictional one.
    */
   keepContactPoints?: boolean;
+  /**
+   * The lease of the target's automation mute its caller took just before
+   * the run's first write: how many permission sets it assigned the user the
+   * run writes as, and how to give it back.
+   *
+   * A lease that assigned any has the record types of the plan's objects read
+   * again before the first write (`describeRecordTypesAgain`): a set may open
+   * a record type to that user, and what a record created without one gets
+   * changes with it. The run gives the lease back once its last write is
+   * through, before it reads back the record types the target gave: the
+   * bypass held no longer than the writes. Its caller gives it back as ever,
+   * however the run ends; given back twice, a lease answers the same.
+   */
+  lease?: ForgeWriteGateAnswer['lease'];
+  /**
+   * What a plan fitted to the target's storage holds its records to as they
+   * are read: see {@link ObjectOutcome.cutSinceFit}. Absent for any other plan.
+   */
+  fit?: AutopilotRunFit;
 }
 
 export interface ExecutionResult {
@@ -374,6 +444,8 @@ export interface ExecutionResult {
   statuses?: Record<string, StatusOutcome>;
   /** The lookups filled once the records they point at were in, per object. */
   lookups?: Record<string, LookupOutcome>;
+  /** Records of a fitted plan that stayed out with a record the fit cut: see `ObjectOutcome`. */
+  cutSinceFit?: number;
   /**
    * Message the run died with. Set only when execution crashed, in which case
    * the counters above are partial and the executor rethrows instead of
@@ -442,13 +514,24 @@ export interface AutopilotExecutorDeps {
    */
   describeRecordTypes?: (objectApiName: string) => Promise<readonly RecordTypeAvailability[]>;
   /**
-   * How many SOURCE records carry each `RecordTypeId`. The run reads an
-   * object a page at a time, so this count is how it knows, before the first
-   * page, which of the types the running user cannot use its records carry:
-   * the records on those are held back. Asked only when the target has such
-   * a type.
+   * The same, read again from the TARGET rather than from what the run
+   * holds: asked of the plan's objects once the mute's lease assigned a
+   * permission set, which may have opened record types to the user the run
+   * writes as. Absent, such a run says what the describe it holds gives a
+   * record created without a record type, and reads back what the target
+   * gave all the same.
    */
-  countRecordTypes?: (objectApiName: string) => Promise<ReadonlyMap<string, number>>;
+  describeRecordTypesAgain?: (objectApiName: string) => Promise<readonly RecordTypeAvailability[]>;
+  /**
+   * How many SOURCE records carry each `RecordTypeId`, those on Master under
+   * `null` (`parseRecordTypeCountsWithMaster`). The run reads an object a
+   * page at a time, so this count is how it knows, before the first page,
+   * which of the types the running user cannot use its records carry: the
+   * records on those are held back. Asked by a run only when the target has
+   * such a type; by a plan (`recordTypesGivenOf`), when it has one besides
+   * Master, to say how many records go in on the type the target gives.
+   */
+  countRecordTypes?: (objectApiName: string) => Promise<ReadonlyMap<string | null, number>>;
   /**
    * The object's key prefix in the TARGET org. An id a refusal names is
    * linked to only when it carries it: a unique index is per object, so an id
@@ -529,6 +612,12 @@ export const PARENT_REFUSED = 'PARENT_REFUSED';
  * failed.
  */
 export const PARENT_NOT_WRITTEN = 'PARENT_NOT_WRITTEN';
+
+/**
+ * Why a record of a fitted plan stayed out: a lookup that holds it names a
+ * record the fit cut, which the fit did not see it name.
+ */
+export const CUT_WITH_PARENT = 'CUT_WITH_PARENT';
 
 /** Why the run did not write an object of its plan: what a record naming one is held back for. */
 type NotWrittenReason = 'skipped' | 'failed';
@@ -614,6 +703,8 @@ interface ObjectState {
   defaulted: Map<string, number>;
   /** Records the stop kept from the target, once the run was stopped. */
   notSent?: number;
+  /** Records that stayed out with a record the fit cut. */
+  cutSinceFit: number;
   /**
    * The record types of the object the running user cannot use in the
    * target, by the first fifteen characters of their id there: a record
@@ -638,6 +729,7 @@ function emptyObjectState(): ObjectState {
     refusals: new RefusalTally(),
     apiCallsUsed: 0,
     defaulted: new Map(),
+    cutSinceFit: 0,
     heldForRecordType: new Map(),
   };
 }
@@ -649,6 +741,72 @@ function recordTypeRefusal(use: UnavailableRecordTypeUse): AutopilotRefusal {
     fields: ['RecordTypeId'],
     count: use.recordCount,
     message: recordTypeBlockedReason(use),
+  };
+}
+
+/**
+ * What the target gives a record of one object created without a record
+ * type, as the run holds it: the object's types, named, and the one the
+ * describe of the user the run writes as says it gives, absent for Master.
+ */
+interface GivenRule {
+  types: readonly RecordTypeAvailability[];
+  predicted?: RecordTypeNamed & { basis: RecordTypeGivenBasis };
+}
+
+/**
+ * The records of one object the run created without a record type, as their
+ * writes answered: see `ObjectOutcome.recordTypeGiven`.
+ */
+interface RecordTypeTally extends GivenRule {
+  rows: number;
+  why: Partial<Record<WithoutRecordTypeWhy, number>>;
+  /** The first records created, by their id in the target: those the read back asks about. */
+  ids: string[];
+  readBack?: RecordTypeGiven['readBack'];
+}
+
+/** What a tally says, as an object's outcome carries it. */
+function recordTypeGivenOfTally(objectApiName: string, tally: RecordTypeTally): RecordTypeGiven {
+  return {
+    objectApiName,
+    rows: tally.rows,
+    why: { ...tally.why },
+    ...(tally.predicted ? { predicted: tally.predicted } : {}),
+    ...(tally.readBack ? { readBack: tally.readBack } : {}),
+  };
+}
+
+/**
+ * Of a count of an object's records per record type, those on Master: no
+ * record type, or Master's own id as a source may hold it.
+ */
+function onMasterOf(counts: ReadonlyMap<string | null, number>): number {
+  let onMaster = 0;
+  for (const [id, n] of counts) if (namesMasterRecordType(id)) onMaster += n;
+  return onMaster;
+}
+
+/** {@link AutopilotRunFit} as a page of records is held to it. */
+interface FitHeldTo {
+  /** Of each object, the lookups that hold its records to a fitted object. */
+  holds: ReadonlyMap<string, readonly FitHold[]>;
+  /** Of each fitted object, the first fifteen characters of the ids kept. */
+  kept: ReadonlyMap<string, ReadonlySet<string>>;
+  /** The records that stayed out so far, by the same fifteen characters, each with its object. */
+  stayedOut: Map<string, string>;
+}
+
+/** What a run of a fitted plan starts from. */
+function fitHeldToOf(fit: AutopilotRunFit): FitHeldTo {
+  const holds = new Map<string, FitHold[]>();
+  for (const hold of fit.holds) {
+    holds.set(hold.objectApiName, [...(holds.get(hold.objectApiName) ?? []), hold]);
+  }
+  return {
+    holds,
+    kept: new Map([...fit.kept].map(([name, ids]) => [name, new Set(ids.map(idKey))])),
+    stayedOut: new Map(),
   };
 }
 
@@ -664,6 +822,12 @@ interface ObjectResult {
   leftToDefault: DefaultedLookup[];
   /** Set when the stop cut the object short: the records it never sent. */
   notSent?: number;
+  cutSinceFit: number;
+  /**
+   * Set when a read or a write of the object threw part way: what it threw.
+   * The counts are those of what went before it, in the target and mapped.
+   */
+  threw?: string;
 }
 
 /** A lookup a written record went in without, owed until the record it points at is in. */
@@ -768,6 +932,12 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    */
   private readonly leftByStop = new Map<string, { lookups: Set<string>; statuses: Set<string> }>();
   /**
+   * Per object, the records that stand without a lookup the run tried to
+   * fill, by target id: one record may owe several, or be refused for several
+   * reasons, and is one record left without its link.
+   */
+  private readonly lookupsLeftEmpty = new Map<string, Set<string>>();
+  /**
    * The records the run set out to write and did not — the target refused
    * them, or the run held them back — by the first fifteen characters of
    * their source id, with their object: what a record naming one is held back
@@ -786,6 +956,25 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private personTypes: Promise<ReadonlySet<string> | undefined> | undefined;
   /** The contacts of person accounts linked to the one the platform wrote with each account. */
   private personContactsLinked = 0;
+  /**
+   * The records the run created without a record type, by object of the
+   * target with a type besides Master: what each object's outcome says of
+   * the type the target gave them (`ObjectOutcome.recordTypeGiven`).
+   */
+  private readonly recordTypesGiven = new Map<string, RecordTypeTally>();
+  /**
+   * The target's record types of the plan's objects, as a describe read again
+   * once the mute's lease assigned a permission set gives them
+   * (`readAgainUnderTheLease`): what a record created without one gets now.
+   * Empty when the lease assigned none, or there was no lease.
+   */
+  private readonly recordTypesUnderTheLease = new Map<string, readonly RecordTypeAvailability[]>();
+  /** What the target gives a record created without a record type, per object, read once a run. */
+  private readonly givenRules = new Map<string, Promise<GivenRule | undefined>>();
+  /** The lease its caller took, given back once the last write is through: see `AutopilotRunOptions.lease`. */
+  private lease: AutopilotRunOptions['lease'];
+  /** What a fitted plan holds its records to as they are read: see `holdBehindCutParents`. */
+  private fit: FitHeldTo | undefined;
 
   /**
    * What the target will take on a write, or `null` when nothing can say.
@@ -873,10 +1062,15 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
   }
 
-  /** Records per record type, keyed by the target's ids where the mapping knows one. */
-  private inTargetRecordTypes(counts: ReadonlyMap<string, number>): Map<string, number> {
+  /**
+   * Records per record type, keyed by the target's ids where the mapping
+   * knows one. Those on Master go without one, and no type of theirs is
+   * closed to anyone.
+   */
+  private inTargetRecordTypes(counts: ReadonlyMap<string | null, number>): Map<string, number> {
     const translated = new Map<string, number>();
     for (const [id, count] of counts) {
+      if (id === null) continue;
       const target = this.targetRecordTypeOf(id);
       translated.set(target, (translated.get(target) ?? 0) + count);
     }
@@ -890,6 +1084,230 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    */
   private targetRecordTypeOf(id: string): string {
     return this.recordTypeMappings?.find((m) => m.sourceId === id)?.targetId ?? id;
+  }
+
+  /**
+   * What the target is to give the records of a plan's objects that go in
+   * without a record type, before the run, as its plan says it: per object of
+   * the target with a type besides Master, how many — those on Master in the
+   * source, or every one when the target does not let the run send
+   * `RecordTypeId` — and the type the describe of the user the run writes as
+   * says the target gives them (`recordTypeGivenOf`). Nothing is written.
+   *
+   * The records on Master are counted in the source, a request an object:
+   * of a table, by its `GROUP BY RecordTypeId` count, the records with no
+   * type kept; of a parent read by id, by those ids alone,
+   * {@link IDS_PER_READ} a request; of a table cut to its first records by
+   * Id, no more than the run copies — an estimate that errs says too much.
+   * An object the count fails for, or that no record type could be read of,
+   * is said nothing of: a real run counts what it creates.
+   *
+   * @param recordCounts - The records of each object the run copies, as the scan counted them.
+   * @param parentIds - The objects read by id, with the ids: the scan's `parentIds`.
+   * @param cutShort - The selected objects cut to their first records by Id: the scope's `cutShort`.
+   */
+  async recordTypesGivenOf(
+    plan: ExecutionPlan,
+    recordCounts: ReadonlyMap<string, number>,
+    parentIds: ReadonlyMap<string, readonly string[]> = new Map(),
+    cutShort: AutopilotPlanScope['cutShort'] = [],
+  ): Promise<Map<string, RecordTypeGiven>> {
+    // The target's own names of its types, `ns__Retail` for a package's.
+    await this.mapRecordTypes(plan);
+    const given = new Map<string, RecordTypeGiven>();
+    for (const objectApiName of new Set(plan.waves.flatMap((wave) => wave.objects))) {
+      const copied = recordCounts.get(objectApiName) ?? 0;
+      if (copied === 0) continue;
+      const rule = await this.givenRuleOf(objectApiName);
+      if (!rule) continue;
+      const writable = await this.creatableFieldsOf(objectApiName);
+      let rows: number;
+      let why: WithoutRecordTypeWhy = 'masterInSource';
+      if (writable && !writable.has('RecordTypeId')) {
+        rows = copied;
+        why = 'notRead';
+      } else {
+        const onMaster = await this.onMasterInSource(objectApiName, parentIds.get(objectApiName));
+        if (onMaster === undefined) continue;
+        const cut = cutShort.find((entry) => entry.objectApiName === objectApiName);
+        rows = cut ? Math.min(onMaster, copied) : onMaster;
+      }
+      if (rows === 0) continue;
+      given.set(objectApiName, {
+        objectApiName,
+        rows,
+        why: { [why]: rows },
+        ...(rule.predicted ? { predicted: rule.predicted } : {}),
+      });
+    }
+    return given;
+  }
+
+  /**
+   * How many of an object's records are on Master in the source: of its
+   * whole table, or of `ids` alone, a count {@link IDS_PER_READ} ids at a
+   * time. Undefined when the source cannot say.
+   */
+  private async onMasterInSource(
+    objectApiName: string,
+    ids: readonly string[] | undefined,
+  ): Promise<number | undefined> {
+    try {
+      if (ids === undefined) {
+        const count = this.deps.countRecordTypes;
+        return count ? onMasterOf(await count(objectApiName)) : undefined;
+      }
+      const query = this.deps.querySource;
+      if (!query) return undefined;
+      let onMaster = 0;
+      for (let at = 0; at < ids.length; at += IDS_PER_READ) {
+        // The statement the read back asks of the records a run created,
+        // asked here of the source's records by their ids.
+        const rows = await query(
+          recordTypeReadBackSoql(objectApiName, ids.slice(at, at + IDS_PER_READ)),
+        );
+        onMaster += onMasterOf(parseRecordTypeCountsWithMaster(rows));
+      }
+      return onMaster;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * What the target gives a record of the object created without a record
+   * type, read once a run from the describe it holds, or the one read again
+   * under the lease (`readAgainUnderTheLease`): undefined when the object has
+   * no type besides Master in the target, and there is nothing to say, or
+   * when no describe can say.
+   */
+  private givenRuleOf(objectApiName: string): Promise<GivenRule | undefined> {
+    let rule = this.givenRules.get(objectApiName);
+    if (!rule) {
+      rule = (async () => {
+        const infos =
+          this.recordTypesUnderTheLease.get(objectApiName) ??
+          (await this.deps.describeRecordTypes?.(objectApiName).catch(() => undefined));
+        if (!infos?.some((info) => !info.master)) return undefined;
+        // Named by the target's rows, by id: `ns__Retail` for a package's.
+        const types = withRecordTypeNames(infos, this.targetRecordTypes);
+        const predicted = predictedRecordTypeOf(recordTypeGivenOf(types));
+        return { types, ...(predicted ? { predicted } : {}) };
+      })();
+      this.givenRules.set(objectApiName, rule);
+    }
+    return rule;
+  }
+
+  /**
+   * Read again from the target the record types of the plan's objects that
+   * have one besides Master, once the mute's lease assigned a permission
+   * set, before the first write: a set may open a record type to the user
+   * the run writes as, and a record created without one then gets another.
+   * On a scratch org, a describe read just after an assignment already said
+   * what it opened.
+   *
+   * Only what the run says of the type given reads them. What the run holds
+   * back for a record type closed to that user stays held back, read from
+   * the describe it holds.
+   */
+  private async readAgainUnderTheLease(
+    plan: ExecutionPlan,
+    recordCounts: ReadonlyMap<string, number>,
+  ): Promise<void> {
+    const again = this.deps.describeRecordTypesAgain;
+    if (!again || !this.lease || this.lease.assigned === 0) return;
+    const objects = [...new Set(plan.waves.flatMap((wave) => wave.objects))].filter(
+      (objectApiName) => (recordCounts.get(objectApiName) ?? 0) > 0,
+    );
+    await Promise.all(
+      objects.map(async (objectApiName) => {
+        const held = await this.deps.describeRecordTypes?.(objectApiName).catch(() => undefined);
+        if (!held?.some((info) => !info.master)) return;
+        try {
+          this.recordTypesUnderTheLease.set(objectApiName, await again(objectApiName));
+        } catch {
+          // Unread, the run says what the describe it holds gives, and reads
+          // back what the target gave all the same.
+        }
+      }),
+    );
+  }
+
+  /** Count a record the target created without a record type, with why, its id kept for the read back. */
+  private countCreatedWithoutRecordType(
+    objectApiName: string,
+    rule: GivenRule,
+    why: WithoutRecordTypeWhy,
+    id: string | undefined,
+  ): void {
+    let tally = this.recordTypesGiven.get(objectApiName);
+    if (!tally) {
+      tally = { ...rule, rows: 0, why: {}, ids: [] };
+      this.recordTypesGiven.set(objectApiName, tally);
+    }
+    tally.rows++;
+    tally.why[why] = (tally.why[why] ?? 0) + 1;
+    if (id && tally.ids.length < RECORD_TYPE_READ_BACK_IDS) tally.ids.push(id);
+  }
+
+  /**
+   * Once the last write is through, however the run came to its end: the
+   * lease given back, then the record types the target gave the records
+   * created without one read back, and said in each object's outcome.
+   */
+  private async afterTheWrites(objectOutcomes: Record<string, ObjectOutcome>): Promise<void> {
+    await this.giveTheLeaseBack();
+    await this.readBackRecordTypes();
+    for (const [objectApiName, tally] of this.recordTypesGiven) {
+      const outcome = objectOutcomes[objectApiName];
+      if (!outcome) continue;
+      objectOutcomes[objectApiName] = {
+        ...outcome,
+        recordTypeGiven: recordTypeGivenOfTally(objectApiName, tally),
+      };
+    }
+  }
+
+  /**
+   * Give back the lease its caller took, once the run's last write is
+   * through. A lease never throws as it is given back; should one, the run's
+   * writes stand, and its caller gives it back again and says what it left.
+   */
+  private async giveTheLeaseBack(): Promise<void> {
+    const lease = this.lease;
+    if (!lease) return;
+    this.lease = undefined;
+    try {
+      await lease.giveBack();
+    } catch (err: unknown) {
+      logger.warn(
+        `[autopilot] the mute's lease was not given back as the writes ended: ${extractErrorMessage(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Read back, once the writes are through and the lease given back, the
+   * record types the target gave the records the run created without one:
+   * one request an object, of its first records. A read that fails is said
+   * in the org's words, and fails nothing: the records are in. Without a way
+   * to read the target, the outcome says what the describe gives them.
+   */
+  private async readBackRecordTypes(): Promise<void> {
+    const query = this.deps.queryTarget;
+    if (!query) return;
+    await Promise.all(
+      [...this.recordTypesGiven].map(async ([objectApiName, tally]) => {
+        if (tally.ids.length === 0) return;
+        try {
+          const rows = await query(recordTypeReadBackSoql(objectApiName, tally.ids));
+          tally.readBack = recordTypesReadBack(rows, tally.types);
+        } catch (err: unknown) {
+          tally.readBack = { read: 0, types: [], unread: extractErrorMessage(err) };
+        }
+      }),
+    );
   }
 
   /**
@@ -1041,6 +1459,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     // written, as a Forge run's are, unless the run keeps them as read.
     this.contactPoints =
       options.keepContactPoints === true ? undefined : new ContactPointNeutralizer();
+    this.lease = options.lease;
+    this.fit = options.fit ? fitHeldToOf(options.fit) : undefined;
     const startTime = Date.now();
     this.signal = signal;
     // A run stopped while paused stops there, rather than waiting for a resume
@@ -1115,6 +1535,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         result.totalSuccess += objResult.success;
         result.totalFailure += objResult.failure;
         result.totalLinked = (result.totalLinked ?? 0) + objResult.linked;
+        if (objResult.cutSinceFit > 0) {
+          result.cutSinceFit = (result.cutSinceFit ?? 0) + objResult.cutSinceFit;
+        }
         const leftToThePlatform = this.leftToThePlatform.counts(objectApiName);
         objectOutcomes[objectApiName] = {
           written: objResult.success,
@@ -1131,6 +1554,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           ...(objectApiName === CONTACT && this.personContactsLinked > 0
             ? { withTheirPersonAccount: this.personContactsLinked }
             : {}),
+          ...(objResult.cutSinceFit > 0 ? { cutSinceFit: objResult.cutSinceFit } : {}),
+          ...(objResult.threw !== undefined ? { threw: objResult.threw } : {}),
         };
 
         // Cut short by the stop: neither completed nor failed, and said so
@@ -1141,17 +1566,26 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         }
 
         // A node that wrote nothing is still whole when every record it
-        // holds is in the target: linked to, its children point at it.
-        if (objResult.errors.length > 0 && objResult.success + objResult.linked === 0) {
+        // holds is in the target: linked to, its children point at it. One
+        // whose read or write threw is not, whatever went before it.
+        const { threw } = objResult;
+        if (
+          threw !== undefined ||
+          (objResult.errors.length > 0 && objResult.success + objResult.linked === 0)
+        ) {
           result.failedObjects.push(objectApiName);
-          nodeErrors[objectApiName] = objResult.errors[0];
+          // What it wrote before the throw is mapped; a record naming any
+          // other of its records is held back.
+          if (threw !== undefined) this.notWritten.set(objectApiName, 'failed');
+          const errors = threw !== undefined ? [threw, ...objResult.errors] : objResult.errors;
+          nodeErrors[objectApiName] = errors[0];
           this.emit(
             'node-failed',
             this.makeEvent({
               type: 'node-failed' as const,
               timestamp: '',
               objectApiName: objectApiName as ApiName,
-              errors: objResult.errors,
+              errors,
               partialSuccessCount: objResult.success,
               failureCount: objResult.failure,
               linkedCount: objResult.linked,
@@ -1201,6 +1635,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     try {
       await this.matchStandardPricebooks(plan);
       await this.mapRecordTypes(plan);
+      // Under a lease that assigned a permission set, the record types it may
+      // have opened, read before the first write.
+      await this.readAgainUnderTheLease(plan, recordCounts);
       this.planned = new Set(plan.waves.flatMap((wave) => wave.objects));
       const lookups: Record<string, LookupOutcome> = {};
 
@@ -1247,6 +1684,15 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         result.stoppedObjects = stoppedObjects;
         this.countEmailsTheStopHeld(result, stoppedObjects, objectOutcomes);
         this.countWhatTheStopLeft(stoppedObjects, objectOutcomes);
+        // What is still owed at a record the run refused or did not write is
+        // no doing of the stop: said as a run that ends says it.
+        await this.sayLookupsLeftOwed(edges, lookups);
+        // The waves before the stop had their second pass: what it filled and
+        // what the target refused it stays said.
+        if (Object.keys(lookups).length > 0) result.lookups = lookups;
+        // What it created before the stop is in: the lease given back, the
+        // record types the target gave them read back.
+        await this.afterTheWrites(objectOutcomes);
         this.reportContactPoints(result);
         result.elapsedMs = Date.now() - startTime;
         return result;
@@ -1267,6 +1713,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       const statuses = await this.applyDeferredStatuses();
       if (Object.keys(statuses).length > 0) result.statuses = statuses;
       if (Object.keys(lookups).length > 0) result.lookups = lookups;
+      // Every write is done: the lease given back, and the record types the
+      // target gave the records created without one are final, and read back.
+      await this.afterTheWrites(objectOutcomes);
       // Stopped during the passes after the waves: every object was reached,
       // and the updates after the stop were not sent.
       if (this.stopped()) {
@@ -1304,6 +1753,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       throw err;
     } finally {
       signal?.removeEventListener('abort', letThePauseGo);
+      // A run that died gives the lease back too, before its caller does.
+      await this.giveTheLeaseBack();
     }
   }
 
@@ -1325,13 +1776,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     edges: readonly AutopilotEdge[],
     writeNode: (objectApiName: string) => Promise<void>,
   ): Promise<void> {
-    const members = new Set(objects);
-    const within = edges.filter(
-      (edge) => edge.from !== edge.to && members.has(edge.from) && members.has(edge.to),
-    );
-    const deps = new Map(objects.map((name) => [name, new Set<string>()]));
-    for (const edge of within) deps.get(edge.to)?.add(edge.from);
-    const groups = insertionGroups(deps);
+    const { within, deps, groups } = waveGroupsOf(objects, edges);
     const groupOf = new Map<string, number>();
     groups.forEach((group, index) => group.forEach((name) => groupOf.set(name, index)));
 
@@ -1367,26 +1812,21 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   }
 
   /**
-   * Within one cycle, what each object cannot be written without: what its
-   * required lookups point at, and what its lookups the second pass cannot
-   * set — the target takes them on create and not on update — point at.
+   * Within one cycle, what each object cannot be written without
+   * (`atInsertDeps`), from what the target describes of its lookups: the one
+   * rule a fit of the plan reads the run's order by too.
    */
   private async setAtInsert(
     group: readonly string[],
     edges: readonly AutopilotEdge[],
   ): Promise<Map<string, Set<string>>> {
     const members = new Set(group);
-    const needs = new Map<string, Set<string>>();
+    const described = new Map<string, readonly DescribedLookup[] | null>();
     for (const edge of edges) {
-      if (!members.has(edge.to) || !members.has(edge.from)) continue;
-      const lookup = (await this.lookupsOf(edge.to))?.find((l) => l.name === edge.fieldApiName);
-      const insertOnly = lookup !== undefined && lookup.createable && !lookup.updateable;
-      if (!edge.required && !isPlatformRequiredField(edge.to, edge.fieldApiName) && !insertOnly) {
-        continue;
-      }
-      needs.set(edge.to, (needs.get(edge.to) ?? new Set()).add(edge.from));
+      if (!members.has(edge.to) || !members.has(edge.from) || described.has(edge.to)) continue;
+      described.set(edge.to, await this.lookupsOf(edge.to));
     }
-    return needs;
+    return atInsertDeps(group, edges, (objectApiName) => described.get(objectApiName));
   }
 
   /**
@@ -1421,7 +1861,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       const refusals = new RefusalTally();
       for (const refusal of known?.refusals ?? []) refusals.addCounted(refusal);
       for (let i = 0; i < records.length; i += this.batchSize) {
-        if (this.stopped()) {
+        // A pause holds the updates as it holds every other write of the run.
+        if (await this.checkPause()) {
           // Never sent: those records keep the lookups empty, and are said so.
           this.noteLeftByStop(
             objectApiName,
@@ -1432,22 +1873,48 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         }
         const part = records.slice(i, i + this.batchSize);
         const results = await updateEach(update, objectApiName, part);
-        part.forEach((_, index) => {
+        part.forEach((patch, index) => {
           const outcome = results[index];
-          if (outcome?.success) filled++;
-          else refusals.add(detailsOf(outcome));
+          if (outcome?.success) {
+            filled++;
+            return;
+          }
+          const lookups = Object.keys(patch).filter((field) => field !== 'Id');
+          refusals.add(detailsOf(outcome).map((detail) => ({ ...detail, fields: lookups })));
+          this.noteLookupLeftEmpty(objectApiName, String(patch['Id']));
         });
       }
-      outcomes[objectApiName] = { filled, refusals: refusals.list() };
+      outcomes[objectApiName] = this.lookupOutcome(objectApiName, filled, refusals);
     }
+  }
+
+  /** Note a record, by target id, that stands without a lookup the run tried to fill. */
+  private noteLookupLeftEmpty(objectApiName: string, recordId: string): void {
+    let left = this.lookupsLeftEmpty.get(objectApiName);
+    if (!left) {
+      left = new Set();
+      this.lookupsLeftEmpty.set(objectApiName, left);
+    }
+    left.add(recordId);
+  }
+
+  /** What the second pass came to on one object so far. */
+  private lookupOutcome(
+    objectApiName: string,
+    filled: number,
+    refusals: RefusalTally,
+  ): LookupOutcome {
+    const leftEmpty = this.lookupsLeftEmpty.get(objectApiName)?.size ?? 0;
+    return { filled, refusals: refusals.list(), ...(leftEmpty > 0 ? { leftEmpty } : {}) };
   }
 
   /**
    * The lookups still owed once every wave is written, each at a record no
    * wave wrote. A record of a cycle went in before the record its lookup
    * names, and that record never followed: the target refused it or the run
-   * held it back (`PARENT_REFUSED`), or its object was skipped or its write
-   * threw (`PARENT_NOT_WRITTEN`). The second pass dropped them unsaid, and
+   * held it back (`PARENT_REFUSED`), it stayed out of a fitted plan with a
+   * record the fit cut (`CUT_WITH_PARENT`), or its object was skipped or its
+   * write threw (`PARENT_NOT_WRITTEN`). The second pass dropped them unsaid, and
    * the record stood in the target without its parent, counted written.
    * Counted among the lookups not filled, with the parent's object and why. A
    * lookup at a record the run never set out to write, outside what it read,
@@ -1470,12 +1937,11 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         left.set(lookup.objectApiName, tally);
       }
       tally.add([{ ...said, fields: [lookup.fieldApiName] }]);
+      this.noteLookupLeftEmpty(lookup.objectApiName, lookup.recordId);
     }
     for (const [objectApiName, tally] of left) {
-      outcomes[objectApiName] = {
-        filled: outcomes[objectApiName]?.filled ?? 0,
-        refusals: tally.list(),
-      };
+      const filled = outcomes[objectApiName]?.filled ?? 0;
+      outcomes[objectApiName] = this.lookupOutcome(objectApiName, filled, tally);
     }
   }
 
@@ -1493,6 +1959,17 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         message:
           `the ${refusedParent} record its ${fieldApiName} names was refused in this run, ` +
           `and this record, written before it, keeps its ${fieldApiName} empty.`,
+      };
+    }
+    // Read, and kept out since the fit: it came to name a record the fit cut.
+    const cutIn = this.fit?.stayedOut.get(idKey(sourceId));
+    const cutParent = lookup.parents.find((parent) => parent === cutIn);
+    if (cutParent) {
+      return {
+        statusCode: CUT_WITH_PARENT,
+        message:
+          `the ${cutParent} record its ${fieldApiName} names stayed out with a record the fit ` +
+          `cut, and this record, written before it, keeps its ${fieldApiName} empty.`,
       };
     }
     for (const parent of lookup.parents) {
@@ -1551,9 +2028,31 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         elapsedMs: Date.now() - objStart,
         leftToDefault: [...state.defaulted].map(([field, count]) => ({ field, count })),
         ...(state.notSent !== undefined ? { notSent: state.notSent } : {}),
+        cutSinceFit: state.cutSinceFit,
       };
     };
 
+    try {
+      return await this.writeEveryPage(objectApiName, edges, rules, totalRecords, state, finish);
+    } catch (err) {
+      // What went in before the throw is in the target: counted, and the node
+      // failed with what threw. Thrown on, the counts were lost with the
+      // state, and a run whose second page timed out said it wrote no record
+      // — and a run that wrote nothing else had the checkpoint taken before
+      // it deleted, the one way back for the records it had written.
+      return { ...finish(), threw: extractErrorMessage(err) };
+    }
+  }
+
+  /** The reads and writes of {@link executeObject}, counted into `state` as they go. */
+  private async writeEveryPage(
+    objectApiName: ApiName,
+    edges: AutopilotEdge[],
+    rules: AnonymizationRule[],
+    totalRecords: number,
+    state: ObjectState,
+    finish: () => ObjectResult,
+  ): Promise<ObjectResult> {
     // A run translates a record type into the target's own but never picks
     // another one, so there is no default to fall back on without the user
     // choosing it: a record on a type the running user cannot use in the
@@ -1818,6 +2317,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     rows = this.holdOnClosedRecordTypes(objectApiName, rows, state);
     // A record naming one the run could not write, or did not, stays out with it.
     rows = await this.holdBehindRefusedParents(objectApiName, rows, edges, state);
+    // And of a fitted plan, a record naming one the fit cut.
+    rows = this.holdBehindCutParents(objectApiName, rows, state);
     // An email on a case names its task, which the task node still to come
     // would leave without an id in the target: it waits for it. The others go
     // now, and the platform writes their tasks as it takes them.
@@ -1848,6 +2349,20 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         })
       : rows;
     payload = this.translateRecordTypes(objectApiName, payload);
+    // The records that go without a record type — on Master in the source,
+    // or with a field the run does not write — and why: once created, they
+    // hold the type the target gives the user the run writes as, which the
+    // object's outcome says. By the record sent, as the filters below keep it.
+    const withoutType = new Map<Record<string, unknown>, WithoutRecordTypeWhy>();
+    payload.forEach((record, index) => {
+      if (record['RecordTypeId'] !== undefined) return;
+      const read = rows[index]?.['RecordTypeId'];
+      const written = !writable || writable.has('RecordTypeId');
+      withoutType.set(
+        record,
+        written && namesMasterRecordType(read) ? 'masterInSource' : 'notRead',
+      );
+    });
     // Two fields the describe calls createable that the platform takes one
     // of: an opportunity's line sent with its unit and total price was
     // refused, "only one of unit price or total price may be specified". Left
@@ -1930,6 +2445,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
 
     const drafts = await this.startAsDrafts(objectApiName, payload);
+    // Said only of an object of the target with a type besides Master.
+    const givenRule = withoutType.size > 0 ? await this.givenRuleOf(objectApiName) : undefined;
     const outcomes = await this.deps.insert(objectApiName, payload);
     state.apiCallsUsed++;
 
@@ -1949,6 +2466,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       }
       if (outcome.success) {
         state.written++;
+        const withoutWhy = givenRule ? withoutType.get(record) : undefined;
+        if (givenRule && withoutWhy) {
+          this.countCreatedWithoutRecordType(objectApiName, givenRule, withoutWhy, outcome.id);
+        }
         const currencyChange = currencyChanges.get(record);
         this.currencyChanges.add(objectApiName, currencyChange);
         if (currencyChange && outcome.id) {
@@ -2547,6 +3068,44 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   }
 
   /**
+   * The records of a page of a fitted plan that may go: a record a lookup
+   * holds to a fitted object, naming a record outside what the fit kept and
+   * that the target has no copy of, stays out (`CUT_WITH_PARENT`), and so do
+   * the records naming it.
+   *
+   * The source can move between a fit and its run: a contact kept with its
+   * account is moved under an account the fit cut. Written, the remapper
+   * would empty its lookup and it would stand without its account, the orphan
+   * a fit promises not to make; refused, a run that did all it was asked would
+   * read as partial. It is counted apart, as what the plan no longer holds.
+   */
+  private holdBehindCutParents(
+    objectApiName: string,
+    rows: Record<string, unknown>[],
+    state: ObjectState,
+  ): Record<string, unknown>[] {
+    const fit = this.fit;
+    const holds = fit?.holds.get(objectApiName);
+    if (!fit || !holds) return rows;
+    return rows.filter((row) => {
+      const cut = holds.some((hold) => {
+        const value = row[hold.field];
+        if (typeof value !== 'string' || value === '') return false;
+        const { prefix } = hold;
+        if (prefix !== undefined && (prefix === null || !value.startsWith(prefix))) return false;
+        if (this.deps.remapper.getTargetId(hold.parent, value) !== undefined) return false;
+        const key = idKey(value);
+        return fit.stayedOut.has(key) || fit.kept.get(hold.parent)?.has(key) !== true;
+      });
+      if (!cut) return true;
+      state.cutSinceFit++;
+      const id = row['Id'];
+      if (typeof id === 'string' && id !== '') fit.stayedOut.set(idKey(id), objectApiName);
+      return false;
+    });
+  }
+
+  /**
    * Why the run did not write an object of its plan — the user skipped it,
    * or its write threw — or nothing when it wrote it, or has it still to
    * write. An object the user skipped before its turn is said skipped from
@@ -2733,8 +3292,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * Whether the target takes a person account's row, as it is sent, as a
    * business account, as Forge and Sync tell it: the target has no person
    * accounts — its account has no lookup at a person's contact — or the
-   * record type the row goes in with, or the running user's default when it
-   * goes without one, is a type of the target that is no person account's.
+   * record type the row goes in with, or the one the target gives the user
+   * the run writes as when it goes without one (`givenRecordTypeId`), is a
+   * type of the target that is no person account's.
    * Nothing to say — a describe or a read that fails, a record type the
    * target does not know — and the row goes in as a person account.
    */
@@ -2756,8 +3316,13 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     if (!personTypes) return () => false;
     const infos = await this.deps.describeRecordTypes?.(ACCOUNT).catch(() => undefined);
     const known = new Set((infos ?? []).map((info) => idKey(info.recordTypeId)));
+    // A row sent without one gets the type the target gives the user the run
+    // writes as, Master among them: read from the default the describe names
+    // alone, a row sent without its type into a target whose describe named
+    // Master, the person type the only one open, was taken for a business
+    // account and sent with its name.
     const fallback = payload.some((record) => typeof record['RecordTypeId'] !== 'string')
-      ? defaultRecordTypeOf(infos ?? [])?.recordTypeId
+      ? givenRecordTypeId(infos)
       : undefined;
     return (record) => {
       const sent = record['RecordTypeId'];
@@ -2821,9 +3386,12 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
     for (const [objectApiName, entries] of byObject) {
       let applied = 0;
+      let leftDraft = 0;
       const refusals = new RefusalTally();
       for (let i = 0; i < entries.length; i += this.batchSize) {
-        if (this.stopped()) {
+        // Held by a pause too: a status given back fires the target's
+        // automation on the record, as any update does.
+        if (await this.checkPause()) {
           // Never sent: those records stay drafts, and are said so.
           this.noteLeftByStop(
             objectApiName,
@@ -2840,11 +3408,19 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         );
         part.forEach((_, index) => {
           const outcome = results[index];
-          if (outcome?.success) applied++;
-          else refusals.add(detailsOf(outcome));
+          if (outcome?.success) {
+            applied++;
+            return;
+          }
+          leftDraft++;
+          refusals.add(detailsOf(outcome));
         });
       }
-      outcomes[objectApiName] = { applied, refusals: refusals.list() };
+      outcomes[objectApiName] = {
+        applied,
+        refusals: refusals.list(),
+        ...(leftDraft > 0 ? { leftDraft } : {}),
+      };
     }
     this.deferredStatuses.length = 0;
     return outcomes;
@@ -2913,8 +3489,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * A lookup still owed is counted when the second pass could have filled
    * it — the record it points at is in the target — or when that record was
    * in an object the stop cut short or kept from the target: the stop is what
-   * left it empty. One whose record no wave was to write would have stayed
-   * empty all the same, and is not.
+   * left it empty. One whose record the run refused or did not write would
+   * have stayed empty all the same: it stays owed, for `sayLookupsLeftOwed`
+   * to say as it says it of a run that was not stopped.
    */
   private countWhatTheStopLeft(
     stoppedObjects: readonly string[],
@@ -2928,6 +3505,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           this.deps.remapper.getTargetId(parent, lookup.sourceId) !== undefined,
       );
       if (keptByTheStop) this.noteLeftByStop(lookup.objectApiName, 'lookups', [lookup.recordId]);
+      else this.owedLookups.push(lookup);
     }
     const statuses = this.deferredStatuses.splice(0, this.deferredStatuses.length);
     for (const entry of statuses) this.noteLeftByStop(entry.objectApiName, 'statuses', [entry.id]);

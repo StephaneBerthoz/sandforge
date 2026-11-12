@@ -531,6 +531,25 @@ describe('the Rewind step', () => {
     ).toBe('rewindChangedSinceConfirmed');
   });
 
+  it('cannot let the org send emails its confirmation never accepted: ticked here, it is to save, and saved, to confirm again', () => {
+    // The confirmation is bound to the step's acceptEmails as to its other
+    // acceptances: a step confirmed before cannot be ticked into sending them.
+    const accepting = rewind({ ...CONFIG, acceptEmails: true });
+    expect(stepBlocker(accepting, CONNECTED, saved(accepting))).toBe('rewindNotSaved');
+    expect(
+      stepBlocker(
+        accepting,
+        CONNECTED,
+        placeOf(accepting, [], {
+          savedSteps: [accepting],
+          rewindSteps: [
+            info({ granted: { at: '2026-10-29T09:00:00.000Z', digestMatches: false } }),
+          ],
+        }),
+      ),
+    ).toBe('rewindChangedSinceConfirmed');
+  });
+
   it.each([
     ['missing', 'rewindCheckpointMissing'],
     ['otherOrg', 'rewindCheckpointOtherOrg'],

@@ -7,6 +7,9 @@ import type {
   ClonePreviewResult,
   CloneSecondPass,
   ForgeContactPointsReport,
+  ForgeTargetAutomation,
+  RunCheckpointTaken,
+  RunDeliverability,
 } from '@sandforge/shared';
 import { recordWriteHeaders, guardTierOf } from '@sandforge/shared';
 import type {
@@ -38,6 +41,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { formatSaveError } from '../../core/common/existingRecordMatch.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { CloneRecordFetcher } from '../../modules/seed/CloneRecordFetcher.js';
+import { keepRunUser } from '../../modules/sync/runUser.js';
 import { CloneReferenceLinker } from '../../modules/seed/CloneReferenceLinker.js';
 import type { DescribeSObjectResultLike } from '../../modules/seed/CloneReferenceLinker.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
@@ -48,15 +52,20 @@ import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { isRequiredLookup, isUncopyableObject } from '@sandforge/shared';
 import {
   ACTIVITY_OF_RELATION,
+  CONTACT_FIELD,
   EMAIL_MESSAGE,
+  OPPORTUNITY_CONTACT_ROLE,
   RowsLeftToThePlatform,
   TASK,
   existingActivityRelations,
   giveLinkedRelationsTheirFlags,
   lookupsThePlatformFills,
+  rolesMadeAlikeWords,
+  rolesThePlatformWrote,
   rowsACopySends,
   tasksWrittenWithEmails,
   waitsForItsTask,
+  type PlatformRolesFound,
   type RequiredLookup,
   type SoqlQuery,
 } from '../../core/common/platformRecords.js';
@@ -78,10 +87,42 @@ import { RUN_CANCELLED, contactPointsAudit } from '../../modules/forge/forgeAudi
 import {
   apiBudgetCheckOf,
   apiBudgetRefusal,
+  checkpointPartOf,
+  checkpointScopeStop,
+  confirmationApiOf,
+  confirmationStorageOf,
+  countedStorageBytes,
+  deliverabilityPartOf,
+  emailsOfLimit,
   readApiBudget,
+  readDataStorage,
   readEmailLimits,
   runRequestsEstimate,
+  storageCheckOf,
+  type ApiBudget,
+  type DataStorage,
 } from '../../modules/forge/ForgeRunGate.js';
+import {
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+  runEmailsOf,
+} from '../../modules/forge/targetDeliverability.js';
+import {
+  BEFORE_RUN_DELETED_WORDS,
+  type BeforeRunCheckpoints,
+} from '../../modules/checkpoint/beforeRunCheckpoint.js';
+import { PIPELINE_SEED_REFUSAL } from './seedPipeline.js';
+import {
+  SEED_WRITE_DECLINED,
+  SeedCheckpointStopped,
+  emailsAuditDetails,
+  scopeSeedCheckpoint,
+  seedImportRunning,
+  seedImportWrites,
+  settleSeedCheckpoint,
+  takeSeedCheckpoint,
+  type SeedCheckpointPlanned,
+} from './SeedOpsHandler.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { FieldInfo } from '../../modules/forge/ForgeExecutor.js';
 import { contactPointsOfRun, neutralizeSyncRows } from '../../modules/sync/syncContactPoints.js';
@@ -258,27 +299,57 @@ export class SeedCloneHandler implements DomainHandler {
    *
    * @param written - The records the clone sends, per object, as its preview counted them.
    * @param org - The target, as the panel names it.
+   * @param given - What was read of the target's automation already, or why
+   *   it could not be: a clone reads it once, for its scope and its emails alike.
+   * @param deliverability - What the clone's gate read of the emails, said as it is.
    */
   private async emailGate(
     targetOrgId: string,
     transport: Parameters<typeof readEmailLimits>[0],
     written: ReadonlyArray<{ objectApiName: string; recordCount: number }>,
     org: string,
+    given?: ForgeTargetAutomation | { unread: string },
+    deliverability?: RunDeliverability,
   ): Promise<SeedEmailGate | undefined> {
     const sent = written.filter((object) => object.recordCount > 0);
     if (sent.length === 0) return undefined;
-    const reader = this.targetAutomation;
     const read = await readSeedAutomation({
       org,
       objects: sent.map((object) => object.objectApiName),
       readAutomation: (names) =>
-        new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('clone automation', () =>
-          reader.read(targetOrgId, names),
-        ),
+        given === undefined
+          ? this.readTargetAutomation(targetOrgId, names)
+          : typeof given.unread === 'string'
+            ? Promise.reject(new Error(given.unread))
+            : Promise.resolve(given as ForgeTargetAutomation),
       readLimits: () => readEmailLimits(transport),
+      ...(deliverability ? { deliverability } : {}),
     });
     return seedEmailGate(read, sent, org);
   }
+
+  /** What the target runs on `objects`, read within its time. */
+  private readTargetAutomation(
+    targetOrgId: string,
+    objects: readonly string[],
+  ): Promise<ForgeTargetAutomation> {
+    const reader = this.targetAutomation;
+    return new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('clone automation', () =>
+      reader.read(targetOrgId, objects),
+    );
+  }
+
+  /**
+   * The checkpoints of this window, which a clone asked to take one of what
+   * it writes before its first write (Checkpoint first) takes it through, as
+   * a seed does. Unset, such a clone is refused, nothing written.
+   */
+  setBeforeRunCheckpoints(checkpoints: BeforeRunCheckpoints): void {
+    this.beforeRunCheckpoints = checkpoints;
+  }
+
+  /** See {@link setBeforeRunCheckpoints}. */
+  private beforeRunCheckpoints?: BeforeRunCheckpoints;
 
   /**
    * Inject the shared registry so this module's runs are cancellable.
@@ -344,6 +415,71 @@ export class SeedCloneHandler implements DomainHandler {
     } finally {
       this.runningRuns.delete(operationId);
     }
+  }
+
+  /**
+   * A clone stopped for its checkpoint once it was announced, before its
+   * first record: recorded as stopped under its code, the take's own beside
+   * it, and said on `operation:failed`, which the page words; its Stop while
+   * the take read ends it as a clone cancelled before it wrote ends.
+   */
+  private stoppedForCheckpoint(
+    msg: InboundRequest,
+    run: WriteRun,
+    err: SeedCheckpointStopped,
+    failure: OperationFailureContext,
+    durationMs: number,
+  ): void {
+    const { operationId } = run;
+    if (err.code === RUN_CANCELLED) {
+      recordWriteRun(this.deps, {
+        ...run,
+        outcome: 'stopped',
+        source: undefined,
+        code: RUN_CANCELLED,
+      });
+      this.registry?.abort(operationId);
+      sendOperationCompleted(this.deps, operationId, {
+        aborted: true,
+        totalInserted: 0,
+        totalFailed: 0,
+      });
+      this.liveTracker?.cancel(operationId);
+      const result: CloneExecutionResult = {
+        status: 'partial',
+        objectResults: [],
+        totalSourceRecords: 0,
+        totalInserted: 0,
+        totalFailed: 0,
+        durationMs,
+        cancelled: true,
+      };
+      this.deps.broker.postToWebview(
+        buildResponse(
+          this.deps,
+          msg,
+          'seed:clone:execute:response',
+          result as unknown as Record<string, unknown>,
+        ),
+      );
+      return;
+    }
+    const takeRefusal = err.refusal?.code;
+    const beside: Record<string, string> =
+      takeRefusal !== undefined ? { checkpointRefusal: takeRefusal } : {};
+    recordWriteRun(this.deps, {
+      ...run,
+      outcome: 'stopped',
+      source: undefined,
+      code: err.code,
+      ...(takeRefusal !== undefined ? { details: beside } : {}),
+    });
+    sendOperationFailed(this.deps, operationId, err.message, false, {
+      context: failure,
+      authored: true,
+      extraPayload: { code: err.code, ...beside },
+    });
+    this.liveTracker?.fail(operationId, err.message);
   }
 
   /**
@@ -701,6 +837,10 @@ export class SeedCloneHandler implements DomainHandler {
     let kept: SeedRunRecorder | undefined;
     /** Records the clone created, as its calls answered: none it linked to. */
     let created = 0;
+    /** The checkpoint the clone took first, until it is settled. */
+    let taken: RunCheckpointTaken | undefined;
+    /** Whether the clone sent a record to the target: its checkpoint is kept once it did. */
+    let wrote = false;
     /** Per object, what the clone did — kept outside the run, so a failure can say it. */
     const objectResults: CloneObjectResult[] = [];
     /** Whether the clone writes by upsert, as the write below decides it. */
@@ -789,14 +929,93 @@ export class SeedCloneHandler implements DomainHandler {
       // counted. A read that fails is said, and holds nothing back.
       const targetName = targetOrg?.alias || targetOrg?.username || parsed.targetOrgId;
       const recordCounts = this.previewedOrgs.get(parsed.previewId ?? '')?.recordCounts;
+      /** The records the clone sends, per object, as its preview counted them. */
+      const counted = parsed.objects.map((o) => ({
+        objectApiName: o.objectApiName,
+        recordCount: recordCounts?.get(o.objectApiName) ?? 0,
+      }));
+      const sentNames = counted.filter((o) => o.recordCount > 0).map((o) => o.objectApiName);
+      /** Refuse the clone before it is announced, nothing written, under its code. */
+      const refuse = (code: string, message: string, checkpointRefusal?: string): void => {
+        const beside: Record<string, string> =
+          checkpointRefusal !== undefined ? { checkpointRefusal } : {};
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code,
+          ...(checkpointRefusal !== undefined ? { details: beside } : {}),
+        });
+        sendOperationFailed(this.deps, operationId, message, false, {
+          context: failure,
+          authored: true,
+          extraPayload: { code, ...beside },
+        });
+        settle(new Error(message));
+      };
+
+      // The checkpoint asked first, scoped from the objects the clone writes
+      // and what the target's automation creates as their records go in and
+      // as its second pass writes them again, read once for the scope and the
+      // emails alike: no record read, nothing kept. Refused, or unread, the
+      // clone is refused before anything is asked or written.
+      let checkpoint: SeedCheckpointPlanned | undefined;
+      const automationRead: ForgeTargetAutomation | { unread: string } =
+        sentNames.length > 0
+          ? await this.readTargetAutomation(parsed.targetOrgId, sentNames).catch(
+              (err: unknown) => ({ unread: extractErrorMessage(err) }),
+            )
+          : { unread: 'the clone sends no record' };
+      // Whether the target delivers the emails of what runs as the records go
+      // in and as the second pass writes them again, read only when something
+      // may send one, and asked with the clone's one question. No Apex runs
+      // in a production org, which this path writes to once a person answered
+      // the guard above. A clone that sends no record sends no email.
+      const emailsOfRun =
+        sentNames.length > 0
+          ? await runEmailsOf({
+              read: automationRead,
+              writes: seedImportWrites(sentNames, true),
+              readDeliverability: () =>
+                guardTierOf(targetOrg) === 'production'
+                  ? Promise.resolve(NO_APEX_IN_PRODUCTION)
+                  : readEmailDeliverability(targetConn),
+              accepted: false,
+              target: targetName,
+              run: 'clone',
+              keepsAddresses: parsed.keepContactPoints === true,
+            })
+          : undefined;
+      const emailsAsked = emailsOfRun?.gate.verdict === 'asks';
+      if (parsed.checkpointFirst !== undefined) {
+        try {
+          checkpoint = await scopeSeedCheckpoint(this.beforeRunCheckpoints, {
+            module: 'seed',
+            orgId: parsed.targetOrgId,
+            operationId,
+            written: sentNames,
+            running: seedImportRunning(automationRead, seedImportWrites(sentNames, true)),
+            request: parsed.checkpointFirst,
+          });
+        } catch (err: unknown) {
+          if (!(err instanceof SeedCheckpointStopped)) throw err;
+          refuse(err.code, err.message);
+          return;
+        }
+        const stop = checkpointScopeStop(checkpoint.planned);
+        if (stop) {
+          refuse(stop.code, stop.message, stop.refusal.code);
+          return;
+        }
+      }
+
       const emails = await this.emailGate(
         parsed.targetOrgId,
         targetConn,
-        parsed.objects.map((o) => ({
-          objectApiName: o.objectApiName,
-          recordCount: recordCounts?.get(o.objectApiName) ?? 0,
-        })),
+        counted,
         targetName,
+        automationRead,
+        emailsOfRun?.gate.deliverability,
       );
       for (const line of emails?.unknown ?? []) {
         this.deps.log(`[WARN] seed:clone:execute ${operationId}: ${line}`);
@@ -820,14 +1039,27 @@ export class SeedCloneHandler implements DomainHandler {
 
       // The records the preview counted against the daily API requests the
       // target has left, before anything is written. An org that would not
-      // say is said in the log, and holds nothing back.
-      const budget = await readApiBudget(targetConn).catch((err: unknown) => ({
-        unread: extractErrorMessage(err),
-      }));
+      // say is said in the log, and holds nothing back. With a checkpoint
+      // asked, its requests among them, and the storage read from the same
+      // answer, for its question to say.
+      const limits: DataStorage | { unread: string } | undefined =
+        checkpoint || emailsAsked
+          ? await readDataStorage(targetConn).catch((err: unknown) => ({
+              unread: extractErrorMessage(err),
+            }))
+          : undefined;
+      const budget: ApiBudget | { unread: string } | undefined =
+        limits !== undefined && !('unread' in limits)
+          ? limits.dailyApiRequests
+          : await readApiBudget(targetConn).catch((err: unknown) => ({
+              unread: extractErrorMessage(err),
+            }));
       const api = apiBudgetCheckOf(
-        runRequestsEstimate(
-          parsed.objects.map((o) => ({ rows: recordCounts?.get(o.objectApiName) ?? 0 })),
-        ),
+        {
+          run: runRequestsEstimate(counted.map((o) => ({ rows: o.recordCount }))),
+          ...checkpointPartOf(checkpoint?.planned),
+          ...deliverabilityPartOf(emailsOfRun?.ofRun),
+        },
         budget,
       );
       if (api.verdict === 'unread') {
@@ -853,6 +1085,61 @@ export class SeedCloneHandler implements DomainHandler {
         return;
       }
 
+      // A checkpoint asked first is asked about before anything is taken or
+      // written, its cost that of the target's whole tables: declined, or
+      // with nobody to answer for it, the clone writes nothing. So are the
+      // emails of a target that delivers them all or would not say: going on
+      // is the accord to send them.
+      let emailsAccepted = false;
+      if (checkpoint || emailsAsked) {
+        const objects = counted
+          .filter((o) => o.recordCount > 0)
+          .map((o) => ({ objectApiName: o.objectApiName, rows: o.recordCount }))
+          .sort((a, b) => b.rows - a.rows);
+        const answer = await guard.confirmRun({
+          stage: 'write',
+          module: 'seed',
+          org: targetName,
+          orgTier: guardTierOf(targetOrg),
+          objects,
+          total: objects.reduce((sum, o) => sum + o.rows, 0),
+          storage: confirmationStorageOf(
+            storageCheckOf(
+              {
+                storageBytes: objects.reduce(
+                  (sum, o) => sum + countedStorageBytes(o.objectApiName, { rows: o.rows }),
+                  0,
+                ),
+              },
+              limits ?? { unread: 'not read' },
+            ),
+          ),
+          counted: true,
+          ...confirmationApiOf(api),
+          ...(checkpoint ? { checkpoint: checkpoint.planned } : {}),
+          ...emailsOfRun?.gate.confirmation,
+        });
+        if (answer !== 'confirmed') {
+          const stop = emailsOfRun?.gate.stop;
+          if (answer !== 'declined' && !checkpoint && stop) refuse(stop.code, stop.message);
+          else {
+            refuse(
+              answer === 'declined' ? SEED_WRITE_DECLINED : PIPELINE_SEED_REFUSAL.unanswered,
+              answer === 'declined'
+                ? 'The clone was cancelled before it wrote anything. Nothing was written.'
+                : `The clone needed an answer before it wrote — the checkpoint it takes first ` +
+                    `reads whole tables of ${targetName} — and there was no one to ask. Nothing ` +
+                    'was written.',
+            );
+          }
+          return;
+        }
+        emailsAccepted = emailsAsked;
+      }
+      run.details = emailsAuditDetails(
+        emailsOfRun ? { read: emailsOfRun, accepted: emailsAccepted } : undefined,
+      ).details;
+
       sendOperationStarted(
         this.deps,
         operationId,
@@ -862,6 +1149,29 @@ export class SeedCloneHandler implements DomainHandler {
       // Listed in Live Operations while it runs, where Cancel reaches the
       // registry's controller above, as a Sync or a Seed run is.
       this.liveTracker?.register(operationId, 'clone', `Clone ${parsed.objects.length} object(s)`);
+
+      // The checkpoint, taken once the question was answered, as close to the
+      // first record as it can be, under the clone's Cancel: refused, failed
+      // or stopped, the clone writes nothing.
+      if (checkpoint) {
+        try {
+          taken = await takeSeedCheckpoint(
+            this.beforeRunCheckpoints,
+            checkpoint,
+            operationId,
+            abortController.signal,
+            (percent, processed, total, label) => {
+              sendOperationProgress(this.deps, operationId, percent, processed, total, label);
+              this.liveTracker?.updateProgress(operationId, percent, processed, total, label);
+            },
+          );
+        } catch (err: unknown) {
+          if (!(err instanceof SeedCheckpointStopped)) throw err;
+          this.stoppedForCheckpoint(msg, run, err, failure, Date.now() - startedAt);
+          settle(err.code === RUN_CANCELLED ? undefined : err);
+          return;
+        }
+      }
       unrecorded = true;
 
       const robustnessConfig = robustnessConfigOf(this.deps);
@@ -895,6 +1205,10 @@ export class SeedCloneHandler implements DomainHandler {
         startedAt: new Date(startedAt).toISOString(),
         origin: 'clone',
       });
+      // The checkpoint it took is named in its file, with its first line, and
+      // the user it writes as is asked of the target, waited for by nothing.
+      if (taken) kept?.checkpoint?.(taken);
+      keepRunUser(kept, () => targetConn.identity(), `seed:clone:execute ${operationId}`);
       if (kept) this.runningRuns.add(operationId);
       const writer = new BulkDataWriter({
         ...(kept
@@ -977,6 +1291,14 @@ export class SeedCloneHandler implements DomainHandler {
 
       /** sourceId -> targetId across all objects inserted so far. */
       const globalIdMap = new Map<string, string>();
+      /**
+       * The contact each opportunity the clone created went in with, by the
+       * opportunity's id in the target, both the target's: the platform wrote
+       * a role of that contact with it (`rolesWrittenWithTheirOpportunity`).
+       */
+      const contactSentWith = new Map<string, string>();
+      /** The record of each role linked to the platform's, as read, by the role's source id. */
+      const platformRoles = new Map<string, Readonly<Record<string, unknown>>>();
       /** The lookups written records went in without, for the second pass to fill. */
       const owedLookups: PendingFkUpdate[] = [];
       /** The records read and left to the platform, across objects: what hangs from them goes too. */
@@ -1120,6 +1442,7 @@ export class SeedCloneHandler implements DomainHandler {
             upserts ? parsed.externalIdField : undefined,
           );
         }
+        if (writeRecords.length > 0) wrote = true;
         try {
           const outcomes =
             parsed.upsert && parsed.externalIdField
@@ -1265,6 +1588,113 @@ export class SeedCloneHandler implements DomainHandler {
           if (typeof sourceId === 'string') linked.set(sourceId, id);
         }
         return linked;
+      };
+
+      /**
+       * Of the contact roles about to be written, each the platform wrote
+       * itself as it took one of the clone's opportunities, for the contact
+       * the opportunity went in with (`rolesThePlatformWrote`), by the role's
+       * source id: its record is the source's role, linked, given the
+       * source's fields it lacks (`giveTheRolesTheirFields`), never sent.
+       * Sent, the source's role stood beside the platform's: two primary
+       * roles of one contact where the source held one. The record read is
+       * kept for the fields it holds (`platformRoles`). Never a role made
+       * after the opportunity. None when the target could not be asked, or
+       * for an opportunity holding several of its contact made with it: the
+       * roles go as read, and the log says why.
+       */
+      const rolesWrittenWithTheirOpportunity = async (
+        sourceRecords: readonly Record<string, unknown>[],
+        writeRecords: readonly Record<string, unknown>[],
+      ): Promise<Map<string, string>> => {
+        if (contactSentWith.size === 0) return new Map();
+        const describe = describeMap.get(OPPORTUNITY_CONTACT_ROLE);
+        const fields = [...new Set(writeRecords.flatMap((record) => Object.keys(record)))].filter(
+          (field) => givenToARole(describe, field),
+        );
+        let pairedWith: PlatformRolesFound;
+        try {
+          pairedWith = await rolesThePlatformWrote(
+            readTarget,
+            writeRecords.map((record, i) => ({
+              OpportunityId: record['OpportunityId'],
+              [CONTACT_FIELD]: record[CONTACT_FIELD],
+              IsPrimary: sourceRecords[i]?.['IsPrimary'],
+            })),
+            (opportunity) => contactSentWith.get(opportunity),
+            fields,
+          );
+        } catch (err: unknown) {
+          this.deps.log(
+            `[seed:clone] ${OPPORTUNITY_CONTACT_ROLE}: the roles the platform wrote with the ` +
+              `clone's opportunities not looked up, written as read — an opportunity may hold ` +
+              `the role of its contact twice: ${extractErrorMessage(err)}`,
+          );
+          return new Map();
+        }
+        const { found, alike } = pairedWith;
+        if (alike.length > 0) {
+          this.deps.log(
+            `[seed:clone] ${OPPORTUNITY_CONTACT_ROLE}: ${rolesMadeAlikeWords(alike.length)}`,
+          );
+          for (const index of alike) {
+            contactSentWith.delete(String(writeRecords[index]?.['OpportunityId']));
+          }
+        }
+        const linked = new Map<string, string>();
+        for (const [index, record] of found) {
+          const sourceId = sourceRecords[index]?.['Id'];
+          if (typeof sourceId !== 'string') continue;
+          linked.set(sourceId, String(record['Id']));
+          platformRoles.set(sourceId, record);
+          // One role an opportunity.
+          contactSentWith.delete(String(writeRecords[index]?.['OpportunityId']));
+        }
+        return linked;
+      };
+
+      /**
+       * Give each role linked to the one the platform wrote the fields of the
+       * source's it holds otherwise — its role, which the platform leaves
+       * empty — where the target lets them be updated, and log what it
+       * refused: a role it refused stays as the platform wrote it, linked all
+       * the same. A cancel sends nothing more.
+       */
+      const giveTheRolesTheirFields = async (
+        linkedRows: ReadonlyArray<readonly [Record<string, unknown>, string]>,
+        linkedWrites: readonly Record<string, unknown>[],
+      ): Promise<void> => {
+        const describe = describeMap.get(OPPORTUNITY_CONTACT_ROLE);
+        const updates: Array<Record<string, unknown> & { Id: string }> = [];
+        linkedRows.forEach(([row, id], i) => {
+          const held = platformRoles.get(String(row['Id'])) ?? {};
+          const lacks = Object.entries(linkedWrites[i] ?? {}).filter(
+            ([field, value]) =>
+              givenToARole(describe, field) &&
+              value !== null &&
+              value !== undefined &&
+              String(held[field] ?? '') !== String(value),
+          );
+          if (lacks.length > 0) updates.push({ Id: id, ...Object.fromEntries(lacks) });
+        });
+        if (updates.length === 0 || cancelled || abortController.signal.aborted) return;
+        let answers: Awaited<ReturnType<BulkDataWriter['update']>>;
+        try {
+          answers = await writer.update(OPPORTUNITY_CONTACT_ROLE, updates, defaultBatchSize);
+        } catch (updateErr: unknown) {
+          if (!(updateErr instanceof WriteCancelledError)) throw updateErr;
+          cancelled = true;
+          answers = updateErr.written;
+        }
+        const refused = updates.flatMap((update, i) =>
+          answers[i]?.success ? [] : [`${update.Id}: ${answers[i]?.errors[0] ?? 'not updated'}`],
+        );
+        if (refused.length > 0) {
+          this.deps.log(
+            `[seed:clone] ${OPPORTUNITY_CONTACT_ROLE}: linked, and left as the platform wrote ` +
+              `them, without the fields of the source's roles: ${refused.slice(0, 3).join(' | ')}`,
+          );
+        }
       };
 
       /**
@@ -1448,16 +1878,24 @@ export class SeedCloneHandler implements DomainHandler {
         // The task the platform wrote with one of the clone's emails is the
         // one read from the source: linked, never sent a second time. So is
         // the relation it wrote for a task's or an event's who.
+        // And the contact role the platform wrote with one of the clone's
+        // opportunities, for the contact it went in with.
         const linked =
           objectApiName === TASK
             ? await tasksWrittenWithTheirEmail(sourceRecords)
-            : await relationsTheTargetHolds(objectApiName, sourceRecords, writeRecords);
+            : objectApiName === OPPORTUNITY_CONTACT_ROLE
+              ? await rolesWrittenWithTheirOpportunity(sourceRecords, writeRecords)
+              : await relationsTheTargetHolds(objectApiName, sourceRecords, writeRecords);
         /** Each row linked to, with the id of the record linked in its place. */
         const linkedRows: Array<readonly [Record<string, unknown>, string]> = [];
+        /** The rows linked to, as they would have gone: what a role linked is given. */
+        const linkedWrites: Record<string, unknown>[] = [];
         if (linked.size > 0) {
           const sent = sourceRecords.map((record) => !linked.has(String(record['Id'])));
           sourceRecords.forEach((record, i) => {
-            if (!sent[i]) linkedRows.push([record, linked.get(String(record['Id'])) ?? '']);
+            if (sent[i]) return;
+            linkedRows.push([record, linked.get(String(record['Id'])) ?? '']);
+            linkedWrites.push(writeRecords[i]);
           });
           sourceRecords = sourceRecords.filter((_, i) => sent[i]);
           writeRecords = writeRecords.filter((_, i) => sent[i]);
@@ -1474,6 +1912,21 @@ export class SeedCloneHandler implements DomainHandler {
         if (stopped) {
           cancelled = true;
           if (outcomes.length === 0) break;
+        }
+        // The platform writes a role of the contact an opportunity goes in
+        // with, as it creates it: noted for the roles' turn.
+        if (objectApiName === OPPORTUNITY) {
+          outcomes.forEach((outcome, i) => {
+            const contact = writeRecords[i]?.[CONTACT_FIELD];
+            if (outcome.success && outcome.id && outcome.created !== false) {
+              if (typeof contact === 'string' && contact !== '') {
+                contactSentWith.set(outcome.id, contact);
+              }
+            }
+          });
+        }
+        if (objectApiName === OPPORTUNITY_CONTACT_ROLE && linkedRows.length > 0) {
+          await giveTheRolesTheirFields(linkedRows, linkedWrites);
         }
         // The relation the platform wrote for an event's who is no invitee,
         // and holds no answer: one the event also invited gets the flag back,
@@ -1508,6 +1961,9 @@ export class SeedCloneHandler implements DomainHandler {
           insertedCount: 0,
           failedCount: 0,
           linkedCount: linked.size,
+          ...(objectApiName === OPPORTUNITY_CONTACT_ROLE && linked.size > 0
+            ? { writtenByThePlatform: linked.size }
+            : {}),
           ...(leftOut > 0 ? { leftToThePlatform: leftOut } : {}),
           ...(fieldsNotInTarget.length > 0 ? { fieldsNotInTarget } : {}),
           idMappings: [],
@@ -1607,6 +2063,15 @@ export class SeedCloneHandler implements DomainHandler {
       // it wrote can be taken back from its results, or from Earlier seeds.
       const keptAll = await this.endKept(kept, operationId, { status, cancelled });
       kept = undefined;
+      // The checkpoint taken first, kept once a record went, deleted when none did.
+      const checkpointInfo = await settleSeedCheckpoint(
+        this.beforeRunCheckpoints,
+        taken,
+        wrote,
+        this.deps.log,
+        `seed:clone:execute ${operationId}`,
+      );
+      taken = undefined;
       const result: CloneExecutionResult = {
         status,
         objectResults,
@@ -1634,6 +2099,7 @@ export class SeedCloneHandler implements DomainHandler {
       recordWriteRun(this.deps, {
         ...cloneRun(run, audited, objectResults, upserts, said),
         ...(audited === 'stopped' ? { code: RUN_CANCELLED } : {}),
+        ...(checkpointInfo?.state === 'taken' ? { checkpointId: checkpointInfo.checkpointId } : {}),
       });
       /** Why the clone ended failed — it wrote nothing — or nothing when it did not. */
       const cloneFailed =
@@ -1658,15 +2124,19 @@ export class SeedCloneHandler implements DomainHandler {
         });
         if (cloneFailed !== undefined) {
           this.liveTracker?.fail(operationId, cloneFailed);
+        } else if (result.status === 'partial') {
+          this.liveTracker?.partial(operationId);
         } else {
           this.liveTracker?.complete(operationId);
         }
       }
+      // With the checkpoint taken first, or its deletion, beside the result.
+      const answered = { ...result, ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}) };
       const response = buildResponse(
         this.deps,
         msg,
         'seed:clone:execute:response',
-        result as unknown as Record<string, unknown>,
+        answered as unknown as Record<string, unknown>,
       );
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${result.status}`);
@@ -1674,24 +2144,37 @@ export class SeedCloneHandler implements DomainHandler {
       // nothing was listed completed and announced as such.
       settle(cloneFailed === undefined ? undefined : new Error(cloneFailed));
     } catch (err: unknown) {
+      // The checkpoint taken first, kept once a record went, deleted when none did.
+      const settled = await settleSeedCheckpoint(
+        this.beforeRunCheckpoints,
+        taken,
+        wrote,
+        this.deps.log,
+        `seed:clone:execute ${operationId}`,
+      );
       if (unrecorded) {
-        recordWriteRun(
-          this.deps,
-          cloneRun(run, 'failure', objectResults, upserts, contactPointsReport()),
-        );
+        recordWriteRun(this.deps, {
+          ...cloneRun(run, 'failure', objectResults, upserts, contactPointsReport()),
+          ...(settled?.state === 'taken' ? { checkpointId: settled.checkpointId } : {}),
+        });
       }
       // What it created before it failed stays removable, the clone ended failed.
       await this.endKept(kept, operationId, { status: 'failure', cancelled: false });
       // Single failure emission: `operation:failed` only (same convention as
       // seed:execute / sync:execute — the webview consumes that channel).
-      const message = extractErrorMessage(err);
+      const message =
+        settled?.state === 'deleted'
+          ? `${extractErrorMessage(err)} ${BEFORE_RUN_DELETED_WORDS}`
+          : extractErrorMessage(err);
       this.deps.log(`[ERR] seed:clone:execute: ${message}`);
-      sendOperationFailed(this.deps, operationId, message, true, {
+      // The page says what became of the checkpoint itself, in its language.
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
         context: failure,
         extraPayload: {
           code: message.startsWith(GUARD_BLOCKED_PREFIX)
             ? CLONE_FAILURE_CODES.guardBlocked
             : CLONE_FAILURE_CODES.failed,
+          ...(settled ? { checkpoint: settled } : {}),
         },
       });
       // Nothing when the clone was stopped before it was listed.
@@ -1707,7 +2190,6 @@ export class SeedCloneHandler implements DomainHandler {
  * ways out. The page says it from the figures, in its language.
  */
 function cloneEmailsRefusal(figures: SeedEmailRefusalFigures): string {
-  const limit = figures.limit === 'SingleEmail' ? 'single emails' : 'workflow emails';
   const ways = [
     `narrow the filters of ${figures.objects.join(', ')} or leave them out`,
     `turn off ${figures.senders.map((name) => `"${name}"`).join(', ')}`,
@@ -1722,7 +2204,7 @@ function cloneEmailsRefusal(figures: SeedEmailRefusalFigures): string {
   ];
   return (
     `The clone was refused before it wrote anything: its records would make ${figures.org} ` +
-    `send about ${figures.emails} ${limit}, ${figures.remaining} of ${figures.max} left today. ` +
+    `send about ${emailsOfLimit(figures.emails, figures.limit)}, ${figures.remaining} of ${figures.max} left today. ` +
     'Past what is left, a flow that sends in the save refuses its record ' +
     "(CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop for the rest of the day. " +
     `To clone them, ${ways.join('; or ')}. Nothing was written.`
@@ -1747,7 +2229,8 @@ function cloneRun(
 ): WriteRun {
   return {
     ...run,
-    ...contactPointsAudit(contactPoints),
+    // Beside what the run's gate said of its emails.
+    details: { ...run.details, ...contactPointsAudit(contactPoints).details },
     outcome,
     objects: objectResults.map((result) => ({
       ...emptyCounts(result.objectApiName),
@@ -2131,6 +2614,20 @@ function trimSampleRecord(
  * describe; the clone leaves such a field out the same way and names it in
  * the result (`fieldsTheTargetLacks`).
  */
+/** The object whose records the platform writes a contact role with. */
+const OPPORTUNITY = 'Opportunity';
+
+/**
+ * Whether a role linked to the one the platform wrote is given `field` of
+ * the source's: one the target's describe of the role names and lets be
+ * updated, but the two that pair it with the platform's record.
+ */
+function givenToARole(describe: DescribeSObjectResultLike | undefined, field: string): boolean {
+  if (field === 'OpportunityId' || field === CONTACT_FIELD) return false;
+  const described = describe?.fields.find((f) => f.name === field);
+  return described !== undefined && described.updateable !== false;
+}
+
 function prepareRecordForWrite(
   objectApiName: string,
   record: Record<string, unknown>,

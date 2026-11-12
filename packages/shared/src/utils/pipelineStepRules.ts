@@ -236,6 +236,10 @@ const namedCheckpointSchema = z
  * - each acceptance is false unless the configuration says yes to it, as
  *   each flag of the command line is off unless given: the rewind is
  *   refused before writing where one it needs is missing;
+ * - `muteAutomation`, false unless the configuration says yes, mutes the
+ *   org's automation for the rewind through its own bypass, as the Checkpoints
+ *   page's box and the command line's flag do: what no bypass keeps quiet
+ *   still runs, and still needs `acceptAutomation`;
  * - `maxRecords` is required: the most records the rewind may delete, give
  *   back, bring back and make again, all together, which stands in for the
  *   person who would read the preview (`RewindBounds`);
@@ -251,6 +255,7 @@ export const pipelineRewindStepConfigSchema = z.object({
   // The emails the org's automation sends as the rewind writes, for an org
   // that delivers them all: never lifted by acceptAutomation.
   acceptEmails: z.boolean().default(false),
+  muteAutomation: z.boolean().default(false),
   acceptNoUndo: z.boolean().default(false),
   acceptRecreate: z.boolean().default(false),
   acceptOutside: z.boolean().default(false),
@@ -288,7 +293,15 @@ const ANONYMIZE_STEP_MAX_WHERE_LENGTH = 2000;
  *   beside every object of a template would hold all of them to fields one of
  *   them has. An empty one filters nothing;
  * - what `where` may say — a filter and nothing past it — is the extension's
- *   SOQL rule to check, which the DataOps request applies.
+ *   SOQL rule to check, which the DataOps request applies;
+ * - what the org runs as the masking writes over its records is read before
+ *   the first write, as for a masking of the DataOps page, and each
+ *   acceptance is false unless the configuration says yes to it, as a Rewind
+ *   step's: the masking is refused, nothing written, where what fires was not
+ *   accepted (`acceptAutomation`), or where the org delivers the emails it
+ *   sends (`acceptEmails`, which the automation's never stands for);
+ *   `muteAutomation` mutes what the org's own bypass keeps quiet, for the
+ *   masking alone.
  */
 export const pipelineAnonymizeStepConfigSchema = z
   .object({
@@ -296,6 +309,9 @@ export const pipelineAnonymizeStepConfigSchema = z
     templateId: stepTemplateIdSchema,
     object: stepObjectNameSchema.optional(),
     where: z.string().max(ANONYMIZE_STEP_MAX_WHERE_LENGTH).optional(),
+    acceptAutomation: z.boolean().default(false),
+    acceptEmails: z.boolean().default(false),
+    muteAutomation: z.boolean().default(false),
   })
   .refine(
     (config) =>
@@ -311,7 +327,10 @@ export type PipelineAnonymizeStepConfig = z.output<typeof pipelineAnonymizeStepC
  * it binds gives every confirmation a digest no configuration has, and asks
  * for each again rather than letting one stand for what it never covered.
  * `/2` binds the acceptance of the emails (`acceptEmails`): a step confirmed
- * before it was asked is confirmed again, its emails said this time.
+ * before it was asked is confirmed again, its emails said this time. The mute
+ * (`muteAutomation`) needed no new version: a step that does not mute does
+ * what its confirmation covered, and keeps it, and one that does digests
+ * differently, so it is confirmed for the mute.
  */
 const REWIND_GRANT_BINDING = 'sandforge-rewind-grant/2';
 
@@ -335,6 +354,7 @@ export function rewindGrantDigest(config: PipelineRewindStepConfig): string {
     objects: config.objects === undefined ? null : [...config.objects].sort(),
     acceptAutomation: config.acceptAutomation,
     acceptEmails: config.acceptEmails,
+    ...(config.muteAutomation ? { muteAutomation: true } : {}),
     acceptNoUndo: config.acceptNoUndo,
     acceptRecreate: config.acceptRecreate,
     acceptOutside: config.acceptOutside,

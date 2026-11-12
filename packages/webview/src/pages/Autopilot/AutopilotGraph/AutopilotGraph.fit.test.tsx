@@ -133,4 +133,28 @@ describe('AutopilotGraph minimap', () => {
       expect(received.minimap).not.toHaveProperty(prop);
     }
   });
+
+  it('draws an object skipped hollow and outlined, its outline dashed, and one waiting filled without an outline', () => {
+    // Both were filled in neighbouring greys, 1.46:1 apart on the fallbacks,
+    // and the minimap draws no word to tell them apart.
+    received.graph = {
+      nodes: [node('Account', 'pending', 0), node('Contact', 'skipped', 1)],
+      edges: [],
+      cycles: [],
+      stats: {},
+    };
+    try {
+      render(<AutopilotGraph />);
+    } finally {
+      received.graph = null;
+    }
+
+    const nodes = received.flow.nodes as Array<{ data: unknown }>;
+    const drawn = (prop: string) =>
+      nodes.map((each) => (received.minimap[prop] as (n: { data: unknown }) => string)(each));
+    expect(drawn('nodeColor')).toEqual(['var(--color-text-secondary)', 'none']);
+    expect(drawn('nodeStrokeColor')).toEqual(['transparent', 'var(--color-text-secondary)']);
+    // The class the stylesheet dashes the outline by.
+    expect(drawn('nodeClassName')).toEqual(['', 'autopilot-minimap-skipped']);
+  });
 });

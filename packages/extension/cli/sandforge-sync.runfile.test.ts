@@ -44,6 +44,7 @@ vi.mock('../src/modules/sync/SyncOrchestrator.js', () => ({
 
 import { makeConn } from './sfSession.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
+import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
 import { main, runFileOf } from './sandforge-sync.js';
 
 /** A fake id: the object's prefix and a counter, the length of a real one. */
@@ -54,6 +55,7 @@ const A1 = fakeId('001', 1);
 const C1 = fakeId('003', 1);
 const C2 = fakeId('003', 2);
 const JOB = fakeId('750', 1);
+const RUN_USER = fakeId('005', 7);
 
 const argv = (...args: string[]): string[] => ['node', 'sandforge-sync.ts', ...args];
 
@@ -90,8 +92,11 @@ describe('the file a run of sandforge-sync keeps', () => {
   let org: MemoryRemovalOrg;
   let bulkJob: { state: string; rows: Array<Record<string, unknown>> };
   let jobsAsked: string[];
+  /** What the target says of who the session is. */
+  let identity: () => Promise<{ user_id?: unknown }>;
 
   beforeEach(() => {
+    identity = async () => ({ user_id: RUN_USER });
     rmSync(runsDir(), { recursive: true, force: true });
     org = new MemoryRemovalOrg({
       Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
@@ -108,6 +113,7 @@ describe('the file a run of sandforge-sync keeps', () => {
             : { records: [{ Id: ORG_ID }], totalSize: 1 },
       ),
       queryMore: vi.fn(),
+      identity: () => identity(),
       // What a removal brings back from the recycle bin, the fake org's own bin.
       soap: { undelete: async (ids: string[]) => org.undelete(ids) },
       bulk2: {
@@ -173,6 +179,50 @@ describe('the file a run of sandforge-sync keeps', () => {
       runFile: file,
       lastWriteAt: expect.any(String),
     });
+  });
+
+  it('keeps in its file the user the target says it writes as, for the sweep of its removal', async () => {
+    engine.run = async (deps, config) => {
+      deps.creations?.note('Account', [A1]);
+      return answered(config);
+    };
+
+    await run();
+
+    const kept = readRunFile(readFileSync(join(runsDir(), runFiles()[0]), 'utf8'));
+    expect(kept?.runUserId).toBe(RUN_USER);
+  });
+
+  it('keeps it once its target says, past the run’s first line', async () => {
+    let say: (who: { user_id: string }) => void = () => undefined;
+    identity = () => new Promise((resolve) => (say = resolve));
+    engine.run = async (deps, config) => {
+      deps.creations?.note('Account', [A1]);
+      say({ user_id: RUN_USER });
+      await Promise.resolve();
+      deps.creations?.note('Account', [fakeId('001', 2)]);
+      return answered(config);
+    };
+
+    await run();
+
+    const kept = readRunFile(readFileSync(join(runsDir(), runFiles()[0]), 'utf8'));
+    expect(kept?.runUserId).toBe(RUN_USER);
+  });
+
+  it('ends without an answer from a target that does not say who the session is', async () => {
+    identity = () => new Promise(() => undefined);
+    engine.run = async (deps, config) => {
+      deps.creations?.note('Account', [A1]);
+      return answered(config);
+    };
+
+    // Not the 15 seconds the read is given: this test's five would end first.
+    await run();
+
+    const kept = readRunFile(readFileSync(join(runsDir(), runFiles()[0]), 'utf8'));
+    expect(kept).toMatchObject({ end: { status: 'success' } });
+    expect(kept?.runUserId).toBeUndefined();
   });
 
   it('prints in its summary what a delta run deleted as the source had, and --remove brings it back from the summary alone', async () => {
@@ -409,7 +459,32 @@ describe('the file a run of sandforge-sync keeps', () => {
 
       await expect(main(argv('--remove', file, '--target', 'OTHER'))).rejects.toThrow('exit 1');
 
-      expect(stderr).toContain('is not the org the run wrote to');
+      expect(stderr).toContain('refused (OTHER_ORG): OTHER is not the org the run wrote to');
+      expect(jobsAsked).toEqual([]);
+      expect(org.deletes).toEqual([]);
+    });
+
+    it('refuses a run another process is still writing under its code, with --json on stdout', async () => {
+      // Refused so, it said a sentence with no code on stderr and left stdout empty.
+      const [head, ...rest] = readFileSync(file, 'utf8').split('\n');
+      const read = JSON.parse(head) as { run: Record<string, unknown> };
+      const now = new Date().toISOString();
+      read.run.writer = { pid: process.ppid, hostStartedAt: now };
+      writeFileSync(file, [JSON.stringify(read), ...rest].join('\n'));
+
+      await expect(main(argv('--remove', file, '--target', 'TGT', '--json'))).rejects.toThrow(
+        'exit 1',
+      );
+
+      expect(stderr).toContain(
+        `refused (RUN_WRITING): The run is still writing, in process ${process.ppid}`,
+      );
+      expect(JSON.parse(stdout)).toMatchObject({
+        tool: 'sandforge-sync',
+        action: 'remove',
+        target: 'TGT',
+        refused: { code: 'RUN_WRITING' },
+      });
       expect(jobsAsked).toEqual([]);
       expect(org.deletes).toEqual([]);
     });
@@ -422,6 +497,69 @@ describe('the file a run of sandforge-sync keeps', () => {
 
       expect(stderr).toContain(`is the file of the run ${runId} under another name`);
       expect(org.deletes).toEqual([]);
+    });
+  });
+
+  describe('a run killed during a call no job id names', () => {
+    const runId = 'sandforge-sync-killed-rest';
+    let file: string;
+
+    beforeEach(() => {
+      // As a run killed during a REST call leaves its file: the call under
+      // way, the org's ids of what it took never given, no end.
+      mkdirSync(runsDir(), { recursive: true });
+      file = join(runsDir(), `${runId}.ndjson`);
+      const at = new Date(Date.now() - 5 * 60_000).toISOString();
+      writeFileSync(
+        file,
+        [
+          JSON.stringify({
+            run: {
+              runId,
+              configId: 'sandforge-sync',
+              configName: 'sandforge-sync',
+              sourceOrgId: 'SRC',
+              targetOrgId: 'TGT',
+              targetOrganizationId: ORG_ID,
+              startedAt: at,
+              answersNameJobs: true,
+            },
+          }),
+          JSON.stringify({ object: 'Account', created: [A1], at }),
+          JSON.stringify({ sending: { object: 'Contact', rows: 3, at } }),
+          '',
+        ].join('\n'),
+      );
+      org.add('Account', { Id: A1 }, at);
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('names the listing that shows what the call left, on its own output', async () => {
+      vi.stubEnv(RELAYED_BY_VARIABLE, '');
+
+      await main(argv('--remove', file, '--target', 'TGT'));
+
+      expect(stdout).toContain(
+        '  the run stopped during a call of 3 Contact row(s): those TGT took are not in its ' +
+          "file, and stay; --sweep-list shows what the run's user created in the run's window",
+      );
+    });
+
+    it('names, relayed by the MCP server, whose run_remove lists no sweep, the listing this script’s own removal gives', async () => {
+      // Relayed so, "--sweep-list shows" named a flag no tool of the server
+      // takes, as the clone's same line no longer does.
+      vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-mcp');
+
+      await main(argv('--remove', file, '--target', 'TGT'));
+
+      expect(stdout).toContain(
+        "and stay; this script's own removal with --sweep-list shows what the run's user " +
+          "created in the run's window",
+      );
+      expect(stdout).not.toContain('; --sweep-list shows');
     });
   });
 

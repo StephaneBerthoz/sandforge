@@ -195,15 +195,19 @@ describe('RewindRun', () => {
     ]);
   });
 
-  it('says a rewind stopped before it answered with what it did, where the org stands, with Rewind again', () => {
+  it('says a rewind stopped before it answered as one stopped before it wrote anything, where the org stands, with Rewind again', () => {
+    // The extension answers CANCELLED only for a rewind stopped before its
+    // first write; one stopped part way answers with its result. The page
+    // said "Stopped part way: … between … and now" of an org nothing was
+    // written to.
     const { onRewindAgain, onDone } = renderRun({
       ...RUNNING,
       loading: false,
-      error: 'The rewind was stopped.',
+      error: 'The rewind was stopped before it wrote anything to the org.',
       errorCode: 'CANCELLED',
     });
     expect(screen.getByTestId('checkpoint-run-stopped').textContent).toBe(
-      'Stopped part way: DEV-SB is between “Before UAT” and now. Rewind again to finish: it takes up from what still differs.',
+      'Stopped before it wrote anything: DEV-SB is as it was before this rewind. Rewind again to rewind it to “Before UAT”.',
     );
     expect(screen.queryByTestId('checkpoint-run-error')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Rewind again' }));
@@ -239,13 +243,65 @@ describe('RewindRun', () => {
     expect(onUndo).toHaveBeenCalledWith('rw-20261022-140100-c3d4', []);
   });
 
-  it('says an undo stopped before it answered, and offers no Undo of its own', () => {
+  it('hints under a refusal of the emails, in the interface’s words, the way past it, and offers the rewind again', () => {
+    const refused: RunState = {
+      ...RUNNING,
+      loading: false,
+      error:
+        'DEV-SB delivers every email its automation sends. Nothing was written. Tick "Let DEV-SB send these emails" in the preview to rewind all the same.',
+      errorCode: 'EMAILS_DELIVERED',
+    };
+    const { onRewindAgain } = renderRun(refused);
+    expect(screen.getByTestId('error-hint').textContent).toContain(
+      'Start it again and tick the box that lets the org send them',
+    );
+    expect(screen.getByTestId('checkpoint-run-error').textContent).not.toContain('--accept-emails');
+    fireEvent.click(screen.getByTestId('checkpoint-run-rewind-again'));
+    expect(onRewindAgain).toHaveBeenCalledOnce();
+  });
+
+  it('hints it of an undo too, whose confirmation is asked again', () => {
+    const { onUndo } = renderRun(
+      {
+        ...RUNNING,
+        loading: false,
+        error:
+          "DEV-SB delivers every email its automation sends. Nothing was written. Tick the box for these emails in the undo's confirmation to undo all the same.",
+        errorCode: 'EMAILS_DELIVERED',
+      },
+      UNDO,
+    );
+    expect(screen.getByTestId('error-hint').textContent).toContain(
+      'Start it again and tick the box that lets the org send them',
+    );
+    fireEvent.click(screen.getByTestId('checkpoint-run-undo-again'));
+    expect(onUndo).toHaveBeenCalledWith('rw-20261022-140100-c3d4', []);
+  });
+
+  it('says nothing of the box beside a refusal past the day’s emails, which no box lifts', () => {
+    renderRun({
+      ...RUNNING,
+      loading: false,
+      error: 'The rewind makes DEV-SB send more emails than it has left today.',
+      errorCode: 'EMAILS',
+    });
+    expect(screen.queryByTestId('error-hint')).toBeNull();
+  });
+
+  it('says an undo stopped before it answered as one stopped before it wrote anything, and offers no Undo of its own', () => {
+    // The extension answers CANCELLED only for an undo stopped before its
+    // first write: the page said it stopped part way.
     renderRun(
-      { ...RUNNING, loading: false, error: 'The undo was stopped.', errorCode: 'CANCELLED' },
+      {
+        ...RUNNING,
+        loading: false,
+        error: 'The undo was stopped before it wrote anything to the org.',
+        errorCode: 'CANCELLED',
+      },
       UNDO,
     );
     expect(screen.getByTestId('checkpoint-run-stopped').textContent).toBe(
-      'Stopped part way: undo the rewind again from the list of checkpoints to finish; it takes up from where it stopped.',
+      'Stopped before it wrote anything: DEV-SB is as the rewind left it, and the rewind can still be undone.',
     );
     expect(screen.queryByRole('button', { name: 'Undo this rewind' })).toBeNull();
   });

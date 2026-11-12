@@ -9,6 +9,9 @@ import {
   SUBJECT_SEARCH_LIMIT,
 } from '@sandforge/shared';
 import type {
+  BaseMessage,
+  DataOpsAutomationObject,
+  MutedAutomation,
   RemovalOutcome,
   RemovalPlanObject,
   SubjectEraseMode,
@@ -17,13 +20,21 @@ import type {
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useLatestRef } from '../../hooks/useLatestRef';
+import { useMessageListener } from '../../hooks/useMessageBus';
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Input } from '../../components/ui/Input';
+import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
 import { formatNumber } from '../../utils/formatters';
 import { RemovalOutcomeView, RemovalPlanView, plannedRecords } from './RemovalPlanView';
 import { BackupsBeforeErasure } from './BackupsBeforeErasure';
+import {
+  accordPayloadOf,
+  DataOpsAutomation,
+  NO_ACCORD,
+  type DataOpsAutomationAccord,
+} from './DataOpsAutomation';
 
 /**
  * How long an export or an erasure may wait on the host: the Save dialog and
@@ -58,7 +69,26 @@ interface EraseAnswer {
   mode: SubjectEraseMode;
   dryRun: boolean;
   plan: RemovalPlanObject[];
+  /**
+   * A dry run's: the records the erasure writes itself, per object, not those
+   * the org deletes along with them — what the confirmation reads what fires
+   * on.
+   */
+  written?: DataOpsAutomationObject[];
   outcome?: RemovalOutcome;
+  /** What the erasure's mute assigned, kept quiet and took back, when its box was ticked. */
+  mutedAutomation?: MutedAutomation;
+}
+
+/** What an erasure's mute did, as its failure carries it beside its message. */
+function mutedOf(payload: unknown): MutedAutomation | undefined {
+  if (typeof payload !== 'object' || payload === null || !('mutedAutomation' in payload)) {
+    return undefined;
+  }
+  const muted = payload.mutedAutomation;
+  return typeof muted === 'object' && muted !== null && 'state' in muted
+    ? (muted as MutedAutomation)
+    : undefined;
 }
 
 /** A record's key in the selection: its object and its Id. */
@@ -134,6 +164,14 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<SubjectEraseMode>('anonymize');
   const [confirmOpen, setConfirmOpen] = useState(false);
+  /** What the confirmation's read of the org's automation lets through and mutes. */
+  const [accord, setAccord] = useState<DataOpsAutomationAccord>(NO_ACCORD);
+  /** Why the confirmation waits on that read, if it does. */
+  const [automationHeld, setAutomationHeld] = useState<string | undefined>(undefined);
+  /** What the mute of an erasure that failed, or was cancelled, did, as its failure says it. */
+  const [stoppedMute, setStoppedMute] = useState<
+    { requestId: string; muted: MutedAutomation } | undefined
+  >(undefined);
 
   const result = search.data;
   const found = useMemo(() => result?.objects ?? [], [result]);
@@ -165,6 +203,20 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
   useEffect(() => {
     if (erased) logged.current();
   }, [erased, logged]);
+  // An erasure that muted and then stopped — declined at the guard, failed,
+  // or cancelled half way — says what its mute did beside its failure: the
+  // banner said what had been written, and nothing of the set assigned to
+  // the user it wrote as, nor whether it was taken back.
+  useMessageListener('dataops:error', (msg: BaseMessage & { payload?: unknown }) => {
+    if (erase.requestId === null || msg.correlationId !== erase.requestId) return;
+    const muted = mutedOf(msg.payload);
+    if (muted) setStoppedMute({ requestId: erase.requestId, muted });
+  });
+  const mutedByErasure =
+    erase.data?.mutedAutomation ??
+    (erase.error !== null && stoppedMute?.requestId === erase.requestId
+      ? stoppedMute.muted
+      : undefined);
 
   const trimmed = { email: email.trim(), name: name.trim(), phone: phone.trim() };
   const invalid = {
@@ -208,6 +260,23 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
   );
   const plan = review.data?.dryRun ? review.data.plan : null;
   const toErase = plan ? plannedRecords(plan) : 0;
+  /**
+   * The records the erasure writes over or deletes itself, per object: what
+   * the org's automation is read on. The extension's dry run says them, as
+   * its run reads them; what the org deletes along with them runs none of
+   * its delete automation as it goes, and is counted in the plan alone.
+   */
+  const plannedWritten = review.data?.dryRun ? review.data.written : undefined;
+  const written = useMemo(
+    () =>
+      plannedWritten ??
+      (plan ?? []).flatMap((object) =>
+        object.refused || object.records === 0
+          ? []
+          : [{ objectApiName: object.objectApiName, records: object.records }],
+      ),
+    [plan, plannedWritten],
+  );
 
   const toggle = (key: string): void => {
     setSelection((current) => {
@@ -233,8 +302,19 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
 
   const confirmErase = (): void => {
     setConfirmOpen(false);
+    const given = accord;
+    setAccord(NO_ACCORD);
     if (!result || targets.length === 0) return;
-    erase.mutate({ orgId, requestId: result.requestId, mode, records: targets, dryRun: false });
+    // Confirmed once what the org runs as the records are written was
+    // listed: what fires is accepted, the emails as their box says.
+    erase.mutate({
+      orgId,
+      requestId: result.requestId,
+      mode,
+      records: targets,
+      dryRun: false,
+      ...accordPayloadOf(given),
+    });
     review.reset();
   };
 
@@ -465,6 +545,9 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
           {erase.data?.outcome && (
             <RemovalOutcomeView mode={erase.data.mode} outcome={erase.data.outcome} />
           )}
+          {/* What the erasure muted of the org's automation, when its box was
+              ticked: what it assigned, kept quiet and took back. */}
+          <MutedAutomationResult muted={mutedByErasure} org={orgName} testId="dsr-erase-muted" />
           {/* Each backup of the org on this machine was taken before the
               erasure and holds the person's records: a restore brings them
               back. Offered to be deleted once anything was erased. */}
@@ -474,7 +557,10 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
 
           <DangerConfirm
             open={confirmOpen}
-            onClose={() => setConfirmOpen(false)}
+            onClose={() => {
+              setConfirmOpen(false);
+              setAccord(NO_ACCORD);
+            }}
             onConfirm={confirmErase}
             title={t('dataops.dsr.confirmTitle', { count: toErase, formatted: number(toErase) })}
             description={t(
@@ -483,7 +569,23 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
             // The org's name, as Rewind and Deploy ask: the word erase was
             // 消去 in Japanese, typed only through an input method.
             confirmText={orgName}
-          />
+            {...(automationHeld !== undefined ? { held: automationHeld } : {})}
+          >
+            {/* What the org runs as the person's records are written over or
+                deleted: an erasure fired its flows on them unasked. */}
+            {confirmOpen && written.length > 0 && (
+              <DataOpsAutomation
+                orgId={orgId}
+                org={orgName}
+                act={mode === 'delete' ? 'cleanup' : 'masking'}
+                objects={written}
+                erasure
+                accord={accord}
+                onAccordChange={setAccord}
+                onHeld={setAutomationHeld}
+              />
+            )}
+          </DangerConfirm>
         </div>
       )}
     </section>

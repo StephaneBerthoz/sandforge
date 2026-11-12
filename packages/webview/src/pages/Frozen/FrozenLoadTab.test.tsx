@@ -8,8 +8,8 @@ import { useNotificationStore } from '../../stores/useNotificationStore';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 
 const ORGS = [
-  { id: 'org-dev', alias: 'DEV-SANDBOX', status: 'connected' },
-  { id: 'org-qa', alias: 'QA-SANDBOX', status: 'connected' },
+  { id: 'org-dev', alias: 'DEV-SANDBOX', status: 'connected', orgType: 'Sandbox', tags: [] },
+  { id: 'org-qa', alias: 'QA-SANDBOX', status: 'connected', orgType: 'Sandbox', tags: [] },
 ];
 
 vi.mock('../../stores/useOrgStore', () => ({
@@ -157,6 +157,36 @@ describe('FrozenLoadTab', () => {
     });
   });
 
+  it('says in the ribbon what the dataset was frozen from and where the load writes', async () => {
+    render(tab());
+    const ribbon = await screen.findByTestId('org-ribbon');
+    expect(ribbon.textContent).toContain('Frozen from');
+    expect(ribbon.textContent).toContain('Written into');
+    expect(screen.getByTestId('org-ribbon-target-name').textContent).toBe('DEV-SANDBOX');
+    // This machine no longer holds the source, and the manifest kept no alias:
+    // said in words, its id second. Printed as its name, the id read as an
+    // alias nobody had given.
+    expect(screen.getByTestId('org-ribbon-source-name').textContent).toBe(
+      'An org this machine no longer holds',
+    );
+    expect(screen.getByTestId('org-ribbon-source-id').textContent).toBe('org-src');
+  });
+
+  it('names the source by the alias the manifest kept, and says a target not picked yet', async () => {
+    const manifest = STATUS.manifest;
+    if (manifest === null || manifest === undefined) throw new Error('the fixture has a manifest');
+    useFrozenStore.setState({
+      status: {
+        ...STATUS,
+        manifest: { ...manifest, source: { ...manifest.source, orgAlias: 'Frozen-Source' } },
+      },
+      targetOrgId: '',
+    });
+    render(tab());
+    expect((await screen.findByTestId('org-ribbon-source-name')).textContent).toBe('Frozen-Source');
+    expect(screen.getByTestId('org-ribbon-target-name').textContent).toBe('Not chosen');
+  });
+
   it('lists the guards a load meets in plain words, without the salt, which only an extraction needs', () => {
     render(tab());
 
@@ -280,7 +310,7 @@ describe('FrozenLoadTab', () => {
       expect(screen.getByText(/may hold masks such as \*\*\*\*1234/)).toBeDefined();
     });
 
-    it('offers beside Load the box that mutes the target’s automation, and asks the load alone to once ticked', () => {
+    it('offers beside Load the box that mutes the target’s automation, and asks the load to once ticked', () => {
       useFrozenStore.setState({ status: WITH_COVERAGE([]) });
       render(tab());
       expect((screen.getByTestId('frozen-load-mute-toggle') as HTMLInputElement).checked).toBe(
@@ -294,10 +324,111 @@ describe('FrozenLoadTab', () => {
 
       expect(mutate.mock.calls).toEqual([
         ['frozen:load', { targetOrgId: 'org-dev' }],
-        // Its preview writes nothing, and mutes nothing.
-        ['frozen:load:preview', { targetOrgId: 'org-dev' }],
+        // Its preview writes nothing and assigns nothing: it plans the mute,
+        // as a dry run with --mute-automation does, to say what still sends.
+        ['frozen:load:preview', { targetOrgId: 'org-dev', muteAutomation: true }],
         ['frozen:load', { targetOrgId: 'org-dev', muteAutomation: true }],
       ]);
+    });
+
+    it('offers under it the box that accepts the emails, never ticked, and asks the load and its preview with it', () => {
+      // A load sent the emails of what still ran with no question.
+      useFrozenStore.setState({ status: WITH_COVERAGE([]) });
+      render(tab());
+      const box = screen.getByTestId('frozen-load-accept-emails') as HTMLInputElement;
+      expect(box.checked).toBe(false);
+      expect(box.closest('label')?.textContent).toBe(
+        'Load even though DEV-SANDBOX delivers the emails its automation sends as the load ' +
+          'writes, or would not say whether it does',
+      );
+
+      fireEvent.click(box);
+      fireEvent.click(screen.getByTestId('frozen-load-preview'));
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+
+      expect(mutate.mock.calls).toEqual([
+        ['frozen:load:preview', { targetOrgId: 'org-dev', acceptEmails: true }],
+        ['frozen:load', { targetOrgId: 'org-dev', acceptEmails: true }],
+      ]);
+    });
+
+    it('offers the box that accepts what the target runs as the records go in, never ticked, and asks the load and its preview with it', () => {
+      // A load asked nothing of what runs as it inserts: a flow that deleted
+      // each record the second it went in ran unasked.
+      useFrozenStore.setState({ status: WITH_COVERAGE([]) });
+      render(tab());
+      const box = screen.getByTestId('frozen-load-accept-automation') as HTMLInputElement;
+      expect(box.checked).toBe(false);
+      expect(box.closest('label')?.textContent).toBe(
+        'Load although DEV-SANDBOX runs automation as the records go in',
+      );
+
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+      fireEvent.click(box);
+      fireEvent.click(screen.getByTestId('frozen-load-preview'));
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+
+      expect(mutate.mock.calls).toEqual([
+        ['frozen:load', { targetOrgId: 'org-dev' }],
+        ['frozen:load:preview', { targetOrgId: 'org-dev', acceptAutomation: true }],
+        ['frozen:load', { targetOrgId: 'org-dev', acceptAutomation: true }],
+      ]);
+    });
+
+    it('says in the preview what the target runs as the load writes, and that a load would be refused for it', () => {
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            mode: { pilot: false, reload: false },
+            automation: {
+              firing: [
+                {
+                  objectApiName: 'OpportunityLineItem',
+                  kind: 'flow',
+                  name: 'GC Gate OLI Delete',
+                  writes: ['insert'],
+                },
+              ],
+              accepted: false,
+              refused: { code: 'AUTOMATION_NOT_ACCEPTED', message: 'DEV-SANDBOX runs…' },
+            },
+          },
+        },
+      };
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-automation-firing').textContent).toBe(
+        'OpportunityLineItem — Flow: GC Gate OLI Delete, as its records are inserted',
+      );
+      expect(screen.getByTestId('frozen-preview-automation-verdict').textContent).toBe(
+        'A load would be refused, nothing written, unless you tick “Load although DEV-SANDBOX ' +
+          'runs automation as the records go in”, or mute it.',
+      );
+    });
+
+    it('says in the preview what the emails come to, and that a load would be refused for them', () => {
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            mode: { pilot: false, reload: false },
+            emails: {
+              counted: [],
+              verdict: 'asks',
+              deliverability: { reading: { level: 'all' }, senders: [] },
+              accepted: false,
+              refused: { code: 'EMAILS_NOT_ACCEPTED', message: 'DEV-SANDBOX delivers…' },
+            },
+          },
+        },
+      };
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-emails-verdict').textContent).toContain(
+        'the load would be refused, nothing written, unless you tick “Load even though ' +
+          'DEV-SANDBOX delivers the emails”',
+      );
     });
 
     it('offers nothing of it for a dataset that says which encrypted fields it left out, none or some', () => {
@@ -387,6 +518,53 @@ describe('FrozenLoadTab', () => {
       );
       expect(screen.getByTestId('frozen-load-report-muted-not-released')).toBeDefined();
     });
+
+    it('says what a reload’s sweep kept as changed since the load it swept, and what takes it', () => {
+      useFrozenStore.setState({
+        loadReport: {
+          status: 'completed',
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: true },
+          startedAt: '2026-10-09T10:00:00.000Z',
+          durationMs: 10,
+          alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+          placeholders: [],
+          requiredDefaults: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          personContact: { restored: 0, unresolved: [] },
+          purge: { deleted: {}, deactivated: {}, failures: [] },
+          mappingPath: '',
+          contractPath: '',
+          sweeps: [
+            {
+              loadedAt: '2026-10-01T10:05:00.000Z',
+              result: {
+                status: 'success',
+                objects: [
+                  {
+                    objectApiName: 'Task',
+                    found: 1,
+                    deleted: 0,
+                    alreadyGone: 0,
+                    keptChanged: 1,
+                    refused: 0,
+                    reasons: [],
+                  },
+                ],
+                unread: [],
+                handWork: [],
+              },
+            },
+          ],
+        },
+      });
+      render(tab());
+
+      expect(screen.getByTestId('frozen-report-sweeps-changed-kept').textContent).toMatch(
+        /^Records kept, changed since that load: 1\. A reload with “Also take what the sweep finds changed since” ticked takes them/,
+      );
+    });
   });
 
   describe('previewing the load', () => {
@@ -430,6 +608,253 @@ describe('FrozenLoadTab', () => {
       expect(screen.getByTestId('frozen-preview-placeholders').textContent).toContain(
         'Contact.Owner__c (2)',
       );
+    });
+
+    it('says the record type the target would give the records the load creates without one, and in the report the one read back', () => {
+      const given = {
+        objectApiName: 'Opportunity',
+        rows: 2,
+        why: { masterInSource: 1, dropped: 1 },
+        predicted: {
+          developerName: 'SFX_Retail',
+          label: 'SFX Retail',
+          basis: 'onlyOneOpen' as const,
+        },
+      };
+      answers['frozen:load:preview'] = { data: { plan: { ...PLAN, recordTypesGiven: [given] } } };
+      useFrozenStore.setState({
+        loadReport: {
+          status: 'completed',
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: false },
+          startedAt: '2026-10-09T10:00:00.000Z',
+          durationMs: 10,
+          alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+          placeholders: [],
+          requiredDefaults: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          personContact: { restored: 0, unresolved: [] },
+          purge: { deleted: {}, deactivated: {}, failures: [] },
+          mappingPath: '',
+          contractPath: '',
+          recordTypesGiven: [
+            {
+              ...given,
+              readBack: {
+                read: 0,
+                types: [],
+                unread: 'INVALID_TYPE: sObject type RecordType is not supported.',
+              },
+            },
+          ],
+        },
+      });
+
+      render(tab());
+
+      const preview = screen.getByTestId('frozen-preview-record-types');
+      expect(within(preview).getByRole('heading').textContent).toBe(
+        'Record types the target org would give',
+      );
+      expect(screen.getByTestId('frozen-preview-record-types-Opportunity').textContent).toMatch(
+        new RegExp(
+          '^2 Opportunity records to create without a record type, 1 on Master in the source ' +
+            'and 1 whose source type was dropped, as the target org lacks it or keeps it from the ' +
+            'user SandForge writes as: the target org would give them SFX_Retail \\(SFX Retail\\), ',
+        ),
+      );
+      const report = screen.getByTestId('frozen-load-report-record-types-Opportunity');
+      expect(report.textContent).toMatch(
+        /What they hold could not be read back: INVALID_TYPE: sObject type RecordType is not supported\.$/,
+      );
+    });
+
+    it('says nothing of record types when every record the load creates carries its own', () => {
+      answers['frozen:load:preview'] = { data: { plan: PLAN } };
+
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview')).toBeDefined();
+      expect(screen.queryByTestId('frozen-preview-record-types')).toBeNull();
+    });
+
+    it('says, in the preview and in the report, the opportunities it leaves unsynced with their quote, their products kept', () => {
+      // Synced with a quote whose lines the dataset left out, an opportunity
+      // lost the two products the load had just written, and nothing said so.
+      const unsynced = [{ objectApiName: 'Opportunity', count: 1, note: '1 left unsynced' }];
+      answers['frozen:load:preview'] = {
+        data: { plan: { ...PLAN, quotesLeftUnsynced: unsynced } },
+      };
+      useFrozenStore.setState({
+        loadReport: {
+          status: 'completed',
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: false },
+          startedAt: '2026-10-09T10:00:00.000Z',
+          durationMs: 10,
+          alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+          placeholders: [],
+          requiredDefaults: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          personContact: { restored: 0, unresolved: [] },
+          purge: { deleted: {}, deactivated: {}, failures: [] },
+          quotesLeftUnsynced: unsynced,
+          mappingPath: '',
+          contractPath: '',
+        },
+      });
+
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-quotes-left-unsynced').textContent).toBe(
+        "Would be left unsynced with their quote, their products kept — the load would write fewer of the quote's lines than of the opportunity's products, and syncing a quote replaces an opportunity's products with its lines: Opportunity (1)",
+      );
+      expect(screen.getByTestId('frozen-report-quotes-left-unsynced').textContent).toBe(
+        "Left unsynced with their quote, their products kept — the load wrote fewer of the quote's lines than of the opportunity's products, and syncing a quote replaces an opportunity's products with its lines: Opportunity (1)",
+      );
+    });
+
+    it('says, in the preview and in the report, the records no identity key was looked up for, their key left empty', () => {
+      // Keyed on a name the rules cleared, a reload's preview counted the quote
+      // to insert and said nothing of the key it never asked the target about.
+      const keysLeftEmpty = [
+        { objectApiName: 'Quote', fields: ['Description'], count: 1, note: '1 not looked up' },
+      ];
+      answers['frozen:load:preview'] = { data: { plan: { ...PLAN, keysLeftEmpty } } };
+      useFrozenStore.setState({
+        loadReport: {
+          status: 'completed',
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: true },
+          startedAt: '2026-10-09T10:00:00.000Z',
+          durationMs: 10,
+          alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+          placeholders: [],
+          requiredDefaults: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          personContact: { restored: 0, unresolved: [] },
+          purge: { deleted: {}, deactivated: {}, failures: [] },
+          keysLeftEmpty,
+          mappingPath: '',
+          contractPath: '',
+        },
+      });
+
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-keys-left-empty').textContent).toBe(
+        'Would be inserted without being looked up in the target by their identity keys — a key field stays empty in what the load would write, the dataset holding no value and no declared default filling it; keep the field in the rules, or key the object on a field the dataset holds: Quote (1: Description)',
+      );
+      expect(screen.getByTestId('frozen-report-keys-left-empty').textContent).toBe(
+        'Sent to be inserted without being looked up in the target by their identity keys — a key field stayed empty in what the load wrote, the dataset holding no value and no declared default filling it; keep the field in the rules, or key the object on a field the dataset holds: Quote (1: Description)',
+      );
+    });
+
+    it('names in the preview the lookup filters of what the load inserts, which it cannot check', () => {
+      // On the trap org, a filter on the contacts' preferred account refused
+      // six records the preview had counted to insert, and nothing named it.
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            perObject: [
+              {
+                ...PLAN.perObject[0],
+                lookupFilters: [
+                  { field: 'Preferred_Account__c', referenceTo: ['Account'], records: 72 },
+                ],
+              },
+              PLAN.perObject[1],
+            ],
+          },
+        },
+      };
+
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-lookup-filters-Account').textContent).toBe(
+        'Account: lookup filters of the target, which a preview cannot check — a record whose ' +
+          'lookup a filter refuses is refused, and what hangs from it: Preferred_Account__c → ' +
+          'Account (72)',
+      );
+      expect(screen.queryByTestId('frozen-preview-lookup-filters-Pricebook2')).toBeNull();
+    });
+
+    it('says in the preview the contact roles the platform writes with their opportunity, counted to insert nowhere', () => {
+      // Counted to insert, the role of the contact an opportunity goes in
+      // with made the preview say one record more than the load then wrote.
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            perObject: [
+              ...PLAN.perObject,
+              {
+                objectApiName: 'OpportunityContactRole',
+                fromFiles: 1,
+                toInsert: 0,
+                reusedByKeys: 0,
+                reusedFromCatalog: 0,
+                writtenByThePlatform: 1,
+                fieldsDropped: 0,
+                picklistsRewritten: 0,
+                notSent: 0,
+                toPurge: 0,
+                toDeactivate: 0,
+              },
+            ],
+          },
+        },
+      };
+
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-written-by-platform').textContent).toBe(
+        'Written by the platform with the record they go with, and linked once it is in — not counted to insert: OpportunityContactRole (1)',
+      );
+      expect(previewRows().find((row) => row[0] === 'OpportunityContactRole')?.[2]).toBe('0');
+    });
+
+    it('calls a load its verification did not pass partial for the verification, and a sweep’s for the sweep', () => {
+      // Said completed, a load whose products the platform deleted once
+      // written drew a green badge above the verification's FAILED.
+      const report = (verification?: 'failed'): FrozenLoadReportInfo => ({
+        status: 'partial',
+        ...(verification ? { verification } : {}),
+        orgId: 'org-dev',
+        mode: { pilot: false, reload: false },
+        startedAt: '2026-10-09T10:00:00.000Z',
+        durationMs: 10,
+        alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        mappingPath: '',
+        contractPath: '',
+      });
+      useFrozenStore.setState({ loadReport: report('failed') });
+      const { unmount } = render(tab());
+
+      expect(
+        within(screen.getByTestId('frozen-load-report')).getByText(
+          'Partial: the verification failed',
+        ),
+      ).toBeDefined();
+      unmount();
+
+      useFrozenStore.setState({ loadReport: report() });
+      render(tab());
+      expect(
+        within(screen.getByTestId('frozen-load-report')).getByText(
+          'Partial: the sweep left records',
+        ),
+      ).toBeDefined();
     });
 
     it('says which records the load would leave out for a parent excludedObjects leaves out', () => {
@@ -636,7 +1061,7 @@ describe('FrozenLoadTab', () => {
       );
       expect(within(refused).getByTestId('frozen-reload-refused-why').textContent).toBe(REFUSAL);
       expect(within(refused).getByTestId('frozen-reload-refused-way-out').textContent).toContain(
-        'the ones changed since included',
+        'the ones changed since, and what was added under them since, included',
       );
       // Said once, on the card: not in the banner above as well.
       expect(screen.queryByTestId('frozen-error')).toBeNull();
@@ -880,7 +1305,9 @@ describe('FrozenLoadTab', () => {
       rerender(tab());
 
       const dialog = screen.getByRole('dialog');
-      expect(within(dialog).getByRole('heading').textContent).toBe('Reload into DEV-SANDBOX');
+      expect(within(dialog).getByTestId('danger-title').textContent).toBe(
+        'Reload into DEV-SANDBOX',
+      );
       expect(dialog.textContent).toContain(
         'This reload deletes from DEV-SANDBOX 5 records that earlier loads of this dataset created and this one does not find again, then loads the dataset.',
       );
@@ -895,6 +1322,240 @@ describe('FrozenLoadTab', () => {
       expect(mutate.mock.calls.filter(([type]) => type === 'frozen:load')).toEqual([
         ['frozen:load', { targetOrgId: 'org-dev', reload: true }],
       ]);
+    });
+
+    describe('what the target runs as its purge deletes', () => {
+      const LOADED_AT = '2026-09-24T10:05:00.000Z';
+      const FLOW = {
+        apiName: 'Account_Guard',
+        label: 'Account guard',
+        timing: 'beforeSave',
+        startsOn: 'delete',
+        condition: 'read',
+        permissions: [{ name: 'Load_Data', bypass: true }],
+      };
+      const AUTOMATION = {
+        objectsRead: ['Account'],
+        objects: [{ objectApiName: 'Account', flows: [FLOW], triggers: [] }],
+        bypassGrants: [
+          {
+            permission: 'Load_Data',
+            permissionSets: [{ name: 'Data_Load', label: 'Data load', grants: 1 }],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+        requests: 1,
+      };
+      const confirmation = () => {
+        useFrozenStore.setState({
+          status: { ...STATUS, loadRecords: [loadInto('org-dev', LOADED_AT, 5)] },
+        });
+        answers['frozen:load:preview'] = { data: { plan: PLAN }, requestId: 'req-preview-1' };
+        answers['frozen:remove:automation'] = {
+          data: {
+            loadedAt: LOADED_AT,
+            automation: AUTOMATION,
+            steps: { setToDraft: [], delete: ['Account'] },
+          },
+        };
+        render(tab());
+        fireEvent.click(screen.getByTestId('frozen-load-reload'));
+        fireEvent.click(screen.getByTestId('frozen-load-run'));
+      };
+
+      it('reads it as the confirmation opens, of a reload, and names it before the org is typed', () => {
+        confirmation();
+
+        expect(mutate).toHaveBeenCalledWith('frozen:remove:automation', {
+          targetOrgId: 'org-dev',
+          loadedAt: LOADED_AT,
+          reload: true,
+        });
+        expect(screen.getByTestId('frozen-removal-automation').textContent).toContain(
+          'Account guard',
+        );
+      });
+
+      it('sends the load muted once the box of the confirmation is ticked', () => {
+        confirmation();
+
+        const box = within(screen.getByRole('dialog')).getByTestId(
+          'frozen-removal-automation-mute',
+        );
+        fireEvent.click(within(box).getByRole('checkbox'));
+        fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'DEV-SANDBOX' } });
+        fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+        expect(mutate.mock.calls.filter(([type]) => type === 'frozen:load')).toEqual([
+          ['frozen:load', { targetOrgId: 'org-dev', reload: true, muteAutomation: true }],
+        ]);
+      });
+
+      it.each([
+        ['while its read is on its way', { loading: true }],
+        [
+          'once its read found nothing a bypass silences on the purge',
+          {
+            data: {
+              loadedAt: LOADED_AT,
+              automation: { ...AUTOMATION, objects: [] },
+              steps: { setToDraft: [], delete: ['Account'] },
+            },
+          },
+        ],
+      ])(
+        'keeps the mute ticked beside Load %s, and sends the load muted',
+        (_when, purgeRead: Answer) => {
+          // The box of the confirmation, offered nothing yet, unticked the one
+          // beside Load behind it: the purge and the inserts ran unmuted.
+          useFrozenStore.setState({
+            status: { ...STATUS, loadRecords: [loadInto('org-dev', LOADED_AT, 5)] },
+          });
+          answers['frozen:load:preview'] = { data: { plan: PLAN }, requestId: 'req-preview-1' };
+          answers['frozen:remove:automation'] = purgeRead;
+          render(tab());
+          fireEvent.click(screen.getByTestId('frozen-load-mute-toggle'));
+          fireEvent.click(screen.getByTestId('frozen-load-reload'));
+          fireEvent.click(screen.getByTestId('frozen-load-run'));
+
+          const box = within(screen.getByRole('dialog')).queryByTestId(
+            'frozen-removal-automation-mute-toggle',
+          ) as HTMLInputElement | null;
+          const shownTicked = box?.checked;
+          fireEvent.change(screen.getByTestId('danger-input'), {
+            target: { value: 'DEV-SANDBOX' },
+          });
+          fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+          expect(mutate.mock.calls.filter(([type]) => type === 'frozen:load')).toEqual([
+            ['frozen:load', { targetOrgId: 'org-dev', reload: true, muteAutomation: true }],
+          ]);
+          // The same box as beside Load, said in the confirmation.
+          expect(shownTicked).toBe(true);
+        },
+      );
+
+      describe('and as a sweep ticked with it deletes what the automation made for the loads it replaces', () => {
+        /** What the sweep would take for the load replaced: the task a flow opened on its contact. */
+        const LISTED = {
+          loadedAt: LOADED_AT,
+          loads: [
+            {
+              loadedAt: LOADED_AT,
+              listing: {
+                looked: ['Account', 'Task'],
+                found: [
+                  {
+                    objectApiName: 'Task',
+                    count: 1,
+                    names: ['Follow up'],
+                    classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+                  },
+                ],
+                unread: [],
+                handWork: [],
+                untied: { objects: [] },
+              },
+            },
+          ],
+        };
+        const typeTheOrg = () =>
+          fireEvent.change(screen.getByTestId('danger-input'), {
+            target: { value: 'DEV-SANDBOX' },
+          });
+        const loadsSent = () => mutate.mock.calls.filter(([type]) => type === 'frozen:load');
+
+        it('reloads with no sweep unticked: the purge alone, as before', () => {
+          confirmation();
+          typeTheOrg();
+          fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+          expect(loadsSent()).toEqual([['frozen:load', { targetOrgId: 'org-dev', reload: true }]]);
+          expect(mutate.mock.calls.some(([type]) => type === 'frozen:remove:sweep')).toBe(false);
+        });
+
+        it('cannot be confirmed while what the sweep takes is unread', () => {
+          answers['frozen:remove:sweep'] = { loading: true };
+          confirmation();
+          fireEvent.click(screen.getByTestId('frozen-reload-sweep-toggle'));
+          typeTheOrg();
+
+          expect(mutate).toHaveBeenCalledWith('frozen:remove:sweep', {
+            targetOrgId: 'org-dev',
+            loadedAt: LOADED_AT,
+            reload: true,
+          });
+          expect(screen.getByTestId('frozen-reload-sweep-loading')).toBeTruthy();
+          expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(
+            true,
+          );
+          expect(screen.getByRole('dialog').textContent).toContain(
+            'Waiting for what the sweep takes, and for what DEV-SANDBOX runs as it deletes it',
+          );
+        });
+
+        it('lists it per load, reads what fires on what it takes with the purge, and sends the reload with it', () => {
+          answers['frozen:remove:sweep'] = { data: LISTED };
+          confirmation();
+          answers['frozen:remove:automation'] = {
+            data: {
+              loadedAt: LOADED_AT,
+              automation: AUTOMATION,
+              steps: { setToDraft: [], delete: ['Account', 'Task'] },
+            },
+          };
+          fireEvent.click(screen.getByTestId('frozen-reload-sweep-toggle'));
+
+          expect(screen.getByTestId('frozen-reload-sweep-load').textContent).toContain(
+            'Task: 1 record',
+          );
+          expect(mutate).toHaveBeenCalledWith('frozen:remove:automation', {
+            targetOrgId: 'org-dev',
+            loadedAt: LOADED_AT,
+            sweptObjects: ['Task'],
+            reload: true,
+          });
+          typeTheOrg();
+          fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+          expect(loadsSent()).toEqual([
+            ['frozen:load', { targetOrgId: 'org-dev', reload: true, sweep: true }],
+          ]);
+        });
+
+        it('offers with the sweep the box that takes what it finds changed since, and sends the reload with it', () => {
+          // A reload's sweep kept what changed since with no way to take it.
+          answers['frozen:remove:sweep'] = { data: LISTED };
+          confirmation();
+          answers['frozen:remove:automation'] = {
+            data: {
+              loadedAt: LOADED_AT,
+              automation: AUTOMATION,
+              steps: { setToDraft: [], delete: ['Account', 'Task'] },
+            },
+          };
+          expect(screen.queryByTestId('frozen-reload-include-changed')).toBeNull();
+          fireEvent.click(screen.getByTestId('frozen-reload-sweep-toggle'));
+          const box = screen.getByTestId('frozen-reload-include-changed') as HTMLInputElement;
+          expect(box.checked).toBe(false);
+          expect(box.closest('label')?.textContent).toBe(
+            'Also take what the sweep finds changed since the load it sweeps, and what was ' +
+              'added to it since',
+          );
+          fireEvent.click(box);
+          typeTheOrg();
+          fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+          expect(loadsSent()).toEqual([
+            [
+              'frozen:load',
+              { targetOrgId: 'org-dev', reload: true, sweep: true, includeChanged: true },
+            ],
+          ]);
+        });
+      });
     });
 
     it('loads at once when the plan it reads purges nothing', () => {

@@ -167,7 +167,7 @@ test.describe('the Frozen page’s Reload, refused while records would be left',
     );
     await expect(refused.getByTestId('frozen-reload-refused-why')).toHaveText(REFUSAL);
     await expect(refused.getByTestId('frozen-reload-refused-way-out')).toContainText(
-      'the ones changed since included',
+      'the ones changed since, and what was added under them since, included',
     );
     await expect(page.getByTestId('frozen-error')).toHaveCount(0);
 

@@ -3,18 +3,20 @@ import type {
   AutopilotGraph,
   AutopilotNode,
   AutopilotObjectListing,
+  AutopilotPlanWriteGate,
   ExecutionPlan,
   ComplianceFrameworkType,
   AutopilotAnonymizationRule,
+  RunCheckpointInfo,
 } from '@sandforge/shared';
 import { updateGraphNodeStatus, updateGraphNodeProgress } from '../utils/graphStoreUtils';
 
 /**
  * What a node came to once it settled: the records the target refused and
  * why, the records it already held and linked to, the statuses given back to
- * records born a draft, and the records left out because the platform writes
- * them, or what they depend on, itself. A field the message did not carry is
- * left alone.
+ * records born a draft, the lookups filled once what they point at was in, and
+ * the records left out because the platform writes them, or what they depend
+ * on, itself. A field the message did not carry is left alone.
  */
 export type NodeOutcome = Partial<
   Pick<
@@ -24,9 +26,13 @@ export type NodeOutcome = Partial<
     | 'refusals'
     | 'statusesApplied'
     | 'statusRefusals'
+    | 'lookupsFilled'
+    | 'lookupRefusals'
     | 'leftToThePlatform'
     | 'currenciesReplaced'
     | 'pricesSettled'
+    | 'cutSinceFit'
+    | 'recordTypeGiven'
   >
 >;
 
@@ -68,6 +74,22 @@ export interface LiveStats {
   totalWaves: number;
 }
 
+/**
+ * The run that ended, as what it took first and a rewind's mark read it. Kept
+ * here, not on the page: "Rewind to before this run…" leaves the page, which
+ * comes back to the run it left, with the rewind to mark on it.
+ */
+export interface AutopilotRunEnd {
+  /** The org it wrote to, by its id in this machine's registry. */
+  orgId: string;
+  startedAt: string;
+  endedAt: string;
+  /** The objects it set out to write. */
+  objects: string[];
+  /** What became of the checkpoint it took first; absent when it took none. */
+  checkpoint?: RunCheckpointInfo;
+}
+
 /** Default live stats values */
 const DEFAULT_LIVE_STATS: LiveStats = {
   recordsProcessed: 0,
@@ -90,8 +112,11 @@ const INITIAL_STATE = {
   complianceFramework: 'none' as ComplianceFrameworkType,
   neutralizeContactPoints: true,
   muteAutomation: false,
+  checkpointFirst: false,
+  runEnd: null as AutopilotRunEnd | null,
   graph: null as AutopilotGraph | null,
   plan: null as ExecutionPlan | null,
+  writeGate: null as AutopilotPlanWriteGate | null,
   rules: [] as AutopilotAnonymizationRule[],
   executionStatus: 'idle' as ExecutionStatus,
   selectedNodeName: null as string | null,
@@ -130,10 +155,24 @@ export interface AutopilotState {
    * off unless ticked on the review step.
    */
   muteAutomation: boolean;
+  /**
+   * Whether the run takes a checkpoint of what it writes before its first
+   * write: off unless ticked on the review step, which recommends it. An
+   * Autopilot run has no removal: the checkpoint is its way back.
+   */
+  checkpointFirst: boolean;
+  /** The last run that ended, once it has; null before, and from Execute on. */
+  runEnd: AutopilotRunEnd | null;
   /** Dependency graph built from metadata scan */
   graph: AutopilotGraph | null;
   /** Execution plan derived from the graph */
   plan: ExecutionPlan | null;
+  /**
+   * What the plan under review comes to against the target's data storage
+   * and API requests, as its `/limits` said them with the plan or with a
+   * run's refusal; null before.
+   */
+  writeGate: AutopilotPlanWriteGate | null;
   /** Anonymization rules to apply */
   rules: AutopilotAnonymizationRule[];
   /** Current execution status */
@@ -167,10 +206,16 @@ export interface AutopilotState {
   setNeutralizeContactPoints: (on: boolean) => void;
   /** Mute the target's automation for the run, or not */
   setMuteAutomation: (mute: boolean) => void;
+  /** Tick or untick the review step's option. */
+  setCheckpointFirst: (first: boolean) => void;
+  /** Keep the run that ended, or forget it as another starts. */
+  setRunEnd: (runEnd: AutopilotRunEnd | null) => void;
   /** Set the dependency graph */
   setGraph: (graph: AutopilotGraph | null) => void;
   /** Set the execution plan */
   setPlan: (plan: ExecutionPlan | null) => void;
+  /** Keep what the plan comes to against the target, as last said. */
+  setWriteGate: (writeGate: AutopilotPlanWriteGate | null) => void;
   /** Set anonymization rules */
   setRules: (rules: AutopilotAnonymizationRule[]) => void;
   /** Set the execution status */
@@ -259,12 +304,24 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
     set({ muteAutomation });
   },
 
+  setCheckpointFirst(checkpointFirst: boolean): void {
+    set({ checkpointFirst });
+  },
+
+  setRunEnd(runEnd: AutopilotRunEnd | null): void {
+    set({ runEnd });
+  },
+
   setGraph(graph: AutopilotGraph | null): void {
     set({ graph });
   },
 
   setPlan(plan: ExecutionPlan | null): void {
     set({ plan });
+  },
+
+  setWriteGate(writeGate: AutopilotPlanWriteGate | null): void {
+    set({ writeGate });
   },
 
   setRules(rules: AutopilotAnonymizationRule[]): void {
@@ -318,6 +375,8 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
       if (outcome.refusals !== undefined) carried.refusals = outcome.refusals;
       if (outcome.statusesApplied !== undefined) carried.statusesApplied = outcome.statusesApplied;
       if (outcome.statusRefusals !== undefined) carried.statusRefusals = outcome.statusRefusals;
+      if (outcome.lookupsFilled !== undefined) carried.lookupsFilled = outcome.lookupsFilled;
+      if (outcome.lookupRefusals !== undefined) carried.lookupRefusals = outcome.lookupRefusals;
       if (outcome.leftToThePlatform !== undefined) {
         carried.leftToThePlatform = outcome.leftToThePlatform;
       }
@@ -325,6 +384,8 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
         carried.currenciesReplaced = outcome.currenciesReplaced;
       }
       if (outcome.pricesSettled !== undefined) carried.pricesSettled = outcome.pricesSettled;
+      if (outcome.cutSinceFit !== undefined) carried.cutSinceFit = outcome.cutSinceFit;
+      if (outcome.recordTypeGiven !== undefined) carried.recordTypeGiven = outcome.recordTypeGiven;
       return {
         graph: {
           ...state.graph,

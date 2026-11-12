@@ -643,7 +643,7 @@ describe('HelpPage', () => {
     expect(CHANGELOG_URL).toBe(WHATS_NEW_CHANGELOG_URL);
     expect(changelog.getAttribute('target')).toBe('_blank');
     fireEvent.click(screen.getByTestId('help-show-whats-new'));
-    expect(mockSetShowWhatsNew).toHaveBeenCalledWith(true, __APP_VERSION__);
+    expect(mockSetShowWhatsNew).toHaveBeenCalledWith(true, __APP_VERSION__, undefined, true);
   });
 
   it('should render the new troubleshooting and release notes sections', () => {

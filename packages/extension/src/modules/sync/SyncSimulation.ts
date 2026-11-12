@@ -242,7 +242,11 @@ export function simulateRecord(
   if (key === null) return operation === 'delete' ? 'notSent' : 'noKey';
   const held = inTarget.get(key) ?? 0;
   if (operation === 'upsert') {
-    if (held === 0) return 'insert';
+    // On the Id, an upsert updates the record of that id and creates none:
+    // the platform never takes an id it is given for a new record, and the
+    // id is the source's. Counted created, a dry run said N inserts and exit
+    // 0 of rows the run then had refused.
+    if (held === 0) return keyField.toLowerCase() === 'id' ? 'notInTarget' : 'insert';
     return held === 1 ? 'update' : 'ambiguous';
   }
   if (held === 0) return 'notInTarget';
@@ -286,8 +290,12 @@ export function simulateObjectOutcome(input: ObjectSimulationInput): SyncObjectS
   if (counts.notInTarget > 0) {
     notes.push(
       `${counts.notInTarget} record(s) carry an Id the target does not hold: ` +
-        `${operation === 'update' ? 'an update' : 'a delete'} finds no record there, and the ` +
-        `target refuses it. Two orgs share a record's Id only when it was copied with the org.`,
+        `${
+          operation === 'upsert'
+            ? 'an upsert on the Id finds no record there and creates none'
+            : `${operation === 'update' ? 'an update' : 'a delete'} finds no record there`
+        }, and the target refuses it. Two orgs share a record's Id only when it was copied ` +
+        `with the org.`,
     );
   }
   if (counts.ambiguous > 0) {

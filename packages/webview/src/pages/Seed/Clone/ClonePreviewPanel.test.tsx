@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../../i18n';
 import en from '../../../i18n/locales/en.json';
+import { useOrgStore } from '../../../stores/useOrgStore';
+import { developerOrg } from '../../Checkpoint/testing/checkpointFixtures';
 import { ClonePreviewPanel } from './ClonePreviewPanel';
 import type { ClonePreviewResult } from '@sandforge/shared';
 
@@ -45,6 +47,27 @@ const largeMockPreview: ClonePreviewResult = {
 };
 
 describe('ClonePreviewPanel', () => {
+  it('offers above Execute the checkpoint first of the org it writes to, off', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    const onChange = vi.fn();
+    render(
+      <ClonePreviewPanel
+        previewResult={mockPreview}
+        onExecute={vi.fn()}
+        onBack={vi.fn()}
+        checkpoint={{ checked: false, onChange, orgId: 'org-dev' }}
+      />,
+    );
+
+    const toggle = screen.getByTestId('clone-checkpoint-first-toggle') as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(screen.getByTestId('clone-checkpoint-first-cost-said').textContent).toContain(
+      'the question before the first write',
+    );
+    fireEvent.click(toggle);
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
   it('should render insert order list', () => {
     render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
 

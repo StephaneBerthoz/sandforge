@@ -290,8 +290,12 @@ export interface StorageFitBudget {
   roundingMB: number;
   /** The most MB asked of the fit (`--fit-within`); absent when not asked. */
   withinMB?: number;
-  /** Which bound held it: what is left past the share and rounding, or `withinMB`. */
-  limitedBy: 'storage' | 'within';
+  /**
+   * Which bound held it: what is left past the share and rounding, `withinMB`,
+   * or the target's daily API requests, when the writes of what the storage
+   * alone would let through leave it less than a tenth of the day.
+   */
+  limitedBy: 'storage' | 'within' | 'apiRequests';
   /** MB kept for the records the target's automation that still runs creates under the run's. */
   automationMB: number;
   /** What that automation creates that is not counted; absent when nothing. */

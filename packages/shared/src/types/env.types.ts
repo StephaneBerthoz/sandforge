@@ -21,7 +21,7 @@ import type {
 } from '../constants/saved-anonymization-templates.js';
 import type { ForgeTemplateInput } from '../schemas/forge.schema.js';
 import type { ForgeTraversalDepth } from './forge.types.js';
-import type { FieldRule, SeedRelation, SeedTemplate } from './seed.types.js';
+import type { FieldRule, FieldRuleConfig, SeedRelation, SeedTemplate } from './seed.types.js';
 
 // ─── The file (sandforge.yaml, version 1) ───────────────────────────────────
 
@@ -77,12 +77,23 @@ export interface EnvForgeAccept extends EnvAccept {
   realData?: boolean;
 }
 
+/** A field rule's config in a file, with the `referenceField` an older panel saved. */
+interface EnvFieldRuleConfig extends FieldRuleConfig {
+  /** No run reads it. */
+  referenceField?: string;
+}
+
+/** A field rule of a seed resource, as the panel saves it. */
+interface EnvFieldRule extends Omit<FieldRule, 'config'> {
+  config: EnvFieldRuleConfig;
+}
+
 /** An object a seed resource writes. */
 export interface EnvSeedObject {
   object: string;
   count: number;
   /** Seed's field rules, as the panel saves them. */
-  fields?: FieldRule[];
+  fields?: EnvFieldRule[];
   /** Record types by DeveloperName; several take turns at random. */
   recordTypes?: string[];
   batchSize?: number;
@@ -265,6 +276,12 @@ export interface EnvMaskRun {
   rules: { name: string; rules: EnvMaskingRule[] };
   object?: string;
   where?: string;
+  /**
+   * Mask although the org runs automation as the records are written over
+   * (`accept.automation`): the script's `--accept-automation`. Absent, a
+   * masking that fires something is refused before it writes.
+   */
+  acceptAutomation?: boolean;
 }
 
 /**
@@ -483,6 +500,11 @@ export interface EnvAction {
   draws?: EnvActionDraw[];
   gates?: EnvActionGates;
   refusal?: string;
+  /**
+   * The codes of what `refusal` says, each as its script names it
+   * (`AUTOMATION_NOT_ACCEPTED`), where its scripts give them: a destroy's.
+   */
+  refusalCodes?: string[];
   /** What the plan says of it beside why: a production source's data, and what is done to it. */
   notes?: string[];
 }
@@ -567,6 +589,8 @@ export interface EnvPlan {
   drift?: EnvPlanDrift;
   /** What a real apply would meet now. */
   refusal?: string;
+  /** The codes of what `refusal` says, where its scripts give them: a destroy's. */
+  refusalCodes?: string[];
   /** Made with `--quick`: no dry run, no removal preview, so no count of what the org holds. */
   quick?: true;
   /** What the plan says without refusing: an apply under way, a scratch org with no state. */
@@ -641,6 +665,12 @@ export interface EnvRunResult {
   status: 'success' | 'partial' | 'failure' | 'cancelled';
   /** Why nothing was done, when it was refused before its first step. */
   refusal?: string;
+  /**
+   * The codes of what `refusal` says, where they are known: its plan's, each
+   * as the script whose preview refused names it, or this command's own
+   * (`LOCKED`, `STATE_MOVED`). A pipeline read them on stderr alone.
+   */
+  refusalCodes?: string[];
   /** The state as the run left it: a destroy that took everything back keeps it, every resource destroyed. */
   state: { serial: number };
 }

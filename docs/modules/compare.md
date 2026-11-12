@@ -22,11 +22,11 @@ Compare metadata, permission names, and five Organization settings between two S
 2. Select a source org and a target org using the org selector
 3. Choose metadata component types to compare (fields, objects, flows, Apex classes, profiles, etc.)
 4. Click **Run Comparison** to execute the comparison
-5. Browse results across five tabs: Diff, Permissions, Objects, Drift, and Deploy
+5. Browse results across five tabs: Diff Viewer, Permission Presence, Objects, Org Settings Drift, and Deploy from Diff
 
 ## Features
 
-### Metadata Diff
+### Diff Viewer
 
 The primary tab shows a side-by-side comparison of metadata between the two orgs.
 
@@ -57,7 +57,7 @@ count. An org's own components stay in, even in an org with a namespace of its
 own.
 
 When a comparison finds no component only one org holds and none modified, the
-Diff tab says that nothing differs; the line above it says how many components
+**Diff Viewer** tab says that nothing differs; the line above it says how many components
 were compared by content.
 
 - **Summary Bar** -- Counts of the components only in the source (+), only in the target (-), modified (~), unchanged (=) and not compared (?), a line saying what each of the first three means for a deployment, and how many of the components both orgs hold were compared by content
@@ -101,7 +101,7 @@ tab, and listed side by side with whether each one matches:
 
 ### Deploy from Diff
 
-The Deploy tab deploys to the target the components the comparison found only
+The **Deploy from Diff** tab deploys to the target the components the comparison found only
 in the source, or different in it. Nothing is deployed that was not validated
 first.
 
@@ -147,5 +147,5 @@ offers nothing to pick, test or validate.
 - Run a compare before any major deployment to understand the full scope of changes
 - Use the Risk Score Card to quickly assess whether changes are safe to deploy
 - Permission Presence answers "which permission sets and profiles is this org missing?", not "who can see what"
-- Re-run the Drift tab after each release to see whether those five Organization settings still match
+- Re-run the **Org Settings Drift** tab after each release to see whether those five Organization settings still match
 - Deploy a few components at a time: a validation of a handful says which one fails, and on which line

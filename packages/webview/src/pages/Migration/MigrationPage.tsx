@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload } from 'lucide-react';
 import type {
+  MigrationImportNote,
+  MigrationImportSfdmuResponse,
   MigrationPickFileResponse,
   MigrationSaveSyncConfigResponse,
-  SyncOperation,
 } from '@sandforge/shared';
 import { syncConfigSchema } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -19,15 +20,12 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { JsonViewer } from '../../components/ui/JsonViewer';
 import { ObjectSetEditor } from '../Sync/ObjectSetEditor';
 import type { ObjectSetEntry } from '../Sync/ObjectSetEditor';
+import { configObjects, objectSetEntryOf } from '../Sync/objectSetEntries';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 import { orgOptionLabel } from '../../utils/orgFormatters';
 
 /** Response payload of `migration:import-sfdmu:response`. */
-interface MigrationImportResult {
-  success: boolean;
-  config?: Record<string, unknown>;
-  error?: string;
-}
+type MigrationImportResult = MigrationImportSfdmuResponse['payload'];
 
 /** The extension the importer takes — mirrors MigrationHandler's whitelist. */
 const ALLOWED_EXTENSION = '.json';
@@ -70,27 +68,6 @@ function validateFilePath(
   return null;
 }
 
-/** The objects of a config, each the record the importer wrote. */
-function configObjects(config: Record<string, unknown>): Array<Record<string, unknown>> {
-  const objects = config.objects;
-  if (!Array.isArray(objects)) return [];
-  return objects.filter(
-    (raw): raw is Record<string, unknown> =>
-      typeof raw === 'object' && raw !== null && typeof raw.objectApiName === 'string',
-  );
-}
-
-/** What the object set editor shows of an imported object. */
-function toEntry(obj: Record<string, unknown>): ObjectSetEntry {
-  return {
-    objectApiName: String(obj.objectApiName),
-    operation: (typeof obj.operation === 'string' ? obj.operation : 'insert') as SyncOperation,
-    externalIdField: typeof obj.externalIdField === 'string' ? obj.externalIdField : '',
-    batchSize: typeof obj.batchSize === 'number' ? obj.batchSize : 200,
-    where: typeof obj.where === 'string' ? obj.where : '',
-  };
-}
-
 /** How many entries a list key of an imported object holds. */
 function countOf(obj: Record<string, unknown> | undefined, key: string): number {
   const list = obj?.[key];
@@ -102,6 +79,91 @@ function countOf(obj: Record<string, unknown> | undefined, key: string): number 
  * placeholders the save replaces with the orgs picked here.
  */
 const editedConfigSchema = syncConfigSchema.omit({ sourceOrgId: true, targetOrgId: true });
+
+/** Why the host imported nothing: in the page's language when it gave a code. */
+function importFailureMessage(
+  answer: MigrationImportResult,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  const objects = (answer.objects ?? []).join('; ');
+  switch (answer.code) {
+    case 'TARGET_OBJECT_MAPPED':
+      return t('migration.targetObjectMapped', { objects });
+    case 'NOT_JSON':
+      return t('migration.refused.notJson');
+    case 'NO_OBJECTS':
+      return t('migration.refused.noObjects');
+    case 'OBJECT_NOT_NAMED':
+      return t('migration.refused.objectNotNamed', { objects });
+    case 'INVALID_EXPORT':
+      return t('migration.refused.invalidExport', { objects });
+    default:
+      return answer.error ?? t('migration.unknownError');
+  }
+}
+
+/** What an import did not carry over as SFDMU would, in the page's language. */
+function importNoteMessage(
+  { code, detail }: MigrationImportNote,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  switch (code) {
+    case 'excluded':
+      return t('migration.notes.excluded');
+    case 'readonly':
+      return t('migration.notes.readonly');
+    case 'noQuery':
+      return t('migration.notes.noQuery');
+    case 'unknownOperation':
+      return t('migration.notes.unknownOperation', { detail });
+    case 'deletesElsewhere':
+      return t('migration.notes.deletesElsewhere', { detail });
+    case 'mockAllFields':
+      return t('migration.notes.mockAllFields');
+    case 'duplicate':
+      return t('migration.notes.duplicate', { detail });
+    case 'delete':
+      return t('migration.notes.delete', { detail });
+    case 'updateKey':
+      return t('migration.notes.updateKey', { detail });
+    case 'defaultKey':
+      return t('migration.notes.defaultKey');
+    case 'upsertKey':
+      return t('migration.notes.upsertKey', { detail });
+    case 'unusableKey':
+      return t('migration.notes.unusableKey', { detail });
+    case 'fieldMappingOff':
+      return t('migration.notes.fieldMappingOff', { detail });
+    case 'valueRows':
+      return t('migration.notes.valueRows', { detail });
+    case 'notMaster':
+      return t('migration.notes.notMaster');
+    case 'limit':
+      return t('migration.notes.limit', { detail });
+    case 'queryClause':
+      return t('migration.notes.queryClause', { detail });
+    case 'queryUnread':
+      return t('migration.notes.queryUnread');
+    case 'whereRefused':
+      return t('migration.notes.whereRefused');
+    case 'deleteOldData':
+      return t('migration.notes.deleteOldData');
+    case 'mockFields':
+      return t('migration.notes.mockFields', { detail });
+    case 'nameDiffers':
+      return t('migration.notes.nameDiffers', { detail });
+    case 'settings':
+      return t('migration.notes.settings', { detail });
+    case 'everyField':
+      return t('migration.notes.everyField', { detail });
+    case 'contactPoints':
+      return t('migration.notes.contactPoints');
+    case 'objectSets':
+      return t('migration.notes.objectSets', { detail });
+    case 'mappingFileUnread':
+      return t('migration.notes.mappingFileUnread', { detail });
+  }
+}
 
 /** Why the host saved no Sync configuration, in the page's language. */
 function saveRefusalMessage(
@@ -183,6 +245,14 @@ export const MigrationPage: React.FC = () => {
   // picks the real ones before it can be saved for Sync.
   const [runSourceOrgId, setRunSourceOrgId] = useState('');
   const [runTargetOrgId, setRunTargetOrgId] = useState('');
+  /**
+   * Whether the configuration copies emails and phone numbers as read, as
+   * SFDMU does: off unless unticked, as Sync's own box. Sync's box sits on a
+   * step Open in Sync does not show, so an import neutralized them, unsaid,
+   * with no way to keep them.
+   */
+  const [keepContactPoints, setKeepContactPoints] = useState(false);
+  const contactPointsHintId = useId();
 
   // Saves the migration on screen among Sync's configurations, which the Sync
   // page lists and runs, and a schedule runs by id.
@@ -214,7 +284,7 @@ export const MigrationPage: React.FC = () => {
 
   const responseError =
     importMutation.data && !importMutation.data.success
-      ? (importMutation.data.error ?? t('migration.unknownError'))
+      ? importFailureMessage(importMutation.data, t)
       : null;
   const displayedError = importMutation.error ?? responseError;
   const successResult =
@@ -234,6 +304,7 @@ export const MigrationPage: React.FC = () => {
     workingConfig && typeof workingConfig.name === 'string' ? workingConfig.name : undefined;
   const workingObjects = workingConfig ? configObjects(workingConfig) : [];
   const problem = workingConfig ? editProblem(workingConfig) : null;
+  const importNotes = successResult?.notes ?? [];
 
   /** Replace the copy's objects, every other key of the config as imported. */
   const writeObjects = (objects: Array<Record<string, unknown>>): void => {
@@ -316,6 +387,7 @@ export const MigrationPage: React.FC = () => {
     setSyncConfigName('');
     setRunSourceOrgId('');
     setRunTargetOrgId('');
+    setKeepContactPoints(false);
   };
 
   /** Both orgs picked and distinct — a sync into its own source is not a sync. */
@@ -337,7 +409,12 @@ export const MigrationPage: React.FC = () => {
     orgsPicked && problem === null && syncConfigName.trim().length > 0 && !saveSyncMutation.loading;
 
   /** The config on screen and the orgs picked: what a save would keep. */
-  const onScreen = JSON.stringify([workingConfig ?? null, runSourceOrgId, runTargetOrgId]);
+  const onScreen = JSON.stringify([
+    workingConfig ?? null,
+    runSourceOrgId,
+    runTargetOrgId,
+    keepContactPoints,
+  ]);
 
   /**
    * Save the config as edited here, between the orgs picked here, as a Sync
@@ -352,7 +429,13 @@ export const MigrationPage: React.FC = () => {
     setSavedFor(onScreen);
     saveSyncMutation.mutate({
       name,
-      config: { ...workingConfig, sourceOrgId: runSourceOrgId, targetOrgId: runTargetOrgId },
+      config: {
+        ...workingConfig,
+        sourceOrgId: runSourceOrgId,
+        targetOrgId: runTargetOrgId,
+        // Sent only when kept: absent, the run neutralizes them.
+        ...(keepContactPoints ? { keepContactPoints: true } : {}),
+      },
     });
   };
   const saveAnswer = saveSyncMutation.loading ? null : saveSyncMutation.data;
@@ -489,7 +572,7 @@ export const MigrationPage: React.FC = () => {
               {/* The objects as Sync will run them, edited on a copy of the import. */}
               <div data-testid="migration-edit">
                 <ObjectSetEditor
-                  entries={workingObjects.map(toEntry)}
+                  entries={workingObjects.map(objectSetEntryOf)}
                   availableObjects={removedObjects.map((obj) => String(obj.objectApiName))}
                   onAdd={handleObjectAdd}
                   onRemove={handleObjectRemove}
@@ -504,6 +587,29 @@ export const MigrationPage: React.FC = () => {
                   data-testid="migration-edit-problem"
                 >
                   {problemMessage}
+                </div>
+              )}
+              {/* Above the save: what the file asked and the run will not do. */}
+              {importNotes.length > 0 && (
+                <div
+                  className="flex flex-col gap-(--sf-space-2) rounded-sm border border-subtle bg-surface-1 p-3"
+                  data-testid="migration-notes"
+                >
+                  <div className="text-sm font-semibold text-text-primary">
+                    {t('migration.notes.title')}
+                  </div>
+                  <ul className="flex list-disc flex-col gap-1 pl-4 text-xs text-text-secondary">
+                    {importNotes.map((note, i) => (
+                      <li key={`${note.code}-${note.object ?? ''}-${i}`}>
+                        {note.object !== undefined && (
+                          <span className="font-medium text-text-primary">
+                            {t('migration.notes.onObject', { object: note.object })}{' '}
+                          </span>
+                        )}
+                        {importNoteMessage(note, t)}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
               <div
@@ -539,6 +645,24 @@ export const MigrationPage: React.FC = () => {
                     {t('migration.run.orgsRequired')}
                   </div>
                 )}
+                {/* Emails and phone numbers: neutralized unless unticked, as
+                    Sync's own box has them, where SFDMU copies them as read. */}
+                <div className="flex flex-col gap-1" data-testid="migration-contact-points">
+                  <label className="flex items-start gap-2 text-xs text-text-primary cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!keepContactPoints}
+                      onChange={(e) => setKeepContactPoints(!e.target.checked)}
+                      aria-describedby={contactPointsHintId}
+                      disabled={saveSyncMutation.loading}
+                      data-testid="migration-contact-points-toggle"
+                    />
+                    {t('migration.run.contactPoints')}
+                  </label>
+                  <p id={contactPointsHintId} className="text-xs text-text-secondary">
+                    {t('migration.run.contactPointsHint')}
+                  </p>
+                </div>
                 <Input
                   label={t('migration.saveSync.nameLabel')}
                   value={syncConfigName}

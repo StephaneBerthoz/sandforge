@@ -151,6 +151,11 @@ What a restore does, in order:
 - Says, with its result, when the backup held only part of an object -- the
   cap, a read that failed, a file no longer all there -- and that the rest of
   the object was left as it is
+- Says, with its result, what the active duplicate rules of the objects it
+  put back wrote during it for the records it wrote, and keeps it, as a
+  masking does (see [Anonymize](#anonymize)): a restore writes back the values
+  a rule matches on. The page warns when they wrote something or it could not
+  be read, and `--json` carries it under `duplicates`
 - Drops the fields _nobody_ may write — a backup is a verbatim
   `SELECT FIELDS(ALL)` snapshot, so it always carries `CreatedDate`,
   `SystemModstamp` and friends — and logs which ones it dropped
@@ -201,6 +206,19 @@ your own:
   in Restore** opens the Restore tab on it. Unticked, the confirmation names
   instead the records a restore of the latest backup can never bring back. A
   resume takes no backup: the run it resumes took one
+- **Every field of the template, or nothing.** Once the records are counted,
+  and before Production Guard is asked, a run looks up every field its
+  template names on the objects that hold records. A describe lists only what
+  the connected user may read, so a field the org lacks and a field
+  field-level security hides look alike: the run is refused, `MASKING_FIELDS_UNSEEN`,
+  it names them and what may hide them, and it masks nothing. Give that user
+  read and edit access to the field, or take the field out of the template; a
+  template that ships is not edited, and **Create Template** starts from its
+  rules. An object of which no field can be masked is named too, and an object
+  whose rules mask nothing in this org refuses the run under
+  `MASKING_MASKS_NOTHING`. A resume is held to the same check, and
+  `sandforge-dataops anonymize` ends on exit code 1. An object with no record
+  holds nothing to mask, and refuses nothing
 - **A run that stops before the end says what it left.** A cancel -- the
   Anonymize tab's **Cancel run** while the run masks, or Live Operations',
   where it is listed -- honoured between two batches, or before the first
@@ -212,6 +230,33 @@ your own:
   failed, records never reached as not sent; a run you cancelled as
   cancelled, or as stopped under `RUN_CANCELLED` when it had masked nothing
   and the org had refused nothing) and in the output log.
+- **Duplicate rules.** A masking writes one kind of value over every record
+  -- the same `preserve_format` address, names drawn alike -- and an org's
+  active duplicate rules then match the masked records with each other. Before
+  its question, the read of what the org runs names, object by object, the
+  active duplicate rules of what it writes over, as Restore's question and an
+  erasure in place name them: a record a rule only alerts on is written, one a
+  rule blocks is refused, and what a rule that reports writes, a duplicate
+  record set and its items, stays. Only a record the org saved can be
+  reported: once the org saved the first record of such an object, the run
+  reads the org's clock, dated back to when that update went out; once its
+  last write is in, it waits for what is left of 5 seconds after the last
+  such record, the few seconds a rule's report takes to land, then reads the
+  duplicate record items created since its first write that sit in a set
+  holding one of the records it masked, and those sets created since: a query
+  of the items, then a query of their sets for every 200 of them. An update
+  whose answer never came counts as saved, since the org may have saved it.
+  Its result says how many sets and items the rules wrote for the records it
+  masked (at least that many past 2,000 items), that they wrote nothing, or
+  that it could not be read, then how many requests that took, the clock
+  included, and how long it waited (`requests`, `waitedMs`); a run that fails
+  half way says it as well. What they wrote is kept, never removed: every
+  item names a record that stays, and a masking deletes nothing. The page
+  warns when they wrote something or it could not be read, and `--json`
+  carries it under `duplicates`. A run that saved no record of an object with
+  an active rule -- every one refused, or none holding anything to mask --
+  sends none of these requests and waits for nothing. A restore and an
+  erasure in place read theirs the same way
 - **Resume where it stopped.** A run that stopped before the end keeps, on
   this machine, where it got: per object, whether it was read to the end, the
   last record it handled, and the records the org refused. The Anonymize tab
@@ -248,7 +293,11 @@ your own:
   `PersonEmail` for `Email`, `PersonMailingStreet` for `MailingStreet`, a
   custom field as `__pc` -- and the fields only a person account holds that
   the personal data detector names and no rule covers (a mobile or home
-  phone, a birthdate) are overwritten as an erasure overwrites them. Those
+  phone, a birthdate) are overwritten as an erasure overwrites them. Field-level
+  security on a contact's field hides the person account's too, and such a
+  field refuses the run as a field the template names does,
+  `MASKING_FIELDS_UNSEEN`, `--object Account` included; a contact's field that
+  no person account holds, such as `Description`, masks nothing there. Those
   rules mask person accounts only; a business account keeps its rules, a
   person account goes without a rule on `Name`, which the platform computes
   from its first and last names, and an org without person accounts is
@@ -265,9 +314,12 @@ your own:
   and shows each masked field as the org holds it beside the value Apply
   would write, masked in this window as Apply masks it. It writes nothing,
   so it asks no confirmation. An empty field stays empty, as Apply leaves it;
-  an object the org will not read is listed with what the org said, and a
-  field the org does not have is named. A made-up name is the one Apply
-  writes on the first object; on the next ones Apply may draw another for a
+  an object the org will not read is listed with what the org said. What Apply
+  would be refused for is said first, in the words of the refusal, and again
+  in its confirmation: a field the org does not show, an object with no field
+  left, and what the connected user may read and not edit (`CRUD_FLS_DENIED`),
+  which `anonymize --dry-run` and an environment's plan refuse as well. A
+  made-up name is the one Apply writes on the first object; on the next ones Apply may draw another for a
   record whose name an earlier record of the run took first. Apply cannot be
   undone unless it keeps the values first (see above) or a backup holds them.
 - **Your own templates.** **Create Template** opens an editor on the rules of
@@ -339,14 +391,28 @@ number, or several, and **Search**. It looks in the objects the inventory read:
     account's; else first, middle and last name). A made-up value where the
     anonymizer knows one (a name, an email, a phone, an address), nothing where
     the field may be empty. A field that held nothing is left empty, and a
-    field you may not edit is left as it is and named
+    field you may not edit is left as it is and named. Made-up names and
+    addresses can look like another record's: the result says what the
+    org's active duplicate rules wrote during it for the records it
+    overwrote, kept, as a masking says it (see [Anonymize](#anonymize))
   - **Delete**: the records go to the org's recycle bin, with what the org
     deletes along with them (a contact's tasks, an account's contacts and
     opportunities). Records stay in the recycle bin until it is emptied
 - Both start with a review that writes nothing: the fields each object would
   have overwritten and how, or how many related records the org would delete
-  along with them. Then a confirmation armed by typing the org's name, then
-  **Production Guard**:
+  along with them, counted over the first 30 relationships that cascade to an
+  object people work with; past them, or where the org would not count, the
+  objects are named as not counted, and they go all the same. What goes along
+  runs none of its delete automation, and the review says so: Salesforce runs
+  no flow or trigger on a record deleted with its parent (on a scratch org, a
+  task deleted with its contact and contacts deleted with their account ran
+  neither the before delete flow nor the delete trigger of their object, each
+  of which ran on their own delete), so none of it is read or asked about,
+  counted or not. Then a confirmation armed by typing the org's name, which
+  lists what the org runs as the records themselves are written over or
+  deleted, as a masking's or a cleanup's does (see
+  [What the org runs as DataOps writes](#what-the-org-runs-as-dataops-writes)),
+  then **Production Guard**:
   refused on production for a delete, a confirmation where the org's tier
   asks for one. An erasure is listed in Live Operations while it writes,
   where Cancel stops it before its next call to the org: what it did by then
@@ -391,8 +457,10 @@ Each recommendation can be:
 - **Exported**: every field of the records it names, to a JSON file you pick
 - **Deleted**: a review first says how many records go and how many records of
   other objects the org deletes along with them (counted per object people
-  work with; the org's own history, sharing and feed rows are not), then a
-  confirmation armed by typing the org's name, then **Production Guard**.
+  work with, as an erasure counts them; the org's own history, sharing and
+  feed rows are not), and that what goes along runs none of its delete
+  automation, then a confirmation armed by typing the org's name, which lists
+  what the org runs as the records themselves go, then **Production Guard**.
   Deleted records go to the
   recycle bin. A delete is listed in Live Operations while it runs, where
   Cancel stops it before its next call of 200 records, the records deleted by
@@ -453,6 +521,64 @@ How it counts, and where it stops:
 - An object the org will not describe or count is reported as failed, and the
   others are still scanned; a check the org refuses on one object shows what
   the org said, next to the checks that ran
+
+### What the org runs as DataOps writes
+
+A masking updates every record of its objects, a restore brings back from the
+recycle bin what was deleted since the backup and writes the backup's values
+over the rest, and a cleanup deletes: each fires what the org runs on that
+write, its record-triggered flows, Apex triggers, Process Builder processes and
+workflow rules, emails among them. Before its first write, each reads it, as
+Forge, Sync, Seed and Frozen Dataset do:
+
+- **What fires**, object by object and write by write: on update for a masking
+  and a restore, after undelete for what a restore brings back, before and
+  after delete for a cleanup, and what could not be read. A Cleanup delete and
+  an erasure by delete read it on the records they delete themselves, not on
+  those the org deletes along with them, which their review counts: a record
+  the platform deletes with its parent runs none of its delete automation. On
+  a scratch org, a task that went with its contact ran neither its before
+  delete trigger nor its before delete flow, though each refused the task's
+  own delete; contacts that went with their account ran neither the before
+  delete flow nor the after delete trigger of Contact; and Salesforce has no
+  flow that starts after a delete. The same holds for what their review could
+  not count. `sandforge-cleanup` reads it on the objects it names, as the page
+  does, and says that what the target deletes along with them goes too,
+  uncounted, running none of its delete automation
+- **Duplicate rules**: the active ones of what a masking, a restore or an
+  erasure in place writes over, named; each then says what they wrote during
+  it for the records it wrote (see [Anonymize](#anonymize))
+- **The emails**, counted against what the org has left today of its single
+  and workflow emails: past them, the write is refused (`EMAILS_EXCEEDED`),
+  whatever is accepted
+- **Whether the org delivers them**, read with one line of anonymous Apex that
+  sends nothing, only when something that still runs may send one, never in a
+  production org: see [Will a run make the target send emails?](../faq.md#will-a-run-make-the-target-send-emails)
+
+In the panel, Apply's and Resume's confirmation, Restore's question, the
+Cleanup delete's confirmation and a subject request's Erase confirmation list
+it before the org's name is typed, and wait for it; the box **Mute the target's automation for this run** sits under it
+when the org's own bypass silences something of it, on any org but a
+production one, whose automation is never muted, and on an org that
+delivers the emails, a box lets them go, which the confirmation itself never
+stands for. On the command line, `sandforge-dataops anonymize`, its
+`--restore`, `sandforge-backup --restore` and `sandforge-cleanup` say it
+before they ask or write, and write nothing without `--accept-automation` when
+something fires or could not be read (`AUTOMATION_NOT_ACCEPTED`), nor without
+`--accept-emails` when the org delivers what still runs sends
+(`EMAILS_NOT_ACCEPTED`); `--mute-automation` keeps quiet what the org's own
+bypasses keep quiet, under a lease, as every other module's runs do (see
+[Muting the target's automation for a run](../faq.md#muting-the-targets-automation-for-a-run)),
+and is refused on a production org (`MUTE_PRODUCTION`), where no refusal
+offers it.
+A dry run says all of it, and what a real run would be refused for, exit `1`.
+With `--json`, the masking's and the restore's answer carry it as
+`dataops:automation:response`, the cleanup's under `automation`. A pipeline's
+Anonymize step reads it before its first write too, and is refused the same
+way, nothing masked, unless the step's own settings accept it:
+`acceptAutomation`, `acceptEmails` and `muteAutomation`, each off by default,
+as a Rewind step's; an Approval step stands for none of them (see
+[Automation](automation.md)).
 
 ## Tips
 

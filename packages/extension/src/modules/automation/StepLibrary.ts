@@ -65,6 +65,11 @@ const STEP_REGISTRY: StepTypeInfo[] = [
       // template names when absent.
       object: { type: 'string', optional: true },
       where: { type: 'string', optional: true },
+      // What the org runs as the masking writes, read before it as on the
+      // DataOps page: each acceptance off, as a Rewind step's.
+      acceptAutomation: { type: 'boolean', default: false },
+      acceptEmails: { type: 'boolean', default: false },
+      muteAutomation: { type: 'boolean', default: false },
     },
   },
   {
@@ -109,6 +114,8 @@ const STEP_REGISTRY: StepTypeInfo[] = [
       checkpointId: { type: 'string' },
       objects: { type: 'array', optional: true },
       acceptAutomation: { type: 'boolean', default: false },
+      acceptEmails: { type: 'boolean', default: false },
+      muteAutomation: { type: 'boolean', default: false },
       acceptNoUndo: { type: 'boolean', default: false },
       acceptRecreate: { type: 'boolean', default: false },
       acceptOutside: { type: 'boolean', default: false },

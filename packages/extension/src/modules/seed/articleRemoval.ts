@@ -192,6 +192,45 @@ async function versionsOf(
 }
 
 /**
+ * The keys of the articles a removal sending the versions `ids` names keeps,
+ * for a version of theirs none of `ids` names: see the module's comment.
+ */
+function articlesKeptOf(
+  { articleOf, versions }: Awaited<ReturnType<typeof versionsOf>>,
+  ids: readonly string[],
+  options: ArticleRemovalOptions,
+): Set<string> {
+  if (options.includeChanged) return new Set();
+  const sent = new Set(ids.map(keyOf));
+  /** Whether the article holds a version none of `ids` names. */
+  const holdsOthers = (article: string): boolean =>
+    [...(versions.get(article) ?? [])].some((version) => !sent.has(version));
+  return new Set([...articleOf.values()].map(keyOf).filter(holdsOthers));
+}
+
+/**
+ * Of the versions `ids` names, the keys of those a removal sending them would
+ * keep for their article, read and nothing deleted: what a preview says of
+ * them. A read the org refuses throws, as it refuses every version of the
+ * call in a removal.
+ */
+export async function versionsKeptOf(
+  org: RemovalOrg,
+  versionObject: string,
+  ids: readonly string[],
+  options: ArticleRemovalOptions,
+): Promise<Set<string>> {
+  const read = await versionsOf(org, versionObject, ids);
+  const kept = articlesKeptOf(read, ids, options);
+  return new Set(
+    ids.map(keyOf).filter((id) => {
+      const article = read.articleOf.get(id);
+      return article !== undefined && kept.has(keyOf(article));
+    }),
+  );
+}
+
+/**
  * Delete the versions `ids` names by deleting their articles, and answer each
  * version as a delete over REST answers a record: deleted with its article,
  * already gone, or refused — in the org's words, or kept for a version the
@@ -204,15 +243,10 @@ async function destroyThroughArticles(
   ids: readonly string[],
   options: ArticleRemovalOptions,
 ): Promise<unknown[]> {
-  const { articleOf, versions } = await versionsOf(org, versionObject, ids);
-  const sent = new Set(ids.map(keyOf));
-  /** Whether the article holds a version none of `ids` names. */
-  const holdsOthers = (article: string): boolean =>
-    [...(versions.get(keyOf(article)) ?? [])].some((version) => !sent.has(version));
+  const read = await versionsOf(org, versionObject, ids);
+  const { articleOf } = read;
   const articles = [...new Set(articleOf.values())];
-  const kept = new Set(
-    options.includeChanged ? [] : articles.filter(holdsOthers).map((article) => keyOf(article)),
-  );
+  const kept = articlesKeptOf(read, ids, options);
   const toDelete = articles.filter((article) => !kept.has(keyOf(article)));
   /** The org's answer for each article deleted, by its key, as it gave it: the delete reads it. */
   const answerOf = new Map<string, unknown>();

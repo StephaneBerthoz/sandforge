@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { LiveOperationsPanel } from './LiveOperationsPanel';
 import type { LiveOperationSnapshot } from '@sandforge/shared';
 
@@ -36,6 +36,43 @@ function makeOperation(overrides: Partial<LiveOperationSnapshot> = {}): LiveOper
 }
 
 describe('LiveOperationsPanel', () => {
+  it('reads a run that ended partial as neither succeeded nor failed, and sends it to its results', () => {
+    render(
+      <LiveOperationsPanel
+        operations={[makeOperation({ status: 'partial', percentage: 80 })]}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    const row = screen.getByTestId('live-op-op-1');
+    // In words as well as by its icon, which is named by its status.
+    expect(within(row).getByRole('img', { name: 'Partial' })).toBeTruthy();
+    expect(within(row).getByText('Partial')).toBeTruthy();
+    expect(within(row).queryByRole('img', { name: 'Succeeded' })).toBeNull();
+    expect(within(row).queryByRole('img', { name: 'Failed' })).toBeNull();
+    expect(screen.getByTestId('live-op-partial-op-1').textContent).toBe(
+      'Not everything went through: its results say what was left.',
+    );
+    expect(row.className).toContain('border-status-warning/30');
+    expect(row.className).not.toContain('border-status-error');
+  });
+
+  it('counts a partial run as ended, and offers it no Cancel', () => {
+    render(
+      <LiveOperationsPanel
+        operations={[
+          makeOperation({ operationId: 'op-done', status: 'partial' }),
+          makeOperation({ operationId: 'op-going', status: 'running' }),
+        ]}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('cancel-op-done')).toBeNull();
+    expect(screen.getByTestId('cancel-op-going')).toBeTruthy();
+    expect(screen.getByText('1 active')).toBeTruthy();
+  });
+
   it('renders empty state when no operations', () => {
     render(<LiveOperationsPanel operations={[]} />);
     expect(screen.getByTestId('live-ops-empty')).toBeTruthy();

@@ -41,6 +41,7 @@ interface OrgListPayload {
  */
 const STATUS_BADGES: Record<RecentOp['status'], { variant: BadgeVariant; labelKey: string }> = {
   success: { variant: 'success', labelKey: 'home.opStatus.success' },
+  partial: { variant: 'warning', labelKey: 'home.opStatus.partial' },
   running: { variant: 'warning', labelKey: 'home.opStatus.running' },
   failed: { variant: 'error', labelKey: 'home.opStatus.failed' },
   cancelled: { variant: 'default', labelKey: 'home.opStatus.cancelled' },

@@ -72,9 +72,20 @@ export const ReviewFilesOption: React.FC = () => {
         />
         <span>{t('forge.files.toggle')}</span>
       </label>
-      <p id={descriptionId} className="text-[11px] text-text-secondary">
+      {/* What it copies behind a disclosure, as the boxes above it fold
+          theirs: in the column of the run, its four lines held Controls under
+          the column's fold at 800 pixels high. The box is described by a copy
+          kept out of it: Chromium describes a box by nothing a closed
+          disclosure holds, and pointed at the paragraph inside, the box of
+          the files was described by nothing until opened. A hidden element a
+          box names is read whole, closed or open. */}
+      <details data-testid="forge-files-more" className="ml-5 text-[11px]">
+        <summary className="cursor-pointer text-text-secondary">{t('forge.files.more')}</summary>
+        <p className="mt-1 text-text-secondary">{t('forge.files.description')}</p>
+      </details>
+      <span id={descriptionId} data-testid="forge-files-description" hidden>
         {t('forge.files.description')}
-      </p>
+      </span>
 
       {fileCopy.enabled && (
         <>

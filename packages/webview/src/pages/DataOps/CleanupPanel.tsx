@@ -10,6 +10,7 @@ import type {
   CleanupObjectResult as CleanupResult,
   CleanupRecommendation,
   CleanupScanResult,
+  DataOpsAutomationObject,
   DataQualityScanTarget,
   RemovalOutcome,
   RemovalPlanObject,
@@ -25,6 +26,13 @@ import { CleanupObjectResult } from './CleanupObjectResult';
 import { ObjectPicker } from './ObjectPicker';
 import { mergeObjectResults, parseStaleDays } from './QualityPanel';
 import { RemovalOutcomeView, RemovalPlanView } from './RemovalPlanView';
+import {
+  accordPayloadOf,
+  ASKED_FROM_PAGE,
+  DataOpsAutomation,
+  NO_ACCORD,
+  type DataOpsAutomationAccord,
+} from './DataOpsAutomation';
 
 /** How long an export or a delete may wait on the host: the Save dialog and the guard wait on a person. */
 const WAIT_ON_A_PERSON_MS = 600_000;
@@ -43,6 +51,8 @@ interface DeleteAnswer {
   dryRun: boolean;
   plan: RemovalPlanObject;
   truncated: boolean;
+  /** A dry run's: the records the delete takes itself, not those the org deletes along with them. */
+  written?: DataOpsAutomationObject[];
   outcome?: RemovalOutcome;
 }
 
@@ -128,6 +138,10 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId, orgName }) =>
   const [staleInput, setStaleInput] = useState(String(QUALITY_SCAN_DEFAULT_STALE_DAYS));
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [report, setReport] = useState<Report | null>(null);
+  /** What the confirmation's read of the org's automation lets through and mutes. */
+  const [accord, setAccord] = useState<DataOpsAutomationAccord>(NO_ACCORD);
+  /** Why the confirmation waits on that read, if it does. */
+  const [automationHeld, setAutomationHeld] = useState<string | undefined>(undefined);
   const [review, setReview] = useState<Review | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -192,12 +206,18 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId, orgName }) =>
 
   const confirmDelete = (): void => {
     setConfirmOpen(false);
+    const given = accord;
+    setAccord(NO_ACCORD);
     if (!review) return;
+    // Confirmed once what the org runs as the records go was listed: what
+    // fires is accepted, the emails as their box says.
     remove.mutate({
       orgId,
       objectApiName: review.objectApiName,
       recommendation: review.recommendation,
       dryRun: false,
+      ...accordPayloadOf(given),
+      ...ASKED_FROM_PAGE,
     });
   };
 
@@ -382,7 +402,10 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId, orgName }) =>
           </div>
           <DangerConfirm
             open={confirmOpen}
-            onClose={() => setConfirmOpen(false)}
+            onClose={() => {
+              setConfirmOpen(false);
+              setAccord(NO_ACCORD);
+            }}
             onConfirm={confirmDelete}
             title={t('dataops.cleanupScan.confirmTitle', {
               count: toDelete,
@@ -392,7 +415,27 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId, orgName }) =>
             // The org's name, as Rewind and Deploy ask: the same in every
             // language, where the word delete was 削除 in Japanese.
             confirmText={orgName}
-          />
+            {...(automationHeld !== undefined ? { held: automationHeld } : {})}
+          >
+            {confirmOpen && planned && (
+              <DataOpsAutomation
+                orgId={orgId}
+                org={orgName}
+                act="cleanup"
+                // The records the delete takes itself, as the delete reads
+                // them: what the org deletes along with them runs none of its
+                // delete automation as it goes.
+                objects={
+                  planned.written ?? [
+                    { objectApiName: planned.plan.objectApiName, records: toDelete },
+                  ]
+                }
+                accord={accord}
+                onAccordChange={setAccord}
+                onHeld={setAutomationHeld}
+              />
+            )}
+          </DangerConfirm>
         </section>
       )}
 

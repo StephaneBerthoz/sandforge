@@ -39,6 +39,37 @@ function answerList(entries = [listEntry()]): void {
 
 const ID = 'ck-20261020-140512-a1b2';
 
+/** A flow on the contact's update a set of the org silences: the preview offers its mute. */
+const MUTABLE: NonNullable<ReturnType<typeof previewAnswer>['automation']> = {
+  objectsRead: ['Contact', 'Account'],
+  objects: [
+    {
+      objectApiName: 'Contact',
+      flows: [
+        {
+          apiName: 'Contact_Touch',
+          label: 'Contact touch',
+          timing: 'afterSave',
+          startsOn: 'update',
+          condition: 'read',
+          permissions: [{ name: 'Skip_Touch', bypass: true, held: false }],
+        },
+      ],
+      triggers: [],
+    },
+  ],
+  bypassGrants: [
+    {
+      permission: 'Skip_Touch',
+      permissionSets: [{ name: 'Touch_Bypass', label: 'Touch bypass', grants: 1 }],
+    },
+  ],
+  unread: [],
+  conditionsNotRead: 0,
+  conditionsBound: 25,
+  requests: 3,
+};
+
 describe('CheckpointPage', () => {
   beforeEach(() => {
     host.current = fakeHost();
@@ -255,6 +286,55 @@ describe('CheckpointPage', () => {
     expect(host.current?.lastPayload('checkpoint:preview')).toEqual({ checkpointId: ID });
   });
 
+  it('opens the preview a muted run’s Rewind to before this run… named with its mute ticked, that once', async () => {
+    useAppStore.setState({
+      currentRoute: 'checkpoint',
+      navigationIntent: { route: 'checkpoint', previewCheckpointId: ID, previewMuted: true },
+    });
+    render(<CheckpointPage />);
+    answerList();
+    await screen.findByTestId('checkpoint-preview');
+    act(() =>
+      host.current?.answer(
+        'checkpoint:preview',
+        'checkpoint:preview:response',
+        previewAnswer({ automation: MUTABLE }),
+      ),
+    );
+    expect(screen.getByTestId('checkpoint-preview-automation-mute-toggle')).toBeChecked();
+
+    // Left and opened again from the list, it is the list's preview: unticked.
+    fireEvent.click(screen.getByTestId('checkpoint-preview-back'));
+    fireEvent.click(screen.getByTestId(`checkpoint-rewind-${ID}`));
+    await screen.findByTestId('checkpoint-preview');
+    act(() =>
+      host.current?.answer(
+        'checkpoint:preview',
+        'checkpoint:preview:response',
+        previewAnswer({ automation: MUTABLE }),
+      ),
+    );
+    expect(screen.getByTestId('checkpoint-preview-automation-mute-toggle')).not.toBeChecked();
+  });
+
+  it('opens Home’s preview unmuted, its intent naming no mute', async () => {
+    useAppStore.setState({
+      currentRoute: 'checkpoint',
+      navigationIntent: { route: 'checkpoint', previewCheckpointId: ID },
+    });
+    render(<CheckpointPage />);
+    answerList();
+    await screen.findByTestId('checkpoint-preview');
+    act(() =>
+      host.current?.answer(
+        'checkpoint:preview',
+        'checkpoint:preview:response',
+        previewAnswer({ automation: MUTABLE }),
+      ),
+    );
+    expect(screen.getByTestId('checkpoint-preview-automation-mute-toggle')).not.toBeChecked();
+  });
+
   it('opens on the list when the checkpoint Home named is no longer there', () => {
     useAppStore.setState({
       currentRoute: 'checkpoint',
@@ -298,6 +378,7 @@ describe('CheckpointPage', () => {
       expect(host.current?.sent('checkpoint:rewind')).toEqual([]);
       confirmTyped();
       expect(host.current?.lastPayload('checkpoint:rewind')).toEqual({
+        fromPage: true,
         checkpointId: ID,
         previewId: 'pv-1',
         acceptAutomation: false,
@@ -347,6 +428,7 @@ describe('CheckpointPage', () => {
       fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
       confirmTyped();
       expect(host.current?.lastPayload('checkpoint:rewind')).toEqual({
+        fromPage: true,
         checkpointId: ID,
         previewId: 'pv-1',
         objects: ['Contact'],
@@ -440,6 +522,7 @@ describe('CheckpointPage', () => {
       fireEvent.click(box);
       confirmTyped();
       expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        fromPage: true,
         checkpointId: ID,
         rewindId: 'rw-20261022-140100-c3d4',
         acceptAutomation: true,
@@ -475,9 +558,68 @@ describe('CheckpointPage', () => {
       expect(screen.queryByTestId('checkpoint-undo-cannot')).toBeNull();
       confirmTyped();
       expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        fromPage: true,
         checkpointId: ID,
         rewindId: 'rw-20261022-100000-beef',
         acceptAutomation: false,
+      });
+    });
+
+    it('offers the emails of an undo their own box, unticked, which the automation’s never stands for', () => {
+      render(<CheckpointPage />);
+      answerList([
+        listEntry(
+          readyCheckpoint({
+            lastRewind: {
+              rewindId: 'rw-20261022-100000-beef',
+              endedAt: '2026-10-22T12:05:00.000Z',
+              undoUntil: '2026-11-06T10:05:00.000Z',
+            },
+          }),
+          { undo: { rewindId: 'rw-20261022-100000-beef', until: '2026-11-06T10:05:00.000Z' } },
+        ),
+      ]);
+      fireEvent.click(screen.getByTestId(`checkpoint-undo-${ID}`));
+      expect(screen.getByTestId('checkpoint-undo-accept-emails')).not.toBeChecked();
+      expect(
+        screen.getByTestId('checkpoint-undo-accept-emails').closest('label'),
+      ).toHaveTextContent(
+        'Undo even though DEV-SB delivers every email its automation sends as the undo writes, or would not say whether it does',
+      );
+      // The automation's box lets what fires run, and never lets the emails out.
+      fireEvent.click(screen.getByTestId('checkpoint-undo-accept-automation'));
+      confirmTyped();
+      expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        fromPage: true,
+        checkpointId: ID,
+        rewindId: 'rw-20261022-100000-beef',
+        acceptAutomation: true,
+      });
+    });
+
+    it('sends the acceptance of the emails of an undo once their box is ticked', () => {
+      render(<CheckpointPage />);
+      answerList([
+        listEntry(
+          readyCheckpoint({
+            lastRewind: {
+              rewindId: 'rw-20261022-100000-beef',
+              endedAt: '2026-10-22T12:05:00.000Z',
+              undoUntil: '2026-11-06T10:05:00.000Z',
+            },
+          }),
+          { undo: { rewindId: 'rw-20261022-100000-beef', until: '2026-11-06T10:05:00.000Z' } },
+        ),
+      ]);
+      fireEvent.click(screen.getByTestId(`checkpoint-undo-${ID}`));
+      fireEvent.click(screen.getByTestId('checkpoint-undo-accept-emails'));
+      confirmTyped();
+      expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        fromPage: true,
+        checkpointId: ID,
+        rewindId: 'rw-20261022-100000-beef',
+        acceptAutomation: false,
+        acceptEmails: true,
       });
     });
 
@@ -503,6 +645,7 @@ describe('CheckpointPage', () => {
       fireEvent.click(screen.getByTestId('checkpoint-undo-mute-toggle'));
       confirmTyped();
       expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        fromPage: true,
         checkpointId: ID,
         rewindId: 'rw-20261022-100000-beef',
         acceptAutomation: false,

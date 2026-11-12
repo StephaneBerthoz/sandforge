@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RewindDiff, RewindDiffObject } from '@sandforge/shared';
 
 import { MEMORY_ORG_USER, MemoryRemovalOrg } from '../../test/memoryRemovalOrg.js';
@@ -60,6 +60,18 @@ const ids = (prefix: string, count: number): string[] =>
 
 /** T0 on the org's clock, with its milliseconds. */
 const T0 = Date.parse('2026-10-22T14:05:12.731Z');
+
+// This machine's clock pinned a minute after T0, going on: what the store
+// and the handler date by it — an undo's fifteen days, a checkpoint's expiry —
+// reads as the tests' org does, whatever day they run. Left to the real one,
+// every undo these tests offer was refused fifteen days after they were written.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: T0 + 60_000, shouldAdvanceTime: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 /** Everything the memory org answered: its REST requests, a composite one, and its SOAP calls. */
 function spent(org: MemoryRemovalOrg): number {
@@ -725,6 +737,19 @@ describe('diffEstimate', () => {
     expect(estimate(2) - estimate(0)).toBe(1);
   });
 
+  it('counts the rewind’s read of the org’s deliverability, which it makes again before it writes', () => {
+    const input = {
+      objects: [held('Account', 1)],
+      diff: { objects: [found('Account', { toRecreate: 1 })], unread: [] },
+      automationRequests: 0,
+    };
+
+    expect(
+      rewindEstimate({ ...input, deliverabilityRequests: 2 }).apiRequests -
+        rewindEstimate(input).apiRequests,
+    ).toBe(2);
+  });
+
   it('prices pre-checks and counts three calls at a time, and their requests one each', () => {
     const objects = (count: number) =>
       Array.from({ length: count }, (_, n) => held(`Object${n}__c`, 1));
@@ -911,6 +936,31 @@ describe('rewindEstimate', () => {
     expect(estimate.apiRequests).toBeGreaterThan(
       4 + diffEstimate(making).apiRequests + 1 + (1 + 2),
     );
+  });
+
+  it('reads the org’s statuses of an order or a contract it makes again, once, and gives each its status back, 200 an update: it makes them as drafts', () => {
+    const making = (objectApiName: string): number =>
+      rewindWritesCost({
+        objects: [held(objectApiName, 0, ['Status'])],
+        diff: { objects: [found(objectApiName, { toRecreate: 201 })], unread: [] },
+        automationRequests: 0,
+      }).apiRequests;
+
+    // OrderStatus or ContractStatus read once, and the status of the 201
+    // made again given back: two updates.
+    expect(making('Order') - making('Account')).toBe(1 + 2);
+    expect(making('Contract') - making('Account')).toBe(1 + 2);
+  });
+
+  it('reads the org’s order statuses and each order’s own, what holds them, and sets those past Draft back to Draft, 200 an update, before it deletes them; a contract it deletes as it stands', () => {
+    const deleting = (objectApiName: string): number =>
+      removalCost([{ objectApiName, records: 201, dependents: 2 }]).apiRequests;
+
+    // OrderStatus once; per batch of 200 its statuses read by id and what
+    // holds them read as the delete reads it (each relationship asked once
+    // past 200); then two updates.
+    expect(deleting('Order') - deleting('Account')).toBe(1 + 2 + (2 + 2 * 2) + 2);
+    expect(deleting('Contract')).toBe(deleting('Account'));
   });
 
   it('reads no fresh diff when the command line rewinds from the preview it just read, and describes what it brings records back to, and what comes back with them, as it brings them back', () => {
@@ -1460,6 +1510,22 @@ describe('the budget gate', () => {
         'written.',
     );
     expect(budgetRefusal('rewind', 10, budget, 'DEV-SB')).toBeUndefined();
+  });
+
+  it('sums the parts of an act’s requests and names the read of the org’s deliverability among them', () => {
+    const budget = { max: 15_000, remaining: 10 };
+
+    expect(budgetRefusal('rewind', { run: 9, deliverability: 2 }, budget, 'DEV-SB')?.message).toBe(
+      'This rewind takes about 11 API requests (2 of them to read whether DEV-SB delivers its ' +
+        'emails); DEV-SB has 10 of its 15000 left today. Rewind once the org has requests to ' +
+        'spare — the limit is counted over the last 24 hours. No record was read or written.',
+    );
+    expect(
+      budgetRefusal('rewind', { run: 9, deliverability: 1 }, budget, 'DEV-SB'),
+    ).toBeUndefined();
+    expect(budgetRefusal('undo', { run: 11 }, budget, 'DEV-SB')?.message).toMatch(
+      /^This undo takes about 11 API requests; DEV-SB/,
+    );
   });
 
   it('reads what the org has left of its file storage from the same answer, and nothing when it does not say', async () => {

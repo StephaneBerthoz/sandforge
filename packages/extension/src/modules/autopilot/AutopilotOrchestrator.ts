@@ -20,13 +20,30 @@ import type {
   AutopilotNodeFailedEvent,
   AutopilotObjectListing,
   ApiName,
+  AutopilotFitMode,
+  AutopilotFitReport,
+  ForgeTargetAutomation,
+  MutePlan,
 } from '@sandforge/shared';
+import { waveGroupsOf, writeOrderOf } from '../../core/common/insertionOrder.js';
+import type { DescribedLookup } from '../../core/metadata/describedLookups.js';
+import type { FitBudget } from '../forge/fitBudget.js';
 import type {
   SchemaScanner,
   AutopilotConnection,
   SchemaScanResult,
   ScanOptions,
 } from './SchemaScanner.js';
+import {
+  chooseFitRecords,
+  fitLookupsOf,
+  fitRoomOf,
+  fitWritesOf,
+  fittedScanOf,
+  runFitOf,
+  type AutopilotFitHeldBy,
+  type AutopilotRunFit,
+} from './autopilotFit.js';
 import { personalDataNotCovered, withAiDetections } from './personalFields.js';
 import type {
   DependencyGraphBuilder,
@@ -96,6 +113,54 @@ export interface AutopilotResult {
   executionResult: ExecutionResult;
   /** Compliance report after execution. */
   complianceReport: ComplianceReport;
+}
+
+/** What fitting a plan to its target's storage is given: see `AutopilotOrchestrator.fitPlan`. */
+export interface AutopilotFitAsk {
+  /** The plan as it stands: its scan, graph, plan and rules. */
+  scan: SchemaScanResult;
+  graph: AutopilotGraph;
+  plan: ExecutionPlan;
+  rules: AnonymizationRule[];
+  /** What a person asked of the fit. */
+  mode: AutopilotFitMode;
+  /** What the target allows it (`fitBudgetOf`), read from its `/limits`. */
+  budget: FitBudget;
+  /** What the target runs on the objects of the plan, the read the run makes once. */
+  automation: ForgeTargetAutomation | { unread: string };
+  /** The sets the run's mute is to hold, nothing assigned; absent for a run that does not mute. */
+  mutePlan?: Pick<MutePlan, 'assign'>;
+  /** Each object's lookups in the target, which the run orders its cycles by. */
+  describeLookups?: (objectApiName: string) => Promise<readonly DescribedLookup[]>;
+  /** The most records the run may write in all, beside what the org allows. */
+  maxRecords?: number;
+  /** Batch size for API call estimation of the plan fitted. */
+  batchSize?: number;
+  /** Told what the fit reads, for whoever waits on it. */
+  onProgress?: (line: string) => void;
+}
+
+/**
+ * What fitting a plan came to. `fitted` is the plan to review and to run, its
+ * report in `plan.scope.fitted`; absent when the plan fits as it stands, and
+ * when `cannotFit` says why nothing is proposed.
+ */
+export interface AutopilotPlanFit {
+  /** What held the plan: `whole` when nothing was cut. */
+  heldBy: AutopilotFitHeldBy;
+  report: AutopilotFitReport;
+  cannotFit?: string;
+  /** Why no room was kept for the target's automation: it could not be read. */
+  automationUnread?: string;
+  /** Of each selected object, the ids kept: what the summary names. */
+  keptIds: ReadonlyMap<ApiName, readonly string[]>;
+  fitted?: {
+    scan: SchemaScanResult;
+    graph: AutopilotGraph;
+    plan: ExecutionPlan;
+    /** Passed to the run (`AutopilotRunOptions.fit`). */
+    run: AutopilotRunFit;
+  };
 }
 
 /** Listener for orchestrator events. */
@@ -281,6 +346,113 @@ export class AutopilotOrchestrator {
     const plan = scope ? { ...generated, scope } : generated;
     this.emitEvent({ type: 'plan-generated', timestamp: new Date().toISOString() });
     return plan;
+  }
+
+  /**
+   * Between steps 4 and 5, when a person asks: fit the plan to what its
+   * target has left of its data storage, keeping records the run's own order
+   * leaves whole (`autopilotFit.ts`). Reads the source — every selected
+   * object's lookups, then the parents of the rows kept — and writes nothing,
+   * assigns nothing: what still runs is computed from the mute's plan. The
+   * plan it answers is met by the run's gate as any plan is, `/limits` read
+   * again: a fit is no pass.
+   *
+   * A source that came to hold more than the plan counted, or parents it did
+   * not name, is refused: what was reviewed is what is written.
+   *
+   * @param sourceConn - Connection to the source org.
+   * @param ask - The plan as it stands, and what is asked of it.
+   */
+  async fitPlan(sourceConn: AutopilotConnection, ask: AutopilotFitAsk): Promise<AutopilotPlanFit> {
+    const { scan, graph, plan, rules, mode, budget, maxRecords, onProgress } = ask;
+    const { schemaScanner } = this.deps;
+    let requestsRead = 0;
+    const counted: AutopilotConnection = {
+      describe: (objectName) => sourceConn.describe(objectName),
+      describeGlobal: () => sourceConn.describeGlobal(),
+      query: (soql) => {
+        requestsRead++;
+        return sourceConn.query(soql);
+      },
+      ...(sourceConn.queryMore
+        ? {
+            queryMore: (url: string) => {
+              requestsRead++;
+              const next = sourceConn.queryMore as NonNullable<AutopilotConnection['queryMore']>;
+              return next.call(sourceConn, url);
+            },
+          }
+        : {}),
+    };
+
+    // The order the run writes in: its cycles ordered as `writeWave` orders
+    // them, from what the target describes of their lookups.
+    const waves = plan.waves.map((wave) => wave.objects);
+    const lookups = new Map<string, readonly DescribedLookup[] | null>();
+    const inCycles = waves.flatMap((objects) =>
+      waveGroupsOf(objects, graph.edges).groups.filter((group) => group.length > 1),
+    );
+    for (const name of new Set(inCycles.flat())) {
+      lookups.set(name, (await ask.describeLookups?.(name).catch(() => null)) ?? null);
+    }
+    const order = writeOrderOf(waves, graph.edges, (name) => lookups.get(name));
+
+    const { selected } = scan.scope;
+    const fitLookups = fitLookupsOf(scan.objectDescribes, selected, order);
+    const writes = fitWritesOf(order, fitLookups);
+    const room = fitRoomOf(ask.automation, ask.mutePlan, writes);
+    const rows = await schemaScanner.readFitRows(counted, scan, onProgress);
+
+    const chosen = await chooseFitRecords({
+      order: order.filter((name) => selected.includes(name)),
+      rows,
+      planned: scan.recordCounts,
+      lookups: fitLookups,
+      parents: new Map(
+        scan.scope.parents.map(({ objectApiName }) => {
+          const personAccounts = scan.personAccounts.get(objectApiName);
+          return [
+            objectApiName,
+            {
+              ids: scan.parentIds.get(objectApiName) ?? [],
+              ...(personAccounts !== undefined ? { personAccounts } : {}),
+            },
+          ];
+        }),
+      ),
+      budget,
+      room,
+      mode,
+      ...(maxRecords !== undefined ? { maxRecords } : {}),
+      walk: (kept) => schemaScanner.walkFrom(counted, scan, kept, onProgress),
+    });
+
+    const unread = room.unread !== undefined ? { automationUnread: room.unread } : {};
+    const report: AutopilotFitReport = {
+      ...chosen.report,
+      requestsRead,
+      ...unread,
+      ...(ask.mutePlan ? { countedMuted: true as const } : {}),
+      ...(maxRecords !== undefined ? { maxTotal: maxRecords } : {}),
+    };
+    const keptIds = new Map(
+      [...chosen.kept].map(([name, kept]) => [name, kept.map((row) => row.Id)] as const),
+    );
+    const answer = { heldBy: chosen.heldBy, report, keptIds, ...unread };
+    if (chosen.cannotFit !== undefined) return { ...answer, cannotFit: chosen.cannotFit };
+    if (chosen.heldBy === 'whole') return answer;
+
+    const fittedScan = fittedScanOf(scan, chosen, report);
+    const fittedGraph = this.buildGraph(fittedScan, ask.batchSize);
+    return {
+      ...answer,
+      fitted: {
+        scan: fittedScan,
+        graph: fittedGraph,
+        plan: this.generatePlan(fittedGraph, plan.complianceFramework, rules, fittedScan.scope),
+        run: runFitOf(fitLookups, fittedScan.parentIds),
+      },
+    };
   }
 
   /**

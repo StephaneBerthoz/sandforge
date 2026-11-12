@@ -264,10 +264,18 @@ const checkpointSettingsSchema = strictObject('checkpoint', {
  */
 export const ENV_SEED_MAX_OBJECTS = 100;
 
-/** A field rule, as the panel saves it (`seed-config.schema.ts`), held strict. */
+/**
+ * A field rule, as the panel saves it (`seed-config.schema.ts`), held strict.
+ * The panel saved a `referenceField` beside `referenceObject` until no run was
+ * found to read it: a file copied from one of those still validates, the key
+ * saying nothing.
+ */
 const fieldRuleFileSchema = strictObject('a field rule', {
   ...fieldRuleSchema.shape,
-  config: strictObject('a field rule’s config', fieldRuleConfigSchema.shape),
+  config: strictObject('a field rule’s config', {
+    ...fieldRuleConfigSchema.shape,
+    referenceField: z.string().optional(),
+  }),
 });
 
 const seedObjectFileSchema = strictObject('an object of a seed resource', {
@@ -1057,6 +1065,13 @@ const envActionDrawSchema = z.strictObject({
   parents: countSchema.optional(),
 });
 
+/**
+ * The codes of what refused, each as the script or the command that refused
+ * names it — `AUTOMATION_NOT_ACCEPTED`, `LOCKED` —, beside a refusal said in
+ * words: a pipeline read the code of a destroy's refusal on stderr alone.
+ */
+const envRefusalCodesSchema = z.array(z.string().min(1).max(64)).min(1).max(50);
+
 export const envActionSchema = z.strictObject({
   resource: envNameSchema,
   kind: envResourceKindSchema,
@@ -1069,6 +1084,8 @@ export const envActionSchema = z.strictObject({
   gates: envActionGatesSchema.optional(),
   /** What refuses a blocked action. */
   refusal: z.string().min(1).max(2_000).optional(),
+  /** The codes of what `refusal` says, where its scripts give them. */
+  refusalCodes: envRefusalCodesSchema.optional(),
   /** What the plan says of it beside why: a production source's data, and what is done to it. */
   notes: z.array(z.string().min(1).max(2_000)).max(20).optional(),
 });
@@ -1169,6 +1186,8 @@ export const envPlanSchema = z.strictObject({
   drift: envPlanDriftSchema.optional(),
   /** What a real apply would meet now. */
   refusal: z.string().min(1).max(2_000).optional(),
+  /** The codes of what `refusal` says, where its scripts give them. */
+  refusalCodes: envRefusalCodesSchema.optional(),
   /** Made with `--quick`: no dry run, no removal preview, so no count of what the org holds. */
   quick: z.literal(true).optional(),
   /** What the plan says without refusing: an apply under way, a scratch org with no state. */
@@ -1236,6 +1255,8 @@ export const envRunResultSchema = z.strictObject({
   status: z.enum(['success', 'partial', 'failure', 'cancelled']),
   /** Why nothing was done, when it was refused before its first step. */
   refusal: z.string().min(1).max(4_000).optional(),
+  /** The codes of what `refusal` says, where they are known. */
+  refusalCodes: envRefusalCodesSchema.optional(),
   /** The state as the run left it: a destroy that took everything back keeps it, every resource destroyed. */
   state: z.strictObject({ serial: countSchema }),
 });

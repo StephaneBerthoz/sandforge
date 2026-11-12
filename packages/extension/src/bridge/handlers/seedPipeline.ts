@@ -1,6 +1,11 @@
 import type { z } from 'zod';
 
-import type { GuardTier, SeedExecutionResult, SeedTemplate } from '@sandforge/shared';
+import type {
+  GuardTier,
+  SeedExecutionResult,
+  SeedFitApplied,
+  SeedTemplate,
+} from '@sandforge/shared';
 import { PREBUILT_SEED_TEMPLATES, pipelineWriteVerdict } from '@sandforge/shared';
 
 import type { GivenAnswer } from '../../core/precheck/ProductionGuard.js';
@@ -26,6 +31,8 @@ export interface SeedAsked {
   template: z.output<typeof seedTemplatePayloadSchema>;
   /** The locale its people and places are drawn in; the org's own when absent. */
   locale?: string;
+  /** The fit its counts were taken from, as a person applied it: said in the audit trail. */
+  fit?: SeedFitApplied;
 }
 
 /** What a pipeline's Seed step asks for. */

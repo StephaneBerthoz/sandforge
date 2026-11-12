@@ -39,6 +39,10 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
   if (!check && unread === undefined && !order) return null;
   const limitWords = (limit: 'SingleEmail' | 'DailyWorkflowEmails'): string =>
     limit === 'SingleEmail' ? t('common.emailLimit.single') : t('common.emailLimit.workflow');
+  // A simulation that would write none of what it counts says 0 as its
+  // total, and what it counted as not written.
+  const notWritten = check?.notWritten ?? 0;
+  const counted = check && check.total > 0 ? check.total : notWritten;
 
   const storageLine = (storage: WriteCheck['storage']): string => {
     const estimate = megabytes(storage.estimateMB);
@@ -90,15 +94,31 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
           {check && (
             <>
               <p data-testid="sync-write-check-records">
-                {t('sync.writeCheck.records', { count: check.total })}
+                {t('sync.writeCheck.records', { count: counted - notWritten })}
                 {check.objects.length > 0 &&
                   ` (${check.objects
                     .map(({ objectApiName, rows }) => `${objectApiName} ${formatNumber(rows)}`)
                     .join(', ')})`}
               </p>
+              {/* Under the count, as the command line says it: what follows it,
+                  the storage, the requests and the emails, is measured on all
+                  the run counts. Said below them, it spoke of nothing above. */}
+              {notWritten > 0 && (
+                <p className="text-text-secondary" data-testid="sync-write-check-not-written">
+                  {t('sync.writeCheck.notWritten', {
+                    count: notWritten,
+                    total: formatNumber(counted),
+                  })}
+                </p>
+              )}
               {check.alreadyCopied > 0 && (
                 <p className="text-text-secondary">
                   {t('sync.writeCheck.alreadyCopied', { count: check.alreadyCopied })}
+                </p>
+              )}
+              {(check.alreadyLinked ?? 0) > 0 && (
+                <p className="text-text-secondary" data-testid="sync-write-check-linked">
+                  {t('sync.writeCheck.alreadyLinked', { count: check.alreadyLinked ?? 0 })}
                 </p>
               )}
               {(check.overwrites ?? 0) > 0 && (
@@ -106,7 +126,22 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   {t('sync.writeCheck.overwrites', { count: check.overwrites ?? 0 })}
                 </p>
               )}
-              {check.total > 0 && (
+              {/* Out of the records to write: the role the platform writes
+                  with an opportunity, which the run links and sends not. */}
+              {(check.rolesLinked ?? 0) > 0 && (
+                <p className="text-text-secondary" data-testid="sync-write-check-roles-linked">
+                  {t('sync.writeCheck.rolesLinked', { count: check.rolesLinked ?? 0 })}
+                </p>
+              )}
+              {/* Counted among them, where the rows could not tell them. */}
+              {(check.rolesByThePlatform ?? 0) > 0 && (
+                <p className="text-text-secondary" data-testid="sync-write-check-platform-roles">
+                  {t('sync.writeCheck.rolesByThePlatform', {
+                    count: check.rolesByThePlatform ?? 0,
+                  })}
+                </p>
+              )}
+              {counted > 0 && (
                 <p
                   className={check.storage.verdict === 'fits' ? undefined : 'text-status-warning'}
                   data-testid="sync-write-check-storage"
@@ -164,7 +199,13 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   {t('sync.writeCheck.emailsUnread', { reason: check.emailsUnread })}
                 </p>
               )}
-              {(check.unwritable ?? []).map(({ objectApiName, rows, why }) => (
+              {/* The host's sentence: it holds what the org or this machine said. */}
+              {check.checkpointUnread !== undefined && (
+                <p className="text-status-warning" data-testid="sync-write-check-checkpoint-unread">
+                  {check.checkpointUnread}
+                </p>
+              )}
+              {(check.unwritable ?? []).map(({ objectApiName, rows, why, key }) => (
                 <p
                   key={objectApiName}
                   className="text-status-warning"
@@ -173,9 +214,40 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   {t(`sync.writeCheck.unwritable.${why}`, {
                     object: objectApiName,
                     rows: formatNumber(rows),
+                    key,
                   })}
                 </p>
               ))}
+              {(check.heldBack ?? []).map(({ objectApiName, rows, parent, field, parents }) => {
+                // Held back for a record of an object left out, or for a row
+                // held back in turn: counted among the records to write, they
+                // said a run would write what it would write none of. Each
+                // object and lookup with its own rows: named by the first
+                // alone, 13 prices were said held back by Pricebook2Id where
+                // 9 were by Product2Id.
+                const said = (parents ?? [{ parent, field, rows }]).map((one) => {
+                  const words = {
+                    object: objectApiName,
+                    count: one.rows,
+                    parent: one.parent,
+                    field: one.field,
+                  };
+                  return (check.unwritable ?? []).some(
+                    (object) => object.objectApiName === one.parent,
+                  )
+                    ? t('sync.writeCheck.heldBack.leftOut', words)
+                    : t('sync.writeCheck.heldBack.heldBack', words);
+                });
+                return (
+                  <p
+                    key={`held-${objectApiName}`}
+                    className="text-status-warning"
+                    data-testid={`sync-write-check-held-back-${objectApiName}`}
+                  >
+                    {said.join(' ')}
+                  </p>
+                );
+              })}
               {(check.unwritable ?? []).length > 0 && (
                 <p className="text-text-secondary">{t('sync.writeCheck.unwritable.hint')}</p>
               )}
@@ -200,7 +272,9 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   ? t('sync.writeCheck.verdict.refused')
                   : check.verdict === 'asks'
                     ? t('sync.writeCheck.verdict.asks')
-                    : t('sync.writeCheck.verdict.writes')}
+                    : check.verdict === 'nothing'
+                      ? t('sync.writeCheck.verdict.nothing')
+                      : t('sync.writeCheck.verdict.writes')}
               </p>
             </>
           )}
@@ -216,6 +290,12 @@ export interface SyncAlreadyCopiedLineProps {
   count: number;
   /** Whether it is a simulation's: what a run would leave, not what it left. */
   simulated?: boolean;
+  /**
+   * Whether an earlier run linked them to records the target held rather
+   * than copied them: a second run said "already copied" of an account the
+   * first had linked.
+   */
+  linked?: boolean;
   testId?: string;
 }
 
@@ -227,14 +307,19 @@ export interface SyncAlreadyCopiedLineProps {
 export const SyncAlreadyCopiedLine: React.FC<SyncAlreadyCopiedLineProps> = ({
   count,
   simulated = false,
+  linked = false,
   testId,
 }) => {
   const { t } = useTranslation();
   return (
     <p className="text-xs text-text-secondary" data-testid={testId}>
-      {simulated
-        ? t('sync.simulation.alreadyCopied', { count })
-        : t('sync.alreadyCopied', { count })}
+      {linked
+        ? simulated
+          ? t('sync.simulation.alreadyLinked', { count })
+          : t('sync.alreadyLinked', { count })
+        : simulated
+          ? t('sync.simulation.alreadyCopied', { count })
+          : t('sync.alreadyCopied', { count })}
     </p>
   );
 };

@@ -257,7 +257,7 @@ describe('ForgeExecutor, a call the target’s automation refuses for a Salesfor
     expect(summary.errors.filter((report) => report.objectApiName === '__pass2__')).toEqual([]);
     expect(smallerNote(summary)?.samples).toEqual([
       {
-        recordSummary: 'Provenance__c: 2 lookup updates sent 1 at a time',
+        recordSummary: 'Provenance__c: 2 updates sent 1 at a time',
         messages: [
           'SSC_TRG_Provenance (before update) hit Too many SOQL queries on calls of 2: 2 calls more.',
         ],

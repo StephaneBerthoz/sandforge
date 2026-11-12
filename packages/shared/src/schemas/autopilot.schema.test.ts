@@ -575,6 +575,16 @@ describe('autopilotEventSchema', () => {
     }
   });
 
+  it('refuses node-skipped: no run emits it, and the run\u2019s end settles a skipped node', () => {
+    expect(() =>
+      autopilotEventSchema.parse({
+        type: 'node-skipped',
+        timestamp: '2026-01-01T00:00:00Z',
+        objectApiName: 'Account',
+      }),
+    ).toThrow();
+  });
+
   it('should parse a node-failed event with payload', () => {
     const event = {
       type: 'node-failed',

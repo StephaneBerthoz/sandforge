@@ -42,11 +42,16 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { z } from 'zod';
-import { PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
+import { CHECKPOINT_BEFORE_RUN_KEEP_DAYS, PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
 import { refuseUnreadArguments } from './commandLine.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT } from './exitCodes.js';
 import { NO_TERMINAL_EXIT } from './prompt.js';
-import { spawnCommand, type CommandRun, type CommandRunner as RunnerOf } from './scriptRunner.js';
+import {
+  spawnRunner,
+  type CommandRun,
+  type CommandRunner as RunnerOf,
+  type SpawnOptions,
+} from './scriptRunner.js';
 import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { holdOutputWhole } from './wholeOutput.js';
 
@@ -124,6 +129,19 @@ export type { CommandRun };
  */
 export type CommandRunner = RunnerOf<Script>;
 
+/**
+ * How the server runs a tool's script: in a process of its own, told that
+ * its lines are relayed by this server, whose reader cannot give the options
+ * a script's own advice names — `run_remove` runs no sweep. Relayed as they
+ * were, "--sweep takes them first" named a flag of no tool. Exported so it
+ * can be tested.
+ */
+export function toolRunner(options: Omit<SpawnOptions, 'relayedBy'> = {}): CommandRunner {
+  return spawnRunner({ ...options, relayedBy: 'sandforge-mcp' });
+}
+
+const TOOL_RUNNER = toolRunner();
+
 /** A call that runs a script, or one this server answers itself. */
 type Run =
   | { script: Script; args: string[] }
@@ -160,6 +178,14 @@ interface ToolSpec<S extends z.ZodType<Record<string, unknown>>> {
   readFirst?: string;
   /** The flags its script's lines name that this tool takes as parameters. */
   flags?: Readonly<Record<string, string>>;
+  /**
+   * The flags its script's lines name that this tool takes otherwise than as
+   * a switch, or not at all, with what stands for each: the line the server
+   * adds after "<flag>, named above,". A refusal of an environment's removal
+   * said "Add --accept-automation", which no parameter of env_destroy takes:
+   * the file's accept does.
+   */
+  named?: Readonly<Record<string, string>>;
   /** What an exit code of its script means for this tool, where it is not what it means for all. */
   exits?: Readonly<Partial<Record<number, string>>>;
   /** Lines said after the script's own, from what it answered. */
@@ -181,6 +207,7 @@ interface ServedTool {
   writes?: string;
   readFirst?: string;
   flags: Readonly<Record<string, string>>;
+  named: Readonly<Record<string, string>>;
   exits: Readonly<Partial<Record<number, string>>>;
   read: (raw: Record<string, unknown>) => { call: Call } | { refusal: string };
 }
@@ -214,6 +241,7 @@ function tool<S extends z.ZodType<Record<string, unknown>>>(spec: ToolSpec<S>): 
     ...(spec.writes !== undefined ? { writes: spec.writes } : {}),
     ...(spec.readFirst !== undefined ? { readFirst: spec.readFirst } : {}),
     flags: spec.flags ?? {},
+    named: spec.named ?? {},
     exits: spec.exits ?? {},
     read: (raw) => {
       const parsed = spec.args.safeParse(raw);
@@ -267,6 +295,114 @@ const confirmOf = (of: string) =>
 const checkpointRef = (of: string) =>
   z.string().min(1).max(200).regex(ON_A_LINE, 'one line, not starting with "-"').describe(of);
 const acceptance = (of: string) => z.boolean().optional().describe(of);
+/**
+ * The checkpoint a run takes of what it writes before its first write, as its
+ * script's `--checkpoint-first` takes it.
+ */
+const checkpointFirst = (run: string) =>
+  z
+    .strictObject({
+      keepDays: z
+        .number()
+        .int()
+        .min(CHECKPOINT_BEFORE_RUN_KEEP_DAYS.min)
+        .max(CHECKPOINT_BEFORE_RUN_KEEP_DAYS.max)
+        .optional()
+        .describe('The days it is kept on this machine; 0 until it is deleted (default 7).'),
+      excluded: z
+        .array(z.string().regex(API_NAME, 'an object API name'))
+        .min(1)
+        .max(500)
+        .optional()
+        .describe(
+          'Objects to leave out of it, by API name, named in the answer: a rewind leaves their ' +
+            'records as they are.',
+        ),
+    })
+    .optional()
+    .describe(
+      `Before ${run}'s first write, take a checkpoint of each object it writes, and of each the ` +
+        "target's flows that still run create as it writes them, held whole: {} takes it with " +
+        'the defaults. Its cost is that of the tables, not of the records written, and its values ' +
+        'stay unencrypted on this machine: give it only once the person using you has seen, in a ' +
+        `dry run with it, what it would hold and cost. Refused, ${run} writes nothing; deleted ` +
+        'again when it writes nothing.',
+    );
+/** A run's `checkpointFirst`, as its script's line takes it. */
+function checkpointFirstLine(
+  asked: { keepDays?: number | undefined; excluded?: string[] | undefined } | undefined,
+): string[] {
+  if (asked === undefined) return [];
+  return [
+    '--checkpoint-first',
+    ...(asked.keepDays !== undefined ? ['--checkpoint-keep-days', String(asked.keepDays)] : []),
+    ...(asked.excluded ?? []).flatMap((name) => ['--checkpoint-exclude-object', name]),
+  ];
+}
+/**
+ * A run's `muteAutomation`, as its script's `--mute-automation` takes it: a
+ * seed and a clone named the flag in their refusals, and neither tool took it.
+ */
+const muteFor = (run: string) =>
+  acceptance(
+    `Keep quiet what the org runs as ${run} writes, through its own bypass: the permission ` +
+      'sets holding it are assigned to the user it writes as, for the run alone, under a lease, ' +
+      'and taken back as it ends; what no bypass keeps quiet still runs. A dry run with it says ' +
+      'what it would assign, and assigns nothing. Refused on a production org and for a user ' +
+      'who cannot assign permission sets. Only once the person using you has agreed to it.',
+  );
+
+/**
+ * A rewind's or an undo's `muteAutomation`, as the script's `--mute-automation`
+ * takes it: their refusal for the emails said "--mute-automation keeps quiet
+ * …", and neither tool took it.
+ */
+const muteActFor = (act: string) =>
+  acceptance(
+    `Keep quiet what the org runs as ${act} writes, through its own bypass: the permission ` +
+      `sets holding it are assigned to the user it writes as, for ${act} alone, under a lease, ` +
+      'and taken back as it ends; what no bypass keeps quiet still needs acceptAutomation. ' +
+      'Refused on a production org and for a user who cannot assign permission sets. Only ' +
+      'once the person using you has agreed to it.',
+  );
+
+/**
+ * What stands for `--accept-automation` for an environment tool: the file's
+ * accept, per resource, where the repository's reviewers read it, which the
+ * tool hands the resource's script; no parameter of the tool.
+ */
+function fileAcceptsAutomation(tool: string): string {
+  return (
+    `is no parameter of ${tool}: an environment's acceptance of automation is its file's. ` +
+    'Write accept: { automation: true } on the resource whose run it names, in the file, once ' +
+    `the person using you has accepted what fires, then call ${tool} again.`
+  );
+}
+
+/** The flags a rewind's refusals name, and the parameters of checkpoint_rewind each stands for. */
+const REWIND_FLAGS: Readonly<Record<string, string>> = {
+  '--accept-automation': 'acceptAutomation',
+  '--accept-emails': 'acceptEmails',
+  '--mute-automation': 'muteAutomation',
+  '--accept-no-undo': 'acceptNoUndo',
+  '--accept-recreate': 'acceptRecreate',
+  '--accept-outside': 'acceptOutside',
+  '--accept-unseen': 'acceptUnseen',
+};
+
+/**
+ * What stands, under checkpoint_preview, for each flag of the rewind it
+ * previews: a parameter of checkpoint_rewind. Relayed bare, "give
+ * --accept-recreate to rewind all the same" named a flag of no tool.
+ */
+const REWIND_FLAGS_OF_ITS_PREVIEW: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(REWIND_FLAGS).map(([flag, param]) => [
+    flag,
+    `is checkpoint_rewind's ${param}: true, on the rewind this preview is of. Give it only ` +
+      'once the person using you has accepted what it lets through.',
+  ]),
+);
+
 /** The objects of a checkpoint a rewind, or its preview, is limited to. */
 const rewindObjects = () =>
   z
@@ -318,6 +454,19 @@ function removalHint(module: 'seed' | 'forge', answer: unknown): string[] {
     : [];
 }
 
+/** The checkpoint a run took first and kept, which `checkpoint_rewind` returns the org to. */
+function rewindHint(answer: unknown): string[] {
+  if (typeof answer !== 'object' || answer === null) return [];
+  const { checkpoint } = answer as { checkpoint?: { state?: unknown; checkpointId?: unknown } };
+  return checkpoint?.state === 'taken' && typeof checkpoint.checkpointId === 'string'
+    ? [
+        `checkpoint_rewind with checkpoint "${checkpoint.checkpointId}" returns the org to how it ` +
+          'was before this run, and takes back what anyone did since on the objects it holds: ' +
+          'checkpoint_preview says what it would do first.',
+      ]
+    : [];
+}
+
 /** The scripts whose removal `run_remove` runs, by module. */
 const REMOVAL_SCRIPT: Readonly<Record<'seed' | 'forge' | 'sync', Script>> = {
   seed: 'sandforge-seed',
@@ -346,40 +495,78 @@ export const TOOLS: readonly ServedTool[] = [
       'with generated rows (objects), as sandforge-seed --json does. Run it with dryRun: true ' +
       'first: it reads the org and writes nothing, and says what a real run would meet — the data ' +
       "storage it takes, the emails the org's automation would send, what runs as the records are " +
-      'created. dryRun: false writes, a production org refused, and needs confirm. The answer ' +
-      'names the run file, which run_remove with module "seed" takes the run back from.',
+      'created. Past the storage the org has left, it says the counts that fit; fit: "share" ' +
+      'seeds them, the largest share of every count that fits, and fitWithinMB holds the run to ' +
+      'fewer MB still. checkpointFirst takes a checkpoint of what the run writes before its ' +
+      'first write, and a dry run says what it would hold and cost. dryRun: false writes, a ' +
+      'production org refused, and needs confirm. acceptEmails lets it write although the org ' +
+      'delivers every email what still runs sends, or would not say whether it does; ' +
+      "muteAutomation keeps the org's automation quiet for the run through its own bypass, and " +
+      'a dry run with it says what it would assign. The answer names the run file, which ' +
+      'run_remove with module "seed" takes the run back from, and the checkpoint it took, which ' +
+      'checkpoint_rewind returns the org to.',
     readOnly: false,
     destructive: false,
-    args: z.strictObject({
-      org: alias('The org to fill: its sf CLI alias.'),
-      template: z
-        .string()
-        .regex(TEMPLATE_ID, 'a template id, as seed_templates gives them')
-        .optional()
-        .describe('A built-in template, by the id seed_templates gives; or give objects.'),
-      objects: z
-        .array(
-          z.strictObject({
-            objectApiName: z.string().regex(API_NAME, 'an object API name'),
-            count: z.number().int().min(1).max(100_000),
-          }),
-        )
-        .min(1)
-        .max(50)
-        .optional()
-        .describe(
-          'Objects and how many records each gets, in insert order, their fields drawn by the ' +
-            'faker; or give template.',
+    args: z
+      .strictObject({
+        org: alias('The org to fill: its sf CLI alias.'),
+        template: z
+          .string()
+          .regex(TEMPLATE_ID, 'a template id, as seed_templates gives them')
+          .optional()
+          .describe('A built-in template, by the id seed_templates gives; or give objects.'),
+        objects: z
+          .array(
+            z.strictObject({
+              objectApiName: z.string().regex(API_NAME, 'an object API name'),
+              count: z.number().int().min(1).max(100_000),
+            }),
+          )
+          .min(1)
+          .max(50)
+          .optional()
+          .describe(
+            'Objects and how many records each gets, in insert order, their fields drawn by the ' +
+              'faker; or give template.',
+          ),
+        dryRun: z
+          .boolean()
+          .describe('true: read the org and say what a run would do, writing nothing.'),
+        fit: z
+          .enum(['share'])
+          .optional()
+          .describe(
+            '"share": seed the largest share of every count that fits the data storage the org ' +
+              'has left, each object about that share of its records, a child no more than its ' +
+              'parents kept hold, room kept for what its flows still running create. The answer ' +
+              'says the counts, object by object; give it to a write only once the person using ' +
+              'you has seen them in a dry run.',
+          ),
+        fitWithinMB: z
+          .number()
+          .min(0.01)
+          .max(1_000_000)
+          .optional()
+          .describe('With fit: take no more than this many MB, whatever the org has left.'),
+        checkpointFirst: checkpointFirst('the seed'),
+        acceptEmails: acceptance(
+          'Write although the org delivers every email of what still runs as the records go ' +
+            'in, or would not say whether it does: only once the person using you has accepted ' +
+            'that these emails go out.',
         ),
-      dryRun: z
-        .boolean()
-        .describe('true: read the org and say what a run would do, writing nothing.'),
-      confirm: confirmOf('org').optional(),
-    }),
+        muteAutomation: muteFor('the seed'),
+        confirm: confirmOf('org').optional(),
+      })
+      .refine((args) => args.fitWithinMB === undefined || args.fit !== undefined, {
+        message: 'fitWithinMB goes with fit: "share"',
+        path: ['fitWithinMB'],
+      }),
     writesTo: (args) => (args.dryRun ? undefined : args.org),
     writes: 'creates the records of the seed in it',
     readFirst: 'a dry run of the same seed says what it would write and meet',
-    after: (args, answer) => (args.dryRun ? [] : removalHint('seed', answer)),
+    flags: { '--accept-emails': 'acceptEmails', '--mute-automation': 'muteAutomation' },
+    after: (args, answer) =>
+      args.dryRun ? [] : [...removalHint('seed', answer), ...rewindHint(answer)],
     run: (args) => ({
       script: 'sandforge-seed',
       args: [
@@ -388,6 +575,11 @@ export const TOOLS: readonly ServedTool[] = [
         ...(args.template !== undefined ? ['--template', args.template] : []),
         ...(args.objects ?? []).flatMap((o) => ['--object', `${o.objectApiName}:${o.count}`]),
         ...(args.dryRun ? ['--dry-run'] : []),
+        ...(args.fit !== undefined ? ['--fit', args.fit] : []),
+        ...(args.fitWithinMB !== undefined ? ['--fit-within', String(args.fitWithinMB)] : []),
+        ...(args.acceptEmails === true ? ['--accept-emails'] : []),
+        ...(args.muteAutomation === true ? ['--mute-automation'] : []),
+        ...checkpointFirstLine(args.checkpointFirst),
         '--json',
       ],
     }),
@@ -402,8 +594,14 @@ export const TOOLS: readonly ServedTool[] = [
       "stop a real run — the target's automation, its data storage, the emails its flows send — " +
       'and writes nothing. dryRun: false writes into target, a sandbox or a Developer Edition ' +
       'only, and needs confirm, the alias of target. acceptAutomation lets it write although the ' +
-      'target runs automation as the records go in. The answer names the run journal, which ' +
-      'run_remove with module "forge" takes the run back from.',
+      'target runs automation as the records go in; acceptEmails, although the target delivers ' +
+      'every email what still runs sends, or would not say whether it does, which ' +
+      'acceptAutomation never stands for. muteAutomation keeps what the target runs quiet for ' +
+      "the clone through the target's own bypass; what no bypass keeps quiet still needs " +
+      'acceptAutomation. checkpointFirst takes a checkpoint of what ' +
+      'the clone writes before its first write, and a dry run says what it would hold and cost. ' +
+      'The answer names the run journal, which run_remove with module "forge" takes the run back ' +
+      'from, and the checkpoint it took, which checkpoint_rewind returns the org to.',
     readOnly: false,
     destructive: false,
     args: z.strictObject({
@@ -436,12 +634,24 @@ export const TOOLS: readonly ServedTool[] = [
           'records go in, or would not say what it runs: only once the person using you has ' +
           'accepted what the dry run named.',
       ),
+      acceptEmails: acceptance(
+        'Write although the target delivers every email of what still runs as the records go ' +
+          'in, or would not say whether it does. acceptAutomation never stands for it. Only ' +
+          'once the person using you has accepted that these emails go out.',
+      ),
+      muteAutomation: muteFor('the clone'),
+      checkpointFirst: checkpointFirst('the clone'),
     }),
     writesTo: (args) => (args.dryRun ? undefined : args.target),
     writes: 'creates the records of the clone in it',
     readFirst: 'a dry run of the same clone says what it would write and meet',
-    flags: { '--accept-automation': 'acceptAutomation' },
-    after: (args, answer) => (args.dryRun ? [] : removalHint('forge', answer)),
+    flags: {
+      '--accept-automation': 'acceptAutomation',
+      '--accept-emails': 'acceptEmails',
+      '--mute-automation': 'muteAutomation',
+    },
+    after: (args, answer) =>
+      args.dryRun ? [] : [...removalHint('forge', answer), ...rewindHint(answer)],
     run: (args) => ({
       script: 'sandforge-clone',
       args: [
@@ -459,6 +669,9 @@ export const TOOLS: readonly ServedTool[] = [
         ...(args.maxNodes !== undefined ? ['--max-nodes', String(args.maxNodes)] : []),
         ...(args.dryRun ? ['--dry-run'] : []),
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+        ...(args.acceptEmails === true ? ['--accept-emails'] : []),
+        ...(args.muteAutomation === true ? ['--mute-automation'] : []),
+        ...checkpointFirstLine(args.checkpointFirst),
         '--json',
       ],
     }),
@@ -471,33 +684,81 @@ export const TOOLS: readonly ServedTool[] = [
       '(module "forge") or Sync (module "sync") created, as that script\'s --remove --json does; ' +
       'a Sync run also gives the records it wrote over their values back. run is the summary ' +
       "file the run's --json was saved to, its run file or journal, or, for Seed and Sync, its " +
-      'run id. Records changed since the run are kept. A production org is refused. Needs ' +
-      'confirm, the alias of org. acceptAutomation lets it delete although the org runs ' +
-      'automation as the records go.',
+      'run id. Records changed since the run are kept, unless includeChanged. A production org ' +
+      'is refused. Needs confirm, the alias of org. acceptAutomation lets it delete although ' +
+      'the org runs automation as the records go; muteAutomation keeps that automation quiet ' +
+      "for the removal through the org's own bypass. Where its user may not delete the records " +
+      'of some objects of the run, it stops before its first delete, unless leaveUndeletable. ' +
+      "store, for a Sync run of a saved configuration, is that configuration's store, which " +
+      'the removal tells what it took.',
     readOnly: false,
     destructive: true,
-    args: z.strictObject({
-      module: z.enum(['seed', 'forge', 'sync']).describe('Which module made the run.'),
-      org: alias('The org the run wrote to: its sf CLI alias.'),
-      run: z
-        .string()
-        .min(1)
-        .max(4096)
-        .regex(ON_A_LINE, 'one line, not starting with "-"')
-        .describe(
-          "The run's summary file, its run file or journal, or (Seed, Sync) its run id; a " +
-            'relative path is read from where the server was started.',
+    args: z
+      .strictObject({
+        module: z.enum(['seed', 'forge', 'sync']).describe('Which module made the run.'),
+        org: alias('The org the run wrote to: its sf CLI alias.'),
+        run: z
+          .string()
+          .min(1)
+          .max(4096)
+          .regex(ON_A_LINE, 'one line, not starting with "-"')
+          .describe(
+            "The run's summary file, its run file or journal, or (Seed, Sync) its run id; a " +
+              'relative path is read from where the server was started.',
+          ),
+        confirm: confirmOf('org').optional(),
+        includeChanged: acceptance(
+          'Take also the records changed since the run, and what was added to them since: on a ' +
+            "shared sandbox, others' work. Only once the person using you has accepted it.",
         ),
-      confirm: confirmOf('org').optional(),
-      acceptAutomation: acceptance(
-        'Delete although the org runs flows, Apex triggers, processes or workflow rules as the ' +
-          'records go, or would not say what it runs: only once the person using you has ' +
-          'accepted it.',
-      ),
-    }),
+        acceptAutomation: acceptance(
+          'Delete although the org runs flows, Apex triggers, processes or workflow rules as the ' +
+            'records go, or would not say what it runs: only once the person using you has ' +
+            'accepted it.',
+        ),
+        muteAutomation: acceptance(
+          'Keep quiet what the org runs as the records go, through its own bypass: the removal ' +
+            'assigns the permission sets holding it to the user it deletes as, for the removal ' +
+            'alone, under a lease, and takes them back as it ends; what no bypass keeps quiet ' +
+            'still needs acceptAutomation. Refused on a production org and for a user who cannot ' +
+            'assign permission sets. Only once the person using you has agreed to it.',
+        ),
+        leaveUndeletable: acceptance(
+          'Where the user the alias connects as may not delete the records of some objects of ' +
+            'the run, remove the rest and leave those, with the records they hang from; without ' +
+            'it the removal stops before its first delete and names them. Only once the person ' +
+            'using you has accepted it.',
+        ),
+        store: z
+          .string()
+          .min(1)
+          .max(4096)
+          .regex(ON_A_LINE, 'one line, not starting with "-"')
+          .optional()
+          .describe(
+            'module "sync" only: the directory the saved configuration the run was of is kept in, ' +
+              "the run's --store, which the removal tells what it took, so that its next delta " +
+              'run reads those objects whole; a relative path is read from where the server was ' +
+              'started. The person using you names it.',
+          ),
+      })
+      .refine((args) => args.store === undefined || args.module === 'sync', {
+        message: 'store goes with module "sync": a Seed or Forge run keeps no configuration',
+        path: ['store'],
+      }),
     writesTo: (args) => args.org,
     writes: 'deletes the records the run created, into the recycle bin',
-    flags: { '--accept-automation': 'acceptAutomation' },
+    flags: {
+      '--include-changed': 'includeChanged',
+      '--accept-automation': 'acceptAutomation',
+      '--mute-automation': 'muteAutomation',
+      '--leave-undeletable': 'leaveUndeletable',
+    },
+    named: {
+      '--store':
+        "is this tool's store: the directory of the run's saved configuration, as the person " +
+        'using you names it.',
+    },
     run: (args) => ({
       script: REMOVAL_SCRIPT[args.module],
       args: [
@@ -505,7 +766,11 @@ export const TOOLS: readonly ServedTool[] = [
         args.run,
         '--target',
         args.org,
+        ...(args.includeChanged === true ? ['--include-changed'] : []),
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+        ...(args.muteAutomation === true ? ['--mute-automation'] : []),
+        ...(args.leaveUndeletable === true ? ['--leave-undeletable'] : []),
+        ...(args.store !== undefined ? ['--store', args.store] : []),
         '--json',
       ],
     }),
@@ -544,6 +809,7 @@ export const TOOLS: readonly ServedTool[] = [
       ).optional(),
       objects: rewindObjects(),
     }),
+    named: REWIND_FLAGS_OF_ITS_PREVIEW,
     run: (args) => ({
       script: 'sandforge-checkpoint',
       args: [
@@ -611,10 +877,12 @@ export const TOOLS: readonly ServedTool[] = [
       'said first in its answer with who last changed what; the answer says what Undo could not ' +
       'bring back, and checkpoint_undo takes the rewind back. Needs confirm, the alias of org: ' +
       'checkpoint_preview first. Refused without acceptAutomation when the org runs automation ' +
-      'as the rewind writes, without acceptNoUndo when Undo could not bring back records it ' +
-      'deletes, without acceptRecreate when records no longer in the recycle bin would be made ' +
-      'again with new Ids, without acceptUnseen when, for a user without View All Data and ' +
-      'Modify All Data, what it deletes takes along records the user is not proven to see. ' +
+      'as the rewind writes, without acceptEmails when the org delivers every email what still ' +
+      'runs sends, or would not say whether it does, without acceptNoUndo when Undo could not ' +
+      'bring back records it deletes, without acceptRecreate when records no longer in the ' +
+      'recycle bin would be made again with new Ids, without acceptUnseen when, for a user ' +
+      'without View All Data and Modify All Data, what it deletes takes along records the user ' +
+      'is not proven to see. ' +
       'Given objects, it rewinds those alone, never adding what they depend on: its answer names ' +
       'what it left of them, the objects to add, and what still differs in the others. A ' +
       'production org is refused.',
@@ -631,6 +899,13 @@ export const TOOLS: readonly ServedTool[] = [
         'Rewind although the org runs flows, Apex triggers, processes or workflow rules as ' +
           'records are updated, deleted or brought back, or would not say what it runs.',
       ),
+      acceptEmails: acceptance(
+        'Rewind although the org delivers every email its automation sends (Setup > ' +
+          'Deliverability: All email), or would not say whether it does, and what still runs as ' +
+          'the rewind writes sends some. acceptAutomation never stands for it. Only once the ' +
+          'person using you has accepted that these emails go out.',
+      ),
+      muteAutomation: muteActFor('the rewind'),
       acceptNoUndo: acceptance(
         'Rewind although Undo could not bring back some records it deletes (objects Salesforce ' +
           'undeletes only with their parent).',
@@ -655,13 +930,7 @@ export const TOOLS: readonly ServedTool[] = [
       'deletes the records created since the checkpoint, gives the records changed since ' +
       'their values back and brings back the records deleted since, whoever made those changes',
     readFirst: 'checkpoint_preview says what it would do, writing nothing',
-    flags: {
-      '--accept-automation': 'acceptAutomation',
-      '--accept-no-undo': 'acceptNoUndo',
-      '--accept-recreate': 'acceptRecreate',
-      '--accept-outside': 'acceptOutside',
-      '--accept-unseen': 'acceptUnseen',
-    },
+    flags: REWIND_FLAGS,
     run: (args) => ({
       script: 'sandforge-checkpoint',
       args: [
@@ -673,6 +942,8 @@ export const TOOLS: readonly ServedTool[] = [
         '--yes',
         ...(args.objects ?? []).flatMap((object) => ['--object', object]),
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+        ...(args.acceptEmails === true ? ['--accept-emails'] : []),
+        ...(args.muteAutomation === true ? ['--mute-automation'] : []),
         ...(args.acceptNoUndo === true ? ['--accept-no-undo'] : []),
         ...(args.acceptRecreate === true ? ['--accept-recreate'] : []),
         ...(args.acceptOutside === true ? ['--accept-outside'] : []),
@@ -687,8 +958,8 @@ export const TOOLS: readonly ServedTool[] = [
     description:
       "Take back org's last rewind to a checkpoint: bring back what it deleted, give back what " +
       'it wrote over, send back to the recycle bin what it brought back; what anyone changed ' +
-      'since the rewind stays, and is said. Needs confirm, the alias of org. acceptAutomation as ' +
-      'for checkpoint_rewind.',
+      'since the rewind stays, and is said. Needs confirm, the alias of org. acceptAutomation ' +
+      'and acceptEmails as for checkpoint_rewind.',
     readOnly: false,
     destructive: true,
     args: z.strictObject({
@@ -699,13 +970,24 @@ export const TOOLS: readonly ServedTool[] = [
         'Undo although the org runs flows, Apex triggers, processes or workflow rules as ' +
           'records are updated, deleted or brought back, or would not say what it runs.',
       ),
+      acceptEmails: acceptance(
+        'Undo although the org delivers every email its automation sends (Setup > ' +
+          'Deliverability: All email), or would not say whether it does, and what still runs as ' +
+          'the undo writes sends some. acceptAutomation never stands for it. Only once the ' +
+          'person using you has accepted that these emails go out.',
+      ),
+      muteAutomation: muteActFor('the undo'),
     }),
     writesTo: (args) => args.org,
     writes:
       'brings back what its last rewind deleted, gives back what it wrote over and sends back ' +
       'to the recycle bin what it brought back',
     readFirst: 'checkpoint_list says which rewind it would take back, and until when',
-    flags: { '--accept-automation': 'acceptAutomation' },
+    flags: {
+      '--accept-automation': 'acceptAutomation',
+      '--accept-emails': 'acceptEmails',
+      '--mute-automation': 'muteAutomation',
+    },
     run: (args) => ({
       script: 'sandforge-checkpoint',
       args: [
@@ -716,6 +998,8 @@ export const TOOLS: readonly ServedTool[] = [
         args.checkpoint,
         '--yes',
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+        ...(args.acceptEmails === true ? ['--accept-emails'] : []),
+        ...(args.muteAutomation === true ? ['--mute-automation'] : []),
         '--json',
       ],
     }),
@@ -759,7 +1043,13 @@ export const TOOLS: readonly ServedTool[] = [
         .boolean()
         .optional()
         .describe('true: exit 3 when records the environment holds were deleted or changed since.'),
+      acceptEmails: acceptance(
+        'Plan what env_apply would do with acceptEmails: a seed or a clone is otherwise blocked ' +
+          'where the org delivers the emails what still runs sends, or would not say whether it ' +
+          'does.',
+      ),
     }),
+    flags: { '--accept-emails': 'acceptEmails' },
     exits: {
       [PARTIAL_EXIT]:
         'drift: the org no longer holds the environment as applied, records deleted or changed ' +
@@ -774,6 +1064,7 @@ export const TOOLS: readonly ServedTool[] = [
         '--org',
         args.org,
         ...(args.failOnDrift === true ? ['--fail-on-drift'] : []),
+        ...(args.acceptEmails === true ? ['--accept-emails'] : []),
         '--json',
       ],
     }),
@@ -789,7 +1080,9 @@ export const TOOLS: readonly ServedTool[] = [
       'refused, and a sandbox the file does not list. Needs confirm, the alias of org: env_plan ' +
       'first. acceptNoState lets it apply to an org this machine has no state of, where records ' +
       "an earlier apply left would be created twice. A resource's accept: { automation: true } " +
-      'in the file is what lets its runs be taken back although the org runs automation. The ' +
+      'in the file is what lets its runs be taken back although the org runs automation. ' +
+      'acceptEmails lets its resources write although the org delivers the emails what still ' +
+      'runs sends, or would not say whether it does. The ' +
       'answer ends with the env_destroy call that takes the environment back.',
     readOnly: false,
     destructive: true,
@@ -811,13 +1104,20 @@ export const TOOLS: readonly ServedTool[] = [
           'earlier apply left there would be created twice. Only once the person using you has ' +
           'accepted it.',
       ),
+      acceptEmails: acceptance(
+        'Apply although the org delivers every email its automation sends (Setup > ' +
+          'Deliverability: All email), or would not say whether it does, and what still runs as ' +
+          'its resources write sends some. Only once the person using you has accepted that ' +
+          'these emails go out.',
+      ),
     }),
     writesTo: (args) => args.org,
     writes:
       'creates, replaces and deletes the resources of the file there as its plan says, taking ' +
       'back the earlier runs a replace or a delete takes back',
     readFirst: 'env_plan of the same file says what it would do, writing nothing',
-    flags: { '--accept-no-state': 'acceptNoState' },
+    flags: { '--accept-no-state': 'acceptNoState', '--accept-emails': 'acceptEmails' },
+    named: { '--accept-automation': fileAcceptsAutomation('env_apply') },
     after: (args) => [
       `env_destroy with file "${args.file}" and org "${args.org}" takes this environment back.`,
     ],
@@ -831,6 +1131,7 @@ export const TOOLS: readonly ServedTool[] = [
         args.org,
         ...(args.replace ?? []).flatMap((name) => ['--replace', name]),
         ...(args.acceptNoState === true ? ['--accept-no-state'] : []),
+        ...(args.acceptEmails === true ? ['--accept-emails'] : []),
         '--yes',
         '--json',
       ],
@@ -863,6 +1164,7 @@ export const TOOLS: readonly ServedTool[] = [
     readFirst:
       'env_plan of the same file says what the org holds of the environment and what changed since',
     flags: { '--include-changed': 'includeChanged' },
+    named: { '--accept-automation': fileAcceptsAutomation('env_destroy') },
     run: (args) => ({
       script: 'sandforge-env',
       args: [
@@ -998,7 +1300,7 @@ function answerOf(stdout: string): unknown {
  * parameters, how to take the run back.
  */
 export function resultOf(
-  served: Pick<ServedTool, 'flags'> & Partial<Pick<ServedTool, 'exits'>>,
+  served: Pick<ServedTool, 'flags'> & Partial<Pick<ServedTool, 'exits' | 'named'>>,
   run: { script: Script; args: readonly string[] },
   ran: CommandRun,
   after: (answer: unknown) => string[] = () => [],
@@ -1026,6 +1328,9 @@ export function resultOf(
       `${flag}, named above, is this tool's ${param}: true. Give it only once the person using ` +
         'you has accepted what it lets through.',
     );
+  }
+  for (const [flag, line] of Object.entries(served.named ?? {})) {
+    if (names(text, flag)) added.push(`${flag}, named above, ${line}`);
   }
   if (ANSWERED.has(ran.code)) added.push(...after(answer));
   if (added.length > 0) lines.push('', ...added);
@@ -1087,7 +1392,7 @@ export interface Serving {
  * input ends, the calls still running are stopped the same way.
  */
 export function serve(options: ServeOptions): Serving {
-  const runCommand = options.runCommand ?? spawnCommand;
+  const runCommand = options.runCommand ?? TOOL_RUNNER;
   const log = options.log ?? ((line: string) => void process.stderr.write(`${line}\n`));
   /** The revision `initialize` agreed on, for the requests that do not name one. */
   let handshake: string | undefined;

@@ -314,14 +314,35 @@ export class MigrationHandler implements DomainHandler {
         this.getAllowedBaseDirs(),
       );
       await assertImportFileSize(fileReader, safePath);
-      const { SfdmuImporter } = await import('../../modules/migration/SfdmuImporter.js');
-      const importer = new SfdmuImporter(fileReader);
-      const config = await importer.import(safePath);
-      const response = buildResponse(this.deps, msg, 'migration:import-sfdmu:response', {
-        success: true,
-        config: config as unknown as Record<string, unknown>,
+      const { SfdmuImporter, SfdmuRefusal } =
+        await import('../../modules/migration/SfdmuImporter.js');
+      // The mapping files beside the export are as bounded as the export.
+      const importer = new SfdmuImporter({
+        readFile: async (path) => {
+          if (path !== safePath) await assertImportFileSize(fileReader, path);
+          return fileReader.readFile(path);
+        },
       });
-      this.deps.broker.postToWebview(response);
+      try {
+        const { config, notes } = await importer.import(safePath);
+        const response = buildResponse(this.deps, msg, 'migration:import-sfdmu:response', {
+          success: true,
+          config: config as unknown as Record<string, unknown>,
+          notes,
+        });
+        this.deps.broker.postToWebview(response);
+      } catch (err: unknown) {
+        if (!(err instanceof SfdmuRefusal)) throw err;
+        this.deps.log(`[ERR] migration:import-sfdmu: ${err.message}`);
+        this.deps.broker.postToWebview(
+          buildResponse(this.deps, msg, 'migration:import-sfdmu:response', {
+            success: false,
+            error: err.message,
+            code: err.code,
+            objects: [...err.objects],
+          }),
+        );
+      }
     } catch (err: unknown) {
       this.deps.log(`[ERR] migration:import-sfdmu: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'migration:import-sfdmu:response', {

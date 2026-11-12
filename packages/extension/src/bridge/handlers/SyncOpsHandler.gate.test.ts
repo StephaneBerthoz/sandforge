@@ -16,11 +16,16 @@ import type {
 import { SyncOpsHandler } from './SyncOpsHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import { inboundRequest } from '../../test/mockFactories.js';
-import { ProductionGuard, type RunConfirmation } from '../../core/precheck/ProductionGuard.js';
+import {
+  ProductionGuard,
+  withGivenAnswer,
+  type RunConfirmation,
+} from '../../core/precheck/ProductionGuard.js';
 import { SyncOrchestrator } from '../../modules/sync/SyncOrchestrator.js';
 import type { SyncOrchestratorDeps } from '../../modules/sync/SyncOrchestrator.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { clearDescribeCache } from '../../core/connection/describeCache.js';
+import { answeringDeliverability, type DeliverabilityLevel } from '../../test/deliverabilityOrg.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -139,8 +144,19 @@ const FIELDS: Record<string, unknown[]> = {
 /** A fake id: the object's prefix and a counter, the length of a real one. */
 const fakeId = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
 
-/** The source's contacts, and a target with `remainingMB` of data storage and `emails` single emails left. */
-function mockOrgs(contacts: number, remainingMB = 4, emails = 15) {
+/**
+ * The source's contacts, and a target with `remainingMB` of data storage and
+ * `emails` single emails left, which delivers the emails of its automation
+ * when `level` says all, and none of them otherwise. `deliverabilityAsked`
+ * counts the requests of the reads of its deliverability.
+ */
+function mockOrgs(
+  contacts: number,
+  remainingMB = 4,
+  emails = 15,
+  level: DeliverabilityLevel = 'withheld',
+) {
+  const deliverabilityAsked: string[] = [];
   const rows = Array.from({ length: contacts }, (_, n) => ({
     attributes: { type: 'Contact' },
     Id: fakeId('003', n + 1),
@@ -163,18 +179,26 @@ function mockOrgs(contacts: number, remainingMB = 4, emails = 15) {
         queryMore: vi.fn(),
         describe: vi.fn(async (name: string) => ({ name, fields: FIELDS[name] ?? [] })),
         sobject: vi.fn(() => ({ create, upsert: vi.fn(), update: vi.fn(), destroy: vi.fn() })),
-        request: vi.fn(async () =>
-          orgId === 'tgt-org'
-            ? {
-                DataStorageMB: { Max: 5, Remaining: remainingMB },
-                SingleEmail: { Max: 15, Remaining: emails },
-              }
-            : {},
+        // Unless told, an org that delivers none of the emails of its
+        // automation, as a sandbox refreshed on System email only.
+        request: vi.fn(
+          answeringDeliverability(
+            level,
+            async () =>
+              orgId === 'tgt-org'
+                ? {
+                    DataStorageMB: { Max: 5, Remaining: remainingMB },
+                    SingleEmail: { Max: 15, Remaining: emails },
+                    DailyWorkflowEmails: { Max: 8_040, Remaining: 8_040 },
+                  }
+                : {},
+            deliverabilityAsked,
+          ).request,
         ),
         limitInfo: undefined,
       }) as never,
   );
-  return { create };
+  return { create, deliverabilityAsked };
 }
 
 function insertOf(objectApiName: string, insertOrder: number): SyncObjectConfig {
@@ -325,7 +349,11 @@ describe('a Sync run held to what the target has left, before its first write', 
     expect(answer.payload.writeCheck).toMatchObject({
       total: 30,
       verdict: 'asks',
-      emails: [expect.objectContaining({ emails: 60, verdict: 'exceeds' })],
+      emails: [
+        expect.objectContaining({ limit: 'SingleEmail', emails: 60, verdict: 'exceeds' }),
+        // A Developer Edition counts a flow's single emails against its workflow emails too.
+        expect.objectContaining({ limit: 'DailyWorkflowEmails', emails: 60, verdict: 'fits' }),
+      ],
     });
     expect(asked.questions).toEqual([]);
   });
@@ -416,5 +444,181 @@ describe('a Sync run held to what the target has left, before its first write', 
         { objectApiName: 'Contact', fields: ['Tax_Id__c'] },
       ]);
     });
+  });
+});
+
+describe('a Sync run whose target delivers the emails of what still runs', () => {
+  let asked: Asked;
+  let deps: HandlerDeps;
+  let handler: SyncOpsHandler;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearDescribeCache();
+    asked = { questions: [], answer: true };
+    deps = createDeps(asked);
+    handler = new SyncOpsHandler(deps);
+    handler.setTargetAutomation({ read: async () => WELCOME_FLOW });
+    handler.setHistoryLogger({ logExecution: vi.fn() } as never);
+  });
+
+  /** The audit entry of a run, by its operation id. */
+  const entryOf = (operationId: string) =>
+    new AuditTrailStore(deps.configStore).list().entries.find((e) => e.operationId === operationId);
+
+  /** The audit entry of the one run the trail holds. */
+  const onlyEntry = () => {
+    const { entries } = new AuditTrailStore(deps.configStore).list();
+    expect(entries).toHaveLength(1);
+    return entries[0];
+  };
+
+  it('asks the user who started it, first, naming the flow that sends them; the answer sends them, and the audit says so', async () => {
+    const { create } = mockOrgs(5, 4, 15, 'all');
+
+    await send(handler, 'sync:execute', 'run-all', { config: config() });
+
+    expect(asked.questions).toHaveLength(1);
+    expect(asked.questions[0]).toMatchObject({
+      stage: 'write',
+      module: 'sync',
+      deliverability: {
+        reading: { level: 'all' },
+        senders: [
+          { objectApiName: 'Contact', kind: 'flow', name: 'Contact welcome', why: 'email' },
+        ],
+      },
+    });
+    expect(create).toHaveBeenCalled();
+    expect(entryOf('run-all')?.details).toMatchObject({
+      triggeredBy: 'manual',
+      deliverability: 'all',
+      confirmed: 'emails',
+    });
+  });
+
+  it('writes nothing once the question is declined, and the audit keeps what the org delivers', async () => {
+    asked.answer = false;
+    const { create } = mockOrgs(5, 4, 15, 'all');
+
+    await send(handler, 'sync:execute', 'run-no', { config: config() });
+
+    expect(create).not.toHaveBeenCalled();
+    expect(posted(deps, 'sync:error')[0].payload).toMatchObject({ code: 'SYNC_WRITE_DECLINED' });
+    const details = entryOf('run-no')?.details;
+    expect(details).toMatchObject({ code: 'SYNC_WRITE_DECLINED', deliverability: 'all' });
+    expect(details).not.toHaveProperty('confirmed');
+  });
+
+  it('asks nothing of an org that withholds them, and says it read them so', async () => {
+    const { create, deliverabilityAsked } = mockOrgs(5);
+
+    await send(handler, 'sync:execute', 'run-withheld', { config: config() });
+
+    expect(asked.questions).toEqual([]);
+    expect(create).toHaveBeenCalled();
+    // The Apex, refused, then the user's Send Email.
+    expect(deliverabilityAsked).toEqual(['apex', 'sendEmail']);
+    expect(entryOf('run-withheld')?.details).toMatchObject({ deliverability: 'withheld' });
+    expect(entryOf('run-withheld')?.details).not.toHaveProperty('confirmed');
+  });
+
+  it('reads nothing of it when nothing that runs sends an email', async () => {
+    handler.setTargetAutomation({ read: async () => ({ ...WELCOME_FLOW, objects: [] }) });
+    const { create, deliverabilityAsked } = mockOrgs(5, 4, 15, 'all');
+
+    await send(handler, 'sync:execute', 'run-quiet', { config: config() });
+
+    expect(deliverabilityAsked).toEqual([]);
+    expect(asked.questions).toEqual([]);
+    expect(create).toHaveBeenCalled();
+    expect(entryOf('run-quiet')?.details).not.toHaveProperty('deliverability');
+  });
+
+  it("refuses a pipeline's step no Approval answered, saying what lifts it there, nothing written", async () => {
+    const { create } = mockOrgs(5, 4, 15, 'all');
+
+    const result = await withGivenAnswer({ approved: false }, () =>
+      handler.executeScheduled(config(), 'pipeline'),
+    );
+
+    expect(result.status).toBe('failure');
+    expect(result.error).toContain('TRAP delivers every email its automation sends');
+    expect(result.error).toContain(
+      'Approve an Approval step put before this Sync step to sync all the same',
+    );
+    expect(result.error).not.toContain('--accept-emails');
+    expect(create).not.toHaveBeenCalled();
+    expect(asked.questions).toEqual([]);
+    expect(onlyEntry()).toMatchObject({
+      outcome: 'stopped',
+      details: expect.objectContaining({ code: 'EMAILS_NOT_ACCEPTED', deliverability: 'all' }),
+    });
+  });
+
+  it("lets a pipeline's step through once the Approval before it was approved: that answer is the accord", async () => {
+    const { create } = mockOrgs(5, 4, 15, 'all');
+
+    const result = await withGivenAnswer({ approved: true }, () =>
+      handler.executeScheduled(config(), 'pipeline'),
+    );
+
+    expect(result.status).toBe('success');
+    expect(create).toHaveBeenCalled();
+    expect(onlyEntry().details).toMatchObject({
+      triggeredBy: 'pipeline',
+      deliverability: 'all',
+      confirmed: 'emails',
+    });
+  });
+
+  it('refuses a scheduled run, which nobody watches, sending it to the Sync page', async () => {
+    const { create } = mockOrgs(5, 4, 15, 'all');
+
+    const result = await handler.executeScheduled(config(), 'schedule');
+
+    expect(result.error).toContain(
+      'Run it from the Sync page, which asks before it writes, to sync all the same',
+    );
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('tells the question the records keep their addresses, when the configuration keeps them', async () => {
+    mockOrgs(5, 4, 15, 'all');
+
+    await send(handler, 'sync:execute', 'run-kept', {
+      config: { ...config(), keepContactPoints: true },
+    });
+
+    expect(asked.questions[0]).toMatchObject({ deliverability: { keepsAddresses: true } });
+  });
+
+  it('runs no Apex in a production org, and takes it for one that would not say', async () => {
+    vi.mocked(deps.orgManager.getOrg).mockImplementation(((orgId: string) =>
+      orgId === 'tgt-org'
+        ? { orgType: 'Production', alias: 'PROD' }
+        : { orgType: 'Sandbox', alias: 'SOURCE' }) as never);
+    const { deliverabilityAsked } = mockOrgs(5, 4, 15, 'all');
+
+    await send(handler, 'sync:simulate', 'sim-prod', { config: config() });
+
+    expect(deliverabilityAsked).toEqual([]);
+    expect(posted(deps, 'sync:simulate:response')[0].payload.writeCheck).toMatchObject({
+      verdict: 'asks',
+      deliverability: { reading: { unread: 'SandForge runs no Apex in a production org' } },
+    });
+  });
+
+  it('says it in a simulation, asking nobody', async () => {
+    mockOrgs(5, 4, 15, 'all');
+
+    await send(handler, 'sync:simulate', 'sim-all', { config: config() });
+
+    const [answer] = posted(deps, 'sync:simulate:response');
+    expect(answer.payload.writeCheck).toMatchObject({
+      verdict: 'asks',
+      deliverability: { reading: { level: 'all' } },
+    });
+    expect(asked.questions).toEqual([]);
   });
 });

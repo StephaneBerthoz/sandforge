@@ -761,9 +761,11 @@ describe('the dependents check past one read of records', () => {
 
     await removeRunRecords(org, plan, OPTIONS);
 
-    // Two reads of 200, each asking the dates first; the one that failed went on by its stamp.
-    expect(reads.filter((soql) => soql.includes('CreatedDate'))).toHaveLength(2);
-    expect(reads.filter((soql) => soql.includes('SystemModstamp'))).toHaveLength(1);
+    // Two reads of 200, each asking the dates first; the one that failed went on
+    // with the dates, without who last modified the record.
+    expect(reads.filter((soql) => soql.includes('CreatedDate'))).toHaveLength(3);
+    expect(reads.filter((soql) => soql.includes('LastModifiedById'))).toHaveLength(2);
+    expect(reads.filter((soql) => soql.includes('SystemModstamp'))).toHaveLength(0);
   });
 });
 

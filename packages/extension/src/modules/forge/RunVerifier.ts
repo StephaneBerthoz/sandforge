@@ -191,6 +191,12 @@ interface Explaining {
   createdByRun: ReadonlySet<string>;
   /** The run's window by the org's clock, in epoch milliseconds, when it is known. */
   window?: { from: number; to: number };
+  /**
+   * The window the records its user created are counted in against the
+   * run's (`moreInTheWindow`): `window`, but ending with the run's last write
+   * where the org dated it.
+   */
+  counted?: { from: number; to: number };
 }
 
 /** One lookup of one record of one object, whichever length its id is written in. */
@@ -360,6 +366,13 @@ export class RunVerifier {
    * field; the records the run created, by their ids in the target; and the
    * run's window, its first write to its end give or take
    * {@link CLOCK_LEEWAY_MS}, when both are known.
+   *
+   * What the run's user created is counted against the run's records in that
+   * window, but up to the run's last write alone where the org dated it
+   * (`runEndedAt`), as a removal ends a run by its writes: the org compares
+   * dates to the second, so what it made in that second is in. Counted ten
+   * seconds past it, a contact the run's user made by hand five seconds after
+   * the run read as one more created "during the run" than the run wrote.
    */
   private explaining(run: RunToVerify, runEnd: number): Explaining {
     const emptiedByFilter = new Set<string>();
@@ -367,11 +380,16 @@ export class RunVerifier {
       for (const id of recordIds) emptiedByFilter.add(linkKey(objectApiName, id, field));
     }
     const from = run.runStartedAt?.getTime() ?? Number.NaN;
+    const known = Number.isFinite(from) && Number.isFinite(runEnd);
+    const window = { from: from - CLOCK_LEEWAY_MS, to: runEnd + CLOCK_LEEWAY_MS };
     return {
       emptiedByFilter,
       createdByRun: new Set(Object.values(run.remapTable).map(recordKey)),
-      ...(Number.isFinite(from) && Number.isFinite(runEnd)
-        ? { window: { from: from - CLOCK_LEEWAY_MS, to: runEnd + CLOCK_LEEWAY_MS } }
+      ...(known
+        ? {
+            window,
+            counted: run.runEndedAt ? { from: window.from, to: runEnd } : window,
+          }
         : {}),
     };
   }
@@ -660,8 +678,8 @@ export class RunVerifier {
       }
     }
     reading.present = read.size + archived;
-    if (user !== undefined && explaining.window) {
-      const counted = await this.countInTheWindow(name, user, explaining.window);
+    if (user !== undefined && explaining.counted) {
+      const counted = await this.countInTheWindow(name, user, explaining.counted);
       if (counted !== undefined) reading.createdInTheWindow = counted;
     }
 

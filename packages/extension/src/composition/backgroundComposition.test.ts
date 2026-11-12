@@ -53,6 +53,7 @@ import {
   confirmRestoreIntoReplacedOrg,
   createBackgroundComposition,
   migrationExportPicker,
+  L10N_QUESTION_WORDS,
   runQuestionDetail,
   wireBackgroundNotifications,
   wireOfflineNotifications,
@@ -697,12 +698,18 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       module: 'sync',
       counted: true,
       alreadyCopied: 40,
+      alreadyLinked: 2,
+      rolesLinked: 3,
     };
     expect(runQuestionDetail(sync).split('\n')).toEqual([
       'This sync is about to write 2401 records to DEV:',
       '• Contact: 2400',
       '• Account: 1',
       'Not counted: 40 records an earlier run of this configuration copied, still in the target, which the sync leaves as they are.',
+      'Not counted: 2 records an earlier run of this configuration linked to records the target held, which the sync leaves as they are.',
+      // Counted among the records to write, on a scratch org the role was
+      // linked by the run that the question said it wrote.
+      'Not counted: 3 contact roles the platform writes itself with the opportunities the sync creates, for their contact, which the sync links to and does not send.',
       'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
       'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
       'The records have been counted, and nothing has been read or written yet.',
@@ -742,6 +749,7 @@ describe("a run's questions, in the production confirmation's modal (localized)"
           { objectApiName: 'Invoice__c', rows: 8, why: 'notInTarget' },
           { objectApiName: 'Asset', rows: 3, why: 'notUpdateable' },
           { objectApiName: 'Order', rows: 2, why: 'unread' },
+          { objectApiName: 'Lead', rows: 4, why: 'notAKey', key: 'Company' },
         ],
       }).split('\n'),
     ).toEqual([
@@ -752,9 +760,69 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       'Left out: Invoice__c, 8 records: DEV has no such object, or the user the sync writes as cannot see it.',
       'Left out: Asset, 3 records: the user the sync writes as may not edit its records in DEV.',
       'Left out: Order, 2 records: DEV did not describe it, so what it takes could not be told.',
+      'Left out: Lead, 4 records: its upsert matches on Company, neither an External ID nor an idLookup field in DEV.',
       'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
       'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
       'The records have been counted, and nothing has been read or written yet.',
+    ]);
+  });
+
+  it("names in a Sync run's question the rows an object left out holds back, which it writes none of", () => {
+    // The question listed the opportunities and the account left out, and
+    // not the contacts under it, which the result then counted failed.
+    expect(
+      runQuestionDetail({
+        ...write,
+        module: 'sync',
+        counted: true,
+        objects: [{ objectApiName: 'Opportunity', rows: 10 }],
+        total: 10,
+        aboveRecords: undefined,
+        unwritable: [{ objectApiName: 'Account', rows: 2, why: 'notAKey', key: 'Name' }],
+        heldBack: [
+          { objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' },
+          { objectApiName: 'Case', rows: 3, parent: 'Contact', field: 'ContactId' },
+        ],
+      }).split('\n'),
+    ).toEqual([
+      'This sync is about to write 10 records to DEV:',
+      '• Opportunity: 10',
+      'Left out: Account, 2 records: its upsert matches on Name, neither an External ID nor an idLookup field in DEV.',
+      'Held back: Contact, 4 records: their AccountId names Account records left out, so none of them is written and each counts as failed.',
+      'Held back: Case, 3 records: their ContactId names Contact records held back, so none of them is written and each counts as failed.',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
+      'The records have been counted, and nothing has been read or written yet.',
+    ]);
+  });
+
+  it('says each lookup that holds back rows of an object, with its rows', () => {
+    const lines = runQuestionDetail({
+      ...write,
+      module: 'sync',
+      objects: [],
+      total: 0,
+      aboveRecords: undefined,
+      unwritable: [
+        { objectApiName: 'Product2', rows: 3, why: 'notAKey', key: 'Description' },
+        { objectApiName: 'Pricebook2', rows: 1, why: 'notAKey', key: 'Description' },
+      ],
+      heldBack: [
+        {
+          objectApiName: 'PricebookEntry',
+          rows: 13,
+          parent: 'Pricebook2',
+          field: 'Pricebook2Id',
+          parents: [
+            { parent: 'Pricebook2', field: 'Pricebook2Id', rows: 4 },
+            { parent: 'Product2', field: 'Product2Id', rows: 9 },
+          ],
+        },
+      ],
+    }).split('\n');
+
+    expect(lines.filter((line) => line.startsWith('Held back:'))).toEqual([
+      'Held back: PricebookEntry, 4 records: their Pricebook2Id names Pricebook2 records left out, so none of them is written and each counts as failed.',
+      'Held back: PricebookEntry, 9 records: their Product2Id names Product2 records left out, so none of them is written and each counts as failed.',
     ]);
   });
 
@@ -780,7 +848,30 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
-  it('says the daily email limits the records take the target past, before the closing line', () => {
+  it('says apart what the platform writes itself, which the records to write leave out', () => {
+    const lines = runQuestionDetail({
+      ...write,
+      leftOut: {
+        writtenBefore: 0,
+        heldBack: [],
+        byThePlatform: [
+          { objectApiName: 'OpportunityTeamMember', rows: 1 },
+          { objectApiName: 'Contact', rows: 2 },
+          { objectApiName: 'OpportunityContactRole', rows: 3 },
+        ],
+      },
+    }).split('\n');
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        'Not counted: OpportunityTeamMember, 1 records written by the platform with their opportunity, for its owner, which the run links to and does not send.',
+        'Not counted: Contact, 2 records written by the platform with their person account, which the run links to and does not send.',
+        'Not counted: OpportunityContactRole, 3 records written by the platform with their opportunity, for its contact, which the run links to and does not send.',
+      ]),
+    );
+  });
+
+  it('says the daily email limits the records take the target past, first of what follows the records', () => {
     const lines = runQuestionDetail({
       ...write,
       emails: [
@@ -794,8 +885,10 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       ],
     }).split('\n');
 
-    expect(lines.slice(-2)).toEqual([
+    // What leaves the org comes before the storage and the API requests.
+    expect(lines.slice(-3)).toEqual([
       'These records make the flows of DEV send about 72 single emails, more than the 15 of 15 it has left today (emails per record: Contact 2). Past them, a record whose flow fails in the save is refused.',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
       'The records have been read, and nothing has been written yet.',
     ]);
   });
@@ -872,6 +965,24 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     expect(runQuestionDetail(write)).not.toContain('were not counted against');
   });
 
+  it('says the contact roles it counts in that the platform may write, where the gate could not tell them', () => {
+    // Said on the command line alone, the question of a run of whole tables
+    // counted the role among the records to write and said nothing of it.
+    expect(
+      runQuestionDetail({ ...write, rolesMayBeByThePlatform: { rows: 2 } }).split('\n'),
+    ).toContain(
+      'Of them, up to 2 contact roles the platform may write itself with their opportunity, for its contact, which the clone links to and does not send.',
+    );
+    expect(
+      runQuestionDetail({ ...write, rolesMayBeByThePlatform: { rows: 1, before: true } }).split(
+        '\n',
+      ),
+    ).toContain(
+      'Of them, up to 1 contact roles the platform may have written with their opportunity, for its contact, in the run this one takes up, which the clone links to and does not send.',
+    );
+    expect(runQuestionDetail(write)).not.toContain('contact roles');
+  });
+
   it('says the prices it counts in that the clone may read as it writes them', () => {
     const lines = runQuestionDetail({ ...write, pricesForLines: 4 }).split('\n');
 
@@ -896,9 +1007,10 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       ],
     }).split('\n');
 
-    expect(lines.slice(-3)).toEqual([
+    expect(lines.slice(-4)).toEqual([
       'These records make the flows of DEV send about 36 single emails, more than the -75 of 15 it has left today (emails per record: Contact 1). Past them, a record whose flow fails in the save is refused.',
       'DEV counts its email alerts against its single emails too, as a Developer Edition does: they are among them.',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
       'The records have been read, and nothing has been written yet.',
     ]);
   });
@@ -978,12 +1090,103 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       'This seed is about to write 2401 records to DEV:',
       '• Contact: 2400',
       '• Account: 1',
-      'They take about 4.69 MB of data storage. What DEV has left could not be read (INSUFFICIENT_ACCESS), so whether they fit is not known.',
       'These records make the flows of DEV send about 40 single emails. What it has left today could not be read (INSUFFICIENT_ACCESS), so whether they fit is not known.',
+      'They take about 4.69 MB of data storage. What DEV has left could not be read (INSUFFICIENT_ACCESS), so whether they fit is not known.',
       'DEV gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.',
       'The run takes about 20 API requests, and DEV has 900 of its 15000 daily requests left: it would leave the org with less than a tenth of them.',
       'The records have been counted, and nothing has been read or written yet.',
     ]);
+  });
+
+  describe('the checkpoint the run takes first', () => {
+    /** What the checkpoint of a clone of contacts would hold and cost. */
+    const checkpoint: NonNullable<WriteConfirmation['checkpoint']> = {
+      state: 'planned',
+      estimate: {
+        records: 38,
+        apiRequests: 68,
+        apiRequestsLeft: 14_000,
+        seconds: 43.2,
+        bytes: 2.2 * 1024 * 1024,
+      },
+      objects: ['Contact', 'Account', 'Task'],
+      added: [
+        {
+          objectApiName: 'Task',
+          reason:
+            "The target's flow 'Contact welcome' creates Task records as Contact records go in.",
+        },
+      ],
+      notHeld: [
+        {
+          objectApiName: 'FeedItem',
+          reason: 'Chatter posts are not held. A rewind leaves its records as they are.',
+        },
+      ],
+      keepDays: 7,
+    };
+    const asked: WriteConfirmation = {
+      ...write,
+      emails: [
+        {
+          limit: 'SingleEmail',
+          emails: 72,
+          remaining: 15,
+          max: 15,
+          objects: [{ objectApiName: 'Contact', perRecord: 2 }],
+        },
+      ],
+      apiRequests: {
+        estimate: 1_400,
+        remaining: 1_500,
+        max: 15_000,
+        parts: { run: 1_330, checkpoint: 68, readBack: 2 },
+      },
+      checkpoint,
+    };
+
+    it('says its cost, what it adds and leaves out, between what leaves the org and the limits', () => {
+      const lines = runQuestionDetail(asked).split('\n');
+
+      expect(lines.slice(3)).toEqual([
+        'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
+        'These records make the flows of DEV send about 72 single emails, more than the 15 of 15 it has left today (emails per record: Contact 2). Past them, a record whose flow fails in the save is refused.',
+        'Checkpoint first: about 38 records of 3 objects, 68 API requests, 44 s, 2.2 MB on this machine, unencrypted, and no storage in the org, kept 7 days.',
+        "Added: Task — The target's flow 'Contact welcome' creates Task records as Contact records go in.",
+        'Not in the checkpoint: FeedItem — Chatter posts are not held. A rewind leaves its records as they are.',
+        'What an Apex trigger, or automation that could not be read, creates as the run writes is not known: a rewind leaves those records as they are.',
+        'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
+        'The run takes about 1400 API requests, and DEV has 1500 of its 15000 daily requests left: it would leave the org with less than a tenth of them.',
+        '68 of them are for the checkpoint taken first.',
+        '2 of them read back the record type the target gave the records created without one.',
+        'The records have been read, and nothing has been written yet.',
+      ]);
+    });
+
+    it('says a checkpoint kept until it is deleted, and nothing of it when none is asked', () => {
+      expect(runQuestionDetail({ ...asked, checkpoint: { ...checkpoint, keepDays: 0 } })).toContain(
+        'Checkpoint first: about 38 records of 3 objects, 68 API requests, 44 s, 2.2 MB on this machine, unencrypted, and no storage in the org, kept until you delete it.',
+      );
+      const without = runQuestionDetail({ ...write, apiRequests: asked.apiRequests });
+      expect(without).not.toContain('Checkpoint first');
+      expect(without).not.toContain('Not in the checkpoint');
+    });
+
+    it("says it in the question's language, the engine's reasons as they are", () => {
+      l10nBundle.current = JSON.parse(
+        readFileSync(join(__dirname, '..', '..', 'l10n', 'bundle.l10n.fr.json'), 'utf8'),
+      ) as Record<string, string>;
+      const lines = runQuestionDetail(asked).split('\n');
+
+      expect(lines).toContain(
+        "Point de contrôle d'abord : environ 38 enregistrements de 3 objets, 68 requêtes d'API, 44 s, 2.2 Mo sur cette machine, non chiffrés, et aucun stockage dans l'org, conservé 7 jours.",
+      );
+      expect(lines).toContain(
+        "Ajouté : Task — The target's flow 'Contact welcome' creates Task records as Contact records go in.",
+      );
+      expect(lines).toContain('68 d’entre elles sont pour le point de contrôle pris d’abord.');
+      expect(lines.join('\n')).not.toContain('Checkpoint first');
+    });
   });
 
   it('lists no more than a dozen entries, and says how many more there are', () => {
@@ -1576,5 +1779,229 @@ describe('wireBackgroundNotifications', () => {
     expect(stateSync.setActiveOperations).toHaveBeenCalledWith([
       expect.objectContaining({ operationId: 'op-1', status: 'aborted' }),
     ]);
+  });
+});
+
+describe("a run's question on the emails the target delivers (localized)", () => {
+  /** A sync of contacts into an org on All email, whose flows email them past what it has left. */
+  const delivered: WriteConfirmation = {
+    stage: 'write',
+    module: 'sync',
+    org: 'DEV',
+    orgTier: 'development',
+    objects: [{ objectApiName: 'Contact', rows: 20 }],
+    total: 20,
+    counted: true,
+    storage: { estimateMB: 0.04, maxMB: 200, remainingMB: 150, near: false },
+    emails: [
+      {
+        limit: 'SingleEmail',
+        emails: 40,
+        remaining: 15,
+        max: 15,
+        objects: [{ objectApiName: 'Contact', perRecord: 2 }],
+      },
+    ],
+    deliverability: {
+      reading: { level: 'all' },
+      senders: [
+        { objectApiName: 'Contact', kind: 'flow', name: 'Welcome email', why: 'email' },
+        { objectApiName: 'Contact', kind: 'workflowRule', name: 'Welcome rule', why: 'email' },
+        { objectApiName: 'Contact', kind: 'flow', name: 'Packaged', why: 'notRead' },
+        { objectApiName: 'Case', kind: 'assignmentRule', name: 'Support queue', why: 'assignment' },
+      ],
+    },
+  };
+
+  /** The same, of records that keep the addresses they hold. */
+  const kept: WriteConfirmation = {
+    ...delivered,
+    deliverability: { ...delivered.deliverability!, keepsAddresses: true },
+  };
+
+  /** An org that would not say, what sends having been refused whole. */
+  const unread: NonNullable<WriteConfirmation['deliverability']> = {
+    reading: { unread: 'timed out' },
+    senders: [],
+    sendersUnread: "the target's flows: INSUFFICIENT_ACCESS",
+  };
+
+  /** The bundle of a language, as VS Code hands the host its strings. */
+  const bundleOf = (locale: string): Record<string, string> =>
+    JSON.parse(
+      readFileSync(join(__dirname, '..', '..', 'l10n', `bundle.l10n.${locale}.json`), 'utf8'),
+    ) as Record<string, string>;
+
+  beforeEach(() => {
+    vi.mocked(vscode.window.showWarningMessage).mockReset();
+    l10nBundle.current = {};
+  });
+
+  it('says first what the org delivers, who sends it and where it goes, before the daily limits', () => {
+    const lines = runQuestionDetail(delivered).split('\n');
+
+    expect(lines.slice(2, 10)).toEqual([
+      'DEV delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the records go in may send some:',
+      '• Contact: Flow "Welcome email"',
+      '• Contact: workflow rule "Welcome rule"',
+      '• Contact: Flow "Packaged", whose definition was not read',
+      '• Case: assignment rule "Support queue", which can mail the owner it assigns',
+      'They go to the addresses the records and the alerts name: those of the records the run writes are under .invalid, but not those of the owners of the records, of the records already in DEV, nor an address an alert names.',
+      'Execute and send the emails lets them go out.',
+      'These records make the flows of DEV send about 40 single emails, more than the 15 of 15 it has left today (emails per record: Contact 2). Past them, a record whose flow fails in the save is refused.',
+    ]);
+  });
+
+  it('says the emails reach the addresses the records keep, when they keep them', () => {
+    expect(runQuestionDetail(kept)).toContain(
+      'They go to the addresses the records and the alerts name: those of the records the run writes, as they hold them, the owners of the records, the records already in DEV, and an address an alert names.',
+    );
+  });
+
+  it('says why the org would not say, and where none goes out, when the read failed and listed no sender', () => {
+    const lines = runQuestionDetail({
+      ...delivered,
+      emails: undefined,
+      deliverability: unread,
+    }).split('\n');
+
+    expect(lines.slice(2, 7)).toEqual([
+      'Whether DEV delivers the emails its automation sends could not be read (timed out), and what still runs as the records go in may send some:',
+      "• what could not be read of its automation: the target's flows: INSUFFICIENT_ACCESS",
+      'They go to the addresses the records and the alerts name: those of the records the run writes are under .invalid, but not those of the owners of the records, of the records already in DEV, nor an address an alert names.',
+      'On System email only or No access (Setup > Deliverability), none of them goes out.',
+      'Execute and send the emails lets them go out.',
+    ]);
+  });
+
+  it('says what could not be read beside the senders it lists, when a part of the automation was refused', () => {
+    const lines = runQuestionDetail({
+      ...delivered,
+      deliverability: {
+        reading: { level: 'all' },
+        senders: [{ objectApiName: 'Contact', kind: 'flow', name: 'Welcome email', why: 'email' }],
+        sendersUnread: "the target's processes: INSUFFICIENT_ACCESS",
+      },
+    }).split('\n');
+
+    expect(lines.slice(3, 5)).toEqual([
+      '• Contact: Flow "Welcome email"',
+      "• what could not be read of its automation: the target's processes: INSUFFICIENT_ACCESS",
+    ]);
+  });
+
+  it('says nothing of an org that withholds them', () => {
+    const detail = runQuestionDetail({
+      ...delivered,
+      deliverability: {
+        reading: { level: 'withheld' },
+        senders: delivered.deliverability!.senders,
+      },
+    });
+    expect(detail).not.toContain('delivers every email');
+    expect(detail).not.toContain('Execute and send the emails');
+  });
+
+  it('puts it first in the automation question of a clone, before what fires', () => {
+    const lines = runQuestionDetail({
+      stage: 'automation',
+      org: 'DEV',
+      orgTier: 'development',
+      fired: [{ objectApiName: 'Contact', kind: 'flow', name: 'Welcome email' }],
+      firedOnUpdate: [],
+      updateSteps: [],
+      unread: [],
+      bypass: [],
+      assign: [],
+      deliverability: {
+        reading: { level: 'all' },
+        senders: [{ objectApiName: 'Contact', kind: 'flow', name: 'Welcome email', why: 'email' }],
+      },
+    }).split('\n');
+
+    expect(lines[0]).toBe(
+      'DEV delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the records go in may send some:',
+    );
+    expect(lines.indexOf('Execute and send the emails lets them go out.')).toBeLessThan(
+      lines.indexOf('DEV runs automation on the records this clone inserts:'),
+    );
+  });
+
+  it('is answered by its own button, translated, which alone sends them', async () => {
+    l10nBundle.current = bundleOf('fr');
+    vi.mocked(vscode.window.showWarningMessage).mockImplementation(
+      (...args: unknown[]) => Promise.resolve(args[args.length - 1]) as never,
+    );
+    const { productionGuard } = createBackgroundComposition({
+      configStore: createMockConfigStore(),
+    });
+
+    await expect(productionGuard.confirmRun(delivered)).resolves.toBe('confirmed');
+    const call = vi.mocked(vscode.window.showWarningMessage).mock.calls[0] as unknown[];
+    expect(call.slice(2)).toEqual(['Exécuter et envoyer les e-mails']);
+
+    // A question that sends nothing keeps Execute.
+    vi.mocked(vscode.window.showWarningMessage).mockClear();
+    await productionGuard.confirmRun({ ...delivered, deliverability: undefined });
+    expect(
+      (vi.mocked(vscode.window.showWarningMessage).mock.calls[0] as unknown[]).slice(2),
+    ).toEqual(['Exécuter']);
+    // Execute does not answer a question that sends them.
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Exécuter' as never);
+    await expect(productionGuard.confirmRun(delivered)).resolves.toBe('declined');
+  });
+
+  it.each(['fr', 'de', 'es', 'pt-br', 'ja'])(
+    'says the whole of it in %s, none of its sentences left in English',
+    (locale) => {
+      l10nBundle.current = bundleOf(locale);
+      const english = [
+        ...runQuestionDetail(delivered).split('\n'),
+        ...runQuestionDetail(kept).split('\n'),
+        ...runQuestionDetail({ ...delivered, deliverability: unread }).split('\n'),
+      ];
+      l10nBundle.current = {};
+      const said = new Set([
+        ...runQuestionDetail(delivered).split('\n'),
+        ...runQuestionDetail(kept).split('\n'),
+        ...runQuestionDetail({ ...delivered, deliverability: unread }).split('\n'),
+      ]);
+      // The objects and their counts are names and numbers, the same in every language.
+      const sentences = english.filter((line) => !/^• \w+: \d+$/.test(line));
+      expect(sentences.filter((line) => said.has(line))).toEqual([]);
+    },
+  );
+});
+
+describe("the count of a run's question, by the plural rule of the displayed language", () => {
+  const env = vscode.env as { language?: string };
+
+  beforeEach(() => {
+    l10nBundle.current = {};
+    delete env.language;
+  });
+
+  it('says one record, and none, as English counts them', () => {
+    env.language = 'en';
+    expect(L10N_QUESTION_WORDS.counted('record', 0)).toBe('0 records');
+    expect(L10N_QUESTION_WORDS.counted('record', 1)).toBe('1 record');
+    expect(L10N_QUESTION_WORDS.counted('component', 2)).toBe('2 components');
+  });
+
+  it('says none in the singular in French, where English says "0 records"', () => {
+    env.language = 'fr';
+    l10nBundle.current = JSON.parse(
+      readFileSync(join(__dirname, '..', '..', 'l10n', 'bundle.l10n.fr.json'), 'utf8'),
+    ) as Record<string, string>;
+    expect(L10N_QUESTION_WORDS.counted('record', 0)).toBe('0 enregistrement');
+    expect(L10N_QUESTION_WORDS.counted('record', 1)).toBe('1 enregistrement');
+    expect(L10N_QUESTION_WORDS.counted('record', 2)).toBe('2 enregistrements');
+    expect(L10N_QUESTION_WORDS.counted('component', 0)).toBe('0 composant');
+  });
+
+  it('takes English’s rule in a language SandForge ships no bundle for', () => {
+    env.language = 'ru';
+    // Russian says 21 in the singular; the English strings shown do not.
+    expect(L10N_QUESTION_WORDS.counted('record', 21)).toBe('21 records');
   });
 });

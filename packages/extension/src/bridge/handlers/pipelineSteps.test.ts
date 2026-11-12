@@ -223,7 +223,7 @@ describe('registerPipelineSteps', () => {
       run.abort();
       const result = await pending;
 
-      expect(result.status).toBe('failed');
+      expect(result.status).toBe('stopped');
       expect(result.error).toBe('Step "Step" was stopped before it finished.');
       expect(gate.isWaiting('op-1', 's-approval')).toBe(false);
     });
@@ -479,7 +479,7 @@ describe('registerPipelineSteps', () => {
 
       const result = await own.execute({ ...sync, retries: 2 }, context());
 
-      expect(result.cancelled).toBe(true);
+      expect(result.status).toBe('stopped');
       expect(runSync).toHaveBeenCalledTimes(1);
     });
 
@@ -612,9 +612,8 @@ describe('registerPipelineSteps', () => {
 
       expect(flows.backup).toHaveBeenCalledTimes(1);
       expect(result).toMatchObject({
-        status: 'failed',
+        status: 'stopped',
         error: 'Backup was cancelled before it finished.',
-        cancelled: true,
       });
     });
   });

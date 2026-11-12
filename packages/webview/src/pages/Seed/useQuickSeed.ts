@@ -1,13 +1,17 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type {
+  RunCheckpointInfo,
   SalesforceOrg,
   SeedTemplate,
   SeedExecutionResult,
+  SeedFitProposal,
   SeedObjectConfig,
   FieldRuleConfig,
 } from '@sandforge/shared';
 import { isDevelopmentOrg } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { RUN_OUTLIVED_WAIT } from '../../hooks/useMessageResponse';
+import { useStoppedRunCheckpoint } from '../../hooks/useStoppedRunCheckpoint';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { useOperationProgress } from '../../hooks/useOperationProgress';
 import { useSendMessage } from '../../hooks/useMessageBus';
@@ -15,6 +19,8 @@ import { buildMessage } from '../../bridge/messageHelpers';
 import { useOrgStore } from '../../stores/useOrgStore';
 import type { ObjectProgress } from './Step7_Execute';
 import { templateWithCounts, withCount } from './templateCounts';
+import type { TemplateCounts } from './templateCounts';
+import { fittedRunOf, useSeedFitRefusal, type FittedSeedRun } from './SeedFitProposal';
 
 /**
  * Phase of the Quick Seed state machine: the gallery, then one confirmation —
@@ -52,6 +58,19 @@ export interface QuickSeedState {
    * every template.
    */
   muteAutomation: boolean;
+  /**
+   * Whether the run takes a checkpoint of what it writes before its first
+   * write, as the confirmation's box is left: off unless ticked, unticked
+   * again for every template.
+   */
+  checkpointFirst: boolean;
+  /** What became of the checkpoint the last run took first, when its error says. */
+  stoppedCheckpoint: RunCheckpointInfo | undefined;
+  /**
+   * Whether the last run stopped on its error and can be set up again: not
+   * while it may still be writing, past the wait for its answer.
+   */
+  canSetUpAgain: boolean;
   /** Whether execution is in flight. */
   isRunning: boolean;
   /** Execution result. */
@@ -82,8 +101,23 @@ export interface QuickSeedState {
   setLocale: (locale: string) => void;
   /** Tick or untick the box that mutes the org's automation for the run. */
   setMuteAutomation: (mute: boolean) => void;
+  /** Tick or untick the box that takes a checkpoint before the run's first write. */
+  setCheckpointFirst: (first: boolean) => void;
+  /**
+   * The counts that fit, as the refusal of the last run for the storage or
+   * the API requests its org has left carried them; null otherwise.
+   */
+  fitProposal: SeedFitProposal | null;
+  /** The fit the last run's counts came from; null for a run whose counts were not fitted. */
+  fitApplied: FittedSeedRun | null;
   /** Trigger seed execution. */
   execute: () => void;
+  /**
+   * Send the refused run again at the counts of {@link fitProposal}, which
+   * become the confirmation's counts, saying the fit in its request: its
+   * gate is met again. Nothing when there is no proposal, or nothing fits.
+   */
+  seedFitted: () => void;
   /**
    * Stop the running seed, as the wizard's Cancel does: before its next
    * object or batch, what it wrote staying in the org. Nothing is sent before
@@ -96,6 +130,12 @@ export interface QuickSeedState {
    * written before its Start.
    */
   seedAgain: () => void;
+  /**
+   * From a run stopped on its error, back to its confirmation with everything
+   * as it was set, the boxes too: a refusal says what to change there, and a
+   * box stays ticked until the person unticks it.
+   */
+  backToConfirm: () => void;
   /** Back to the gallery. The org chosen stays chosen for the next template. */
   reset: () => void;
   /** Set or clear error. */
@@ -122,9 +162,11 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [locale, setLocale] = useState('');
   const [muteAutomation, setMuteAutomation] = useState(false);
+  const [checkpointFirst, setCheckpointFirst] = useState(false);
   const [executionResult, setExecutionResult] = useState<SeedExecutionResult | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [fitApplied, setFitApplied] = useState<FittedSeedRun | null>(null);
 
   const executeMutation = useBridgeMutation<SeedExecutionResult>('seed:execute', {
     responseType: 'seed:execute:response',
@@ -136,6 +178,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
   });
 
   const isRunning = executeMutation.loading;
+  const stoppedCheckpoint = useStoppedRunCheckpoint('seed:error', executeMutation.requestId);
 
   /* Track elapsed time while running */
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -182,6 +225,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
       setSelectedTemplate(template);
       setCustomizedCounts(counts);
       setMuteAutomation(false);
+      setCheckpointFirst(false);
       /* The org is preselected, so that a first seed is a click on Start:
          the one whoever opened this flow named, on the first template only;
          else the one chosen for an earlier template; else the org selected in
@@ -205,6 +249,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
       setError(null);
       setExecutionResult(undefined);
       setElapsedMs(0);
+      setFitApplied(null);
     },
     [initialOrgId],
   );
@@ -236,41 +281,74 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
   const runId = executeMutation.requestId;
   const progress = (isRunning && runId !== null ? getProgress(runId) : undefined) ?? null;
 
-  const execute = useCallback(() => {
-    if (!selectedTemplate || !selectedOrgId) return;
-    // An object set to 0 is not sent, nor what cannot be written without it.
-    const kept = templateWithCounts(selectedTemplate, customizedCounts);
-    if (kept.objects.length === 0) return;
+  /** Send the template at `counts`, and the fit they came from when they did. */
+  const run = useCallback(
+    (counts: TemplateCounts, fitted?: FittedSeedRun): void => {
+      if (!selectedTemplate || !selectedOrgId) return;
+      // An object set to 0 is not sent, nor what cannot be written without it.
+      const kept = templateWithCounts(selectedTemplate, counts);
+      if (kept.objects.length === 0) return;
 
-    const objects: SeedObjectConfig[] = kept.objects.map((obj) => ({
-      objectApiName: obj.objectApiName,
-      recordCount: customizedCounts[obj.objectApiName] ?? obj.recordCount,
-      fieldRules: obj.fieldRules.map((r) => ({
-        fieldApiName: r.fieldApiName,
-        ruleType: r.ruleType,
-        config: r.config as FieldRuleConfig,
-      })),
-      excludedFields: obj.excludedFields,
-      insertOrder: obj.insertOrder,
-      batchSize: obj.batchSize,
-    }));
+      const objects: SeedObjectConfig[] = kept.objects.map((obj) => ({
+        objectApiName: obj.objectApiName,
+        recordCount: counts[obj.objectApiName] ?? obj.recordCount,
+        fieldRules: obj.fieldRules.map((r) => ({
+          fieldApiName: r.fieldApiName,
+          ruleType: r.ruleType,
+          config: r.config as FieldRuleConfig,
+        })),
+        excludedFields: obj.excludedFields,
+        insertOrder: obj.insertOrder,
+        batchSize: obj.batchSize,
+        // An object a feature brings, skipped in an org without it: sent
+        // without the mark, the gate counted Knowledge articles in an org
+        // without Knowledge, and the run that skipped them ended partial.
+        ...(obj.optional === true ? { optional: true } : {}),
+      }));
 
-    const template: SeedTemplate = {
-      ...kept,
-      objects,
-    };
+      const template: SeedTemplate = {
+        ...kept,
+        objects,
+      };
 
-    setPhase('executing');
-    setElapsedMs(0);
+      setPhase('executing');
+      setElapsedMs(0);
+      // A run sent again from a refusal no longer stands under it.
+      setError(null);
+      setFitApplied(fitted ?? null);
 
-    executeMutation.mutate({
-      orgId: selectedOrgId,
-      template: template as unknown as Record<string, unknown>,
-      // The org's own locale unless one was chosen: the extension reads it.
-      ...(locale ? { locale } : {}),
-      ...(muteAutomation ? { muteAutomation: true } : {}),
-    });
-  }, [selectedTemplate, selectedOrgId, customizedCounts, locale, muteAutomation, executeMutation]);
+      executeMutation.mutate({
+        orgId: selectedOrgId,
+        template: template as unknown as Record<string, unknown>,
+        // The org's own locale unless one was chosen: the extension reads it.
+        ...(locale ? { locale } : {}),
+        ...(muteAutomation ? { muteAutomation: true } : {}),
+        ...(checkpointFirst ? { checkpointFirst: {} } : {}),
+        ...(fitted ? { fit: fitted.fit } : {}),
+      });
+    },
+    [selectedTemplate, selectedOrgId, locale, muteAutomation, checkpointFirst, executeMutation],
+  );
+
+  const execute = useCallback(() => run(customizedCounts), [run, customizedCounts]);
+
+  // The counts that fit, as the refusal of the last run carried them.
+  const fitProposal = useSeedFitRefusal(executeMutation.requestId);
+
+  /*
+   * The refused run sent again at the counts that fit: they become the
+   * confirmation's, so the run says them as it goes and Seed again comes
+   * back to them; the objects left out stay out, and the org, the locale and
+   * the mute stay as they were. Its request says the fit, for the audit
+   * trail; the gate is met again by the counts, as for any run.
+   */
+  const seedFitted = useCallback(() => {
+    if (!fitProposal || fitProposal.cannotFit !== undefined) return;
+    const fitted = fittedRunOf(fitProposal);
+    const counts = { ...customizedCounts, ...fitted.counts };
+    setCustomizedCounts(counts);
+    run(counts, fitted);
+  }, [fitProposal, customizedCounts, run]);
 
   const sendMessage = useSendMessage();
   const operationId = progress ? runId : null;
@@ -284,8 +362,9 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
    * copy written with no confirmation, the emails the first run had used not
    * counted again, and after a partial run what had succeeded doubled. It
    * goes back to the confirmation instead, which reads the org's automation
-   * and emails again before its Start. The mute is a choice of each run, made
-   * on its confirmation; the org stays only while it is still connected.
+   * and emails again before its Start. The mute and the checkpoint are a
+   * choice of each run, made on its confirmation; the org stays only while it
+   * is still connected.
    */
   const seedAgain = useCallback(() => {
     if (!selectedTemplate) return;
@@ -294,12 +373,22 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
       orgs.some((org) => org.id === chosen && org.status === 'connected') ? chosen : '',
     );
     setMuteAutomation(false);
+    setCheckpointFirst(false);
     setExecutionResult(undefined);
     setError(null);
     setElapsedMs(0);
+    setFitApplied(null);
     executeMutation.reset();
     setPhase('confirm');
   }, [selectedTemplate, executeMutation]);
+
+  const backToConfirm = useCallback(() => {
+    setError(null);
+    setElapsedMs(0);
+    setFitApplied(null);
+    executeMutation.reset();
+    setPhase('confirm');
+  }, [executeMutation]);
 
   const reset = useCallback(() => {
     setPhase('idle');
@@ -308,6 +397,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     setExecutionResult(undefined);
     setError(null);
     setElapsedMs(0);
+    setFitApplied(null);
     executeMutation.reset();
   }, [executeMutation]);
 
@@ -349,6 +439,9 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     selectedOrgId,
     locale,
     muteAutomation,
+    checkpointFirst,
+    stoppedCheckpoint,
+    canSetUpAgain: error !== null && !isRunning && executeMutation.errorCode !== RUN_OUTLIVED_WAIT,
     isRunning,
     executionResult,
     objectProgress,
@@ -356,14 +449,19 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     elapsedMs,
     error,
     operationId,
+    fitProposal,
+    fitApplied,
     startQuickSeed,
     setCount,
     selectOrg,
     setLocale,
     setMuteAutomation,
+    setCheckpointFirst,
     execute,
+    seedFitted,
     cancel,
     seedAgain,
+    backToConfirm,
     reset,
     setError,
   };

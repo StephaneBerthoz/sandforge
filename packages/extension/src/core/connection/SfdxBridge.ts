@@ -11,8 +11,24 @@ import { typeTarget } from '../precheck/orgKindLive.js';
 import type { TypedTarget } from '../precheck/orgKindLive.js';
 import { isUsableAccessToken, refreshTokenViaCli } from './ConnectionHelper.js';
 import type { CliCredentials } from './ConnectionHelper.js';
+import {
+  describeSfVariables,
+  firstLineOf,
+  locateSf,
+  sfChildEnv,
+  withoutPersonalDetails,
+} from './sfEnvironment.js';
+import type { SfLocation } from './sfEnvironment.js';
+import { readOutputFiles } from './sfOutputFiles.js';
+import { logger } from '../../logger.js';
 
 const MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
+
+/** How long `sf --version` may take before the CLI is said to be missing. */
+const CLI_VERSION_TIMEOUT_MS = 30_000;
+
+/** Longest `sf org list` may run: a CLI start and a call to every org it holds. */
+const ORG_LIST_TIMEOUT_MS = 30_000;
 
 /**
  * Longest `sf org login jwt` or `sf org login sfdx-url` may run: a CLI start,
@@ -83,7 +99,7 @@ async function execAsync(
   const result = await promisify(exec)(command, {
     maxBuffer: MAX_BUFFER,
     windowsHide: true,
-    env: { ...process.env, NO_COLOR: '1' },
+    env: sfChildEnv(),
     ...options,
   });
   return { stdout: String(result.stdout), stderr: String(result.stderr) };
@@ -148,7 +164,7 @@ async function runSf(
       maxBuffer: MAX_BUFFER,
       windowsHide: true,
       timeout: options.timeoutMs,
-      env: { ...process.env, NO_COLOR: '1' },
+      env: sfChildEnv(),
     };
     const deadline: { timer?: ReturnType<typeof setTimeout> } = {};
     let settled = false;
@@ -347,6 +363,217 @@ function extractJson(raw: string): string {
 }
 
 /**
+ * Quote one path for the `/bin/sh` command line `exec` builds on POSIX.
+ *
+ * @throws When the path holds a quote or a control character.
+ */
+function quoteForSh(path: string): string {
+  // eslint-disable-next-line no-control-regex -- control characters are what this refuses
+  if (/['\u0000-\u001f\u007f]/.test(path)) {
+    throw new Error(
+      'The temporary folder path cannot contain a quote or control characters: the shell that runs sf would act on them.',
+    );
+  }
+  return `'${path}'`;
+}
+
+/** An `sf` run that ended without an error and printed nothing on stdout. */
+interface BlankRun {
+  /** How long it ran, in ms. */
+  ms: number;
+  /** Its stdout as read, blank. */
+  stdout: string;
+  stderr: string;
+}
+
+/** What one `sf` run wrote to files in place of its pipes, as {@link readThroughFiles} read them. */
+interface FileRun {
+  /** Whether the command was started: false when its files could not be made or named. */
+  ran: boolean;
+  stdout: string;
+  stderr: string;
+  ms: number;
+  /**
+   * Why it could not be started, or how it ended when not with exit code 0:
+   * its exit code, its limit, or its error's first line; never a personal path.
+   */
+  failure?: string;
+}
+
+/** How an `exec` run that rejected ended, in a few words. */
+function howItEnded(err: unknown, timeoutMs: number): string {
+  const execErr = err as ExecError & { killed?: boolean };
+  if (execErr.killed === true) return `its ${timeoutMs / 1000} s limit`;
+  if (typeof execErr.code === 'number') return `exit code ${execErr.code}`;
+  return firstLineOf(extractErrorMessage(err)) ?? 'an error that says nothing';
+}
+
+/**
+ * Run `command` again with its stdout and stderr sent to two files the shell
+ * opens ({@link readOutputFiles}), and read them.
+ *
+ * The CLI writes into the files, so what it prints no longer depends on the
+ * pipes the extension reads, nor on another process keeping them open. Node
+ * writes to such a file synchronously (a `SyncWriteStream`), as it does to a
+ * Windows pipe.
+ *
+ * @param command - A constant `sf` command line, without redirection.
+ */
+async function readThroughFiles(command: string, timeoutMs: number): Promise<FileRun> {
+  const started = Date.now();
+  const quote = (path: string): string =>
+    process.platform === 'win32' ? quoteForCmd(path, 'temporary folder path') : quoteForSh(path);
+  let ran = false;
+  try {
+    const files = await readOutputFiles(async (paths) => {
+      const line = `${command} > ${quote(paths.stdout)} 2> ${quote(paths.stderr)}`;
+      ran = true;
+      await execAsync(line, { timeout: timeoutMs });
+    });
+    // A non-zero exit still leaves what the CLI wrote in the files.
+    const failure =
+      files.failure === undefined
+        ? undefined
+        : ran
+          ? howItEnded(files.failure, timeoutMs)
+          : extractErrorMessage(files.failure);
+    return {
+      ran,
+      stdout: files.stdout,
+      stderr: files.stderr,
+      ms: Date.now() - started,
+      ...(failure ? { failure: withoutPersonalDetails(failure) } : {}),
+    };
+  } catch (err: unknown) {
+    return {
+      ran,
+      stdout: '',
+      stderr: '',
+      ms: Date.now() - started,
+      failure: withoutPersonalDetails(extractErrorMessage(err)),
+    };
+  }
+}
+
+/** What became of the run sent to files, for the report and the message. */
+function fileRunSaid(second: FileRun): string {
+  if (!second.ran) return `could not be made (${(second.failure ?? '').slice(0, 200)})`;
+  const said = quoted(second.stderr);
+  return (
+    `ended with ${second.failure ?? 'exit code 0'} after ${seconds(second.ms)} s, with ` +
+    `${second.stdout.length} chars in its stdout file and ${second.stderr.length} in its ` +
+    `stderr file${said ? ` ("${said}")` : ''}`
+  );
+}
+
+/** `text`'s first line, without personal details and at most 200 characters, or undefined. */
+function quoted(text: string): string | undefined {
+  const line = firstLineOf(text);
+  return line === undefined ? undefined : withoutPersonalDetails(line).slice(0, 200);
+}
+
+/** A duration in seconds, to the tenth. */
+function seconds(ms: number): string {
+  return (ms / 1000).toFixed(1);
+}
+
+/**
+ * Whether a blank run lasted as long as it was allowed. Node then ends it
+ * without an error when its shell had already exited 0 and another process
+ * still held the pipe: `exec`'s timer destroys the pipes, finds the shell
+ * gone, and calls back with what had come through (child_process
+ * `exithandler` checks the exit code and signal, not the timer).
+ */
+function reachedLimit(run: BlankRun, timeoutMs: number): boolean {
+  return run.ms >= timeoutMs - 500;
+}
+
+/**
+ * Everything the Output channel says of a blank `sf org list`: each run's
+ * duration, exit and sizes, which `sf` and `node` this window's shell finds,
+ * what its `sf --version` printed, the folder sf runs from and the variables
+ * that matter, by name. What tells the causes apart:
+ *
+ * - another `sf` or `node` than a terminal of the window finds;
+ * - a CLI that wrote to the file but not to the pipe: its output is lost on
+ *   the pipe only;
+ * - a run that reached its limit: Node ends a run without an error when its
+ *   shell had already exited 0 and another process still held the pipe
+ *   (child_process `exithandler`), so nothing had come through yet;
+ * - a file as empty as the pipe, and an `sf --version` that printed nothing
+ *   either: no output reaches the extension from this CLI at all.
+ */
+function blankOrgListReport(
+  first: BlankRun,
+  second: FileRun,
+  location: SfLocation,
+  version: string | undefined,
+  timeoutMs: number,
+): string {
+  const firstSaid = quoted(first.stderr);
+  const list = (paths: string[]): string => (paths.length > 0 ? paths.join(' | ') : 'none');
+  return [
+    `first run: ${seconds(first.ms)} s of the ${timeoutMs / 1000} s allowed` +
+      (reachedLimit(first, timeoutMs) ? ' (it reached the limit)' : '') +
+      `, exit code 0, stdout ${first.stdout.length} chars, stderr ${first.stderr.length} chars` +
+      (firstSaid ? ` ("${firstSaid}")` : ''),
+    `run with its output sent to files: ${fileRunSaid(second)}`,
+    location.failure
+      ? `the search for sf could not run: ${location.failure}`
+      : `sf found: ${list(location.sf)}; node found: ${list(location.node)}`,
+    `sf --version: ${version === undefined ? 'not run' : version === '' ? 'printed nothing' : `"${version}"`}`,
+    `sf runs from: ${withoutPersonalDetails(process.cwd())}`,
+    `variables ${describeSfVariables()}`,
+  ].join('; ');
+}
+
+/**
+ * What to say of an `sf org list --json` that ended without an error and
+ * printed nothing, which a CLI never does, even once its output was sent to a
+ * file: the `sf` this window runs and what it printed, in the words of the
+ * terminal the user can compare it from. Seen on two Windows laptops, where
+ * "No JSON found in output (0 chars)" said neither.
+ *
+ * `where` alone is PowerShell's `Where-Object`, which prints nothing: a
+ * Windows terminal is asked for `where.exe`.
+ */
+function emptyOrgListMessage(
+  first: BlankRun,
+  second: FileRun,
+  location: SfLocation,
+  version: string | undefined,
+  timeoutMs: number,
+): string {
+  const said = quoted(first.stderr);
+  const which = process.platform === 'win32' ? 'where.exe sf' : 'which -a sf';
+  // npm puts sf, sf.cmd and sf.ps1 side by side: one install, counted once.
+  const folders = new Set(location.sf.map((path) => path.replace(/[\\/][^\\/]*$/, ''))).size;
+  const runs = location.runs
+    ? `This window runs ${location.runs}${
+        folders > 1 ? ` (sf is found in ${folders} folders of its PATH)` : ''
+      }`
+    : location.failure
+      ? `${which} could not run in this window (${location.failure.slice(0, 200)})`
+      : `${which} finds no sf this window can run`;
+  const versionSaid =
+    version === undefined
+      ? ''
+      : version === ''
+        ? ', and its sf --version printed nothing either'
+        : `, and its sf --version says ${version}`;
+  return (
+    `sf org list --json ended without an error and printed nothing${
+      said ? ` (it said: ${said})` : ''
+    }, so there are no orgs to read. It ran ${seconds(first.ms)} s${
+      reachedLimit(first, timeoutMs) ? `, its ${timeoutMs / 1000} s limit,` : ''
+    } and exited with code 0. Run again with its output sent to a file, it ` +
+    `${fileRunSaid(second)}. ${runs}${versionSaid}. ` +
+    `In a terminal of this window, run sf org list --json and ${which}: another first line ` +
+    'there means VS Code runs another sf than the terminal. Details in View > Output > SandForge.'
+  );
+}
+
+/**
  * One org entry of `sf org list --json`, as the CLI writes it, or what
  * `sf org display --json` says of one org ({@link SfdxBridge.findOrg}).
  *
@@ -525,10 +752,23 @@ export class SfdxBridge {
     private readonly readKind: OrgKindReader = readKindFromTheOrg,
   ) {}
 
-  /** Verify that sf CLI is available on PATH */
+  /**
+   * The first line `sf --version` last printed here, '' when it printed
+   * nothing; undefined before it ran. Kept for what a blank `sf org list`
+   * says: on a laptop where the import read nothing, this check passed on an
+   * exit code alone, and which CLI and which Node answered went unsaid.
+   */
+  private versionAnswer: string | undefined;
+
+  /**
+   * Verify that sf CLI is available on PATH. Given 30 s: on a managed laptop,
+   * `sf --version` took 13 s started by the editor, and a CLI that answered
+   * past 10 s was said to be missing.
+   */
   async isCliAvailable(): Promise<boolean> {
     try {
-      await execAsync('sf --version', { timeout: 10_000 });
+      const { stdout } = await execAsync('sf --version', { timeout: CLI_VERSION_TIMEOUT_MS });
+      this.versionAnswer = quoted(stdout) ?? '';
       return true;
     } catch {
       return false;
@@ -771,10 +1011,14 @@ export class SfdxBridge {
 
   /** Every org entry of `sf org list --json`, from every bucket, before any dedupe. */
   private async readOrgEntries(): Promise<SfdxOrgEntry[]> {
+    const command = 'sf org list --json';
+    const started = Date.now();
     let stdout: string;
+    let stderr = '';
     try {
-      const result = await execAsync('sf org list --json', { timeout: 30_000 });
+      const result = await execAsync(command, { timeout: ORG_LIST_TIMEOUT_MS });
       stdout = result.stdout;
+      stderr = result.stderr;
     } catch (err: unknown) {
       // SF CLI returns non-zero exit code on some errors but still outputs JSON
       const execErr = err as ExecError;
@@ -782,6 +1026,9 @@ export class SfdxBridge {
       if (!stdout) {
         throw new Error(`SF CLI failed with no output: ${execErr.message}`);
       }
+    }
+    if (stdout.trim() === '') {
+      stdout = await this.rereadBlankOrgList(command, { ms: Date.now() - started, stdout, stderr });
     }
 
     const jsonStr = extractJson(stdout);
@@ -811,6 +1058,38 @@ export class SfdxBridge {
       ...(parsed.result?.other ?? []),
       ...(parsed.result?.devHubs ?? []),
     ];
+  }
+
+  /**
+   * The output of an `sf org list --json` that ended without an error and
+   * printed nothing, read a second time from a file it was sent to; or, when
+   * that file is blank too, an error that says which `sf` this window runs
+   * and what it printed.
+   *
+   * On a Windows laptop the same command printed 40 KB in a terminal of the
+   * window and nothing here. Either way the Output channel gets every fact
+   * that tells the causes apart ({@link blankOrgListReport}).
+   */
+  private async rereadBlankOrgList(command: string, first: BlankRun): Promise<string> {
+    const second = await readThroughFiles(command, ORG_LIST_TIMEOUT_MS);
+    const location = await locateSf();
+    const report = blankOrgListReport(
+      first,
+      second,
+      location,
+      this.versionAnswer,
+      ORG_LIST_TIMEOUT_MS,
+    );
+    if (second.stdout.trim() !== '') {
+      logger.warn(
+        `${command} printed nothing on its pipe; what it wrote to a file was read instead. ${report}`,
+      );
+      return second.stdout;
+    }
+    logger.warn(`${command} printed nothing, on its pipe or to a file. ${report}`);
+    throw new Error(
+      emptyOrgListMessage(first, second, location, this.versionAnswer, ORG_LIST_TIMEOUT_MS),
+    );
   }
 
   /**

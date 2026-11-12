@@ -21,6 +21,7 @@ import type {
   ForgeEmailLimit,
   ForgeTargetAutomation,
   ForgeTargetObjectAutomation,
+  RunDeliverability,
   SeedAutomationEntry,
   SeedAutomationObject,
   SeedAutomationPreview,
@@ -37,17 +38,21 @@ import {
   type ForgeAutomationWrite,
 } from '@sandforge/shared';
 
-/** The writes a seed makes of its records, as its run's mute plans for them. */
-const SEED_WRITES = (_objectApiName: string, write: ForgeAutomationWrite): boolean =>
-  write === 'insert' || write === 'update';
+/** The write a seed makes of every object it names: what a read ahead of it counts the senders of. */
+const SEED_INSERTS = (_objectApiName: string, write: ForgeAutomationWrite): boolean =>
+  write === 'insert';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   alertsCountAsSingle,
+  singleCountAsWorkflow,
   emailChecksOf,
   emailsCountedPerRecord,
+  emailsOfLimit,
   type EmailCheck,
   type EmailLimit,
 } from '../forge/ForgeRunGate.js';
+import { runEmailsOf, type DeliverabilityRead } from '../forge/targetDeliverability.js';
+import { seedWritesOfObjects, type SeedWrites } from './seedFit.js';
 
 /** What `/limits` said of an org's daily email limits, or why it said nothing. */
 export type EmailLimits = Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string };
@@ -95,11 +100,17 @@ function sortedOnce(names: readonly string[]): string[] {
  * @param org - The target, as the panel or the command line names it.
  * @param limits - What its `/limits` said; `{}` when they were not read, no
  *   record sending any.
+ * @param deliverability - What may send and whether the org delivers it;
+ *   absent when nothing sends, or it was not asked for.
+ * @param writes - The writes the run makes (`seedWritesOf`), which its mute
+ *   is planned for: the inserts of the objects read when not told.
  */
 export function seedAutomationPreview(
   automation: ForgeTargetAutomation,
   org: string,
   limits: EmailLimits,
+  deliverability?: RunDeliverability,
+  writes: SeedWrites = SEED_INSERTS,
 ): SeedAutomationPreview {
   const objects = automation.objects.flatMap((object): SeedAutomationObject[] => {
     const entries = entriesOnInsert(object);
@@ -110,7 +121,14 @@ export function seedAutomationPreview(
   // quiet, the email alerts counted against the single emails as well where
   // the org counts them there.
   const alertsAsSingle = read !== undefined && alertsCountAsSingle(read);
-  const emailsPerRecord = emailsCountedPerRecord(emailsPerInsertOf(automation), alertsAsSingle);
+  // And its single emails against its workflow emails too, as a Developer
+  // Edition counts them.
+  const singleAsWorkflow = read !== undefined && singleCountAsWorkflow(read);
+  const emailsPerRecord = emailsCountedPerRecord(
+    emailsPerInsertOf(automation),
+    alertsAsSingle,
+    singleAsWorkflow,
+  );
   const bypasses = objects.flatMap((object) => object.entries.flatMap((entry) => entry.bypasses));
   const held = sortedOnce(bypasses.filter((b) => b.held === true).map((b) => b.name));
   const toAssign = sortedOnce(bypasses.map((b) => b.name)).filter((name) => !held.includes(name));
@@ -122,9 +140,12 @@ export function seedAutomationPreview(
     return set ? { permission, permissionSet: set.name } : { permission };
   });
   // What a seed asked to mute would assign, silence and lift beside, planned
-  // as its run plans it, and the emails that still go out while it holds:
-  // the panel held Start back counting the senders the mute silences.
-  const mute = mutePlanOf(automation, SEED_WRITES);
+  // for the writes its run makes, and the emails that still go out while it
+  // holds: the panel held Start back counting the senders the mute silences.
+  // Planned for an update of every article version, the confirmation offered
+  // a set for a flow no seed that only inserts its articles fires, which the
+  // run, planning for what it writes, did not assign.
+  const mute = mutePlanOf(automation, writes);
   const muting = mute.assign.length > 0;
   return {
     org,
@@ -142,12 +163,14 @@ export function seedAutomationPreview(
           emailsPerRecordMuted: emailsCountedPerRecord(
             emailsPerInsertOf(mutedAutomationOf(automation, mutePermissionsOf(mute))),
             alertsAsSingle,
+            singleAsWorkflow,
           ),
         }
       : {}),
     unread: automation.unread.map(({ part, reason }) => ({ part, reason })),
     blinded: blindedBy(automation.unread),
     conditionsNotRead: automation.conditionsNotRead,
+    ...(deliverability ? { deliverability } : {}),
   };
 }
 
@@ -161,33 +184,52 @@ export type SeedAutomationRead = { preview: SeedAutomationPreview } | { error: s
  *
  * @param input.readAutomation - What the target runs on the given objects.
  * @param input.readLimits - The target's daily email limits, as `/limits` say them.
+ * @param input.deliverability - What a run's gate read of what may send and
+ *   whether the org delivers it, said as it is.
+ * @param input.readDeliverability - For a read made ahead of a run: reads
+ *   whether the org delivers what may send, only when something does. A run
+ *   reads it again, an admin can change it at any time.
+ * @param input.writes - The writes the run makes (`seedWritesOf`), which the
+ *   mute it would hold is planned for: the inserts of `objects` when not told.
  */
 export async function readSeedAutomation(input: {
   org: string;
   objects: readonly string[];
   readAutomation: (objects: readonly string[]) => Promise<ForgeTargetAutomation>;
   readLimits: () => Promise<Partial<Record<ForgeEmailLimit, EmailLimit>>>;
+  deliverability?: RunDeliverability;
+  readDeliverability?: () => Promise<DeliverabilityRead>;
+  writes?: SeedWrites;
 }): Promise<SeedAutomationRead> {
+  const writes = input.writes ?? seedWritesOfObjects(input.objects);
   let automation: ForgeTargetAutomation;
   try {
     automation = await input.readAutomation(input.objects);
   } catch (err: unknown) {
     return { error: extractErrorMessage(err) };
   }
+  const deliverability =
+    input.deliverability ??
+    (input.readDeliverability
+      ? (
+          await runEmailsOf({
+            read: automation,
+            writes: SEED_INSERTS,
+            readDeliverability: input.readDeliverability,
+            accepted: false,
+            target: input.org,
+            run: 'seed',
+          })
+        ).gate.deliverability
+      : undefined);
   if (emailsPerInsertOf(automation).length === 0) {
-    return { preview: seedAutomationPreview(automation, input.org, {}) };
+    return { preview: seedAutomationPreview(automation, input.org, {}, deliverability, writes) };
   }
   const limits: EmailLimits = await input
     .readLimits()
     .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
-  return { preview: seedAutomationPreview(automation, input.org, limits) };
+  return { preview: seedAutomationPreview(automation, input.org, limits, deliverability, writes) };
 }
-
-/** How each daily limit is said. */
-const LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, string>> = {
-  SingleEmail: 'single emails',
-  DailyWorkflowEmails: 'workflow emails',
-};
 
 /** Items joined as a sentence lists them: "a", "a and b", "a, b, and c". */
 function listed(items: readonly string[], last = 'and'): string {
@@ -210,6 +252,12 @@ export interface SeedEmailRefusalFigures {
   /** The bypasses that keep senders quiet, the permission set that holds each, and the senders it quiets. */
   bypasses: Array<SeedBypassWay & { quiets: string[] }>;
 }
+
+/**
+ * The code a seed refused for the emails its records make the org send is
+ * answered with: in the panel, and in the command's line and summary.
+ */
+export const SEED_EMAILS_EXCEEDED = 'SEED_EMAILS_EXCEEDED';
 
 /** What a seed's email gate came to. */
 export interface SeedEmailGate {
@@ -274,7 +322,7 @@ export function seedEmailGate(
       .filter((check) => check.verdict === 'unread')
       .map(
         (check) =>
-          `about ${check.emails} ${LIMIT_WORDS[check.limit]}, but what ${org} has left today ` +
+          `about ${emailsOfLimit(check.emails, check.limit)}, but what ${org} has left today ` +
           `could not be read (${check.unread ?? 'not said'})`,
       ),
     ...(preview.blinded
@@ -313,7 +361,7 @@ export function seedEmailGate(
   const said = exceeding
     .map(
       (check) =>
-        `about ${check.emails} ${LIMIT_WORDS[check.limit]} (` +
+        `about ${emailsOfLimit(check.emails, check.limit)} (` +
         check.objects.map((o) => `${o.perRecord} per ${o.objectApiName}`).join(', ') +
         `), ${check.remaining ?? 0} of ${check.max ?? 0} left today`,
     )
@@ -433,10 +481,9 @@ export function seedAutomationLines(read: SeedAutomationRead, target: string): s
             'was found to hold it',
     );
   }
-  if (
-    preview.alertsAsSingle &&
-    preview.emailsPerRecord.some((sending) => sending.limit === 'DailyWorkflowEmails')
-  ) {
+  // Told by the single emails the alerts are among: a flow's single emails
+  // count against the workflow emails too, alerts or not.
+  if (preview.alertsAsSingle && preview.emailsPerRecord.some((sending) => sending.alertsAmong)) {
     lines.push(
       `  ${target} counts its email alerts against its single emails too, as a Developer ` +
         'Edition does',

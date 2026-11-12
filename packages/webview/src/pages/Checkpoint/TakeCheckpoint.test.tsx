@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import type { OrgCheckpoint } from '@sandforge/shared';
 import {
+  CHATTER_LEFT_OUT,
+  LEFT_OUT_DETAIL,
   LEFT_OUT_FOR_ACCESS,
   developerOrg,
   fakeHost,
@@ -21,6 +24,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
   getVscodeApi: () => host.current?.api,
 }));
 
+import { formatNumber } from '../../utils/formatters';
 import { TakeCheckpoint } from './TakeCheckpoint';
 
 /** The take of the Developer Edition org, with spies for what it tells its page. */
@@ -106,7 +110,9 @@ describe('TakeCheckpoint', () => {
       ),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByTestId('checkpoint-left-out')).getByText(/Chatter posts are left out\./),
+      within(screen.getByTestId('checkpoint-left-out')).getByText(
+        /Chatter posts, comments and feeds are left out/,
+      ),
     ).toBeInTheDocument();
   });
 
@@ -740,7 +746,7 @@ describe('TakeCheckpoint — View All and Modify All per object', () => {
       `Task — ${LEFT_OUT_FOR_ACCESS.activities}`,
       `Event — ${LEFT_OUT_FOR_ACCESS.activities}`,
       `Opportunity — ${LEFT_OUT_FOR_ACCESS.noModifyAll}`,
-      `OpportunityLineItem — ${LEFT_OUT_FOR_ACCESS.parentNotSeen}`,
+      `OpportunityLineItem — ${LEFT_OUT_FOR_ACCESS.parentNotSeen} (${LEFT_OUT_DETAIL})`,
       `Product2 — ${LEFT_OUT_FOR_ACCESS.catalog}`,
     ]);
     const others = screen.getByTestId('checkpoint-left-out');
@@ -749,7 +755,61 @@ describe('TakeCheckpoint — View All and Modify All per object', () => {
       within(others)
         .getAllByRole('listitem')
         .map((item) => item.textContent),
-    ).toEqual(['FeedItem — Chatter posts are left out.']);
+    ).toEqual([`FeedItem — ${CHATTER_LEFT_OUT}`]);
+  });
+
+  it('says why an object is left out in the interface’s language, whatever words the extension kept', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(() => i18n.changeLanguage('fr'));
+    try {
+      renderTake();
+      answerScope(
+        scopeAnswer({
+          leftOut: [
+            { objectApiName: 'FeedItem', code: 'chatter', reason: CHATTER_LEFT_OUT },
+            {
+              objectApiName: 'Lead',
+              code: 'unreadable',
+              reason: 'Left out: the org refuses to read it whole (OPERATION_TOO_LARGE).',
+              detail: 'OPERATION_TOO_LARGE',
+            },
+            {
+              objectApiName: 'Case',
+              code: 'pastTheLimit',
+              reason:
+                "Case has 2500000 records, past the checkpoint's limit of 2000000 for one object: " +
+                'left out of the checkpoint, as part of it would be taken for all of it.',
+              records: 2_500_000,
+              limit: 2_000_000,
+            },
+          ],
+        }),
+      );
+      const items = within(screen.getByTestId('checkpoint-left-out'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent);
+      expect(items[0]).toBe(`FeedItem — ${fr.checkpointNotes.leftOut.chatter}`);
+      // The org's own words stay as it said them.
+      expect(items[1]).toBe(
+        `Lead — ${fr.checkpointNotes.leftOut.unreadable} (OPERATION_TOO_LARGE)`,
+      );
+      expect(items[2]).toContain(`Case a ${formatNumber(2_500_000)} enregistrements`);
+      expect(items[2]).toContain(`la limite de ${formatNumber(2_000_000)}`);
+    } finally {
+      await act(() => i18n.changeLanguage('en'));
+    }
+  });
+
+  it('says in the extension’s words why an object is left out when its entry names no code', () => {
+    renderTake();
+    answerScope(
+      scopeAnswer({
+        leftOut: [{ objectApiName: 'FeedItem', reason: 'Chatter posts are left out.' }],
+      }),
+    );
+    expect(
+      within(screen.getByTestId('checkpoint-left-out')).getByRole('listitem').textContent,
+    ).toBe('FeedItem — Chatter posts are left out.');
   });
 
   it('names an object the user’s permissions leave out, looked for by name among the objects to pick, with why it can’t be picked', () => {

@@ -55,6 +55,19 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => {
 const ORG_ID = '00D000000000001AAA';
 const COLLEAGUE = '005000000000003AAA';
 const T0 = Date.parse('2026-10-22T14:05:12.731Z');
+
+// This machine's clock pinned a minute after T0, going on: what the store
+// and the handler date by it — an undo's fifteen days, a checkpoint's expiry —
+// reads as the tests' org does, whatever day they run. Left to the real one,
+// every undo these tests offer was refused fifteen days after they were written.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: T0 + 60_000, shouldAdvanceTime: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 const LONG_AGO = Date.parse('2026-10-01T09:00:00.000Z');
 let clock = T0;
 
@@ -118,6 +131,7 @@ class McpTestOrg extends MemoryRestoreOrg {
       PermissionsViewAllData: true,
       PermissionsModifyAllData: true,
       PermissionsViewEncryptedData: false,
+      PermissionsEmailSingle: true,
     });
     this.add('Account', { Id: id('001', 1), Name: 'Northwind' });
     this.add('Account', { Id: id('001', 2), Name: 'Contoso' });
@@ -167,6 +181,7 @@ function connectionOf(org: McpTestOrg) {
     describeGlobal: () => org.describeGlobal(),
     tooling: { describeGlobal: () => Promise.resolve({ sobjects: [] }) },
     sobject: (objectApiName: string) => ({
+      create: (records: Array<Record<string, unknown>>) => org.create(objectApiName, records),
       update: (records: Array<Record<string, unknown>>) => org.update(objectApiName, records),
       destroy: (ids: string[]) => org.destroy(objectApiName, ids),
     }),
@@ -473,6 +488,110 @@ describe('sandforge-mcp: the checkpoint tools on the memory org', () => {
         .map((row) => row.Name)
         .sort(),
     ).toEqual(['Renamed', 'Renamed too']);
+    await h.close();
+  });
+
+  it('names, under the preview the script answers, the parameter of checkpoint_rewind a record the recycle bin no longer gives back needs; the rewind is refused without it and makes the record again with it', async () => {
+    // Live, a contact deleted on its own, then the account it had been moved
+    // under: checkpoint_preview said "1 to make again" and named no parameter,
+    // and checkpoint_rewind was then refused RECREATE.
+    const h = harness();
+    await h.request('initialize', {
+      protocolVersion: '2025-11-25',
+      capabilities: {},
+      clientInfo: { name: 'test', version: '0' },
+    });
+    await h.call('checkpoint_take', { org: 'DEV-SB', name: 'Before UAT' });
+    clock = T0 + 60_000;
+    h.org.trash('Case', id('500', 1), COLLEAGUE);
+    h.org.purge(id('500', 1));
+    clock = T0 + 120_000;
+    const at = { org: 'DEV-SB', checkpoint: 'Before UAT' };
+
+    const preview = await h.call('checkpoint_preview', at);
+
+    expect(preview, textOf(preview)).toMatchObject({
+      isError: false,
+      structuredContent: { exitCode: 0, answer: { toRecreate: 1, refusal: { code: 'RECREATE' } } },
+    });
+    expect(textOf(preview)).toContain(
+      "--accept-recreate, named above, is checkpoint_rewind's acceptRecreate: true, on the " +
+        'rewind this preview is of. Give it only once the person using you has accepted what it ' +
+        'lets through.',
+    );
+    // What runs as it writes cannot be read on this org: asked too.
+    expect(textOf(preview)).toContain(
+      "--accept-automation, named above, is checkpoint_rewind's acceptAutomation: true",
+    );
+    expect(textOf(preview)).not.toContain("is this tool's");
+
+    const refused = await h.call('checkpoint_rewind', { ...at, confirm: 'DEV-SB' });
+
+    expect(refused).toMatchObject({
+      isError: true,
+      structuredContent: { exitCode: 1, answer: { refusal: { code: 'RECREATE' } } },
+    });
+    expect(textOf(refused)).toContain(
+      "--accept-recreate, named above, is this tool's acceptRecreate: true.",
+    );
+    expect(h.org.creates).toEqual([]);
+
+    const remade = await h.call('checkpoint_rewind', {
+      ...at,
+      confirm: 'DEV-SB',
+      acceptRecreate: true,
+      acceptAutomation: true,
+    });
+
+    expect(remade, textOf(remade)).toMatchObject({
+      isError: false,
+      structuredContent: { exitCode: 0, answer: { status: 'success' } },
+    });
+    expect(h.org.creates.map((each) => each.objectApiName)).toEqual(['Case']);
+    expect(h.org.all('Case').map((row) => row.Subject)).toEqual(['Broken']);
+    await h.close();
+  });
+
+  it('names, under a checkpoint_rewind refused, the parameter of every refusal it meets in one answer, its code under wouldBeRefusedCodes beside the first (GT8)', async () => {
+    // Live, checkpoint_rewind without acceptance answered RECREATE alone and
+    // named acceptRecreate alone, where its preview named three refusals: a
+    // client that gave it would have been refused AUTOMATION, then
+    // EMAILS_DELIVERED.
+    const h = harness();
+    await h.request('initialize', {
+      protocolVersion: '2025-11-25',
+      capabilities: {},
+      clientInfo: { name: 'test', version: '0' },
+    });
+    await h.call('checkpoint_take', { org: 'DEV-SB', name: 'Before UAT' });
+    clock = T0 + 60_000;
+    h.org.trash('Case', id('500', 1), COLLEAGUE);
+    h.org.purge(id('500', 1));
+    clock = T0 + 120_000;
+    // On All email: what runs as it writes, which cannot be read here, may send some.
+    h.org.anonymousApex = { compiled: true, success: true };
+
+    const refused = await h.call('checkpoint_rewind', {
+      org: 'DEV-SB',
+      checkpoint: 'Before UAT',
+      confirm: 'DEV-SB',
+    });
+
+    expect(refused).toMatchObject({
+      isError: true,
+      structuredContent: {
+        exitCode: 1,
+        answer: {
+          refusal: { code: 'RECREATE' },
+          wouldBeRefusedCodes: ['RECREATE', 'AUTOMATION', 'EMAILS_DELIVERED'],
+        },
+      },
+    });
+    for (const param of ['acceptRecreate', 'acceptAutomation', 'acceptEmails']) {
+      expect(textOf(refused)).toContain(`named above, is this tool's ${param}: true.`);
+    }
+    expect(h.org.creates).toEqual([]);
+    expect(h.org.updates).toEqual([]);
     await h.close();
   });
 });

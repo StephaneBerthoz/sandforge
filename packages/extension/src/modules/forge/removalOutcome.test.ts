@@ -6,6 +6,7 @@ import {
   removalAuditOutcome,
   removalMark,
   removalStatus,
+  removalStatusWithSweep,
 } from './removalOutcome.js';
 
 /** One object's outcome, nothing counted but what a test names. */
@@ -24,6 +25,31 @@ function object(overrides: Partial<ForgeUndoObjectResult>): ForgeUndoObjectResul
     ...overrides,
   };
 }
+
+describe('removalStatusWithSweep', () => {
+  it.each(['partial', 'failure', 'refused'] as const)(
+    'makes partial a removal that took its records with a sweep that ended %s',
+    (status) => {
+      expect(removalStatusWithSweep('success', { status })).toBe('partial');
+    },
+  );
+
+  it('says a sweep stopped part way as a stop', () => {
+    expect(removalStatusWithSweep('success', { status: 'cancelled' })).toBe('cancelled');
+  });
+
+  it('leaves a success with a sweep that took what it was asked, or none asked', () => {
+    expect(removalStatusWithSweep('success', { status: 'success' })).toBe('success');
+    expect(removalStatusWithSweep('success', undefined)).toBe('success');
+  });
+
+  it.each(['partial', 'failure', 'cancelled'] as const)(
+    'leaves a removal that ended %s as it ended, whatever its sweep did',
+    (status) => {
+      expect(removalStatusWithSweep(status, { status: 'refused' })).toBe(status);
+    },
+  );
+});
 
 describe('removalStatus', () => {
   it('is a success when nothing is left in the org, deleted or found gone', () => {
@@ -206,6 +232,32 @@ describe('removalMark', () => {
       alreadyGone: 2,
       kept: 0,
       refused: 1,
+    });
+  });
+
+  it('tells what a cancel did not reach against the platform copies too, which the run records do not count', () => {
+    // A clone of 6 records whose quote the platform copied 2 lines onto: the
+    // removal took the 4 quote lines, the platform's 2 among them, and was
+    // stopped before the 4 other records of the run.
+    const mark = removalMark(
+      {
+        status: 'cancelled',
+        finishedAt: '2026-09-30T09:00:00.000Z',
+        objects: [
+          object({ objectApiName: 'QuoteLineItem', planned: 4, platformCopies: 2, deleted: 4 }),
+          object({ objectApiName: 'Quote', planned: 4, notReached: 4 }),
+        ],
+      },
+      6,
+    );
+
+    expect(mark).toEqual({
+      removedAt: '2026-09-30T09:00:00.000Z',
+      deleted: 4,
+      alreadyGone: 0,
+      kept: 0,
+      refused: 0,
+      notReached: 4,
     });
   });
 

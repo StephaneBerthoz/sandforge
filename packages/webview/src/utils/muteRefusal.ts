@@ -4,8 +4,9 @@
  * `MUTE_PRODUCTION` — the target is a production org, or one that could not
  * be told from one —; `MUTE_NO_RIGHT` — the user the run writes as cannot
  * assign permission sets, or the org would not say —; `MUTE_FAILED` — a set
- * could not be found, assigned or read back —; and a checkpoint's rewind or
- * undo, which says all three as `MUTE`. Nothing was assigned, nothing written.
+ * could not be found, assigned, journaled or read back —; and a checkpoint's
+ * rewind or undo, which says all three as `MUTE`. Nothing was written; what a
+ * failure had assigned was taken back, or its reason says what the org kept.
  *
  * In `common.refusal`, beside the guard's: every page waits on a request
  * that may answer one, and the shell's catalogue holds them. The first two

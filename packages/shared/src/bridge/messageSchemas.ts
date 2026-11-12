@@ -316,6 +316,8 @@ const DataOpsMessages = [
   msg('dataops:anonymize:coverage:response'),
   msg('dataops:anonymize:preview'),
   msg('dataops:anonymize:preview:response'),
+  msg('dataops:automation'),
+  msg('dataops:automation:response'),
   msg('precheck:pii-scan'),
   msg('precheck:pii-scan:response'),
   msg('governance:policies:list'),
@@ -352,6 +354,9 @@ const AutomationMessages = [
   msg('pipeline:history:response'),
   msg('pipeline:save'),
   msg('pipeline:save:response'),
+  // A saved pipeline deleted, unless a run holds it.
+  msg('pipeline:delete'),
+  msg('pipeline:delete:response'),
   // The page's answer to an Approval step that waits (AutomationHandler).
   msg('pipeline:approval'),
   // The saved Sync configurations a Sync step can run, with Production Guard's verdict.
@@ -394,6 +399,8 @@ const AutomationMessages = [
   msg('autopilot:plan-ready'),
   // Fit the plan under review to the target's storage: answered by a plan-ready of the fitted plan.
   msg('autopilot:fit-plan'),
+  // Back to the plan a fit started from: answered by a plan-ready of that plan.
+  msg('autopilot:fit-undo'),
   msg('autopilot:execute'),
   msg('autopilot:node-progress'),
   msg('autopilot:pause'),
@@ -663,6 +670,8 @@ const FrozenMessages = [
   msg('frozen:remove:response'),
   msg('frozen:remove:sweep'),
   msg('frozen:remove:sweep:response'),
+  msg('frozen:remove:automation'),
+  msg('frozen:remove:automation:response'),
   msg('frozen:remove:preview'),
   msg('frozen:remove:preview:response'),
   msg('frozen:status'),
@@ -680,6 +689,7 @@ const FrozenMessages = [
   msg('frozen:verify:error'),
   msg('frozen:remove:error'),
   msg('frozen:remove:sweep:error'),
+  msg('frozen:remove:automation:error'),
   msg('frozen:remove:preview:error'),
   msg('frozen:rules:clear:error'),
   msg('frozen:rules:create:error'),

@@ -238,6 +238,28 @@ describe('simulateObjectOutcome', () => {
     ]);
   });
 
+  it('counts as refused an upsert on the Id the target does not hold, which creates no record', () => {
+    // An upsert on the Id updates the record of that id; the platform never
+    // creates one with an id it is given, and the id is the source's.
+    const records = [{ Id: '001000000000001AAA' }, { Id: '001000000000002AAA' }];
+    const outcome = simulateObjectOutcome(
+      input({
+        objectConfig: objectConfig({ externalIdField: undefined }),
+        read: 2,
+        records,
+        matchField: 'Id',
+        inTarget: new Map([['001000000000001aaa', 1]]),
+      }),
+    );
+
+    expect(outcome).toMatchObject({ insert: 0, update: 1, refused: 1 });
+    expect(outcome.notes).toEqual([
+      '1 record(s) carry an Id the target does not hold: an upsert on the Id finds no record ' +
+        "there and creates none, and the target refuses it. Two orgs share a record's Id only " +
+        'when it was copied with the org.',
+    ]);
+  });
+
   it('counts the rows left to the platform as skipped, each kind said as a run says it', () => {
     const outcome = simulateObjectOutcome(
       input({

@@ -28,10 +28,21 @@ vi.mock('react-i18next', () => ({
 const mockNavigate = vi.fn();
 /* The version last opened, as the extension sent it with whats-new:show. */
 const mockSince = vi.hoisted(() => ({ value: '' }));
+/* Whether the page was asked from Help, where a release that lists nothing shows the one before. */
+const mockStandIn = vi.hoisted(() => ({ value: false }));
 vi.mock('../../stores/useAppStore', () => ({
   useAppStore: (
-    selector: (s: { navigate: typeof mockNavigate; whatsNewSince: string }) => unknown,
-  ) => selector({ navigate: mockNavigate, whatsNewSince: mockSince.value }),
+    selector: (s: {
+      navigate: typeof mockNavigate;
+      whatsNewSince: string;
+      whatsNewStandIn: boolean;
+    }) => unknown,
+  ) =>
+    selector({
+      navigate: mockNavigate,
+      whatsNewSince: mockSince.value,
+      whatsNewStandIn: mockStandIn.value,
+    }),
 }));
 
 /** A version that has highlights to show. */
@@ -39,6 +50,7 @@ const LISTED = '1.0.0';
 
 describe('WhatsNewPage', () => {
   beforeEach(() => {
+    mockStandIn.value = false;
     mockNavigate.mockClear();
     mockSince.value = '';
   });
@@ -202,6 +214,33 @@ describe('WhatsNewPage', () => {
     for (const since of [undefined, '', '1.71.0', 'next']) {
       expect(releasesToShow('1.70.0', since).map((release) => release.version)).toEqual(['1.70.0']);
     }
+  });
+
+  it('shows the newest release listed before a patch release that lists nothing, as Help asks with no version last opened', () => {
+    expect(WHATS_NEW['1.70.1']).toBeUndefined();
+    expect(releasesToShow('1.70.1', undefined, true).map((release) => release.version)).toEqual([
+      '1.70.0',
+    ]);
+    expect(releasesToShow('1.70.1', '', true).map((release) => release.version)).toEqual([
+      '1.70.0',
+    ]);
+    expect(releasesToShow('0.0.1', undefined, true)).toEqual([]);
+    expect(releasesToShow('next', undefined, true)).toEqual([]);
+    // After an update, a release with nothing of its own still shows nothing.
+    expect(releasesToShow('1.70.1')).toEqual([]);
+  });
+
+  it('shows from Help the release a patch release stands for, and closes on an update to it', () => {
+    const onDismiss = vi.fn();
+    mockStandIn.value = true;
+    const { unmount } = render(<WhatsNewPage version="1.70.1" onDismiss={onDismiss} />);
+    expect(screen.getByTestId('release-1.70.0')).toBeDefined();
+    expect(onDismiss).not.toHaveBeenCalled();
+    unmount();
+    mockStandIn.value = false;
+    render(<WhatsNewPage version="1.70.1" onDismiss={onDismiss} />);
+    expect(screen.queryByTestId('whats-new-page')).toBeNull();
+    expect(onDismiss).toHaveBeenCalledOnce();
   });
 
   it('closes itself when no release since the version last opened lists anything', () => {

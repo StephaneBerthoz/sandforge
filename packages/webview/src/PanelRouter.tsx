@@ -53,6 +53,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
   ]),
   frozen: page(() => import('./pages/Frozen/FrozenPage'), 'FrozenPage', [
     'automationMute',
+    'checkpointNotes',
     'errors',
     'frozen',
     'howTo',
@@ -86,10 +87,16 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'list',
   ]),
   dataops: page(() => import('./pages/DataOps/DataOpsPage'), 'DataOpsPage', [
+    // What the org runs as a masking, a restore or a cleanup writes, listed
+    // by the confirmation as Forge's removal lists it, with the mute's box.
+    'automationMute',
     'dataops',
     'emptyState',
     'errors',
     'howTo',
+    'orgAutomation',
+    'runRemoval',
+    'runResults',
   ]),
   automation: page(() => import('./pages/Automation/AutomationPage'), 'AutomationPage', [
     'ai',
@@ -124,6 +131,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
   // Legacy routes (kept for backwards compat)
   seed: page(() => import('./pages/Seed/SeedPage'), 'SeedPage', [
     'automationMute',
+    'checkpointNotes',
     'emptyState',
     'errors',
     'grappe',
@@ -139,6 +147,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
   ]),
   sync: page(() => import('./pages/Sync/SyncPage'), 'SyncPage', [
     'automationMute',
+    'checkpointNotes',
     'emptyState',
     'errors',
     'grappe',
@@ -157,6 +166,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
   autopilot: page(() => import('./pages/Autopilot/AutopilotPage'), 'AutopilotPage', [
     'automationMute',
     'autopilot',
+    'checkpointNotes',
     'emptyState',
     'errors',
     'grappe',

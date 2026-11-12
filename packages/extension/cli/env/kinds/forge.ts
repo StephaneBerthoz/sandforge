@@ -59,16 +59,19 @@ import {
 } from '../../../src/core/precheck/orgKindLive.js';
 import type { RunnableScript } from '../../scriptRunner.js';
 import {
+  codesSaidIn,
   countSchema,
   idSchema,
   readAnswer,
   refusalAt,
   removalObjectSchema,
   removalPreviewSchema,
+  sweepSwitches,
   valueOf,
   type EnvDryRunCount,
   type EnvFileRefusal,
   type EnvRunCount,
+  type EnvSweepAsk,
 } from './common.js';
 
 /** The script a `forge` resource runs. */
@@ -300,7 +303,8 @@ export type EnvSourceRead =
 /**
  * Whether what a forge resource clones is anonymized: its template
  * anonymizes, with a method for at least one category of personal field. An
- * anonymization that names none anonymizes nothing.
+ * anonymization that names none does not count: a run would fall on Forge's
+ * defaults, and the file would say nothing of what is done to the data.
  */
 export function forgeAnonymizes(run: Pick<EnvForgeRun, 'template'>): boolean {
   const rules = run.template.anonymization?.rules ?? {};
@@ -330,7 +334,7 @@ export function realDataRefusal(
   if (run.acceptRealData || forgeAnonymizes(run)) return undefined;
   const empty =
     run.template.config.anonymizePII === true
-      ? ' Its anonymize sets a method for no category of personal field, so it anonymizes nothing.'
+      ? ' Its anonymize sets a method for no category of personal field, so it does not count.'
       : '';
   return (
     `its source, ${what}, is a production org (${productionEvidence(typed)}): what it clones ` +
@@ -527,13 +531,16 @@ function forgeRemovalSwitches(input: ForgeRemovalLine): string[] {
 }
 
 /** The line of the removal of a forge resource's run, its outcome alone on stdout. */
-export function forgeRemoveLine(input: ForgeRemovalLine & { sweep?: boolean }): string[] {
-  return [...forgeRemovalSwitches(input), ...(input.sweep === true ? ['--sweep'] : []), '--json'];
+export function forgeRemoveLine(input: ForgeRemovalLine & EnvSweepAsk): string[] {
+  return [...forgeRemovalSwitches(input), ...sweepSwitches(input), '--json'];
 }
 
-/** The line of the preview of that removal: what it would do, nothing written. */
-export function forgePreviewLine(input: ForgeRemovalLine): string[] {
-  return [...forgeRemovalSwitches(input), '--preview', '--json'];
+/**
+ * The line of the preview of that removal: what it would do, nothing
+ * written; with its sweep, what that would take and what fires on it.
+ */
+export function forgePreviewLine(input: ForgeRemovalLine & EnvSweepAsk): string[] {
+  return [...forgeRemovalSwitches(input), '--preview', ...sweepSwitches(input), '--json'];
 }
 
 /** The line of the verification of what a forge resource's run created. */
@@ -585,6 +592,8 @@ export const forgeDryRunAnswerSchema = z.object({
     })
     .optional(),
   wouldBeRefused: z.array(z.string()).optional(),
+  /** The code of each of `wouldBeRefused`, in their order. */
+  wouldBeRefusedCodes: z.array(z.string()).optional(),
   /** What the org to fill holds against the rows, read from its metadata: see {@link forgeTargetRefusal}. */
   targetGaps: z
     .object({
@@ -659,6 +668,8 @@ export const forgePreviewAnswerSchema = z.object({
   includeChanged: z.boolean(),
   preview: removalPreviewSchema,
   refusals: z.array(z.string()),
+  /** The code of each refusal, in their order. */
+  refusalCodes: z.array(z.string()).optional(),
   notes: z.array(z.string()),
   elapsedMs: countSchema,
 });
@@ -724,7 +735,10 @@ export function forgeTargetRefusal(
             ? []
             : [`${name}, which the org requires and the clone does not write`];
         case 'object_not_createable':
+        case 'object_through_parent':
           return [`${name}, which the user it writes as may not create`];
+        case 'object_feature_off':
+          return [`${name}, which a feature or licence the org has not turned on keeps closed`];
         case 'api_budget':
           return ['more API requests than the org has left today'];
         default:
@@ -778,6 +792,9 @@ export function readForgeVerify(stdout: string): ForgeVerifyAnswer {
 export function forgeDryRunCount(answer: ForgeDryRunAnswer): EnvDryRunCount {
   const plan = answer.writePlan;
   const said = (answer.wouldBeRefused ?? []).join(' ');
+  // The clone's own codes, for what it said: the plan's words are its own.
+  const codes = codesSaidIn(said, answer.wouldBeRefused, answer.wouldBeRefusedCodes);
+  const coded = codes.length > 0 ? { refusalCodes: codes } : {};
   if (plan === undefined) {
     return {
       objects: [],
@@ -790,6 +807,7 @@ export function forgeDryRunCount(answer: ForgeDryRunAnswer): EnvDryRunCount {
           ? said
           : 'the clone never came to count what it would write, and a run held to no count is ' +
             'held to nothing',
+      ...coded,
     };
   }
   const exact = answer.result.wouldInsertCount === plan.totalRows;
@@ -810,7 +828,7 @@ export function forgeDryRunCount(answer: ForgeDryRunAnswer): EnvDryRunCount {
     created: answer.result.wouldInsertCount,
     storageBytes: plan.storageBytes,
     emails: plan.emails ?? [],
-    ...(refusal !== undefined ? { refusal } : {}),
+    ...(refusal !== undefined ? { refusal, ...coded } : {}),
   };
 }
 

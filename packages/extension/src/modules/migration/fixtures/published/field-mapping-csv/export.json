@@ -1,0 +1,17 @@
+{
+  "$comment": "SFDMU's Fields Mapping example with its targetObject taken out, one mapping left in the export and the others in the FieldMapping.csv beside it: https://forcedotcom.github.io/SFDX-Data-Move-Utility/full-documentation/advanced-features/fields-mapping (BSD 3-Clause license, salesforce.com, inc.)",
+  "objects": [
+    {
+      "query": "SELECT Id, Name, ParentId, ExternalID__c, TEST__c FROM Account",
+      "operation": "Upsert",
+      "externalId": "External_ID__c",
+      "useFieldMapping": true,
+      "fieldMapping": [
+        {
+          "sourceField": "ExternalID__c",
+          "targetField": "External_ID__c"
+        }
+      ]
+    }
+  ]
+}

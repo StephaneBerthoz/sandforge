@@ -23,6 +23,20 @@
  * metadata: the Tooling API serves them, and the data API will not create
  * the rest. {@link excludedByDescribe} reads both; the list below keeps what
  * no describe singles out.
+ *
+ * What no user can create in the target is told by the target itself
+ * (`targetCreators.ts`): read once a run, the objects a permission set can
+ * give Create on and whether the user holds Modify All Data say the setup and
+ * the platform's own records from data the user lacks Create on, and the gap
+ * reader leaves those out of a run with that said. Most of the setup and the
+ * logs below are what it tells — reports, dashboards, apps, tabs, delete
+ * events, calendars, entitlement processes, clean info, the event stores —
+ * and so are the objects of a feature the target has not turned on —
+ * invoices, approvals' submissions and work items, Einstein's insights —
+ * which it says blocking with the feature to turn on. They stay named here
+ * all the same: discovery reads the source alone and would otherwise count
+ * them and walk through them, and Sync's picker, Autopilot and a checkpoint
+ * read no such facts of the target.
  */
 
 import { isFileBodiedObject, isUncopyableObject } from '@sandforge/shared';
@@ -91,6 +105,66 @@ const EXCLUDED_OBJECT_NAMES: readonly string[] = [
   // of their own, which writes both.
   'ContentDocument',
   'ContentDocumentLink',
+  // Logs and a history the platform alone writes about a record, which
+  // discovery reaches through the record's children or a feed item's parent
+  // and no suffix below names. An org's own describe, read as its
+  // administrator, says none of them createable or deletable. Reached, the
+  // clone of an opportunity ended partial: a split deleted from it in the
+  // source had left four delete logs, which "Object is not createable on
+  // target org" skipped as a blocking gap, and Apex refuses them too ("DML
+  // operation Delete not allowed on OpportunityRelatedDeleteLog"). The
+  // CaseHistory2 rows of a deep clone's cases were said blocking the same
+  // way, the target's admin asked to grant Create on them. The event stores,
+  // a feed item's parent among them, are left out by their suffix below.
+  'OpportunityRelatedDeleteLog',
+  'CaseHistory2',
+  // What the platform alone creates, or setup it keeps as records: the global
+  // describe of a scratch org, read as an administrator holding Modify All
+  // Data, says none of them createable. A calendar and an entitlement
+  // process are made in Setup; Data.com Clean writes its clean info, an
+  // approval its submissions and work items, Einstein its insights, and
+  // invoicing its invoices and credit memos. A deep clone reached a
+  // calendar and an entitlement process, and its dry run said each BLOCKING,
+  // the target's admin asked to grant a Create no user can be granted.
+  'Calendar',
+  'SlaProcess',
+  'AccountCleanInfo',
+  'ContactCleanInfo',
+  'LeadCleanInfo',
+  'ApprovalSubmission',
+  'ApprovalSubmissionDetail',
+  'ApprovalWorkItem',
+  'AIRecordInsight',
+  'AIInsightValue',
+  'MatchingInformation',
+  'Invoice',
+  'InvoiceLine',
+  'CreditMemo',
+  'CreditMemoLine',
+  // Setup an org keeps as records, which a feed item's parent and other
+  // polymorphic lookups name: reports and dashboards, apps and tabs, the
+  // recycle bin's delete events, content workspaces, channels and variants,
+  // and the platform's own jobs and provisioning. The administrator's global
+  // describe, Modify All Data held, says none of them createable, editable or
+  // deletable, yet the org's EntityDefinition answers IsEverCreatable true for
+  // each — as it does for a calendar or an entitlement process — so no gap
+  // reader can tell them from data the user lacks Create on. The clone of an
+  // opportunity reached its six reports through its feed item, and its dry run
+  // said Report BLOCKING, asking the target's admin to tick Create on it. A
+  // dashboard's components go with it: a feed item's parent names them too,
+  // and the same clone listed them as an object of its graph, empty.
+  'AppDefinition',
+  'BackgroundOperation',
+  'ContentTaxonomyTermRelationshipType',
+  'Dashboard',
+  'DashboardComponent',
+  'DeleteEvent',
+  'ManagedContentChannel',
+  'ManagedContentSpace',
+  'ManagedContentVariant',
+  'Report',
+  'ServiceSetupProvisioning',
+  'TabDefinition',
 ];
 
 /*
@@ -105,7 +179,10 @@ const EXCLUDED_OBJECTS: ReadonlySet<string> = new Set(
   EXCLUDED_OBJECT_NAMES.map((name) => name.toLowerCase()),
 );
 
-/** History, feed, sharing and change-event variants of any object, in lower case. */
+/**
+ * History, feed, sharing and change-event variants of any object, and the
+ * event stores, in lower case.
+ */
 const EXCLUDED_SUFFIXES: readonly string[] = [
   'History',
   'Feed',
@@ -113,6 +190,12 @@ const EXCLUDED_SUFFIXES: readonly string[] = [
   'ChangeEvent',
   '__hd',
   '__Tag',
+  // Where Threat Detection and Event Monitoring keep what they saw, which the
+  // platform alone writes: an org's global describe lists nine, none
+  // createable, editable or deletable. Five were named one by one, and a
+  // checkpoint of picked objects said the others, a session hijacking store
+  // among them, left out for a permission the user lacks.
+  'EventStore',
 ].map((suffix) => suffix.toLowerCase());
 
 /**

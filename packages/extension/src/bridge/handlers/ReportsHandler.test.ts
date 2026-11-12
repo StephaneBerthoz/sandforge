@@ -90,6 +90,21 @@ describe('ReportsHandler', () => {
     expect(payload.reports).toHaveLength(2);
   });
 
+  it("types a Forge run as Forge's: the badge of its report said it was a seed", async () => {
+    const { deps, posted } = makeDeps({
+      'forge:history': [forgeRun()],
+      'sync:history:all': [syncRun()],
+    });
+
+    await new ReportsHandler(deps).handle(listMsg());
+
+    const { reports } = (
+      posted[0] as BaseMessage & { payload: { reports: { id: string; type: string }[] } }
+    ).payload;
+    expect(reports.find((r) => r.id.startsWith('forge-'))?.type).toBe('forge_execution');
+    expect(reports.find((r) => r.id.startsWith('sync-'))?.type).toBe('sync_execution');
+  });
+
   it('orders newest first, across both modules', async () => {
     const { deps, posted } = makeDeps({
       'forge:history': [forgeRun({ forgeId: 'old', timestamp: '2026-01-01T00:00:00.000Z' })],

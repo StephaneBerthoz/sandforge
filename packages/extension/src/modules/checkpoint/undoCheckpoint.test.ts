@@ -56,6 +56,19 @@ const AUTOMATED_PROCESS = '005000000000002AAA';
 const COLLEAGUE = '005000000000003AAA';
 
 const T0 = Date.parse('2026-10-22T14:05:12.731Z');
+
+// This machine's clock pinned a minute after T0, going on: what the store
+// and the handler date by it — an undo's fifteen days, a checkpoint's expiry —
+// reads as the tests' org does, whatever day they run. Left to the real one,
+// every undo these tests offer was refused fifteen days after they were written.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: T0 + 60_000, shouldAdvanceTime: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 const LONG_AGO = Date.parse('2026-10-01T09:00:00.000Z');
 const SINCE = T0 + 60_000;
 const PREVIEWED = T0 + 120_000;
@@ -136,6 +149,7 @@ class UndoTestOrg extends MemoryRestoreOrg implements TakeOrg {
       PermissionsViewAllData: true,
       PermissionsModifyAllData: true,
       PermissionsViewEncryptedData: false,
+      PermissionsEmailSingle: true,
     });
     this.add('User', { Id: AUTOMATED_PROCESS, UserType: 'AutomatedProcess' });
     this.add('User', { Id: MEMORY_ORG_USER, Name: 'Ada Admin' });
@@ -677,7 +691,7 @@ describe('undoCheckpoint: what it refuses before it writes', () => {
       refusal: {
         code: 'EMAILS',
         message: expect.stringMatching(
-          /^This undo would make DEV-ED send about 1 single emails, 0 of 15 left today: .*then undo the rewind again\. No record was written\.$/,
+          /^This undo would make DEV-ED send about 1 single email, 0 of 15 left today: .*then undo the rewind again\. No record was written\.$/,
         ) as unknown,
       },
     });

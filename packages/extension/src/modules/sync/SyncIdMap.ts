@@ -66,13 +66,25 @@ export interface SyncIdMapStore {
    * characters of their source id; `null` for a configuration that keeps none.
    */
   load(configId: string, orgs: SyncLinkOrgs): Promise<ReadonlyMap<string, string> | null>;
-  /** Add what one write of `objectApiName` wrote or linked. */
+  /**
+   * Add what one write of `objectApiName` wrote or, `linked`, linked to a
+   * record the target held.
+   */
   record(
     configId: string,
     orgs: SyncLinkOrgs,
     objectApiName: string,
     pairs: readonly SyncLinkPair[],
+    linked?: boolean,
   ): Promise<void>;
+  /**
+   * Of the records earlier runs wrote between these orgs, those whose pair is
+   * a link to a record the target held, which no run created: by the first
+   * fifteen characters of their source id. A second run said "already copied
+   * by an earlier run" of an account the first had linked. Absent from a
+   * store that keeps no such mark.
+   */
+  linked?(configId: string, orgs: SyncLinkOrgs): Promise<ReadonlySet<string>>;
   /**
    * Forget the records in the target a delta run deleted, as the source had
    * deleted theirs (`SyncLinkForgetter.forget`). Absent from a store that
@@ -126,6 +138,8 @@ const pairsSchema = z.object({
   t: orgSchema,
   o: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,79}$/),
   p: z.array(z.tuple([idSchema, idSchema])).max(50_000),
+  /** Links to records the target held, which the run did not create; absent on a line it wrote. */
+  l: z.literal(true).optional(),
 });
 
 /** A line per removal: the records in the target it took. */
@@ -160,6 +174,8 @@ interface KeptPair {
   t: string;
   o: string;
   target: string;
+  /** A link to a record the target held. */
+  linked?: true;
 }
 
 /**
@@ -174,12 +190,19 @@ function readPairs(text: string): Map<string, KeptPair & { source: string }> {
     const value = parseLine(line);
     const pairs = pairsSchema.safeParse(value);
     if (pairs.success) {
-      const { s, t, o, p } = pairs.data;
+      const { s, t, o, p, l } = pairs.data;
       for (const [source, target] of p) {
         const key = `${s}|${t}|${idKey(source)}`;
         // Taken out and put back: the order is the order last written.
         kept.delete(key);
-        kept.set(key, { s, t, o, source, target });
+        kept.set(key, {
+          s,
+          t,
+          o,
+          source,
+          target,
+          ...(l === true ? { linked: true as const } : {}),
+        });
       }
       continue;
     }
@@ -285,12 +308,25 @@ export class SyncIdMap implements SyncIdMapStore, SyncLinkForgetter {
     return map;
   }
 
+  /** See {@link SyncIdMapStore.linked}. */
+  async linked(configId: string, orgs: SyncLinkOrgs): Promise<ReadonlySet<string>> {
+    await this.queue;
+    const keys = new Set<string>();
+    for (const pair of (await this.read(configId)).values()) {
+      if (pair.linked && pair.s === orgs.sourceOrgId && pair.t === orgs.targetOrgId) {
+        keys.add(idKey(pair.source));
+      }
+    }
+    return keys;
+  }
+
   /** See {@link SyncIdMapStore.record}. A pair whose ids do not read as ids is left out. */
   record(
     configId: string,
     orgs: SyncLinkOrgs,
     objectApiName: string,
     pairs: readonly SyncLinkPair[],
+    linked = false,
   ): Promise<void> {
     const valid = pairs.filter(
       ([source, target]) =>
@@ -306,6 +342,7 @@ export class SyncIdMap implements SyncIdMapStore, SyncLinkForgetter {
           t: orgs.targetOrgId,
           o: objectApiName,
           p: valid.slice(at, at + 50_000),
+          ...(linked ? { l: true as const } : {}),
         };
         await this.deps.appendFile(file, `${JSON.stringify(line)}\n`);
       }
@@ -355,11 +392,23 @@ export class SyncIdMap implements SyncIdMapStore, SyncLinkForgetter {
     const lines: Array<z.infer<typeof pairsSchema>> = [];
     for (const pair of kept) {
       const last = lines[lines.length - 1];
-      if (last?.s === pair.s && last.t === pair.t && last.o === pair.o && last.p.length < 50_000) {
+      if (
+        last?.s === pair.s &&
+        last.t === pair.t &&
+        last.o === pair.o &&
+        last.l === pair.linked &&
+        last.p.length < 50_000
+      ) {
         last.p.push([pair.source, pair.target]);
         continue;
       }
-      lines.push({ s: pair.s, t: pair.t, o: pair.o, p: [[pair.source, pair.target]] });
+      lines.push({
+        s: pair.s,
+        t: pair.t,
+        o: pair.o,
+        p: [[pair.source, pair.target]],
+        ...(pair.linked ? { l: true as const } : {}),
+      });
     }
     const written = `${file}.${process.pid}.tmp`;
     await this.deps.writeFile(written, lines.map((line) => `${JSON.stringify(line)}\n`).join(''));
@@ -381,9 +430,11 @@ export function savedConfigIdMap(
 ): SyncIdMapStore {
   return {
     load: async (configId, orgs) => (isSaved(configId) ? map.load(configId, orgs) : null),
-    record: async (configId, orgs, objectApiName, pairs) => {
-      if (isSaved(configId)) await map.record(configId, orgs, objectApiName, pairs);
+    record: async (configId, orgs, objectApiName, pairs, linked) => {
+      if (isSaved(configId)) await map.record(configId, orgs, objectApiName, pairs, linked);
     },
+    linked: async (configId, orgs) =>
+      isSaved(configId) && map.linked ? map.linked(configId, orgs) : new Set<string>(),
     forget: async (configId, orgs, targetIds) =>
       isSaved(configId) && map.forget ? map.forget(configId, orgs, targetIds) : 0,
   };

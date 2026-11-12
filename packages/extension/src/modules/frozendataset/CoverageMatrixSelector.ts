@@ -218,6 +218,9 @@ function heaviestObjects(
  * `excludedObjects` found that way to load anything.
  */
 export class VolumetryBudgetExceededError extends Error {
+  /** The heaviest objects, each with its count, as the message names them. */
+  readonly heaviest: string[];
+
   constructor(
     readonly measured: Record<string, number>,
     readonly total: number,
@@ -225,9 +228,10 @@ export class VolumetryBudgetExceededError extends Error {
     rootObject?: string,
   ) {
     const heaviest = heaviestObjects(measured, rootObject);
+    const counted = heaviest.map((h) => `${h.objectApiName} ${h.count}`);
     const named =
       heaviest.length > 0
-        ? `The heaviest: ${heaviest.map((h) => `${h.objectApiName} ${h.count}`).join(', ')}. ` +
+        ? `The heaviest: ${counted.join(', ')}. ` +
           `Leave out those the dataset does not need with excludedObjects ` +
           `(${JSON.stringify(heaviest.map((h) => h.objectApiName))}), narrow the coverage ` +
           `axes/edge cases, or raise budgetMaxRecords explicitly. `
@@ -237,6 +241,7 @@ export class VolumetryBudgetExceededError extends Error {
         `${named}Per-object counts: ${JSON.stringify(measured)}`,
     );
     this.name = 'VolumetryBudgetExceededError';
+    this.heaviest = counted;
   }
 }
 

@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ForgeTargetAutomation } from '@sandforge/shared';
 
+import type { RemovalOrg } from '../forge/ForgeRunRemoval';
 import {
+  duplicateSetsOfRemoval,
   seedSweepInput,
   seedWrittenBetween,
   writerOf,
@@ -10,6 +12,76 @@ import {
 } from './seedRunSweep';
 
 const fakeId = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
+
+describe('duplicateSetsOfRemoval', () => {
+  const CONTACT = fakeId('003', 1);
+  const SET = fakeId('0GK', 1);
+
+  /** An org answering the items a set holds, and what it refuses of them. */
+  function orgHolding(items: () => Array<{ DuplicateRecordSetId: string }>) {
+    const asked: string[] = [];
+    const destroy = vi.fn(async (_object: string, ids: string[]) =>
+      ids.map((id) => ({ id, success: true, errors: [] })),
+    );
+    return {
+      asked,
+      destroy,
+      org: {
+        query: vi.fn(async (soql: string) => {
+          asked.push(soql);
+          return { records: items() };
+        }),
+        destroy,
+      } as unknown as RemovalOrg,
+    };
+  }
+
+  it('reads the sets by the items that name the run’s records, and asks nothing more of a run with none', async () => {
+    const { org, asked, destroy } = orgHolding(() => []);
+
+    const sets = await duplicateSetsOfRemoval(org, [{ objectApiName: 'Contact', ids: [CONTACT] }]);
+
+    expect(asked).toEqual([
+      `SELECT DuplicateRecordSetId FROM DuplicateRecordItem WHERE RecordId IN ('${CONTACT}')`,
+    ]);
+    expect(await sets.take()).toEqual({});
+    expect(asked).toHaveLength(1);
+    expect(destroy).not.toHaveBeenCalled();
+  });
+
+  it('deletes a set once no item names it, and counts it', async () => {
+    let held = [{ DuplicateRecordSetId: SET }];
+    const { org, destroy } = orgHolding(() => held);
+
+    const sets = await duplicateSetsOfRemoval(org, [{ objectApiName: 'Contact', ids: [CONTACT] }]);
+    held = [];
+    const { object } = await sets.take();
+
+    expect(destroy).toHaveBeenCalledWith('DuplicateRecordSet', [SET]);
+    expect(object).toMatchObject({ planned: 1, deleted: 1, refused: 0 });
+  });
+
+  it('keeps a set that still holds an item, and says nothing of it', async () => {
+    const { org, destroy } = orgHolding(() => [{ DuplicateRecordSetId: SET }]);
+
+    const sets = await duplicateSetsOfRemoval(org, [{ objectApiName: 'Contact', ids: [CONTACT] }]);
+
+    expect(await sets.take()).toEqual({});
+    expect(destroy).not.toHaveBeenCalled();
+  });
+
+  it('says a read the org refused, never throwing it: the removal stands', async () => {
+    const org = {
+      query: vi.fn(async () => {
+        throw new Error("INVALID_TYPE: sObject type 'DuplicateRecordItem' is not supported");
+      }),
+    } as unknown as RemovalOrg;
+
+    const sets = await duplicateSetsOfRemoval(org, [{ objectApiName: 'Contact', ids: [CONTACT] }]);
+
+    expect((await sets.take()).note).toContain('INVALID_TYPE');
+  });
+});
 
 /**
  * An org answering `SELECT Id, CreatedDate FROM <Object> WHERE Id IN (…)`
@@ -110,6 +182,10 @@ describe('seedSweepInput', () => {
       org,
       [{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }],
       automation,
+      undefined,
+      undefined,
+      [],
+      { ties: {} },
     );
 
     expect(input.writtenBetween).toEqual({
@@ -233,6 +309,8 @@ describe('writtenSince', () => {
         serverTime: orgClock,
         now,
       },
+      [],
+      { ties: {} },
     );
 
     expect(input.writtenBetween).toEqual({
@@ -324,6 +402,7 @@ describe('a Sync run that created nothing and only wrote over records', () => {
         now: () => new Date('2026-10-01T08:00:00.000Z'),
       },
       [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }],
+      { ties: {} },
     );
 
     expect(input.writtenBetween).toEqual(WRITTEN);
@@ -349,9 +428,73 @@ describe('a Sync run that created nothing and only wrote over records', () => {
       undefined,
       undefined,
       [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }],
+      { ties: {} },
     );
 
     expect(input.user).toBeUndefined();
     expect(org.query).not.toHaveBeenCalled();
+  });
+
+  it('takes the user its file kept first, and reads none from the records it wrote over', async () => {
+    // Put back by a removal: the records no longer say who wrote over them.
+    const { org, statements } = orgModified({
+      [fakeId('001', 1)]: { by: COLLEAGUE, at: '2026-10-01T08:00:00.000+0000' },
+    });
+    const writes = {
+      at: WRITTEN.first,
+      lastAt: WRITTEN.last,
+      serverTime: async () => '2026-10-01T08:00:00.000Z',
+      now: () => new Date('2026-10-01T08:00:00.000Z'),
+    };
+    const over = [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }];
+    const automation = {
+      objectsRead: [],
+      objects: [],
+      unread: [],
+    } as unknown as ForgeTargetAutomation;
+
+    const read = await seedSweepInput(org, [], automation, undefined, writes, over, { ties: {} });
+    expect(read.user).toBeUndefined();
+    expect(read.runUserId).toBeUndefined();
+    expect(statements).toHaveLength(1);
+
+    statements.length = 0;
+    const kept = await seedSweepInput(org, [], automation, undefined, writes, over, {
+      runUserId: USER,
+      ties: {},
+    });
+    expect(kept.runUserId).toBe(USER);
+    expect(kept.user).toBeUndefined();
+    expect(statements).toEqual([]);
+  });
+
+  it('ties what the automation made to the records it created and, as made over, to those it wrote over', async () => {
+    const { org } = orgModified({});
+    const dated = {
+      ...org,
+      queryDeleted: vi.fn(async () => ({
+        records: [{ Id: fakeId('003', 1), CreatedDate: '2026-09-20T10:01:00.000+0000' }],
+      })),
+    };
+    const automation = {
+      objectsRead: [],
+      objects: [],
+      unread: [],
+    } as unknown as ForgeTargetAutomation;
+    const created = [{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }];
+    const over = [
+      { objectApiName: 'Account', ids: [fakeId('001', 1)] },
+      { objectApiName: 'Case', ids: [] },
+    ];
+
+    const asked = await seedSweepInput(dated, created, automation, undefined, undefined, over, {
+      runUserId: USER,
+      ties: { removalBegan: '2026-10-01T08:00:00.000Z' },
+    });
+    expect(asked.created).toEqual(created);
+    expect(asked.ties).toEqual({
+      removalBegan: '2026-10-01T08:00:00.000Z',
+      writtenOver: [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }],
+    });
   });
 });

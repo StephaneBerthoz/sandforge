@@ -6,6 +6,7 @@ import {
   Activity,
   Bot,
   ExternalLink,
+  AlertCircle,
   CheckCircle,
   XCircle,
   Ban,
@@ -56,6 +57,7 @@ import type { OrgListResponse, OrgPageAction } from '@sandforge/shared';
  */
 const STATUS_NAME_KEYS: Record<RecentOp['status'], string> = {
   success: 'home.opStatus.success',
+  partial: 'home.opStatus.partial',
   failed: 'home.opStatus.failed',
   running: 'home.opStatus.running',
   cancelled: 'home.opStatus.cancelled',
@@ -77,6 +79,14 @@ const StatusIcon: React.FC<{ status: RecentOp['status'] }> = ({ status }) => {
         <CheckCircle
           className="w-3.5 h-3.5 text-status-success"
           data-testid="op-status-success"
+          {...name}
+        />
+      );
+    case 'partial':
+      return (
+        <AlertCircle
+          className="w-3.5 h-3.5 text-status-warning"
+          data-testid="op-status-partial"
           {...name}
         />
       );

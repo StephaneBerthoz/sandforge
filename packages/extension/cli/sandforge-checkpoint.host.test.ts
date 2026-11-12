@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OrgCheckpoint } from '@sandforge/shared';
+import type { ForgeTargetAutomation, OrgCheckpoint } from '@sandforge/shared';
 
 import { createPanelHost, orgFromIdentity } from './panelHost.js';
 import type { PanelHost, PanelHostOptions, PanelHostWiring, PanelRequest } from './panelHost.js';
@@ -15,6 +15,7 @@ import {
 } from '../src/modules/checkpoint/OrgCheckpointStore.js';
 import {
   MEMORY_ORG_USER,
+  type MemoryChild,
   type MemoryOrgRequest,
   type MemoryRow,
 } from '../src/test/memoryRemovalOrg.js';
@@ -44,6 +45,19 @@ const COLLEAGUE = '005000000000003AAA';
 
 /** T0 on the org's clock. */
 const T0 = Date.parse('2026-10-22T14:05:12.731Z');
+
+// This machine's clock pinned a minute after T0, going on: what the store
+// and the handler date by it — an undo's fifteen days, a checkpoint's expiry —
+// reads as the tests' org does, whatever day they run. Left to the real one,
+// every undo these tests offer was refused fifteen days after they were written.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: T0 + 60_000, shouldAdvanceTime: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 const LONG_AGO = Date.parse('2026-10-01T09:00:00.000Z');
 let clock = T0;
 
@@ -100,8 +114,10 @@ class CliTestOrg extends MemoryRestoreOrg {
   /** Told of each update, once it is made. */
   afterUpdate?: (objectApiName: string) => void;
 
-  constructor(says: { sandbox?: boolean; edition?: string } = {}) {
-    super({}, { now: () => clock });
+  constructor(
+    says: { sandbox?: boolean; edition?: string; children?: Record<string, MemoryChild[]> } = {},
+  ) {
+    super(says.children ?? {}, { now: () => clock });
     clock = LONG_AGO;
     for (const [name, fields] of Object.entries(FIELDS)) this.changeSchema(name, fields);
     this.add('Organization', {
@@ -114,6 +130,7 @@ class CliTestOrg extends MemoryRestoreOrg {
       PermissionsViewAllData: true,
       PermissionsModifyAllData: true,
       PermissionsViewEncryptedData: false,
+      PermissionsEmailSingle: true,
     });
     this.add('User', { Id: AUTOMATED_PROCESS, UserType: 'AutomatedProcess' });
     this.add('Account', { Id: id('001', 1), Name: 'Northwind' });
@@ -181,6 +198,7 @@ function connectionOf(org: CliTestOrg, onQuery: (soql: string) => void) {
     describeGlobal: () => org.describeGlobal(),
     tooling: { describeGlobal: () => Promise.resolve({ sobjects: [] }) },
     sobject: (objectApiName: string) => ({
+      create: (records: Array<Record<string, unknown>>) => org.create(objectApiName, records),
       update: (records: Array<Record<string, unknown>>) => org.update(objectApiName, records),
       destroy: (ids: string[]) => org.destroy(objectApiName, ids),
     }),
@@ -233,6 +251,11 @@ function harness(
     production?: boolean;
     /** What a request becomes on its way to the handler: one another window answers first. */
     sending?: (request: PanelRequest) => PanelRequest;
+    /**
+     * What the org runs as a rewind writes, in place of a Tooling API that
+     * answers nothing: the same at each read, or what each read answers.
+     */
+    automation?: ForgeTargetAutomation | (() => ForgeTargetAutomation);
   } = {},
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-checkpoint-cli-'));
@@ -259,6 +282,19 @@ function harness(
       compose: (built) => {
         hostOptions.compose?.(built);
         wiring = built;
+        const { automation } = options;
+        if (automation) {
+          (
+            built.handlers as unknown as {
+              checkpointHandler: {
+                setTargetAutomation: (reader: { read: () => Promise<unknown> }) => void;
+              };
+            }
+          ).checkpointHandler.setTargetAutomation({
+            read: () =>
+              Promise.resolve(typeof automation === 'function' ? automation() : automation),
+          });
+        }
       },
     });
     return {
@@ -530,6 +566,7 @@ describe('sandforge-checkpoint take', () => {
     expect(checkpoint.objects.map((object) => object.objectApiName)).toEqual(['Account']);
     expect(checkpoint.scope.leftOut).toContainEqual({
       objectApiName: 'Case',
+      code: 'excludedByUser',
       reason: 'Left out as asked.',
     });
   });
@@ -664,6 +701,36 @@ describe('sandforge-checkpoint preview', () => {
     );
   });
 
+  it('exits 0 with --fail-on-change for a field set aside with --ignore-field and deleted since: it is not compared, and the org is as it was', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    const aside = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--ignore-field',
+      'Case.Subject',
+      '--dry-run',
+    );
+    expect(aside.code).toBe(0);
+    // A case saved since, on the same values, so its object is described
+    // again; then an admin deletes the field set aside.
+    clock = T0 + 60_000;
+    h.org.edit('Case', id('500', 1), { Subject: 'Broken' }, COLLEAGUE);
+    h.org.changeSchema('Case', STAMP_FIELDS);
+    clock = T0 + 120_000;
+
+    const { code, stdout } = await h.run('preview', '--org', 'DEV-SB', '--fail-on-change');
+
+    expect(code, stdout).toBe(0);
+    expect(stdout).toContain(
+      "DEV-SB is as it was at 'Before UAT' among the objects and fields it holds: nothing to rewind.",
+    );
+    // Said as what the user chose, never as a field to restore before a rewind.
+    expect(stdout).toContain('not compared (you chose): Case.Subject');
+    expect(stdout).not.toContain('deleted since');
+  });
+
   it('refuses the preview of a checkpoint the org it now answers as was not taken of, reading no record', async () => {
     const h = harness();
     await taken(h, '--name', 'Before UAT');
@@ -720,6 +787,117 @@ describe('sandforge-checkpoint preview', () => {
     expect(code).toBe(2);
     expect(stdout).toBe('');
     expect(stderr).toContain("2 checkpoints of DEV-SB are named 'baseline'");
+  });
+
+  it('names the refusal a rewind without --accept-recreate meets of a record the recycle bin no longer gives back, in the code and words the rewind is refused with; the rewind makes it again with the flag', async () => {
+    // Live, a contact deleted on its own, then the account it had been moved
+    // under: the preview said "1 to make again" and no refusal, and a rewind
+    // through MCP was refused RECREATE, the parameter that lifts it named nowhere.
+    const quiet: ForgeTargetAutomation = {
+      objectsRead: ['Account', 'Case'],
+      objects: [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 0,
+    };
+    const h = harness({ automation: quiet });
+    await taken(h, '--name', 'Before UAT');
+    clock = T0 + 60_000;
+    h.org.trash('Case', id('500', 1), COLLEAGUE);
+    h.org.purge(id('500', 1));
+    clock = T0 + 120_000;
+    const before = stateOf(h.org);
+    const refusal =
+      '1 Case record(s) deleted since are no longer in the recycle bin, or Salesforce keeps them ' +
+      'there for good: this rewind makes them again from the checkpoint, with new Ids. Anything ' +
+      'outside Salesforce that names their old Ids — an integration, a link, a report filter — no ' +
+      'longer finds them. Rewind refused; give --accept-recreate to rewind all the same. No ' +
+      'record was written.';
+
+    const preview = await h.run(
+      'preview',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--json',
+    );
+
+    expect(preview.code, preview.stderr).toBe(0);
+    expect(JSON.parse(preview.stdout)).toMatchObject({
+      toRecreate: 1,
+      refusal: { code: 'RECREATE', message: refusal },
+    });
+    expect(preview.stderr).toContain(`  a rewind now would be refused (RECREATE): ${refusal}\n`);
+
+    const line = ['rewind', '--org', 'DEV-SB', '--checkpoint', 'Before UAT', '--yes', '--json'];
+    const refused = await h.run(...line);
+
+    expect(refused.code).toBe(1);
+    expect(JSON.parse(refused.stdout)).toEqual({ refusal: { code: 'RECREATE', message: refusal } });
+    expect(stateOf(h.org)).toEqual(before);
+
+    const remade = await h.run(...line, '--accept-recreate');
+
+    expect(remade.code, remade.stderr).toBe(0);
+    expect(h.org.creates.map((each) => each.objectApiName)).toEqual(['Case']);
+    expect(h.org.all('Case').map((row) => row.Subject)).toEqual(['Broken']);
+  });
+
+  it('names every refusal a rewind given no flag meets, in the order and words rewind --dry-run gives them, its automation and the emails the org delivers after the records it makes again; its JSON the first', async () => {
+    // A flow that emails an account's owner as it is updated, that nothing keeps quiet.
+    const h = harness({
+      automation: {
+        objectsRead: ['Account', 'Case'],
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [
+              {
+                apiName: 'Welcome',
+                label: 'Welcome',
+                timing: 'afterSave',
+                startsOn: 'update',
+                condition: 'read',
+                permissions: [],
+                messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      },
+    });
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+    h.org.purge(id('500', 1));
+    h.org.anonymousApex = { compiled: true, success: true };
+    const before = stateOf(h.org);
+    const line = ['--org', 'DEV-SB', '--checkpoint', 'Before UAT', '--json'];
+
+    const preview = await h.run('preview', ...line);
+    const dry = await h.run('rewind', ...line, '--dry-run');
+
+    expect(preview.code, preview.stderr).toBe(0);
+    const { wouldBeRefused, wouldBeRefusedCodes } = JSON.parse(dry.stdout) as {
+      wouldBeRefused: string[];
+      wouldBeRefusedCodes: string[];
+    };
+    expect(wouldBeRefusedCodes).toEqual(['RECREATE', 'AUTOMATION', 'EMAILS_DELIVERED']);
+    const said = preview.stderr
+      .split('\n')
+      .filter((each) => each.startsWith('  a rewind now would be refused ('))
+      .map((each) => each.replace(/^ {2}a rewind now would be refused /, 'refused '));
+    expect(said).toEqual(wouldBeRefused);
+    const answer = JSON.parse(preview.stdout) as { refusal: { code: string; message: string } };
+    expect(`refused (${answer.refusal.code}): ${answer.refusal.message}`).toBe(wouldBeRefused[0]);
+    expect(answer).not.toHaveProperty('wouldBeRefused');
+    expect(stateOf(h.org)).toEqual(before);
   });
 });
 
@@ -986,6 +1164,402 @@ describe('sandforge-checkpoint rewind', () => {
     expect(journalsOf(h, checkpoint)).toEqual([]);
   });
 
+  it('refuses an undo whose writes fire automation the org will not say, without --accept-automation, naming the flag as the rewind does: exit 1, nothing written', async () => {
+    const h = harness();
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const rewound = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+    expect(rewound.code, rewound.stderr).toBe(0);
+    clock += 60_000;
+    const before = stateOf(h.org);
+
+    const { code, stdout, stderr } = await h.run(
+      'undo',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      checkpoint.checkpointId,
+      '--yes',
+      '--json',
+    );
+
+    expect(code).toBe(1);
+    const answered = JSON.parse(stdout) as { refusal: { code: string; message: string } };
+    expect(answered.refusal.code).toBe('AUTOMATION');
+    expect(answered.refusal.message).toMatch(
+      /^DEV-SB: what runs as the undo writes could not all be read, so automation may run\. .*Undo refused; give --accept-automation to undo the rewind all the same\. No record was written\.$/,
+    );
+    expect(stderr).toContain(
+      'Undo refused; give --accept-automation to undo the rewind all the same.',
+    );
+    expect(stateOf(h.org)).toEqual(before);
+  });
+
+  it('names --accept-automation when the rewind itself reads automation its preview did not, a flow activated between the two: exit 1, nothing written (w50f)', async () => {
+    const quiet: ForgeTargetAutomation = {
+      objectsRead: ['Account', 'Case'],
+      objects: [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 0,
+    };
+    const activated: ForgeTargetAutomation = {
+      ...quiet,
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_Touched',
+              label: 'Account touched',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    };
+    // The preview's read finds nothing; the rewind's own, before it writes,
+    // finds the flow.
+    let reads = 0;
+    const h = harness({ automation: () => (++reads === 1 ? quiet : activated) });
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const before = stateOf(h.org);
+
+    const { code, stdout, stderr } = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--json',
+    );
+
+    expect(code).toBe(1);
+    expect(reads).toBe(2);
+    const answered = JSON.parse(stdout) as { refusal: { code: string; message: string } };
+    expect(answered.refusal).toEqual({
+      code: 'AUTOMATION',
+      message:
+        'DEV-SB: 1 flow(s), trigger(s) or rule(s) of Account run as the rewind brings records ' +
+        'back, gives them their values back or deletes them. Rewind refused; give ' +
+        '--accept-automation to rewind all the same. No record was written.',
+    });
+    expect(stderr).toContain('Rewind refused; give --accept-automation to rewind all the same.');
+    expect(stderr).not.toContain('accept that it runs');
+    expect(stateOf(h.org)).toEqual(before);
+  });
+
+  describe('on an org that delivers the emails of what still runs', () => {
+    /** What an org on All email answers the read with. */
+    const ALL_EMAIL = { compiled: true, success: true };
+
+    it('refuses a rewind --accept-automation lets through, exit 1, nothing written, naming --accept-emails; rewinds with it', async () => {
+      const h = harness();
+      await taken(h, '--name', 'Before UAT');
+      const atCheckpoint = stateOf(h.org);
+      demo(h);
+      h.org.anonymousApex = ALL_EMAIL;
+      const before = stateOf(h.org);
+      const line = ['rewind', '--org', 'DEV-SB', '--checkpoint', 'Before UAT', '--yes'];
+
+      const refused = await h.run(...line, '--accept-automation', '--json');
+
+      expect(refused.code).toBe(1);
+      const answered = JSON.parse(refused.stdout) as { refusal: { code: string; message: string } };
+      expect(answered.refusal.code).toBe('EMAILS_DELIVERED');
+      expect(answered.refusal.message).toContain(
+        'DEV-SB delivers every email its automation sends (Setup > Deliverability: All email)',
+      );
+      expect(answered.refusal.message).toContain('Add --accept-emails to rewind all the same');
+      expect(stateOf(h.org)).toEqual(before);
+
+      const accepted = await h.run(...line, '--accept-automation', '--accept-emails', '--json');
+
+      expect(accepted.code, accepted.stderr).toBe(0);
+      expect(stateOf(h.org).live).toEqual(atCheckpoint.live);
+    });
+
+    it('says the deliverability in a preview, and in --dry-run the refusal a rewind would meet, exit 0', async () => {
+      const h = harness();
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+      h.org.anonymousApex = ALL_EMAIL;
+
+      const { code, stdout, stderr } = await h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--dry-run',
+        '--accept-automation',
+        '--json',
+      );
+
+      expect(code, stderr).toBe(0);
+      expect(JSON.parse(stdout)).toMatchObject({
+        deliverability: { reading: { level: 'all' }, senders: [] },
+      });
+      expect(stderr).toContain('deliverability: All email');
+      expect(stderr).toContain(
+        'a rewind now would be refused (EMAILS_DELIVERED): DEV-SB delivers every email',
+      );
+      // A script reads the code and the reason, as a dry run of Sync or a clone gives them.
+      const answer = JSON.parse(stdout) as {
+        refusal?: unknown;
+        wouldBeRefused: string[];
+        wouldBeRefusedCodes: string[];
+      };
+      expect(answer.wouldBeRefused).toEqual([
+        expect.stringMatching(/^refused \(EMAILS_DELIVERED\): DEV-SB delivers every email/),
+      ]);
+      // Under the key every other dry run gives its codes in.
+      expect(answer.wouldBeRefusedCodes).toEqual(['EMAILS_DELIVERED']);
+      // Not the preview's own refusal, which `reset` stops on before its question.
+      expect(answer).not.toHaveProperty('refusal');
+    });
+
+    it('says in --dry-run every refusal a rewind would meet, its automation and its emails, each with its code, the first the one a rewind without either flag is refused with', async () => {
+      // A flow that emails an account's owner as it is updated, that nothing keeps quiet.
+      const h = harness({
+        automation: {
+          objectsRead: ['Account'],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [
+                {
+                  apiName: 'Welcome',
+                  label: 'Welcome',
+                  timing: 'afterSave',
+                  startsOn: 'update',
+                  condition: 'read',
+                  permissions: [],
+                  messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        },
+      });
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+      h.org.anonymousApex = ALL_EMAIL;
+      const before = stateOf(h.org);
+      const line = ['rewind', '--org', 'DEV-SB', '--checkpoint', 'Before UAT'];
+
+      const dry = await h.run(...line, '--dry-run', '--json');
+
+      expect(dry.code, dry.stderr).toBe(0);
+      expect(dry.stderr).toContain('a rewind now would be refused (AUTOMATION): DEV-SB: 1 flow(s)');
+      expect(dry.stderr).toContain(
+        'a rewind now would be refused (EMAILS_DELIVERED): DEV-SB delivers every email',
+      );
+      const answer = JSON.parse(dry.stdout) as {
+        wouldBeRefused: string[];
+        wouldBeRefusedCodes: string[];
+      };
+      expect(answer.wouldBeRefusedCodes).toEqual(['AUTOMATION', 'EMAILS_DELIVERED']);
+      expect(answer.wouldBeRefused).toEqual([
+        expect.stringMatching(/^refused \(AUTOMATION\): DEV-SB: 1 flow\(s\)/),
+        expect.stringMatching(/^refused \(EMAILS_DELIVERED\): DEV-SB delivers every email/),
+      ]);
+      // A rewind with the same flags is refused for the first, then, given its flag, the second.
+      const first = await h.run(...line, '--yes', '--json');
+      expect(JSON.parse(first.stdout)).toMatchObject({ refusal: { code: 'AUTOMATION' } });
+      const second = await h.run(...line, '--yes', '--accept-automation', '--json');
+      expect(JSON.parse(second.stdout)).toMatchObject({ refusal: { code: 'EMAILS_DELIVERED' } });
+      expect(stateOf(h.org)).toEqual(before);
+    });
+
+    it('names every refusal a rewind given no flag is refused for, in its lines and under wouldBeRefused as its dry run names them, the first under refusal: lifting the first, a script is not refused next for the others (GT8)', async () => {
+      // Live, through MCP, the rewind of a contact the recycle bin no longer
+      // gave back answered RECREATE alone, and named acceptRecreate alone: a
+      // client that gave it would have been refused AUTOMATION, then
+      // EMAILS_DELIVERED, one at a time, where the preview named all three.
+      const h = harness({
+        automation: {
+          objectsRead: ['Account', 'Case'],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [
+                {
+                  apiName: 'Welcome',
+                  label: 'Welcome',
+                  timing: 'afterSave',
+                  startsOn: 'update',
+                  condition: 'read',
+                  permissions: [],
+                  messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        },
+      });
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+      h.org.purge(id('500', 1));
+      h.org.anonymousApex = ALL_EMAIL;
+      const before = stateOf(h.org);
+      const line = ['rewind', '--org', 'DEV-SB', '--checkpoint', 'Before UAT', '--json'];
+
+      const dry = await h.run(...line, '--dry-run');
+      const refused = await h.run(...line, '--yes');
+
+      expect(dry.code, dry.stderr).toBe(0);
+      const { wouldBeRefused, wouldBeRefusedCodes } = JSON.parse(dry.stdout) as {
+        wouldBeRefused: string[];
+        wouldBeRefusedCodes: string[];
+      };
+      expect(wouldBeRefusedCodes).toEqual(['RECREATE', 'AUTOMATION', 'EMAILS_DELIVERED']);
+      expect(refused.code).toBe(1);
+      const answer = JSON.parse(refused.stdout) as {
+        refusal: { code: string; message: string };
+      };
+      // The first under refusal, as before; every one beside it, as the dry run gives them.
+      expect(answer).toEqual({
+        refusal: { code: 'RECREATE', message: expect.stringContaining('--accept-recreate') },
+        wouldBeRefused,
+        wouldBeRefusedCodes,
+      });
+      expect(`refused (RECREATE): ${answer.refusal.message}`).toBe(wouldBeRefused[0]);
+      // Its lines: the first's words, then each other on a line of its own,
+      // naming the flag that lifts it.
+      expect(refused.stderr).toContain(
+        `${answer.refusal.message}\n${wouldBeRefused[1]}\n${wouldBeRefused[2]}\n`,
+      );
+      expect(wouldBeRefused[1]).toContain('--accept-automation');
+      expect(wouldBeRefused[2]).toContain('--accept-emails');
+      expect(stateOf(h.org)).toEqual(before);
+    });
+
+    it('asks nothing of an org that withholds them, and says so', async () => {
+      const h = harness();
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+
+      const { code, stdout, stderr } = await h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--yes',
+        '--accept-automation',
+      );
+
+      expect(code, stderr).toBe(0);
+      expect(stdout).toContain('deliverability: System email only or No access');
+    });
+
+    it('refuses an undo --accept-automation lets through, exit 1, nothing written; undoes with --accept-emails', async () => {
+      const h = harness();
+      const checkpoint = await taken(h, '--name', 'Before UAT');
+      demo(h);
+      const rewound = await h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--yes',
+        '--accept-automation',
+        '--json',
+      );
+      expect(rewound.code, rewound.stderr).toBe(0);
+      clock += 60_000;
+      h.org.anonymousApex = ALL_EMAIL;
+      const before = stateOf(h.org);
+      const line = ['undo', '--org', 'DEV-SB', '--checkpoint', checkpoint.checkpointId, '--yes'];
+
+      const refused = await h.run(...line, '--accept-automation', '--json');
+
+      expect(refused.code).toBe(1);
+      expect(JSON.parse(refused.stdout)).toMatchObject({
+        refusal: {
+          code: 'EMAILS_DELIVERED',
+          message: expect.stringContaining('Add --accept-emails to undo all the same') as unknown,
+        },
+      });
+      expect(stateOf(h.org)).toEqual(before);
+
+      const accepted = await h.run(...line, '--accept-automation', '--accept-emails', '--json');
+
+      expect(accepted.code, accepted.stderr).toBe(0);
+    });
+
+    it('names every refusal an undo given no flag is refused for, its automation and its emails, the first under refusal and all of them under wouldBeRefused, each on its line', async () => {
+      // Refused for its automation alone, an undo was refused next for its
+      // emails once --accept-automation was given: told one at a time.
+      const h = harness();
+      const checkpoint = await taken(h, '--name', 'Before UAT');
+      demo(h);
+      const rewound = await h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--yes',
+        '--accept-automation',
+        '--json',
+      );
+      expect(rewound.code, rewound.stderr).toBe(0);
+      clock += 60_000;
+      h.org.anonymousApex = ALL_EMAIL;
+      const before = stateOf(h.org);
+      const line = ['undo', '--org', 'DEV-SB', '--checkpoint', checkpoint.checkpointId, '--yes'];
+
+      const refused = await h.run(...line, '--json');
+
+      expect(refused.code).toBe(1);
+      const answer = JSON.parse(refused.stdout) as {
+        refusal: { code: string; message: string };
+        wouldBeRefused: string[];
+        wouldBeRefusedCodes: string[];
+      };
+      expect(answer.refusal.code).toBe('AUTOMATION');
+      expect(answer.refusal.message).toContain('give --accept-automation to undo the rewind');
+      expect(answer.wouldBeRefusedCodes).toEqual(['AUTOMATION', 'EMAILS_DELIVERED']);
+      expect(answer.wouldBeRefused).toEqual([
+        `refused (AUTOMATION): ${answer.refusal.message}`,
+        expect.stringMatching(
+          /^refused \(EMAILS_DELIVERED\): DEV-SB delivers every email[^]*Add --accept-emails to undo all the same/,
+        ),
+      ]);
+      expect(refused.stderr).toContain(`${answer.refusal.message}\n${answer.wouldBeRefused[1]}\n`);
+      expect(stateOf(h.org)).toEqual(before);
+    });
+  });
+
   it('refuses with --max-records, before it writes, a rewind of more records than it gives, exit 1, as a pipeline’s Rewind step is refused; rewinds one at the limit', async () => {
     const h = harness();
     const checkpoint = await taken(h, '--name', 'Before UAT');
@@ -1031,7 +1605,7 @@ describe('sandforge-checkpoint rewind', () => {
     );
     expect(dryRun.code).toBe(0);
     expect(dryRun.stdout).toContain(
-      '  a rewind now would be refused: The rewind of DEV-SB would rewind 4 records',
+      '  a rewind now would be refused (TOO_MANY_TO_REWIND): The rewind of DEV-SB would rewind 4 records',
     );
 
     const atLimit = await rewind('--max-records', '4');
@@ -1082,6 +1656,148 @@ describe('sandforge-checkpoint rewind', () => {
     expect(rewound.code, rewound.stderr).toBe(0);
   });
 
+  it('tells the preview whether the rewind may delete the records outside the checkpoint, as its flag says: what it counts of the emails is what this rewind writes', async () => {
+    const asked: unknown[] = [];
+    const h = harness({
+      sending: (request) => {
+        if (request.type === 'checkpoint:preview') asked.push(request.payload);
+        return request;
+      },
+    });
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+
+    await h.run('rewind', '--org', 'DEV-SB', '--dry-run', '--json');
+    await h.run('rewind', '--org', 'DEV-SB', '--dry-run', '--accept-outside', '--json');
+
+    expect(asked).toEqual([
+      expect.objectContaining({ acceptOutside: false }),
+      expect.objectContaining({ acceptOutside: true }),
+    ]);
+  });
+
+  describe('a checkpoint of picked objects, records outside it made since under one it would delete', () => {
+    /** What a delete of an account runs: a flow, which a rewind that deletes one is asked about. */
+    const ON_ACCOUNT_DELETE: ForgeTargetAutomation = {
+      objectsRead: ['Account'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_Gone',
+              label: 'Account gone',
+              timing: 'beforeSave',
+              startsOn: 'delete',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 0,
+    };
+
+    /** A checkpoint of accounts alone, then an account made since with a case under it, outside it. */
+    async function caseUnderNewAccount(
+      sending?: (request: PanelRequest) => PanelRequest,
+    ): Promise<Harness> {
+      const org = new CliTestOrg({
+        children: { Account: [{ childSObject: 'Case', field: 'AccountId', cascadeDelete: true }] },
+      });
+      org.changeSchema('Case', [
+        ...STAMP_FIELDS,
+        writable('Subject'),
+        { ...writable('AccountId'), type: 'reference', referenceTo: ['Account'] },
+      ]);
+      const h = harness({ org, automation: ON_ACCOUNT_DELETE, ...(sending ? { sending } : {}) });
+      await taken(h, '--name', 'Accounts', '--object', 'Account');
+      clock = T0 + 60_000;
+      h.org.add('Account', { Id: id('001', 3), Name: 'Made since', LastModifiedById: COLLEAGUE });
+      h.org.add('Case', {
+        Id: id('500', 3),
+        Subject: 'Under it',
+        AccountId: id('001', 3),
+        LastModifiedById: COLLEAGUE,
+      });
+      clock = T0 + 120_000;
+      return h;
+    }
+
+    it('counts, without --accept-outside, what the rewind writes, and is refused for nothing it does not write: it keeps the account the case hangs from (GC2)', async () => {
+      const h = await caseUnderNewAccount();
+      const before = stateOf(h.org);
+
+      const kept = await h.run('rewind', '--org', 'DEV-SB', '--dry-run', '--json');
+
+      expect(kept.code, kept.stderr).toBe(0);
+      const answer = JSON.parse(kept.stdout) as Record<string, unknown>;
+      expect(answer).toMatchObject({ toDelete: 0, differs: true });
+      expect(answer).not.toHaveProperty('wouldBeRefusedCodes');
+      expect(answer).not.toHaveProperty('objects');
+      expect(answer.kept).toEqual([
+        { objectApiName: 'Account', reason: 'outsideNotAccepted', count: 1 },
+      ]);
+      expect(kept.stderr).toContain('  0 to delete · 0 to give back · 0 to bring back');
+      expect(kept.stderr).toContain(
+        '  kept: 1 Account record(s) — records outside the checkpoint made since hang from them, which their deletion would take along: kept, unless --accept-outside',
+      );
+      expect(kept.stderr).not.toContain('nothing to rewind');
+      expect(kept.stderr).not.toContain('a rewind now would be refused');
+      // What runs as it writes, of what it writes: nothing of the account it keeps.
+      expect(kept.stderr).not.toContain("'Account gone'");
+      expect(kept.stderr).not.toContain('runs as a rewind writes');
+
+      // Told it may, it deletes the account and its case, and its flow is asked for.
+      const deletes = await h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--dry-run',
+        '--accept-outside',
+        '--json',
+      );
+      expect(JSON.parse(deletes.stdout)).toMatchObject({
+        toDelete: 1,
+        wouldBeRefusedCodes: ['AUTOMATION'],
+      });
+      expect(deletes.stderr).toContain(
+        "  what DEV-SB runs as a rewind writes (updates, deletes, records brought back):\n    Account: 1 flow(s) or rule(s): 'Account gone'",
+      );
+      expect(stateOf(h.org)).toEqual(before);
+    });
+
+    it('previews, with preview, the rewind its line runs, without --accept-outside: the emails and the numbers of what it writes, the org differing all the same', async () => {
+      const asked: unknown[] = [];
+      const h = await caseUnderNewAccount((request) => {
+        if (request.type === 'checkpoint:preview') asked.push(request.payload);
+        return request;
+      });
+
+      const previewed = await h.run('preview', '--org', 'DEV-SB', '--json');
+      const failing = await h.run('preview', '--org', 'DEV-SB', '--fail-on-change', '--json');
+
+      expect(asked).toEqual([
+        expect.objectContaining({ acceptOutside: false }),
+        expect.objectContaining({ acceptOutside: false }),
+      ]);
+      expect(previewed.code, previewed.stderr).toBe(0);
+      expect(JSON.parse(previewed.stdout)).toMatchObject({
+        toDelete: 0,
+        differs: true,
+        kept: [{ objectApiName: 'Account', reason: 'outsideNotAccepted', count: 1 }],
+      });
+      expect(previewed.stderr).toContain(
+        '  kept: 1 Account record(s) — records outside the checkpoint',
+      );
+      expect(failing.code).toBe(3);
+    });
+  });
+
   it('previews with --dry-run and stops: exit 0, nothing written, the preview’s JSON', async () => {
     const h = harness();
     await taken(h, '--name', 'Before UAT');
@@ -1105,7 +1821,7 @@ describe('sandforge-checkpoint rewind', () => {
     });
     // What a rewind now would meet, said beside the preview.
     expect(stderr).toContain(
-      'a rewind now would be refused: DEV-SB: what runs as the rewind writes',
+      'a rewind now would be refused (AUTOMATION): DEV-SB: what runs as the rewind writes',
     );
     expect(stateOf(h.org)).toEqual(before);
     expect(JSON.parse(stdout)).not.toHaveProperty('mutePlan');
@@ -1130,6 +1846,152 @@ describe('sandforge-checkpoint rewind', () => {
       stillRuns: expect.any(Array),
     });
     expect(stateOf(h.org)).toEqual(before);
+  });
+
+  describe('--dry-run --mute-automation', () => {
+    /** A flow a bypass keeps quiet, that emails the owner, and one nothing keeps quiet, that sends nothing. */
+    const AUTOMATION: ForgeTargetAutomation = {
+      objectsRead: ['Account'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Welcome',
+              label: 'Welcome',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [{ name: 'Skip_Flows', bypass: true, held: false }],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+            {
+              apiName: 'Follow_up',
+              label: 'Follow up',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 0,
+      bypassGrants: [
+        {
+          permission: 'Skip_Flows',
+          permissionSets: [{ name: 'Skip_Flows_Set', label: 'Skip', grants: 1 }],
+        },
+      ],
+    };
+    const LINE = ['rewind', '--org', 'DEV-SB', '--dry-run', '--accept-automation'] as const;
+
+    it('says of its emails what its mute says: the sender silenced is not announced, in the lines as in the JSON, and the org is not asked whether it delivers them', async () => {
+      const h = harness({ automation: AUTOMATION });
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+      h.org.anonymousApex = { compiled: true, success: true };
+
+      const unmuted = await h.run(...LINE, '--json');
+      expect(unmuted.stderr).toContain("flow(s) or rule(s): 'Welcome', 'Follow up'");
+      expect(unmuted.stderr).toContain('(Welcome)');
+      expect(unmuted.stderr).toContain('deliverability: All email');
+      expect(JSON.parse(unmuted.stdout)).toMatchObject({
+        emails: [{ limit: 'SingleEmail' }],
+        deliverability: { reading: { level: 'all' } },
+      });
+      h.org.anonymousAsked.length = 0;
+
+      const muted = await h.run(...LINE, '--json', '--mute-automation');
+
+      expect(muted.code, muted.stderr).toBe(0);
+      expect(muted.stderr).toContain('mute: planned, the permission set(s) holding Skip_Flows');
+      expect(muted.stderr).toContain('silenced: Account: flow "Welcome" (bypass Skip_Flows)');
+      expect(muted.stderr).toContain('still runs: Account: flow "Follow up" (no bypass');
+      // The lines of what runs and of the emails name no flow the mute keeps quiet.
+      expect(muted.stderr).toContain("1 flow(s) or rule(s): 'Follow up'");
+      expect(muted.stderr).not.toContain("'Welcome'");
+      expect(muted.stderr).not.toContain('emails:');
+      expect(muted.stderr).not.toContain('deliverability:');
+      const answer = JSON.parse(muted.stdout) as Record<string, unknown>;
+      expect(answer).not.toHaveProperty('emails');
+      expect(answer).not.toHaveProperty('deliverability');
+      expect(answer).toMatchObject({ mutedAutomation: { state: 'planned' } });
+      expect(h.org.anonymousAsked).toEqual([]);
+    });
+
+    it('says under wouldBeRefused the mute a rewind is refused for, by a user who cannot assign permission sets, assigning nothing; the rewind is refused so', async () => {
+      const h = harness({ automation: AUTOMATION });
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+      const before = stateOf(h.org);
+
+      // The suite's user: View All Data and Modify All Data, neither Assign
+      // Permission Sets nor Manage Users.
+      const dry = await h.run(...LINE, '--json', '--mute-automation');
+
+      expect(dry.code, dry.stderr).toBe(0);
+      const answer = JSON.parse(dry.stdout) as { wouldBeRefused?: string[] };
+      expect(answer.wouldBeRefused).toEqual([
+        expect.stringMatching(
+          /^refused \(MUTE\): The target's automation cannot be muted: the user the run writes as cannot assign permission sets/,
+        ),
+      ]);
+      expect(stateOf(h.org)).toEqual(before);
+
+      const real = await h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--yes',
+        '--accept-automation',
+        '--mute-automation',
+        '--json',
+      );
+      expect(real.code).toBe(1);
+      expect(JSON.parse(real.stdout)).toMatchObject({ refusal: { code: 'MUTE' } });
+      expect(stateOf(h.org)).toEqual(before);
+    });
+
+    it('says no mute refusal for a user who may assign permission sets', async () => {
+      const h = harness({ automation: AUTOMATION });
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+      Object.assign(h.org.all('UserPermissionAccess')[0] ?? {}, {
+        PermissionsAssignPermissionSets: true,
+      });
+
+      const dry = await h.run(...LINE, '--json', '--mute-automation');
+
+      expect(dry.code, dry.stderr).toBe(0);
+      const answer = JSON.parse(dry.stdout) as Record<string, unknown>;
+      expect(answer).not.toHaveProperty('wouldBeRefused');
+      expect(answer).toMatchObject({ mutedAutomation: { state: 'planned' } });
+    });
+
+    it('keeps saying the emails of what the mute leaves running', async () => {
+      const [object] = AUTOMATION.objects;
+      if (!object) throw new Error('no object');
+      const noBypass = object.flows.map((flow) => ({ ...flow, permissions: [] }));
+      const h = harness({
+        automation: { ...AUTOMATION, objects: [{ ...object, flows: noBypass }] },
+      });
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+      h.org.anonymousApex = { compiled: true, success: true };
+
+      const { stderr, stdout } = await h.run(...LINE, '--json', '--mute-automation');
+
+      expect(stderr).toContain('(Welcome)');
+      expect(stderr).toContain('deliverability: All email');
+      expect(JSON.parse(stdout)).toMatchObject({ emails: [{ limit: 'SingleEmail' }] });
+    });
   });
 
   it('stops comparing a field with --ignore-field from now on, kept in the checkpoint: a difference only there leaves nothing to rewind', async () => {
@@ -1188,6 +2050,51 @@ describe('sandforge-checkpoint rewind', () => {
       "DEV-SB is back at 'Before UAT' but for 1 record(s) that still differ",
     );
     expect(stderr).toMatch(/ {2}Account 1 — refused: .*Name must say who owns it/);
+    // It wrote the rest: its undo is offered.
+    expect(answer.undo?.until).toEqual(expect.any(String));
+    expect(stderr).toContain('  undo it until ');
+  });
+
+  it('offers no undo of a rewind that wrote nothing, the org refusing its every write: exit 1, neither its lines nor its JSON', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+    // The case created since, the two accounts changed since, and the case
+    // deleted since, emptied from the bin: Salesforce still lists it deleted.
+    h.org.refuse.set(id('500', 2), 'Held by a rule of the org');
+    for (const account of [id('001', 1), id('001', 2)]) {
+      h.org.refuseUpdate.set(account, {
+        statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+        message: 'Name must say who owns it',
+      });
+    }
+    h.org.empty(id('500', 1));
+    const before = stateOf(h.org);
+
+    const { code, stdout, stderr } = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    expect(code).toBe(1);
+    const answer = JSON.parse(stdout) as RewindJson;
+    expect(answer).toMatchObject({
+      status: 'failure',
+      deleted: { done: 0 },
+      givenBack: { done: 0 },
+      broughtBack: { done: 0 },
+    });
+    expect(answer).not.toHaveProperty('undo');
+    expect(stderr).toContain("Nothing of the rewind of DEV-SB to 'Before UAT' went through");
+    expect(stderr).not.toContain('undo it until');
+    expect(stderr).not.toContain('undo --org');
+    expect(stateOf(h.org)).toEqual(before);
   });
 
   it('exits 4 when someone else changed a record during the rewind, left as they made it', async () => {
@@ -1273,6 +2180,41 @@ describe('sandforge-checkpoint rewind', () => {
     expect(again.code, again.stderr).toBe(0);
     expect(JSON.parse(again.stdout)).toMatchObject({ status: 'success', rewindId: first.rewindId });
     expect(stateOf(h.org).live).toEqual(atCheckpoint.live);
+  });
+
+  it('says a rewind stopped before it wrote anything in the words of one stopped before its first write, exit 130', async () => {
+    // Stopped as it read the org again, it said "The rewind was stopped
+    // before it wrote anything to the org.", and stopped before its
+    // operation was listed "Stopped before it wrote anything: … is as it was
+    // before this rewind": two sentences for one stop.
+    const h = harness({
+      sending: (request) => {
+        if (request.type === 'checkpoint:rewind') process.emit('SIGINT');
+        return request;
+      },
+    });
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const before = stateOf(h.org);
+
+    const stopped = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    const said =
+      "Stopped before it wrote anything: DEV-SB is as it was before this rewind. Rewind again to rewind it to 'Before UAT'.";
+    expect(stopped.code).toBe(130);
+    expect(JSON.parse(stopped.stdout)).toEqual({ refusal: { code: 'CANCELLED', message: said } });
+    expect(stopped.stderr).toContain(said);
+    expect(stopped.stderr).not.toContain('The rewind was stopped before it wrote anything');
+    expect(stateOf(h.org)).toEqual(before);
   });
 
   it('refuses a production org with the guard’s words, exit 1, writing nothing', async () => {
@@ -1469,6 +2411,70 @@ describe('sandforge-checkpoint undo', () => {
     expect(JSON.parse(again.stdout)).toMatchObject({ refusal: { code: 'NOT_FOUND' } });
   });
 
+  it('still takes back the rewind that wrote, after a later rewind the org refused every write of: exit 0, the org as before the first', async () => {
+    const h = harness();
+    h.org.add('Case', { Id: id('500', 3), Subject: 'Emptied' });
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const rewind = () =>
+      h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--yes',
+        '--accept-automation',
+        '--json',
+      );
+    const first = await rewind();
+    expect(first.code, first.stderr).toBe(0);
+    const { rewindId } = JSON.parse(first.stdout) as RewindJson;
+    // Deleted since, then emptied from the bin: still listed there, the org
+    // answers its undelete that it is not in it, and nothing else differs.
+    clock += 60_000;
+    h.org.trash('Case', id('500', 3), COLLEAGUE);
+    h.org.empty(id('500', 3));
+    const second = await rewind();
+    expect(second.code, second.stderr).toBe(1);
+    expect(JSON.parse(second.stdout)).toMatchObject({
+      status: 'failure',
+      broughtBack: { done: 0 },
+    });
+    expect(JSON.parse(second.stdout)).not.toHaveProperty('removedJournals');
+    expect(second.stderr).not.toContain('removed the journal of rewind');
+    expect(journalsOf(h, checkpoint)).toEqual([rewindId]);
+    clock += 60_000;
+
+    const asked = await h.run('undo', '--org', 'DEV-SB');
+    expect(asked.code).toBe(2);
+    expect(asked.stdout).toContain(
+      `undo the rewind ${rewindId} of DEV-SB to 'Before UAT' (open until `,
+    );
+
+    const { code, stdout, stderr } = await h.run(
+      'undo',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      checkpoint.checkpointId,
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    expect(code, stderr).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({ rewindId, status: 'success', residual: [] });
+    // The colleague's work back, but for the case they deleted since.
+    expect(stateOf(h.org).live).toEqual({
+      Account: [
+        { Id: id('001', 1), Name: 'Renamed', Subject: null },
+        { Id: id('001', 2), Name: 'Renamed too', Subject: null },
+      ],
+      Case: [{ Id: id('500', 2), Name: null, Subject: 'New' }],
+    });
+  });
+
   it('asks to send back to the recycle bin what the rewind brought back alone, never a record the bin no longer gave back to it', async () => {
     const h = harness();
     h.org.add('Case', { Id: id('500', 3), Subject: 'Emptied' });
@@ -1496,6 +2502,55 @@ describe('sandforge-checkpoint undo', () => {
 
     expect(asked.code).toBe(2);
     expect(asked.stdout).toContain('sends 1 record(s) it brought back to the recycle bin');
+  });
+
+  it('says an undo stopped before it wrote anything in one sentence, exit 130, the rewind still to undo', async () => {
+    // Stopped before its first write, it said "The undo was stopped before it
+    // wrote anything to the org.", and the page "Stopped part way".
+    const h = harness({
+      sending: (request) => {
+        if (request.type === 'checkpoint:undo') process.emit('SIGINT');
+        return request;
+      },
+    });
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const rewound = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+    expect(rewound.code, rewound.stderr).toBe(0);
+    clock += 60_000;
+    const afterRewind = stateOf(h.org);
+
+    const stopped = await h.run(
+      'undo',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      checkpoint.checkpointId,
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    const said =
+      'Stopped before it wrote anything: DEV-SB is as the rewind left it, and the rewind can ' +
+      'still be undone.';
+    expect(stopped.code, stopped.stderr).toBe(130);
+    expect(JSON.parse(stopped.stdout)).toEqual({ refusal: { code: 'CANCELLED', message: said } });
+    expect(stopped.stderr).toContain(said);
+    expect(stopped.stderr).not.toContain('The undo was stopped before it wrote anything');
+    expect(stateOf(h.org)).toEqual(afterRewind);
+    expect(
+      (await h.store.read(checkpoint.checkpointId))?.checkpoint?.lastRewind?.undoneAt,
+    ).toBeUndefined();
   });
 });
 

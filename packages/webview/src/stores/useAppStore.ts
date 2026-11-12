@@ -83,9 +83,16 @@ export interface NavigationIntent {
   takeCheckpoint?: true;
   /**
    * Open Checkpoints on what a rewind of the selected org to this checkpoint
-   * would do: Home's "Rewind…", for the org's latest.
+   * would do: Home's "Rewind…", for the org's latest, and a run's "Rewind to
+   * before this run…", for the checkpoint it took first.
    */
   previewCheckpointId?: string;
+  /**
+   * The preview of `previewCheckpointId` opens with its mute ticked: the run
+   * whose checkpoint it is muted the target's automation, and its rewind
+   * fires the same automation.
+   */
+  previewMuted?: true;
   /**
    * A saved Sync configuration to open on Sync's execute step, by its id and
    * the name it was saved under: Migration's "Open in Sync", with the two
@@ -114,6 +121,11 @@ export interface AppState {
    * alone, so an upgrade that skipped 1.69 still shows it.
    */
   whatsNewSince: string;
+  /**
+   * Whether a version that lists nothing shows the newest release listed
+   * before it: asked from Help, a patch release opened an empty overlay.
+   */
+  whatsNewStandIn: boolean;
   aiAvailable: boolean;
   /** Whether VS Code shows this panel; a hidden one keeps running. */
   panelVisible: boolean;
@@ -130,7 +142,7 @@ export interface AppState {
   setLoading: (loading: boolean) => void;
   setExtensionReady: (ready: boolean) => void;
   setShowWelcome: (show: boolean) => void;
-  setShowWhatsNew: (show: boolean, version?: string, since?: string) => void;
+  setShowWhatsNew: (show: boolean, version?: string, since?: string, standIn?: boolean) => void;
   setAiAvailable: (available: boolean) => void;
   setPanelVisible: (visible: boolean) => void;
   setGrappeEnabled: (enabled: boolean) => void;
@@ -147,6 +159,7 @@ export const useAppStore = create<AppState>((set) => ({
   showWhatsNew: false,
   whatsNewVersion: '',
   whatsNewSince: '',
+  whatsNewStandIn: false,
   aiAvailable: false,
   panelVisible: true,
   grappeEnabled: false,
@@ -179,8 +192,13 @@ export const useAppStore = create<AppState>((set) => ({
     set({ showWelcome: show });
   },
 
-  setShowWhatsNew(show: boolean, version?: string, since?: string): void {
-    set({ showWhatsNew: show, whatsNewVersion: version ?? '', whatsNewSince: since ?? '' });
+  setShowWhatsNew(show: boolean, version?: string, since?: string, standIn = false): void {
+    set({
+      showWhatsNew: show,
+      whatsNewVersion: version ?? '',
+      whatsNewSince: since ?? '',
+      whatsNewStandIn: standIn,
+    });
   },
 
   setAiAvailable(available: boolean): void {

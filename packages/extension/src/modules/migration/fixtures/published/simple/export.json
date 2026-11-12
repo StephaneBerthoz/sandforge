@@ -1,0 +1,16 @@
+{
+  "$comment": "The basic example of SFDMU's README, section Migration Configuration: https://github.com/forcedotcom/SFDX-Data-Move-Utility#migration-configuration (BSD 3-Clause license, salesforce.com, inc.)",
+  "objects": [
+    {
+      "operation": "Upsert",
+      "externalId": "LastName",
+      "query": "SELECT FirstName, LastName, AccountId FROM Contact",
+      "master": false
+    },
+    {
+      "operation": "Upsert",
+      "externalId": "Name",
+      "query": "SELECT Name, Phone FROM Account WHERE Name = 'John Smith'"
+    }
+  ]
+}

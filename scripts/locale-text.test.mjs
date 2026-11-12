@@ -23,9 +23,9 @@
  * And a translation is written in its language:
  *
  *  - a host bundle (`l10n/bundle.l10n.<lang>.json`) is keyed by the English
- *    text, so a value equal to its key is a string nobody translated. None is
- *    legitimately identical today, and a new one would show English to a user
- *    who picked another language;
+ *    text, so a value equal to its key is a string nobody translated, and
+ *    would show English to a user who picked another language. The few the
+ *    language writes as English does are named below, by bundle, with why;
  *  - in the webview and manifest bundles a value may rightly match English —
  *    "Sandbox", "Type", a module name — but an English sentence left as it is
  *    may not. A value of three words or more holding an English function word,
@@ -176,6 +176,26 @@ const SAME_IN_EVERY_LANGUAGE = new Map([
   ['forge.soqlPlaceholder', 'a SOQL query: the keywords are the language, not English'],
 ]);
 
+/**
+ * Host strings a translation rightly writes as English does, by bundle, each
+ * with its reason. Only the bundles named are excused: the key stays refused
+ * in every other language.
+ */
+const ORG_COUNT_AS_ENGLISH =
+  'the status bar counts orgs: Spanish and Portuguese write "SandForge:" and "org", ' +
+  '"orgs", as English does (the panels say "{{count}} orgs" in both)';
+const SAME_IN_A_HOST_BUNDLE = new Map(
+  [
+    'SandForge: {0} org',
+    'SandForge: {0} orgs',
+    'SandForge: {0} ({1} org)',
+    'SandForge: {0} ({1} orgs)',
+  ].map((key) => [
+    key,
+    { bundles: ['bundle.l10n.es.json', 'bundle.l10n.pt-br.json'], why: ORG_COUNT_AS_ENGLISH },
+  ]),
+);
+
 const flatten = (node, prefix = '', acc = {}) => {
   for (const [key, value] of Object.entries(node)) {
     const path = prefix ? `${prefix}.${key}` : key;
@@ -204,10 +224,22 @@ test('no host bundle leaves a string in English', () => {
   const offenders = [];
   for (const file of translated) {
     for (const [key, value] of Object.entries(readJson(join(dir, file)))) {
+      if (SAME_IN_A_HOST_BUNDLE.get(key)?.bundles.includes(file)) continue;
       if (value === key) offenders.push(`${dir}/${file}: ${JSON.stringify(key)}`);
     }
   }
   assert.deepEqual(offenders, []);
+});
+
+test('every host string excused as English is still in its bundles, and still English there', () => {
+  const dir = 'packages/extension/l10n';
+  for (const [key, { bundles: excused }] of SAME_IN_A_HOST_BUNDLE) {
+    for (const file of excused) {
+      const bundle = readJson(join(dir, file));
+      assert.ok(key in bundle, `${file} no longer has ${key}: remove its exception`);
+      assert.equal(bundle[key], key, `${file} translates ${key} now: remove its exception`);
+    }
+  }
 });
 
 test('no translated bundle leaves an English sentence as it is', () => {

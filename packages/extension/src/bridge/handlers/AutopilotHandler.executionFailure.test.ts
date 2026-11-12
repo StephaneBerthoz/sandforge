@@ -436,7 +436,7 @@ describe('AutopilotHandler — what each node came to', () => {
       failedObjects: [],
       skippedObjects: [],
       objectOutcomes: { Account: { written: 5, linked: 0, failed: 0, refusals: [] } },
-      statuses: { Account: { applied: 3, refusals: [refusedStatus] } },
+      statuses: { Account: { applied: 3, refusals: [refusedStatus], leftDraft: 1 } },
     });
 
     const progress = await execute(executePlan);
@@ -444,6 +444,15 @@ describe('AutopilotHandler — what each node came to', () => {
     expect(progress.at(-1)?.payload).toMatchObject({
       statusesApplied: 3,
       statusRefusals: [refusedStatus],
+    });
+    // The run ends on it, the object named: it read as a success, a draft left in the target.
+    const postToWebview = vi.mocked(deps.broker.postToWebview);
+    const completed = postToWebview.mock.calls
+      .map(([message]) => message)
+      .find((message) => message.type === 'autopilot:completed');
+    expect((completed as { payload?: unknown } | undefined)?.payload).toMatchObject({
+      status: 'partial',
+      statusesNotApplied: [{ objectApiName: 'Account', records: 1, refusals: [refusedStatus] }],
     });
   });
 

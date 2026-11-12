@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
-import type { ForgeTargetAutomation } from '@sandforge/shared';
+import type { ForgeTargetAutomation, MutedAutomation } from '@sandforge/shared';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 import { nodeSyncIdMap } from '../src/modules/sync/SyncIdMap.js';
 
@@ -31,10 +31,17 @@ vi.mock('./sandforge-clone.js', async (original) => ({
   ...(await original<typeof import('./sandforge-clone.js')>()),
   targetAutomationReader: vi.fn(() => ({ read: automationRead })),
 }));
+// The mute as it is, unless a test says how the org refuses it.
+vi.mock('../src/modules/forge/AutomationMuteLease.js', async (original) => {
+  const actual = await original<typeof import('../src/modules/forge/AutomationMuteLease.js')>();
+  return { ...actual, muteForRun: vi.fn(actual.muteForRun) };
+});
 
 import { makeConn } from './sfSession.js';
+import { MuteRefusedError, muteForRun } from '../src/modules/forge/AutomationMuteLease.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import {
+  bothRecorders,
   cliAllowsDeletes,
   configurationToldLines,
   main,
@@ -276,6 +283,25 @@ describe('what the command takes back, and from where', () => {
     expect(kept.lastWrittenAt()).toEqual(expect.any(String));
   });
 
+  it('keeps what a write created in the summary, which keeps no call, and leaves the file what no call answered', () => {
+    const kept = memoryCreations('run-1');
+    const inFile: string[] = [];
+    const both = bothRecorders(kept, {
+      runId: 'run-1',
+      note: () => {
+        throw new Error('every id would go into the file twice');
+      },
+      noteUnanswered: (_objectApiName, ids) => inFile.push(...ids),
+      flush: async () => undefined,
+    });
+
+    both.answered?.('Account', [A1, A2]);
+    both.noteUnanswered?.('Account', [A1, A2]);
+
+    expect(kept.created()).toEqual([{ objectApiName: 'Account', ids: [A1, A2] }]);
+    expect(inFile).toEqual([A1, A2]);
+  });
+
   it('keeps in memory what a delta run deleted as the source had, each record once, dated as a write', () => {
     // Told to the run's file alone: the summary carried a bare count, and a
     // removal from it never brought the records back.
@@ -450,6 +476,71 @@ describe('sandforge-sync --remove', () => {
     expect(existsSync(join(dir, 'run.removals.json'))).toBe(false);
   });
 
+  it.each([
+    ['a production org', 'PRODUCTION_TARGET', 'TGT is a production org'],
+    [
+      'what fires as it deletes',
+      'AUTOMATION_NOT_ACCEPTED',
+      'TGT runs automation on the records this removal deletes',
+    ],
+    [
+      'objects its user may not delete',
+      'UNDELETABLE_NOT_LEFT',
+      'The user SandForge connects as may not delete the records of Account (2 records) in ' +
+        'TGT. Nothing was removed. Give that user Delete on those objects, or run again with ' +
+        '--leave-undeletable to remove the rest and leave them.',
+    ],
+    [
+      'another org than the one the run wrote to',
+      'OTHER_ORG',
+      'TGT is not the org the run wrote to (00D000000000002AAA), and what it created is ' +
+        'removed from that org only. Nothing was deleted.',
+    ],
+  ])(
+    'names the code of a removal refused for %s, on its line and with --json on stdout',
+    async (_why, code, words) => {
+      // Refused so, it said a sentence with no code on stderr and left stdout
+      // empty: a CI job could not tell one refusal from another.
+      if (code === 'PRODUCTION_TARGET') edition = 'Enterprise Edition';
+      if (code === 'OTHER_ORG') {
+        writeFileSync(file, JSON.stringify(summary({ targetOrgId: '00D000000000002AAA' })));
+      }
+      if (code === 'UNDELETABLE_NOT_LEFT') org.undeletable.add('Account');
+      if (code === 'AUTOMATION_NOT_ACCEPTED') {
+        automationRead.mockResolvedValueOnce({
+          objectsRead: ['Account', 'Contact'],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [],
+              triggers: [{ name: 'AccountCleanup', events: ['beforeDelete'] }],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+          requests: 3,
+        });
+      }
+      const exit = stubExit();
+
+      await expect(main(argv('--remove', file, '--target', 'TGT', '--json'))).rejects.toThrow(
+        'exit 1',
+      );
+
+      expect(exit.stderr()).toContain(`refused (${code}): ${words}`);
+      expect(JSON.parse(stdout)).toEqual({
+        tool: 'sandforge-sync',
+        action: 'remove',
+        summary: file,
+        target: 'TGT',
+        refused: { code, message: expect.stringContaining(words) as string },
+        elapsedMs: expect.any(Number) as number,
+      });
+      expect(org.deletes).toEqual([]);
+    },
+  );
+
   it('refuses an org that is not the one the run wrote to', async () => {
     writeFileSync(file, JSON.stringify(summary({ targetOrgId: '00D000000000002AAA' })));
     const exit = stubExit();
@@ -559,6 +650,73 @@ describe('sandforge-sync --remove', () => {
       expect(org.all('Account')).toEqual([]);
     });
 
+    it.each([
+      [
+        'as it plans the mute',
+        'plan',
+        {
+          code: 'MUTE_PRODUCTION' as const,
+          message:
+            'TGT is a production org: its automation is never muted there. Nothing was assigned.',
+        },
+      ],
+      [
+        'as it takes the lease',
+        'lease',
+        {
+          code: 'MUTE_FAILED' as const,
+          message: 'The lease could not be kept. Nothing was assigned.',
+        },
+      ],
+    ])(
+      'ends a removal whose mute is refused %s under its code, on stderr and with --json on stdout, nothing written',
+      async (_when, when, refusal) => {
+        // A sentence on stderr and an empty stdout: a CI job could not tell why.
+        if (when === 'plan') {
+          vi.mocked(muteForRun).mockRejectedValueOnce(new MuteRefusedError(refusal));
+        } else {
+          const automation = { objectsRead: [], objects: [], unread: [] } as never;
+          const muted: MutedAutomation = {
+            state: 'muted',
+            assigned: ['PS_Bypass'],
+            held: [],
+            permissions: ['Bypass'],
+            silenced: [],
+            stillRan: [],
+          };
+          vi.mocked(muteForRun).mockResolvedValueOnce({
+            automation,
+            muted,
+            prepared: {
+              plan: { assign: [], silenced: [], stillRuns: [] },
+              automation,
+              planned: muted,
+              acquire: async () => {
+                throw new MuteRefusedError(refusal);
+              },
+            },
+          });
+        }
+        const exit = stubExit();
+
+        await expect(
+          main(argv('--remove', file, '--target', 'TGT', '--mute-automation', '--json')),
+        ).rejects.toThrow('exit 1');
+
+        expect(exit.code()).toBe(1);
+        expect(exit.stderr()).toContain(`refused (${refusal.code}): ${refusal.message}\n`);
+        expect(JSON.parse(stdout)).toEqual({
+          tool: 'sandforge-sync',
+          action: 'remove',
+          summary: file,
+          target: 'TGT',
+          refused: refusal,
+          elapsedMs: expect.any(Number),
+        });
+        expect(org.deletes).toEqual([]);
+      },
+    );
+
     it('deletes nothing when it could not read what fires, without --accept-automation', async () => {
       automationRead.mockResolvedValueOnce({
         ...firing(),
@@ -666,6 +824,57 @@ describe('sandforge-sync --remove', () => {
     });
   });
 
+  it('takes the duplicate record sets its deletes left empty, keeps one still holding a record that stays, and names them', async () => {
+    // Run for real on a Developer Edition, two runs of the same two contacts:
+    // the second's duplicate rule put each of its contacts in a set with the
+    // first's, two items a set, made by the Automated Process user. Each
+    // removal took its contacts and their items, and both left the sets,
+    // empty: 57 sets before, 59 after.
+    const LEFT = fakeId('0GK', 1);
+    const SHARED = fakeId('0GK', 2);
+    const OTHER_RUNS = fakeId('003', 9);
+    org = new MemoryRemovalOrg({
+      Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+      Contact: [{ childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true }],
+    });
+    const at = new Date(Date.now() - 10 * 60_000).toISOString();
+    org.add('Account', { Id: A1 }, at);
+    org.add('Account', { Id: A2 }, at);
+    org.add('Contact', { Id: C1, AccountId: A1 }, at);
+    org.add('Contact', { Id: OTHER_RUNS }, at);
+    org.add('DuplicateRecordSet', { Id: LEFT }, at);
+    org.add('DuplicateRecordSet', { Id: SHARED }, at);
+    org.add(
+      'DuplicateRecordItem',
+      { Id: fakeId('0GL', 1), RecordId: C1, DuplicateRecordSetId: LEFT },
+      at,
+    );
+    org.add(
+      'DuplicateRecordItem',
+      { Id: fakeId('0GL', 2), RecordId: C1, DuplicateRecordSetId: SHARED },
+      at,
+    );
+    org.add(
+      'DuplicateRecordItem',
+      { Id: fakeId('0GL', 3), RecordId: OTHER_RUNS, DuplicateRecordSetId: SHARED },
+      at,
+    );
+    vi.mocked(removalOrg).mockReturnValue(org);
+
+    await main(argv('--remove', file, '--target', 'TGT', '--json'));
+
+    expect(org.all('DuplicateRecordSet').map((row) => row.Id)).toEqual([SHARED]);
+    expect(JSON.parse(stdout)).toMatchObject({
+      result: {
+        status: 'success',
+        planned: 3,
+        objects: expect.arrayContaining([
+          expect.objectContaining({ objectApiName: 'DuplicateRecordSet', planned: 1, deleted: 1 }),
+        ]),
+      },
+    });
+  });
+
   it('exits 3 when it leaves records of the run in the org, and takes them on the next removal', async () => {
     org.touch('Account', A2, new Date(Date.now() + 60_000).toISOString());
     const exit = stubExit();
@@ -696,6 +905,28 @@ describe('removalSummaryLines', () => {
       'removal: CANCELLED',
       '  Contact: 3 deleted, 2 not reached of 5',
       '  Account: 1 not reached of 1',
+    ]);
+  });
+
+  it('says what a removal including changes took along that the run never wrote', () => {
+    const counts = { alreadyGone: 0, keptChanged: 0, keptDependents: 0, refused: 0 };
+    const lists = { heldBy: [], unchecked: [], reasons: [] };
+
+    expect(
+      removalSummaryLines('success', [
+        {
+          objectApiName: 'Account',
+          planned: 1,
+          deleted: 1,
+          tookAlong: { count: 2, objects: ['Contact', 'Task'] },
+          ...counts,
+          ...lists,
+        },
+      ]),
+    ).toEqual([
+      'removal: SUCCESS',
+      '  Account: 1 deleted of 1',
+      "      took along 2 record(s) that were not the run's, added or changed since it: Contact, Task",
     ]);
   });
 });

@@ -6,6 +6,7 @@ import type {
   PipelineStep,
   SalesforceOrg,
 } from '@sandforge/shared';
+import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { RewindPreview } from '../Checkpoint/RewindPreview';
@@ -59,6 +60,12 @@ export const RewindStepConfirm: React.FC<RewindStepConfirmProps> = ({
     max: formatNumber(maxRecords),
   };
   const refused = answer && !answer.granted && answer.stepId === step.id ? answer : undefined;
+  // The objects the step rewinds, when its configuration limits it to some:
+  // its confirmation is of that rewind.
+  const stepObjects = step.config['objects'];
+  const objects = Array.isArray(stepObjects)
+    ? stepObjects.filter((name): name is string => typeof name === 'string')
+    : [];
   return (
     <section
       className="flex flex-col gap-3"
@@ -71,7 +78,33 @@ export const RewindStepConfirm: React.FC<RewindStepConfirmProps> = ({
       <p className="text-xs text-text-secondary" data-testid="rewind-step-confirm-lead">
         {t('automation.rewindConfirmLead', words)}
       </p>
-      <RewindPreview org={org} checkpoint={checkpoint} onClose={onClose} />
+      <RewindPreview
+        org={org}
+        checkpoint={checkpoint}
+        onClose={onClose}
+        {...(objects.length > 0
+          ? {
+              limitedTo: { objects, acceptOutside: step.config['acceptOutside'] === true },
+            }
+          : {})}
+        // The preview of a step that mutes is of what still runs, and says
+        // what the mute would assign: what the confirmation is typed under.
+        {...(step.config['muteAutomation'] === true
+          ? {
+              startMuted: true,
+              muteBox: (offer, checked, onChange) => (
+                <AutomationMuteBox
+                  offer={offer}
+                  checked={checked}
+                  onChange={onChange}
+                  org={alias}
+                  readOnly
+                  testId="rewind-step-confirm-mute"
+                />
+              ),
+            }
+          : {})}
+      />
       {refused && (
         <p role="alert" className="text-xs text-status-error" data-testid="rewind-grant-refused">
           {t(`automation.rewindGrantRefused.${refused.code}`)}

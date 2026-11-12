@@ -12,11 +12,13 @@ import {
   parseRecordTypeInfos,
   type RecordTypeAvailability,
 } from '../../core/metadata/recordTypeAvailability.js';
-import type { SyncOperation, SyncUnwritableReason } from '@sandforge/shared';
+import type { SyncObjectConfig, SyncOperation, SyncUnwritableReason } from '@sandforge/shared';
 import { ACCOUNT, PERSON_CONTACT_FIELD } from '../../core/common/platformRecords.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { FieldInfo } from '../forge/ForgeExecutor.js';
 import { isNotFound } from '../forge/ForgeMetadataDiff.js';
+import { selectedFieldsOf } from '../migration/sfdmuQuery.js';
+import { MOVES_ITS_SOURCE } from './FieldMapping.js';
 
 /** What the target's describe of an object says a write may send. */
 export interface TargetWriteFields {
@@ -51,6 +53,15 @@ export interface TargetWriteFields {
    * when the describe did not say.
    */
   fields?: readonly FieldInfo[];
+  /**
+   * The fields an upsert may match on, in lower case: an External ID, or one
+   * the describe marks `idLookup`, as `Id` is on every object, `Contact.Email`
+   * and `Opportunity.Name`. A field that is merely indexed is none of them,
+   * whatever the org's refusal says: `Field name provided, Name does not
+   * match an External ID, Salesforce Id, or indexed field for Account`.
+   * Absent when the describe did not say.
+   */
+  upsertKeys?: ReadonlySet<string>;
 }
 
 /** One field of a describe, as jsforce returns it, reduced to what is read here. */
@@ -68,6 +79,8 @@ interface DescribedField {
   digits?: number;
   unique?: boolean;
   referenceTo?: readonly string[] | null;
+  externalId?: boolean;
+  idLookup?: boolean;
 }
 
 /** A count the describe gives, when it gives a positive one. */
@@ -115,6 +128,7 @@ export function targetWriteFieldsOf(described: {
   recordTypeInfos?: unknown;
 }): TargetWriteFields {
   const writable = described.fields.filter((f) => f.createable === true);
+  const saysKeys = described.fields.some((f) => typeof f.idLookup === 'boolean');
   return {
     creatable: new Set(writable.map((f) => f.name)),
     references: new Set(writable.filter((f) => f.type === 'reference').map((f) => f.name)),
@@ -129,6 +143,15 @@ export function targetWriteFieldsOf(described: {
       ? { personAccounts: described.fields.some((f) => f.name === PERSON_CONTACT_FIELD) }
       : {}),
     fields: described.fields.map(fieldInfoOf),
+    ...(saysKeys
+      ? {
+          upsertKeys: new Set(
+            described.fields
+              .filter((f) => f.externalId === true || f.idLookup === true)
+              .map((f) => f.name.toLowerCase()),
+          ),
+        }
+      : {}),
   };
 }
 
@@ -139,6 +162,8 @@ export type TargetRefusalReason = SyncUnwritableReason;
 export interface TargetRefusal {
   why: TargetRefusalReason;
   message: string;
+  /** Of `notAKey`: the field the upsert matches on. */
+  key?: string;
 }
 
 /**
@@ -172,7 +197,72 @@ export function targetRefusalMessage(
         `The target org did not describe ${objectApiName}${detail ? ` (${detail})` : ''}, so ` +
         'what it takes could not be told and none of its records were sent.'
       );
+    case 'notAKey':
+      return (
+        `The upsert of ${objectApiName} matches on ${detail ?? 'a field'}, which the target org ` +
+        'does not match an upsert on: it takes an External ID field, the Id, or a field its ' +
+        'describe marks idLookup. None of its records were sent.'
+      );
   }
+}
+
+/**
+ * `objectConfig` with its upsert's key as the target names it. The org takes a
+ * key in any case, so {@link targetAccessOf} does; but a record holds the field
+ * under the name the org gave it, and what reads the key from the record
+ * reads that one: on `legacy_key__c` a simulation counted every record without
+ * a key, and a run had every one refused, `External ID is not found in record`.
+ */
+export function withKeyAsTargetNamesIt(
+  objectConfig: SyncObjectConfig,
+  target: Pick<TargetWriteFields, 'fields'>,
+): SyncObjectConfig {
+  const key = objectConfig.externalIdField?.trim().toLowerCase();
+  if (objectConfig.operation !== 'upsert' || !key) return objectConfig;
+  const named = target.fields?.find((field) => field.name.toLowerCase() === key)?.name;
+  return named === undefined ? objectConfig : { ...objectConfig, externalIdField: named };
+}
+
+/**
+ * `objectConfig` writing the fields the SELECT of its `query` names alone,
+ * as SFDMU writes them, when the query names a list of them
+ * (`selectedFieldsOf`): every other field the target lets the run write is
+ * left out, as `excludedFields` leaves one out, so the write, its order and
+ * a delta run's scope all read it so. Kept beside them: the field an upsert
+ * matches on, without which it matches nothing, and the source field of
+ * each mapping that reads one.
+ *
+ * Only an SFDMU import gives an object a query, and Sync never runs it: it
+ * reads every field the source's describe lists. An export naming four
+ * fields of an account had its upsert write every field the target took,
+ * over the target's own values of those the export never named. A query of
+ * `Id` alone, `all`, `FIELDS(...)` or another of SFDMU's keywords names no
+ * list, and the object writes every field, as the import says.
+ *
+ * @param target - What the target's describe says the run may write.
+ */
+export function withFieldsOfItsQuery(
+  objectConfig: SyncObjectConfig,
+  target: Pick<TargetWriteFields, 'creatable'>,
+): SyncObjectConfig {
+  if (objectConfig.operation === 'delete' || objectConfig.query === undefined) return objectConfig;
+  const selected = selectedFieldsOf(objectConfig.query);
+  if (!('list' in selected)) return objectConfig;
+  const kept = new Set(
+    [
+      ...selected.list,
+      objectConfig.externalIdField ?? '',
+      ...objectConfig.fieldMappings
+        .filter((mapping) => MOVES_ITS_SOURCE.has(mapping.type))
+        .map((mapping) => mapping.sourceField),
+    ].map((field) => field.toLowerCase()),
+  );
+  const leftOut = [...target.creatable].filter((field) => !kept.has(field.toLowerCase()));
+  if (leftOut.length === 0) return objectConfig;
+  return {
+    ...objectConfig,
+    excludedFields: [...new Set([...(objectConfig.excludedFields ?? []), ...leftOut])],
+  };
 }
 
 /**
@@ -180,17 +270,22 @@ export function targetRefusalMessage(
  * its describe: an object it has not — or that the running user cannot see,
  * which its describe answers alike, NOT_FOUND — one that user may not create
  * for an insert or an upsert, or may not edit for an update or an upsert, is
- * refused whole, as is one it would not describe.
+ * refused whole, as is one it would not describe, and an upsert on a field
+ * the target matches no upsert on: a simulation counted such records written,
+ * and the run had every one refused.
  *
  * A run read a failed describe as "could not say", and sent every row as it
  * was read, every field of it: the target then refused each record, after
  * the objects before it were written, and a simulation counted them written.
  * A delete is not refused here: it sends ids alone.
+ *
+ * @param externalIdField - The field an upsert matches on; absent or blank, the Id.
  */
 export async function targetAccessOf(
   describe: (objectApiName: string) => Promise<TargetWriteFields>,
   objectApiName: string,
   operation: SyncOperation,
+  externalIdField?: string,
 ): Promise<
   | { target: TargetWriteFields }
   | { refused: TargetRefusal; target?: TargetWriteFields }
@@ -217,7 +312,17 @@ export async function targetAccessOf(
       : edits && target.objectUpdateable === false
         ? 'notUpdateable'
         : undefined;
-  return why
-    ? { refused: { why, message: targetRefusalMessage(objectApiName, why) }, target }
-    : { target };
+  if (why) return { refused: { why, message: targetRefusalMessage(objectApiName, why) }, target };
+  const key = externalIdField?.trim() || 'Id';
+  if (operation === 'upsert' && target.upsertKeys && !target.upsertKeys.has(key.toLowerCase())) {
+    return {
+      refused: {
+        why: 'notAKey',
+        message: targetRefusalMessage(objectApiName, 'notAKey', key),
+        key,
+      },
+      target,
+    };
+  }
+  return { target };
 }

@@ -11,9 +11,11 @@
 
 import type {
   FrozenDefaultPerRecord,
+  FrozenKeysLeftEmpty,
   FrozenLeftToThePlatform,
   FrozenUnresolvedLinkCause,
   FrozenWrittenWithoutFields,
+  RecordTypeGiven,
 } from '@sandforge/shared';
 import type { OperationOutcome } from '../sync/DataSync.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
@@ -45,6 +47,12 @@ export interface TargetFieldDescribe {
   unique?: boolean;
   /** Whether the field is the object's name, as its describe says. */
   nameField?: boolean;
+  /**
+   * The lookup filter of a reference field, as its describe gives it
+   * (`filteredLookupInfo`), `optional` when the filter itself is: read as
+   * Forge's pre-flight reads it. Absent for a field with none.
+   */
+  lookupFilter?: { optional: boolean };
 }
 
 /** Minimal target-org object describe consumed by the load phase. */
@@ -58,11 +66,29 @@ export interface TargetObjectDescribe {
   createable?: boolean;
   fields: TargetFieldDescribe[];
   /**
+   * The relationships the target deletes along with a record of the object,
+   * as its describe lists them (`childRelationships`, `cascadeDelete`): the
+   * object and lookup of each record that goes with it. Its fields do not
+   * say it — a contact's account is a lookup there, and goes with the
+   * account. Absent when the describe was not asked for them.
+   */
+  cascadeChildren?: Array<{ childSObject: string; field: string }>;
+  /**
    * Record types as the running user sees them. `available` is false for one
    * that exists and is active but is not assigned to that user — it resolves
-   * by DeveloperName and is then refused at insert.
+   * by DeveloperName and is then refused at insert. The rest of what the
+   * describe says of each tells what the target gives a record sent without
+   * one (`recordTypeGivenOf`).
    */
-  recordTypeInfos?: Array<{ developerName: string; recordTypeId: string; available: boolean }>;
+  recordTypeInfos?: Array<{
+    developerName: string;
+    recordTypeId: string;
+    available: boolean;
+    name?: string;
+    active?: boolean;
+    master?: boolean;
+    defaultRecordTypeMapping?: boolean;
+  }>;
 }
 
 /**
@@ -336,6 +362,13 @@ export interface MissingRequiredField {
    * the object is required to hold.
    */
   accountKind?: 'business' | 'person';
+  /**
+   * The field's type as the target's describe gives it (`date`, `currency`,
+   * `picklist`…), and of a picklist its active values: what a default
+   * declared for it must hold. Absent where the describe names none.
+   */
+  fieldType?: string;
+  activeValues?: string[];
 }
 
 /** Per-object alignment outcome. */
@@ -419,6 +452,13 @@ export interface PerObjectLoadResult {
    * that ran to its end.
    */
   notInserted?: number;
+  /**
+   * Of the records reused, those the platform wrote itself with a record the
+   * load inserted — a contact's role, written with the opportunity it went in
+   * with — and the load linked to rather than sent beside them. Absent when
+   * there was none.
+   */
+  writtenByThePlatform?: number;
 }
 
 /** Purge accounting for reload mode (children before parents). */
@@ -516,6 +556,27 @@ export interface FrozenLoadReport {
    * without such a record. Absent when none was.
    */
   heldForExcludedParents?: FrozenLeftToThePlatform[];
+  /**
+   * The opportunities the load left unsynced with the quote the source syncs
+   * them with, their products kept: it wrote fewer lines under the quote than
+   * products under the opportunity, and a sync replaces an opportunity's
+   * products with its quote's lines. Absent when it left none.
+   */
+  quotesLeftUnsynced?: FrozenLeftToThePlatform[];
+  /**
+   * Per object whose identity keys the load looked records up by — on a
+   * reload, and on every load for an object the platform never deletes — the
+   * records it did not look up: a key field stayed empty in what it wrote.
+   * Absent when it looked up every one.
+   */
+  keysLeftEmpty?: FrozenKeysLeftEmpty[];
+  /**
+   * Per object, the record type the target gave the records the load created
+   * without one, as read back. Absent when there was nothing to say.
+   */
+  recordTypesGiven?: RecordTypeGiven[];
+  /** The user the load wrote as, by Salesforce id. Absent when the target did not say. */
+  runUserId?: string;
   /** Sas path of the persisted referenceId→Id mapping. */
   mappingPath: string;
   /** Sas path of the counting contract consumed by the PostLoadVerifier. */

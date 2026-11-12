@@ -373,16 +373,15 @@ test.describe('Autopilot — Wizard Flow', () => {
     await advanceToPlan(page, bridge);
     await advanceToReview(page, bridge);
 
-    const orgs = page.getByTestId('step4-orgs');
+    const orgs = page.getByTestId('org-ribbon');
     await expect(orgs).not.toContainText('org-src-1');
     await expect(orgs).not.toContainText('org-tgt-1');
-    const source = page.getByTestId('step4-source-org');
-    await expect(source.getByTestId('org-badge-alias')).toHaveText('DevSandbox');
-    await expect(source.getByTestId('org-badge-type')).toHaveText('SANDBOX');
-    await expect(source.getByTestId('org-badge-url')).toHaveText('dev.salesforce.com');
-    await expect(page.getByTestId('step4-target-org').getByTestId('org-badge-alias')).toHaveText(
-      'QASandbox',
+    await expect(page.getByTestId('org-ribbon-source-name')).toHaveText('DevSandbox');
+    await expect(page.getByTestId('org-ribbon-source').getByTestId('org-badge-type')).toHaveText(
+      'SANDBOX',
     );
+    await expect(page.getByTestId('org-ribbon-source-url')).toHaveText('dev.salesforce.com');
+    await expect(page.getByTestId('org-ribbon-target-name')).toHaveText('QASandbox');
     await expect(page.getByTestId('execute-button')).toHaveText('Copy into QASandbox');
   });
 

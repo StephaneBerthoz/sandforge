@@ -166,9 +166,38 @@ const mutationOptions: Record<
 /** `execution:abort`, which each tab's Stop sends. */
 const mockAbortMutate = vi.fn();
 
+/** What the org runs as a masking or a restore writes, as the extension answers a read of it: nothing. */
+const mockAutomationMutate = vi.fn();
+const NOTHING_FIRES = {
+  act: 'masking',
+  objects: [],
+  steps: {},
+  automation: {
+    objectsRead: [],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 0,
+  },
+  lines: [],
+  emails: [],
+  emailsAsk: false,
+  refusals: [],
+};
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string, options?: { timeoutMs?: number }) => {
     mutationOptions[type] = options;
+    if (type === 'dataops:automation') {
+      return {
+        mutate: mockAutomationMutate,
+        data: NOTHING_FIRES,
+        loading: false,
+        error: null,
+        reset: vi.fn(),
+      };
+    }
     if (type === 'execution:abort') {
       return { mutate: mockAbortMutate, data: null, loading: false, error: null, reset: vi.fn() };
     }
@@ -1178,6 +1207,10 @@ describe('DataOpsPage', () => {
         orgId: 'org-1',
         templateId: 'tpl-1',
         snapshot: true,
+        // Confirmed once what the org runs as the records are masked was listed.
+        acceptAutomation: true,
+        // The page's: what refuses it names its confirmation, not the command line's flags.
+        fromPage: true,
       });
     });
 
@@ -1257,6 +1290,8 @@ describe('DataOpsPage', () => {
         orgId: 'org-1',
         templateId: 'tpl-1',
         resumeFrom: 'run-1',
+        acceptAutomation: true,
+        fromPage: true,
       });
       mockCoverageData = null;
     });
@@ -1455,7 +1490,13 @@ describe('DataOpsPage', () => {
 
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
       expect(mockRollbackMutate).toHaveBeenCalledTimes(1);
-      expect(mockRollbackMutate).toHaveBeenCalledWith({ orgId: 'org-1', operationId: 'op-1' });
+      expect(mockRollbackMutate).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        operationId: 'op-1',
+        // Confirmed once what the org runs as the values go back was listed.
+        acceptAutomation: true,
+        fromPage: true,
+      });
     });
 
     it('sends no rollback when the question is dismissed', () => {
@@ -1478,6 +1519,8 @@ describe('DataOpsPage', () => {
         orgId: 'org-1',
         operationId: 'op-1',
         rewriteAll: true,
+        acceptAutomation: true,
+        fromPage: true,
       });
     });
 
@@ -1502,6 +1545,8 @@ describe('DataOpsPage', () => {
           orgId: 'org-1',
           operationId: 'op-1',
           includeChanged: true,
+          acceptAutomation: true,
+          fromPage: true,
         });
       });
 
@@ -1577,6 +1622,8 @@ describe('DataOpsPage', () => {
       expect(mockRollbackMutate).toHaveBeenCalledWith({
         orgId: 'org-1',
         operationId: 'op-failed',
+        acceptAutomation: true,
+        fromPage: true,
       });
     });
   });

@@ -7,12 +7,17 @@ import {
   type ForgeRunGateCode,
   type ForgeRunGateStop,
 } from '@sandforge/shared';
+import { checkpointRefusalWords } from '../../utils/runCheckpoint';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { uiLocale } from '../../utils/formatters';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { clonesWholeOrg } from './forgeRunConfig';
 import { useForgeRunGateStore } from './runGate';
 
-/** The sentence each stop is said in. */
+/**
+ * The sentence each stop is said in, unless what the stop names, or the
+ * run's checkpoint first, has one of its own ({@link sentenceOf}).
+ */
 const STOP_KEYS: Record<ForgeRunGateCode, string> = {
   PRODUCTION_TARGET: 'forgeRun.gate.productionTarget',
   AUTOMATION_DECLINED: 'forgeRun.gate.automationDeclined',
@@ -20,6 +25,7 @@ const STOP_KEYS: Record<ForgeRunGateCode, string> = {
   WRITE_DECLINED: 'forgeRun.gate.writeDeclined',
   STORAGE_EXCEEDED: 'forgeRun.gate.storageExceeded',
   CONFIRMATION_UNAVAILABLE: 'forgeRun.gate.confirmationUnavailable',
+  CHECKPOINT_REFUSED: 'forgeRun.gate.checkpointRefused',
   API_BUDGET_EXCEEDED: 'forgeRun.gate.apiBudgetExceeded',
   READ_BOUND_EXCEEDED: 'forgeRun.gate.readBoundExceeded',
 };
@@ -36,22 +42,33 @@ const CANCELLED: ReadonlySet<ForgeRunGateCode> = new Set([
 ]);
 
 /**
- * The sentence `stop` is said in, where its code has more than one: storage
- * refused for the files a run copies, or for the records of a clone of the
- * whole org — which has no records per object to lower — and an API budget
- * refused for the allowance and the org it names. A refusal that names
- * neither, as one before the extension said them did, keeps the code's.
+ * The sentence a stop is said in, where its code has more than one: a
+ * checkpoint refused by what refused it; storage refused for the files a run
+ * copies, or for the records of a clone of the whole org — which has no
+ * records per object to lower —; an API budget refused for the allowance and
+ * the org it names, and otherwise the day's API requests. Either way, the
+ * target's requests name the checkpoint among them only when the run was to
+ * take one: a clone of the whole org counts it there too, and unticking it
+ * may be what lets the run through. A refusal that names none of these, as
+ * one before the extension said them did, keeps the code's.
  */
-function stopKey(stop: ForgeRunGateStop, wholeOrg: boolean): string {
+function sentenceOf(stop: ForgeRunGateStop, checkpointAsked: boolean, wholeOrg: boolean): string {
+  if (stop.code === 'CHECKPOINT_REFUSED' && stop.reason !== undefined) {
+    return 'forgeRun.gate.checkpointRefusedFor';
+  }
   if (stop.code === 'STORAGE_EXCEEDED') {
     if (stop.storage?.kind === 'files') return 'forgeRun.gate.storageExceededFiles';
     if (wholeOrg) return 'forgeRun.gate.storageExceededAll';
   }
   if (stop.code === 'API_BUDGET_EXCEEDED' && stop.api) {
     if (stop.api.kind === 'bulkBatches') return 'forgeRun.gate.bulkBatchesExceeded';
-    return stop.api.org === 'source'
-      ? 'forgeRun.gate.apiRequestsExceededSource'
+    if (stop.api.org === 'source') return 'forgeRun.gate.apiRequestsExceededSource';
+    return checkpointAsked
+      ? 'forgeRun.gate.apiRequestsExceededTargetWithCheckpoint'
       : 'forgeRun.gate.apiRequestsExceededTarget';
+  }
+  if (stop.code === 'API_BUDGET_EXCEEDED' && checkpointAsked) {
+    return 'forgeRun.gate.apiBudgetExceededWithCheckpoint';
   }
   return STOP_KEYS[stop.code];
 }
@@ -74,9 +91,12 @@ function stopKey(stop: ForgeRunGateStop, wholeOrg: boolean): string {
 export const ForgeRunGateNotice: React.FC = () => {
   const { t } = useTranslation();
   const stop = useForgeRunGateStore((s) => s.stop);
+  const checkpointAsked = useForgeRunGateStore((s) => s.checkpointAsked);
+  const checkpoint = useForgeRunGateStore((s) => s.checkpoint);
   const clear = useForgeRunGateStore((s) => s.clear);
   const revealed = useForgeRunGateStore((s) => s.revealed);
   const markRevealed = useForgeRunGateStore((s) => s.markRevealed);
+  const targetOrgId = useForgeStore((s) => s.config?.targetOrgId);
   /** The run refused was a clone of the whole org: the page keeps its config until the next. */
   const wholeOrg = useForgeStore((s) => clonesWholeOrg(s.config));
   const noticeRef = useRef<HTMLDivElement>(null);
@@ -122,25 +142,35 @@ export const ForgeRunGateNotice: React.FC = () => {
         aria-hidden="true"
         className={`mt-0.5 shrink-0 ${cancelled ? 'text-text-secondary' : 'text-status-warning'}`}
       />
-      <p data-testid="forge-run-gate-reason" className="flex-1">
-        {t(stopKey(stop, wholeOrg), {
-          // Of the storage refused, in MB; of the API budget, requests or batches.
-          estimate: (stop.api?.estimate ?? stop.storage?.estimateMB ?? 0).toLocaleString(
-            uiLocale(),
-          ),
-          remaining: (stop.api?.remaining ?? stop.storage?.remainingMB ?? 0).toLocaleString(
-            uiLocale(),
-          ),
-          // The number the run held, which the settings may have raised.
-          ceiling: (stop.ceiling ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(uiLocale()),
-          // A clone of the whole org refused for an object it reads whole:
-          // the bound it held, and each object past it.
-          bound: (stop.readBound?.bound ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(
-            uiLocale(),
-          ),
-          objects: (stop.readBound?.objects ?? []).map((o) => o.objectApiName).join(', '),
-        })}
-      </p>
+      <div className="flex flex-1 flex-col gap-1">
+        <p data-testid="forge-run-gate-reason">
+          {t(sentenceOf(stop, checkpointAsked, wholeOrg), {
+            // Of the storage refused, in MB; of the API budget, requests or batches.
+            estimate: (stop.api?.estimate ?? stop.storage?.estimateMB ?? 0).toLocaleString(
+              uiLocale(),
+            ),
+            remaining: (stop.api?.remaining ?? stop.storage?.remainingMB ?? 0).toLocaleString(
+              uiLocale(),
+            ),
+            // The number the run held, which the settings may have raised.
+            ceiling: (stop.ceiling ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(uiLocale()),
+            // A clone of the whole org refused for an object it reads whole:
+            // the bound it held, and each object past it.
+            bound: (stop.readBound?.bound ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(
+              uiLocale(),
+            ),
+            objects: (stop.readBound?.objects ?? []).map((o) => o.objectApiName).join(', '),
+            reason: checkpointRefusalWords(stop.reason, t),
+          })}
+        </p>
+        <RewindBeforeRun
+          checkpoint={checkpoint}
+          orgId={targetOrgId}
+          beside="run"
+          compact
+          testId="forge-run-gate-checkpoint"
+        />
+      </div>
       <button
         type="button"
         data-testid="forge-run-gate-dismiss"

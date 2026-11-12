@@ -217,6 +217,7 @@ export class ForgeRunAudit {
   private readonly confirmed: AuditConfirmation[] = [];
   private fired?: AuditFiredOnInsert;
   private firedOnUpdate?: AuditFiredOnUpdate;
+  private deliverability?: AuditRunContext['deliverability'];
 
   /**
    * @param config - The run's config, as the request sent it.
@@ -243,6 +244,14 @@ export class ForgeRunAudit {
     this.firedOnUpdate = firedOnUpdateCounts(read, updated);
   }
 
+  /**
+   * Whether the target delivered the emails of what still ran, as read before
+   * the run's question; nothing when nothing that ran sends one.
+   */
+  emailsRead(deliverability: AuditRunContext['deliverability']): void {
+    this.deliverability = deliverability;
+  }
+
   /** A person answered a question of the run's gate by going on. */
   confirm(question: AuditConfirmation): void {
     if (!this.confirmed.includes(question)) this.confirmed.push(question);
@@ -263,6 +272,7 @@ export class ForgeRunAudit {
       ...(this.firedOnUpdate ? { firedOnUpdate: { ...this.firedOnUpdate } } : {}),
       ...(this.confirmed.length > 0 ? { confirmed: [...this.confirmed] } : {}),
       ...(decisions.length > 0 ? { decisions } : {}),
+      ...(this.deliverability !== undefined ? { deliverability: this.deliverability } : {}),
     };
   }
 }

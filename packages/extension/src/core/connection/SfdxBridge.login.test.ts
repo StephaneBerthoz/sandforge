@@ -48,6 +48,8 @@ interface SeenCall {
   stdinEnded: boolean;
   /** The child's stdin, to emit on as the pipe would. */
   stdinStream?: EventEmitter;
+  /** The environment the child was started with. */
+  env?: NodeJS.ProcessEnv;
 }
 
 type Callback = (error: FakeRun['error'] | null, stdout: string, stderr: string) => void;
@@ -78,11 +80,14 @@ function scriptCli(runs: FakeRun[]): SeenCall[] {
   vi.mocked(execFile).mockImplementation(((
     file: string,
     args: string[],
-    _options: unknown,
+    options: { env?: NodeJS.ProcessEnv },
     callback: Callback,
-  ) => start({ file, args, stdin: '', stdinEnded: false }, callback)) as never);
-  vi.mocked(exec).mockImplementation(((command: string, _options: unknown, callback: Callback) =>
-    start({ command, stdin: '', stdinEnded: false }, callback)) as never);
+  ) => start({ file, args, stdin: '', stdinEnded: false, env: options.env }, callback)) as never);
+  vi.mocked(exec).mockImplementation(((
+    command: string,
+    options: { env?: NodeJS.ProcessEnv },
+    callback: Callback,
+  ) => start({ command, stdin: '', stdinEnded: false, env: options.env }, callback)) as never);
   return calls;
 }
 
@@ -153,6 +158,31 @@ describe.skipIf(process.platform === 'win32')('SfdxBridge.loginJwt', () => {
     scriptCli([{ stdout: loginOutput(SIGNED_IN) }]);
 
     expect(await new SfdxBridge().loginJwt(JWT_REQUEST)).toEqual(SIGNED_IN);
+  });
+
+  /**
+   * The extension host carries ELECTRON_RUN_AS_NODE=1 and VS Code's own
+   * variables, which a terminal of the window does not get.
+   */
+  it('starts sf without the variables of VS Code, colours off', async () => {
+    const saved = { ...process.env };
+    process.env.ELECTRON_RUN_AS_NODE = '1';
+    process.env.VSCODE_PID = '4242';
+    try {
+      const calls = scriptCli([{ stdout: loginOutput(SIGNED_IN) }]);
+
+      await new SfdxBridge().loginJwt(JWT_REQUEST);
+
+      const env = calls[0].env ?? {};
+      expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+      expect(env.VSCODE_PID).toBeUndefined();
+      expect(env.PATH).toBe(process.env.PATH);
+      expect(env.NO_COLOR).toBe('1');
+    } finally {
+      delete process.env.ELECTRON_RUN_AS_NODE;
+      delete process.env.VSCODE_PID;
+      Object.assign(process.env, saved);
+    }
   });
 
   it('leaves the alias out when none is given', async () => {

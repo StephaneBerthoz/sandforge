@@ -115,7 +115,6 @@ describe('a frozen resource, converted', () => {
     });
     expect(converted.warnings.map((warning) => warning.message)).toEqual([
       'claims.frozen.json gives datasetDir, which the environment sets: the loads are kept beside the state, and the dataset is the one the file pins',
-      'a Frozen load and its removal take no acceptance of automation: what the org runs as the records go in, they run unasked',
     ]);
   });
 
@@ -233,6 +232,31 @@ describe('a frozen resource’s lines', () => {
     });
   });
 
+  it('tells the dry run of a replace what the apply takes back before it, and a first load’s nothing', () => {
+    // The script reads it as the dry run of a reload: refused anywhere else.
+    expect(
+      parsed(frozenDryRunLine({ ...line, reload: true, goneFirst: '/tmp/gone-first.json' })),
+    ).toMatchObject({ reload: true, dryRun: true, goneFirst: '/tmp/gone-first.json' });
+    expect(
+      frozenDryRunLine({ ...line, reload: false, goneFirst: '/tmp/gone-first.json' }),
+    ).not.toContain('--gone-first');
+  });
+
+  it('hands a first load and its dry run the acceptance of automation it was given, as a reload', () => {
+    // A load asks what fires as it inserts and updates, as a reload asks
+    // what fires as its purge deletes: given to a reload alone, the
+    // acceptance left a first load refused for the flow on its contacts.
+    expect(
+      parsed(frozenDryRunLine({ ...line, reload: false, acceptAutomation: true })),
+    ).toMatchObject({ step: 'load', reload: false, dryRun: true, acceptAutomation: true });
+    expect(
+      parsed(frozenApplyLine({ ...line, reload: false, maxTotal: 4, acceptAutomation: true })),
+    ).toMatchObject({ step: 'load', reload: false, acceptAutomation: true, yes: true });
+    expect(parsed(frozenApplyLine({ ...line, reload: false, maxTotal: 4 }))).toMatchObject({
+      acceptAutomation: false,
+    });
+  });
+
   it('runs a load held to its dry run’s count, asked nothing, a reload for a replace', () => {
     expect(parsed(frozenApplyLine({ ...line, reload: true, maxTotal: 4 }))).toMatchObject({
       step: 'load',
@@ -256,7 +280,26 @@ describe('a frozen resource’s lines', () => {
       step: 'remove',
       preview: false,
       sweep: true,
+      acceptAutomation: false,
       yes: true,
+    });
+    // A destroy's sweep, to its preview too, which reads what it would take.
+    expect(parsed(frozenPreviewLine({ ...line, sweep: true }))).toMatchObject({
+      step: 'remove',
+      preview: true,
+      sweep: true,
+    });
+  });
+
+  it('hands a removal and its preview the acceptance of automation it was given, as the script reads it', () => {
+    expect(parsed(frozenRemoveLine({ ...line, acceptAutomation: true }))).toMatchObject({
+      step: 'remove',
+      acceptAutomation: true,
+    });
+    expect(parsed(frozenPreviewLine({ ...line, acceptAutomation: true }))).toMatchObject({
+      step: 'remove',
+      preview: true,
+      acceptAutomation: true,
     });
   });
 
@@ -309,6 +352,35 @@ describe('what sandforge-frozen answers, read', () => {
       storageBytes: 4 * 2048,
       emails: [],
     });
+  });
+
+  it('reads the emails a dry run’s gate counted, for the day’s gate to add', async () => {
+    // Counted nowhere, a load of 73 contacts into a Developer Edition of 15
+    // single emails a day passed the day's gate.
+    const ran = await frozen(['load', '--dry-run']);
+    const answer = readFrozenDryRun(ran.stdout);
+    const preview = answer.posted.find((m) => m.type === 'frozen:load:preview:response');
+    const plan = (preview?.payload as { plan: Record<string, unknown> }).plan;
+    plan['emails'] = {
+      counted: [
+        {
+          limit: 'SingleEmail',
+          emails: 146,
+          verdict: 'exceeds',
+          remaining: 15,
+          max: 15,
+          objects: [],
+        },
+        { limit: 'DailyWorkflowEmails', emails: 73, verdict: 'fits', objects: [] },
+      ],
+      verdict: 'withheld',
+      accepted: false,
+    };
+
+    expect(frozenDryRunCount(answer).emails).toEqual([
+      { limit: 'SingleEmail', emails: 146 },
+      { limit: 'DailyWorkflowEmails', emails: 73 },
+    ]);
   });
 
   it('reads a load, the verification it chains, its verification, its preview and its removal', async () => {
@@ -462,6 +534,19 @@ describe('what a frozen dry run counts, as the plan reads it', () => {
     expect(frozenDryRunCount(refused).refusal).toBe(
       'A removal of the loads this reload replaces would leave 1 of their records in the org',
     );
+    expect(frozenDryRunCount(refused).refusalCodes).toEqual(['REPLACE_LEAVES_RECORDS']);
+    expect(
+      frozenDryRunCount(
+        answer({
+          refusals: ['TGT runs automation as this load inserts its records.'],
+          refusalCodes: ['AUTOMATION_NOT_ACCEPTED'],
+        }),
+      ).refusalCodes,
+    ).toEqual(['AUTOMATION_NOT_ACCEPTED']);
+    // A refusal it gave no code, and the plan's own words.
+    expect(
+      frozenDryRunCount(answer({ refusals: ['This load would insert 2 record(s)'] })),
+    ).not.toHaveProperty('refusalCodes');
     expect(
       frozenDryRunCount(
         answer({ refusals: ['This load would insert 2 record(s), more than the 1 it may'] }),

@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ForgeExecutorDeps } from '../ForgeExecutor.js';
 import { canonicalRecordId } from '../../../core/common/existingRecordMatch.js';
-import { personContactsSoql } from '../../../core/common/platformRecords.js';
+import {
+  opportunityOwnersSoql,
+  opportunityTeamSoql,
+  personContactsSoql,
+} from '../../../core/common/platformRecords.js';
 import { RehearsalWriter, placeholderId, rehearsalExecutorDeps } from './RehearsalWriter.js';
 
 const prefixes: Record<string, string> = { Account: '001', Contact: '003' };
@@ -135,6 +139,132 @@ describe('the writer a rehearsal hands the executor', () => {
         `SELECT Id FROM Contact WHERE Id = '${String(contact)}'`,
       ),
     ).toEqual([]);
+  });
+
+  describe('of an opportunity the run creates, under Team Selling and Splits', () => {
+    const RUNNING_USER = '005Fk00000RuNnA';
+    const MAPPED = '005Fk00000MaPpA';
+    const HELD = '006Fk00000HeLdA';
+    const REVENUE = '149Fk00000ReVeA';
+    const team = () => {
+      const w = new RehearsalWriter(
+        async (objectApiName) =>
+          ({ Opportunity: '006', OpportunityTeamMember: '00q', OpportunitySplit: '049' })[
+            objectApiName
+          ] ?? null,
+        async () => RUNNING_USER,
+      );
+      const query = vi.fn<ForgeExecutorDeps['queryRecords']>(async (_org, soql) => {
+        if (soql.includes('FROM OpportunitySplitType')) {
+          return [
+            { Id: REVENUE, DeveloperName: 'Revenue', IsTotalValidated: true },
+            { Id: '149Fk00000OvErA', DeveloperName: 'Overlay', IsTotalValidated: false },
+          ];
+        }
+        if (soql.startsWith('SELECT Id, OwnerId FROM Opportunity')) {
+          return [{ Id: HELD, OwnerId: '005Fk00000OtHeR' }];
+        }
+        return [{ Id: '00qFk00000HeLdA', OpportunityId: HELD, UserId: '005Fk00000OtHeR' }];
+      });
+      return { w, query };
+    };
+
+    it('answers the read of its owner with the one it is sent with, or the user the run writes as', async () => {
+      const { w, query } = team();
+      const [unowned, owned] = await w.insertRecords('target', 'Opportunity', [
+        { Name: 'Deal' },
+        { Name: 'Mapped', OwnerId: MAPPED },
+      ]);
+
+      const answer = await w.guardQueries(query)(
+        'target',
+        opportunityOwnersSoql([HELD, unowned.id, owned.id]),
+      );
+
+      // The opportunity the target holds is asked of the target, alone.
+      expect(query).toHaveBeenCalledWith('target', opportunityOwnersSoql([HELD]), undefined);
+      expect(answer).toEqual([
+        { Id: HELD, OwnerId: '005Fk00000OtHeR' },
+        { Id: unowned.id, OwnerId: RUNNING_USER },
+        { Id: owned.id, OwnerId: MAPPED },
+      ]);
+    });
+
+    it("answers the read of its team with the owner's member and Revenue split the platform writes with it", async () => {
+      const { w, query } = team();
+      const [deal] = await w.insertRecords('target', 'Opportunity', [{ Name: 'Deal' }]);
+      const guarded = w.guardQueries(query);
+
+      const members = await guarded(
+        'target',
+        opportunityTeamSoql('OpportunityTeamMember', ['TeamMemberRole', 'Region__c'], [deal.id]),
+      );
+      const splits = await guarded(
+        'target',
+        opportunityTeamSoql('OpportunitySplit', ['SplitNote'], [deal.id]),
+      );
+
+      expect(members).toEqual([
+        {
+          Id: expect.stringMatching(/^00qRHZ/),
+          OpportunityId: deal.id,
+          UserId: RUNNING_USER,
+          TeamMemberRole: 'Opportunity Owner',
+          Region__c: null,
+        },
+      ]);
+      expect(splits).toEqual([
+        {
+          Id: expect.stringMatching(/^049RHZ/),
+          OpportunityId: deal.id,
+          SplitOwnerId: RUNNING_USER,
+          SplitTypeId: REVENUE,
+          SplitNote: null,
+        },
+      ]);
+      // Placeholders of their own, which stand for no row the run creates,
+      // and which no query finds in the target.
+      const member = String(members[0]['Id']);
+      expect(member).not.toBe(String(splits[0]['Id']));
+      expect(w.rowOf(member)).toBeUndefined();
+      expect(
+        await guarded('target', `SELECT Id FROM OpportunityTeamMember WHERE Id = '${member}'`),
+      ).toEqual([]);
+    });
+
+    it('asks the target of the team of an opportunity it holds', async () => {
+      const { w, query } = team();
+
+      const answer = await w.guardQueries(query)(
+        'target',
+        opportunityTeamSoql('OpportunityTeamMember', [], [HELD]),
+      );
+
+      expect(query).toHaveBeenCalledWith(
+        'target',
+        opportunityTeamSoql('OpportunityTeamMember', [], [HELD]),
+      );
+      expect(answer).toEqual([
+        { Id: '00qFk00000HeLdA', OpportunityId: HELD, UserId: '005Fk00000OtHeR' },
+      ]);
+    });
+
+    it('answers with none for an opportunity the run creates without an owner when the user it writes as is not known', async () => {
+      const w = new RehearsalWriter(
+        async () => '006',
+        async () => {
+          throw new Error('INVALID_SESSION_ID');
+        },
+      );
+      const [deal] = await w.insertRecords('target', 'Opportunity', [{ Name: 'Deal' }]);
+
+      const answer = await w.guardQueries(vi.fn(async () => []))(
+        'target',
+        opportunityOwnersSoql([deal.id]),
+      );
+
+      expect(answer).toEqual([]);
+    });
   });
 });
 

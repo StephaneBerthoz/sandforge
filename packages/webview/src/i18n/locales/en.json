@@ -59,6 +59,11 @@
       "guardBlocked": "Production Guard refused this operation, and nothing was changed in the org. Its reason: {{reason}}",
       "guardDeclined": "Cancelled at Production Guard's confirmation: nothing was changed in the org.",
       "templateNotFound": "The masking template was not found: it may have been deleted. Pick another template.",
+      "maskingFieldsUnseen": "This template masks {{fields}}, which the org does not show the user SandForge connects as: the org has no such field, or field-level security hides it. A run masks every field its template names, or nothing: give that user read and edit access to the field, or take the field out of the template.",
+      "maskingObjectNotCovered": "No field of {{objects}} can be masked.",
+      "maskingMasksNothing": "This template masks no field of {{objects}} in this org. Choose an object its rules name, or another template.",
+      "maskingNotWritable": "The user SandForge connects as may not edit {{fields}}: give that user edit access, or take it out of the template.",
+      "maskingNothingMasked": "Nothing was masked.",
       "guardMissing": "Production Guard was not ready in this window, and nothing is written without it: nothing was changed in the org. Reload the window (Developer: Reload Window), then try again.",
       "autopilotNotReady": "Autopilot is not loaded in this window yet, and nothing was changed in the org. Wait a few seconds, then try again; if it stays like this, reload the window (Developer: Reload Window).",
       "autopilotStorageExceeded": "The Autopilot run was refused before it wrote anything: its records take more data storage than the target org has left. Narrow the selection, or free data storage in the target org.",
@@ -67,6 +72,9 @@
       "transformNoField_one": "The rule {{rules}} names no field: open the configuration and pick its field. Without one it would change every field of every record, record types and lookups among them. Nothing was read or written.",
       "transformNoField_other": "The rules {{rules}} name no field: open the configuration and pick their fields. Without one each would change every field of every record, record types and lookups among them. Nothing was read or written.",
       "transformRuleOn": "{{rule}} on {{object}}",
+      "transformBadPattern_one": "The rule {{rules}} has a pattern that is no regular expression: open the configuration and correct it, or remove the rule. Run, it would stop the run at that object before any of its records is written. Nothing was read or written.",
+      "transformBadPattern_other": "The rules {{rules}} have patterns that are no regular expressions: open the configuration and correct them, or remove the rules. Run, each would stop the run at its object before any of its records is written. Nothing was read or written.",
+      "transformPatternOn": "{{rule}} on {{object}}, \"{{pattern}}\" ({{reason}})",
       "seedStorageExceeded": "The seed was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Lower the record counts, pick a lighter template, or free data storage in {{org}}.",
       "seedEmailsExceeded": "The seed was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Lower the record counts, set {{objects}} to 0, turn off {{senders}}, or give yourself the permission that keeps them quiet.",
       "seedWriteDeclined": "The seed was cancelled before it wrote anything. Nothing was written to the target org.",
@@ -75,7 +83,12 @@
       "muteProduction": "The target's automation is never muted on a production org, nor on one that can't be told from one: nothing was assigned and nothing written. Run it without muting.",
       "muteNoRight": "The target's automation can't be muted: the user the run writes as can't assign permission sets (that takes Assign Permission Sets or Manage Users), or the org wouldn't say. Nothing was assigned and nothing written.",
       "muteFailed": "The target's automation couldn't be muted, so nothing was written: {{reason}}",
-      "muteCheckpoint": "The org's automation couldn't be muted, so nothing was written: {{reason}}"
+      "muteCheckpoint": "The org's automation couldn't be muted, so nothing was written: {{reason}}",
+      "autopilotStorageExceededFigures": "The Autopilot run was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Fit the plan to storage, narrow the selection, or free data storage in {{org}}.",
+      "autopilotFitStorageUnread": "The plan was not fitted: the target org did not say what data storage it has left ({{reason}}). The plan under review is unchanged.",
+      "autopilotFitReadRefused": "The plan was not fitted: the source org refused a read of its records ({{reason}}). Nothing was chosen from what was not read, and the plan under review is unchanged.",
+      "autopilotFitStale": "The plan changed while it was being fitted: fit it again.",
+      "autopilotNoPlan": "There is no plan to fit in this window any more: go back to the objects and plan again."
     },
     "list": {
       "separator": ", ",
@@ -143,6 +156,21 @@
       "format_date": "Format date",
       "format_number": "Format number",
       "custom_formula": "Custom formula"
+    },
+    "noCliOrgs": {
+      "title": "Import",
+      "message": "The Salesforce CLI holds no connected org yet. Use Log in with your browser on the Organizations page: it opens the Salesforce login page."
+    },
+    "orgRibbon": {
+      "label": "The orgs of this run",
+      "copiedFrom": "Copied from",
+      "writtenInto": "Written into",
+      "source": "Source",
+      "target": "Target",
+      "frozenFrom": "Frozen from",
+      "production": "Production org",
+      "notChosen": "Not chosen",
+      "notHeld": "An org this machine no longer holds"
     }
   },
   "status": {
@@ -232,6 +260,7 @@
       "noOperations": "No operations running",
       "cancel": "Cancel",
       "resumeRun": "Resume",
+      "partialHint": "Not everything went through: its results say what was left.",
       "resumeRunHint": "Take this clone up where it stopped",
       "resumeRunRefused": "The clone could not be taken up",
       "recsPerSec": "rec/s",
@@ -848,7 +877,8 @@
         "cancelled_one": "Cancelled: {{count}} record imported before the stop stays in the org",
         "cancelled_other": "Cancelled: {{count}} records imported before the stop stay in the org",
         "tooManyRows": "This file holds {{rows}} rows; CSV Upload takes {{max}} at a time. Split it into files of {{max}} rows or fewer, and upload each.",
-        "tooManyColumns": "{{columns}} columns are mapped; CSV Upload takes {{max}} at a time. Leave the columns you do not need unmapped, or split the file by columns."
+        "tooManyColumns": "{{columns}} columns are mapped; CSV Upload takes {{max}} at a time. Leave the columns you do not need unmapped, or split the file by columns.",
+        "writeDeclined": "You cancelled the import before it wrote anything. Nothing was written to the target org."
       }
     },
     "modeSelect": {
@@ -981,6 +1011,7 @@
         "summary": "Source records",
         "inserted": "Inserted",
         "linked": "Linked to existing",
+        "writtenByThePlatform": "Written by the platform with their opportunity, for its contact",
         "leftToThePlatform": "Left out (the platform writes them, or what they depend on, itself)",
         "secondPass": "Second pass — lookups filled in once the record they point at was in: {{filled}}/{{owed}}",
         "secondPassCancelled_one": "The clone was cancelled before this pass: the lookup it owed stays empty.",
@@ -1019,7 +1050,8 @@
         "NOT_PREVIEWED": "SandForge refused this run before reading either org: it named no preview, and a clone runs only from the preview it was made from. Preview again, then run the clone.",
         "PREVIEW_NOT_HELD": "SandForge refused this run before reading either org: the preview it named is no longer held — SandForge keeps the last 50 previews and forgets them when the extension restarts. Preview again, then run the clone.",
         "generic": "The clone could not be completed.",
-        "detail": "Details: {{detail}}"
+        "detail": "Details: {{detail}}",
+        "SEED_WRITE_DECLINED": "You cancelled the clone before it wrote anything. Nothing was written to the target org."
       }
     },
     "emptyState": {
@@ -1031,7 +1063,11 @@
     "results": {
       "aiFallback": "AI returned no values, so these fields received generated sentences: {{fields}}. AI is off, or the call was refused (the SandForge log gives the reason).",
       "aiFallbackShort": "The AI answer left values out, so these fields received generated sentences: {{fields}}.",
-      "openRecord": "Open a created {{object}} in {{org}}"
+      "writtenByThePlatform_one": "{{count}} contact role linked to the one the platform wrote with its opportunity, for the contact it went in with, not written; given the fields generated for it: {{given}}.",
+      "writtenByThePlatform_other": "{{count}} contact roles linked to the ones the platform wrote with their opportunity, for the contact each went in with, not written; given the fields generated for them: {{given}}.",
+      "writtenByThePlatformRefused": "The others stay as the platform wrote them. The target's words:",
+      "openRecord": "Open a created {{object}} in {{org}}",
+      "notRun": "Nothing has been written yet: Confirm starts the seed."
     },
     "sampleRecordCount_one": "{{count}} sample record",
     "sampleRecordCount_other": "{{count}} sample records",
@@ -1042,7 +1078,9 @@
       "running": "Running",
       "done": "Done",
       "error": "Failed",
-      "skipped": "Skipped"
+      "skipped": "Skipped",
+      "linked_one": "{{count}} linked",
+      "linked_other": "{{count}} linked"
     },
     "removal": {
       "created_one": "{{formatted}} record created in {{org}}",
@@ -1059,6 +1097,8 @@
       "historyNothingLeft": "nothing left to remove",
       "historyRefused": "cannot be removed from here",
       "historyUnfinished": "partial: the seed stopped before it ended — its window closed, or the extension stopped — and lists what the org had confirmed by then: records of a call still under way may be in the org unlisted",
+      "historyInFlight_one": "It stopped while it was writing {{formatted}} {{object}} record: if the org took it, it is not in this count, and a removal takes it only once the call has answered.",
+      "historyInFlight_other": "It stopped while it was writing {{formatted}} {{object}} records: those the org took are not in this count, and a removal takes them only once the call has answered.",
       "historyShow": "Show",
       "historyHide": "Hide",
       "historyRunning": "running: the seed is still writing in this window. Stop it with the wizard's Cancel or from Monitor's Live Operations, and remove it once it has ended",
@@ -1282,6 +1322,32 @@
         "unavailable": "The test file cannot be written: {{message}}",
         "stale": "This run was removed: its test file names cases that are gone. A test you created in the org from it stays there: remove it with sf project delete source -m AiEvaluationDefinition:<name>."
       }
+    },
+    "fit": {
+      "title": "What fits in {{org}}",
+      "share": "The largest share of every count that fits: {{share}}. Each child keeps no more records than the parents kept can hold.",
+      "boundStorage": "{{fits}} MB fit: {{near}} of the {{remaining}} MB {{org}} says it has left of {{max}} MB, once {{rounding}} MB is set aside for the rounding of what it says.",
+      "boundWithin": "{{fits}} MB fit: the most asked of this seed.",
+      "boundRequests": "Today's API requests held it: the writes of these records leave {{org}} a tenth of its daily requests.",
+      "roomKept": "{{room}} MB of it is kept for what the flows of {{org}} that still run create under these records.",
+      "roomNone": "Nothing is kept for the flows of {{org}}: none of those that still run creates records under these.",
+      "roomUnread": "No room is kept for what the automation of {{org}} creates: it could not be read ({{reason}}).",
+      "notCountedTrigger": "Not counted: what the Apex trigger {{name}} on {{object}} creates.",
+      "notCountedNotRead": "Not counted: what {{name}} on {{object}} creates, as it could not be read.",
+      "notCountedShare": "Not counted: the {{name}} rows the flows on {{object}} create.",
+      "caption": "Records of each object, asked and fitting",
+      "before": "Asked",
+      "after": "Fits",
+      "keptRows": "kept whole: the rows the template gives",
+      "keptByKey": "kept whole: each under the parent row its key names",
+      "total": "{{after}} of {{before}} records, about {{estimate}} MB.",
+      "totalWithRoom": "{{after}} of {{before}} records, about {{estimate}} MB with what the flows create under them.",
+      "counted": "By SandForge's count, at the sizes Salesforce documents: 2 KB for most records. {{org}} counts a load in what it says it has left up to about a minute after it: a run started sooner after another may read room it no longer has.",
+      "cannotFitStorage": "Even cut as far as it goes, this seed takes about {{estimate}} MB, past the {{fits}} MB that fit in {{org}}. Leave objects out, or free data storage in {{org}}.",
+      "cannotFitRequests": "Even cut as far as it goes, the writes of this seed would leave {{org}} less than a tenth of its daily API requests. Seed it tomorrow, or leave objects out.",
+      "seed": "Seed these counts",
+      "change": "Change the counts",
+      "fitted": "Counts fitted to the data storage of {{org}}: {{after}} of the {{before}} records the template asked for, {{share}} of every count."
     }
   },
   "sync": {
@@ -1342,6 +1408,8 @@
     "dataFlow": "Data Flow",
     "alreadyCopied_one": "{{count}} record already copied by an earlier run of this configuration, left as it was.",
     "alreadyCopied_other": "{{count}} records already copied by an earlier run of this configuration, left as they were.",
+    "alreadyLinked_one": "{{count}} record already linked by an earlier run of this configuration to a record the target held, left as it was.",
+    "alreadyLinked_other": "{{count}} records already linked by an earlier run of this configuration to records the target held, left as they were.",
     "running": "Syncing data...",
     "addMapping": "Add Mapping",
     "autoMap": "Auto Map",
@@ -1440,7 +1508,7 @@
       },
       "eventCount_one": "{{count}} event",
       "eventCount_other": "{{count}} events",
-      "contactPointsHint": "Every email address a change writes goes in under .invalid and every phone number as a fictional one, so the target org's automation reaches no one. An object found by the mapping of a saved Sync configuration follows that configuration's choice.",
+      "contactPointsHint": "Every email address a change writes goes in under .invalid and every phone number as a fictional one, so what the target org's automation sends to them reaches no one. That leaves out the records' owners, the records already in the target org and an address an alert names. An object found by the mapping of a saved Sync configuration follows that configuration's choice.",
       "kept": "What a session writes is kept as it writes it: once it has stopped, Earlier sessions, below, lists it, and its removal gives back what it wrote over, brings back from the recycle bin what it deleted, and deletes what it created."
     },
     "tabs": {
@@ -1511,6 +1579,7 @@
       "successCount": "Succeeded",
       "failedCount": "Failed",
       "skippedCount": "Skipped",
+      "linkedCount": "Linked",
       "configSnapshot": "Configuration used",
       "runAgain": "Run again",
       "emptyTitle": "No runs yet",
@@ -1549,7 +1618,9 @@
       "stoppedAt": "The simulation stopped at {{object}}: {{error}}. A run would stop there too.",
       "runNow": "Run the sync now",
       "alreadyCopied_one": "{{count}} already copied by an earlier run of this configuration, left as it is.",
-      "alreadyCopied_other": "{{count}} already copied by an earlier run of this configuration, left as they are."
+      "alreadyCopied_other": "{{count}} already copied by an earlier run of this configuration, left as they are.",
+      "alreadyLinked_one": "{{count}} already linked by an earlier run of this configuration to a record the target holds, left as it is.",
+      "alreadyLinked_other": "{{count}} already linked by an earlier run of this configuration to records the target holds, left as they are."
     },
     "writeCheck": {
       "title": "Before the run writes",
@@ -1558,6 +1629,8 @@
       "records_other": "{{count}} records to write",
       "alreadyCopied_one": "Not counted: {{count}} record an earlier run of this configuration copied, still in the target, left as it is.",
       "alreadyCopied_other": "Not counted: {{count}} records an earlier run of this configuration copied, still in the target, left as they are.",
+      "alreadyLinked_one": "Not counted: {{count}} record an earlier run of this configuration linked to a record the target held, left as it is.",
+      "alreadyLinked_other": "Not counted: {{count}} records an earlier run of this configuration linked to records the target held, left as they are.",
       "storage": {
         "fits": "Data storage: about {{estimate}} MB, of the {{remaining}} MB the target org has left out of {{max}} MB.",
         "near": "Data storage: about {{estimate}} MB, more than 80% of the {{remaining}} MB the target org has left out of {{max}} MB.",
@@ -1576,17 +1649,31 @@
       "verdict": {
         "writes": "The run writes without asking.",
         "asks": "The run asks you before it writes.",
-        "refused": "The run is refused before it writes anything."
+        "refused": "The run is refused before it writes anything.",
+        "nothing": "The run would write none of the records it counts: each is held back or refused, as its object says."
       },
       "unread": "The records to write could not be counted ({{reason}}): a run is refused until they can be.",
       "overwrites_one": "Of them, {{count}} may write over a record the target org holds: what it holds is read and kept first, and removing the run puts it back.",
       "overwrites_other": "Of them, up to {{count}} may write over records the target org holds: what they hold is read and kept first, and removing the run puts it back.",
+      "rolesByThePlatform_one": "Of them, {{count}} may be a contact role the platform writes itself with an opportunity the run creates, for its contact: the run links it and does not send it.",
+      "rolesByThePlatform_other": "Of them, up to {{count}} may be contact roles the platform writes itself with the opportunities the run creates, for their contact: the run links each and does not send it.",
+      "rolesLinked_one": "Not counted: {{count}} contact role the platform writes itself with an opportunity the run creates, for its contact: the run links it and does not send it.",
+      "rolesLinked_other": "Not counted: {{count}} contact roles the platform writes itself with the opportunities the run creates, for their contact: the run links each and does not send it.",
+      "notWritten_one": "Of the {{total}} a run counts from the source, {{count}} would not be written: held back or refused, as each object says. What follows is measured on all of them.",
+      "notWritten_other": "Of the {{total}} a run counts from the source, {{count}} would not be written: held back or refused, as each object says. What follows is measured on all of them.",
       "unwritable": {
         "notInTarget": "{{object}} ({{rows}} records): the target org has no such object, or the user the run writes as cannot see it. None of its records can be written.",
         "notCreateable": "{{object}} ({{rows}} records): the user the run writes as may not create its records in the target org. None of them can be written.",
         "notUpdateable": "{{object}} ({{rows}} records): the user the run writes as may not edit its records in the target org. None of them can be written.",
         "unread": "{{object}} ({{rows}} records): the target org did not describe it, so none of its records would be sent.",
+        "notAKey": "{{object}} ({{rows}} records): its upsert matches on {{key}}, neither an External ID nor an idLookup field in the target org. None of them can be written.",
         "hint": "Started from the page, the run asks whether to leave these objects out and writes the rest; a scheduled run and the command line are refused."
+      },
+      "heldBack": {
+        "leftOut_one": "{{object}} ({{count}} record): held back, not written — its {{field}} names a {{parent}} record left out, and written without it, it would stand without its {{parent}}.",
+        "leftOut_other": "{{object}} ({{count}} records): held back, not written — their {{field}} names {{parent}} records left out, and written without them, they would stand without their {{parent}}.",
+        "heldBack_one": "{{object}} ({{count}} record): held back, not written — its {{field}} names a {{parent}} record held back.",
+        "heldBack_other": "{{object}} ({{count}} records): held back, not written — their {{field}} names {{parent}} records held back."
       },
       "apiRequests": {
         "fits": "API requests: about {{estimate}}, of the {{remaining}} the target org has left of its {{max}} a day.",
@@ -1641,8 +1728,8 @@
     },
     "contactPoints": {
       "toggle": "Neutralize emails and phone numbers (recommended)",
-      "toggleDetails": "On unless unticked. Every email address is written under .invalid and every phone number as a fictional one, so the target org's automation reaches no one. Unticked, they are copied as the source holds them, and the target's flows can email and text real people. The field a write matches on is kept as read.",
-      "toggleHint": "Writes every email under .invalid and every phone number as a fictional one, so the target's automation reaches no one."
+      "toggleDetails": "On unless unticked. Every email address is written under .invalid and every phone number as a fictional one, so what the target org's automation sends to them reaches no one. That leaves out the records' owners, the records already in the target org and an address an alert names. Unticked, they are copied as the source holds them, and the target's flows can email and text real people. The field a write matches on is kept as read.",
+      "toggleHint": "Writes every email under .invalid and every phone number as a fictional one, so what the target's automation sends to them reaches no one."
     },
     "files": {
       "toggle": "Copy the files of these records",
@@ -1693,6 +1780,8 @@
     "conflictStrategyHint": "Asked for the objects written by upsert or update, which find the record the target org holds. A run only ever writes to the target org: to copy the other way, swap the two orgs.",
     "heldRecordsChosen": "When the target already holds the record: {{choice}}.",
     "written": {
+      "byThePlatform_one": "{{count}} contact role linked to the one the platform wrote with its opportunity, for the contact it went in with, not written; given the source's fields it lacked: {{given}}.",
+      "byThePlatform_other": "{{count}} contact roles linked to the ones the platform wrote with their opportunity, for the contact each went in with, not written; given the source's fields they lacked: {{given}}.",
       "linked_one": "{{count}} record linked to a record the target org already holds, not written: the target refused it as a duplicate of that record, and what the run writes under it points there.",
       "linked_other": "{{count}} records linked to records the target org already holds, not written: the target refused them as duplicates of those records, and what the run writes under them points there.",
       "refusal": "The target's words:",
@@ -1728,6 +1817,7 @@
     "transformRule": "Rule",
     "transformAdd": "Add rule",
     "transformNoField": "No field of {{object}} takes {{rule}}.",
+    "transformBadPattern": "This pattern is no regular expression ({{reason}}): correct it, or remove the rule. Run, it would stop the run at this object before any of its records is written.",
     "transformConfig": {
       "length": "Characters kept",
       "prefix": "Text before",
@@ -1769,11 +1859,12 @@
     "totalSkipped": "Total skipped",
     "savedConfigs": {
       "title": "Saved configurations",
-      "hint": "Run one now, as it was saved: it is checked as a run from the Sync tab is, and Production Guard judges it before anything is written.",
+      "hint": "Run one now, as it was saved: it is checked as a run from the Sync tab is, and Production Guard judges it before anything is written. One that deletes opens on the Sync tab instead, which says what each of its objects does: Run the sync runs it there.",
       "runNow": "Run now",
       "runNamed": "Run {{name}} now",
       "ofSaved": "Saved configuration: {{name}}",
       "gone": "This configuration is no longer saved: nothing was run.",
+      "reading": "Reading the saved configuration, to say what each of its objects does before it runs…",
       "resetDelta": "Run full next time",
       "resetDeltaNamed": "Run {{name}} in full next time",
       "resetDone": "The next run of {{name}} reads everything."
@@ -1854,6 +1945,44 @@
     "successTitle": "Import completed",
     "successDescription": "Converted configuration",
     "unknownError": "Import failed for an unknown reason.",
+    "targetObjectMapped": "Nothing was imported: Sync writes an object to the same object in the target org, and this export sends one to another: {{objects}}. Take out its targetObject entries, or those objects, then import it again.",
+    "refused": {
+      "notJson": "Nothing was imported: this file is not JSON, so it is no SFDMU export.json.",
+      "noObjects": "Nothing was imported: this file lists no object, under objects or objectSets.",
+      "objectNotNamed": "Nothing was imported: no object can be read in these entries, neither in the FROM of a query nor under name: {{objects}}. Correct them, then import it again.",
+      "invalidExport": "Nothing was imported: these entries are not of the kind SFDMU's format holds there: {{objects}}. Correct them, then import it again."
+    },
+    "notes": {
+      "title": "What Sync will not do as SFDMU would",
+      "onObject": "{{object}}:",
+      "excluded": "Left out, as the export marks it excluded.",
+      "readonly": "Left out: its operation is Readonly, SFDMU's own when the file names none, so nothing is written to it. SFDMU still reads it to find the related records of the other objects; Sync does not.",
+      "noQuery": "Left out: it has no query, and SFDMU leaves such an object out.",
+      "unknownOperation": "Left out: “{{detail}}” is no operation of SFDMU's, which reads it as Readonly.",
+      "deletesElsewhere": "Left out: {{detail}} deletes in the source org or along a hierarchy, and Sync does neither.",
+      "mockAllFields": "Left out: SFDMU writes fake values into all its fields. Sync has none, and would copy the real ones.",
+      "duplicate": "A later entry of this object, {{detail}}, was left out: a Sync configuration holds an object once. Import that entry on its own to run it.",
+      "delete": "{{detail}} works differently here. SFDMU deletes what its query selects in the target. Sync deletes, into the recycle bin, the target records that hold the ids it reads in the source. Open in Sync says what each object does above Run the sync: read it before you run it.",
+      "updateKey": "SFDMU finds each record to update by {{detail}}. Sync updates by the source record's Id, which another org does not hold: set the operation to upsert on an External ID.",
+      "defaultKey": "It names no externalId: SFDMU then finds each record by the object's name field, Name on most objects, or else by an auto-number or unique field. Sync has no such default: an update goes by the source record's Id, which another org does not hold, and an upsert needs an External ID named on its row.",
+      "upsertKey": "SFDMU matches on any field. Salesforce upserts on an External ID or Id Lookup field only: if {{detail}} is neither, the run is refused, so name one on its row.",
+      "unusableKey": "Its key {{detail}} is not carried: Sync matches on one field of the object, not on a composite key or a parent's field. An upsert has to name one on its row.",
+      "fieldMappingOff": "useFieldMapping is off: SFDMU ignores its field mappings ({{detail}}), and so did this import.",
+      "valueRows": "These rows of ValueMapping.csv are not applied, as a value mapping rule maps one exact value to another, with no regular expression, no eval and no empty value (#N/A, null, NULL, undefined), which SFDMU writes as an empty field: {{detail}}.",
+      "notMaster": "master is false: SFDMU copies only the records the other objects need. Sync has no such narrowing and reads every record its filter selects.",
+      "limit": "LIMIT {{detail}} is not carried: Sync reads every record its filter selects.",
+      "queryClause": "“{{detail}}” in its query is not carried: Sync does not run the query.",
+      "queryUnread": "Its query could not be read, so no filter comes from it: Sync reads every record of the object. Set a filter on its row.",
+      "whereRefused": "Its WHERE does more than filter, with a subquery for instance, and Sync refuses it: rewrite it on its row, or the save is refused.",
+      "deleteOldData": "deleteOldData is not carried: the target's old records are not deleted first.",
+      "mockFields": "SFDMU writes fake values into {{detail}}. Sync has none: these fields are left out of the write rather than copied with their real values. A required one fails the record; take it out of mockFields to copy it.",
+      "nameDiffers": "The file names it {{detail}}, and its query selects this object: SFDMU goes by the query, and so did this import.",
+      "settings": "Not carried: {{detail}}. Sync does not read these settings of the export.",
+      "everyField": "Its query selects {{detail}}, not a list of fields Sync can follow, so Sync copies every field the source org describes. To leave one out, add it to the export's excludedFields.",
+      "contactPoints": "Sync writes every email address under .invalid and every phone number as a fictional one, so what the target org's automation sends to them reaches no one; SFDMU copies them as read. To copy them as read, untick Neutralize emails and phone numbers under Run it from Sync.",
+      "objectSets": "The export's {{detail}} object sets are merged into one Sync configuration: SFDMU runs one set after the other, and Sync writes them in one run, in the order their lookups decide.",
+      "mappingFileUnread": "{{detail}} was not read: it does not have the columns SFDMU expects, so none of its mappings was applied."
+    },
     "objectSummary": {
       "mappings_one": "{{count}} field mapping",
       "mappings_other": "{{count}} field mappings",
@@ -1873,7 +2002,9 @@
       "subtitle": "Pick the source and target orgs — the imported file names its own, which do not exist here — and save it as a Sync configuration. Open in Sync then shows it on Sync's Execute step: Simulate checks it, Run the sync writes it, and the results say what it created and can remove it.",
       "sourceOrg": "Source org",
       "targetOrg": "Target org",
-      "orgsRequired": "Pick two different orgs to save this import for Sync."
+      "orgsRequired": "Pick two different orgs to save this import for Sync.",
+      "contactPoints": "Neutralize emails and phone numbers (recommended)",
+      "contactPointsHint": "Ticked, as in Sync, every email address is written under .invalid and every phone number as a fictional one, so what the target org's automation sends to them reaches no one. Unticked, they are copied as the source holds them, as SFDMU copies them, and the target's flows can email and text real people."
     },
     "edit": {
       "noObjects": "Keep at least one object: a run with none would move nothing.",
@@ -2192,7 +2323,8 @@
       "relatedRecords_one": "{{label}}: {{formatted}} record",
       "relatedRecords_other": "{{label}}: {{formatted}} records",
       "noRelated": "Nothing else is deleted along with them, as far as the org counted.",
-      "uncounted": "Not counted — the org would not count these, and deletes what depends on the records all the same:",
+      "uncounted": "Not counted — past the relationships counted, or the org would not count them — and deleted along with them all the same:",
+      "alongAutomation": "What the org deletes along with them runs none of its delete automation: Salesforce runs no flow or trigger on a record deleted with its parent, so the confirmation lists what fires on these records alone.",
       "overwritten_one": "{{formatted}} record overwritten.",
       "overwritten_other": "{{formatted}} records overwritten.",
       "deleted_one": "{{formatted}} record deleted.",
@@ -2248,7 +2380,7 @@
       "empty": "(empty)",
       "notRead": "Not read: {{error}}",
       "noRecords": "No records to mask.",
-      "fieldsNotFound": "Apply masks nothing in {{fields}}, and their values stay as they are: the org has no such field, or field-level security hides it from the user SandForge connects as. Give that user read and edit access to it, or connect as an administrator."
+      "applyRefused": "Apply will be refused, and will mask nothing."
     },
     "backupDelete": "Delete",
     "backupDeleteConfirm": "Delete this backup? The records' values it holds unencrypted on this machine are gone for good, and it can no longer be restored.",
@@ -2301,12 +2433,57 @@
       "description": "Overwrites these fields wherever a record holds a value: {{fields}}.",
       "resumeDescription": "Overwrites these fields in the records the stopped run left: {{fields}}."
     },
-    "deleteTemplateConfirm": "Delete the template “{{name}}”? Its rules are gone from this machine."
+    "deleteTemplateConfirm": "Delete the template “{{name}}”? Its rules are gone from this machine.",
+    "automation": {
+      "masking": {
+        "title": "What {{org}} runs as these records are masked",
+        "intro": "As the masking writes over these records, {{org}} runs:",
+        "none": "Nothing {{org}} automates runs as these records are masked."
+      },
+      "restore": {
+        "title": "What {{org}} runs as the backup's values go back",
+        "intro": "As the restore brings records back from the recycle bin and writes the backup's values over them, {{org}} runs:",
+        "none": "Nothing {{org}} automates runs as the backup's values go back."
+      },
+      "cleanup": {
+        "title": "What {{org}} runs as these records are deleted",
+        "intro": "As the cleanup deletes these records, {{org}} runs:",
+        "none": "Nothing {{org}} automates runs as these records are deleted."
+      },
+      "erasure": {
+        "maskIntro": "As the erasure writes over these records, {{org}} runs:",
+        "deleteIntro": "As the erasure deletes these records, {{org}} runs:"
+      },
+      "loading": "Reading what {{org}} runs as these records are written…",
+      "error": "What {{org}} runs as these records are written could not be read: {{reason}}",
+      "why": {
+        "mask": "as the masking writes over it",
+        "restore": "as the restore writes the backup's values over it",
+        "undelete": "after undelete, as the restore brings it back from the recycle bin"
+      },
+      "limit": {
+        "single": "single emails",
+        "workflow": "workflow emails"
+      },
+      "emails_one": "About {{formatted}} of its {{limit}} go out as these records are written, {{remaining}} of {{max}} left today.",
+      "emails_other": "About {{formatted}} of its {{limit}} go out as these records are written, {{remaining}} of {{max}} left today.",
+      "emailsUnread_one": "About {{formatted}} of its {{limit}} go out as these records are written; what {{org}} has left today could not be read.",
+      "emailsUnread_other": "About {{formatted}} of its {{limit}} go out as these records are written; what {{org}} has left today could not be read.",
+      "acceptEmails": "Let {{org}} send these emails",
+      "duplicateRules": "Duplicate rules active on {{object}}: {{rules}}. A record a rule only alerts on is written, one a rule blocks is refused, and what a rule that reports writes, a duplicate record set and its items, stays in {{org}}.",
+      "refused": "This would be refused: {{reason}}",
+      "held": {
+        "reading": "Waiting for what {{org}} runs as these records are written.",
+        "failed": "What {{org}} runs could not be read: read it again before you confirm.",
+        "refused": "This is refused as it stands: see why above.",
+        "emails": "Tick the box to let {{org}} send these emails, or turn off what sends them."
+      }
+    }
   },
   "automation": {
     "title": "Automation",
     "createPipeline": "Create Pipeline",
-    "newPipeline": "New Pipeline",
+    "newPipeline": "New pipeline",
     "steps": "Steps",
     "stepsCount": "Pipeline Steps",
     "triggersCount": "Active triggers",
@@ -2411,6 +2588,7 @@
       "cancelled": "Cancelled",
       "pending": "Pending",
       "skipped": "Skipped",
+      "stopped": "Stopped",
       "missed": "Missed"
     },
     "scheduler": "Scheduler",
@@ -2452,6 +2630,8 @@
     "noMarketplaceTemplatesDesc": "Community templates will appear here",
     "installTemplate": "Install",
     "runFailed": "The pipeline run failed: {{reason}}",
+    "runStopped": "The pipeline run was stopped: the steps left did not run.",
+    "runStoppedAt": "The pipeline run was stopped at step \"{{step}}\": the steps after it did not run.",
     "runRefusedUnknownType": "The pipeline did not start: step \"{{step}}\" is a \"{{type}}\" step, a step type SandForge does not have. Remove the step, or update SandForge.",
     "runnability": {
       "cannotRun": "Cannot run",
@@ -2467,7 +2647,7 @@
       "compareNeedsTypes": "Choose at least one metadata type to compare.",
       "precheckNeedsChecks": "Choose what this Pre-Check reads: API usage, data storage, Apex error logs or failed Apex jobs.",
       "notificationNeedsMessage": "Write the message this notification shows (up to 500 characters).",
-      "paletteNote": "Restore and Delete write to an org and run only from their own pages, where Production Guard asks first. Sync runs a configuration saved on the Sync page; one that writes to an org Production Guard asks about needs an Approval step before it. Seed and Anonymize run a template of their pages, never in a production org, and need an Approval step before them in a sandbox marked Staging. A Rewind step runs once you confirm it with the org's alias.",
+      "paletteNote": "Restore and Delete write to an org and run only from their own pages, where Production Guard asks first. Sync runs a configuration saved on the Sync page; one that writes to an org Production Guard asks about needs an Approval step before it. Seed and Anonymize run a template of their pages, never in a production org, and need an Approval step before them in a sandbox marked Staging. A Rewind step runs once you confirm it with the org's alias, or its username for an org that has none.",
       "pipelineBlocked": "This pipeline cannot run. Remove or fix these steps first:",
       "templateBlocked": "Cannot run as a pipeline. These step types do not run in one: {{types}}.",
       "conditionNeedsEarlierStep": "This Condition tests how the previous step went, and no step comes before it.",
@@ -2499,7 +2679,7 @@
       "rewindNeedsMaxRecords": "Set the most records this step may rewind, all objects together (1 or more).",
       "rewindConfigInvalid": "This Rewind step does not read: check the objects it names.",
       "rewindNotSaved": "Save the pipeline, then confirm this rewind: a confirmation holds for the step as saved.",
-      "rewindNotConfirmed": "Not confirmed: click Preview and confirm…, then type the org's alias.",
+      "rewindNotConfirmed": "Not confirmed: click Preview and confirm…, then type the org's alias, or its username for an org that has none.",
       "rewindChangedSinceConfirmed": "This rewind changed since it was confirmed: confirm it again.",
       "rewindCheckpointMissing": "The checkpoint this step rewinds to is not kept on this machine: take one here and choose it.",
       "rewindCheckpointOtherOrg": "The checkpoint this step rewinds to was taken of another org: choose one of this org.",
@@ -2604,15 +2784,22 @@
     "stepConfigRewindRefuseWhenActive": "Refuse while people are at work in the org",
     "rewindRefuseWhenActiveNote": "Refused when someone else changed records of the checkpoint's objects in the hour before. People who share the user SandForge connects as are not told apart.",
     "rewindAccept": {
+      "muteAutomation": "Mute the org's automation for this rewind, through its own bypass: what no bypass keeps quiet still runs",
       "acceptAutomation": "Run even if triggers, flows or workflow rules fire on the records it writes",
       "acceptNoUndo": "Allow deletions that Undo of this rewind cannot bring back",
       "acceptRecreate": "Recreate, with new Ids, records already emptied from the Recycle Bin",
       "acceptOutside": "Allow deletions that cascade to child records of objects outside the checkpoint",
-      "acceptUnseen": "Allow deletions that cascade to records the connected user may not see (no View All Data or Modify All Data)"
+      "acceptUnseen": "Allow deletions that cascade to records the connected user may not see (no View All Data or Modify All Data)",
+      "acceptEmails": "Run even if the org delivers the emails its flows, processes or workflow rules send as it writes (All email), or would not say whether it does"
+    },
+    "maskingAccept": {
+      "muteAutomation": "Mute the org's automation for this masking, through its own bypass: what no bypass keeps quiet still runs",
+      "acceptAutomation": "Mask even if triggers, flows or workflow rules fire on the records it writes over",
+      "acceptEmails": "Mask even if the org delivers the emails its flows, processes or workflow rules send as it masks (All email), or would not say whether it does"
     },
     "rewindConfirmedOn": "Confirmed on {{date}}: this step rewinds {{org}} to “{{name}}” on each run, scheduled ones included, at most {{max}} records, reverting or deleting every change anyone made since.",
     "rewindSaveFirst": "Save the pipeline, then confirm this rewind.",
-    "rewindNotConfirmedNote": "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias.",
+    "rewindNotConfirmedNote": "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias, or its username for an org that has none.",
     "rewindConfirm": "Preview and confirm…",
     "rewindRevoke": "Revoke confirmation",
     "rewindGrantRefused": {
@@ -2620,7 +2807,7 @@
       "CONFIG_INVALID": "The step as saved does not read: fix it, save, then confirm again.",
       "ORG_UNKNOWN": "The org this step rewinds is not connected here.",
       "CHECKPOINT_INVALID": "The checkpoint this step rewinds to cannot be rewound to here: choose another.",
-      "TYPED_MISMATCH": "What was typed is not the org's alias: nothing was confirmed."
+      "TYPED_MISMATCH": "What was typed is not the org's alias, nor its username for an org that has none: nothing was confirmed."
     },
     "rewindConfirmHeading": "Confirm the Rewind step “{{step}}”",
     "rewindConfirmLead": "What a rewind of {{org}} to “{{name}}” would do now. Once confirmed, the step rewinds the org whenever the pipeline runs, by schedule too, at most {{max}} records, with nobody there to read this.",
@@ -2640,7 +2827,24 @@
     "noHistoryDesc": "Runs appear here after Run Pipeline or a trigger starts the saved pipeline.",
     "rewindAcceptHeading": "Allow riskier changes (off by default)",
     "rewindAcceptCount_one": "{{count}} ticked",
-    "rewindAcceptCount_other": "{{count}} ticked"
+    "rewindAcceptCount_other": "{{count}} ticked",
+    "lifecycle": {
+      "pipelineName": "Pipeline name",
+      "nameRequired": "Name the pipeline to save or run it.",
+      "new": "New",
+      "open": "Open…",
+      "unsaved": "Unsaved changes",
+      "noneSaved": "No pipeline is saved yet.",
+      "deleteTitle": "Delete “{{name}}”?",
+      "deleteDescription": "It is removed from this machine: its schedules and sandbox refresh triggers no longer start it, and the confirmations of its Rewind steps are taken back. Its runs stay in the history.",
+      "deleteConfirm": "Delete pipeline",
+      "deleted": "“{{name}}” deleted.",
+      "deleteRunning": "“{{name}}” is running: delete it once its run has ended.",
+      "discardTitle": "Discard the changes to “{{name}}”?",
+      "discardDescription": "They are not saved, and nothing brings them back.",
+      "discard": "Discard changes",
+      "keepEditing": "Keep editing"
+    }
   },
   "ai": {
     "title": "AI Assistant",
@@ -2688,66 +2892,66 @@
     "title": "Notifications"
   },
   "reports": {
-    "title": "Reports & Analytics",
+    "title": "Reports and analytics",
     "executions": "Executions",
     "analytics": "Analytics",
-    "audit": "Audit Trail",
-    "lineage": "Data Lineage",
+    "audit": "Audit trail",
+    "lineage": "Data lineage",
     "noReports": "No reports generated yet",
     "reportsUnreadable": "The reports could not be read: {{error}}",
     "analyticsUnreadable": "The analytics could not be loaded: they come with the reports, which could not be read.",
-    "generateReport": "Generate Report",
-    "exportReport": "Export Report",
-    "reportType": "Report Type",
+    "generateReport": "Generate report",
+    "exportReport": "Export report",
+    "reportType": "Report type",
     "summary": "Summary",
     "sections": "Sections",
     "metadata": "Metadata",
-    "generatedAt": "Generated At",
+    "generatedAt": "Generated at",
     "module": "Module",
     "duration": "Duration",
-    "recordCount": "Record Count",
-    "totalOperations": "Total Operations",
-    "successRate": "Success Rate",
-    "avgDuration": "Avg Duration",
-    "operationsOverTime": "Operations Over Time",
-    "errorRate": "Error Rate",
+    "recordCount": "Record count",
+    "totalOperations": "Total operations",
+    "successRate": "Success rate",
+    "avgDuration": "Average duration",
+    "operationsOverTime": "Operations over time",
+    "errorRate": "Error rate",
     "auditActions": {
-      "org_connect": "Org Connect",
-      "org_disconnect": "Org Disconnect",
-      "seed_execute": "Seed Execute",
-      "sync_execute": "Sync Execute",
-      "backup_create": "Backup Create",
-      "backup_restore": "Backup Restore",
-      "anonymize_execute": "Anonymize Execute",
-      "delete_execute": "Delete Execute",
-      "compare_execute": "Compare Execute",
-      "pipeline_run": "Pipeline Run",
-      "settings_change": "Settings Change",
-      "template_create": "Template Create",
-      "template_update": "Template Update",
-      "template_delete": "Template Delete",
-      "forge_execute": "Forge Clone",
-      "forge_verify": "Forge Verification",
-      "forge_rehearse": "Forge Rehearsal",
-      "seed_csv_import": "CSV Import",
-      "seed_clone": "Record Clone",
-      "autopilot_execute": "Autopilot Run",
-      "frozen_load": "Frozen Dataset Load",
-      "metadata_deploy": "Metadata Deployment",
-      "realtime_sync": "Real-Time Sync",
-      "subject_erase": "Subject Request Erasure",
-      "cleanup_delete": "Cleanup Delete",
+      "org_connect": "Org connected",
+      "org_disconnect": "Org disconnected",
+      "seed_execute": "Seed run",
+      "sync_execute": "Sync run",
+      "backup_create": "Backup created",
+      "backup_restore": "Backup restored",
+      "anonymize_execute": "Masking run",
+      "delete_execute": "Delete run",
+      "compare_execute": "Compare run",
+      "pipeline_run": "Pipeline run",
+      "settings_change": "Settings changed",
+      "template_create": "Template created",
+      "template_update": "Template updated",
+      "template_delete": "Template deleted",
+      "forge_execute": "Forge clone",
+      "forge_verify": "Forge verification",
+      "forge_rehearse": "Forge rehearsal",
+      "seed_csv_import": "CSV import",
+      "seed_clone": "Record clone",
+      "autopilot_execute": "Autopilot run",
+      "frozen_load": "Frozen Dataset load",
+      "metadata_deploy": "Metadata deployment",
+      "realtime_sync": "Real-time sync",
+      "subject_erase": "Subject request erasure",
+      "cleanup_delete": "Cleanup delete",
       "pipeline_approval": "Pipeline approval",
-      "checkpoint_rewind": "Checkpoint Rewind",
-      "checkpoint_undo": "Rewind Undo",
-      "checkpoint_export": "Checkpoint Export",
-      "checkpoint_import": "Checkpoint Import",
-      "checkpoint_take": "Checkpoint Take"
+      "checkpoint_rewind": "Checkpoint rewind",
+      "checkpoint_undo": "Rewind undo",
+      "checkpoint_export": "Checkpoint export",
+      "checkpoint_import": "Checkpoint import",
+      "checkpoint_take": "Checkpoint take"
     },
     "filterByAction": "Filter by action",
     "filterByModule": "Filter by module",
-    "allActions": "All Actions",
-    "allModules": "All Modules",
+    "allActions": "All actions",
+    "allModules": "All modules",
     "noAuditEntries": "No audit entries",
     "action": "Action",
     "details": "Details",
@@ -2758,11 +2962,11 @@
     "filter": "Filter",
     "destination": "Destination",
     "noLineageData": "No lineage data available",
-    "recordsProcessed": "Records Processed",
-    "totalReports": "Total Reports",
-    "auditEntries": "Audit Entries",
+    "recordsProcessed": "Records processed",
+    "totalReports": "Total reports",
+    "auditEntries": "Audit entries",
     "filterByOrg": "Filter by org",
-    "allOrgs": "All Orgs",
+    "allOrgs": "All orgs",
     "intoOrg": "into {{org}}",
     "fromOrg": "from {{org}}",
     "leftBy": "picked up where the removal of {{date}} left off",
@@ -2800,8 +3004,12 @@
       "mayHaveBeenWritten_other": "{{count}} may be in the target, their call unanswered",
       "lookupsLeftEmpty_one": "{{count}} kept a lookup empty, the run stopped",
       "lookupsLeftEmpty_other": "{{count}} kept a lookup empty, the run stopped",
+      "lookupsNotFilled_one": "{{count}} kept a lookup empty, filling it failed",
+      "lookupsNotFilled_other": "{{count}} kept a lookup empty, filling it failed",
       "statusesNotGivenBack_one": "{{count}} left a draft, the run stopped",
-      "statusesNotGivenBack_other": "{{count}} left drafts, the run stopped"
+      "statusesNotGivenBack_other": "{{count}} left drafts, the run stopped",
+      "statusesNotApplied_one": "{{count}} left a draft, its status refused",
+      "statusesNotApplied_other": "{{count}} left drafts, their status refused"
     },
     "auditShowing": "Showing {{shown}} of {{total}}",
     "showMore": "Show more",
@@ -2872,6 +3080,121 @@
       "decisionRows_one": "({{count}} row)",
       "decisionRows_other": "({{count}} rows)",
       "user": "User {{user}}"
+    },
+    "reportTypes": {
+      "forge_execution": "Forge clone",
+      "seed_execution": "Seed run",
+      "sync_execution": "Sync run",
+      "compare_result": "Comparison",
+      "backup_result": "Backup",
+      "anonymization_result": "Masking run",
+      "pipeline_run": "Pipeline run",
+      "data_quality": "Data quality",
+      "org_health": "Org health",
+      "audit_trail": "Audit trail",
+      "custom": "Custom"
+    },
+    "detailLine": "{{label}}: {{value}}",
+    "detailField": {
+      "forgeId": "Forge run",
+      "runId": "Run",
+      "expected": "Expected",
+      "present": "Present",
+      "deleted": "Deleted",
+      "notVisible": "Not visible",
+      "changed": "Changed",
+      "linksChecked": "Lookups checked",
+      "linksBroken": "Lookups broken",
+      "linksLeftEmptyByFilter": "Lookups left empty by a filter",
+      "linksSetByAutomation": "Lookups set by automation",
+      "attempts": "Attempts",
+      "sweep": "Sweep",
+      "found": "Found",
+      "keptChanged": "Kept, changed since",
+      "refused": "Refused",
+      "handWork": "Left to remove by hand",
+      "loadedAt": "Loaded at",
+      "contactPoints": "Emails and phones",
+      "contactPointFields": "Email and phone fields",
+      "contactPointValues": "Email and phone values",
+      "deliverability": "Email deliverability",
+      "confirmed": "Confirmed",
+      "triggeredBy": "Started by",
+      "checkpointRefusal": "Checkpoint refused",
+      "pipeline": "Pipeline",
+      "step": "Step",
+      "decision": "Decision",
+      "via": "Answered from",
+      "answeredBy": "Answered by",
+      "trigger": "Trigger",
+      "grantedAt": "Confirmed at",
+      "checkpointId": "Checkpoint",
+      "records": "Records",
+      "objects": "Objects",
+      "files": "Files",
+      "bytes": "Size",
+      "alreadyKept": "Already on this machine",
+      "rewindId": "Rewind",
+      "status": "Status",
+      "passes": "Passes",
+      "limitedTo": "Limited to",
+      "sampled": "Sampled",
+      "judged": "Judged",
+      "passed": "Passed",
+      "linked": "Linked",
+      "notJudged": "Not judged",
+      "updatesJudged": "Updates judged",
+      "updatesRefused": "Updates refused",
+      "updatesNotRehearsed": "Updates not rehearsed",
+      "calls": "API calls",
+      "recordsLeft": "Records left in the org",
+      "reason": "Reason",
+      "code": "Code"
+    },
+    "detailValue": {
+      "contactPoints": {
+        "neutralized": "neutralized",
+        "kept": "kept as read"
+      },
+      "deliverability": {
+        "all": "all emails go out",
+        "withheld": "emails held back by the org",
+        "unread": "could not be read"
+      },
+      "confirmed": {
+        "emails": "emails go out"
+      },
+      "triggeredBy": {
+        "manual": "you",
+        "schedule": "a schedule",
+        "rerun": "a rerun",
+        "pipeline": "a pipeline"
+      },
+      "decision": {
+        "approved": "approved",
+        "rejected": "rejected",
+        "timedOut": "timed out",
+        "cancelled": "cancelled"
+      },
+      "via": {
+        "notification": "a notification",
+        "page": "the Automation page"
+      },
+      "status": {
+        "success": "succeeded",
+        "partial": "partial",
+        "failure": "failed",
+        "unstable": "unstable",
+        "cancelled": "cancelled"
+      },
+      "trigger": {
+        "manual": "by hand",
+        "schedule": "schedule",
+        "event": "event",
+        "webhook": "webhook",
+        "sandbox_refresh": "sandbox refresh",
+        "deployment_complete": "deployment finished"
+      }
     }
   },
   "settings": {
@@ -3182,6 +3505,70 @@
       "staging1670Desc": "A full copy or a UAT sandbox holds real data: tick Staging in its Edit dialog, and Production Guard asks before every delete, every deployment and every write of more than 10,000 records there. Its badge reads STAGING.",
       "env1680": "Test data as code",
       "env1680Desc": "Describe the records an environment needs in a sandforge.yaml committed with your project, and sandforge-env plans, applies and takes them back on a scratch org or a Developer Edition, from CI or a terminal: seeds, Forge clones and Frozen loads, with checkpoints around them.",
+      "dataops1740": "DataOps asks before anything fires",
+      "dataops1740Desc": "On the DataOps page, Apply, Restore, the Cleanup tab's delete and a subject's erasure list what the org runs as they write, count its emails and offer to mute it; Confirm waits until you accept.",
+      "review1740": "Forge's Review on one screen",
+      "review1740Desc": "In Forge, Review fits a 1280 by 800 screen: every row, Controls and Execute Forge in view, the orgs named above How to. Under 560 pixels wide, the graph opens as a table.",
+      "reload1740": "A reload takes back what automation made",
+      "reload1740Desc": "On Frozen Dataset's Load tab, a reload can also take back what the target's automation created for the loads it replaces, listed and muted as a removal's sweep is.",
+      "team1740": "Opportunities keep their team and splits",
+      "team1740Desc": "In Forge, an opportunity cloned into an org with Team Selling and Splits keeps its team and its splits, linked to the owner's member and split the platform writes.",
+      "counts1740": "Counts say what a run writes",
+      "counts1740Desc": "In Forge and Sync, the write check and the storage estimate leave out what the platform writes itself, and count the rows a left-out object holds back.",
+      "setup1750": "Forge knows what no one can create",
+      "setup1750Desc": "In Forge, setup and platform objects that no user can create are left out with their reason, and Review asks only for a permission, a feature or a parent's Edit that would let the run write.",
+      "roles1750": "One contact role per contact",
+      "roles1750Desc": "Sync, Seed, Frozen Dataset and a resumed Forge clone link the contact role Salesforce writes with an opportunity and give it the source's role, instead of adding a second one.",
+      "duplicates1750": "Masking names its duplicate rules",
+      "duplicates1750Desc": "On the DataOps page, Apply names the duplicate rules a masking fires before you confirm, then says which duplicate sets they wrote, which it keeps.",
+      "sweep1750": "A sweep keeps what anyone changed",
+      "sweep1750Desc": "When a removal sweeps what a run left, a record changed after the run's last write stays, whether you or automation changed it, unless you include what changed.",
+      "rewind1750": "A rewind says what it makes again",
+      "rewind1750Desc": "On the Checkpoints page, a rewind's preview says an order made again goes as a draft first, an Undo asks before it sets one back to Draft, and a stopped rewind names the drafts it left.",
+      "frozenAuto1760": "Frozen loads ask before automation fires",
+      "frozenAuto1760Desc": "On the Frozen Dataset page, a load names what the target runs as its records go in and writes only once you tick the box beside it; its preview also names the lookup filters it cannot check.",
+      "resumed1760": "A resumed clone is removed whole",
+      "resumed1760Desc": "In Forge, removing a clone you stopped and resumed takes every part of it, in either order, without including what changed, and each part says what it leaves for the other.",
+      "linked1760": "Dry runs count what is linked",
+      "linked1760Desc": "Sync, Forge and Frozen Dataset dry runs count a record the target already holds, or a contact role Salesforce writes, as linked rather than inserted, as the run does.",
+      "rewind1760": "A stopped rewind keeps your Undo",
+      "rewind1760Desc": "On the Checkpoints page, a rewind stopped or refused before it wrote anything keeps the Undo of the rewind before it, and a rewind counts each flow once, only for what it writes.",
+      "seed1760": "Seed results show linked roles",
+      "seed1760Desc": "On the Seed results, contact roles Salesforce wrote with their opportunities read as linked rather than 0/0, with their own column in Export CSV.",
+      "reload1770": "A reload keeps what you made under it",
+      "reload1770Desc": "On the Frozen Dataset page, a reload whose cleanup would delete a record someone made under the load, or a quote it found again, writes nothing and says how to take the load back first.",
+      "roles1770": "Only the contact role Salesforce wrote is linked",
+      "roles1770Desc": "Forge, Sync, Seed and Frozen Dataset link the contact role Salesforce wrote with an opportunity, never one someone made after it, and link none they cannot tell apart.",
+      "removal1770": "Removals say what holds what they keep",
+      "removal1770Desc": "In Forge, a removal names what holds back the records it keeps and which part's removal takes them, and warns what a sweep would take that someone made by hand.",
+      "gates1770": "Run gates count what a run writes",
+      "gates1770Desc": "Sync, Forge and Frozen Dataset count the contact roles, relations and email tasks a run links apart from what it writes, before it starts and in dry runs.",
+      "rewindEmails1770": "Rewind previews count the emails sent",
+      "rewindEmails1770Desc": "On the Checkpoints page, a rewind's preview counts only the emails its writes send, with the outside box unticked or on a Rewind step limited to some objects.",
+      "review1730": "Forge's Review, in one sentence",
+      "review1730Desc": "In Forge, Review says the run in one sentence and what is left to decide, over rows that open in place: Gaps, Plan, Anonymization, Compliance, Metadata and Automation. Checkpoint first, Controls, Simulate and Execute Forge sit in a column beside them, and a ribbon says Copied from and Written into, with the type of each org.",
+      "partial1730": "A run that fell short says so",
+      "partial1730Desc": "Live Operations, on the Monitor page, lists a run that left part of its work undone as Partial, as Home and the side panel do, and its results say what was left. On Autopilot's Control Panel, the result says how many records stayed without which lookup, or as drafts, and why.",
+      "frozen1730": "Frozen Dataset asks before anything fires",
+      "frozen1730Desc": "On the Load tab, the confirmation of a removal or a reload lists what the target runs as the records are deleted, with the box that mutes it. Once a load's records are gone, Last load offers Take back what the target's automation created.",
+      "rewindMute1730": "A Rewind step can mute automation",
+      "rewindMute1730Desc": "On the Automation page, open Allow riskier changes on a Rewind step and tick Mute the org's automation for this rewind: what the org's bypass keeps quiet stays quiet, and the step says what it muted. The step then asks to be confirmed again.",
+      "migration1730": "A real SFDMU export.json imports",
+      "migration1730Desc": "On the Migration page, an export.json comes with its FieldMapping.csv and ValueMapping.csv, and the page says, object by object, what Sync will not do as SFDMU would. Open in Sync then lists what each object does, a delete in the warning colour, before Simulate and Run the sync.",
+      "masking1730": "Masking refuses what it cannot see",
+      "masking1730Desc": "On DataOps' Anonymize tab, Preview says before Apply when the org hides a field the template names, or lets you read it but not edit it. The run is then refused, where it masked the other fields and left those values in clear.",
+      "checkpoint1720": "Checkpoint first, then one click back",
+      "checkpoint1720Desc": "Tick Checkpoint first beside Execute Forge on Forge's Review, on the Execute step of Sync and Seed, on Autopilot's Review plan step or on Frozen Dataset's Load tab. The run takes a checkpoint of what it writes before its first write, and Rewind to before this run…, on its results, opens the rewind to it.",
+      "sweep1720": "Take back what the target's automation made",
+      "sweep1720Desc": "In the confirmation of a Forge, Sync, Seed or Frozen Dataset removal, tick Sweep first: it takes what the automation made for the run, and lists what came late or is tied to nothing, kept unless you tick it. A removal that kept records offers Take back what the target's automation made for this run, then remove again.",
+      "emails1720": "Know whether the emails go out",
+      "emails1720Desc": "Simulate in Sync and the Automation row of Forge's Review say whether the target delivers the emails of what still runs, and who sends them. On All email, a Forge, Sync, Seed or Autopilot run names them in its question, and Execute and send the emails lets them go out. A rewind's preview has its own box.",
+      "fit1720": "Fit a plan to the storage left",
+      "fit1720Desc": "On Autopilot's Review plan step, Fit to storage… keeps the largest share of each object that fits, each record with its parent, and Undo fit gives the plan back. A seed refused for the data storage or the day's API requests shows what fits, and Seed these counts runs it.",
+      "recordType1720": "The record type the target gave",
+      "recordType1720Desc": "The results of Sync, Forge and Frozen Dataset, and Autopilot's Control Panel, show Record types the target org gave: what the records created without one got, and why. Simulate and Preview predict it, and the page says so where the records hold another type.",
+      "pages1720": "Reports, Grappe, Settings and AI Assistant",
+      "pages1720Desc": "Reports names each module as the side panel does. Grappe opens on the header and KPI cards of the other pages. Settings keeps the language as soon as it applies, and Export / Import says what it shares. AI Assistant sets code apart, with Copy code, and names each conversation after its first question.",
       "mute1710": "Mute the target's automation",
       "mute1710Desc": "Where a Forge, Sync, Seed, Autopilot, Frozen Dataset or Checkpoints run is confirmed, tick Mute the target's automation for this run. The target's own bypass permission sets are assigned to you for the run and taken back as it ends. The result says what was muted and what still ran.",
       "howTo1710": "How to, on every page",
@@ -3226,8 +3613,8 @@
     "syncContent": "Sync copies objects from one org to another, field by field; the History tab lists each run, and the Schedules tab runs a saved configuration on a schedule.\n- A delta run of a saved configuration reads what changed since its last good run, and can delete in the target what the source deleted.\n- Auto Map pairs fields of the same API name. A transform rule changes one field in every record written; a rule with no field is refused before anything is read or saved. Value mappings come from an imported SFDMU configuration.\n- Neutralize emails and phone numbers is on unless unticked; Copy the files of these records brings their files.\n- Real-Time tab: writes each change the source publishes (Change Data Capture) as it comes; a conflict is settled by the strategy or held on the Conflicts tab.\n- Remove what this run created, on the results or the run's history entry, deletes what it inserted and its files, gives the records it wrote over their values from before, kept for sandforge.backup.maxAgeDays, and brings back what a delta run deleted. Production Guard refuses it on a production org.\n- A Real-Time session is taken back the same way under Earlier sessions, once it has stopped.",
     "compareContent": "Compare metadata between two orgs:\n- Diff Viewer grouped by category and risk level\n- Permission Presence: which profiles and permission sets exist on each side\n- Objects: the objects of both orgs, read live when you open the tab\n- Org Settings Drift: five Organization settings side by side (name, language, locale, time zone, fiscal year start)\n- Deploy from Diff: pick what differs, validate it in the target first, then deploy the validation to a sandbox, a scratch org or a Developer Edition org",
     "dataopsContent": "Data operations on the org picked at the top of the page:\n- Backup: a copy of the objects the anonymization templates mask, or of those the template picked masks, kept on this machine. It is no checkpoint: before a risky run on a sandbox, take a checkpoint.\n- Restore asks first, naming the org and each object of the backup, then puts the backup back into the org it was taken from; unless Write every row of the backup back is ticked, it writes only the rows changed since.\n- Anonymize masks fields in place with a built-in template such as GDPR, CCPA or HIPAA, or one of your own from Create template; unless you untick Keep the values first, it backs up what it masks, so Restore can put it back.\n- Compliance finds the fields holding personal data, then one person's records by email, name or phone, to export, erase or delete after a review and a typed confirmation.\n- Cleanup counts stale records, empty lookups and repeated values, to export or delete after a review and a typed confirmation, 1,000 at a time.\n- Quality counts how often each field is filled, shared key values and stale records, and writes nothing.",
-    "automationContent": "Visual pipeline builder:\n- Under Steps, the page offers the step types a pipeline runs: Sync, Seed, Anonymize, Backup, Checkpoint, Rewind, Compare, Pre-Check, Condition, Delay, Approval and Notification. Sync runs a configuration saved on the Sync page, and a Sync step into an org Production Guard asks about needs an Approval step before it. Seed and Anonymize run a template of their pages, never in a production org, behind an Approval step in a sandbox marked Staging, and are never tried again. A Rewind step puts an org back to a checkpoint kept on this machine, at most the records it is set to, once you confirm it with the org's alias below its preview. Restore and Delete write to an org and run only from their own pages: a pipeline holding one of those steps, or a Script, Loop or Parallel step, is refused before it starts\n- A pipeline starts from the Run Pipeline button, at the times a cron expression names while VS Code is open, or when SandForge notices a refresh of a sandbox you choose\n- Execution history: status, total duration and errors of each run, what each of its steps did, and the starts a trigger missed\n- Pipeline templates from the Marketplace",
-    "forgeContent": "Forge copies a record and what it relates to, from the org selected in the side panel into a sandbox, a scratch org or a Developer Edition org; it refuses any other org. IDs are remapped as the records are written.\n- Before Execute Forge, on Review: Simulate checks every record here, sends nothing; Rehearse: the target tries a sample, rolled back; costs API calls.\n- Emails and phone numbers are neutralized (.invalid, fictional numbers) unless you tick Keep emails and phone numbers as they are. Anonymize PII masks names, addresses and other personal fields.\n- Save as template, on a run's results, keeps its record or query, depth, options and decisions; the Template tab runs it again, and Import a template reads one from a file.\n- Clone directly, under Discover Graph, runs the discovery then the clone without stopping on the graph or Review; Production Guard judges it as any run.\n- Graph or table: up to 25 objects are drawn as a graph, more as a table; Graph View / Table View, or the sandforge.forge.graphView setting, picks the view.\n- A record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it.",
+    "automationContent": "Visual pipeline builder:\n- Under Steps, the page offers the step types a pipeline runs: Sync, Seed, Anonymize, Backup, Checkpoint, Rewind, Compare, Pre-Check, Condition, Delay, Approval and Notification. Sync runs a configuration saved on the Sync page, and one into an org Production Guard asks about needs an Approval step before it. Seed and Anonymize run a template of their pages, never in a production org, behind an Approval step in a sandbox marked Staging, and are never tried again. A Rewind step puts an org back to a checkpoint on this machine, at most the records it is set to, once you confirm it under its preview with the org's alias, or its username for an org that has none. Restore and Delete write to an org and run only from their own pages: a pipeline holding one of them, or a Script, Loop or Parallel step, is refused before it starts\n- A pipeline starts from the Run Pipeline button, at the times a cron expression names while VS Code is open, or when SandForge notices a refresh of a sandbox you choose\n- Execution history: status, total duration and errors of each run, what each of its steps did, and the starts a trigger missed\n- Pipeline templates from the Marketplace",
+    "forgeContent": "Forge copies a record and what it relates to, from the org selected in the side panel into a sandbox, a scratch org or a Developer Edition org; it refuses any other org. IDs are remapped as records are written.\n- Before Execute Forge, on Review: Simulate checks every record here, sends nothing; Rehearse: the target tries a sample, rolled back; costs API calls.\n- Emails and phone numbers are neutralized (.invalid, fictional numbers) unless you tick Keep emails and phone numbers as they are. Anonymize PII masks names, addresses and other personal fields.\n- Save as template, on a run's results, keeps its record or query, depth, options and decisions; the Template tab runs it again, and Import a template reads one from a file.\n- Clone directly, under Discover Graph, runs the discovery then the clone without stopping on the graph or Review; Production Guard judges it as any run.\n- Graph or table: up to 25 objects are drawn as a graph, more as a table, as on a panel under 560 px; Graph View / Table View or the sandforge.forge.graphView setting picks the view.\n- A record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it.",
     "frozenContent": "Frozen Dataset extracts a dataset from a source sandbox once and replays it after every refresh:\n- Extract: root records chosen by coverage matrix, within a volume budget\n- Rules file: Run extraction needs one, at ~/.sandforge-sas/rules.json unless the configuration moves it. Create rules file writes an empty one, which clears every field without a rule; a rule names its field as Object.Field and a generator such as email, firstName, clear or keep (approved), and Rules format lists them all\n- Pseudonymization is deterministic, keyed by SANDFORGE_FROZEN_SALT where it is set, else by the salt kept in VS Code's secret storage, which the first extraction makes if none is kept yet\n- A four-point check must pass before the dataset is written\n- Load: into a sandbox, a scratch org or a Developer Edition org, never into a production org or a sandbox marked Staging, with an optional Pilot on one root record first, and a verification pass after the load",
     "grappeContent": "Grappe splits a large operation into partitions and reports progress as each one completes:\n- Turn it on with the sandforge.grappe.enabled setting\n- A Seed run past the record threshold reports each partition, a Sync past it reports one partition per object, and an Autopilot run reports only its start and its end\n- Partitions run one after another: Grappe does not make a run faster",
     "aiContent": "AI Assistant, with your own Anthropic key:\n- Chat; Forge's AI tab, which drafts a SOQL query from your question; custom personas, AI field rules and Draft from your own text in Seed\n- Pipeline drafts in Automation\n- A built-in table of Salesforce error codes answers the codes it knows first, on your machine, AI on or off, and sends nothing\n- Nothing is sent for a fixed list of SandForge's own messages, such as a declined production confirmation, a duplicate run, or a CRUD, FLS or Production Guard refusal, nor for any failure while no SandForge view is open\n- While AI is on, any other failed Seed, Sync, DataOps or Automation run sends its error message, with its Salesforce Ids replaced by <id>, and the suggestion comes back as a VS Code notification\n- Turn that sending off with sandforge.ai.errorResolution: the rest of the assistant keeps working\n- Monitor's anomaly scan is rule-based: it runs with AI off and no key\n- Configure your API key in Settings > AI",
@@ -3253,7 +3640,7 @@
     "startTour": "Start Guided Tour",
     "autopilotContent": "In three steps:\n1. Pick the source and target orgs\n2. Select the objects to copy\n3. Review the plan (waves, records, API calls, PII fields), then run it. Emails and phone numbers are neutralized unless you untick it — every address under .invalid, every number a fictional one — and Advanced picks a compliance framework that anonymizes more (GDPR, CCPA, HIPAA or PCI-DSS)",
     "migrationContent": "Migration turns an SFDMU export.json into a Sync configuration:\n- Importing reads the file and changes nothing in any org\n- Saved as a Sync configuration, with its source and target orgs and a name, it opens with Open in Sync: Simulate checks it there, and Run the sync writes it\n- A CSV file of records goes to Seed's CSV Upload, which loads its rows",
-    "reportsContent": "Reports shows what SandForge's runs did:\n- Executions: each Forge and Sync run with its status, duration and record count, exportable as JSON\n- Analytics: success rates computed from those runs\n- Audit Trail: every run that writes to an org — a Forge clone, a sync, a seed, a CSV import, a record clone, an Autopilot run, a restore, a masking run or a frozen dataset load — with what it wrote to each object and what Production Guard decided\n- Data Lineage: where the records a run wrote came from — another org, generated data, a CSV file, a backup or a frozen dataset — and how many of each object",
+    "reportsContent": "Reports shows what SandForge's runs did:\n- Executions: each Forge and Sync run with its status, duration and record count, exportable as JSON\n- Analytics: success rates computed from those runs\n- Audit trail: every run that writes to an org — a Forge clone, a sync, a seed, a CSV import, a record clone, an Autopilot run, a restore, a masking run or a frozen dataset load — with what it wrote to each object and what Production Guard decided\n- Data lineage: where the records a run wrote came from — another org, generated data, a CSV file, a backup or a frozen dataset — and how many of each object",
     "orgsContent": "Connect an org in one of two ways, both run on the Salesforce CLI (sf):\n- Import from Salesforce CLI adds every org the CLI already holds. A CLI that holds no org yet is said as information, not an error: log in with your browser instead.\n- Log in with your browser opens the Salesforce login page; the alias is optional.\n- Login URL: Production / Developer or Sandbox; for an org that blocks both, Custom domain (My Domain)… takes its login URL as Setup → My Domain shows it.\n- Username / Password needs no CLI; JWT Bearer and OAuth (Device) are under More methods.\n\nForge, Frozen Dataset loads, Checkpoints and Compare's deploy refuse a production org; deletes are refused there too; every other write there asks first, and no setting turns that off. A sandbox holding real data (full copy, UAT): open its Edit dialog on Organizations and tick Staging, and Production Guard then asks before every delete, deployment and write over 10,000 records.\n\nAn org that will not connect: see Troubleshooting.",
     "fullGuide": "Full guide: {{section}}",
     "notFoundFaq": "Not found here? Read the full FAQ",
@@ -3359,9 +3746,9 @@
     },
     "reports": {
       "step1": "On Executions, click a Forge or Sync run to read its details below the list.",
-      "step2": "Open Audit Trail to see every run that writes to an org, newest first.",
+      "step2": "Open Audit trail to see every run that writes to an org, newest first.",
       "step3": "Narrow the list with Filter by action, Filter by module or Filter by org.",
-      "step4": "Press View run on an entry to see on Data Lineage where its records came from.",
+      "step4": "Press View run on an entry to see on Data lineage where its records came from.",
       "step5": "Press Export CSV or Export JSON to save the trail as filtered.",
       "tip": "Reports writes nothing to any org; Export CSV and Export JSON save every entry the filters match, not only those shown."
     },
@@ -3391,11 +3778,11 @@
   "home": {
     "connectedOrgs": "Connected orgs",
     "noOrgsConnected": "No orgs connected yet",
-    "quickActions": "Quick Actions",
-    "recentOperations": "Recent Operations",
+    "quickActions": "Quick actions",
+    "recentOperations": "Recent operations",
     "noRecentOps": "No recent operations",
-    "healthSummary": "Health Summary",
-    "healthScore": "Health Score",
+    "healthSummary": "Health summary",
+    "healthScore": "Health score",
     "gettingStarted": "Getting started",
     "gettingStartedDesc": "Welcome to SandForge! Follow these steps to get started.",
     "step1": "Connect your first Salesforce org",
@@ -3403,25 +3790,25 @@
     "step3": "Clone a real record from another org with Forge",
     "step4": "Watch API limits, jobs and storage in Monitor",
     "connectOrg": "Connect an org",
-    "viewAll": "View All",
+    "viewAll": "View all",
     "justNow": "just now",
     "minutesAgo": "{{count}}m ago",
     "hoursAgo": "{{count}}h ago",
-    "orgsConnected": "Orgs Connected",
-    "activeJobs": "Active Jobs",
+    "orgsConnected": "Orgs connected",
+    "activeJobs": "Active jobs",
     "opsLast7d": "Ops (7 days)",
-    "limitWarnings": "Limit Warnings",
-    "forgeASandbox": "Forge a Sandbox",
+    "limitWarnings": "Limit warnings",
+    "forgeASandbox": "Forge a sandbox",
     "recordIdPlaceholder": "Record ID (e.g. 001...)",
     "startForge": "Start Forge",
     "invalidRecordId": "Not a valid Salesforce record ID or URL",
     "smartAction": {
-      "title": "Recommended Action",
+      "title": "Recommended action",
       "execute": "Set it up",
       "confirm": "Open",
       "cancel": "Cancel",
       "confirmMsg": "Open {{action}} for {{org}}?",
-      "reasonEmpty": "Your sandbox is empty — seed it with demo data",
+      "reasonEmpty": "Your org is empty — fill it with demo data",
       "reasonClone": "Source org has data — clone it to your target",
       "reasonSync": "Both orgs have data — sync to keep them aligned",
       "whyTooltip": "Why this recommendation?",
@@ -3447,6 +3834,7 @@
     },
     "opStatus": {
       "success": "Succeeded",
+      "partial": "Partial",
       "running": "Running",
       "paused": "Paused",
       "failed": "Failed",
@@ -3578,7 +3966,7 @@
     "anonymizePII": "Anonymize PII",
     "skipEmpty": "Skip empty objects",
     "discoverGraph": "Discover Graph",
-    "noTemplates": "No saved templates yet. Save one from a run's results or from Review's Gaps tab, or import one from a file.",
+    "noTemplates": "No saved templates yet. Save one from a run's results or from Gaps on Review, or import one from a file.",
     "discoveryStopped": "The discovery was stopped before it finished. Discover again to see the graph.",
     "discoverySuperseded": "The discovery was stopped to make way for a newer one, from this panel or another: a window walks only a few discoveries at once. Discover again to see the graph.",
     "executeFailed": "Forge execution failed",
@@ -3740,6 +4128,7 @@
       "title": "Files",
       "toggle": "Copy the files of the cloned records",
       "description": "Salesforce Files, the latest version of each, and attachments linked to a record this run clones, written after that record. A file linked only to records outside the clone is not copied, nor is a library.",
+      "more": "Which files it copies",
       "maxSize": "Largest file copied (MB)",
       "maxSizeHint": "From 1 to {{max}} MB, what one call to Salesforce carries. A larger file is left out and listed, never cut. Before anything is written, the files together are checked against the file storage the target org has left.",
       "asIsWarning": "This run anonymizes its records, and the content of a file cannot be anonymized.",
@@ -3911,8 +4300,12 @@
       "storageExceededAll": "The run was refused before it wrote anything: the records of the whole org take about {{estimate}} MB of data storage, and the target org has {{remaining}} MB left. Leave objects out on Review, or free data storage in the target org.",
       "storageExceededFiles": "The run was refused before it wrote anything: the files it copies take about {{estimate}} MB of file storage, and the target org has {{remaining}} MB left. Leave the files out on Review, or free file storage in the target org.",
       "confirmationUnavailable": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
-      "apiBudgetExceeded": "The run was refused before it wrote anything: it would take more API requests than the source or target org has left today, or more Bulk API batches than the target has left. Run it once the org has some to spare.",
+      "checkpointRefused": "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken. Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
+      "apiBudgetExceeded": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records.",
+      "checkpointRefusedFor": "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused. {{reason}} Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
+      "apiBudgetExceededWithCheckpoint": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, the checkpoint it was to take first among them, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours —, write fewer records, or untick Checkpoint first.",
       "apiRequestsExceededTarget": "The run was refused before it wrote anything: it would take about {{estimate}} API requests of the target org, which has {{remaining}} left today. Run it once the org has more to spare, or leave objects out on Review.",
+      "apiRequestsExceededTargetWithCheckpoint": "The run was refused before it wrote anything: it would take about {{estimate}} API requests of the target org, the checkpoint it was to take first among them, and the org has {{remaining}} left today. Run it once the org has more to spare, leave objects out on Review, or untick Checkpoint first.",
       "apiRequestsExceededSource": "The run was refused before it wrote anything: reading the source org would take about {{estimate}} of its API requests, and it has {{remaining}} left today. Run it once the org has more to spare, or leave objects out on Review.",
       "bulkBatchesExceeded": "The run was refused before it wrote anything: its Bulk API jobs would take about {{estimate}} batches of the target org, which has {{remaining}} left over the last 24 hours. Run it once the org has more to spare.",
       "readBoundExceeded": "The run was refused before it wrote anything: a clone of the whole org reads a few objects whole, and more than {{bound}} records, as many as the sandforge.forge.maxRecordsPerObject setting lets it hold at once, were found in {{objects}}. Raise the setting, or leave these objects out on Review."
@@ -3960,7 +4353,6 @@
       "inJournal_other": "The ids of the {{formatted}} records this run mapped are kept in its journal, not in its results: Save the Id map writes them to a file."
     },
     "preview": {
-      "title": "What will happen on Execute",
       "truncatedAction": "Graph cut short by the object cap — raise it and discover again if something is missing",
       "willClone": "Will clone",
       "willMap": "Will map",
@@ -4061,7 +4453,6 @@
       "complianceTab": "Compliance",
       "metadataTab": "Metadata",
       "automationTab": "Automation",
-      "tabs": "Review tabs",
       "back": "← Back to Discovery",
       "preset": "Preset",
       "presetCustom": "Custom (no preset)",
@@ -4084,6 +4475,9 @@
       "diffsFound_one": "{{count}} difference found between source and target.",
       "diffsFound_other": "{{count}} differences found between source and target.",
       "objectNotCreateable": "{{object}} is in the target org, but the user the clone writes as may not create its records there: Execute skips it, after the objects written before it. Leave it out in Gaps, or give that user Create on it.",
+      "objectNoUserCreates": "{{object}} is in the target org, but no user can create its records there, not even one with Modify All Data: Execute skips it, and no grant would open it.",
+      "objectFeatureOff": "{{object}} is in the target org, but even a user with Modify All Data may not create its records there: a feature or licence the target has not turned on keeps it closed. Execute skips it, after the objects written before it. Turn it on, or leave it out in Gaps.",
+      "objectThroughParent": "{{object}} is in the target org, but the user the clone writes as may not create its records there, and no permission set gives Create on it: Edit on the records it hangs from may open it, or no user can. Execute skips it, after the objects written before it. Gaps says what to give that user; or leave it out there.",
       "planLoading": "Generating execution plan...",
       "wave": "Wave",
       "cycles": "Cycle Resolutions",
@@ -4170,7 +4564,7 @@
       "undecidedGaps_one": "{{count}} gap will refuse rows",
       "undecidedGaps_other": "{{count}} gaps will refuse rows",
       "decideOnGaps": "Decide on Gaps",
-      "undecidedGapsQuestion": "The target org refuses the rows these gaps name until each is decided on the Gaps tab: a value mapped or set, a field left empty, the gap ignored. Executed now, those rows are refused, and the others written.",
+      "undecidedGapsQuestion": "The target org refuses the rows these gaps name until each is decided in Gaps: a value mapped or set, a field left empty, the gap ignored. Executed now, those rows are refused, and the others written.",
       "executeAnyway": "Execute anyway",
       "controlsTab": "Controls",
       "graphSearch": {
@@ -4192,7 +4586,70 @@
         "leftOut": "Left out of the run: {{objects}}.",
         "putBack": "Put them back"
       },
-      "muting": "Execute mutes the target's automation, as ticked on the Automation tab."
+      "muting": "Execute mutes the target's automation, as ticked above.",
+      "rows": "The parts of this run",
+      "runColumn": "The run",
+      "sentence": {
+        "counted_one": "Copy {{formatted}} record from {{source}} into {{target}}.",
+        "counted_other": "Copy {{formatted}} records from {{source}} into {{target}}.",
+        "atMost_one": "Copy at most {{formatted}} record from {{source}} into {{target}}.",
+        "atMost_other": "Copy at most {{formatted}} records from {{source}} into {{target}}.",
+        "notCounted_one": "Copy the records of {{count}} object from {{source}} into {{target}}.",
+        "notCounted_other": "Copy the records of {{count}} objects from {{source}} into {{target}}.",
+        "oneRecord_one": "Copy one record and what it reaches in {{count}} object, from {{source}} into {{target}}.",
+        "oneRecord_other": "Copy one record and what it reaches in {{count}} objects, from {{source}} into {{target}}."
+      },
+      "left": {
+        "none": "Nothing is left to decide.",
+        "decisions_one": "{{count}} decision is left.",
+        "decisions_other": "{{count}} decisions are left."
+      },
+      "nothingWritten": "Nothing is written until you press {{action}}.",
+      "state": {
+        "decide": "Needs you",
+        "ready": "Ready",
+        "working": "Working…",
+        "failed": "Failed",
+        "toRead": "To read"
+      },
+      "row": {
+        "gaps": {
+          "undecided_one": "{{count}} gap will refuse rows until it is decided.",
+          "undecided_other": "{{count}} gaps will refuse rows until each is decided.",
+          "failed": "What the target org holds against the rows could not be read.",
+          "found_one": "{{count}} gap found; none will refuse rows undecided.",
+          "found_other": "{{count}} gaps found; none will refuse rows undecided.",
+          "partly": "Nothing found, but part of the target org could not be read."
+        },
+        "anonymization": {
+          "none": "Discovery found no personal field.",
+          "on_one": "{{count}} personal field found, anonymized as the run writes it.",
+          "on_other": "{{count}} personal fields found, anonymized as the run writes them.",
+          "off_one": "{{count}} personal field found, written as the source holds it.",
+          "off_other": "{{count}} personal fields found, written as the source holds them."
+        },
+        "compliance": {
+          "none": "No framework selected.",
+          "failed": "The compliance report could not be made.",
+          "report": "{{framework}}: {{verdict}}"
+        },
+        "metadata": {
+          "failed": "The schemas of the two orgs could not be compared."
+        },
+        "automation": {
+          "failed": "What the target org runs could not be read.",
+          "fires_one": "{{count}} automation fires as the run inserts its records.",
+          "fires_other": "{{count}} automations fire as the run inserts its records.",
+          "notOnInsert": "Nothing fires as the run inserts its records; read what runs on its updates.",
+          "none": "Nothing the target org automates runs on these objects.",
+          "emails": "Emails may go out."
+        },
+        "controls": {
+          "none": "Nothing set on this run.",
+          "set_one": "{{count}} setting on this run.",
+          "set_other": "{{count}} settings on this run."
+        }
+      }
     },
     "truncatedRead": "Read only in part: {{objects}}. The source holds more rows than were cloned — split the run with filters that each stay under the bound to clone the rest.",
     "cappedRead": "Stopped at {{limit}} per object: {{objects}}. The source holds more rows than were cloned — raise Records per object to clone them.",
@@ -4303,6 +4760,10 @@
         "duplicate_rule": "Duplicate rule",
         "api_budget": "Daily API request budget",
         "object_not_createable": "Object the user the clone writes as may not create in the target",
+        "object_platform_only": "Object no user can create in the target: the platform writes its records, Execute skips it",
+        "object_setup_only": "Object no user can create in the target, not even with Modify All Data: setup or the platform's own, Execute skips it",
+        "object_feature_off": "Object of a feature or licence the target has not turned on for the user the clone writes as",
+        "object_through_parent": "Object no permission set gives Create on: the user the clone writes as creates it through the records it hangs from, or no user can",
         "rehearsal_refusal": "Refused in the rehearsal",
         "rehearsal_update_refusal": "Update refused in the rehearsal"
       },
@@ -4315,9 +4776,11 @@
       "sourceRecordType": "source record type {{name}}",
       "detail": {
         "allowedValues": "Allowed values",
-        "targetRecordTypes": "Target record types"
+        "targetRecordTypes": "Target record types",
+        "editOn": "Edit needed on"
       },
       "byDefault": "If nothing is decided: {{decision}}.",
+      "lifted": "The mute lifts it ({{permission}}, in {{set}}).",
       "decision": {
         "map_value": "another value is written",
         "leave_empty": "the field is left empty",
@@ -4396,7 +4859,10 @@
           "loosenLookupFilter": "{{field}}: make its lookup filter optional, or let it take the records the clone names (Setup > Object Manager > {{object}} > Fields & Relationships > {{field}}).",
           "deactivateValidationRule": "Turn off validation rule {{value}}, or give the user SandForge writes as the custom permission that bypasses it (Setup > Object Manager > {{object}} > Validation Rules).",
           "deactivateDuplicateRule": "Turn off duplicate rule {{value}}, or set it to allow the record on create (Setup > Duplicate Rules).",
-          "grantCreate": "Give the user SandForge writes as Create on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}})."
+          "grantCreate": "Give the user SandForge writes as Create on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}}).",
+          "grantEdit": "Give the user SandForge writes as Read and Edit on {{value}}, which {{object}} hangs from (Setup > their profile or a permission set > Object Settings > {{value}}).",
+          "enableFeature": "Turn on in the target the feature {{object}} comes with, or assign the user SandForge writes as the permission set licence that includes it, then give them Create on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}}).",
+          "installPackage": "Install or upgrade the package with namespace {{namespace}} in the target: record type {{value}} comes with it, and Setup cannot create it."
         }
       }
     },
@@ -4455,7 +4921,8 @@
         "maxRecordsPerObject": "Not kept: a cap is a whole number from 1 to 1,000,000.",
         "ownerMappings": "Not kept: a user's id has 15 or 18 letters and digits, and the run takes 200 owners at most.",
         "fieldMappings": "Not kept: the run renames 200 fields of an object at most, on 50 objects at most."
-      }
+      },
+      "beforeWritingTitle": "Before writing"
     },
     "decisionsApplied": {
       "title": "Decisions applied",
@@ -4519,13 +4986,10 @@
       "piiFields": "PII fields detected",
       "anonymizedFields": "Fields to anonymize",
       "contactPoints": "Neutralize emails and phone numbers (recommended)",
-      "contactPointsHint": "Every email address is written under .invalid and every phone number as a fictional one, so the target org's automation reaches no one. Unticked, they are copied as the source holds them.",
+      "contactPointsHint": "Every email address is written under .invalid and every phone number as a fictional one, so what the target org's automation sends to them reaches no one. That leaves out the records' owners, the records already in the target org and an address an alert names. Unticked, they are copied as the source holds them.",
       "advancedCompliance": "Advanced: compliance framework",
       "noFrameworkHint": "No compliance framework is picked: names, addresses and the other personal fields are copied as the source holds them. Pick one under \"{{advanced}}\" to anonymize those it covers.",
       "description": "Review your configuration before launching autopilot.",
-      "connectionSummary": "Connection summary",
-      "source": "Source",
-      "target": "Target",
       "selectedObjects": "Selected objects",
       "executing": "Executing...",
       "scope": {
@@ -4554,7 +5018,8 @@
       "personalDataFrameworkAndContactPoints": "{{framework}} + emails and phones",
       "personalDataNone": "None: copied as in the source",
       "durationMinutes": "~{{minutes}} min",
-      "copyInto": "Copy into {{target}}"
+      "copyInto": "Copy into {{target}}",
+      "checkpointRecommended": "An Autopilot run cannot be removed afterwards: tick Checkpoint first to be able to rewind it."
     },
     "graph": {
       "title": "Dependency Graph",
@@ -4612,6 +5077,8 @@
       "refusals": "Why records were refused",
       "statusesApplied": "Statuses applied after their children",
       "statusRefusals": "Why a status was not applied",
+      "lookupsFilled": "Lookups filled after their wave",
+      "lookupRefusals": "Why a lookup stayed empty",
       "piiFieldCount_one": "{{count}} PII field",
       "piiFieldCount_other": "{{count}} PII fields",
       "stoppedLeftTitle": "Written, and left unfinished by the stop:",
@@ -4621,6 +5088,14 @@
       "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} records stay drafts, without the status they had in the source.",
       "stoppedEmailsHeld_one": "{{count}} email on a case was never sent: it waited for its task to be written, and the run stopped first.",
       "stoppedEmailsHeld_other": "{{count}} emails on a case were never sent: they waited for their task to be written, and the run stopped first.",
+      "runPartial": "Partially complete: records were refused, keep a lookup empty or stay drafts. Each object's details say which and why.",
+      "runFailure": "Failed: the run wrote no record. Each object's details say why.",
+      "statusesNotAppliedTitle": "Written, and left a draft:",
+      "statusNotApplied_one": "{{object}}: {{count}} record stays a draft: its status was refused ({{code}}).",
+      "statusNotApplied_other": "{{object}}: {{count}} records stay drafts: their status was refused ({{code}}).",
+      "lookupsNotFilledTitle": "Written, and left without a lookup:",
+      "lookupNotFilled_one": "{{object}}: {{count}} record keeps {{fields}} empty ({{code}}).",
+      "lookupNotFilled_other": "{{object}}: {{count}} records keep {{fields}} empty ({{code}}).",
       "skipNamed": "Skip {{object}}"
     },
     "report": {
@@ -4650,6 +5125,85 @@
     "emptyState": {
       "title": "Auto-Provision Your Sandbox",
       "cta": "Select an Org"
+    },
+    "refusal": {
+      "checkpointRefused": "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken, which the SandForge output says. Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
+      "apiBudgetExceeded": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or copy fewer records.",
+      "apiBudgetExceededWithCheckpoint": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, the checkpoint it was to take first among them, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours —, copy fewer records, or untick Checkpoint first.",
+      "runCancelled": "The run was stopped while it took the checkpoint first: nothing of it was kept, and nothing was written."
+    },
+    "fit": {
+      "storageTitle": "Data storage",
+      "storageExceeds": "{{estimate}} MB to write, and {{org}} has {{remaining}} MB left of {{max}} MB: a run would be refused.",
+      "storageNear": "{{estimate}} MB to write, and {{org}} has {{remaining}} MB left of {{max}} MB: a run asks before it writes, as it takes more than four fifths of what is left.",
+      "storageFits": "{{estimate}} MB to write, and {{org}} has {{remaining}} MB left of {{max}} MB.",
+      "storageUnread": "{{estimate}} MB to write, and {{org}} did not say what data storage it has left ({{reason}}): a run asks before it writes.",
+      "requestsExceeds": "About {{estimate}} API requests, and {{org}} has {{remaining}} of its {{max}} daily requests left: a run would be refused.",
+      "requestsNear": "About {{estimate}} API requests, and {{org}} has {{remaining}} of its {{max}} daily requests left: a run asks before it writes, as it would leave less than a tenth of them.",
+      "open": "Fit to storage…",
+      "refit": "Fit again…",
+      "formTitle": "Fit the plan to what {{org}} has left",
+      "intro": "A fit keeps records spread evenly over each selected object by Id, and every record held to them: an account comes with all its contacts, and a record whose parent was cut is cut with it. Nothing is written until the copy starts.",
+      "modeLegend": "How to fit it",
+      "modeShare": "The same share of every object: the largest that fits",
+      "modeCaps": "At most so many records of each object",
+      "capLabel": "At most this many {{object}} records",
+      "capsHint": "An object left empty is not capped. The records held to a parent a cap cut are cut with it.",
+      "capsThenShare": "Then take the largest share of what the caps leave that fits",
+      "withinLabel": "Use no more than (MB, optional)",
+      "withinHint": "Left empty, the fit takes what {{org}} has left.",
+      "invalidCap": "The cap of {{object}} is a whole number of records, 1 or more.",
+      "noCap": "Give a cap to at least one object, or fit by share.",
+      "invalidWithin": "Give a number of MB above 0, or leave it empty.",
+      "fit": "Fit the plan",
+      "fitting": "Reading the records of the selected objects to choose those that fit… Nothing is written.",
+      "whole": "The plan fits {{org}} as it is: {{records}} records, about {{estimate}} MB. Nothing was cut.",
+      "cannotSourceChanged": "The source changed since the plan: it holds records the plan did not count. Go back to the objects and plan again.",
+      "cannotRounds": "No share fits once the parents the kept records name are read: three readings came back over. Fit by caps instead.",
+      "cannotCapNotSelected": "The plan does not select {{object}}: a cap holds an object the plan selects.",
+      "cannotCapsStorage": "With these caps the plan takes {{takes}} MB, past the {{fits}} MB that fit in {{org}}. Lower them, or fit by share.",
+      "cannotCapsRequests": "With these caps the writes take about {{requests}} API requests, past the {{allowed}} that leave {{org}} a tenth of its daily requests. Lower them, or fit by share.",
+      "cannotCapsRecords": "With these caps the plan writes {{records}} records, past the {{allowed}} a run may write. Lower them, or fit by share.",
+      "cannotLeastStorage": "Even cut as far as it goes — one record of each object and what must come with it — the plan takes {{takes}} MB, past the {{fits}} MB that fit in {{org}}. Leave objects out, or free data storage in {{org}}.",
+      "cannotLeastRequests": "Even cut as far as it goes, the writes take about {{requests}} API requests, past the {{allowed}} that leave {{org}} a tenth of its daily requests. Run it once the org has requests to spare, or leave objects out.",
+      "cannotLeastRecords": "Even cut as far as it goes, the plan writes {{records}} records, past the {{allowed}} a run may write. Leave objects out.",
+      "reportTitle": "Fitted to {{org}}",
+      "share": "The largest share of every object that fits: {{share}}.",
+      "boundStorage": "{{fits}} MB fit: {{near}} of the {{remaining}} MB {{org}} says it has left of {{max}} MB, once {{rounding}} MB is set aside for the rounding of what it says.",
+      "boundWithin": "{{fits}} MB fit: the most asked of this fit.",
+      "boundRequests": "Today's API requests held it: the writes of these records leave {{org}} a tenth of its daily requests.",
+      "boundMaxTotal": "The most records a run may write held it: {{max}}.",
+      "boundCaps": "The caps asked held it, within the {{fits}} MB that fit.",
+      "roomKept": "{{room}} MB of it is kept for what the flows of {{org}} that still run create under these records.",
+      "roomNone": "Nothing is kept for the flows of {{org}}: none of those that still run creates records under these.",
+      "roomNoneMuted": "Nothing is kept for the flows of {{org}}: none of those that still run creates records under these, and the mute keeps the others quiet.",
+      "muteChanged": "The mute was changed since this fit: the room kept for the flows of {{org}} was counted the other way. Fit again to count it as the run will go.",
+      "roomUnread": "No room is kept for what the automation of {{org}} creates: it could not be read ({{reason}}).",
+      "notCountedTrigger": "Not counted: what the Apex trigger {{name}} on {{object}} creates.",
+      "notCountedNotRead": "Not counted: what {{name}} on {{object}} creates, as it could not be read.",
+      "notCountedShare": "Not counted: the {{name}} rows the flows on {{object}} create.",
+      "caption": "Records of each selected object, in the source and kept",
+      "inSource": "In the source",
+      "kept": "Kept",
+      "cut": "Cut",
+      "cutWithParent": "With their {{parent}} ({{field}}): {{records}}",
+      "cutSpread": "Spread over the table: {{records}}",
+      "parents": "Read by id, the records the kept ones name:",
+      "emptiedTitle": "Lookups left empty on the records kept:",
+      "emptiedSelf": "{{object}}.{{field}} ({{records}}): the record of its own object it names was cut",
+      "emptiedOwed": "{{object}}.{{field}} ({{records}}): the record it names, written after it, was cut",
+      "emptiedOnParent": "{{object}}.{{field}} ({{records}}): read by id, it names a record the fit cut",
+      "total": "{{records}} records in all, about {{estimate}} MB; {{requests}} requests read to fit it.",
+      "totalWithRoom": "{{records}} records in all, about {{estimate}} MB and {{room}} MB for what the flows create under them; {{requests}} requests read to fit it.",
+      "counted": "By SandForge's count, at the sizes Salesforce documents: 2 KB for most records, 4 KB for a person account. {{org}} counts a load in what it says it has left up to about a minute after it: a run started sooner after another may read room it no longer has.",
+      "gateAgain": "The copy holds the plan fitted to its checks again: what {{org}} has left is read again, and a plan it no longer fits is refused.",
+      "undo": "Undo fit",
+      "fitted": "Plan fitted to the data storage of {{org}}: {{after}} of the {{before}} records of the selected objects kept, {{share}} of each.",
+      "fittedCaps": "Plan fitted to the data storage of {{org}} by the caps asked: {{after}} of the {{before}} records of the selected objects kept.",
+      "cutSinceFit": "Held back since the fit, read naming a record the fit cut, neither written nor refused: {{records}}",
+      "nodeTitle": "Fit to storage",
+      "nodeKept": "{{kept}} of the {{inSource}} records in the source kept",
+      "nodeParent": "Read by id, the records the kept ones name: {{records}}"
     }
   },
   "sidePanel": {
@@ -4825,6 +5379,7 @@
       "stopping": "Stopping: the load ends before its next write. What it wrote stays in the org, named in the mapping for a removal or a reload.",
       "cancelRefused": "Could not cancel the load",
       "cancelRefusedDetail": "The load is no longer in progress, or it was not started from this window.",
+      "sweptBeforeEnd": "Before the load ended, its sweep had already done this:",
       "pilotHint": "Loads one root record and what hangs under it, to try the load before the whole dataset.",
       "reloadHint": "Deletes from the target what earlier loads of this dataset created and this one does not find again, then loads.",
       "runReload": "Reload",
@@ -4836,8 +5391,15 @@
         "description_one": "This reload deletes from {{org}} {{count}} record that earlier loads of this dataset created and this one does not find again, then loads the dataset.",
         "description_other": "This reload deletes from {{org}} {{count}} records that earlier loads of this dataset created and this one does not find again, then loads the dataset.",
         "deactivate_one": "It deactivates {{count}} more, of an object the platform does not delete.",
-        "deactivate_other": "It deactivates {{count}} more, of objects the platform does not delete."
-      }
+        "deactivate_other": "It deactivates {{count}} more, of objects the platform does not delete.",
+        "sweep": "Sweep too: also delete what the target's flows and triggers created for the loads this reload replaces, which the purge leaves in the org",
+        "sweepOf": "For the load of {{date}}",
+        "heldReading": "Waiting for what the sweep takes, and for what {{org}} runs as it deletes it: the reload can be confirmed once both are read.",
+        "heldUnread": "What the sweep would take could not be read, nor what {{org}} runs as it deletes it: a reload with this sweep cannot be confirmed.",
+        "includeChanged": "Also take what the sweep finds changed since the load it sweeps, and what was added to it since"
+      },
+      "acceptEmails": "Load even though {{org}} delivers the emails its automation sends as the load writes, or would not say whether it does",
+      "acceptAutomation": "Load although {{org}} runs automation as the records go in"
     },
     "preview": {
       "title": "What a load into {{org}} would do",
@@ -4854,6 +5416,9 @@
       "toPurge": "To purge",
       "toDeactivate": "To deactivate",
       "heldForExcludedParents": "Would be left out, not sent — a lookup these records cannot go in without names an object excludedObjects leaves out, or they depend on such records; no placeholder is asked for it: {{objects}}",
+      "quotesLeftUnsynced": "Would be left unsynced with their quote, their products kept — the load would write fewer of the quote's lines than of the opportunity's products, and syncing a quote replaces an opportunity's products with its lines: {{objects}}",
+      "keysLeftEmpty": "Would be inserted without being looked up in the target by their identity keys — a key field stays empty in what the load would write, the dataset holding no value and no declared default filling it; keep the field in the rules, or key the object on a field the dataset holds: {{objects}}",
+      "writtenByThePlatform": "Written by the platform with the record they go with, and linked once it is in — not counted to insert: {{objects}}",
       "placeholders": "Placeholders to create, and the records each fills: {{fields}}",
       "defaults": "Declared defaults, and the records each fills: {{fields}}",
       "defaultsPerRecord": "Each record gets a value of its own — its rank appended to the declared value, the field being unique in the target or the record's name, or the token the value carries ({n}, {referenceId}) replaced: {{fields}}",
@@ -4867,7 +5432,28 @@
       "validationRulesOnChange_one": "{{object}}: {{count}} rule left out — its formula holds only on a change of a record ({{functions}}), which an insert never is: {{rules}}",
       "validationRulesOnChange_other": "{{object}}: {{count}} rules left out — their formula holds only on a change of a record ({{functions}}), which an insert never is: {{rules}}",
       "placeholderValidationRules_one": "Placeholder of {{object}}: {{count}} active validation rule of the target, which a preview cannot evaluate — a placeholder it refuses stops the load.",
-      "placeholderValidationRules_other": "Placeholder of {{object}}: {{count}} active validation rules of the target, which a preview cannot evaluate — a placeholder one of them refuses stops the load."
+      "placeholderValidationRules_other": "Placeholder of {{object}}: {{count}} active validation rules of the target, which a preview cannot evaluate — a placeholder one of them refuses stops the load.",
+      "emails": {
+        "refused": "{{org}} delivers every email what still runs sends as the load writes, or would not say whether it does: the load would be refused, nothing written, unless you tick “Load even though {{org}} delivers the emails”.",
+        "accepted": "{{org}} delivers the emails what still runs sends as the load writes, or would not say whether it does: with the box ticked, the load sends them.",
+        "withheld": "{{org}} delivers none of the emails its automation sends (System email only or No access): nothing is asked of them, and the org still counts them against its daily limits.",
+        "senders": "What sends them: {{senders}}.",
+        "count": "{{limit}}: about {{emails}}, with {{remaining}} of {{max}} left today.",
+        "countExceeds": "{{limit}}: about {{emails}}, more than the {{remaining}} of {{max}} left today.",
+        "countUnread": "{{limit}}: about {{emails}}; what the org has left today could not be read.",
+        "exceeded": "Past what {{org}} has left today, each record whose flow fails in the save is refused: the load would be refused, nothing written, whatever the box says. Mute what sends them, or load into an org with more emails left today.",
+        "uncounted": "Not all of them were counted: {{why}} could not be read."
+      },
+      "automation": {
+        "title": "What {{org}} runs as the load inserts its records and updates them:",
+        "onInsert": "{{object}} — {{what}}, as its records are inserted",
+        "onUpdate": "{{object}} — {{what}}, as its records are updated",
+        "onInsertAndUpdate": "{{object}} — {{what}}, as its records are inserted and updated",
+        "unread": "What {{org}} runs could not be read ({{reason}}): the load asks as though something runs.",
+        "refused": "A load would be refused, nothing written, unless you tick “Load although {{org}} runs automation as the records go in”, or mute it.",
+        "accepted": "With the box ticked, the load writes all the same, and this automation runs."
+      },
+      "lookupFilters": "{{object}}: lookup filters of the target, which a preview cannot check — a record whose lookup a filter refuses is refused, and what hangs from it: {{fields}}"
     },
     "verify": {
       "run": "Re-verify",
@@ -4886,7 +5472,9 @@
       "title": "Load report",
       "status": {
         "completed": "Completed",
-        "completed-with-errors": "Completed with errors"
+        "completed-with-errors": "Completed with errors",
+        "partial": "Partial: the sweep left records",
+        "verificationFailed": "Partial: the verification failed"
       },
       "inserted": "Inserted",
       "reused": "Reused",
@@ -4905,6 +5493,8 @@
       "leftToThePlatform": "Left out at load — the platform writes these records, or what they depend on, itself: {{objects}}",
       "excludedObjects": "Objects not loaded",
       "heldForExcludedParents": "Left out at load — a lookup these records cannot go in without names an object excludedObjects leaves out, or they depend on such records; declare a placeholder in requiredLookupPlaceholders to load them: {{objects}}",
+      "quotesLeftUnsynced": "Left unsynced with their quote, their products kept — the load wrote fewer of the quote's lines than of the opportunity's products, and syncing a quote replaces an opportunity's products with its lines: {{objects}}",
+      "keysLeftEmpty": "Sent to be inserted without being looked up in the target by their identity keys — a key field stayed empty in what the load wrote, the dataset holding no value and no declared default filling it; keep the field in the rules, or key the object on a field the dataset holds: {{objects}}",
       "untypedFeedItems": "Left out at load — the dataset does not carry the type of these feed items, or of those they depend on, so a tracked change cannot be told from a post; extract the dataset again to load them: {{objects}}",
       "failedReasons": "Why records failed",
       "statusCode": "Status code",
@@ -4930,7 +5520,9 @@
         "leftEmpty": "Lookups left empty",
         "targetNotLoaded": "The record it points at was not loaded",
         "lostWithTheirRecord": "Lost with the records holding them, which the load did not write: {{links}}"
-      }
+      },
+      "sweptFor": "Swept for the load of {{date}}",
+      "sweptChangedKept": "Records kept, changed since that load: {{records}}. A reload with “Also take what the sweep finds changed since” ticked takes them, and so does a removal with its sweep and the records changed since ticked."
     },
     "removal": {
       "title": "Last load",
@@ -4942,10 +5534,20 @@
       "removeTitle": "Remove this load's records from {{org}}",
       "removeDescription": "Deletes from {{org}} the records this load created, children before their parents; they go to its recycle bin. After a reload, these include the records earlier loads created that the reload found again and kept as its own. Records the load linked to or reused, which {{org}} already held, are kept, and so is a record that records staying in {{org}} depend on. A record changed since the load, or one that records added since depend on, is kept unless you include it below.",
       "includeChanged": "Also remove the records changed since the load, and what was added to them since",
-      "sweep": "Sweep first: also take back what the target's automation created during the load, as its user — then such a record keeps none of the load's records back",
+      "sweep": "Sweep first: also delete the records the target's flows and triggers created for this load; otherwise they can keep the load's records from being removed",
+      "sweepAction": "Take back what the target's automation created",
+      "sweepAloneTitle": "Take back from {{org}} what its automation created for this load",
+      "sweepAloneDescription": "Nothing this load created is left in {{org}}. This deletes only what the sweep below takes: what {{org}}'s flows and triggers created for the load, as the load's user, children before their parents; it goes to its recycle bin. A record someone else changed since is kept unless you include it below.",
       "sweepTitle": "What the sweep takes from {{org}}",
       "sweepLoading": "Reading what {{org}}'s automation created during the load…",
       "sweepError": "What the sweep would take from {{org}} could not be read: {{reason}}",
+      "heldReading": "Waiting for what the sweep takes, and for what {{org}} runs as it deletes it: the removal can be confirmed once both are read.",
+      "heldUnread": "What the sweep would take could not be read, nor what {{org}} runs as it deletes it: a removal with this sweep cannot be confirmed.",
+      "automationTitle": "What {{org}} runs as this load is taken back",
+      "automationLoading": "Reading what {{org}} runs as this load is taken back…",
+      "automationIntro": "As this load is taken back, {{org}} runs:",
+      "automationNone": "Nothing {{org}} automates runs as this load is taken back.",
+      "automationError": "What {{org}} runs as this load is taken back could not be read: {{reason}}",
       "removing": "Removing the records this load created…",
       "cancel": "Stop the removal",
       "stopping": "Stopping: the removal ends once the call under way is answered. What it removed by then is listed; the rest stays in the org, and a removal takes it later.",
@@ -4958,7 +5560,7 @@
     },
     "reloadRefused": {
       "title": "Reload refused: nothing was written to {{org}}",
-      "wayOut": "Take the load back first: its records go to the recycle bin of {{org}}, the ones changed since included — on a shared sandbox, someone else's work — once you have typed the org's name. Then load the dataset again. Or cancel, and nothing changes.",
+      "wayOut": "Take the load back first: its records go to the recycle bin of {{org}}, the ones changed since, and what was added under them since, included — on a shared sandbox, someone else's work — once you have typed the org's name. Then load the dataset again. Or cancel, and nothing changes.",
       "noWayOut": "This load cannot be taken back from here, as the card says below: the reload cannot replace it, and nothing was deleted.",
       "takeBack": "Take the load back first…"
     },
@@ -5007,6 +5609,81 @@
       "failed": "The rules file was not written: {{reason}}"
     },
     "refusal": {
+      "selectionMissing": {
+        "explanation": "No selection is saved, and the extraction takes its records from one.",
+        "action": "Click Run selection on the Extract tab first."
+      },
+      "selectionEmpty": {
+        "explanation": "The last selection kept no root: every combination was uncovered, and the selection says why for each.",
+        "action": "Adjust the axes or the expected objects, then click Run selection again."
+      },
+      "controlFailed": {
+        "explanation": "The non-reidentification control failed, and nothing was written.",
+        "action": "Fix the rules file by the checks it lists as failed, then click Run extraction again."
+      },
+      "saltMissing": {
+        "explanation": "There is no pseudonymization salt, and VS Code's secret storage could not keep one here.",
+        "action": "Set SANDFORGE_FROZEN_SALT to the salt the dataset was built with, and start VS Code from that shell: another salt gives the same records other pseudonyms."
+      },
+      "sasPathRefused": {
+        "explanation": "The sas folder is inside a repository: versioned, it would hold a table from real values to their pseudonyms. Nothing was written.",
+        "action": "Set a sas folder outside any repository in the configuration."
+      },
+      "budgetExceeded": {
+        "explanation": "The selection measured {{total}} records for a budget of {{budget}}.",
+        "heaviest": "The heaviest: {{objects}}.",
+        "action": "Leave out the objects the dataset does not need, narrow the coverage axes or edge cases, or raise the budget."
+      },
+      "noLoad": {
+        "explanation": "No load into this org is recorded in this sas, and nothing was changed.",
+        "action": "Load the dataset into it first."
+      },
+      "notRecorded": {
+        "explanation": "This load was recorded before loads kept what they created: its records cannot be told from the ones it linked.",
+        "action": "It cannot be removed from here, nor replaced by a reload, which would delete what someone changed since."
+      },
+      "loadChanged": {
+        "explanation": "Another load was recorded since this one was shown, and nothing was removed.",
+        "action": "Check what a removal takes now, then confirm it again."
+      },
+      "targetRefreshed": {
+        "explanation": "The target org was refreshed after the load: the records it created went with the refresh, and nothing was changed.",
+        "action": "Load the dataset again."
+      },
+      "loadStopped": {
+        "explanation": "The last load stopped part way and wrote no counting contract: the one in the sas counts an earlier load, and would judge this one by it.",
+        "action": "Reload the dataset, or remove that load before loading it again; then verify."
+      },
+      "loadRemoved": {
+        "explanation": "The records the last load created were removed: there is nothing to verify.",
+        "action": "Load the dataset again, then verify.",
+        "partExplanation": "A removal took part of the records the last load created and left {{left}} of them in the org: a verification would read the ones it took as missing.",
+        "partAction": "Remove what is left, or reload the dataset; then verify."
+      },
+      "loadConfig": {
+        "explanation": "The dataset leaves required fields empty that the configuration does not cover, and nothing was written.",
+        "action": "Declare them all in the configuration, then load again: {{gaps}}"
+      },
+      "timeout": {
+        "explanation": "This step ran out of time and stopped.",
+        "action": "Try it again."
+      },
+      "nonSandbox": {
+        "explanation": "{{org}} is no sandbox, scratch org or Developer Edition org: a load goes into those alone, and nothing was written.",
+        "action": "Pick one of those as the target."
+      },
+      "protectedEnvironment": {
+        "explanation": "{{org}} is among the protected orgs of the configuration, and nothing was written.",
+        "action": "Pick another sandbox, or review that list if this org was retired."
+      },
+      "unmockedCallouts": {
+        "explanation": "The records of a load into {{org}} would trigger real external calls: its callouts are not mocked, and nothing was written.",
+        "action": "Deploy the mock configuration to that org, then load again."
+      },
+      "emptyDataset": {
+        "explanation": "The dataset holds no record, and nothing was written.",
+        "action": "Run the selection and the extraction again with a coverage matrix that matches the source."
+      },
       "configMissing": {
         "explanation": "No project configuration is saved, and the runs read the saved one.",
         "action": "Click Save configuration on the Extract tab first."
@@ -5018,6 +5695,53 @@
       "sourceIsTarget": {
         "explanation": "{{org}} is the org this dataset was extracted from: a load never goes back into its source, and nothing was written.",
         "action": "Pick another sandbox as the target."
+      },
+      "checkpointRefused": {
+        "explanation": "The load was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken, which the SandForge output says. Nothing was written.",
+        "action": "Untick Checkpoint first to load without it, or fix what refuses it."
+      },
+      "loadCancelled": {
+        "explanation": "You stopped the load before it wrote anything, and nothing was written.",
+        "action": "Run the load again when you are ready.",
+        "wroteExplanation": "You stopped the load part way. Records it had written by then, created or purged: {{records}}.",
+        "wroteAction": "What it created is kept in the sas mapping: a removal takes it back, and a reload purges it or finds it again."
+      },
+      "sasChanged": {
+        "emptiedExplanation": "The sas changed since the last load: {{sas}} no longer holds the counting contract the load wrote there.",
+        "emptiedAction": "Load the dataset again, then verify.",
+        "otherExplanation": "The sas folder changed since the last load: its counting contract is in {{loadSas}}, and the mapping read is the one in {{sas}}.",
+        "otherAction": "Set the sas folder back to the one the load wrote to in the configuration, or load the dataset again; then verify.",
+        "movedExplanation": "The sas folder changed since the last load: the load wrote to {{loadSas}}, which no longer holds its counting contract, and the mapping read is the one in {{sas}}.",
+        "movedAction": "Move the sas back to {{loadSas}} and set the sas folder to it in the configuration, or load the dataset again; then verify."
+      },
+      "alreadyRemoved": {
+        "explanation": "The records this load created were removed already, and nothing was deleted.",
+        "action": "The card now shows the load as the sas holds it."
+      },
+      "nothingToRemove": {
+        "explanation": "This load created no record a removal takes, and nothing was deleted.",
+        "action": "The card now shows the load as the sas holds it."
+      },
+      "recordTypeLabel": {
+        "explanation": "The dataset's {{object}} records name their record type “{{name}}” by its label alone (they were extracted before SandForge kept each record's record type by its name), and {{recordTypes}} share that label in the source org: which one each record had cannot be told, and nothing was written.",
+        "action": "Click Run extraction again: a dataset extracted now keeps each record's record type by its name."
+      },
+      "recordTypeNamespace": {
+        "explanation": "The dataset names the {{object}} record type {{name}} without its namespace (it was extracted before SandForge read namespaces), and {{recordTypes}} carry that name in the target org: which one is meant cannot be told, and nothing was written.",
+        "action": "Click Run extraction again: a dataset extracted now names each record type with its namespace."
+      },
+      "emailsNotAccepted": {
+        "explanation": "{{org}} delivers every email what still runs sends as the load writes, or would not say whether it does, and nothing was written.",
+        "action": "Tick “Load even though {{org}} delivers the emails” to load all the same, tick Mute automation to keep quiet what tests the org's bypass, or set the org's deliverability to System email only."
+      },
+      "emailsExceeded": {
+        "explanation": "The load would make {{org}} send more emails than it has left today ({{limit}}: about {{emails}}, {{remaining}} of {{max}} left), and nothing was written.",
+        "action": "Tick Mute automation to keep quiet what sends them, or load into an org with more emails left today."
+      },
+      "automationNotAccepted": {
+        "explanation": "{{org}} runs automation as the load writes its records ({{named}}), and nothing was written.",
+        "explanationUnread": "What {{org}} runs as the load writes could not be read, and nothing was written.",
+        "action": "Tick “Load although {{org}} runs automation as the records go in” to load all the same, tick Mute automation to keep quiet what tests the org's bypass, or turn that automation off in {{org}}."
       }
     }
   },
@@ -5035,8 +5759,8 @@
       "none": "Nothing found to sweep.",
       "nothing": "nothing",
       "refused": "The sweep is refused, and deletes nothing: {{reason}}",
-      "handWork_one": "{{object}}: {{formatted}} record the run's user created in the window, where neither the run nor the automation writes, is left",
-      "handWork_other": "{{object}}: {{formatted}} records the run's user created in the window, where neither the run nor the automation writes, are left",
+      "handWork_one": "{{object}}: {{formatted}} record the run's user created in the window, tied to nothing of the run, is left: hand work, likely",
+      "handWork_other": "{{object}}: {{formatted}} records the run's user created in the window, tied to nothing of the run, are left: hand work, likely",
       "unread": "Not looked at, {{object}}: {{reason}}",
       "flowsNotRead_one": "{{formatted}} Flow on the run's objects was not read: what it creates is not looked at.",
       "flowsNotRead_other": "{{formatted}} Flows on the run's objects were not read: what they create is not looked at.",
@@ -5048,7 +5772,58 @@
       "resultFailure": "The sweep deleted nothing from {{org}}.",
       "resultCancelled": "The sweep did not run to its end: what it did by then is listed.",
       "resultRefused": "The sweep was refused, and deleted nothing.",
-      "sweptOn": "Swept on {{date}}:"
+      "sweptOn": "Swept on {{date}}:",
+      "objectsMore": "{{objects}} and {{formatted}} more",
+      "takes_one": "With no more asked, the sweep takes {{formatted}} record it ties to the run.",
+      "takes_other": "With no more asked, the sweep takes {{formatted}} records it ties to the run.",
+      "takesNothing": "With no more asked, the sweep takes nothing: it ties none of these records to the run.",
+      "takesNothingChanged": "With no more asked, the sweep takes nothing: what it ties to the run changed since, and stays unless you include what changed.",
+      "classMade_one": "{{formatted}} made for the run",
+      "classMade_other": "{{formatted}} made for the run",
+      "classSameSave_one": "{{formatted}} of them within two seconds of its record, the surest",
+      "classSameSave_other": "{{formatted}} of them within two seconds of their record, the surest",
+      "classMadeOver_one": "{{formatted}} made on a record it wrote over",
+      "classMadeOver_other": "{{formatted}} made on records it wrote over",
+      "classLate_one": "{{formatted}} came late, kept unless asked",
+      "classLate_other": "{{formatted}} came late, kept unless asked",
+      "classUntied_one": "{{formatted}} tied to nothing of the run, kept unless asked",
+      "classUntied_other": "{{formatted}} tied to nothing of the run, kept unless asked",
+      "classChanged_one": "{{formatted}} changed since the run, kept unless you include what changed",
+      "classChanged_other": "{{formatted}} changed since the run, kept unless you include what changed",
+      "ownWork": "Records you created yourself as the run's user under the run's records within a minute of them read as the automation's, and a record you changed before the run's last write reads as unchanged: check the names before you confirm.",
+      "ownWorkLate": "As you also delete what came late, records you created yourself as the run's user under the run's records within a quarter of an hour of them read as the automation's, and a record you changed before the run's last write reads as unchanged: check the names before you confirm.",
+      "ownWorkUntied": "As you also delete what is tied to nothing of the run, records you created yourself as the run's user during the run, or under its records within a minute of them, read as the automation's, and a record you changed before the run's last write reads as unchanged: check the names before you confirm.",
+      "ownWorkLateUntied": "As you also delete what came late and what is tied to nothing of the run, records you created yourself as the run's user during the run, or under its records within a quarter of an hour of them, read as the automation's, and a record you changed before the run's last write reads as unchanged: check the names before you confirm.",
+      "tickLate_one": "Also delete {{formatted}} record that came late ({{objects}}): tied to the run's records, but created more than a minute after them, or by the org's Automated Process user",
+      "tickLate_other": "Also delete {{formatted}} records that came late ({{objects}}): tied to the run's records, but created more than a minute after them, or by the org's Automated Process user",
+      "tickUntied_one": "Also delete {{formatted}} record tied to nothing of the run ({{objects}}): the run's user created it during the run, and nothing links it to the run's records",
+      "tickUntied_other": "Also delete {{formatted}} records tied to nothing of the run ({{objects}}): the run's user created them during the run, and nothing links them to the run's records",
+      "untiedRefused": "This cannot be asked for: {{reason}}",
+      "notLooked": "Not looked at, past the most objects a sweep counts: {{objects}}",
+      "noBypass": "No bypass keeps quiet the lines the platform copies onto a synced quote, feed tracking, duplicate record items or subscriptions.",
+      "staysTitle": "What stays, and why",
+      "staysOtherUser": "What another user created — a colleague, an integration, the org's Automated Process user unless you take what came late: it is theirs.",
+      "staysUntied": "What is tied to nothing the run created or wrote over, unless you ask for it.",
+      "staysTooLate": "What came more than 15 minutes after its record, or after the removal began: it cannot be told from work done by hand.",
+      "staysChanged": "What was changed after the run's last write, by anyone, the run's own user included, unless you include what changed.",
+      "staysUnreadable": "Records of an object the user cannot read or delete, or that does not say who created them or when: they go with their parent or stay, and the object is named.",
+      "staysRefused": "What the org refuses — an order a Flow activated, a record locked by an approval: it stays, in the org's words. Only the run's own records are set back to Draft.",
+      "staysNotCreated": "What the automation changed or deleted rather than created, such as a counter on an existing account: a checkpoint taken before the run takes it back, a sweep does not.",
+      "staysLeftTheOrg": "What left the org — emails, outbound messages, external calls, events read elsewhere: nothing takes it back.",
+      "staysOverBound": "More than 10,000 records of one object: the object is named, and none of them is swept.",
+      "staysOtherMachines": "What another machine or a CI wrote in the same window: a sweep does not see those runs.",
+      "resultAfterRemoval_one": "{{formatted}} of them once the records of the run that point at it were gone",
+      "resultAfterRemoval_other": "{{formatted}} of them once the records of the run that point at them were gone",
+      "resultSuccessLeft": "What the sweep took is gone from {{org}}; what it left stays, as said below.",
+      "leftLate_one": "{{formatted}} record that came late stays ({{objects}}).",
+      "leftLate_other": "{{formatted}} records that came late stay ({{objects}}).",
+      "leftUntied_one": "{{formatted}} record tied to nothing of the run stays ({{objects}}).",
+      "leftUntied_other": "{{formatted}} records tied to nothing of the run stay ({{objects}}).",
+      "goneAlongLate_one": "{{formatted}} record that came late went with the run's records: it is no longer in {{org}} ({{objects}}).",
+      "goneAlongLate_other": "{{formatted}} records that came late went with the run's records: they are no longer in {{org}} ({{objects}}).",
+      "goneAlongUntied_one": "{{formatted}} record tied to nothing of the run went with the run's records: it is no longer in {{org}} ({{objects}}).",
+      "goneAlongUntied_other": "{{formatted}} records tied to nothing of the run went with the run's records: they are no longer in {{org}} ({{objects}}).",
+      "leftTick": "A tick under the sweep's list takes them."
     },
     "automation": {
       "title": "What {{org}} runs as these records go",
@@ -5137,14 +5912,25 @@
       "automationLoading": "Reading what {{org}} runs as this run is taken back…",
       "automationIntro": "As this run is taken back, {{org}} runs:",
       "automationNone": "Nothing {{org}} automates runs as this run is taken back.",
-      "automationError": "What {{org}} runs as this run is taken back could not be read: {{reason}}"
+      "automationError": "What {{org}} runs as this run is taken back could not be read: {{reason}}",
+      "confirmGiveBack_one": "Give back {{formatted}} record",
+      "confirmGiveBack_other": "Give back {{formatted}} records",
+      "confirmBringBack_one": "Bring back {{formatted}} record",
+      "confirmBringBack_other": "Bring back {{formatted}} records",
+      "confirmTakeBack_one": "Take back {{formatted}} record",
+      "confirmTakeBack_other": "Take back {{formatted}} records",
+      "confirmTakeBackSweep_one": "Take back {{formatted}} record and what the sweep takes",
+      "confirmTakeBackSweep_other": "Take back {{formatted}} records and what the sweep takes"
     },
     "resultSuccess": "No record this run created is left in {{org}}.",
     "resultPartial": "Records this run created were removed from {{org}}; the others stay, as listed.",
     "resultFailure": "No record this run created was removed from {{org}}.",
+    "resultSweepLeft": "No record this run created is left in {{org}}, but the sweep did not take all it was asked to, as listed below.",
     "resultCancelled": "Stopped before the end: what was done by then is listed, and the rest is still in {{org}}.",
     "resultChanged_one": "{{formatted}} kept, changed since the run",
     "resultChanged_other": "{{formatted}} kept, changed since the run",
+    "resultTookAlong_one": "Also took along {{formatted}} record that was not the run's, added or changed since it: {{objects}}",
+    "resultTookAlong_other": "Also took along {{formatted}} records that were not the run's, added or changed since it: {{objects}}",
     "resultFilesLeft_one": "{{formatted}} file attached to them stays in {{org}}, as the run did not create it: {{names}}",
     "resultFilesLeft_other": "{{formatted}} files attached to them stay in {{org}}, as the run did not create them: {{names}}",
     "resultDeleted_one": "{{formatted}} deleted",
@@ -5157,6 +5943,9 @@
     "resultHeld_other": "{{formatted}} kept, records of {{objects}} that stay depend on them",
     "resultHeldUnread_one": "{{formatted}} kept: what depends on it could not be read",
     "resultHeldUnread_other": "{{formatted}} kept: what depends on them could not be read",
+    "resultHeldByOtherParts": "This run was stopped and taken up where it left off: records of {{objects}} the other part wrote hold what was kept. Remove that part first, then this one again; there is no need to include what changed.",
+    "resultOtherPartsLeft_one": "This run was stopped and taken up where it left off: an earlier removal of the other part left {{formatted}} record in {{org}}, which records of this one may have held. Remove that part again to take it.",
+    "resultOtherPartsLeft_other": "This run was stopped and taken up where it left off: an earlier removal of the other part left {{formatted}} records in {{org}}, which records of this one may have held. Remove that part again to take them.",
     "resultRefused_one": "{{formatted}} refused",
     "resultRefused_other": "{{formatted}} refused",
     "resultLeftBy": "Picked up where the removal of {{date}} left off.",
@@ -5181,7 +5970,7 @@
     "removeTitle": "Remove this run's records from {{org}}",
     "removeDescription": "Deletes from {{org}} the records this run created, children before their parents; they go to its recycle bin. Records the run linked to, which {{org}} already held, are kept, and so is a record that records staying in {{org}} depend on. A record changed since the run ended, or one that records added since depend on, is kept unless you include it below.",
     "removeIncludeChanged": "Also remove the records changed since the run, and what was added to them since",
-    "removeSweep": "Sweep first: also take back what the target's automation created during the run, as its user — then such a record keeps none of the run's records back",
+    "removeSweep": "Sweep first: also delete the records the target's flows and triggers created for this run; otherwise they can keep the run's records from being removed",
     "removeAgainNote": "Every record this run created is read again, those its removal found gone among them. The undo of {{date}} brought them back and dated them as its user's change: they read as changed since the run, and stay unless you also remove the records changed since, below.",
     "stopRefused": "Could not stop the removal",
     "stopRefusedDetail": "The removal is no longer in progress, or it was not started from this window.",
@@ -5193,10 +5982,17 @@
       "resultSuccess": "No record this load created is left in {{org}}.",
       "resultPartial": "Records this load created were removed from {{org}}; the others stay, as listed.",
       "resultFailure": "No record this load created was removed from {{org}}.",
+      "resultSweepLeft": "No record this load created is left in {{org}}, but the sweep did not take all it was asked to, as listed below.",
       "resultChanged_one": "{{formatted}} kept, changed since the load",
       "resultChanged_other": "{{formatted}} kept, changed since the load",
+      "resultTookAlong_one": "Also took along {{formatted}} record that was not the load's, added or changed since it: {{objects}}",
+      "resultTookAlong_other": "Also took along {{formatted}} records that were not the load's, added or changed since it: {{objects}}",
       "resultFilesLeft_one": "{{formatted}} file attached to them stays in {{org}}, as the load did not create it: {{names}}",
-      "resultFilesLeft_other": "{{formatted}} files attached to them stay in {{org}}, as the load did not create them: {{names}}"
+      "resultFilesLeft_other": "{{formatted}} files attached to them stay in {{org}}, as the load did not create them: {{names}}",
+      "heldByAutomation_one": "{{formatted}} record of this load was kept for records created under it during the load, as its user, likely by the target's automation: {{objects}}.",
+      "heldByAutomation_other": "{{formatted}} records of this load were kept for records created under them during the load, as its user, likely by the target's automation: {{objects}}.",
+      "takeBackMade": "Take back what the target's automation made for this load, then remove again",
+      "takeBackMadeNote": "It takes what is tied to this load's records. What the automation changed on records that were there before stays: only a rewind to a checkpoint takes that back."
     },
     "rewind": {
       "resultSuccess": "No record added since the checkpoint is left in {{org}}.",
@@ -5204,6 +6000,8 @@
       "resultFailure": "No record added since the checkpoint was deleted from {{org}}.",
       "resultChanged_one": "{{formatted}} kept, changed by someone else during the rewind",
       "resultChanged_other": "{{formatted}} kept, changed by someone else during the rewind",
+      "resultTookAlong_one": "Also took along {{formatted}} record that was not the rewind's, added or changed by someone else during it: {{objects}}",
+      "resultTookAlong_other": "Also took along {{formatted}} records that were not the rewind's, added or changed by someone else during it: {{objects}}",
       "resultFilesLeft_one": "{{formatted}} file attached to them stays in {{org}}, as the checkpoint does not cover files: {{names}}",
       "resultFilesLeft_other": "{{formatted}} files attached to them stay in {{org}}, as the checkpoint does not cover files: {{names}}",
       "resultFilesLeftHeld_one": "{{formatted}} file attached to them stays in {{org}}: the checkpoint holds it, or it is attached to a record outside the checkpoint too: {{names}}",
@@ -5215,9 +6013,28 @@
       "resultFailure": "No record the rewind brought back or made again went to the recycle bin of {{org}}.",
       "resultChanged_one": "{{formatted}} kept, changed since the rewind",
       "resultChanged_other": "{{formatted}} kept, changed since the rewind",
+      "resultTookAlong_one": "Also took along {{formatted}} record that was not the rewind's, added or changed since it: {{objects}}",
+      "resultTookAlong_other": "Also took along {{formatted}} records that were not the rewind's, added or changed since it: {{objects}}",
       "resultFilesLeft_one": "{{formatted}} file attached to them stays in {{org}}, as the rewind did not bring it back: {{names}}",
       "resultFilesLeft_other": "{{formatted}} files attached to them stay in {{org}}, as the rewind did not bring them back: {{names}}"
-    }
+    },
+    "confirmRemove_one": "Remove {{formatted}} record",
+    "confirmRemove_other": "Remove {{formatted}} records",
+    "confirmRemoveFiles_one": "Remove {{formatted}} record or file",
+    "confirmRemoveFiles_other": "Remove {{formatted}} records and files",
+    "confirmRemoveSweep_one": "Remove {{formatted}} record and what the sweep takes",
+    "confirmRemoveSweep_other": "Remove {{formatted}} records and what the sweep takes",
+    "confirmRemoveFilesSweep_one": "Remove {{formatted}} record or file and what the sweep takes",
+    "confirmRemoveFilesSweep_other": "Remove {{formatted}} records and files, and what the sweep takes",
+    "confirmSweep": "Delete what the sweep takes",
+    "resultPlatformCopies_one": "{{formatted}} the platform copied between the quote the run synced and its opportunity",
+    "resultPlatformCopies_other": "{{formatted}} the platform copied between the quote the run synced and its opportunity",
+    "removeQuoteCopies": "The lines the platform copied between a quote the run synced and its opportunity go too: they are read as the removal begins, and counted apart in its result.",
+    "heldByAutomation_one": "{{formatted}} record of this run was kept for records created under it during the run, as its user, likely by the target's automation: {{objects}}.",
+    "heldByAutomation_other": "{{formatted}} records of this run were kept for records created under them during the run, as its user, likely by the target's automation: {{objects}}.",
+    "heldSweepLeft": "The sweep left them: its list says why, and what came late can be asked for.",
+    "takeBackMade": "Take back what the target's automation made for this run, then remove again",
+    "takeBackMadeNote": "It takes what is tied to this run's records. What the automation changed on records that were there before stays: only a rewind to a checkpoint takes that back."
   },
   "orgAutomation": {
     "assistant": {
@@ -5280,7 +6097,7 @@
       "title": "Emails and phone numbers",
       "numbersExhausted_one": "{{count}} phone number left empty: the range's 10,000 fictional numbers were all given to other numbers of the run.",
       "numbersExhausted_other": "{{count}} phone numbers left empty: the range's 10,000 fictional numbers were all given to other numbers of the run.",
-      "neutralized": "Neutralized before writing: {{values}} in {{fields}}. Every email address went in under .invalid and every phone number as a fictional one, so the target org's automation reached no one.",
+      "neutralized": "Neutralized before writing: {{values}} in {{fields}}. Every email address went in under .invalid and every phone number as a fictional one, so what the target org's automation sent to them reached no one.",
       "none": "Neutralized before writing: the records written held no email address or phone number.",
       "kept": "Written as the source holds them, as the run was asked: the target org's automation may have emailed or texted real people.",
       "neutralizedSimulated": "A real run would neutralize {{values}} in {{fields}}: every email address under .invalid and every phone number as a fictional one.",
@@ -5290,7 +6107,7 @@
       "values_other": "{{count}} values",
       "keep": "Keep emails and phone numbers as they are",
       "keepWarning": "Emails and phone numbers will be written as the source holds them: the target org's flows, triggers and email alerts may then email or text real people.",
-      "keepHint": "Off, the clone writes every email address under .invalid and every phone number as a fictional one, so the target org's automation reaches no one.",
+      "keepHint": "Off, the clone writes every email address under .invalid and every phone number as a fictional one, so what the target org's automation sends to them reaches no one. That leaves out the records' owners, the records already in the target org and an address an alert names.",
       "neutralizedUnlessKept": "Emails and phone numbers are neutralized (.invalid, fictional numbers) unless you tick Keep emails and phone numbers as they are."
     },
     "encryptedLeftOut": "{{fields}}: encrypted fields the user SandForge reads the source org as sees masked, lacking View Encrypted Data. Left out of every record written, rather than copied as masks.",
@@ -5316,6 +6133,112 @@
       "badge": "Rewound",
       "undoneAfterRemoval": "Its records came back with the undo of {{date}}, after its removal",
       "removeAgain": "Remove again"
+    },
+    "checkpoint": {
+      "option": {
+        "label": "Checkpoint first",
+        "holds": "Before its first write, the run takes a checkpoint of {{org}}: each object it writes, held whole, and those the target's flows that still run create as it writes, files included. A rewind to it takes the run back.",
+        "leavesOut": "Never in it: Chatter posts, Knowledge article versions, users, permissions and setup. An Apex trigger, or a flow SandForge could not read, may create records outside it: a rewind leaves those as they are.",
+        "onMachine": "It keeps the values of those records of {{org}} on this machine, unencrypted and readable by you alone, for the days {{setting}} sets (7 by default); a run that writes nothing deletes it.",
+        "costAtQuestion": "What it holds and costs — records, API requests, time, space on this machine — is said in the question before the first write, where you can still cancel.",
+        "costAtSimulation": "Simulate says what it would hold and cost — records, API requests, time, space on this machine —, and the question before the first write says it again, where you can still cancel.",
+        "costAtPreview": "Preview says what it would hold and cost — records, API requests, time, space on this machine. The load takes it with no question of its own.",
+        "refused": "A checkpoint refused, or that could not be taken, refuses the run: nothing is written. A retry or a resume takes none: it names the checkpoint of the run it takes up.",
+        "notOffered": "Not offered: SandForge takes no checkpoint of {{org}}, which it does not know to be a sandbox, a scratch org or a Developer Edition.",
+        "wayBack": "SandForge cannot remove what this run writes: the checkpoint taken first is the way back.",
+        "more": "What it leaves out and what it costs"
+      },
+      "estimate": {
+        "lastSimulation": "At the last simulation:",
+        "simulation": "A real run would take a checkpoint first:",
+        "preview": "The load would take a checkpoint first:",
+        "cost_one": "about {{records}} records of {{objects}}, {{requests}} API requests, {{time}}, {{size}} on this machine, kept {{days}} day.",
+        "cost_other": "about {{records}} records of {{objects}}, {{requests}} API requests, {{time}}, {{size}} on this machine, kept {{days}} days.",
+        "costKept": "about {{records}} records of {{objects}}, {{requests}} API requests, {{time}}, {{size}} on this machine, kept until deleted.",
+        "added": "Added, for what the target's flows create as the records go in:",
+        "wouldRefuse": "A real run would be refused for its checkpoint. {{reason}}"
+      },
+      "notHeldTitle": "Not in the checkpoint, left as they are by a rewind:",
+      "taken_one": "Checkpoint taken first: “{{name}}”, {{formatted}} record of {{objects}}.",
+      "taken_other": "Checkpoint taken first: “{{name}}”, {{formatted}} records of {{objects}}.",
+      "keptUntil": "Kept on this machine until {{until}}.",
+      "keptUntilDeleted": "Kept on this machine until it is deleted.",
+      "moreObjects_one": "{{formatted}} other object",
+      "moreObjects_other": "{{formatted}} other objects",
+      "besideRemoval": "Removing this run takes back what the run wrote, and nothing else. Rewinding to before this run returns {{objects}} of {{org}} to how they were at {{time}}: what anyone, and the target's automation, did there since goes too. Read its preview first.",
+      "besideLoadRemoval": "Removing this load takes back what the load created, and nothing else. Rewinding to before this load returns {{objects}} of {{org}} to how they were at {{time}}: what anyone, and the target's automation, did there since goes too. Read its preview first.",
+      "noRemoval": "An Autopilot run has no removal: rewinding to this checkpoint is the way back. It returns {{objects}} of {{org}} to how they were at {{time}}: what anyone, and the target's automation, did there since goes too, and what the checkpoint does not hold of the run stays. Read its preview first.",
+      "notHeld": "Not in the checkpoint, left as they are by a rewind: {{objects}}.",
+      "deleted": "The checkpoint taken before the run was deleted: the run wrote nothing.",
+      "deletedLoad": "The checkpoint taken before the load was deleted: the load wrote nothing.",
+      "rewind": "Rewind to before this run…",
+      "rewindLoad": "Rewind to before this load…",
+      "afterRemoval": "What the removal kept, a rewind to this checkpoint takes back."
+    },
+    "recordTypeGiven": {
+      "title": "Record types the target org gave",
+      "titlePredicted": "Record types the target org would give",
+      "hint": "A record created without a record type gets the one the target org gives the user SandForge writes as; a record updated keeps its own.",
+      "toCreate_one": "{{count}} {{object}} record to create without a record type, {{why}}",
+      "toCreate_other": "{{count}} {{object}} records to create without a record type, {{why}}",
+      "created_one": "{{count}} {{object}} record created without a record type, {{why}}",
+      "created_other": "{{count}} {{object}} records created without a record type, {{why}}",
+      "why": {
+        "masterInSource": "on Master in the source",
+        "notRead": "none read from the source",
+        "decidedDefault": "given the default by your decision",
+        "dropped": "the source's type dropped, as the target org lacks it or keeps it from the user SandForge writes as"
+      },
+      "whyCounted": {
+        "masterInSource_one": "{{count}} on Master in the source",
+        "masterInSource_other": "{{count}} on Master in the source",
+        "notRead_one": "{{count}} with none read from the source",
+        "notRead_other": "{{count}} with none read from the source",
+        "decidedDefault_one": "{{count}} given the default by your decision",
+        "decidedDefault_other": "{{count}} given the default by your decision",
+        "dropped_one": "{{count}} whose source type was dropped, as the target org lacks it or keeps it from the user SandForge writes as",
+        "dropped_other": "{{count}} whose source type was dropped, as the target org lacks it or keeps it from the user SandForge writes as"
+      },
+      "given": {
+        "userDefault": "{{type}}, the default record type of the user SandForge writes as",
+        "onlyOneOpen": "{{type}}, the only other {{object}} record type open to the user SandForge writes as — its describe names Master that user's default, yet a record written without one gets this one",
+        "master": "Master, the default of the user SandForge writes as, who can use no other {{object}} record type, or several"
+      },
+      "wouldGive_one": "{{lead}}: the target org would give it {{given}}.",
+      "wouldGive_other": "{{lead}}: the target org would give them {{given}}.",
+      "gave_one": "{{lead}}: predicted to get {{given}}. It was not read back.",
+      "gave_other": "{{lead}}: predicted to get {{given}}. They were not read back.",
+      "unread_one": "{{lead}}: predicted to get {{given}}. What it holds could not be read back: {{reason}}",
+      "unread_other": "{{lead}}: predicted to get {{given}}. What they hold could not be read back: {{reason}}",
+      "readBack_one": "{{lead}}: it went in as {{type}}, as read back.",
+      "readBack_other": "{{lead}}: they went in as {{type}}, read back on {{read}}.",
+      "readOf": "{{read}} of {{rows}}",
+      "held": "{{rows}} with {{type}}",
+      "differs_one": "{{lead}}: read back, it holds {{held}}, where {{said}} was predicted. An automation of the target org sets the record type.",
+      "differs_other": "{{lead}}: read back on {{read}}, {{held}}, where {{said}} was predicted. An automation of the target org sets the record type.",
+      "differsNamed_one": "{{lead}}: read back, it holds {{held}}, where {{said}} was predicted. The target org's automation sets the record type, among what still ran on {{object}}: {{names}}.",
+      "differsNamed_other": "{{lead}}: read back on {{read}}, {{held}}, where {{said}} was predicted. The target org's automation sets the record type, among what still ran on {{object}}: {{names}}.",
+      "noneFound_one": "{{lead}}: it was not found when read back.",
+      "noneFound_other": "{{lead}}: none of them was found when read back."
+    },
+    "deliverability": {
+      "all": "{{org}} delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the run writes may send some: {{senders}}.",
+      "unread": "Whether {{org}} delivers the emails its automation sends could not be read ({{reason}}), and what still runs as the run writes may send some: {{senders}}. On System email only or No access (Setup > Deliverability), none of them goes out.",
+      "withheld": "{{org}} delivers none of the emails its flows, processes, workflow rules and Apex send (Setup > Deliverability: System email only or No access), so nothing goes out of {{senders}} as the run writes. {{org}} still counts them against its daily email limits.",
+      "quiet": "What sends emails as the run writes tests a bypass: muted, none of it sends, and nothing is asked of them.",
+      "addresses": "They go to the addresses the records and the alerts name, those of the records' owners and of the records already in {{org}} among them.",
+      "readAgain": "The run reads {{org}} again just before it writes, and asks first if they would go out.",
+      "sender": {
+        "flow": "Flow “{{name}}” on {{object}}",
+        "process": "Process “{{name}}” on {{object}}",
+        "workflowRule": "Workflow rule “{{name}}” on {{object}}",
+        "assignmentRule": "Assignment rule “{{name}}” on {{object}}"
+      },
+      "notRead": "{{sender}} (its definition was not read)",
+      "assignment": "{{sender}} (applied: it can mail the owner it assigns)",
+      "unlisted": "what of its automation could not be read",
+      "moreSenders_one": "{{formatted}} more",
+      "moreSenders_other": "{{formatted}} more"
     }
   },
   "grappe": {
@@ -5720,11 +6643,11 @@
       }
     },
     "flowFailed": {
-      "explanation": "A Flow of the org failed as the record was saved, and the org refused the record; the message names the Flow. A Send Email action fails this way when the org's email deliverability is set to No access.",
-      "action": "Fix the Flow, or deactivate it while the run writes, then run again. Do not set deliverability to All email to get past it: the Flow could then email the people on the records.",
+      "explanation": "A Flow of the org failed as the record was saved, and the org refused the record; the message names the Flow. The org's email deliverability is not why: on System email only or No access, a Send Email action is held back without an error and the record saves. Past the emails the org has left today, a Flow that sends fails.",
+      "action": "Fix the Flow, or deactivate it while the run writes, then run again. Past the day's emails, a bypass that keeps the Flow quiet, or a smaller run, avoids it.",
       "forge": {
-        "explanation": "A Flow of the target org — a record-triggered Flow, or a process, which runs as one — failed as the record was saved, and the target refused the record; the message names the Flow and what went wrong. A cause a sandbox often meets is a Send Email action: with the org's email deliverability set to No access, the action fails as soon as it uses an email template or logs the email. A new or refreshed sandbox is set to System email only.",
-        "action": "Deactivate that Flow in the target org while you clone, or fix it, then retry the failed objects; Review's Automation tab names the custom permissions that keep a Flow quiet for the user who holds them. Do not set the target's deliverability to All email to get a Send Email action through: the Flow could then email the people on the cloned records."
+        "explanation": "A Flow of the target org — a record-triggered Flow, or a process, which runs as one — failed as the record was saved, and the target refused the record; the message names the Flow and what went wrong. The org's email deliverability is not why: on System email only or No access, a Send Email action is held back without an error and the record saves. Past the emails the target has left today, a Flow that sends fails.",
+        "action": "Deactivate that Flow in the target org while you clone, or fix it, then retry the failed objects; Review's Automation row names the custom permissions that keep a Flow quiet for the user who holds them. Past the day's emails, such a bypass, or a smaller run, avoids it."
       },
       "seed": {
         "action": "Fix the Flow, or deactivate it while you seed."
@@ -5800,11 +6723,19 @@
     },
     "parentRefused": {
       "explanation": "A record this one points to was refused in the same run, so this one was held back rather than written without it.",
-      "action": "Fix what refused that record — its reason is listed with its object — then run again."
+      "action": "Fix what refused that record — its reason is listed with its object — then run again.",
+      "keptEmpty": {
+        "explanation": "The record this lookup names was refused in the same run. This one, written before it, keeps the lookup empty.",
+        "action": "Fix what refused that record — its reason is listed with its object — then set the lookup in the target org."
+      }
     },
     "parentNotWritten": {
       "explanation": "A record this one points to belongs to an object this run was to write and did not, so this one was held back rather than written without it.",
       "action": "Write that object first — its node says why it was not written — then run again.",
+      "keptEmpty": {
+        "explanation": "The record this lookup names belongs to an object this run did not write. This one, written before it, keeps the lookup empty.",
+        "action": "Write that object — its node says why it was not written — then set the lookup in the target org."
+      },
       "skipped": {
         "explanation": "A record this one points to belongs to an object skipped in this run, so this one was held back rather than written without it.",
         "action": "Run again without skipping that object. To leave it out, skip the objects that point to it as well."
@@ -5813,6 +6744,10 @@
         "explanation": "A record this one points to belongs to an object whose write failed in this run, so this one was held back rather than written without it.",
         "action": "Fix what made that object's write fail — its node says why — then run again."
       }
+    },
+    "cutWithParent": {
+      "explanation": "The record this lookup names was read, then held back: since the fit, it came to name a record the fit cut. This one, written before it, keeps the lookup empty.",
+      "action": "Fit the plan again to take in what moved in the source since, or set the lookup in the target org."
     },
     "personAccountNotWritten": {
       "explanation": "This contact's person account is not in the target org, and Salesforce writes a person account's contact with its account.",
@@ -5919,8 +6854,8 @@
       "action": "Simulate it to see the figures, then give the running user a bypass that keeps those Flows quiet, write fewer records, or run it again tomorrow."
     },
     "syncTargetUnwritable": {
-      "explanation": "The sync was refused before it wrote anything: the target org would take no record of an object it writes. It has not the object, or the user the sync writes as may not see, create or edit it there.",
-      "action": "Leave those objects out of the run, or give the user the sync writes as access to them in the target org. Started from the page, the sync asks whether to leave them out and writes the rest."
+      "explanation": "The sync was refused before it wrote anything: the target org would take no record of an object it writes. It has not the object, the user the sync writes as may not see, create or edit it there, or its upsert matches on a field the target org matches none on.",
+      "action": "Leave those objects out of the run, give the user the sync writes as access to an object it may not write in the target org, or match an upsert on an External ID field of that org: the message says which each object needs. Started from the page, the sync asks whether to leave them out and writes the rest."
     },
     "apiBudgetExceeded": {
       "explanation": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through, its records refused with REQUEST_LIMIT_EXCEEDED.",
@@ -5937,6 +6872,35 @@
     "syncEarlierUnread": {
       "explanation": "The sync was refused before it wrote anything: what earlier runs of this configuration copied could not be read, so its inserts would copy those records a second time.",
       "action": "Check that SandForge can read its storage folder, then run it again."
+    },
+    "checkpointRefused": {
+      "explanation": "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused.",
+      "action": "Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
+      "reason": {
+        "disk": "This machine's disk has too little room for it.",
+        "runWriting": "Another SandForge run, take, rewind or undo is writing to the org: start this run once it has ended.",
+        "nothingHeld": "It would hold none of the objects the run writes: each is left out, or of a kind no checkpoint holds.",
+        "tooManyRecords": "The objects it would hold have more records than a checkpoint takes: run without it, or leave objects out of the run.",
+        "apiBudget": "Its API requests are past what the org has left today.",
+        "permissions": "The user SandForge connects as is not shown to read whole the objects it would hold: it needs View All Data and Modify All Data, or View All and Modify All on each.",
+        "production": "SandForge takes no checkpoint of a production org.",
+        "scratchExpired": "The scratch org has expired.",
+        "other": "Its guards refused it: the SandForge output says why.",
+        "unsaid": "It was refused, or could not be taken: the SandForge output says why."
+      },
+      "stopped": "The run was stopped while it took the checkpoint first: nothing of it was kept, and nothing was written."
+    },
+    "seedConfirmationUnavailable": {
+      "explanation": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
+      "action": "Start it from the Seed page, where you can confirm it."
+    },
+    "emailsNotAccepted": {
+      "explanation": "The run was refused before it wrote anything: what still runs of the target org's automation may send emails, the org delivers them or would not say whether it does, and nobody accepted them.",
+      "action": "Nothing was written. If the target's automation was to be muted, a permission set it needed was not held: untick the mute to be asked about the emails, or run it again once that set can be assigned."
+    },
+    "emailsDelivered": {
+      "explanation": "It was refused before it wrote anything: what still runs of the org's automation sends emails, the org delivers them or would not say whether it does, and they were not accepted.",
+      "action": "Nothing was written. Start it again and tick the box that lets the org send them, or turn off what sends them."
     }
   },
   "moduleSummary": {
@@ -5984,7 +6948,14 @@
       "access": {
         "perObject": "Taken with View All and Modify All per object, without View All Data and Modify All Data: it holds only the objects its user saw whole."
       },
-      "more": "More"
+      "more": "More",
+      "beforeRun": {
+        "forge": "Before Forge run",
+        "sync": "Before Sync run",
+        "seed": "Before Seed run",
+        "autopilot": "Before Autopilot run",
+        "frozen": "Before Frozen Dataset load"
+      }
     },
     "rename": {
       "title": "Rename “{{name}}”"
@@ -6215,12 +7186,16 @@
         "error": "What {{org}} runs as the rewind writes could not be read: {{reason}}",
         "broughtBack": "after undelete, as the rewind brings it back from the recycle bin",
         "givenBack": "as the rewind gives it back its checkpoint values",
+        "drafted": "as the rewind sets it back to Draft to delete it",
         "accept": "Run even if triggers, flows or workflow rules fire on the records it writes"
       },
       "emails": {
-        "fits": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), {{remaining}} of {{max}} left today.",
-        "exceeds": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), more than the {{remaining}} of {{max}} left today: the rewind is refused, whatever is ticked.",
-        "unread": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}). What is left today could not be read ({{reason}}).",
+        "fits_one": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), {{remaining}} of {{max}} left today.",
+        "fits_other": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), {{remaining}} of {{max}} left today.",
+        "exceeds_one": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), more than the {{remaining}} of {{max}} left today: the rewind is refused, whatever is ticked.",
+        "exceeds_other": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), more than the {{remaining}} of {{max}} left today: the rewind is refused, whatever is ticked.",
+        "unread_one": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}). What is left today could not be read ({{reason}}).",
+        "unread_other": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}). What is left today could not be read ({{reason}}).",
         "alertsCounted": "{{org}} counts its email alerts against its single emails, as a Developer Edition does: they are among them.",
         "uncounted": "What {{org}} runs as the rewind writes could not all be read ({{reason}}), so the emails it sends were not counted against its daily limits."
       },
@@ -6261,7 +7236,8 @@
         "line_other": "{{formatted}} {{object}} records deleted since that the recycle bin no longer gives back.",
         "newIds": "The rewind makes them again from the checkpoint, with new Ids, and the lookups the checkpoint holds that named them name the new Ids. Anything outside Salesforce that names their old Ids — an integration, a link, a report filter — no longer finds them. Undo deletes them again.",
         "ifEmptiedTitle": "If the recycle bin no longer holds them",
-        "ifEmptied": "Salesforce still lists a record emptied from the recycle bin as deleted, for minutes to hours, and says the bin no longer holds it only once the rewind asks for it back. Ticked, the rewind then makes it again from the checkpoint, with a new Id, and the records that were to come back with it too, running what the org runs as a record is created; unticked, it leaves them, and names them.",
+        "ifEmptied": "Salesforce still lists a record emptied from the recycle bin as deleted, for minutes to hours, and says the bin no longer holds it only once the rewind asks for it back. Ticked, the rewind then makes it again from the checkpoint, with a new Id, and the records that were to come back with it too — unless making it again runs something of the org this preview does not list, as a record is created or an order given its status back: it then leaves them, names them, and the next preview counts them to make again and asks. Unticked, it leaves them, and names them.",
+        "asDraft": "Salesforce refuses an order or a contract made past Draft: the rewind makes one again as a draft ({{objects}}), the records under it next, then gives it its status back — an update, which runs what {{org}} runs as one is updated.",
         "accept": "Recreate, with new Ids, records already emptied from the Recycle Bin"
       },
       "files": {
@@ -6297,7 +7273,26 @@
       "rewindNeeds": {
         "tick": "To rewind, tick:",
         "plan": "Reading the plan of the objects ticked…",
-        "planFailed": "The plan of the objects ticked could not be read: try again above."
+        "planFailed": "The plan of the objects ticked could not be read: try again above.",
+        "readFailed": "{{org}} could not be read again: try again above."
+      },
+      "deliverability": {
+        "all": "{{org}} delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the rewind writes may send some: {{senders}}.",
+        "unread": "Whether {{org}} delivers the emails its automation sends could not be read ({{reason}}), and what still runs as the rewind writes may send some: {{senders}}. On System email only or No access (Setup > Deliverability), none of them goes out.",
+        "unlisted": "what of its automation could not be read",
+        "addresses": "They go to the addresses the records hold, to the records' owners and to the addresses an alert names: a rewind writes back {{org}}'s own values, never put under .invalid.",
+        "withheld": "{{org}} delivers none of the emails its flows, processes, workflow rules and Apex send (Setup > Deliverability: System email only or No access): nothing goes out, and nothing is asked of them.",
+        "quiet": "What sends emails as the rewind writes tests a bypass: muted, none of it sends, and nothing is asked of them.",
+        "sender": {
+          "flow": "Flow “{{name}}” on {{object}}",
+          "process": "Process “{{name}}” on {{object}}",
+          "workflowRule": "Workflow rule “{{name}}” on {{object}}",
+          "assignmentRule": "Assignment rule “{{name}}” on {{object}}"
+        },
+        "notRead": "{{sender}} (its definition was not read)",
+        "moreSenders_one": "{{formatted}} more",
+        "moreSenders_other": "{{formatted}} more",
+        "accept": "Let {{org}} send these emails"
       }
     },
     "run": {
@@ -6342,6 +7337,7 @@
       "failure": "The rewind of {{org}} to “{{name}}” ended before it was through: what it did is listed below. Rewind again to take up from what still differs.",
       "cancelled": "Stopped part way: {{org}} is between “{{name}}” and now. Rewind again to finish: it takes up from what still differs.",
       "cancelledUndo": "Undo still returns {{org}} to how it was before the rewind.",
+      "cancelledNothing": "Stopped before it wrote anything: {{org}} is as it was before this rewind. Rewind again to rewind it to “{{name}}”.",
       "rewindAgain": "Rewind again",
       "stopComparing": "Stop comparing these fields…",
       "stoppedComparing": "Not compared from now on: {{fields}}. Rewind again to read {{org}} without them.",
@@ -6411,6 +7407,7 @@
         "partialListed": "{{org}} is back as it was before its last rewind, except what is listed below.",
         "failure": "The undo of the last rewind of {{org}} ended before it was through: what it did is listed below.",
         "cancelled": "Stopped part way: undo the rewind again from the list of checkpoints to finish; it takes up from where it stopped.",
+        "cancelledNothing": "Stopped before it wrote anything: {{org}} is as the rewind left it, and the rewind can still be undone.",
         "undeletedTitle": "What the rewind deleted, brought back from the recycle bin of {{org}}",
         "restoredTitle": "What the rewind wrote over, given back its values from before in {{org}}",
         "restoredLine": "{{object}}: {{restored}} of {{planned}} given back their values from before the rewind",
@@ -6439,6 +7436,12 @@
         "deletedAgain": "Deleted again once those records were back, with what came back with them: in the recycle bin, as before the rewind.",
         "stopped": "Stopped before the rewind was through: what of them it had not deleted again yet is still in {{org}}. Rewind again deletes it, with what came back with it."
       },
+      "draftsLeft": {
+        "title": "Left as drafts in {{org}}",
+        "line_one": "{{object}}: {{formatted}} record made again as a draft ({{ids}}), its status not given back yet",
+        "line_other": "{{object}}: {{formatted}} records made again as drafts ({{ids}}), their status not given back yet",
+        "rewindAgain": "The rewind stopped before it gave them back the status the checkpoint holds. Rewind again gives it back to them, an update, which runs what {{org}} runs as one is updated."
+      },
       "files": {
         "title": "Links between files and records in {{org}}",
         "unlinked_one": "{{formatted}} link added since removed: its file stays",
@@ -6454,8 +7457,9 @@
     "undo": {
       "open": "Undo this rewind",
       "title": "Undo the last rewind of {{org}}?",
-      "description": "Brings back from the recycle bin what the rewind deleted, gives what it wrote over its values from before, sends back to the recycle bin what it brought back, and deletes again what it made again. What anyone changed in {{org}} since the rewind stays as it is.",
-      "acceptAutomation": "Undo even though {{org}} runs automation as records are updated, deleted or brought back"
+      "description": "Brings back from the recycle bin what the rewind deleted, gives what it wrote over its values from before, sends back to the recycle bin what it brought back, and deletes again what it made again, an order past Draft set back to Draft first, the one way Salesforce deletes one. What anyone changed in {{org}} since the rewind stays as it is.",
+      "acceptAutomation": "Undo even though {{org}} runs automation as records are updated, deleted or brought back",
+      "acceptEmails": "Undo even though {{org}} delivers every email its automation sends as the undo writes, or would not say whether it does"
     },
     "stopComparing": {
       "title": "Stop comparing fields of “{{name}}”",
@@ -6508,9 +7512,64 @@
       }
     }
   },
+  "checkpointNotes": {
+    "leftOut": {
+      "excludedByUser": "Left out as asked.",
+      "notFound": "The org has no object of this name.",
+      "chatter": "Chatter posts, comments and feeds are left out: Salesforce brings a post back only with what it was posted on.",
+      "history": "History is left out: it is the org's own trace of changes.",
+      "sharing": "Sharing is left out: the org keeps it itself.",
+      "changeEvent": "Change events are left out.",
+      "unsupportedKind": "Left out: neither the recycle bin nor an update reaches this kind of object as it reaches a record.",
+      "customSetting": "Custom settings are left out unless you pick them as custom settings: they are configuration, which a rewind sets back.",
+      "notCustomSetting": "Picked as a custom setting: the org has no custom setting of this name.",
+      "files": "Documents of the Documents tab are left out: they are shared content kept in folders, as setup is.",
+      "heldWithFiles": "Held with its file (ContentDocument): Salesforce neither deletes nor brings back a file's version on its own, and reads the links of a file through the records they tie it to.",
+      "setup": "Users, permissions and setup are left out, and so are the org's own logs and jobs.",
+      "platformCreated": "Left out: Salesforce alone creates its records, such as approvals, Einstein insights, Data.com clean info and invoices, and no permission lets a user create one.",
+      "metadata": "Left out: it is metadata, which a checkpoint doesn't hold.",
+      "notWritable": "Left out: the user SandForge connects as may not create, edit and delete its records.",
+      "notDescribed": "Left out: the org would not describe it.",
+      "noSystemModstamp": "Left out: it has no SystemModstamp, so nothing would tell a record changed since.",
+      "noRecycleBin": "Left out: the org deletes its records for good, with no recycle bin, so nothing would tell one deleted since, nor bring it back.",
+      "unreadable": "Left out: the org refuses to read it whole.",
+      "pastTheLimit": "{{object}} has {{records}} records, past the checkpoint's limit of {{limit}} for one object: left out of the checkpoint, as part of it would be taken for all of it.",
+      "noViewAll": "Without View All Data and Modify All Data, an object is held only with View All and Modify All on it, and the user SandForge connects as has neither on this one: a record they cannot see would read as deleted since.",
+      "noModifyAll": "Without View All Data and Modify All Data, an object is held only with View All and Modify All on it, and the user SandForge connects as has View All on this one, not Modify All: a rewind could not put back what others changed.",
+      "activities": "Without View All Data and Modify All Data, tasks and events are left out: Salesforce has no View All for activities, and a private one linked to no record stays out of sight.",
+      "catalog": "Without View All Data and Modify All Data, products and price books are left out: Salesforce has no View All or Modify All for them.",
+      "filesNotProven": "Without View All Data and Modify All Data, files are left out: nothing proves the user sees every file.",
+      "settingNotProven": "Without View All Data and Modify All Data, custom settings are left out: no permission on an object proves the user sees and writes every row.",
+      "parentNotSeen": "Without View All Data and Modify All Data, an object with no permissions of its own is held only when the user has View All and Modify All on every record it hangs from, which is not proven here."
+    },
+    "added": {
+      "kind": {
+        "flow": "flow",
+        "process": "process",
+        "workflowRule": "workflow rule",
+        "trigger": "Apex trigger"
+      },
+      "createdBy": {
+        "insert": "The target's {{kind}} '{{name}}' creates {{created}} records as {{object}} records go in.",
+        "update": "The target's {{kind}} '{{name}}' creates {{created}} records as {{object}} records are updated.",
+        "delete": "The target's {{kind}} '{{name}}' creates {{created}} records as {{object}} records are deleted.",
+        "undelete": "The target's {{kind}} '{{name}}' creates {{created}} records as {{object}} records come back."
+      },
+      "more_one": "And {{count}} more automation creates them.",
+      "more_other": "And {{count}} more automations create them.",
+      "files": "Files, which every checkpoint of picked objects holds: a rewind deletes the files added since to the records it holds.",
+      "attachments": "Attachments, which every checkpoint of picked objects holds: a rewind deletes the attachments added since.",
+      "heldUnasked": "Held as every checkpoint of picked objects holds it."
+    }
+  },
   "automationMute": {
     "box": {
       "label": "Mute the target's automation for this run — through its own bypass",
+      "labelShort": "Mute the target's automation for this run",
+      "more": "Through its own bypass: what it silences and what still runs",
+      "moreUnread": "Through its own bypass: what it silences, what still runs, and what couldn't be read",
+      "moreLifts": "Also lifts {{lifts}}",
+      "moreLiftsUnread": "Also lifts {{lifts}}, and perhaps more: not everything could be read",
       "assigns_one": "Assigns the permission set {{sets}} to the user the run writes as in {{org}}, for this run alone, and takes it back as the run ends.",
       "assigns_other": "Assigns the permission sets {{sets}} to the user the run writes as in {{org}}, for this run alone, and takes them back as the run ends.",
       "silences": "Silenced for the run:",
@@ -6542,6 +7601,12 @@
       "released": "Taken back as the run ended.",
       "notReleased": "Not all taken back yet: the next run on this machine that mutes {{org}} takes back what is left once the lease ends ({{date}}).",
       "notReleasedNoDate": "Not all taken back yet: the next run on this machine that mutes {{org}} takes back what is left once the lease ends.",
+      "takenBack": "Taken back as the run ended: {{sets}}.",
+      "passed_one": "{{sets}} stays assigned for another run that mutes {{org}} as the same user, which takes it back as it ends.",
+      "passed_other": "{{sets}} stay assigned for another run that mutes {{org}} as the same user, which takes them back as it ends.",
+      "journalUnwritten": "The journal of this machine's mute leases couldn't be written as the run ended, and still names the run's lease: this window tries again while it stays open, and releases the lease once the journal can be written. Until then, and at most until that lease ends, a run from another window or the command line that mutes {{org}} may leave its permission sets assigned for it, and the release takes them back. The next run that mutes {{org}} says why.",
+      "tookBackOfEnded_one": "Taken back before the run: {{sets}}, left assigned to the user the run wrote as by a run that ended as it assigned it. Found by user and set, not by id: had an admin assigned it to that user since, assign it again.",
+      "tookBackOfEnded_other": "Taken back before the run: {{sets}}, left assigned to the user the run wrote as by a run that ended as it assigned them. Found by user and set, not by id: had an admin assigned them to that user since, assign them again.",
       "nothing": "Nothing could be muted in {{org}}: the run went ahead as without the option.",
       "planned_one": "A real run would assign the user it writes as in {{org}} the permission set holding {{bypasses}}, for the run alone; this one assigned nothing.",
       "planned_other": "A real run would assign the user it writes as in {{org}} the permission sets holding {{bypasses}}, for the run alone; this one assigned nothing.",

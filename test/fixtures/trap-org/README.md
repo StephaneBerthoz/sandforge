@@ -184,14 +184,17 @@ probes (about six minutes, and probe 17 takes one of the day's fifteen emails).
   and removes the rest with `--include-changed`, then counts by id what the target still holds.
 - Trap 18's flow opens a task for each contact the clone writes. The tasks point at no record, so
   the removal leaves them: the canary counts them by the run's window and user once the removal is
-  through, lists what `--sweep-list` finds, takes them back with `--sweep`, and counts again: none
-  is left. A task of the flow the sweep left is deleted all the same, and the step fails.
+  through and lists what `--sweep-list` finds. Tied to nothing of the run, `--sweep` keeps them and
+  says so at its end; `--sweep-untied` takes them, and the canary counts again: none is left. A
+  task of the flow the sweep left is deleted all the same, and the step fails.
 - The Frozen Dataset takes one root, `Trap Account 15`, a Customer, so that trap 5's filter takes
   the contacts that prefer it (`canary-frozen-config.json`, pseudonymization rules in
   `canary-frozen-rules.json`, items left out for trap 8, a salt of the canary's own unless
   `SANDFORGE_FROZEN_SALT` gives one). Trap 2 refuses the subcategory of its case, which goes in
   without it. What the load created is read from the sas before the removal, which runs with
-  `--sweep` and takes the tasks trap 18's flow opened, and counted by id after it.
+  `--sweep`, `--sweep-untied` and `--accept-automation` (the trap's flows run on what it deletes,
+  and a removal deletes nothing without it) and takes the tasks trap 18's flow opened, and counted
+  by id after it.
 - Autopilot copies the source's twenty leads whole, its plan held to one lookup and three
   objects and its run to `--max-total 25`. The target holds two of their emails and blocks a
   duplicate of either (trap 4): the four leads that carry them are refused. What the run created
@@ -203,6 +206,9 @@ probes (about six minutes, and probe 17 takes one of the day's fifteen emails).
 - The DataOps masking runs on three contacts the canary creates in the source, tagged in
   `Department`, which the GDPR template leaves alone: their masked fields read back changed, then,
   once the snapshot is restored, with the checksum they had before. They are deleted at the end.
+  The masking, its dry run and the restore are given `--accept-automation`: what the source runs
+  as the contacts are written over is named, and accepted; emails it would deliver are not, and
+  stop the step.
 - `canary-clone-config.json` gives the clone the decisions the target needs (a value for
   `Trap_Target_Only__c`, the picklist values it refuses). `canary-baseline.json` holds the counts
   of the last accepted run; a run that counts otherwise fails, and `--update-baseline` records a

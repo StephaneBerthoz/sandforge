@@ -140,7 +140,12 @@ function gate(answer: SyncGateAnswer = { go: true, asked: false }) {
   const writeGate: SyncWriteGate = {
     measure: async (counted) => {
       measured.push(counted);
-      return { ...check, total: counted.objects.reduce((s, o) => s + o.rows, 0) };
+      // Each object it counted, as a gate's check names them.
+      return {
+        ...check,
+        objects: counted.objects.map(({ objectApiName, rows }) => ({ objectApiName, rows })),
+        total: counted.objects.reduce((s, o) => s + o.rows, 0),
+      };
     },
     hold: async (counted) => {
       held.push(counted);
@@ -244,6 +249,61 @@ describe('SyncOrchestrator — before the first write', () => {
     expect(contacts).toMatchObject({ processed: 0, success: 0, skipped: 2, alreadyCopied: 2 });
     const names = [...target.held.values()].map((r) => r.Name ?? r.LastName).sort();
     expect(names).toEqual(['Acme', 'Doe', 'Globex', 'Initech', 'Roe']);
+  });
+
+  it('says, on the second run, that a record the first linked to one the target held was linked, not copied', async () => {
+    // Live, the first run linked an account the target held under the same
+    // unique value, and the second said "1 already copied by an earlier run".
+    // The skip was right: the pair stands. The word was not.
+    const target = targetOrg();
+    const theirs = fakeId('001', 800);
+    target.held.set(theirs, { Name: 'Acme', object: 'Account' });
+    const insert = target.insert.getMockImplementation();
+    target.insert.mockImplementation(async (object, records) => {
+      if (object !== 'Account') return insert!(object, records);
+      const outcomes = await insert!(
+        object,
+        records.filter((record) => record.Name !== 'Acme'),
+      );
+      return records.map((record) =>
+        record.Name === 'Acme'
+          ? {
+              success: false,
+              errors: [
+                `DUPLICATE_VALUE: duplicate value found: Code__c duplicates value on record with id: ${theirs}`,
+              ],
+              existingId: theirs,
+            }
+          : outcomes.shift()!,
+      );
+    });
+    const source = sourceOrg();
+    const first = await orchestrator(target, source).execute(config());
+    expect(first.objectResults.find((o) => o.objectApiName === 'Account')).toMatchObject({
+      success: 1,
+      linkedToExisting: { records: 1 },
+    });
+    const { writeGate, held } = gate();
+
+    const second = await orchestrator(target, source, { writeGate }).execute(config());
+    const simulated = await orchestrator(target, source).simulate(config());
+
+    const accounts = second.objectResults.find((o) => o.objectApiName === 'Account');
+    expect(accounts).toMatchObject({ skipped: 2, alreadyCopied: 1, alreadyLinked: 1 });
+    expect(second.objectResults.find((o) => o.objectApiName === 'Contact')).toMatchObject({
+      skipped: 2,
+      alreadyCopied: 2,
+    });
+    expect(second.objectResults.find((o) => o.objectApiName === 'Contact')).not.toHaveProperty(
+      'alreadyLinked',
+    );
+    expect(held[0]).toMatchObject({ alreadyCopied: 3, alreadyLinked: 1 });
+    expect(simulated.objects.find((o) => o.objectApiName === 'Account')).toMatchObject({
+      skipped: 2,
+      alreadyCopied: 1,
+      alreadyLinked: 1,
+    });
+    expect(target.held.size).toBe(4);
   });
 
   it('inserts again a record whose earlier copy is no longer in the target', async () => {
@@ -410,6 +470,201 @@ describe('SyncOrchestrator — before the first write', () => {
       refused: 2,
       notes: [expect.stringContaining('Object is not createable on target org') as unknown],
     });
+  });
+
+  /** The target's describes, as a user without Create on Account reads them. */
+  const accountsClosed = async (object: string): Promise<TargetWriteFields> =>
+    object === 'Account'
+      ? targetWriteFieldsOf({
+          name: 'Account',
+          createable: false,
+          updateable: false,
+          fields: [{ name: 'Name', createable: false, type: 'string' }],
+        })
+      : DESCRIBES[object];
+
+  /** The target's describes, as an org that matches no upsert on Account.Name gives them. */
+  const nameNoKey = async (object: string): Promise<TargetWriteFields> =>
+    object === 'Account'
+      ? targetWriteFieldsOf({
+          name: 'Account',
+          createable: true,
+          updateable: true,
+          fields: [
+            { name: 'Id', createable: false, type: 'id', idLookup: true, externalId: false },
+            { name: 'Name', createable: true, type: 'string', idLookup: false, externalId: false },
+          ],
+        })
+      : DESCRIBES[object];
+
+  it.each([
+    ['the target user may not create', accountsClosed, insertOf('Account', 1)],
+    [
+      'whose upsert matches on a field the target matches none on',
+      nameNoKey,
+      { ...insertOf('Account', 1), operation: 'upsert' as const, externalIdField: 'Name' },
+    ],
+  ])(
+    'holds back the contacts of an account %s once the user leaves it out, as its simulation counted them',
+    async (_why, describeTargetFields, accounts) => {
+      // The simulation counted every contact refused, its account refused;
+      // the run left the accounts out and sent each contact with the source's
+      // AccountId, which the target refused, and wrote it again without one.
+      const target = targetOrg();
+      const objects = [insertOf('Contact', 0), accounts];
+      const simulation = await orchestrator(target, sourceOrg(), {
+        writeGate: gate().writeGate,
+        describeTargetFields,
+      }).simulate(config({ objects }));
+      const { writeGate } = gate({ go: true, asked: true });
+
+      const result = await orchestrator(target, sourceOrg(), {
+        writeGate,
+        describeTargetFields,
+      }).execute(config({ objects }));
+
+      expect(simulation.objects.find((o) => o.objectApiName === 'Contact')).toMatchObject({
+        insert: 0,
+        refused: 2,
+      });
+      expect(target.insert).not.toHaveBeenCalled();
+      expect(target.held.size).toBe(0);
+      const contacts = result.objectResults.find((o) => o.objectApiName === 'Contact');
+      expect(contacts).toMatchObject({ success: 0, failed: 2 });
+      expect(contacts?.errors.join(' ')).toContain('PARENT_REFUSED');
+    },
+  );
+
+  it('counts at its gate the contacts an account left out holds back apart, not to write, as its simulation counts them', async () => {
+    // Run against a real target, a run whose account upsert matched on Name
+    // said "4 record(s) to write … Contact 4", while its dry run said 0
+    // contacts written and 4 held back. A contact under an account the run
+    // does not read goes as before, as the run sends it.
+    const source = sourceOrg();
+    source.Contact.push({ Id: fakeId('003', 3), LastName: 'Poe', AccountId: fakeId('001', 9) });
+    const objects = [
+      insertOf('Contact', 0),
+      { ...insertOf('Account', 1), operation: 'upsert' as const, externalIdField: 'Name' },
+    ];
+    const simulated = gate();
+    const simulation = await orchestrator(targetOrg(), source, {
+      writeGate: simulated.writeGate,
+      describeTargetFields: nameNoKey,
+    }).simulate(config({ objects }));
+    const ran = gate({ go: true, asked: true });
+    await orchestrator(targetOrg(), source, {
+      writeGate: ran.writeGate,
+      describeTargetFields: nameNoKey,
+    }).execute(config({ objects }));
+
+    const counted = {
+      objects: [{ objectApiName: 'Contact', operation: 'insert', rows: 1 }],
+      alreadyCopied: 0,
+      unwritable: [
+        {
+          objectApiName: 'Account',
+          operation: 'upsert',
+          rows: 2,
+          why: 'notAKey',
+          key: 'Name',
+        },
+      ],
+      heldBack: [
+        {
+          objectApiName: 'Contact',
+          rows: 2,
+          parent: 'Account',
+          field: 'AccountId',
+          parents: [{ parent: 'Account', field: 'AccountId', rows: 2 }],
+        },
+      ],
+    };
+    expect(ran.held).toEqual([counted]);
+    expect(simulated.measured).toEqual([counted]);
+    expect(simulation.objects.find((o) => o.objectApiName === 'Contact')).toMatchObject({
+      insert: 1,
+      refused: 2,
+    });
+  });
+
+  it('counts at its gate the rows under a row held back as held back too', async () => {
+    // A case under a contact held back for its account is held back with it.
+    const source = {
+      ...sourceOrg(),
+      Case: [
+        { Id: fakeId('500', 1), Subject: 'Late', ContactId: fakeId('003', 1) },
+        { Id: fakeId('500', 2), Subject: 'Open', ContactId: null },
+      ],
+    };
+    const describes = async (object: string): Promise<TargetWriteFields> =>
+      object === 'Case'
+        ? targetWriteFieldsOf({
+            name: 'Case',
+            fields: [
+              { name: 'Subject', createable: true, type: 'string' },
+              { name: 'ContactId', createable: true, type: 'reference', referenceTo: ['Contact'] },
+            ],
+          })
+        : accountsClosed(object);
+    // Refused at its gate, as a run with nothing else to write is.
+    const ran = gate({
+      go: false,
+      code: 'SYNC_TARGET_UNWRITABLE',
+      message: 'Nothing was written.',
+    });
+
+    await expect(
+      orchestrator(targetOrg(), source, {
+        writeGate: ran.writeGate,
+        describeTargetFields: describes,
+      }).execute(
+        config({ objects: [insertOf('Case', 0), insertOf('Contact', 1), insertOf('Account', 2)] }),
+      ),
+    ).rejects.toBeInstanceOf(SyncRunRefused);
+
+    expect(ran.held[0]?.objects).toEqual([
+      { objectApiName: 'Contact', operation: 'insert', rows: 0 },
+      { objectApiName: 'Case', operation: 'insert', rows: 1 },
+    ]);
+    expect(ran.held[0]?.heldBack).toEqual([
+      {
+        objectApiName: 'Contact',
+        rows: 2,
+        parent: 'Account',
+        field: 'AccountId',
+        parents: [{ parent: 'Account', field: 'AccountId', rows: 2 }],
+      },
+      {
+        objectApiName: 'Case',
+        rows: 1,
+        parent: 'Contact',
+        field: 'ContactId',
+        parents: [{ parent: 'Contact', field: 'ContactId', rows: 1 }],
+      },
+    ]);
+  });
+
+  it('stops before the contacts when the accounts it leaves out cannot be read, as its simulation stops', async () => {
+    const target = targetOrg();
+    const source = sourceOrg();
+    const { writeGate } = gate({ go: true, asked: true });
+
+    const run = orchestrator(target, source, {
+      writeGate,
+      describeTargetFields: accountsClosed,
+      querySource: async (_org, objectConfig) => {
+        if (objectConfig.objectApiName === 'Account') {
+          throw new Error('QUERY_TIMEOUT: Your query request was running for too long.');
+        }
+        return source[objectConfig.objectApiName];
+      },
+    }).execute(config());
+
+    await expect(run).rejects.toMatchObject({
+      message: 'QUERY_TIMEOUT: Your query request was running for too long.',
+      result: expect.objectContaining({ status: 'failure' }) as unknown,
+    });
+    expect(target.insert).not.toHaveBeenCalled();
   });
 
   it('measures a simulation by its gate, asking nobody', async () => {

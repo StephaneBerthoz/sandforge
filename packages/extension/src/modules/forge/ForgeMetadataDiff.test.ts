@@ -162,6 +162,102 @@ describe('ForgeMetadataDiff', () => {
       ]);
     });
 
+    it('says who may create each object the target user may not, asking the target once for all of them', async () => {
+      // The Metadata tab said of a report, which no user creates, "give that
+      // user Create on it", as of every object the user could not create.
+      const asked: Array<readonly string[]> = [];
+      const diff = new ForgeMetadataDiff({
+        describeObject: async (orgId, objectApiName) =>
+          orgId === 'target' && objectApiName !== 'Account'
+            ? { createable: false, fields: [] }
+            : { createable: true, fields: [] },
+        whyNotCreatable: async (_orgId, names) => {
+          asked.push(names);
+          return new Map([
+            ['Report', 'setup' as const],
+            ['FlowRecord', 'platform' as const],
+            ['Invoice', 'feature' as const],
+            ['OpportunityLineItem', 'parent' as const],
+            ['Thing__c', 'user' as const],
+          ]);
+        },
+      });
+
+      const result = await diff.compare('source', 'target', [
+        'Account',
+        'Report',
+        'FlowRecord',
+        'Invoice',
+        'OpportunityLineItem',
+        'Thing__c',
+      ]);
+
+      expect(asked).toEqual([
+        ['Report', 'FlowRecord', 'Invoice', 'OpportunityLineItem', 'Thing__c'],
+      ]);
+      expect(
+        result.map(({ objectApiName, issue, severity, notCreatableBy }) => ({
+          objectApiName,
+          issue,
+          severity,
+          notCreatableBy,
+        })),
+      ).toEqual([
+        {
+          objectApiName: 'Report',
+          issue: 'object_not_createable',
+          severity: 'info',
+          notCreatableBy: 'setup',
+        },
+        {
+          objectApiName: 'FlowRecord',
+          issue: 'object_not_createable',
+          severity: 'info',
+          notCreatableBy: 'platform',
+        },
+        {
+          objectApiName: 'Invoice',
+          issue: 'object_not_createable',
+          severity: 'error',
+          notCreatableBy: 'feature',
+        },
+        {
+          objectApiName: 'OpportunityLineItem',
+          issue: 'object_not_createable',
+          severity: 'error',
+          notCreatableBy: 'parent',
+        },
+        {
+          objectApiName: 'Thing__c',
+          issue: 'object_not_createable',
+          severity: 'error',
+          notCreatableBy: 'user',
+        },
+      ]);
+      expect(result[0].details).toBe(
+        'Report is in the target org, but no user can create its records there, not even one ' +
+          'with Modify All Data: Execute skips it',
+      );
+      for (const entry of result.slice(0, 4)) {
+        expect(entry.details, entry.objectApiName).not.toContain('give that user Create');
+      }
+    });
+
+    it('says an object the target user may not create as before when the target does not say who may', async () => {
+      const diff = new ForgeMetadataDiff({
+        describeObject: async (orgId) =>
+          orgId === 'target' ? { createable: false, fields: [] } : { createable: true, fields: [] },
+        whyNotCreatable: async () => {
+          throw new Error('INSUFFICIENT_ACCESS: View Setup');
+        },
+      });
+
+      const [entry] = await diff.compare('source', 'target', ['Report']);
+
+      expect(entry).toMatchObject({ issue: 'object_not_createable', severity: 'error' });
+      expect(entry).not.toHaveProperty('notCreatableBy');
+    });
+
     it('should detect permission denied as warning severity', async () => {
       const deps = makeDeps({
         source: {

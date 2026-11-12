@@ -247,10 +247,10 @@ describe('a mask resource', () => {
       'sandforge-dataops anonymize --org TGT --restore <the snapshot its run names> ' +
         `--store ${await storeDirOf()}`,
     );
-    expect(planned.warnings).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining('the emails the org sends as the records of customers are masked'),
-      ]),
+    // The masking's dry run counts the emails the org sends as the records
+    // are written over, and the plan no longer warns that it does not.
+    expect((planned.warnings ?? []).filter((warning) => warning.includes('are masked'))).toEqual(
+      [],
     );
     expect(JSON.stringify(world.records('Contact'))).toBe(before);
     expect(maskings()).toEqual([]);

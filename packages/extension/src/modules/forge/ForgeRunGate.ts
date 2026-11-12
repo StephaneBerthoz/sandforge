@@ -32,8 +32,13 @@ import {
   firedOnRemovalStepsOf,
   firedOnWriteOf,
   heldBypassPermissionsOf,
+  isForgeRunGateCode,
 } from '@sandforge/shared';
 import type {
+  CheckpointRefusal,
+  CheckpointRefusalCode,
+  EmailDeliverability,
+  EmailSender,
   ForgeAutomationWrite,
   ForgeConfig,
   ForgeEmailLimit,
@@ -48,7 +53,15 @@ import type {
   ForgeRunGateStop,
   ForgeTargetAutomation,
   ForgeTargetFlow,
+  RunCheckpointEstimate,
+  RunCheckpointTaken,
+  RunDeliverability,
 } from '@sandforge/shared';
+import {
+  beforeRunFailedWords,
+  beforeRunRefusedWords,
+  type BeforeRunTake,
+} from '../checkpoint/beforeRunCheckpoint.js';
 import {
   ACCOUNT,
   CONTACT,
@@ -56,6 +69,7 @@ import {
   FLAGS_THE_PLATFORM_LEAVES,
   STATUS_LIFECYCLES,
   isPersonAccountRow,
+  writtenWithWords,
 } from '../../core/common/platformRecords.js';
 import type {
   AutomationConfirmation,
@@ -65,7 +79,7 @@ import type {
   WriteConfirmation,
   WriteConfirmationStorage,
 } from '../../core/precheck/ProductionGuard.js';
-import type { ForgeWriteBoundary } from './ForgeExecutor.js';
+import type { ForgeMayBeByThePlatform, ForgeWriteBoundary } from './ForgeExecutor.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   bulkJobRequests,
@@ -79,6 +93,7 @@ import {
   FORGE_BULK_MIN_ROWS,
   FORGE_REST_ONLY_OBJECTS,
 } from './ForgeBatchStrategy.js';
+import { RUN_CANCELLED } from './forgeAudit.js';
 import { ordersTheWrite } from './stages/ScopeResolver.js';
 import { objectsTheRunWrites } from './TargetAutomationReader.js';
 
@@ -163,6 +178,23 @@ const TEXT_FIELD_MAX = 255;
 /** The article versions of Salesforce Knowledge, `Knowledge__kav` and its kind. */
 const ARTICLE_OBJECT = /__kav$/i;
 
+/** The objects of a size of their own, by their name in lower case. */
+const SIZED_OBJECTS: ReadonlyMap<string, string> = new Map(
+  [EMAIL_MESSAGE, ACCOUNT, CONTACT, 'Campaign', 'CampaignMember'].map((name) => [
+    name.toLowerCase(),
+    name,
+  ]),
+);
+
+/**
+ * The name the sizes read `objectApiName` by: a configuration may write it in
+ * any case, an SFDMU query's `from account` keeps its own, and the org reads
+ * it all the same.
+ */
+function sizedName(objectApiName: string): string {
+  return SIZED_OBJECTS.get(objectApiName.toLowerCase()) ?? objectApiName;
+}
+
 /** The bytes the text values of a row take. */
 function textBytes(row: Record<string, unknown>, longerThan = 0): number {
   let bytes = 0;
@@ -181,13 +213,14 @@ function textBytes(row: Record<string, unknown>, longerThan = 0): number {
  * account.
  */
 export function rowStorageBytes(objectApiName: string, row: Record<string, unknown>): number {
-  if (objectApiName === EMAIL_MESSAGE) return textBytes(row);
-  if (objectApiName === ACCOUNT) {
+  const sized = sizedName(objectApiName);
+  if (sized === EMAIL_MESSAGE) return textBytes(row);
+  if (sized === ACCOUNT) {
     return isPersonAccountRow(row) ? PERSON_ACCOUNT_BYTES : RECORD_BYTES;
   }
-  if (objectApiName === CONTACT && isPersonAccountRow(row)) return 0;
-  if (objectApiName === 'Campaign') return CAMPAIGN_BYTES;
-  if (objectApiName === 'CampaignMember') return CAMPAIGN_MEMBER_BYTES;
+  if (sized === CONTACT && isPersonAccountRow(row)) return 0;
+  if (sized === 'Campaign') return CAMPAIGN_BYTES;
+  if (sized === 'CampaignMember') return CAMPAIGN_MEMBER_BYTES;
   // The rich text an article holds is counted as the long values it has: a
   // long text area counted with it says a little too much, never too little.
   if (ARTICLE_OBJECT.test(objectApiName)) return ARTICLE_BYTES + textBytes(row, TEXT_FIELD_MAX);
@@ -202,6 +235,8 @@ export interface WritePlanObject {
   storageBytes: number;
   /** Of `rows`, the prices the write may read besides those in hand, at most: see `ForgeWriteBoundary`. */
   mayAdd?: number;
+  /** Of `rows`, those the platform may write itself, at most: see `ForgeWriteBoundary`. */
+  mayBeByThePlatform?: ForgeMayBeByThePlatform;
 }
 
 /** What a run is about to write: per object, the most first, and in all. */
@@ -222,6 +257,11 @@ export interface WritePlanLeftOut {
   writtenBefore: number;
   /** Per object held back whole for a record type closed to the user the run writes as, its rows. */
   heldBack: Array<{ objectApiName: string; rows: number }>;
+  /**
+   * Per object, the rows the platform writes itself with a record the run
+   * creates, which the write links to and never sends. Absent when none.
+   */
+  byThePlatform?: Array<{ objectApiName: string; rows: number }>;
 }
 
 /**
@@ -242,8 +282,9 @@ export function countedStorageBytes(
   }
   const persons = Math.min(counted.personAccounts ?? 0, counted.rows);
   const others = counted.rows - persons;
-  if (objectApiName === ACCOUNT) return others * RECORD_BYTES + persons * PERSON_ACCOUNT_BYTES;
-  if (objectApiName === CONTACT) return others * RECORD_BYTES;
+  const sized = sizedName(objectApiName);
+  if (sized === ACCOUNT) return others * RECORD_BYTES + persons * PERSON_ACCOUNT_BYTES;
+  if (sized === CONTACT) return others * RECORD_BYTES;
   return others * rowStorageBytes(objectApiName, {});
 }
 
@@ -256,11 +297,12 @@ export function countedStorageBytes(
  */
 export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
   const measured = objects
-    .map(({ objectApiName, rows, counted, mayAdd = 0 }): WritePlanObject => {
+    .map(({ objectApiName, rows, counted, mayAdd = 0, mayBeByThePlatform }): WritePlanObject => {
       const more = {
         rows: mayAdd,
         storageBytes: mayAdd * rowStorageBytes(objectApiName, {}),
         ...(mayAdd > 0 ? { mayAdd } : {}),
+        ...(mayBeByThePlatform && mayBeByThePlatform.rows > 0 ? { mayBeByThePlatform } : {}),
       };
       return counted
         ? {
@@ -287,11 +329,22 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
   const heldBack = objects
     .filter((object) => (object.leftOut?.heldBack ?? 0) > 0)
     .map(({ objectApiName, leftOut }) => ({ objectApiName, rows: leftOut?.heldBack ?? 0 }));
+  const byThePlatform = objects
+    .filter((object) => (object.leftOut?.byThePlatform ?? 0) > 0)
+    .map(({ objectApiName, leftOut }) => ({ objectApiName, rows: leftOut?.byThePlatform ?? 0 }));
   return {
     objects: measured,
     totalRows: measured.reduce((sum, object) => sum + object.rows, 0),
     storageBytes: measured.reduce((sum, object) => sum + object.storageBytes, 0),
-    ...(writtenBefore > 0 || heldBack.length > 0 ? { leftOut: { writtenBefore, heldBack } } : {}),
+    ...(writtenBefore > 0 || heldBack.length > 0 || byThePlatform.length > 0
+      ? {
+          leftOut: {
+            writtenBefore,
+            heldBack,
+            ...(byThePlatform.length > 0 ? { byThePlatform } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -405,6 +458,21 @@ export function confirmationSimulatedOf(
 export function pricesForLinesOf(plan: Pick<WritePlan, 'objects'>): { pricesForLines?: number } {
   const rows = plan.objects.reduce((sum, object) => sum + (object.mayAdd ?? 0), 0);
   return rows > 0 ? { pricesForLines: rows } : {};
+}
+
+/**
+ * The contact roles a plan counts that the platform may write itself, at
+ * most, as a run's question says them: counted in, where the gate could not
+ * tell them from the others.
+ */
+export function rolesMayBeOf(
+  plan: Pick<WritePlan, 'objects'>,
+): Pick<WriteConfirmation, 'rolesMayBeByThePlatform'> {
+  const may = plan.objects.find((object) => object.mayBeByThePlatform)?.mayBeByThePlatform;
+  if (!may || may.rows <= 0) return {};
+  return {
+    rolesMayBeByThePlatform: { rows: may.rows, ...(may.before === true ? { before: true } : {}) },
+  };
 }
 
 /** What an org says of its data storage, in MB. */
@@ -908,6 +976,87 @@ export function wholeOrgMeasuresOf(
 }
 
 /**
+ * The code every module's run is refused under for the checkpoint it was
+ * asked to take of what it writes before its first write (`Checkpoint
+ * first`): its scope refused at the gate, or its take refused or failed once
+ * the question was answered. The take's own refusal goes with it, for its
+ * code (`DISK`, `NOTHING_HELD`, `API_BUDGET`…). Nothing was written, and the
+ * mute assigned nothing: the take comes before the lease.
+ */
+export const CHECKPOINT_REFUSED = 'CHECKPOINT_REFUSED';
+
+/**
+ * The `checkpoint` part of a run's API requests: what the take of its
+ * checkpoint first is estimated to send — the objects' records and their
+ * recycle bin, as its scope counted them at the gate. Absent for a run that
+ * takes none.
+ */
+export function checkpointPartOf(
+  checkpoint: Pick<RunCheckpointEstimate, 'estimate'> | undefined,
+): Pick<RunRequestParts, 'checkpoint'> {
+  return checkpoint ? { checkpoint: checkpoint.estimate.apiRequests } : {};
+}
+
+/** Why a run stops before its first write for the checkpoint it was asked to take first. */
+export interface CheckpointFirstStop {
+  /** {@link CHECKPOINT_REFUSED}, or `RUN_CANCELLED` when the run's Stop came while the take read. */
+  code: typeof CHECKPOINT_REFUSED | typeof RUN_CANCELLED;
+  message: string;
+  /** The take's refusal, by its code; absent for a take that failed or was stopped. */
+  refusal?: CheckpointRefusal;
+}
+
+/**
+ * Why a run is refused at its gate for the checkpoint it takes first: the
+ * refusal its scope met there — another run writing, the org's lock, its
+ * limits, the day's requests, the disk of this machine, or none of the
+ * objects the run writes held. The run is refused before its question,
+ * nothing taken and nothing written.
+ */
+export function checkpointScopeStop(
+  checkpoint: Pick<RunCheckpointEstimate, 'refusal'> | undefined,
+): { code: typeof CHECKPOINT_REFUSED; message: string; refusal: CheckpointRefusal } | undefined {
+  const refusal = checkpoint?.refusal;
+  if (refusal === undefined) return undefined;
+  return { code: CHECKPOINT_REFUSED, message: beforeRunRefusedWords(refusal), refusal };
+}
+
+/** What a run says when its Stop came while it took the checkpoint first. */
+export const CHECKPOINT_STOPPED_WORDS =
+  'The run was stopped while it took the checkpoint first: nothing of it was kept, and nothing ' +
+  'was written.';
+
+/**
+ * The take of the checkpoint a run asked for first, once its question is
+ * answered and before the mute's lease is taken: the checkpoint, or why the
+ * run stops with nothing written — the take refused, failed, or stopped by
+ * the run's Stop, keeping nothing. A take that failed keeps nothing either,
+ * and the run would have no checkpoint to rewind to, which the option
+ * promised: it writes nothing.
+ */
+export async function takeCheckpointFirst(
+  take: () => Promise<BeforeRunTake>,
+): Promise<{ checkpoint: RunCheckpointTaken } | { stop: CheckpointFirstStop }> {
+  let outcome: BeforeRunTake;
+  try {
+    outcome = await take();
+  } catch (err: unknown) {
+    return { stop: { code: CHECKPOINT_REFUSED, message: beforeRunFailedWords(err) } };
+  }
+  if (outcome.taken) return { checkpoint: outcome.checkpoint };
+  if ('stopped' in outcome) {
+    return { stop: { code: RUN_CANCELLED, message: CHECKPOINT_STOPPED_WORDS } };
+  }
+  return {
+    stop: {
+      code: CHECKPOINT_REFUSED,
+      message: beforeRunRefusedWords(outcome.refusal),
+      refusal: outcome.refusal,
+    },
+  };
+}
+
+/**
  * Why the target's daily Bulk API batches are not known when its `/limits`
  * list none, as {@link API_REQUESTS_NOT_TOLD} is for its requests.
  */
@@ -976,6 +1125,115 @@ export function readBoundRefusal(
     'sandforge.forge.maxRecordsPerObject setting lets a run hold at once: raise the setting ' +
     'or leave the object out on Review. Nothing was written.'
   );
+}
+
+/**
+ * The parts of the API requests a Forge run takes of its target once its
+ * write gate lets the rows through:
+ *
+ * - `run`: its writes — a REST call per 200 rows of each object, every row
+ *   going through sObject collections, and as many again for the objects its
+ *   second pass updates (`objectsUpdatedAfterInsert`), at most;
+ * - `checkpoint`: the take of the checkpoint it takes first, as its scope
+ *   estimates it;
+ * - `readBack`: the reads of the record types the target gave the records
+ *   created without one (`ForgeWriteBoundary.readBack`), at most;
+ * - `deliverability`: what the read of whether the target delivers its emails
+ *   sent, when something that still runs sends one.
+ *
+ * Its reads are past by then, and of the source: the target's budget never
+ * paid for them.
+ */
+export function forgeRequestPartsOf(input: {
+  plan: Pick<WritePlan, 'objects'>;
+  /** The objects whose rows the run writes a second time. */
+  updatedAfterInsert?: readonly string[];
+  readBack?: number;
+  checkpoint?: Pick<RunCheckpointEstimate, 'estimate'>;
+  /** What the read of whether the target delivers its emails sent (`deliverabilityPartOf`). */
+  deliverability?: number;
+}): RunRequestParts {
+  const updated = new Set(input.updatedAfterInsert ?? []);
+  const writes = input.plan.objects.map(({ rows }) => ({ rows }));
+  const updates = input.plan.objects
+    .filter(({ objectApiName }) => updated.has(objectApiName))
+    .map(({ rows }) => ({ rows }));
+  return {
+    run: runRequestsEstimate([...writes, ...updates]),
+    ...checkpointPartOf(input.checkpoint),
+    ...(input.readBack !== undefined && input.readBack > 0 ? { readBack: input.readBack } : {}),
+    ...(input.deliverability !== undefined && input.deliverability > 0
+      ? { deliverability: input.deliverability }
+      : {}),
+  };
+}
+
+/**
+ * What Forge's write gate holds a run's rows to beside their storage and
+ * their emails: the target's daily API requests, part by part, and the
+ * checkpoint the run takes first.
+ */
+export interface ForgeWriteBudget {
+  /** The requests against what the target has left today, every part together. */
+  api: ApiBudgetCheck;
+  /**
+   * Why the run is refused, nothing written: its checkpoint first refused at
+   * the gate, or its requests past what the target has left, the refusal
+   * naming each part beside the run's own. Absent when neither refuses it.
+   */
+  stop?: {
+    code: typeof API_BUDGET_EXCEEDED | typeof CHECKPOINT_REFUSED;
+    message: string;
+    refusal?: CheckpointRefusal;
+  };
+  /**
+   * Whether the gate asks for them, whatever the volume: a checkpoint taken
+   * first reads whole tables of the target, not the run's rows, and its cost
+   * is said before anything is taken.
+   */
+  asks: boolean;
+  /** What the run's question says of them: the requests when they run short, and the checkpoint. */
+  confirmation: Pick<WriteConfirmation, 'apiRequests' | 'checkpoint'>;
+}
+
+/**
+ * Forge's write gate on the API requests its rows take of the target and on
+ * the checkpoint it takes first: refused for the checkpoint's own refusal
+ * first, then past the requests the target has left, judged on the sum of
+ * the parts ({@link forgeRequestPartsOf}); asked whenever a checkpoint is
+ * taken first; the question told the requests when they run short, and the
+ * checkpoint. Forge's gate held no budget: a clone into an org whose
+ * integrations had spent the day's requests stopped part way through, as
+ * Sync, Seed and Autopilot no longer do.
+ *
+ * @param input.budget - The daily API requests the target has, read with its
+ *   storage (`DataStorage.dailyApiRequests`), or on their own when the
+ *   storage could not be read (`readApiBudget`), or why they could not be.
+ * @param input.target - The org, as the refusal names it.
+ */
+export function forgeWriteBudgetOf(input: {
+  plan: Pick<WritePlan, 'objects'>;
+  updatedAfterInsert?: readonly string[];
+  readBack?: number;
+  checkpoint?: RunCheckpointEstimate;
+  deliverability?: number;
+  budget: ApiBudget | { unread: string } | undefined;
+  target: string;
+}): ForgeWriteBudget {
+  const api = apiBudgetCheckOf(forgeRequestPartsOf(input), input.budget);
+  const overBudget = apiBudgetRefusal(api, input.target);
+  const stop =
+    checkpointScopeStop(input.checkpoint) ??
+    (overBudget !== undefined ? { code: API_BUDGET_EXCEEDED, message: overBudget } : undefined);
+  return {
+    api,
+    ...(stop ? { stop } : {}),
+    asks: input.checkpoint !== undefined,
+    confirmation: {
+      ...confirmationApiOf(api),
+      ...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
+    },
+  };
 }
 
 /** What the rows take against what the target has left, or why that could not be told. */
@@ -1062,29 +1320,63 @@ export function alertsCountAsSingle(limits: Partial<Record<ForgeEmailLimit, Emai
 }
 
 /**
+ * Whether the single emails the flows of an org send count against its
+ * workflow emails too: a Developer Edition's do ({@link alertsCountAsSingle}),
+ * where its limits list its workflow emails.
+ *
+ * Measured on the trap Developer Edition on 2026-11-02, a contact at a time,
+ * its quotas read from `/limits`: the workflow rule's alert alone took one
+ * single email and one workflow email, the flow's two Send Email actions
+ * alone two of each. Counted against the single emails alone, a contact was
+ * said to take one workflow email, the rule's alert, and took three. No org
+ * of another edition was measured, and one is counted as Salesforce says: an
+ * alert against the workflow emails, a Send Email against the single emails.
+ * A Developer Edition's fifteen single emails run out long before its
+ * thousands of workflow emails, which every email there counts against: one
+ * whose limits do not list them is not asked about them.
+ */
+export function singleCountAsWorkflow(
+  limits: Partial<Record<ForgeEmailLimit, EmailLimit>>,
+): boolean {
+  return alertsCountAsSingle(limits) && limits.DailyWorkflowEmails !== undefined;
+}
+
+/**
  * The emails each record of an object makes the org send, per daily limit,
  * as the org counts them: the email alerts counted against the single emails
- * as well where the org counts them there.
+ * as well where the org counts them there, and the single emails a flow sends
+ * against the workflow emails as well where it counts them there.
  *
  * @param alertsAsSingle - Whether the org counts its email alerts against its
  *   single emails ({@link alertsCountAsSingle}).
+ * @param singleAsWorkflow - Whether it counts its single emails against its
+ *   workflow emails ({@link singleCountAsWorkflow}).
  */
 export function emailsCountedPerRecord(
   perInsert: readonly ForgeEmailsPerInsert[],
   alertsAsSingle: boolean,
+  singleAsWorkflow = false,
 ): ForgeEmailsPerInsert[] {
   const out = perInsert.map((sending) => ({ ...sending, sentBy: [...sending.sentBy] }));
-  if (!alertsAsSingle) return out;
-  for (const alert of perInsert.filter((sending) => sending.limit === 'DailyWorkflowEmails')) {
-    const single = out.find(
-      (sending) => sending.objectApiName === alert.objectApiName && sending.limit === 'SingleEmail',
+  /** Count what `from` sends against `limit` too, from what the records were given. */
+  const countAlso = (from: ForgeEmailsPerInsert, limit: ForgeEmailLimit): ForgeEmailsPerInsert => {
+    const into = out.find(
+      (sending) => sending.objectApiName === from.objectApiName && sending.limit === limit,
     );
-    if (!single) {
-      out.push({ ...alert, limit: 'SingleEmail', sentBy: [...alert.sentBy] });
-      continue;
+    if (!into) {
+      const added = { ...from, limit, sentBy: [...from.sentBy] };
+      out.push(added);
+      return added;
     }
-    single.perRecord += alert.perRecord;
-    for (const name of alert.sentBy) if (!single.sentBy.includes(name)) single.sentBy.push(name);
+    into.perRecord += from.perRecord;
+    for (const name of from.sentBy) if (!into.sentBy.includes(name)) into.sentBy.push(name);
+    return into;
+  };
+  const single = perInsert.filter((sending) => sending.limit === 'SingleEmail');
+  const alerts = perInsert.filter((sending) => sending.limit === 'DailyWorkflowEmails');
+  if (singleAsWorkflow) for (const sending of single) countAlso(sending, 'DailyWorkflowEmails');
+  if (alertsAsSingle) {
+    for (const alert of alerts) countAlso(alert, 'SingleEmail').alertsAmong = true;
   }
   return out;
 }
@@ -1092,8 +1384,18 @@ export function emailsCountedPerRecord(
 /** The emails a run's inserts make the target send against one daily limit, and what is left of it. */
 export interface EmailCheck {
   limit: ForgeEmailLimit;
-  /** The emails, per object: the records inserted and the emails each sends. */
-  objects: Array<{ objectApiName: string; rows: number; perRecord: number; sentBy: string[] }>;
+  /**
+   * The emails, per object: the records inserted and the emails each sends,
+   * and of those records the ones the platform writes itself
+   * (`byThePlatform`), which the run never sends and whose flows run as any.
+   */
+  objects: Array<{
+    objectApiName: string;
+    rows: number;
+    perRecord: number;
+    sentBy: string[];
+    byThePlatform?: number;
+  }>;
   emails: number;
   /**
    * Set on the single emails of an org that counts its email alerts against
@@ -1113,9 +1415,48 @@ export interface EmailCheck {
 }
 
 /**
+ * What a run's emails are counted of: the records it writes, per object, and
+ * the rows the platform writes itself with them (`leftOut.byThePlatform`) —
+ * the owner's member and split of an opportunity, a person account's contact
+ * — which the run never sends and the target inserts all the same.
+ */
+type PlanOfInserts = Pick<WritePlan, 'objects'> & {
+  leftOut?: Pick<WritePlanLeftOut, 'byThePlatform'>;
+};
+
+/**
+ * Per object, the records a plan inserts — those the platform writes with them
+ * among them — and how many of them the platform writes. Left out of the
+ * plan's records, the owner's member of an opportunity sent the emails of its
+ * flows uncounted: the platform's insert starts them as the run's would.
+ */
+function insertedOf(plan: PlanOfInserts): Map<string, { rows: number; byThePlatform: number }> {
+  const inserted = new Map(
+    plan.objects.map((object) => [object.objectApiName, { rows: object.rows, byThePlatform: 0 }]),
+  );
+  for (const { objectApiName, rows } of plan.leftOut?.byThePlatform ?? []) {
+    const entry = inserted.get(objectApiName) ?? { rows: 0, byThePlatform: 0 };
+    inserted.set(objectApiName, {
+      rows: entry.rows + rows,
+      byThePlatform: entry.byThePlatform + rows,
+    });
+  }
+  return inserted;
+}
+
+/** The objects a plan inserts records of, those the platform writes included. */
+function objectsInsertedOf(plan: PlanOfInserts): Set<string> {
+  return new Set(
+    [...insertedOf(plan)].flatMap(([objectApiName, { rows }]) => (rows > 0 ? [objectApiName] : [])),
+  );
+}
+
+/**
  * The emails the rows about to be written make the target send, per daily
  * limit, against what it has left. Only limits the inserts send emails
- * against are checked; none, and there is nothing to read.
+ * against are checked; none, and there is nothing to read. The rows the
+ * platform writes itself with a record the run creates are inserted too, and
+ * counted with them ({@link insertedOf}).
  *
  * Run for real into a Developer Edition, a contact flow's Send Email took
  * the org past its fifteen single emails a day, and thirty contacts were
@@ -1123,14 +1464,17 @@ export interface EmailCheck {
  * neutralized under `.invalid` count all the same.
  */
 export function emailChecksOf(
-  plan: Pick<WritePlan, 'objects'>,
+  plan: PlanOfInserts,
   perInsert: readonly ForgeEmailsPerInsert[],
   limits: Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string },
 ): EmailCheck[] {
-  const rows = new Map(plan.objects.map((object) => [object.objectApiName, object.rows]));
+  const rows = insertedOf(plan);
   const byLimit = new Map<ForgeEmailLimit, EmailCheck>();
   for (const sending of perInsert) {
-    const inserted = rows.get(sending.objectApiName) ?? 0;
+    const { rows: inserted, byThePlatform } = rows.get(sending.objectApiName) ?? {
+      rows: 0,
+      byThePlatform: 0,
+    };
     if (inserted === 0) continue;
     const check = byLimit.get(sending.limit) ?? {
       limit: sending.limit,
@@ -1143,6 +1487,7 @@ export function emailChecksOf(
       rows: inserted,
       perRecord: sending.perRecord,
       sentBy: sending.sentBy,
+      ...(byThePlatform > 0 ? { byThePlatform } : {}),
     });
     check.emails += inserted * sending.perRecord;
     byLimit.set(sending.limit, check);
@@ -1183,16 +1528,19 @@ function isUnread(limits: object): limits is { unread: string } {
  * at −75 of 15, and the clone took them to −117.
  */
 export function countedEmailChecksOf(
-  plan: Pick<WritePlan, 'objects'>,
+  plan: PlanOfInserts,
   perInsert: readonly ForgeEmailsPerInsert[],
   limits: Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string },
 ): EmailCheck[] {
   const alertsAsSingle = !isUnread(limits) && alertsCountAsSingle(limits);
-  const checks = emailChecksOf(plan, emailsCountedPerRecord(perInsert, alertsAsSingle), limits);
-  if (!alertsAsSingle) return checks;
-  const written = new Set(
-    plan.objects.filter((object) => object.rows > 0).map((object) => object.objectApiName),
+  const singleAsWorkflow = !isUnread(limits) && singleCountAsWorkflow(limits);
+  const checks = emailChecksOf(
+    plan,
+    emailsCountedPerRecord(perInsert, alertsAsSingle, singleAsWorkflow),
+    limits,
   );
+  if (!alertsAsSingle) return checks;
+  const written = objectsInsertedOf(plan);
   const alerting = perInsert.some(
     (sending) => sending.limit === 'DailyWorkflowEmails' && written.has(sending.objectApiName),
   );
@@ -1257,15 +1605,13 @@ export async function countedTargetEmails(input: {
 
 /**
  * The writes whose emails a run counts as it inserts the records of a plan:
- * the insert of each object it holds records of, as `emailsPerInsertOf`
- * counts them.
+ * the insert of each object it holds records of, those the platform writes
+ * with them included, as `emailsPerInsertOf` counts them.
  */
 export function insertsOf(
-  plan: Pick<WritePlan, 'objects'>,
+  plan: PlanOfInserts,
 ): (objectApiName: string, write: ForgeAutomationWrite) => boolean {
-  const inserted = new Set(
-    plan.objects.filter((object) => object.rows > 0).map((object) => object.objectApiName),
-  );
+  const inserted = objectsInsertedOf(plan);
   return (objectApiName, write) => write === 'insert' && inserted.has(objectApiName);
 }
 
@@ -1414,11 +1760,21 @@ export function unreadEmailOf(
   return { limit: check.limit, emails: check.emails, unread: check.unread ?? '' };
 }
 
-/** How each daily email limit is said. */
-const EMAIL_LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, string>> = {
-  SingleEmail: 'single emails',
-  DailyWorkflowEmails: 'workflow emails',
+/** How each daily email limit is said, of one email and of more. */
+const EMAIL_LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, { one: string; more: string }>> = {
+  SingleEmail: { one: 'single email', more: 'single emails' },
+  DailyWorkflowEmails: { one: 'workflow email', more: 'workflow emails' },
 };
+
+/**
+ * `emails` emails of a daily limit, as a line says them: "1 single email",
+ * "20 single emails". A clone's gate that counted one said "about 1 single
+ * emails", live, as a rewind's preview did.
+ */
+export function emailsOfLimit(emails: number, limit: ForgeEmailLimit): string {
+  const words = EMAIL_LIMIT_WORDS[limit];
+  return `${emails} ${emails === 1 ? words.one : words.more}`;
+}
 
 /** What a check says of the email alerts among its single emails, when they are. */
 function alertsWords(check: EmailCheck, org: string): string {
@@ -1439,7 +1795,7 @@ export function emailRefusal(checks: readonly EmailCheck[], org: string): string
   const said = over
     .map(
       (check) =>
-        `about ${check.emails} ${EMAIL_LIMIT_WORDS[check.limit]}` +
+        `about ${emailsOfLimit(check.emails, check.limit)}` +
         (check.alertsCounted
           ? ' (its email alerts among them, as a Developer Edition counts them)'
           : '') +
@@ -1457,12 +1813,18 @@ export function emailRefusal(checks: readonly EmailCheck[], org: string): string
 /** What the command's write gate says of the emails the rows make the target send. */
 export function emailCheckLines(checks: readonly EmailCheck[], org: string): string[] {
   return checks.map((check) => {
-    const words = EMAIL_LIMIT_WORDS[check.limit];
     const per = check.objects
-      .map((o) => `${o.perRecord} per ${o.objectApiName}, by ${o.sentBy.join(', ')}`)
+      .map(
+        (o) =>
+          `${o.perRecord} per ${o.objectApiName}, by ${o.sentBy.join(', ')}` +
+          (o.byThePlatform
+            ? `; ${o.byThePlatform} ${o.objectApiName} written by the platform with ` +
+              `${writtenWithWords(o.objectApiName)}, whose flows run all the same`
+            : ''),
+      )
       .join('; ');
     const sent =
-      `  emails: these records make ${org} send about ${check.emails} ${words} (${per})` +
+      `  emails: these records make ${org} send about ${emailsOfLimit(check.emails, check.limit)} (${per})` +
       alertsWords(check, org);
     if (check.verdict === 'unread') {
       return `${sent}; what it has left today could not be read (${check.unread ?? ''})`;
@@ -1477,6 +1839,398 @@ export function emailCheckLines(checks: readonly EmailCheck[], org: string): str
       'smaller run, avoids it'
     );
   });
+}
+
+/**
+ * The code a command-line run is refused under when the target would deliver
+ * the emails what still runs sends — or would not say whether it does — and
+ * the run was not given `--accept-emails`. `--accept-automation` never lifts
+ * it: it is the flag a CI script passes on every run.
+ */
+export const EMAILS_NOT_ACCEPTED = 'EMAILS_NOT_ACCEPTED';
+
+/**
+ * Why what may send an email as a run writes could not all be listed: the
+ * parts of the target's automation that send them the read could not take —
+ * its flows, processes and workflow rules, and its assignment rules when the
+ * run applies them — each with the org's answer. Undefined when it took them
+ * all. A part refused whole lists nothing, which is not the same as sending
+ * nothing: the run reads the org's deliverability all the same.
+ */
+export function sendersUnreadOf(
+  unread: ForgeTargetAutomation['unread'],
+  options: { applyAssignmentRules?: boolean } = {},
+): string | undefined {
+  const said = [
+    emailSendersUnread(unread, "the target's"),
+    ...(options.applyAssignmentRules === true
+      ? unread
+          .filter(({ part }) => part === 'assignmentRules')
+          .map(({ reason }) => `the target's assignment rules: ${reason}`)
+      : []),
+  ].filter((reason): reason is string => reason !== undefined);
+  return said.length > 0 ? said.join('; ') : undefined;
+}
+
+/**
+ * The `deliverability` part of a run's API requests: what its read of the
+ * target's deliverability sent. Absent for a run with nothing left to send,
+ * which reads none.
+ */
+export function deliverabilityPartOf(
+  read: { read?: { requests: number } } | undefined,
+): Pick<RunRequestParts, 'deliverability'> {
+  const requests = read?.read?.requests ?? 0;
+  return requests > 0 ? { deliverability: requests } : {};
+}
+
+/** The run a deliverability refusal names, as the command lines name it. */
+export type DeliverabilityRun =
+  | 'clone'
+  | 'sync'
+  | 'seed'
+  | 'autopilot'
+  | 'rewind'
+  | 'undo'
+  | 'masking'
+  | 'restore'
+  | 'cleanup'
+  | 'load';
+
+/** How a refusal names each run, and what `--accept-emails` lets it do. */
+const DELIVERABILITY_RUN_WORDS: Readonly<
+  Record<DeliverabilityRun, { run: string; allTheSame: string }>
+> = {
+  clone: { run: 'this clone', allTheSame: 'to clone all the same' },
+  sync: { run: 'this sync', allTheSame: 'to sync all the same' },
+  seed: { run: 'this seed', allTheSame: 'to seed all the same' },
+  autopilot: { run: 'this Autopilot run', allTheSame: 'to run it all the same' },
+  rewind: { run: 'this rewind', allTheSame: 'to rewind all the same' },
+  undo: { run: 'this undo', allTheSame: 'to undo all the same' },
+  masking: { run: 'this masking', allTheSame: 'to mask all the same' },
+  restore: { run: 'this restore', allTheSame: 'to restore all the same' },
+  cleanup: { run: 'this cleanup', allTheSame: 'to delete all the same' },
+  load: { run: 'this load', allTheSame: 'to load all the same' },
+};
+
+/** How a sender of emails is named, by its kind. */
+const SENDER_KIND_WORDS: Readonly<Record<EmailSender['kind'], string>> = {
+  flow: 'flow',
+  process: 'process',
+  workflowRule: 'workflow rule',
+  assignmentRule: 'assignment rule',
+};
+
+/** What a sender's name is followed by, by why it counts. */
+const SENDER_WHY_WORDS: Readonly<Record<EmailSender['why'], string>> = {
+  email: '',
+  notRead: ' (its definition was not read)',
+  assignment: ' (applied: it can mail the owner it assigns)',
+};
+
+/** `a`, `a and b`, `a, b and c`. */
+function inWords(items: readonly string[]): string {
+  if (items.length <= 1) return items.join('');
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/**
+ * The senders, named object by object in the order they come: `flow "A" and
+ * workflow rule "B" on Contact; assignment rule "C" on Case`, the first
+ * {@link SENDERS_NAMED} of an object named and the rest counted.
+ */
+function sendersWords(senders: readonly EmailSender[]): string {
+  const byObject = new Map<string, string[]>();
+  for (const sender of senders) {
+    const names = byObject.get(sender.objectApiName) ?? [];
+    names.push(`${SENDER_KIND_WORDS[sender.kind]} "${sender.name}"${SENDER_WHY_WORDS[sender.why]}`);
+    byObject.set(sender.objectApiName, names);
+  }
+  return [...byObject]
+    .map(([objectApiName, names]) => {
+      const shown =
+        names.length > SENDERS_NAMED
+          ? [...names.slice(0, SENDERS_NAMED), `${names.length - SENDERS_NAMED} more`]
+          : names;
+      return `${inWords(shown)} on ${objectApiName}`;
+    })
+    .join('; ');
+}
+
+/** Where the line of the read comes from, said on every line that gives what it read. */
+const READ_WITH = 'read with one line of anonymous Apex that sends nothing';
+
+/** Whether a reading says the org delivers none of the emails of its automation. */
+function isWithheld(reading: EmailDeliverability): reading is { level: 'withheld' } {
+  return 'level' in reading && reading.level === 'withheld';
+}
+
+/** What a command line's report of the target's automation says of its deliverability. */
+export function deliverabilityLineOf(reading: EmailDeliverability): string {
+  if ('unread' in reading) {
+    return (
+      `deliverability: not read (${reading.unread}) — the run is refused without ` +
+      '--accept-emails, as on All email'
+    );
+  }
+  if (reading.level === 'all') {
+    return `deliverability: All email — the emails of what still runs go out (${READ_WITH})`;
+  }
+  return (
+    'deliverability: System email only or No access — none of the emails its flows, ' +
+    'processes, workflow rules and Apex send goes out, and the org still counts them against ' +
+    `its daily email limits (${READ_WITH})`
+  );
+}
+
+/** What a run judged on its emails is told: the senders, what may send beside them, and the read. */
+export interface DeliverabilityGateInput {
+  /** What still runs that may send an email as the run writes (`emailSendersOf`). */
+  senders: readonly EmailSender[];
+  /** Why what may send could not all be listed ({@link sendersUnreadOf}); absent when it was. */
+  sendersUnread?: string;
+  /** The org's deliverability, as read; absent when not read, taken for unread when something sends. */
+  reading?: EmailDeliverability;
+  /**
+   * Whether the run was given the accord to send them: `--accept-emails`,
+   * "Execute and send the emails", `acceptEmails`, or the Approval that
+   * answers a pipeline step's question. Never `--accept-automation`.
+   */
+  accepted: boolean;
+  /** The org, as the refusal names it. */
+  target: string;
+  run: DeliverabilityRun;
+  /**
+   * Those of `senders` a mute would keep quiet (`sendersTheMuteQuiets`), for
+   * a run that does not mute: the refusal names `--mute-automation` for them.
+   * Absent or empty, it does not.
+   */
+  muteQuiets?: readonly EmailSender[];
+  /**
+   * Whether the records the run writes keep the addresses they are written
+   * with: `--keep-contact-points`, or a rewind's values, which are the org's
+   * own. A run that neutralizes them writes them under `.invalid`.
+   */
+  keepsAddresses?: boolean;
+}
+
+/**
+ * A run judged on the emails what still runs sends:
+ *
+ * - `nothingSends`: nothing left sends one, nothing was read, and nothing
+ *   is said;
+ * - `withheld`: the org delivers none of them, said in a line and asked about
+ *   nowhere;
+ * - `asks`: the org delivers them all, or would not say — refused without
+ *   the accord, which nothing else lifts.
+ */
+export interface DeliverabilityGate {
+  verdict: 'nothingSends' | 'withheld' | 'asks';
+  /**
+   * What the run's preview, result and `--json` say of it: the reading and
+   * the senders, whenever something sends. Absent otherwise.
+   */
+  deliverability?: RunDeliverability;
+  /**
+   * What the run's question carries (`AutomationConfirmation.deliverability`,
+   * `WriteConfirmation.deliverability`): the block put first, and the answer
+   * "Execute and send the emails". Set when it asks.
+   */
+  confirmation: { deliverability?: RunDeliverability };
+  /** Why the run is refused, nothing written: it asks, and was not given the accord. */
+  stop?: { code: typeof EMAILS_NOT_ACCEPTED; message: string };
+  /** What a command line's report of the target's automation says of it; absent when nothing sends. */
+  line?: string;
+  /** What the audit trail keeps of the read (`AuditRunContext.deliverability`); absent when nothing sends. */
+  audit?: 'all' | 'withheld' | 'unread';
+}
+
+/**
+ * The words of a refusal for the emails: what the org does with them, who
+ * sends them, where they go, and what lets the run through.
+ */
+function deliverabilityRefusalOf(
+  input: DeliverabilityGateInput,
+  reading: Exclude<EmailDeliverability, { level: 'withheld' }>,
+): string {
+  const { run, allTheSame } = DELIVERABILITY_RUN_WORDS[input.run];
+  const { target } = input;
+  const named = sendersWords(input.senders);
+  const unread = input.sendersUnread;
+  const whoSends =
+    named !== ''
+      ? `what still runs as ${run} writes its records sends some: ${named}` +
+        (unread !== undefined ? `; what could not be read may send more (${unread})` : '')
+      : `what runs as ${run} writes its records could not all be read (${unread ?? ''}), ` +
+        'so it may send some';
+  const parts: string[] = [];
+  if ('unread' in reading) {
+    parts.push(
+      `Whether ${target} delivers the emails its automation sends could not be read ` +
+        `(${reading.unread}), and ${whoSends}.`,
+      `Nothing was written. Add --accept-emails ${allTheSame}, or check Setup > ` +
+        'Deliverability: on System email only or No access, none of them goes out.',
+    );
+  } else {
+    parts.push(
+      `${target} delivers every email its automation sends (Setup > Deliverability: All ` +
+        `email), and ${whoSends}.`,
+      input.keepsAddresses === true
+        ? `They go to the addresses the records and the alerts name: those of the records ` +
+            `${run} writes, as they hold them, the records' owners, the records already in ` +
+            `${target}, and an address an alert names.`
+        : `They go to the addresses the records and the alerts name: those ${run} writes are ` +
+            `under .invalid, but not the records' owners, the records already in ${target}, nor ` +
+            'an address an alert names.',
+      `Nothing was written. Add --accept-emails ${allTheSame}, set the org's deliverability to ` +
+        'System email only, or turn off what sends them.',
+    );
+  }
+  const quiets = input.muteQuiets ?? [];
+  if (quiets.length > 0) {
+    const quieted = new Set(quiets.map((s) => `${s.objectApiName}\u0000${s.kind}\u0000${s.name}`));
+    const rest = input.senders.filter(
+      (s) => !quieted.has(`${s.objectApiName}\u0000${s.kind}\u0000${s.name}`),
+    );
+    parts.push(
+      `--mute-automation keeps quiet ${sendersWords(quiets)}, which ` +
+        `${quiets.length === 1 ? 'tests' : 'test'} a bypass a permission set of ${target} holds` +
+        (rest.length > 0 ? `; it cannot quiet ${sendersWords(rest)}.` : '.'),
+    );
+  }
+  return parts.join(' ');
+}
+
+/**
+ * A run's gate on the emails what still runs sends: on what is left once the
+ * mute's plan holds, and on the org's deliverability, read just before the
+ * question when something sends ({@link DeliverabilityGateInput}).
+ *
+ * | Something sends | Read | The run |
+ * |---|---|---|
+ * | no | not read | nothing said |
+ * | yes | `withheld` | goes on, a line says why nothing goes out |
+ * | yes | `all` | asks; refused without the accord |
+ * | yes | `unread` | asks; refused without the accord, the reason said |
+ *
+ * An unread deliverability asks, as an unread storage or limit asks: what
+ * must not happen here is silence. Only the run's own accord lets it through
+ * (`--accept-emails`, "Execute and send the emails"): the answer to the
+ * automation question covers what fires, not the emails that leave the org,
+ * and a CI script passes `--accept-automation` on every run.
+ */
+export function deliverabilityGate(input: DeliverabilityGateInput): DeliverabilityGate {
+  if (input.senders.length === 0 && input.sendersUnread === undefined) {
+    return { verdict: 'nothingSends', confirmation: {} };
+  }
+  const reading: EmailDeliverability = input.reading ?? { unread: 'the run did not read it' };
+  const deliverability: RunDeliverability = {
+    reading,
+    senders: [...input.senders],
+    ...(input.sendersUnread !== undefined ? { sendersUnread: input.sendersUnread } : {}),
+  };
+  const line = deliverabilityLineOf(reading);
+  if (isWithheld(reading)) {
+    return { verdict: 'withheld', deliverability, confirmation: {}, line, audit: 'withheld' };
+  }
+  return {
+    verdict: 'asks',
+    deliverability,
+    confirmation: {
+      deliverability:
+        input.keepsAddresses === true
+          ? { ...deliverability, keepsAddresses: true }
+          : deliverability,
+    },
+    ...(input.accepted
+      ? {}
+      : {
+          stop: {
+            code: EMAILS_NOT_ACCEPTED,
+            message: deliverabilityRefusalOf(input, reading),
+          },
+        }),
+    line,
+    audit: 'unread' in reading ? 'unread' : 'all',
+  };
+}
+
+/**
+ * Of the senders a run's question on its emails names before a row is read
+ * (`deliverabilityGate`), those of an object its gate then writes no record
+ * of — nor the platform with a record the run creates ({@link insertedOf}):
+ * nothing of theirs fires as the run writes. The question is put on every
+ * object of the graph, as no row is read yet: a lead's clone named the
+ * senders of the contacts, a node of its graph it wrote no record of, while
+ * its gate counted one email per lead.
+ */
+export function sendersOfNothingWritten(
+  senders: readonly EmailSender[],
+  plan: PlanOfInserts,
+): EmailSender[] {
+  const inserted = objectsInsertedOf(plan);
+  return senders.filter((sender) => !inserted.has(sender.objectApiName));
+}
+
+/**
+ * What a dry run's gate says of the senders its refusal for the emails named
+ * on an object it writes no record of ({@link sendersOfNothingWritten}): they
+ * send nothing, and a real run, refused before it reads a row, names them
+ * all the same. Undefined when there are none.
+ */
+export function sendersOfNothingWrittenLine(senders: readonly EmailSender[]): string | undefined {
+  if (senders.length === 0) return undefined;
+  const objects = [...new Set(senders.map((sender) => sender.objectApiName))];
+  return (
+    `  emails: ${sendersWords(senders)} send nothing: the run writes no ` +
+    `${inWords(objects)} record. A real run is refused all the same, and names them: it asks ` +
+    'before it reads which records it writes'
+  );
+}
+
+/**
+ * The check of a run's emails once the mute's lease is taken and read back,
+ * before its first write: a set the lease did not hold leaves running what
+ * it was to keep quiet, and a sender among them was asked about by no one.
+ * Refused unless the run had the accord, or the org delivers none of them;
+ * an org whose deliverability was not read — nothing that sent one was to
+ * run — is taken for one that delivers them. The run then writes nothing,
+ * and gives the lease back.
+ *
+ * @param input.planned - The senders of what still runs on the lease's plan.
+ * @param input.held - Those of what still runs once the lease is read back:
+ *   `stillRunningOf` given the sets it holds.
+ */
+export function deliverabilityAfterLeaseStop(input: {
+  planned: readonly EmailSender[];
+  held: readonly EmailSender[];
+  reading?: EmailDeliverability;
+  accepted: boolean;
+  target: string;
+  run: DeliverabilityRun;
+}): { code: typeof EMAILS_NOT_ACCEPTED; message: string; relit: EmailSender[] } | undefined {
+  const key = (s: EmailSender): string => `${s.objectApiName}\u0000${s.kind}\u0000${s.name}`;
+  const planned = new Set(input.planned.map(key));
+  const relit = input.held.filter((sender) => !planned.has(key(sender)));
+  if (relit.length === 0 || input.accepted) return undefined;
+  const reading = input.reading;
+  if (reading !== undefined && isWithheld(reading)) return undefined;
+  const { run, allTheSame } = DELIVERABILITY_RUN_WORDS[input.run];
+  const delivers =
+    reading === undefined
+      ? `whether ${input.target} delivers them was not read, as nothing that sends one was to run`
+      : 'unread' in reading
+        ? `whether ${input.target} delivers them could not be read (${reading.unread})`
+        : `${input.target} delivers every one of them (All email)`;
+  return {
+    code: EMAILS_NOT_ACCEPTED,
+    relit,
+    message:
+      `The mute's lease does not hold every permission set it was to assign, and what they ` +
+      `were to keep quiet still runs for ${run}: ${sendersWords(relit)} may send emails, and ` +
+      `${delivers}. The run's question did not ask about them. Nothing was written. Add ` +
+      `--accept-emails ${allTheSame}, or run it again once the lease can assign them.`,
+  };
 }
 
 /** The storage of a check, as the confirmation says it. */
@@ -1496,11 +2250,35 @@ export function confirmationStorageOf(check: StorageCheck): WriteConfirmationSto
  * too much rather than too little, to two decimals under 10 MB.
  */
 export function formatMB(megabytes: number): string {
+  return megabytesAt(megabytes, megabytes < 10 ? 2 : 1);
+}
+
+/** Megabytes rounded up to `decimals`. */
+function megabytesAt(megabytes: number, decimals: number): string {
   if (megabytes <= 0) return '0';
-  const factor = megabytes < 10 ? 100 : 10;
+  const factor = 10 ** decimals;
   // The epsilon keeps a value the float holds a hair above its decimal —
   // 4.69 × 100 is 469.00000000000006 — from rounding up a step.
   return (Math.ceil(megabytes * factor - 1e-9) / factor).toString();
+}
+
+/**
+ * An amount of megabytes and the bound it is past, each said as
+ * {@link formatMB} says it, with a decimal more for both until they differ
+ * (six at most). A fit refused with --fit-within 0.001 said it took "0.01
+ * MB, past the 0.01 MB that fit": 0.0039 MB and 0.001 MB, both rounded up.
+ */
+export function formatMBPast(over: number, bound: number): { over: string; bound: string } {
+  let decimals = { over: over < 10 ? 2 : 1, bound: bound < 10 ? 2 : 1 };
+  for (;;) {
+    const said = {
+      over: megabytesAt(over, decimals.over),
+      bound: megabytesAt(bound, decimals.bound),
+    };
+    const most = Math.max(decimals.over, decimals.bound);
+    if (Number(said.over) > Number(said.bound) || most >= 6) return said;
+    decimals = { over: most + 1, bound: most + 1 };
+  }
 }
 
 /**
@@ -1718,9 +2496,19 @@ export function automationUnreadOf(
   );
 }
 
-/** The codes a run's gate stops it with: the extension's, and the command line's own. */
+/**
+ * The codes a run's gate stops it with: the extension's, the command line's
+ * own, and those every module's run is refused under — past the target's
+ * daily API requests, and for the checkpoint it takes first.
+ */
 export type ForgeRunGateErrorCode =
-  ForgeRunGateCode | 'MAX_TOTAL_EXCEEDED' | 'AUTOMATION_NOT_ACCEPTED' | 'EMAILS_EXCEEDED';
+  | ForgeRunGateCode
+  | 'MAX_TOTAL_EXCEEDED'
+  | 'AUTOMATION_NOT_ACCEPTED'
+  | 'EMAILS_EXCEEDED'
+  | typeof EMAILS_NOT_ACCEPTED
+  | typeof API_BUDGET_EXCEEDED
+  | typeof CHECKPOINT_REFUSED;
 
 /**
  * Raised when a run's gate stops it: before it reads anything, or once it has
@@ -1741,13 +2529,19 @@ export class ForgeRunGateError extends Error {
   readonly api?: NonNullable<ForgeRunGateStop['api']>;
   /** For a clone of the whole org refused for what it reads whole: the bound, and the objects past it. */
   readonly readBound?: NonNullable<ForgeRunGateStop['readBound']>;
+  /**
+   * For a run refused for the checkpoint it was to take first: what refused
+   * the take, by its code (`DISK`, `RUN_WRITING`…). Absent for a take that
+   * failed rather than refused.
+   */
+  readonly reason?: CheckpointRefusalCode;
 
   constructor(
     code: ForgeRunGateErrorCode,
     message: string,
     storage?: NonNullable<ForgeRunGateStop['storage']>,
     ceiling?: number,
-    detail?: Pick<ForgeRunGateStop, 'api' | 'readBound'>,
+    detail?: Pick<ForgeRunGateStop, 'api' | 'readBound'> & { reason?: CheckpointRefusalCode },
   ) {
     super(message);
     this.name = 'ForgeRunGateError';
@@ -1756,23 +2550,42 @@ export class ForgeRunGateError extends Error {
     if (ceiling !== undefined) this.ceiling = ceiling;
     if (detail?.api) this.api = detail.api;
     if (detail?.readBound) this.readBound = detail.readBound;
+    if (detail?.reason !== undefined) this.reason = detail.reason;
   }
 
-  /** The stop as the page is told it; none for a code of the command line's own. */
+  /**
+   * The stop a gate check of the run's API requests or of its checkpoint
+   * first came to ({@link forgeWriteBudgetOf}, {@link takeCheckpointFirst}),
+   * with the take's refusal kept by its code: the page said a checkpoint was
+   * refused, never by what — the disk of this machine, another run writing,
+   * its limit of records — which the English message alone named.
+   */
+  static of(stop: {
+    code: ForgeRunGateErrorCode;
+    message: string;
+    refusal?: CheckpointRefusal;
+  }): ForgeRunGateError {
+    return new ForgeRunGateError(
+      stop.code,
+      stop.message,
+      undefined,
+      undefined,
+      stop.refusal ? { reason: stop.refusal.code } : undefined,
+    );
+  }
+
+  /** The stop as the page is told it: none for a code of the command line's own. */
   get stop(): ForgeRunGateStop | undefined {
-    if (
-      this.code === 'MAX_TOTAL_EXCEEDED' ||
-      this.code === 'AUTOMATION_NOT_ACCEPTED' ||
-      this.code === 'EMAILS_EXCEEDED'
-    ) {
-      return undefined;
-    }
+    if (!isForgeRunGateCode(this.code)) return undefined;
     return {
       code: this.code,
       ...(this.storage ? { storage: this.storage } : {}),
       ...(this.ceiling !== undefined ? { ceiling: this.ceiling } : {}),
       ...(this.api ? { api: this.api } : {}),
       ...(this.readBound ? { readBound: this.readBound } : {}),
+      ...(this.reason !== undefined && this.code === CHECKPOINT_REFUSED
+        ? { reason: this.reason }
+        : {}),
     };
   }
 }
@@ -1829,6 +2642,16 @@ export function writePlanLines(plan: WritePlan, check: StorageCheck, target: str
         'beside the one read',
     );
   }
+  for (const { objectApiName, mayBeByThePlatform } of plan.objects) {
+    if (mayBeByThePlatform === undefined) continue;
+    lines.push(
+      `  counted in: up to ${mayBeByThePlatform.rows} ${objectApiName} record(s) the platform ` +
+        (mayBeByThePlatform.before === true
+          ? `may have written with ${writtenWithWords(objectApiName)}, in the run this one takes up`
+          : `may write itself with ${writtenWithWords(objectApiName)}`) +
+        ', which the run then links to and does not send',
+    );
+  }
   lines.push(...leftOutLines(plan.leftOut));
   if (check.verdict === 'unread') {
     lines.push(
@@ -1850,7 +2673,8 @@ export function writePlanLines(plan: WritePlan, check: StorageCheck, target: str
 /**
  * What the command line says of the rows a run read or counted and will not
  * write, left out of the records to write: those the run it retries or
- * resumes wrote, and an object held back whole for a record type.
+ * resumes wrote, an object held back whole for a record type, and the rows
+ * the platform writes itself with a record the run creates.
  */
 export function leftOutLines(leftOut: WritePlanLeftOut | undefined): string[] {
   if (!leftOut) return [];
@@ -1865,6 +2689,12 @@ export function leftOutLines(leftOut: WritePlanLeftOut | undefined): string[] {
     lines.push(
       `  not counted: ${objectApiName}, ${rows} record(s), held back whole for a record type ` +
         'closed to the user the run writes as',
+    );
+  }
+  for (const { objectApiName, rows } of leftOut.byThePlatform ?? []) {
+    lines.push(
+      `  not counted: ${objectApiName}, ${rows} record(s) written by the platform with ` +
+        `${writtenWithWords(objectApiName)}, which the run links to and does not send`,
     );
   }
   return lines;
@@ -1898,11 +2728,14 @@ const DELETE_PARTS = ['flows', 'triggers'] as const;
  * line saying the Apex triggers could not be read.
  *
  * @param unread - What of the target's automation could not be read.
+ * @param removal - What takes the run back, as its reader runs it: an
+ *   environment's destroy, or the command line's `--remove`.
  */
 export function removalRiskLines(
   risks: readonly ForgeRemovalRisk[],
   target: string,
   unread: ReadonlyArray<{ part: string }> = [],
+  removal = '--remove',
 ): string[] {
   const notRead = DELETE_PARTS.filter((part) => unread.some((entry) => entry.part === part));
   const notKnown =
@@ -1931,7 +2764,7 @@ export function removalRiskLines(
     ];
   }
   return [
-    `reversibility: a removal of this run's records (--remove) may be refused in ${target}:`,
+    `reversibility: a removal of this run's records (${removal}) may be refused in ${target}:`,
     ...risks.map(
       ({ objectApiName, kind, name }) =>
         `  ${objectApiName}: ${REMOVAL_RISK_WORDS[kind](name ?? '')}`,
@@ -2007,19 +2840,45 @@ export function bypassAssistantSentences(
 }
 
 /**
+ * What a refusal says of `--mute-automation` when the command can mute what
+ * fires itself, the flag not given yet: the sets that would keep it quiet,
+ * which a mute assigns for the run alone, under a lease. Never a command that
+ * assigns them by hand: given with the user's name, run on the trap org, it
+ * left the set assigned past the run, outside any lease, where another
+ * session's run held one.
+ *
+ * @param run - What the command does: "clone", "removal".
+ */
+function muteSentences(assign: readonly BypassToAssign[], run: string, mayMute: boolean): string[] {
+  const sets = [...new Set(assign.flatMap((entry) => entry.permissionSet ?? []))];
+  if (!mayMute || sets.length === 0) return [];
+  return [
+    `With --mute-automation, the ${run} assigns ${sets.join(', ')} to the user it writes as ` +
+      `for the ${run} alone, under a lease, and what ${sets.length === 1 ? 'it keeps' : 'they keep'} ` +
+      'quiet does not fire.',
+  ];
+}
+
+/**
  * Why the command line will not write without `--accept-automation`: what the
  * target runs as the clone inserts its records, and as it updates those of
  * `updated`, named, or what of it could not be read; then, for a bypass the
- * user does not hold, the permission set and the command that would assign
- * it. Nothing when nothing fires and everything was read.
+ * user does not hold, the permission set that holds it, which
+ * `--mute-automation` assigns. Nothing when nothing fires and everything was
+ * read.
  *
- * @param options - The objects the clone updates after inserting them, and
- *   the bypasses to assign ({@link bypassesToAssign}).
+ * @param options - The objects the clone updates after inserting them, the
+ *   bypasses to assign ({@link bypassesToAssign}), and whether the clone can
+ *   mute them itself (`--mute-automation`, not asked yet).
  */
 export function automationRefusal(
   automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
   target: string,
-  options: { updated?: readonly UpdatedAfterInsert[]; assign?: readonly BypassToAssign[] } = {},
+  options: {
+    updated?: readonly UpdatedAfterInsert[];
+    assign?: readonly BypassToAssign[];
+    mayMute?: boolean;
+  } = {},
 ): string | undefined {
   const updated = options.updated ?? [];
   const fired = firedOnInsertOf(automation);
@@ -2052,6 +2911,7 @@ export function automationRefusal(
     );
   }
   parts.push(...bypassAssistantSentences(options.assign ?? [], target, 'the clone'));
+  parts.push(...muteSentences(options.assign ?? [], 'clone', options.mayMute === true));
   parts.push(
     `Nothing was written. Add --accept-automation to clone all the same, or turn that ` +
       `automation off in ${target} first.`,
@@ -2066,13 +2926,18 @@ export function automationRefusal(
  * named, or what of it could not be read; then the bypasses to assign.
  * Nothing when nothing fires and everything was read.
  *
- * @param options - The objects the removal sets back to Draft, and the
- *   bypasses to assign ({@link bypassesToAssign}).
+ * @param options - The objects the removal sets back to Draft, the bypasses
+ *   to assign ({@link bypassesToAssign}), and whether the removal can mute
+ *   them itself (`--mute-automation`, not asked yet).
  */
 export function removalAutomationRefusal(
   automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
   target: string,
-  options: { drafted?: readonly string[]; assign?: readonly BypassToAssign[] } = {},
+  options: {
+    drafted?: readonly string[];
+    assign?: readonly BypassToAssign[];
+    mayMute?: boolean;
+  } = {},
 ): string | undefined {
   const fired = firedOnRemovalOf(automation, options.drafted ?? []);
   const unread = automationUnreadOf(automation);
@@ -2101,6 +2966,7 @@ export function removalAutomationRefusal(
     );
   }
   parts.push(...bypassAssistantSentences(options.assign ?? [], target, 'the removal'));
+  parts.push(...muteSentences(options.assign ?? [], 'removal', options.mayMute === true));
   parts.push(
     `Nothing was deleted. Add --accept-automation to remove all the same, or turn that ` +
       `automation off in ${target} first.`,
@@ -2170,25 +3036,46 @@ export function removalStepsAutomationLines(
   automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
   target: string,
   steps: ForgeRemovalSteps,
+  subject: RemovalStepsSubject = 'removal',
+  sweep?: ForgeRemovalSteps,
 ): string[] {
-  const lines = [`removal automation: what ${target} runs as the removal takes the run back`];
-  for (const entry of firedOnRemovalStepsOf(automation, steps)) {
-    lines.push(
-      entry.step === 'delete'
-        ? `  ${entry.objectApiName}: ${DELETE_WHEN_WORDS[entry.when]}: ${firedWords(entry)}`
-        : `  ${entry.objectApiName}: ${REMOVAL_STEP_WORDS[entry.step]}: ${firedWords(entry)}`,
-    );
-  }
   const unread = automationUnreadOf(automation);
-  if (lines.length === 1 && unread.length === 0) {
-    const objects = new Set(Object.values(steps).flat()).size;
-    lines.push(`  nothing fires on the ${objects} object(s) it writes records of`);
-  }
-  for (const { part, reason } of unread) {
-    lines.push(`  ${UNREAD_WORDS[part]} could not be read: ${reason}`);
-  }
-  return lines;
+  /** One writer's lines: what fires as it writes, or that nothing does. */
+  const linesOf = (written: ForgeRemovalSteps, writer: RemovalStepsSubject): string[] => {
+    const lines = [REMOVAL_STEPS_HEADINGS[writer](target)];
+    for (const entry of firedOnRemovalStepsOf(automation, written)) {
+      lines.push(
+        entry.step === 'delete'
+          ? `  ${entry.objectApiName}: ${DELETE_WHEN_WORDS[entry.when]}: ${firedWords(entry)}`
+          : `  ${entry.objectApiName}: ${REMOVAL_STEP_WORDS[entry.step]}: ${firedWords(entry)}`,
+      );
+    }
+    if (lines.length === 1 && unread.length === 0) {
+      const objects = new Set(Object.values(written).flat()).size;
+      // A sweep only deletes: said to write, its line read as the purge's.
+      const writes = writer === 'reloadSweep' ? 'deletes' : 'writes';
+      lines.push(`  nothing fires on the ${objects} object(s) it ${writes} records of`);
+    }
+    return lines;
+  };
+  return [
+    ...linesOf(steps, subject),
+    // What a reload's sweep deletes, said apart from its purge: a task the
+    // sweep took was said to be one the purge deleted.
+    ...(sweep ? linesOf(sweep, 'reloadSweep') : []),
+    ...unread.map(({ part, reason }) => `  ${UNREAD_WORDS[part]} could not be read: ${reason}`),
+  ];
 }
+
+/** The first line of what fires as each {@link RemovalStepsSubject} writes. */
+const REMOVAL_STEPS_HEADINGS: Readonly<Record<RemovalStepsSubject, (target: string) => string>> = {
+  removal: (target) => `removal automation: what ${target} runs as the removal takes the run back`,
+  reload: (target) =>
+    `reload automation: what ${target} runs as the reload purges what earlier loads created`,
+  reloadSweep: (target) =>
+    `reload automation: what ${target} runs as the reload's sweep deletes what the target's ` +
+    'automation made for the loads it replaces',
+};
 
 /**
  * Why the command line will not take a whole run back without
@@ -2197,35 +3084,51 @@ export function removalStepsAutomationLines(
  * not be read; then the bypasses to assign. Nothing when nothing fires and
  * everything was read.
  *
- * @param options - What each step writes, and the bypasses to assign
- *   ({@link bypassesToAssign}).
+ * @param options - What each step writes, the bypasses to assign
+ *   ({@link bypassesToAssign}), whether the command can mute them itself
+ *   (`--mute-automation`, not asked yet): the sets that would keep quiet what
+ *   fires are then named as what a mute assigns, under its lease — and what
+ *   writes them: a removal, or the purge a reload runs before it loads.
  */
 export function removalStepsAutomationRefusal(
   automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
   target: string,
-  options: { steps: ForgeRemovalSteps; assign?: readonly BypassToAssign[] },
+  options: {
+    steps: ForgeRemovalSteps;
+    assign?: readonly BypassToAssign[];
+    mayMute?: boolean;
+    subject?: RemovalStepsSubject;
+    /**
+     * What the sweep asked with a reload deletes, named apart from what its
+     * purge writes (`steps`): each with what deletes it. Said as the purge's,
+     * a task the sweep took read as one the purge deleted.
+     */
+    sweep?: ForgeRemovalSteps;
+  },
 ): string | undefined {
   const fired = firedOnRemovalStepsOf(automation, options.steps);
+  const swept = options.sweep ? firedOnRemovalStepsOf(automation, options.sweep) : [];
   const unread = automationUnreadOf(automation);
-  if (fired.length === 0 && unread.length === 0) return undefined;
+  if (fired.length === 0 && swept.length === 0 && unread.length === 0) return undefined;
   const of = (step: ForgeRemovalStep): ForgeFiredOnRemovalStep[] =>
     fired.filter((entry) => entry.step === step);
+  const words = REMOVAL_STEPS_SUBJECT_WORDS[options.subject ?? 'removal'];
   const parts: string[] = [];
   if (of('bringBack').length > 0) {
     parts.push(
-      `${target} runs automation as this removal brings back from the recycle bin what the ` +
+      `${target} runs automation as ${words.this} brings back from the recycle bin what the ` +
         `run deleted: ${namedList(of('bringBack'))}.`,
     );
   }
   if (of('giveBack').length > 0) {
     parts.push(
-      `${target} runs automation as this removal gives the records the run wrote over their ` +
+      `${target} runs automation as ${words.this} gives the records the run wrote over their ` +
         `values from before it: ${namedList(of('giveBack'))}.`,
     );
   }
   if (of('setToDraft').length > 0) {
     parts.push(
-      `${target} runs automation as this removal sets activated records back to Draft, the ` +
+      `${target} runs automation as ${words.this} sets activated records back to Draft, the ` +
         `only way the platform deletes them: ${namedList(of('setToDraft'))}.`,
     );
   }
@@ -2234,19 +3137,66 @@ export function removalStepsAutomationRefusal(
       (entry) => `${entry.objectApiName}: ${firedWords(entry)} (${DELETE_WHEN_WORDS[entry.when]})`,
     );
     parts.push(
-      `${target} runs automation on the records this removal deletes: ${named.join('; ')}.`,
+      `${target} runs automation on the records ${words.this} deletes: ${named.join('; ')}.`,
+    );
+  }
+  if (swept.length > 0) {
+    const named = swept.map(
+      (entry) => `${entry.objectApiName}: ${firedWords(entry)} (${DELETE_WHEN_WORDS[entry.when]})`,
+    );
+    parts.push(
+      `${target} runs automation on the records ${REMOVAL_STEPS_SUBJECT_WORDS.reloadSweep.this} ` +
+        `deletes: ${named.join('; ')}.`,
     );
   }
   for (const { part, reason } of unread) {
     parts.push(
       `${UNREAD_WORDS[part][0].toUpperCase()}${UNREAD_WORDS[part].slice(1)} of ${target} ` +
-        `could not be read (${reason}), so what fires as the removal writes is not known.`,
+        `could not be read (${reason}), so what fires as ${words.the} writes is not known.`,
     );
   }
-  parts.push(...bypassAssistantSentences(options.assign ?? [], target, 'the removal'));
+  parts.push(...bypassAssistantSentences(options.assign ?? [], target, words.who));
+  parts.push(...muteSentences(options.assign ?? [], words.run, options.mayMute === true));
   parts.push(
-    `Nothing was written or deleted. Add --accept-automation to remove all the same, or turn ` +
-      `that automation off in ${target} first.`,
+    `Nothing was written or deleted. Add --accept-automation to ${words.verb} all the same, or ` +
+      `turn that automation off in ${target} first.`,
   );
   return parts.join(' ');
 }
+
+/**
+ * What writes the steps a refusal names: a removal that takes a run back,
+ * the purge a reload runs before it loads, which deletes as a removal does,
+ * or the sweep asked with that reload. Said in a removal's words, the refusal
+ * of a reload told a pipeline to "remove all the same" a load it had asked to
+ * replace; said in the purge's, the sweep's refusal named the tasks it took as
+ * the purge's deletes.
+ */
+export type RemovalStepsSubject = 'removal' | 'reload' | 'reloadSweep';
+
+/** The words of each {@link RemovalStepsSubject}: what writes, as whom, and what to add. */
+const REMOVAL_STEPS_SUBJECT_WORDS: Readonly<
+  Record<RemovalStepsSubject, { this: string; the: string; who: string; run: string; verb: string }>
+> = {
+  removal: {
+    this: 'this removal',
+    the: 'the removal',
+    who: 'the removal',
+    run: 'removal',
+    verb: 'remove',
+  },
+  reload: {
+    this: "this reload's purge",
+    the: "the reload's purge",
+    who: 'the reload',
+    run: 'reload',
+    verb: 'reload',
+  },
+  reloadSweep: {
+    this: "this reload's sweep",
+    the: "the reload's sweep",
+    who: 'the reload',
+    run: 'reload',
+    verb: 'reload',
+  },
+};

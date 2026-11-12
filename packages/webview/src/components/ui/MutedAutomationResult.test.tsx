@@ -110,6 +110,95 @@ describe('MutedAutomationResult', () => {
     );
   });
 
+  /*
+   * A run that ended while another of this machine still wrote under its sets
+   * left them assigned for it, and its result said "Taken back as the run
+   * ended." The run that took them over said it held them, "neither assigned
+   * nor taken back", and took them back as it ended.
+   */
+  it('says what the run left assigned for another run, rather than that it took it back', () => {
+    render(
+      <MutedAutomationResult
+        muted={{ ...MUTED, takenBack: [], passed: ['Bypass_Automation'] }}
+        org="dev"
+        testId="muted"
+      />,
+    );
+
+    expect(screen.queryByTestId('muted-released')).toBeNull();
+    expect(screen.getByTestId('muted-passed').textContent).toBe(
+      'Bypass_Automation stays assigned for another run that mutes dev as the same user, ' +
+        'which takes it back as it ends.',
+    );
+  });
+
+  it('names what it took back, a set another run kept for it among them, and no longer says it held that one', () => {
+    render(
+      <MutedAutomationResult
+        muted={{
+          ...MUTED,
+          held: ['Bypass_Validation', 'Bypass_Other'],
+          takenBack: ['Bypass_Automation', 'Bypass_Validation'],
+        }}
+        org="dev"
+        testId="muted"
+      />,
+    );
+
+    expect(screen.getByTestId('muted-released').textContent).toBe(
+      'Taken back as the run ended: Bypass_Automation and Bypass_Validation.',
+    );
+    expect(screen.getByTestId('muted-held').textContent).toBe(
+      'Already held, neither assigned nor taken back: Bypass_Other.',
+    );
+    expect(screen.queryByTestId('muted-passed')).toBeNull();
+  });
+
+  it('says the journal still names the lease, rather than that some is not taken back, when only the journal failed', () => {
+    render(
+      <MutedAutomationResult
+        muted={{
+          ...MUTED,
+          released: false,
+          takenBack: ['Bypass_Automation'],
+          notTakenBack: [],
+          leaseEndsAt: '2026-10-31T09:00:00.000Z',
+        }}
+        org="dev"
+        testId="muted"
+      />,
+    );
+
+    expect(screen.getByTestId('muted-released').textContent).toBe(
+      'Taken back as the run ended: Bypass_Automation.',
+    );
+    // The window releases the lease once it can, what another run left for it with it.
+    expect(screen.getByTestId('muted-not-released').textContent).toBe(
+      "The journal of this machine's mute leases couldn't be written as the run ended, and " +
+        "still names the run's lease: this window tries again while it stays open, and releases " +
+        'the lease once the journal can be written. Until then, and at most until that lease ' +
+        'ends, a run from another window or the command line that mutes dev may leave its ' +
+        'permission sets assigned for it, and the release takes them back. The next run that ' +
+        'mutes dev says why.',
+    );
+  });
+
+  it('says what it took back before the run of a run that ended as it assigned it, and that an admin’s may have gone with it', () => {
+    render(
+      <MutedAutomationResult
+        muted={{ ...MUTED, tookBackOfEnded: ['Bypass_Automation'] }}
+        org="dev"
+        testId="muted"
+      />,
+    );
+
+    expect(screen.getByTestId('muted-took-back-of-ended').textContent).toBe(
+      'Taken back before the run: Bypass_Automation, left assigned to the user the run wrote as ' +
+        'by a run that ended as it assigned it. Found by user and set, not by id: had an admin ' +
+        'assigned it to that user since, assign it again.',
+    );
+  });
+
   it('says a run that found nothing to mute went as without the option', () => {
     render(
       <MutedAutomationResult

@@ -179,6 +179,41 @@ describe('StepConfigPanel', () => {
     expect(screen.getByTestId('config-masking-note').textContent).toContain('snapshot');
   });
 
+  it('offers an Anonymize step what it accepts of the org’s automation, folded and each off until ticked', () => {
+    const onUpdate = vi.fn();
+    const anonymize: PipelineStep = {
+      id: 'step-m',
+      name: 'Mask',
+      type: 'anonymize',
+      config: { orgId: 'org-1', templateId: 'tpl-gdpr-standard' },
+      continueOnError: false,
+    };
+    const { rerender } = render(<StepConfigPanel step={anonymize} onUpdate={onUpdate} />);
+    const group = screen.getByTestId('masking-acceptances');
+    expect(group.hasAttribute('open')).toBe(false);
+    expect(group.textContent).toContain(
+      'Mask even if triggers, flows or workflow rules fire on the records it writes over',
+    );
+    // Its own three, none of a rewind's.
+    expect(screen.queryByTestId('config-acceptNoUndo')).toBeNull();
+    for (const key of ['muteAutomation', 'acceptAutomation', 'acceptEmails']) {
+      expect((screen.getByTestId(`config-${key}`) as HTMLInputElement).checked).toBe(false);
+    }
+
+    fireEvent.click(screen.getByTestId('config-acceptAutomation'));
+    expect(onUpdate).toHaveBeenLastCalledWith('step-m', {
+      config: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', acceptAutomation: true },
+    });
+    rerender(
+      <StepConfigPanel
+        step={{ ...anonymize, id: 'step-m2', config: { ...anonymize.config, acceptEmails: true } }}
+        onUpdate={onUpdate}
+      />,
+    );
+    expect(screen.getByTestId('masking-acceptances').hasAttribute('open')).toBe(true);
+    expect(screen.getByTestId('masking-acceptances-count').textContent).toBe('1 ticked');
+  });
+
   it('asks a Checkpoint step what it takes, and the objects only for a take of picked objects', () => {
     const onUpdate = vi.fn();
     const checkpoint: PipelineStep = {

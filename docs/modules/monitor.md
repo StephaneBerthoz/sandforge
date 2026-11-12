@@ -57,8 +57,8 @@ A compact panel below the KPIs showing:
 ### Live Operations
 
 When a run that writes to an org is in progress — Seed, Sync, a Forge clone
-or the removal of the records one created, a record clone, a CSV import, a
-Frozen Dataset load, an Autopilot run, a DataOps backup, restore, masking run,
+or the removal of the records one of them created, a record clone, a CSV
+import, a Frozen Dataset load or removal, an Autopilot run, a DataOps backup, restore, masking run,
 cleanup delete or erasure, a pipeline run, a real-time session — a Live
 Operations panel lists it, showing (a Sync simulation and a Forge rehearsal
 are listed too):
@@ -68,8 +68,11 @@ are listed too):
   shows none
 - A Cancel control, which stops the run, scheduled syncs included. When the
   extension cannot find the run, a notification says so
-- How a run ended — succeeded, failed with its error, or cancelled — for a
-  short while after it ends
+- How a run ended — succeeded, partial, failed with its error, or cancelled —
+  for a short while after it ends. Partial is a run that ended with part of its
+  work not done, as its results say: records the org refused, a backup stopped
+  at its cap, a pipeline that carried on past a failed step. Home and the side
+  panel list it the same way
 
 A Sync run, started from its page or by a schedule, also offers Pause and
 Resume here, the ones of its Sync page: Pause holds it before its next object

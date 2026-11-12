@@ -3,6 +3,29 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+/** What the org runs on the objects a test's run writes: nothing, unless the test says. */
+const orgRuns = vi.hoisted(() => ({ objects: [] as unknown[], bypassGrants: [] as unknown[] }));
+
+// What the org runs as a masking or a restore writes its records: nothing,
+// as an org without flows or triggers on them answers, unless a test gives
+// what it runs. The gate reads it before every write.
+vi.mock('../src/modules/forge/TargetAutomationReader.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/modules/forge/TargetAutomationReader.js')>()),
+  TargetAutomationReader: class {
+    read(_orgId: string, objects: readonly string[]) {
+      return Promise.resolve({
+        objectsRead: [...objects],
+        objects: orgRuns.objects,
+        ...(orgRuns.bypassGrants.length > 0 ? { bypassGrants: orgRuns.bypassGrants } : {}),
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      });
+    }
+  },
+}));
+
 // The org is reached through these three, and through nothing else: the
 // session the sf CLI hands over, the query the extension types an org with,
 // and the connection the handler opens.
@@ -23,9 +46,11 @@ import { loadOrg } from './sfSession.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import {
   dryRunLines,
+  runWouldBeRefused,
   main,
   maskingInterruptedLine,
   missingFieldLine,
+  notWritableLine,
   parseArgs,
   restoreInterruptedLine,
   resultLines,
@@ -75,8 +100,15 @@ function contactsOf(count: number, scoped: number): Array<Record<string, unknown
  * An org of contacts, read and written the way Salesforce does: a filter of
  * the shape `(Field LIKE 'prefix%')`, the rows past an Id, a LIMIT, the fields
  * a statement names, an update and an upsert on Id that change the rows.
+ *
+ * @param refuses - What the org answers a statement it refuses, as it words it.
+ * @param readOnly - Fields the user may read and not edit.
  */
-function orgOf(rows: Array<Record<string, unknown>>) {
+function orgOf(
+  rows: Array<Record<string, unknown>>,
+  refuses: (soql: string) => Error | undefined = () => undefined,
+  readOnly: readonly string[] = [],
+) {
   const kept = (soql: string): Array<Record<string, unknown>> => {
     const like = /\((\w+) LIKE '([^']*)%'\)/.exec(soql);
     const after = /\bId > '(\w+)'/.exec(soql)?.[1];
@@ -93,6 +125,8 @@ function orgOf(rows: Array<Record<string, unknown>>) {
     if (soql === 'SELECT Id FROM Organization') {
       return { records: [{ Id: '00D000000000001AAA' }], done: true, totalSize: 1 };
     }
+    const refused = refuses(soql);
+    if (refused) throw refused;
     if (soql.includes('IsDeleted = true')) return { records: [], done: true, totalSize: 0 };
     if (soql.startsWith('SELECT COUNT() ')) {
       return { records: [], done: true, totalSize: kept(soql).length };
@@ -122,8 +156,8 @@ function orgOf(rows: Array<Record<string, unknown>>) {
       name,
       label: name,
       type: name === 'Id' ? 'id' : 'string',
-      createable: name !== 'Id',
-      updateable: name !== 'Id',
+      createable: name !== 'Id' && !readOnly.includes(name),
+      updateable: name !== 'Id' && !readOnly.includes(name),
       permissionable: name !== 'Id',
     })),
     recordTypeInfos: [],
@@ -143,9 +177,20 @@ function orgOf(rows: Array<Record<string, unknown>>) {
  * An org with person accounts: a business account and a person account, a
  * contact and a lead, each object described with its own fields and read by
  * the fields and the conditions a statement names.
+ *
+ * @param hidden - Fields of Contact field-level security hides from the user,
+ *   which hides them on the person accounts too.
  */
-function personAccountOrg() {
-  const personFields = ['FirstName', 'LastName', 'PersonEmail', 'PersonMailingStreet'];
+function personAccountOrg(hidden: readonly string[] = []) {
+  const personFields = [
+    'FirstName',
+    'LastName',
+    'PersonEmail',
+    'PersonMailingStreet',
+    'PersonMailingCity',
+    'PersonMailingPostalCode',
+    'PersonBirthdate',
+  ].filter((f) => !hidden.some((h) => f === h || f === `Person${h}`));
   const rows: Record<string, Array<Record<string, unknown>>> = {
     Account: [
       { Id: '001000000000001AAA', IsPersonAccount: false, Name: 'Birchwood Dental' },
@@ -157,6 +202,7 @@ function personAccountOrg() {
         LastName: 'Quenneville',
         PersonEmail: 'ottoline.q@example.com',
         PersonMailingStreet: '12 Harbour Row',
+        PersonBirthdate: '1984-03-09',
       },
     ],
     Contact: contactsOf(1, 0),
@@ -164,7 +210,7 @@ function personAccountOrg() {
   };
   const fieldsOf: Record<string, string[]> = {
     Account: ['Id', 'IsPersonAccount', 'Name', 'Phone', ...personFields],
-    Contact: CONTACT_FIELDS,
+    Contact: [...CONTACT_FIELDS, 'Birthdate'].filter((f) => !hidden.includes(f)),
     Lead: ['Id', 'Email', 'Phone'],
   };
   const query = vi.fn(async (soql: string) => {
@@ -179,6 +225,11 @@ function personAccountOrg() {
       return { records: [], done: true, totalSize: kept.length };
     }
     const fields = /^SELECT (.+?) FROM /.exec(soql)?.[1].split(', ') ?? [];
+    // A field the describe leaves out is refused by name, as the org refuses it.
+    const unknown = fields.find((f) => !(fieldsOf[object] ?? []).includes(f));
+    if (unknown !== undefined) {
+      throw new Error(`INVALID_FIELD: No such column '${unknown}' on entity '${object}'.`);
+    }
     const records = kept.map((r) => Object.fromEntries(fields.map((f) => [f, r[f] ?? null])));
     return { records, done: true, totalSize: records.length };
   });
@@ -231,6 +282,8 @@ describe('sandforge-dataops', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    orgRuns.objects = [];
+    orgRuns.bypassGrants = [];
     stdout = '';
     stderr = '';
     store = mkdtempSync(join(tmpdir(), 'sandforge-dataops-test-'));
@@ -527,7 +580,8 @@ describe('sandforge-dataops', () => {
         '--json',
       );
 
-      expect(code).toBeUndefined();
+      // A run of these rules would be refused, and a dry run says so by its exit too.
+      expect(code).toBe(1);
       expect(update).not.toHaveBeenCalled();
       expect(rows).toEqual(before);
       const answer = JSON.parse(stdout) as {
@@ -552,6 +606,44 @@ describe('sandforge-dataops', () => {
       expect(stdout).toContain('"after"');
       // The terminal's lines go to stderr, the field the org lacks in the words an environment quotes.
       expect(stderr).toContain(`    ${missingFieldLine('Contact', 'Nickname__c')}`);
+    });
+
+    it('refuses a run whose rules name a field the org does not show, exit 1, nothing written and no snapshot', async () => {
+      // A field hidden from the user: the run masked the rest and ended 0, and
+      // a script that masks after a refresh went on with the field in clear.
+      orgIs('Developer Edition');
+      const rows = contactsOf(3, 3);
+      const before = rows.map((r) => ({ ...r }));
+      const { update } = orgOf(rows);
+      const file = join(store, 'rules.json');
+      writeFileSync(
+        file,
+        JSON.stringify({
+          name: 'contact-points',
+          rules: [
+            { fieldPattern: 'Contact.Email', ruleType: 'hash' },
+            { fieldPattern: 'Contact.Nickname__c', ruleType: 'fake' },
+          ],
+        }),
+      );
+
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--rules',
+        file,
+        '--yes',
+      );
+
+      expect(code).toBe(1);
+      expect(update).not.toHaveBeenCalled();
+      expect(rows).toEqual(before);
+      expect(stdout).toContain('masks Contact.Nickname__c, which the org does not show');
+      expect(stdout).toContain('take the field out of the template. Nothing was masked.');
+      expect(stdout).not.toContain('snapshot ');
     });
 
     it('names a masking’s snapshot so that its store lists it and the retention removes it past its age', async () => {
@@ -632,6 +724,117 @@ describe('sandforge-dataops', () => {
       expect(upsert).toHaveBeenCalledTimes(1);
       expect(rows).toEqual(before);
       expect(stdout).toContain('Rollback completed: 20 records restored');
+    });
+
+    it('takes --object in any case, as Salesforce takes an object: contact masks the contacts', async () => {
+      // Taken by the line and missed by the handler, `--object contact`
+      // counted nothing, said there was nothing to mask, and exited 0 on an
+      // org full of contacts.
+      orgIs('Developer Edition');
+      const rows = contactsOf(3, 3);
+      const before = rows.map((r) => ({ ...r }));
+      const { update } = orgOf(rows);
+
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'contact',
+        '--template',
+        'tpl-gdpr-standard',
+        '--yes',
+      );
+
+      expect(code).toBeUndefined();
+      expect(stdout).not.toContain('Nothing to mask');
+      expect(stdout).toContain('Contact                      counted 3  masked 3  refused 0');
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(rows.filter((r, i) => r.Email === before[i].Email)).toEqual([]);
+    });
+
+    it('refuses a run whose object the org would not count, exit 1, where it said there was nothing to mask', async () => {
+      // A filter on a field field-level security hides: the count the org
+      // refused was taken for none, and the line exited 0 having read and
+      // written nothing.
+      orgIs('Developer Edition');
+      const { update } = orgOf(contactsOf(3, 3), (soql) =>
+        soql.includes('Birthdate')
+          ? Object.assign(
+              new Error("INVALID_FIELD: No such column 'Birthdate' on entity 'Contact'."),
+              { errorCode: 'INVALID_FIELD' },
+            )
+          : undefined,
+      );
+
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--where',
+        'Birthdate < 2000-01-01',
+        '--template',
+        'tpl-ccpa-california',
+        '--yes',
+      );
+
+      expect(code).toBe(1);
+      expect(stdout).not.toContain('Nothing to mask');
+      expect(stdout).toContain("No such column 'Birthdate' on entity 'Contact'.");
+      expect(stderr).toContain(
+        'Contact: the org did not count the records a run would mask, so nothing was masked',
+      );
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('exits 1 from a dry run whose run stops at an object the org would not count nor read, as the run then does', async () => {
+      orgIs('Developer Edition');
+      const { update } = orgOf(contactsOf(3, 3), (soql) =>
+        /\bFROM Lead\b/.test(soql)
+          ? Object.assign(new Error("INVALID_TYPE: sObject type 'Lead' is not supported."), {
+              errorCode: 'INVALID_TYPE',
+            })
+          : undefined,
+      );
+      const file = join(store, 'rules.json');
+      writeFileSync(
+        file,
+        JSON.stringify({
+          name: 'Emails',
+          rules: [
+            { fieldPattern: 'Contact.Email', ruleType: 'nullify' },
+            { fieldPattern: 'Lead.Email', ruleType: 'nullify' },
+          ],
+        }),
+      );
+
+      expect(await run('anonymize', '--org', 'ORG', '--rules', file, '--dry-run')).toBe(1);
+      expect(stdout).toContain('  Contact: 3 record(s) to mask');
+      expect(stdout).toContain(
+        '  Lead: an unknown number of record(s) to mask\n' +
+          '    not counted by the org: a run stops at its count and masks nothing\n' +
+          "    not read: INVALID_TYPE: sObject type 'Lead' is not supported.",
+      );
+
+      expect(await run('anonymize', '--org', 'ORG', '--rules', file, '--yes')).toBe(1);
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('exits 1 from a dry run whose run is refused a field the user may read and not edit, and says so', async () => {
+      // Shown read-only, the field passed the dry run at exit 0, and the run
+      // was then refused, CRUD_FLS_DENIED.
+      orgIs('Developer Edition');
+      const { update } = orgOf(contactsOf(3, 3), undefined, ['Email']);
+      const line = ['anonymize', '--org', 'ORG', '--object', 'Contact'];
+
+      expect(await run(...line, '--template', 'tpl-gdpr-standard', '--dry-run')).toBe(1);
+      expect(stdout).toContain(notWritableLine('Contact', 'Email'));
+
+      expect(await run(...line, '--template', 'tpl-gdpr-standard', '--yes')).toBe(1);
+      expect(stdout).toContain('CRUD_FLS_DENIED: nothing was written');
+      expect(update).not.toHaveBeenCalled();
     });
 
     it('stops a run at Ctrl-C before its next page, keeps what it masked to resume, and exits 130', async () => {
@@ -1060,6 +1263,29 @@ describe('sandforge-dataops', () => {
       expect(stdout).toContain('  Account: 2 record(s) to mask');
     });
 
+    it('refuses --object Account when field-level security hides a field of the person accounts: the dry run and the run exit 1, nothing written', async () => {
+      // Contact is not in the run, so no Contact.Birthdate stopped it: the
+      // run masked the rest, exit 0, and left every birthdate in clear.
+      orgIs('Developer Edition');
+      const { update } = personAccountOrg(['Birthdate']);
+      const line = [
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Account',
+        '--template',
+        'tpl-ccpa-california',
+      ];
+
+      expect(await run(...line, '--dry-run')).toBe(1);
+      expect(stdout).toContain(missingFieldLine('Account', 'PersonBirthdate'));
+
+      expect(await run(...line, '--yes')).toBe(1);
+      expect(stdout).toContain('masks Account.PersonBirthdate, which the org does not show');
+      expect(update).not.toHaveBeenCalled();
+    });
+
     it('refuses a template with no rule for the object, before anything is read', async () => {
       orgIs('Developer Edition');
       const { update } = orgOf([]);
@@ -1078,6 +1304,145 @@ describe('sandforge-dataops', () => {
       expect(code).toBe(1);
       expect(stderr).toContain('has no rule for Case');
       expect(update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('what the org runs as it writes', () => {
+    /** A flow of Contact after the save, on update: what a masking and a restore fire. */
+    const notifyOwner = {
+      objectApiName: 'Contact',
+      flows: [
+        {
+          apiName: 'Notify_Owner',
+          label: 'Notify Owner',
+          timing: 'afterSave',
+          startsOn: 'update',
+          condition: 'read',
+          permissions: [],
+        },
+      ],
+      triggers: [],
+    };
+    const masking = [
+      'anonymize',
+      '--org',
+      'ORG',
+      '--object',
+      'Contact',
+      '--template',
+      'tpl-gdpr-standard',
+    ];
+
+    it('says in a dry run what fires as a run updates the records, and that a real run would be refused for it: exit 1, nothing written', async () => {
+      orgIs('Developer Edition');
+      orgRuns.objects = [notifyOwner];
+      const { update } = orgOf(contactsOf(3, 3));
+
+      const code = await run(...masking, '--dry-run');
+
+      expect(code).toBe(1);
+      expect(update).not.toHaveBeenCalled();
+      expect(stdout).toContain(
+        'masking automation: what ORG runs as the masking writes over the records',
+      );
+      expect(stdout).toContain('  Contact: as it is masked, after save: flow "Notify Owner"');
+      expect(stdout).toContain(
+        '  a real run would be refused (AUTOMATION_NOT_ACCEPTED): ORG runs automation as this ' +
+          'masking writes over its records',
+      );
+    });
+
+    it('refuses a run without --accept-automation before it asks or writes, and masks with it', async () => {
+      orgIs('Developer Edition');
+      orgRuns.objects = [notifyOwner];
+      const rows = contactsOf(3, 3);
+      const { update } = orgOf(rows);
+
+      const refused = await run(...masking, '--yes');
+
+      expect(refused).toBe(1);
+      expect(update).not.toHaveBeenCalled();
+      expect(stderr).toContain(
+        'Nothing was written. Add --accept-automation to mask all the same, or turn that ' +
+          'automation off in ORG first.',
+      );
+
+      stdout = '';
+      process.exitCode = undefined;
+      const accepted = await run(...masking, '--yes', '--accept-automation');
+
+      expect(accepted).toBeUndefined();
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(stdout).toContain('Anonymization completed: 3 records processed.');
+    });
+
+    it('names no --mute-automation in its refusal to the reader of an environment, whose mask resources never mute', async () => {
+      // Relayed by sandforge-env, the refusal said "With --mute-automation,
+      // the masking assigns …", a flag the environment does not take.
+      orgIs('Developer Edition');
+      orgRuns.objects = [
+        {
+          ...notifyOwner,
+          flows: [{ ...notifyOwner.flows[0], permissions: [{ name: 'Skip_Flows', bypass: true }] }],
+        },
+      ];
+      orgRuns.bypassGrants = [
+        {
+          permission: 'Skip_Flows',
+          permissionSets: [{ name: 'Flow_Bypass', label: 'Flow Bypass', grants: 1 }],
+        },
+      ];
+      const { update } = orgOf(contactsOf(3, 3));
+
+      expect(await run(...masking, '--yes')).toBe(1);
+      expect(stderr).toContain('With --mute-automation, the masking assigns Flow_Bypass');
+
+      stderr = '';
+      process.exitCode = undefined;
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+      try {
+        expect(await run(...masking, '--yes')).toBe(1);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+
+      expect(stderr).toContain('Add --accept-automation to mask all the same');
+      expect(stderr).not.toContain('--mute-automation');
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('refuses a --restore whose update flow fires as it puts the values back, without --accept-automation', async () => {
+      orgIs('Developer Edition');
+      const rows = contactsOf(2, 2);
+      const { upsert } = orgOf(rows);
+      await run(...masking, '--yes');
+      const snapshotId = /snapshot (\S+): 2 record\(s\)/.exec(stdout)?.[1];
+      expect(snapshotId).toBeDefined();
+      orgRuns.objects = [notifyOwner];
+      process.exitCode = undefined;
+      stdout = '';
+
+      const refused = await run('anonymize', '--org', 'ORG', '--restore', snapshotId!, '--yes');
+
+      expect(refused).toBe(1);
+      expect(upsert).not.toHaveBeenCalled();
+      expect(stdout).toContain(
+        "restore automation: what ORG runs as the restore puts the backup's values back",
+      );
+      expect(stderr).toContain('Add --accept-automation to restore all the same');
+
+      process.exitCode = undefined;
+      const accepted = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--restore',
+        snapshotId!,
+        '--yes',
+        '--accept-automation',
+      );
+      expect(accepted).toBeUndefined();
+      expect(upsert).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1124,10 +1489,82 @@ describe('sandforge-dataops', () => {
       expect(lines).toContain('    fields: Email (hash)');
       expect(lines).toContain(
         '    Contact.Nickname__c: the org has no such field, or field-level security hides it ' +
-          'from this user — masks nothing (give the user read and edit access to it, or connect ' +
-          'as an administrator)',
+          'from this user — a run is refused and masks nothing (give the user read and edit ' +
+          'access to it, or take it out of the template)',
       );
       expect(lines.at(-1)).toContain('--resume masks only what it left');
+    });
+
+    it('says in a dry run an object of which a run could mask no field', () => {
+      const lines = dryRunLines(
+        { id: 't', name: 'T', rules: [{ fieldPattern: 'Lead.Email', ruleType: 'hash' }] },
+        { objects: [{ objectApiName: 'Lead', count: 2 }] },
+        {
+          objects: [{ objectApiName: 'Lead', fields: [], notCovered: true, rows: [] }],
+          fieldsNotFound: [{ objectApiName: 'Lead', fieldApiName: 'Email' }],
+        },
+      );
+      expect(lines).toContain(
+        '    no field of it can be masked: a run is refused and masks nothing',
+      );
+    });
+
+    it('tells a dry run whose run would be refused from one that would go', () => {
+      expect(runWouldBeRefused({ objects: [{}], fieldsNotFound: [] })).toBe(false);
+      expect(runWouldBeRefused({})).toBe(false);
+      expect(
+        runWouldBeRefused({
+          objects: [{}],
+          fieldsNotFound: [{ objectApiName: 'Contact', fieldApiName: 'Nickname__c' }],
+        }),
+      ).toBe(true);
+      expect(runWouldBeRefused({ objects: [{ notCovered: true }], fieldsNotFound: [] })).toBe(true);
+    });
+
+    it('tells a dry run whose run is refused what the user may not edit', () => {
+      expect(
+        runWouldBeRefused({
+          objects: [{ writeDenied: { deniedFields: ['Birthdate'] } }],
+          fieldsNotFound: [],
+        }),
+      ).toBe(true);
+      expect(notWritableLine('Contact', 'Birthdate')).toBe(
+        'Contact.Birthdate: this user may read it and not edit it — a run is refused ' +
+          '(CRUD_FLS_DENIED) and masks nothing (give the user edit access to it, or take it out ' +
+          'of the template)',
+      );
+      expect(notWritableLine('Lead')).toBe(
+        'Lead: this user may not edit its records — a run is refused (CRUD_FLS_DENIED) and ' +
+          'masks nothing (give the user edit access to the object)',
+      );
+      const lines = dryRunLines(
+        { id: 't', name: 'T', rules: [{ fieldPattern: 'Contact.Birthdate', ruleType: 'nullify' }] },
+        { objects: [{ objectApiName: 'Contact', count: 2 }] },
+        {
+          objects: [
+            {
+              objectApiName: 'Contact',
+              fields: ['Birthdate'],
+              writeDenied: { deniedFields: ['Birthdate'] },
+              rows: [],
+            },
+          ],
+          fieldsNotFound: [],
+        },
+      );
+      expect(lines).toContain(`    ${notWritableLine('Contact', 'Birthdate')}`);
+    });
+
+    it('tells a dry run whose run stops at an object the org would not read or count', () => {
+      const counted = { objects: [{ objectApiName: 'Lead', count: 2 }] };
+      expect(runWouldBeRefused({ objects: [{ error: 'INVALID_TYPE' }] }, counted)).toBe(true);
+      expect(
+        runWouldBeRefused(
+          { objects: [{}], fieldsNotFound: [] },
+          { objects: [{ objectApiName: 'Lead', count: null }] },
+        ),
+      ).toBe(true);
+      expect(runWouldBeRefused({ objects: [{}], fieldsNotFound: [] }, counted)).toBe(false);
     });
 
     it("says in a dry run how a person account's fields the template does not name are masked", () => {

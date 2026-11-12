@@ -21,7 +21,9 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 }));
 
 import { useForgeStore } from '../../stores/useForgeStore';
-import { ReviewControlsTab } from './ReviewControlsTab';
+import { useOrgStore } from '../../stores/useOrgStore';
+import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
+import { ReviewCheckpointFirst, ReviewControlsTab } from './ReviewControlsTab';
 
 /*
  * Review's Controls tab writes into the run's config what the run already
@@ -323,5 +325,63 @@ describe('ReviewControlsTab', () => {
     });
 
     expect(screen.getByTestId('controls-users-error').textContent).toContain('INVALID_SESSION_ID');
+  });
+
+  describe('what the run does before its first write', () => {
+    beforeEach(() => {
+      act(() =>
+        useOrgStore.setState({
+          orgs: [developerOrg({ id: 'org-target', alias: 'DEV-SB' })],
+          selectedOrgId: 'org-target',
+        }),
+      );
+      render(<ReviewCheckpointFirst targetOrgId="org-target" />);
+    });
+
+    it('leaves it to the column beside Execute: Controls holds none of its own', () => {
+      expect(
+        within(screen.getByTestId('review-controls-tab')).queryByTestId(
+          'controls-checkpoint-first-toggle',
+        ),
+      ).toBeNull();
+    });
+
+    it('offers the checkpoint first, off, and ticks it for the run', () => {
+      const toggle = screen.getByTestId('controls-checkpoint-first-toggle') as HTMLInputElement;
+      expect(toggle.checked).toBe(false);
+      expect(useForgeStore.getState().checkpointFirst).toBe(false);
+
+      fireEvent.click(toggle);
+      expect(useForgeStore.getState().checkpointFirst).toBe(true);
+      // Beside the run's config, never in it: no template or past run brings it back.
+      expect(JSON.stringify(useForgeStore.getState().config)).not.toContain('checkpoint');
+    });
+
+    it('says Simulate gives its cost, and the cost once a simulation found it', () => {
+      expect(screen.getByTestId('controls-checkpoint-first-cost-said').textContent).toContain(
+        'Simulate says what it would hold and cost',
+      );
+      act(() =>
+        useForgeStore.setState({
+          checkpointEstimate: {
+            state: 'planned',
+            estimate: {
+              records: 38,
+              apiRequests: 68,
+              apiRequestsLeft: 14_000,
+              seconds: 44,
+              bytes: 2_306_867,
+            },
+            objects: ['Account'],
+            added: [],
+            notHeld: [],
+            keepDays: 7,
+          },
+        }),
+      );
+      expect(screen.getByTestId('controls-checkpoint-first-estimate-cost').textContent).toBe(
+        'At the last simulation: about 38 records of Account, 68 API requests, 44s, 2.2 MB on this machine, kept 7 days.',
+      );
+    });
   });
 });

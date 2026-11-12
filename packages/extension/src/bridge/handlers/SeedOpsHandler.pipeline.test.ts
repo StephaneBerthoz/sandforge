@@ -472,15 +472,22 @@ describe('SeedOpsHandler.seedForPipeline', () => {
       expect(outcome.automation).toContainEqual(expect.stringContaining('flow "Welcome Email"'));
     });
 
-    it('says so when what the org runs could not be read, and seeds all the same', async () => {
+    it('says so when what the org runs could not be read, and seeds once an Approval answered the emails it may send', async () => {
       read.mockRejectedValue(new Error('INSUFFICIENT_ACCESS'));
 
-      const outcome = await seed();
+      const outcome = await seed({ answer: { approved: true } });
 
       expect(outcome.result.status).toBe('success');
       expect(outcome.automation).toEqual([
         expect.stringMatching(/could not be read \(INSUFFICIENT_ACCESS\)/),
       ]);
+    });
+
+    it('asks for an Approval when what the org runs could not be read: what it sends may go out', async () => {
+      read.mockRejectedValue(new Error('INSUFFICIENT_ACCESS'));
+
+      await expect(seed()).rejects.toThrow(/put one before it\. Nothing was written\.$/);
+      expect(create).not.toHaveBeenCalled();
     });
 
     it('keeps the run in the file the page keeps its seeds in, naming the pipeline, every id whole', async () => {

@@ -5,8 +5,9 @@
  * "Everything people work in" is every object of the org the user may query,
  * create, edit and delete, empty ones included — what is created there later
  * is caught too — less what is no one's data: users, permissions and the rest
- * of setup, which every copy leaves out too, and what the org's own describes
- * say is metadata. Then less what a rewind cannot put back as it was:
+ * of setup, and the records Salesforce alone creates, approvals and invoices
+ * among them, which every copy leaves out too, and what the org's own
+ * describes say is metadata. Then less what a rewind cannot put back as it was:
  *
  * - Chatter posts, comments and their attachments: Salesforce undeletes a
  *   post only with its parent, and a post's history is the audit trail. Their
@@ -47,10 +48,10 @@ import {
   isFileBodiedObject,
   type CheckpointCustomSettingKind,
   type CheckpointCustomSettings,
+  type CheckpointLeftOutCode,
   type CheckpointObject,
 } from '@sandforge/shared';
 import { excludedByDescribe, isNeverCopiedWhenPicked } from '../forge/excludedObjects.js';
-import type { AccessLeftOutReason } from './checkpointAccess.js';
 import type { CheckpointDescribe } from './checkpointFields.js';
 
 /** An object as the org's global describe lists it, as far as the scope reads it. */
@@ -74,54 +75,8 @@ export type GlobalObject = z.infer<typeof globalObjectSchema>;
 /** Every object of the org a person works in, or only those a person picked. */
 export type CheckpointScopeMode = 'everything' | 'picked';
 
-/** Why a checkpoint leaves an object out. */
-export type ScopeLeftOutReason =
-  /** Its owner asked for it to be left out. */
-  | 'excludedByUser'
-  /** Picked, and the org has no such object. */
-  | 'notFound'
-  /** A Chatter post, comment or feed. */
-  | 'chatter'
-  /** A history object: the org's trace of changes. */
-  | 'history'
-  /** A sharing object: who may see a record, which the org keeps itself. */
-  | 'sharing'
-  /** A change event of Change Data Capture. */
-  | 'changeEvent'
-  /** A big object, an external or Data Cloud object, a Knowledge version or a platform event. */
-  | 'unsupportedKind'
-  /** A custom setting the take did not name: configuration. */
-  | 'customSetting'
-  /** Named as a custom setting, and the org has no custom setting of that name. */
-  | 'notCustomSetting'
-  /** A document of the Documents tab: shared content kept in folders. */
-  | 'files'
-  /** A file's version or link: held with its file, `ContentDocument`. */
-  | 'heldWithFiles'
-  /** Users, permissions and the rest of setup, and the org's logs and jobs. */
-  | 'setup'
-  /** Metadata, which the Tooling API serves: deployed, not kept as data. */
-  | 'metadata'
-  /** The user may not query, create, edit and delete its records. */
-  | 'notWritable'
-  /** Its describe could not be read. */
-  | 'notDescribed'
-  /** No `SystemModstamp`: nothing would tell a record that moved since. */
-  | 'noSystemModstamp'
-  /**
-   * No `IsDeleted`: the org deletes its records for good, with no recycle bin,
-   * so nothing would tell one deleted since, nor bring it back.
-   */
-  | 'noRecycleBin'
-  /** The org refuses to read it whole. */
-  | 'unreadable'
-  /**
-   * Without View All Data and Modify All Data, why an object the user is not
-   * proven to see and put back whole is left out (`checkpointAccess.ts`).
-   * `filesNotProven` and `settingNotProven` are the note's `files` and a
-   * custom setting's: `files` already names the Documents tab's.
-   */
-  | AccessLeftOutReason;
+/** Why a scope leaves an object out: what a take counts past its limit is the take's own. */
+export type ScopeLeftOutReason = Exclude<CheckpointLeftOutCode, 'pastTheLimit'>;
 
 /** An object a checkpoint leaves out, with why. */
 export interface ScopeLeftOut {
@@ -181,6 +136,53 @@ export const HELD_WHEN_PICKED: readonly string[] = [FILE_OBJECT, ATTACHMENT_OBJE
  * back from the recycle bin only with what it was posted on.
  */
 const CHATTER_OBJECTS: ReadonlySet<string> = new Set(['feeditem', 'feedcomment', 'feedattachment']);
+
+/**
+ * Histories whose names end in no suffix the copy's rule reads: a case's,
+ * which an org's describe labels "Case History", none of its records
+ * createable, editable or deletable. Every copy leaves it out by name, and a
+ * checkpoint said it was setup.
+ */
+const HISTORY_OBJECTS: ReadonlySet<string> = new Set(['casehistory2']);
+
+/**
+ * Records Salesforce alone creates as a feature runs on people's records:
+ * approvals their submissions and work items, Einstein its insights,
+ * Data.com Clean its clean info, matching its information, invoicing its
+ * invoices and credit memos. An administrator's describe says none of them
+ * createable, though some are editable and an approval's submission is
+ * deletable. Every copy leaves them out by name, and a checkpoint said them
+ * setup, as users and permissions are; before, that the user it connects as
+ * may not write them, a permission no user can be granted. So it still said,
+ * picked, of an approval process's instances, nodes, steps and work items,
+ * the rest of Einstein's insight records and a credit memo applied to an
+ * invoice, and setup of the instance.
+ */
+const PLATFORM_CREATED_OBJECTS: ReadonlySet<string> = new Set(
+  [
+    'AccountCleanInfo',
+    'ContactCleanInfo',
+    'LeadCleanInfo',
+    'ApprovalSubmission',
+    'ApprovalSubmissionDetail',
+    'ApprovalWorkItem',
+    'ProcessInstance',
+    'ProcessInstanceNode',
+    'ProcessInstanceStep',
+    'ProcessInstanceWorkitem',
+    'AIRecordInsight',
+    'AIInsightValue',
+    'AIInsightAction',
+    'AIInsightFeedback',
+    'AIInsightReason',
+    'MatchingInformation',
+    'Invoice',
+    'InvoiceLine',
+    'CreditMemo',
+    'CreditMemoLine',
+    'CreditMemoInvApplication',
+  ].map((name) => name.toLowerCase()),
+);
 
 /**
  * A file's versions and its links to records: held with the file, never as
@@ -244,7 +246,9 @@ function leftOutReason(
 ): ScopeLeftOutReason | undefined {
   const name = object.name.toLowerCase();
   if (CHATTER_OBJECTS.has(name) || name.endsWith('feed')) return 'chatter';
-  if (name.endsWith('history') || name.endsWith('__hd')) return 'history';
+  if (name.endsWith('history') || name.endsWith('__hd') || HISTORY_OBJECTS.has(name)) {
+    return 'history';
+  }
   if (name.endsWith('share')) return 'sharing';
   if (name.endsWith('changeevent')) return 'changeEvent';
   if (UNSUPPORTED_SUFFIXES.some((suffix) => name.endsWith(suffix))) return 'unsupportedKind';
@@ -260,6 +264,11 @@ function leftOutReason(
   if (name === ATTACHMENT_OBJECT.toLowerCase())
     return writableData(object) ? undefined : 'notWritable';
   if (isFileBodiedObject(object.name)) return 'files';
+  if (PLATFORM_CREATED_OBJECTS.has(name)) return 'platformCreated';
+  // Users and permissions, and the logs and jobs the platform alone writes:
+  // an opportunity's delete logs, every event store. No user creates or
+  // deletes those, so none is left out for a permission the user lacks, as
+  // their describes alone would say.
   if (isNeverCopiedWhenPicked(object.name)) return 'setup';
   if (mode === 'everything' && object.layoutable === false && !WORKED_WITHOUT_LAYOUT.has(name)) {
     return 'setup';
@@ -366,11 +375,16 @@ export function scopeCandidates(
     }
     // Only an org that has them, and only when not left out by name: a
     // scope that leaves files out by name keeps the rewind of 1.69, which
-    // leaves files added since.
+    // leaves files added since. Left out so, they are named as an object
+    // picked and left out by name is: they went with no word of them.
     for (const name of HELD_WHEN_PICKED) {
       const key = name.toLowerCase();
       const object = byLowerName.get(key);
-      if (seen.has(key) || excluded.has(key) || object === undefined) continue;
+      if (seen.has(key) || object === undefined) continue;
+      if (excluded.has(key)) {
+        leftOut.push({ objectApiName: object.name, reason: 'excludedByUser' });
+        continue;
+      }
       asked.push(object);
       addedToPicked.push(object.name);
     }

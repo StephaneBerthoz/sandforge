@@ -92,6 +92,69 @@ describe('useScenarioSeed', () => {
     });
   });
 
+  it('asks the run to mute and to take a checkpoint first only once their boxes are ticked', () => {
+    mockPostMessage.mockClear();
+    useOrgStore.setState({ orgs: [DEV], selectedOrgId: 'org-dev' });
+    const { result } = renderHook(() =>
+      useScenarioSeed({ pack: RETAIL_ORDERS_PACK, source: { kind: 'built-in' } }),
+    );
+    act(() => result.current.toConfirm());
+    deliver(
+      'seed:scenario:prepare:response',
+      { preparation: PREPARATION },
+      sent('seed:scenario:prepare').pop()?.id,
+    );
+    act(() => result.current.execute());
+    expect(sent('seed:scenario:execute')[0]?.payload).not.toHaveProperty('checkpointFirst');
+    expect(sent('seed:scenario:execute')[0]?.payload).not.toHaveProperty('muteAutomation');
+
+    act(() => {
+      result.current.setMuteAutomation(true);
+      result.current.setCheckpointFirst(true);
+    });
+    act(() => result.current.execute());
+    expect(sent('seed:scenario:execute')[1]?.payload).toMatchObject({
+      muteAutomation: true,
+      checkpointFirst: {},
+    });
+  });
+
+  it('goes back from a refusal to the confirmation, its boxes as they were set', () => {
+    mockPostMessage.mockClear();
+    useOrgStore.setState({ orgs: [DEV], selectedOrgId: 'org-dev' });
+    const { result } = renderHook(() =>
+      useScenarioSeed({ pack: RETAIL_ORDERS_PACK, source: { kind: 'built-in' } }),
+    );
+    act(() => result.current.toConfirm());
+    deliver(
+      'seed:scenario:prepare:response',
+      { preparation: PREPARATION },
+      sent('seed:scenario:prepare').pop()?.id,
+    );
+    act(() => result.current.setCheckpointFirst(true));
+    act(() => result.current.execute());
+    deliver(
+      'seed:error',
+      {
+        message: 'Refused.',
+        code: 'CHECKPOINT_REFUSED',
+        checkpointRefusal: 'DISK',
+        checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+      },
+      sent('seed:scenario:execute').pop()?.id,
+    );
+
+    expect(result.current.phase).toBe('executing');
+    expect(result.current.canSetUpAgain).toBe(true);
+    expect(result.current.stoppedCheckpoint).toEqual({
+      state: 'deleted',
+      deleted: 'nothingWritten',
+    });
+    act(() => result.current.toConfirm());
+    expect(result.current.phase).toBe('confirm');
+    expect(result.current.checkpointFirst).toBe(true);
+  });
+
   it('stops a run only once it has reported progress, aiming at its own run', () => {
     useOrgStore.setState({ orgs: [DEV], selectedOrgId: 'org-dev' });
     const { result } = renderHook(() =>

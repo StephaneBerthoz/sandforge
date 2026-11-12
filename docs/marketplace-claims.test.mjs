@@ -1150,6 +1150,68 @@ test('no surface still calls DataOps Restore unbuilt', () => {
   );
 });
 
+// ── DataOps: what the duplicate rules wrote, what goes along with a delete ─
+
+/**
+ * The module page said only a masking read what the duplicate rules wrote,
+ * that every masking of an object with an active rule waited and read, and
+ * said nothing of what goes along with an erasure but that it is counted.
+ * A restore and an erasure in place now read it as a masking does, only once
+ * the org saved a record a rule covers; what goes along with a delete runs
+ * none of its delete automation (a task under its contact, contacts under
+ * their account, on a scratch org), which the review and `sandforge-cleanup`
+ * say, counted or not.
+ */
+test('anchor: a masking, a restore and an erasure in place watch the duplicate rules, and a cleanup says what goes along', () => {
+  const handler = read(...EXT, 'src', 'bridge', 'handlers', 'DataOpsHandler.ts');
+  assert.equal(
+    (handler.match(/this\.duplicatesWatchOf\(/g) ?? []).length,
+    2,
+    'the masking and the restore no longer both watch what the duplicate rules write',
+  );
+  assert.match(
+    read(...EXT, 'src', 'bridge', 'handlers', 'DataOpsComplianceHandler.ts'),
+    /mode === 'anonymize'\s*\?\s*watchDuplicates\(/,
+    'an erasure in place no longer watches what the duplicate rules write',
+  );
+  assert.match(
+    read(...EXT, 'src', 'modules', 'dataops', 'maskingDuplicates.ts'),
+    /if \(written\.size === 0\) return undefined;/,
+    'a run that saved no covered record reads its duplicate rules again',
+  );
+  assert.match(
+    read(...EXT, 'cli', 'sandforge-cleanup.ts'),
+    /if \(found\.size > 0\) say\(alongLine\(args\.target\)\);/,
+    'sandforge-cleanup no longer says what the target deletes along with the records',
+  );
+  assert.match(
+    read('packages', 'webview', 'src', 'pages', 'DataOps', 'RemovalPlanView.tsx'),
+    /t\('dataops\.removal\.alongAutomation'\)/,
+    'the review of a delete no longer says that what goes along runs no delete automation',
+  );
+});
+
+test('docs/modules/dataops.md says what the duplicate rules wrote for every run that writes over records, and what goes along with a delete', () => {
+  const flat = read('docs', 'modules', 'dataops.md').replace(/\s+/g, ' ');
+  for (const claim of [
+    'Says, with its result, what the active duplicate rules of the objects it put back wrote',
+    "the result says what the org's active duplicate rules wrote during it for the records it overwrote",
+    'sends none of these requests and waits for nothing',
+    'then how many requests that took, the clock included, and how long it waited (`requests`, `waitedMs`)',
+    'What goes along runs none of its delete automation, and the review says so',
+    'The same holds for what their review could not count.',
+    'says that what the target deletes along with them goes too, uncounted, running none of its delete automation',
+  ]) {
+    assert.ok(flat.includes(claim), `docs/modules/dataops.md no longer says: ${claim}`);
+  }
+  for (const gone of [
+    'a masking then says what they wrote during it',
+    'a run that masked a record of such an object waits 5 seconds',
+  ]) {
+    assert.ok(!flat.includes(gone), `docs/modules/dataops.md still says: ${gone}`);
+  }
+});
+
 // ── a Compare row that described a different module ───────────────────────
 
 /**
@@ -1425,7 +1487,7 @@ test('the FAQ says a sandbox marked Staging is a staging org, which Production G
 const FIRST_STEPS = [
   /Developer sandbox or a scratch org/,
   /Simulate first/,
-  /Automation and Gaps tabs/,
+  /Automation and Gaps rows/,
   /Emails and phone numbers are neutralized by default/,
   /Rehearse when the target has validation rules or triggers/,
   /Remove a run from Results/,

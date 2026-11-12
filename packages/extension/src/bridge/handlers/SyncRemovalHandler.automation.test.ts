@@ -200,6 +200,43 @@ describe('what the target runs as the removal of a Sync run takes it back', () =
     ]);
   });
 
+  it('names what fires on the quote lines the platform copied from the line items the run wrote, none of the quote’s lines in its file', async () => {
+    const recorder = creations.recorder({
+      runId: 'run-deal',
+      configId: 'cfg-2',
+      configName: 'Deals',
+      sourceOrgId: 'org-source',
+      targetOrgId: TARGET_ORG,
+      startedAt: new Date(Date.now() - 11 * 60_000).toISOString(),
+    });
+    recorder.note('Opportunity', [id('006', 1)]);
+    recorder.note('Quote', [id('0Q0', 1)]);
+    recorder.note('OpportunityLineItem', [id('00k', 1)]);
+    await recorder.end({ status: 'success' });
+    const reader = new TargetAutomationReader({
+      query: async () => ({ records: [], requests: 1 }),
+      toolingQuery: async (_orgId, soql) => ({
+        records:
+          soql === TRIGGERS_SOQL
+            ? [triggerRow('QuoteLineItem', 'QuoteLineGuard', ['UsageBeforeDelete'])]
+            : [],
+        requests: 1,
+      }),
+    });
+    handler.setTargetAutomation(reader);
+
+    await handler.handle(buildMsg('sync:remove:automation', { runId: 'run-deal' }));
+
+    expect(errors()).toEqual([]);
+    const response = answer();
+    expect(response?.steps.delete).toContain('QuoteLineItem');
+    expect(response?.steps.setToDraft).toEqual([]);
+    const fired = firedOnRemovalStepsOf(response!.automation, response!.steps);
+    expect(fired.map((f) => `${f.step} ${f.objectApiName} ${f.name} ${f.when}`)).toEqual([
+      'delete QuoteLineItem QuoteLineGuard before',
+    ]);
+  });
+
   it('reads the objects of every step once, asking for the triggers of an undelete', async () => {
     const read = vi.fn(
       async (
@@ -223,6 +260,56 @@ describe('what the target runs as the removal of a Sync run takes it back', () =
     expect(read).toHaveBeenCalledWith(TARGET_ORG, ['Case', 'Contact', 'Order', 'Account'], {
       undeletes: true,
     });
+  });
+
+  it('counts what a sweep ticked with the removal deletes among its deletes, and sets none of it back to Draft', async () => {
+    const read = vi.fn(
+      async (
+        _orgId: string,
+        _objects: readonly string[],
+        _options?: { undeletes?: boolean },
+      ): Promise<ForgeTargetAutomation> => ({
+        objectsRead: [],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+        requests: 0,
+      }),
+    );
+    handler.setTargetAutomation({ read });
+
+    await handler.handle(
+      buildMsg('sync:remove:automation', { runId: 'run-all', sweptObjects: ['Asset', 'Account'] }),
+    );
+
+    expect(read).toHaveBeenCalledWith(
+      TARGET_ORG,
+      ['Case', 'Contact', 'Order', 'Account', 'Asset'],
+      {
+        undeletes: true,
+      },
+    );
+    expect(answer()?.steps).toMatchObject({
+      setToDraft: ['Order'],
+      delete: ['Order', 'Account', 'Asset'],
+    });
+  });
+
+  it('refuses what is no API name among what a sweep deletes, and reads nothing', async () => {
+    const { reader } = targetReader();
+    const read = vi.spyOn(reader, 'read');
+    handler.setTargetAutomation(reader);
+
+    await handler.handle(
+      buildMsg('sync:remove:automation', {
+        runId: 'run-all',
+        sweptObjects: ["Asset' OR Id != null"],
+      }),
+    );
+
+    expect(read).not.toHaveBeenCalled();
+    expect(errors().map((e) => e.payload.code)).toEqual(['INVALID_PAYLOAD']);
   });
 
   it('reads what fires on deleting every record the run created when the removal takes them all again', async () => {

@@ -25,6 +25,7 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Input } from '../../components/ui/Input';
 import { ProgressAnnouncer, ProgressBar } from '../../components/ui/ProgressBar';
 import { listWords } from '../../utils/listWords';
+import { leftOutWords } from '../../utils/checkpointNotes';
 import {
   dateTimeFormat,
   formatDate,
@@ -591,7 +592,7 @@ const ScopeObjects: React.FC<ScopeObjectsProps> = ({ answer, picking, picked, on
               {' — '}
               {t('checkpoint.take.access.cannotPick')}
             </span>
-            <span className="text-text-secondary">{object.reason}</span>
+            <span className="text-text-secondary">{leftOutWords(t, object)}</span>
           </li>
         ))}
       </ul>
@@ -647,25 +648,28 @@ const ScopeObjects: React.FC<ScopeObjectsProps> = ({ answer, picking, picked, on
   );
 };
 
-/** Objects a scope leaves out, folded under `summary`, each with why in the extension's words. */
+/** Objects a scope leaves out, folded under `summary`, each with why. */
 const LeftOut: React.FC<{
   objects: ScopeAnswer['leftOut'];
   summary: string;
   testId: string;
-}> = ({ objects, summary, testId }) => (
-  <details className="text-xs text-text-primary" data-testid={testId}>
-    <summary className="cursor-pointer">{summary}</summary>
-    <ul className="mt-1 flex max-h-48 flex-col gap-0.5 overflow-y-auto">
-      {objects.map((object) => (
-        <li key={object.objectApiName}>
-          <span className="font-mono">{object.objectApiName}</span>
-          {' — '}
-          {object.reason}
-        </li>
-      ))}
-    </ul>
-  </details>
-);
+}> = ({ objects, summary, testId }) => {
+  const { t } = useTranslation();
+  return (
+    <details className="text-xs text-text-primary" data-testid={testId}>
+      <summary className="cursor-pointer">{summary}</summary>
+      <ul className="mt-1 flex max-h-48 flex-col gap-0.5 overflow-y-auto">
+        {objects.map((object) => (
+          <li key={object.objectApiName}>
+            <span className="font-mono">{object.objectApiName}</span>
+            {' — '}
+            {leftOutWords(t, object)}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+};
 
 /** What each kind of custom setting is called beside its name. */
 const KIND_KEYS: Readonly<Record<CheckpointCustomSettingKind, string>> = {

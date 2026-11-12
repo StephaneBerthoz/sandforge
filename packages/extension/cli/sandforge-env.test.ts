@@ -26,7 +26,14 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
 import { loadOrg } from './sfSession.js';
 import { acquireEnvLock } from './env/envLock.js';
 import { EnvWorld, type EnvWorldOptions } from './testing/envWorld.js';
-import { main, parseArgs, type EnvCliDeps } from './sandforge-env.js';
+import {
+  envRelayOf,
+  envStepRunner,
+  main,
+  parseArgs,
+  relayedRunner,
+  type EnvCliDeps,
+} from './sandforge-env.js';
 
 /*
  * The command line, on the memory org: each verb run as a terminal or a CI
@@ -393,6 +400,195 @@ describe('plan, apply, plan again, destroy', () => {
   });
 });
 
+describe('destroy --sweep', () => {
+  /** What the target runs as the sweep deletes, as a removal's preview with its sweep says it. */
+  const SWEEP_AUTOMATION =
+    'TGT runs automation on the records this removal deletes: Task: Apex trigger TaskGuard ' +
+    '(before delete). Nothing was deleted. Add --accept-automation to remove all the same.';
+
+  it('previews each run with its sweep, and stops before its first delete on what fires on what the sweep would take', async () => {
+    worldOf({ sandbox: true, scratch: true });
+    expect((await run(['apply', '--org', 'TGT', '--yes'])).code).toBe(0);
+    const previews: string[][] = [];
+    // The seed's preview, asked with the sweep, reads what it would take and
+    // what fires on it: here a trigger on the tasks it would delete.
+    const sweeping: EnvCliDeps['runner'] = async (script, args, signal) => {
+      const ran = await world.runner(
+        script,
+        args.filter((arg) => arg !== '--sweep'),
+        signal,
+      );
+      if (!args.includes('--preview')) return ran;
+      previews.push([...args]);
+      if (!args.includes('--sweep')) return ran;
+      const answer = JSON.parse(ran.stdout) as { refusals: string[] };
+      return {
+        ...ran,
+        stdout: JSON.stringify({ ...answer, refusals: [...answer.refusals, SWEEP_AUTOMATION] }),
+      };
+    };
+
+    const destroyed = await run(['destroy', '--org', 'TGT', '--sweep', '--yes', '--json'], {
+      runner: sweeping,
+    });
+
+    expect(destroyed.code).toBe(1);
+    expect(previews).toHaveLength(2);
+    for (const line of previews) expect(line).toContain('--sweep');
+    expect(destroyed.said).toContain('Task: Apex trigger TaskGuard (before delete)');
+    // Nothing taken back: the destroy stopped at its plan, not part way.
+    expect(world.records('Account')).toHaveLength(2);
+    expect(world.records('Contact')).toHaveLength(2);
+  });
+
+  it('gives a destroy its seed removal refused, with --json, the code of that refusal beside its words', async () => {
+    worldOf({ sandbox: true, scratch: true });
+    expect((await run(['apply', '--org', 'TGT', '--yes'])).code).toBe(0);
+    world.automation = {
+      objectsRead: ['Account', 'Contact'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [],
+          triggers: [{ name: 'AccountGuard', events: ['beforeDelete'] }],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 1,
+    } as unknown as typeof world.automation;
+
+    const destroyed = await run(['destroy', '--org', 'TGT', '--yes', '--json']);
+
+    expect(destroyed.code).toBe(1);
+    const result = envRunResultSchema.parse(destroyed.answer);
+    expect(result.refusal).toContain('AccountGuard');
+    expect(result.refusalCodes).toEqual(['AUTOMATION_NOT_ACCEPTED']);
+    expect(world.records('Account')).toHaveLength(2);
+  });
+
+  it('ends the plan of a refused destroy on what refuses the destroy, not an apply', async () => {
+    // Live, a destroy refused for a flow before a delete printed its plan,
+    // then "an apply now would be refused: acct: a removal of its runs would
+    // be refused now: …", of an apply nobody asked for.
+    worldOf({ sandbox: true, scratch: true });
+    expect((await run(['apply', '--org', 'TGT', '--yes'])).code).toBe(0);
+    world.automation = {
+      objectsRead: ['Account', 'Contact'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [],
+          triggers: [{ name: 'AccountGuard', events: ['beforeDelete'] }],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 1,
+    } as unknown as typeof world.automation;
+
+    const destroyed = await run(['destroy', '--org', 'TGT', '--yes']);
+
+    expect(destroyed.code).toBe(1);
+    const said = stdout.join('');
+    expect(said).toMatch(
+      /^a destroy now would be refused: accounts: a removal of its runs would be refused now: /m,
+    );
+    expect(`${said}${destroyed.said}`).not.toContain('an apply now would be refused');
+  });
+
+  it('tells each script it runs that its lines are relayed, so that what a removal says takes what it kept is what this reader can run', async () => {
+    // A removal said "(--sweep-untied takes them)", relayed as it was: a
+    // flag this command refuses, exit 2.
+    const inherited = process.execArgv;
+    process.execArgv = ['--import', 'tsx'];
+    try {
+      const run = envStepRunner({
+        scriptPath: () => join(__dirname, 'testing', 'stopProbe.ts'),
+      });
+      const ran = await run('sandforge-seed', ['exit'], new AbortController().signal);
+
+      expect(JSON.parse(ran.stdout)).toMatchObject({ relayedBy: 'sandforge-env' });
+    } finally {
+      process.execArgv = inherited;
+    }
+  }, 120_000);
+
+  it('tells each script it runs, when the MCP server relays this command, that the server’s reader reads its lines through this command', async () => {
+    // Relayed by env_destroy, which takes no sweep, a removal told this
+    // command relayed it said "--sweep takes them first": a flag of this
+    // command's own line, which no tool of the server gives. Told the server
+    // alone, it offered the mute, which env_destroy does not take.
+    const inherited = process.execArgv;
+    process.execArgv = ['--import', 'tsx'];
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-mcp');
+    try {
+      const run = envStepRunner({
+        scriptPath: () => join(__dirname, 'testing', 'stopProbe.ts'),
+      });
+      const ran = await run('sandforge-clone', ['exit'], new AbortController().signal);
+
+      expect(JSON.parse(ran.stdout)).toMatchObject({
+        relayedBy: 'sandforge-env, relayed by sandforge-mcp',
+      });
+    } finally {
+      process.execArgv = inherited;
+      vi.unstubAllEnvs();
+    }
+  }, 120_000);
+
+  it('tells a runner it is given in place of its own, as it tells a script it spawns, the command that relays the script’s lines, and puts the variable back after', async () => {
+    // The tests' runner runs each script in this process: told nothing, the
+    // scripts said what they say unrelayed, words this command's reader
+    // never reads.
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'before');
+    const seen: Array<string | undefined> = [];
+    try {
+      const run = relayedRunner(async () => {
+        seen.push(process.env['SANDFORGE_RELAYED_BY']);
+        return { code: 0, stdout: '', stderr: '' };
+      }, 'sandforge-env apply');
+
+      await run('sandforge-seed', [], new AbortController().signal);
+
+      expect(seen).toEqual(['sandforge-env apply']);
+      expect(process.env['SANDFORGE_RELAYED_BY']).toBe('before');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const runs: string[] = [];
+    worldOf({ sandbox: true, scratch: true });
+    const told: EnvCliDeps['runner'] = async (script, args, signal) => {
+      runs.push(process.env['SANDFORGE_RELAYED_BY'] ?? '');
+      return world.runner(script, args, signal);
+    };
+    expect((await run(['apply', '--org', 'TGT', '--yes'], { runner: told })).code).toBe(0);
+    expect((await run(['destroy', '--org', 'TGT', '--yes'], { runner: told })).code).toBe(0);
+    expect(new Set(runs)).toEqual(new Set(['sandforge-env apply', 'sandforge-env']));
+  });
+
+  it('names to the scripts it runs the command they run under: a destroy takes their sweep, an apply and a plan do not', () => {
+    // An apply's replace told the same as a destroy, its removal said
+    // "--sweep takes them first", a flag of the destroy alone.
+    expect(envRelayOf('destroy', undefined)).toBe('sandforge-env');
+    expect(envRelayOf('apply', undefined)).toBe('sandforge-env apply');
+    expect(envRelayOf('plan', '')).toBe('sandforge-env plan');
+    expect(envRelayOf('destroy', 'sandforge-mcp')).toBe('sandforge-env, relayed by sandforge-mcp');
+  });
+
+  it('keeps what came late and what is tied to nothing: --sweep-late and --sweep-untied are no flags of it', async () => {
+    for (const flag of ['--sweep-late', '--sweep-untied']) {
+      const { code } = await run(['destroy', '--org', 'TGT', '--sweep', flag]);
+
+      expect(code).toBe(2);
+      expect(stderr.join('')).toContain(`"${flag}" is not a flag this command reads`);
+    }
+    expect(loadOrg).not.toHaveBeenCalled();
+  });
+});
+
 describe('asking before it writes', () => {
   beforeEach(() => {
     worldOf({ sandbox: true, scratch: true });
@@ -429,6 +625,34 @@ describe('asking before it writes', () => {
     expect(envRefusalAnswerSchema.parse(answer).refusal).toEqual({
       code: 'DECLINED',
       message: 'Nothing was written.',
+    });
+    expect(world.records('Account')).toEqual([]);
+  });
+
+  it('refuses a username for --org before the org is reached, so the question only ever names an alias', async () => {
+    // The help said a username was asked for an org with no alias: the org
+    // is reached by the alias --org gives, and a username is no alias.
+    const { loadOrg: realLoadOrg } =
+      await vi.importActual<typeof import('./sfSession.js')>('./sfSession.js');
+    const readToken = vi.fn();
+    vi.mocked(loadOrg).mockImplementation((alias) => realLoadOrg(alias, readToken));
+    const asked: string[] = [];
+
+    const { code, answer } = await run(['apply', '--org', 'admin@example.com', '--json'], {
+      ask: async (question) => {
+        asked.push(question);
+        return 'admin@example.com';
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(asked).toEqual([]);
+    expect(readToken).not.toHaveBeenCalled();
+    expect(envRefusalAnswerSchema.parse(answer).refusal).toEqual({
+      code: 'NOT_CONNECTED',
+      message:
+        'admin@example.com could not be reached: Invalid SF org alias: "admin@example.com" ' +
+        '(allowed: letters, digits, underscore, dash, dot)',
     });
     expect(world.records('Account')).toEqual([]);
   });

@@ -7,7 +7,7 @@ import i18n from '../i18n';
 import fr from '../i18n/locales/fr.json';
 
 import { RUN_OUTLIVED_WAIT, useMessageResponse } from './useMessageResponse';
-import type { UseMessageResponseOptions } from './useMessageResponse';
+import type { MessageResponseHandler, UseMessageResponseOptions } from './useMessageResponse';
 import { useNotificationStore } from '../stores/useNotificationStore';
 import { useAppStore } from '../stores/useAppStore';
 import { useOrgStore } from '../stores/useOrgStore';
@@ -544,6 +544,65 @@ describe('useMessageResponse', () => {
       );
     }
 
+    it('names in the interface language a rule whose pattern is no regular expression, its place and its pattern', async () => {
+      i18n.addResourceBundle('fr', 'translation', fr);
+      vi.useRealTimers();
+      await i18n.changeLanguage('fr');
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+        act(() => {
+          result.current.setLoading(true);
+          result.current.listen('req-1');
+        });
+        act(() =>
+          simulateResponse(
+            'org:error',
+            {
+              message:
+                'Invalid payload — config.objects.0: The rule Regex replace on Account.Name…',
+              code: 'TRANSFORM_RULE_BAD_PATTERN',
+              rules: [
+                {
+                  objectApiName: 'Account',
+                  field: 'Name',
+                  pattern: '[a-',
+                  reason: 'Unterminated character class',
+                },
+              ],
+            },
+            'req-1',
+          ),
+        );
+
+        expect(result.current.errorCode).toBe('TRANSFORM_RULE_BAD_PATTERN');
+        expect(result.current.error).toBe(
+          "La règle Remplacement par regex sur Account.Name, « [a- » (Unterminated character class) a un motif qui n'est pas une expression régulière : ouvrez la configuration et corrigez-le, ou retirez la règle. Exécutée, elle arrêterait la synchronisation à cet objet avant l'écriture de ses enregistrements. Rien n'a été lu ni écrit.",
+        );
+      } finally {
+        vi.useRealTimers();
+        await i18n.changeLanguage('en');
+        vi.useFakeTimers();
+      }
+    });
+
+    it('leaves the host its words when a rule refused for its pattern comes unnamed', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() =>
+        simulateResponse(
+          'org:error',
+          { message: 'The host said why.', code: 'TRANSFORM_RULE_BAD_PATTERN', rules: 'garbled' },
+          'req-1',
+        ),
+      );
+
+      expect(result.current.error).toBe('The host said why.');
+    });
+
     it('names in the interface language the rule that names no field, and its object', async () => {
       i18n.addResourceBundle('fr', 'translation', fr);
       vi.useRealTimers();
@@ -680,6 +739,81 @@ describe('useMessageResponse', () => {
       expect(result.current.error).not.toMatch(/circuit/i);
     });
 
+    it('says an Autopilot run its data storage stopped with the figures it was refused on', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          {
+            message:
+              'The records to write take about 64.5 MB of data storage. Nothing was written.',
+            code: 'AUTOPILOT_STORAGE_EXCEEDED',
+            estimateMB: 64.512,
+            remainingMB: 22,
+            maxMB: 200,
+            org: 'QASandbox',
+          },
+          'req-1',
+        );
+      });
+      expect(result.current.error).toBe(
+        i18n.t('common.refusal.autopilotStorageExceededFigures', {
+          estimate: '64.6',
+          remaining: '22',
+          max: '200',
+          org: 'QASandbox',
+        }),
+      );
+      expect(result.current.error).toContain('about 64.6 MB of data storage');
+      expect(result.current.error).toContain('Fit the plan to storage');
+    });
+
+    it('says an Autopilot run its storage stopped without figures as it did, when the host sent none', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          { message: 'Too big.', code: 'AUTOPILOT_STORAGE_EXCEEDED' },
+          'req-1',
+        );
+      });
+      expect(result.current.error).toBe(i18n.t('common.refusal.autopilotStorageExceeded'));
+    });
+
+    it.each([
+      ['AUTOPILOT_FIT_STORAGE_UNREAD', 'common.refusal.autopilotFitStorageUnread', true],
+      ['AUTOPILOT_FIT_READ_REFUSED', 'common.refusal.autopilotFitReadRefused', true],
+      ['AUTOPILOT_FIT_STALE', 'common.refusal.autopilotFitStale', false],
+      ['AUTOPILOT_NO_PLAN', 'common.refusal.autopilotNoPlan', false],
+    ] as const)(
+      'says a fit of an Autopilot plan refused as %s in the interface language, the reason as the host said it',
+      (code, key, keepsReason) => {
+        const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+        act(() => {
+          result.current.setLoading(true);
+          result.current.listen('req-1');
+        });
+        act(() => {
+          simulateResponse(
+            'org:error',
+            { message: 'The plan could not be fitted.', code, reason: 'REQUEST_LIMIT_EXCEEDED' },
+            'req-1',
+          );
+        });
+        expect(result.current.error).toBe(
+          keepsReason ? i18n.t(key, { reason: 'REQUEST_LIMIT_EXCEEDED' }) : i18n.t(key),
+        );
+      },
+    );
+
     it('says a seed its data storage stopped in the interface language, with the figures', () => {
       const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
       act(() => {
@@ -715,6 +849,48 @@ describe('useMessageResponse', () => {
       expect(result.current.error).not.toContain('Nothing was written');
     });
 
+    it('says a masking run refused for a field the org hides in the interface language, the field named and what to do', () => {
+      const said = 'The template "People" masks Contact.Birthdate: the English of the host.';
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          {
+            message: said,
+            code: 'MASKING_FIELDS_UNSEEN',
+            fieldsNotFound: [{ objectApiName: 'Contact', fieldApiName: 'Birthdate' }],
+            objectsNotCovered: [],
+          },
+          'req-1',
+        );
+      });
+
+      expect(result.current.errorCode).toBe('MASKING_FIELDS_UNSEEN');
+      expect(result.current.error).toBe(
+        `${i18n.t('common.refusal.maskingFieldsUnseen', { fields: 'Contact.Birthdate' })} ` +
+          i18n.t('common.refusal.maskingNothingMasked'),
+      );
+      expect(result.current.error).not.toBe(said);
+    });
+
+    it('keeps the host’s words for a masking refusal that came with nothing to name', () => {
+      const said = 'The template "People" would mask nothing.';
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse('org:error', { message: said, code: 'MASKING_MASKS_NOTHING' }, 'req-1');
+      });
+
+      expect(result.current.error).toBe(said);
+    });
+
     it.each([
       ['MUTE_PRODUCTION', 'common.refusal.muteProduction', false],
       ['MUTE_NO_RIGHT', 'common.refusal.muteNoRight', false],
@@ -740,6 +916,85 @@ describe('useMessageResponse', () => {
         expect(result.current.error).not.toBe(said);
       },
     );
+
+    it.each([
+      ['CHECKPOINT_REFUSED', { checkpointRefusal: 'RUN_WRITING' }, 'Another SandForge run, take'],
+      ['CHECKPOINT_REFUSED', {}, 'the SandForge output says why'],
+      ['SEED_CONFIRMATION_UNAVAILABLE', {}, 'it needed your confirmation'],
+    ] as const)('says %s in the interface language, %o beside it', (code, beside, words) => {
+      const said = 'The checkpoint before the run was refused: in the English of the log.';
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse('org:error', { message: said, code, ...beside }, 'req-1');
+      });
+
+      expect(result.current.errorCode).toBe(code);
+      expect(result.current.error).toContain(words);
+      expect(result.current.error).not.toContain(said);
+    });
+
+    it('says a Sync or Seed run stopped as it took its checkpoint in the interface language, and no other cancel so', () => {
+      const said =
+        'The run was stopped while it took the checkpoint first: in the English of the log.';
+      const stoppedOn = (errorType: string): string | null => {
+        const { result } = renderHook(() =>
+          useMessageResponse<unknown>({ ...defaultOptions, errorType }),
+        );
+        act(() => {
+          result.current.setLoading(true);
+          result.current.listen('req-1');
+        });
+        act(() => {
+          simulateResponse(errorType, { message: said, code: 'RUN_CANCELLED' }, 'req-1');
+        });
+        return result.current.error;
+      };
+
+      for (const errorType of ['sync:error', 'seed:error', 'seed:csv:error']) {
+        expect(stoppedOn(errorType), errorType).toBe(i18n.t('errors.checkpointRefused.stopped'));
+      }
+      // A Forge run's error carries the code for any cancel.
+      expect(stoppedOn('forge:execute:error')).toBe(said);
+    });
+
+    it('says a run its lease left senders running in the interface language, with no flag of a command line', async () => {
+      const said =
+        "The mute's lease does not hold every permission set it was to assign. Nothing was written. Add --accept-emails to sync all the same.";
+      const refusedOn = (errorType: string): MessageResponseHandler<unknown> => {
+        const { result } = renderHook(() =>
+          useMessageResponse<unknown>({ ...defaultOptions, errorType }),
+        );
+        act(() => {
+          result.current.setLoading(true);
+          result.current.listen('req-1');
+        });
+        act(() => {
+          simulateResponse(errorType, { message: said, code: 'EMAILS_NOT_ACCEPTED' }, 'req-1');
+        });
+        return result.current;
+      };
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      vi.useRealTimers();
+      await i18n.changeLanguage('fr');
+      vi.useFakeTimers();
+      try {
+        for (const errorType of ['sync:error', 'autopilot:error', 'seed:error']) {
+          const refused = refusedOn(errorType);
+          expect(refused.error, errorType).toBe(
+            `${fr.errors.emailsNotAccepted.explanation} ${fr.errors.emailsNotAccepted.action}`,
+          );
+          expect(refused.error, errorType).not.toContain('--accept-emails');
+          // The page keeps the code, as it keeps any refusal's.
+          expect(refused.errorCode, errorType).toBe('EMAILS_NOT_ACCEPTED');
+        }
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    });
 
     it('says a seed its emails stopped in the interface language, with the figures and the ways out', () => {
       const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));

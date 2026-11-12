@@ -54,19 +54,25 @@ import {
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   SELLING_MODEL_OPTION_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
+  exclusiveFieldsToDrop,
   isPricebookEntry,
   isRequiredLookup,
 } from '@sandforge/shared';
 import type {
   ForgeWrittenBetween,
   FrozenDefaultPerRecord,
+  FrozenKeysLeftEmpty,
   FrozenLeftToThePlatform,
   FrozenLoadPlanInfo,
   FrozenLoadPlanObject,
   FrozenRefusedField,
   FrozenWrittenWithoutFields,
   GuardDecision,
+  RecordTypeGiven,
+  RecordTypeGivenBasis,
+  RecordTypeNamed,
   SyncValidationRule,
+  WithoutRecordTypeWhy,
 } from '@sandforge/shared';
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
@@ -74,8 +80,21 @@ import { consultProductionGuard } from '../../core/precheck/consultProductionGua
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
+  parseRecordTypeInfos,
+  type RecordTypeAvailability,
+} from '../../core/metadata/recordTypeAvailability.js';
+import {
+  predictedRecordTypeOf,
+  recordTypeGivenOf,
+  recordTypeReadBackSoql,
+  recordTypesReadBack,
+  type GivenRecordType,
+} from '../../core/metadata/recordTypeGiven.js';
+import {
   ambiguousRecordTypeReason,
+  findRecordTypeByName,
   qualifiedRecordTypeName,
+  type RecordTypeNameParts,
 } from '../../core/metadata/recordTypeNames.js';
 import {
   addWrittenWithoutFields,
@@ -87,13 +106,16 @@ import {
   ACCOUNT_CONTACT_RELATION,
   ACTIVITY_OF_RELATION,
   CONTACT,
+  CONTACT_FIELD,
   DELETED_PAST_DRAFT,
   EMAIL_MESSAGE,
   NATURAL_KEYS,
+  OPPORTUNITY_CONTACT_ROLE,
   PERSON_CONTACT_FIELD,
   RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
   TASK,
+  contactRolesOf,
   draftStartOf,
   emailOnACase,
   emailWriteEdges,
@@ -105,7 +127,10 @@ import {
   leftToThePlatformNote,
   lookupsThePlatformFills,
   personContactsOfAccounts,
+  platformRolesOf,
   recordsByNaturalKey,
+  rolesMadeAlikeWords,
+  rolesThePlatformWrites,
   standardPriceIds,
   statusCategories,
   type LeftToThePlatform,
@@ -114,6 +139,7 @@ import {
   tasksWrittenWithEmails,
   waitsForItsTask,
   withTheRelationItIs,
+  writtenWithWords,
   type AccountKind,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
@@ -123,8 +149,15 @@ import { insertionGroups, orderWithinGroup } from '../../core/common/insertionOr
 import { catalogWriteEdges } from '../forge/stages/ScopeResolver.js';
 import { CLOCK_LEEWAY_MS, takenAlong } from '../forge/ForgeRunRemoval.js';
 import { SasPathGuard } from './SasPathGuard.js';
-import { assertLoadGuards, LoadGuardError } from './LoadGuards.js';
+import { assertLoadGuards, datasetRecordCount, LoadGuardError } from './LoadGuards.js';
 import { SchemaAligner } from './SchemaAligner.js';
+import {
+  OPPORTUNITY_OBJECT,
+  QUOTE_LINE_OBJECT,
+  SYNCED_QUOTE_FIELD,
+  quotesLeftUnsynced,
+  quotesLeftUnsyncedNote,
+} from './syncedQuotes.js';
 import {
   writeCountingContract,
   countingContractPath,
@@ -134,6 +167,7 @@ import type { FrozenManifest } from './manifest.js';
 import type {
   FrozenDataset,
   FrozenRecord,
+  FrozenRecordTypeRef,
   LoadCreatedRecords,
   LoadJournal,
   PersonContactLink,
@@ -197,9 +231,10 @@ export interface FrozenDatasetLoaderDeps {
    */
   restoringWriter?: FrozenDmlWriter;
   /**
-   * Existing ProductionGuard — tier check on every DML batch. Each decision
-   * goes to the caller of `load` through `onGuardDecision`, and the bridge
-   * records the load with it in the audit trail.
+   * Existing ProductionGuard — tier check on every DML batch, and on the whole
+   * load at {@link FrozenDatasetLoader.gateLoad}. Each decision goes to the
+   * caller through `onGuardDecision`, and the bridge records the load with it
+   * in the audit trail.
    */
   guard: ProductionGuard;
   mockDetector: CalloutMockDetector;
@@ -284,20 +319,92 @@ export interface FrozenLoadOptions {
    * line of what the cancel cut short says what it kept back.
    */
   signal?: AbortSignal;
+  /**
+   * The lease of the target's automation mute its caller took before the
+   * load, which is given back once the last write is through, before the load
+   * reads back the record types the target gave: the bypass held no longer
+   * than the writes. Its caller gives it back as ever, however the load ends;
+   * given back twice, a lease answers the same.
+   *
+   * Taken before the load, it stands before everything the load reads of the
+   * target: a permission set that opens a record type to the user the load
+   * writes as is in the describes the load resolves and predicts from, a
+   * describe read just after an assignment already saying what it opened.
+   */
+  lease?: { giveBack: () => Promise<unknown> };
+  /**
+   * What goes with a reload's purge beside the records the loads before it
+   * created: the sweep of what the target's automation made for each of
+   * them, as a removal of that load sweeps it, found and judged by its caller
+   * before the load and the lease. `first` runs once the purge is planned,
+   * before its first delete — what the automation hung under a record of
+   * those loads goes before it —, `afterPurge` once its deletes are through,
+   * and not after a cancel or a failure. Purged alone, the loads replaced
+   * left the tasks a flow had opened on each contact they inserted, one set
+   * per load. Ignored for a pilot, which purges nothing.
+   *
+   * `stillToSweep` names, as the mapping is kept, the loads replaced whose
+   * sweep has not taken all it was to: the mapping keeps them once the purge
+   * took their records, as a removal keeps the load it took back, for the next
+   * sweep of them (`PersistedLoad.earlier`).
+   */
+  purgeSweep?: {
+    first: () => Promise<unknown>;
+    afterPurge: () => Promise<unknown>;
+    stillToSweep?: () => readonly string[];
+  };
   /** Clock injection for deterministic tests. */
   now?: () => Date;
 }
 
 /**
  * Options of a preview of a load ({@link FrozenDatasetLoader.planLoad}): a
- * load's, but for what only a write hears — Production Guard's decisions and
- * the cancel.
+ * load's, but for what only a write hears — Production Guard's decisions, the
+ * cancel, the mute's lease and the sweep around the purge.
  */
-export type FrozenLoadPlanOptions = Omit<FrozenLoadOptions, 'onGuardDecision' | 'signal'>;
+export type FrozenLoadPlanOptions = Omit<
+  FrozenLoadOptions,
+  'onGuardDecision' | 'signal' | 'lease' | 'purgeSweep'
+>;
+
+/** What {@link FrozenDatasetLoader.gateLoad} judges of a load, and whom it tells. */
+export type FrozenLoadGateOptions = Pick<
+  FrozenLoadOptions,
+  | 'orgId'
+  | 'orgTier'
+  | 'dataset'
+  | 'manifest'
+  | 'reload'
+  | 'pilot'
+  | 'onProgress'
+  | 'onGuardDecision'
+>;
+
+/**
+ * Two record types of an object the dataset cannot tell apart: one label the
+ * source gave two of them, in a dataset whose records kept no name of their
+ * record type (`label`), or a name a dataset extracted without namespaces
+ * gives two of the target's (`namespace`), each named as the refusal names
+ * it. What the panel words the refusal from.
+ */
+export interface RecordTypesUntold {
+  reason: 'label' | 'namespace';
+  objectApiName: string;
+  /** The label, or the name, the records give their record type. */
+  name: string;
+  /** The record types that carry it. */
+  recordTypes: string[];
+}
 
 /** Error thrown when required configuration is missing (actionable). */
 export class LoadConfigError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** What the configuration has to declare, each as the message lists it, when it lists any. */
+    readonly gaps?: readonly string[],
+    /** The record types the dataset cannot tell apart, when that is what refused the load. */
+    readonly recordTypesUntold?: RecordTypesUntold,
+  ) {
     super(message);
     this.name = 'LoadConfigError';
   }
@@ -311,6 +418,39 @@ export class LoadRecordsExceededError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'LoadRecordsExceededError';
+  }
+}
+
+/**
+ * What a reload finds in the target that its purge would have the target
+ * delete along with a record of a load before it: per object, how many,
+ * and the objects of the records they hang from.
+ */
+export interface FoundUnderThePurge {
+  objectApiName: string;
+  count: number;
+  under: string[];
+}
+
+/**
+ * Raised, before anything is written, when a reload's purge would have the
+ * target delete along with what the loads before it created a record the
+ * reload itself finds there: see `FrozenDatasetLoader.foundUnderThePurge`.
+ */
+export class ReloadTakesAlongError extends Error {
+  constructor(readonly found: readonly FoundUnderThePurge[]) {
+    const total = found.reduce((sum, object) => sum + object.count, 0);
+    super(
+      `This reload finds in the target ${total} record(s) that its purge would delete along with ` +
+        `what the loads before it created — ${found
+          .map((o) => `${o.objectApiName} (${o.count}, under ${o.under.join(', ')})`)
+          .join('; ')}: the target deletes them with the record they hang from, which the reload ` +
+        'does not find again, and the load would then write against records no longer there. ' +
+        'Nothing was written. Give the records they hang from identity keys too, so that the ' +
+        'reload finds them again, or take the load back first with a removal, then load the ' +
+        'dataset again.',
+    );
+    this.name = 'ReloadTakesAlongError';
   }
 }
 
@@ -520,6 +660,8 @@ interface PreparedLoad {
   requiredLookups: Map<string, Set<string>>;
   /** Fields no update can set, per object. */
   fixedAtInsert: Map<string, Set<string>>;
+  /** The lookups the target filters, per object, with the objects each looks up — from its describe. */
+  filteredLookups: Map<string, Array<{ field: string; referenceTo: string[] }>>;
   /** The objects the load sends nothing of, counted as their insert would have counted them. */
   lostObjects: Map<string, PerObjectLoadResult>;
   /** Whether the target has person accounts; unknown when the dataset holds no account. */
@@ -528,6 +670,118 @@ interface PreparedLoad {
   accountKindOf: (referenceId: string) => AccountKind;
   /** The placeholders and defaults the required fields take. */
   plans: RequiredFieldPlan[];
+  /** Per object of the target with a record type besides Master, what it gives a record sent without one. */
+  givenRules: ReadonlyMap<string, GivenRule>;
+  /**
+   * Why a record the dataset named a record type for, or held on Master, goes
+   * without one, by referenceId. A record that holds no `RecordTypeId` at all
+   * is not here, and reads `notRead`.
+   */
+  withoutRecordType: ReadonlyMap<string, WithoutRecordTypeWhy>;
+  /** Per object whose identity keys the load looks records up by, the records it does not: see {@link KeysLeftEmpty}. */
+  keysLeftEmpty: KeysLeftEmpty[];
+}
+
+/**
+ * Records of one object a load does not look up in the target by its identity
+ * keys, a key field staying empty in what it writes: the key fields so left,
+ * and how many records.
+ */
+interface KeysLeftEmpty {
+  objectApiName: string;
+  fields: string[];
+  count: number;
+}
+
+/**
+ * What a load matches records by in the target, of one object: its key
+ * fields, the records as the load writes them, what the alignment says a
+ * default fills, and the ranks and kinds of account those defaults go by.
+ */
+interface KeysAsWritten {
+  objectApiName: string;
+  keyFields: readonly string[];
+  records: ReadonlyArray<{ referenceId: string; fields: Record<string, unknown> }>;
+  missingRequired: readonly MissingRequiredField[];
+  ranks: ReadonlyMap<string, number>;
+  accountKindOf: (referenceId: string) => AccountKind;
+}
+
+/** What identity keys matched, as the alignment's line says it, and what they did not ask about. */
+interface KeyedLinks {
+  /** The records linked, by referenceId. */
+  linked: string[];
+  /** What the alignment's line says, per object. */
+  said: string[];
+  /** Per object, the records whose key stays empty in what the load writes. */
+  leftEmpty: KeysLeftEmpty[];
+}
+
+/**
+ * What the target gives a record of one object created without a record type,
+ * as the load holds it: the object's types, named, and the one the describe of
+ * the user it writes as says it gives, absent for Master.
+ */
+interface GivenRule {
+  types: readonly RecordTypeAvailability[];
+  predicted?: RecordTypeNamed & { basis: RecordTypeGivenBasis };
+}
+
+/** What a load says of one object's records without a record type, and the keys they go by. */
+interface RecordsGivenAType {
+  given: RecordTypeGiven;
+  rule: GivenRule;
+  keys: string[];
+}
+
+/**
+ * Of the records `counted` keeps, those that go in without a record type,
+ * into an object of the target with a type besides Master: per object, how
+ * many and why. A record that goes with a type gets it; one of an object with
+ * none besides Master has nothing to say. Told from the rows the load sends,
+ * not from what the dataset named: a field the alignment left out goes too.
+ */
+function recordsGivenAType(
+  prepared: Pick<PreparedLoad, 'alignedByObject' | 'givenRules' | 'withoutRecordType'>,
+  counted: (referenceId: string) => boolean,
+): RecordsGivenAType[] {
+  const entries: RecordsGivenAType[] = [];
+  for (const [objectApiName, rule] of prepared.givenRules) {
+    const keys: string[] = [];
+    const why: RecordTypeGiven['why'] = {};
+    for (const { referenceId, fields } of prepared.alignedByObject.get(objectApiName) ?? []) {
+      if (!leftEmpty(fields.RecordTypeId) || !counted(referenceId)) continue;
+      keys.push(referenceId);
+      const reason = prepared.withoutRecordType.get(referenceId) ?? 'notRead';
+      why[reason] = (why[reason] ?? 0) + 1;
+    }
+    if (keys.length === 0) continue;
+    const { predicted } = rule;
+    entries.push({
+      given: { objectApiName, rows: keys.length, why, ...(predicted ? { predicted } : {}) },
+      rule,
+      keys,
+    });
+  }
+  return entries;
+}
+
+/** A dataset's record type by its namespace and DeveloperName, as `findRecordTypeByName` reads one. */
+function partsOfRef(ref: FrozenRecordTypeRef): RecordTypeNameParts {
+  return { namespacePrefix: ref.namespacePrefix, developerName: ref.developerName };
+}
+
+/**
+ * What the target gives a record whose record type was dropped, as an issue
+ * says it: the type by name, and why that one.
+ */
+function givenRecordTypeWords(given: GivenRecordType | undefined): string {
+  if (!given) return "the user's default record type applies";
+  if (given.kind === 'master') return 'the target leaves it on Master for that user';
+  const { developerName } = given.info;
+  return given.basis === 'userDefault'
+    ? `the target gives it ${developerName}, the user's default record type`
+    : `the target gives it ${developerName}, the only other record type open to the user`;
 }
 
 /** What a load that fails part way has to keep, handed over by the load before its first write. */
@@ -560,6 +814,52 @@ async function keptAfterFailure(
   return new FrozenLoadFailedError(cause, load.written);
 }
 
+/**
+ * The refusal of a dataset whose records of `objectApiName` name their record
+ * type by `label`, which the record types `sharing` carry in the source: which
+ * one each record had cannot be told.
+ */
+function labelSharedBy(
+  objectApiName: string,
+  label: string,
+  sharing: readonly FrozenRecordTypeRef[],
+): LoadConfigError {
+  const names = sharing.map((rt) => qualifiedRecordTypeName(rt.namespacePrefix, rt.developerName));
+  return new LoadConfigError(
+    `The dataset's ${objectApiName} records name record type "${label}" by its label, ` +
+      `which ${names.join(' and ')} ` +
+      `share in the source: which one each record had cannot be told, the dataset having ` +
+      `been extracted before SandForge kept each record's record type by its name. Extract ` +
+      `the dataset again. Nothing was written.`,
+    undefined,
+    { reason: 'label', objectApiName, name: label, recordTypes: names },
+  );
+}
+
+/**
+ * The first record of `dataset` that names its record type by a label two
+ * record types of its object share in the source, and keeps no name of it:
+ * the load's refusal of it ({@link labelSharedBy}). Read from the dataset
+ * alone, before anything is asked of the target.
+ */
+function recordTypeLabelUntold(dataset: FrozenDataset): LoadConfigError | undefined {
+  for (const { objectApiName, records } of dataset.objects) {
+    const types = dataset.recordTypes[objectApiName] ?? [];
+    if (types.length < 2) continue;
+    for (const record of records) {
+      const label = record.fields.RecordTypeId;
+      if (typeof label !== 'string' || label === '') continue;
+      if (record.recordTypeDeveloperName !== undefined) {
+        const named = findRecordTypeByName(record.recordTypeDeveloperName, types, partsOfRef);
+        if (named && 'found' in named) continue;
+      }
+      const sharing = types.filter((rt) => rt.name === label);
+      if (sharing.length > 1) return labelSharedBy(objectApiName, label, sharing);
+    }
+  }
+  return undefined;
+}
+
 /** A cycle FK nullified at pass 1, to patch at pass 2. */
 interface PendingFk {
   objectApiName: string;
@@ -569,6 +869,9 @@ interface PendingFk {
   /** referenceId carried by the FK at pass 1. */
   targetReferenceId: string;
 }
+
+/** The object a contact role is of, whose insert with its contact writes one. */
+const OPPORTUNITY = 'Opportunity';
 
 /** Synthetic mapping key prefix for placeholder records. */
 const PLACEHOLDER_KEY_PREFIX = 'placeholder:';
@@ -870,6 +1173,14 @@ function endOfACheck(
   };
 }
 
+/** The line that begins the entry guards. */
+const ENTRY_GUARDS_STARTED: FrozenLoadProgressEvent = {
+  phase: 'guards',
+  status: 'started',
+  progress: 0,
+  message: 'Evaluating entry guards',
+};
+
 /**
  * A step of the load — a reload's purge, the placeholders, a pass after the
  * inserts — as the line that ends it says it.
@@ -1094,6 +1405,91 @@ export class FrozenDatasetLoader {
   }
 
   /**
+   * What stands in a load's way before anything is taken for it, for its host
+   * to pass before the checkpoint asked first and the mute's lease: the entry
+   * guards, then Production Guard's question about the whole load, once.
+   *
+   * Both came after them, inside the load. A sandbox marked Staging, which the
+   * entry guards refuse, had a checkpoint of the tables it would have written
+   * taken and the bypass assigned, for a load that wrote nothing. And the
+   * guard, consulted batch by batch, would have asked under the lease. It
+   * judges every batch still, and a load refuses what it refuses; a question
+   * answered here is answered for them, by the host (`withGivenAnswer`).
+   *
+   * A stock guard asks nothing here: the entry guards let through only the
+   * tiers it asks nothing of. The question is for a guard a host injects.
+   *
+   * @returns What the guard decided: told to `onGuardDecision` too.
+   * @throws {LoadGuardError} When an entry guard or the guard refuses the
+   *   load, or its question is declined: nothing was taken, nothing written.
+   */
+  async gateLoad(options: FrozenLoadGateOptions): Promise<GuardDecision> {
+    try {
+      await this.passEntryGuards(options);
+    } catch (err: unknown) {
+      // Said here, a load that passes its guards says them once, as it starts.
+      options.onProgress?.(ENTRY_GUARDS_STARTED);
+      options.onProgress?.(endOfACheck('guards', 2, 'Entry guards not passed', err));
+      throw err;
+    }
+    // What the dataset alone refuses, before the mute and the checkpoint are
+    // taken for it, on the line the load would have said it on. Run for real
+    // on a trap org, a load refused for a record type label two types shared
+    // had assigned the bypass first, and taken it back, for a load that wrote
+    // nothing; refused three times, three times.
+    let scoped = options.dataset;
+    if (options.pilot) {
+      try {
+        scoped = this.filterPilotScope(options.dataset, options.pilot.rootReferenceId);
+      } catch (err: unknown) {
+        options.onProgress?.({
+          phase: 'pilot',
+          status: 'started',
+          progress: 3,
+          message: 'Selecting the root folder',
+        });
+        options.onProgress?.(endOfACheck('pilot', 4, 'Root folder not selected', err));
+        throw err;
+      }
+    }
+    const untold = recordTypeLabelUntold(scoped);
+    if (untold) {
+      options.onProgress?.({
+        phase: 'align',
+        status: 'started',
+        progress: 12,
+        message: 'Resolving record types',
+      });
+      options.onProgress?.(endOfACheck('align', 20, 'Schema not aligned', untold));
+      throw untold;
+    }
+    const purges = options.reload === true && !options.pilot;
+    return this.consultGuard(options, {
+      orgId: options.orgId,
+      orgTier: options.orgTier,
+      operation: purges ? 'delete' : 'insert',
+      objectName: options.dataset.objects
+        .filter((object) => object.records.length > 0)
+        .map((object) => object.objectApiName)
+        .join(', '),
+      recordCount: { atMost: datasetRecordCount(options.dataset) },
+      module: 'frozendataset',
+    });
+  }
+
+  /** The entry guards of a load: refusal is actionable, never a DML on the source. */
+  private passEntryGuards(options: FrozenLoadGateOptions): Promise<void> {
+    return assertLoadGuards({
+      orgId: options.orgId,
+      orgTier: options.orgTier,
+      dataset: options.dataset,
+      manifest: options.manifest,
+      mockDetector: this.deps.mockDetector,
+      protectedOrgIds: this.config.protectedOrgIds,
+    });
+  }
+
+  /**
    * Load (or reload) the frozen dataset into the target sandbox.
    *
    * A load that fails once it has created records, or purged some an earlier
@@ -1168,12 +1564,22 @@ export class FrozenDatasetLoader {
       options.reload && !options.pilot
         ? await this.planPurge(options.orgId, prepared.previousLoads, prepared.mapping)
         : undefined;
+    if (purge) {
+      const along = await this.foundUnderThePurge(
+        options.orgId,
+        purge.residuals,
+        prepared.mapping,
+        prepared.refIndex,
+      );
+      if (along.length > 0) throw new ReloadTakesAlongError(along);
+    }
     const plan = loadPlanOf(prepared, purge, {
       orgId: options.orgId,
       mode: { pilot: options.pilot !== undefined, reload: options.reload === true },
       plannedAt: now().toISOString(),
       undeletableObjects: this.config.undeletableObjects ?? {},
       requiredFieldDefaults: this.config.requiredFieldDefaults ?? {},
+      excludedObjects: this.config.excludedObjects ?? [],
     });
     return this.withValidationRules(plan);
   }
@@ -1252,16 +1658,9 @@ export class FrozenDatasetLoader {
 
     // 1. Entry guards — refusal is actionable, never a DML on the source.
     //    One that refuses the load ends their line failed, with why.
-    emit({ phase: 'guards', status: 'started', progress: 0, message: 'Evaluating entry guards' });
+    emit(ENTRY_GUARDS_STARTED);
     try {
-      await assertLoadGuards({
-        orgId,
-        orgTier: options.orgTier,
-        dataset: options.dataset,
-        manifest: options.manifest,
-        mockDetector: this.deps.mockDetector,
-        protectedOrgIds: this.config.protectedOrgIds,
-      });
+      await this.passEntryGuards(options);
     } catch (err: unknown) {
       emit(endOfACheck('guards', 2, 'Entry guards not passed', err));
       throw err;
@@ -1439,6 +1838,7 @@ export class FrozenDatasetLoader {
     const recordTypeIssues: SchemaAlignmentReport['recordTypeIssues'] = [];
     const rtResolved = new Map<string, FrozenRecord[]>();
     const resolvedRecordTypes = new Map<string, string>();
+    const withoutRecordType = new Map<string, WithoutRecordTypeWhy>();
     for (const objectData of loading.objects) {
       const records: FrozenRecord[] = [];
       for (const record of objectData.records) {
@@ -1450,6 +1850,7 @@ export class FrozenDatasetLoader {
             record,
             resolvedRecordTypes,
             recordTypeIssues,
+            withoutRecordType,
           ),
         );
       }
@@ -1473,6 +1874,8 @@ export class FrozenDatasetLoader {
     const requiredLookups = new Map<string, Set<string>>();
     /** Fields no update can set, per object — from its describe. */
     const fixedAtInsert = new Map<string, Set<string>>();
+    /** The lookups the target filters, per object — from its describe. */
+    const filteredLookups = new Map<string, Array<{ field: string; referenceTo: string[] }>>();
     /**
      * Objects the load sends nothing of — the target lacks them, or takes no
      * insert of them — counted as the insert would have counted them: the
@@ -1498,6 +1901,8 @@ export class FrozenDatasetLoader {
         : 'business';
     /** Per object, its required lookups at an object `excludedObjects` names: see `heldForAnExcludedParent`. */
     const lookupsAtExcluded = new Map<string, ExcludedParentLookup[]>();
+    /** What the target gives a record sent without a record type, from each describe it reads here. */
+    const givenRules = new Map<string, GivenRule>();
     // A manifest written since the extraction left out what it read masked
     // names those fields, or none; one written before has no such list, and
     // the dataset may hold the masks of the fields the target encrypts.
@@ -1575,6 +1980,17 @@ export class FrozenDatasetLoader {
         objectApiName,
         new Set(describe.fields.filter((f) => f.updateable === false).map((f) => f.name)),
       );
+      const filters = describe.fields
+        .filter(
+          (f) => f.lookupFilter !== undefined && f.createable && (f.referenceTo?.length ?? 0) > 0,
+        )
+        .map((f) => ({ field: f.name, referenceTo: [...(f.referenceTo ?? [])] }));
+      if (filters.length > 0) filteredLookups.set(objectApiName, filters);
+      const types = parseRecordTypeInfos(describe.recordTypeInfos);
+      if (types.some((type) => !type.master)) {
+        const predicted = predictedRecordTypeOf(recordTypeGivenOf(types));
+        givenRules.set(objectApiName, { types, ...(predicted ? { predicted } : {}) });
+      }
       const atExcluded = lookupsAtExcludedObjects(objectApiName, describe, this.config);
       if (atExcluded.length > 0) lookupsAtExcluded.set(objectApiName, atExcluded);
       requiredLookups.set(
@@ -1614,8 +2030,10 @@ export class FrozenDatasetLoader {
       );
     }
     // What the platform never deletes is linked, on every load, to the record
-    // the target holds under its identity key: read on the alignment's line,
-    // which a read that throws ends failed, with why.
+    // the target holds under its identity key; and on a reload, what its
+    // identity keys could not ask about before the alignment, by the value
+    // the load writes in a key field the dataset leaves empty: read on the
+    // alignment's line, which a read that throws ends failed, with why.
     const kept = await this.linkWhatThePlatformKeeps(
       orgId,
       alignment.objectResults,
@@ -1623,13 +2041,27 @@ export class FrozenDatasetLoader {
       ranks,
       mapping,
       reused,
+      accountKindOf,
     );
-    for (const key of kept.linked) reusedByKeys.add(key);
+    const keyed = options.reload
+      ? await this.reuseByKeysAsWritten(
+          orgId,
+          loading,
+          alignment.objectResults,
+          alignedByObject,
+          ranks,
+          mapping,
+          reused,
+          accountKindOf,
+        )
+      : { linked: [], said: [], leftEmpty: [] };
+    for (const key of [...kept.linked, ...keyed.linked]) reusedByKeys.add(key);
+    const said = [...kept.said, ...keyed.said];
     emit({
       phase: 'align',
       status: 'done',
       progress: 20,
-      message: `Schema aligned${kept.said.length > 0 ? ` — ${kept.said.join('; ')}` : ''}`,
+      message: `Schema aligned${said.length > 0 ? ` — ${said.join('; ')}` : ''}`,
     });
     running.endOpenLine = undefined;
     // A record the target will not take without a parent the configuration
@@ -1704,10 +2136,14 @@ export class FrozenDatasetLoader {
       alignedByObject,
       requiredLookups,
       fixedAtInsert,
+      filteredLookups,
       lostObjects,
       targetHasPersonAccounts,
       accountKindOf,
       plans,
+      givenRules,
+      withoutRecordType,
+      keysLeftEmpty: [...kept.leftEmpty, ...keyed.leftEmpty],
     };
   }
 
@@ -1760,11 +2196,18 @@ export class FrozenDatasetLoader {
           plannedAt: startedAt.toISOString(),
           undeletableObjects: this.config.undeletableObjects ?? {},
           requiredFieldDefaults: this.config.requiredFieldDefaults ?? {},
+          excludedObjects: this.config.excludedObjects ?? [],
         }),
       ),
       options.maxRecords,
     );
     if (tooMany) throw new LoadRecordsExceededError(tooMany);
+
+    // The user the load writes as, asked before its first write and kept with
+    // what it creates: what a removal and its sweep hold what the target's
+    // automation made to. Asked of the records instead, it went with them.
+    const runUserId = await this.runUserIdOf(orgId);
+    if (runUserId) this.journal?.writtenAs(runUserId);
 
     const purge: PurgeReport = { deleted: {}, deactivated: {}, failures: [] };
     const placeholders: PlaceholderCreation[] = [];
@@ -1811,15 +2254,20 @@ export class FrozenDatasetLoader {
     const persistMapping = async (): Promise<void> => {
       const writtenBetween = await this.readWrittenBetween(orgId, created, mapping);
       const linkedContacts = personContactOutcome?.linked ?? new Map<string, string>();
+      const stillToSweep = options.pilot ? undefined : options.purgeSweep?.stillToSweep?.();
       await this.deps.mappingStore.persist(mapping, {
         created: created.list(carried),
         startedAt,
         ...(writtenBetween ? { writtenBetween } : {}),
-        earlier: { settled: [...settled] },
+        earlier: {
+          settled: [...settled],
+          ...(stillToSweep && stillToSweep.length > 0 ? { stillToSweep: [...stillToSweep] } : {}),
+        },
         ...(linkedContacts.size > 0 ? { personContacts: Object.fromEntries(linkedContacts) } : {}),
         ...(withTheirRecord.size > 0
           ? { withTheirRecord: Object.fromEntries(withTheirRecord) }
           : {}),
+        ...(runUserId ? { runUserId } : {}),
       });
       mappingKept = true;
     };
@@ -1916,6 +2364,14 @@ export class FrozenDatasetLoader {
           message: 'Purging what earlier loads created',
         });
         const plan = await this.planPurge(orgId, previousLoads, mapping);
+        // What it finds hanging from what it purges would go with it: refused
+        // before the purge's first delete, as its dry run is.
+        const along = await this.foundUnderThePurge(orgId, plan.residuals, mapping, refIndex);
+        if (along.length > 0) {
+          const refused = new ReloadTakesAlongError(along);
+          emit(purgeLine({ cause: refused }));
+          throw refused;
+        }
         carried = plan.carried;
         for (const key of carried.flatMap((object) => object.referenceIds)) {
           const id = mapping.get(key);
@@ -1938,6 +2394,14 @@ export class FrozenDatasetLoader {
             keptObjects.map(([objectApiName, count]) => `${objectApiName} (${count})`).join(', ');
         }
         try {
+          // What the target's automation made for the loads replaced goes
+          // around their records, as a removal's sweep goes around a load's:
+          // what hangs under one of them first, what one of them points at
+          // once it is gone. A cancel before it stops the reload there.
+          if (options.purgeSweep) {
+            await checkpoint();
+            await options.purgeSweep.first();
+          }
           await this.purgeResiduals(
             options,
             plan,
@@ -1948,6 +2412,9 @@ export class FrozenDatasetLoader {
             notReached,
             secondTry,
           );
+          if (options.purgeSweep && !options.signal?.aborted) {
+            await options.purgeSweep.afterPurge();
+          }
         } catch (err: unknown) {
           emit(purgeLine(err instanceof FrozenLoadCancelledError ? undefined : { cause: err }));
           throw err;
@@ -2531,6 +2998,22 @@ export class FrozenDatasetLoader {
           fixedAtInsert.get(objectApiName) ?? new Set(),
         );
       }
+      /** The contact roles linked to the one the platform wrote with their opportunity. */
+      let rolesThePlatformWrote = 0;
+      if (objectApiName === OPPORTUNITY_CONTACT_ROLE) {
+        const roles = await this.matchContactRolesWrittenWithOpportunities(options, {
+          working,
+          aligned,
+          refIndex,
+          mapping,
+          reused,
+          withTheirRecord,
+          pendingFk,
+          fixedAtInsert: fixedAtInsert.get(objectApiName) ?? new Set(),
+        });
+        rolesThePlatformWrote = roles.linked;
+        flagsNotKept = roles.note;
+      }
       const lifecycle = STATUS_LIFECYCLES[objectApiName];
       let startingRecords = lifecycle
         ? await this.startAsDrafts(orgId, objectApiName, lifecycle, rows, deferredStatuses)
@@ -2650,6 +3133,9 @@ export class FrozenDatasetLoader {
       endTheObjectWritten = undefined;
       if (objectApiName === CONTACT) settleTheContactsSent();
       objectResult = withPersonContacts(objectResult);
+      if (rolesThePlatformWrote > 0) {
+        objectResult = { ...objectResult, writtenByThePlatform: rolesThePlatformWrote };
+      }
       /*
        * Stopped at the email object — before its insert, or before a call of
        * it — the load stops once its line is said, before the task object's
@@ -2726,12 +3212,27 @@ export class FrozenDatasetLoader {
       report: { resolved: 0, unresolved: [] },
       unanswered: 0,
     };
+    // An opportunity's synced quote, set here, makes its products the quote's
+    // lines: left unset where the load wrote fewer of these than of those,
+    // and said. See `syncedQuotes.ts`.
+    const unsynced = quotesLeftUnsynced(alignedByObject, (referenceId) => mapping.has(referenceId));
+    const leftUnset = new Set(unsynced.map((left) => left.opportunity));
+    const patches = pendingFk.filter(
+      (pending) =>
+        pending.objectApiName !== OPPORTUNITY_OBJECT ||
+        pending.field !== SYNCED_QUOTE_FIELD ||
+        !leftUnset.has(pending.referenceId),
+    );
+    const unsetNote =
+      unsynced.length > 0
+        ? `, ${unsynced.length} synced quote${unsynced.length === 1 ? '' : 's'} left unset`
+        : '';
     const endOfPass2 = (failedOn?: { cause: unknown }): FrozenLoadProgressEvent =>
       endOfTheStep(
         {
           phase: 'pass2',
           progress: 88,
-          did: `Pass 2: ${cyclePass.report.resolved} resolved, ${cyclePass.report.unresolved.length} unresolved`,
+          did: `Pass 2: ${cyclePass.report.resolved} resolved, ${cyclePass.report.unresolved.length} unresolved${unsetNote}`,
           refused: cyclePass.report.unresolved.length,
           notDone: cyclePass.unanswered,
           done: 'resolved',
@@ -2739,7 +3240,7 @@ export class FrozenDatasetLoader {
         failedOn,
       );
     try {
-      await this.patchCycleFks(options, pendingFk, mapping, cyclePass);
+      await this.patchCycleFks(options, patches, mapping, cyclePass);
     } catch (err: unknown) {
       emit(endOfPass2({ cause: err }));
       throw err;
@@ -2806,6 +3307,12 @@ export class FrozenDatasetLoader {
     // count as loaded what the cancel kept from the target.
     await checkpoint();
 
+    // The load's last write is through: the mute's lease goes back now, the
+    // bypass held no longer than the writes. A lease never throws as it is
+    // given back; should one, the writes stand, and the load's caller gives
+    // it back again and says what it left.
+    await options.lease?.giveBack().catch(() => undefined);
+
     // 10. Persist mapping + counting contract (sas).
     emit({
       phase: 'persist',
@@ -2857,6 +3364,16 @@ export class FrozenDatasetLoader {
       statuses.refused.length > 0 ||
       purge.failures.length > 0;
 
+    // The record types the target gave what the load created without one,
+    // read once the writes are through and the lease given back: what the
+    // result says rather than what the describe predicted.
+    const createdKeys = new Set(created.list().flatMap(({ referenceIds }) => referenceIds));
+    const recordTypesGiven = await this.readBackRecordTypes(
+      orgId,
+      recordsGivenAType(prepared, (referenceId) => createdKeys.has(referenceId)),
+      mapping,
+    );
+
     const report: FrozenLoadReport = {
       status: hasErrors ? 'completed-with-errors' : 'completed',
       orgId,
@@ -2884,6 +3401,10 @@ export class FrozenDatasetLoader {
       ...(heldForExcluded.length > 0
         ? { heldForExcludedParents: heldForExcludedParentsOf(heldForExcluded) }
         : {}),
+      ...quotesLeftUnsyncedOf(unsynced, this.config),
+      ...keysLeftEmptyOf(prepared.keysLeftEmpty),
+      ...(recordTypesGiven.length > 0 ? { recordTypesGiven } : {}),
+      ...(runUserId ? { runUserId } : {}),
       mappingPath: this.deps.mappingStore.filePath,
       contractPath,
     };
@@ -2907,22 +3428,38 @@ export class FrozenDatasetLoader {
     objectApiName: string,
     recordCount: number,
   ): Promise<void> {
-    const request: OperationRequest = {
+    await this.consultGuard(options, {
       orgId: options.orgId,
       orgTier: options.orgTier,
       operation,
       objectName: objectApiName,
       recordCount,
       module: 'frozendataset',
-    };
+    });
+  }
+
+  /** Consult Production Guard, tell the caller what it decided, and stop on a refusal. */
+  private async consultGuard(
+    options: Pick<FrozenLoadOptions, 'onGuardDecision'>,
+    request: OperationRequest,
+  ): Promise<GuardDecision> {
     const { check, decision } = await consultProductionGuard(this.deps.guard, request);
     options.onGuardDecision?.(decision);
     if (decision === 'refused' || decision === 'declined') {
+      // What the panel words it from: declined at its question, or refused
+      // for the guard's reason, which the guard gives in the user's words.
       throw new LoadGuardError(
         'guard-refused',
-        `Production guard refused ${operation} on ${objectApiName}: ${check.blockedReason ?? 'confirmation declined'}`,
+        `Production guard refused ${request.operation} on ${request.objectName}: ${check.blockedReason ?? 'confirmation declined'}`,
+        {
+          decision,
+          ...(decision === 'refused' && check.blockedReason !== undefined
+            ? { reason: check.blockedReason }
+            : {}),
+        },
       );
     }
+    return decision;
   }
 
   /**
@@ -2996,7 +3533,12 @@ export class FrozenDatasetLoader {
     };
   }
 
-  /** Reuse existing target records matched by configured identity keys. */
+  /**
+   * Reuse existing target records matched by configured identity keys, by the
+   * values the dataset holds. A record leaving a key field empty is asked
+   * about once the alignment says what the load writes there:
+   * see {@link reuseByKeysAsWritten}.
+   */
   private async reuseByIdentityKeys(
     options: FrozenLoadOptions,
     working: FrozenDataset,
@@ -3075,8 +3617,8 @@ export class FrozenDatasetLoader {
    * alignment, which says which fields a default fills, and before the
    * required fields are settled: a record linked needs none.
    *
-   * @returns The records it linked, and what the alignment's line says of
-   *   them, per object.
+   * @returns The records it linked, what the alignment's line says of them,
+   *   and the records whose key stays empty, per object.
    */
   private async linkWhatThePlatformKeeps(
     orgId: string,
@@ -3088,44 +3630,145 @@ export class FrozenDatasetLoader {
     ranks: ReadonlyMap<string, number>,
     mapping: Map<string, string>,
     reused: Set<string>,
-  ): Promise<{ linked: string[]; said: string[] }> {
-    const linked: string[] = [];
-    const said: string[] = [];
+    accountKindOf: (referenceId: string) => AccountKind,
+  ): Promise<KeyedLinks> {
+    const links: KeyedLinks = { linked: [], said: [], leftEmpty: [] };
     for (const [objectApiName, ownKeys] of Object.entries(KEPT_BY_THE_PLATFORM)) {
       const keyFields = this.config.identityKeys?.[objectApiName] ?? ownKeys;
       const toWrite = (alignedByObject.get(objectApiName) ?? []).filter(
         (r) => !reused.has(r.referenceId),
       );
       if (toWrite.length === 0) continue;
-      const defaulted = (
-        objectResults.find((r) => r.objectApiName === objectApiName)?.missingRequired ?? []
-      ).filter((missing) => !missing.isLookup && keyFields.includes(missing.field));
-      const asWritten = toWrite.map((record) => {
-        const fields = { ...record.fields };
-        for (const missing of defaulted) {
-          const declared = this.config.requiredFieldDefaults?.[`${objectApiName}.${missing.field}`];
-          if (declared === undefined || !leftEmpty(fields[missing.field])) continue;
-          fields[missing.field] = defaultValueFor(
-            declared,
-            defaultPerRecord(declared, missing.distinct),
-            { referenceId: record.referenceId, rank: ranks.get(record.referenceId) ?? 0 },
-          );
-        }
-        return { referenceId: record.referenceId, fields };
-      });
-      const found = await this.findByKeys(orgId, objectApiName, keyFields, asWritten);
-      for (const [referenceId, realId] of found) {
-        mapping.set(referenceId, realId);
-        reused.add(referenceId);
-        linked.push(referenceId);
-      }
-      if (found.size > 0) {
-        said.push(
-          `${objectApiName}: ${found.size} found by ${keyFields.join(', ')}, which the platform does not delete`,
+      const found = await this.linkByKeysAsWritten(
+        orgId,
+        {
+          objectApiName,
+          keyFields,
+          records: toWrite,
+          missingRequired:
+            objectResults.find((r) => r.objectApiName === objectApiName)?.missingRequired ?? [],
+          ranks,
+          accountKindOf,
+        },
+        mapping,
+        reused,
+        links,
+      );
+      if (found > 0) {
+        links.said.push(
+          `${objectApiName}: ${found} found by ${keyFields.join(', ')}, which the platform does not delete`,
         );
       }
     }
-    return { linked, said };
+    return links;
+  }
+
+  /**
+   * On a reload, link each record its identity keys could not ask about
+   * before the alignment — a key field the dataset leaves empty — to the one
+   * the target holds under the value the load writes there: the declared
+   * default of a name the rules cleared, the same from one load to the next.
+   *
+   * Asked about by the dataset's values alone, such a record never was: run
+   * on a scratch org, a reload keyed on the name of the quotes, which the
+   * rules cleared and a default filled, counted the quote an earlier load had
+   * written under that name to purge and to insert again — and the refusal of
+   * a purge that would take a found quote along with its opportunity never
+   * saw it — while nothing said the key was not looked up. Read once the
+   * alignment says which fields a default fills, before the required fields
+   * are settled, a record found needing none. The objects the platform never
+   * deletes are matched so on every load: see {@link linkWhatThePlatformKeeps}.
+   *
+   * @returns The records it linked, what the alignment's line says of them,
+   *   and the records whose key stays empty even so, per object.
+   */
+  private async reuseByKeysAsWritten(
+    orgId: string,
+    loading: FrozenDataset,
+    objectResults: readonly SchemaAlignObjectResult[],
+    alignedByObject: ReadonlyMap<
+      string,
+      ReadonlyArray<{ referenceId: string; fields: Record<string, unknown> }>
+    >,
+    ranks: ReadonlyMap<string, number>,
+    mapping: Map<string, string>,
+    reused: Set<string>,
+    accountKindOf: (referenceId: string) => AccountKind,
+  ): Promise<KeyedLinks> {
+    const links: KeyedLinks = { linked: [], said: [], leftEmpty: [] };
+    for (const [objectApiName, keyFields] of Object.entries(this.config.identityKeys ?? {})) {
+      if (Object.prototype.hasOwnProperty.call(KEPT_BY_THE_PLATFORM, objectApiName)) continue;
+      // What `reuseByIdentityKeys` did not ask about: a record it asked
+      // about and did not find is not asked about again.
+      const unasked = new Set(
+        (loading.objects.find((o) => o.objectApiName === objectApiName)?.records ?? [])
+          .filter((r) => keyFields.some((f) => leftEmpty(r.fields[f])))
+          .map((r) => r.referenceId),
+      );
+      const records = (alignedByObject.get(objectApiName) ?? []).filter(
+        (r) => unasked.has(r.referenceId) && !reused.has(r.referenceId),
+      );
+      if (records.length === 0) continue;
+      const found = await this.linkByKeysAsWritten(
+        orgId,
+        {
+          objectApiName,
+          keyFields,
+          records,
+          missingRequired:
+            objectResults.find((r) => r.objectApiName === objectApiName)?.missingRequired ?? [],
+          ranks,
+          accountKindOf,
+        },
+        mapping,
+        reused,
+        links,
+      );
+      if (found > 0) {
+        links.said.push(
+          `${objectApiName}: ${found} found by ${keyFields.join(', ')}, as the load writes ` +
+            (found === 1 ? 'it' : 'them'),
+        );
+      }
+    }
+    return links;
+  }
+
+  /**
+   * Link each record of `keyed` to the one the target holds under its key
+   * fields, as the load writes them ({@link keysAsWritten}), noting in `links`
+   * what it linked and the records whose key stays empty even so: those are
+   * not looked up, and the load inserts them.
+   *
+   * @returns How many it linked.
+   */
+  private async linkByKeysAsWritten(
+    orgId: string,
+    keyed: KeysAsWritten,
+    mapping: Map<string, string>,
+    reused: Set<string>,
+    links: KeyedLinks,
+  ): Promise<number> {
+    const { objectApiName, keyFields } = keyed;
+    const asWritten = keysAsWritten(keyed, this.config.requiredFieldDefaults ?? {});
+    const empty = asWritten.flatMap((r) => {
+      const fields = keyFields.filter((f) => leftEmpty(r.fields[f]));
+      return fields.length > 0 ? [fields] : [];
+    });
+    if (empty.length > 0) {
+      const fields = keyFields.filter((f) => empty.some((left) => left.includes(f)));
+      links.leftEmpty.push({ objectApiName, fields, count: empty.length });
+      links.said.push(
+        `${objectApiName}: ${empty.length} not looked up, ${fields.join(', ')} left empty`,
+      );
+    }
+    const found = await this.findByKeys(orgId, objectApiName, keyFields, asWritten);
+    for (const [referenceId, realId] of found) {
+      mapping.set(referenceId, realId);
+      reused.add(referenceId);
+      links.linked.push(referenceId);
+    }
+    return found.size;
   }
 
   /**
@@ -3463,6 +4106,78 @@ export class FrozenDatasetLoader {
     } catch {
       return Number.NaN;
     }
+  }
+
+  /**
+   * The records this reload finds in the target — by its identity keys, a
+   * natural key, the catalog — that hang from a record its purge deletes,
+   * through a relationship the target deletes along (`cascadeChildren`): the
+   * target would delete them with it, and the load would then write against
+   * records no longer there. Read before anything is written, by the
+   * describe of each object purged and the found records' own lookups.
+   *
+   * Found by its name, the quote a load before wrote under its opportunity
+   * was reused, the opportunity, which no key found, purged: the target
+   * deleted the quote with it, the reload wrote its lines under a quote no
+   * longer there, synced its opportunity with it, and said it was complete.
+   * The removal's own check of what hangs from a record does not tell it: a
+   * record that came with the load it replaces goes with it there.
+   *
+   * An object purged that the target will not describe is not read; a read
+   * of the found records that fails counts each of them as taken along.
+   *
+   * @returns What would go along, per object; empty when nothing would.
+   */
+  private async foundUnderThePurge(
+    orgId: string,
+    residuals: ReadonlyMap<string, readonly string[]>,
+    mapping: ReadonlyMap<string, string>,
+    refIndex: ReadonlyMap<string, string>,
+  ): Promise<FoundUnderThePurge[]> {
+    const purged = new Set([...residuals.values()].flat().map(recordKey));
+    const foundByObject = new Map<string, string[]>();
+    for (const [referenceId, id] of mapping) {
+      const objectApiName = refIndex.get(referenceId);
+      if (objectApiName === undefined || purged.has(recordKey(id))) continue;
+      foundByObject.set(objectApiName, [...(foundByObject.get(objectApiName) ?? []), id]);
+    }
+    if (purged.size === 0 || foundByObject.size === 0) return [];
+    const along = new Map<string, { keys: Set<string>; under: Set<string> }>();
+    const takenAlong = (objectApiName: string, id: string, under: string): void => {
+      const entry = along.get(objectApiName) ?? { keys: new Set(), under: new Set() };
+      entry.keys.add(recordKey(id));
+      entry.under.add(under);
+      along.set(objectApiName, entry);
+    };
+    for (const parent of residuals.keys()) {
+      let children: ReadonlyArray<{ childSObject: string; field: string }>;
+      try {
+        children = (await this.deps.orgAccess.describe(orgId, parent)).cascadeChildren ?? [];
+      } catch {
+        continue;
+      }
+      for (const { childSObject, field } of children) {
+        const found = foundByObject.get(childSObject);
+        if (!found) continue;
+        let rows: Array<Record<string, unknown>>;
+        try {
+          rows = await this.readRecords(orgId, childSObject, [field], found);
+        } catch {
+          for (const id of found) takenAlong(childSObject, id, parent);
+          continue;
+        }
+        for (const row of rows) {
+          const points = row[field];
+          if (typeof row.Id !== 'string' || typeof points !== 'string') continue;
+          if (purged.has(recordKey(points))) takenAlong(childSObject, row.Id, parent);
+        }
+      }
+    }
+    return [...along].map(([objectApiName, { keys, under }]) => ({
+      objectApiName,
+      count: keys.size,
+      under: [...under],
+    }));
   }
 
   /**
@@ -3938,14 +4653,47 @@ export class FrozenDatasetLoader {
    * target does not say, or the question fails.
    */
   private async runningUser(orgId: string): Promise<string | undefined> {
+    const user = await this.runUserIdOf(orgId);
+    return user ? recordKey(user) : undefined;
+  }
+
+  /** The id of the user the load writes to the org as; undefined when the target does not say. */
+  private async runUserIdOf(orgId: string): Promise<string | undefined> {
     const userId = this.deps.orgAccess.userId;
     if (!userId) return undefined;
     try {
-      const user = await userId.call(this.deps.orgAccess, orgId);
-      return user ? recordKey(user) : undefined;
+      return (await userId.call(this.deps.orgAccess, orgId)) || undefined;
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * What the target gave the records the load created without a record type,
+   * read once its writes are through: one request an object, of its first
+   * records (`recordTypeReadBackSoql`). A read that fails is said in the org's
+   * words and fails nothing: the records are in.
+   */
+  private async readBackRecordTypes(
+    orgId: string,
+    entries: readonly RecordsGivenAType[],
+    mapping: ReadonlyMap<string, string>,
+  ): Promise<RecordTypeGiven[]> {
+    const read: RecordTypeGiven[] = [];
+    for (const { given, rule, keys } of entries) {
+      const ids = keys.flatMap((key) => mapping.get(key) ?? []);
+      try {
+        const rows = await this.deps.orgAccess.query(
+          orgId,
+          recordTypeReadBackSoql(given.objectApiName, ids),
+        );
+        read.push({ ...given, readBack: recordTypesReadBack(rows, rule.types) });
+      } catch (err: unknown) {
+        const unread = extractErrorMessage(err);
+        read.push({ ...given, readBack: { read: 0, types: [], unread } });
+      }
+    }
+    return read;
   }
 
   /** Some records of an object by id, with `fields`, {@link ID_IN_CHUNK} ids per query. */
@@ -3986,6 +4734,7 @@ export class FrozenDatasetLoader {
     record: FrozenRecord,
     resolvedRecordTypes: Map<string, string>,
     issues: SchemaAlignmentReport['recordTypeIssues'],
+    withoutRecordType: Map<string, WithoutRecordTypeWhy>,
   ): Promise<FrozenRecord> {
     const fields = { ...record.fields };
     if (objectApiName === ACCOUNT) {
@@ -3993,13 +4742,26 @@ export class FrozenDatasetLoader {
     }
     const rtName = fields.RecordTypeId;
     if (typeof rtName !== 'string' || rtName === '') {
+      // Empty, the record was on Master in the source, as the org reads one;
+      // not there at all, the source's object had no record type to read.
+      if ('RecordTypeId' in fields) withoutRecordType.set(record.referenceId, 'masterInSource');
       delete fields.RecordTypeId;
       return { referenceId: record.referenceId, fields };
     }
-    const refs = (dataset.recordTypes[objectApiName] ?? []).filter((rt) => rt.name === rtName);
+    // By the name the record kept of its record type, where it kept one: the
+    // label alone two of the object can share. A dataset extracted before
+    // the name was kept has the label alone.
+    const types = dataset.recordTypes[objectApiName] ?? [];
+    const named =
+      record.recordTypeDeveloperName === undefined
+        ? undefined
+        : findRecordTypeByName(record.recordTypeDeveloperName, types, partsOfRef);
+    const refs =
+      named && 'found' in named ? [named.found] : types.filter((rt) => rt.name === rtName);
     const ref = refs[0];
     if (!ref) {
       delete fields.RecordTypeId;
+      withoutRecordType.set(record.referenceId, 'dropped');
       issues.push({
         objectApiName,
         referenceId: record.referenceId,
@@ -4008,16 +4770,10 @@ export class FrozenDatasetLoader {
       });
       return { referenceId: record.referenceId, fields };
     }
-    // A record carries its record type's label: two of the object under one
-    // label — a package's and the org's own — leave nothing to tell which.
-    if (refs.length > 1) {
-      throw new LoadConfigError(
-        `The dataset's ${objectApiName} records name record type "${rtName}" by its label, ` +
-          `which ${refs.map((rt) => qualifiedRecordTypeName(rt.namespacePrefix, rt.developerName)).join(' and ')} ` +
-          `share in the source: which one each record had cannot be told. Give one of them ` +
-          `another label in the source org and extract the dataset again.`,
-      );
-    }
+    // A record that kept no name of its record type has its label: two of the
+    // object under one label — a package's and the org's own — leave nothing
+    // to tell which. A dataset extracted now keeps the name.
+    if (refs.length > 1) throw labelSharedBy(objectApiName, rtName, refs);
     // `ns__Retail` for a package's record type, by its namespace when the
     // dataset kept it; a dataset extracted before it was read names each by
     // its DeveloperName alone, resolved as before when the target holds one.
@@ -4035,25 +4791,39 @@ export class FrozenDatasetLoader {
           `${ambiguousRecordTypeReason(objectApiName, ref.developerName, 'the target org', targetId.carriers)}. ` +
           `Extract the dataset again: a dataset extracted now names each record type with ` +
           `its namespace. Nothing was written.`,
+        undefined,
+        {
+          reason: 'namespace',
+          objectApiName,
+          name: ref.developerName,
+          recordTypes: targetId.carriers.map((parts) =>
+            qualifiedRecordTypeName(parts.namespacePrefix, parts.developerName),
+          ),
+        },
       );
     }
     if (targetId !== null && typeof targetId === 'object') {
       // Kept, every record naming it is refused; dropped, the record goes in
-      // with the running user's default record type — and says so here.
+      // with the type the target gives the running user — and says which here.
+      const given = await this.deps.recordTypeResolver
+        .givenRecordType?.(options.orgId, objectApiName)
+        .catch(() => undefined);
       delete fields.RecordTypeId;
+      withoutRecordType.set(record.referenceId, 'dropped');
       issues.push({
         objectApiName,
         referenceId: record.referenceId,
         recordTypeName: rtName,
         detail:
           `RecordType ${developerName} is in the target org but not available to the running ` +
-          "user — RecordTypeId dropped, the user's default record type applies. Assign it to " +
+          `user — RecordTypeId dropped, ${givenRecordTypeWords(given)}. Assign it to ` +
           "the user's profile or a permission set to keep it.",
       });
       return { referenceId: record.referenceId, fields };
     }
     if (!targetId) {
       delete fields.RecordTypeId;
+      withoutRecordType.set(record.referenceId, 'dropped');
       issues.push({
         objectApiName,
         referenceId: record.referenceId,
@@ -4091,7 +4861,9 @@ export class FrozenDatasetLoader {
         if (!missing.isLookup) {
           if (this.config.requiredFieldDefaults?.[key] === undefined) {
             const of = missing.accountKind ? ` of a ${missing.accountKind} account` : '';
-            gaps.push(`requiredFieldDefaults["${key}"]: a value for this required field${of}`);
+            gaps.push(
+              `requiredFieldDefaults["${key}"]: ${defaultValueWords(missing)} for this required field${of}`,
+            );
           } else {
             plans.push({ kind: 'default', missing });
           }
@@ -4170,6 +4942,7 @@ export class FrozenDatasetLoader {
         `The dataset leaves ${gaps.length} required field(s) empty that the configuration does ` +
           'not cover. Nothing was written. Declare them all, then load again — ' +
           `records are never silently excluded:\n- ${gaps.join('\n- ')}`,
+        gaps,
       );
     }
     return plans;
@@ -4344,7 +5117,14 @@ export class FrozenDatasetLoader {
         if (value === '' || value === null || value === undefined) continue;
         if (typeof value === 'string' && refIndex.has(value)) {
           const realId = mapping.get(value);
-          if (realId) {
+          // An opportunity's synced quote waits for pass 2 even when the
+          // target holds the quote already — a reload found it by its keys:
+          // set with the insert, before the products, it syncs the quote
+          // past the rule that leaves it unsynced when the load writes fewer
+          // of its lines than of the products, and the platform copies each
+          // product written after it onto the quote as a line, beside the
+          // dataset's own. See `syncedQuotes.ts`.
+          if (realId && !(objectApiName === OPPORTUNITY_OBJECT && field === SYNCED_QUOTE_FIELD)) {
             payload[field] = realId;
           } else {
             // Cycle (target inserted later) or a parent skipped/failed:
@@ -4366,6 +5146,10 @@ export class FrozenDatasetLoader {
       const filled = lookupsThePlatformFills(objectApiName, payload);
       for (const field of filled) delete payload[field];
       pendingFk.push(...pending.filter((p) => !filled.includes(p.field)));
+      // Two fields the describe calls createable that the platform takes one
+      // of: rules that keep a line's unit and total price had every line
+      // refused, "only one of unit price or total price may be specified".
+      for (const field of exclusiveFieldsToDrop(objectApiName, payload)) delete payload[field];
       return payload;
     });
     /** Keep a record the target took: mapped, created by the load, counted. */
@@ -4641,6 +5425,159 @@ export class FrozenDatasetLoader {
       reused.add(task);
       withTheirRecord.set(task, email.key);
     }
+  }
+
+  /**
+   * Link each contact role of the dataset the platform wrote itself as it
+   * took an opportunity this load wrote with its contact, to the role it
+   * wrote (`rolesThePlatformWrites`), as a clone links it.
+   *
+   * An opportunity inserted with its `ContactId` is given by the platform a
+   * contact role of that contact, primary, with no role. The dataset carries
+   * the source's role of that contact: inserted beside the platform's, the
+   * opportunity held the contact's role twice where the source held it once.
+   * So the platform's is looked up by its opportunity and its contact, mapped
+   * and counted as reused, kept in `withTheirRecord` with its opportunity,
+   * which the platform deletes it with, and given by an update the fields of
+   * the source's role it lacks — its role, which the platform leaves empty —
+   * where the target lets them be updated. A field an update cannot set, or
+   * one the target refuses, stays as the platform wrote it, and the object's
+   * line says so; the role stays linked either way. A lookup of the role at
+   * a record not written yet is owed to pass 2, as on a role inserted. A role
+   * the platform did not write — its opportunity went in without the
+   * contact, or was not this load's — is inserted as any other; so is one
+   * whose opportunity holds several roles of its contact made with it, which
+   * nothing tells apart, and the line says so. A role made after the
+   * opportunity is never the platform's (`platformRolesOf`).
+   *
+   * @returns How many roles were linked, and what the object's line says of them.
+   */
+  private async matchContactRolesWrittenWithOpportunities(
+    options: FrozenLoadOptions,
+    turn: {
+      working: FrozenDataset;
+      aligned: Array<{ referenceId: string; fields: Record<string, unknown> }>;
+      refIndex: ReadonlyMap<string, string>;
+      mapping: Map<string, string>;
+      reused: Set<string>;
+      withTheirRecord: Map<string, string>;
+      pendingFk: PendingFk[];
+      /** The role's fields no update can set, as the target describes it. */
+      fixedAtInsert: ReadonlySet<string>;
+    },
+  ): Promise<{ linked: number; note?: string }> {
+    const { aligned, refIndex, mapping, reused } = turn;
+    const idOf = (value: unknown): string | undefined =>
+      typeof value === 'string' ? mapping.get(value) : undefined;
+    /** The contact each opportunity this load wrote went in with, both in the target's ids. */
+    const contactOf = new Map<string, string>();
+    for (const opportunity of turn.working.objects.find((o) => o.objectApiName === OPPORTUNITY)
+      ?.records ?? []) {
+      const id = mapping.get(opportunity.referenceId);
+      const contact = idOf(opportunity.fields[CONTACT_FIELD]);
+      if (id && contact && !reused.has(opportunity.referenceId)) contactOf.set(id, contact);
+    }
+    if (contactOf.size === 0) return { linked: 0 };
+    // Compared in the target's ids, which the platform's role names: ids
+    // match on their first fifteen characters, which two referenceIds of one
+    // object can share (`Opportunity-000001`, `Opportunity-000002`).
+    const rows = aligned.map((r) => ({
+      OpportunityId: idOf(r.fields.OpportunityId),
+      [CONTACT_FIELD]: idOf(r.fields[CONTACT_FIELD]),
+      IsPrimary: r.fields.IsPrimary,
+    }));
+    const chosen = rolesThePlatformWrites(rows, (opportunity) => contactOf.get(opportunity)).filter(
+      (index) => !reused.has(aligned[index].referenceId),
+    );
+    if (chosen.length === 0) return { linked: 0 };
+
+    /** The fields of a row the platform's role is given, the lookups in the target's ids; the rest owed. */
+    const givenOf = (
+      row: (typeof aligned)[number],
+    ): { fields: Record<string, unknown>; owed: PendingFk[] } => {
+      const fields: Record<string, unknown> = {};
+      const owed: PendingFk[] = [];
+      for (const [field, value] of Object.entries(row.fields)) {
+        if (field === 'OpportunityId' || field === CONTACT_FIELD) continue;
+        if (turn.fixedAtInsert.has(field)) continue;
+        if (value === '' || value === null || value === undefined) continue;
+        if (typeof value === 'string' && refIndex.has(value)) {
+          const id = mapping.get(value);
+          if (id) fields[field] = id;
+          else {
+            owed.push({
+              objectApiName: OPPORTUNITY_CONTACT_ROLE,
+              referenceId: row.referenceId,
+              field,
+              targetReferenceId: value,
+            });
+          }
+        } else fields[field] = value;
+      }
+      return { fields, owed };
+    };
+    const paired = new Map(
+      chosen.map((index) => [
+        index,
+        {
+          opportunity: String(rows[index].OpportunityId),
+          contact: String(rows[index][CONTACT_FIELD]),
+        },
+      ]),
+    );
+    const asked = [
+      ...new Set(chosen.flatMap((index) => Object.keys(givenOf(aligned[index]).fields))),
+    ];
+    const held = await contactRolesOf(
+      (soql) => this.deps.orgAccess.query(options.orgId, soql),
+      [...new Set([...paired.values()].map(({ opportunity }) => opportunity))],
+      asked,
+    );
+    const { found: records, alike } = platformRolesOf(paired, held);
+    // Several made with the opportunity: none is linked, the role goes in as read, said.
+    const madeAlike = alike.length > 0 ? rolesMadeAlikeWords(alike.length) : undefined;
+    if (records.size === 0) return madeAlike ? { linked: 0, note: madeAlike } : { linked: 0 };
+    const and = (note: string): string => (madeAlike ? `${note}; ${madeAlike}` : note);
+
+    const updates: Array<Record<string, unknown> & { Id: string }> = [];
+    for (const [index, record] of records) {
+      const row = aligned[index];
+      const id = String(record.Id);
+      mapping.set(row.referenceId, id);
+      reused.add(row.referenceId);
+      turn.withTheirRecord.set(row.referenceId, String(row.fields.OpportunityId));
+      const { fields, owed } = givenOf(row);
+      turn.pendingFk.push(...owed);
+      const lacking = Object.entries(fields).filter(
+        ([field, value]) => String(record[field] ?? '') !== String(value),
+      );
+      if (lacking.length > 0) updates.push({ Id: id, ...Object.fromEntries(lacking) });
+    }
+    const linked = records.size;
+    const written = `${linked} written by the platform with ${writtenWithWords(OPPORTUNITY_CONTACT_ROLE)}`;
+    if (updates.length === 0) return { linked, note: and(written) };
+    const without = (count: number, why: string): string =>
+      `${written}, ${count} of them left as it wrote ${count === 1 ? 'it' : 'them'}, without the ` +
+      `fields of the source's role: ${why}`;
+    if (options.signal?.aborted) {
+      return {
+        linked,
+        note: and(without(updates.length, 'the load was cancelled before the update')),
+      };
+    }
+    await this.checkGuard(options, 'update', OPPORTUNITY_CONTACT_ROLE, updates.length);
+    const outcomes = await this.deps.writer.update(
+      options.orgId,
+      OPPORTUNITY_CONTACT_ROLE,
+      updates,
+    );
+    const refused = updates.flatMap((_update, at) => {
+      const outcome = outcomes[at];
+      if (outcome?.success) return [];
+      return [outcome ? outcome.errors.join('; ') || 'refused' : 'no answer came for it'];
+    });
+    if (refused.length === 0) return { linked, note: and(written) };
+    return { linked, note: and(without(refused.length, refused[0])) };
   }
 
   /**
@@ -5298,6 +6235,69 @@ function defaultValueFor(
   return `${declared} ${record.rank}`;
 }
 
+/**
+ * The records of `keyed` as the load writes their key fields: one the dataset
+ * leaves empty — the rules clear a name — takes the value the declared default
+ * gives the record, where the alignment says a default fills it
+ * (`missingRequired`) and the record is held to it: the same from one load to
+ * the next, as the load gives it (`applyScalarDefault`). What the load matches
+ * a record by in the target, read before anything is written.
+ */
+function keysAsWritten(
+  keyed: KeysAsWritten,
+  requiredFieldDefaults: Readonly<Record<string, unknown>>,
+): Array<{ referenceId: string; fields: Record<string, unknown> }> {
+  const { objectApiName, keyFields, ranks, accountKindOf } = keyed;
+  const defaulted = keyed.missingRequired.filter(
+    (missing) => !missing.isLookup && keyFields.includes(missing.field),
+  );
+  return keyed.records.map((record) => {
+    const fields = { ...record.fields };
+    for (const missing of defaulted) {
+      const declared = requiredFieldDefaults[`${objectApiName}.${missing.field}`];
+      if (declared === undefined || !leftEmpty(fields[missing.field])) continue;
+      if (heldTo(missing, [record], accountKindOf).length === 0) continue;
+      fields[missing.field] = defaultValueFor(
+        declared,
+        defaultPerRecord(declared, missing.distinct),
+        { referenceId: record.referenceId, rank: ranks.get(record.referenceId) ?? 0 },
+      );
+    }
+    return { referenceId: record.referenceId, fields };
+  });
+}
+
+/**
+ * The report's or the plan's `keysLeftEmpty`, `{}` when the load looks up
+ * every record its identity keys name: each object's records said with the
+ * key fields they leave empty, and that they go in unmatched.
+ */
+function keysLeftEmptyOf(
+  left: readonly KeysLeftEmpty[],
+  would = false,
+): { keysLeftEmpty?: FrozenKeysLeftEmpty[] } {
+  if (left.length === 0) return {};
+  return {
+    keysLeftEmpty: left.map(({ objectApiName, fields, count }) => {
+      const their = count === 1 ? 'its' : 'their';
+      const named = fields.join(', ');
+      const why = 'the dataset holds no value, and no default fills it';
+      return {
+        objectApiName,
+        fields: [...fields],
+        count,
+        note: would
+          ? `${count} not looked up by ${their} identity keys: ${named} stays empty in what the ` +
+            `load would write — ${why} — so ${count === 1 ? 'it' : 'they'} would be inserted, ` +
+            'never matched'
+          : `${count} not looked up by ${their} identity keys: ${named} stayed empty in what the ` +
+            `load wrote — ${why} — so ${count === 1 ? 'it was' : 'they were'} sent to be ` +
+            'inserted, never matched',
+      };
+    }),
+  };
+}
+
 /** Each record's rank among the records of its object in the dataset, 1 first, by referenceId. */
 function ranksOf(dataset: FrozenDataset): Map<string, number> {
   const ranks = new Map<string, number>();
@@ -5305,6 +6305,120 @@ function ranksOf(dataset: FrozenDataset): Map<string, number> {
     objectData.records.forEach((record, index) => ranks.set(record.referenceId, index + 1));
   }
   return ranks;
+}
+
+/**
+ * The contact roles of `alignedByObject`, by referenceId, that a load links
+ * to the one the platform writes as it takes their opportunity with its
+ * contact, as the load picks them once the opportunity is in
+ * (`matchContactRolesWrittenWithOpportunities`): of an opportunity the load
+ * inserts, not one it links, sent with a contact the load writes or links,
+ * the role of that contact, the primary one first.
+ *
+ * Read before anything is written, the records are named by their
+ * referenceIds, each given a key of its own for {@link rolesThePlatformWrites},
+ * which pairs ids on their first fifteen characters — two referenceIds of one
+ * object share them (`Opportunity-000001`, `Opportunity-000002`).
+ */
+function rolesThePlatformWritesOf(
+  alignedByObject: ReadonlyMap<
+    string,
+    ReadonlyArray<{ referenceId: string; fields: Record<string, unknown> }>
+  >,
+  reused: ReadonlySet<string>,
+): Set<string> {
+  const roles = (alignedByObject.get(OPPORTUNITY_CONTACT_ROLE) ?? []).filter(
+    (r) => !reused.has(r.referenceId),
+  );
+  if (roles.length === 0) return new Set();
+  const keys = new Map<string, string>();
+  const keyOf = (value: unknown): string | undefined => {
+    if (typeof value !== 'string' || value === '') return undefined;
+    let key = keys.get(value);
+    if (key === undefined) {
+      key = String(keys.size + 1).padStart(15, '0');
+      keys.set(value, key);
+    }
+    return key;
+  };
+  const contacts = new Set(
+    (alignedByObject.get(CONTACT) ?? []).map((contact) => contact.referenceId),
+  );
+  const sentWith = new Map<string, string>();
+  for (const opportunity of alignedByObject.get(OPPORTUNITY) ?? []) {
+    if (reused.has(opportunity.referenceId)) continue;
+    const contact = opportunity.fields[CONTACT_FIELD];
+    if (typeof contact !== 'string' || !contacts.has(contact)) continue;
+    sentWith.set(keyOf(opportunity.referenceId)!, keyOf(contact)!);
+  }
+  if (sentWith.size === 0) return new Set();
+  const rows = roles.map((role) => ({
+    OpportunityId: keyOf(role.fields.OpportunityId),
+    [CONTACT_FIELD]: keyOf(role.fields[CONTACT_FIELD]),
+    IsPrimary: role.fields.IsPrimary,
+  }));
+  return new Set(
+    rolesThePlatformWrites(rows, (opportunity) => sentWith.get(opportunity)).map(
+      (index) => roles[index].referenceId,
+    ),
+  );
+}
+
+/**
+ * The direct account-contact relations and the emails' tasks of
+ * `alignedByObject`, by referenceId, that a load links to the record the
+ * platform writes with another it inserts, as it links them once that one is
+ * in: a contact's direct relation with the account the contact goes in with
+ * (`matchDirectRelations`), and the task of an email related to a record of
+ * the load and on no case (`matchTasksWrittenWithEmails`). Of a contact the
+ * load inserts as any contact — not one it links, nor one the platform
+ * writes with its person account — and of an email it inserts.
+ *
+ * Counted to insert, the dry run said the relation and the task to insert of
+ * a load that linked both. One the target refuses its record — the contact,
+ * the email, the record the email is related to — goes in as read, and that
+ * record, counted to insert, does not: the load writes no more than it said.
+ */
+function withTheirRecordOf(
+  alignedByObject: ReadonlyMap<
+    string,
+    ReadonlyArray<{ referenceId: string; fields: Record<string, unknown> }>
+  >,
+  reused: ReadonlySet<string>,
+  withTheirAccount: { has(referenceId: string): boolean },
+  objectOf: (referenceId: string) => string | undefined,
+): Set<string> {
+  const written = (objectApiName: string) =>
+    (alignedByObject.get(objectApiName) ?? []).filter((r) => !reused.has(r.referenceId));
+  const linked = new Set<string>();
+  /** The account each contact the load inserts as any contact goes in with. */
+  const accountOf = new Map<string, unknown>();
+  for (const contact of written(CONTACT)) {
+    if (withTheirAccount.has(contact.referenceId)) continue;
+    accountOf.set(contact.referenceId, contact.fields.AccountId);
+  }
+  const accounts = new Set((alignedByObject.get('Account') ?? []).map((r) => r.referenceId));
+  for (const relation of written(ACCOUNT_CONTACT_RELATION)) {
+    const { AccountId: account, ContactId: contact } = relation.fields;
+    if (typeof account !== 'string' || typeof contact !== 'string') continue;
+    if (accountOf.get(contact) === account && accounts.has(account)) {
+      linked.add(relation.referenceId);
+    }
+  }
+  /** Every record the load writes or links, by referenceId. */
+  const inTheLoad = new Set(
+    [...alignedByObject.values()].flatMap((rows) => rows.map((r) => r.referenceId)),
+  );
+  const tasks = new Set(written(TASK).map((r) => r.referenceId));
+  for (const email of written(EMAIL_MESSAGE)) {
+    const task = email.fields.ActivityId;
+    const related = email.fields.RelatedToId;
+    if (typeof task !== 'string' || !tasks.has(task)) continue;
+    if (typeof related !== 'string' || !inTheLoad.has(related)) continue;
+    if (emailOnACase(email.fields, objectOf)) continue;
+    linked.add(task);
+  }
+  return linked;
 }
 
 /**
@@ -5323,6 +6437,7 @@ function loadPlanOf(
     plannedAt: string;
     undeletableObjects: Readonly<Record<string, string>>;
     requiredFieldDefaults: Readonly<Record<string, unknown>>;
+    excludedObjects?: readonly string[];
   },
 ): FrozenLoadPlanInfo {
   const { working, loading, alignedByObject, reused, reusedByKeys, alignment, ranks } = prepared;
@@ -5341,6 +6456,15 @@ function loadPlanOf(
     ]),
   ];
   let personContacts = 0;
+  // The contact roles the platform writes with the opportunities the load
+  // inserts with their contact, which the load links once each opportunity
+  // is in: counted apart, never to insert.
+  const rolesOfThePlatform = rolesThePlatformWritesOf(alignedByObject, reused);
+  // So are a contact's direct relation and an email's task, which the
+  // platform writes with the contact and the email the load inserts.
+  const withTheirRecord = withTheirRecordOf(alignedByObject, reused, withTheirAccount, (id) =>
+    prepared.refIndex.get(id),
+  );
   const perObject: FrozenLoadPlanObject[] = [];
   for (const objectApiName of order) {
     const fromFiles =
@@ -5357,19 +6481,32 @@ function loadPlanOf(
     const toWrite = aligned ? written(objectApiName) : [];
     const ofTheirAccount = toWrite.filter((r) => withTheirAccount.has(r.referenceId)).length;
     personContacts += ofTheirAccount;
+    const ofThePlatform = toWrite.filter(
+      (r) => rolesOfThePlatform.has(r.referenceId) || withTheirRecord.has(r.referenceId),
+    ).length;
+    // What only the write tells: the lookups the target filters that the
+    // records it inserts hold, as the insert would send them.
+    const lookupFilters = (prepared.filteredLookups.get(objectApiName) ?? []).flatMap(
+      ({ field, referenceTo }) => {
+        const records = toWrite.filter((r) => !leftEmpty(r.fields[field])).length;
+        return records > 0 ? [{ field, referenceTo, records }] : [];
+      },
+    );
     const deactivates = context.undeletableObjects[objectApiName] !== undefined;
     perObject.push({
       objectApiName,
       fromFiles,
-      toInsert: toWrite.length - ofTheirAccount,
+      toInsert: toWrite.length - ofTheirAccount - ofThePlatform,
       reusedByKeys: byKeys,
       reusedFromCatalog: linked.length - byKeys,
+      ...(ofThePlatform > 0 ? { writtenByThePlatform: ofThePlatform } : {}),
       fieldsDropped: alignment.removals.filter((r) => r.objectApiName === objectApiName).length,
       picklistsRewritten: alignment.adjustments.filter((a) => a.objectApiName === objectApiName)
         .length,
       notSent: fromFiles - (aligned ? aligned.length : linked.length),
       toPurge: deactivates ? 0 : purged,
       toDeactivate: deactivates ? purged : 0,
+      ...(lookupFilters.length > 0 ? { lookupFilters } : {}),
     });
   }
   const filledIn = (objectApiName: string, field: string) =>
@@ -5412,6 +6549,13 @@ function loadPlanOf(
   const leftUnrecorded = purge?.leftUnrecorded ?? {};
   const keptByThePlatform = purge?.keptByThePlatform ?? {};
   const heldForExcluded = prepared.heldForExclusions.counts();
+  const recordTypesGiven = recordsGivenAType(
+    prepared,
+    (referenceId) => !reused.has(referenceId) && !withTheirAccount.has(referenceId),
+  ).map(({ given }) => given);
+  const alignedIds = new Set(
+    [...alignedByObject.values()].flatMap((records) => records.map((r) => r.referenceId)),
+  );
   return {
     orgId: context.orgId,
     mode: context.mode,
@@ -5443,7 +6587,82 @@ function loadPlanOf(
     ...(heldForExcluded.length > 0
       ? { heldForExcludedParents: heldForExcludedParentsOf(heldForExcluded) }
       : {}),
+    // What it writes is what it aligned: linked or inserted.
+    ...quotesLeftUnsyncedOf(
+      quotesLeftUnsynced(alignedByObject, (referenceId) => alignedIds.has(referenceId)),
+      context,
+      true,
+    ),
+    ...keysLeftEmptyOf(prepared.keysLeftEmpty, true),
+    ...(recordTypesGiven.length > 0 ? { recordTypesGiven } : {}),
   };
+}
+
+/** The most active values of a picklist a gap names. */
+const VALUES_NAMED = 5;
+
+/**
+ * What a default declared for a required field must hold, as its gap says
+ * it, from the type the target's describe gives the field: a date for an
+ * opportunity's close date, a number for a price, one of its values for a
+ * picklist. Said "a value", a configuration took a text for a date, which
+ * the target refuses.
+ */
+function defaultValueWords(
+  missing: Pick<MissingRequiredField, 'fieldType' | 'activeValues'>,
+): string {
+  switch (missing.fieldType) {
+    case 'date':
+      return 'a date, as "2026-12-31",';
+    case 'datetime':
+      return 'a date and time, as "2026-12-31T09:00:00Z",';
+    case 'time':
+      return 'a time, as "09:00:00.000Z",';
+    case 'double':
+    case 'currency':
+    case 'percent':
+      return 'a number';
+    case 'int':
+    case 'long':
+      return 'a whole number';
+    case 'boolean':
+      return 'true or false';
+    case 'picklist':
+    case 'multipicklist': {
+      const values = missing.activeValues ?? [];
+      if (values.length === 0) return 'one of its values';
+      const named = values.slice(0, VALUES_NAMED).join(', ');
+      return `one of its active values (${named}${values.length > VALUES_NAMED ? ', …' : ''})`;
+    }
+    case 'email':
+      return 'an email address';
+    case 'string':
+    case 'textarea':
+    case 'phone':
+    case 'url':
+    case 'encryptedstring':
+    case 'combobox':
+      return 'a string';
+    default:
+      return 'a value';
+  }
+}
+
+/**
+ * The report's or the plan's `quotesLeftUnsynced`, `{}` when the load leaves
+ * no quote unsynced: see `syncedQuotes.ts`.
+ */
+function quotesLeftUnsyncedOf(
+  left: ReturnType<typeof quotesLeftUnsynced>,
+  config: { readonly excludedObjects?: readonly string[] },
+  would = false,
+): { quotesLeftUnsynced?: FrozenLeftToThePlatform[] } {
+  const note = quotesLeftUnsyncedNote(
+    left,
+    (config.excludedObjects ?? []).includes(QUOTE_LINE_OBJECT),
+    would,
+  );
+  return note ? { quotesLeftUnsynced: [note] } : {};
 }
 
 /**

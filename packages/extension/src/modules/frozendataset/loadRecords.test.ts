@@ -5,6 +5,7 @@ import {
   loadRecordsInfo,
   loadRecordsKept,
   loadRecordsLeft,
+  loadsSweptWith,
   loadToRemove,
 } from './loadRecords.js';
 import type { RecordedLoad } from './SasReferenceIdMappingStore.js';
@@ -222,6 +223,44 @@ describe('loadRecordsInfo', () => {
   it('says a load is one before the last', () => {
     expect(loadRecordsInfo(recordedLoad({ earlier: true })).earlier).toBe(true);
     expect(loadRecordsInfo(recordedLoad())).not.toHaveProperty('earlier');
+  });
+});
+
+describe('loadsSweptWith', () => {
+  const removal = {
+    removedAt: '2026-09-24T11:00:00.000Z',
+    deleted: 5,
+    alreadyGone: 0,
+    kept: 0,
+    refused: 0,
+  };
+
+  it('names the other loads whose records all went, as a reload’s purge or a removal left them', () => {
+    const last = recordedLoad();
+    const keptForItsSweep = recordedLoad({
+      endedAt: '2026-09-23T10:02:00.000Z',
+      created: [],
+      earlier: true,
+    });
+    const removed = recordedLoad({ endedAt: '2026-09-22T10:02:00.000Z', removal, earlier: true });
+
+    expect(loadsSweptWith([last, keptForItsSweep, removed], last)).toEqual([
+      keptForItsSweep,
+      removed,
+    ]);
+  });
+
+  it('leaves out the load removed, one whose records are still to take, and one that does not say what it created', () => {
+    const last = recordedLoad({ created: [] });
+    const withRecords = recordedLoad({ endedAt: '2026-09-23T10:02:00.000Z', earlier: true });
+    const unrecorded = recordedLoad({
+      endedAt: '2026-09-22T10:02:00.000Z',
+      created: undefined,
+      earlier: true,
+    });
+
+    expect(loadsSweptWith([last, withRecords, unrecorded], withRecords)).toEqual([last]);
+    expect(loadsSweptWith([last], last)).toEqual([]);
   });
 });
 

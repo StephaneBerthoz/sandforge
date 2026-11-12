@@ -228,18 +228,35 @@ describe('AutomationHandler: the confirmation of a Rewind step', () => {
     },
   );
 
-  it('takes it back when a save changes the step, and saving the old configuration does not bring it back', async () => {
+  it('takes it back when a save changes the step, saying it changed since, and saving the old configuration does not bring it back', async () => {
     await save();
     await grant('training-dev');
     await save({ ...REWIND, maxRecords: 101 });
-    expect(new RewindGrants(store).get('pipe-1', 'step-r')).toBeUndefined();
+    // Confirmed, then changed: the page and the run say so, where both said
+    // the step had never been confirmed.
+    const changed = await send('pipeline:rewind-steps', { pipelineId: 'pipe-1' });
+    expect(changed['steps']).toEqual([
+      expect.objectContaining({
+        stepId: 'step-r',
+        granted: expect.objectContaining({ digestMatches: false }) as unknown,
+      }),
+    ]);
+    await send('pipeline:execute', { pipeline: pipeline({ ...REWIND, maxRecords: 101 }) });
+    const run = vi
+      .mocked(deps.broker.postToWebview)
+      .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+      .find((m) => m.type === 'pipeline:run:response');
+    expect(String(run?.payload['error'])).toContain('has not been confirmed since it was changed');
+
     await save();
-    expect(new RewindGrants(store).get('pipe-1', 'step-r')).toBeUndefined();
+    await send('pipeline:execute', { pipeline: pipeline() });
+    expect(rewind).not.toHaveBeenCalled();
     const steps = await send('pipeline:rewind-steps', { pipelineId: 'pipe-1' });
-    expect(steps).toEqual({
-      pipelineId: 'pipe-1',
-      steps: [{ stepId: 'step-r', checkpointId: CHECKPOINT_ID, valid: true }],
-    });
+    expect(steps['steps']).toEqual([
+      expect.objectContaining({
+        granted: expect.objectContaining({ digestMatches: false }) as unknown,
+      }),
+    ]);
   });
 
   it('keeps it across a save that renames the step', async () => {

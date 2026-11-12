@@ -30,12 +30,8 @@ function sequenceRule(fieldApiName: string, prefix: string, start: number): Fiel
 }
 
 /** Build a reference field rule. */
-function referenceRule(
-  fieldApiName: string,
-  referenceObject: string,
-  referenceField: string = 'Id',
-): FieldRule {
-  return { fieldApiName, ruleType: 'reference', config: { referenceObject, referenceField } };
+function referenceRule(fieldApiName: string, referenceObject: string): FieldRule {
+  return { fieldApiName, ruleType: 'reference', config: { referenceObject } };
 }
 
 /** Build a picklist_random field rule. */

@@ -95,6 +95,84 @@ const REMOVAL_AUTOMATION: Record<string, { off: RegExp; flag: RegExp }> = {
   },
 };
 
+/**
+ * Per pipeline, how the switches of a clone and of its removal are declared
+ * off, and what each call is handed for them.
+ */
+const CLONE_SWITCHES: Record<
+  string,
+  Record<'emails' | 'checkpoint' | 'sweep', { off: RegExp; value: RegExp; flag: RegExp }>
+> = {
+  'github-actions.yml': {
+    emails: {
+      off: /accept_emails:\n[ \t]+description:[^\n]*\n[ \t]+required: false\n[ \t]+default: 'false'/,
+      value: /EMAILS_FLAG="--accept-emails"/,
+      flag: /\$EMAILS_FLAG\b/,
+    },
+    checkpoint: {
+      off: /checkpoint_first:\n[ \t]+description:[^\n]*\n[ \t]+required: false\n[ \t]+default: 'false'/,
+      value: /CHECKPOINT_FLAG="--checkpoint-first"/,
+      flag: /\$CHECKPOINT_FLAG\b/,
+    },
+    sweep: {
+      off: /removal_sweep:\n[ \t]+description:[^\n]*\n[ \t]+required: false\n[ \t]+default: 'false'/,
+      value: /SWEEP_FLAG="--sweep"/,
+      flag: /\$SWEEP_FLAG\b/,
+    },
+  },
+  'gitlab-ci.yml': {
+    emails: {
+      off: /^ {2}ACCEPT_EMAILS: 'false'$/m,
+      value: /EMAILS_FLAG="--accept-emails"/,
+      flag: /\$EMAILS_FLAG\b/,
+    },
+    checkpoint: {
+      off: /^ {2}CHECKPOINT_FIRST: 'false'$/m,
+      value: /CHECKPOINT_FLAG="--checkpoint-first"/,
+      flag: /\$CHECKPOINT_FLAG\b/,
+    },
+    sweep: {
+      off: /^ {2}REMOVAL_SWEEP: 'false'$/m,
+      value: /SWEEP_FLAG="--sweep"/,
+      flag: /\$SWEEP_FLAG\b/,
+    },
+  },
+  Jenkinsfile: {
+    emails: {
+      off: /booleanParam\(\s*name: 'ACCEPT_EMAILS',\s*defaultValue: false/,
+      value: /emailsFlag = params\.ACCEPT_EMAILS \? '--accept-emails'/,
+      flag: /\$\{emailsFlag\}/,
+    },
+    checkpoint: {
+      off: /booleanParam\(\s*name: 'CHECKPOINT_FIRST',\s*defaultValue: false/,
+      value: /checkpointFlag = params\.CHECKPOINT_FIRST \? '--checkpoint-first'/,
+      flag: /\$\{checkpointFlag\}/,
+    },
+    sweep: {
+      off: /booleanParam\(\s*name: 'REMOVAL_SWEEP',\s*defaultValue: false/,
+      value: /sweepFlag = params\.REMOVAL_SWEEP \? '--sweep'/,
+      flag: /\$\{sweepFlag\}/,
+    },
+  },
+  'azure-pipelines.yml': {
+    emails: {
+      off: /- name: acceptEmails\n[ \t]+displayName:[^\n]*\n[ \t]+type: boolean\n[ \t]+default: false/,
+      value: /parameters\.acceptEmails, true\) \}\}:\n\s+value: '--accept-emails'/,
+      flag: /\$\(emailsFlag\)/,
+    },
+    checkpoint: {
+      off: /- name: checkpointFirst\n[ \t]+displayName:[^\n]*\n[ \t]+type: boolean\n[ \t]+default: false/,
+      value: /parameters\.checkpointFirst, true\) \}\}:\n\s+value: '--checkpoint-first'/,
+      flag: /\$\(checkpointFlag\)/,
+    },
+    sweep: {
+      off: /- name: removalSweep\n[ \t]+displayName:[^\n]*\n[ \t]+type: boolean\n[ \t]+default: false/,
+      value: /parameters\.removalSweep, true\) \}\}:\n\s+value: '--sweep'/,
+      flag: /\$\(sweepFlag\)/,
+    },
+  },
+};
+
 describe('ci-examples quality stage', () => {
   describe.each(PIPELINES)('%s', (pipeline) => {
     it('runs the quality gates through pnpm validate', () => {
@@ -188,6 +266,53 @@ describe('ci-examples quality stage', () => {
       );
 
       expect(source).toMatch(off);
+      expect(removal).toMatch(flag);
+    });
+
+    it('can let the clone through the emails the target delivers, off unless asked', () => {
+      // A real clone is refused on All email, or on an org that would not say,
+      // whatever --accept-automation says: the pipeline needs its own way to
+      // say go on, and nothing may say it by default.
+      const source = read(pipeline);
+      const { off, value, flag } = CLONE_SWITCHES[pipeline].emails;
+      const clone = scriptCalls(source, 'sandforge-clone').find((call) =>
+        /\s--record\s/.test(call),
+      );
+
+      expect(source).toMatch(off);
+      expect(source).toMatch(value);
+      expect(clone).toMatch(flag);
+    });
+
+    it('can take a checkpoint before the clone, off unless asked', () => {
+      // It reads the target's whole tables and keeps their values on the
+      // runner, so a job asks for it, and the report never carries it.
+      const source = read(pipeline);
+      const { off, value, flag } = CLONE_SWITCHES[pipeline].checkpoint;
+      const clone = scriptCalls(source, 'sandforge-clone').find((call) =>
+        /\s--record\s/.test(call),
+      );
+
+      expect(source).toMatch(off);
+      expect(source).toMatch(value);
+      expect(clone).toMatch(flag);
+      // Of the journal folder, the report keeps the clone's journal alone.
+      const kept = commandLines(source).filter(
+        (line) => line.includes('sandforge-journal') && !/SANDFORGE_JOURNAL_DIR|value:/.test(line),
+      );
+      expect(kept.length).toBeGreaterThan(0);
+      for (const line of kept) expect(line).toContain('sandforge-journal/forge-runs');
+    });
+
+    it("can sweep what the target's automation made with the removal, off unless asked", () => {
+      const source = read(pipeline);
+      const { off, value, flag } = CLONE_SWITCHES[pipeline].sweep;
+      const removal = scriptCalls(source, 'sandforge-clone').find((call) =>
+        /\s--remove\s/.test(call),
+      );
+
+      expect(source).toMatch(off);
+      expect(source).toMatch(value);
       expect(removal).toMatch(flag);
     });
 

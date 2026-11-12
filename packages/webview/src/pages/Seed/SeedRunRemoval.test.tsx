@@ -272,4 +272,101 @@ describe('SeedRunRemoval', () => {
     answer('seed:remove', 'seed:remove:response', { result: DONE, operationId: 'req' });
     expect(answered).toHaveBeenCalledTimes(1);
   });
+
+  /** What the sweep lists of the seed: what it takes, what came late, what is tied to nothing. */
+  const TOLD_LISTING = {
+    looked: ['Contact', 'Task'],
+    found: [
+      {
+        objectApiName: 'Task',
+        count: 3,
+        names: ['Welcome call'],
+        classes: { made: 1, madeOver: 0, late: 1, untied: 1 },
+      },
+    ],
+    unread: [],
+    handWork: [],
+    late: [{ objectApiName: 'Task', count: 1 }],
+    untied: { objects: [{ objectApiName: 'Task', count: 1 }] },
+  };
+
+  it('shows the classes of what it found, and sends what is ticked under the list', () => {
+    render(<SeedRunRemoval runId="op-1" />);
+    answer('seed:removal:info', 'seed:removal:info:response', { info: KEPT });
+    fireEvent.click(screen.getByTestId('seed-removal-remove'));
+    expect(screen.getByTestId('danger-confirm-btn').textContent).toBe('Remove 3 records');
+    fireEvent.click(screen.getByTestId('seed-removal-sweep-toggle'));
+    answer('seed:remove:sweep', 'seed:remove:sweep:response', {
+      runId: 'op-1',
+      listing: TOLD_LISTING,
+    });
+
+    expect(screen.getByTestId('forge-sweep-takes').textContent).toContain('takes 1 record');
+    expect(screen.getByTestId('forge-sweep-stays')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('forge-sweep-late-tick'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    expect(screen.getByTestId('danger-confirm-btn').textContent).toBe(
+      'Remove 3 records and what the sweep takes',
+    );
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(sentAll('seed:remove').pop()?.payload).toEqual({
+      runId: 'op-1',
+      sweep: true,
+      sweepLate: true,
+    });
+  });
+
+  it('keeps what is tied to nothing, with the extension’s words, when taking it is refused', () => {
+    render(<SeedRunRemoval runId="op-1" />);
+    answer('seed:removal:info', 'seed:removal:info:response', { info: KEPT });
+    fireEvent.click(screen.getByTestId('seed-removal-remove'));
+    fireEvent.click(screen.getByTestId('seed-removal-sweep-toggle'));
+    answer('seed:remove:sweep', 'seed:remove:sweep:response', {
+      runId: 'op-1',
+      listing: {
+        ...TOLD_LISTING,
+        untied: { ...TOLD_LISTING.untied, refusal: 'Hand work, likely, in the same span.' },
+      },
+    });
+
+    expect((screen.getByTestId('forge-sweep-untied-tick') as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByTestId('forge-sweep-untied-refused').textContent).toContain(
+      'Hand work, likely, in the same span.',
+    );
+  });
+
+  it('proposes the sweep after a removal that left records for what the automation made', () => {
+    render(<SeedRunRemoval runId="op-1" />);
+    answer('seed:removal:info', 'seed:removal:info:response', { info: KEPT });
+    confirmRemoval();
+    answer('seed:remove', 'seed:remove:response', {
+      result: {
+        ...DONE,
+        status: 'partial',
+        objects: [
+          {
+            ...object('Contact', 0),
+            keptDependents: 2,
+            heldBy: ['Task'],
+            heldByAutomation: 2,
+            automationHolders: ['Task'],
+          },
+        ],
+      },
+      operationId: 'req',
+    });
+
+    expect(screen.getByTestId('forge-removal-held-by-automation').textContent).toContain('Task');
+    expect(sentAll('seed:remove:sweep')).toEqual([]);
+    fireEvent.click(screen.getByTestId('forge-removal-take-back-made'));
+
+    expect((screen.getByTestId('seed-removal-sweep-toggle') as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect(sentAll('seed:remove:sweep').pop()?.payload).toEqual({ runId: 'op-1' });
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(sentAll('seed:remove').pop()?.payload).toEqual({ runId: 'op-1', sweep: true });
+  });
 });

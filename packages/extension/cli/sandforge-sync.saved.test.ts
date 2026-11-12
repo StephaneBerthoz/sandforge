@@ -348,6 +348,36 @@ describe('sandforge-sync --config-file', () => {
     expect(seen).toEqual([new Map(), new Map([[fakeId('001', 1).slice(0, 15), fakeId('001', 9)]])]);
   });
 
+  it('says, of a second run, linked the records an earlier run linked to those the target held, and copied those it copied', async () => {
+    // Live, a second run said "1 already copied by an earlier run" of an
+    // account the first had linked to one the target held.
+    engine.run = async (_deps, config) => ({
+      ...answered(config),
+      objectResults: [
+        {
+          objectApiName: 'Account',
+          operation: 'upsert',
+          processed: 0,
+          success: 0,
+          failed: 0,
+          skipped: 3,
+          conflictCount: 0,
+          errors: [],
+          alreadyCopied: 2,
+          alreadyLinked: 1,
+        },
+      ],
+    });
+
+    await main(argv('--config-file', file, '--store', store, '--source', 'SRC', '--target', 'TGT'));
+
+    expect(stdout).toContain(
+      '      2 already copied by an earlier run of this configuration, left as they are\n' +
+        '      1 already linked by an earlier run of this configuration to records the target ' +
+        'held, left as they are\n',
+    );
+  });
+
   it('dates in its summary when the run first wrote, an update before its first creation included', async () => {
     // The sweep of its removal starts there: the tasks the target's flows
     // opened on what it updated first were left out of a window that began

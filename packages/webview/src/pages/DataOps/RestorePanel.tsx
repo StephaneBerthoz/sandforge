@@ -13,6 +13,7 @@ import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { formatNumber, formatStoredDate, uiLocale } from '../../utils/formatters';
 import { BackupObjects, BackupPartialNote, isPartialBackup } from './BackupPanel';
 import { DeleteQuestion } from './DeleteQuestion';
+import { DataOpsAutomation, NO_ACCORD, type DataOpsAutomationAccord } from './DataOpsAutomation';
 
 /** What the last restore did, as its answer counts it. */
 export interface RestoreCounts {
@@ -40,12 +41,19 @@ export interface RestorePanelProps {
    * in the empty list and in the question a Restore asks.
    */
   orgName?: string;
+  /**
+   * The org a restore writes to, by its id in the registry: its question
+   * reads what the org runs as the backup's values go back, and waits for it.
+   * Without it, no such read, and the restore carries no acceptance of what
+   * fires.
+   */
+  orgId?: string;
   /** Open the Backup tab, where a backup is taken: what an empty list offers. */
   onCreateBackup?: () => void;
   backups?: BackupSummary[];
   selectedBackupId?: string;
   onSelectBackup?: (operationId: string) => void;
-  onRestore?: (operationId: string) => void;
+  onRestore?: (operationId: string, accord?: DataOpsAutomationAccord) => void;
   isRestoring?: boolean;
   restoreProgress?: { completed: number; total: number };
   /**
@@ -97,6 +105,7 @@ function restoreSentence(backup: BackupSummary, includeChanged: boolean, t: TFun
 /** Panel for restoring data from backups. */
 export const RestorePanel: React.FC<RestorePanelProps> = ({
   orgName,
+  orgId,
   onCreateBackup,
   backups = [],
   selectedBackupId,
@@ -128,6 +137,10 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
    * asked first.
    */
   const [asking, setAsking] = useState<string | null>(null);
+  /** What the question's read of the org's automation lets through and mutes. */
+  const [accord, setAccord] = useState<DataOpsAutomationAccord>(NO_ACCORD);
+  /** Why the question waits on that read, if it does. */
+  const [automationHeld, setAutomationHeld] = useState<string | undefined>(undefined);
   const questionId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
   /** Each backup's entry, where its card is found to take the focus. */
@@ -474,11 +487,19 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
         <DangerConfirm
           open={askedBackup !== undefined}
           variant="warning"
-          onClose={() => setAsking(null)}
+          onClose={() => {
+            setAsking(null);
+            setAccord(NO_ACCORD);
+          }}
           onConfirm={() => {
             setAsking(null);
-            if (askedBackup) onRestore(askedBackup.operationId);
+            setAccord(NO_ACCORD);
+            // Confirmed once what the org runs was listed below: what fires
+            // is accepted, the emails as their box says.
+            if (askedBackup && orgId) onRestore(askedBackup.operationId, accord);
+            else if (askedBackup) onRestore(askedBackup.operationId);
           }}
+          {...(orgId && automationHeld !== undefined ? { held: automationHeld } : {})}
           title={
             askedBackup
               ? t('dataops.restoreConfirm.title', { org: orgName, date: takenAt(askedBackup, t) })
@@ -506,6 +527,20 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                   as it is: said where the restore is asked. */}
               {isPartialBackup(askedBackup) && <p>{t('dataops.backupPartialLead')}</p>}
             </div>
+          )}
+          {askedBackup && orgId && (
+            <DataOpsAutomation
+              orgId={orgId}
+              org={orgName}
+              act="restore"
+              objects={askedBackup.objectResults.map((o) => ({
+                objectApiName: o.objectApiName,
+                records: o.recordCount,
+              }))}
+              accord={accord}
+              onAccordChange={setAccord}
+              onHeld={setAutomationHeld}
+            />
           )}
         </DangerConfirm>
       )}

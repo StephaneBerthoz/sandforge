@@ -237,8 +237,9 @@ export interface ForgeRecordTypeMapping {
   object: string;
   /**
    * The source record type: `ns__Retail` names package `ns`'s; a bare name,
-   * the one record type of the object that carries it — none, and the
-   * decision is not applied, when a package's and the org's own both do.
+   * the one record type of the object that carries it — the org's own when a
+   * package's carries it too, and none, the decision not applied, when two
+   * packages' do and the org's own does not.
    */
   from: string;
   /** The target record type, named the same way; `null` for the object's default. */
@@ -279,6 +280,33 @@ export type ForgeGapKind =
    * its records there: Execute skips it whole, after the objects before it.
    */
   | 'object_not_createable'
+  /**
+   * The target says no user can ever create the object's records: the
+   * platform writes them itself — a calendar, an entitlement process. Not a
+   * gap any grant closes: Execute skips the object whole, and asks nothing.
+   */
+  | 'object_platform_only'
+  /**
+   * No user can create the object's records in the target, not even one
+   * with Modify All Data, and no permission set gives Create on it: setup
+   * the org keeps as records — a report, an app, a tab — or what the
+   * platform writes itself. Execute skips it whole, and asks nothing.
+   */
+  | 'object_setup_only'
+  /**
+   * A permission set can give Create on the object, yet the user the run
+   * writes as holds Modify All Data and still may not create its records: a
+   * feature or licence the target has not turned on for them keeps it
+   * closed. Execute skips it whole, after the objects before it.
+   */
+  | 'object_feature_off'
+  /**
+   * No permission set gives Create on the object, and the user the run
+   * writes as lacks Modify All Data: what opens it is Edit on the records it
+   * hangs from (`detail.editOn`), or nothing does. Execute skips it whole,
+   * after the objects before it.
+   */
+  | 'object_through_parent'
   | 'rehearsal_refusal'
   /**
    * The platform refused, in a rehearsal, an update the run makes after its
@@ -854,8 +882,22 @@ export interface ForgeUndoObjectResult {
    * they were told apart.
    */
   heldByAutomation?: number;
+  /**
+   * Of `heldByAutomation`, those held by a record created after the last
+   * write of the run, or of its part that wrote them, as the org dated it:
+   * within a sweep's minute of them, so the target's automation run late —
+   * or a person working as the run's user. Absent when none.
+   */
+  heldByAutomationAfterRun?: number;
   /** The objects of the records counted in `heldByAutomation`, by API name. */
   automationHolders?: string[];
+  /**
+   * Records that were not the run's — added under its records since the run,
+   * or changed since — that the org deleted along with the ones counted in
+   * `deleted`, as the request including what changed since the run asked:
+   * how many, and their objects by API name. Absent when none went so.
+   */
+  tookAlong?: { count: number; objects: string[] };
   /**
    * Of `planned`, the records the platform copied as the run wrote — the
    * quote lines of a quote the run synced with its opportunity — that the
@@ -932,6 +974,24 @@ export interface ForgeUndoResult {
    * Absent when no sweep was asked.
    */
   sweep?: ForgeSweepResult;
+  /**
+   * Of a run cut and taken up, the other parts no removal was asked for yet
+   * whose records are of objects among those holding what this removal kept
+   * for records that stay, each with those objects: most often the part that
+   * took the run up, whose quote and lines hang from the opportunity the cut
+   * part wrote. Removing that part takes them; this one's removal, asked
+   * again, then takes what it kept, without including what changed since.
+   * Absent when nothing was so kept.
+   */
+  heldByOtherParts?: Array<{ forgeId: string; objects: string[] }>;
+  /**
+   * Of a run cut and taken up, the other parts an earlier removal left
+   * records of, with how many: records of this part may have been what held
+   * them, and that part's removal, asked again, takes them. Each part is
+   * removed after its own confirmation, which counts its records alone.
+   * Absent when no other part has records an earlier removal left.
+   */
+  otherPartsLeft?: Array<{ forgeId: string; records: number }>;
 }
 
 /**
@@ -958,8 +1018,8 @@ export interface ForgeSweepFound {
   overBound?: true;
   /**
    * Of `count`, how many fall in each class of what a sweep tells the run's
-   * from hand work ({@link ForgeSweepClasses}). Absent from a sweep that does
-   * not tell them apart: it takes them all, as before.
+   * from hand work ({@link ForgeSweepClasses}). Absent from an object past the
+   * bound, none of whose records is swept.
    */
   classes?: ForgeSweepClasses;
 }
@@ -980,9 +1040,11 @@ export interface ForgeSweepFound {
  * - `untied`: created as the run's user in the run's window, tied to nothing
  *   of the run. Listed and kept, unless `sweepUntied`, refused when another
  *   run of this machine wrote in the window or hand work is seen;
- * - `changed`: of the classes above, those changed since by someone other
- *   than the run or a removal of it, kept unless the removal includes what
- *   changed.
+ * - `changed`: of the classes above, those changed since the run by anything
+ *   but a removal of it — someone else, or the run's own user after the run
+ *   —, kept unless the removal includes what changed; `changedIn`, how many
+ *   of them fall in each class, which a list counts out of what a class it
+ *   takes would delete.
  */
 export interface ForgeSweepClasses {
   made: number;
@@ -991,6 +1053,7 @@ export interface ForgeSweepClasses {
   late: number;
   untied: number;
   changed?: number;
+  changedIn?: Partial<Record<'made' | 'madeOver' | 'late' | 'untied', number>>;
 }
 
 /** An object a sweep could not look at, and why, in the org's words or the sweep's. */
@@ -1023,9 +1086,9 @@ export interface ForgeSweepAutomationGaps {
 export interface ForgeSweepListing {
   /**
    * Why the sweep will not run, when it will not: nothing is deleted. The
-   * run's write window or its user could not be told, or the user created
-   * records in the window that neither the run nor the target's automation
-   * reaches — hand work, likely, in the same span.
+   * run's write window or its user could not be told. Hand work refuses no
+   * sweep: only what is tied to nothing of the run, as `untied.refusal` says,
+   * and what is tied goes.
    */
   refusal?: string;
   /** The span looked in; absent when the run's writes were not dated. */
@@ -1039,24 +1102,32 @@ export interface ForgeSweepListing {
   /** What of the target's automation could not be read; absent when all of it was. */
   automationGaps?: ForgeSweepAutomationGaps;
   /**
-   * Records the run's user created in the window on objects neither the run
-   * nor the target's automation reaches, per object: said, never swept, and
-   * the reason the sweep is refused.
+   * Records the run's user created in the window on objects people make by
+   * hand, tied to nothing of the run, per object: said, never swept. They
+   * refuse only what is tied to nothing (`untied.refusal`) — an asset a case
+   * of the run names is the run's, not hand work.
    */
   handWork: ForgeRemovalLeftCount[];
   /**
    * Per object, the records found tied to nothing of the run (class
    * `untied`): listed and kept unless the removal asks for them
    * (`sweepUntied`), and why that ask would be refused, when it would.
-   * Absent from a sweep that does not tell them apart.
+   * Absent from a sweep refused before it read them.
    */
   untied?: { objects: ForgeRemovalLeftCount[]; refusal?: string };
   /**
    * Per object, the records found tied to the run but created late (class
    * `late`): listed and kept unless the removal asks for them (`sweepLate`).
-   * Absent from a sweep that does not tell them apart.
+   * Absent from a sweep refused before it read them.
    */
   late?: ForgeRemovalLeftCount[];
+  /**
+   * Of a run cut and taken up, per other part, what the run's user created in
+   * the window that points at one of that part's records, per object: that
+   * part's — the lines the platform copies under the quote a later part
+   * synced — never taken by this sweep. Absent when none.
+   */
+  otherParts?: Array<{ part: number; objects: ForgeRemovalLeftCount[] }>;
   /**
    * The objects a sweep did not look at, past the most it looks at — children
    * of the run's objects counted beyond the bound — by API name. Absent when
@@ -1069,6 +1140,23 @@ export interface ForgeSweepListing {
    * did not mute.
    */
   muted?: Pick<MutedAutomation, 'silenced' | 'stillRan'>;
+}
+
+/**
+ * What a sweep found and left, of one class it keeps unless asked: the records
+ * it found per object, and what takes them. A sweep that took all it was asked
+ * to ends a success with these still in the org: said with its result, a
+ * `success` no longer reads as nothing left.
+ */
+export interface ForgeSweepLeftClass {
+  /** Tied to the run but made late, or tied to nothing of it (`ForgeSweepClasses`). */
+  class: 'late' | 'untied';
+  /** Per object, the records it left. */
+  objects: ForgeRemovalLeftCount[];
+  /** The command line's option that takes them; a removal's confirmation has a tick for each. */
+  option: '--sweep-late' | '--sweep-untied';
+  /** Why that option takes nothing here, when it does not (`ForgeSweepListing.untied.refusal`). */
+  refusal?: string;
 }
 
 /** What a sweep did to one object's records. */
@@ -1106,6 +1194,14 @@ export interface ForgeSweepResult {
   unread: ForgeSweepUnread[];
   automationGaps?: ForgeSweepAutomationGaps;
   handWork: ForgeRemovalLeftCount[];
+  /** What it found and left, by class, once it was through its question; absent when nothing was. */
+  left?: ForgeSweepLeftClass[];
+  /**
+   * Of what it found and kept, by class, what the org no longer held once the
+   * run's records were gone — taken along with them, for what hangs from
+   * them —: never left, and not in `left`. Absent when none was.
+   */
+  goneAlong?: Array<Pick<ForgeSweepLeftClass, 'class' | 'objects'>>;
 }
 
 /** What a history entry remembers of the sweeps run with its removals. */
@@ -1857,6 +1953,16 @@ export interface ForgeExecutionResult {
    */
   resumed?: true;
   /**
+   * Of a run that took up another where it stopped (`resumed`), the records
+   * the parts before it created that it wrote to, by target id: a lookup one
+   * owed, filled in; a status given back. A removal of those parts reads what
+   * it wrote then as the run's doing, not as a change since: removed part by
+   * part, the cut part's removal kept its opportunity as changed since the
+   * run for the synced quote the resume had given it. Absent when it wrote to
+   * none, from a run whose ids are in its journal, and from runs recorded before.
+   */
+  wroteToEarlierParts?: string[];
+  /**
    * The journal the extension keeps of the run while it can be taken up
    * where it stopped — a run stopped by a cancel, a failure or a closed
    * window — or while it holds the ids of a run past the bound
@@ -2557,7 +2663,19 @@ export interface EmailSender {
  */
 export interface RunDeliverability {
   reading: EmailDeliverability;
+  /**
+   * Of a run's question: set when the records it writes keep the addresses
+   * they hold (`--keep-contact-points`), so the question says the emails reach
+   * them, where it says they are under `.invalid` otherwise.
+   */
+  keepsAddresses?: true;
   senders: EmailSender[];
+  /**
+   * Why what may send could not all be listed: a part of the target's
+   * automation that sends emails, refused whole. Set, it is what a page says
+   * when `senders` is empty and the run asks all the same.
+   */
+  sendersUnread?: string;
 }
 
 /**

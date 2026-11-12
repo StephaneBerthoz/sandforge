@@ -1098,7 +1098,7 @@ describe('FrozenDatasetLoader, the name of an account of either kind', () => {
     });
 
     await expect(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset))).rejects.toThrow(
-      /requiredFieldDefaults\["Account\.Name"\]: a value for this required field of a business account[\s\S]*requiredFieldDefaults\["Account\.LastName"\]: a value for this required field of a person account/,
+      /requiredFieldDefaults\["Account\.Name"\]: a string for this required field of a business account[\s\S]*requiredFieldDefaults\["Account\.LastName"\]: a string for this required field of a person account/,
     );
     expect(calls).toEqual([]);
   });

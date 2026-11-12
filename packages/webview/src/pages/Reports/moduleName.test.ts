@@ -16,13 +16,13 @@ describe('moduleName', () => {
 
 describe('namesModule', () => {
   it('reads a module named in an action label, whatever its case', () => {
-    expect(namesModule('Forge Clone', 'Forge')).toBe(true);
+    expect(namesModule('Forge clone', 'Forge')).toBe(true);
     expect(namesModule('Exécution seed', 'Seed')).toBe(true);
     expect(namesModule('Chargement du jeu de données figé', 'Jeu de données figé')).toBe(true);
   });
 
   it('does not read one the label leaves out', () => {
-    expect(namesModule('Cleanup Delete', 'Frozen Dataset')).toBe(false);
+    expect(namesModule('Cleanup delete', 'Frozen Dataset')).toBe(false);
     expect(namesModule('Backup Restore', 'DataOps')).toBe(false);
   });
 });

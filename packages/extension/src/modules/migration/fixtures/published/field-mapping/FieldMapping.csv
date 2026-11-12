@@ -1,0 +1,4 @@
+ObjectName,FieldName,Target
+Account,,TestObject__c
+Account,ParentId,ParentTestObject__c
+Account,ExternalID__c,External_ID__c

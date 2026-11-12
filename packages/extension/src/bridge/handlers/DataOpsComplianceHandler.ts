@@ -1,15 +1,37 @@
 import { randomBytes } from 'node:crypto';
 
 import type {
+  MaskingDuplicatesWritten,
+  MutedAutomation,
   SubjectIdentifierKind,
   SubjectIdentifiers,
   SubjectSearchResult,
 } from '@sandforge/shared';
-import { SUBJECT_SEARCH_LIMIT } from '@sandforge/shared';
+import { guardTierOf, SUBJECT_SEARCH_LIMIT } from '@sandforge/shared';
 
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
-import { buildResponse, sendHandlerError } from './HandlerTypes.js';
+import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
 import { runGuardedRemoval } from './guardedRemoval.js';
+import { whatTheWriteLeft } from '../../core/common/thrownWrite.js';
+import {
+  DUPLICATES_SETTLE_MS,
+  duplicateRulesOn,
+  duplicatesLeft,
+  maskingDuplicatesSentence,
+  watchDuplicates,
+  type DuplicatesWatch,
+} from '../../modules/dataops/maskingDuplicates.js';
+import {
+  alsoRefusedPayload,
+  dataOpsAutomationOrgOf,
+  dataOpsStop,
+  holdDataOpsMute,
+  readDataOpsAct,
+} from '../../modules/dataops/dataOpsAutomation.js';
+import { recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { muteLines, type MuteLeaseOptions } from '../../modules/forge/AutomationMuteLease.js';
+import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { payloadText, WritingOrgs } from './writingOrgs.js';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -28,9 +50,16 @@ import { describedObjectSchema } from '../../modules/dataops/DataQualityScanner.
 import { inventoryPersonalData } from '../../modules/dataops/PersonalDataInventory.js';
 import type { OrgSession } from '../../modules/dataops/RecordRemoval.js';
 import { orgSession, readRecordsById } from '../../modules/dataops/RecordRemoval.js';
-import { prepareErasure, runErasure } from '../../modules/dataops/SubjectErasure.js';
+import {
+  erasureWrittenOf,
+  prepareErasure,
+  runErasure,
+} from '../../modules/dataops/SubjectErasure.js';
 import { SubjectRequestLog } from '../../modules/dataops/SubjectRequestLog.js';
 import { searchSubject } from '../../modules/dataops/SubjectSearch.js';
+
+/** How long the read of what the org runs may take before an erasure: Seed's and Forge's bound. */
+const AUTOMATION_TIMEOUT_MS = 60_000;
 
 /** Message types handled by DataOpsComplianceHandler. */
 const COMPLIANCE_TYPES = new Set([
@@ -60,6 +89,43 @@ function simulated(msg: object): boolean {
   return typeof payload === 'object' && payload !== null && 'dryRun' in payload
     ? payload.dryRun === true
     : false;
+}
+
+/** Whether a row of a write's answer says the org saved its record. */
+function saved(row: unknown): boolean {
+  return typeof row === 'object' && row !== null && 'success' in row && row.success === true;
+}
+
+/**
+ * The session an erasure in place writes through, its updates told to the
+ * watch of its duplicate rules: the org's clock before the first of an object
+ * a rule covers, then the records the org saved — or may have saved, when
+ * the answer never came.
+ */
+function watchedSession(session: OrgSession, watch: DuplicatesWatch): OrgSession {
+  return {
+    ...session,
+    update: async (objectApiName, records) => {
+      watch.beforeWrite(objectApiName);
+      try {
+        const answer = await session.update(objectApiName, records);
+        const rows: unknown[] = Array.isArray(answer) ? answer : [answer];
+        watch.wrote(
+          objectApiName,
+          rows.flatMap((row, at) => (saved(row) ? [records[at]?.Id] : [])),
+        );
+        return answer;
+      } catch (err: unknown) {
+        if (whatTheWriteLeft(err) === 'may-have-written') {
+          watch.wrote(
+            objectApiName,
+            records.map((record) => record.Id),
+          );
+        }
+        throw err;
+      }
+    },
+  };
 }
 
 /** The kinds of identifier a search was given, never the identifiers. */
@@ -111,6 +177,52 @@ export class DataOpsComplianceHandler implements DomainHandler {
   /** Inject the tracker the Monitor's Live Operations lists runs from. */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.liveTracker = tracker;
+  }
+
+  /**
+   * Reads what the org runs as an erasure writes over or deletes the records
+   * it found: a reader of the handler's own over its connections, as Forge
+   * reads it, loaded on its first read.
+   */
+  private targetAutomation: Pick<TargetAutomationReader, 'read'> = {
+    read: async (orgId, objectApiNames) => (await this.ownReader()).read(orgId, objectApiNames),
+  };
+
+  /** The reader {@link targetAutomation} reads through, once loaded. */
+  private reader?: Promise<TargetAutomationReader>;
+
+  /** Where and how an erasure that mutes keeps its lease, when not the home directory's. */
+  private muteLeases: MuteLeaseOptions = {};
+
+  /** Another reader of what the org runs than the handler's own. */
+  setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
+    this.targetAutomation = reader;
+  }
+
+  /** Where and how an erasure that mutes keeps its lease, in place of the home directory's. */
+  setMuteLeases(options: MuteLeaseOptions): void {
+    this.muteLeases = options;
+  }
+
+  /** How long after an erasure's last write what its duplicate rules wrote is read. */
+  private duplicatesSettleMs = DUPLICATES_SETTLE_MS;
+
+  /** Another wait than the org's few seconds before an erasure's duplicate rules are read. */
+  setDuplicatesSettle(ms: number): void {
+    this.duplicatesSettleMs = ms;
+  }
+
+  /** The handler's own reader of the org's automation, as Forge reads it. */
+  private ownReader(): Promise<TargetAutomationReader> {
+    this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
+      ({ TargetAutomationReader, targetAutomationQueries }) =>
+        new TargetAutomationReader(
+          targetAutomationQueries((orgId) =>
+            getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
+          ),
+        ),
+    );
+    return this.reader;
   }
 
   /**
@@ -347,8 +459,9 @@ export class DataOpsComplianceHandler implements DomainHandler {
 
   /**
    * Answer `dataops:dsr:erase`: plan the erasure, and — unless it is a dry run
-   * — carry it out through Production Guard, recording it in the audit trail
-   * and in the request's log entry.
+   * — read what the org runs as it writes, refused on what the page's
+   * question did not accept, then carry it out through Production Guard,
+   * recording it in the audit trail and in the request's log entry.
    */
   private async handleErase(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(
@@ -375,12 +488,17 @@ export class DataOpsComplianceHandler implements DomainHandler {
       const session = await this.session(orgId, 'dataops:dsr:erase');
       const prepared = await prepareErasure(session, this.detector, mode, parsed.records);
       const plan = prepared.map((p) => p.plan);
+      // What the erasure writes itself — not what the org deletes along with
+      // it, whose automation the platform does not run: what fires is read
+      // on it, here and by the confirmation.
+      const written = erasureWrittenOf(plan);
       if (dryRun) {
         const response = buildResponse(this.deps, msg, 'dataops:dsr:erase:response', {
           requestId,
           mode,
           dryRun,
           plan,
+          written,
         });
         this.deps.broker.postToWebview(response);
         this.deps.log(`[TX] ${response.type} id=${response.id} plan objects=${plan.length}`);
@@ -398,6 +516,125 @@ export class DataOpsComplianceHandler implements DomainHandler {
         );
       }
 
+      // What the org runs as the person's records are written over — as a
+      // masking writes — or deleted — as a cleanup deletes —, the emails it
+      // sends, and the mute asked for, read before the guard is asked and
+      // before anything is written, and refused unless the page's question
+      // answered it: an erasure fired the org's flows on them unasked.
+      const target = this.deps.orgManager.getOrg(orgId)?.alias ?? orgId;
+      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const reader = this.targetAutomation;
+      const gated = await readDataOpsAct({
+        act: mode === 'delete' ? 'cleanup' : 'masking',
+        target,
+        objects: written,
+        org: dataOpsAutomationOrgOf(
+          conn,
+          (names) =>
+            new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('dataops automation', () =>
+              reader.read(orgId, names),
+            ),
+          guardTierOf(this.deps.orgManager.getOrg(orgId)) === 'production',
+        ),
+        accord: parsed,
+        mayMute: true,
+        muteLeases: this.muteLeases,
+        voice: 'erasure',
+      });
+      // The mute's lease, held from before the guard's question to the end of
+      // the erasure, given back however it ends. Refused as a masking and a
+      // cleanup are: the first refusal under its code, each other under its
+      // own, and the sentence that nothing was written said once.
+      const stop = dataOpsStop(gated.answer);
+      const holding = stop
+        ? { refused: stop }
+        : await holdDataOpsMute(gated, msg.id, parsed.acceptEmails === true, 'erasure');
+      if ('refused' in holding) {
+        // Recorded as every erasure that stops is, in the audit trail and the
+        // request's log: nothing was written, and the code says why.
+        const operationId = crypto.randomUUID();
+        recordWriteRun(this.deps, {
+          action: 'subject_erase',
+          module: 'dataops',
+          operationId,
+          orgId,
+          outcome: 'stopped',
+          code: holding.refused.code,
+        });
+        this.requestLog.record(requestId, orgId, {
+          kind: 'erased',
+          at: new Date().toISOString(),
+          mode,
+          outcome: 'stopped',
+          operationId,
+          objects: [],
+        });
+        sendHandlerError(
+          this.deps,
+          'dataops:dsr:erase',
+          'dataops:error',
+          msg,
+          new Error(holding.refused.message),
+          { code: holding.refused.code, ...(stop ? alsoRefusedPayload(stop) : {}) },
+        );
+        return;
+      }
+      const leased = holding.held;
+      /** What the mute took back, once its lease was given back: the answer says it. */
+      const given: { back?: MutedAutomation } = {};
+      /**
+       * Give the lease back, once: before the erasure is said ended in Live
+       * Operations (`operation:completed`), or when the guard stopped it. It
+       * was said ended there while the set it had assigned was still
+       * assigned, as a masking and a cleanup were.
+       */
+      const giveBack = async (): Promise<void> => {
+        if (!leased || given.back) return;
+        given.back = await leased.release();
+        for (const line of muteLines(given.back, target)) this.deps.log(`[INFO] ${line}`);
+      };
+      // What the duplicate rules of what it writes over write during it, for
+      // the records it overwrites, as a masking's are watched: an erasure in
+      // place writes made-up names and addresses, its confirmation named the
+      // rules, and nothing read what they wrote. A delete runs none.
+      const watch =
+        mode === 'anonymize'
+          ? watchDuplicates(
+              {
+                query: async (soql) => conn.query<Record<string, unknown>>(soql),
+                serverTime: async () => (await conn.soap.getServerTimestamp()).timestamp,
+              },
+              duplicateRulesOn(
+                gated.answer.automation,
+                written.map((w) => w.objectApiName),
+              ),
+              { settleMs: this.duplicatesSettleMs },
+            )
+          : undefined;
+      /** What they wrote, read once the writes are over, however they ended. */
+      const ruled: { read?: boolean; duplicates?: MaskingDuplicatesWritten } = {};
+      /**
+       * Once the writes are over and before the erasure is said ended: the
+       * lease given back, then what the duplicate rules wrote, read once.
+       */
+      const endWrites = async (): Promise<void> => {
+        await giveBack();
+        if (ruled.read) return;
+        ruled.read = true;
+        ruled.duplicates = await watch?.read();
+      };
+      /** What the erasure's answer says of its duplicate rules: nothing when they cover nothing it wrote. */
+      const duplicatesSaid = (): string =>
+        maskingDuplicatesSentence(ruled.duplicates, target, 'erasure');
+      /**
+       * What the mute did, said with however the erasure ends — answered,
+       * declined at the guard, or stopped half way — as the masking says it:
+       * a cancel said what had been written, and nothing of the set assigned
+       * to the user it wrote as, nor whether it had been taken back.
+       */
+      const muteSaid = (): { mutedAutomation?: MutedAutomation } =>
+        leased ? { mutedAutomation: given.back ?? leased.outcome } : {};
+
       const engine = new AnonymizationEngine(undefined, this.maskingKey);
       const result = await runGuardedRemoval(
         this.deps,
@@ -409,10 +646,18 @@ export class DataOpsComplianceHandler implements DomainHandler {
           action: 'subject_erase',
           description: `Erase ${recordCount} record(s) of a subject request`,
           origin: 'dataops:dsr:erase',
-          run: (onObject, signal) => runErasure(session, engine, prepared, onObject, signal),
+          run: (onObject, signal) =>
+            runErasure(
+              watch ? watchedSession(session, watch) : session,
+              engine,
+              prepared,
+              onObject,
+              signal,
+            ),
+          beforeEnd: endWrites,
         },
         this.liveTracker,
-      );
+      ).finally(giveBack);
 
       const at = new Date().toISOString();
       if (!result.ran) {
@@ -430,7 +675,7 @@ export class DataOpsComplianceHandler implements DomainHandler {
           'dataops:error',
           msg,
           new Error(result.message),
-          result.code ? { code: result.code } : undefined,
+          { ...(result.code ? { code: result.code } : {}), extraPayload: muteSaid() },
         );
         return;
       }
@@ -442,16 +687,22 @@ export class DataOpsComplianceHandler implements DomainHandler {
         operationId: result.operationId,
         objects: result.outcome.objects,
       });
+      const { duplicates } = ruled;
       if (result.error !== undefined) {
         // Stopped half way: logged with what it had written, and said as the
-        // failure, or the cancel, it is.
+        // failure, or the cancel, it is, with what its duplicate rules wrote
+        // for what it had overwritten.
+        const said = duplicatesSaid();
         sendHandlerError(
           this.deps,
           'dataops:dsr:erase',
           'dataops:error',
           msg,
-          new Error(result.error),
-          result.cancelled ? { code: RUN_CANCELLED } : undefined,
+          new Error(said ? `${result.error} ${said}` : result.error),
+          {
+            ...(result.cancelled ? { code: RUN_CANCELLED } : {}),
+            extraPayload: { ...muteSaid(), ...(duplicates ? { duplicates } : {}) },
+          },
         );
         return;
       }
@@ -461,12 +712,20 @@ export class DataOpsComplianceHandler implements DomainHandler {
         dryRun,
         plan,
         outcome: result.outcome,
+        ...muteSaid(),
+        ...(duplicates ? { duplicates } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(
         `[TX] ${response.type} id=${response.id} ${result.outcome.status} ` +
           `done=${result.outcome.done} failed=${result.outcome.failed}`,
       );
+      // The page shows an erasure's counts: the sets a duplicate rule wrote
+      // for what it overwrote, kept, or that they could not be read, are said
+      // as a masking's are, in a notification.
+      if (duplicatesLeft(duplicates)) {
+        sendNotification(this.deps, 'warning', 'Erase', duplicatesSaid());
+      }
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'dataops:dsr:erase', 'dataops:error', msg, err);
     }

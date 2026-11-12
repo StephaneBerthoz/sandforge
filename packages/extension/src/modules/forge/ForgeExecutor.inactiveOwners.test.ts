@@ -52,8 +52,14 @@ const field = (name: string, overrides: Partial<FieldInfo> = {}): FieldInfo => (
   isReference: false,
   ...overrides,
 });
+/** An owner as a real describe gives it: required, and set by the org when left out. */
 const owner = (): FieldInfo =>
-  field('OwnerId', { isReference: true, referenceTo: ['Group', 'User'], nillable: false });
+  field('OwnerId', {
+    isReference: true,
+    referenceTo: ['Group', 'User'],
+    nillable: false,
+    defaultedOnCreate: true,
+  });
 
 const FIELDS: Record<string, FieldInfo[]> = {
   Aeroport__c: [field('Id'), field('Name'), owner()],

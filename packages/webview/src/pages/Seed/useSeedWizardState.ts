@@ -21,7 +21,7 @@ import { useSeedObjectSelection } from './useSeedObjectSelection';
 import { useSeedFieldConfig } from './useSeedFieldConfig';
 import { useSeedRelations } from './useSeedRelations';
 import type { CheckedRelation, RelationLookup } from './seedRelationDrafts';
-import { useSeedExecution } from './useSeedExecution';
+import { useSeedExecution, type SeedExecutionState } from './useSeedExecution';
 import { recordTypesMixed } from './seedRecordTypeChoices';
 
 /** Draft state safe to persist (no credentials, no execution results, no PII). */
@@ -94,6 +94,13 @@ export interface SeedWizardState {
   /** Whether the run mutes the target's automation, as the Execute step's box is left. */
   muteAutomation: boolean;
   setMuteAutomation: (mute: boolean) => void;
+  /** Whether the run takes a checkpoint first, as the Execute step's box is left. */
+  checkpointFirst: boolean;
+  setCheckpointFirst: (first: boolean) => void;
+  /** What became of the checkpoint the last run took first, when its error says. */
+  stoppedCheckpoint: SeedExecutionState['stoppedCheckpoint'];
+  /** Why the last run stopped with no result, once it did. */
+  executionError: string | undefined;
   handleExecute: () => void;
   objectProgress: ObjectProgress[];
   /** Overall completion 0-100, from the live operation:progress stream. */
@@ -104,6 +111,12 @@ export interface SeedWizardState {
   progressLabel: string | null;
   /** Id of this wizard's running seed once it has reported progress, else null. */
   operationId: string | null;
+  /** The counts that fit, carried by the refusal of the last run for its org's storage or API requests. */
+  fitProposal: SeedExecutionState['fitProposal'];
+  /** The fit the last run's counts came from, or null. */
+  fitApplied: SeedExecutionState['fitApplied'];
+  /** Send the refused run again at the counts that fit. */
+  seedFitted: () => void;
 
   /* Persona */
   /** Currently selected AI persona, or null. */

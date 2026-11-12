@@ -32,6 +32,9 @@ function source(path: string): string {
 const MODULE_DIR = 'packages/extension/src/modules/checkpoint';
 const CLI = source('packages/extension/cli/sandforge-checkpoint.ts');
 const PANEL_HOST = source('packages/extension/cli/panelHost.ts');
+const BEFORE_RUN_CLI = source('packages/extension/cli/beforeRunCheckpoint.ts');
+const BEFORE_RUN = source('packages/extension/src/modules/checkpoint/beforeRunCheckpoint.ts');
+const DEFAULTS = source('packages/shared/src/constants/defaults.ts');
 const STORE = source(`${MODULE_DIR}/OrgCheckpointStore.ts`);
 const TAKE = source(`${MODULE_DIR}/takeCheckpoint.ts`);
 const SCOPE = source(`${MODULE_DIR}/checkpointScope.ts`);
@@ -146,6 +149,45 @@ describe('docs/modules/checkpoint.md', () => {
     expect(block).toBe(help.replace(/\n$/, ''));
   });
 
+  it('says a rewind asks you to type the org’s alias exactly as --org gives it, as the script compares what is typed and reaches the org', () => {
+    // Positive controls: the rewind and the undo take what is typed for what
+    // --org was given, letter for letter; the org is reached by that alias
+    // before the question, and an alias takes no @, which every username
+    // has: a username is refused there, never asked for.
+    expect(CLI).toContain('const answer = await typed(rewindQuestion(args.org, ');
+    expect(CLI.match(/if \(answer !== args\.org\) throw new Stop/g)).toHaveLength(2);
+    expect(PANEL_HOST).toContain('const session = await loadOrg(alias);');
+    expect(source('packages/extension/cli/sfSession.ts')).toContain(
+      'const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;',
+    );
+
+    const asks = "asks you to type the org's alias exactly as `--org` gives it";
+    const row = DOC.split('\n').find((line) => line.startsWith('| `rewind`'));
+    expect(row).toContain(asks);
+    expect(helpAsPrinted().replace(/\n/g, ' ')).toContain(asks.replace(/`/g, ''));
+    // The help named a username for an org with no alias, which the script
+    // never reaches.
+    for (const text of [row ?? '', helpAsPrinted()]) {
+      expect(text.replace(/\s+/g, ' ')).not.toContain('its username for an org that has none');
+    }
+  });
+
+  it('says an undo asks for the alias too, exactly as --org gives it, once it said what it takes back', () => {
+    // Positive control: the undo says its line, reaches the org, then asks
+    // for what --org was given; the help said so of the rewind alone.
+    expect(CLI).toContain(
+      'say(undoLine(args.org, checkpoint, rewindId, until, counts));\n' +
+        '  const org = await context.connect(args.org);',
+    );
+    expect(CLI).toContain('const answer = await typed(`Type ${args.org} to undo its rewind:`);');
+
+    const row = DOC.split('\n').find((line) => line.startsWith('| `undo`'));
+    expect(row).toContain("once you type the org's alias exactly as `--org` gives it");
+    expect(helpAsPrinted().replace(/\n/g, ' ')).toContain(
+      'undo says what it takes back and asks the same before it writes.',
+    );
+  });
+
   it('names each command the script reads in its table, and no other', () => {
     const commands = commandsRead();
     expect(commands).toEqual([
@@ -170,9 +212,49 @@ describe('docs/modules/checkpoint.md', () => {
     for (const flag of ['--estimate', '--accept-no-undo', '--accept-outside', '--all', '--store']) {
       expect(read.has(flag)).toBe(true);
     }
-    const named = new Set([...prose(DOC).matchAll(/(?<![\w-])(--[a-z][a-z-]*)/g)].map((m) => m[1]));
+    // The section on Checkpoint first names the flags of the commands that run:
+    // the next test holds those to the helper that prints them.
+    const own = prose(DOC.replace(section(DOC, '## Before a run'), ''));
+    const named = new Set([...own.matchAll(/(?<![\w-])(--[a-z][a-z-]*)/g)].map((m) => m[1]));
     expect(named.size).toBeGreaterThan(8);
     expect([...named].filter((flag) => !read.has(flag))).toEqual([]);
+  });
+
+  it('says of Checkpoint first what the commands print, and how long it is kept', () => {
+    const before = section(DOC, '## Before a run');
+    // Positive control: the helper every command's --help takes its lines from.
+    const help = /export function checkpointFirstHelp[\s\S]*?\n}\n/.exec(BEFORE_RUN_CLI)?.[0] ?? '';
+    const printed = new Set(
+      [...help.matchAll(/(?<=[' `] {2})--[a-z][a-z-]*/g)].map(([flag]) => flag),
+    );
+    expect(printed).toEqual(
+      new Set(['--checkpoint-first', '--checkpoint-keep-days', '--checkpoint-exclude-object']),
+    );
+    for (const script of ['clone', 'sync', 'seed', 'autopilot', 'frozen']) {
+      expect(source(`packages/extension/cli/sandforge-${script}.ts`)).toContain(
+        '${checkpointFirstHelp({',
+      );
+      expect(before).toContain(`\`sandforge-${script}`);
+    }
+    for (const flag of printed) expect(before).toContain(flag);
+    const named = [...prose(before).matchAll(/(?<![\w-])(--[a-z][a-z-]*)/g)].map((m) => m[1]);
+    const simulations = ['--dry-run', '--plan-only'];
+    expect(named.filter((flag) => !printed.has(flag) && !simulations.includes(flag))).toEqual([]);
+
+    expect(DEFAULTS).toContain(
+      'CHECKPOINT_BEFORE_RUN_KEEP_DAYS = { default: 7, min: 0, max: 3_650 }',
+    );
+    expect(before).toContain('**For how long**: 7 days');
+    expect(before).toContain('(0 keeps it until it is deleted, up to 3,650)');
+    // A run that wrote nothing deletes it, and each list of what it leaves out is the option's.
+    expect(BEFORE_RUN).toContain('if (wrote) return { info: taken };');
+    expect(before).toContain('**A run that wrote nothing deletes it**');
+    expect(label('runResults.checkpoint.option.leavesOut')).toContain(
+      'Chatter posts, Knowledge article versions, users, permissions and setup',
+    );
+    expect(before).toContain(
+      'Chatter posts, Knowledge article versions, users, permissions and setup',
+    );
   });
 
   it('says a rewind or an undo that does not ask needs its checkpoint named, latest refused', () => {
@@ -205,11 +287,16 @@ describe('docs/modules/checkpoint.md', () => {
     expect(EXTENSION_HANDLERS).toContain("this.checkpointHandler.setRunFiles('sync', store);");
     expect(EXTENSION_HANDLERS).toContain("this.checkpointHandler.setRunFiles('seed', store);");
     expect(HANDLER).toContain('for (const files of [this.syncRuns, this.seedRuns]) {');
-    expect(HANDLER).toContain('if (this.writers.writingTo?.(orgId) === true) return words;');
-    const asked = /writingTo: \(orgId\) =>([^}]*)\}\);/.exec(EXTENSION_HANDLERS)?.[1] ?? '';
-    const handlers = [...asked.matchAll(/this\.(\w+)Handler\.isWritingTo\(orgId\)/g)].map(
-      (m) => m[1],
+    expect(HANDLER).toContain(
+      'if (this.writers.writingTo?.(orgId, own.operationId) === true) return words;',
     );
+    expect(EXTENSION_HANDLERS).toMatch(
+      /writingTo: \(orgId, except\) =>\s+orgWriters\(\)\.some\(\(writer\) => writer\.isWritingTo\(orgId, except\)\),/,
+    );
+    const asked = /const orgWriters = \(\): OrgWriter\[\] => \[([^\]]*)\];/.exec(
+      EXTENSION_HANDLERS,
+    )?.[1];
+    const handlers = [...(asked ?? '').matchAll(/this\.(\w+)Handler,/g)].map((m) => m[1]);
     expect(handlers).toEqual(['forge', 'frozen', 'dataOps', 'compliance', 'autopilot', 'realtime']);
     for (const text of [CLI, PANEL_HOST]) {
       expect(text).not.toMatch(/setSyncRunCreations|setSeedRunCreations|setRunFiles/);
@@ -257,13 +344,13 @@ describe('docs/modules/checkpoint.md', () => {
   it('says what the panel shows a user without View All Data and Modify All Data: the objects its permissions leave out, the take per object, the box of what goes out of sight, and the list’s line', () => {
     // Anchor: the preview's box is what it sends as acceptUnseen and holds
     // Rewind until it is ticked; the take tells what the user's permissions
-    // leave out by the scope's words, and the list a checkpoint by its file.
+    // leave out by the scope's code, and the list a checkpoint by its file.
     const preview = source('packages/webview/src/pages/Checkpoint/RewindPreview.tsx');
     expect(preview).toContain('acceptUnseen: unseen.length > 0 && ticked.unseen,');
     expect(preview).toContain('(unseen.length === 0 || ticked.unseen) &&');
     const facts = source('packages/webview/src/pages/Checkpoint/checkpointFacts.ts');
     expect(facts).toContain(
-      "export const LEFT_OUT_FOR_ACCESS = 'Without View All Data and Modify All Data,';",
+      'return object.code !== undefined && object.code in LEFT_OUT_FOR_ACCESS;',
     );
     expect(facts).toContain(
       'return !checkpoint.takenBy.viewAllData || !checkpoint.takenBy.modifyAllData;',
@@ -383,6 +470,8 @@ describe('docs/modules/checkpoint.md', () => {
       files: 'the documents of the Documents tab, shared content kept in folders',
       heldWithFiles: "a file's versions and links, listed there as held with their file",
       setup: 'users, permissions and the rest of setup',
+      platformCreated:
+        'the records Salesforce alone creates, such as approvals, Einstein insights, Data.com clean info and invoices',
       metadata: 'metadata, which is deployed rather than kept as data',
       notWritable: 'an object the user may not query, create, edit and delete',
       notDescribed: 'an object the org would not describe',
@@ -390,8 +479,16 @@ describe('docs/modules/checkpoint.md', () => {
       noRecycleBin: 'an object without a recycle bin',
       unreadable: 'an object the org will not read without a filter',
     };
-    // Both ways: a reason the scope gains is a kind the page has to name.
-    expect(unionOf(SCOPE, 'ScopeLeftOutReason').sort()).toEqual(Object.keys(said).sort());
+    // Both ways: a reason the scope gains is a kind the page has to name. What
+    // a take counts past its limit is the take's, named under its own line.
+    expect(SCOPE).toContain(
+      "export type ScopeLeftOutReason = Exclude<CheckpointLeftOutCode, 'pastTheLimit'>;",
+    );
+    expect(
+      unionOf(TYPES, 'CheckpointLeftOutCode')
+        .filter((code) => code !== 'pastTheLimit')
+        .sort(),
+    ).toEqual(Object.keys(said).sort());
     // Metadata is what the Tooling API serves, the rest of what the org will not describe.
     expect(SCOPE).toContain(
       "if (described.out.has(name)) return described.tooling.has(name) ? 'metadata' : 'notWritable';",
@@ -569,9 +666,9 @@ describe('docs/modules/checkpoint.md', () => {
     expect(REWIND).toContain(
       'if (writing && overEmails) return { rewound: false, refusal: overEmails };',
     );
-    expect(UNDO).toContain(
-      'if (objects.length > 0 && overEmails) return { undone: false, refusal: overEmails };',
-    );
+    // The undo gathers each refusal of its gate, then is refused for the first.
+    expect(UNDO).toContain('if (objects.length > 0 && overEmails) refusals.push(overEmails);');
+    expect(UNDO).toContain('return {\n        undone: false,\n        refusal: refused,');
     expect(unionOf(TYPES, 'CheckpointRefusalCode')).toContain('EMAILS');
     expect(source(`${MODULE_DIR}/rewindEmails.ts`)).toContain("    code: 'EMAILS',");
 
@@ -595,7 +692,7 @@ describe('docs/modules/checkpoint.md', () => {
   it('says the emails of what could not be read are named as not counted, covered by the box of the automation, and refuse no rewind', () => {
     // Anchor: the preview names them; the rewind and the undo ask for the
     // automation's acceptance when they are said, and say them in its refusal.
-    expect(PREVIEW).toContain('checkpointEmailsUncounted(records, automation)');
+    expect(PREVIEW).toContain('checkpointEmailsUncounted(records, running)');
     for (const act of [REWIND, UNDO]) {
       expect(act).toContain('uncounted !== undefined)');
       expect(act).toContain('automationRefusal(orgName, automation, steps, uncounted)');
@@ -878,7 +975,7 @@ describe('docs/modules/checkpoint.md', () => {
     expect(REWIND).toContain('carriers: asCarriers,');
     expect(REWIND).toContain("'record(s) brought back for a moment still in the org");
     expect(UNDO).toContain('carriedAlone: outcome.carriedAlone');
-    expect(PREVIEW).toContain('(object.toBringBack.carriers ?? 0) +');
+    expect(source(`${MODULE_DIR}/rewindBounds.ts`)).toContain('carriersOf(object) +');
 
     const rewinding = section(DOC, '## Rewinding');
     expect(rewinding).toContain(
@@ -1007,6 +1104,33 @@ describe('docs/modules/checkpoint.md', () => {
     );
     // Read as: they pile up until the checkpoint goes.
     expect(DOC).not.toContain('the journals of earlier rewinds stay with their checkpoint');
+
+    // Anchor: a rewind that wrote nothing gives its checkpoint back the last
+    // rewind it said before, deletes no earlier journal, and deletes its own.
+    expect(REWIND).toContain(
+      'const lastRewind = undoable ? { rewindId: journal.rewindId, endedAt, undoUntil } : earlier;',
+    );
+    expect(REWIND).toMatch(/if \(undoable\) \{\s*removedJournals = await removeEarlierJournals\(/);
+    expect(REWIND).toMatch(
+      /if \(!undoable\) \{\s*await journal\.close\(\);[\s\S]*?await rm\(rewindDirOf\(this\.request\.folder, journal\.rewindId\)/,
+    );
+    expect(section(DOC, '## Where checkpoints are kept')).toContain(
+      'A rewind that wrote nothing deletes none, and keeps no journal of its own; nor does one ' +
+        'stopped before it sent anything, which has nothing to take up.',
+    );
+    expect(section(DOC, '## Undo')).toContain(
+      'A rewind that wrote nothing, or was stopped before it sent anything, leaves it to the ' +
+        'rewind before it.',
+    );
+    // Anchor: stopped, it is undoable only once its journal names a write
+    // about to go, and gives its checkpoint back the last rewind it said
+    // before when it sent nothing.
+    expect(REWIND).toContain(
+      '((cancelled || journal.resumed) && (await journal.facts()).lastWriteAt !== undefined);',
+    );
+    expect(REWIND).toMatch(
+      /if \(cancelled && !undoable\) \{[\s\S]*?return earlier \? \{ \.\.\.held, lastRewind: earlier \} : held;/,
+    );
   });
 
   it('opens from the third line of the side bar, as its quick start says', () => {

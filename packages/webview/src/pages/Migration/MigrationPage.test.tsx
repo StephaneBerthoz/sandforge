@@ -215,6 +215,42 @@ describe('MigrationPage — the file to import', () => {
     );
   });
 
+  it('says which objects an export sends to another object, in the page’s words, and offers nothing to save', () => {
+    importState = mutationState({
+      success: false,
+      code: 'TARGET_OBJECT_MAPPED',
+      objects: ['Account → Lead (Name → Company)', 'Contact → Staff__c'],
+      error: 'The English the host logs.',
+    });
+    render(<MigrationPage />);
+
+    const text = screen.getByTestId('migration-error').textContent ?? '';
+    expect(text).toContain('Nothing was imported');
+    expect(text).toContain('Account → Lead (Name → Company); Contact → Staff__c');
+    expect(text).not.toContain('The English the host logs.');
+    expect(screen.queryByTestId('migration-save-sync-btn')).toBeNull();
+  });
+
+  it.each([
+    ['NOT_JSON', [], /is not JSON/],
+    ['NO_OBJECTS', [], /lists no object/],
+    ['OBJECT_NOT_NAMED', ['objects[1] (SELECT Id)'], /objects\[1\] \(SELECT Id\)/],
+    ['INVALID_EXPORT', ['objects[0].query'], /objects\[0\]\.query/],
+  ])('says in the page’s words why %s imported nothing', (code, objects, said) => {
+    importState = mutationState({
+      success: false,
+      code,
+      objects,
+      error: 'The host’s words, not the page’s.',
+    });
+    render(<MigrationPage />);
+
+    const banner = screen.getByTestId('migration-error');
+    expect(banner.textContent).toMatch(said);
+    expect(banner.textContent).not.toContain('The host’s words');
+    expect(screen.queryByTestId('migration-result')).toBeNull();
+  });
+
   it('should display a bridge-level error', () => {
     importState = { ...mutationState(), error: 'Request timed out' };
     render(<MigrationPage />);
@@ -259,6 +295,82 @@ describe('MigrationPage — the imported config', () => {
       '0 field mappings · 2 transform rules · 0 excluded fields',
     );
     expect(screen.getByTestId('migration-raw-config')).toBeDefined();
+  });
+});
+
+describe('MigrationPage — what the import did not carry over', () => {
+  const imported = (notes?: unknown[]) => {
+    importState = mutationState({ success: true, config: sfdmuConfig, notes });
+    render(<MigrationPage />);
+  };
+
+  it('says each thing above the save, by object, a note on the whole file naming none', () => {
+    imported([
+      { code: 'contactPoints' },
+      { code: 'settings', detail: 'allOrNone, bulkApiVersion' },
+      { code: 'excluded', object: 'Attachment' },
+      { code: 'mockFields', object: 'Account', detail: 'Name, Phone' },
+      { code: 'everyField', object: 'Account', detail: 'all' },
+      { code: 'limit', object: 'Contact', detail: '10' },
+    ]);
+
+    const items = within(screen.getByTestId('migration-notes')).getAllByRole('listitem');
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringMatching(/^Sync writes every email address/),
+      expect.stringContaining('allOrNone, bulkApiVersion'),
+      expect.stringMatching(/^Attachment:.*excluded/),
+      expect.stringMatching(/^Account:.*Name, Phone/),
+      'Account: Its query selects all, not a list of fields Sync can follow, so Sync copies ' +
+        "every field the source org describes. To leave one out, add it to the export's " +
+        'excludedFields.',
+      expect.stringMatching(/^Contact:.*LIMIT 10/),
+    ]);
+    const notes = screen.getByTestId('migration-notes');
+    const forSync = screen.getByTestId('migration-for-sync');
+    expect(notes.compareDocumentPosition(forSync) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each([
+    ['excluded', undefined],
+    ['readonly', undefined],
+    ['noQuery', undefined],
+    ['unknownOperation', 'Merge'],
+    ['deletesElsewhere', 'DeleteSource'],
+    ['mockAllFields', undefined],
+    ['duplicate', 'objectSets[0].objects[0]'],
+    ['delete', 'HardDelete'],
+    ['updateKey', 'Name'],
+    ['defaultKey', undefined],
+    ['upsertKey', 'Name'],
+    ['unusableKey', 'Name;Phone'],
+    ['fieldMappingOff', '2'],
+    ['valueRows', 'Rating (Cold)'],
+    ['notMaster', undefined],
+    ['limit', '10'],
+    ['queryClause', 'OFFSET 5'],
+    ['queryUnread', undefined],
+    ['whereRefused', undefined],
+    ['deleteOldData', undefined],
+    ['mockFields', 'Name'],
+    ['nameDiffers', 'Lead'],
+    ['settings', 'allOrNone'],
+    ['everyField', 'FIELDS(ALL)'],
+    ['contactPoints', undefined],
+    ['objectSets', '2'],
+    ['mappingFileUnread', 'FieldMapping.csv'],
+  ])('words the note %s, with what it names', (code, detail) => {
+    imported([{ code, object: 'Account', detail }]);
+
+    const text = screen.getByTestId('migration-notes').textContent ?? '';
+    expect(text).not.toContain('migration.notes');
+    if (detail !== undefined) expect(text).toContain(detail);
+  });
+
+  it('shows nothing of the kind when the import carried everything', () => {
+    imported([]);
+
+    expect(screen.queryByTestId('migration-notes')).toBeNull();
+    expect(screen.getByTestId('migration-for-sync')).toBeTruthy();
   });
 });
 
@@ -356,6 +468,26 @@ describe('MigrationPage — saving the import and opening it in Sync', () => {
     // Excluded fields, mappings and add-on fields go as the import gave them.
     expect(sent.config.objects).toEqual([account]);
     expect(sent.config.name).toBe('SFDMU Import');
+  });
+
+  it('saves the emails and phone numbers neutralized, as Sync does, unless the box is unticked', () => {
+    // SFDMU copies them as read; Sync's own box is on a step Open in Sync skips.
+    const { rerender } = render(<MigrationPage />);
+    const toggle = screen.getByTestId('migration-contact-points-toggle') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    expect(screen.getByLabelText('Neutralize emails and phone numbers (recommended)')).toBe(toggle);
+
+    expect(saveAndRead().config).not.toHaveProperty('keepContactPoints');
+
+    hostSaved(rerender);
+    fireEvent.click(toggle);
+    // Changed since it was saved: Open in Sync would open the neutralized one.
+    expect(screen.queryByTestId('migration-open-in-sync-btn')).toBeNull();
+    fireEvent.change(screen.getByTestId('migration-save-sync-name'), {
+      target: { value: 'Nightly accounts as read' },
+    });
+    fireEvent.click(screen.getByTestId('migration-save-sync-btn'));
+    expect(saveState.mutate.mock.calls[1][0].config).toMatchObject({ keepContactPoints: true });
   });
 
   it('saves an object with the operation, External ID, batch size and filter edited here', () => {

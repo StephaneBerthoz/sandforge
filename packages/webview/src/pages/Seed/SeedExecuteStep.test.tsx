@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, within } from '@testing-library/react';
+import type { SeedFitProposal } from '@sandforge/shared';
 import '../../i18n';
+import { useOrgStore } from '../../stores/useOrgStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
+import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { SeedExecuteStep } from './SeedExecuteStep';
 import type { SeedExecuteStepProps } from './SeedExecuteStep';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
@@ -25,7 +28,7 @@ const CONTACT: ObjectFieldConfig = {
       type: 'reference',
       required: false,
       ruleType: 'reference',
-      config: { referenceObject: 'Account', referenceField: 'Id' },
+      config: { referenceObject: 'Account' },
       referenceTo: ['Account'],
     },
   ],
@@ -67,6 +70,41 @@ function renderStep(overrides: Partial<SeedExecuteStepProps> = {}): SeedExecuteS
 }
 
 describe('SeedExecuteStep', () => {
+  it('offers the checkpoint first of the org it writes to, off, its cost said in the question', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    const onChange = vi.fn();
+    renderStep({ orgId: 'org-dev', checkpoint: { checked: false, onChange } });
+
+    const toggle = screen.getByTestId('seed-checkpoint-first-toggle') as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(screen.getByTestId('seed-checkpoint-first-cost-said').textContent).toContain(
+      'the question before the first write',
+    );
+    fireEvent.click(toggle);
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it('does not offer it while the run goes', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    renderStep({
+      isRunning: true,
+      orgId: 'org-dev',
+      checkpoint: { checked: true, onChange: vi.fn() },
+    });
+    expect(screen.queryByTestId('seed-checkpoint-first')).toBeNull();
+  });
+
+  it('says, back on the step, what became of the checkpoint a stopped run took', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    renderStep({
+      orgId: 'org-dev',
+      stoppedCheckpoint: { state: 'deleted', deleted: 'nothingWritten' },
+    });
+    expect(screen.getByTestId('seed-execute-error-checkpoint-deleted').textContent).toBe(
+      'The checkpoint taken before the run was deleted: the run wrote nothing.',
+    );
+  });
+
   beforeEach(() => {
     useSeedWizardStore.getState().resetSeedWizard();
     useSeedWizardStore.setState({ selectedObjects: ['Account', 'Contact'] });
@@ -216,5 +254,43 @@ describe('SeedExecuteStep', () => {
     renderStep({ isRunning: true });
 
     expect(screen.queryByTestId('seed-locale')).toBeNull();
+  });
+
+  describe('after a run refused for what the org has left', () => {
+    const PROPOSAL: SeedFitProposal = {
+      share: 0.4,
+      budget: {
+        budgetMB: 0.16,
+        remainingMB: 1,
+        maxMB: 5,
+        share: 0.8,
+        roundingMB: 0.5,
+        limitedBy: 'storage',
+        automationMB: 0,
+      },
+      objects: [
+        { objectApiName: 'Account', before: 100, after: 40 },
+        { objectApiName: 'Contact', before: 100, after: 40 },
+      ],
+      estimateMB: 0.15625,
+    };
+
+    it('shows the counts that fit in the org, and seeds them at one click', () => {
+      const onSeed = vi.fn();
+      renderStep({ orgName: 'my-dev-org', fit: { proposal: PROPOSAL, onSeed } });
+
+      const card = screen.getByRole('region', { name: 'What fits in my-dev-org' });
+      expect(within(card).getByTestId('seed-fit-object-Account').textContent).toBe('Account10040');
+      fireEvent.click(within(card).getByRole('button', { name: 'Seed these counts' }));
+      expect(onSeed).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows no proposal while a run is in flight, nor when there is none', () => {
+      renderStep({ isRunning: true, fit: { proposal: PROPOSAL, onSeed: vi.fn() } });
+      expect(screen.queryByTestId('seed-fit')).toBeNull();
+      cleanup();
+      renderStep({ fit: { proposal: null, onSeed: vi.fn() } });
+      expect(screen.queryByTestId('seed-fit')).toBeNull();
+    });
   });
 });

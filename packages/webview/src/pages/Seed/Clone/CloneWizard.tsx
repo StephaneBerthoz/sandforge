@@ -10,6 +10,7 @@ import type { WizardStep } from '../../../components/ui/Wizard';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { Badge } from '../../../components/ui/Badge';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
+import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { CloneSourcePicker } from './CloneSourcePicker';
 import { CloneObjectSelector } from './CloneObjectSelector';
 import { ClonePreviewPanel } from './ClonePreviewPanel';
@@ -174,6 +175,16 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
           data-testid="clone-error"
         />
       )}
+      {/* What became of the checkpoint a stopped clone took first. */}
+      {!running && (
+        <RewindBeforeRun
+          checkpoint={clone.stoppedCheckpoint}
+          orgId={clone.resultTargetOrgId}
+          beside="run"
+          compact
+          testId="clone-error-checkpoint"
+        />
+      )}
 
       <Wizard
         steps={CLONE_STEPS}
@@ -246,6 +257,11 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
                 onBack={() => clone.setStep('objects')}
                 keepContactPoints={clone.keepContactPoints}
                 onKeepContactPointsChange={clone.setKeepContactPoints}
+                checkpoint={{
+                  checked: clone.checkpointFirst,
+                  onChange: clone.setCheckpointFirst,
+                  orgId: targetOrgId,
+                }}
               />
             ) : null}
           </>

@@ -290,6 +290,126 @@ describe('FrozenDatasetLoader — a declared default for a field the target keep
   });
 });
 
+describe('FrozenDatasetLoader — the prices of a line, which the describe does not call required', () => {
+  /** What the org answers of a line, as a load into a real org read it. */
+  const NO_PRICE =
+    'FIELD_INTEGRITY_EXCEPTION: field integrity exception: TotalPrice (total price must be specified) [TotalPrice]';
+  const BOTH_PRICES =
+    'FIELD_INTEGRITY_EXCEPTION: field integrity exception: only one of unit price or total price may be specified';
+
+  /** A target that takes a line with one price, and refuses any other. */
+  function linePricesWriter(calls: DmlCall[]): FrozenDmlWriter {
+    const writer = makeWriter(calls);
+    return {
+      ...writer,
+      insert: vi.fn(async (_org: string, objectApiName: string, records: unknown[]) => {
+        calls.push({ op: 'insert', objectApiName, payload: records });
+        return (records as Array<Record<string, unknown>>).map((row, n) => {
+          const prices = ['UnitPrice', 'TotalPrice'].filter((f) => row[f] !== undefined).length;
+          if (prices === 1) return { id: `REAL-LINE-${n}`, success: true, errors: [] };
+          return { success: false, errors: [prices === 0 ? NO_PRICE : BOTH_PRICES] };
+        });
+      }),
+    };
+  }
+
+  const describes: Record<string, TargetObjectDescribe> = {
+    OpportunityLineItem: {
+      name: 'OpportunityLineItem',
+      fields: [
+        field({ name: 'Quantity', nillable: false, type: 'double' }),
+        field({ name: 'UnitPrice', type: 'currency' }),
+        field({ name: 'TotalPrice', type: 'currency' }),
+      ],
+    },
+  };
+
+  /** Two lines of a dataset, each with the prices the rules left it. */
+  const lines = (prices: Record<string, unknown>): FrozenDataset =>
+    dataset([
+      {
+        objectApiName: 'OpportunityLineItem',
+        records: ['000001', '000002'].map((n) => ({
+          referenceId: `OpportunityLineItem-${n}`,
+          fields: { Quantity: 2, ...prices },
+        })),
+      },
+    ]);
+
+  it('refuses in the preview the lines the rules cleared both prices of, and names the default to declare', async () => {
+    const sasDir = makeTmpDir();
+
+    await expect(
+      new FrozenDatasetLoader(makeDeps(refusingWriter(), sasDir, describes, {})).planLoad(
+        options(lines({ UnitPrice: '', TotalPrice: '' }), sasDir),
+      ),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('requiredFieldDefaults["OpportunityLineItem.UnitPrice"]'),
+      gaps: [
+        'requiredFieldDefaults["OpportunityLineItem.UnitPrice"]: a number for this required field',
+      ],
+    });
+  });
+
+  it('writes nothing of a dataset whose lines the target would refuse', async () => {
+    const calls: DmlCall[] = [];
+    const sasDir = makeTmpDir();
+
+    await expect(
+      new FrozenDatasetLoader(makeDeps(linePricesWriter(calls), sasDir, describes, {})).load(
+        options(lines({ UnitPrice: '', TotalPrice: '' }), sasDir),
+      ),
+    ).rejects.toThrow('Nothing was written');
+
+    expect(calls).toEqual([]);
+  });
+
+  it('counts the default the preview says, and the target takes the lines it fills', async () => {
+    const calls: DmlCall[] = [];
+    const sasDir = makeTmpDir();
+    const config = { requiredFieldDefaults: { 'OpportunityLineItem.UnitPrice': 100 } };
+    const data = lines({ UnitPrice: '', TotalPrice: '' });
+
+    const plan = await new FrozenDatasetLoader(
+      makeDeps(refusingWriter(), sasDir, describes, config),
+    ).planLoad(options(data, sasDir));
+    const report = await new FrozenDatasetLoader(
+      makeDeps(linePricesWriter(calls), sasDir, describes, config),
+    ).load(options(data, sasDir));
+
+    expect(plan.requiredDefaults).toEqual([
+      { objectApiName: 'OpportunityLineItem', field: 'UnitPrice', affectedRecords: 2 },
+    ]);
+    expect(sent(calls, 'OpportunityLineItem', 'UnitPrice')).toEqual([100, 100]);
+    expect(report.perObject[0]).toMatchObject({ inserted: 2, failed: [] });
+  });
+
+  it('sends the unit price alone of lines the rules kept both prices of', async () => {
+    const calls: DmlCall[] = [];
+    const sasDir = makeTmpDir();
+
+    const report = await new FrozenDatasetLoader(
+      makeDeps(linePricesWriter(calls), sasDir, describes, {}),
+    ).load(options(lines({ UnitPrice: 115, TotalPrice: 230 }), sasDir));
+
+    expect(sent(calls, 'OpportunityLineItem', 'UnitPrice')).toEqual([115, 115]);
+    expect(sent(calls, 'OpportunityLineItem', 'TotalPrice')).toEqual([undefined, undefined]);
+    expect(report.perObject[0]).toMatchObject({ inserted: 2, failed: [] });
+  });
+
+  it('sends the total of lines the rules kept the total of alone', async () => {
+    const calls: DmlCall[] = [];
+    const sasDir = makeTmpDir();
+
+    const report = await new FrozenDatasetLoader(
+      makeDeps(linePricesWriter(calls), sasDir, describes, {}),
+    ).load(options(lines({ UnitPrice: '', TotalPrice: 230 }), sasDir));
+
+    expect(sent(calls, 'OpportunityLineItem', 'TotalPrice')).toEqual([230, 230]);
+    expect(report.perObject[0]).toMatchObject({ inserted: 2, failed: [] });
+  });
+});
+
 /** Business hours, as a dataset whose cases name them carries them, and a case pointing at them. */
 function businessHours(name: string): {
   data: FrozenDataset;
@@ -514,5 +634,59 @@ describe('FrozenDatasetLoader — business hours, which the platform never delet
     expect(query.mock.calls.map(([, soql]) => soql)).not.toContainEqual(
       expect.stringContaining('SELECT Id, Name FROM BusinessHours'),
     );
+  });
+});
+
+describe('FrozenDatasetLoader — what a default asked for is to hold', () => {
+  // Run on a scratch org, a load of an opportunity refused for ten required
+  // fields said of each "a value for this required field", its close date
+  // among them, which the target takes as a date and nothing else. Each gap
+  // now says what the field takes, as the target's describe types it.
+  const describes: Record<string, TargetObjectDescribe> = {
+    Opportunity: {
+      name: 'Opportunity',
+      fields: [
+        field({ name: 'Name', nillable: false, nameField: true }),
+        field({ name: 'CloseDate', type: 'date', nillable: false }),
+        field({
+          name: 'StageName',
+          type: 'picklist',
+          nillable: false,
+          picklistValues: [
+            { value: 'Prospecting', active: true },
+            { value: 'Retired Stage', active: false },
+            { value: 'Closed Won', active: true },
+          ],
+        }),
+        field({ name: 'Probability', type: 'percent', nillable: false }),
+        field({ name: 'TotalOpportunityQuantity', type: 'int', nillable: false }),
+        field({ name: 'Signed_At__c', type: 'datetime', nillable: false }),
+      ],
+    },
+  };
+  const deal = dataset([
+    {
+      objectApiName: 'Opportunity',
+      records: [{ referenceId: 'Opportunity-000001', fields: { Name: '', CloseDate: '' } }],
+    },
+  ]);
+
+  it('names in each gap the kind of value the field takes, and the active values of a picklist', async () => {
+    const sasDir = makeTmpDir();
+
+    await expect(
+      new FrozenDatasetLoader(makeDeps(refusingWriter(), sasDir, describes, {})).planLoad(
+        options(deal, sasDir),
+      ),
+    ).rejects.toMatchObject({
+      gaps: [
+        'requiredFieldDefaults["Opportunity.Name"]: a string for this required field',
+        'requiredFieldDefaults["Opportunity.CloseDate"]: a date, as "2026-12-31", for this required field',
+        'requiredFieldDefaults["Opportunity.StageName"]: one of its active values (Prospecting, Closed Won) for this required field',
+        'requiredFieldDefaults["Opportunity.Probability"]: a number for this required field',
+        'requiredFieldDefaults["Opportunity.TotalOpportunityQuantity"]: a whole number for this required field',
+        'requiredFieldDefaults["Opportunity.Signed_At__c"]: a date and time, as "2026-12-31T09:00:00Z", for this required field',
+      ],
+    });
   });
 });

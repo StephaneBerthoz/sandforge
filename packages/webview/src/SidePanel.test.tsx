@@ -390,6 +390,24 @@ describe('SidePanel', () => {
     expect(lastOp).not.toHaveTextContent('NaN');
   });
 
+  it('shows a partial last operation with its own icon, not the success tick', () => {
+    useRecentOpsStore.setState({
+      ops: [
+        {
+          id: 'op-1',
+          type: 'seed',
+          label: 'Seed Accounts',
+          status: 'partial',
+          timestamp: Date.now() - 60000,
+        },
+      ],
+    });
+    render(<SidePanel />);
+    const lastOp = screen.getByTestId('sidepanel-last-op');
+    expect(lastOp.querySelector('[data-testid="op-status-partial"]')).not.toBeNull();
+    expect(lastOp.querySelector('[data-testid="op-status-success"]')).toBeNull();
+  });
+
   it('shows a cancelled last operation with its own icon, not the success tick', () => {
     useRecentOpsStore.setState({
       ops: [

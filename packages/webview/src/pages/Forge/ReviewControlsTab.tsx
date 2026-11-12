@@ -2,6 +2,7 @@ import React, { useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ForgeConfig, ForgeUsersResponse } from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
+import { CheckpointFirstOption } from '../../components/ui/CheckpointFirstOption';
 import { cn } from '../../theme';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useForgeStore } from '../../stores/useForgeStore';
@@ -134,6 +135,40 @@ export const ReviewControlsTab: React.FC = () => {
         </p>
       )}
     </div>
+  );
+};
+
+/**
+ * What the run does before its first write: the checkpoint it may take of what
+ * it writes. Not part of the run's config, as the mute beside it is not: a
+ * template or a past run never brings it back. Set beside Execute, outside the
+ * controls, which open only when asked: it is what makes the run take back.
+ */
+export const ReviewCheckpointFirst: React.FC<{ targetOrgId: string }> = ({ targetOrgId }) => {
+  const { t } = useTranslation();
+  const id = useId();
+  const checkpointFirst = useForgeStore((s) => s.checkpointFirst);
+  const setCheckpointFirst = useForgeStore((s) => s.setCheckpointFirst);
+  const estimate = useForgeStore((s) => s.checkpointEstimate);
+  return (
+    <section aria-labelledby={`${id}-title`} className="flex flex-col gap-2">
+      <h3 id={`${id}-title`} className="font-semibold text-text-primary">
+        {t('forgeRun.controls.beforeWritingTitle')}
+      </h3>
+      <CheckpointFirstOption
+        checked={checkpointFirst}
+        onChange={setCheckpointFirst}
+        orgId={targetOrgId}
+        costSaid="simulation"
+        foldDetails
+        estimate={
+          estimate
+            ? { of: estimate, lead: t('runResults.checkpoint.estimate.lastSimulation') }
+            : null
+        }
+        testId="controls-checkpoint-first"
+      />
+    </section>
   );
 };
 

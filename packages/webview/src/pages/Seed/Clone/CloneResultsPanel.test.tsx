@@ -119,6 +119,47 @@ const mockBothOverflowResult: CloneExecutionResult = {
 };
 
 describe('CloneResultsPanel', () => {
+  it('names the checkpoint the clone took with the way to rewind to it, and one it deleted', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    const { rerender } = render(
+      <CloneResultsPanel
+        result={{
+          ...mockSuccessResult,
+          checkpoint: {
+            state: 'taken',
+            checkpointId: 'ck-20261101-101500-a1b2',
+            name: 'Before Seed run 2026-11-01 10:15 UTC',
+            takenAt: '2026-11-01T10:15:00.000Z',
+            expiresAt: '2026-11-08T10:15:00.000Z',
+            objects: ['Account'],
+            records: 38,
+            bytes: 2_200_000,
+            requests: 68,
+            added: [],
+            notHeld: [],
+          },
+        }}
+        targetOrgId="org-dev"
+        onDone={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('clone-results-checkpoint-action').textContent).toBe(
+      'Rewind to before this run…',
+    );
+
+    rerender(
+      <CloneResultsPanel
+        result={{
+          ...mockSuccessResult,
+          checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+        }}
+        targetOrgId="org-dev"
+        onDone={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('clone-results-checkpoint-deleted')).toBeDefined();
+  });
+
   it('should render success status with counts', () => {
     render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
 
@@ -207,6 +248,26 @@ describe('CloneResultsPanel', () => {
     const counts = screen.getByTestId('clone-results-counts');
     expect(counts.textContent).toContain('Inserted: 150');
     expect(screen.getByTestId('clone-results-linked').textContent).toBe('Linked to existing: 50');
+  });
+
+  it("says, of an object's rows linked, the contact roles the platform wrote with their opportunity", () => {
+    const result: CloneExecutionResult = {
+      ...mockSuccessResult,
+      objectResults: [
+        {
+          ...mockSuccessResult.objectResults[0],
+          objectApiName: 'OpportunityContactRole',
+          insertedCount: 0,
+          linkedCount: 1,
+          writtenByThePlatform: 1,
+        },
+      ],
+    };
+    render(<CloneResultsPanel result={result} onDone={vi.fn()} />);
+
+    expect(screen.getByTestId('clone-object-written-by-the-platform').textContent).toBe(
+      'Written by the platform with their opportunity, for its contact: 1',
+    );
   });
 
   it('shows no linked count for a clone the target held nothing of', () => {

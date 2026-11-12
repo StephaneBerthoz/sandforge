@@ -33,7 +33,7 @@ function objectWithLookups(
       ...Object.entries(lookups).map(([fieldApiName, referenceObject]) => ({
         fieldApiName,
         ruleType: 'reference' as const,
-        config: { referenceObject, referenceField: 'Id' },
+        config: { referenceObject },
       })),
     ],
   };

@@ -135,6 +135,23 @@ describe('SyncOrchestrator — what a run creates, kept for its removal', () => 
     });
   });
 
+  it('tells a recorder that keeps its calls what the write created, for it to write what no call answered', async () => {
+    const kept: string[] = [];
+    const creations: SyncCreationRecorder = {
+      runId: 'run-1',
+      note: () => {
+        throw new Error('every id would go into the file twice');
+      },
+      noteUnanswered: (_objectApiName, ids) => kept.push(...ids),
+      flush: async () => undefined,
+    };
+
+    const result = await orchestrator(inserting(), creations).execute(config([objectConfig()]));
+
+    expect(kept).toEqual([fakeId('001', 100), fakeId('001', 101), fakeId('001', 102)]);
+    expect(result.created?.objects).toEqual([{ objectApiName: 'Account', count: 3 }]);
+  });
+
   it('keeps the records an upsert created, never one it updated, nor one it did not say', async () => {
     const recorder = memoryRecorder();
     const unused = async (): Promise<never> => {

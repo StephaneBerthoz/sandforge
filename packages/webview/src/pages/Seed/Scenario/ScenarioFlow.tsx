@@ -4,17 +4,20 @@ import type { SalesforceOrg } from '@sandforge/shared';
 import { Badge, type BadgeVariant } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { Card, CardBody, CardHeader } from '../../../components/ui/Card';
+import { CheckpointFirstOption } from '../../../components/ui/CheckpointFirstOption';
 import { DangerConfirm } from '../../../components/ui/DangerConfirm';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 import { Input } from '../../../components/ui/Input';
+import { MutedAutomationResult } from '../../../components/ui/MutedAutomationResult';
 import { ProgressAnnouncer } from '../../../components/ui/ProgressBar';
 import { RecordErrorGroups } from '../../../components/ui/RecordErrorGroups';
+import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { Select } from '../../../components/ui/Select';
 import { TakeCheckpointNow } from '../../../components/ui/TakeCheckpointNow';
 import { useFocusOnChange } from '../../../hooks/useFocusOnChange';
 import { orgOptionLabel } from '../../../utils/orgFormatters';
 import { SeedAutomationNotice } from '../SeedAutomationNotice';
-import { SeedObjectBadge } from '../SeedObjectBadge';
+import { SeedObjectBadge, SeedWrittenByThePlatformLine } from '../SeedObjectBadge';
 import { SeedOpenRecord } from '../SeedOpenRecord';
 import { SeedRunRemoval } from '../SeedRunRemoval';
 import { Step7Execute } from '../Step7_Execute';
@@ -66,11 +69,12 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
   const { preparation, phase, result } = scenario;
 
   const objects = preparation?.objects.map((object) => object.objectApiName) ?? [];
-  const automation = useSeedAutomation(phase === 'confirm' ? scenario.orgId : '', objects);
+  // A scenario's run publishes its articles once written: its mute is planned for that too.
+  const automation = useSeedAutomation(phase === 'confirm' ? scenario.orgId : '', objects, true);
   const records = Object.fromEntries(
     (preparation?.objects ?? []).map((object) => [object.objectApiName, object.recordCount]),
   );
-  const refused = refusedForEmails(automation, records);
+  const refused = refusedForEmails(automation, records, scenario.muteAutomation);
   const runOrg = orgs.find((org) => org.id === scenario.orgId);
   const runOrgName = runOrg ? runOrg.alias || runOrg.username : '';
   const total = Object.values(records).reduce((sum, count) => sum + count, 0);
@@ -258,6 +262,17 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
                   automation={automation}
                   orgName={runOrgName}
                   records={records}
+                  mute={{ checked: scenario.muteAutomation, onChange: scenario.setMuteAutomation }}
+                />
+              )}
+              {/* The run's question says its cost, before anything is taken. */}
+              {scenario.orgId && preparation && (
+                <CheckpointFirstOption
+                  checked={scenario.checkpointFirst}
+                  onChange={scenario.setCheckpointFirst}
+                  orgId={scenario.orgId}
+                  costSaid="question"
+                  testId="scenario-checkpoint-first"
                 />
               )}
               <div className="flex gap-2">
@@ -311,16 +326,37 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
             </div>
           )}
           {!scenario.isRunning && (
-            <div>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={onClose}
-                data-testid="btn-scenario-back-after-error"
-              >
-                {t('seed.quickSeed.backToGallery')}
-              </Button>
-            </div>
+            <>
+              {/* What became of the checkpoint a stopped run took first. */}
+              <RewindBeforeRun
+                checkpoint={scenario.stoppedCheckpoint}
+                orgId={scenario.orgId}
+                beside="run"
+                compact
+                testId="scenario-error-checkpoint"
+              />
+              <div className="flex gap-2">
+                {/* Back to what the refusal says to change, its boxes as they were. */}
+                {scenario.canSetUpAgain && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={scenario.toConfirm}
+                    data-testid="btn-scenario-back-to-confirm"
+                  >
+                    {t('common.back')}
+                  </Button>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={onClose}
+                  data-testid="btn-scenario-back-after-error"
+                >
+                  {t('seed.quickSeed.backToGallery')}
+                </Button>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -357,21 +393,36 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
             )}
           </div>
 
+          {/* What the run muted of the org's automation, when its box was ticked. */}
+          <MutedAutomationResult
+            muted={result.mutedAutomation}
+            org={runOrgName}
+            testId="scenario-result-muted"
+          />
+
           {result.objectResults.map((object) => (
             <Card key={object.objectApiName}>
               <CardHeader
                 title={object.objectApiName}
                 action={<SeedObjectBadge result={object} />}
               />
-              {object.errors.length > 0 && (
+              {(object.errors.length > 0 || object.writtenByThePlatform) && (
                 <CardBody>
-                  <RecordErrorGroups
-                    objectApiName={object.objectApiName}
-                    errors={object.errors}
-                    recordsFailed={object.recordsFailed}
-                    module="seed"
-                    testIdPrefix="scenario-result"
+                  {/* The contact roles linked to the one the platform wrote
+                      with their opportunity, which the badge alone said. */}
+                  <SeedWrittenByThePlatformLine
+                    result={object}
+                    testId={`scenario-result-written-by-the-platform-${object.objectApiName}`}
                   />
+                  {object.errors.length > 0 && (
+                    <RecordErrorGroups
+                      objectApiName={object.objectApiName}
+                      errors={object.errors}
+                      recordsFailed={object.recordsFailed}
+                      module="seed"
+                      testIdPrefix="scenario-result"
+                    />
+                  )}
                 </CardBody>
               )}
             </Card>
@@ -383,6 +434,14 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
           />
 
           {result.totalRecordsCreated > 0 && <SeedRunRemoval runId={result.operationId} />}
+          {/* Under the removal, which takes back what the run wrote alone. */}
+          <RewindBeforeRun
+            checkpoint={result.checkpoint}
+            orgId={scenario.orgId}
+            beside="run"
+            muted={result.mutedAutomation !== undefined}
+            testId="scenario-result-checkpoint"
+          />
 
           {runInfo && (
             <Card data-testid="scenario-results-tests">

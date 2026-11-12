@@ -207,6 +207,71 @@ describe('SyncHistoryPanel', () => {
     );
   });
 
+  it('marks rewound whole a run a rewind took to the checkpoint it took first', () => {
+    // Its reads of the source began before the take: its dates alone read it
+    // as rewound in part.
+    const started = {
+      ...makeMockEntry('h-own'),
+      startTime: '2023-12-31T22:59:00Z',
+      endTime: '2024-01-01T00:05:00Z',
+    };
+    const own = {
+      ...started,
+      result: {
+        ...started.result,
+        checkpoint: {
+          state: 'taken' as const,
+          checkpointId: 'ck-20231231-230000-aaaa',
+          name: 'Before Sync run 2023-12-31 23:00 UTC',
+          takenAt: '2023-12-31T23:05:00.000Z',
+          expiresAt: null,
+          objects: ['Account'],
+          records: 1,
+          bytes: 1,
+          requests: 1,
+          added: [],
+          notHeld: [],
+        },
+      },
+    };
+    const other = { ...started, id: 'h-dates' };
+    useSyncHistoryStore.setState({ entries: [own, other], selectedEntry: null, loading: false });
+    mockPostMessage.mockClear();
+    render(<SyncHistoryPanel />);
+
+    const request = mockPostMessage.mock.calls
+      .map((call) => (call[0] as { payload: { id: string; type: string } }).payload)
+      .find((message) => message.type === 'checkpoint:rewinds');
+    fromHost({
+      id: 'resp-rewinds',
+      type: 'checkpoint:rewinds:response',
+      correlationId: request?.id,
+      payload: {
+        rewinds: [
+          {
+            kind: 'rewind',
+            rewindId: 'rw-20240101-020000-aaaa',
+            checkpointId: 'ck-20231231-230000-aaaa',
+            checkpointName: 'Before Sync run 2023-12-31 23:00 UTC',
+            organizationId: '00D000000000001AAA',
+            mode: 'everything',
+            objects: ['Account'],
+            readFrom: '2023-12-31T23:00:00.000Z',
+            takenAt: '2023-12-31T23:05:00.000Z',
+            startedAt: '2024-01-01T02:00:00.000Z',
+            endedAt: '2024-01-01T02:10:00.000Z',
+            status: 'success',
+            totals: { deleted: 98, restored: 0, undeleted: 0, recreated: 0 },
+            orgIds: ['org-2'],
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByTestId('sync-history-rewound-h-own').dataset.kind).toBe('rewound');
+    expect(screen.getByTestId('sync-history-rewound-h-dates').dataset.kind).toBe('partly');
+  });
+
   it('should render DataTable with entries when data exists', () => {
     const entries = [makeMockEntry('h-1'), makeMockEntry('h-2', 'failure')];
     useSyncHistoryStore.setState({ entries, loading: false });

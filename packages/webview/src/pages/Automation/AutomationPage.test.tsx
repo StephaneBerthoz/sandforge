@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '../../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
@@ -50,6 +50,17 @@ let mockSaveMutationState = {
   reset: mockSaveReset,
 };
 
+/** Mutable mutation state for pipeline:delete. */
+const mockDeleteMutate = vi.fn();
+const mockDeleteMutationState = {
+  mutate: mockDeleteMutate,
+  data: null,
+  loading: false,
+  error: null,
+  errorCode: null,
+  reset: vi.fn(),
+};
+
 /** What the pipeline generator answered, kept across renders as the bridge keeps it. */
 let mockGenerateMutationState = {
   mutate: vi.fn(),
@@ -96,6 +107,9 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     }
     if (type === 'ai:generate-pipeline') {
       return mockGenerateMutationState;
+    }
+    if (type === 'pipeline:delete') {
+      return mockDeleteMutationState;
     }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
@@ -586,10 +600,199 @@ describe('AutomationPage', () => {
     render(<AutomationPage />);
     expect(screen.getByTestId('pipeline-canvas').textContent).toContain('No pipeline open');
     fireEvent.click(screen.getByTestId('palette-delay'));
-    expect(screen.getByTestId('page-header-subtitle').textContent).toBe('New Pipeline v1 · 1 step');
+    expect((screen.getByTestId('pipeline-name-input') as HTMLInputElement).value).toBe(
+      'New pipeline',
+    );
+    expect(screen.getByTestId('pipeline-meta').textContent).toBe('v1 · 1 step');
     // Named after its type, with no badge saying the type again.
     const added = screen.getAllByTestId(/^canvas-step-/)[0].textContent ?? '';
     expect(added).toMatch(/^Delay(?!.*Delay)/);
     expect(added).not.toContain('delay');
+  });
+
+  describe('a pipeline renamed, opened, started and deleted', () => {
+    /** A saved pipeline, as `pipeline:list` lists it. */
+    const saved = (id: string, name: string) => ({
+      key: `pipeline:saved:${id}`,
+      id,
+      name,
+      description: '',
+      version: 1,
+      steps: [
+        {
+          id: `${id}-s`,
+          name: 'Wait',
+          type: 'delay',
+          config: { seconds: 5 },
+          continueOnError: false,
+        },
+      ],
+      triggers: [],
+      variables: [],
+      tags: [],
+      createdAt: '2026-11-01T00:00:00.000Z',
+      updatedAt: '2026-11-01T00:00:00.000Z',
+    });
+
+    const nameField = () => screen.getByTestId('pipeline-name-input') as HTMLInputElement;
+
+    beforeEach(() => {
+      mockDeleteMutate.mockClear();
+      mockQueryData = {
+        'pipeline:list': { pipelines: [saved('p-1', 'Nightly'), saved('p-2', 'Weekly')] },
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+    });
+
+    it('lists the saved pipelines while none is open, each with its own Delete', () => {
+      render(<AutomationPage />);
+
+      expect(screen.getByTestId('saved-pipeline-p-1').textContent).toContain('Nightly');
+      expect(screen.getByTestId('saved-pipeline-delete-p-1').textContent).toBe('Delete');
+      expect(screen.queryByTestId('saved-pipelines-close')).toBeNull();
+      // Two controls side by side: a button cannot hold another.
+      expect(
+        screen
+          .getByTestId('saved-pipeline-p-1')
+          .contains(screen.getByTestId('saved-pipeline-delete-p-1')),
+      ).toBe(false);
+    });
+
+    it('hides the list once a pipeline is open, and Open… shows it again beside that pipeline', () => {
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
+      expect(screen.queryByTestId('saved-pipelines')).toBeNull();
+      expect(nameField().value).toBe('Nightly');
+
+      fireEvent.click(screen.getByTestId('open-pipeline-btn'));
+
+      const list = screen.getByTestId('saved-pipelines');
+      expect(screen.getByTestId('open-pipeline-btn').getAttribute('aria-controls')).toBe(list.id);
+      expect(screen.getByTestId('saved-pipeline-p-1').getAttribute('aria-current')).toBe('true');
+      expect(screen.getByTestId('saved-pipeline-p-2').hasAttribute('aria-current')).toBe(false);
+
+      fireEvent.click(screen.getByTestId('saved-pipelines-close'));
+      expect(screen.queryByTestId('saved-pipelines')).toBeNull();
+    });
+
+    it('closes the list and hands the keyboard to the name of the pipeline it opens', () => {
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
+      fireEvent.click(screen.getByTestId('open-pipeline-btn'));
+
+      const row = screen.getByTestId('saved-pipeline-p-2');
+      row.focus();
+      fireEvent.click(row);
+
+      expect(screen.queryByTestId('saved-pipelines')).toBeNull();
+      expect(nameField().value).toBe('Weekly');
+      expect(document.activeElement).toBe(nameField());
+    });
+
+    it('takes the list away while a run draws its progress on the pipeline', () => {
+      const { rerender } = render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
+      fireEvent.click(screen.getByTestId('open-pipeline-btn'));
+      expect(screen.getByTestId('saved-pipelines')).toBeDefined();
+
+      mockExecuteMutationState = { ...mockExecuteMutationState, loading: true };
+      rerender(<AutomationPage />);
+
+      expect(screen.queryByTestId('saved-pipelines')).toBeNull();
+      expect(screen.getByTestId('open-pipeline-btn').getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('says when Open… finds no saved pipeline', () => {
+      mockQueryData = {};
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('create-pipeline-btn'));
+
+      fireEvent.click(screen.getByTestId('open-pipeline-btn'));
+
+      expect(screen.getByTestId('saved-pipelines-none').textContent).toBe(
+        'No pipeline is saved yet.',
+      );
+    });
+
+    it('renames the pipeline from its header, which then says it is not saved, and sends the name with the save', () => {
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
+      expect(screen.queryByTestId('pipeline-unsaved')).toBeNull();
+
+      fireEvent.change(nameField(), { target: { value: 'Nightly refresh' } });
+      expect(screen.getByTestId('pipeline-unsaved').textContent).toBe('Unsaved changes');
+
+      fireEvent.click(screen.getByTestId('save-pipeline-btn'));
+      expect(mockSaveMutate).toHaveBeenCalledWith({
+        id: 'p-1',
+        config: expect.objectContaining({ id: 'p-1', name: 'Nightly refresh' }),
+      });
+    });
+
+    it('asks before New drops unsaved changes, and keeps them on Keep editing', async () => {
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
+      fireEvent.change(nameField(), { target: { value: 'Nightly refresh' } });
+
+      fireEvent.click(screen.getByTestId('new-pipeline-btn'));
+
+      expect((await screen.findByTestId('danger-title')).textContent).toBe(
+        'Discard the changes to “Nightly refresh”?',
+      );
+      expect(screen.getByTestId('danger-dismiss-btn').textContent).toBe('Keep editing');
+      fireEvent.click(screen.getByTestId('danger-dismiss-btn'));
+      expect(nameField().value).toBe('Nightly refresh');
+    });
+
+    it('starts the new pipeline on Discard changes, under a name no saved one has', async () => {
+      mockQueryData = {
+        'pipeline:list': { pipelines: [saved('p-1', 'New pipeline')] },
+      };
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
+      fireEvent.change(nameField(), { target: { value: 'Nightly refresh' } });
+
+      fireEvent.click(screen.getByTestId('new-pipeline-btn'));
+      fireEvent.click(await screen.findByTestId('danger-confirm-btn'));
+
+      expect(nameField().value).toBe('New pipeline 2');
+      expect(screen.queryAllByTestId(/^canvas-step-/)).toHaveLength(0);
+    });
+
+    it('asks nothing of New over a pipeline as saved', () => {
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
+
+      fireEvent.click(screen.getByTestId('new-pipeline-btn'));
+
+      expect(screen.queryByTestId('danger-title')).toBeNull();
+      expect(nameField().value).toBe('New pipeline');
+    });
+
+    it('asks before deleting, saying what goes and what stays, and deletes on the named button', async () => {
+      render(<AutomationPage />);
+
+      fireEvent.click(screen.getByTestId('saved-pipeline-delete-p-2'));
+
+      expect(mockDeleteMutate).not.toHaveBeenCalled();
+      expect((await screen.findByTestId('danger-title')).textContent).toBe('Delete “Weekly”?');
+      const dialog = screen.getByRole('dialog');
+      expect(dialog.textContent).toContain('Its runs stay in the history.');
+      expect(dialog.textContent).toContain('the confirmations of its Rewind steps are taken back');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete pipeline' }));
+
+      expect(mockDeleteMutate).toHaveBeenCalledWith({ id: 'p-2' });
+      await waitFor(() => expect(screen.queryByTestId('danger-title')).toBeNull());
+    });
+
+    it('deletes nothing when the question is cancelled', async () => {
+      render(<AutomationPage />);
+
+      fireEvent.click(screen.getByTestId('saved-pipeline-delete-p-2'));
+      fireEvent.click(await screen.findByTestId('danger-dismiss-btn'));
+
+      expect(mockDeleteMutate).not.toHaveBeenCalled();
+    });
   });
 });

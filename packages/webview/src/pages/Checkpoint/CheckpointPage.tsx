@@ -56,8 +56,11 @@ const UNDO_CANNOT_RESULT_KEYS: Readonly<Record<RewindUndoCannotReason, string>> 
   deletedBeforeParent: 'checkpoint.result.undoCannotBeforeParent',
 };
 
-/** Where the page opens for the org Home named: a take, or what a rewind to one checkpoint would do. */
-type Arrival = { take: true } | { preview: string } | null;
+/**
+ * Where the page opens for the org Home named: a take, or what a rewind to
+ * one checkpoint would do — muted, from the result of a run that muted.
+ */
+type Arrival = { take: true } | { preview: string; muted?: true } | null;
 
 /** A rewind or an undo the page started, with the checkpoint it is of. */
 type PageRun = RunShown & { checkpoint: OrgCheckpoint };
@@ -100,7 +103,10 @@ export const CheckpointPage: React.FC = () => {
       : navigationIntent.takeCheckpoint === true
         ? { take: true }
         : navigationIntent.previewCheckpointId !== undefined
-          ? { preview: navigationIntent.previewCheckpointId }
+          ? {
+              preview: navigationIntent.previewCheckpointId,
+              ...(navigationIntent.previewMuted === true ? { muted: true as const } : {}),
+            }
           : null,
   );
   const [arrivedFor] = useState(currentOrg?.id);
@@ -221,9 +227,16 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
     arrival !== null && 'preview' in arrival ? arrival.preview : null,
   );
   const [leftPreview, setLeftPreview] = useState<string | undefined>(undefined);
+  // The checkpoint whose preview opens with its mute ticked: the one a run
+  // that muted opened the page on, that once. Left, the preview opens
+  // unticked again, as from the list.
+  const [mutedArrival, setMutedArrival] = useState<string | null>(
+    arrival !== null && 'preview' in arrival && arrival.muted === true ? arrival.preview : null,
+  );
   const [run, setRun] = useState<PageRun | null>(null);
   const [undoAsked, setUndoAsked] = useState<UndoAsked | null>(null);
   const [undoAcceptsAutomation, setUndoAcceptsAutomation] = useState(false);
+  const [undoAcceptsEmails, setUndoAcceptsEmails] = useState(false);
   const [undoMutesAutomation, setUndoMutesAutomation] = useState(false);
   const [stopComparing, setStopComparing] = useState<OrgCheckpoint | null>(null);
 
@@ -304,6 +317,7 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
   // org's last rewind; it starts unticked every time.
   const askUndo = (asked: UndoAsked): void => {
     setUndoAcceptsAutomation(false);
+    setUndoAcceptsEmails(false);
     setUndoMutesAutomation(false);
     setUndoAsked(asked);
   };
@@ -313,7 +327,9 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
       checkpointId: undoAsked.checkpoint.checkpointId,
       rewindId: undoAsked.rewindId,
       acceptAutomation: undoAcceptsAutomation,
+      ...(undoAcceptsEmails ? { acceptEmails: true } : {}),
       ...(undoMutesAutomation ? { muteAutomation: true } : {}),
+      fromPage: true,
     });
     setRun({ kind: 'undo', rewindId: undoAsked.rewindId, checkpoint: undoAsked.checkpoint });
     setPreviewing(null);
@@ -358,6 +374,19 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
           data-testid="checkpoint-undo-accept-automation"
         />
         <span>{t('checkpoint.undo.acceptAutomation', { org: orgName })}</span>
+      </label>
+      {/* Its own box: an org on All email, or one that would not say, sends
+          what fires as the undo writes to the addresses the records hold,
+          and the box above never lets it. Unticked, the undo reads the org
+          as it starts and is refused where it would, nothing written. */}
+      <label className="mt-2 flex items-start gap-2">
+        <input
+          type="checkbox"
+          checked={undoAcceptsEmails}
+          onChange={(event) => setUndoAcceptsEmails(event.target.checked)}
+          data-testid="checkpoint-undo-accept-emails"
+        />
+        <span>{t('checkpoint.undo.acceptEmails', { org: orgName })}</span>
       </label>
       {/* The undo's confirmation reads nothing of the org: what a mute
           silences is read as the undo starts, and its result says it. */}
@@ -427,9 +456,10 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
       : undefined;
   if (previewed) {
     const rewind = (acceptances: RewindAcceptances, diff: RewindDiff): void => {
-      rewinding.mutate({ checkpointId: previewed.checkpointId, ...acceptances });
+      rewinding.mutate({ checkpointId: previewed.checkpointId, ...acceptances, fromPage: true });
       setRun({ kind: 'rewind', diff, checkpoint: previewed.checkpoint });
       setPreviewing(null);
+      setMutedArrival(null);
     };
     return (
       <RewindPreview
@@ -438,8 +468,10 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
         onClose={() => {
           setLeftPreview(previewed.checkpointId);
           setPreviewing(null);
+          setMutedArrival(null);
         }}
         onRewind={rewind}
+        startMuted={mutedArrival === previewed.checkpointId}
         muteBox={(offer, checked, onChange) => (
           <AutomationMuteBox
             offer={offer}

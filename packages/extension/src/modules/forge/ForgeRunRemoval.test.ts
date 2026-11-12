@@ -281,6 +281,28 @@ describe('removeRunRecords — an object the user may not delete', () => {
     ]);
   });
 
+  it('calls what goes before its first write once the question is answered, and never once it is answered no', async () => {
+    const { org, plan } = accountWithContacts();
+    org.undeletable.add('Account');
+    const order: string[] = [];
+    const onUndeletable = vi.fn(async () => {
+      order.push('asked');
+      return order.length > 1;
+    });
+    const beforeFirstWrite = vi.fn(async () => {
+      order.push(`before ${org.deletes.length} delete(s)`);
+    });
+
+    await removeRunRecords(org, plan, options({ onUndeletable, beforeFirstWrite }));
+    expect(order).toEqual(['asked']);
+    expect(org.deletes).toEqual([]);
+
+    order.push('again');
+    await removeRunRecords(org, plan, options({ onUndeletable, beforeFirstWrite }));
+    expect(order).toEqual(['asked', 'again', 'asked', 'before 0 delete(s)']);
+    expect(org.deletes.map((d) => d.object)).toEqual(['Contact']);
+  });
+
   it('counts a record of it already deleted as gone, and only the ones still in the org as refused', async () => {
     // Every record of the object was counted refused, the one in the recycle
     // bin too: the removal said it had left in the org what was gone.
@@ -757,6 +779,56 @@ describe('removeRunRecords', () => {
     expect(org.has('Task', id('00T', 1))).toBe(false);
   });
 
+  it('says what it took along that was not the run’s, added since the run under a record it deleted, as changes are included', async () => {
+    // Run for real, a removal including changes took a contact made by hand
+    // under an account of a Frozen load along with the account, and said
+    // "Contact: 4 deleted of 4", the load's four, keptDependents 0.
+    const { org, plan } = accountWithContacts();
+    const byHand = id('003', 3);
+    org.add('Contact', {
+      Id: byHand,
+      AccountId: id('001', 1),
+      CreatedDate: AFTER_RUN,
+      LastModifiedDate: AFTER_RUN,
+    });
+
+    const outcome = await removeRunRecords(org, plan, options({ includeChanged: true }));
+
+    expect(outcome.objects[0]).toMatchObject({ objectApiName: 'Contact', deleted: 2, planned: 2 });
+    expect(outcome.objects[0]).not.toHaveProperty('tookAlong');
+    expect(outcome.objects[1]).toMatchObject({
+      objectApiName: 'Account',
+      deleted: 1,
+      keptDependents: 0,
+      tookAlong: { count: 1, objects: ['Contact'] },
+    });
+    expect(org.has('Contact', byHand)).toBe(false);
+  });
+
+  it('takes along nothing it does not say: what came with the run, and what changes left out keep their parent', async () => {
+    const withTheRun = accountWithContacts();
+    withTheRun.org.add('Task', runRow(id('00T', 1), { WhatId: id('001', 1) }));
+    const kept = accountWithContacts();
+    kept.org.add('Task', {
+      Id: id('00T', 2),
+      WhatId: id('001', 1),
+      CreatedDate: AFTER_RUN,
+      LastModifiedDate: AFTER_RUN,
+    });
+
+    const came = await removeRunRecords(
+      withTheRun.org,
+      withTheRun.plan,
+      options({ includeChanged: true }),
+    );
+    const held = await removeRunRecords(kept.org, kept.plan, options());
+
+    expect(came.objects[1]).toMatchObject({ deleted: 1 });
+    expect(came.objects[1]).not.toHaveProperty('tookAlong');
+    expect(held.objects[1]).toMatchObject({ deleted: 0, keptDependents: 1 });
+    expect(held.objects[1]).not.toHaveProperty('tookAlong');
+  });
+
   it('deletes a parent with what came with the run: created while it went, untouched since', async () => {
     // A task a flow opened when the account was inserted.
     const { org, plan } = accountWithContacts();
@@ -833,6 +905,7 @@ describe('removeRunRecords', () => {
       'CreatedDate',
       'LastModifiedDate',
       'CreatedById',
+      'LastModifiedById',
     ]);
     org.add('Account', runRow(id('001', 1)));
     org.add('Contact', {
@@ -882,7 +955,8 @@ describe('removeRunRecords', () => {
       keptDependents: 0,
       unchecked: ['Task'],
     });
-    expect(org.queries.filter((q) => q.includes('FROM Task WHERE'))).toHaveLength(3);
+    // Asked with each set of dates in turn, down to none.
+    expect(org.queries.filter((q) => q.includes('FROM Task WHERE'))).toHaveLength(4);
   });
 
   it('reads a relationship without the usual dates by its system stamp', async () => {
@@ -2577,11 +2651,20 @@ describe('removeRunRecords', () => {
      * book, written by the user the removal runs as. Deleting a line item
      * changes the opportunity's amount: the org dates the opportunity then,
      * as modified by the user who deleted the item, and feed tracking records
-     * the change on it, as created by that user — as a sandbox did. It
+     * the change on it, as created by that user — as a sandbox did. A feed
+     * item keeps no `LastModifiedById`, as the sandbox's describe says. It
      * refuses the price book while an opportunity is priced from it.
      */
     function opportunityWithLineItems(): FakeOrg {
       const org = new FakeOrg();
+      org.columns.set('FeedItem', [
+        'Id',
+        'ParentId',
+        'CreatedDate',
+        'LastModifiedDate',
+        'CreatedById',
+        'SystemModstamp',
+      ]);
       const written = (recordId: string, fields: Record<string, unknown> = {}): Row =>
         runRow(recordId, { ...fields, LastModifiedById: USER });
       org.add('Account', written(ACCOUNT));
@@ -2835,7 +2918,11 @@ describe('removeRunRecords', () => {
 
       expect(outcome.stamps).toEqual({});
       expect([...org.rows.values()].flat()).toEqual([]);
-      expect(org.queries.filter((q) => q.includes('LastModifiedById'))).toEqual([]);
+      // What hangs from each record is read with who last modified it; what
+      // the removal left is read back by that alone.
+      expect(
+        org.queries.filter((q) => q.startsWith('SELECT Id, LastModifiedDate, LastModifiedById ')),
+      ).toEqual([]);
     });
 
     it('reads back no object that keeps no modified date, and so no one who modified it', async () => {
@@ -3275,6 +3362,131 @@ describe('removeRunRecords', () => {
         }),
       ]);
       expect(org.has('Task', id('00T', 1))).toBe(true);
+    });
+
+    describe('a part dated by the clock of the machine that ran it, asked to end with its last write', () => {
+      // A part of a clone cut and taken up, as its journal dates it: begun at
+      // 10:00:00 and ended at 10:00:05 on a machine whose clock agrees with
+      // the org's, which dates its writes to the second.
+      const at = (seconds: number): string =>
+        new Date(Date.parse('2026-09-20T10:00:00.000Z') + seconds * 1000).toISOString();
+      const part = (overrides: Partial<RunRemovalOptions> = {}): RunRemovalOptions => ({
+        runRecordedAt: new Date(at(5)),
+        runDurationMs: 5_000,
+        endedByItsWrites: true,
+        includeChanged: false,
+        ...overrides,
+      });
+      /** The part's account and contact, created at 10:00:01 and 10:00:02, as the run's user. */
+      function accountAndContact(contactModified = at(2)) {
+        const org = new FakeOrg();
+        org.relationships.set('Account', ACCOUNT_CHILDREN);
+        org.add('Account', {
+          Id: id('001', 1),
+          CreatedDate: at(1),
+          LastModifiedDate: at(1),
+          CreatedById: USER,
+        });
+        org.add('Contact', {
+          Id: id('003', 1),
+          AccountId: id('001', 1),
+          CreatedDate: at(2),
+          LastModifiedDate: contactModified,
+          CreatedById: USER,
+        });
+        const plan = [
+          { objectApiName: 'Contact', ids: [id('003', 1)] },
+          { objectApiName: 'Account', ids: [id('001', 1)] },
+        ];
+        return { org, plan };
+      }
+      /** A task under the account, made at `seconds` as the run's user. */
+      const taskAt = (org: FakeOrg, seconds: number): void =>
+        org.add('Task', {
+          Id: id('00T', 1),
+          WhatId: id('001', 1),
+          CreatedDate: at(seconds),
+          LastModifiedDate: at(seconds),
+          CreatedById: USER,
+        });
+
+      it("keeps a task the run's user made by hand eight seconds after the part ended, and the account it hangs from", async () => {
+        const { org, plan } = accountAndContact();
+        taskAt(org, 13);
+
+        const outcome = await removeRunRecords(org, plan, part());
+
+        expect(outcome.objects).toEqual([
+          expect.objectContaining({ objectApiName: 'Contact', deleted: 1 }),
+          expect.objectContaining({
+            objectApiName: 'Account',
+            deleted: 0,
+            keptDependents: 1,
+            heldBy: ['Task'],
+          }),
+        ]);
+        expect(org.has('Task', id('00T', 1))).toBe(true);
+      });
+
+      it('takes what the org made in the second of the last write the org dated', async () => {
+        const { org, plan } = accountAndContact();
+        taskAt(org, 2);
+
+        const outcome = await removeRunRecords(org, plan, part());
+
+        expect(outcome.objects.map((o) => [o.objectApiName, o.deleted, o.keptDependents])).toEqual([
+          ['Contact', 1, 0],
+          ['Account', 1, 0],
+        ]);
+        expect(org.has('Task', id('00T', 1))).toBe(false);
+      });
+
+      it('ends with its second pass on its own records: what the org made as it filled in a lookup goes', async () => {
+        // The contact's lookup filled in at 10:00:04, after the part's last
+        // insert; a flow opened a task on the account as the contact changed.
+        const { org, plan } = accountAndContact(at(4));
+        taskAt(org, 4);
+
+        const outcome = await removeRunRecords(org, plan, part());
+
+        expect(outcome.objects.map((o) => [o.objectApiName, o.deleted, o.keptChanged])).toEqual([
+          ['Contact', 1, 0],
+          ['Account', 1, 0],
+        ]);
+        expect(org.has('Task', id('00T', 1))).toBe(false);
+      });
+
+      it('keeps ten seconds of leeway after the part where the org dated none of its writes within it', async () => {
+        // Audit fields copied from the source: the account says 2019.
+        const org = new FakeOrg();
+        org.relationships.set('Account', ACCOUNT_CHILDREN);
+        org.add('Account', {
+          Id: id('001', 1),
+          CreatedDate: '2019-05-01T08:00:00.000+0000',
+          LastModifiedDate: '2019-05-01T08:00:00.000+0000',
+          CreatedById: USER,
+        });
+        taskAt(org, 13);
+
+        const outcome = await removeRunRecords(
+          org,
+          [{ objectApiName: 'Account', ids: [id('001', 1)] }],
+          part(),
+        );
+
+        expect(outcome.objects[0]).toMatchObject({ deleted: 1, keptDependents: 0 });
+        expect(org.has('Task', id('00T', 1))).toBe(false);
+      });
+
+      it('unasked, a run dated by when it was recorded keeps its ten seconds of leeway', async () => {
+        const { org, plan } = accountAndContact();
+        taskAt(org, 13);
+
+        const outcome = await removeRunRecords(org, plan, part({ endedByItsWrites: undefined }));
+
+        expect(outcome.objects[1]).toMatchObject({ deleted: 1, keptDependents: 0 });
+        expect(org.has('Task', id('00T', 1))).toBe(false);
+      });
     });
 
     it('starts a run that kept no dates when it began, not at the creation dates it copied from the source', async () => {
@@ -3773,5 +3985,387 @@ describe('takenAlong', () => {
 describe('setBackToDraftOf', () => {
   it('names the objects whose records past Draft a removal sets back to Draft, and not a contract, deleted as it stands', () => {
     expect(setBackToDraftOf(['Account', 'Order', 'Contract', 'OrderItem'])).toEqual(['Order']);
+  });
+});
+
+describe('removeRunRecords — what the target automation made under the run records', () => {
+  /** Late in the run: the account a record hangs from, written as the run's user. */
+  const ACCOUNT_WRITTEN = '2026-09-20T10:04:30.000+0000';
+  /** Ten seconds after the run's last write: what a save's automation writes once it is committed. */
+  const JUST_AFTER_RUN = '2026-09-20T10:05:10.000+0000';
+  /** Five minutes after: a sweep lists it as late. */
+  const LONG_AFTER_RUN = '2026-09-20T10:10:00.000+0000';
+  /** A user the run wrote as, other than the one the removal runs as. */
+  const RUN_USER = id('005', 3);
+
+  const TASK = id('00T', 1);
+  const ACCOUNT = id('001', 1);
+  const PLAN = [{ objectApiName: 'Account', ids: [ACCOUNT] }];
+
+  /** An account the run created, and a task as `task` says hanging from it. */
+  function accountWithTask(
+    task: Record<string, unknown>,
+    accountBy = USER,
+    accountWritten = ACCOUNT_WRITTEN,
+  ): FakeOrg {
+    const org = new FakeOrg();
+    org.relationships.set('Account', [
+      { childSObject: 'Task', field: 'WhatId', cascadeDelete: true },
+    ]);
+    org.add(
+      'Account',
+      runRow(ACCOUNT, {
+        CreatedDate: accountWritten,
+        LastModifiedDate: accountWritten,
+        CreatedById: accountBy,
+      }),
+    );
+    org.add('Task', { Id: TASK, WhatId: ACCOUNT, ...task });
+    return org;
+  }
+
+  const madeJustAfter = {
+    CreatedDate: JUST_AFTER_RUN,
+    LastModifiedDate: JUST_AFTER_RUN,
+    CreatedById: USER,
+    LastModifiedById: USER,
+  };
+
+  it('counts apart the records held only by what the run user created under them within a minute', async () => {
+    const org = accountWithTask(madeJustAfter);
+
+    const outcome = await removeRunRecords(org, PLAN, options());
+
+    expect(outcome.objects[0]).toMatchObject({
+      deleted: 0,
+      keptDependents: 1,
+      heldBy: ['Task'],
+      heldByAutomation: 1,
+      automationHolders: ['Task'],
+    });
+    // The account read once for when, and by whom, it was created.
+    const anchorRead = `SELECT Id, CreatedDate, CreatedById FROM Account WHERE Id IN ('${ACCOUNT}')`;
+    expect(org.queries.filter((q) => q === anchorRead)).toHaveLength(1);
+  });
+
+  it('says apart those held by what was created after the run’s last write: the automation run late, or a person working as the run’s user', async () => {
+    // Live, a contact role made by hand five seconds after a cut part's last
+    // write held its contact back, and the removal said it was created
+    // "during the run".
+    const after = await removeRunRecords(accountWithTask(madeJustAfter), PLAN, options());
+    // Ten seconds after the account, twenty before the run's last write, and
+    // written again since as the run's user: left alone, it went with the run.
+    const during = await removeRunRecords(
+      accountWithTask({ ...madeJustAfter, CreatedDate: '2026-09-20T10:04:40.000+0000' }),
+      PLAN,
+      options(),
+    );
+
+    expect(after.objects[0]).toMatchObject({ heldByAutomation: 1, heldByAutomationAfterRun: 1 });
+    expect(during.objects[0]).toMatchObject({ heldByAutomation: 1 });
+    expect(during.objects[0].heldByAutomationAfterRun).toBeUndefined();
+  });
+
+  it('counts none for a record a colleague created, one a sweep lists as late, or one a colleague changed', async () => {
+    const byColleague = await removeRunRecords(
+      accountWithTask({ ...madeJustAfter, CreatedById: COLLEAGUE, LastModifiedById: COLLEAGUE }),
+      PLAN,
+      options(),
+    );
+    const late = await removeRunRecords(
+      accountWithTask({
+        ...madeJustAfter,
+        CreatedDate: LONG_AFTER_RUN,
+        LastModifiedDate: LONG_AFTER_RUN,
+      }),
+      PLAN,
+      options(),
+    );
+    const changedByColleague = await removeRunRecords(
+      accountWithTask({
+        ...madeJustAfter,
+        LastModifiedDate: AFTER_RUN,
+        LastModifiedById: COLLEAGUE,
+      }),
+      PLAN,
+      options(),
+    );
+    // Within the run, but minutes after the account it hangs from.
+    const lateUnderIt = await removeRunRecords(
+      accountWithTask(
+        { ...madeJustAfter, CreatedDate: DURING_RUN, LastModifiedDate: AFTER_RUN },
+        USER,
+        RUN_STARTED,
+      ),
+      PLAN,
+      options(),
+    );
+
+    for (const outcome of [byColleague, late, changedByColleague, lateUnderIt]) {
+      expect(outcome.objects[0]).toMatchObject({ keptDependents: 1, heldBy: ['Task'] });
+      expect(outcome.objects[0].heldByAutomation).toBeUndefined();
+      expect(outcome.objects[0].automationHolders).toBeUndefined();
+    }
+  });
+
+  it('counts none for a record held by anything else as well', async () => {
+    const org = accountWithTask(madeJustAfter);
+    org.relationships.set('Account', [
+      { childSObject: 'Task', field: 'WhatId', cascadeDelete: true },
+      { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
+    ]);
+    org.add('Contact', {
+      Id: id('003', 1),
+      AccountId: ACCOUNT,
+      CreatedDate: BEFORE_RUN,
+      LastModifiedDate: BEFORE_RUN,
+    });
+
+    const outcome = await removeRunRecords(org, PLAN, options());
+
+    expect(outcome.objects[0]).toMatchObject({ keptDependents: 1, heldBy: ['Task', 'Contact'] });
+    expect(outcome.objects[0].heldByAutomation).toBeUndefined();
+  });
+
+  it('holds the automation to the user the run kept, where it kept one', async () => {
+    // The run wrote as one user and the removal runs as another: what the
+    // run's user created under the account is the automation's, what the
+    // removal's user created is not.
+    const asRunUser = await removeRunRecords(
+      accountWithTask({ ...madeJustAfter, CreatedById: RUN_USER, LastModifiedById: RUN_USER }),
+      PLAN,
+      options({ runUserId: RUN_USER }),
+    );
+    const removalUserOrg = accountWithTask(madeJustAfter, RUN_USER);
+    const asRemovalUser = await removeRunRecords(
+      removalUserOrg,
+      PLAN,
+      options({ runUserId: RUN_USER }),
+    );
+
+    expect(asRunUser.objects[0]).toMatchObject({ heldByAutomation: 1 });
+    expect(asRemovalUser.objects[0].heldByAutomation).toBeUndefined();
+    // Told by the task alone: the account is not read for who wrote it.
+    expect(
+      removalUserOrg.queries.filter((q) => q.includes('CreatedDate, CreatedById FROM Account')),
+    ).toEqual([]);
+  });
+
+  it('lets what a granted sweep found made for the run go along with the record it hangs from', async () => {
+    // The sweep names them as the org answered it, eighteen characters; a
+    // read may answer fifteen: either way, the same record.
+    for (const made of [TASK, TASK.slice(0, 15)]) {
+      const org = accountWithTask(madeJustAfter);
+
+      const outcome = await removeRunRecords(
+        org,
+        PLAN,
+        options({ automationMade: new Set([made]) }),
+      );
+
+      expect(outcome.objects[0]).toMatchObject({ deleted: 1, keptDependents: 0 });
+      expect(removalStatus(outcome.objects, outcome.cancelled)).toBe('success');
+      expect(org.has('Task', TASK)).toBe(false);
+    }
+  });
+
+  it('reads what a granted sweep found made once the sweep has run, as `sweepParts` fills it', async () => {
+    const org = accountWithTask(madeJustAfter);
+    const automationMade = new Set<string>();
+
+    const outcome = await removeRunRecords(
+      org,
+      PLAN,
+      options({
+        automationMade,
+        sweep: async () => {
+          automationMade.add(TASK);
+          return false;
+        },
+      }),
+    );
+
+    expect(outcome.objects[0]).toMatchObject({ deleted: 1, keptDependents: 0 });
+    expect(org.has('Task', TASK)).toBe(false);
+  });
+
+  it('still keeps a record whose delete what a granted sweep found made restricts', async () => {
+    const org = accountWithTask(madeJustAfter);
+    org.relationships.set('Account', [
+      { childSObject: 'Task', field: 'WhatId', cascadeDelete: false, restrictedDelete: true },
+    ]);
+
+    const outcome = await removeRunRecords(org, PLAN, options({ automationMade: new Set([TASK]) }));
+
+    expect(outcome.objects[0]).toMatchObject({ deleted: 0, keptDependents: 1 });
+  });
+});
+
+describe('removeRunRecords — what only a removal of the run changed since', () => {
+  const ACCOUNT = id('001', 1);
+  const CONTACT = id('003', 1);
+  const CASE = id('500', 1);
+  const PLAN = [
+    { objectApiName: 'Contact', ids: [CONTACT] },
+    { objectApiName: 'Account', ids: [ACCOUNT] },
+  ];
+
+  /**
+   * An account and its contact the run created, and a case the target's
+   * automation opened under the account for the contact while the run went:
+   * deleting the contact clears the case's lookup, and the org restamps the
+   * case as `restampedBy`.
+   */
+  function accountWithCase(restampedBy: string): FakeOrg {
+    const org = new FakeOrg();
+    org.relationships.set('Account', [
+      { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
+      { childSObject: 'Case', field: 'AccountId', cascadeDelete: true },
+    ]);
+    org.add('Account', runRow(ACCOUNT));
+    org.add('Contact', runRow(CONTACT, { AccountId: ACCOUNT }));
+    org.add('Case', {
+      Id: CASE,
+      AccountId: ACCOUNT,
+      ContactId: CONTACT,
+      CreatedDate: DURING_RUN,
+      LastModifiedDate: DURING_RUN,
+      CreatedById: COLLEAGUE,
+      LastModifiedById: COLLEAGUE,
+    });
+    org.onDelete = (object, row) => {
+      if (object !== 'Contact') return;
+      for (const kase of org.rows.get('Case') ?? []) {
+        if (kase.ContactId !== row.Id) continue;
+        Object.assign(kase, {
+          ContactId: null,
+          LastModifiedDate: org.now(),
+          LastModifiedById: restampedBy,
+        });
+      }
+    };
+    return org;
+  }
+
+  it('lets a record created during the run go with its parent when only this removal changed it', async () => {
+    const org = accountWithCase(USER);
+
+    const outcome = await removeRunRecords(org, PLAN, options());
+
+    expect(outcome.objects[1]).toMatchObject({ deleted: 1, keptDependents: 0 });
+    expect(org.has('Case', CASE)).toBe(false);
+  });
+
+  it('keeps for it a parent when someone else changed it since', async () => {
+    const org = accountWithCase(COLLEAGUE);
+
+    const outcome = await removeRunRecords(org, PLAN, options());
+
+    expect(outcome.objects[1]).toMatchObject({ deleted: 0, keptDependents: 1, heldBy: ['Case'] });
+    expect(org.has('Case', CASE)).toBe(true);
+  });
+
+  it('reads what an earlier removal changed, as its user while it went, as no change since', async () => {
+    const earlier = { first: '2026-09-21T08:00:00.000Z', last: '2026-09-21T08:01:00.000Z' };
+    const withCase = (modifiedAt: string): FakeOrg => {
+      const org = new FakeOrg();
+      org.relationships.set('Account', [
+        { childSObject: 'Case', field: 'AccountId', cascadeDelete: true },
+      ]);
+      org.add('Account', runRow(ACCOUNT));
+      org.add('Case', {
+        Id: CASE,
+        AccountId: ACCOUNT,
+        CreatedDate: DURING_RUN,
+        LastModifiedDate: modifiedAt,
+        CreatedById: COLLEAGUE,
+        LastModifiedById: USER,
+      });
+      return org;
+    };
+    const spans = { removalSpans: [{ ...earlier, userId: USER }] };
+    const accountOnly = [{ objectApiName: 'Account', ids: [ACCOUNT] }];
+
+    const within = await removeRunRecords(
+      withCase('2026-09-21T08:00:30.000+0000'),
+      accountOnly,
+      options(spans),
+    );
+    const outside = await removeRunRecords(
+      withCase('2026-09-21T09:00:00.000+0000'),
+      accountOnly,
+      options(spans),
+    );
+
+    expect(within.objects[0]).toMatchObject({ deleted: 1, keptDependents: 0 });
+    expect(outside.objects[0]).toMatchObject({ deleted: 0, keptDependents: 1 });
+  });
+
+  it('keeps for a record created after the run, whoever changed it last', async () => {
+    const org = accountWithCase(USER);
+    Object.assign(org.rows.get('Case')?.[0] ?? {}, { CreatedDate: AFTER_RUN });
+
+    const outcome = await removeRunRecords(org, PLAN, options());
+
+    expect(outcome.objects[1]).toMatchObject({ deleted: 0, keptDependents: 1 });
+  });
+});
+
+describe('removeRunRecords — the last part of a granted sweep', () => {
+  it('is made once, after the last delete of the run records', async () => {
+    const { org, plan } = accountWithContacts();
+    const deletesBefore: number[] = [];
+    const afterRemoval = vi.fn(async () => {
+      deletesBefore.push(org.deletes.length);
+      return true;
+    });
+
+    const outcome = await removeRunRecords(org, plan, options({ afterRemoval }));
+
+    expect(afterRemoval).toHaveBeenCalledTimes(1);
+    expect(deletesBefore).toEqual([org.deletes.length]);
+    expect(removalStatus(outcome.objects, outcome.cancelled)).toBe('success');
+  });
+
+  it('dates the removal when it alone wrote, every record of the run already gone', async () => {
+    const { org, plan } = accountWithContacts();
+    for (const object of ['Account', 'Contact']) {
+      for (const row of org.rows.get(object) ?? []) org.bin.add(row.Id);
+      org.rows.set(object, []);
+    }
+
+    const outcome = await removeRunRecords(org, plan, options({ afterRemoval: async () => true }));
+
+    expect(org.deletes).toEqual([]);
+    expect(outcome.span).toMatchObject({ userId: USER.slice(0, 15) });
+  });
+
+  it('is not made by a preview, nor by a removal stopped before it', async () => {
+    const preview = accountWithContacts();
+    const afterPreview = vi.fn(async () => true);
+    await removeRunRecords(
+      preview.org,
+      preview.plan,
+      options({ previewOnly: true, afterRemoval: afterPreview }),
+    );
+
+    const stopped = accountWithContacts();
+    const stop = new AbortController();
+    const afterStop = vi.fn(async () => true);
+    const outcome = await removeRunRecords(
+      stopped.org,
+      stopped.plan,
+      options({
+        afterRemoval: afterStop,
+        signal: stop.signal,
+        onProgress: (_settled, _total, objectApiName) => {
+          if (objectApiName === 'Account') stop.abort();
+        },
+      }),
+    );
+
+    expect(afterPreview).not.toHaveBeenCalled();
+    expect(afterStop).not.toHaveBeenCalled();
+    expect(outcome.cancelled).toBe(true);
   });
 });

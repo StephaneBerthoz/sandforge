@@ -476,7 +476,7 @@ describe('a forge resource whose source is a production org', () => {
         edition: 'Enterprise Edition',
       }),
     ).toContain(
-      'Its anonymize sets a method for no category of personal field, so it anonymizes nothing.',
+      'Its anonymize sets a method for no category of personal field, so it does not count.',
     );
     // A template entry that anonymizes brings its anonymization with it.
     const fromEntry = converted({
@@ -594,6 +594,14 @@ describe('the lines of a forge resource', () => {
         ...forgePreviewLine({ target: 'TGT', summary, acceptAutomation: true }),
       ]),
     ).toMatchObject({ preview: true, acceptAutomation: true, json: true });
+    // A destroy's sweep, to its preview too, which reads what it would take.
+    expect(
+      parseRemoveArgs([
+        'node',
+        'sandforge-clone.ts',
+        ...forgePreviewLine({ target: 'TGT', summary, sweep: true }),
+      ]),
+    ).toMatchObject({ preview: true, sweep: true, json: true });
     expect(
       parseVerifyArgs([
         'node',
@@ -877,5 +885,19 @@ describe('what the org to fill would refuse every row of a forge resource for', 
     );
     expect(forgeTargetRefusal(answer([warning]), run.template)).toBeUndefined();
     expect(forgeTargetRefusal(answer([]), run.template)).toBeUndefined();
+  });
+
+  it('names an object no permission set opens, and one a feature closes, in words rather than by kind', () => {
+    const run = converted(tables);
+    const throughParent = { ...required, kind: 'object_through_parent', field: undefined };
+    const featureOff = { ...required, kind: 'object_feature_off', field: undefined };
+
+    const said = forgeTargetRefusal(answer([throughParent, featureOff]), run.template) ?? '';
+
+    expect(said).toContain('Account, which the user it writes as may not create');
+    expect(said).toContain(
+      'Account, which a feature or licence the org has not turned on keeps closed',
+    );
+    expect(said).not.toMatch(/object_through_parent|object_feature_off/);
   });
 });

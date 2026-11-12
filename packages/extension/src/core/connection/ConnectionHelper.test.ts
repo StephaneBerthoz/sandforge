@@ -5,6 +5,7 @@ import {
   getCircuitBreaker,
   isUsableAccessToken,
   observeValidatedIdentities,
+  refreshTokenViaCli,
   resetCircuitBreakers,
   resetConnectionValidation,
 } from './ConnectionHelper';
@@ -1055,5 +1056,62 @@ describe('ConnectionHelper', () => {
 
       expect(observer).not.toHaveBeenCalled();
     });
+  });
+
+  /**
+   * The extension host carries ELECTRON_RUN_AS_NODE=1 and VS Code's own
+   * variables; the token reads start sf without them, as every sf run of the
+   * extension does and as a terminal of the window gets it.
+   */
+  describe('the environment of its sf reads', () => {
+    const realPlatform = process.platform;
+    const savedElectron = process.env.ELECTRON_RUN_AS_NODE;
+    const savedPid = process.env.VSCODE_PID;
+
+    beforeEach(() => {
+      process.env.ELECTRON_RUN_AS_NODE = '1';
+      process.env.VSCODE_PID = '4242';
+    });
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: realPlatform });
+      if (savedElectron === undefined) delete process.env.ELECTRON_RUN_AS_NODE;
+      else process.env.ELECTRON_RUN_AS_NODE = savedElectron;
+      if (savedPid === undefined) delete process.env.VSCODE_PID;
+      else process.env.VSCODE_PID = savedPid;
+      mockExecFile.mockReset();
+    });
+
+    const answers = [
+      { stdout: JSON.stringify({ result: { instanceUrl: 'https://test.my.salesforce.com' } }) },
+      { stdout: JSON.stringify({ result: { accessToken: 'fresh-token' } }) },
+    ];
+
+    it.each([
+      ['linux', () => mockExecFile, (call: unknown[]) => call[2]],
+      ['win32', () => mockShellCall, (call: unknown[]) => call[1]],
+    ] as const)(
+      'on %s, holds no VS Code variable and turns colours off',
+      async (platform, invoker, optionsOf) => {
+        Object.defineProperty(process, 'platform', { value: platform });
+        for (const answer of answers) {
+          invoker().mockResolvedValueOnce({ ...answer, stderr: '' } as never);
+        }
+
+        await expect(refreshTokenViaCli('admin@test.com')).resolves.toEqual({
+          accessToken: 'fresh-token',
+          instanceUrl: 'https://test.my.salesforce.com',
+        });
+
+        expect(invoker().mock.calls).toHaveLength(2);
+        for (const call of invoker().mock.calls) {
+          const { env } = optionsOf(call) as { env: NodeJS.ProcessEnv };
+          expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+          expect(env.VSCODE_PID).toBeUndefined();
+          expect(env.PATH).toBe(process.env.PATH);
+          expect(env.NO_COLOR).toBe('1');
+        }
+      },
+    );
   });
 });

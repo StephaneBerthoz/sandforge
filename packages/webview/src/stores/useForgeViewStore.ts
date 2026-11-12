@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react';
 import { create } from 'zustand';
 import { isForgeGraphView } from '@sandforge/shared';
 import type { ForgeGraphView } from '@sandforge/shared';
@@ -45,25 +46,66 @@ export function forgeGraphIsLarge(objectCount: number, wholeOrg = false): boolea
 }
 
 /**
+ * The narrowest panel, in CSS pixels, `auto` draws a graph in; under it, the
+ * discovery, Review and execution screens list the objects in a table.
+ *
+ * The graph keeps a strip down its right for the minimap, 230 pixels, and a
+ * node is 220 pixels wide: under 560 the panel leaves less than one node
+ * beside that strip. At 360, the four objects of an account's clone opened
+ * at React Flow's smallest zoom, all but one outside the box, the minimap
+ * taking most of what was left. It is the width under which the orgs'
+ * ribbon stacks too.
+ */
+export const FORGE_GRAPH_MIN_PANEL_PX = 560;
+
+/** What, besides the setting and the switch, decides how a screen shows a graph. */
+export interface ForgeObjectsViewContext {
+  /** The panel is narrower than {@link FORGE_GRAPH_MIN_PANEL_PX}. */
+  narrow?: boolean;
+  /** The graph is large ({@link forgeGraphIsLarge}). */
+  large?: boolean;
+  /** The switch's choice was made on a large graph. */
+  choiceOnLarge?: boolean;
+}
+
+/**
  * What a screen shows a graph of `objectCount` objects as: the view picked
- * with the Graph/Table switch, once one was, over what the setting says.
+ * with the Graph/Table switch, once one was, over what the setting says;
+ * under `auto`, a table past {@link FORGE_GRAPH_MAX_OBJECTS} objects or on a
+ * panel narrower than {@link FORGE_GRAPH_MIN_PANEL_PX}.
  *
  * A large graph (`large`) is listed unless the switch was set to the graph
  * on a large graph (`choiceOnLarge`): neither the setting nor the graph
  * picked on a run of a dozen objects draws 1,950 of them, which would hold
- * the panel still at every progress of the run.
+ * the panel still at every progress of the run. The narrow panel does not
+ * list it in turn: the graph picked on a large graph is drawn as asked.
  */
 export function forgeObjectsView(
   setting: ForgeGraphView,
   choice: ForgeObjectsView | null,
   objectCount: number,
-  large = false,
-  choiceOnLarge = false,
+  { narrow = false, large = false, choiceOnLarge = false }: ForgeObjectsViewContext = {},
 ): ForgeObjectsView {
   if (large) return choice === 'graph' && choiceOnLarge ? 'graph' : 'table';
   if (choice !== null) return choice;
   if (setting !== 'auto') return setting;
-  return objectCount > FORGE_GRAPH_MAX_OBJECTS ? 'table' : 'graph';
+  return narrow || objectCount > FORGE_GRAPH_MAX_OBJECTS ? 'table' : 'graph';
+}
+
+/** The media query a panel too narrow for the graph matches. */
+const NARROW_PANEL = `(max-width: ${String(FORGE_GRAPH_MIN_PANEL_PX - 1)}px)`;
+
+/** Follow whether the panel is narrower than the graph can be drawn in. */
+function subscribeNarrow(onChange: () => void): () => void {
+  if (typeof window.matchMedia !== 'function') return () => undefined;
+  const query = window.matchMedia(NARROW_PANEL);
+  query.addEventListener('change', onChange);
+  return () => query.removeEventListener('change', onChange);
+}
+
+/** Whether the panel is narrower than the graph can be drawn in; false where nothing can tell. */
+function narrowNow(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia(NARROW_PANEL).matches;
 }
 
 /** The graph view setting and the choice made with the switch. */
@@ -112,12 +154,18 @@ export const useForgeViewStore = create<ForgeViewState>((set) => ({
 
 /**
  * What a screen shows a graph of `objectCount` objects as, followed as it
- * changes; `wholeOrg` for a clone of the whole org, whose graph is large
- * whatever it holds yet.
+ * changes, the panel's width with it: a panel widened past the threshold
+ * draws the graph `auto` had listed. `wholeOrg` for a clone of the whole org,
+ * whose graph is large whatever it holds yet.
  */
 export function useForgeObjectsView(objectCount: number, wholeOrg = false): ForgeObjectsView {
+  const narrow = useSyncExternalStore(subscribeNarrow, narrowNow, () => false);
   const large = forgeGraphIsLarge(objectCount, wholeOrg);
   return useForgeViewStore((state) =>
-    forgeObjectsView(state.setting, state.choice, objectCount, large, state.choiceOnLarge),
+    forgeObjectsView(state.setting, state.choice, objectCount, {
+      narrow,
+      large,
+      choiceOnLarge: state.choiceOnLarge,
+    }),
   );
 }

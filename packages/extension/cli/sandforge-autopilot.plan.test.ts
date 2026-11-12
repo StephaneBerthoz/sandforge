@@ -14,12 +14,7 @@ vi.mock('./sandforge-clone.js', async (importOriginal) => ({
 
 import type { ForgeTargetAutomation } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
-import {
-  autopilotInterruptedLine,
-  autopilotRunStatus,
-  main,
-  parseArgs,
-} from './sandforge-autopilot';
+import { autopilotInterruptedLine, main, parseArgs } from './sandforge-autopilot';
 import { countingConnection, largeOrg } from '../src/test/largeOrg';
 
 /** What the target runs on the objects a plan writes. */
@@ -164,12 +159,29 @@ describe('sandforge-autopilot — what a plan copies', () => {
     expect(printed.plan.anonymizationSummary.notCovered).toBeUndefined();
   });
 
-  it("refuses a run past the target's data storage before it writes anything", async () => {
+  it("refuses a run past the target's data storage before it writes anything, under its code", async () => {
     const { create } = orgs(0.01);
 
     await expect(main(argv('--object', 'Lead', '--object', 'Obj004__c'))).rejects.toThrow(
-      /data storage.*Nothing was written\./,
+      /^refused \(AUTOPILOT_STORAGE_EXCEEDED\): The records to write take about .*data storage.*Nothing was written\.$/,
     );
+    expect(create).not.toHaveBeenCalled();
+
+    // A CI job reads the code on stdout: it read an empty one, and a sentence.
+    out.length = 0;
+    await expect(main(argv('--object', 'Lead', '--object', 'Obj004__c', '--json'))).rejects.toThrow(
+      /^refused \(AUTOPILOT_STORAGE_EXCEEDED\)/,
+    );
+    expect(JSON.parse(out.join('').slice(out.join('').lastIndexOf('\n{\n') + 1))).toMatchObject({
+      tool: 'sandforge-autopilot',
+      source: 'SRC',
+      target: 'TGT',
+      dryRun: false,
+      refused: {
+        code: 'AUTOPILOT_STORAGE_EXCEEDED',
+        message: expect.stringMatching(/^The records to write take about/) as string,
+      },
+    });
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -185,7 +197,9 @@ describe('sandforge-autopilot — what a plan copies', () => {
 
     const run = main(argv('--object', 'Lead', '--object', 'Obj004__c'));
 
-    await expect(run).rejects.toThrow(/API requests.*REQUEST_LIMIT_EXCEEDED/);
+    await expect(run).rejects.toThrow(
+      /^refused \(API_BUDGET_EXCEEDED\): The run takes about \d+ API requests.*REQUEST_LIMIT_EXCEEDED/,
+    );
     const message = await run.then(
       () => '',
       (err: unknown) => String(err),
@@ -208,17 +222,59 @@ describe('sandforge-autopilot — what a plan copies', () => {
     expect(printed.writeGate.refusals.some((r) => r.includes('REQUEST_LIMIT_EXCEEDED'))).toBe(true);
   });
 
-  it('refuses a run past --max-total, and says what a plan-only run would meet', async () => {
+  it('refuses a run past --max-total under its code, and says what a plan-only run would meet', async () => {
     const { create } = orgs(150);
 
     await expect(main(argv('--object', 'Lead', '--max-total', '5'))).rejects.toThrow(
-      /more than --max-total 5/,
+      /^refused \(MAX_TOTAL_EXCEEDED\): The run would write 30 records, more than --max-total 5/,
     );
     expect(create).not.toHaveBeenCalled();
 
     out.length = 0;
+    await expect(main(argv('--object', 'Lead', '--max-total', '5', '--json'))).rejects.toThrow(
+      /^refused \(MAX_TOTAL_EXCEEDED\)/,
+    );
+    expect(JSON.parse(out.join('').slice(out.join('').lastIndexOf('\n{\n') + 1))).toMatchObject({
+      refused: { code: 'MAX_TOTAL_EXCEEDED' },
+    });
+
+    out.length = 0;
     await main(argv('--object', 'Lead', '--max-total', '5', '--plan-only'));
-    expect(out.join('')).toContain('a real run would be refused: The run would write 30 records');
+    expect(out.join('')).toContain(
+      'a real run would be refused (MAX_TOTAL_EXCEEDED): The run would write 30 records',
+    );
+
+    // With --json, beside its words, the code the real run above was refused with.
+    out.length = 0;
+    await main(argv('--object', 'Lead', '--max-total', '5', '--plan-only', '--json'));
+    const planned = JSON.parse(out.join('')) as {
+      writeGate: { refusals: string[]; refusalCodes: string[] };
+    };
+    expect(planned.writeGate.refusals).toEqual([
+      expect.stringMatching(/^The run would write 30 records, more than --max-total 5/),
+    ]);
+    expect(planned.writeGate.refusalCodes).toEqual(['MAX_TOTAL_EXCEEDED']);
+  });
+
+  it('names every reason a run is refused for under its own code, the others under alsoRefused', async () => {
+    // Past --max-total and the storage at once: a CI job told of one ran again for the other.
+    const { create } = orgs(0.01);
+
+    const run = main(argv('--object', 'Lead', '--max-total', '5', '--json'));
+    const message = await run.then(
+      () => '',
+      (thrown: Error) => thrown.message,
+    );
+
+    expect(message.split('\n')).toEqual([
+      expect.stringMatching(/^refused \(MAX_TOTAL_EXCEEDED\): .*Nothing was written\.$/),
+      expect.stringMatching(/^refused \(AUTOPILOT_STORAGE_EXCEEDED\): .*Nothing was written\.$/),
+    ]);
+    expect(JSON.parse(out.join('').slice(out.join('').lastIndexOf('\n{\n') + 1))).toMatchObject({
+      refused: { code: 'MAX_TOTAL_EXCEEDED' },
+      alsoRefused: [{ code: 'AUTOPILOT_STORAGE_EXCEEDED' }],
+    });
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("refuses a run the target's flows would send more emails for than it has left today, and says so with --plan-only", async () => {
@@ -247,7 +303,7 @@ describe('sandforge-autopilot — what a plan copies', () => {
     );
 
     await expect(main(argv('--object', 'Lead'))).rejects.toThrow(
-      /The target's automation would make TGT send about 30 single emails, 15 of 15 left today.*Nothing was written\./,
+      /^refused \(AUTOPILOT_EMAILS_EXCEEDED\): The target's automation would make TGT send about 30 single emails, 15 of 15 left today.*Nothing was written\./,
     );
     expect(create).not.toHaveBeenCalled();
     expect(readAutomation).toHaveBeenCalledWith('TGT', expect.arrayContaining(['Lead']));
@@ -260,7 +316,8 @@ describe('sandforge-autopilot — what a plan copies', () => {
         'welcome), more than the 15 of 15 it has left today',
     );
     expect(printed).toContain(
-      "a real run would be refused: The target's automation would make TGT send about 30 single emails",
+      "a real run would be refused (AUTOPILOT_EMAILS_EXCEEDED): The target's automation would " +
+        'make TGT send about 30 single emails',
     );
   });
 
@@ -348,7 +405,14 @@ describe('sandforge-autopilot — a run Ctrl-C stops', () => {
       created: Record<string, string[]>;
     };
     expect(printed.interrupted).toBe(true);
-    expect(printed.result).toMatchObject({ stopped: true, totalSuccess: sent });
+    // Cancelled, as Live Operations and the audit trail name a stopped run,
+    // and as Sync's and a seed's summaries say it beside their status.
+    expect(printed.result).toMatchObject({
+      status: 'partial',
+      stopped: true,
+      cancelled: true,
+      totalSuccess: sent,
+    });
     expect(printed.result.stoppedObjects?.length).toBeGreaterThan(0);
     expect(Object.values(printed.created).flat()).toHaveLength(sent);
     expect(err.join('')).toContain(autopilotInterruptedLine(printed.result));
@@ -470,14 +534,5 @@ describe('sandforge-autopilot — what the command line refuses, and how a run e
     expect(process.exitCode).toBe(143);
     expect(process.listenerCount('SIGTERM')).toBe(0);
     expect(process.listenerCount('SIGINT')).toBe(0);
-  });
-
-  it('takes a run that died, or wrote nothing it was sent, for a failure, and one the target refused part of for partial', () => {
-    const run = { totalSuccess: 3, totalFailure: 0, failedObjects: [] };
-    expect(autopilotRunStatus(run)).toBe('success');
-    expect(autopilotRunStatus({ ...run, totalFailure: 1 })).toBe('partial');
-    expect(autopilotRunStatus({ ...run, totalSuccess: 0, totalFailure: 2 })).toBe('failure');
-    expect(autopilotRunStatus({ ...run, fatalError: 'INVALID_SESSION_ID' })).toBe('failure');
-    expect(autopilotRunStatus({ ...run, failedObjects: ['Lead'] })).toBe('partial');
   });
 });

@@ -112,6 +112,7 @@ describe('auditTrailCsv', () => {
           deleted: 0,
           failed: 0,
           lookupsLeftEmpty: 3,
+          lookupsNotFilled: 2,
           statusesNotGivenBack: 5,
         },
       ],
@@ -119,7 +120,9 @@ describe('auditTrailCsv', () => {
     const [header, line] = auditTrailCsv([stopped]).split('\n');
     const byColumn = Object.fromEntries(cells(header).map((name, i) => [name, cells(line)[i]]));
 
-    expect(byColumn.Objects).toBe('Order created=8 lookupsLeftEmpty=3 statusesNotGivenBack=5');
+    expect(byColumn.Objects).toBe(
+      'Order created=8 lookupsLeftEmpty=3 lookupsNotFilled=2 statusesNotGivenBack=5',
+    );
   });
 
   it("gives a verification of a run's records its verdict, in a column of its own", () => {

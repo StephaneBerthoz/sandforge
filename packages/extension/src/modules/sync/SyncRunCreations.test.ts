@@ -1,22 +1,28 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { RunCheckpointTaken } from '@sandforge/shared';
 import * as path from 'node:path';
 import type { Connection } from 'jsforce';
 import type { BulkApiExecutor } from '../../core/engine/BulkApiExecutor';
 import type { BulkApiManager } from '../../core/engine/BulkApiManager';
 import { BulkDataWriter, syncWriterCalls } from './BulkDataWriter';
 import {
+  IDS_PER_LINE,
   SCENARIO_COMPANION_SUFFIX,
   SYNC_RUNS_DIR,
   SyncRunCreations,
+  readRemovalState,
   createdCount,
   deletedCount,
+  earlierRunsOf,
   overwrittenCount,
   readRunFile,
   settled,
   syncRemovalPlan,
   syncRestorePlan,
   syncUndeletePlan,
+  writtenAgainBy,
   type SyncRunCreationsDeps,
+  type SyncRunKept,
 } from './SyncRunCreations';
 
 /** A fake id: the object's prefix and a counter, the length of a real one. */
@@ -138,6 +144,72 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
     ]);
     expect(run?.end).toEqual({ at: expect.any(String), status: 'partial', cancelled: true });
     expect(run && createdCount(run)).toBe(4);
+  });
+
+  it('writes what a call answered once, and of what the write created what no call answered', async () => {
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    const [one, two, three] = [1, 2, 3].map((n) => fakeId('001', n));
+
+    recorder.sending?.('Account', 2);
+    recorder.answered?.('Account', [one, two]);
+    recorder.noteUnanswered?.('Account', [one, two.slice(0, 15), three]);
+    await recorder.end({ status: 'success' });
+
+    const created = (files.get(path.join(DIR, 'run-1.ndjson')) ?? '')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => (JSON.parse(line) as { created?: string[] }).created)
+      .filter((ids) => ids !== undefined);
+    expect(created).toEqual([[one, two], [three]]);
+    expect((await store.get('run-1'))?.created).toEqual([
+      { objectApiName: 'Account', ids: [one, two, three] },
+    ]);
+  });
+
+  it('notes every id again when the write dates records it wrote again, as a seed’s second pass does', async () => {
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    const id = fakeId('001', 1);
+
+    recorder.answered?.('Account', [id]);
+    recorder.note('Account', [id]);
+    await recorder.flush();
+
+    const lines = (files.get(path.join(DIR, 'run-1.ndjson')) ?? '').split('\n').filter(Boolean);
+    expect(lines).toHaveLength(3);
+  });
+
+  it('keeps every id of a call past what a line holds, its job answered', async () => {
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    const ids = Array.from({ length: IDS_PER_LINE + 2 }, (_, n) => fakeId('001', n));
+
+    recorder.sending?.('Account', ids.length, { job: JOB });
+    recorder.answered?.('Account', ids);
+    recorder.noteUnanswered?.('Account', ids);
+    await recorder.end({ status: 'success' });
+
+    const run = await store.get('run-1');
+    expect(run?.created).toEqual([{ objectApiName: 'Account', ids }]);
+    expect(run?.jobs ?? []).toEqual([]);
+    // The run's first line, the call's, two of its answer, the end.
+    expect(files.get(path.join(DIR, 'run-1.ndjson'))?.split('\n').filter(Boolean)).toHaveLength(5);
+  });
+
+  it('keeps every id noted past what a line holds', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    const ids = Array.from({ length: IDS_PER_LINE + 2 }, (_, n) => fakeId('001', n));
+
+    recorder.note('Account', ids);
+    await recorder.end({ status: 'success' });
+
+    expect((await store.get('run-1'))?.created).toEqual([{ objectApiName: 'Account', ids }]);
   });
 
   it('keeps no value that is not an id, nor an object name that is not one', async () => {
@@ -678,6 +750,64 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
   });
 });
 
+describe('earlierRunsOf and writtenAgainBy — the runs of the same target', () => {
+  /** The org both runs wrote to, by its Organization id, 18 and 15 characters. */
+  const ORG = fakeId('00D', 1);
+  const OTHER_ORG = fakeId('00D', 2);
+
+  /** Two runs that created the same account, the second a day after the first. */
+  async function twoRuns(
+    first: { targetOrgId: string; targetOrganizationId?: string },
+    second: { targetOrgId: string; targetOrganizationId?: string },
+  ) {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const older = store.recorder({ ...start('run-1', '2026-10-13T08:00:00.000Z'), ...first });
+    const newer = store.recorder({ ...start('run-2', '2026-10-14T08:00:00.000Z'), ...second });
+    older.note('Account', [fakeId('001', 1)]);
+    newer.note('Account', [fakeId('001', 1)]);
+    await Promise.all([older.end({ status: 'success' }), newer.end({ status: 'success' })]);
+    const runs = await store.list();
+    const byId = (runId: string) => runs.find((run) => run.runId === runId) as SyncRunKept;
+    return { runs, older: byId('run-1'), newer: byId('run-2') };
+  }
+
+  it('takes two command-line runs of one org under two aliases for runs of the same target', async () => {
+    // A run of the command line names the org by the alias it was given,
+    // and by its Organization id beside it: two aliases of one org were two
+    // targets, and the older run's removal read as changed since it what the
+    // newer one's had given back.
+    const { runs, older, newer } = await twoRuns(
+      { targetOrgId: 'dev-a', targetOrganizationId: ORG },
+      { targetOrgId: 'dev-b', targetOrganizationId: ORG.slice(0, 15) },
+    );
+
+    expect(earlierRunsOf(newer, runs).map((run) => run.runId)).toEqual(['run-1']);
+    expect(writtenAgainBy(older, runs).map((run) => run.runId)).toEqual(['run-2']);
+  });
+
+  it('takes two runs under one alias that named two orgs for runs of two targets', async () => {
+    const { runs, older, newer } = await twoRuns(
+      { targetOrgId: 'dev', targetOrganizationId: ORG },
+      { targetOrgId: 'dev', targetOrganizationId: OTHER_ORG },
+    );
+
+    expect(earlierRunsOf(newer, runs)).toEqual([]);
+    expect(writtenAgainBy(older, runs)).toEqual([]);
+  });
+
+  it('reads the target by the name the runs give it when one names no Organization id, as the panel’s do', async () => {
+    const same = await twoRuns({ targetOrgId: 'tgt-org' }, { targetOrgId: 'tgt-org' });
+    expect(earlierRunsOf(same.newer, same.runs).map((run) => run.runId)).toEqual(['run-1']);
+
+    const other = await twoRuns(
+      { targetOrgId: 'dev-a', targetOrganizationId: ORG },
+      { targetOrgId: 'dev-b' },
+    );
+    expect(earlierRunsOf(other.newer, other.runs)).toEqual([]);
+  });
+});
+
 describe('syncRemovalPlan', () => {
   const created = [
     { objectApiName: 'Account', ids: [fakeId('001', 1), fakeId('001', 2)] },
@@ -912,5 +1042,216 @@ describe('SyncRunCreations — what a run deleted, as the source had', () => {
     const twice = (await store.get('run-1')) ?? run;
     expect(syncUndeletePlan(twice)).toEqual([]);
     expect(settled(twice)).toBe(true);
+  });
+});
+
+describe('SyncRunCreations — the checkpoint a run took before its first write', () => {
+  const TAKEN: RunCheckpointTaken = {
+    state: 'taken',
+    checkpointId: 'ck-20261101-101500-a1b2',
+    name: 'Before Sync run 2026-11-01 10:15 UTC',
+    takenAt: '2026-11-01T10:15:04.000Z',
+    expiresAt: '2026-11-08T10:15:04.000Z',
+    objects: ['Contact', 'Task', 'ContentDocument'],
+    records: 38,
+    bytes: 2_200_000,
+    requests: 68,
+    // With the codes a page says them by, which the file keeps: read without
+    // them, the run's history named the checkpoint's objects in English.
+    added: [
+      {
+        objectApiName: 'Task',
+        code: 'createdByAutomation',
+        reason:
+          "The target's flow 'Contact follow-up' creates Task records as Contact records go in.",
+        creators: [
+          { kind: 'flow', name: 'Contact follow-up', objectApiName: 'Contact', write: 'insert' },
+        ],
+      },
+    ],
+    notHeld: [
+      {
+        objectApiName: 'FeedItem',
+        code: 'chatter',
+        reason: 'Chatter posts. A rewind leaves its records as they are.',
+      },
+      {
+        objectApiName: 'Asset',
+        code: 'pastTheLimit',
+        reason: 'Asset has 900000 records. A rewind leaves its records as they are.',
+        records: 900_000,
+        limit: 500_000,
+      },
+    ],
+  };
+
+  it('writes it right after the line naming the run, with the first write, and reads it back', async () => {
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    recorder.checkpoint?.(TAKEN);
+    recorder.note('Contact', [fakeId('003', 1)]);
+    await recorder.end({ status: 'success' });
+
+    const lines = (files.get(path.join(DIR, 'run-1.ndjson')) ?? '').split('\n').filter(Boolean);
+    expect(lines.map((line) => Object.keys(JSON.parse(line) as object)[0])).toEqual([
+      'run',
+      'checkpoint',
+      'object',
+      'end',
+    ]);
+    expect((await store.get('run-1'))?.checkpoint).toEqual(TAKEN);
+  });
+
+  it('leaves no file for a run that took a checkpoint and wrote nothing', async () => {
+    // Its checkpoint is deleted: a file of it alone would list a run that
+    // never wrote, with a rewind to offer.
+    const { files, deps } = memoryDisk();
+    const recorder = new SyncRunCreations(deps).recorder(start('run-1'));
+
+    recorder.checkpoint?.(TAKEN);
+    await recorder.end({ status: 'failure' });
+
+    expect(await recorder.flush()).toBeUndefined();
+    expect(files.size).toBe(0);
+  });
+
+  it('writes one noted once the file has begun as it comes', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    recorder.note('Contact', [fakeId('003', 1)]);
+    recorder.checkpoint?.(TAKEN);
+    await recorder.end({ status: 'success' });
+
+    expect((await store.get('run-1'))?.checkpoint).toEqual(TAKEN);
+  });
+
+  it('keeps out a checkpoint that does not read as one, and reads a file without one as before', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    // An id that could name a folder elsewhere than the store's.
+    recorder.checkpoint?.({ ...TAKEN, checkpointId: '../ck-20261101-101500-a1b2' });
+    recorder.note('Contact', [fakeId('003', 1)]);
+    await recorder.end({ status: 'success' });
+
+    const run = await store.get('run-1');
+    expect(run?.created).toEqual([{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }]);
+    expect(run).not.toHaveProperty('checkpoint');
+  });
+});
+
+describe('SyncRunCreations — the user a run writes as', () => {
+  const USER = fakeId('005', 1);
+
+  it('goes in the line naming the run when it was read before the first write', async () => {
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    recorder.runUser?.(USER);
+    recorder.note('Contact', [fakeId('003', 1)]);
+    await recorder.end({ status: 'success' });
+
+    const lines = (files.get(path.join(DIR, 'run-1.ndjson')) ?? '').split('\n').filter(Boolean);
+    expect(lines.map((line) => Object.keys(JSON.parse(line) as object)[0])).toEqual([
+      'run',
+      'object',
+      'end',
+    ]);
+    expect((await store.get('run-1'))?.runUserId).toBe(USER);
+  });
+
+  it('goes on a line of its own when it came once the run had begun writing, and reads back the same', async () => {
+    // Nothing waits for the read: a slow target answers after the first write.
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    recorder.note('Contact', [fakeId('003', 1)]);
+    recorder.runUser?.(USER);
+    await recorder.end({ status: 'success' });
+
+    const lines = (files.get(path.join(DIR, 'run-1.ndjson')) ?? '').split('\n').filter(Boolean);
+    expect(lines.map((line) => Object.keys(JSON.parse(line) as object)[0])).toEqual([
+      'run',
+      'object',
+      'runUser',
+      'end',
+    ]);
+    expect((await store.get('run-1'))?.runUserId).toBe(USER);
+    expect((await store.list())[0]?.runUserId).toBe(USER);
+  });
+
+  it('keeps out what does not read as an id', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    recorder.runUser?.('not an id');
+    recorder.note('Contact', [fakeId('003', 1)]);
+    recorder.runUser?.("005' OR 1=1");
+    await recorder.end({ status: 'success' });
+
+    expect(await store.get('run-1')).not.toHaveProperty('runUserId');
+  });
+
+  it('keeps one read after a short run ended: its file reads the same', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    recorder.note('Contact', [fakeId('003', 1)]);
+    await recorder.end({ status: 'success' });
+
+    recorder.runUser?.(USER);
+    await recorder.flush();
+
+    const run = await store.get('run-1');
+    expect(run?.runUserId).toBe(USER);
+    expect(run?.end?.status).toBe('success');
+  });
+
+  it('leaves no file for a run told its user that wrote nothing', async () => {
+    const { files, deps } = memoryDisk();
+    const recorder = new SyncRunCreations(deps).recorder(start('run-1'));
+
+    recorder.runUser?.(USER);
+    await recorder.end({ status: 'failure' });
+    recorder.runUser?.(USER);
+
+    expect(await recorder.flush()).toBeUndefined();
+    expect(files.size).toBe(0);
+  });
+});
+
+describe('readRemovalState — what the sweeps found made for the run', () => {
+  const MADE = fakeId('00T', 1);
+
+  it('keeps it beside what the removals did, read back with the run', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    recorder.note('Contact', [fakeId('003', 1)]);
+    await recorder.end({ status: 'success' });
+
+    await store.updateRemoval('run-1', (state) => ({ ...state, madeEarlier: [MADE] }));
+
+    expect((await store.get('run-1'))?.removal).toEqual({ madeEarlier: [MADE] });
+  });
+
+  it('leaves out a list that does not read, and keeps the rest of what the removals did', () => {
+    // The rest is what the next removal sets out from: read as nothing, it
+    // would set out to take records already gone.
+    const rest = { removalLeft: [fakeId('003', 1)] };
+    const read = (madeEarlier: unknown) => readRemovalState({ version: 1, ...rest, madeEarlier });
+
+    expect(read(['not an id'])).toEqual(rest);
+    expect(read('nothing')).toEqual(rest);
+    expect(read(Array.from({ length: 1_000_001 }, () => MADE))).toEqual(rest);
+    expect(read([MADE])).toEqual({ ...rest, madeEarlier: [MADE] });
   });
 });

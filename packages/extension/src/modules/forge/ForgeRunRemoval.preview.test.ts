@@ -268,3 +268,98 @@ describe('a removal asked for a preview alone', () => {
     expect(org.deletes).toEqual([]);
   });
 });
+
+describe('a removal asked for a preview, with what hangs from the records', () => {
+  /** Two accounts and a contact under each, the run's; contacts go with their account. */
+  function cascading(): MemoryRemovalOrg {
+    const org = new MemoryRemovalOrg({
+      Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+    });
+    const at = minutesAgo(10);
+    for (const id of ACCOUNTS.slice(0, 2)) org.add('Account', { Id: id }, at);
+    CONTACTS.slice(0, 2).forEach((id, n) =>
+      org.add('Contact', { Id: id, AccountId: ACCOUNTS[n] }, at),
+    );
+    return org;
+  }
+  const plan: ForgeRunObjectRecords[] = [
+    { objectApiName: 'Contact', ids: CONTACTS.slice(0, 2) },
+    { objectApiName: 'Account', ids: ACCOUNTS.slice(0, 2) },
+  ];
+
+  it('keeps an account a contact made by hand since the run hangs from, and names what holds it', async () => {
+    const org = cascading();
+    org.add(
+      'Contact',
+      { Id: fakeId('003', 9), AccountId: ACCOUNTS[0], CreatedById: COLLEAGUE },
+      minutesAgo(2),
+    );
+    const { session, writes } = readOnly(org);
+
+    const held = await removeRunRecords(session, plan, {
+      ...SPAN,
+      includeChanged: false,
+      previewOnly: true,
+      previewHeld: true,
+    });
+    const unread = await removeRunRecords(session, plan, {
+      ...SPAN,
+      includeChanged: false,
+      previewOnly: true,
+    });
+
+    expect(byObject(held.preview?.objects ?? []).Account).toMatchObject({
+      planned: 2,
+      toDelete: 1,
+      keptDependents: 1,
+      heldBy: ['Contact'],
+    });
+    expect(byObject(held.preview?.objects ?? []).Contact).toMatchObject({ toDelete: 2 });
+    expect(byObject(held.preview?.objects ?? []).Contact).not.toHaveProperty('keptDependents');
+    // Unasked, what hangs from them is not read: the account counts to delete.
+    expect(byObject(unread.preview?.objects ?? []).Account).toMatchObject({ toDelete: 2 });
+    expect(byObject(unread.preview?.objects ?? []).Account).not.toHaveProperty('keptDependents');
+    expect(writes.destroy).not.toHaveBeenCalled();
+  });
+
+  it('keeps an account whose contact of the run it keeps as changed since, and none once that is included', async () => {
+    const org = cascading();
+    org.edit('Contact', CONTACTS[1], { Title: 'Changed since' }, COLLEAGUE);
+
+    const kept = await removeRunRecords(org, plan, {
+      ...SPAN,
+      includeChanged: false,
+      previewOnly: true,
+      previewHeld: true,
+    });
+    const included = await removeRunRecords(org, plan, {
+      ...SPAN,
+      includeChanged: true,
+      previewOnly: true,
+      previewHeld: true,
+    });
+
+    expect(byObject(kept.preview?.objects ?? []).Account).toMatchObject({
+      toDelete: 1,
+      keptDependents: 1,
+      heldBy: ['Contact'],
+    });
+    expect(byObject(included.preview?.objects ?? []).Account).toMatchObject({ toDelete: 2 });
+    expect(org.deletes).toEqual([]);
+  });
+
+  it('lets go what came with the run: a contact made under its account as it wrote, unchanged since', async () => {
+    const org = cascading();
+    org.add('Contact', { Id: fakeId('003', 9), AccountId: ACCOUNTS[0] }, minutesAgo(10));
+
+    const outcome = await removeRunRecords(org, plan, {
+      ...SPAN,
+      includeChanged: false,
+      previewOnly: true,
+      previewHeld: true,
+    });
+
+    expect(byObject(outcome.preview?.objects ?? []).Account).toMatchObject({ toDelete: 2 });
+    expect(byObject(outcome.preview?.objects ?? []).Account).not.toHaveProperty('keptDependents');
+  });
+});

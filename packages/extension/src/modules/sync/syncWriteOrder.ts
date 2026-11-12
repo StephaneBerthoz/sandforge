@@ -95,6 +95,10 @@ export function orderSyncObjects(
   const writes = new Set(
     listed.filter((o) => o.operation !== 'delete').map((o) => o.objectApiName),
   );
+  // A describe names `Account`; an SFDMU query's `from account` keeps the case
+  // it was written in, and a parent told apart by its case is written after
+  // its child.
+  const named = new Map([...writes].map((name) => [name.toLowerCase(), name]));
 
   // Each parent an object's lookups name among the objects the run writes;
   // a lookup at itself is the write's own business.
@@ -104,8 +108,9 @@ export function orderSyncObjects(
     const child = object.objectApiName;
     if (!writes.has(child)) continue;
     for (const { field, referenceTo } of lookups.get(child) ?? []) {
-      for (const parent of referenceTo) {
-        if (parent === child || !writes.has(parent)) continue;
+      for (const target of referenceTo) {
+        const parent = named.get(target.toLowerCase());
+        if (parent === undefined || parent === child) continue;
         const key = `${parent}>${child}`;
         if (seen.has(key)) continue;
         seen.add(key);

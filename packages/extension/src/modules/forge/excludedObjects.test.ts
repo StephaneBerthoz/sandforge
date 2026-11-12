@@ -42,6 +42,101 @@ describe('isExcludedFromCopy', () => {
     expect(isExcludedFromCopy('AppUsageAssignment')).toBe(true);
   });
 
+  it('excludes the logs and the history the platform alone writes about a record', () => {
+    // An org's describe says none of them createable or deletable; reached
+    // from an opportunity, its delete logs ended the clone partial.
+    for (const name of [
+      'OpportunityRelatedDeleteLog',
+      'CaseHistory2',
+      'ApiAnomalyEventStore',
+      'CredentialStuffingEventStore',
+      'GuestUserAnomalyEventStore',
+      'LoginAnomalyEventStore',
+      'ReportAnomalyEventStore',
+    ]) {
+      expect(isExcludedFromCopy(name), name).toBe(true);
+      expect(isNeverCopiedWhenPicked(name), name).toBe(true);
+    }
+  });
+
+  it('excludes every event store by its name, not only the five once named one by one', () => {
+    // An org's global describe lists nine event stores, none createable,
+    // editable or deletable: a checkpoint of picked objects said the user it
+    // connects as may not write a session hijacking store.
+    for (const name of [
+      'SessionHijackingEventStore',
+      'BulkApiResultEventStore',
+      'FileEventStore',
+      'IdentityProviderEventStore',
+      'PermissionSetEventStore',
+      'sessionhijackingeventstore',
+    ]) {
+      expect(isExcludedFromCopy(name), name).toBe(true);
+      expect(isNeverCopiedWhenPicked(name), name).toBe(true);
+    }
+    // An object of the org's own so named is no store, nor is an event.
+    expect(isNeverCopiedWhenPicked('Event_Store__c')).toBe(false);
+    expect(isNeverCopiedWhenPicked('Event')).toBe(false);
+  });
+
+  it('excludes what the platform alone creates and the setup it keeps as records, which no user can be granted Create on', () => {
+    // An administrator's describe says none of them createable; a deep clone
+    // said a calendar and an entitlement process BLOCKING, and asked the
+    // target's admin to grant Create on them.
+    for (const name of [
+      'Calendar',
+      'SlaProcess',
+      'AccountCleanInfo',
+      'ContactCleanInfo',
+      'LeadCleanInfo',
+      'ApprovalSubmission',
+      'ApprovalSubmissionDetail',
+      'ApprovalWorkItem',
+      'AIRecordInsight',
+      'AIInsightValue',
+      'MatchingInformation',
+      'Invoice',
+      'InvoiceLine',
+      'CreditMemo',
+      'CreditMemoLine',
+    ]) {
+      expect(isExcludedFromCopy(name), name).toBe(true);
+      expect(isNeverCopied(name), name).toBe(true);
+    }
+    // The records they are about stay: an entitlement, a case, an order.
+    for (const name of ['Entitlement', 'Case', 'Order', 'Event']) {
+      expect(isExcludedFromCopy(name), name).toBe(false);
+    }
+  });
+
+  it('excludes the reports, dashboards, apps, tabs, delete events and content setup an org keeps as records', () => {
+    // An administrator holding Modify All Data reads none of them createable,
+    // and the org's EntityDefinition still answers IsEverCreatable true for
+    // each: a dry run said them BLOCKING and asked to tick Create on a report.
+    for (const name of [
+      'AppDefinition',
+      'BackgroundOperation',
+      'ContentTaxonomyTermRelationshipType',
+      'Dashboard',
+      'DashboardComponent',
+      'DeleteEvent',
+      'ManagedContentChannel',
+      'ManagedContentSpace',
+      'ManagedContentVariant',
+      'Report',
+      'ServiceSetupProvisioning',
+      'TabDefinition',
+    ]) {
+      expect(isExcludedFromCopy(name), name).toBe(true);
+      expect(isNeverCopiedWhenPicked(name), name).toBe(true);
+    }
+    // An org's own objects so named are data, and so is the content a
+    // person posts on a record.
+    for (const name of ['Report__c', 'Dashboard_Snapshot__c', 'FeedItem', 'ManagedContent__c']) {
+      expect(isExcludedFromCopy(name), name).toBe(false);
+    }
+  });
+
   it('keeps the data objects a clone is for', () => {
     for (const name of ['Account', 'Contact', 'Case', 'Asset', 'Invoice__c', 'Vlocity__c']) {
       expect(isExcludedFromCopy(name)).toBe(false);

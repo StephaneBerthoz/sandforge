@@ -500,7 +500,10 @@ describe('compileScenario', () => {
     it('reaches nobody once compiled: no address off a reserved domain, no number someone holds', () => {
       const compiled = compileScenario(packReachingSomebody());
       const texts = textsOf(compiled);
-      expect(texts.some((text) => text.includes('gmail.com'))).toBe(false);
+      const domains = texts.flatMap((text) =>
+        [...text.matchAll(/@([\w.-]+)/g)].map(([, domain]) => domain),
+      );
+      expect(domains).not.toContain('gmail.com');
       expect(texts.some((text) => text.includes('12 34 56 78'))).toBe(false);
       expect(texts.some((text) => text.includes('867-5309'))).toBe(false);
       for (const text of texts) {

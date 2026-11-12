@@ -13,7 +13,7 @@ import { Badge } from '../../components/ui/Badge';
 import { ProgressAnnouncer, ProgressBar } from '../../components/ui/ProgressBar';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { PageHeader } from '../../components/ui/PageHeader';
-import { OrgBadge } from '../../components/ui/OrgBadge';
+import { OrgRibbon } from '../../components/ui/OrgRibbon';
 import { orgOptionLabel } from '../../utils/orgFormatters';
 import { orgToFill } from '../../utils/orgToFill';
 import { SyncWizard } from './SyncWizard';
@@ -48,7 +48,6 @@ import '../../stores/useCDCLiveStore';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import { SplitView } from '../../components/ui/SplitView';
 import { Button } from '../../components/ui/Button';
-import { Icon } from '../../components/ui/Icon';
 import { Input } from '../../components/ui/Input';
 import { SyncRunControls } from './SyncRunControls';
 import { SyncSimulationResults } from './SyncSimulationResults';
@@ -64,9 +63,12 @@ import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
 import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
 import { SyncWrittenLines, hasWrittenLines } from './SyncWrittenLines';
+import { stillRanOf } from '../shared/RecordTypeGivenLine';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
+import { CheckpointFirstOption } from '../../components/ui/CheckpointFirstOption';
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 
 /** Tab options for the Sync page. */
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
@@ -255,6 +257,7 @@ export const SyncPage: React.FC = () => {
   const heldRecordsHintId = React.useId();
   const filesNeedSaveId = React.useId();
   const transformsNeedFieldId = React.useId();
+  const openedUnreadId = React.useId();
 
   // Subscribed here rather than in SyncHistoryPanel: an export's save answer
   // arrives after the dialog closes, which the user may well do from another
@@ -316,12 +319,17 @@ export const SyncPage: React.FC = () => {
     handleChangeTransformConfig,
     muteAutomation,
     setMuteAutomation,
+    checkpointFirst,
+    setCheckpointFirst,
+    stoppedCheckpoint,
     handleExecute,
     handleSimulate,
     handleSaveConfig,
     handleRunSavedConfig,
     savedRunLabel,
     openedConfigLabel,
+    openedConfigEntries,
+    openedConfigGone,
     savedRunStarting,
     configSaved,
     savedConfigs,
@@ -343,8 +351,17 @@ export const SyncPage: React.FC = () => {
   const sourceOrg = orgs.find((o) => o.id === sourceOrgId);
   const targetOrg = orgs.find((o) => o.id === targetOrgId);
   /** What keeps Simulate and Run off, said beside them. */
+  /**
+   * A saved configuration opened here runs once what each of its objects does
+   * is on screen: until it is read back, Simulate and Run wait, and say why.
+   */
+  const openedUnread = openedConfigLabel !== null && openedConfigEntries === null;
   const runHeldBy =
-    [filesNeedSave && filesNeedSaveId, transformsNeedField && transformsNeedFieldId]
+    [
+      filesNeedSave && filesNeedSaveId,
+      transformsNeedField && transformsNeedFieldId,
+      openedUnread && openedUnreadId,
+    ]
       .filter(Boolean)
       .join(' ') || undefined;
 
@@ -416,23 +433,8 @@ export const SyncPage: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)" data-testid="sync-page">
-      <PageHeader
-        title={t('sync.title')}
-        subtitle={t('sync.selectOrgsDesc')}
-        icon="sync"
-        actions={
-          // The two badges go on two lines when the panel is too narrow for
-          // both: on one, the German header ran 43 pixels past an 800-pixel
-          // panel once each badge named its type in a word.
-          <div className="flex flex-wrap items-center justify-end gap-(--sf-space-2)">
-            {headerSource && <OrgBadge org={headerSource} />}
-            {headerSource && headerTarget && (
-              <Icon name="arrow-right" className="text-(--sf-text-secondary)" />
-            )}
-            {headerTarget && <OrgBadge org={headerTarget} />}
-          </div>
-        }
-      />
+      <PageHeader title={t('sync.title')} subtitle={t('sync.selectOrgsDesc')} icon="sync" />
+      {(headerSource || headerTarget) && <OrgRibbon source={headerSource} target={headerTarget} />}
       <ModuleHowTo module="sync" />
 
       {error && (
@@ -988,6 +990,17 @@ export const SyncPage: React.FC = () => {
             {currentStep === 4 && (
               <div className="flex flex-col gap-3" data-testid="sync-step-execute">
                 <p className="text-xs text-text-secondary">{t('sync.executeDesc')}</p>
+                {/* Stopped on this step: what became of the checkpoint it took
+                    first, under the error that says why. */}
+                {!busy && (
+                  <RewindBeforeRun
+                    checkpoint={stoppedCheckpoint}
+                    orgId={targetOrgId}
+                    beside="run"
+                    compact
+                    testId="sync-error-checkpoint"
+                  />
+                )}
                 {/* While it runs: back on this step afterwards, Run is the
                   wizard's, unless another page opened a saved configuration
                   here (Migration's "Open in Sync"): Simulate and Run below
@@ -997,6 +1010,33 @@ export const SyncPage: React.FC = () => {
                     {t('syncParts.savedConfigs.ofSaved', {
                       name: busy && savedRunLabel !== null ? savedRunLabel : openedConfigLabel,
                     })}
+                  </p>
+                )}
+                {/* What each object of the configuration opened does, as Review
+                  says it of the wizard's: an imported Delete was one click
+                  from its run, and Review, which said it, out of reach. */}
+                {!busy && openedConfigEntries !== null && (
+                  <SyncReviewObjects
+                    entries={openedConfigEntries}
+                    order={writeOrder}
+                    orderLoading={writeOrderLoading}
+                    orderUnread={writeOrderUnread}
+                    saved
+                    encrypted={writeOrderEncrypted}
+                  />
+                )}
+                {!busy && openedUnread && (
+                  <p
+                    id={openedUnreadId}
+                    className={
+                      openedConfigGone ? 'text-xs text-status-error' : 'text-xs text-text-secondary'
+                    }
+                    role={openedConfigGone ? 'alert' : 'status'}
+                    data-testid="sync-opened-unread"
+                  >
+                    {openedConfigGone
+                      ? t('syncParts.savedConfigs.gone')
+                      : t('syncParts.savedConfigs.reading')}
                   </p>
                 )}
                 {/* Files are copied by a saved configuration only: the
@@ -1073,13 +1113,29 @@ export const SyncPage: React.FC = () => {
                       org={targetOrgName}
                       testId="sync-mute"
                     />
+                    {/* Simulate says its cost, and the run's question again. */}
+                    <CheckpointFirstOption
+                      checked={checkpointFirst}
+                      onChange={setCheckpointFirst}
+                      orgId={targetOrgId}
+                      costSaid="simulation"
+                      estimate={
+                        simulation?.checkpoint
+                          ? {
+                              of: simulation.checkpoint,
+                              lead: t('runResults.checkpoint.estimate.lastSimulation'),
+                            }
+                          : null
+                      }
+                      testId="sync-checkpoint-first"
+                    />
                     <p className="text-xs text-text-secondary">{t('sync.simulation.hint')}</p>
                     <div className="flex items-center gap-(--sf-space-2)">
                       <Button
                         variant="secondary"
                         size="sm"
                         onClick={handleSimulate}
-                        disabled={filesNeedSave || transformsNeedField}
+                        disabled={filesNeedSave || transformsNeedField || openedUnread}
                         aria-describedby={runHeldBy}
                         data-testid="sync-simulate"
                       >
@@ -1089,7 +1145,7 @@ export const SyncPage: React.FC = () => {
                         variant="primary"
                         size="sm"
                         onClick={handleExecute}
-                        disabled={filesNeedSave || transformsNeedField}
+                        disabled={filesNeedSave || transformsNeedField || openedUnread}
                         aria-describedby={runHeldBy}
                         data-testid="sync-run"
                       >
@@ -1141,7 +1197,11 @@ export const SyncPage: React.FC = () => {
                   </p>
                 )}
                 {simulation ? (
-                  <SyncSimulationResults simulation={simulation} onRun={handleExecute} />
+                  <SyncSimulationResults
+                    simulation={simulation}
+                    targetOrg={targetOrgName}
+                    onRun={handleExecute}
+                  />
                 ) : !result ? (
                   <p className="text-xs text-center text-text-secondary py-4">
                     {t('common.noData')}
@@ -1196,6 +1256,15 @@ export const SyncPage: React.FC = () => {
                     {result.created && (
                       <SyncRunRemoval runId={result.created.runId} testId="sync-result-removal" />
                     )}
+                    {/* Under the removal, which takes back what the run wrote
+                        alone: the rewind takes back everything since. */}
+                    <RewindBeforeRun
+                      checkpoint={result.checkpoint}
+                      orgId={targetOrgId}
+                      beside="run"
+                      muted={result.mutedAutomation !== undefined}
+                      testId="sync-result-checkpoint"
+                    />
                     {/* The emails and phone numbers it wrote, said once for the
                       run as a Forge run says them: no refusal of any object. */}
                     {result.contactPoints && (
@@ -1211,6 +1280,7 @@ export const SyncPage: React.FC = () => {
                           obj.delta ||
                           obj.files ||
                           (obj.alreadyCopied ?? 0) > 0 ||
+                          (obj.alreadyLinked ?? 0) > 0 ||
                           obj.standardPricebookMatched ||
                           hasWrittenLines(obj) ||
                           (obj.currenciesReplaced?.length ?? 0) > 0 ||
@@ -1235,6 +1305,14 @@ export const SyncPage: React.FC = () => {
                                 testId={`sync-result-copied-${obj.objectApiName}`}
                               />
                             )}
+                            {/* Nor those it linked to records the target held: no run copied them. */}
+                            {obj.alreadyLinked !== undefined && obj.alreadyLinked > 0 && (
+                              <SyncAlreadyCopiedLine
+                                count={obj.alreadyLinked}
+                                linked
+                                testId={`sync-result-linked-${obj.objectApiName}`}
+                              />
+                            )}
                             {obj.files && (
                               <SyncFilesLine
                                 files={obj.files}
@@ -1246,6 +1324,7 @@ export const SyncPage: React.FC = () => {
                             <SyncWrittenLines
                               result={obj}
                               testId={`sync-result-written-${obj.objectApiName}`}
+                              stillRan={stillRanOf(result.mutedAutomation)}
                             />
                             <RecordErrorGroups
                               objectApiName={obj.objectApiName}

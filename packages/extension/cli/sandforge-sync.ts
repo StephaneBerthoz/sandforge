@@ -31,12 +31,13 @@
  *
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
- *     --source SRC --target TGT --object Account --object Contact
+ *     --source SRC --target TGT --object Account --object Contact [--accept-emails]
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
  *     --config-file <config.json> --store <dir> --source SRC --target TGT
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
  *     --remove <summary.json | run file | run id> --target TGT [--include-changed]
- *     [--accept-automation] [--store <dir>] [--sweep | --sweep-list] [--json]
+ *     [--accept-automation] [--store <dir>]
+ *     [--sweep | --sweep-list] [--sweep-late] [--sweep-untied] [--json]
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
@@ -54,10 +55,16 @@ import type {
   ForgeContactPointsReport,
   ForgeFieldRefusal,
   ForgeRemovalSteps,
+  ForgeSweepListing,
   ForgeSweepResult,
   ForgeTargetAutomation,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
+  RecordTypeGiven,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointRequest,
+  RunCheckpointTaken,
   SyncConfig,
   SyncDeltaOutcome,
   SyncLookupsLeftOut,
@@ -92,10 +99,17 @@ import { SyncConfigStore } from '../src/modules/sync/SyncConfigStore.js';
 import { nodeSyncIdMap, savedConfigIdMap } from '../src/modules/sync/SyncIdMap.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
-import { removalOrg, setBackToDraftOf } from '../src/modules/forge/ForgeRunRemoval.js';
+import {
+  objectsRemovedOf,
+  removalOrg,
+  setBackToDraftOf,
+} from '../src/modules/forge/ForgeRunRemoval.js';
+import { removalStatusWithSweep } from '../src/modules/forge/removalOutcome.js';
 import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
-import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
-import { listSweep, sweepRunRecords } from '../src/modules/forge/ForgeRunSweep.js';
+import { duplicateSetsOfRemoval, seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
+import { listSweep, sweepParts } from '../src/modules/forge/ForgeRunSweep.js';
+import { withSweepFinds } from '../src/bridge/handlers/removalSweep.js';
+import { keepRunUser } from '../src/modules/sync/runUser.js';
 import {
   earlierRunsOf,
   nodeSyncRunCreations,
@@ -130,10 +144,27 @@ import {
   type PutBackKept,
 } from '../src/modules/dataops/backupRetention.js';
 import { loadOrg, makeConn } from './sfSession.js';
-import { refuseProductionTarget, typeTarget, type TypedTarget } from './targetKind.js';
+import {
+  isProductionTarget,
+  refuseProductionTarget,
+  typeTarget,
+  type TypedTarget,
+} from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { ownOptionWords, relayTakes } from './relayWords.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
+import {
+  OTHER_ORG,
+  RUN_WRITING,
+  refusalOfSummary,
+  refusedLine,
+  refusedRemovalSummary,
+  refusedSummaryWords,
+  wouldBeRefusedJson,
+  wouldBeRefusedLine,
+  type RunRefusal,
+} from './runRefused.js';
 import { undeletableAnswer } from './undeletableAnswer.js';
 import { SyncOrchestrator, type SourceRead } from '../src/modules/sync/SyncOrchestrator.js';
 import { orgDeltaReads, sourceReadWhere } from '../src/modules/sync/SyncDelta.js';
@@ -171,8 +202,13 @@ import {
 } from '../src/modules/forge/TargetGapReader.js';
 import { toolingRetrievesOver } from '../src/modules/forge/TargetAutomationReader.js';
 import {
+  API_BUDGET_EXCEEDED,
+  CHECKPOINT_REFUSED,
   DEFAULT_CONFIRM_ABOVE_RECORDS,
+  EMAILS_NOT_ACCEPTED,
   bypassesToAssign,
+  deliverabilityLineOf,
+  emailsOfLimit,
   formatMB,
   readApiBudget,
   readDataStorage,
@@ -180,11 +216,21 @@ import {
   removalStepsAutomationLines,
   removalStepsAutomationRefusal,
 } from '../src/modules/forge/ForgeRunGate.js';
+import { RUN_CANCELLED } from '../src/modules/forge/forgeAudit.js';
+import {
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+} from '../src/modules/forge/targetDeliverability.js';
 import {
   gateSyncWrite,
   measureSyncWrite,
   mutingSyncWriteGate,
+  syncGateStops,
   syncRunWrites,
+  takeSyncCheckpoint,
+  unwritableRefusal,
+  type SyncGateAnswer,
+  type SyncGateStop,
   type SyncWriteGate,
   type SyncWriteMeasures,
 } from '../src/modules/sync/SyncRunGate.js';
@@ -194,16 +240,47 @@ import {
   muteForRun,
   muteLines,
   muteOrgOf,
+  type HeldMute,
   type RunMute,
 } from '../src/modules/forge/AutomationMuteLease.js';
-import { removalStepsWrites, type MutedAutomation } from '@sandforge/shared';
+import { removalStepsWithSweep, removalStepsWrites, type MutedAutomation } from '@sandforge/shared';
 import { SyncRunRefused } from '../src/modules/sync/SyncRunFailure.js';
 import {
+  SWEEP_CLASS_FLAGS,
+  automationHeldLines,
+  commandSweepTies,
   journalDirOf,
+  otherRunsOf,
+  platformCopiesWords,
+  recordTypeGivenLines,
+  tookAlongLines,
+  runMuteSchema,
+  runUserIdOf,
+  sweepClassArgsOf,
+  sweepClassOptions,
   sweepLines,
   sweepListingLines,
+  sweepOrgOf,
+  sweepOptionWords,
+  sweepPartsOptions,
+  sweepUnsaid,
+  syncRunSpanOf,
   targetAutomationReader,
+  type SweepClassArgs,
 } from './sandforge-clone.js';
+import {
+  CHECKPOINT_FIRST_FLAGS,
+  checkpointEstimateLines,
+  checkpointFirstArgs,
+  checkpointFirstHelp,
+  checkpointOrgOf,
+  checkpointRefusedWords,
+  checkpointStopWords,
+  checkpointTakenLines,
+  commandCheckpoints,
+  settleCommandCheckpoint,
+  type CommandCheckpointAsk,
+} from './beforeRunCheckpoint.js';
 import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-sync — run a Sync between two orgs, without the editor.
@@ -244,7 +321,14 @@ Options:
                          Saved to a file, it is what --remove takes the
                          run back from: it names what the run created.
                          The run's file does too, whatever becomes of the
-                         run (see SANDFORGE_JOURNAL_DIR).
+                         run (see SANDFORGE_JOURNAL_DIR). A dry run's names
+                         under wouldBeRefused what a real run would be
+                         refused for, the code of each under
+                         wouldBeRefusedCodes, as its line names it. A real
+                         run refused before its first write prints
+                         "refused": {"code", "message"} instead, the code its
+                         line names: refused (CODE): ..., each other reason
+                         of its gate under "alsoRefused", on a line of its own.
   --fail-on-partial      exit 3, not 0, when the run wrote some records and
                          the target refused others        (default: off)
   --mute-automation      mute the target's automation for the run through
@@ -257,6 +341,18 @@ Options:
                          for a user who cannot assign permission sets, exit
                          1; with --dry-run, says what would be muted and
                          assigns nothing                   (default: off)
+  --accept-emails        write although the target delivers the emails its
+                         flows, processes and workflow rules send as the run
+                         writes (Setup > Deliverability: All email), or would
+                         not say whether it does. Read only when something
+                         that still runs sends one, with one line of
+                         anonymous Apex that sends nothing; without the flag
+                         the run is refused, exit 1 (EMAILS_NOT_ACCEPTED),
+                         nothing written. On System email only or No access
+                         it is not needed. --mute-automation keeps quiet what
+                         tests the org's bypass; what an Apex trigger sends is
+                         read nowhere                      (default: off)
+${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
   --help                 this text
 
 Run a saved configuration:
@@ -289,7 +385,7 @@ Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \\
     --remove <summary.json | run file | run id> --target <alias>
     [--include-changed] [--accept-automation] [--store <dir>]
-    [--sweep | --sweep-list] [--json]
+    [--sweep | --sweep-list] [--sweep-late] [--sweep-untied] [--json]
 
   --remove <file | id>   the summary a run printed with --json, saved to a
                          file; or the run's file, which it names as it
@@ -321,9 +417,10 @@ Remove what a run created:
                          triggers, processes or workflow rules as the removal
                          brings records back from the recycle bin, gives them
                          their values back, sets them back to Draft or
-                         deletes them, or could not say what it runs. Each is
-                         named before anything is written; without the flag
-                         the removal then writes nothing, exit 1 (default: off)
+                         deletes them, those --sweep deletes included, or
+                         could not say what it runs. Each is named before
+                         anything is written; without the flag the removal
+                         then writes nothing, exit 1            (default: off)
   --mute-automation      mute the target's automation for the removal through
                          its own bypass, as for a run; what no bypass keeps
                          quiet still needs --accept-automation (default: off)
@@ -332,30 +429,69 @@ Remove what a run created:
                          delta run reads those objects whole and copies the
                          files it deleted again
   --sweep                before the run's records go, delete too what the
-                         target's automation created during the run, as the
-                         run's user, that the run did not write: in the objects
-                         whose records it created, tasks, events, feed, email
-                         messages, notes, case comments, and the objects the
-                         target's flows create. The window runs from a second
+                         target's automation made for the run, that the run did
+                         not write: what the run's user created under the
+                         records it created or wrote over, what they point
+                         at, or what hangs from those, three links at most, at
+                         most a minute after the record it is tied to — in the
+                         objects whose records it created and their children,
+                         tasks, events, feed, email messages, notes, case
+                         comments, and the objects the target's flows create.
+                         What a record of the run points at by a lookup the
+                         org refuses the delete for goes once that record is
+                         gone. The window runs from a second
                          before the run's first write — its first call, an
                          update before anything was created included, which
                          the summary dates by this machine's clock, read on
                          the org's — to a minute after its last write: the
                          last record it created, read back from the org, or
                          a later call, an update included, as the summary
-                         dates it. Refused
-                         when that user created records in the window on
-                         objects neither the run nor the automation reaches
-                         (hand work, likely). Records someone changed since
-                         stay, unless --include-changed     (default: off)
+                         dates it. Listed and kept: what is tied to the run
+                         but came later, up to 15 minutes, or as the org's
+                         Automated Process user; and what the run's user
+                         created in the window tied to nothing of the run.
+                         What anyone changed more than 2 s after the run's
+                         last write, and after its own creation, stays — the
+                         run's user and its automation too — unless
+                         --include-changed, and the sweep then ends partial,
+                         exit 3; a change made before the run's last write
+                         reads as unchanged
+                                                           (default: off)
+  --sweep-late           with --sweep, take too what it lists as made late;
+                         with --sweep-list, say what it would take
+  --sweep-untied         with --sweep, take too what it lists as tied to
+                         nothing of the run; with --sweep-list, say what it
+                         would take; refused when another run of this
+                         machine wrote to the target in the window, or when
+                         that user created records in the window on objects
+                         neither the run nor the automation reaches (hand
+                         work, likely)
   --sweep-list           list what --sweep would delete, per object with a few
-                         names, and delete nothing, the run's records included
+                         names and how many it ties to the run, and delete
+                         nothing, the run's records included; exit 3, as a
+                         refused --sweep, when it says the sweep is refused.
+                         What a sweep leaves: what another user created; what
+                         is tied to nothing, unless --sweep-untied; what came
+                         more than 15 minutes after its record, or after the
+                         removal began; what anyone changed after the run's
+                         last write, the run's own user included, unless
+                         --include-changed; what the automation changed
+                         rather than created; what left the org; and what the
+                         panel or another machine wrote
   --leave-undeletable    remove the rest when the user the removal runs as
                          may not delete the records of some objects of the
                          run, leaving those with what they hang from; without
                          it the removal stops before its first delete and
                          names them                             (default: off)
-  --json                 print the removal as JSON
+  --json                 print the removal as JSON; refused before its first
+                         write, "refused": {"code", "message"}, the code its
+                         line names: refused (CODE): ... — a production org
+                         (PRODUCTION_TARGET), what fires as it writes
+                         (AUTOMATION_NOT_ACCEPTED), its mute (MUTE_PRODUCTION,
+                         MUTE_NO_RIGHT, MUTE_FAILED), objects its user may not
+                         delete (UNDELETABLE_NOT_LEFT), an org that is not the
+                         one the run wrote to (OTHER_ORG), a run still writing
+                         (RUN_WRITING)
 
   What the removal left on the run's records is kept beside the summary, in
   <summary>.removals.json, or beside the run's file, in <run id>.removal.json,
@@ -386,14 +522,19 @@ are still in the target, and inserts the others.
 Exit codes: 0 the run finished, some of its records refused included (read
 the summary for per-object failures), or the removal took every record it set
 out to; 1 the run or the removal could not be started, either was refused
-before it wrote anything — a production target among the reasons, and for
-the removal what the target runs as it writes, without --accept-automation —
-or the run produced only failures, or it stopped on an error (its file keeps
-what it created); 2 a bad command line, or a summary or a file --remove cannot
-take a run back from; 3 the removal left records of the run in the target, or
-the run was partial and --fail-on-partial was given; 130 a Ctrl-C stopped the
-run, 143 a SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP: its file
-keeps what it created.
+before it wrote anything — a production target among the reasons; for the
+run, more data storage than the target has left, more emails or API requests
+than it has left today, emails it delivers without --accept-emails
+(EMAILS_NOT_ACCEPTED), a checkpoint asked first refused or not taken
+(CHECKPOINT_REFUSED); for the removal, what the target runs as it writes,
+without --accept-automation — or the run produced only failures, or it
+stopped on an error (its file keeps what it created); 2 a bad command line,
+or a summary or a file --remove cannot take a run back from; 3 the removal
+left records of the run in the target, or its sweep was refused or did not
+take all it was asked to (a --sweep-untied refused included), or the run was
+partial and --fail-on-partial was given; 130 a Ctrl-C stopped the run, 143 a
+SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP: its file keeps what it
+created.
 `;
 
 /** One object to sync, as the command line describes it. */
@@ -420,6 +561,17 @@ interface CliArgs {
   failOnPartial: boolean;
   /** Mute the target's automation for the run, through its own bypass (`--mute-automation`). */
   muteAutomation: boolean;
+  /**
+   * Write although the target delivers the emails of what still runs, or
+   * would not say whether it does (`--accept-emails`).
+   */
+  acceptEmails: boolean;
+  /**
+   * Take a checkpoint of what the run writes before its first write
+   * (`--checkpoint-first`): the days it is kept and the objects left out of
+   * it. undefined = none.
+   */
+  checkpointFirst?: RunCheckpointRequest;
   /** A saved configuration to run instead of the objects of the line. */
   configFile?: string;
   /** Where that configuration is kept between runs. */
@@ -439,6 +591,17 @@ const CONFIG_FILE_SETTINGS: readonly string[] = [
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
 const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
+/**
+ * The refusals of a run's gate a dry run's `wouldBeRefused` says in words of
+ * its own: an object the target takes none of, the checkpoint asked first,
+ * the emails the target delivers.
+ */
+const SAID_APART: ReadonlySet<string> = new Set([
+  'SYNC_TARGET_UNWRITABLE',
+  CHECKPOINT_REFUSED,
+  EMAILS_NOT_ACCEPTED,
+]);
+
 /** What the line of a run reads; a removal's reads its own (`REMOVE_FLAGS`). */
 const RUN_FLAGS: CommandFlags = {
   switches: [
@@ -448,6 +611,8 @@ const RUN_FLAGS: CommandFlags = {
     '--json',
     '--fail-on-partial',
     '--mute-automation',
+    '--accept-emails',
+    ...CHECKPOINT_FIRST_FLAGS.switches,
   ],
   values: [
     '--source',
@@ -458,6 +623,7 @@ const RUN_FLAGS: CommandFlags = {
     '--batch-size',
     '--config-file',
     '--store',
+    ...CHECKPOINT_FIRST_FLAGS.values,
   ],
 };
 
@@ -482,6 +648,10 @@ export function parseArgs(argv: string[]): CliArgs {
     return out;
   };
   const has = (flag: string): boolean => args.includes(flag);
+  // A checkpoint of what the run writes, taken before its first write; with
+  // --dry-run, said and not taken.
+  const checkpointFirst = checkpointFirstArgs(args);
+  const asked = checkpointFirst !== undefined ? { checkpointFirst } : {};
 
   const source = get('--source');
   const target = get('--target');
@@ -517,6 +687,8 @@ export function parseArgs(argv: string[]): CliArgs {
       json: has('--json'),
       failOnPartial: has('--fail-on-partial'),
       muteAutomation: has('--mute-automation'),
+      acceptEmails: has('--accept-emails'),
+      ...asked,
       configFile,
       store,
     };
@@ -592,6 +764,8 @@ export function parseArgs(argv: string[]): CliArgs {
     json: has('--json'),
     failOnPartial: has('--fail-on-partial'),
     muteAutomation: has('--mute-automation'),
+    acceptEmails: has('--accept-emails'),
+    ...asked,
   };
 }
 
@@ -877,11 +1051,21 @@ export function cliSourceIdsFn(conn: Connection) {
   };
 }
 
-/** How each daily email limit is said. */
-const EMAIL_LIMIT_WORDS: Readonly<Record<SyncWriteCheck['emails'][number]['limit'], string>> = {
-  SingleEmail: 'single emails',
-  DailyWorkflowEmails: 'workflow emails',
-};
+/**
+ * A gate's answer as the command says it: a run stopped for the checkpoint it
+ * takes first in the words of a command line, its flags where the panel names
+ * its box; every other answer as it is. Exported so it can be tested.
+ */
+export function inTheCommandsWords(answer: SyncGateAnswer): SyncGateAnswer {
+  if (answer.go || (answer.code !== CHECKPOINT_REFUSED && answer.code !== RUN_CANCELLED)) {
+    return answer;
+  }
+  const { code, message, refusal } = answer;
+  return {
+    ...answer,
+    message: checkpointStopWords({ code, message, ...(refusal ? { refusal } : {}) }),
+  };
+}
 
 /** Why the target takes none of an object's records, as the command says it. */
 const UNWRITABLE_WORDS: Readonly<
@@ -891,6 +1075,7 @@ const UNWRITABLE_WORDS: Readonly<
   notCreateable: 'the user the run writes as may not create its records',
   notUpdateable: 'the user the run writes as may not edit its records',
   unread: 'it did not describe the object',
+  notAKey: 'its upsert matches on a field that is neither an External ID nor an idLookup field',
 };
 
 /**
@@ -900,12 +1085,22 @@ const UNWRITABLE_WORDS: Readonly<
  * automation sends for them, against what the target has left.
  */
 export function writeCheckLines(check: SyncWriteCheck, target: string): string[] {
+  const notWritten = check.notWritten ?? 0;
+  // A simulation that would write none of what it counts says 0 as its
+  // total, and what it counted as not written.
+  const counted = check.total > 0 ? check.total : notWritten;
   const lines = [
-    `write gate: ${check.total} record(s) to write to ${target}, about ` +
+    `write gate: ${counted - notWritten} record(s) to write to ${target}, about ` +
       `${formatMB(check.storage.estimateMB)} MB of data storage`,
   ];
   for (const object of check.objects) {
     lines.push(`  ${object.objectApiName.padEnd(42)}${String(object.rows).padStart(8)}`);
+  }
+  if (notWritten > 0) {
+    lines.push(
+      `  of the ${counted} a run counts from the source, ${notWritten} would not be written: ` +
+        'held back or refused, as each object says; what follows is measured on all of them',
+    );
   }
   if (check.alreadyCopied > 0) {
     lines.push(
@@ -913,10 +1108,34 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
         'copied, still in the target, left as they are',
     );
   }
+  if ((check.alreadyLinked ?? 0) > 0) {
+    lines.push(
+      `  not counted: ${check.alreadyLinked} record(s) an earlier run of this configuration ` +
+        'linked to records the target held, left as they are',
+    );
+  }
   if ((check.overwrites ?? 0) > 0) {
     lines.push(
       `  of them, up to ${check.overwrites} written by an update or an upsert over records ` +
         `${target} holds: their values are kept first, and --remove puts them back`,
+    );
+  }
+  // Told from the rows the run writes, the role the platform writes with an
+  // opportunity is out of what the run writes: on a scratch org the gate
+  // counted it, and the run linked it.
+  if ((check.rolesLinked ?? 0) > 0) {
+    lines.push(
+      `  not counted: ${check.rolesLinked} OpportunityContactRole record(s) the platform ` +
+        'writes itself with the opportunities the run creates, for their contact: the run ' +
+        'links each and does not send it',
+    );
+  }
+  // Counted from the source alone, where the rows could not tell them.
+  if ((check.rolesByThePlatform ?? 0) > 0) {
+    lines.push(
+      `  of them, up to ${check.rolesByThePlatform} OpportunityContactRole record(s) the ` +
+        'platform writes itself with the opportunities the run creates, for their contact: the ' +
+        'run links each and does not send it',
     );
   }
   const { storage } = check;
@@ -938,8 +1157,8 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
   for (const email of check.emails) {
     const per = email.objects.map((o) => `${o.perRecord} per ${o.objectApiName}`).join('; ');
     const sent =
-      `  emails: these records make ${target} send about ${email.emails} ` +
-      `${EMAIL_LIMIT_WORDS[email.limit]} (${per})` +
+      `  emails: these records make ${target} send about ` +
+      `${emailsOfLimit(email.emails, email.limit)} (${per})` +
       (email.alertsCounted
         ? ', its email alerts among them, as a Developer Edition counts them'
         : '');
@@ -954,6 +1173,9 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
   if (check.emailsUnread !== undefined) {
     lines.push(`  emails: not counted, ${check.emailsUnread} could not be read`);
   }
+  // Whether the target delivers the emails of what still runs: read only
+  // when something sends one.
+  if (check.deliverability) lines.push(`  ${deliverabilityLineOf(check.deliverability.reading)}`);
   // The day's API requests the run takes of the target, against what it has left.
   const api = check.apiRequests;
   if (api) {
@@ -969,10 +1191,26 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
                 : ''),
     );
   }
-  // The objects the target takes none of, as the run writes them.
+  // The objects the target takes none of, as the run writes them, and the
+  // rows of the objects after them it holds back for their records.
   for (const object of check.unwritable ?? []) {
     lines.push(
-      `  ${object.objectApiName}: ${object.rows} record(s) ${target} takes none of — ${UNWRITABLE_WORDS[object.why]}`,
+      `  ${object.objectApiName}: ${object.rows} record(s) ${target} takes none of — ` +
+        `${UNWRITABLE_WORDS[object.why]}${object.key !== undefined ? ` (${object.key})` : ''}`,
+    );
+  }
+  const leftOut = new Set((check.unwritable ?? []).map(({ objectApiName }) => objectApiName));
+  const named = ({ parent, field }: { parent: string; field: string }): string =>
+    `${field} names ${parent} records ${leftOut.has(parent) ? 'left out' : 'held back'}`;
+  for (const object of check.heldBack ?? []) {
+    // Each object and lookup with its rows: named by the first alone, 13
+    // prices were said held back by Pricebook2Id where 9 were by Product2Id.
+    const parents = object.parents ?? [object];
+    lines.push(
+      `  ${object.objectApiName}: ${object.rows} record(s) held back, not written — ` +
+        (parents.length === 1
+          ? `their ${named(parents[0])}`
+          : parents.map((one) => `${one.rows} whose ${named(one)}`).join('; ')),
     );
   }
   if (check.aboveRecords !== undefined) {
@@ -984,8 +1222,67 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
   return lines;
 }
 
-/** What a simulation found, as the lines the command prints. */
-export function simulationLines(simulation: SyncSimulationResult, target = 'the target'): string[] {
+/**
+ * What the command says of the records a run created — a dry run, would
+ * create — without a record type into a target whose object has one besides
+ * Master, as a clone says it (`recordTypeGivenLines`): per object, how many,
+ * why, and the type the target gives them; of a dry run, what the describe
+ * of the user the run writes as says, and of a real run what the first of
+ * them were read back holding. A record on Master in the source goes in with
+ * the type the target gives that user, not always the default its describe
+ * names. Exported so it can be tested.
+ *
+ * @param muteAssigns - Whether a real run's mute would assign permission
+ *   sets, which may open record types a dry run's describe does not show.
+ */
+export function recordTypeGivenOfObjectsLines(
+  objects: ReadonlyArray<{ recordTypeGiven?: RecordTypeGiven }>,
+  dryRun: boolean,
+  muteAssigns = false,
+): string[] {
+  const given = objects.flatMap((object) =>
+    object.recordTypeGiven ? [object.recordTypeGiven] : [],
+  );
+  const lines = recordTypeGivenLines(given, dryRun);
+  // A dry run assigns nothing, and what it says is what the user has now.
+  if (lines.length > 0 && dryRun && muteAssigns) {
+    lines.push(
+      '  the permission sets a real run assigns to mute the automation may open other record ' +
+        'types to the user it writes as: it reads them again once assigned, and its summary ' +
+        'says what the target gave',
+    );
+  }
+  return lines;
+}
+
+/**
+ * The records of an object an earlier run of the configuration linked to a
+ * record the target held, which a run leaves as they are: a second run said
+ * of them "already copied by an earlier run", which no run had done.
+ */
+export function alreadyLinkedWords(count: number): string {
+  return (
+    `${count} already linked by an earlier run of this configuration to records the target ` +
+    'held, left as they are'
+  );
+}
+
+/**
+ * What a simulation found, as the lines the command prints.
+ *
+ * @param muteAssigns - Whether a real run's mute would assign permission sets
+ *   (`recordTypeGivenOfObjectsLines`).
+ * @param checkpointRefused - Why a real run's checkpoint would be refused, in the command's words.
+ * @param emailsRefused - Why a real run would be refused for the emails it makes the target send:
+ *   the emails the target delivers, which no other flag than --accept-emails lifts.
+ */
+export function simulationLines(
+  simulation: SyncSimulationResult,
+  target = 'the target',
+  muteAssigns = false,
+  checkpointRefused?: string,
+  emailsRefused?: string,
+): string[] {
   const lines = [`\nsimulation: ${simulation.objects.length} object(s), nothing written`];
   // The order the run writes the objects in, and what moved.
   if (simulation.writeOrder) {
@@ -1002,27 +1299,53 @@ export function simulationLines(simulation: SyncSimulationResult, target = 'the 
   }
   if (simulation.writeCheck) {
     for (const line of writeCheckLines(simulation.writeCheck, target)) lines.push(`  ${line}`);
+    // What the checkpoint a real run takes first would hold and cost.
+    for (const line of simulation.checkpoint
+      ? checkpointEstimateLines(simulation.checkpoint)
+      : []) {
+      lines.push(`  ${line}`);
+    }
+    // The code a real run is refused with, as its own line names it: the
+    // first its gate refuses it for, an object the target takes none of
+    // before the checkpoint, the storage and the requests. Named after them,
+    // a run of the command said refused for its checkpoint was refused for
+    // the object.
     if (simulation.writeCheck.verdict === 'refused') {
       const check = simulation.writeCheck;
-      lines.push(
-        `    a run would be refused before it writes: ${
-          check.storage.verdict === 'exceeds'
-            ? 'the records do not fit'
-            : check.apiRequests?.verdict === 'exceeds'
-              ? 'it takes more API requests than the target has left today'
-              : 'the target takes none of the records of an object it writes'
-        }`,
-      );
+      const [code, why]: [string, string] =
+        (check.unwritable ?? []).length > 0
+          ? [
+              'SYNC_TARGET_UNWRITABLE',
+              'the target takes none of the records of an object it writes',
+            ]
+          : checkpointRefused !== undefined
+            ? [CHECKPOINT_REFUSED, checkpointRefused]
+            : check.storage.verdict === 'exceeds'
+              ? ['SYNC_STORAGE_EXCEEDED', 'the records do not fit']
+              : check.apiRequests?.verdict === 'exceeds'
+                ? [API_BUDGET_EXCEEDED, 'it takes more API requests than the target has left today']
+                : [
+                    CHECKPOINT_REFUSED,
+                    check.checkpointUnread ?? 'the checkpoint asked first is refused',
+                  ];
+      lines.push(`    a run would be refused before it writes (${code}): ${why}`);
     } else if ((simulation.writeCheck.unwritable ?? []).length > 0) {
       lines.push(
-        '    a run of the command would be refused before it writes: the target takes none of ' +
-          'the records of an object it writes; leave it out of the configuration',
+        '    a run of the command would be refused before it writes (SYNC_TARGET_UNWRITABLE): ' +
+          'the target takes none of the records of an object it writes; leave it out of the ' +
+          'configuration',
       );
     }
     const over = simulation.writeCheck.emails.some((email) => email.verdict === 'exceeds');
     if (simulation.writeCheck.verdict !== 'refused' && over) {
       lines.push(
-        '    a run of the command would be refused before it writes: past a daily email limit',
+        '    a run of the command would be refused before it writes (SYNC_EMAILS_EXCEEDED): past ' +
+          'a daily email limit',
+      );
+    } else if (simulation.writeCheck.verdict !== 'refused' && emailsRefused !== undefined) {
+      lines.push(
+        `    a run of the command would be refused before it writes (${EMAILS_NOT_ACCEPTED}): ` +
+          emailsRefused,
       );
     }
   }
@@ -1040,6 +1363,9 @@ export function simulationLines(simulation: SyncSimulationResult, target = 'the 
         `      ${o.alreadyCopied} already copied by an earlier run of this configuration, ` +
           'left as they are',
       );
+    }
+    if (o.alreadyLinked !== undefined) {
+      lines.push(`      ${alreadyLinkedWords(o.alreadyLinked)}`);
     }
     if ((o.encryptedLeftOut ?? []).length > 0) {
       lines.push(`      ${encryptedLeftOutLine(o.encryptedLeftOut ?? [])}`);
@@ -1071,6 +1397,9 @@ export function simulationLines(simulation: SyncSimulationResult, target = 'the 
       `  the target's validation rules could not be listed (${simulation.validationRulesUnread}): ` +
         'any of them may refuse a record counted as written',
     );
+  }
+  for (const line of recordTypeGivenOfObjectsLines(simulation.objects, true, muteAssigns)) {
+    lines.push(`  ${line}`);
   }
   if (simulation.cancelled) lines.push('  stopped by a cancel before its last object');
   if (simulation.error) {
@@ -1113,6 +1442,40 @@ const REFUSED_FIELD_BY: Readonly<Record<ForgeFieldRefusal, string>> = {
 };
 
 /**
+ * The line the command prints of an object's counts. The contact roles linked
+ * to the ones the platform wrote with their opportunity, and the records the
+ * target refused as a duplicate of one it holds and the run linked to it, are
+ * counted linked, as the lines under it say them, not among the records
+ * skipped: on a scratch org it read "0 processed, 0 succeeded, 0 failed, 1
+ * skipped" over "1 record(s) linked to the contact role the platform wrote".
+ * The result keeps them among its `skipped`.
+ */
+export function objectCountsLine(
+  result: Pick<SyncObjectResult, 'objectApiName'> &
+    Partial<
+      Pick<
+        SyncObjectResult,
+        'processed' | 'success' | 'failed' | 'skipped' | 'writtenByThePlatform' | 'linkedToExisting'
+      >
+    >,
+): string {
+  const linked = linkedOfTheResult(result);
+  const skipped = Math.max(0, (result.skipped ?? 0) - linked);
+  return (
+    `${result.objectApiName}: ${result.processed ?? 0} processed, ${result.success ?? 0} ` +
+    `succeeded, ${result.failed ?? 0} failed, ${skipped} skipped` +
+    (linked > 0 ? `, ${linked} linked` : '')
+  );
+}
+
+/** Of an object's records counted skipped, those the run linked rather than wrote. */
+function linkedOfTheResult(
+  result: Partial<Pick<SyncObjectResult, 'writtenByThePlatform' | 'linkedToExisting'>>,
+): number {
+  return (result.writtenByThePlatform?.records ?? 0) + (result.linkedToExisting?.records ?? 0);
+}
+
+/**
  * The lines the command prints of what an object's write did that no refusal
  * says: the records linked to one the target holds rather than written, those
  * written without lookups they held, with why, those given lookups at an
@@ -1123,6 +1486,7 @@ export function objectWrittenLines(
   result: Pick<
     SyncObjectResult,
     | 'linkedToExisting'
+    | 'writtenByThePlatform'
     | 'lookupsLeftOut'
     | 'lookupsSetAfter'
     | 'writtenWithoutFields'
@@ -1139,6 +1503,17 @@ export function objectWrittenLines(
       `${linked.records} record(s) linked to a record the target holds, not written: the ` +
         `target refused them as a duplicate of it${linked.refusal ? ` (${linked.refusal})` : ''}; ` +
         'what the run writes under them points at that record.',
+    );
+  }
+  const byThePlatform = result.writtenByThePlatform;
+  if (byThePlatform) {
+    lines.push(
+      `${byThePlatform.records} record(s) linked to the contact role the platform wrote with ` +
+        `their opportunity, for its contact, not written; ${byThePlatform.given} given the ` +
+        `source's fields ${byThePlatform.given === 1 ? 'it' : 'they'} lacked` +
+        (byThePlatform.refusal
+          ? `, the others left as the platform wrote them (${byThePlatform.refusal}).`
+          : '.'),
     );
   }
   for (const { records, fields, reason, refusal } of result.lookupsLeftOut ?? []) {
@@ -1194,8 +1569,8 @@ export function contactPointLines(report: ForgeContactPointsReport | undefined):
   }
   return [
     `emails and phone numbers: ${report.values} value(s) in ${report.fields.length} field(s) ` +
-      "neutralized, addresses under .invalid and numbers fictional, so the target's automation " +
-      'reaches no one',
+      "neutralized, addresses under .invalid and numbers fictional, so what the target's " +
+      'automation sends to them reaches no one',
     ...report.fields.map(
       ({ objectApiName, field, values }) => `  ${objectApiName}.${field}  ${values}`,
     ),
@@ -1387,6 +1762,12 @@ export function bothRecorders(
       summary.note(objectApiName, ids, at);
       file.note(objectApiName, ids, at);
     },
+    // The summary keeps no call's ids: it is noted what the write created.
+    noteUnanswered: (objectApiName, ids) => {
+      summary.note(objectApiName, ids);
+      if (file.noteUnanswered) file.noteUnanswered(objectApiName, ids);
+      else file.note(objectApiName, ids);
+    },
     sending: (objectApiName, rows, call) => {
       summary.sending?.(objectApiName, rows, call);
       file.sending?.(objectApiName, rows, call);
@@ -1416,6 +1797,11 @@ export function bothRecorders(
       summary.deleted?.(objectApiName, ids);
       file.deleted?.(objectApiName, ids);
     },
+    // The checkpoint taken first: named in the run's file, once it begins.
+    checkpoint: (taken) => {
+      summary.checkpoint?.(taken);
+      file.checkpoint?.(taken);
+    },
     overwrittenCount: () => summary.overwrittenCount?.() ?? file.overwrittenCount?.() ?? 0,
     flush: async () => (await summary.flush()) ?? (await file.flush()),
   };
@@ -1426,6 +1812,19 @@ export function bothRecorders(
  * file: no saved configuration was, and none is told of its removal.
  */
 export const LINE_RUN = 'sandforge-sync';
+
+/** What a run's mute leaves running on `objects`, of what it leaves on every object it read. */
+function automationOf(
+  view: ForgeTargetAutomation,
+  objects: readonly string[],
+): ForgeTargetAutomation {
+  const wanted = new Set(objects);
+  return {
+    ...view,
+    objectsRead: view.objectsRead.filter((name) => wanted.has(name)),
+    objects: view.objects.filter((object) => wanted.has(object.objectApiName)),
+  };
+}
 
 /** The org's own id, or undefined when it does not say. */
 async function organizationIdOf(conn: Connection): Promise<string | undefined> {
@@ -1495,7 +1894,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   );
 
   const sourceConn = makeConn(await loadOrg(args.source));
-  const targetConn = makeConn(await loadOrg(args.target));
+  const targetSession = await loadOrg(args.target);
+  const targetConn = makeConn(targetSession);
 
   // One describe of the target per object, kept for the run.
   const targetFieldsByObject = new Map<string, TargetWriteFields>();
@@ -1527,7 +1927,55 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     targetOrgId: args.target,
     ...(typed ? { targetOrganizationId: typed.id } : {}),
   });
-  const recorder = bothRecorders(kept, runFile);
+  // Who the run writes as, for the sweep of its removal: its file takes it
+  // whenever the target says, and nothing waits for it, not even the end of
+  // the process, which goes as `main` returns.
+  keepRunUser(runFile, () => targetConn.identity(), 'sandforge-sync');
+  // Where what the run creates is kept as it writes it, however the run
+  // ends: said once, as its gate lets it write and before its first write,
+  // on stderr with --json. A run refused at its gate begins no file, and
+  // names none for --remove to fail to read.
+  let runFileSaid = false;
+  const sayRunFile = (): void => {
+    const filePath = runs?.pathOf(runId);
+    if (runFileSaid || filePath === undefined) return;
+    runFileSaid = true;
+    say(`run file: ${filePath} (--remove ${filePath} takes back what the run creates)`);
+  };
+  const both = bothRecorders(kept, runFile);
+  // Said too as the first call or creation is kept, whatever wrote it.
+  const recorder: SyncCreationRecorder = runFile
+    ? {
+        ...both,
+        note: (objectApiName, ids, at) => {
+          sayRunFile();
+          both.note(objectApiName, ids, at);
+        },
+        sending: (objectApiName, rows, call) => {
+          sayRunFile();
+          both.sending?.(objectApiName, rows, call);
+        },
+      }
+    : both;
+  // The checkpoint the run takes of what it writes before its first write:
+  // scoped at the write gate once its records are counted, taken once the
+  // gate lets them through and before the mute's lease, kept or deleted as
+  // the run ends. A dry run says what it would hold and cost, and takes
+  // nothing. It reads the target through a connection of its own: the run's
+  // calls stay the run's.
+  const checkpoints = args.checkpointFirst
+    ? commandCheckpoints({
+        module: 'sync',
+        operationId: runId,
+        request: args.checkpointFirst,
+        session: targetSession,
+        org: checkpointOrgOf(targetSession, typed ?? (await typeTarget(targetConn))),
+        connect: makeConn,
+        journalDir: journalDirOf(),
+        say,
+        own: { runId },
+      })
+    : undefined;
   const describeTargetFields = async (objectApiName: string): Promise<TargetWriteFields> => {
     const cached = targetFieldsByObject.get(objectApiName);
     if (cached) return cached;
@@ -1597,6 +2045,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     calls: syncWriterCalls(recorder, keeper),
   });
 
+  /**
+   * Whether the run sent a write to the target: the checkpoint it took first
+   * is kept once it did, whatever became of the run after, and deleted when
+   * it never did.
+   */
+  let wrote = false;
+
   // A dry run is the panel's simulation: the same reads, mappings and
   // transforms, then the target asked which records it holds. It never
   // reaches the writer, which refuses to write if anything ever tried.
@@ -1611,6 +2066,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     externalIdField?: string,
   ): Promise<OperationOutcome[]> => {
     if (args.dryRun) throw new Error(`A dry run writes nothing: ${kind} ${objectName} refused.`);
+    sayRunFile();
+    if (records.length > 0) wrote = true;
     if (kind === 'delete') return writer.delete(objectName, records as string[], batchSize);
     if (kind === 'upsert') {
       return writer.upsert(
@@ -1628,6 +2085,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const startedAt = new Date().toISOString();
 
+  /** The checkpoint as the gate asked it, and what it would hold and cost. */
+  let checkpointAsk: CommandCheckpointAsk | undefined;
+  let checkpointPlanned: RunCheckpointEstimate | undefined;
+  /** The checkpoint the run took before its first write, once taken. */
+  let checkpointTaken: RunCheckpointTaken | undefined;
+  /** What became of it once the run ended: kept, or deleted for a run that wrote nothing. */
+  let checkpointInfo: RunCheckpointInfo | undefined;
+
   // Held, before its first write, to what the target has left of its data
   // storage and of its daily emails, as a clone is: refused past either, with
   // nothing written. Sync wrote until the target refused its records one by
@@ -1637,7 +2102,52 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     readApiBudget: () => readApiBudget(targetConn),
     readAutomation: (objects) => targetAutomationReader(targetConn).read(args.target, objects),
     readLimits: () => readEmailLimits(targetConn),
+    // As the user the run writes as, once something that still runs may send
+    // an email: one line of anonymous Apex that sends nothing, never in a
+    // production org, which a dry run reads: it is typed for it here.
+    readDeliverability: async () =>
+      isProductionTarget(typed ?? (await typeTarget(targetConn)))
+        ? NO_APEX_IN_PRODUCTION
+        : readEmailDeliverability(targetConn),
+    // The emails go out on --accept-emails alone: nothing else on the line
+    // stands for it. The records keep their addresses under
+    // --keep-contact-points, or a configuration's keepContactPoints.
+    emails: {
+      target: args.target,
+      accepted: args.acceptEmails,
+      keepsAddresses: config.keepContactPoints === true,
+      mayMute: !args.muteAutomation,
+    },
     confirmAboveRecords: DEFAULT_CONFIRM_ABOVE_RECORDS,
+    ...(checkpoints
+      ? {
+          checkpointFirst: {
+            scope: async (written, running) => {
+              checkpointAsk = { written, running };
+              checkpointPlanned = await checkpoints.scope(checkpointAsk);
+              return checkpointPlanned;
+            },
+            take: async (planned) => {
+              if (!checkpointAsk) throw new Error('its scope was not read');
+              const outcome = await checkpoints.take(checkpointAsk, planned, {
+                signal: controller.signal,
+              });
+              if (outcome.taken) {
+                checkpointTaken = outcome.checkpoint;
+                recorder.checkpoint?.(outcome.checkpoint);
+                for (const line of checkpointTakenLines(
+                  outcome.checkpoint,
+                  args.target,
+                  args.muteAutomation,
+                )) {
+                  say(line);
+                }
+              }
+              return outcome;
+            },
+          },
+        }
+      : {}),
   };
   const orgTier = typed
     ? guardTierOf({
@@ -1647,27 +2157,78 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     : ('production' as const);
   /** What the gate measured of the run, for its summary. */
   let gateCheck: SyncWriteCheck | undefined;
+  /** Why a simulation's gate could not read what a real run's checkpoint would hold. */
+  let checkpointFailed: string | undefined;
+  /** Why a real run would be refused for its emails, as a simulation's gate found it. */
+  let emailsRefused: RunRefusal | undefined;
+  /**
+   * Why a real run's gate would refuse it, in that gate's words, for what
+   * nothing else a dry run says names — past the target's data storage, its
+   * API requests or emails left today: the lines said it, `wouldBeRefused`
+   * did not, and a pipeline that read it went on to a run refused.
+   */
+  let gateRefused: RunRefusal[] = [];
+  /**
+   * What refused a real run at its gate beside the reason it is refused with,
+   * each under its own code, in the order the gate meets them: given under
+   * `alsoRefused`, each on its line, as a clone and Autopilot give them.
+   * Refused for its mute, the run is refused for each reason of its gate
+   * beside it. The first code alone, a CI job that answered it was refused
+   * again for the next.
+   */
+  let alsoRefusedAtGate: RunRefusal[] = [];
+  /** A reason of the gate, in the command's words: the checkpoint's, its flag. */
+  const commandWords = (stop: SyncGateStop): RunRefusal => {
+    const said = inTheCommandsWords({ go: false, ...stop });
+    return said.go ? stop : { code: said.code, message: said.message };
+  };
   const gateOver = (readAutomation: SyncWriteMeasures['readAutomation']): SyncWriteGate => ({
-    measure: async (counted) =>
-      (await measureSyncWrite(counted, { ...measures, readAutomation })).check,
+    measure: async (counted) => {
+      const measured = await measureSyncWrite(counted, { ...measures, readAutomation });
+      checkpointFailed = measured.checkpointFailed;
+      emailsRefused = measured.runEmails?.gate.stop;
+      // Asked as a real run's hold asks it, every reason it would be refused for.
+      const stops = syncGateStops(measured, { policy: 'refuse', org: args.target });
+      gateRefused = stops
+        .filter((stop) => !SAID_APART.has(stop.code))
+        .map(({ code, message }) => ({ code, message }));
+      // Measured for a real run its mute refused: every reason of its gate
+      // refuses it too.
+      if (!args.dryRun) alsoRefusedAtGate = stops.map(commandWords);
+      return measured.check;
+    },
     hold: async (counted) => {
       const measured = await measureSyncWrite(counted, { ...measures, readAutomation });
       gateCheck = measured.check;
       log('');
       for (const line of writeCheckLines(measured.check, args.target)) log(line);
+      for (const line of measured.checkpoint ? checkpointEstimateLines(measured.checkpoint) : []) {
+        say(line);
+      }
+      const answer = await gateSyncWrite(measured, {
+        policy: 'refuse',
+        org: args.target,
+        orgTier,
+      });
+      const [first, ...others] = syncGateStops(measured, { policy: 'refuse', org: args.target });
+      alsoRefusedAtGate = !answer.go && first?.code === answer.code ? others.map(commandWords) : [];
+      // Taken once the gate let the run through, the flags the answer a
+      // question would have had, and before the mute's lease: refused, it
+      // refuses the run with nothing assigned and nothing written.
       return {
         check: measured.check,
-        answer: await gateSyncWrite(measured, {
-          policy: 'refuse',
-          org: args.target,
-          orgTier,
-        }),
+        answer: inTheCommandsWords(
+          await takeSyncCheckpoint(measured, answer, measures.checkpointFirst),
+        ),
       };
     },
   });
   // Asked to mute, the run's gate plans the mute from what the target runs on
   // the objects it writes, measures what still runs, and takes the lease
-  // once it lets the run write; it is given back as the run ends.
+  // once it lets the run write and took the checkpoint asked first. The run
+  // gives it back once its last write is through, before it reads back the
+  // record types the target gave; it is given back again as the run ends, and
+  // answers the same.
   const muting =
     args.muteAutomation && !args.dryRun
       ? mutingSyncWriteGate(
@@ -1681,9 +2242,51 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             return planned;
           },
           `sandforge-sync ${runId}`,
+          { target: args.target },
         )
       : undefined;
-  const writeGate: SyncWriteGate = muting?.gate ?? gateOver(measures.readAutomation);
+  // What a run with --mute-automation would assign, silence, leave running
+  // and lift beside, read as the run's gate reads it, once, nothing assigned:
+  // a dry run measures what still runs, as a real run's gate does, so that
+  // the checkpoint it says holds what a real run's would, and what the mute
+  // keeps quiet creates nothing there.
+  let dryRunMute: Promise<{ planned?: RunMute; refused?: RunRefusal }> | undefined;
+  const planDryRunMute = (): Promise<{ planned?: RunMute; refused?: RunRefusal }> =>
+    (dryRunMute ??= (async () => {
+      const objects = config.objects.map((object) => object.objectApiName);
+      const read = await measures
+        .readAutomation(objects)
+        .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) }));
+      try {
+        const planned = await muteForRun(async () => muteOrgOf(targetConn), read, {
+          writes: syncRunWrites,
+        });
+        for (const line of muteLines(planned.muted, args.target)) log(line);
+        return { planned };
+      } catch (err: unknown) {
+        if (!isMuteRefusedError(err)) throw err;
+        log(wouldBeRefusedLine(err.refusal));
+        return { refused: err.refusal };
+      }
+    })());
+  const readingTheDryRunMute: SyncWriteMeasures['readAutomation'] = async (objects) => {
+    const view = (await planDryRunMute()).planned?.automation;
+    return view && objects.every((name) => view.objectsRead.includes(name))
+      ? automationOf(view, objects)
+      : measures.readAutomation(objects);
+  };
+  const heldGate: SyncWriteGate =
+    muting?.gate ??
+    gateOver(args.dryRun && args.muteAutomation ? readingTheDryRunMute : measures.readAutomation);
+  // The run's file named as its gate lets it write, never before.
+  const writeGate: SyncWriteGate = {
+    measure: (counted) => heldGate.measure(counted),
+    hold: async (counted) => {
+      const held = await heldGate.hold(counted);
+      if (held.answer.go) sayRunFile();
+      return held;
+    },
+  };
   /** What the run muted of the target's automation, once it ended. */
   let mutedAutomation: MutedAutomation | undefined;
 
@@ -1773,6 +2376,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }),
     // The parents its objects' lookups name written first.
     describeTargetFields,
+    // The same, asked of the org again once the mute's lease assigned a
+    // permission set, which may have opened record types to the user.
+    describeTargetFieldsAgain: async (objectApiName) =>
+      targetWriteFieldsOf(await targetConn.sobject(objectApiName).describe()),
+    // The lease the gate took, given back once the last write is through.
+    leaseOfTheGate: () => muting?.lease(),
+    // What reads back the record types the target gave the records the run
+    // created without one, once its writes are through.
+    queryTargetRows: targetRows,
     // What it writes, counted before the first write and held to the gate,
     // and what an earlier run of a saved configuration copied, left as it is.
     countSource: cliCountFn(sourceConn),
@@ -1836,47 +2448,61 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   if (args.dryRun) {
     log('\nsimulating… (DRY-RUN: nothing is written)');
-    const simulation = await orchestrator.simulate(config);
-    // What a run with --mute-automation would assign, silence, leave
-    // running and lift beside, read as the run's gate reads it: nothing
-    // assigned, and said in the summary as in the lines.
-    let planned: RunMute | undefined;
-    let muteRefused: string | undefined;
-    if (args.muteAutomation) {
-      const objects = config.objects.map((object) => object.objectApiName);
-      const read = await measures
-        .readAutomation(objects)
-        .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) }));
-      try {
-        planned = await muteForRun(async () => muteOrgOf(targetConn), read, {
-          writes: syncRunWrites,
-        });
-        for (const line of muteLines(planned.muted, args.target)) log(line);
-      } catch (err: unknown) {
-        if (!isMuteRefusedError(err)) throw err;
-        muteRefused = err.message;
-        log(`a real run would be refused: ${err.message}`);
-      }
-    }
+    const simulated = await orchestrator.simulate(config);
+    const simulation: SyncSimulationResult = {
+      ...simulated,
+      ...(checkpointPlanned ? { checkpoint: checkpointPlanned } : {}),
+    };
+    // What a run with --mute-automation would assign, silence, leave running
+    // and lift beside, said in the summary as in the lines.
+    const { planned, refused: muteRefused } = args.muteAutomation ? await planDryRunMute() : {};
+    // Why a real run's checkpoint would be refused, in the command's words.
+    const checkpointRefused =
+      checkpointFailed ??
+      (checkpointPlanned?.refusal ? checkpointRefusedWords(checkpointPlanned.refusal) : undefined);
+    const unwritable = simulation.writeCheck?.unwritable ?? [];
+    // Each with the code a real run is refused with: the words alone, a
+    // pipeline could not tell one refusal from another. In the order a real
+    // run meets them, its mute then its gate's: the first is the one it is
+    // refused with.
+    const wouldBeRefused = [
+      muteRefused,
+      unwritable.length > 0
+        ? {
+            code: 'SYNC_TARGET_UNWRITABLE',
+            message: unwritableRefusal(unwritable, args.target, simulation.writeCheck?.heldBack),
+          }
+        : undefined,
+      checkpointRefused !== undefined
+        ? { code: CHECKPOINT_REFUSED, message: checkpointRefused }
+        : undefined,
+      ...gateRefused,
+      emailsRefused,
+    ].filter((reason): reason is RunRefusal => reason !== undefined);
     const elapsed = Date.now() - t0;
     if (args.json) {
       process.stdout.write(
-        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...dryRunMuteOf(planned), ...(muteRefused ? { wouldBeRefused: [muteRefused] } : {}), elapsedMs: elapsed }, null, 2)}\n`,
+        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...dryRunMuteOf(planned), ...(checkpointPlanned ? { checkpoint: checkpointPlanned } : {}), ...wouldBeRefusedJson(wouldBeRefused), elapsedMs: elapsed }, null, 2)}\n`,
       );
       return;
     }
-    for (const line of simulationLines(simulation, args.target)) log(line);
+    const muteAssigns = (planned?.plan?.assign.length ?? 0) > 0;
+    for (const line of simulationLines(
+      simulation,
+      args.target,
+      muteAssigns,
+      checkpointRefused,
+      emailsRefused?.message,
+    )) {
+      log(line);
+    }
     log(`\ndone in ${elapsed}ms`);
     return;
   }
 
   log('\nexecuting… (REAL)');
-  // Where what the run creates is kept as it writes it, however the run
-  // ends: said before its first write, on stderr with --json.
+  // Named on stderr as the gate lets the run write (`sayRunFile`).
   const runFilePath = runs?.pathOf(runId);
-  if (runFilePath !== undefined) {
-    say(`run file: ${runFilePath} (--remove ${runFilePath} takes back what the run creates)`);
-  }
   // Ctrl-C stops the run before its next call, as Cancel does in the panel:
   // what it wrote is kept, its file ended. Again, it ends the command at once,
   // and the file, without its end, reads as a run stopped part way. A SIGTERM
@@ -1891,6 +2517,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     controller.abort();
   };
   const releaseStop = onStopSignal(interrupt);
+  /**
+   * Keep the checkpoint the run took first once it sent a write, whatever
+   * became of it after; delete it when it sent none. Once, as the run ends.
+   */
+  const settleCheckpoint = async (): Promise<void> => {
+    if (!checkpoints || !checkpointTaken || checkpointInfo) return;
+    checkpointInfo = await settleCommandCheckpoint(
+      checkpoints,
+      checkpointTaken,
+      wrote,
+      args.target,
+      say,
+    );
+  };
   let result: Awaited<ReturnType<typeof orchestrator.execute>>;
   /** How the run ended, as its file's last line says it: a failure unless it returned. */
   let ending: { status: 'success' | 'partial' | 'failure'; cancelled?: boolean } = {
@@ -1902,9 +2542,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     });
     if (mutedAutomation) result = { ...result, mutedAutomation };
     ending = { status: result.status, ...(result.cancelled ? { cancelled: true } : {}) };
+    await settleCheckpoint();
   } catch (err: unknown) {
     // Refused before its first write: nothing was written.
     overwrites?.close();
+    // Its checkpoint kept once it wrote, deleted when it wrote nothing: its
+    // lease refused after the take among them.
+    await settleCheckpoint();
     if (!(err instanceof SyncRunRefused)) {
       await runFile?.end(ending);
       if (runFilePath !== undefined && existsSync(runFilePath)) {
@@ -1915,7 +2559,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       }
       throw err;
     }
+    // Stopped while it took the checkpoint first, it ends as a stopped run ends.
+    const stopped = err.code === RUN_CANCELLED;
+    const also = stopped ? [] : alsoRefusedAtGate;
     if (args.json) {
+      // Each reason on its line on stderr too, as a refused Seed run says
+      // them: a log that keeps stderr alone shows why nothing was written.
+      if (!stopped) process.stderr.write(`${[err, ...also].map(refusedLine).join('\n')}\n`);
       process.stdout.write(
         `${JSON.stringify(
           {
@@ -1924,7 +2574,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             target: args.target,
             dryRun: false,
             refused: { code: err.code, message: err.message },
+            ...(also.length > 0 ? { alsoRefused: also } : {}),
             ...(gateCheck ? { writeCheck: gateCheck } : {}),
+            ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}),
             elapsedMs: Date.now() - t0,
           },
           null,
@@ -1932,9 +2584,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         )}\n`,
       );
     } else {
-      log(`\nrefused (${err.code}): ${err.message}`);
+      log(stopped ? `\n${err.message}` : `\n${[err, ...also].map(refusedLine).join('\n')}`);
     }
-    process.exit(1);
+    process.exit(stopped ? stopExitCode(interrupted ?? 'SIGINT') : 1);
   } finally {
     releaseStop();
   }
@@ -1976,6 +2628,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           startedAt,
           finishedAt: new Date().toISOString(),
           result,
+          // The checkpoint it took of what it writes before its first write
+          // (--checkpoint-first): kept, or deleted once it wrote nothing.
+          ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}),
           created: {
             runId: kept.runId,
             ...(lastWrittenAt ? { lastWrittenAt } : {}),
@@ -2007,18 +2662,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log(`\nstatus:  ${(result as { status?: string }).status ?? 'unknown'}`);
   for (const line of mutedAutomation ? muteLines(mutedAutomation, args.target) : []) log(line);
   for (const entry of objects as Array<Record<string, unknown>>) {
-    const failed = Number(entry.failed ?? 0);
-    log(
-      `  ${String(entry.objectApiName)}: ${String(entry.processed ?? 0)} processed, ` +
-        `${String(entry.success ?? 0)} succeeded, ${failed} failed, ` +
-        `${String(entry.skipped ?? 0)} skipped`,
-    );
+    log(`  ${objectCountsLine(entry as Partial<SyncObjectResult> & { objectApiName: string })}`);
     // Not inserted a second time: an earlier run of the configuration copied them.
     if (typeof entry.alreadyCopied === 'number') {
       log(
         `      ${entry.alreadyCopied} already copied by an earlier run of this configuration, ` +
           'left as they are',
       );
+    }
+    // Nor those an earlier run linked to records the target held: no run copied them.
+    if (typeof entry.alreadyLinked === 'number') {
+      log(`      ${alreadyLinkedWords(entry.alreadyLinked)}`);
     }
     // `errors` is a list of strings on SyncObjectResult, not of objects: the
     // first refusals, and every line on what the run held back or wrote
@@ -2056,6 +2710,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     const delta = entry.delta as SyncDeltaOutcome | undefined;
     if (delta) log(`      ${deltaLine(delta)}`);
   }
+  // The record types the target gave the records the run created without
+  // one, as the first of them were read back once its writes were through.
+  for (const line of recordTypeGivenOfObjectsLines(
+    objects as ReadonlyArray<{ recordTypeGiven?: RecordTypeGiven }>,
+    false,
+  )) {
+    log(`  ${line}`);
+  }
   // Said once for the run, as Forge's command line says it.
   for (const line of contactPointLines(
     (result as { contactPoints?: ForgeContactPointsReport }).contactPoints,
@@ -2087,8 +2749,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
 // ─── --remove ────────────────────────────────────────────────────────────────
 
-/** What `--remove` was given. */
-export interface RemoveArgs {
+/** What `--remove` was given; `--sweep-late` and `--sweep-untied` among it, with `--sweep`. */
+export interface RemoveArgs extends SweepClassArgs {
   /**
    * The summary a run printed with `--json`, saved to a file; or the run's
    * file, or its id, which the command keeps in its directory.
@@ -2124,6 +2786,7 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--store',
   '--sweep',
   '--sweep-list',
+  ...SWEEP_CLASS_FLAGS,
   '--leave-undeletable',
   '--json',
 ]);
@@ -2141,8 +2804,8 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
         `--remove takes --target, --include-changed, --accept-automation, --mute-automation, ` +
-          `--store, --sweep, --sweep-list, --leave-undeletable and --json, not "${arg}". Run ` +
-          'with --help.\n',
+          `--store, --sweep, --sweep-late, --sweep-untied, --sweep-list, --leave-undeletable ` +
+          `and --json, not "${arg}". Run with --help.\n`,
       );
       process.exit(2);
     }
@@ -2171,6 +2834,11 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     );
     process.exit(2);
   }
+  const classes = sweepClassArgsOf(args);
+  if ('refusal' in classes) {
+    process.stderr.write(`${classes.refusal} Run with --help.\n`);
+    process.exit(2);
+  }
   return {
     summaryPath,
     target,
@@ -2181,6 +2849,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     ...(store !== undefined ? { store } : {}),
     sweep: args.includes('--sweep'),
     sweepList: args.includes('--sweep-list'),
+    ...classes,
     leaveUndeletable: args.includes('--leave-undeletable'),
   };
 }
@@ -2245,6 +2914,8 @@ export function readRunSummary(text: string): { summary: RunSummary } | { refusa
   } catch {
     return { refusal: 'is not JSON: save the output of a run printed with --json.' };
   }
+  const refused = refusalOfSummary(raw, 'sandforge-sync');
+  if (refused) return { refusal: refusedSummaryWords(refused) };
   const parsed = runSummarySchema.safeParse(raw);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -2349,7 +3020,8 @@ export function removalSummaryLines(
   return [
     `removal: ${status.toUpperCase()}`,
     ...objects.flatMap((o) => [
-      `  ${o.objectApiName}: ${counts(o) || 'nothing'} of ${o.planned}`,
+      `  ${o.objectApiName}: ${counts(o) || 'nothing'} of ${o.planned}${platformCopiesWords(o)}`,
+      ...tookAlongLines(o),
       ...o.reasons.map((reason) => `      ${reason}`),
     ]),
   ];
@@ -2496,6 +3168,23 @@ interface RemovalSubject {
   updateRemoval: (change: (state: SyncRunRemovalState) => SyncRunRemovalState) => Promise<void>;
   /** Its file's store, when it is taken back from its file: its jobs are read back into it. */
   runs?: SyncRunCreations;
+  /** The user it wrote as, when its summary or its file keeps it. */
+  runUserId?: string;
+  /** What its mute kept quiet and what still ran, when its summary says it. */
+  muted?: z.infer<typeof runMuteSchema>;
+}
+
+/**
+ * What a run's summary keeps beside its records that its removal's sweep is
+ * told: the user it wrote as, and what its mute kept quiet and what still
+ * ran, in its result. What does not read is left out.
+ */
+function sweptOfSummary(
+  result: Record<string, unknown>,
+): Pick<RemovalSubject, 'runUserId' | 'muted'> {
+  const runUserId = runUserIdOf(result['runUserId']);
+  const muted = runMuteSchema.safeParse(result['mutedAutomation']);
+  return { ...(runUserId ? { runUserId } : {}), ...(muted.success ? { muted: muted.data } : {}) };
 }
 
 /** The run a summary names, and where what its removals did is kept: beside the summary. */
@@ -2562,6 +3251,7 @@ function subjectOfSummary(args: RemoveArgs, say: (line: string) => void): Remova
     ...(summary.configId !== undefined ? { configId: summary.configId } : {}),
     ...(summary.targetOrgId !== undefined ? { targetOrgId: summary.targetOrgId } : {}),
     ...(earlier ? { earlier } : {}),
+    ...sweptOfSummary(summary.result),
     // Kept beside the summary whatever the removal ended on, written whole
     // through a file renamed over it.
     updateRemoval: async (change) => {
@@ -2612,6 +3302,8 @@ async function subjectOfRunFile(file: string, args: RemoveArgs): Promise<Removal
     );
     process.exit(2);
   }
+  // The user the run wrote as, where its file keeps it (`SyncRunKept.runUserId`).
+  const runUserId = runUserIdOf(run.runUserId);
   return {
     run,
     ...(run.configId !== LINE_RUN ? { configId: run.configId } : {}),
@@ -2619,6 +3311,7 @@ async function subjectOfRunFile(file: string, args: RemoveArgs): Promise<Removal
     ...(run.removal ? { earlier: run.removal } : {}),
     updateRemoval: (change) => runs.updateRemoval(run.runId, change),
     runs,
+    ...(runUserId ? { runUserId } : {}),
   };
 }
 
@@ -2705,13 +3398,16 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // stopped: its open Bulk API job would be aborted mid-upload, and what it
   // goes on to create would never be offered for removal.
   if (writtenElsewhere(run)) {
-    process.stderr.write(
-      `The run is still writing, in process ${run.writer?.pid ?? '?'}: remove it once it has ` +
-        'ended. Nothing was deleted.\n',
-    );
-    process.exit(1);
+    refuseTheRemoval({
+      code: RUN_WRITING,
+      message:
+        `The run is still writing, in process ${run.writer?.pid ?? '?'}: remove it once it has ` +
+        'ended. Nothing was deleted.',
+    });
   }
 
+  /** What the sweep found, said before its first delete: what it took, and what it listed and kept. */
+  let sweepListing: ForgeSweepListing | undefined;
   const output = (
     status: ForgeUndoStatus,
     objects: ForgeUndoObjectResult[],
@@ -2720,6 +3416,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     sweep?: ForgeSweepResult,
     restored?: SyncRestoreObjectResult[],
     undeleted?: SyncUndeleteObjectResult[],
+    mutedAutomation?: MutedAutomation,
   ) => {
     if (args.json) {
       process.stdout.write(
@@ -2736,8 +3433,10 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               objects,
               ...told,
               ...(sweep ? { sweep } : {}),
+              ...(sweepListing ? { sweepListing } : {}),
               ...(restored ? { restored } : {}),
               ...(undeleted ? { undeleted } : {}),
+              ...(mutedAutomation ? { mutedAutomation } : {}),
             },
             elapsedMs: Date.now() - t0,
           },
@@ -2745,12 +3444,14 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
           2,
         )}\n`,
       );
+      for (const line of automationHeldLines(objects, args)) say(line);
       return;
     }
     // The sweep ran first, before the run's records went, and what the run
     // wrote over was given back before either.
     for (const line of sweep ? sweepLines(sweep) : []) say(line);
     for (const line of removalSummaryLines(status, objects)) say(line);
+    for (const line of automationHeldLines(objects, args)) say(line);
     for (const line of undeleted ? undeletedLines(undeleted) : []) say(line);
     for (const line of restored ? restoredLines(restored) : []) say(line);
     for (const line of configurationToldLines(subject.configId, told)) say(line);
@@ -2785,19 +3486,17 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // A listing deletes nothing; a removal and a sweep delete, and are refused
   // before either reads anything outside a sandbox or a Developer Edition.
   const refusal = args.sweepList ? undefined : removalRefusal(args.target, org);
-  if (refusal) {
-    process.stderr.write(`${refusal}\n`);
-    process.exit(1);
-  }
+  if (refusal) refuseTheRemoval({ code: 'PRODUCTION_TARGET', message: refusal });
   if (
     subject.targetOrgId !== undefined &&
     subject.targetOrgId.slice(0, 15) !== org.id.slice(0, 15)
   ) {
-    process.stderr.write(
-      `${args.target} is not the org the run wrote to (${subject.targetOrgId}), and what it ` +
-        'created is removed from that org only. Nothing was deleted.\n',
-    );
-    process.exit(1);
+    refuseTheRemoval({
+      code: OTHER_ORG,
+      message:
+        `${args.target} is not the org the run wrote to (${subject.targetOrgId}), and what it ` +
+        'created is removed from that org only. Nothing was deleted.',
+    });
   }
   // The Bulk API jobs the run's file names that no line of it answers: a
   // run killed, or ended by an error, while one ran. The job ran on to its
@@ -2816,8 +3515,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (!run.end && run.inFlight && run.inFlight.job === undefined) {
     say(
       `  the run stopped during a call of ${run.inFlight.rows} ${run.inFlight.objectApiName} ` +
-        `row(s): those ${args.target} took are not in its file, and stay; --sweep-list shows ` +
-        "what the run's user created in the run's window",
+        `row(s): those ${args.target} took are not in its file, and stay; ` +
+        `${sweepOptionWords('--sweep-list')} shows what the run's user created in the run's window`,
     );
   }
   const plan = syncRemovalPlan(run);
@@ -2841,11 +3540,28 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     } catch (err: unknown) {
       automation = { error: err instanceof Error ? err.message : String(err) };
     }
-    const org = removalOrg(conn, 'sandforge-sync --sweep');
+    const removal = removalOrg(conn, 'sandforge-sync --sweep');
+    // What tells the records tied to the run from the rest of what its user
+    // created in its window: the other runs of this machine that wrote to
+    // the org meanwhile, its mute, when its first removal began, what its
+    // earlier sweeps found made for it. The records it wrote over are added by
+    // the input itself, as `madeOver`.
+    const ties = commandSweepTies({
+      otherRuns: await otherRunsOf({
+        organizationId: org.id,
+        alias: args.target,
+        span: syncRunSpanOf(run),
+        own: { runId: run.runId, ids: run.created.flatMap((object) => object.ids) },
+      }),
+      ...(subject.muted ? { muted: subject.muted } : {}),
+      ...(earlier?.removalSpans ? { removalSpans: earlier.removalSpans } : {}),
+      ...(earlier?.madeEarlier ? { made: earlier.madeEarlier } : {}),
+      ...(earlier?.lateEarlier ? { late: earlier.lateEarlier } : {}),
+    });
     // From the run's first write to its last, as the panel's sweep looks: an
     // update before its first creation or after its last is the run's too.
     return seedSweepInput(
-      org,
+      removal,
       run.created,
       automation,
       signal,
@@ -2853,10 +3569,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         ? {
             at: run.firstWrittenAt,
             ...(run.lastWriteAt !== undefined ? { lastAt: run.lastWriteAt } : {}),
-            serverTime: () => org.serverTime(),
+            serverTime: () => removal.serverTime(),
           }
         : undefined,
       run.overwritten ?? [],
+      { ...(subject.runUserId ? { runUserId: subject.runUserId } : {}), ties },
     );
   };
 
@@ -2864,9 +3581,13 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // What a sweep would delete, read and said; nothing is deleted, the
     // run's own records included.
     const listing = await listSweep(
-      removalOrg(conn, 'sandforge-sync --sweep-list'),
+      sweepOrgOf(conn, 'sandforge-sync --sweep-list'),
       await sweepInput(),
+      earlier?.removalSpans ?? [],
     );
+    // Read before a sweep, with what --sweep-late and --sweep-untied would
+    // take: on stderr with --json, stdout carrying the listing alone.
+    for (const line of sweepListingLines(listing, args.target, args, true)) say(line);
     if (args.json) {
       process.stdout.write(
         `${JSON.stringify(
@@ -2883,9 +3604,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         )}\n`,
       );
     } else {
-      for (const line of sweepListingLines(listing, args.target)) say(line);
       say(`\ndone in ${Date.now() - t0}ms`);
     }
+    // A list a sweep would be refused for ends as that sweep does, as the
+    // clone's: ending 0, it read as an empty list to a script.
+    if (listing.refusal !== undefined) process.exit(RECORDS_LEFT_EXIT);
     return;
   }
 
@@ -2937,30 +3660,107 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
   if (args.sweep) {
     say(
-      "before them, a sweep deletes what the target's automation created during the run, as " +
-        "the run's user — run with --sweep-list to see what",
+      "before them, a sweep deletes what the target's automation made for the run, as the " +
+        `run's user, tied to its records — run ${sweepOptionWords('--sweep-list')} to see what`,
     );
+  }
+  // Ctrl-C stops the removal before its next call to the org, as Cancel does
+  // in the panel; a SIGTERM or a SIGHUP does too.
+  const stop = new AbortController();
+  const releaseStop = onStopSignal(() => stop.abort());
+  let state: SyncRunRemovalState = earlier ?? {};
+  // The sweep comes before the run's records go, as the panel's does: a task
+  // the target's automation opened on one of them would otherwise stay. The
+  // removal makes its first part once it has read the run's records, what
+  // hangs from them goes with them, and what one of them points at by a
+  // lookup the org restricts the delete by goes once they are gone
+  // (`sweepParts`).
+  const parts = args.sweep
+    ? sweepParts(
+        sweepOrgOf(conn, 'sandforge-sync --sweep', stop.signal),
+        await sweepInput(stop.signal),
+        {
+          includeChanged: args.includeChanged,
+          // What the earlier removals of the run changed while they ran is no
+          // change since the run.
+          removalSpans: state.removalSpans ?? [],
+          ...sweepClassOptions(args),
+          // What it found, said before the first delete: --sweep asked for it.
+          approve: async (listing) => {
+            sweepListing = listing;
+            say('');
+            for (const line of sweepListingLines(listing, args.target, args)) say(line);
+            return undefined;
+          },
+        },
+      )
+    : undefined;
+  // The sweep reads what it takes and says it here, before the lease and
+  // before the removal writes: the lease is held for the writes alone, and
+  // what an undelete or a value given back makes the target do is not read
+  // as the run's. It deletes at its turn.
+  await parts?.ask();
+  const unsaid = sweepUnsaid(parts, sweepListing);
+  if (unsaid) {
+    sweepListing = unsaid;
+    say('');
+    for (const line of sweepListingLines(unsaid, args.target, args)) say(line);
   }
   // What the target runs as the removal takes the run back, said before it
   // writes and asked about as the clone's removal asks, step by step as it
   // writes: the triggers that run after an undelete as it brings back what
   // the run deleted, what fires as it gives back what the run wrote over and
   // as it sets an activated order back to Draft, then before and after each
-  // delete. The panel listed it before the org's name was typed; the command
-  // read it for the sweep alone, and said nothing of it.
+  // delete, what the sweep deletes among them: read before it, a Flow on an
+  // asset the run never wrote refused the sweep's delete after the removal had
+  // said that nothing fired. The panel listed it before the org's name was
+  // typed; the command read it for the sweep alone, and said nothing of it. A
+  // stop while the sweep read asks nothing: the removal stops at its next call.
   const names = (objects: ReadonlyArray<{ objectApiName: string }>): string[] => [
     ...new Set(objects.map(({ objectApiName }) => objectApiName)),
   ];
-  const steps: ForgeRemovalSteps = {
-    bringBack: names(bringBack),
-    giveBack: names(kept.kept),
-    setToDraft: setBackToDraftOf(names(plan)),
-    delete: names(plan),
-  };
+  const steps: ForgeRemovalSteps = removalStepsWithSweep(
+    {
+      bringBack: names(bringBack),
+      giveBack: names(kept.kept),
+      setToDraft: setBackToDraftOf(names(plan)),
+      delete: objectsRemovedOf(names(plan)),
+    },
+    parts?.takes ?? [],
+  );
   const written = [...new Set(Object.values(steps).flat())];
+  /**
+   * End the removal refused before its first write, as a refused run ends:
+   * its line names its code, and with --json stdout carries it. Refused for a
+   * production org, what fires as it writes, its mute, objects its user may
+   * not delete, another org than the run's or a run still writing, it said a
+   * sentence on stderr and left stdout empty.
+   */
+  function refuseTheRemoval(refused: RunRefusal): never {
+    process.stderr.write(`${refusedLine(refused)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        refusedRemovalSummary(
+          {
+            tool: 'sandforge-sync',
+            summary: args.summaryPath,
+            target: args.target,
+            elapsedMs: Date.now() - t0,
+          },
+          refused,
+        ),
+      );
+    }
+    return process.exit(1);
+  }
+  /** {@link refuseTheRemoval}, once Ctrl-C is heard for the removal. */
+  const endRefused = (refused: RunRefusal): never => {
+    releaseStop();
+    return refuseTheRemoval(refused);
+  };
   /** The removal's mute, asked with --mute-automation, held while it writes. */
   let removalMute: RunMute | undefined;
-  if (written.length > 0) {
+  if (written.length > 0 && !stop.signal.aborted) {
     const read = await targetAutomationReader(conn).read(args.target, written, {
       undeletes: true,
     });
@@ -2976,74 +3776,57 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         for (const line of muteLines(removalMute.muted, args.target)) say(`  ${line}`);
       } catch (err: unknown) {
         if (!isMuteRefusedError(err)) throw err;
-        process.stderr.write(`${err.message}\n`);
-        process.exit(1);
+        endRefused(err.refusal);
       }
     }
     const automation = removalMute?.automation ?? read;
     const automationStop = removalStepsAutomationRefusal(automation, args.target, {
       steps,
-      assign: bypassesToAssign(
-        automation,
-        removalStepsBypassesOf(automation, steps),
-        session.username ? { alias: args.target, username: session.username } : undefined,
-      ),
+      // The sets that keep it quiet, which --mute-automation assigns under a
+      // lease: never a command assigning them by hand, with the user's name.
+      assign: bypassesToAssign(automation, removalStepsBypassesOf(automation, steps)),
+      // Relayed by a command that does not mute, the mute is not offered.
+      mayMute: removalMute === undefined && relayTakes('--mute-automation'),
     });
     if (automationStop && !args.acceptAutomation) {
-      process.stderr.write(`${automationStop}\n`);
-      process.exit(1);
+      endRefused({ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop });
     }
   }
-
-  // Ctrl-C stops the removal before its next call to the org, as Cancel does
-  // in the panel; a SIGTERM or a SIGHUP does too.
-  const stop = new AbortController();
-  const releaseStop = onStopSignal(() => stop.abort());
-  let state: SyncRunRemovalState = earlier ?? {};
-  // The sweep comes before the run's records go, as the panel's does: a task
-  // the target's automation opened on one of them would otherwise stay. The
-  // removal makes it once it has read the run's records; what it is told is
-  // read before anything is put back.
-  const sweepMade: { result?: ForgeSweepResult } = {};
-  const told = args.sweep ? await sweepInput(stop.signal) : undefined;
-  const sweepFirst = told
-    ? async (): Promise<boolean> => {
-        sweepMade.result = await sweepRunRecords(removalOrg(conn, 'sandforge-sync --sweep'), told, {
-          includeChanged: args.includeChanged,
-          // What the earlier removals of the run changed while they ran is no
-          // change since the run.
-          removalSpans: state.removalSpans ?? [],
-          // What it found, said before the first delete: --sweep asked for it.
-          approve: async (listing) => {
-            say('');
-            for (const line of sweepListingLines(listing, args.target)) say(line);
-            return undefined;
-          },
-        });
-        return sweepMade.result.objects.some((object) => object.deleted > 0);
-      }
-    : undefined;
   let outcome: Awaited<ReturnType<typeof removeSyncRun>>;
-  // The lease is taken before the removal's first write and given back as it
-  // ends, whatever it ended on.
-  const held = removalMute?.prepared
-    ? await removalMute.prepared
-        .acquire(`sandforge-sync --remove ${run.runId}`)
-        .catch((err: unknown) => {
-          if (!isMuteRefusedError(err)) throw err;
-          releaseStop();
-          process.stderr.write(`${err.message}\n`);
-          process.exit(1);
-        })
-    : undefined;
-  let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
+  // The lease, taken right before the first write, once every question is
+  // answered: the removal asks what to do of the records its user may not
+  // delete once it has read them, and a lease taken before it kept the sets
+  // assigned while the question stayed open, for nothing once it was answered
+  // no. A stop before then assigns nothing.
+  let held: HeldMute | undefined;
+  let mutedAutomation: MutedAutomation | undefined = removalMute?.muted;
+  const takeTheLease = async (): Promise<void> => {
+    if (!removalMute?.prepared || stop.signal.aborted) return;
+    held = await removalMute.prepared
+      .acquire(`sandforge-sync --remove ${run.runId}`)
+      .catch((err: unknown) => {
+        if (!isMuteRefusedError(err)) throw err;
+        return endRefused(err.refusal);
+      });
+    mutedAutomation = held.outcome;
+  };
+  const removalTarget = removalOrg(conn, 'sandforge-sync --remove');
+  // Read before the first delete, as Seed's removal reads them: the items
+  // that name them go with the records.
+  const duplicateSets = await duplicateSetsOfRemoval(removalTarget, run.created);
+  /** Why it stopped for objects its user may not delete, once it did. */
+  let undeletableRefused: RunRefusal | undefined;
   try {
     outcome = await removeSyncRun({
       run,
-      org: removalOrg(conn, 'sandforge-sync --remove'),
+      org: removalTarget,
       includeChanged: args.includeChanged,
-      ...(sweepFirst ? { sweep: sweepFirst } : {}),
-      onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target),
+      ...sweepPartsOptions(parts),
+      ...(subject.runUserId ? { runUserId: subject.runUserId } : {}),
+      onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target, (refused) => {
+        undeletableRefused = refused;
+      }),
+      beforeFirstWrite: takeTheLease,
       signal: stop.signal,
       // The configuration's store, told what the removal took: its
       // watermarks and copied files, and which records its runs wrote.
@@ -3068,6 +3851,24 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     });
   } finally {
     releaseStop();
+    // What the sweep found made for the run, kept whatever the removal ended
+    // on: once a record of the run is deleted, the org may clear the lookup
+    // that told the tie, and the next sweep would list it as tied to nothing.
+    // What it found made late, kept the same way, is late still for the next.
+    const made = parts?.made ?? new Set<string>();
+    const late = parts?.late ?? new Set<string>();
+    // What it said gone is kept no more.
+    const gone = parts?.gone ?? new Set<string>();
+    if (made.size > 0 || late.size > 0 || gone.size > 0) {
+      await subject
+        .updateRemoval((earlierState) => withSweepFinds(earlierState, made, late, gone))
+        .catch((err: unknown) => {
+          process.stderr.write(
+            `What the sweep found made for the run could not be kept (${err instanceof Error ? err.message : String(err)}): ` +
+              'a later --sweep may list it as tied to nothing.\n',
+          );
+        });
+    }
     if (held) {
       mutedAutomation = await held.release();
       for (const line of muteLines(mutedAutomation, args.target)) say(line);
@@ -3075,23 +3876,31 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
   if (mutedAutomation) outcome = { ...outcome, result: { ...outcome.result, mutedAutomation } };
   // Stopped before its first delete, for objects the user may not delete:
-  // named above, and nothing was removed.
-  if (outcome.stoppedForUndeletable) process.exit(1);
-  for (const note of outcome.notes) process.stderr.write(`${note}\n`);
+  // nothing was removed.
+  if (outcome.stoppedForUndeletable) {
+    if (undeletableRefused) refuseTheRemoval(undeletableRefused);
+    process.exit(1);
+  }
+  // Stopped, it makes no call to the org it can do without.
+  const emptied = outcome.result.status === 'cancelled' ? {} : await duplicateSets.take();
+  for (const note of [...outcome.notes, ...(emptied.note ? [emptied.note] : [])]) {
+    process.stderr.write(`${note}\n`);
+  }
   const took = outcome.result.objects.some((o) => o.deleted + o.alreadyGone > 0);
   if (subject.configId !== undefined && !configs && took) {
     process.stderr.write(
       `The run was of the saved configuration ${subject.configId}, and its store was not given: ` +
         'its next delta run is not told what this removal took, and a later run may point a ' +
-        'lookup at a record it deleted. Give --store with the next removal, or run the ' +
-        'configuration full next time.\n',
+        `lookup at a record it deleted. Give ${ownOptionWords('--store')} with the next ` +
+        'removal, or run the configuration full next time.\n',
     );
   }
   const { readWhole, filesForgotten } = outcome.result;
-  const sweep = sweepMade.result;
+  const sweep = parts?.result();
+  const status = removalStatusWithSweep(outcome.result.status, sweep);
   output(
-    outcome.result.status,
-    outcome.result.objects,
+    status,
+    emptied.object ? [...outcome.result.objects, emptied.object] : outcome.result.objects,
     outcome.planned,
     {
       ...(readWhole ? { readWhole } : {}),
@@ -3101,19 +3910,20 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     sweep,
     outcome.result.restored,
     outcome.result.undeleted,
+    mutedAutomation,
   );
-  if (outcome.result.status !== 'success' || (sweep && sweep.status !== 'success')) {
-    process.exit(RECORDS_LEFT_EXIT);
-  }
+  if (status !== 'success') process.exit(RECORDS_LEFT_EXIT);
 }
 
 // `tsx` runs this file directly; the import check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-sync')) {
   holdOutputWhole();
-  main().catch((err: unknown) => {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
-    process.exit(1);
-  });
+  main()
+    .then(() => process.exit(process.exitCode ?? 0))
+    .catch((err: unknown) => {
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+      process.exit(1);
+    });
 }
 
 export { jsforce };

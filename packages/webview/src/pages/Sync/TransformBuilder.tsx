@@ -1,6 +1,10 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { TransformRule, TransformRuleType } from '@sandforge/shared';
+import {
+  unreadablePatternRules,
+  type TransformRule,
+  type TransformRuleType,
+} from '@sandforge/shared';
 import { cn } from '../../theme';
 import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
@@ -208,6 +212,10 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
           // A rule saved before rules named a field: its field is picked here,
           // among those the rule can change, as a new rule's is.
           const pickable = rule.field === undefined ? fieldOptionsFor(rule.type) : [];
+          // Said as it is typed, in the words Simulate, Run and Save refuse it
+          // with: it went unsaid until one of them was pressed.
+          const badPattern = unreadablePatternRules([{ objectApiName, transformRules: [rule] }])[0];
+          const badPatternId = `transform-${index}-bad-pattern`;
           return (
             <div
               key={index}
@@ -256,9 +264,22 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
                     label={t(`sync.transformConfig.${key}`, { example: FORMULA_EXAMPLE })}
                     value={String((rule.config as Record<string, unknown>)[key] ?? '')}
                     onChange={(e) => onChangeConfig(index, key, e.target.value)}
+                    {...(key === 'regex' && badPattern
+                      ? { 'aria-invalid': true, 'aria-describedby': badPatternId }
+                      : {})}
                   />
                 </div>
               ))}
+              {badPattern && (
+                <p
+                  id={badPatternId}
+                  className="basis-full text-status-error"
+                  role="alert"
+                  data-testid={badPatternId}
+                >
+                  {t('sync.transformBadPattern', { reason: badPattern.reason })}
+                </p>
+              )}
               <button
                 type="button"
                 className="ml-auto self-center flex items-center justify-center rounded-sm p-1 text-status-error hover:bg-(--sf-bg-hover)"

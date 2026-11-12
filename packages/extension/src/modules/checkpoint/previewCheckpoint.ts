@@ -32,6 +32,10 @@
  * refused. What sends emails and could not be read — a flow whose definition
  * the org refused, a package's, which no user reads — is named as not
  * counted, even when nothing else sends: what it sends is not known.
+ * Whether the org delivers those emails at all is read once something that
+ * runs may send one, with one line of anonymous Apex that sends nothing
+ * (`rewindEmails.ts`), and answered beside them: where the org delivers
+ * them, or would not say, the rewind is asked to send them (`acceptEmails`).
  *
  * Of a checkpoint that holds files, the files it brings back from the recycle
  * bin are held to the file storage the org has left, read with its requests:
@@ -48,10 +52,17 @@
  * every object that rewind writes to, as its own plan says
  * (`planSelection`): an object not picked among them for the children of it
  * that come back with a parent it brings back, deleted again.
+ *
+ * A preview told whether the rewind may delete the records outside a
+ * checkpoint of picked objects created under its records (`acceptOutside`)
+ * counts the emails of what that rewind writes as its plan says: not asked,
+ * it keeps the records they hang from, which send nothing. One not told
+ * counts both rewinds' emails, the second planned from the same reads.
  */
 
 import {
   BYTES_PER_MB,
+  removalStepsWrites,
   type CheckpointEmails,
   type CheckpointEstimate,
   type CheckpointRefusal,
@@ -59,10 +70,12 @@ import {
   type OrgCheckpoint,
   type OrgTypeAndEdition,
   type RewindDiff,
-  type RewindDiffObject,
+  type RewindSelectionPlan,
+  type RunDeliverability,
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { workedObjects } from '../dataops/RecordRemoval.js';
+import { planMute } from '../forge/AutomationMuteLease.js';
 import { guardCheckpoint, type CheckpointGuardConnection } from './checkpointGuard.js';
 import {
   FILE_LINK_OBJECT,
@@ -79,14 +92,18 @@ import {
   type OrgLockHolder,
 } from './OrgCheckpointStore.js';
 import { actAccessOf } from './rewindAccess.js';
+import { objectsWrittenBy, rewindStepsOf, selectionDiff } from './rewindBounds.js';
 import { rewindDiff } from './rewindDiff.js';
 import { diffOfPicked, planSelection, snapshotRowsOf } from './rewindPlan.js';
+import { muteOfSteps, type MuteOfWrites } from './rewindOrg.js';
 import {
+  actDeliverability,
   checkpointEmails,
   checkpointEmailsUncounted,
   emailsRefusal,
   writtenByDiff,
 } from './rewindEmails.js';
+import { readEmailDeliverability } from '../forge/targetDeliverability.js';
 import {
   budgetRefusal,
   fileStorageRefusal,
@@ -117,6 +134,14 @@ export interface PreviewDeps {
   signal?: AbortSignal;
   /** This machine's clock: the preview's id. */
   now?: () => Date;
+  /**
+   * How the rewind's mute is planned (`RewindDeps.mute`), for a preview asked
+   * with `muteAutomation`: asked of the org — what it is, whether the user may
+   * assign permission sets — as the rewind asks it before it writes, nothing
+   * assigned. Its refusal is the one the rewind would meet. Not given, the
+   * mute is planned from the read alone, and nothing of it is refused.
+   */
+  mute?: MuteOfWrites;
 }
 
 /** What a preview is asked. */
@@ -145,6 +170,27 @@ export interface PreviewRequest {
    * again, is priced with that read.
    */
   reusesPreview?: boolean;
+  /**
+   * Whether the rewind that follows is asked to mute the org's automation:
+   * the emails it counts, those it could not count, whether the org delivers
+   * them and the refusal it would meet are then those of what still runs, as
+   * the rewind's own gate judges them, and a mute the org would refuse is
+   * that refusal (`PreviewDeps.mute`). `automation` stays the org's as read,
+   * which the mute is planned from. Nothing is assigned.
+   */
+  muteAutomation?: boolean;
+  /**
+   * Whether the rewind that follows is asked to delete, with the records of a
+   * checkpoint of picked objects it deletes, the records outside it created
+   * under them (`RewindRequest.acceptOutside`). Said, the emails it counts,
+   * those it could not count, whether the org delivers them and the refusal
+   * it would meet are those of what that rewind writes, as its own plan says:
+   * not asked, it keeps the records they hang from, and sends nothing for
+   * them. Absent, those of every record it would delete, and beside them
+   * those of the rewind that keeps them (`emailsKeepingOutside`): the page
+   * asks before its box is ticked or not.
+   */
+  acceptOutside?: boolean;
 }
 
 /** How a preview ended, when it was not stopped and did not fail. */
@@ -157,11 +203,28 @@ export type PreviewOutcome =
       /** The emails its writes make the org send, per daily limit; absent when none. */
       emails?: CheckpointEmails[];
       /**
+       * Asked without being told whether the rewind may delete the records
+       * outside a checkpoint of picked objects made since under records it
+       * deletes (`acceptOutside`), as the page asks: the emails of the rewind
+       * that keeps the records they hang from, counted as `emails` are, an
+       * empty list when it sends none; `emails` are then those of the rewind
+       * that deletes them along. Absent when nothing outside hangs from
+       * what it deletes, or when it was told.
+       */
+      emailsKeepingOutside?: CheckpointEmails[];
+      /**
        * Why the emails of what fires as it writes were not all counted: what
        * of the org's automation that sends them could not be read. Absent
        * when every one was.
        */
       emailsUncounted?: string;
+      /**
+       * What still runs as it writes that may send an email, and whether the
+       * org delivers them, read only when something may: absent when nothing
+       * sends, or it would write nothing. Not a refusal: the rewind is asked
+       * to send them (`acceptEmails`), as it is asked for its automation.
+       */
+      deliverability?: RunDeliverability;
       estimate: CheckpointEstimate;
       /** The refusal the rewind would meet before writing, when it would meet one. */
       refusal?: CheckpointRefusal;
@@ -198,35 +261,8 @@ function guardConnectionOf(org: TakeOrg): CheckpointGuardConnection {
   } as unknown as CheckpointGuardConnection;
 }
 
-/**
- * The objects a rewind would write to: records to delete, to give values
- * back, to bring back, or to make again, and records it brings back for a
- * moment to delete again — counted in none of those, but written twice: the
- * rewind reads what runs on their object, and refuses it unaccepted. The
- * link of a file to a record too, when it removes, inserts or updates links:
- * a trigger on a link — a file attached updates its case — runs on each.
- */
-export function objectsWrittenBy(
-  diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
-): string[] {
-  const writes = (object: RewindDiffObject): boolean =>
-    object.toDelete.createdSince +
-      object.toDelete.broughtBackSince +
-      object.toDelete.comesBackWithParent +
-      object.toGiveBack.records +
-      object.toBringBack.inBin +
-      object.toBringBack.withParent +
-      object.toBringBack.deletedWhileTaken +
-      (object.toBringBack.carriers ?? 0) +
-      (object.toRecreate ?? 0) >
-    0;
-  const written = diff.objects.filter(writes).map((object) => object.objectApiName);
-  const links = diff.files;
-  if (links !== undefined && links.unlink + links.relink + links.updateLinks > 0) {
-    written.push(FILE_LINK_OBJECT);
-  }
-  return written;
-}
+// The objects a rewind would write to, as its bounds read them too.
+export { objectsWrittenBy };
 
 /** The files a rewind brings back from the recycle bin: on their own, or as another user's file the snapshot could not read. */
 function filesBroughtBack(diff: Pick<RewindDiff, 'objects'>): number {
@@ -344,13 +380,23 @@ export async function previewCheckpoint(
   const picked = request.objects !== undefined ? new Set(request.objects) : undefined;
   const selected = diffOfPicked(diff, picked);
   const written = objectsWrittenBy(selected);
-  if (picked !== undefined) {
-    const plan = await planSelection({
+  // Of a rewind of every object not asked to delete the records outside the
+  // checkpoint, what it writes too: it keeps the records they hang from.
+  // Counted on the diff, the emails of an order it kept were said, its Draft
+  // update among them, live.
+  const outsideHangs =
+    picked === undefined &&
+    checkpoint.scope.mode === 'picked' &&
+    diff.objects.some((object) => object.outside.length > 0);
+  const keepsOutside = outsideHangs && request.acceptOutside === false;
+  let plan: RewindSelectionPlan | undefined;
+  if (picked !== undefined || keepsOutside) {
+    plan = await planSelection({
       checkpoint,
       previewDir: previewDirOf(request.folder, previewId),
       readAt,
-      objects: picked,
-      acceptOutside: false,
+      ...(picked !== undefined ? { objects: picked } : {}),
+      acceptOutside: request.acceptOutside === true,
       heldRows: snapshotRowsOf(checkpoint, request.folder),
       ...(signal ? { signal } : {}),
     });
@@ -365,6 +411,39 @@ export async function previewCheckpoint(
     } catch (err: unknown) {
       automation = automationUnread(written, extractErrorMessage(err));
     }
+  }
+  // Whether the org delivers the emails of what fires as the rewind writes,
+  // read only once something that runs may send one, on the writes the
+  // command line's and a pipeline's bounds judge it on: the page asks for
+  // them to be accepted, and the rewind reads it again before it writes.
+  let deliverability: RunDeliverability | undefined;
+  let deliverabilityRequests = 0;
+  const acted = plan ? selectionDiff(diff, plan) : selected;
+  const steps = rewindStepsOf(acted);
+  const muted =
+    automation && request.muteAutomation === true
+      ? planMute(automation, removalStepsWrites(steps))
+      : undefined;
+  // A dry run that planned the mute from the read alone passed a user who
+  // may not assign permission sets, whom the rewind then refused.
+  const asked =
+    automation && muted && muted.plan.assign.length > 0 && deps.mute
+      ? await muteOfSteps(deps.mute, automation, steps)
+      : undefined;
+  const muteRefusal = asked && 'refusal' in asked ? asked.refusal : undefined;
+  if (automation) {
+    const emails = await actDeliverability({
+      act: 'rewind',
+      orgName,
+      automation,
+      steps,
+      ...(muted ? { plan: muted.plan } : {}),
+      accepted: false,
+      mayMute: muted === undefined,
+      read: () => readEmailDeliverability(org),
+    });
+    deliverability = emails.gate.deliverability;
+    deliverabilityRequests = emails.ofRun.read?.requests ?? 0;
   }
 
   const read = kept.global();
@@ -391,13 +470,42 @@ export async function previewCheckpoint(
     objects: checkpoint.objects,
     diff: selected,
     automationRequests: automation?.requests ?? 0,
+    ...(deliverabilityRequests > 0 ? { deliverabilityRequests } : {}),
     relationships,
     ...(request.reusesPreview === true ? { reusesPreview: true } : {}),
   });
   const estimate: CheckpointEstimate = { ...cost, apiRequestsLeft: budget.remaining };
-  const records = writtenByDiff(selected.objects);
-  const emails = automation ? checkpointEmails(records, automation, budget.emails) : [];
-  const emailsUncounted = automation ? checkpointEmailsUncounted(records, automation) : undefined;
+  const records = writtenByDiff(acted.objects);
+  // What still runs: a rewind that mutes sends nothing of what its bypasses
+  // keep quiet, which neither counts against the day's emails nor refuses it.
+  const running = muted?.automation ?? automation;
+  const emails = running ? checkpointEmails(records, running, budget.emails) : [];
+  const emailsUncounted = running ? checkpointEmailsUncounted(records, running) : undefined;
+  // Not told whether the rewind may delete what outside hangs from what it
+  // deletes, the page asks for both rewinds: their emails differ by what the
+  // one that keeps it does not write, planned on this machine from the reads
+  // made, the org not read again. Counted for the rewind that deletes it
+  // alone, the page said the emails of an account its rewind kept.
+  const emailsKeepingOutside =
+    outsideHangs && request.acceptOutside === undefined && running
+      ? checkpointEmails(
+          writtenByDiff(
+            selectionDiff(
+              diff,
+              await planSelection({
+                checkpoint,
+                previewDir: previewDirOf(request.folder, previewId),
+                readAt,
+                acceptOutside: false,
+                heldRows: snapshotRowsOf(checkpoint, request.folder),
+                ...(signal ? { signal } : {}),
+              }),
+            ).objects,
+          ),
+          running,
+          budget.emails,
+        )
+      : undefined;
 
   const holder = deps.store.heldBy(checkpoint.org.organizationId);
   const writing = holder === undefined ? await deps.runWriting?.(guard.org.id) : undefined;
@@ -406,7 +514,16 @@ export async function previewCheckpoint(
       ? lockedRefusal(orgName, holder)
       : writing !== undefined
         ? ({ code: 'RUN_WRITING', message: writing } satisfies CheckpointRefusal)
-        : (budgetRefusal('rewind', cost.apiRequests, budget, orgName) ??
+        : (muteRefusal ??
+          budgetRefusal(
+            'rewind',
+            {
+              run: cost.apiRequests - deliverabilityRequests,
+              deliverability: deliverabilityRequests,
+            },
+            budget,
+            orgName,
+          ) ??
           emailsRefusal('rewind', emails, orgName) ??
           (selected.files !== undefined
             ? fileStorageRefusal(
@@ -421,7 +538,9 @@ export async function previewCheckpoint(
     diff,
     ...(automation ? { automation } : {}),
     ...(emails.length > 0 ? { emails } : {}),
+    ...(emailsKeepingOutside ? { emailsKeepingOutside } : {}),
     ...(emailsUncounted !== undefined ? { emailsUncounted } : {}),
+    ...(deliverability ? { deliverability } : {}),
     estimate,
     ...(refusal ? { refusal } : {}),
   };

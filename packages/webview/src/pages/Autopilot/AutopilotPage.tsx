@@ -2,12 +2,16 @@ import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 
 import { useTranslation } from 'react-i18next';
 import type {
   BaseMessage,
+  AutopilotCompleted,
   AutopilotGraph as AutopilotGraphType,
+  AutopilotLookupsNotFilled,
+  AutopilotStatusesNotApplied,
+  AutopilotNodeProgress,
+  AutopilotNodeRunStatus,
   AutopilotNodeStatus,
-  AutopilotRefusal,
+  AutopilotRunStatus,
   AutopilotStopLeftover,
-  CurrencyReplaced,
-  PriceCurrencySettled,
+  AutopilotPlanWriteGate,
   ExecutionPlan,
   MutedAutomation,
 } from '@sandforge/shared';
@@ -16,6 +20,8 @@ import type { AutopilotStep } from '../../stores/useAutopilotStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { OrgRibbon } from '../../components/ui/OrgRibbon';
+import { ribbonOrg } from '../../components/ui/ribbonOrg';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { RUN_OUTLIVED_WAIT } from '../../hooks/useMessageResponse';
@@ -27,6 +33,8 @@ import { GrappeProgressPanel } from '../../components/GrappeProgressPanel';
 import { PartBoundary } from '../../components/ui/PartBoundary';
 import { useGrappeStore } from '../../stores/useGrappeStore';
 import { withEnglish } from '../../i18n/englishNamespaces';
+import { runCheckpointOf } from '../../utils/runCheckpoint';
+import { isAutopilotPlanWriteGate } from './AutopilotWizard/AutopilotFitPanel';
 
 /**
  * The run's graph, in a chunk of its own fetched once the run starts: React
@@ -50,6 +58,30 @@ const AutopilotGrappePanel: React.FC = () => {
   );
 };
 
+/**
+ * The sentence a run stopped before its first write is said in, by its code:
+ * the extension words these in English, for its log and the command line.
+ * Undefined for a code the page has no words of its own for.
+ *
+ * @param code - The code of the run's error.
+ * @param checkpointAsked - Whether the run was to take a checkpoint first: a
+ *   run past the day's API requests counts one among them only then.
+ */
+function refusalKeyOf(code: string | null, checkpointAsked: boolean): string | undefined {
+  switch (code) {
+    case 'CHECKPOINT_REFUSED':
+      return 'autopilot.refusal.checkpointRefused';
+    case 'API_BUDGET_EXCEEDED':
+      return checkpointAsked
+        ? 'autopilot.refusal.apiBudgetExceededWithCheckpoint'
+        : 'autopilot.refusal.apiBudgetExceeded';
+    case 'RUN_CANCELLED':
+      return 'autopilot.refusal.runCancelled';
+    default:
+      return undefined;
+  }
+}
+
 /** The steps the wizard shows; the others are the running view's. */
 const WIZARD_STEPS: readonly AutopilotStep[] = ['connect', 'objects', 'review'];
 
@@ -57,6 +89,8 @@ const WIZARD_STEPS: readonly AutopilotStep[] = ['connect', 'objects', 'review'];
 export const AutopilotPage: React.FC = () => {
   const { t } = useTranslation();
   const step = useAutopilotStore((s) => s.step);
+  const sourceOrgId = useAutopilotStore((s) => s.sourceOrgId);
+  const targetOrgId = useAutopilotStore((s) => s.targetOrgId);
   const [showReport, setShowReport] = useState(false);
   /** Set once a stopped run has ended: the objects it did not write whole. */
   const [notWritten, setNotWritten] = useState<string[] | undefined>();
@@ -66,6 +100,18 @@ export const AutopilotPage: React.FC = () => {
   const [emailsHeldForTheirTask, setEmailsHeldForTheirTask] = useState(0);
   /** What the run muted of the target's automation, said once it ended. */
   const [mutedAutomation, setMutedAutomation] = useState<MutedAutomation | undefined>(undefined);
+  /** Of a fitted plan's run, the records held back since the fit, once it ended. */
+  const [cutSinceFit, setCutSinceFit] = useState<number | undefined>(undefined);
+  /** How the run ended, once it has. */
+  const [runStatus, setRunStatus] = useState<AutopilotRunStatus | undefined>(undefined);
+  /** Per object, the records the run wrote that keep a lookup empty, once it ended. */
+  const [lookupsNotFilled, setLookupsNotFilled] = useState<AutopilotLookupsNotFilled[]>([]);
+  /** Per object, the records the run wrote that stay drafts, once it ended. */
+  const [statusesNotApplied, setStatusesNotApplied] = useState<AutopilotStatusesNotApplied[]>([]);
+  /** When the run was sent: an error carries no time of its own for it. */
+  const runSentAt = useRef(0);
+  /** Whether the review's option asked for a checkpoint: said of the run it sent. */
+  const askedCheckpoint = useAutopilotStore((s) => s.checkpointFirst);
 
   // Listen for push messages from the AutopilotHandler and update the store
   useMessageListener<BaseMessage & { payload: { graph: AutopilotGraphType } }>(
@@ -75,38 +121,26 @@ export const AutopilotPage: React.FC = () => {
     },
   );
 
-  useMessageListener<BaseMessage & { payload: { plan: ExecutionPlan; graph: AutopilotGraphType } }>(
-    'autopilot:plan-ready',
-    (msg) => {
-      useAutopilotStore.getState().setPlan(msg.payload.plan);
-      useAutopilotStore.getState().setGraph(msg.payload.graph);
-      useAutopilotStore.getState().setStep('review');
-    },
-  );
-
+  // The plan made, fitted or given back by Undo fit, and what it comes to
+  // against the target.
   useMessageListener<
     BaseMessage & {
       payload: {
-        nodeId: string;
-        objectName: string;
-        status: string;
-        wave: number;
-        recordCount?: number;
-        failureCount?: number;
-        linkedCount?: number;
-        refusals?: AutopilotRefusal[];
-        statusesApplied?: number;
-        statusRefusals?: AutopilotRefusal[];
-        leftToThePlatform?: number;
-        currenciesReplaced?: CurrencyReplaced[];
-        pricesSettled?: PriceCurrencySettled[];
-        apiCallsUsed?: number;
-        error?: string;
+        plan: ExecutionPlan;
+        graph: AutopilotGraphType;
+        writeGate?: AutopilotPlanWriteGate;
       };
     }
-  >('autopilot:node-progress', (msg) => {
+  >('autopilot:plan-ready', (msg) => {
+    useAutopilotStore.getState().setPlan(msg.payload.plan);
+    useAutopilotStore.getState().setGraph(msg.payload.graph);
+    useAutopilotStore.getState().setWriteGate(msg.payload.writeGate ?? null);
+    useAutopilotStore.getState().setStep('review');
+  });
+
+  useMessageListener<AutopilotNodeProgress>('autopilot:node-progress', (msg) => {
     const store = useAutopilotStore.getState();
-    const statusMap: Record<string, AutopilotNodeStatus> = {
+    const statusMap: Record<AutopilotNodeRunStatus, AutopilotNodeStatus> = {
       processing: 'extracting',
       completed: 'completed',
       failed: 'failed',
@@ -123,7 +157,14 @@ export const AutopilotPage: React.FC = () => {
       store.recordNodeFinish(msg.payload.objectName, mappedStatus, msg.timestamp);
     }
     if (msg.payload.recordCount !== undefined) {
-      store.updateNodeProgress(msg.payload.objectName, 100, msg.payload.recordCount);
+      // A node a skip or a stop cut short did not go through: a recordCount
+      // alone drew a skipped node's bar full. Its bar says what it wrote of
+      // what it had to.
+      const written = msg.payload.recordCount;
+      const toWrite = written + (msg.payload.notSent ?? 0);
+      const went =
+        mappedStatus !== 'skipped' ? 100 : toWrite > 0 ? Math.round((100 * written) / toWrite) : 0;
+      store.updateNodeProgress(msg.payload.objectName, went, written);
     }
     // Why records were refused, by code and fields, what the target already
     // held, and what was left to the platform: what the node detail shows
@@ -134,9 +175,13 @@ export const AutopilotPage: React.FC = () => {
       refusals: msg.payload.refusals,
       statusesApplied: msg.payload.statusesApplied,
       statusRefusals: msg.payload.statusRefusals,
+      lookupsFilled: msg.payload.lookupsFilled,
+      lookupRefusals: msg.payload.lookupRefusals,
       leftToThePlatform: msg.payload.leftToThePlatform,
       currenciesReplaced: msg.payload.currenciesReplaced,
       pricesSettled: msg.payload.pricesSettled,
+      cutSinceFit: msg.payload.cutSinceFit,
+      recordTypeGiven: msg.payload.recordTypeGiven,
     });
     if (msg.payload.status === 'failed' && msg.payload.error) {
       store.addError(`${msg.payload.objectName}: ${msg.payload.error}`);
@@ -166,23 +211,23 @@ export const AutopilotPage: React.FC = () => {
     });
   });
 
-  useMessageListener<
-    BaseMessage & {
-      payload: {
-        totalRecords: number;
-        totalSuccessCount: number;
-        totalFailureCount: number;
-        totalElapsedMs: number;
-        totalApiCalls: number;
-        stopped?: boolean;
-        notWritten?: string[];
-        leftByStop?: AutopilotStopLeftover[];
-        emailsHeldForTheirTask?: number;
-        mutedAutomation?: MutedAutomation;
-      };
+  useMessageListener<AutopilotCompleted>('autopilot:completed', (msg) => {
+    const ended = useAutopilotStore.getState();
+    if (ended.targetOrgId) {
+      const checkpoint = runCheckpointOf(msg.payload.checkpoint);
+      ended.setRunEnd({
+        orgId: ended.targetOrgId,
+        startedAt: new Date(msg.timestamp - msg.payload.totalElapsedMs).toISOString(),
+        endedAt: new Date(msg.timestamp).toISOString(),
+        objects: ended.plan?.waves.flatMap((wave) => wave.objects.map(String)) ?? [],
+        ...(checkpoint ? { checkpoint } : {}),
+      });
     }
-  >('autopilot:completed', (msg) => {
     setMutedAutomation(msg.payload.mutedAutomation);
+    setCutSinceFit(msg.payload.cutSinceFit);
+    setRunStatus(msg.payload.status);
+    setLookupsNotFilled(msg.payload.lookupsNotFilled ?? []);
+    setStatusesNotApplied(msg.payload.statusesNotApplied ?? []);
     setNotWritten(msg.payload.stopped ? (msg.payload.notWritten ?? []) : undefined);
     setLeftByStop(msg.payload.stopped ? (msg.payload.leftByStop ?? []) : []);
     setEmailsHeldForTheirTask(msg.payload.stopped ? (msg.payload.emailsHeldForTheirTask ?? 0) : 0);
@@ -225,8 +270,14 @@ export const AutopilotPage: React.FC = () => {
     setLeftByStop([]);
     setEmailsHeldForTheirTask(0);
     setMutedAutomation(undefined);
+    setCutSinceFit(undefined);
+    setRunStatus(undefined);
+    setLookupsNotFilled([]);
+    setStatusesNotApplied([]);
+    runSentAt.current = Date.now();
     const store = useAutopilotStore.getState();
     const plan = store.plan;
+    store.setRunEnd(null);
     store.clearNodeFinishes();
     store.setExecutionStatus('executing');
     store.setStep('executing');
@@ -245,8 +296,36 @@ export const AutopilotPage: React.FC = () => {
       ...(store.neutralizeContactPoints === false ? { keepContactPoints: true } : {}),
       // The target's automation muted through its own bypass, as ticked there too.
       ...(store.muteAutomation ? { muteAutomation: true } : {}),
+      // A checkpoint of what it writes taken first, kept as the setting says.
+      ...(store.checkpointFirst ? { checkpointFirst: {} } : {}),
     });
   }, [executeMutation]);
+
+  // A run that died once its checkpoint was through says what became of it
+  // beside its error: deleted, as it wrote nothing — its mute refused —, or
+  // kept for what it wrote, the one way back of a run with no removal. The
+  // mutation keeps the words and the code alone; the review says it.
+  useMessageListener<BaseMessage & { payload: { checkpoint?: unknown; writeGate?: unknown } }>(
+    'autopilot:error',
+    (msg) => {
+      if (msg.correlationId !== executeMutation.requestId) return;
+      // A run refused for what its target has left says it in figures, read
+      // again as it was refused: the review shows them, and Fit to storage.
+      if (isAutopilotPlanWriteGate(msg.payload.writeGate)) {
+        useAutopilotStore.getState().setWriteGate(msg.payload.writeGate);
+      }
+      const checkpoint = runCheckpointOf(msg.payload.checkpoint);
+      const ended = useAutopilotStore.getState();
+      if (!checkpoint || !ended.targetOrgId) return;
+      ended.setRunEnd({
+        orgId: ended.targetOrgId,
+        startedAt: new Date(runSentAt.current).toISOString(),
+        endedAt: new Date(msg.timestamp).toISOString(),
+        objects: ended.plan?.waves.flatMap((wave) => wave.objects.map(String)) ?? [],
+        checkpoint,
+      });
+    },
+  );
 
   // Execute rejected (validation, production guard declined, execution crash):
   // surface the error back on the review step — the store keeps the wizard state.
@@ -256,12 +335,15 @@ export const AutopilotPage: React.FC = () => {
   // A wait that ended before the run did is not a failed run: the page stays
   // on the run, which may still be writing, and says where to follow it.
   const outlivedWait = executeMutation.errorCode === RUN_OUTLIVED_WAIT;
+  const refusal = refusalKeyOf(executeMutation.errorCode, askedCheckpoint);
   const executeError =
     executeMutation.errorCode === 'NOT_INITIALIZED'
       ? t('common.refusal.guardMissing')
-      : outlivedWait
-        ? null
-        : executeMutation.error;
+      : refusal !== undefined
+        ? t(refusal)
+        : outlivedWait
+          ? null
+          : executeMutation.error;
   useEffect(() => {
     if (!executeError) return;
     const store = useAutopilotStore.getState();
@@ -360,6 +442,11 @@ export const AutopilotPage: React.FC = () => {
             </button>
           )}
         </div>
+        <OrgRibbon
+          className="px-4 py-2 border-b border-(--sf-border)"
+          source={ribbonOrg(orgs, sourceOrgId)}
+          target={ribbonOrg(orgs, targetOrgId)}
+        />
         {outlivedWait && step === 'executing' && executeMutation.error && (
           <p
             role="status"
@@ -398,6 +485,10 @@ export const AutopilotPage: React.FC = () => {
               leftByStop={leftByStop}
               emailsHeldForTheirTask={emailsHeldForTheirTask}
               mutedAutomation={mutedAutomation}
+              cutSinceFit={cutSinceFit}
+              runStatus={runStatus}
+              lookupsNotFilled={lookupsNotFilled}
+              statusesNotApplied={statusesNotApplied}
             />
           </div>
         </div>

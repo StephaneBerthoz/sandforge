@@ -193,7 +193,7 @@ describe('faker field defaults', () => {
         describedFieldRule(described('AccountId', 'reference', { referenceTo: ['Account'] })),
       ).toEqual({
         ruleType: 'reference',
-        config: { referenceObject: 'Account', referenceField: 'Id' },
+        config: { referenceObject: 'Account' },
       });
     });
 

@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import * as z from 'zod';
 import type { ForgeRemovalPlan } from '@sandforge/shared';
+import { MADE_KEPT_PER_OBJECT, madeKept } from './sweepTies.js';
 
 /**
  * The most the removal plans take on disk, in bytes of JSON: about 200 000
@@ -21,6 +22,22 @@ export const REMOVAL_PLANS_HARD_MAX_BYTES = 64 * 1024 * 1024;
 
 /** The file the plans are kept in, under the extension's own storage. */
 export const REMOVAL_PLANS_FILE = 'forge-removal-plans.json';
+
+/**
+ * The file, beside the plans, that keeps what the sweeps of each run's
+ * removals found made for it (`SweepParts.made`), and made late
+ * (`SweepParts.late`), by run.
+ */
+export const SWEEP_MADE_FILE = 'forge-sweep-made.json';
+
+/** Runs whose sweeps' finds are kept at most: the newest, as a run's removals come soon after it. */
+export const SWEEP_MADE_RUNS_KEPT = 50;
+
+/**
+ * Ids kept per object of one run's finds at most: past what a sweep takes of
+ * an object (`SWEEP_OBJECT_BOUND`), nothing of it was swept.
+ */
+export const SWEEP_MADE_PER_OBJECT = MADE_KEPT_PER_OBJECT;
 
 /** File-system operations the store needs, injected so it stays testable. */
 export interface ForgeRemovalPlanStoreDeps {
@@ -109,6 +126,21 @@ const planSchema = z.object({
 
 const fileSchema = z.object({ version: z.literal(1), plans: z.array(z.unknown()) });
 
+/** The finds of the sweeps of each run, as their file holds them: external input, checked. */
+const madeFileSchema = z.object({
+  version: z.literal(1),
+  runs: z.array(
+    z.object({
+      forgeId: z.string().min(1).max(300),
+      ids: z.array(idSchema),
+      late: z.array(idSchema).optional(),
+    }),
+  ),
+});
+
+/** What the sweeps of one run found, as the file keeps it. */
+type RunFinds = z.infer<typeof madeFileSchema>['runs'][number];
+
 /**
  * The removal plans of past runs, kept in a file of the extension's own
  * storage, so a run stays removable once the run history — the last twenty
@@ -185,6 +217,90 @@ export class ForgeRemovalPlanStore {
         : [...plans.slice(0, at), ...plans.slice(at + 1)];
       await this.write(next);
     });
+  }
+
+  /**
+   * The records the sweeps of the run's removals found made for it, by id
+   * (`SweepTies.madeEarlier`): `made` still for the next sweep, once a
+   * removal deleted the record they were tied to and the org cleared the
+   * lookup that told it — a task's account, an email's record. None when no
+   * sweep of the run kept any, or the file is not one.
+   */
+  madeOf(forgeId: string): Promise<string[]> {
+    return this.enqueue(async () => {
+      const runs = await this.readMade();
+      return runs.find((run) => run.forgeId === forgeId)?.ids ?? [];
+    });
+  }
+
+  /**
+   * The records the sweeps of the run's removals found made late for it and
+   * left, by id (`SweepTies.lateEarlier`): `late` still for the next sweep,
+   * which takes them when asked to take what came late, once the record they
+   * were tied to went and the org cleared the lookup that told it. None when
+   * no sweep of the run kept any, or the file is not one.
+   */
+  lateOf(forgeId: string): Promise<string[]> {
+    return this.enqueue(async () => {
+      const runs = await this.readMade();
+      return runs.find((run) => run.forgeId === forgeId)?.late ?? [];
+    });
+  }
+
+  /**
+   * Keep what a sweep of the run's removal found made for it, and made late,
+   * beside what earlier sweeps found: read before its first delete, it is the
+   * only word left on a record whose tie the removal cleared. Each object's
+   * at most {@link SWEEP_MADE_PER_OBJECT}, the newest
+   * {@link SWEEP_MADE_RUNS_KEPT} runs' at most. What the sweep said gone
+   * (`gone`) is kept no more.
+   */
+  keepMade(
+    forgeId: string,
+    ids: Iterable<string>,
+    late: Iterable<string> = [],
+    gone: Iterable<string> = [],
+  ): Promise<void> {
+    return this.enqueue(async () => {
+      const runs = await this.readMade();
+      const before = runs.find((run) => run.forgeId === forgeId);
+      const said = [...gone];
+      const kept = madeKept(before?.ids, ids, said);
+      const keptLate = madeKept(before?.late, late, said);
+      if (
+        kept.join() === (before?.ids ?? []).join() &&
+        keptLate.join() === (before?.late ?? []).join()
+      ) {
+        return;
+      }
+      const finds: RunFinds = {
+        forgeId,
+        ids: kept,
+        ...(keptLate.length > 0 ? { late: keptLate } : {}),
+      };
+      const next = [finds, ...runs.filter((run) => run.forgeId !== forgeId)].slice(
+        0,
+        SWEEP_MADE_RUNS_KEPT,
+      );
+      await this.deps.mkdir(this.deps.storagePath).catch(() => undefined);
+      const file = path.join(this.deps.storagePath, SWEEP_MADE_FILE);
+      const written = `${file}.${process.pid}.tmp`;
+      await this.deps.writeFile(written, JSON.stringify({ version: 1, runs: next }));
+      await this.deps.rename(written, file);
+    });
+  }
+
+  /** The finds the file holds, newest run first; none when there is no file, or it is not one. */
+  private async readMade(): Promise<RunFinds[]> {
+    try {
+      const raw: unknown = JSON.parse(
+        await this.deps.readFile(path.join(this.deps.storagePath, SWEEP_MADE_FILE)),
+      );
+      const file = madeFileSchema.safeParse(raw);
+      return file.success ? file.data.runs : [];
+    } catch {
+      return [];
+    }
   }
 
   private enqueue<T>(work: () => Promise<T>): Promise<T> {

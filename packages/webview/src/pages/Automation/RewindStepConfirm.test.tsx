@@ -75,6 +75,216 @@ describe('RewindStepConfirm', () => {
     expect(host.current?.sent('checkpoint:rewind')).toEqual([]);
   });
 
+  it('shows the preview of a step that mutes as what still runs, the box read-only, and of one that does not, none', () => {
+    const automation = {
+      objectsRead: ['Contact'],
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [
+            {
+              apiName: 'Contact_changed',
+              label: 'Contact changed',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [{ name: 'Skip_Contact', bypass: true, held: false }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 0,
+      bypassGrants: [
+        {
+          permission: 'Skip_Contact',
+          permissionSets: [{ name: 'Skip_Contact_Set', label: 'Skip', grants: 1 }],
+        },
+      ],
+    };
+    const answered = () =>
+      act(() =>
+        host.current?.answer('checkpoint:preview', 'checkpoint:preview:response', {
+          ...previewAnswer(),
+          automation,
+        }),
+      );
+    const { unmount } = render(
+      <RewindStepConfirm
+        step={step}
+        org={developerOrg()}
+        checkpoint={readyCheckpoint()}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    answered();
+    expect(screen.queryByTestId('rewind-step-confirm-mute')).toBeNull();
+    unmount();
+
+    render(
+      <RewindStepConfirm
+        step={{ ...step, config: { ...step.config, muteAutomation: true } }}
+        org={developerOrg()}
+        checkpoint={readyCheckpoint()}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
+      checkpointId: CHECKPOINT_ID,
+      muteAutomation: true,
+    });
+    answered();
+
+    const box = screen.getByTestId('rewind-step-confirm-mute-toggle');
+    expect(box).toHaveProperty('checked', true);
+    expect(box).toHaveProperty('disabled', true);
+    expect(screen.getByTestId('rewind-step-confirm-mute-assigns').textContent).toContain(
+      'Skip_Contact_Set',
+    );
+    // What the mute keeps quiet is not asked to be accepted: nothing else fires.
+    expect(screen.queryByTestId('checkpoint-preview-accept-automation')).toBeNull();
+  });
+
+  it('keeps a step that mutes muted through a read that finds nothing to silence: the box is the saved step’s, and no read goes out unmuted', () => {
+    render(
+      <RewindStepConfirm
+        step={{ ...step, config: { ...step.config, muteAutomation: true } }}
+        org={developerOrg()}
+        checkpoint={readyCheckpoint()}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    // A flow no bypass keeps quiet: the mute has nothing to assign.
+    act(() =>
+      host.current?.answer('checkpoint:preview', 'checkpoint:preview:response', {
+        ...previewAnswer(),
+        automation: {
+          objectsRead: ['Contact'],
+          objects: [
+            {
+              objectApiName: 'Contact',
+              flows: [
+                {
+                  apiName: 'Contact_changed',
+                  label: 'Contact changed',
+                  timing: 'afterSave',
+                  startsOn: 'update',
+                  condition: 'read',
+                  permissions: [],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        },
+      }),
+    );
+
+    expect(screen.queryByTestId('rewind-step-confirm-mute')).toBeNull();
+    // The box unticked itself, and the preview was read again unmuted: a read
+    // that then found a bypass showed the step as one that does not mute.
+    expect(host.current?.sent('checkpoint:preview')).toHaveLength(1);
+    expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
+      checkpointId: CHECKPOINT_ID,
+      muteAutomation: true,
+    });
+  });
+
+  it('previews a step limited to some objects as its rewind: read and planned for those, what the mute would assign of them alone, none added here', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      render(
+        <RewindStepConfirm
+          step={{
+            ...step,
+            config: {
+              ...step.config,
+              objects: ['contact'],
+              acceptOutside: true,
+              muteAutomation: true,
+            },
+          }}
+          org={developerOrg()}
+          checkpoint={readyCheckpoint()}
+          onClose={vi.fn()}
+          onConfirm={vi.fn()}
+        />,
+      );
+      // Whether its deletions take along what of the others hangs from them
+      // too: asked without it, the preview counted the emails, the automation
+      // and the refusal of a rewind that keeps those records, and the step's
+      // rewind deletes them.
+      expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
+        checkpointId: CHECKPOINT_ID,
+        objects: ['contact'],
+        acceptOutside: true,
+        muteAutomation: true,
+      });
+      // A flow a bypass keeps quiet as accounts are updated: the account is
+      // not among what the step rewinds.
+      act(() =>
+        host.current?.answer('checkpoint:preview', 'checkpoint:preview:response', {
+          ...previewAnswer(),
+          automation: {
+            objectsRead: ['Contact', 'Account'],
+            objects: [
+              {
+                objectApiName: 'Account',
+                flows: [
+                  {
+                    apiName: 'Account_changed',
+                    label: 'Account changed',
+                    timing: 'afterSave',
+                    startsOn: 'update',
+                    condition: 'read',
+                    permissions: [{ name: 'Skip_Account', bypass: true, held: false }],
+                  },
+                ],
+                triggers: [],
+              },
+            ],
+            unread: [],
+            conditionsNotRead: 0,
+            conditionsBound: 0,
+            requests: 0,
+            bypassGrants: [
+              {
+                permission: 'Skip_Account',
+                permissionSets: [{ name: 'Skip_Account_Set', label: 'Skip', grants: 1 }],
+              },
+            ],
+          },
+        }),
+      );
+      act(() => {
+        vi.advanceTimersByTime(1_000);
+      });
+
+      expect(host.current?.lastPayload('checkpoint:plan-selection')).toEqual({
+        checkpointId: CHECKPOINT_ID,
+        previewId: 'pv-1',
+        objects: ['Contact'],
+        acceptOutside: true,
+      });
+      // Nothing to assign for a rewind of contacts.
+      expect(screen.queryByTestId('rewind-step-confirm-mute')).toBeNull();
+      expect(screen.queryByTestId('checkpoint-preview-pick-Contact')).toBeNull();
+      expect(screen.getByRole('heading', { name: 'Limited to Contact' })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('asks for the alias under a button and a dialog that say what it allows, in three different words', () => {
     // "Confirm this rewind…", "Confirm for this step…", then a dialog titled
     // as the section above it: three confirmations in a row.
@@ -115,8 +325,23 @@ describe('RewindStepConfirm', () => {
       code: 'TYPED_MISMATCH',
     });
     expect(screen.getByTestId('rewind-grant-refused').textContent).toBe(
-      "What was typed is not the org's alias: nothing was confirmed.",
+      "What was typed is not the org's alias, nor its username for an org that has none: nothing was confirmed.",
     );
+  });
+
+  it('says to type the username of an org that has no alias, as the confirmation asks it, in every language', () => {
+    // The confirmation asks for the alias, or the username of an org without
+    // one; these said the alias alone.
+    for (const catalogue of [en, fr, de, es, ptBR, ja]) {
+      const username = catalogue.org.username.toLocaleLowerCase();
+      for (const said of [
+        catalogue.automation.runnability.rewindNotConfirmed,
+        catalogue.automation.rewindNotConfirmedNote,
+        catalogue.automation.rewindGrantRefused.TYPED_MISMATCH,
+      ]) {
+        expect(said.toLocaleLowerCase()).toContain(username);
+      }
+    }
   });
 });
 
@@ -191,6 +416,7 @@ describe('StepConfigPanel, a Rewind step', () => {
 
   it('groups the acceptances under a heading saying they widen the risk, folded while none is ticked', () => {
     // Five boxes stood unlabelled in the column, worded to be read twice.
+    // The emails' came beside the automation's, which never stands for it.
     renderPanel({ steps: [] });
     const group = screen.getByTestId('rewind-acceptances');
     expect(group.tagName).toBe('DETAILS');
@@ -200,13 +426,34 @@ describe('StepConfigPanel, a Rewind step', () => {
     );
     const boxes = screen.getByRole('group', { name: 'Allow riskier changes (off by default)' });
     expect(Array.from(boxes.querySelectorAll('label'), (label) => label.textContent)).toEqual([
+      "Mute the org's automation for this rewind, through its own bypass: what no bypass keeps quiet still runs",
       'Run even if triggers, flows or workflow rules fire on the records it writes',
+      'Run even if the org delivers the emails its flows, processes or workflow rules send as it writes (All email), or would not say whether it does',
       'Allow deletions that Undo of this rewind cannot bring back',
       'Recreate, with new Ids, records already emptied from the Recycle Bin',
       'Allow deletions that cascade to child records of objects outside the checkpoint',
       'Allow deletions that cascade to records the connected user may not see (no View All Data or Modify All Data)',
     ]);
     expect(screen.queryByTestId('rewind-acceptances-count')).toBeNull();
+  });
+
+  it('accepts the emails off by default, and on only once its box is ticked', () => {
+    const onUpdate = vi.fn();
+    render(<StepConfigPanel step={step} onUpdate={onUpdate} rewind={{ steps: [] }} />);
+    const box = screen.getByTestId('config-acceptEmails') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(screen.getByTestId('config-acceptAutomation'));
+    expect(onUpdate).toHaveBeenLastCalledWith(
+      'step-r',
+      expect.objectContaining({
+        config: expect.not.objectContaining({ acceptEmails: true }),
+      }),
+    );
+    fireEvent.click(box);
+    expect(onUpdate).toHaveBeenLastCalledWith(
+      'step-r',
+      expect.objectContaining({ config: expect.objectContaining({ acceptEmails: true }) }),
+    );
   });
 
   it('opens the acceptances of a step that gives one, and counts them on the heading', () => {
@@ -248,7 +495,7 @@ describe('StepConfigPanel, a Rewind step', () => {
     renderPanel({ steps: [], blocker: 'rewindNotConfirmed', onPreview: vi.fn() });
     expect(screen.getByTestId('rewind-confirm').textContent).toBe('Preview and confirm…');
     expect(screen.getByTestId('rewind-confirmation-status').textContent).toBe(
-      "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias.",
+      "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias, or its username for an org that has none.",
     );
   });
 
@@ -261,6 +508,16 @@ describe('StepConfigPanel, a Rewind step', () => {
     fireEvent.click(screen.getByTestId('config-acceptNoUndo'));
     expect(onUpdate).toHaveBeenCalledWith('step-r', {
       config: { ...step.config, acceptNoUndo: true },
+    });
+  });
+
+  it('offers to mute the org’s automation, off until ticked, as the setting a confirmation is bound to', () => {
+    const { onUpdate } = renderPanel({ steps: [] });
+    const box = screen.getByTestId('config-muteAutomation');
+    expect(box).toHaveProperty('checked', false);
+    fireEvent.click(box);
+    expect(onUpdate).toHaveBeenCalledWith('step-r', {
+      config: { ...step.config, muteAutomation: true },
     });
   });
 });

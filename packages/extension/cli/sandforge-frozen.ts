@@ -21,7 +21,8 @@
  *   verify   check the last load against the dataset, read-only
  *   remove   delete from the sandbox the records the last load created — what an
  *            earlier removal left of them, or, once they all went, those of the
- *            load before it — deletes; with --preview, what it would delete,
+ *            load before it — deletes, what the target runs as they go named
+ *            first and accepted or muted; with --preview, what it would delete,
  *            read from the target, and nothing deleted
  *   status   what the store knows so far
  *
@@ -43,35 +44,106 @@
  * pnpm build:shared.
  */
 
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Connection } from 'jsforce';
 import type {
+  ForgeAutomationWrite,
+  ForgeRemovalSteps,
   ForgeSweepListing,
   ForgeSweepResult,
+  ForgeTargetAutomation,
   FrozenDiscoveryOrigin,
+  FrozenLoadAutomationInfo,
+  FrozenLoadEmailsInfo,
   FrozenLoadPlanInfo,
   FrozenLoadReportInfo,
   FrozenObjectVerdict,
   FrozenRemovalPreview,
+  FrozenReloadSweep,
+  FrozenReloadSweepListing,
   FrozenRemovalResult,
   FrozenSelectProgress,
   FrozenSelectionStop,
   FrozenVerifyVerdict,
   OrgType,
+  RecordTypeGiven,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointRequest,
+  RunCheckpointTaken,
+  StillRunning,
 } from '@sandforge/shared';
-import { orgTypeOf } from '@sandforge/shared';
-import { loadOrg, makeConn } from './sfSession.js';
-import { sweepLines, sweepListingLines, targetAutomationReader } from './sandforge-clone.js';
-import { muteLines, planMute } from '../src/modules/forge/AutomationMuteLease.js';
+import {
+  orgTypeOf,
+  removalStepsBypassesOf,
+  removalStepsWithSweep,
+  removalStepsWrites,
+  stillRunningOf,
+  sweepTakenObjects,
+} from '@sandforge/shared';
+import { loadOrg, makeConn, type SfOrg } from './sfSession.js';
+import {
+  SWEEP_CLASS_FLAGS,
+  automationHeldLines,
+  journalDirOf,
+  otherRunsOf,
+  platformCopiesWords,
+  sweepClassArgsOf,
+  sweepLines,
+  sweepListingLines,
+  sweepOptionWords,
+  targetAutomationReader,
+  tookAlongLines,
+  type SweepClassArgs,
+} from './sandforge-clone.js';
+import { relayTakes } from './relayWords.js';
+import type { OtherModuleRuns } from '../src/bridge/handlers/removalSweep.js';
+import { PRODUCTION_GUARD_MISSING } from '../src/bridge/handlers/HandlerTypes.js';
+import { recordTypeGivenOfObjectsLines } from './sandforge-sync.js';
+import {
+  muteLines,
+  muteOrgOf,
+  planMute,
+  prepareMute,
+  type RunMute,
+} from '../src/modules/forge/AutomationMuteLease.js';
 import type { MutedAutomation, MutePlan } from '@sandforge/shared';
+import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
+import {
+  CHECKPOINT_REFUSED,
+  CHECKPOINT_STOPPED_WORDS,
+  bypassesToAssign,
+  removalStepsAutomationLines,
+  removalStepsAutomationRefusal,
+  takeCheckpointFirst,
+  type RemovalStepsSubject,
+} from '../src/modules/forge/ForgeRunGate.js';
+import {
+  CHECKPOINT_FIRST,
+  CHECKPOINT_FIRST_FLAGS,
+  checkpointEstimateLines,
+  checkpointFirstArgs,
+  checkpointFirstHelp,
+  checkpointRefusedWords,
+  checkpointSettledLines,
+  checkpointStopWords,
+  checkpointTakenLines,
+  commandCheckpoints,
+  type CommandCheckpointAsk,
+  type CommandCheckpoints,
+} from './beforeRunCheckpoint.js';
 import { fileConfigStore } from './fileConfigStore.js';
-import { FrozenDatasetHandler } from '../src/bridge/handlers/FrozenDatasetHandler.js';
+import {
+  FrozenDatasetHandler,
+  type FrozenRemovalQuestion,
+} from '../src/bridge/handlers/FrozenDatasetHandler.js';
 import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
 import { commandLineGuard } from './commandLineGuard.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { confirm, typed } from './prompt.js';
+import { refusedLine, wouldBeRefusedLine, type RunRefusal } from './runRefused.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import {
   DONE_EXIT,
@@ -82,13 +154,26 @@ import {
   worstExit,
 } from './exitCodes.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
+import { writtenWithWords } from '../src/core/common/platformRecords.js';
 import { commandLineSaltKeeper } from '../src/modules/frozendataset/FrozenSalt.js';
 import { frozenDatasetDigest } from '../src/modules/frozendataset/datasetDigest.js';
 import {
   loadPlanRecords,
   loadRecordsRefusal,
 } from '../src/modules/frozendataset/FrozenDatasetLoader.js';
-import { referenceIdMappingFileName } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
+import {
+  referenceIdMappingFileName,
+  SasReferenceIdMappingStore,
+} from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
+import {
+  indexLoad,
+  indexedLoadsOf,
+  lastWriteOfLoad,
+  otherSasRunsOf,
+  sasMarkOf,
+} from '../src/modules/frozendataset/otherSasLoads.js';
+import { loadEmailsLines } from '../src/modules/frozendataset/loadEmails.js';
+import { loadAutomationLines } from '../src/modules/frozendataset/loadAutomation.js';
 import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-frozen — build and replay a Frozen Dataset, without the editor.
@@ -100,10 +185,14 @@ Steps:
   select     pick one root per combination of the coverage matrix   (needs --source)
   extract    read, pseudonymize, check and freeze those roots        (needs --source)
   load       replay the frozen dataset into a sandbox or a Developer Edition
-             — WRITES                                                 (needs --target)
+             — WRITES                                                 (needs --target);
+             what the target runs as it inserts and updates is named first, and takes
+             --accept-automation or --mute-automation
   verify     check the last load against the dataset                 (needs --target)
   remove     delete the records a load created, the last first — DELETES (needs --target);
-             with --preview, say what it would delete, and delete nothing
+             what the target runs as they go is named first, and takes --accept-automation
+             or --mute-automation; with --preview, say what it would delete, and delete
+             nothing
   status     what the store knows so far
 
 Required:
@@ -121,13 +210,31 @@ Options:
   --reload               replace the loads before: purge what earlier loads created,
                          then load again. Refused before anything is written when a
                          removal of those loads would leave records in the org —
-                         records changed since, of an object the user may not delete,
-                         out of the user's sight or unread — or when one of them was
-                         recorded before loads kept what they created: take the load
-                         back with remove first (--include-changed takes what changed
-                         since). With --pilot, a reload purges nothing, and is not
-                         asked
-  --max-total <n>        with load: the most records it may insert — the count its dry
+                         records changed since, kept for records that stay under them
+                         (a contact made by hand since under one of their accounts,
+                         which the org would delete along), of an object the user may
+                         not delete, out of the user's sight or unread — or when one
+                         of them was recorded before loads kept what they created: take
+                         the load back with remove first (--include-changed takes what
+                         changed since, and what was added under them since). Refused
+                         the same way when the purge would have the org delete along a
+                         record the reload finds again by its keys — a quote under the
+                         opportunity an earlier load wrote: give that parent identity
+                         keys too, or take the load back first. What the target's
+                         automation likely made for a load holds nothing with --sweep,
+                         which takes it first. What the target runs as the purge
+                         deletes is read and named first, and nothing is written
+                         while something fires unless --accept-automation or
+                         --mute-automation answers it. The purge takes what those
+                         loads created, not what the target's automation made for
+                         them: --sweep takes that too. With --pilot, a reload purges
+                         nothing, and is not asked
+  --gone-first <file>    with load --reload --dry-run: the records taken back before
+                         the reload runs, a JSON array of their ids — hanging from the
+                         loads' records, they hold nothing. sandforge-env gives it what
+                         its apply takes back first; a reload that runs reads what is
+                         still there
+  --max-total <n>       with load: the most records it may insert — the count its dry
                          run gave. A load, or a reload, that would insert more is
                          refused before anything is written, the purge included; a dry
                          run says it would be, exit 1
@@ -137,42 +244,126 @@ Options:
                          holds them, though its manifest does not say its extraction
                          left out what it read masked — they may hold masks such as
                          ****1234 (left out otherwise, each named)
-  --mute-automation      with load: mute the target's automation for the load through
-                         its own bypass — assign the user it writes as, for the load
-                         alone, the permission sets holding the custom permissions its
-                         flows, processes and workflow rules test to stay quiet, and
-                         take them back as it ends; what no bypass keeps quiet still
-                         runs, and is named. Refused on a production org and for a user
-                         who cannot assign permission sets, exit 1; with --dry-run,
-                         says what would be muted and assigns nothing
+  --mute-automation      with load or remove: mute the target's automation for that
+                         step through its own bypass — assign the user it writes as,
+                         for the step alone, the permission sets holding the custom
+                         permissions its flows, processes and workflow rules test to
+                         stay quiet, those of what --sweep deletes included, and take
+                         them back as it ends; what no bypass keeps quiet still runs,
+                         and is named, and a load or a removal then needs
+                         --accept-automation.
+                         Refused on a production org and for a user who cannot assign
+                         permission sets, exit 1; with --dry-run or --preview, says
+                         what would be muted and assigns nothing
+  --accept-automation    with load: write although the target runs flows, Apex
+                         triggers, processes or workflow rules as the load inserts
+                         its records and updates them — what --mute-automation
+                         keeps quiet and a bypass the user holds aside — or could
+                         not say what it runs; with remove, or load --reload:
+                         delete although it runs them as the records go, those
+                         --sweep deletes included — before or after a delete, or
+                         as an activated order is set back to Draft for its
+                         delete. Each is named before anything is written or
+                         deleted; without the flag the load or the reload writes
+                         nothing (AUTOMATION_NOT_ACCEPTED), the removal deletes
+                         nothing, exit 1; --dry-run says so
+  --accept-emails        with load: write although the target delivers every email
+                         what still runs sends as the records go in, a reload's
+                         purge and sweep included (Setup > Deliverability: All
+                         email), or would not say whether it does: without it
+                         such a load is refused, exit 1 (EMAILS_NOT_ACCEPTED),
+                         nothing written. Read only when something that still
+                         runs sends one, with one line of anonymous Apex that
+                         sends nothing; on System email only or No access it is
+                         not needed. The emails are counted too, on the records
+                         of the dataset, at most, against what the target has
+                         left today: past it, the load is refused whatever the
+                         flag, exit 1 (FROZEN_EMAILS_EXCEEDED). --mute-automation
+                         keeps quiet what tests the org's bypass; what an Apex
+                         trigger sends is read nowhere. --dry-run says it all,
+                         and what a load would be refused for
+${checkpointFirstHelp({
+  run: 'the load',
+  simulation: '--dry-run',
+  step: 'with load: ',
+  note: [
+    'Taken by this command once the load may write, before',
+    "the load's lease; deleted when the load is refused before",
+    'it writes or reports it wrote nothing, and kept when it',
+    'stops or fails part way: what it wrote then is not told',
+    'here.',
+  ],
+})}
   --include-changed      remove also the records changed since the load, and what
-                         was added to them since (kept otherwise)
+                         was added to them since (kept otherwise); with load
+                         --reload --sweep, the sweep of each load replaced takes
+                         too what it finds changed since that load, which it
+                         keeps and names otherwise, the load kept recorded for
+                         a later sweep, and the reload no partial for them
   --sweep                with remove: before the load's records go, delete too what
-                         the target's automation created during the load, as the
-                         load's user, that the load's mapping does not hold — in the
-                         objects the load wrote, tasks, events, feed, email
-                         messages, notes, case comments, and the objects the
-                         target's flows create; the window is the load's writes,
-                         from a second before the first to a minute after the
-                         last. Refused when that user created records in the
-                         window on objects neither the load nor the automation
-                         reaches (hand work, likely). Such records then keep none
-                         of the load's records as records that stay (off otherwise)
+                         the target's automation made for the load, that the
+                         load's mapping does not hold: what the load's user
+                         created under the load's records, what they point at,
+                         or what hangs from those, three links at most, at most
+                         a minute after the record it is tied to — in the
+                         objects the load wrote and their children, tasks,
+                         events, feed, email messages, notes, case comments, and
+                         the objects the target's flows create; the window is
+                         the load's writes, from a second before the first to a
+                         minute after the last. What a record of the load points
+                         at by a lookup the org refuses the delete for goes once
+                         that record is gone. Listed and kept: what is tied to
+                         the load but came later, up to 15 minutes, or as the
+                         org's Automated Process user; and what the load's user
+                         created in the window tied to nothing of it. Such
+                         records then keep none of the load's records as records
+                         that stay. A sweep refused, or that did not take all it was
+                         asked to, exits 3, and ends partial a removal that took
+                         every record of the load; one that left records of its own
+                         keeps its own status. Once the load's records went already,
+                         the sweep runs alone, the way to take what such a sweep
+                         left (off otherwise). It sweeps too, each in its own
+                         window, every other load recorded whose records went — a
+                         load a reload replaced, kept for what its sweep left —,
+                         and lets it go once that sweep took all it found. With
+                         load --reload: the sweep of each load the reload
+                         replaces, as its removal sweeps it, around the purge;
+                         what the target runs as it deletes is named once it has
+                         read what it takes, before the first delete, and
+                         answered as the purge's; with --dry-run, it lists what
+                         it would take. One refused, or that did not take all it
+                         was asked to, exits 3
+  --sweep-late           with --sweep: take too what it lists as made late; with
+                         --sweep-list, say what it would take
+  --sweep-untied         with --sweep: take too what it lists as tied to nothing of
+                         the load; with --sweep-list, say what it would take;
+                         refused when another run wrote to the target
+                         in the window — a load swept with it is none, a load
+                         this command ran from another sas into the org is one
+                         —, or when that user created records in the window on
+                         objects neither the load nor the automation reaches
+                         (hand work, likely)
   --sweep-list           with remove: list what --sweep would delete, per object
-                         with a few names, and delete nothing
+                         with a few names and how many it ties to the load, and
+                         for each other load it sweeps with it, and delete nothing;
+                         exit 3 when it says a sweep is refused, as --sweep would
   --preview              with remove: say what the removal would do, per object — the
                          records it would delete, those it would keep as changed since
                          the load and who changed them, those gone already, those it
                          cannot see, and those it would leave because the user may not
-                         delete them — and what it would be refused for. It deletes
-                         nothing, writes nothing to the sas and asks nothing; it exits 0
-                         once it has said it. It cannot know what hangs from the records,
-                         which a removal reads at each object's turn. Not with --sweep
-                         or --sweep-list
-  --yes                  do not ask before a load writes or a removal deletes.
-                         Without it, a step with no terminal to answer the
-                         question — a CI step — stops there, exit 2, and
-                         writes nothing
+                         delete them — what the target runs as they go, and what it
+                         would be refused for, that automation without
+                         --accept-automation included. It deletes nothing, writes
+                         nothing to the sas and asks nothing; it exits 0 once it has
+                         said it. It cannot know what hangs from the records, which a
+                         removal reads at each object's turn. With --sweep, it lists
+                         what the sweep would take, and reads what fires on it with
+                         the load's own. Not with --sweep-list
+  --yes                  do not ask before a load writes or a removal deletes: a
+                         removal asks last, once what it deletes and what the
+                         target runs as they go are said. Without it, a step
+                         with no terminal to answer the question — a CI step —
+                         stops there, exit 2, and writes nothing
   --json                 emit what the panel would receive, every other line on
                          stderr; a step that ends before its request, refused or
                          with nothing to do, says "ended": true. Beside it, "step";
@@ -181,9 +372,18 @@ Options:
                          into it) and its version — for extract, load and verify;
                          "mapping", the file in the sas naming the records the loads
                          into the target created, for load, verify and remove; per
-                         object, what the step counted ("objects"); verify's verdict,
-                         and a load's, per object ("verdict"); and what a dry run or a
-                         removal's preview would be refused for ("refusals")
+                         object, what the step counted ("objects"); how a load or a
+                         removal ended ("status"); verify's verdict, and a load's, per
+                         object ("verdict"); what a dry run or a
+                         removal's preview would be refused for ("refusals"), with the
+                         code of each ("refusalCodes"), as its line names it: a load
+                         would be refused (CODE): ..., a removal would be refused
+                         (CODE): ...; and what refused a load before it wrote — what
+                         runs as it writes, its purge, its checkpoint, its emails or
+                         its mute — or a removal
+                         before its first delete — what fires as it deletes, its mute
+                         or Production Guard — ("refused": {"code", "message"}), as
+                         its line names it: refused (CODE): ...
   --help                 this text
 
 The salt that makes pseudonyms repeatable is read from SANDFORGE_FROZEN_SALT,
@@ -202,13 +402,19 @@ out — or a SIGHUP stops it the same way. Ctrl-C again ends it at once.
 
 Exit codes: 0 the step finished — a removal with nothing to take included, and a
 removal's preview once said, its refusals included —, and verify's verdict is
-PASSED; 1 it failed or could not start, verify's verdict is FAILED, or a dry run
-says the load would be refused; 2 a bad command line, or a question with no
-terminal to answer it (give --yes); 3 verify's verdict is PARTIAL, a load
-completed with errors, or a removal left records of the load; 4 verify's verdict
-is UNSTABLE: no two readings agreed; 130 Ctrl-C stopped the step, 143 a SIGTERM,
-129 a SIGHUP. A load is judged by its own report: the verification it runs after it
-is said, and the verify step gives it a code.
+PASSED; 1 it failed or could not start, verify's verdict is FAILED, a dry run says
+the load would be refused, a load was refused before it wrote for what the target
+runs as it writes (AUTOMATION_NOT_ACCEPTED without --accept-automation) or for its
+emails (EMAILS_NOT_ACCEPTED without --accept-emails, FROZEN_EMAILS_EXCEEDED), or a removal
+stopped before its first delete at what the target runs, without
+--accept-automation; 2 a bad command line, or a question with
+no terminal to answer it (give --yes); 3 verify's verdict is PARTIAL, a load
+completed with errors, the verification it runs after it was FAILED or PARTIAL, or
+the sweep of a reload did not take all it was asked to, or a removal left records
+of the load or its sweep did not take all it was asked to; 4 verify's verdict is
+UNSTABLE: no two readings agreed; 130 Ctrl-C stopped the step, 143 a SIGTERM, 129 a
+SIGHUP. A load is judged by its own report, which ends partial on a verification
+FAILED or PARTIAL; one UNSTABLE is said, and the verify step gives it a code.
 `;
 
 const STEPS = ['select', 'extract', 'load', 'verify', 'remove', 'status'] as const;
@@ -230,17 +436,41 @@ interface CliArgs {
   dryRun: boolean;
   /** With load: write the fields the target encrypts though the dataset may hold their masks. */
   writeEncrypted: boolean;
-  /** With load: mute the target's automation for the load, through its own bypass. */
+  /** With load or remove: mute the target's automation for the step, through its own bypass. */
   muteAutomation: boolean;
+  /** With remove: delete although the target runs automation as the records go. */
+  acceptAutomation: boolean;
+  /**
+   * With load: take a checkpoint of what the load writes before its first
+   * write (`--checkpoint-first`). undefined = none.
+   */
+  checkpointFirst?: RunCheckpointRequest;
   includeChanged: boolean;
+  /**
+   * With load: write although the target delivers every email what still
+   * runs sends as the records go in, or would not say whether it does.
+   */
+  acceptEmails: boolean;
   /** With remove: sweep first what the target's automation created during the load. */
   sweep: boolean;
   /** With remove: list what a sweep would delete, and delete nothing. */
   sweepList: boolean;
+  /** With the sweep: take too what it lists as made late (`--sweep-late`). Absent unless given. */
+  sweepLate?: true;
+  /**
+   * With the sweep: take too what it lists as tied to nothing of the load
+   * (`--sweep-untied`), unless that is refused. Absent unless given.
+   */
+  sweepUntied?: true;
   /** With remove: say what the removal would do, and delete nothing. */
   preview: boolean;
   /** With load: the most records it may insert. */
   maxTotal?: number;
+  /**
+   * With load --reload --dry-run: the file of the ids of records taken back
+   * before the reload runs (`--gone-first`). Absent unless given.
+   */
+  goneFirst?: string;
   yes: boolean;
   json: boolean;
 }
@@ -254,18 +484,54 @@ const FLAGS: CommandFlags = {
     '--dry-run',
     '--write-encrypted',
     '--mute-automation',
+    '--accept-automation',
     '--include-changed',
+    '--accept-emails',
     '--sweep',
     '--sweep-list',
+    ...SWEEP_CLASS_FLAGS,
     '--preview',
     '--yes',
     '--json',
+    ...CHECKPOINT_FIRST_FLAGS.switches,
   ],
-  values: ['--config', '--source', '--target', '--author', '--salt-file', '--store', '--max-total'],
+  values: [
+    '--config',
+    '--source',
+    '--target',
+    '--author',
+    '--salt-file',
+    '--store',
+    '--max-total',
+    '--gone-first',
+    ...CHECKPOINT_FIRST_FLAGS.values,
+  ],
 };
 
 /** The most records `--max-total` takes: the bound of the load's request. */
 const MAX_TOTAL = 1_000_000;
+
+/**
+ * The ids `--gone-first` names: a JSON array of record ids, in the file it
+ * is given. A file that does not read as one is refused, exit 2.
+ */
+export function goneFirstIdsOf(file: string): string[] {
+  let read: unknown;
+  try {
+    read = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (err: unknown) {
+    process.stderr.write(`--gone-first: ${file} does not read: ${String(err)}\n`);
+    process.exit(2);
+  }
+  if (
+    !Array.isArray(read) ||
+    !read.every((id) => typeof id === 'string' && /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/.test(id))
+  ) {
+    process.stderr.write(`--gone-first: ${file} holds no JSON array of record ids.\n`);
+    process.exit(2);
+  }
+  return read as string[];
+}
 
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
@@ -307,18 +573,73 @@ export function parseArgs(argv: string[]): CliArgs {
     );
     process.exit(2);
   }
-  if ((args.includes('--sweep') || args.includes('--sweep-list')) && step !== 'remove') {
-    process.stderr.write('--sweep and --sweep-list go with remove. Run with --help.\n');
+  if (args.includes('--sweep-list') && step !== 'remove') {
+    process.stderr.write(
+      `--sweep-list goes with remove${step === 'load' ? '; a reload lists what its sweep would take with --dry-run --sweep' : ''}. Run with --help.\n`,
+    );
+    process.exit(2);
+  }
+  // A reload's purge takes the loads before it back, and its sweep what the
+  // target's automation made for them: a pilot purges nothing.
+  if (
+    args.includes('--sweep') &&
+    step !== 'remove' &&
+    !(step === 'load' && args.includes('--reload') && !args.includes('--pilot'))
+  ) {
+    process.stderr.write(
+      `--sweep goes with remove or load --reload${step === 'load' && args.includes('--pilot') ? ', and a pilot purges nothing' : ''}. Run with --help.\n`,
+    );
+    process.exit(2);
+  }
+  // Taken by a removal, and by the sweep of a reload: given anywhere else, it
+  // was dropped without a word.
+  if (
+    args.includes('--include-changed') &&
+    step !== 'remove' &&
+    !(step === 'load' && args.includes('--reload') && args.includes('--sweep'))
+  ) {
+    process.stderr.write(
+      '--include-changed goes with remove, or with load --reload --sweep, whose sweep then ' +
+        'takes what changed since the loads it replaces. Run with --help.\n',
+    );
+    process.exit(2);
+  }
+  // Said of a dry run alone: a reload that runs reads what is still there.
+  if (
+    args.includes('--gone-first') &&
+    !(step === 'load' && args.includes('--reload') && args.includes('--dry-run'))
+  ) {
+    process.stderr.write('--gone-first goes with load --reload --dry-run. Run with --help.\n');
+    process.exit(2);
+  }
+  const goneFirst = get('--gone-first');
+  if (args.includes('--gone-first') && goneFirst === undefined) {
+    process.stderr.write('--gone-first takes the file of the ids taken back first.\n');
     process.exit(2);
   }
   if (args.includes('--write-encrypted') && step !== 'load') {
     process.stderr.write('--write-encrypted goes with load. Run with --help.\n');
     process.exit(2);
   }
-  if (args.includes('--mute-automation') && step !== 'load') {
-    process.stderr.write('--mute-automation goes with load. Run with --help.\n');
+  if (args.includes('--accept-emails') && step !== 'load') {
+    process.stderr.write('--accept-emails goes with load. Run with --help.\n');
     process.exit(2);
   }
+  if (args.includes('--mute-automation') && step !== 'load' && step !== 'remove') {
+    process.stderr.write('--mute-automation goes with load or remove. Run with --help.\n');
+    process.exit(2);
+  }
+  if (args.includes('--accept-automation') && step !== 'remove' && step !== 'load') {
+    process.stderr.write('--accept-automation goes with load or remove. Run with --help.\n');
+    process.exit(2);
+  }
+  if (args.includes(CHECKPOINT_FIRST) && step !== 'load') {
+    process.stderr.write(`${CHECKPOINT_FIRST} goes with load. Run with --help.\n`);
+    process.exit(2);
+  }
+  // A checkpoint of what a load writes, taken before its first write; with
+  // --dry-run, what it would hold and cost.
+  const checkpointFirst = checkpointFirstArgs(args);
   if (args.includes('--preview') && step !== 'remove') {
     // A load's is --dry-run; a removal's is --preview, as for the other removals.
     process.stderr.write(
@@ -326,11 +647,18 @@ export function parseArgs(argv: string[]): CliArgs {
     );
     process.exit(2);
   }
-  if (args.includes('--preview') && (args.includes('--sweep') || args.includes('--sweep-list'))) {
+  // With --sweep, a preview reads what the sweep would take, as the removal
+  // reads it before asking, and deletes nothing.
+  if (args.includes('--preview') && args.includes('--sweep-list')) {
     process.stderr.write(
-      '--preview deletes nothing, --sweep deletes and --sweep-list lists what it would: give ' +
-        '--preview without them. Run with --help.\n',
+      '--preview deletes nothing, and --sweep-list lists what a sweep would take: give ' +
+        '--preview without it, or with --sweep. Run with --help.\n',
     );
+    process.exit(2);
+  }
+  const classes = sweepClassArgsOf(args);
+  if ('refusal' in classes) {
+    process.stderr.write(`${classes.refusal} Run with --help.\n`);
     process.exit(2);
   }
   let maxTotal: number | undefined;
@@ -362,11 +690,16 @@ export function parseArgs(argv: string[]): CliArgs {
     dryRun: args.includes('--dry-run'),
     writeEncrypted: args.includes('--write-encrypted'),
     muteAutomation: args.includes('--mute-automation'),
+    acceptAutomation: args.includes('--accept-automation'),
+    ...(checkpointFirst !== undefined ? { checkpointFirst } : {}),
     includeChanged: args.includes('--include-changed'),
+    acceptEmails: args.includes('--accept-emails'),
     sweep: args.includes('--sweep'),
     sweepList: args.includes('--sweep-list'),
+    ...classes,
     preview: args.includes('--preview'),
     ...(maxTotal !== undefined ? { maxTotal } : {}),
+    ...(goneFirst !== undefined ? { goneFirst } : {}),
     yes: args.includes('--yes'),
     json: args.includes('--json'),
   };
@@ -430,6 +763,7 @@ async function registerOrg(
   alias: string,
   orgs: Map<string, KnownOrg>,
   conns?: Map<string, Connection>,
+  sessions?: Map<string, { session: SfOrg; typed: TypedOrg }>,
 ): Promise<string> {
   const session = await loadOrg(alias);
   const conn = makeConn(session);
@@ -450,6 +784,7 @@ async function registerOrg(
     credentials: { accessToken: session.accessToken, instanceUrl: session.instanceUrl },
   });
   conns?.set(typed.id, conn);
+  sessions?.set(typed.id, { session, typed });
   return typed.id;
 }
 
@@ -526,6 +861,98 @@ function recordsToTake(records: LoadRecords): number {
 }
 
 /**
+ * What the command line asks of the removal it sends: the records changed
+ * since, the sweep, what the sweep takes beside what is tied to the load, and
+ * the mute, as the panel's boxes ask them; the panel's handler tells it the
+ * ties. Exported so it can be tested.
+ */
+export function removalAsked(
+  args: Pick<CliArgs, 'includeChanged' | 'sweep' | 'sweepLate' | 'sweepUntied' | 'muteAutomation'>,
+): Record<string, true> {
+  return {
+    ...(args.includeChanged ? { includeChanged: true } : {}),
+    ...(args.sweep ? { sweep: true } : {}),
+    ...(args.sweepLate ? { sweepLate: true } : {}),
+    ...(args.sweepUntied ? { sweepUntied: true } : {}),
+    ...(args.muteAutomation ? { muteAutomation: true } : {}),
+  };
+}
+
+/** What a removal would run into, as `removalAutomation` is asked it. */
+interface RemovalAutomationAsk {
+  /** What the target runs on what the removal and its sweep delete, or why it could not be read. */
+  read: FrozenRemovalQuestion['read'];
+  steps: ForgeRemovalSteps;
+  /** The mute asked for, planned from that read. */
+  mute?: Pick<RunMute, 'automation' | 'muted'>;
+}
+
+/**
+ * What the command says of what the target runs as a removal goes, before its
+ * first delete, as Forge's, Sync's and Seed's removals say it: what fires, step
+ * by step, what a mute keeps quiet and what it leaves, and why a removal will
+ * not go without `--accept-automation`, the bypasses to assign among it. The
+ * Frozen removal read none of this, and its flows ran with no question.
+ * Exported so it can be tested.
+ *
+ * A bypass a set holds is offered through `--mute-automation`, which assigns
+ * that set for the step alone, under a lease: never as a command that
+ * assigns it by hand, which a run on the trap org gave with the user's name,
+ * and which leaves the set assigned past the step, outside any lease.
+ *
+ * @param subject - What deletes: a removal, the purge a reload runs before it
+ *   loads, whose refusal said "this removal" and "remove all the same", or the
+ *   sweep asked with that reload, whose deletes were said to be the purge's.
+ * @param sweep - What the sweep asked with a reload deletes, said apart from
+ *   its purge's `steps`: each flow named with what deletes it. Named alone,
+ *   the purge's flow refused the reload, and the one on the tasks the sweep
+ *   would take met whoever turned the first off.
+ */
+export function removalAutomation(
+  { read, steps, mute }: RemovalAutomationAsk,
+  target: string,
+  subject: RemovalStepsSubject = 'removal',
+  sweep?: ForgeRemovalSteps,
+): { lines: string[]; refusal?: string } {
+  const muted = mute ? muteLines(mute.muted, target).map((line) => `  ${line}`) : [];
+  // Read whole or not at all: what could not be read of it is said below.
+  if (!('objects' in read)) {
+    const reload = subject !== 'removal';
+    const writer =
+      subject === 'reloadSweep'
+        ? "this reload's sweep"
+        : reload
+          ? `this reload's purge${sweep ? ' and its sweep' : ''}`
+          : 'this removal';
+    return {
+      lines: [
+        `${reload ? 'reload' : 'removal'} automation: what ${target} runs could not be read: ${read.unread}`,
+        ...muted,
+      ],
+      refusal:
+        `What ${target} runs as ${writer} writes could ` +
+        `not be read (${read.unread}), so what fires as the records go is not known. Nothing was ` +
+        `written or deleted. Add --accept-automation to ${reload ? 'reload' : 'remove'} all the ` +
+        `same, or turn that automation off in ${target} first.`,
+    };
+  }
+  const automation = mute?.automation ?? read;
+  const written = sweep ? removalStepsWithSweep(steps, sweep.delete ?? []) : steps;
+  const refusal = removalStepsAutomationRefusal(automation, target, {
+    steps,
+    ...(sweep ? { sweep } : {}),
+    assign: bypassesToAssign(automation, removalStepsBypassesOf(automation, written)),
+    // Relayed by an environment, which mutes nothing, the mute is not offered.
+    mayMute: mute === undefined && relayTakes('--mute-automation'),
+    subject,
+  });
+  return {
+    lines: [...removalStepsAutomationLines(read, target, steps, subject, sweep), ...muted],
+    ...(refusal !== undefined ? { refusal } : {}),
+  };
+}
+
+/**
  * What a removal of the load would take, for the person asked to confirm it:
  * which load, the org, the records per object in the order they go — once a
  * removal left some in the org, those — and what stays. Exported so it can be
@@ -554,11 +981,14 @@ export function removalPlanLines(records: LoadRecords, org: string): string[] {
 
 /**
  * Whether the person is asked to type the org's name before the removal: when
- * it would delete something — records the load created, or what an earlier
- * removal left of them. Exported so it can be tested.
+ * it would delete something — records the load created, what an earlier
+ * removal left of them, or what a sweep that goes alone takes, once it has
+ * read. Exported so it can be tested.
+ *
+ * @param steps - What the removal and its sweep delete, step by step.
  */
-export function removalAsks(records: LoadRecords): boolean {
-  return records.recorded && recordsToTake(records) > 0;
+export function removalAsks(records: LoadRecords, steps?: ForgeRemovalSteps): boolean {
+  return records.recorded && (recordsToTake(records) > 0 || (steps?.delete ?? []).length > 0);
 }
 
 /** What became of one object's records in a removal, the counts that are not zero. */
@@ -672,18 +1102,74 @@ const NOTHING_TO_REMOVE_CODES: ReadonlySet<string> = new Set([
   'NOTHING_TO_REMOVE',
 ]);
 
+/** The code of a removal the person declined at its question: nothing deleted, and no failure. */
+const REMOVAL_DECLINED = 'REMOVAL_DECLINED';
+
+/** What refuses a mute before anything is assigned, or takes back what it had. */
+const MUTE_REFUSED_CODES = ['MUTE_PRODUCTION', 'MUTE_NO_RIGHT', 'MUTE_FAILED'] as const;
+
+/**
+ * The codes the handler refuses a step with before its first write, by each
+ * step's error: a load for its emails, its mute, what fires as its sweep
+ * deletes or no Production Guard; a removal for what fires as it deletes, its
+ * mute or Production Guard — its refusal, or its question answered no, which
+ * the removal's preview says under the same code. Any other code of the same
+ * error may come after records were written, or deleted.
+ */
+const REFUSED_FIRST_CODES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  [
+    'frozen:load:error',
+    new Set([
+      'EMAILS_NOT_ACCEPTED',
+      'FROZEN_EMAILS_EXCEEDED',
+      'AUTOMATION_NOT_ACCEPTED',
+      PRODUCTION_GUARD_MISSING.code,
+      ...MUTE_REFUSED_CODES,
+    ]),
+  ],
+  [
+    'frozen:remove:error',
+    new Set([
+      'AUTOMATION_NOT_ACCEPTED',
+      'GUARD_BLOCKED',
+      'GUARD_DECLINED',
+      PRODUCTION_GUARD_MISSING.code,
+      ...MUTE_REFUSED_CODES,
+    ]),
+  ],
+]);
+
+/**
+ * The refusal a message posts of a load or a removal stopped before its first
+ * write, with its code; undefined for any other message. Said on
+ * `! frozen:load:error: … [FROZEN_EMAILS_EXCEEDED]`, a refused load and a
+ * refused removal ended on no "refused (CODE): …" line, and the removal's
+ * --json had no "refused" for a pipeline to read. Exported so it can be tested.
+ */
+export function refusedFirstOf(message: Posted): RunRefusal | undefined {
+  const code = message.payload?.code;
+  const codes = REFUSED_FIRST_CODES.get(String(message.type ?? ''));
+  if (typeof code !== 'string' || codes?.has(code) !== true) return undefined;
+  return { code, message: String(message.payload?.message ?? '') };
+}
+
 /**
  * Whether a message the handler posts fails the step: an error, but for a
  * removal's refusal that it has nothing to take. Run again after a removal,
  * the command ended on exit 1 for a removal there was no need of, and a
- * script took it for a failure. Exported so it can be tested.
+ * script took it for a failure. Nor does a person who answered no at the
+ * question fail it. Exported so it can be tested.
  */
 export function failsTheStep(message: Posted): boolean {
   const type = String(message.type ?? '');
   if (!type.endsWith(':error')) return false;
+  // A preview's: said with what it would be refused for, and a preview said ends as done.
+  if (type === 'frozen:remove:automation:error') return false;
+  const code = String(message.payload?.code);
+  if (type === 'frozen:remove:error' && code === REMOVAL_DECLINED) return false;
   return !(
     (type === 'frozen:remove:error' || type === 'frozen:remove:preview:error') &&
-    NOTHING_TO_REMOVE_CODES.has(String(message.payload?.code))
+    NOTHING_TO_REMOVE_CODES.has(code)
   );
 }
 
@@ -696,11 +1182,51 @@ const VERDICT_EXIT: Readonly<Record<string, number>> = {
 };
 
 /**
+ * The runs of this machine's other command lines on the target, clones and
+ * Sync and Seed runs, as the panel tells the handler of its own modules'
+ * (`ExtensionHandlers`): while one wrote in a load's window, a sweep takes
+ * nothing tied to nothing of the load, whose it is cannot be told. Without
+ * it, `--sweep-untied` took what a Sync run had just written. Each is dated
+ * by the load's window it was found in. So are the loads this command ran
+ * from another sas into the org (`indexLoad`), each by its own span: those of
+ * the sas it runs on its mapping names. Exported so it can be tested.
+ *
+ * @param sasMark - The mark of the sas this command runs on (`sasMarkOf`).
+ */
+export function commandLineOtherRuns(
+  target: string,
+  journalDir?: string,
+  sasMark?: string,
+): OtherModuleRuns {
+  return async (organizationId, written) => {
+    const from = Date.parse(written?.first ?? '');
+    const to = Math.max(from, Date.parse(written?.last ?? ''));
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return [];
+    const runs = await otherRunsOf({
+      organizationId,
+      alias: target,
+      span: { from, to },
+      own: { ids: [] },
+      ...(journalDir !== undefined ? { journalDir } : {}),
+    });
+    return [
+      ...runs.map(({ ids }) => ({ ids, from, to })),
+      ...otherSasRunsOf(indexedLoadsOf(journalDir ?? journalDirOf(), organizationId), {
+        sasMark,
+        own: [],
+      }),
+    ];
+  };
+}
+
+/**
  * The exit code of a step that ran through, from what it posted: `verify` by
  * its verdict — FAILED 1, PARTIAL 3, UNSTABLE 4 —, `load` 3 when it completed
- * with errors, `remove` 3 when it left records of the load. A load is judged
- * by its own report: the verification it runs after it is said, and `verify`
- * gives its verdict a code. Exported so it can be tested.
+ * with errors or partial, `remove` 3 when it left records of the load or its
+ * sweep did not take all it was asked to, which its status says. A load is
+ * judged by its own report, which the verification it chains ends partial when
+ * it is FAILED or PARTIAL; `verify` gives every verdict a code. Exported so it
+ * can be tested.
  */
 export function frozenStepExit(step: string, posted: readonly Posted[]): number {
   return worstExit(
@@ -713,7 +1239,12 @@ export function frozenStepExit(step: string, posted: readonly Posted[]): number 
           : FAILED_EXIT;
       }
       if (step === 'load' && message.type === 'frozen:load:response') {
-        return (p.report as { status?: unknown } | undefined)?.status === 'completed'
+        // A reload whose sweep was refused, or did not take all it was asked
+        // to, left in the org what the automation made for a load it
+        // replaced: partial, as the removal its sweep belongs to ends.
+        const report = p.report as { status?: unknown; sweeps?: FrozenReloadSweep[] } | undefined;
+        return report?.status === 'completed' &&
+          (report.sweeps ?? []).every((swept) => swept.result.status === 'success')
           ? DONE_EXIT
           : PARTIAL_EXIT;
       }
@@ -730,8 +1261,13 @@ export function frozenStepExit(step: string, posted: readonly Posted[]): number 
 /**
  * One line per thing the panel would have shown, for a person reading along.
  * Exported so it can be tested.
+ *
+ * @param take - What the sweep asked with a reload takes beside what it ties
+ *   to the loads it replaces (`--sweep-late`, `--sweep-untied`): its dry run's
+ *   list counted none of it as going, and named the option given as the one
+ *   that would take it.
  */
-export function messageLines(message: Posted): string[] {
+export function messageLines(message: Posted, take: SweepClassArgs = {}): string[] {
   const type = String(message.type ?? '');
   const p = message.payload ?? {};
   if (
@@ -740,8 +1276,40 @@ export function messageLines(message: Posted): string[] {
   ) {
     return [`nothing to remove: ${String(p.message ?? '')}`];
   }
+  if (type === 'frozen:remove:error' && !failsTheStep(message)) {
+    return [String(p.message ?? '')];
+  }
+  if (type === 'frozen:remove:automation:error') return [];
   if (type.endsWith(':error')) {
-    return [`! ${type}: ${String(p.message ?? '')}${p.code ? ` [${String(p.code)}]` : ''}`];
+    // What the sweep asked with a reload deleted before a cancel or a failure
+    // ended it, said beside the error: under a message that the load had
+    // purged nothing, it was said in the audit trail alone.
+    const swept = type === 'frozen:load:error' ? ((p.sweeps as FrozenReloadSweep[]) ?? []) : [];
+    // What a load refused for its emails, or for what runs as it writes, was
+    // judged on, beside the refusal.
+    const emails = type === 'frozen:load:error' ? (p.emails as FrozenLoadEmailsInfo) : undefined;
+    const runs =
+      type === 'frozen:load:error' ? (p.automation as FrozenLoadAutomationInfo) : undefined;
+    // What its mute assigned and took back, once its lease was taken.
+    const muted =
+      type === 'frozen:load:error' ? (p.mutedAutomation as MutedAutomation | undefined) : undefined;
+    // Refused before its first write, the step ends on the line a refused
+    // clone, seed or sync ends on, what it was judged on said above it.
+    const refused = refusedFirstOf(message);
+    return [
+      ...(refused
+        ? []
+        : [`! ${type}: ${String(p.message ?? '')}${p.code ? ` [${String(p.code)}]` : ''}`]),
+      ...(runs ? loadAutomationLines(runs, 'the target') : []),
+      ...(emails ? loadEmailsLines(emails, 'the target') : []),
+      ...(muted ? muteLines(muted, 'the target') : []),
+      ...(swept.length > 0 ? ['before the load ended, its sweep had already done this:'] : []),
+      ...swept.flatMap(({ loadedAt, result }) => [
+        `sweep of the load of ${loadedAt}:`,
+        ...sweepLines(result),
+      ]),
+      ...(refused ? [refusedLine(refused)] : []),
+    ];
   }
   switch (type) {
     case 'frozen:select:progress':
@@ -861,6 +1429,7 @@ export function messageLines(message: Posted): string[] {
           fromFiles: number;
           inserted: number;
           reused: number;
+          writtenByThePlatform?: number;
           skippedDuplicates: unknown[];
           failed: Array<{ errors?: string[]; error?: string }>;
           writtenWithoutFields?: {
@@ -897,6 +1466,8 @@ export function messageLines(message: Posted): string[] {
         leftToThePlatform?: Array<{ objectApiName: string; note: string }>;
         untypedFeedItems?: Array<{ objectApiName: string; note: string }>;
         heldForExcludedParents?: Array<{ objectApiName: string; note: string }>;
+        quotesLeftUnsynced?: Array<{ objectApiName: string; note: string }>;
+        keysLeftEmpty?: Array<{ objectApiName: string; note: string }>;
       };
       const lines = [
         `load: ${r.status} in ${r.durationMs}ms — ${r.alignment.excludedObjects.length} object(s) ` +
@@ -911,9 +1482,15 @@ export function messageLines(message: Posted): string[] {
       }
       lines.push(...maybeMasksLines(r.alignment.removals, 'left'));
       for (const o of r.perObject) {
+        // Linked to what the platform wrote with a record the load inserted
+        // — a contact's role, with its opportunity — rather than sent beside it.
+        const platform = o.writtenByThePlatform ?? 0;
         lines.push(
-          `  ${o.objectApiName}: ${o.inserted} inserted, ${o.reused} reused, ` +
-            `${o.skippedDuplicates.length} duplicate(s), ${o.failed.length} failed of ${o.fromFiles}`,
+          `  ${o.objectApiName}: ${o.inserted} inserted, ${o.reused} reused` +
+            (platform > 0
+              ? ` (${platform} written by the platform with ${writtenWithWords(o.objectApiName)})`
+              : '') +
+            `, ${o.skippedDuplicates.length} duplicate(s), ${o.failed.length} failed of ${o.fromFiles}`,
         );
         const first = o.failed[0];
         if (first) lines.push(`      first refusal: ${first.errors?.[0] ?? first.error ?? '?'}`);
@@ -922,10 +1499,14 @@ export function messageLines(message: Posted): string[] {
       // which of them the platform writes itself.
       // Nor sent either: what they cannot go in without is an object
       // excludedObjects leaves out.
+      // And a synced quote left unset, which would have taken the products.
+      // And what no identity key was looked up for, its key left empty.
       for (const left of [
         ...(r.leftToThePlatform ?? []),
         ...(r.untypedFeedItems ?? []),
         ...(r.heldForExcludedParents ?? []),
+        ...(r.quotesLeftUnsynced ?? []),
+        ...(r.keysLeftEmpty ?? []),
       ]) {
         lines.push(`  ${left.objectApiName}: ${left.note}`);
       }
@@ -1026,8 +1607,34 @@ export function messageLines(message: Posted): string[] {
         lines.push('kept by the purge, the platform does not delete them:');
         for (const [objectApiName, count] of kept) lines.push(`  ${objectApiName}: ${count}`);
       }
+      // What the target's automation made for each load replaced, swept
+      // around the purge as a removal of that load sweeps it.
+      for (const swept of (p.report as { sweeps?: FrozenReloadSweep[] }).sweeps ?? []) {
+        lines.push(`sweep of the load of ${swept.loadedAt}:`, ...sweepLines(swept.result));
+        // Kept unasked, they end no reload partial: the load stays recorded
+        // for the sweep that is asked to take them.
+        const changed = swept.result.objects.reduce((sum, o) => sum + o.keptChanged, 0);
+        if (changed > 0) {
+          lines.push(
+            `  ${changed} record(s) kept, changed since that load: load --reload --sweep ` +
+              '--include-changed, or remove --sweep --include-changed, takes them',
+          );
+        }
+      }
       const muted = (p.report as { mutedAutomation?: MutedAutomation }).mutedAutomation;
       if (muted) lines.push(...muteLines(muted, 'the target'));
+      // What the target ran as it wrote, which it was told to write through.
+      const ran = (p.report as { automation?: FrozenLoadAutomationInfo }).automation;
+      if (ran) lines.push(...loadAutomationLines(ran, 'the target'));
+      // What its gate made of the emails of what still ran as it wrote.
+      const emails = (p.report as { emails?: FrozenLoadEmailsInfo }).emails;
+      if (emails) lines.push(...loadEmailsLines(emails, 'the target'));
+      lines.push(
+        ...frozenRecordTypeLines(
+          (p.report as { recordTypesGiven?: RecordTypeGiven[] }).recordTypesGiven,
+          false,
+        ),
+      );
       return lines;
     }
     case 'frozen:load:preview:response': {
@@ -1039,6 +1646,7 @@ export function messageLines(message: Posted): string[] {
           toInsert: number;
           reusedByKeys: number;
           reusedFromCatalog: number;
+          writtenByThePlatform?: number;
           fieldsDropped: number;
           picklistsRewritten: number;
           notSent: number;
@@ -1046,6 +1654,7 @@ export function messageLines(message: Posted): string[] {
           toDeactivate: number;
           validationRules?: Array<{ name: string; message: string; field?: string }>;
           validationRulesOnChange?: string[];
+          lookupFilters?: Array<{ field: string; referenceTo: string[]; records: number }>;
         }>;
         excludedObjects: Array<{ objectApiName: string; reason: string }>;
         removals: FieldRemovalLine[];
@@ -1068,6 +1677,8 @@ export function messageLines(message: Posted): string[] {
         leftUnrecorded?: Record<string, number>;
         keptByThePlatform?: Record<string, number>;
         heldForExcludedParents?: Array<{ objectApiName: string; note: string }>;
+        quotesLeftUnsynced?: Array<{ objectApiName: string; note: string }>;
+        keysLeftEmpty?: Array<{ objectApiName: string; note: string }>;
         validationRulesUnread?: string;
       };
       const sum = (pick: (o: (typeof plan.perObject)[number]) => number): number =>
@@ -1075,7 +1686,7 @@ export function messageLines(message: Posted): string[] {
       const lines = [
         `dry run${plan.mode.pilot ? ' (pilot)' : ''}${plan.mode.reload ? ' (reload)' : ''}: ` +
           `${sum((o) => o.toInsert)} record(s) to insert, ` +
-          `${sum((o) => o.reusedByKeys + o.reusedFromCatalog)} to link, ` +
+          `${sum((o) => o.reusedByKeys + o.reusedFromCatalog + (o.writtenByThePlatform ?? 0))} to link, ` +
           `${sum((o) => o.notSent)} not sent` +
           (plan.mode.reload
             ? `, ${sum((o) => o.toPurge)} to purge and ${sum((o) => o.toDeactivate)} to deactivate ` +
@@ -1088,6 +1699,10 @@ export function messageLines(message: Posted): string[] {
           `${o.toInsert} to insert`,
           o.reusedByKeys > 0 ? `${o.reusedByKeys} found by identity keys` : '',
           o.reusedFromCatalog > 0 ? `${o.reusedFromCatalog} found in the catalog` : '',
+          // Linked once their parent is in, as the load's own line says them.
+          (o.writtenByThePlatform ?? 0) > 0
+            ? `${o.writtenByThePlatform} to link (written by the platform with ${writtenWithWords(o.objectApiName)})`
+            : '',
           o.fieldsDropped > 0 ? `${o.fieldsDropped} field(s) dropped` : '',
           o.picklistsRewritten > 0 ? `${o.picklistsRewritten} picklist value(s) rewritten` : '',
           o.notSent > 0 ? `${o.notSent} not sent` : '',
@@ -1100,7 +1715,11 @@ export function messageLines(message: Posted): string[] {
         lines.push(`  ${excluded.objectApiName}: not loaded — ${excluded.reason}`);
       }
       lines.push(...maybeMasksLines(plan.removals, 'would leave'));
-      for (const held of plan.heldForExcludedParents ?? []) {
+      for (const held of [
+        ...(plan.heldForExcludedParents ?? []),
+        ...(plan.quotesLeftUnsynced ?? []),
+        ...(plan.keysLeftEmpty ?? []),
+      ]) {
         lines.push(`  ${held.objectApiName}: ${held.note}`);
       }
       for (const placeholder of plan.placeholders) {
@@ -1144,6 +1763,19 @@ export function messageLines(message: Posted): string[] {
         );
         for (const rule of o.validationRules ?? []) lines.push(ruleLine(rule));
       }
+      // The lookup filters of what it inserts, which only the write meets:
+      // run on the trap org, one refused six contacts a dry run counted.
+      for (const o of plan.perObject) {
+        const filters = o.lookupFilters ?? [];
+        if (filters.length === 0) continue;
+        lines.push(
+          `${o.objectApiName}: ${filters.length} lookup filter(s) of the target, which a preview ` +
+            'cannot check — a record whose lookup it refuses is refused, and what hangs from it: ' +
+            filters
+              .map((f) => `${f.field} (${f.referenceTo.join(' or ')}, ${f.records} record(s))`)
+              .join(', '),
+        );
+      }
       // Named, not listed: run on a large client sandbox, the preview listed
       // fourteen rules of one object, most of them guards no insert meets.
       for (const o of plan.perObject) {
@@ -1174,6 +1806,12 @@ export function messageLines(message: Posted): string[] {
             'any of them may refuse a record counted to insert',
         );
       }
+      // What the target runs as the load would write, which it asks about.
+      const runs = (p.plan as { automation?: FrozenLoadAutomationInfo }).automation;
+      if (runs) lines.push(...loadAutomationLines(runs, 'the target'));
+      // What the load's gate would make of the emails of what still runs.
+      const emails = (p.plan as { emails?: FrozenLoadEmailsInfo }).emails;
+      if (emails) lines.push(...loadEmailsLines(emails, 'the target'));
       return lines;
     }
     case 'frozen:verify:result': {
@@ -1191,6 +1829,8 @@ export function messageLines(message: Posted): string[] {
         status: string;
         leftBy?: string;
         sweep?: ForgeSweepResult;
+        otherLoadSweeps?: FrozenReloadSweep[];
+        mutedAutomation?: MutedAutomation;
         objects: Array<{
           objectApiName: string;
           planned: number;
@@ -1201,20 +1841,38 @@ export function messageLines(message: Posted): string[] {
           refused: number;
           notReached?: number;
           heldBy: string[];
+          heldByAutomation?: number;
+          heldByAutomationAfterRun?: number;
+          automationHolders?: string[];
+          platformCopies?: number;
           unchecked: string[];
           reasons: string[];
           filesLeft?: { count: number; names: string[] };
+          tookAlong?: { count: number; objects: string[] };
         }>;
         keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
       };
       const unchecked = [...new Set(r.objects.flatMap((o) => o.unchecked))];
+      // A sweep alone took none of the load's records: only its own lines are said.
+      const alone = r.sweep !== undefined && r.objects.length === 0;
       return [
         // The sweep ran first, before the load's records went.
         ...(r.sweep ? sweepLines(r.sweep) : []),
-        `removal: ${r.status.toUpperCase()}` +
-          (r.leftBy ? ` — of what the removal of ${r.leftBy} left` : ''),
+        // Then, around them, the sweep of each other load it swept with it.
+        ...(r.otherLoadSweeps ?? []).flatMap(({ loadedAt, result }) => [
+          `sweep of the load of ${loadedAt}:`,
+          ...sweepLines(result),
+        ]),
+        ...(alone
+          ? []
+          : [
+              `removal: ${r.status.toUpperCase()}` +
+                (r.leftBy ? ` — of what the removal of ${r.leftBy} left` : ''),
+            ]),
         ...r.objects.flatMap((o) => [
-          `  ${o.objectApiName}: ${removalCounts(o) || 'nothing'} of ${o.planned}`,
+          `  ${o.objectApiName}: ${removalCounts(o) || 'nothing'} of ${o.planned}${platformCopiesWords(o)}`,
+          // What went with them that the load never wrote: made by hand since.
+          ...tookAlongLines(o, 'load'),
           ...o.reasons.map((reason) => `      ${reason}`),
           ...(o.filesLeft && o.filesLeft.count > 0 ? [`      ${filesLeftLine(o.filesLeft)}`] : []),
         ]),
@@ -1223,10 +1881,35 @@ export function messageLines(message: Posted): string[] {
           : []),
         // Never sent to be deleted, and never counted refused.
         ...keptByThePlatformLine(r.keptByThePlatform),
+        // What kept records of the load for records the automation likely
+        // made under them, and what takes them.
+        ...automationHeldLines(r.objects, { sweep: r.sweep !== undefined }),
+        ...(r.mutedAutomation ? muteLines(r.mutedAutomation, 'the target') : []),
       ];
     }
-    case 'frozen:remove:sweep:response':
-      return sweepListingLines(p.listing as ForgeSweepListing, 'the target org');
+    case 'frozen:remove:sweep:response': {
+      // A reload's: the sweep of each load it replaces, as its removal lists
+      // it, read before the reload deletes anything, as a --sweep-list is.
+      const loads = p.loads as FrozenReloadSweepListing[] | undefined;
+      if (loads) {
+        return loads.flatMap(({ loadedAt, listing }) => [
+          `sweep of the load of ${loadedAt}:`,
+          ...sweepListingLines(listing, 'the target org', take, true),
+        ]);
+      }
+      // A removal's: the load's, then each other load it sweeps with it.
+      const others = (p.otherLoads as FrozenReloadSweepListing[] | undefined) ?? [];
+      if (others.length > 0) {
+        return [
+          { loadedAt: String(p.loadedAt), listing: p.listing as ForgeSweepListing },
+          ...others,
+        ].flatMap(({ loadedAt, listing }) => [
+          `sweep of the load of ${loadedAt}:`,
+          ...sweepListingLines(listing, 'the target org', take, true),
+        ]);
+      }
+      return sweepListingLines(p.listing as ForgeSweepListing, 'the target org', take, true);
+    }
     case 'frozen:remove:preview:response':
       return removalPreviewLines(p.preview as FrozenRemovalPreview);
     case 'frozen:status:response':
@@ -1265,7 +1948,9 @@ export function removalPreviewLines(preview: FrozenRemovalPreview): string[] {
       o.undeletable > 0 ? `${o.undeletable} left, the user may not delete them` : '',
       o.unread > 0 ? `${o.unread} left, not read` : '',
     ].filter(Boolean);
-    lines.push(`  ${o.objectApiName}: ${counts.join(', ') || 'nothing'} of ${o.planned}`);
+    lines.push(
+      `  ${o.objectApiName}: ${counts.join(', ') || 'nothing'} of ${o.planned}${platformCopiesWords(o)}`,
+    );
     const by = Object.entries(o.changedBy).sort((a, b) => b[1] - a[1]);
     if (by.length > 0) {
       lines.push(
@@ -1275,7 +1960,15 @@ export function removalPreviewLines(preview: FrozenRemovalPreview): string[] {
     for (const reason of o.reasons) lines.push(`      ${reason}`);
   }
   lines.push(...keptByThePlatformLine(preview.keptByThePlatform));
-  for (const refusal of preview.refusals) lines.push(`a removal would be refused: ${refusal}`);
+  // Each under the code the removal is refused with, where the handler gave one for each.
+  const codes = preview.refusalCodes;
+  preview.refusals.forEach((message, at) => {
+    lines.push(
+      codes?.length === preview.refusals.length
+        ? wouldBeRefusedLine({ code: codes[at], message }, 'a removal')
+        : `a removal would be refused: ${message}`,
+    );
+  });
   lines.push(FROZEN_PREVIEW_UNREAD);
   return lines;
 }
@@ -1315,16 +2008,37 @@ export interface FrozenAnswer {
   objects?: Array<Record<string, string | number>>;
   /** Verify's verdict, and the one a load chains after it. */
   verdict?: FrozenAnswerVerdict;
-  /** How a removal ended. */
+  /** How a load or a removal ended: a load's `partial` once the verification it chains did not pass. */
   status?: string;
   /** Set on a removal's preview: nothing was deleted. */
   preview?: true;
   /** What a dry run or a removal's preview says a real run would be refused for. */
   refusals?: string[];
-  /** Of a dry run asked to mute: what a real load would assign, silence, leave running and lift beside. */
+  /**
+   * Of a load's dry run, the code a real load is refused with for each of
+   * `refusals`, in their order: the words alone, a pipeline could not tell
+   * them apart.
+   */
+  refusalCodes?: string[];
+  /**
+   * Of a dry run or a preview asked to mute: what a real load or removal would
+   * assign, silence, leave running and lift beside; of a removal that muted,
+   * what it did.
+   */
   mutedAutomation?: MutedAutomation;
   /** The plan that is made from. */
   mutePlan?: MutePlan;
+  /**
+   * Of a load, per object, the record type the target gave what it created
+   * without one, as read back; of a dry run, what the describe says it gives.
+   */
+  recordTypesGiven?: RecordTypeGiven[];
+  /**
+   * The checkpoint a load took of what it writes before its first write
+   * (`--checkpoint-first`), kept or deleted once it wrote nothing; of a dry
+   * run, what a real load's would hold and cost.
+   */
+  checkpoint?: RunCheckpointEstimate | RunCheckpointInfo;
 }
 
 /** What an answer is built from beside what was posted. */
@@ -1337,8 +2051,12 @@ export interface FrozenAnswerContext {
   targetOrgId?: string;
   /** What the step itself says a real run would be refused for. */
   refusals?: readonly string[];
-  /** Of a dry run asked to mute, what a real load's mute would do. */
+  /** The code of each of `refusals`, in their order, where the step knows them all. */
+  refusalCodes?: readonly string[];
+  /** Of a dry run or a preview asked to mute, what a real step's mute would do. */
   mute?: { mutedAutomation: MutedAutomation; mutePlan: MutePlan };
+  /** The checkpoint the load took first, or of a dry run, the one a real load would take. */
+  checkpoint?: RunCheckpointEstimate | RunCheckpointInfo;
 }
 
 /** A dataset's folder, digest and version, or undefined when no dataset is there. */
@@ -1395,6 +2113,8 @@ export async function frozenAnswer(
     : undefined;
   const answer: FrozenAnswer = { tool: 'sandforge-frozen', step, posted };
   const refusals: string[] = [];
+  /** The code of each of `refusals`, while each has one. */
+  const refusalCodes: string[] = [];
   const withDataset = async (dir: string): Promise<void> => {
     const dataset = await datasetOf(dir);
     if (dataset) answer.dataset = dataset;
@@ -1418,6 +2138,8 @@ export async function frozenAnswer(
       await withDataset(context.datasetDir);
       const report = last('frozen:load:response')?.report as FrozenLoadReportInfo | undefined;
       const plan = last('frozen:load:preview:response')?.plan as FrozenLoadPlanInfo | undefined;
+      const recordTypesGiven = report ? report.recordTypesGiven : plan?.recordTypesGiven;
+      if (recordTypesGiven) answer.recordTypesGiven = recordTypesGiven;
       if (report) {
         answer.mapping = report.mappingPath;
         answer.objects = report.perObject.map((o) => ({
@@ -1434,11 +2156,18 @@ export async function frozenAnswer(
           objectApiName: o.objectApiName,
           fromFiles: o.fromFiles,
           toInsert: o.toInsert,
-          toLink: o.reusedByKeys + o.reusedFromCatalog,
+          toLink: o.reusedByKeys + o.reusedFromCatalog + (o.writtenByThePlatform ?? 0),
           notSent: o.notSent,
           toPurge: o.toPurge,
           toDeactivate: o.toDeactivate,
         }));
+      }
+      if (report) answer.status = report.status;
+      // A load stopped — Ctrl-C, a SIGTERM — says so, and the mapping a
+      // removal reads: its answer carried neither, its code in `posted` alone.
+      if (!report && last('frozen:load:error')?.code === 'LOAD_CANCELLED') {
+        answer.status = 'cancelled';
+        if (mapping) answer.mapping = mapping;
       }
       const verdict = last('frozen:verify:result')?.verdict as FrozenVerifyVerdict | undefined;
       if (verdict) answer.verdict = verdictAnswer(verdict);
@@ -1459,6 +2188,7 @@ export async function frozenAnswer(
         FrozenRemovalPreview | undefined;
       if (result) {
         answer.status = result.status;
+        if (result.mutedAutomation) answer.mutedAutomation = result.mutedAutomation;
         answer.objects = result.objects.map((o) => ({
           objectApiName: o.objectApiName,
           planned: o.planned,
@@ -1484,13 +2214,24 @@ export async function frozenAnswer(
           unread: o.unread,
         }));
         refusals.push(...preview.refusals);
+        if (preview.refusalCodes?.length === preview.refusals.length) {
+          refusalCodes.push(...preview.refusalCodes);
+        }
       }
       break;
     }
   }
   refusals.push(...(context.refusals ?? []));
+  if (context.refusalCodes?.length === (context.refusals ?? []).length) {
+    refusalCodes.push(...(context.refusalCodes ?? []));
+  }
   if (refusals.length > 0) answer.refusals = refusals;
+  // Given only when each refusal has its code.
+  if (refusals.length > 0 && refusalCodes.length === refusals.length) {
+    answer.refusalCodes = refusalCodes;
+  }
   if (context.mute) Object.assign(answer, context.mute);
+  if (context.checkpoint) answer.checkpoint = context.checkpoint;
   return answer;
 }
 
@@ -1513,8 +2254,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const orgs = new Map<string, KnownOrg>();
   const conns = new Map<string, Connection>();
+  const sessions = new Map<string, { session: SfOrg; typed: TypedOrg }>();
   const sourceOrgId = args.source ? await registerOrg(args.source, orgs) : undefined;
-  const targetOrgId = args.target ? await registerOrg(args.target, orgs, conns) : undefined;
+  const targetOrgId = args.target
+    ? await registerOrg(args.target, orgs, conns, sessions)
+    : undefined;
 
   // What the panel would have received, printed instead of posted — but for
   // what a step reads for itself.
@@ -1529,7 +2273,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         posted.push(message);
         if (failsTheStep(message)) failed = true;
         if (quiet) return;
-        for (const line of messageLines(message)) log(line);
+        for (const line of messageLines(message, args)) log(line);
       },
     },
     orgManager: { getOrg: (id: string) => orgs.get(id)?.org },
@@ -1546,9 +2290,38 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // What the target's flows create, which a sweep looks at: read as the panel
   // reads it, through Forge's reader.
   const targetConn = targetOrgId ? conns.get(targetOrgId) : undefined;
+  // The checkpoint a load takes of what it writes before its first write: by
+  // this command, once the load may write and before the handler takes the
+  // mute's lease, kept or deleted by what the load reports. A dry run says
+  // what it would hold and cost. It reads the target through a connection of
+  // its own.
+  const target = targetOrgId ? sessions.get(targetOrgId) : undefined;
+  const checkpoints: CommandCheckpoints | undefined =
+    args.checkpointFirst && target
+      ? commandCheckpoints({
+          module: 'frozen',
+          operationId: `sandforge-frozen-load-${t0}`,
+          request: args.checkpointFirst,
+          session: target.session,
+          org: {
+            id: target.typed.id,
+            orgType: target.typed.orgType,
+            ...(target.typed.edition !== undefined ? { edition: target.typed.edition } : {}),
+          },
+          connect: makeConn,
+          journalDir: journalDirOf(),
+          say: log,
+        })
+      : undefined;
   if (targetConn) handler.setTargetAutomation(targetAutomationReader(targetConn));
+  // Relayed by an environment, which mutes nothing, a load's refusals offer no mute.
+  handler.setMuteOffered(relayTakes('--mute-automation'));
   // The salt from the environment, or the file given; none is made up here.
   handler.setSaltKeeper(commandLineSaltKeeper(process.env, args.saltFile));
+  // The other command lines' runs, and the loads of another sas into the org.
+  if (args.target) {
+    handler.setOtherModuleRuns(commandLineOtherRuns(args.target, undefined, sasMarkOf(sasDir)));
+  }
 
   // The extraction, the load and the removal are listed while they run, as in
   // the extension: what Ctrl-C stops them through, as the panel's Cancel does.
@@ -1560,6 +2333,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   handler.setRegistry(registry);
   /** The request the handler has, which a Ctrl-C before its run started cancels. */
   let underWay: string | undefined;
+  /** The take of the checkpoint asked first, while it reads: what a Ctrl-C stops then. */
+  let taking: AbortController | undefined;
+  /** Whether a Ctrl-C stopped that take: nothing of it kept, nothing written. */
+  let stoppedTaking = false;
+  /** Whether a removal waits on its question: nothing is deleted yet, and no lease taken. */
+  let asking = false;
   let interrupted: StopSignal | undefined;
   const interrupt = (signal: StopSignal): void => {
     interrupted = signal;
@@ -1567,34 +2346,62 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       `\ninterrupted: the ${args.step} stops after the call under way, and says what it wrote ` +
         '(Ctrl-C again ends it at once)\n',
     );
+    // The checkpoint taken first stops between two reads and keeps nothing.
+    if (taking) {
+      taking.abort();
+      return;
+    }
     for (const operation of registry.getRunning()) registry.abort(operation.operationId);
     if (underWay) registry.cancelBeforeStart(underWay);
     // Nothing under way — a question on the terminal: nothing was written.
-    if (!underWay) process.exit(stopExitCode(signal));
+    if (!underWay || asking) process.exit(stopExitCode(signal));
   };
   const releaseStop = onStopSignal(interrupt);
   /** The dataset the configuration points a load at. */
   const datasetDir =
     typeof config.datasetDir === 'string' ? config.datasetDir : join(sasDir, 'dataset');
-  /** What a dry run says the load would be refused for, beside its plan. */
-  const refusals: string[] = [];
-  /** What a dry run asked to mute says a real load's mute would do. */
+  /** What a dry run says the load would be refused for, beside its plan, each with its code. */
+  const refusals: RunRefusal[] = [];
+  /** Say what a load's dry run would be refused for, under the code a real load is refused with. */
+  const wouldRefuse = (refused: RunRefusal): void => {
+    refusals.push(refused);
+    log(wouldBeRefusedLine(refused, 'a load'));
+  };
+  /**
+   * What a removal's preview says it would be refused for, by code — a
+   * preview said exits 0 —, and what refused a removal before its first delete.
+   */
+  const removalRefusals: RunRefusal[] = [];
+  /** What refused the step itself before its first write, with its code. */
+  let stepRefused: RunRefusal | undefined;
+  /** Whether a --sweep-list said the sweep it lists would be refused, for one load or another. */
+  let sweepListRefused = false;
+  /** What a dry run or a preview asked to mute says a real step's mute would do. */
   let dryRunMute: FrozenAnswerContext['mute'];
+  /** The checkpoint the load took first, or of a dry run, what a real load's would hold and cost. */
+  let checkpointAnswer: FrozenAnswerContext['checkpoint'];
   /**
    * What a step prints on stdout with --json: what the panel would have
    * received, and beside it what an environment reads of the step.
    */
   const emit = async (ended?: true): Promise<void> => {
     if (!args.json) return;
+    const refused = [...refusals, ...removalRefusals];
     const answer = await frozenAnswer(args.step, posted, {
       datasetDir,
       sasDir,
       ...(targetOrgId ? { targetOrgId } : {}),
-      ...(refusals.length > 0 ? { refusals } : {}),
+      ...(refused.length > 0
+        ? {
+            refusals: refused.map(({ message }) => message),
+            refusalCodes: refused.map(({ code }) => code),
+          }
+        : {}),
       ...(dryRunMute ? { mute: dryRunMute } : {}),
+      ...(checkpointAnswer ? { checkpoint: checkpointAnswer } : {}),
     });
     process.stdout.write(
-      `${JSON.stringify({ ...answer, ...(ended ? { ended } : {}) }, null, 2)}\n`,
+      `${JSON.stringify({ ...answer, ...(stepRefused ? { refused: stepRefused } : {}), ...(ended ? { ended } : {}) }, null, 2)}\n`,
     );
   };
 
@@ -1623,19 +2430,173 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   if (interrupted) {
     await emit();
-    process.stderr.write(`${frozenInterruptedLine(args.preview ? 'preview' : args.step)}\n`);
+    process.stderr.write(
+      `${stoppedTaking ? CHECKPOINT_STOPPED_WORDS : frozenInterruptedLine(args.preview ? 'preview' : args.step, args.step !== 'load' || args.dryRun || frozenLoadWrote(posted))}\n`,
+    );
     process.exitCode = stopExitCode(interrupted);
     return;
   }
   // A verification FAILED, PARTIAL or UNSTABLE, and a load that completed
   // with errors, exited 0: only an error message failed the step. A dry run
   // a load would be refused after fails it too, as a preview's refusal does.
-  endWith(failed || refusals.length > 0 ? FAILED_EXIT : frozenStepExit(args.step, posted));
+  endWith(
+    failed || refusals.length > 0
+      ? FAILED_EXIT
+      : sweepListRefused
+        ? PARTIAL_EXIT
+        : frozenStepExit(args.step, posted),
+  );
   if (args.json) {
     await emit();
     return;
   }
   log(`done in ${Date.now() - t0}ms`);
+
+  /**
+   * What the target runs as records of a load go, read as `asked` and said as
+   * a removal says it before its first delete: a mute asked for is planned, and
+   * nothing assigned. Why the step goes no further without --accept-automation.
+   */
+  async function automationOfDeletes(asked: Record<string, unknown>): Promise<{
+    steps?: ForgeRemovalSteps;
+    planned?: Pick<ReturnType<typeof planMute>, 'plan' | 'automation' | 'planned'>;
+    refusal?: string;
+    /** The code of what refuses the step, beside its words. */
+    code?: string;
+  }> {
+    await send('frozen:remove:automation', asked);
+    const payload = (type: string): Record<string, unknown> | undefined =>
+      posted.find((m) => m.type === type)?.payload;
+    const read = payload('frozen:remove:automation:response') as
+      | { automation: ForgeTargetAutomation; steps: ForgeRemovalSteps; purge?: ForgeRemovalSteps }
+      | undefined;
+    // A reload's purge and its sweep, each named with what it deletes.
+    const swept = Array.isArray(asked.sweptObjects) ? (asked.sweptObjects as string[]) : [];
+    const own = read?.purge && swept.length > 0 ? read.purge : undefined;
+    // A preview or a dry run plans it as the step does, asking the target:
+    // refused on a production org, or for a user who cannot assign permission
+    // sets, as the step is before anything else. Planned from the read alone,
+    // a preview said the mute was planned and refused nothing, and the removal
+    // then ended MUTE_NO_RIGHT. A real step's handler refuses it itself.
+    const prepared =
+      read && args.muteAutomation
+        ? targetConn && (args.preview || args.dryRun)
+          ? await prepareMute(muteOrgOf(targetConn), read.automation, {
+              writes: removalStepsWrites(read.steps),
+            })
+          : planMute(read.automation, removalStepsWrites(read.steps))
+        : undefined;
+    const planned = prepared && !('refused' in prepared) ? prepared : undefined;
+    const { lines, refusal } = removalAutomation(
+      {
+        read: read?.automation ?? {
+          unread: String(payload('frozen:remove:automation:error')?.message),
+        },
+        steps: own ?? read?.steps ?? {},
+        ...(planned ? { mute: { automation: planned.automation, muted: planned.planned } } : {}),
+      },
+      args.target ?? '',
+      asked.reload === true ? 'reload' : 'removal',
+      own ? { delete: swept } : undefined,
+    );
+    for (const line of lines) log(line);
+    const refused =
+      prepared && 'refused' in prepared
+        ? prepared.refused
+        : refusal !== undefined && !args.acceptAutomation
+          ? { code: 'AUTOMATION_NOT_ACCEPTED', message: refusal }
+          : undefined;
+    return {
+      ...(read ? { steps: read.steps } : {}),
+      ...(planned ? { planned } : {}),
+      ...(refused ? { refusal: refused.message, code: refused.code } : {}),
+    };
+  }
+
+  /**
+   * Refuse the load for the checkpoint it takes first, nothing written: its
+   * line names the code, and with --json the answer carries it, as a load
+   * refused for its purge says it. It said "Nothing was written." alone.
+   */
+  function refuseTheLoad(message: string): void {
+    stepRefused = { code: CHECKPOINT_REFUSED, message };
+    refusals.push(stepRefused);
+    log(refusedLine(stepRefused));
+    failed = true;
+  }
+
+  /** The load into the target a removal would take, as the page reads it; undefined with none. */
+  async function targetRecords(): Promise<LoadRecords | undefined> {
+    quiet = true;
+    await send('frozen:status', {});
+    quiet = false;
+    const status = posted.filter((m) => m.type === 'frozen:status:response').at(-1)?.payload
+      ?.status as { loadRecords?: LoadRecords[] } | undefined;
+    return status?.loadRecords?.find((load) => load.orgId === targetOrgId);
+  }
+
+  /**
+   * {@link automationOfDeletes} of a reload's purge: of what the loads before it
+   * left in the target, none of which a pilot purges, and what a sweep asked
+   * with it deletes. Undefined with nothing left to purge or sweep.
+   *
+   * @param sweptObjects - The objects the sweep's list says it deletes records of.
+   */
+  async function purgeAutomation(
+    sweptObjects: readonly string[] = [],
+  ): Promise<Awaited<ReturnType<typeof automationOfDeletes>> | undefined> {
+    if (!args.reload || args.pilot) return undefined;
+    const records = await targetRecords();
+    if (!records || (records.created.length === 0 && sweptObjects.length === 0)) return undefined;
+    return automationOfDeletes({
+      targetOrgId,
+      loadedAt: records.loadedAt,
+      reload: true,
+      ...(sweptObjects.length > 0 ? { sweptObjects } : {}),
+    });
+  }
+
+  /**
+   * What the sweep asked with a reload would take, listed and said per load
+   * it replaces, read only: the objects it deletes records of, what fires on
+   * which the dry run and the reload read with the purge's. Nothing without a
+   * load into the target; undefined when the list could not be read, which
+   * its error says and which fails the step.
+   */
+  async function reloadSweepObjects(): Promise<string[] | undefined> {
+    const records = await targetRecords();
+    if (!records) return [];
+    log(`reading what a sweep of ${args.target} would take for the loads a reload replaces…`);
+    const before = posted.length;
+    await send('frozen:remove:sweep', { targetOrgId, loadedAt: records.loadedAt, reload: true });
+    const answered = posted.slice(before);
+    if (answered.some((m) => m.type === 'frozen:remove:sweep:error')) return undefined;
+    const listed = answered.filter((m) => m.type === 'frozen:remove:sweep:response').at(-1)?.payload
+      ?.loads as FrozenReloadSweepListing[] | undefined;
+    return [...new Set((listed ?? []).flatMap(({ listing }) => sweepTakenObjects(listing, args)))];
+  }
+
+  /**
+   * What the sweep asked with a removal would take, listed and said for the
+   * load and each other load it sweeps with it, read only: the objects it
+   * deletes records of, what fires on which a preview reads with the load's
+   * own. Undefined when the list could not be read, which its error says.
+   */
+  async function removalSweepObjects(loadedAt: string): Promise<string[] | undefined> {
+    log(`reading what a sweep of ${args.target} would take…`);
+    const before = posted.length;
+    await send('frozen:remove:sweep', { targetOrgId, loadedAt });
+    const answered = posted.slice(before);
+    if (answered.some((m) => m.type === 'frozen:remove:sweep:error')) return undefined;
+    const listed = answered.filter((m) => m.type === 'frozen:remove:sweep:response').at(-1)
+      ?.payload as
+      { listing?: ForgeSweepListing; otherLoads?: FrozenReloadSweepListing[] } | undefined;
+    const listings = [
+      ...(listed?.listing ? [listed.listing] : []),
+      ...(listed?.otherLoads ?? []).map(({ listing }) => listing),
+    ];
+    return [...new Set(listings.flatMap((listing) => sweepTakenObjects(listing, args)))];
+  }
 
   /**
    * The step itself: the configuration saved, then the step's own request;
@@ -1668,7 +2629,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             targetOrgId,
             ...(args.pilot ? { pilot: true } : {}),
             ...(args.reload ? { reload: true } : {}),
+            // What is taken back before the reload runs holds none of its records then.
+            ...(args.goneFirst !== undefined ? { goneFirst: goneFirstIdsOf(args.goneFirst) } : {}),
             ...(args.writeEncrypted ? { writeEncrypted: true } : {}),
+            // What its gate on the emails judges as the load would: the mute
+            // planned, nothing assigned, and the accord given or not.
+            ...(args.muteAutomation ? { muteAutomation: true } : {}),
+            ...(args.acceptEmails ? { acceptEmails: true } : {}),
+            // And its question on what runs as it writes, accepted or not.
+            ...(args.acceptAutomation ? { acceptAutomation: true } : {}),
           });
           // The load's own count gate, said of the plan it would be held to.
           const plan = posted.find((m) => m.type === 'frozen:load:preview:response')?.payload
@@ -1676,37 +2645,204 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           const tooMany = plan
             ? loadRecordsRefusal(loadPlanRecords(plan), args.maxTotal)
             : undefined;
-          if (tooMany) {
-            refusals.push(tooMany);
-            log(`a load would be refused: ${tooMany}`);
+          // MAX_RECORDS, as the load refuses it.
+          if (tooMany) wouldRefuse({ code: 'MAX_RECORDS', message: tooMany });
+          // Its question on what the target runs as it inserts and updates,
+          // asked before its emails: without --accept-automation, refused
+          // under AUTOMATION_NOT_ACCEPTED, as the load is.
+          const automationRefused = plan?.automation?.refused;
+          if (automationRefused) wouldRefuse(automationRefused);
+          // And its gate on the emails: past the target's daily limits, or
+          // delivered without --accept-emails, under the load's own code.
+          const emailsRefused = plan?.emails?.refused;
+          if (emailsRefused) wouldRefuse(emailsRefused);
+          // What a reload's purge would fire, read and judged as the reload
+          // reads it before it writes: a dry run that let by what its run then
+          // refused would have a plan apply what it cannot. Asked with a
+          // sweep, what it would take for each load replaced is listed first,
+          // and what fires as it deletes that is read with the purge's.
+          // A list that could not be read fails the dry run, as its error says.
+          const sweptObjects = (plan && args.sweep ? await reloadSweepObjects() : []) ?? [];
+          const purge = plan ? await purgeAutomation(sweptObjects) : undefined;
+          if (purge?.refusal !== undefined) {
+            wouldRefuse({ code: purge.code ?? 'AUTOMATION_NOT_ACCEPTED', message: purge.refusal });
           }
           // What a load with --mute-automation would assign, silence, leave
           // running and lift beside, read from the target as the load would
           // read it; nothing assigned, and said in the summary as in the lines.
+          // Planned as the load plans it, asking the target: refused on a
+          // production org, or for a user who cannot assign permission sets,
+          // as the load is before it writes. Planned from the read alone, a dry
+          // run said "mute planned", and the load then ended MUTE_NO_RIGHT.
+          let automation: ForgeTargetAutomation | undefined;
           if (args.muteAutomation && plan && targetConn) {
-            const automation = await targetAutomationReader(targetConn).read(
-              targetOrgId!,
-              plan.perObject.map((object) => object.objectApiName),
-            );
-            const { planned, plan: mutePlan } = planMute(
-              automation,
-              (_objectApiName, write) => write === 'insert' || write === 'update',
-            );
-            for (const line of muteLines(planned, args.target ?? 'the target')) log(line);
-            dryRunMute = { mutedAutomation: planned, mutePlan };
+            automation = await targetAutomationReader(targetConn).read(targetOrgId!, [
+              ...new Set([
+                ...plan.perObject.map((object) => object.objectApiName),
+                ...(purge?.steps?.delete ?? []),
+              ]),
+            ]);
+            const prepared = await prepareMute(muteOrgOf(targetConn), automation, {
+              writes: loadWrites(purge?.steps),
+            });
+            if ('refused' in prepared) {
+              // The purge's own read was refused the same, and said it already.
+              if (!refusals.some(({ message }) => message === prepared.refused.message)) {
+                wouldRefuse(prepared.refused);
+              }
+            } else {
+              for (const line of muteLines(prepared.planned, args.target ?? 'the target')) {
+                log(line);
+              }
+              dryRunMute = { mutedAutomation: prepared.planned, mutePlan: prepared.plan };
+            }
+          }
+          // What the target would give the records that go in without a record
+          // type, as the describe of the user the load writes as says: the
+          // sets a real load's mute assigns may open others to that user.
+          for (const line of frozenRecordTypeLines(
+            plan?.recordTypesGiven,
+            true,
+            (dryRunMute?.mutePlan.assign.length ?? 0) > 0,
+          )) {
+            log(line);
+          }
+          // What the checkpoint a real load takes first would hold and cost:
+          // the objects the plan writes, and what still runs as it writes
+          // them, what the mute keeps quiet held quiet.
+          const written = plan ? loadPlanWrites(plan) : [];
+          if (checkpoints && plan && targetConn && written.length > 0) {
+            automation ??= await targetAutomationReader(targetConn)
+              .read(
+                targetOrgId!,
+                plan.perObject.map((object) => object.objectApiName),
+              )
+              .catch(() => undefined);
+            const { estimate, refused } = await scopeCheckpoint(checkpoints, {
+              written,
+              running: runningFor(automation, dryRunMute?.mutePlan),
+            });
+            if (estimate) {
+              checkpointAnswer = estimate;
+              for (const line of checkpointEstimateLines(estimate)) log(line);
+            }
+            if (refused !== undefined) wouldRefuse({ code: CHECKPOINT_REFUSED, message: refused });
           }
           break;
         }
+        // A reload deletes before it loads: what fires as its purge goes is
+        // said and answered before anything is asked or written, as a removal's
+        // — and, asked with a sweep, what fires as the sweep deletes what it
+        // lists, as its dry run reads them. Read on the purge alone, the
+        // refusal named the flow on the contacts, and the one on the tasks the
+        // sweep takes met whoever had turned the first off.
+        const sweptObjects =
+          args.reload && !args.pilot && args.sweep ? await reloadSweepObjects() : [];
+        // What the sweep would take could not be read: nothing is written
+        // while what fires on it is not known, as its error says.
+        if (sweptObjects === undefined) {
+          log('Nothing written.');
+          return 'ended';
+        }
+        const purge = args.reload && !args.pilot ? await purgeAutomation(sweptObjects) : undefined;
+        if (purge?.refusal !== undefined) {
+          // With its code, as a refused clone, seed or sync gives it: the
+          // sentence alone, a pipeline could not tell why.
+          stepRefused = { code: purge.code ?? 'AUTOMATION_NOT_ACCEPTED', message: purge.refusal };
+          refusals.push(stepRefused);
+          log(refusedLine(stepRefused));
+          failed = true;
+          return 'ended';
+        }
+        // Asked with a reload, the sweep reads what it takes as the reload
+        // begins, before the lease and before the first delete: what the
+        // target runs as it deletes that is said then, and refused
+        // unaccepted, as a removal's sweep is. A stop while it read asks nothing.
+        if (args.sweep) {
+          log(
+            "around the purge, a sweep deletes what the target's automation made for each load " +
+              "it replaces, as the load's user, tied to its records — run with --dry-run to see what",
+          );
+          handler.setRemovalAsker(async (question) => {
+            // Asked of what the sweeps delete alone: the purge's own deletes
+            // were asked of above.
+            const { lines, refusal } = removalAutomation(
+              question,
+              args.target ?? '',
+              'reloadSweep',
+            );
+            for (const line of lines) log(line);
+            if (refusal === undefined || args.acceptAutomation) return undefined;
+            stepRefused = { code: 'AUTOMATION_NOT_ACCEPTED', message: refusal };
+            refusals.push(stepRefused);
+            return stepRefused;
+          });
+        }
         if (!args.yes) {
           const ok = await confirm(
-            `Load the frozen dataset into ${args.target}${args.reload ? ', purging first what earlier loads created' : ''}?`,
+            `Load the frozen dataset into ${args.target}${args.reload ? `, purging first what earlier loads created${args.sweep ? " and what the target's automation made for them" : ''}` : ''}?`,
           );
           if (!ok) {
             log('Nothing written.');
             return 'ended';
           }
         }
+        // The checkpoint asked first, once the load may write — the answer
+        // or --yes given — and before the handler takes the mute's lease and
+        // writes: of the objects the dataset holds, and of what still runs as
+        // the load writes them. Refused, the load is not sent.
+        let taken: RunCheckpointTaken | undefined;
+        if (checkpoints && targetConn) {
+          const objects = datasetObjectsOf(datasetDir);
+          const automation = await targetAutomationReader(targetConn)
+            .read(targetOrgId!, objects)
+            .catch(() => undefined);
+          const ask: CommandCheckpointAsk = {
+            written: objects,
+            running: runningFor(
+              automation,
+              args.muteAutomation && automation
+                ? planMute(automation, LOAD_WRITES).plan
+                : undefined,
+            ),
+          };
+          const { estimate, refused } = await scopeCheckpoint(checkpoints, ask);
+          if (estimate) {
+            checkpointAnswer = estimate;
+            for (const line of checkpointEstimateLines(estimate)) log(line);
+          }
+          if (refused !== undefined || estimate === undefined) {
+            // Under the code its dry run names, as a refused purge says its own.
+            refuseTheLoad(`${refused ?? ''} Nothing was written.`.trim());
+            return 'ended';
+          }
+          taking = new AbortController();
+          const signal = taking.signal;
+          const took = await takeCheckpointFirst(() =>
+            checkpoints.take(ask, estimate, { signal }),
+          ).finally(() => {
+            taking = undefined;
+          });
+          if ('stop' in took) {
+            if (took.stop.code !== CHECKPOINT_REFUSED) {
+              stoppedTaking = true;
+              return 'ended';
+            }
+            refuseTheLoad(checkpointStopWords(took.stop));
+            return 'ended';
+          }
+          taken = took.checkpoint;
+          checkpointAnswer = taken;
+          for (const line of checkpointTakenLines(
+            taken,
+            args.target ?? 'the target',
+            args.muteAutomation,
+          )) {
+            log(line);
+          }
+        }
         log(`loading into ${args.target}${args.pilot ? ' (pilot)' : ''}…`);
+        const loadStartedAt = new Date().toISOString();
         await send('frozen:load', {
           targetOrgId,
           ...(args.pilot ? { pilot: true } : {}),
@@ -1714,7 +2850,67 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           ...(args.writeEncrypted ? { writeEncrypted: true } : {}),
           ...(args.maxTotal !== undefined ? { maxRecords: args.maxTotal } : {}),
           ...(args.muteAutomation ? { muteAutomation: true } : {}),
+          ...(args.sweep ? { sweep: true } : {}),
+          ...(args.sweepLate ? { sweepLate: true } : {}),
+          ...(args.sweepUntied ? { sweepUntied: true } : {}),
+          ...(args.sweep && args.includeChanged ? { includeChanged: true } : {}),
+          ...(args.acceptEmails ? { acceptEmails: true } : {}),
+          ...(args.acceptAutomation ? { acceptAutomation: true } : {}),
         });
+        // Refused before its first write — for what runs as it writes, its
+        // emails, its mute —, with
+        // its code beside the refusals, as a seed or a sync refused for them
+        // gives it; what its sweep deletes was refused above, by its question.
+        const refusedFirst = posted
+          .filter((m) => m.type === 'frozen:load:error')
+          .map(refusedFirstOf)
+          .find((refused) => refused !== undefined);
+        if (refusedFirst && !stepRefused) {
+          stepRefused = refusedFirst;
+          refusals.push(stepRefused);
+        }
+        // Kept where every load of this command is, whichever sas: the sweep
+        // of another sas's load into the org counts it a run of its window,
+        // to its last write as its mapping keeps it.
+        if (targetOrgId && frozenLoadWrote(posted)) {
+          const lastWriteAt = lastWriteOfLoad(
+            await new SasReferenceIdMappingStore(sasDir, { orgId: targetOrgId })
+              .recorded()
+              .catch(() => undefined),
+            loadStartedAt,
+          );
+          try {
+            indexLoad(journalDirOf(), {
+              organizationId: targetOrgId,
+              sas: sasMarkOf(sasDir),
+              startedAt: loadStartedAt,
+              endedAt: new Date().toISOString(),
+              ...(lastWriteAt ? { lastWriteAt } : {}),
+            });
+          } catch (err: unknown) {
+            log(
+              `warning: this load could not be added to ${journalDirOf()}: another sas's sweep ` +
+                `of ${args.target ?? ''} will not see it (${err instanceof Error ? err.message : String(err)})`,
+            );
+          }
+        }
+        // Kept once the load wrote a record; deleted when it reports it wrote
+        // none, or was refused before it wrote.
+        if (checkpoints && taken) {
+          const kept = taken;
+          checkpointAnswer = await checkpoints
+            .settle(kept, frozenLoadWrote(posted))
+            .catch((err: unknown) => {
+              log(
+                `warning: the checkpoint '${kept.name}' taken before the load could not be ` +
+                  `deleted (${err instanceof Error ? err.message : String(err)}): delete it ` +
+                  `with sandforge-checkpoint delete --org ${args.target ?? ''} --checkpoint ` +
+                  kept.checkpointId,
+              );
+              return kept;
+            });
+          for (const line of checkpointSettledLines(checkpointAnswer)) log(line);
+        }
         break;
       }
       case 'verify':
@@ -1745,6 +2941,26 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             loadedAt: records.loadedAt,
             ...(args.includeChanged ? { includeChanged: true } : {}),
           });
+          if (posted.some((m) => m.type === 'frozen:remove:preview:response')) {
+            // With --sweep, what it would take, listed as the removal lists
+            // it, and what fires on it read with the load's own: previewed
+            // without it, an environment's destroy blocked nothing and its
+            // removal then refused the sweep's automation, part way.
+            const sweptObjects = args.sweep ? await removalSweepObjects(records.loadedAt) : [];
+            if (sweptObjects === undefined) break;
+            const { planned, refusal, code } = await automationOfDeletes({
+              targetOrgId,
+              loadedAt: records.loadedAt,
+              ...(sweptObjects.length > 0 ? { sweptObjects } : {}),
+            });
+            if (planned) dryRunMute = { mutedAutomation: planned.planned, mutePlan: planned.plan };
+            if (refusal !== undefined) {
+              // Under the code the removal is refused with, as a load's dry run says its own.
+              const refused = { code: code ?? 'AUTOMATION_NOT_ACCEPTED', message: refusal };
+              removalRefusals.push(refused);
+              log(wouldBeRefusedLine(refused, 'a removal'));
+            }
+          }
           break;
         }
         if (args.sweepList) {
@@ -1752,30 +2968,63 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // load's own records included.
           log(`reading what a sweep of ${args.target} would take…`);
           await send('frozen:remove:sweep', { targetOrgId, loadedAt: records.loadedAt });
+          // A list a sweep would be refused for ends as that sweep does, as
+          // the clone's: ending 0, it read as an empty list to a script.
+          const listed = posted.filter((m) => m.type === 'frozen:remove:sweep:response').at(-1)
+            ?.payload as
+            { listing?: ForgeSweepListing; otherLoads?: FrozenReloadSweepListing[] } | undefined;
+          sweepListRefused = [
+            listed?.listing,
+            ...(listed?.otherLoads ?? []).map(({ listing }) => listing),
+          ].some((listing) => listing?.refusal !== undefined);
           break;
         }
         for (const line of removalPlanLines(records, args.target ?? '')) log(line);
         if (args.sweep) {
           log(
-            "before them, a sweep deletes what the target's automation created during the load, " +
-              "as the load's user — run with --sweep-list to see what",
+            `${recordsToTake(records) > 0 ? 'before them, a sweep deletes' : 'a sweep alone deletes'} ` +
+              "what the target's automation made for the load, as the load's user, tied to its " +
+              `records — run ${sweepOptionWords('--sweep-list')} to see what`,
           );
         }
-        if (!args.yes && removalAsks(records)) {
-          // Typed, as the panel asks it: the name of the org the records leave.
-          const answer = await typed(`Type ${args.target} to delete them:`);
-          if (answer !== args.target) {
-            log('Nothing deleted.');
-            return 'ended';
+        // Asked by the removal once its sweep has read what it takes, before
+        // the lease and before the first delete: what the target runs is read
+        // on what both delete, and said before the name of the org is typed,
+        // as the panel lists it. A stop while the sweep read asks nothing.
+        let declined = false;
+        handler.setRemovalAsker(async (question) => {
+          const { lines, refusal } = removalAutomation(question, args.target ?? '');
+          for (const line of lines) log(line);
+          if (refusal !== undefined && !args.acceptAutomation) {
+            return { message: refusal, code: 'AUTOMATION_NOT_ACCEPTED' };
           }
-        }
-        log(`removing from ${args.target}…`);
+          if (!args.yes && removalAsks(records, question.steps)) {
+            // Typed, as the panel asks it: the name of the org the records leave.
+            asking = true;
+            const answer = await typed(`Type ${args.target} to delete them:`);
+            asking = false;
+            if (answer !== args.target) {
+              declined = true;
+              return { message: 'Nothing deleted.', code: REMOVAL_DECLINED };
+            }
+          }
+          log(`removing from ${args.target}…`);
+          return undefined;
+        });
         await send('frozen:remove', {
           targetOrgId,
           loadedAt: records.loadedAt,
-          ...(args.includeChanged ? { includeChanged: true } : {}),
-          ...(args.sweep ? { sweep: true } : {}),
+          ...removalAsked(args),
         });
+        if (declined) return 'ended';
+        // Refused before its first delete, with its code, as a refused
+        // clone, seed or sync removal gives it: --json said it under
+        // `posted` alone.
+        stepRefused = posted
+          .filter((m) => m.type === 'frozen:remove:error')
+          .map(refusedFirstOf)
+          .find((refused) => refused !== undefined);
+        if (stepRefused) removalRefusals.push(stepRefused);
         break;
       }
       case 'status':
@@ -1786,11 +3035,178 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
 }
 
+/** The writes of a load the target's automation fires on, as its mute plans for them. */
+const LOAD_WRITES = (_objectApiName: string, write: string): boolean =>
+  write === 'insert' || write === 'update';
+
+/** The writes of a load, and of the purge a reload runs first, which deletes. */
+function loadWrites(
+  purge: ForgeRemovalSteps | undefined,
+): (objectApiName: string, write: ForgeAutomationWrite) => boolean {
+  const purged = purge ? removalStepsWrites(purge) : undefined;
+  return (objectApiName, write) =>
+    LOAD_WRITES(objectApiName, write) || purged?.(objectApiName, write) === true;
+}
+
+/**
+ * What the command says of the records a load created — a dry run, would
+ * create — without a record type, as Sync and Autopilot say it. Exported so it
+ * can be tested.
+ *
+ * @param muteAssigns - Whether a real load's mute would assign permission sets.
+ */
+export function frozenRecordTypeLines(
+  given: readonly RecordTypeGiven[] | undefined,
+  dryRun: boolean,
+  muteAssigns = false,
+): string[] {
+  return recordTypeGivenOfObjectsLines(
+    (given ?? []).map((recordTypeGiven) => ({ recordTypeGiven })),
+    dryRun,
+    muteAssigns,
+  );
+}
+
+/** What still runs as a load writes, the mute's plan held; nothing named when the read failed. */
+function runningFor(
+  automation: ForgeTargetAutomation | undefined,
+  plan: MutePlan | undefined,
+): Pick<StillRunning<unknown>, 'firing'> {
+  return { firing: automation ? stillRunningOf(automation, plan, LOAD_WRITES).firing : [] };
+}
+
+/**
+ * The objects a load's plan writes: those it inserts, purges or deactivates,
+ * and those it makes placeholders of. Exported so it can be tested.
+ */
+export function loadPlanWrites(
+  plan: Pick<FrozenLoadPlanInfo, 'perObject' | 'placeholders'>,
+): string[] {
+  const names = [
+    ...plan.perObject
+      .filter((object) => object.toInsert > 0 || object.toPurge > 0 || object.toDeactivate > 0)
+      .map((object) => object.objectApiName),
+    ...(plan.placeholders ?? []).map((placeholder) => placeholder.placeholderObjectApiName),
+  ];
+  return [...new Set(names)];
+}
+
+/**
+ * The objects a frozen dataset holds records of, as its manifest counts
+ * them, or by the files of its data folder when it counts none: those a
+ * load writes. Exported so it can be tested.
+ */
+export function datasetObjectsOf(dir: string): string[] {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as {
+      volumetry?: { measured?: Record<string, unknown> };
+    };
+    const measured = Object.entries(manifest.volumetry?.measured ?? {})
+      .filter(([, records]) => typeof records === 'number' && records > 0)
+      .map(([objectApiName]) => objectApiName);
+    if (measured.length > 0) return measured;
+  } catch {
+    // Read from its files below.
+  }
+  try {
+    return readdirSync(join(dir, 'data'))
+      .filter((file) => file.endsWith('.json'))
+      .map((file) => file.slice(0, -'.json'.length))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The codes of a load refused before it wrote anything, whose error the
+ * handler sends before it can say what the load wrote: its payload, its
+ * configuration unsaved, a Production Guard missing, its replace, its mute.
+ */
+const LOAD_REFUSED_BEFORE_WRITING: ReadonlySet<string> = new Set([
+  'INVALID_PAYLOAD',
+  'CONFIG_MISSING',
+  PRODUCTION_GUARD_MISSING.code,
+  'REPLACE_LEAVES_RECORDS',
+  'MUTE_PRODUCTION',
+  'MUTE_NO_RIGHT',
+  'MUTE_FAILED',
+  // Its gate on the emails, which stops it before its first write.
+  'EMAILS_NOT_ACCEPTED',
+  'FROZEN_EMAILS_EXCEEDED',
+  // Its question on what runs as it writes, asked before them.
+  'AUTOMATION_NOT_ACCEPTED',
+]);
+
+/**
+ * Whether a load wrote to the target, as what it posted says: its report's
+ * inserts, placeholders, purge and deactivations; refused before it wrote by
+ * the code of its error, or by the error itself, which says `written: 0` of
+ * a load refused or failed before its first write — its configuration, its
+ * entry guards, a read of the target —; written, as far as can be told, when
+ * it stopped or failed part way, whose error does not say. Taken for one
+ * that wrote, a load its configuration refused, "Nothing was written", was
+ * kept in the index, and another sas's sweep refused --sweep-untied for it.
+ * Exported so it can be tested.
+ */
+export function frozenLoadWrote(posted: readonly Posted[]): boolean {
+  const last = (type: string): Record<string, unknown> | undefined =>
+    posted.filter((message) => message.type === type).at(-1)?.payload;
+  const report = last('frozen:load:response')?.report as FrozenLoadReportInfo | undefined;
+  if (report) {
+    const counted = (by: Record<string, number> | undefined): number =>
+      Object.values(by ?? {}).reduce((sum, count) => sum + count, 0);
+    return (
+      report.perObject.some((object) => object.inserted > 0) ||
+      (report.placeholders ?? []).length > 0 ||
+      counted(report.purge?.deleted) > 0 ||
+      counted(report.purge?.deactivated) > 0
+    );
+  }
+  const error = last('frozen:load:error');
+  const code = error?.code;
+  if (typeof code === 'string' && LOAD_REFUSED_BEFORE_WRITING.has(code)) return false;
+  return error?.written !== 0;
+}
+
+/**
+ * The checkpoint a load takes first, as its scope said it: what it would
+ * hold and cost, and the refusal a real load would meet in the command's
+ * words — the scope's own, or why it could not be read.
+ */
+async function scopeCheckpoint(
+  checkpoints: CommandCheckpoints,
+  ask: CommandCheckpointAsk,
+): Promise<{ estimate?: RunCheckpointEstimate; refused?: string }> {
+  try {
+    const estimate = await checkpoints.scope(ask);
+    return {
+      estimate,
+      ...(estimate.refusal !== undefined
+        ? { refused: checkpointRefusedWords(estimate.refusal) }
+        : {}),
+    };
+  } catch (err: unknown) {
+    return { refused: beforeRunFailedWords(err).replace(/ Nothing was written\.$/, '') };
+  }
+}
+
 /**
  * What a step Ctrl-C stopped says last: what was kept of it, and what takes
  * it back. Exported so it can be tested.
+ *
+ * @param wrote - Of a load, whether it created or purged a record before it
+ *   stopped: run on the trap org, a reload stopped in its sweep said "what it
+ *   wrote is recorded … and `remove` takes it back" of a load that wrote
+ *   nothing, its sas as it was.
  */
-export function frozenInterruptedLine(step: string): string {
+export function frozenInterruptedLine(step: string, wrote = true): string {
+  if (step === 'load' && !wrote) {
+    return (
+      'interrupted: the load stopped before it created or purged a record: the sas is as it ' +
+      'was, and `remove` has nothing of this load to take back'
+    );
+  }
   if (step === 'load') {
     return (
       'interrupted: the load stopped before it was through; what it wrote is recorded in the ' +

@@ -166,9 +166,54 @@ describe('docs/mcp.md', () => {
 
     expect(rule).toContain("`acceptNoState` is `env_apply`'s `--accept-no-state`");
     expect(rule).toContain("`includeChanged` is `env_destroy`'s `--include-changed`");
-    expect(SERVER).toContain("flags: { '--accept-no-state': 'acceptNoState' },");
+    expect(SERVER).toContain("'--accept-no-state': 'acceptNoState'");
     expect(SERVER).toContain("flags: { '--include-changed': 'includeChanged' },");
     expect(SERVER).toContain("...(args.failOnDrift === true ? ['--fail-on-drift'] : []),");
+  });
+
+  it('names the parameter each flag a removal names in its advice stands for, as run_remove passes it', () => {
+    const rule = section('The confirm rule');
+
+    expect(rule).toContain(
+      "as it is `run_remove`'s, whose `muteAutomation` and `leaveUndeletable` are " +
+        '`--mute-automation` and `--leave-undeletable`',
+    );
+    for (const [flag, parameter] of [
+      ['--include-changed', 'includeChanged'],
+      ['--accept-automation', 'acceptAutomation'],
+      ['--mute-automation', 'muteAutomation'],
+      ['--leave-undeletable', 'leaveUndeletable'],
+    ]) {
+      expect(SERVER).toContain(`'${flag}': '${parameter}',`);
+      expect(SERVER).toContain(`...(args.${parameter} === true ? ['${flag}'] : []),`);
+    }
+    expect(rule).toContain("whose `store` is a Sync removal's `--store`");
+    expect(SERVER).toContain("...(args.store !== undefined ? ['--store', args.store] : []),");
+  });
+
+  it('names muteAutomation on the seed and the clone, as they pass it, and says a flag no tool takes is the script’s own', () => {
+    // seed_run and clone_record relayed "--mute-automation" and took no such
+    // parameter.
+    const rule = section('The confirm rule');
+
+    // checkpoint_rewind and checkpoint_undo relayed "--mute-automation keeps
+    // quiet …" of their refusal for the emails, and took no such parameter.
+    expect(rule).toContain(
+      '`muteAutomation` is `--mute-automation` for `seed_run`, `clone_record`, ' +
+        '`checkpoint_rewind` and `checkpoint_undo` too',
+    );
+    expect(SERVER).toContain(
+      "flags: { '--accept-emails': 'acceptEmails', '--mute-automation': 'muteAutomation' },",
+    );
+    expect(SERVER.split("'--mute-automation': 'muteAutomation',")).toHaveLength(5);
+    expect(
+      SERVER.split("...(args.muteAutomation === true ? ['--mute-automation'] : []),"),
+    ).toHaveLength(6);
+    expect(rule).toContain("the script's line calls this script's own");
+    expect(rule).toContain('No environment mutes, and none of its runs offers it.');
+    expect(SERVER).toContain(
+      "named: { '--accept-automation': fileAcceptsAutomation('env_destroy') },",
+    );
   });
 
   it('says the extension itself gives the model no tool, and names the test that holds it', () => {

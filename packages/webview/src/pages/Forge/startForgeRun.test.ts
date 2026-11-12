@@ -206,4 +206,29 @@ describe('startForgeRun', () => {
     expect(account?.status).toBe('idle');
     expect(account?.progress).toBe(0);
   });
+
+  describe('the checkpoint first', () => {
+    const sentPayload = (): Record<string, unknown> =>
+      (mockSendBridgeMessage.mock.calls.find(([type]) => type === 'forge:execute')?.[1] ??
+        {}) as Record<string, unknown>;
+
+    it('goes with Execute once Review’s option is ticked, kept as the setting says', () => {
+      useForgeStore.getState().setCheckpointFirst(true);
+      expect(startForgeRun()).toBe(true);
+      expect(sentPayload().checkpointFirst).toEqual({});
+    });
+
+    it('goes with Simulate too, which says what it would hold and cost', () => {
+      useForgeStore.getState().setCheckpointFirst(true);
+      startForgeRun({ dryRun: true });
+      expect(sentPayload().checkpointFirst).toEqual({});
+      // A simulation assigns nothing, and asks no mute.
+      expect(sentPayload()).not.toHaveProperty('muteAutomation');
+    });
+
+    it('is not asked unless the option is ticked', () => {
+      startForgeRun();
+      expect(sentPayload()).not.toHaveProperty('checkpointFirst');
+    });
+  });
 });

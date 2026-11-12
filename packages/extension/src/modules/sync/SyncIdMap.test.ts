@@ -112,6 +112,43 @@ describe('SyncIdMap', () => {
     expect(deps.rename).toHaveBeenCalled();
   });
 
+  it('keeps which records a run linked to one the target held, through a later copy and a compaction', async () => {
+    // A second run said "already copied by an earlier run" of an account the
+    // first had linked: the pairs kept no word of how each was made.
+    const deps = memoryDeps({ maxPairs: 10, compactBytes: 300 });
+    const map = new SyncIdMap(deps);
+    await map.record('cfg-1', ORGS, 'Account', [[fakeId('001', 1), fakeId('001', 800)]], true);
+    await map.record('cfg-1', ORGS, 'Account', [[fakeId('001', 2), fakeId('001', 902)]]);
+    await map.record(
+      'cfg-1',
+      OTHER_TARGET,
+      'Account',
+      [[fakeId('001', 3), fakeId('001', 803)]],
+      true,
+    );
+    expect([...(await map.linked('cfg-1', ORGS))]).toEqual([fakeId('001', 1).slice(0, 15)]);
+
+    // Copied since by a run: no longer a link.
+    await map.record('cfg-1', ORGS, 'Account', [[fakeId('001', 1), fakeId('001', 911)]]);
+    for (let n = 4; n <= 6; n++) {
+      await map.record(
+        'cfg-1',
+        ORGS,
+        'Account',
+        [[fakeId('001', n), fakeId('001', 800 + n)]],
+        true,
+      );
+    }
+
+    expect(deps.rename).toHaveBeenCalled();
+    expect([...(await map.linked('cfg-1', ORGS))]).toEqual(
+      [4, 5, 6].map((n) => fakeId('001', n).slice(0, 15)),
+    );
+    expect((await map.load('cfg-1', ORGS)).get(fakeId('001', 1).slice(0, 15))).toBe(
+      fakeId('001', 911),
+    );
+  });
+
   it('forgets everything of a configuration that is deleted', async () => {
     const map = nodeSyncIdMap(dir);
     await map.record('cfg-1', ORGS, 'Account', [[fakeId('001', 1), fakeId('001', 901)]]);

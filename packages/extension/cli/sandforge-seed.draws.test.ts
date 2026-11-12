@@ -276,7 +276,11 @@ describe('the target automation and its emails, before the first write', () => {
   ];
 
   it('says what fires as the records are created, and refuses a run past the emails left today', async () => {
-    const readLimits = vi.fn(async () => ({ SingleEmail: { max: 15, remaining: 15 } }));
+    // A Developer Edition's /limits, which list both.
+    const readLimits = vi.fn(async () => ({
+      SingleEmail: { max: 15, remaining: 15 },
+      DailyWorkflowEmails: { max: 8_040, remaining: 8_040 },
+    }));
     const check = await seedAutomationCheck({
       target: 'TGT',
       objects,
@@ -294,6 +298,10 @@ describe('the target automation and its emails, before the first write', () => {
         'Email), more than the 15 of 15 it has left today: past them the action fails, and a ' +
         'record whose flow fails in the save is refused (CANNOT_EXECUTE_FLOW_TRIGGER). A bypass ' +
         'that keeps the flow quiet, or a smaller run, avoids it',
+      // A flow's single emails count against the workflow emails too, as the
+      // trap Developer Edition took them.
+      '  emails: these records make TGT send about 150 workflow emails (2 per Contact, by ' +
+        'Welcome Email); it has 8040 of 8040 left today',
     ]);
     expect(check.gate.refusal).toMatch(
       /^The seed was refused before it wrote anything: its records would make TGT send about 150 single emails/,
@@ -476,6 +484,26 @@ describe('record types', () => {
         'default, Customer: --record-type Account=<Name> chooses',
     );
     expect(recordTypeChoiceLine('Contact', [INFOS[0], INFOS[3]])).toBeUndefined();
+  });
+
+  it('says what chooses them in the words of the command that relays the seed, which takes no --record-type', () => {
+    // Relayed by sandforge-env, whose file gives a seed resource's record
+    // types, and by the MCP server's seed_run, which has no parameter for
+    // them, the line said "--record-type Account=<Name> chooses".
+    try {
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env plan');
+      expect(recordTypeChoiceLine('Account', INFOS)).toBe(
+        '  Account: 2 record types open to you (Customer, Partner); the records take your ' +
+          "default, Customer: the resource's recordTypes for Account, in the file, chooses",
+      );
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-mcp');
+      expect(recordTypeChoiceLine('Account', INFOS)).toBe(
+        '  Account: 2 record types open to you (Customer, Partner); the records take your ' +
+          "default, Customer: this script's own --record-type Account=<Name> chooses",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('takes the record types of an object of the line', () => {

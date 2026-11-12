@@ -79,6 +79,210 @@ const CATEGORY_ICONS: Record<FeatureCategory, React.ReactNode> = {
  * adds no entry here shows no panel at all: from 1.44.3 on, a patch adds none.
  */
 export const WHATS_NEW: Readonly<Record<string, readonly Feature[]>> = {
+  '1.77.0': [
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.reload1770',
+      descKey: 'onboarding.whatsNew.reload1770Desc',
+      navigateTo: 'frozen',
+    },
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.roles1770',
+      descKey: 'onboarding.whatsNew.roles1770Desc',
+      navigateTo: 'forge',
+    },
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.removal1770',
+      descKey: 'onboarding.whatsNew.removal1770Desc',
+      navigateTo: 'forge',
+    },
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.gates1770',
+      descKey: 'onboarding.whatsNew.gates1770Desc',
+      navigateTo: 'sync',
+    },
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.rewindEmails1770',
+      descKey: 'onboarding.whatsNew.rewindEmails1770Desc',
+      navigateTo: 'checkpoint',
+    },
+  ],
+  '1.76.0': [
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.frozenAuto1760',
+      descKey: 'onboarding.whatsNew.frozenAuto1760Desc',
+      navigateTo: 'frozen',
+    },
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.resumed1760',
+      descKey: 'onboarding.whatsNew.resumed1760Desc',
+      navigateTo: 'forge',
+    },
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.linked1760',
+      descKey: 'onboarding.whatsNew.linked1760Desc',
+      navigateTo: 'sync',
+    },
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.rewind1760',
+      descKey: 'onboarding.whatsNew.rewind1760Desc',
+      navigateTo: 'checkpoint',
+    },
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.seed1760',
+      descKey: 'onboarding.whatsNew.seed1760Desc',
+      navigateTo: 'seed',
+    },
+  ],
+  '1.75.0': [
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.setup1750',
+      descKey: 'onboarding.whatsNew.setup1750Desc',
+      navigateTo: 'forge',
+    },
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.roles1750',
+      descKey: 'onboarding.whatsNew.roles1750Desc',
+      navigateTo: 'sync',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.duplicates1750',
+      descKey: 'onboarding.whatsNew.duplicates1750Desc',
+      navigateTo: 'dataops',
+    },
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.sweep1750',
+      descKey: 'onboarding.whatsNew.sweep1750Desc',
+      navigateTo: 'forge',
+    },
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.rewind1750',
+      descKey: 'onboarding.whatsNew.rewind1750Desc',
+      navigateTo: 'checkpoint',
+    },
+  ],
+  '1.74.0': [
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.dataops1740',
+      descKey: 'onboarding.whatsNew.dataops1740Desc',
+      navigateTo: 'dataops',
+    },
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.review1740',
+      descKey: 'onboarding.whatsNew.review1740Desc',
+      navigateTo: 'forge',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.reload1740',
+      descKey: 'onboarding.whatsNew.reload1740Desc',
+      navigateTo: 'frozen',
+    },
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.team1740',
+      descKey: 'onboarding.whatsNew.team1740Desc',
+      navigateTo: 'forge',
+    },
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.counts1740',
+      descKey: 'onboarding.whatsNew.counts1740Desc',
+      navigateTo: 'sync',
+    },
+  ],
+  '1.73.0': [
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.review1730',
+      descKey: 'onboarding.whatsNew.review1730Desc',
+      navigateTo: 'forge',
+    },
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.partial1730',
+      descKey: 'onboarding.whatsNew.partial1730Desc',
+      navigateTo: 'monitor',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.frozen1730',
+      descKey: 'onboarding.whatsNew.frozen1730Desc',
+      navigateTo: 'frozen',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.rewindMute1730',
+      descKey: 'onboarding.whatsNew.rewindMute1730Desc',
+      navigateTo: 'automation',
+    },
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.migration1730',
+      descKey: 'onboarding.whatsNew.migration1730Desc',
+      navigateTo: 'migration',
+    },
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.masking1730',
+      descKey: 'onboarding.whatsNew.masking1730Desc',
+      navigateTo: 'dataops',
+    },
+  ],
+  '1.72.0': [
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.checkpoint1720',
+      descKey: 'onboarding.whatsNew.checkpoint1720Desc',
+      navigateTo: 'forge',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.sweep1720',
+      descKey: 'onboarding.whatsNew.sweep1720Desc',
+      navigateTo: 'forge',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.emails1720',
+      descKey: 'onboarding.whatsNew.emails1720Desc',
+      navigateTo: 'sync',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.fit1720',
+      descKey: 'onboarding.whatsNew.fit1720Desc',
+      navigateTo: 'autopilot',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.recordType1720',
+      descKey: 'onboarding.whatsNew.recordType1720Desc',
+      navigateTo: 'sync',
+    },
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.pages1720',
+      descKey: 'onboarding.whatsNew.pages1720Desc',
+      navigateTo: 'reports',
+    },
+  ],
   '1.71.0': [
     {
       category: 'feature',
@@ -972,9 +1176,14 @@ export interface ReleaseHighlights {
  * The releases to show, newest first: every listed one after `since` up to
  * `version`, or `version` alone when the version last opened is unknown or
  * not an earlier one. Only the current version's list was shown, so an
- * upgrade from 1.68 to 1.70 never told what 1.69 brought.
+ * upgrade from 1.68 to 1.70 never told what 1.69 brought. With `standIn`,
+ * a version that lists nothing shows the newest release listed before it.
  */
-export function releasesToShow(version: string, since?: string): ReleaseHighlights[] {
+export function releasesToShow(
+  version: string,
+  since?: string,
+  standIn = false,
+): ReleaseHighlights[] {
   if (
     !since ||
     !SEMVER.test(since) ||
@@ -982,7 +1191,18 @@ export function releasesToShow(version: string, since?: string): ReleaseHighligh
     compareVersions(since, version) >= 0
   ) {
     const features = WHATS_NEW[version];
-    return features ? [{ version, features }] : [];
+    if (features) return [{ version, features }];
+    if (!standIn || !SEMVER.test(version)) return [];
+    // A patch release lists nothing of its own: asked from Help, on 1.73.1
+    // What's New opened nothing at all. The newest release listed at or
+    // before this one stands for it, under its own number.
+    const newest = Object.keys(WHATS_NEW)
+      .filter((listed) => compareVersions(listed, version) <= 0)
+      .sort((a, b) => compareVersions(b, a))[0];
+    const newestFeatures = newest === undefined ? undefined : WHATS_NEW[newest];
+    return newest !== undefined && newestFeatures
+      ? [{ version: newest, features: newestFeatures }]
+      : [];
   }
   return Object.entries(WHATS_NEW)
     .filter(
@@ -1009,7 +1229,8 @@ export const WhatsNewPage: React.FC<WhatsNewPageProps> = ({ version, onDismiss }
   const { t } = useTranslation();
   const navigate = useAppStore((s) => s.navigate);
   const since = useAppStore((s) => s.whatsNewSince);
-  const releases = releasesToShow(version, since);
+  const standIn = useAppStore((s) => s.whatsNewStandIn);
+  const releases = releasesToShow(version, since, standIn);
   const empty = releases.length === 0;
 
   // No highlights for these releases: close before the first paint, so the

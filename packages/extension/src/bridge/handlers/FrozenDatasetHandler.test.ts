@@ -9,6 +9,7 @@ import {
   FrozenDatasetLoader,
   FrozenLoadCancelledError,
   FrozenLoadFailedError,
+  LoadConfigError,
   LoadGuardError,
   LoadRecordsExceededError,
   PostLoadVerifier,
@@ -19,6 +20,7 @@ import {
   type FrozenDataset,
 } from '../../modules/frozendataset/index.js';
 import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasReferenceIdMappingStore.js';
+import { auditedLoadsOf } from '../../modules/frozendataset/otherSasLoads.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { PIIDetector } from '../../core/precheck/PIIDetector.js';
@@ -32,6 +34,7 @@ import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 import type {
   BaseMessage,
+  ForgeTargetAutomation,
   FrozenLoadReportInfo,
   FrozenProjectConfig,
   FrozenStatusInfo,
@@ -43,6 +46,7 @@ import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBacken
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { LiveOperation } from '../../modules/monitor/LiveOperationTracker.js';
 
 vi.mock('../../logger.js', () => ({
@@ -78,6 +82,7 @@ vi.mock('../../modules/frozendataset/index.js', async (importOriginal) => {
     ) {
       const real = new actual.FrozenDatasetLoader(loaderDeps);
       return {
+        gateLoad: (options: Parameters<typeof real.gateLoad>[0]) => real.gateLoad(options),
         load: (options: Parameters<typeof real.load>[0]) =>
           loaderLoad.getMockImplementation() ? loaderLoad(options) : real.load(options),
         planLoad: (options: Parameters<typeof real.planLoad>[0]) =>
@@ -323,11 +328,23 @@ describe('FrozenDatasetHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    // Unless a case scripts it, the target runs nothing as a load writes:
+    // what the cases test is not the gate on its emails, which reads it.
+    vi.spyOn(TargetAutomationReader.prototype, 'read').mockImplementation(
+      async (_orgId, objects) =>
+        ({
+          objectsRead: [...objects],
+          objects: [],
+          bypassGrants: [],
+          unread: [],
+        }) as unknown as ForgeTargetAutomation,
+    );
     deps = createMockDeps();
     handler = new FrozenDatasetHandler(deps);
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     for (const dir of tmpDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -689,6 +706,8 @@ describe('FrozenDatasetHandler', () => {
       deps.infraServices = {
         productionGuard: new ProductionGuard(),
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      // A sandbox: the entry guards stand before the load, whatever a case scripts of it.
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue({ orgType: 'Sandbox' } as never);
       vi.mocked(getJsforceConnection).mockResolvedValue({} as never);
       handler = new FrozenDatasetHandler(deps);
       return store;
@@ -965,6 +984,19 @@ describe('FrozenDatasetHandler', () => {
             guard: 'source-is-target',
             orgId: '00D000000000002AAA',
           }),
+        ]);
+      });
+
+      it('names what the configuration has to declare beside a refusal of the required fields', async () => {
+        const { config } = writeDataset();
+        wire(config);
+        const gaps = ['requiredFieldDefaults["OpportunityLineItem.UnitPrice"]: a value'];
+        loaderPlan.mockRejectedValueOnce(new LoadConfigError('Declare them all', gaps));
+
+        await handler.handle(buildMsg('frozen:load:preview', { targetOrgId: 'org-2' }));
+
+        expect(posted(deps, 'frozen:load:preview:error').map((error) => error.payload)).toEqual([
+          expect.objectContaining({ code: 'LOAD_CONFIG', gaps }),
         ]);
       });
 
@@ -1418,6 +1450,37 @@ describe('FrozenDatasetHandler', () => {
         ]);
       });
 
+      it('records a load its configuration refused before it wrote as stopped, no run of any window, and says it wrote nothing', async () => {
+        // Recorded failed, it was a load that wrote for the sweep of another
+        // sas's load into the org, which then refused --sweep-untied for it.
+        const { config } = writeDataset();
+        const store = wire(config);
+        loaderLoad.mockRejectedValue(
+          new LoadConfigError(
+            'The dataset leaves 1 required field(s) empty that the configuration does not ' +
+              'cover. Nothing was written.',
+            ['requiredFieldDefaults["Account.Name"]: a value for this required field'],
+          ),
+        );
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+        const entries = new AuditTrailStore(store).list().entries;
+        expect(entries).toEqual([
+          expect.objectContaining({
+            outcome: 'stopped',
+            objects: [],
+            // Unmarked with its sas and its span: no sweep reads it as a run of its window.
+            details: { code: 'LOAD_CONFIG' },
+          }),
+        ]);
+        expect(auditedLoadsOf(entries)).toEqual([]);
+        expect(posted(deps, 'frozen:load:error')[0]?.payload).toMatchObject({
+          code: 'LOAD_CONFIG',
+          written: 0,
+        });
+      });
+
       it('records a load refused after a batch went through as failed', async () => {
         const { config } = writeDataset();
         const store = wire(config);
@@ -1520,12 +1583,14 @@ describe('FrozenDatasetHandler', () => {
         // The page's request is settled, with a code it shows as it is, and
         // words the panel and the command line both print: what the load
         // left, and that a removal takes it back without loading again.
+        // With the records it wrote, which the panel says in its own words.
         expect(posted(deps, 'frozen:load:error')[0].payload).toMatchObject({
           code: 'LOAD_CANCELLED',
           message:
             'The load was cancelled after it had created 2 record(s) (Account: 2). What it ' +
             'created is kept in the mapping: a removal takes it back, and a reload purges it or ' +
             'finds it again.',
+          written: 2,
         });
         expect(posted(deps, 'frozen:load:response')).toEqual([]);
         expect(new AuditTrailStore(store).list().entries).toEqual([
@@ -1743,7 +1808,8 @@ describe('FrozenDatasetHandler', () => {
             expect.objectContaining({
               outcome: 'cancelled',
               objects: [expect.objectContaining({ objectApiName: 'Case', deleted: 0, failed: 1 })],
-              details: {},
+              // No code of a stop: the mark of its sas alone, a run of the window.
+              details: { sas: expect.stringMatching(/^sha256:/), startedAt: expect.any(String) },
             }),
           ]);
         });
@@ -1759,7 +1825,7 @@ describe('FrozenDatasetHandler', () => {
             expect.objectContaining({
               outcome: 'cancelled',
               objects: [expect.objectContaining({ objectApiName: 'Case', deleted: 2 })],
-              details: {},
+              details: { sas: expect.stringMatching(/^sha256:/), startedAt: expect.any(String) },
             }),
           ]);
         });
@@ -1795,7 +1861,7 @@ describe('FrozenDatasetHandler', () => {
               options.onProgress?.({ phase: 'insert', progress: 40, message: 'Inserting Account' });
               listed = tracker.getAll().map((op) => ({ ...op }));
               running = registry.getRunning().map((op) => op.operationId);
-              return report();
+              return { ...report(), status: 'completed' };
             },
           );
 
@@ -1814,6 +1880,87 @@ describe('FrozenDatasetHandler', () => {
           // One end, the completion: the verification chained after it posts none.
           expect(posted(deps, 'operation:completed')).toHaveLength(1);
           expect(posted(deps, 'operation:failed')).toEqual([]);
+        });
+
+        it('ends a load the org refused records of as partial, not completed', async () => {
+          // Listed completed, Live Operations drew a green success over a
+          // load whose report said the contact had been refused.
+          wireListed();
+          loaderLoad.mockResolvedValue(report());
+
+          await load();
+
+          expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'partial' })]);
+          expect(posted(deps, 'operation:completed').at(-1)?.payload).toMatchObject({
+            result: { status: 'completed-with-errors' },
+          });
+        });
+
+        it('ends partial a load that wrote all it was to and that its verification failed, then posts the verdict', async () => {
+          // Run for real, the platform deleted two products the load had just
+          // written: the load said completed, exit 0, and only the verdict
+          // posted after it said FAILED.
+          wireListed();
+          const store = deps.configStore as ConfigStore;
+          loaderLoad.mockResolvedValue({ ...report(), status: 'completed' });
+          const verify = vi.spyOn(PostLoadVerifier.prototype, 'verify').mockResolvedValue({
+            status: 'failed',
+            checks: [
+              {
+                name: 'counts',
+                passed: false,
+                detail: 'Count mismatches — OpportunityLineItem: expected 2, got 0',
+              },
+            ],
+            attempts: 2,
+            objects: [],
+            measuredAt: '2026-09-02T12:00:00.000Z',
+          });
+          onTestFinished(() => verify.mockRestore());
+
+          await load();
+
+          const types = vi
+            .mocked(deps.broker.postToWebview)
+            .mock.calls.map(([m]) => (m as { type: string }).type)
+            .filter((type) => type !== 'frozen:load:progress');
+          expect(types.slice(-3)).toEqual([
+            'frozen:load:response',
+            'operation:completed',
+            'frozen:verify:result',
+          ]);
+          expect(posted(deps, 'frozen:load:response')[0]?.payload.report).toMatchObject({
+            status: 'partial',
+            verification: 'failed',
+          });
+          expect(posted(deps, 'operation:completed').at(-1)?.payload).toMatchObject({
+            result: { status: 'partial' },
+          });
+          expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'partial' })]);
+          expect(new AuditTrailStore(store).list().entries).toEqual([
+            expect.objectContaining({ action: 'frozen_load', outcome: 'partial' }),
+          ]);
+          expect(store.get<{ status: string }>('frozen:lastRun')?.status).toBe('partial');
+        });
+
+        it('keeps a load completed that its verification passed', async () => {
+          wireListed();
+          loaderLoad.mockResolvedValue({ ...report(), status: 'completed' });
+          const verify = vi.spyOn(PostLoadVerifier.prototype, 'verify').mockResolvedValue({
+            status: 'passed',
+            checks: [],
+            attempts: 2,
+            objects: [],
+            measuredAt: '2026-09-02T12:00:00.000Z',
+          });
+          onTestFinished(() => verify.mockRestore());
+
+          await load();
+
+          const answer = posted(deps, 'frozen:load:response')[0]?.payload.report;
+          expect(answer).toMatchObject({ status: 'completed' });
+          expect(answer).not.toHaveProperty('verification');
+          expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'completed' })]);
         });
 
         it('ends a load that failed as failed, and still shows its one error', async () => {
@@ -2014,6 +2161,53 @@ describe('FrozenDatasetHandler', () => {
           ['Code__c', true, false],
           ['Name', false, true],
           ['Rating__c', false, false],
+        ]);
+      });
+
+      it('says which lookups the target filters, as its describe answers them', async () => {
+        // What a preview names and cannot check: the trap org's filter on the
+        // contacts' preferred account refused six records a dry run counted.
+        // A field with no filter is answered `filteredLookupInfo: null`.
+        const { config } = writeDataset();
+        wire(config);
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          describe: async (name: string) => ({
+            name,
+            createable: true,
+            fields: [
+              {
+                name: 'Preferred_Account__c',
+                type: 'reference',
+                createable: true,
+                referenceTo: ['Account'],
+                filteredLookupInfo: {
+                  controllingFields: ['Type'],
+                  dependent: false,
+                  optionalFilter: false,
+                },
+              },
+              {
+                name: 'AccountId',
+                type: 'reference',
+                createable: true,
+                referenceTo: ['Account'],
+                filteredLookupInfo: null,
+              },
+            ],
+            recordTypeInfos: [],
+          }),
+        } as never);
+        loaderLoad.mockImplementation(async () => report());
+
+        await handler.handle(
+          buildMsg('frozen:load', { targetOrgId: 'org-2', acceptAutomation: true }),
+        );
+
+        const [{ orgAccess }] = vi.mocked(FrozenDatasetLoader).mock.calls[0];
+        const described = await orgAccess.describe('org-2', 'Contact');
+        expect(described.fields.map((f) => [f.name, f.lookupFilter])).toEqual([
+          ['Preferred_Account__c', { optional: false }],
+          ['AccountId', undefined],
         ]);
       });
     });
@@ -2279,6 +2473,13 @@ describe('FrozenDatasetHandler', () => {
           `The sas directory changed since the last load: its counting contract is in ${sasDir}, ` +
             `and the mapping read is the one in ${other}`,
         );
+        // The folders, for the panel to say the same in its words.
+        expect(errors[0].payload).toMatchObject({
+          sasDir: other,
+          loadSas: sasDir,
+          sasMoved: true,
+          contractThere: true,
+        });
         expect(posted(deps, 'frozen:verify:result')).toEqual([]);
       });
 
@@ -3227,5 +3428,19 @@ describe('toLoadReportInfo', () => {
       untypedFeedItems,
     );
     expect(toLoadReportInfo(report)).not.toHaveProperty('untypedFeedItems');
+  });
+
+  it('hands the panel the records no identity key was looked up for, their key left empty', () => {
+    const keysLeftEmpty = [
+      {
+        objectApiName: 'Quote',
+        fields: ['Description'],
+        count: 1,
+        note: '1 not looked up by its identity keys: Description stayed empty in what the load wrote',
+      },
+    ];
+
+    expect(toLoadReportInfo({ ...report, keysLeftEmpty }).keysLeftEmpty).toEqual(keysLeftEmpty);
+    expect(toLoadReportInfo(report)).not.toHaveProperty('keysLeftEmpty');
   });
 });

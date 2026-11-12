@@ -143,6 +143,10 @@ export function forgeRunResult(
     // The rows written in another currency than they were read in, and their
     // amounts converted or not: said on each object's line too.
     ...(summary.currenciesReplaced ? { currenciesReplaced: summary.currenciesReplaced } : {}),
+    // The records created without a record type, and the one the target gave
+    // them: what its describe says, and, once written, what they were read
+    // back holding, which the results say over the prediction.
+    ...(summary.recordTypesGiven ? { recordTypesGiven: summary.recordTypesGiven } : {}),
     // The rows a validation rule or a restricted picklist refused that went in
     // without the fields it named: in the target, each short of a value the
     // source held.

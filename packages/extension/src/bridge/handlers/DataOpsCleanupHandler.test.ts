@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { BaseMessage, CleanupScanResult } from '@sandforge/shared';
 import { CLEANUP_ACTION_LIMIT } from '@sandforge/shared';
@@ -9,8 +13,28 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import type { SaveDialogAdapter } from '../../adapters/fs/SaveDialogAdapter.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+
+// What the org runs as a cleanup deletes its records: nothing,
+// as an org without flows or triggers on them answers. The gate reads it
+// before every write; a test of what it refuses gives a reader of its own.
+vi.mock('../../modules/forge/TargetAutomationReader.js', () => ({
+  TargetAutomationReader: class {
+    read(_orgId: string, objects: readonly string[]) {
+      return Promise.resolve({
+        objectsRead: [...objects],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      });
+    }
+  },
+  targetAutomationQueries: () => ({}),
+}));
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -171,6 +195,9 @@ describe('DataOpsCleanupHandler', () => {
         uncounted: [],
       },
       truncated: false,
+      // What the confirmation reads what fires on: the accounts it deletes,
+      // not the contacts the org deletes with them.
+      written: [{ objectApiName: 'Account', records: 2 }],
     });
     expect(org.destroy).not.toHaveBeenCalled();
   });
@@ -191,6 +218,230 @@ describe('DataOpsCleanupHandler', () => {
       outcome: 'success',
       guard: 'allowed',
       objects: [{ objectApiName: 'Account', deleted: 2 }],
+    });
+  });
+
+  it('refuses a delete whose flow runs before it, deleting nothing, until the page’s question accepted it', async () => {
+    const read = vi.fn(async (_orgId: string, objects: readonly string[]) => ({
+      objectsRead: [...objects],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Guard_Delete',
+              label: 'Guard Delete',
+              timing: 'beforeSave' as const,
+              startsOn: 'delete' as const,
+              condition: 'read' as const,
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 1,
+    }));
+    handler.setTargetAutomation({ read });
+
+    await handler.handle(deleteStale(false));
+
+    expect(read).toHaveBeenCalledWith('org-1', ['Account']);
+    expect(org.destroy).not.toHaveBeenCalled();
+    expect(posted().at(-1)).toMatchObject({
+      type: 'dataops:error',
+      payload: {
+        code: 'AUTOMATION_NOT_ACCEPTED',
+        message: expect.stringContaining(
+          'runs automation as this cleanup deletes its records: Account: flow "Guard Delete" ' +
+            '(before delete)',
+        ),
+      },
+    });
+
+    await handler.handle({
+      ...deleteStale(false),
+      payload: { ...deleteStale(false).payload, acceptAutomation: true },
+    } as never);
+    expect(org.destroy).toHaveBeenCalledWith(stale);
+  });
+
+  it("deletes the accounts without asking about a flow before a contact's delete: the contacts go with them, and the platform runs none of it", async () => {
+    // On a scratch org, a record the platform deleted along with its parent
+    // ran neither its before delete flow nor its before delete trigger, each
+    // of which refused its own delete. The cleanup counted the contacts
+    // again to ask about them all the same, and refused for them.
+    const read = vi.fn(async (_orgId: string, objects: readonly string[]) => ({
+      objectsRead: [...objects],
+      objects: objects.includes('Contact')
+        ? [
+            {
+              objectApiName: 'Contact',
+              flows: [
+                {
+                  apiName: 'Guard_Contact_Delete',
+                  label: 'Guard Contact Delete',
+                  timing: 'beforeSave' as const,
+                  startsOn: 'delete' as const,
+                  condition: 'read' as const,
+                  permissions: [],
+                },
+              ],
+              triggers: [],
+            },
+          ]
+        : [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 1,
+    }));
+    handler.setTargetAutomation({ read });
+
+    await handler.handle(deleteStale(true));
+    org.query.mockClear();
+    await handler.handle(deleteStale(false));
+
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledWith('org-1', ['Account']);
+    // The contacts are not counted again for it.
+    expect(org.query.mock.calls.filter(([soql]) => soql.includes('FROM Contact'))).toEqual([]);
+    expect(org.destroy).toHaveBeenCalledWith(stale);
+    expect(answer('dataops:cleanup:delete:response')).toMatchObject({
+      dryRun: false,
+      outcome: { status: 'success', done: 2 },
+    });
+  });
+
+  it('refuses a delete the page asked for in the words of its confirmation, which has no flags', async () => {
+    handler.setTargetAutomation({
+      read: async (_orgId: string, objects: readonly string[]) => ({
+        objectsRead: [...objects],
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [
+              {
+                apiName: 'Guard_Delete',
+                label: 'Guard Delete',
+                timing: 'beforeSave' as const,
+                startsOn: 'delete' as const,
+                condition: 'read' as const,
+                permissions: [],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 1,
+      }),
+    });
+
+    // As the Cleanup tab sends it, its confirmation not answered.
+    await handler.handle({
+      ...deleteStale(false),
+      payload: { ...deleteStale(false).payload, fromPage: true },
+    } as never);
+
+    expect(org.destroy).not.toHaveBeenCalled();
+    const refused = posted().at(-1) as { payload: { code: string; message: string } };
+    expect(refused.payload.code).toBe('AUTOMATION_NOT_ACCEPTED');
+    expect(refused.payload.message).toContain(
+      'Nothing was deleted. Confirm the cleanup from its confirmation, which lists what fires, ' +
+        'to delete all the same, or turn that automation off in dev first.',
+    );
+    expect(refused.payload.message).not.toMatch(/--[a-z]/);
+  });
+
+  it('answers a delete that muted with what it took back, once it took it back', async () => {
+    const events: string[] = [];
+    const permissions = memoryPermissionOrg({
+      sets: [{ id: '0PSxx0000000001AAA', name: 'Flow_Bypass' }],
+      beforeWrite: (write) => {
+        events.push(write.kind === 'insert' ? 'assign' : 'unassign');
+      },
+    });
+    const { query, sobject } = org.conn;
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      ...org.conn,
+      query: (soql: string) =>
+        /FROM (Organization|UserPermissionAccess|PermissionSet|PermissionSetAssignment)\b/.test(
+          soql,
+        )
+          ? permissions.connection.query(soql)
+          : query(soql),
+      identity: permissions.connection.identity,
+      sobject: (name: string) =>
+        name === 'PermissionSetAssignment' ? permissions.connection.sobject(name) : sobject(),
+    } as never);
+    vi.mocked(deps.broker.postToWebview).mockImplementation((m: BaseMessage) => {
+      if (m.type === 'dataops:cleanup:delete:response') {
+        events.push(`answered, ${permissions.assignments().length} assigned`);
+      }
+      if (m.type === 'operation:completed') {
+        events.push(`operation:completed, ${permissions.assignments().length} assigned`);
+      }
+    });
+    const dir = mkdtempSync(join(tmpdir(), 'cleanup-mute-'));
+    handler.setMuteLeases({ dir, renewEveryMs: 0 });
+    handler.setTargetAutomation({
+      read: async (_orgId: string, objects: readonly string[]) => ({
+        objectsRead: [...objects],
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [
+              {
+                apiName: 'Guard_Delete',
+                label: 'Guard Delete',
+                timing: 'beforeSave' as const,
+                startsOn: 'delete' as const,
+                condition: 'read' as const,
+                permissions: [{ name: 'Skip_Flows', bypass: true }],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+        bypassGrants: [
+          {
+            permission: 'Skip_Flows',
+            permissionSets: [{ name: 'Flow_Bypass', label: 'Flow Bypass', grants: 1 }],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 1,
+      }),
+    });
+
+    try {
+      await handler.handle({
+        ...deleteStale(false),
+        payload: { ...deleteStale(false).payload, muteAutomation: true },
+      } as never);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+
+    expect(org.destroy).toHaveBeenCalledWith(stale);
+    // Ended in Live Operations once its set is taken back, as a masking is.
+    expect(events).toEqual([
+      'assign',
+      'unassign',
+      'operation:completed, 0 assigned',
+      'answered, 0 assigned',
+    ]);
+    expect(answer('dataops:cleanup:delete:response')).toMatchObject({
+      outcome: { status: 'success', done: 2 },
+      mutedAutomation: { assigned: ['Flow_Bypass'], released: true, takenBack: ['Flow_Bypass'] },
     });
   });
 

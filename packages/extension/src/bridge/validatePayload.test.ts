@@ -26,6 +26,7 @@ import {
   CHECKPOINT_BEFORE_RUN_KEEP_DAYS,
   CSV_IMPORT_MAX_COLUMNS,
   CSV_IMPORT_MAX_ROWS,
+  RETAIL_ORDERS_PACK,
 } from '@sandforge/shared';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -36,6 +37,7 @@ import {
   sfApiNameSchema,
   whereClauseSchema,
   syncExecutePayloadSchema,
+  syncSimulatePayloadSchema,
   seedExecutePayloadSchema,
   frozenConfigSavePayloadSchema,
   dataOpsBackupPayloadSchema,
@@ -52,6 +54,7 @@ import {
   pipelineRunPayloadSchema,
   savedPipelineSchema,
   seedCsvPayloadSchema,
+  seedScenarioExecutePayloadSchema,
   checkpointListPayloadSchema,
   checkpointScopePayloadSchema,
   checkpointTakePayloadSchema,
@@ -283,6 +286,16 @@ describe('syncExecutePayloadSchema', () => {
 
   it('rejects missing config', () => {
     expect(syncExecutePayloadSchema.safeParse({}).success).toBe(false);
+  });
+
+  it.each(['Id', 'id', 'ID'])('refuses an upsert on the Id, written %s', (externalIdField) => {
+    const config = validSyncConfig();
+    const [object] = config.objects as Array<Record<string, unknown>>;
+    Object.assign(object, { operation: 'upsert', externalIdField });
+
+    const result = syncExecutePayloadSchema.safeParse({ config });
+
+    expect(result.error?.issues[0]?.message).toContain('needs an External ID field');
   });
 });
 
@@ -1074,6 +1087,11 @@ describe('checkpoint:* payloads', () => {
         false,
       );
     }
+    // Said by the page or not said at all: only the words of a refusal hang on it.
+    expect(checkpointRewindPayloadSchema.parse({ ...rewind, fromPage: true }).fromPage).toBe(true);
+    expect(checkpointRewindPayloadSchema.safeParse({ ...rewind, fromPage: false }).success).toBe(
+      false,
+    );
     expect(
       checkpointUndoPayloadSchema.safeParse({
         checkpointId: CHECKPOINT,
@@ -1191,7 +1209,25 @@ describe('the contract of wave 46 on the requests of a run', () => {
     ],
     ['frozen:load', frozenLoadPayloadSchema, { targetOrgId: ORG }],
     ['autopilot:execute', autopilotExecutePayloadSchema, { grappeThreshold: 0 }],
+    ['sync:simulate', syncSimulatePayloadSchema, { config: validSyncConfig() }],
+    [
+      'seed:scenario:execute',
+      seedScenarioExecutePayloadSchema,
+      {
+        orgId: 'org-1',
+        pack: RETAIL_ORDERS_PACK,
+        options: { seed: 1, caseStatus: { open: 'New', closed: 'Closed' } },
+      },
+    ],
   ];
+
+  it('mutes a scenario as it mutes a template’s seed', () => {
+    const [, schema, payload] = runs[runs.length - 1];
+    expect(schema.parse({ ...payload, muteAutomation: true })).toMatchObject({
+      muteAutomation: true,
+    });
+    expect(schema.safeParse({ ...payload, muteAutomation: 'yes' }).success).toBe(false);
+  });
 
   it('reads the checkpoint a run asks to take first as the shared contract declares it', () => {
     expectTypeOf<
@@ -1284,13 +1320,24 @@ describe('the contract of wave 46 on the requests of a run', () => {
     expectTypeOf<
       NonNullable<z.infer<typeof seedExecutePayloadSchema>['fit']>
     >().toEqualTypeOf<SeedFitApplied>();
-    expect(seedExecutePayloadSchema.parse({ ...seed, fit: { share: 0.21 } }).fit).toEqual({
-      share: 0.21,
-    });
     expect(
-      seedExecutePayloadSchema.safeParse({ ...seed, fit: { share: 1, withinMB: 3 } }).success,
+      seedExecutePayloadSchema.parse({ ...seed, fit: { share: 0.21, before: 7600 } }).fit,
+    ).toEqual({ share: 0.21, before: 7600 });
+    expect(
+      seedExecutePayloadSchema.safeParse({ ...seed, fit: { share: 1, withinMB: 3, before: 10 } })
+        .success,
     ).toBe(true);
-    for (const fit of [{ share: 0 }, { share: 1.5 }, { share: 0.5, caps: {} }, { withinMB: 3 }]) {
+    for (const fit of [
+      { share: 0, before: 10 },
+      { share: 1.5, before: 10 },
+      { share: 0.5, before: 10, caps: {} },
+      { withinMB: 3, before: 10 },
+      // The records the template held before the fit: what the audit trail
+      // sets beside those the fitted seed writes.
+      { share: 0.21 },
+      { share: 0.21, before: 0 },
+      { share: 0.21, before: 2.5 },
+    ]) {
       expect(
         seedExecutePayloadSchema.safeParse({ ...seed, fit }).success,
         JSON.stringify(fit),

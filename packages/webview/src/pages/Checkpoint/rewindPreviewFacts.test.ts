@@ -17,6 +17,7 @@ import {
   keptChangedSinceRewind,
   lastChangers,
   linkWrites,
+  madeAsDraftObjects,
   notRewound,
   outsideLines,
   pickedDiff,
@@ -305,6 +306,28 @@ describe('rewindPreviewFacts', () => {
     });
   });
 
+  it('lists an order the rewind deletes as set back to Draft first, as the rewind lists it, and no other object', () => {
+    const deleting = (objectApiName: string) =>
+      diffObject(objectApiName, {
+        toDelete: { createdSince: 2, broughtBackSince: 0, comesBackWithParent: 0 },
+      });
+    const steps = rewindSteps(previewDiff({ objects: [deleting('Order'), deleting('Contract')] }));
+    expect(steps.setToDraft).toEqual(['Order']);
+    expect(steps.delete).toEqual(['Order', 'Contract']);
+    expect(
+      rewindSteps(previewDiff({ objects: [deleting('Contract')] })).setToDraft,
+    ).toBeUndefined();
+  });
+
+  it('lists an order or a contract the rewind makes again as given back too, as the rewind lists it: made a draft, it is given its status back', () => {
+    const remaking = (objectApiName: string) => diffObject(objectApiName, { toRecreate: 1 });
+    const steps = rewindSteps(
+      previewDiff({ objects: [remaking('Order'), remaking('Contract'), remaking('Account')] }),
+    );
+    expect(steps.recreate).toEqual(['Order', 'Contract', 'Account']);
+    expect(steps.giveBack).toEqual(['Order', 'Contract']);
+  });
+
   it('lists what the deletions take along outside the checkpoint, under the object they hang from', () => {
     const diff = previewDiff({
       objects: [
@@ -349,6 +372,26 @@ describe('rewindPreviewFacts', () => {
     ).toEqual(['Account']);
   });
 
+  it('names among what it gives back what comes back from the bin, as the extension counts its update, and no record only deleted while the take read', () => {
+    const steps = rewindSteps(
+      previewDiff({
+        objects: [
+          diffObject('Contact', {
+            toBringBack: { inBin: 2, withParent: 0, deletedWhileTaken: 0 },
+          }),
+          diffObject('Case', {
+            toBringBack: { inBin: 0, withParent: 1, deletedWhileTaken: 0 },
+          }),
+          diffObject('Lead', {
+            toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 3 },
+          }),
+        ],
+      }),
+    );
+    expect(steps.bringBack).toEqual(['Contact', 'Case', 'Lead']);
+    expect(steps.giveBack).toEqual(['Contact', 'Case']);
+  });
+
   it('names the records to make again with new Ids, object by object, only the objects that have some', () => {
     expect(
       recreateLines(
@@ -357,6 +400,25 @@ describe('rewindPreviewFacts', () => {
         }),
       ),
     ).toEqual([{ objectApiName: 'Account', count: 2 }]);
+  });
+
+  it('names the orders and contracts it makes again, or brings back and may make again, as drafts first: nothing else', () => {
+    expect(
+      madeAsDraftObjects(
+        previewDiff({
+          objects: [
+            diffObject('Order', { toRecreate: 1 }),
+            diffObject('Contract', {
+              toBringBack: { inBin: 0, withParent: 1, deletedWhileTaken: 0 },
+            }),
+            diffObject('Account', { toRecreate: 2 }),
+            diffObject('Order', {
+              toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+            }),
+          ],
+        }),
+      ),
+    ).toEqual(['Order', 'Contract']);
   });
 });
 

@@ -1006,6 +1006,17 @@ describe('SyncRemovalHandler', () => {
       expect(errors()[0]?.payload.code).toBe('ALREADY_REMOVED');
     });
 
+    it('lists a removal that could not bring everything back as partial in Live Operations', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      org.purge(C2);
+
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-deleted' }));
+
+      expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'partial' })]);
+      tracker.dispose();
+    });
+
     it('counts one emptied from the recycle bin since as gone for good, and settles', async () => {
       org.purge(C2);
 

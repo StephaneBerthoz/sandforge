@@ -2,6 +2,7 @@ import type {
   CheckpointInvalidReason,
   CompareResult,
   GuardTier,
+  MutedAutomation,
   PipelineApprovalRecord,
   PipelineMaskingTemplateInfo,
   PipelineRewindStepInfo,
@@ -31,8 +32,10 @@ import {
   pipelineWriteVerdict,
 } from '@sandforge/shared';
 import * as z from 'zod';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { GivenAnswer } from '../../core/precheck/ProductionGuard.js';
 import { grantRefusalWords, type GrantRefusal } from '../../modules/automation/RewindGrants.js';
+import { mutedOfError, muteLines } from '../../modules/forge/AutomationMuteLease.js';
 import {
   StepCancelledError,
   type StepCheck,
@@ -44,7 +47,11 @@ import {
 import type { HealthSignal } from '../../modules/monitor/HealthCheck.js';
 import type { HealthSignalName } from '../../modules/monitor/MonitorOpsFactory.js';
 import { pipelineMaskingAsked } from './anonymizePipeline.js';
-import type { PipelineMaskingOutcome, PipelineMaskingRequest } from './anonymizePipeline.js';
+import type {
+  MaskingResult,
+  PipelineMaskingOutcome,
+  PipelineMaskingRequest,
+} from './anonymizePipeline.js';
 import {
   CheckpointStepRefused,
   type CheckpointPipelineRewindOutcome,
@@ -84,9 +91,10 @@ import {
  * - Seed and Anonymize never write to a production org, whatever an Approval
  *   step answered, and write to a sandbox marked Staging only behind an
  *   approved one (`pipelineWriteVerdict`); every question their page would
- *   put is answered by that Approval, and refused without it. Neither is ever
- *   tried again: a second try writes a second set of records, or masks again
- *   what the first masked;
+ *   put is answered by that Approval, and refused without it, but for what
+ *   the org runs as Anonymize masks, which its own settings accept, as a
+ *   Rewind step's do. Neither is ever tried again: a second try writes a
+ *   second set of records, or masks again what the first masked;
  * - Rewind runs only once a person has confirmed it, by typing the org's
  *   alias below its preview, for its configuration as saved; the
  *   confirmation is this machine's (`RewindGrants`), and the step's bounds
@@ -1172,8 +1180,48 @@ function checkAnonymize(runners: PipelineStepRunners): StepCheck {
       (id) => templates.some((template) => template.id === id),
     );
     if ('refusal' in chosen) return `${who}: ${chosen.refusal.message}`;
+    // Its acceptances, read as the run reads them: one that is no yes or no
+    // would fail the step once the pipeline had started.
+    const parsed = pipelineAnonymizeStepConfigSchema.safeParse({
+      orgId,
+      templateId,
+      ...acceptancesOf(config),
+    });
+    if (!parsed.success) return `${who} does not read (${firstIssue(parsed.error)}).`;
     return writeVerdictProblem(runners, who, orgId, 'masks', context);
   };
+}
+
+/** What an Anonymize step's configuration says of each acceptance, those it does not name left out. */
+function acceptancesOf(config: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  return Object.fromEntries(
+    (['acceptAutomation', 'acceptEmails', 'muteAutomation'] as const).flatMap((key) =>
+      config[key] === undefined ? [] : [[key, config[key]]],
+    ),
+  );
+}
+
+/** How many of the org's reasons a step says before it counts the rest. */
+const MASKING_REASONS_SAID = 3;
+
+/**
+ * Why rows a masking left still hold their values: the org's reasons for
+ * those it refused, each once per object, as the run samples them; or, when
+ * it refused none, what the run said of those it never reached — past the
+ * org's API requests. On the trap org, a validation rule the mute does not
+ * lift refused every contact, and the step said only that they held their
+ * values, where the page's answer gave the rule's message.
+ */
+function maskingLeftWhy(result: Pick<MaskingResult, 'errors' | 'message'>): string {
+  const reasons = [
+    ...new Set(result.errors.map((error) => `${error.objectApiName}: ${error.message}`)),
+  ];
+  if (reasons.length === 0) return result.message ? ` (${result.message})` : '';
+  const more = reasons.length - MASKING_REASONS_SAID;
+  return (
+    `, refused by the org: ${reasons.slice(0, MASKING_REASONS_SAID).join('; ')}` +
+    (more > 0 ? `; and ${counted(more, 'other reason')}` : '')
+  );
 }
 
 function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
@@ -1185,13 +1233,22 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
     }
     const object = text(step.config['object']);
     const where = text(step.config['where']);
-    const { orgId, templateId } = pipelineAnonymizeStepConfigSchema.parse({
-      orgId: step.config['orgId'],
-      templateId: text(step.config['templateId']),
-      ...(object !== undefined ? { object } : {}),
-      ...(where !== undefined ? { where } : {}),
-    });
+    const { orgId, templateId, acceptAutomation, acceptEmails, muteAutomation } =
+      pipelineAnonymizeStepConfigSchema.parse({
+        orgId: step.config['orgId'],
+        templateId: text(step.config['templateId']),
+        ...(object !== undefined ? { object } : {}),
+        ...(where !== undefined ? { where } : {}),
+        ...acceptancesOf(step.config),
+      });
     const org = runners.orgName(orgId) ?? orgId;
+    // What its mute assigned, silenced and left running, and whether it was taken back.
+    const mutedWords = (muted: MutedAutomation | undefined): string =>
+      muted
+        ? ` ${muteLines(muted, org)
+            .map((line) => line.trim())
+            .join('; ')}.`
+        : '';
     let outcome: PipelineMaskingOutcome;
     try {
       outcome = await runners.anonymize(
@@ -1201,6 +1258,9 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
           ...(object !== undefined ? { object } : {}),
           ...(where !== undefined ? { where } : {}),
           ...(step.retries !== undefined ? { retries: step.retries } : {}),
+          // Each off unless the step says yes: the masking is refused, nothing
+          // written, on what fires that they do not accept.
+          accord: { acceptAutomation, acceptEmails, muteAutomation },
           pipeline: { name: pipelineNameOf(context) },
           answer: givenAnswer(context),
         },
@@ -1210,15 +1270,23 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
       const code = refusalCode(err);
       if (code === undefined) throw err;
       const snapshot = (err as { snapshot?: { operationId?: unknown } }).snapshot;
+      const muted = mutedOfError(err);
       return failed(
         step,
         startTime,
-        { orgId, templateId, code, ...(snapshot !== undefined ? { snapshot } : {}) },
+        {
+          orgId,
+          templateId,
+          code,
+          ...(snapshot !== undefined ? { snapshot } : {}),
+          ...(muted ? { mutedAutomation: muted } : {}),
+        },
         `${who}: ${(err as Error).message}` +
           (typeof snapshot?.operationId === 'string'
             ? ` The snapshot ${snapshot.operationId} it took keeps the values it wrote over, in ` +
               'clear, until it is deleted on the DataOps page.'
-            : ''),
+            : '') +
+          mutedWords(muted),
       );
     }
     const { result } = outcome;
@@ -1237,30 +1305,31 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
       recordsFailed: result.recordsFailed,
       recordsNotMasked: result.recordsNotMasked,
       objects: result.objects,
-      ...(result.fieldsNotFound.length > 0 ? { fieldsNotFound: result.fieldsNotFound } : {}),
+      message: result.message,
+      errors: result.errors,
       ...(result.snapshot ? { snapshot: result.snapshot } : {}),
+      ...(result.mutedAutomation ? { mutedAutomation: result.mutedAutomation } : {}),
     };
+    const mutedSaid = mutedWords(result.mutedAutomation);
     if (result.cancelled) {
       throw new StepCancelledError(
         `${who} was cancelled: it masked ${counted(result.recordsProcessed, 'record')} in ${org} ` +
-          `before the stop, and ${result.recordsNotMasked} still hold their values; ${kept}.`,
+          `before the stop, and ${result.recordsNotMasked} still hold their values; ${kept}.` +
+          mutedSaid,
       );
     }
     // Rows the org refused, or left unreached, still hold what the template
     // masks: the steps after it would go on as if the org were masked.
     const left = result.objects.filter((entry) => entry.notMasked > 0);
-    if (result.recordsNotMasked > 0 || result.fieldsNotFound.length > 0) {
+    if (result.recordsNotMasked > 0) {
       const unmasked =
-        left.length > 0
-          ? `${left.map((entry) => `${entry.notMasked} of ${entry.objectApiName}`).join(', ')} ` +
-            'still hold their values'
-          : `${result.fieldsNotFound.map((f) => `${f.objectApiName}.${f.fieldApiName}`).join(', ')} ` +
-            'masked nothing';
+        `${left.map((entry) => `${entry.notMasked} of ${entry.objectApiName}`).join(', ')} ` +
+        `still hold their values${maskingLeftWhy(result)}`;
       return failed(
         step,
         startTime,
         output,
-        `${who} masked ${org} and did not complete: ${unmasked}; ${kept}.`,
+        `${who} masked ${org} and did not complete: ${unmasked}; ${kept}.${mutedSaid}`,
       );
     }
     const scope =
@@ -1273,7 +1342,7 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
       step,
       startTime,
       output,
-      `Masked ${counted(result.recordsProcessed, 'record')} in ${org}, ${scope}; ${kept}.`,
+      `Masked ${counted(result.recordsProcessed, 'record')} in ${org}, ${scope}; ${kept}.${mutedSaid}`,
     );
   };
 }
@@ -1502,6 +1571,13 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
       );
     }
     const org = runners.orgName(config.orgId) ?? config.orgId;
+    // What it assigned, silenced and left running, and whether it was taken back.
+    const mutedWords = (muted: MutedAutomation | undefined): string =>
+      muted
+        ? ` ${muteLines(muted, org)
+            .map((line) => line.trim())
+            .join('; ')}.`
+        : '';
     let outcome: CheckpointPipelineRewindOutcome;
     try {
       outcome = await runners.rewind(
@@ -1517,7 +1593,21 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
         context.signal,
       );
     } catch (err: unknown) {
-      if (!(err instanceof CheckpointStepRefused)) throw err;
+      // What its mute assigned, and whether it was taken back, said as every
+      // other ending says it: of a deletion nobody could be asked about once
+      // the rewind wrote, of a refusal or an error that came under the lease.
+      const muted =
+        (err instanceof CheckpointStepRefused ? err.result?.mutedAutomation : undefined) ??
+        mutedOfError(err);
+      if (!(err instanceof CheckpointStepRefused)) {
+        if (!muted || err instanceof StepCancelledError) throw err;
+        return failed(
+          step,
+          startTime,
+          { orgId: config.orgId, checkpointId: config.checkpointId, mutedAutomation: muted },
+          `${extractErrorMessage(err)}${mutedWords(muted)}`,
+        );
+      }
       return failed(
         step,
         startTime,
@@ -1526,8 +1616,9 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
           checkpointId: config.checkpointId,
           code: err.code,
           ...(err.result ? { status: err.result.status, ...rewound(err.result) } : {}),
+          ...(muted ? { mutedAutomation: muted } : {}),
         },
-        err.message,
+        `${err.message}${mutedWords(muted)}`,
       );
     }
     const { result } = outcome;
@@ -1542,10 +1633,12 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
       residual: left,
       ...(result.undo ? { undoUntil: result.undo.until } : {}),
       apiRequests: result.apiRequests.used,
+      ...(result.mutedAutomation ? { mutedAutomation: result.mutedAutomation } : {}),
     };
+    const mutedSaid = mutedWords(result.mutedAutomation);
     if (result.status === 'cancelled') {
       throw new StepCancelledError(
-        `${who} was stopped part way in ${org}: ${rewoundWords(result)}; ${undoWords(result)}.`,
+        `${who} was stopped part way in ${org}: ${rewoundWords(result)}; ${undoWords(result)}.${mutedSaid}`,
       );
     }
     if (result.status !== 'success') {
@@ -1558,7 +1651,7 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
           (result.unread && result.unread.length > 0
             ? `, and ${result.unread.map((unread) => unread.objectApiName).join(', ')} could not be read`
             : '') +
-          `; ${undoWords(result)}.`,
+          `; ${undoWords(result)}.${mutedSaid}`,
       );
     }
     return completed(
@@ -1566,7 +1659,7 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
       startTime,
       output,
       `Rewound ${org} to the checkpoint ${outcome.checkpointId}: ${rewoundWords(result)}, with ` +
-        `${counted(result.apiRequests.used, 'API request')}; ${undoWords(result)}.`,
+        `${counted(result.apiRequests.used, 'API request')}; ${undoWords(result)}.${mutedSaid}`,
     );
   };
 }

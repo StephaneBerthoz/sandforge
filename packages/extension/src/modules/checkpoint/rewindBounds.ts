@@ -20,7 +20,9 @@
  *   history and the audit trail keep the refusal;
  * - an acceptance the rewind needs and was not given: the refusal the command
  *   line gives without its flag (`NO_UNDO`, `RECREATE`, `UNSEEN`,
- *   `AUTOMATION`), saying what gives it — a flag, or the step's setting;
+ *   `AUTOMATION`, then `EMAILS_DELIVERED` for the emails of what still runs,
+ *   which an org on All email delivers), saying what gives it — a flag, or
+ *   the step's setting;
  * - `EMAILS`: more emails of a daily limit than the org has left today, a
  *   Developer Edition's fifteen single emails among them, which nothing lifts.
  *
@@ -39,6 +41,7 @@ import {
   firedOnRemovalStepsOf,
   type CheckpointEmails,
   type CheckpointRefusal,
+  type ForgeFiredOnRemovalStep,
   type ForgeRemovalSteps,
   type ForgeTargetAutomation,
   type RewindBounds,
@@ -47,11 +50,19 @@ import {
   type RewindSelectionPlan,
   type RewindUndoCannot,
   type RewindUndoCannotReason,
+  type RunDeliverability,
 } from '@sandforge/shared';
 
+import { STATUS_LIFECYCLES } from '../../core/common/platformRecords.js';
 import { FILE_LINK_OBJECT } from './checkpointScope.js';
-import { objectsWrittenBy } from './previewCheckpoint.js';
-import { emailsRefusal } from './rewindEmails.js';
+import {
+  actEmailsGate,
+  actSendersOf,
+  draftedByDiff,
+  emailsRefusal,
+  statusBackByDiff,
+  updatedByDiff,
+} from './rewindEmails.js';
 import { diffOfPicked } from './rewindPlan.js';
 
 /** What a refusal before any write ends with. */
@@ -72,6 +83,32 @@ const toRecreateOf = (o: RewindDiffObject): number => o.toRecreate ?? 0;
 const carriersOf = (o: RewindDiffObject): number => o.toBringBack.carriers ?? 0;
 
 // ─── What a preview says a rewind does ───────────────────────────────────────
+
+/**
+ * The objects a rewind would write to: records to delete, to give values
+ * back, to bring back, or to make again, and records it brings back for a
+ * moment to delete again — counted in none of those, but written twice: the
+ * rewind reads what runs on their object, and refuses it unaccepted. The
+ * link of a file to a record too, when it removes, inserts or updates links:
+ * a trigger on a link — a file attached updates its case — runs on each.
+ */
+export function objectsWrittenBy(
+  diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
+): string[] {
+  const writes = (object: RewindDiffObject): boolean =>
+    toDeleteOf(object) +
+      object.toGiveBack.records +
+      toBringBackOf(object) +
+      carriersOf(object) +
+      toRecreateOf(object) >
+    0;
+  const written = diff.objects.filter(writes).map((object) => object.objectApiName);
+  const links = diff.files;
+  if (links !== undefined && links.unlink + links.relink + links.updateLinks > 0) {
+    written.push(FILE_LINK_OBJECT);
+  }
+  return written;
+}
 
 /**
  * What a rewind to a checkpoint would do, in the three numbers the preview
@@ -147,9 +184,12 @@ export function selectionDiff(diff: RewindDiff, plan: RewindSelectionPlan): Rewi
 
 /**
  * The objects whose records each step of a rewind writes, as its preview
- * counts them: brought back, given back, deleted — an order activated since
- * set back to Draft first, which the platform deletes no other way — and the
- * records it brings back for a moment, then deletes again.
+ * counts them: brought back, given back — what comes back from the bin among
+ * it, as the rewind's plan lists it, and the status of what it makes again as
+ * a draft (`statusBackByDiff`) — deleted — an order activated since set
+ * back to Draft first, which the platform deletes no other way, by the number
+ * its emails count (`draftedByDiff`) — and the records it brings back for a
+ * moment, then deletes again.
  */
 export function rewindStepsOf(
   diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
@@ -173,12 +213,75 @@ export function rewindStepsOf(
       diff.objects.filter((o) => toRecreateOf(o) > 0).map((o) => o.objectApiName),
       links?.relink ?? 0,
     ),
+    // What it makes again as a draft is given its status back: an update.
     giveBack: linked(
-      diff.objects.filter((o) => o.toGiveBack.records > 0).map((o) => o.objectApiName),
+      diff.objects
+        .filter((o) => updatedByDiff(o) + statusBackByDiff(o) > 0)
+        .map((o) => o.objectApiName),
       links?.updateLinks ?? 0,
     ),
-    setToDraft: deleted.filter((name) => name === 'Order'),
+    setToDraft: diff.objects.filter((o) => draftedByDiff(o) > 0).map((o) => o.objectApiName),
     delete: linked(deleted, links?.unlink ?? 0),
+  };
+}
+
+/**
+ * How many flows, triggers, processes and rules `fired` names, each once: one
+ * that fires on two steps — an order's update flow as an undo gives the order
+ * back its values, then sets it back to Draft — is one. Counted per step, an
+ * undo of a rewind that had made an activated order again said "2 flow(s) …
+ * of Order" of the one flow on an order's update, live.
+ */
+export function firedCount(fired: readonly ForgeFiredOnRemovalStep[]): number {
+  return new Set(fired.map((each) => `${each.objectApiName}\n${each.kind}\n${each.name}`)).size;
+}
+
+/** What runs, unasked, as a rewind makes again what it set out to bring back: see {@link remakeUnasked}. */
+export interface RemakeUnasked {
+  /** What fires as one is created, or as an order or a contract is given its status back. */
+  fired: ForgeFiredOnRemovalStep[];
+  /** Whether what runs then could not all be read: nothing proves those writes quiet. */
+  blind: boolean;
+}
+
+/**
+ * What runs, unasked, as a rewind makes again records of `objects` it set out
+ * to bring back, once Salesforce answers that the recycle bin no longer holds
+ * them: it still lists one emptied from it as deleted, and no read tells the
+ * two apart (P11). A record made again is created, an order or a contract
+ * made as a draft is then given its status back, and what runs on either
+ * write is what `steps` — the writes its question was asked on — did not
+ * name for that object. A part of the automation not read, or an object whose
+ * automation was not read, leaves those writes unproven quiet; but a part not
+ * read is not, once the rewind was told to let what runs go
+ * (`blindAccepted`, --accept-automation): its question said what runs as it
+ * writes could not all be read, which a rewind after it would ask again, word
+ * for word, before it made them. What a bypass the user holds, or the mute
+ * holds, keeps quiet does not run.
+ *
+ * Seen of an order emptied from the bin: its preview counted it to bring
+ * back, and a rewind told it may make records again made it, running what
+ * the org runs as an order is created, which nobody was asked about.
+ */
+export function remakeUnasked(
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'objectsRead' | 'unread'>,
+  steps: ForgeRemovalSteps,
+  objects: readonly string[],
+  blindAccepted = false,
+): RemakeUnasked {
+  const named = (step: readonly string[] | undefined, name: string): boolean =>
+    (step ?? []).includes(name);
+  const created = objects.filter((name) => !named(steps.recreate, name));
+  const statused = objects.filter(
+    (name) => STATUS_LIFECYCLES[name] !== undefined && !named(steps.giveBack, name),
+  );
+  const read = new Set(automation.objectsRead);
+  const unasked = [...created, ...statused];
+  return {
+    fired: firedOnRemovalStepsOf(automation, { recreate: created, giveBack: statused }),
+    blind:
+      unasked.length > 0 &&
+      ((!blindAccepted && blindedBy(automation.unread)) || unasked.some((name) => !read.has(name))),
   };
 }
 
@@ -186,11 +289,17 @@ export function rewindStepsOf(
 
 /** An acceptance a rewind needs for some of what it does. */
 export type RewindAcceptance =
-  'acceptAutomation' | 'acceptNoUndo' | 'acceptRecreate' | 'acceptUnseen';
+  'acceptAutomation' | 'acceptEmails' | 'acceptNoUndo' | 'acceptRecreate' | 'acceptUnseen';
 
 /** What a rewind is told it may do, by its flags or its step's configuration. */
 export interface RewindAccepted {
   acceptAutomation: boolean;
+  /**
+   * Send the emails what still runs as it writes sends, where the org
+   * delivers them all or would not say whether it does. Not given, not
+   * accepted; `acceptAutomation` never stands for it.
+   */
+  acceptEmails?: boolean;
   acceptNoUndo: boolean;
   acceptRecreate: boolean;
   /** Not given, not accepted. */
@@ -205,6 +314,12 @@ export interface BoundedPreview {
   emails?: readonly CheckpointEmails[];
   /** Why the emails of what fires as the rewind writes were not all counted. */
   emailsUncounted?: string;
+  /**
+   * Whether the org delivers the emails of what still runs as the rewind
+   * writes, as the preview read it; absent when it read none, nothing that
+   * runs sending one.
+   */
+  deliverability?: RunDeliverability;
 }
 
 /**
@@ -217,6 +332,12 @@ export interface BoundWords {
   limit: (max: number) => string;
   /** What lifts each refusal: "give --accept-no-undo to rewind all the same". */
   lift: Readonly<Record<RewindAcceptance | 'maxRecords' | 'refuseWhenActive', string>>;
+  /**
+   * Whether the rewind could mute the org's automation (`--mute-automation`):
+   * a refusal for its emails then names what the mute keeps quiet. A
+   * pipeline's Rewind step says its own setting, in what lifts its automation.
+   */
+  mutes: boolean;
 }
 
 /**
@@ -225,9 +346,12 @@ export interface BoundWords {
  */
 export const REWIND_STEP_WORDS: BoundWords = {
   limit: (max) => `this step's limit of ${count(max)}`,
+  mutes: false,
   lift: {
     acceptAutomation:
-      'turn on acceptAutomation in the step and confirm it again to rewind all the same',
+      'turn on muteAutomation in the step for what a bypass keeps quiet, or acceptAutomation to ' +
+      'let it run, and confirm it again to rewind all the same',
+    acceptEmails: 'turn on acceptEmails in the step and confirm it again to rewind all the same',
     acceptNoUndo: 'turn on acceptNoUndo in the step and confirm it again to rewind all the same',
     acceptRecreate:
       'turn on acceptRecreate in the step and confirm it again to rewind all the same',
@@ -237,6 +361,22 @@ export const REWIND_STEP_WORDS: BoundWords = {
       'again',
     refuseWhenActive:
       'run it once they are done, or turn off refuseWhenActive in the step and confirm it again',
+  },
+};
+
+/**
+ * What a Rewind step that mutes says lifts each refusal: its automation
+ * refused is what no bypass keeps quiet — a flow with none, an Apex trigger —
+ * which only acceptAutomation lets through. It was told to turn on the
+ * muteAutomation it had on.
+ */
+export const REWIND_MUTING_STEP_WORDS: BoundWords = {
+  ...REWIND_STEP_WORDS,
+  lift: {
+    ...REWIND_STEP_WORDS.lift,
+    acceptAutomation:
+      'turn on acceptAutomation in the step to let what no bypass keeps quiet run, and confirm ' +
+      'it again to rewind all the same',
   },
 };
 
@@ -254,25 +394,91 @@ const UNDO_CANNOT_WORDS: ReadonlyArray<{ reason: RewindUndoCannotReason; words: 
   },
 ];
 
+/** The sentence of Forge's refusal for the emails that says what lifts it on the command line. */
+const EMAILS_LIFTED_BY = 'Add --accept-emails to rewind all the same';
+
+/**
+ * The refusal a rewind of what `answer` previewed would meet for its emails:
+ * the org delivers every email what still runs as it writes sends, or would
+ * not say whether it does, and they were not accepted (`EMAILS_DELIVERED`).
+ * Judged by the act's own gate on the preview's reading, and said with what
+ * lifts it where the rewind runs: the command line's flag, a step's setting.
+ * A preview that read none found nothing that sends: the rewind reads the org
+ * again before it writes, whatever this says.
+ */
+function emailsDeliveredRefusal(
+  orgName: string,
+  answer: Pick<BoundedPreview, 'diff' | 'automation' | 'deliverability'>,
+  accepted: RewindAccepted,
+  lift: BoundWords['lift'],
+  mutes: boolean,
+): CheckpointRefusal | undefined {
+  const { automation, deliverability } = answer;
+  if (!automation || !deliverability) return undefined;
+  const steps = rewindStepsOf(answer.diff);
+  const { refusal } = actEmailsGate({
+    act: 'rewind',
+    orgName,
+    automation,
+    steps,
+    accepted: accepted.acceptEmails === true,
+    mayMute: mutes,
+    ...actSendersOf({ automation, steps }),
+    reading: deliverability.reading,
+  });
+  if (!refusal) return undefined;
+  const said = lift.acceptEmails;
+  return {
+    ...refusal,
+    message: refusal.message.replace(
+      EMAILS_LIFTED_BY,
+      `${said.charAt(0).toUpperCase()}${said.slice(1)}`,
+    ),
+  };
+}
+
 /**
  * The refusal a rewind of what `answer` previewed would meet before it
  * writes, for want of an acceptance: deletions Undo couldn't bring back,
  * records to make again with new Ids, deletions that take along records
  * `user` is not proven to see, automation its writes fire — or that could not
- * all be read. Said before the rewind is asked, as the page holds its button
- * until the box is ticked; the rewind itself refuses the same, whatever this
- * says.
+ * all be read —, and emails of what still runs that the org delivers, or
+ * would not say whether it does. Said before the rewind is asked, as the page
+ * holds its button until the box is ticked; the rewind itself refuses the
+ * same, whatever this says.
  *
  * @param lift - What gives each acceptance: {@link BoundWords.lift}.
+ * @param mutes - Whether the rewind could mute the org's automation: {@link BoundWords.mutes}.
  */
 export function acceptanceRefusal(
   orgName: string,
-  answer: Pick<BoundedPreview, 'diff' | 'automation' | 'emailsUncounted'>,
+  answer: Pick<BoundedPreview, 'diff' | 'automation' | 'emailsUncounted' | 'deliverability'>,
   accepted: RewindAccepted,
   lift: BoundWords['lift'],
   user = 'the user SandForge connects as',
+  mutes = false,
 ): CheckpointRefusal | undefined {
-  const { diff, automation, emailsUncounted } = answer;
+  return acceptanceRefusals(orgName, answer, accepted, lift, user, mutes)[0];
+}
+
+/**
+ * Every refusal {@link acceptanceRefusal} would give, one acceptance after
+ * the other, in its order: what a dry run says a rewind with these flags
+ * meets, as every other dry run says each of its refusals. A rewind on All
+ * email whose writes fire a flow that sends one was said refused for its
+ * automation alone, and for its emails only once `--accept-automation` was
+ * given, live.
+ */
+function acceptanceRefusals(
+  orgName: string,
+  answer: Pick<BoundedPreview, 'diff' | 'automation' | 'emailsUncounted' | 'deliverability'>,
+  accepted: RewindAccepted,
+  lift: BoundWords['lift'],
+  user = 'the user SandForge connects as',
+  mutes = false,
+): CheckpointRefusal[] {
+  const refusals: CheckpointRefusal[] = [];
+  const { diff, automation } = answer;
   if (diff.undoCannot.length > 0 && !accepted.acceptNoUndo) {
     const said = UNDO_CANNOT_WORDS.flatMap(({ reason, words }) => {
       // An entry that names no reason is of the first, as a diff made before
@@ -288,15 +494,15 @@ export function acceptanceRefusal(
           `${words}.`,
       ];
     });
-    return {
+    refusals.push({
       code: 'NO_UNDO',
       message: `${said.join(' ')} Rewind refused; ${lift.acceptNoUndo}. ${NOTHING_WRITTEN}`,
-    };
+    });
   }
   const remade = diff.objects.filter((o) => toRecreateOf(o) > 0);
   if (remade.length > 0 && !accepted.acceptRecreate) {
     const records = remade.reduce((total, o) => total + toRecreateOf(o), 0);
-    return {
+    refusals.push({
       code: 'RECREATE',
       message:
         `${count(records)} ${remade.map((o) => o.objectApiName).join(', ')} record(s) deleted ` +
@@ -304,7 +510,7 @@ export function acceptanceRefusal(
         'rewind makes them again from the checkpoint, with new Ids. Anything outside Salesforce ' +
         'that names their old Ids — an integration, a link, a report filter — no longer finds ' +
         `them. Rewind refused; ${lift.acceptRecreate}. ${NOTHING_WRITTEN}`,
-    };
+    });
   }
   const unseen = diff.unseen ?? [];
   if (unseen.length > 0 && accepted.acceptUnseen !== true) {
@@ -313,11 +519,29 @@ export function acceptanceRefusal(
         `Deleting ${count(records)} ${objectApiName} record(s) created since also deletes what ` +
         `${user} can't see under them in ${children.join(', ')}: Rewind can't count those.`,
     );
-    return {
+    refusals.push({
       code: 'UNSEEN',
       message: `${said.join(' ')} Rewind refused; ${lift.acceptUnseen}. ${NOTHING_WRITTEN}`,
-    };
+    });
   }
+  if (!automation) return refusals;
+  const refused = automationRefusal(orgName, answer, accepted, lift);
+  const emails = emailsDeliveredRefusal(orgName, answer, accepted, lift, mutes);
+  return [...refusals, ...(refused ? [refused] : []), ...(emails ? [emails] : [])];
+}
+
+/**
+ * The refusal of a rewind of what `answer` previewed for its automation, not
+ * accepted: what its writes fire, or what could not all be read, or what
+ * sends emails the preview could not count.
+ */
+function automationRefusal(
+  orgName: string,
+  answer: Pick<BoundedPreview, 'diff' | 'automation' | 'emailsUncounted'>,
+  accepted: RewindAccepted,
+  lift: BoundWords['lift'],
+): CheckpointRefusal | undefined {
+  const { diff, automation, emailsUncounted } = answer;
   if (!automation || accepted.acceptAutomation) return undefined;
   const steps = rewindStepsOf(diff);
   const fired = firedOnRemovalStepsOf(automation, steps);
@@ -331,7 +555,7 @@ export function acceptanceRefusal(
     : '';
   const what =
     fired.length > 0
-      ? `${fired.length} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
+      ? `${firedCount(fired)} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
         `rewind brings records back, ${makes}gives them their values back or deletes them`
       : 'what runs as the rewind writes could not all be read, so automation may run';
   // Said here too: a rewind refused for its automation is the one place it
@@ -379,9 +603,19 @@ const userKey = (id: string): string => id.slice(0, 15);
  * when it holds to every bound.
  */
 export async function boundsRefusal(check: BoundsCheck): Promise<CheckpointRefusal | undefined> {
+  return (await boundsRefusals(check))[0];
+}
+
+/**
+ * Every refusal {@link boundsRefusal} would give, one bound or acceptance
+ * after the other, in its order: what a dry run of a rewind with these flags
+ * says it meets, each with its code. None when it would write nothing.
+ */
+export async function boundsRefusals(check: BoundsCheck): Promise<CheckpointRefusal[]> {
   const { orgName, preview, bounds, words } = check;
   const { diff } = preview;
-  if (objectsWrittenBy(diff).length === 0) return undefined;
+  if (objectsWrittenBy(diff).length === 0) return [];
+  const refusals: CheckpointRefusal[] = [];
   const totals = previewTotals(diff);
   const records = totals.toDelete + totals.toGiveBack + totals.toBringBack + totals.toRecreate;
   if (bounds.maxRecords !== undefined && records > bounds.maxRecords) {
@@ -391,33 +625,35 @@ export async function boundsRefusal(check: BoundsCheck): Promise<CheckpointRefus
       `${count(totals.toBringBack)} to bring back`,
       ...(totals.toRecreate > 0 ? [`${count(totals.toRecreate)} to make again`] : []),
     ];
-    return {
+    refusals.push({
       code: 'TOO_MANY_TO_REWIND',
       message:
         `The rewind of ${orgName} would rewind ${count(records)} records (${parts.join(', ')}), ` +
         `past ${words.limit(bounds.maxRecords)}. Rewind refused; ${words.lift.maxRecords}. ` +
         NOTHING_WRITTEN,
-    };
+    });
   }
   if (bounds.refuseWhenActive && diff.activeLastHour.length > 0) {
     const own = new Set((await check.writers()).map(userKey));
     const others = new Set(diff.activeLastHour.map(userKey).filter((user) => !own.has(user)));
     if (others.size > 0) {
       const people = others.size === 1 ? '1 person' : `${count(others.size)} people`;
-      return {
+      refusals.push({
         code: 'PEOPLE_ACTIVE',
         message:
           `${people} other than the user the rewind writes as changed records of the ` +
           `checkpoint's objects in ${orgName} in the hour before the rewind read it: it would ` +
           `take their work back. Rewind refused; ${words.lift.refuseWhenActive}. ` +
           NOTHING_WRITTEN,
-      };
+      });
     }
   }
-  return (
-    acceptanceRefusal(orgName, preview, check.accepted, words.lift, check.user) ??
-    emailsRefusal('rewind', preview.emails ?? [], orgName)
-  );
+  const emails = emailsRefusal('rewind', preview.emails ?? [], orgName);
+  return [
+    ...refusals,
+    ...acceptanceRefusals(orgName, preview, check.accepted, words.lift, check.user, words.mutes),
+    ...(emails ? [emails] : []),
+  ];
 }
 
 // ─── With nobody to ask ──────────────────────────────────────────────────────
@@ -458,6 +694,7 @@ export function notConfirmedRefusal(stepName: string, changedSince: boolean): Ch
     message:
       `Rewind step "${stepName}" has ` +
       (changedSince ? 'not been confirmed since it was changed' : 'never been confirmed') +
-      `: open it and type the org's alias. ${NOTHING_WRITTEN}`,
+      `: open it and type the org's alias, or its username for an org that has none. ` +
+      NOTHING_WRITTEN,
   };
 }

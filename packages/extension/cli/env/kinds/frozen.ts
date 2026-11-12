@@ -31,8 +31,9 @@
  *
  * What a load refuses — an org its entry guards turn away, a required field
  * the dataset leaves empty with no default, the loads a reload replaces
- * leaving records — the dry run refuses first, and the plan blocks the
- * resource with the script's own words. What it leaves out without refusing
+ * leaving records, what fires as its purge deletes them unaccepted — the dry
+ * run refuses first, and the plan blocks the resource with the script's own
+ * words. What it leaves out without refusing
  * — a field the target encrypts that may hold masks, a picklist value a
  * restricted picklist would refuse and its rule rewrites — the plan says
  * beside its counts. A load never reads the salt the dataset was drawn with.
@@ -52,15 +53,18 @@ import { countedStorageBytes } from '../../../src/modules/forge/ForgeRunGate.js'
 import { frozenDatasetDigest } from '../../../src/modules/frozendataset/datasetDigest.js';
 import type { RunnableScript } from '../../scriptRunner.js';
 import {
+  codesSaidIn,
   countSchema,
   readAnswer,
   refusalAt,
   removalObjectSchema,
   removalPreviewSchema,
+  sweepSwitches,
   valueOf,
   type EnvDryRunCount,
   type EnvFileRefusal,
   type EnvRunCount,
+  type EnvSweepAsk,
 } from './common.js';
 
 /** The script a `frozen` resource runs. */
@@ -166,15 +170,6 @@ export function frozenRunOfResource(
       ),
     );
   }
-  if (resource.accept?.automation === true) {
-    warnings.push(
-      refusalAt(
-        ['resources', name, 'accept', 'automation'],
-        'a Frozen load and its removal take no acceptance of automation: what the org runs as ' +
-          'the records go in, they run unasked',
-      ),
-    );
-  }
   return {
     run: { configFile: resource.config, config, dataset: { ...resource.dataset } },
     warnings,
@@ -277,14 +272,26 @@ function frozenSwitches(step: string, input: FrozenLine): string[] {
 /**
  * The line of a frozen resource's dry run: what a load would insert, link and
  * purge, nothing written. A replace's is a reload's. Its own store, when the
- * sas is one loads keep: a dry run writes nothing there.
+ * sas is one loads keep: a dry run writes nothing there. What fires as a load
+ * inserts and updates, and as a reload's purge deletes, refuses it unless
+ * accepted. A replace's is told what the apply takes back before it
+ * (`--gone-first`), which holds none of the loads' records then.
  */
 export function frozenDryRunLine(
-  input: FrozenLine & { reload: boolean; store?: string },
+  input: FrozenLine & {
+    reload: boolean;
+    store?: string;
+    acceptAutomation?: boolean;
+    goneFirst?: string;
+  },
 ): string[] {
   return [
     ...frozenSwitches('load', input),
     ...(input.reload ? ['--reload'] : []),
+    ...(input.reload && input.goneFirst !== undefined
+      ? ['--gone-first', valueOf('--gone-first', input.goneFirst)]
+      : []),
+    ...(input.acceptAutomation === true ? ['--accept-automation'] : []),
     ...(input.store !== undefined ? ['--store', valueOf('--store', input.store)] : []),
     '--dry-run',
     '--json',
@@ -294,14 +301,16 @@ export function frozenDryRunLine(
 /**
  * The line of a frozen resource's run: held to the records its dry run
  * counted to insert; a replace's is a reload, refused when it would leave
- * records of the loads before it.
+ * records of the loads before it. Either is refused while what fires as it
+ * writes, or as the records of those loads go, is not accepted.
  */
 export function frozenApplyLine(
-  input: FrozenLine & { reload: boolean; maxTotal: number },
+  input: FrozenLine & { reload: boolean; maxTotal: number; acceptAutomation?: boolean },
 ): string[] {
   return [
     ...frozenSwitches('load', input),
     ...(input.reload ? ['--reload'] : []),
+    ...(input.acceptAutomation === true ? ['--accept-automation'] : []),
     '--max-total',
     String(input.maxTotal),
     '--yes',
@@ -314,25 +323,37 @@ export function frozenVerifyLine(input: FrozenLine): string[] {
   return [...frozenSwitches('verify', input), '--json'];
 }
 
-/** The line of the removal of the next load a removal takes, the last first. */
+/**
+ * The line of the removal of the next load a removal takes, the last first: it
+ * deletes nothing while the target runs automation as the records go, unless
+ * accepted.
+ */
 export function frozenRemoveLine(
-  input: FrozenLine & { includeChanged?: boolean; sweep?: boolean },
+  input: FrozenLine & EnvSweepAsk & { includeChanged?: boolean; acceptAutomation?: boolean },
 ): string[] {
   return [
     ...frozenSwitches('remove', input),
     ...(input.includeChanged === true ? ['--include-changed'] : []),
-    ...(input.sweep === true ? ['--sweep'] : []),
+    ...sweepSwitches(input),
+    ...(input.acceptAutomation === true ? ['--accept-automation'] : []),
     '--yes',
     '--json',
   ];
 }
 
-/** The line of the preview of that removal: what it would do, nothing written. */
-export function frozenPreviewLine(input: FrozenLine & { includeChanged?: boolean }): string[] {
+/**
+ * The line of the preview of that removal: what it would do, nothing
+ * written; with its sweep, what that would take and what fires on it.
+ */
+export function frozenPreviewLine(
+  input: FrozenLine & EnvSweepAsk & { includeChanged?: boolean; acceptAutomation?: boolean },
+): string[] {
   return [
     ...frozenSwitches('remove', input),
     ...(input.includeChanged === true ? ['--include-changed'] : []),
+    ...(input.acceptAutomation === true ? ['--accept-automation'] : []),
     '--preview',
+    ...sweepSwitches(input),
     '--json',
   ];
 }
@@ -353,6 +374,8 @@ const answerBase = {
     .optional(),
   mapping: z.string().min(1).optional(),
   refusals: z.array(z.string()).optional(),
+  /** The code of each of `refusals`, in their order, given only when each has one. */
+  refusalCodes: z.array(z.string()).optional(),
   ended: z.literal(true).optional(),
 };
 
@@ -448,28 +471,59 @@ function postedError(
  * What `sandforge-frozen remove --preview --json` prints, read as every
  * kind's preview is: per object what a removal would delete, keep and find
  * gone, and what it would be refused for. With no load recorded, or nothing
- * left to take, nothing is to delete.
+ * left to take, nothing is to delete. `removalAlone` holds what the script read
+ * beside the handler's preview: the target's automation, which stops a removal
+ * and no load, a replace of a frozen resource being a reload.
  */
 export const frozenPreviewAnswerSchema = z
   .object({ ...answerBase, step: z.literal('remove') })
   .transform((answer, ctx) => {
-    const error = postedError(answer.posted);
+    // Said among the refusals: the preview it comes after stands.
+    const error = postedError(
+      answer.posted.filter((message) => message.type !== 'frozen:remove:automation:error'),
+    );
     const empty: z.infer<typeof removalPreviewSchema> = { planned: 0, objects: [], userNames: {} };
     if (error !== undefined && !NOTHING_TO_REMOVE.has(error.code ?? '')) {
-      return { tool: answer.tool, preview: empty, refusals: [error.message] };
+      return {
+        tool: answer.tool,
+        preview: empty,
+        refusals: [error.message],
+        ...(error.code !== undefined ? { refusalCodes: [error.code] } : {}),
+        removalAlone: [],
+      };
     }
     const raw = postedOf(answer.posted, 'frozen:remove:preview:response')?.['preview'];
-    if (raw === undefined) return { tool: answer.tool, preview: empty, refusals: [] };
+    if (raw === undefined) {
+      return { tool: answer.tool, preview: empty, refusals: [], removalAlone: [] };
+    }
     const read = removalPreviewSchema
-      .extend({ refusals: z.array(z.string()) })
+      .extend({ refusals: z.array(z.string()), refusalCodes: z.array(z.string()).optional() })
       .loose()
       .safeParse(raw);
     if (!read.success) {
       ctx.addIssue({ code: 'custom', message: `its preview: ${read.error.issues[0]?.message}` });
       return z.NEVER;
     }
-    const { refusals, ...preview } = read.data;
-    return { tool: answer.tool, preview, refusals };
+    const { refusals, refusalCodes, ...preview } = read.data;
+    // The code of each refusal the script said, as its answer gives them.
+    const said = answer.refusals ?? [];
+    const codeOf = new Map<string, string>(
+      answer.refusalCodes?.length === said.length
+        ? said.map((refusal, at) => [refusal, answer.refusalCodes?.[at] ?? ''])
+        : [],
+    );
+    const removalAlone = said.filter((refusal) => !refusals.includes(refusal));
+    const aloneCodes = removalAlone.flatMap((refusal) => codeOf.get(refusal) ?? []);
+    return {
+      tool: answer.tool,
+      preview,
+      refusals,
+      ...(refusalCodes?.length === refusals.length ? { refusalCodes } : {}),
+      removalAlone,
+      ...(aloneCodes.length === removalAlone.length && aloneCodes.length > 0
+        ? { removalAloneCodes: aloneCodes }
+        : {}),
+    };
   });
 
 /**
@@ -583,6 +637,19 @@ function alignmentNotes(plan: Record<string, unknown> | undefined): string[] {
   });
 }
 
+/** The emails a load's gate counted per daily limit, as its dry run's plan carries them. */
+function frozenEmailsOf(plan: Record<string, unknown> | undefined): EnvDryRunCount['emails'] {
+  const counted = (plan?.['emails'] as { counted?: unknown } | undefined)?.counted;
+  if (!Array.isArray(counted)) return [];
+  return counted.flatMap((each) => {
+    const { limit, emails } = (each ?? {}) as Record<string, unknown>;
+    return (limit === 'SingleEmail' || limit === 'DailyWorkflowEmails') &&
+      typeof emails === 'number'
+      ? [{ limit, emails }]
+      : [];
+  });
+}
+
 /**
  * What a frozen dry run counted: per object the records a load would insert,
  * exactly, and in all what `--max-total` holds the run to. Its refusal is the
@@ -608,6 +675,17 @@ export function frozenDryRunCount(answer: FrozenDryRunAnswer): EnvDryRunCount {
             'linked by its identity keys, or one the load does not send'
           : undefined;
   const notes = [...maskNotes(plan), ...alignmentNotes(plan)];
+  // The load's own codes: its error's, and each refusal's where it gave one for each.
+  const refusals = answer.refusals ?? [];
+  const codes =
+    refusal !== undefined
+      ? codesSaidIn(refusal, said, [
+          ...(error !== undefined ? [error.code ?? ''] : []),
+          ...(answer.refusalCodes?.length === refusals.length
+            ? answer.refusalCodes
+            : refusals.map(() => '')),
+        ])
+      : [];
   return {
     objects: objects.map((object) => ({
       object: object.objectApiName,
@@ -619,8 +697,11 @@ export function frozenDryRunCount(answer: FrozenDryRunAnswer): EnvDryRunCount {
       (sum, object) => sum + countedStorageBytes(object.objectApiName, { rows: object.toInsert }),
       0,
     ),
-    emails: [],
+    // What its gate counted against the org's daily limits, for the day's
+    // gate to add to the other resources': it counted none before.
+    emails: frozenEmailsOf(plan),
     ...(refusal !== undefined ? { refusal } : {}),
+    ...(codes.length > 0 ? { refusalCodes: codes } : {}),
     ...(notes.length > 0 ? { notes } : {}),
   };
 }

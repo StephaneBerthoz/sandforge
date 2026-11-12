@@ -19,16 +19,97 @@
 
 import type { MutedAutomation } from '../utils/automation-mute.js';
 import type {
+  ForgeEmailLimit,
   ForgeFieldRefusal,
   ForgeRefusedField,
+  ForgeSweepListing,
   ForgeSweepResult,
   ForgeUndoMark,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
+  RunDeliverability,
 } from './forge.types.js';
 import type { SyncValidationRule } from './sync.types.js';
 import type { RecordTypeGiven } from './common.types.js';
 import type { RunCheckpointEstimate, RunCheckpointInfo } from './checkpoint.types.js';
+
+/**
+ * The emails a load makes its target send against one daily limit, counted
+ * on the records of the dataset — at most, as Production Guard counts a
+ * load —, and what the target has left of it today.
+ */
+export interface FrozenLoadEmailCount {
+  limit: ForgeEmailLimit;
+  /** Per object: the records, the emails each sends, and what sends them. */
+  objects: Array<{ objectApiName: string; rows: number; perRecord: number; sentBy: string[] }>;
+  emails: number;
+  /** Set where the target counts its email alerts against its single emails too. */
+  alertsCounted?: true;
+  /** `exceeds` past what the target has left today; `unread` when it did not say. */
+  verdict: 'fits' | 'exceeds' | 'unread';
+  remaining?: number;
+  max?: number;
+  unread?: string;
+}
+
+/**
+ * The emails of what still runs as a load writes, as its gate judged them
+ * before the first write: counted against the target's daily limits, and
+ * whether the target delivers them. Said by a preview, a dry run, the
+ * report, and a load refused for them.
+ */
+export interface FrozenLoadEmailsInfo {
+  /** One per daily limit what still runs sends against as the records go in. */
+  counted: FrozenLoadEmailCount[];
+  /** Why the emails of the target's automation could not all be counted; absent when they were. */
+  uncounted?: string;
+  /**
+   * `nothingSends`: nothing that still runs sends one; `withheld`: the target
+   * delivers none (System email only, No access); `asks`: it delivers them,
+   * or would not say, and the load goes on only with the accord.
+   */
+  verdict: 'nothingSends' | 'withheld' | 'asks';
+  /** What still runs that sends, and what was read of the target; absent when nothing sends. */
+  deliverability?: RunDeliverability;
+  /** Whether the load came with the accord (`acceptEmails`, `--accept-emails`). */
+  accepted: boolean;
+  /** Why a load would be refused for them, nothing written; absent when it would not be. */
+  refused?: { code: string; message: string };
+}
+
+/** A flow, an Apex trigger, a process or a workflow rule the target runs as a load writes. */
+export interface FrozenLoadAutomationEntry {
+  objectApiName: string;
+  kind: 'flow' | 'trigger' | 'process' | 'workflowRule';
+  name: string;
+  /** The writes of the load it runs on: as it inserts the records, as it updates them, or both. */
+  writes: Array<'insert' | 'update'>;
+}
+
+/**
+ * What the target runs as a load inserts its records and updates them —
+ * what the mute keeps quiet held quiet, what a bypass the user holds keeps
+ * quiet left out —, as the load's gate read it before its first write, and
+ * whether the load was told to write all the same. Said by a preview, a dry
+ * run, the report, and a load refused for it.
+ */
+export interface FrozenLoadAutomationInfo {
+  /** What runs, object by object, in the order the platform runs it. */
+  firing: FrozenLoadAutomationEntry[];
+  /**
+   * What could not be read of it, which may hide what runs: a part of the
+   * read (`flows`, `triggers`, `processes`, `workflowRules`), or the whole
+   * read (`automation`). Absent when everything was read.
+   */
+  unread?: Array<{
+    part: 'flows' | 'triggers' | 'processes' | 'workflowRules' | 'automation';
+    reason: string;
+  }>;
+  /** Whether the load came with the accord (`acceptAutomation`, `--accept-automation`). */
+  accepted: boolean;
+  /** Why a load would be refused for it, nothing written; absent when it would not be. */
+  refused?: { code: 'AUTOMATION_NOT_ACCEPTED'; message: string };
+}
 
 /** One configurable coverage axis (aggregate SOQL enumerating observed values). */
 export interface FrozenCoverageAxisConfig {
@@ -206,6 +287,17 @@ export interface FrozenLeftToThePlatform {
 }
 
 /**
+ * Records of one object a load does not look up in the target by its identity
+ * keys: a key field stays empty in what the load writes — the dataset holds no
+ * value of it, and no declared default fills it — so each is inserted, never
+ * matched to the record the target holds.
+ */
+export interface FrozenKeysLeftEmpty extends FrozenLeftToThePlatform {
+  /** The key fields left empty, by API name. */
+  fields: string[];
+}
+
+/**
  * Records of one object a frozen dataset holds that cannot be loaded as they
  * are, for an object `excludedObjects` leaves out: the record a lookup they
  * may not leave empty names, or — for an order past Draft — the items it is
@@ -374,11 +466,6 @@ export interface FrozenDryRunLoadControl {
   status: 'pending' | 'passed' | 'failed';
   at?: string;
   detail?: string;
-  /**
-   * Per object, the record type the target gave the records the load
-   * created without one, as read back. Absent when there was nothing to say.
-   */
-  recordTypesGiven?: RecordTypeGiven[];
 }
 
 /** The frozen dataset manifest (identity card — no source data). */
@@ -501,11 +588,32 @@ export interface FrozenPerObjectLoadResult {
    * none, and from reports written before a refused record was written again.
    */
   writtenWithoutFields?: FrozenWrittenWithoutFields;
+  /**
+   * Of the records reused, those the platform wrote itself with a record the
+   * load inserted — a contact's role, with its opportunity — linked to rather
+   * than sent beside them. Absent when there was none.
+   */
+  writtenByThePlatform?: number;
 }
 
 /** Final load report — every exclusion/adjustment is listed. */
 export interface FrozenLoadReportInfo {
-  status: 'completed' | 'completed-with-errors';
+  /**
+   * How the load ended: `partial` for a reload that wrote all it was to and
+   * whose sweep (`sweeps`) was refused or did not take all it was asked to,
+   * as the removal a sweep goes with ends. Said `completed`, the panel drew a
+   * green badge above a sweep Production Guard had refused. `partial` too for
+   * a load the verification chained after it did not pass (`verification`).
+   */
+  status: 'completed' | 'completed-with-errors' | 'partial';
+  /**
+   * The verdict of the verification chained after the load, when it did not
+   * pass: a load that wrote all it was to ends `partial` on it. Said
+   * `completed`, a load whose two opportunity products the platform deleted
+   * after their write exited 0 above `verification: FAILED`. Absent when the
+   * verification passed, was unstable, or could not run.
+   */
+  verification?: 'failed' | 'partial';
   /**
    * What the run muted of the target's automation, when it was asked to
    * (`muteAutomation`): the permission sets assigned to the user it wrote as
@@ -622,8 +730,50 @@ export interface FrozenLoadReportInfo {
    * such a record. Absent when none was.
    */
   heldForExcludedParents?: FrozenLeftToThePlatform[];
+  /**
+   * The opportunities the load left unsynced with the quote the source syncs
+   * them with, their products kept: it wrote fewer lines under the quote than
+   * products under the opportunity, and a sync replaces an opportunity's
+   * products with its quote's lines. Absent when it left none.
+   */
+  quotesLeftUnsynced?: FrozenLeftToThePlatform[];
+  /**
+   * Per object whose identity keys the load looked records up by — on a
+   * reload, and on every load for an object the platform never deletes — the
+   * records it did not look up: a key field stayed empty in what it wrote.
+   * Absent when it looked up every one.
+   */
+  keysLeftEmpty?: FrozenKeysLeftEmpty[];
+  /**
+   * What the sweep asked with a reload did, per load it replaced, as a
+   * removal of that load would have swept it: what the target's automation
+   * made for the load, taken around the purge. Absent when no sweep was
+   * asked, or the reload purged nothing.
+   */
+  sweeps?: FrozenReloadSweep[];
+  /** The emails of what still ran as it wrote, as its gate judged them; absent when nothing sent one. */
+  emails?: FrozenLoadEmailsInfo;
+  /**
+   * What the target ran as it wrote, which the load was told to write
+   * through; absent when nothing ran and everything was read.
+   */
+  automation?: FrozenLoadAutomationInfo;
   mappingPath: string;
   contractPath: string;
+}
+
+/** What the sweep of one load a reload replaced did. */
+export interface FrozenReloadSweep {
+  /** When the load replaced wrote its last record (`FrozenLoadRecordsInfo.loadedAt`). */
+  loadedAt: string;
+  result: ForgeSweepResult;
+}
+
+/** What the sweep of one load a reload replaces would take, read and nothing deleted. */
+export interface FrozenReloadSweepListing {
+  /** When the load replaced wrote its last record (`FrozenLoadRecordsInfo.loadedAt`). */
+  loadedAt: string;
+  listing: ForgeSweepListing;
 }
 
 /**
@@ -638,7 +788,8 @@ export interface FrozenLoadPlanObject {
    * Records the load would send to be inserted. The target may still refuse
    * some, or skip one as a duplicate; and a contact's direct relation or an
    * email's task counted here is linked instead to the one the platform
-   * writes, once its contact or email is in.
+   * writes, once its contact or email is in. The contact role the platform
+   * writes with an opportunity is not counted here: see `writtenByThePlatform`.
    */
   toInsert: number;
   /** Records a reload would find in the target by their identity keys, and link. */
@@ -648,6 +799,12 @@ export interface FrozenLoadPlanObject {
    * price book, a selling model or option by its natural key — and linked.
    */
   reusedFromCatalog: number;
+  /**
+   * Records the platform writes itself with their parent, which the load
+   * links once that parent is in, given the fields it lacks: the role of the
+   * contact an opportunity the load inserts goes in with. Absent when none.
+   */
+  writtenByThePlatform?: number;
   /** Fields of its records the target lacks or takes no value of: dropped from them. */
   fieldsDropped: number;
   /** Picklist values of its records the target refuses: cleared, or replaced as the rules declare. */
@@ -680,6 +837,15 @@ export interface FrozenLoadPlanObject {
    * which an insert never is. Absent when none is.
    */
   validationRulesOnChange?: string[];
+  /**
+   * The lookups of the records it would insert that the target filters
+   * (`filteredLookupInfo` in its describe), which a preview cannot check: a
+   * record whose lookup the filter refuses is refused
+   * (`FIELD_FILTER_VALIDATION_EXCEPTION`), and what hangs from it with it.
+   * Each with the objects it looks up and how many of those records hold it.
+   * Absent when none of them holds one.
+   */
+  lookupFilters?: Array<{ field: string; referenceTo: string[]; records: number }>;
 }
 
 /**
@@ -743,6 +909,20 @@ export interface FrozenLoadPlanInfo {
    */
   heldForExcludedParents?: FrozenLeftToThePlatform[];
   /**
+   * The opportunities the load would leave unsynced with the quote the
+   * source syncs them with, keeping their products: it would write fewer
+   * lines under the quote than products under the opportunity. Absent when
+   * it would leave none.
+   */
+  quotesLeftUnsynced?: FrozenLeftToThePlatform[];
+  /**
+   * Per object whose identity keys the load would look records up by — on a
+   * reload, and on every load for an object the platform never deletes — the
+   * records it would not look up: a key field stays empty in what it would
+   * write. Absent when it would look up every one.
+   */
+  keysLeftEmpty?: FrozenKeysLeftEmpty[];
+  /**
    * On a reload, per object, records of a load recorded before loads kept
    * what they created that the purge would leave in place: that load may have
    * linked them. Absent when none would be.
@@ -764,6 +944,27 @@ export interface FrozenLoadPlanInfo {
    * and the refusal it would meet. Absent when not asked.
    */
   checkpoint?: RunCheckpointEstimate;
+  /**
+   * The emails of what still runs as the load would write, as its gate
+   * judges them, nothing assigned: counted against the target's daily
+   * limits, whether it delivers them, and the refusal a load would meet.
+   * Absent when nothing that still runs sends one, or when they could not
+   * be judged, which the log says.
+   */
+  emails?: FrozenLoadEmailsInfo;
+  /**
+   * What the target runs as the load would insert its records and update
+   * them, the mute planned when asked, nothing assigned, and the refusal a
+   * load would meet without the accord. Absent when nothing runs and
+   * everything was read, or when it could not be judged, which the log says.
+   */
+  automation?: FrozenLoadAutomationInfo;
+  /**
+   * Per object, the records the load would create without a record type, and
+   * the type the describe of the user it writes as says the target gives
+   * them. Absent when there is nothing to say.
+   */
+  recordTypesGiven?: RecordTypeGiven[];
 }
 
 /**
@@ -946,11 +1147,21 @@ export interface FrozenRemovalResult {
    */
   sweep?: ForgeSweepResult;
   /**
+   * What that sweep did for each other load the mapping records whose records
+   * all went — a load a reload replaced, kept for what its sweep left — swept
+   * with this one, as a reload sweeps every load it replaces: what the
+   * reload's sweep left of a load was reached by no removal, and stayed in the
+   * org. Absent when none was swept so.
+   */
+  otherLoadSweeps?: FrozenReloadSweep[];
+  /**
    * Per object, records the load created that the removal kept, never sent to
    * be deleted: the platform does not delete them — business hours. Absent
    * when the load created none.
    */
   keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
+  /** What the removal muted of the target's automation, when it was asked to. */
+  mutedAutomation?: MutedAutomation;
 }
 
 /**
@@ -1005,6 +1216,11 @@ export interface FrozenRemovalPreview {
   keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
   /** What a removal run now would be refused for, each in its own words. */
   refusals: string[];
+  /**
+   * The code a removal is refused with for each of `refusals`, in their
+   * order: the words alone, a pipeline could not tell one from another.
+   */
+  refusalCodes?: string[];
 }
 
 /** The verdict of the last verification of a load into a target org. */

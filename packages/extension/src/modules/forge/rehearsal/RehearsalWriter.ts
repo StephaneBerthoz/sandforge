@@ -1,9 +1,23 @@
 import { canonicalRecordId } from '../../../core/common/existingRecordMatch.js';
 import {
   ACCOUNT,
+  ACTIVE_SPLIT_TYPES_SOQL,
   CONTACT,
+  CONTACT_FIELD,
+  OPPORTUNITY_CONTACT_ROLE,
+  OPPORTUNITY_SPLIT,
+  OPPORTUNITY_TEAM_MEMBER,
   PERSON_CONTACT_FIELD,
+  TEAM_USER_FIELD,
+  WRITTEN_BY_THE_PLATFORM,
   accountsOfPersonContactsSoql,
+  asMadeWithItsOpportunity,
+  contactRolesOfSoql,
+  contactRolesSoql,
+  opportunitiesOfOwnersSoql,
+  opportunityOwnersSoql,
+  opportunityTeamOfSoql,
+  opportunityTeamSoql,
   personContactsSoql,
 } from '../../../core/common/platformRecords.js';
 import type { ForgeExecutorDeps, InsertResult, UpdateResult } from '../ForgeExecutor.js';
@@ -54,6 +68,14 @@ const PLACEHOLDER_IN_TEXT_RE = /[A-Za-z0-9]{3}RHZ[A-Za-z0-9]{12}/g;
 export const NO_KEY_PREFIX = '000';
 
 /**
+ * Where the placeholders of the team records the platform writes with an
+ * opportunity are numbered from: past any row a run creates, so none stands
+ * for a row as well — an opportunity has one member of its owner, but a split
+ * of each type held to 100 %, more than one number of its own.
+ */
+const PLATFORM_TEAM_SEQ = 62 ** 8;
+
+/**
  * The placeholder id of the `seq`-th record the run would create: 18
  * characters, the object's key prefix, the mark, the number in base 62 and the
  * checksum, as a real id of the object is shaped. The executor checks the ids
@@ -96,14 +118,35 @@ export class RehearsalWriter {
    * the run creates, by its first 15 characters, to the account's row.
    */
   private readonly personContacts = new Map<string, RehearsedRow>();
+  /**
+   * The placeholder of each team record the platform writes with an
+   * opportunity the run creates — its owner's member, its owner's splits —
+   * by its first 15 characters, to the opportunity's row.
+   */
+  private readonly platformTeam = new Map<string, RehearsedRow>();
+  /**
+   * The placeholder of the contact role the platform writes with each
+   * opportunity the run creates with a contact, by its first 15 characters,
+   * to the opportunity's row. Numbered after the team's, as both stand past
+   * every row a run creates.
+   */
+  private readonly platformRoles = new Map<string, RehearsedRow>();
   /** Key prefix per object, asked once. */
   private readonly prefixes = new Map<string, Promise<string | null>>();
+  /** The user the run writes as, asked once. */
+  private writesAs?: Promise<string | undefined>;
 
   /**
    * @param keyPrefixOf - The target's key prefix of an object, from the
    *   describe the run holds; `null` when it gives none.
+   * @param runningUser - The id of the user the run writes to the target as,
+   *   the owner the platform gives an opportunity sent without one; undefined
+   *   when the target does not say. Absent, none is known.
    */
-  constructor(private readonly keyPrefixOf: (objectApiName: string) => Promise<string | null>) {}
+  constructor(
+    private readonly keyPrefixOf: (objectApiName: string) => Promise<string | null>,
+    private readonly runningUser?: () => Promise<string | undefined>,
+  ) {}
 
   /** Keep the rows, and hand each back a placeholder id: the executor's `insertRecords`. */
   readonly insertRecords = async (
@@ -192,8 +235,171 @@ export class RehearsalWriter {
           query(orgId, personContactsSoql(held), onTruncated),
         );
       }
+      const opportunities = opportunitiesOfOwnersSoql(soql);
+      if (opportunities) {
+        return this.ownersOf(opportunities, (held) =>
+          query(orgId, opportunityOwnersSoql(held), onTruncated),
+        );
+      }
+      const team = opportunityTeamOfSoql(soql);
+      if (team) {
+        return this.teamOf(
+          team,
+          (held) => query(orgId, opportunityTeamSoql(team.objectApiName, team.fields, held)),
+          () => query(orgId, ACTIVE_SPLIT_TYPES_SOQL),
+        );
+      }
+      const roles = contactRolesOfSoql(soql);
+      if (roles) {
+        return this.rolesOf(roles, (held) =>
+          query(orgId, contactRolesSoql(held, roles.fields), onTruncated),
+        );
+      }
       return this.namesAPlaceholder(soql) ? [] : query(orgId, soql, onTruncated);
     };
+  }
+
+  /**
+   * The answer to the read of the contact roles of the opportunities `roles`
+   * names: the target's for those it holds, and, for each the run creates
+   * with a contact, the role the platform writes with it — of that contact,
+   * primary, with no role — under a placeholder of its own. The run links the
+   * source's role of that contact to it, as it links it to the platform's in
+   * a run, and sends the others. Answered with none, a rehearsal sent the
+   * source's role beside the one the platform writes, which no run sends.
+   */
+  private async rolesOf(
+    roles: { fields: readonly string[]; opportunities: readonly string[] },
+    askTheTarget: (held: string[]) => Promise<Record<string, unknown>[]>,
+  ): Promise<Record<string, unknown>[]> {
+    const held = roles.opportunities.filter((id) => !this.rowOf(id));
+    const answered = held.length > 0 ? await askTheTarget(held) : [];
+    const ours = roles.opportunities.flatMap((id) => {
+      const row = this.rowOf(id);
+      const contact = row?.objectApiName === 'Opportunity' ? row.fields[CONTACT_FIELD] : undefined;
+      return row && typeof contact === 'string' && contact !== '' ? [{ id, row, contact }] : [];
+    });
+    if (ours.length === 0) return answered;
+    const prefix = await this.prefixOf(OPPORTUNITY_CONTACT_ROLE);
+    // Dated as the platform dates its own, made with the opportunity: the run
+    // links no role made after it.
+    const at = new Date().toISOString();
+    return [
+      ...answered,
+      ...ours.map(({ id, row, contact }) => {
+        const role = placeholderId(
+          prefix,
+          PLATFORM_TEAM_SEQ + this.platformTeam.size + this.platformRoles.size,
+        );
+        this.platformRoles.set(role.slice(0, 15), row);
+        return asMadeWithItsOpportunity(
+          {
+            ...Object.fromEntries(roles.fields.map((field) => [field, null])),
+            Id: role,
+            OpportunityId: id,
+            [CONTACT_FIELD]: contact,
+            ...(roles.fields.includes('IsPrimary') ? { IsPrimary: true } : {}),
+          },
+          at,
+        );
+      }),
+    ];
+  }
+
+  /**
+   * The answer to the read of the owner of each opportunity of `ids`: the
+   * target's for those it holds, and, for each the run creates, the owner it
+   * is sent with — an owner mapping's — or the user the run writes as, whom
+   * the platform gives one sent without. One whose owner is not known is not
+   * listed.
+   *
+   * Answered with none, the run held back every row of the team of an
+   * opportunity it created — the owner's in the target "could not be read" —
+   * and the owner's Overlay split, which the run writes and the platform does
+   * not, never reached a rehearsal's call: a rule of the target that refuses
+   * it met the run alone.
+   */
+  private async ownersOf(
+    ids: readonly string[],
+    askTheTarget: (held: string[]) => Promise<Record<string, unknown>[]>,
+  ): Promise<Record<string, unknown>[]> {
+    const held = ids.filter((id) => !this.rowOf(id));
+    const answered = held.length > 0 ? await askTheTarget(held) : [];
+    const ours: Record<string, unknown>[] = [];
+    for (const id of ids) {
+      const owner = await this.ownerOf(id);
+      if (owner !== undefined) ours.push({ Id: id, OwnerId: owner });
+    }
+    return [...answered, ...ours];
+  }
+
+  /**
+   * The answer to the read of the team members or the splits of the
+   * opportunities `team` names: the target's for those it holds, and, for
+   * each the run creates, what the platform writes with it — its owner's
+   * member, role "Opportunity Owner" and access All, and its owner's split of
+   * each type the target holds to a total of 100 %, under a placeholder of
+   * their own. The run links its rows of the owner's to them, as it links them
+   * to the platform's in a run, and sends the others.
+   */
+  private async teamOf(
+    team: { objectApiName: string; fields: readonly string[]; opportunities: readonly string[] },
+    askTheTarget: (held: string[]) => Promise<Record<string, unknown>[]>,
+    splitTypes: () => Promise<Record<string, unknown>[]>,
+  ): Promise<Record<string, unknown>[]> {
+    const { objectApiName, fields, opportunities } = team;
+    const held = opportunities.filter((id) => !this.rowOf(id));
+    const answered = held.length > 0 ? await askTheTarget(held) : [];
+    const ours = opportunities.filter((id) => this.rowOf(id)?.objectApiName === 'Opportunity');
+    if (ours.length === 0) return answered;
+    const userField = TEAM_USER_FIELD[objectApiName];
+    const split = objectApiName === OPPORTUNITY_SPLIT;
+    const types = split
+      ? (await splitTypes()).flatMap((type) =>
+          typeof type['Id'] === 'string' &&
+          (type['IsTotalValidated'] === true || type['IsTotalValidated'] === 'true')
+            ? [type['Id']]
+            : [],
+        )
+      : [undefined];
+    const prefix = await this.prefixOf(split ? OPPORTUNITY_SPLIT : OPPORTUNITY_TEAM_MEMBER);
+    const values = WRITTEN_BY_THE_PLATFORM[objectApiName] ?? {};
+    const written: Record<string, unknown>[] = [];
+    for (const id of ours) {
+      const owner = await this.ownerOf(id);
+      if (owner === undefined) continue;
+      for (const type of types) {
+        const record = placeholderId(
+          prefix,
+          PLATFORM_TEAM_SEQ + this.platformTeam.size + this.platformRoles.size,
+        );
+        this.platformTeam.set(record.slice(0, 15), this.rowOf(id) as RehearsedRow);
+        written.push({
+          Id: record,
+          OpportunityId: id,
+          [userField]: owner,
+          ...(type !== undefined ? { SplitTypeId: type } : {}),
+          ...Object.fromEntries(fields.map((field) => [field, values[field] ?? null])),
+        });
+      }
+    }
+    return [...answered, ...written];
+  }
+
+  /**
+   * The owner of the opportunity a placeholder stands for: the one it is
+   * sent with, or the user the run writes as. Undefined for any other value,
+   * or when neither is known.
+   */
+  private async ownerOf(id: string): Promise<string | undefined> {
+    const row = this.rowOf(id);
+    if (row?.objectApiName !== 'Opportunity') return undefined;
+    const sent = row.fields['OwnerId'];
+    if (typeof sent === 'string' && sent !== '') return sent;
+    this.writesAs ??= this.runningUser
+      ? this.runningUser().catch(() => undefined)
+      : Promise.resolve(undefined);
+    return this.writesAs;
   }
 
   /**
@@ -228,7 +434,14 @@ export class RehearsalWriter {
 
   private namesAPlaceholder(text: string): boolean {
     for (const [candidate] of text.matchAll(PLACEHOLDER_IN_TEXT_RE)) {
-      if (this.rowOf(candidate) || this.personContactOf(candidate)) return true;
+      if (
+        this.rowOf(candidate) ||
+        this.personContactOf(candidate) ||
+        this.platformTeam.has(candidate.slice(0, 15)) ||
+        this.platformRoles.has(candidate.slice(0, 15))
+      ) {
+        return true;
+      }
     }
     return false;
   }

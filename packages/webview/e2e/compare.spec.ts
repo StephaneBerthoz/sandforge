@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-import { MockBridge } from './helpers';
+import { MockBridge, checkAccessibility, formatViolations } from './helpers';
 import { MOCK_ORGS, DEV_SANDBOX, QA_SANDBOX } from './fixtures';
 import { sendExtensionMessage } from './mocks/vscode-api';
 
@@ -204,6 +204,55 @@ test.describe('Compare panel — org prerequisites', () => {
     // The first step is the one-org variant, not the connect-two variant.
     await expect(page.getByTestId('empty-step-0')).toContainText('second');
     await expect(page.getByTestId('compare-page')).toHaveCount(0);
+  });
+
+  test('says a picked org disconnected meanwhile, shows no other in its picker, and runs nothing', async ({
+    page,
+  }) => {
+    // Disconnected from the Organizations panel while Compare kept it picked,
+    // the source picker showed the first org left, and Run sent the old id.
+    const uat = {
+      ...QA_SANDBOX,
+      id: 'org-tgt-2',
+      alias: 'UatSandbox',
+      username: 'uat@sandbox.com',
+    };
+    await openComparePanel(page, [DEV_SANDBOX, QA_SANDBOX, uat]);
+    await expect(page.getByTestId('compare-page')).toBeVisible({ timeout: 10_000 });
+    await page.getByLabel('Source Org').selectOption(DEV_SANDBOX.id);
+    await page.getByLabel('Target Org').selectOption(QA_SANDBOX.id);
+    await page.getByTestId('cat-ApexClass').click();
+    const runBtn = page.getByTestId('run-compare-btn');
+    await expect(runBtn).toBeEnabled();
+
+    await sendExtensionMessage(page, {
+      type: 'state:sync',
+      id: 'state-sync-disconnected',
+      payload: {
+        orgs: [QA_SANDBOX, uat],
+        settings: {},
+        activeOperations: [],
+        extensionReady: true,
+        selectedOrgId: null,
+      },
+    });
+
+    const source = page.getByTestId('org-ribbon-source');
+    await expect(source.getByTestId('org-ribbon-source-not-held')).toHaveText(
+      'An org this machine no longer holds',
+    );
+    await expect(source.getByTestId('org-ribbon-source-id')).toHaveText(DEV_SANDBOX.id);
+    await expect(page.getByLabel('Source Org')).toHaveValue('');
+    await expect(runBtn).toBeDisabled();
+    await expect(page.getByTestId('compare-run-needs')).toHaveText(
+      'Pick a source and a different target org',
+    );
+    const results = await checkAccessibility(page);
+    expect(results.violations.length, formatViolations(results.violations)).toBe(0);
+
+    await page.getByLabel('Source Org').selectOption(uat.id);
+    await expect(source.getByTestId('org-ribbon-source-not-held')).toHaveCount(0);
+    await expect(runBtn).toBeEnabled();
   });
 });
 

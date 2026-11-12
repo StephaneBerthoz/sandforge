@@ -50,13 +50,30 @@ export type FileBodyObject = keyof typeof FILE_BODY_FIELDS;
 const SAMPLE_LIMIT = 3;
 
 /**
- * Raised when a run asked to copy files may not go ahead: it anonymizes and
- * the files were not accepted as they are, the session cannot move a file,
- * the files of its records could not be looked up, or the files do not fit in
- * what the target has left. Raised before anything is written.
+ * Why a run asked to copy files may not go ahead, as a command's line and its
+ * `--json` summary name it: it anonymizes and the files were not accepted as
+ * they are (`FILES_NOT_ACCEPTED`), the session cannot move a file
+ * (`FILES_NOT_COPYABLE`), the files of its records could not all be looked up
+ * (`FILES_UNREAD`), the target would not say what file storage it has left
+ * (`FILE_STORAGE_UNREAD`), or the files do not fit in it
+ * (`FILE_STORAGE_EXCEEDED`).
+ */
+export type FilesRefusalCode =
+  | 'FILES_NOT_ACCEPTED'
+  | 'FILES_NOT_COPYABLE'
+  | 'FILES_UNREAD'
+  | 'FILE_STORAGE_UNREAD'
+  | 'FILE_STORAGE_EXCEEDED';
+
+/**
+ * Raised when a run asked to copy files may not go ahead, with why
+ * ({@link FilesRefusalCode}). Raised before anything is written.
  */
 export class ForgeFilesRefusedError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly code: FilesRefusalCode,
+  ) {
     super(message);
     this.name = 'ForgeFilesRefusedError';
   }

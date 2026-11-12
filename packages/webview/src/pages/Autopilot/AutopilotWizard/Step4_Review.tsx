@@ -12,14 +12,14 @@ import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 import { uiLocale } from '../../../utils/formatters';
 import { CompliancePicker } from './CompliancePicker';
 import { AutomationMuteBox } from '../../../components/ui/AutomationMuteBox';
-import { OrgBadge } from '../../../components/ui/OrgBadge';
-import { Icon } from '../../../components/ui/Icon';
+import { CheckpointFirstOption } from '../../../components/ui/CheckpointFirstOption';
+import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { useOrgStore } from '../../../stores/useOrgStore';
+import { useAutopilotStore } from '../../../stores/useAutopilotStore';
+import { AutopilotFitSection, type AutopilotFitSectionProps } from './AutopilotFitPanel';
 
 /** Step4Review component props. */
 export interface Step4ReviewProps {
-  /** Source org ID */
-  readonly sourceOrgId: string;
   /** Target org ID */
   readonly targetOrgId: string;
   /** Selected object API names */
@@ -59,6 +59,12 @@ export interface Step4ReviewProps {
   readonly scope?: AutopilotPlanScope;
   /** The person objects whose names, emails or phones no rule anonymizes. */
   readonly notCovered?: AnonymizationSummary['notCovered'];
+  /**
+   * What the plan comes to against the target, and its fit to storage: the
+   * section's props but the target and the objects, which the review knows.
+   * No section without.
+   */
+  readonly fit?: Omit<AutopilotFitSectionProps, 'org' | 'selectedObjects' | 'disabled'>;
   /** Callback to start execution */
   readonly onExecute: () => void;
 }
@@ -69,7 +75,6 @@ export interface Step4ReviewProps {
  * compliance framework the plan anonymizes by.
  */
 export const Step4Review: React.FC<Step4ReviewProps> = ({
-  sourceOrgId,
   targetOrgId,
   selectedObjects,
   totalRecords,
@@ -88,6 +93,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   error,
   scope,
   notCovered,
+  fit,
   onExecute,
 }) => {
   const { t } = useTranslation();
@@ -96,9 +102,11 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   // them by the ids the store keys them on, a UUID in a real install, on the
   // one screen where the user checks which org is written to.
   const orgs = useOrgStore((s) => s.orgs);
-  const sourceOrg = orgs.find((o) => o.id === sourceOrgId);
   const targetOrg = orgs.find((o) => o.id === targetOrgId);
   const targetName = targetOrg?.alias || targetOrg?.username || targetOrgId;
+  const checkpointFirst = useAutopilotStore((s) => s.checkpointFirst);
+  const setCheckpointFirst = useAutopilotStore((s) => s.setCheckpointFirst);
+  const runEnd = useAutopilotStore((s) => s.runEnd);
 
   /** Why a lookup is left empty, in the interface language. */
   const reasonOf = (lookup: AutopilotLookupLeftEmpty): string => {
@@ -122,9 +130,17 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   /** Format numbers with locale separators. */
   const fmt = (n: number): string => n.toLocaleString(uiLocale());
 
-  /** The selected objects copied whole: those no bound cut short. */
-  const cutNames = new Set((scope?.cutShort ?? []).map((cut) => cut.objectApiName));
+  /**
+   * The selected objects copied whole: those no bound cut short, and none of
+   * a plan fitted to the target's storage, which reads them by the ids kept.
+   */
+  const cutNames = new Set([
+    ...(scope?.cutShort ?? []).map((cut) => cut.objectApiName),
+    ...(scope?.fitted?.objects ?? []).map((object) => object.objectApiName),
+  ]);
   const wholeTables = (scope?.selected ?? []).filter((name) => !cutNames.has(name));
+  /** Whether the fit asked or undone is still being answered: Run waits for the plan. */
+  const fitPending = fit !== undefined && (fit.fitting || fit.undoing);
 
   /**
    * The name of a compliance framework: the regulations by their acronyms,
@@ -165,6 +181,17 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
       <p className="text-sm text-text-secondary">{t('autopilot.step4.description')}</p>
 
       {error && <ErrorBanner message={error} code={null} data-testid="autopilot-execute-error" />}
+      {/* A run its error ended comes back here: what became of the checkpoint
+          it took first is said with why it ended, the way back of what it
+          wrote before it did. */}
+      {error && (
+        <RewindBeforeRun
+          checkpoint={runEnd?.checkpoint}
+          orgId={runEnd?.orgId}
+          beside="none"
+          testId="step4-checkpoint"
+        />
+      )}
 
       {/* Emails and phone numbers, neutralized unless unticked, as a Forge
           run's are: the compliance step this replaces defaulted to copying
@@ -200,6 +227,18 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           testId="step4-mute"
         />
       )}
+
+      {/* The run's gate says what it costs in its question, and an Autopilot
+          run has no removal: off unless ticked, as it reads whole tables, and
+          recommended here, where the choice is made. */}
+      <CheckpointFirstOption
+        checked={checkpointFirst}
+        onChange={setCheckpointFirst}
+        orgId={targetOrgId}
+        costSaid="question"
+        recommendation={t('autopilot.step4.checkpointRecommended')}
+        testId="step4-checkpoint-first"
+      />
 
       <details
         className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)"
@@ -267,6 +306,17 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           testId="stat-personal-data"
         />
       </div>
+
+      {/* What the plan comes to against the target, said before Run, and
+          the way to fit it when it does not fit. */}
+      {fit && (
+        <AutopilotFitSection
+          {...fit}
+          org={targetName}
+          selectedObjects={scope?.selected ?? selectedObjects}
+          disabled={isExecuting || planning}
+        />
+      )}
 
       {(notCovered ?? []).length > 0 && (
         <div role="alert" className="flex flex-col gap-1 text-xs" data-testid="step4-not-covered">
@@ -372,28 +422,6 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
         </div>
       )}
 
-      <div
-        className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)"
-        data-testid="step4-orgs"
-      >
-        <span className="text-sm font-medium text-text-primary">
-          {t('autopilot.step4.connectionSummary')}
-        </span>
-        {/* Each org by its alias, its type — the target's in the colour of
-            its tier — and its instance, as its badge names it elsewhere. */}
-        <div className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
-          <span className="flex items-center gap-1" data-testid="step4-source-org">
-            {t('autopilot.step4.source')}
-            {sourceOrg ? <OrgBadge org={sourceOrg} /> : <span>{sourceOrgId}</span>}
-          </span>
-          <Icon name="arrow-right" className="text-text-primary" />
-          <span className="flex items-center gap-1" data-testid="step4-target-org">
-            {t('autopilot.step4.target')}
-            {targetOrg ? <OrgBadge org={targetOrg} /> : <span>{targetOrgId}</span>}
-          </span>
-        </div>
-      </div>
-
       <div className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)">
         <span className="text-sm font-medium text-text-primary">
           {t('autopilot.step4.selectedObjects')}
@@ -417,7 +445,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
         className="text-xs text-text-secondary"
         data-testid="step4-no-way-back"
       >
-        {t('common.noWayBack')}
+        {checkpointFirst ? t('runResults.checkpoint.option.wayBack') : t('common.noWayBack')}
       </p>
       <div className="flex justify-end pt-2">
         <Button
@@ -425,7 +453,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           size="md"
           onClick={onExecute}
           loading={isExecuting}
-          disabled={isExecuting || planning}
+          disabled={isExecuting || planning || fitPending}
           aria-describedby="step4-no-way-back"
           data-testid="execute-button"
         >

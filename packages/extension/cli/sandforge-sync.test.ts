@@ -7,14 +7,18 @@ import {
   cliFileDeps,
   contactPointLines,
   deltaLine,
+  objectCountsLine,
   objectCurrencyLines,
   objectErrorLines,
   objectPriceLines,
   objectWrittenLines,
   readSavedConfig,
+  recordTypeGivenOfObjectsLines,
   simulationLines,
   writeCheckLines,
 } from './sandforge-sync.js';
+import type { RecordTypeGiven } from '@sandforge/shared';
+import { gateSyncWrite, measureSyncWrite } from '../src/modules/sync/SyncRunGate.js';
 
 describe('what a run prints of an object', () => {
   it('prints the first refusals, and every line on what it held back', () => {
@@ -29,6 +33,92 @@ describe('what a run prints of an object', () => {
       refusal,
       refusal,
       held,
+    ]);
+  });
+
+  it('counts the contact roles linked to the ones the platform wrote as linked, not skipped, as its line under it says', () => {
+    // On a scratch org: "OpportunityContactRole: 0 processed, 0 succeeded, 0
+    // failed, 1 skipped", over "1 record(s) linked to the contact role the
+    // platform wrote with their opportunity".
+    expect(
+      objectCountsLine({
+        objectApiName: 'OpportunityContactRole',
+        processed: 0,
+        success: 0,
+        failed: 0,
+        skipped: 1,
+        writtenByThePlatform: { records: 1, given: 1 },
+      }),
+    ).toBe('OpportunityContactRole: 0 processed, 0 succeeded, 0 failed, 0 skipped, 1 linked');
+    // What an earlier run copied stays skipped beside them.
+    expect(
+      objectCountsLine({
+        objectApiName: 'OpportunityContactRole',
+        processed: 2,
+        success: 2,
+        failed: 0,
+        skipped: 3,
+        writtenByThePlatform: { records: 2, given: 2 },
+      }),
+    ).toBe('OpportunityContactRole: 2 processed, 2 succeeded, 0 failed, 1 skipped, 2 linked');
+    expect(
+      objectCountsLine({
+        objectApiName: 'Account',
+        processed: 1,
+        success: 1,
+        failed: 0,
+        skipped: 0,
+      }),
+    ).toBe('Account: 1 processed, 1 succeeded, 0 failed, 0 skipped');
+  });
+
+  it('counts the records linked to one the target holds as a duplicate as linked, not skipped, as its line under it says', () => {
+    // The target refused the account "DUPLICATE_VALUE: duplicate value found:
+    // Ext_Id__c duplicates value on record with id: <its id>", and the run
+    // linked it: the line read "1 processed, 0 succeeded, 0 failed, 1
+    // skipped" over "1 record(s) linked to a record the target holds".
+    expect(
+      objectCountsLine({
+        objectApiName: 'Account',
+        processed: 3,
+        success: 2,
+        failed: 0,
+        skipped: 1,
+        linkedToExisting: { records: 1, refusal: 'DUPLICATE_VALUE: duplicate value found' },
+      }),
+    ).toBe('Account: 3 processed, 2 succeeded, 0 failed, 0 skipped, 1 linked');
+    // Beside the contact roles the platform wrote, and what an earlier run copied.
+    expect(
+      objectCountsLine({
+        objectApiName: 'OpportunityContactRole',
+        processed: 2,
+        success: 1,
+        failed: 0,
+        skipped: 4,
+        linkedToExisting: { records: 1 },
+        writtenByThePlatform: { records: 2, given: 2 },
+      }),
+    ).toBe('OpportunityContactRole: 2 processed, 1 succeeded, 0 failed, 1 skipped, 3 linked');
+  });
+
+  it('prints the contact roles linked to the ones the platform wrote with their opportunity, and what an update gave them', () => {
+    expect(objectWrittenLines({ writtenByThePlatform: { records: 2, given: 2 } })).toEqual([
+      '2 record(s) linked to the contact role the platform wrote with their opportunity, for ' +
+        "its contact, not written; 2 given the source's fields they lacked.",
+    ]);
+    expect(
+      objectWrittenLines({
+        writtenByThePlatform: {
+          records: 2,
+          given: 1,
+          refusal: '00KTGT000000001AAA: FIELD_CUSTOM_VALIDATION_EXCEPTION: A role needs a reason',
+        },
+      }),
+    ).toEqual([
+      '2 record(s) linked to the contact role the platform wrote with their opportunity, for ' +
+        "its contact, not written; 1 given the source's fields it lacked, the others left as " +
+        'the platform wrote them (00KTGT000000001AAA: FIELD_CUSTOM_VALIDATION_EXCEPTION: A role ' +
+        'needs a reason).',
     ]);
   });
 
@@ -130,7 +220,7 @@ describe('what a run prints of an object', () => {
       }),
     ).toEqual([
       'emails and phone numbers: 12 value(s) in 1 field(s) neutralized, addresses under ' +
-        ".invalid and numbers fictional, so the target's automation reaches no one",
+        ".invalid and numbers fictional, so what the target's automation sends to them reaches no one",
       '  Contact.Email  12',
     ]);
     expect(contactPointLines({ neutralized: false, fields: [], values: 0 })).toEqual([
@@ -867,6 +957,192 @@ describe('what a dry run prints', () => {
 });
 
 describe('what a run says before its first write', () => {
+  it('says what a simulation found it would write, and what of the count it would not', () => {
+    const lines = writeCheckLines(
+      {
+        objects: [{ objectApiName: 'Contact', rows: 4 }],
+        total: 4,
+        notWritten: 2,
+        alreadyCopied: 0,
+        storage: { verdict: 'fits', estimateMB: 0.01 },
+        emails: [],
+        verdict: 'writes',
+      },
+      'TGT',
+    );
+
+    expect(lines[0]).toMatch(/^write gate: 2 record\(s\) to write to TGT/);
+    expect(lines).toContain(
+      '  of the 4 a run counts from the source, 2 would not be written: held back or refused, as ' +
+        'each object says; what follows is measured on all of them',
+    );
+  });
+
+  it('says of a simulation that would write none of what it counts the count it would not write', () => {
+    // 34 prices whose product and book name nothing the target holds: the
+    // check says nothing to write, total 0, and what it counted.
+    const lines = writeCheckLines(
+      {
+        objects: [{ objectApiName: 'PricebookEntry', rows: 34 }],
+        total: 0,
+        notWritten: 34,
+        alreadyCopied: 0,
+        storage: { verdict: 'fits', estimateMB: 0.07, maxMB: 500, remainingMB: 500 },
+        emails: [],
+        verdict: 'nothing',
+      },
+      'TGT',
+    );
+
+    expect(lines.slice(0, 4)).toEqual([
+      'write gate: 0 record(s) to write to TGT, about 0.07 MB of data storage',
+      `  ${'PricebookEntry'.padEnd(42)}${'34'.padStart(8)}`,
+      '  of the 34 a run counts from the source, 34 would not be written: held back or refused, ' +
+        'as each object says; what follows is measured on all of them',
+      '  data storage of TGT: 500 MB left of 500 MB',
+    ]);
+  });
+
+  it('says the contact roles the platform may write with the opportunities, counted among the records to write', () => {
+    // On a scratch org: "write gate: 4 record(s) … OpportunityContactRole 1",
+    // and the run linked that role to the platform's and wrote none.
+    const lines = writeCheckLines(
+      {
+        objects: [
+          { objectApiName: 'Account', rows: 1 },
+          { objectApiName: 'Contact', rows: 1 },
+          { objectApiName: 'Opportunity', rows: 1 },
+          { objectApiName: 'OpportunityContactRole', rows: 1 },
+        ],
+        total: 4,
+        alreadyCopied: 0,
+        rolesByThePlatform: 1,
+        storage: { verdict: 'fits', estimateMB: 0.01 },
+        emails: [],
+        verdict: 'writes',
+      },
+      'TGT',
+    );
+
+    expect(lines[0]).toMatch(/^write gate: 4 record\(s\) to write to TGT/);
+    expect(lines).toContain(
+      '  of them, up to 1 OpportunityContactRole record(s) the platform writes itself with the ' +
+        'opportunities the run creates, for their contact: the run links each and does not send it',
+    );
+  });
+
+  it('says the contact roles the run links to the platform’s apart from the records it counts to write', () => {
+    // On a scratch org: "write gate: 4 record(s) … OpportunityContactRole 1",
+    // and the run wrote 3 and linked the role to the platform's.
+    const lines = writeCheckLines(
+      {
+        objects: [
+          { objectApiName: 'Account', rows: 1 },
+          { objectApiName: 'Contact', rows: 1 },
+          { objectApiName: 'Opportunity', rows: 1 },
+        ],
+        total: 3,
+        alreadyCopied: 0,
+        rolesLinked: 1,
+        storage: { verdict: 'fits', estimateMB: 0.01 },
+        emails: [],
+        verdict: 'writes',
+      },
+      'TGT',
+    );
+
+    expect(lines[0]).toMatch(/^write gate: 3 record\(s\) to write to TGT/);
+    expect(lines).toContain(
+      '  not counted: 1 OpportunityContactRole record(s) the platform writes itself with the ' +
+        'opportunities the run creates, for their contact: the run links each and does not send it',
+    );
+    expect(lines.some((line) => line.includes('of them, up to'))).toBe(false);
+  });
+
+  it('names the key of an upsert the target matches none on', () => {
+    const lines = writeCheckLines(
+      {
+        objects: [],
+        total: 0,
+        alreadyCopied: 0,
+        storage: { verdict: 'fits', estimateMB: 0 },
+        emails: [],
+        verdict: 'refused',
+        unwritable: [{ objectApiName: 'Account', rows: 1, why: 'notAKey', key: 'Name' }],
+      },
+      'TGT',
+    );
+
+    expect(lines).toContain(
+      '  Account: 1 record(s) TGT takes none of — its upsert matches on a field that is neither ' +
+        'an External ID nor an idLookup field (Name)',
+    );
+  });
+
+  it('says the contacts an account left out holds back, and counts them nowhere among the records to write', () => {
+    // The run said "write gate: 4 record(s) to write … Contact 4", and would
+    // have written none of them.
+    const lines = writeCheckLines(
+      {
+        objects: [],
+        total: 0,
+        alreadyCopied: 0,
+        storage: { verdict: 'fits', estimateMB: 0 },
+        emails: [],
+        verdict: 'refused',
+        unwritable: [{ objectApiName: 'Account', rows: 2, why: 'notAKey', key: 'Name' }],
+        heldBack: [
+          { objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' },
+          { objectApiName: 'Case', rows: 1, parent: 'Contact', field: 'ContactId' },
+        ],
+      },
+      'TGT',
+    );
+
+    expect(lines[0]).toBe('write gate: 0 record(s) to write to TGT, about 0 MB of data storage');
+    expect(lines.slice(-2)).toEqual([
+      '  Contact: 4 record(s) held back, not written — their AccountId names Account records left out',
+      '  Case: 1 record(s) held back, not written — their ContactId names Contact records held back',
+    ]);
+  });
+
+  it('names each lookup that holds back rows of an object, with its rows', () => {
+    // Named by its first row alone, a dry run said 13 prices held back by
+    // Pricebook2Id where its simulation held 9 back by Product2Id.
+    const lines = writeCheckLines(
+      {
+        objects: [],
+        total: 0,
+        alreadyCopied: 0,
+        storage: { verdict: 'fits', estimateMB: 0 },
+        emails: [],
+        verdict: 'refused',
+        unwritable: [
+          { objectApiName: 'Product2', rows: 3, why: 'notAKey', key: 'Description' },
+          { objectApiName: 'Pricebook2', rows: 1, why: 'notAKey', key: 'Description' },
+        ],
+        heldBack: [
+          {
+            objectApiName: 'PricebookEntry',
+            rows: 13,
+            parent: 'Pricebook2',
+            field: 'Pricebook2Id',
+            parents: [
+              { parent: 'Pricebook2', field: 'Pricebook2Id', rows: 4 },
+              { parent: 'Product2', field: 'Product2Id', rows: 9 },
+            ],
+          },
+        ],
+      },
+      'TGT',
+    );
+
+    expect(lines.at(-1)).toBe(
+      '  PricebookEntry: 13 record(s) held back, not written — 4 whose Pricebook2Id names ' +
+        'Pricebook2 records left out; 9 whose Product2Id names Product2 records left out',
+    );
+  });
+
   it('lists the records per object, those left as an earlier run copied them, the storage and the emails', () => {
     expect(
       writeCheckLines(
@@ -902,6 +1178,35 @@ describe('what a run says before its first write', () => {
       '  emails: these records make TRAP send about 60 single emails (2 per Contact), more than ' +
         'the 15 of 15 it has left today',
     ]);
+  });
+
+  it('says one email of a limit in the singular', () => {
+    // A sync of one contact said "about 1 single emails".
+    const lines = writeCheckLines(
+      {
+        objects: [{ objectApiName: 'Contact', rows: 1 }],
+        total: 1,
+        alreadyCopied: 0,
+        storage: { verdict: 'fits', estimateMB: 0.002, maxMB: 5, remainingMB: 3 },
+        emails: [
+          {
+            limit: 'SingleEmail',
+            emails: 1,
+            verdict: 'exceeds',
+            remaining: 0,
+            max: 15,
+            objects: [{ objectApiName: 'Contact', perRecord: 1 }],
+          },
+        ],
+        verdict: 'asks',
+      },
+      'TRAP',
+    );
+
+    expect(lines).toContain(
+      '  emails: these records make TRAP send about 1 single email (1 per Contact), more than ' +
+        'the 0 of 15 it has left today',
+    );
   });
 
   it('says the API requests the run takes, and each object the target takes none of', () => {
@@ -949,6 +1254,7 @@ describe('what a run says before its first write', () => {
             conflictFields: [],
             notes: [],
             alreadyCopied: 2,
+            alreadyLinked: 1,
           },
         ],
         duration: 5,
@@ -962,6 +1268,7 @@ describe('what a run says before its first write', () => {
           objects: [{ objectApiName: 'Account', rows: 3_000 }],
           total: 3_000,
           alreadyCopied: 2,
+          alreadyLinked: 1,
           storage: { verdict: 'exceeds', estimateMB: 5.86, maxMB: 5, remainingMB: 4 },
           emails: [],
           verdict: 'refused',
@@ -973,9 +1280,223 @@ describe('what a run says before its first write', () => {
     expect(lines).toContain('  write order: Account, Contact');
     expect(lines).toContain('    Contact after Account: its AccountId names one');
     expect(lines).toContain('    data storage of TRAP: 4 MB left of 5 MB: the records do not fit');
-    expect(lines).toContain('    a run would be refused before it writes: the records do not fit');
+    expect(lines).toContain(
+      '    a run would be refused before it writes (SYNC_STORAGE_EXCEEDED): the records do not fit',
+    );
     expect(lines).toContain(
       '      2 already copied by an earlier run of this configuration, left as they are',
+    );
+    // A record the earlier run linked to one the target held is said linked:
+    // live, a second run said "already copied" of an account the first linked.
+    expect(lines).toContain(
+      '      1 already linked by an earlier run of this configuration to records the target ' +
+        'held, left as they are',
+    );
+    expect(lines).toContain(
+      '    not counted: 1 record(s) an earlier run of this configuration linked to records the ' +
+        'target held, left as they are',
+    );
+  });
+
+  it.each([
+    ['past the storage', false],
+    ['with its checkpoint refused', true],
+  ])(
+    'names on its verdict line the code the run’s gate refuses it with first: an object the target takes none of, before a run %s',
+    async (_label, checkpointRefused) => {
+      // The line named the checkpoint, or the storage, while the gate refuses
+      // the object the target takes none of first.
+      const measured = await measureSyncWrite(
+        {
+          objects: [{ objectApiName: 'Account', operation: 'insert', rows: 3_000 }],
+          alreadyCopied: 0,
+          unwritable: [
+            { objectApiName: 'Case', operation: 'insert', rows: 120, why: 'notCreateable' },
+          ],
+        },
+        {
+          readStorage: async () => ({ maxMB: 5, remainingMB: 1 }),
+          readApiBudget: async () => ({ max: 15_000, remaining: 14_000 }),
+          readAutomation: async () => ({
+            objectsRead: ['Account'],
+            objects: [],
+            unread: [],
+            conditionsNotRead: 0,
+            conditionsBound: 25,
+            requests: 0,
+          }),
+          readLimits: async () => ({ SingleEmail: { max: 15, remaining: 15 } }),
+          readDeliverability: async () => ({ reading: { level: 'withheld' }, requests: 0 }),
+          emails: { target: 'TRAP', accepted: false },
+          confirmAboveRecords: 2_000,
+          ...(checkpointRefused
+            ? {
+                checkpointFirst: {
+                  scope: async () => {
+                    throw new Error('the store is locked');
+                  },
+                  take: async () => ({ taken: false as const, stopped: true as const }),
+                },
+              }
+            : {}),
+        },
+      );
+      expect(measured.check.verdict).toBe('refused');
+      const gate = await gateSyncWrite(measured, {
+        policy: 'refuse',
+        org: 'TRAP',
+        orgTier: 'development',
+      });
+      expect(gate).toMatchObject({ go: false, code: 'SYNC_TARGET_UNWRITABLE' });
+
+      const lines = simulationLines(
+        {
+          configId: 'cfg-1',
+          operationId: 'sync-simulation-1',
+          direction: 'source_to_target',
+          conflictStrategy: 'source_wins',
+          objects: [],
+          duration: 5,
+          timestamp: '2026-10-21T00:00:00.000Z',
+          writeCheck: measured.check,
+        },
+        'TRAP',
+        false,
+        checkpointRefused ? measured.checkpointFailed : undefined,
+      );
+
+      expect(lines.filter((line) => line.includes('would be refused before it writes'))).toEqual([
+        '    a run would be refused before it writes (SYNC_TARGET_UNWRITABLE): the target takes ' +
+          'none of the records of an object it writes',
+      ]);
+    },
+  );
+});
+
+describe('what a run prints of the record types the target gave', () => {
+  /** What a run with the opportunity on Master of the scratch source says of it. */
+  const given = (over: Partial<RecordTypeGiven> = {}): RecordTypeGiven => ({
+    objectApiName: 'Opportunity',
+    rows: 1,
+    why: { masterInSource: 1 },
+    predicted: { developerName: 'SFX_Retail', label: 'SFX Retail', basis: 'onlyOneOpen' },
+    ...over,
+  });
+
+  /** A simulation of one object, its line of the record types given as told. */
+  const simulation = (recordTypeGiven?: RecordTypeGiven) => ({
+    configId: 'cli-1',
+    operationId: 'sync-simulation-1',
+    direction: 'source_to_target' as const,
+    conflictStrategy: 'source_wins' as const,
+    objects: [
+      {
+        objectApiName: 'Opportunity',
+        operation: 'insert' as const,
+        read: 1,
+        insert: 1,
+        update: 0,
+        delete: 0,
+        skipped: 0,
+        refused: 0,
+        conflicts: 0,
+        conflictFields: [],
+        notes: [],
+        ...(recordTypeGiven ? { recordTypeGiven } : {}),
+      },
+    ],
+    duration: 5,
+    timestamp: '2026-11-01T00:00:00.000Z',
+  });
+
+  it('says in a dry run the type the target would give, and why, after the objects', () => {
+    const lines = simulationLines(simulation(given()), 'TGT');
+
+    expect(lines.slice(-2)).toEqual([
+      '  record types the target would give the records created without one (1 object(s)):',
+      '    Opportunity  1 record(s) on Master in the source: would go in as SFX_Retail (SFX ' +
+        'Retail), the only other Opportunity record type open to the user the run writes as, ' +
+        'whose describe names Master the default',
+    ]);
+  });
+
+  it('says in a dry run that the sets a muted run assigns may open other types', () => {
+    const lines = simulationLines(simulation(given()), 'TGT', true);
+
+    expect(lines.at(-1)).toBe(
+      '    the permission sets a real run assigns to mute the automation may open other record ' +
+        'types to the user it writes as: it reads them again once assigned, and its summary ' +
+        'says what the target gave',
+    );
+  });
+
+  it('says nothing of an object whose records go with their own type', () => {
+    expect(simulationLines(simulation(), 'TGT').join('\n')).not.toContain('record types');
+    expect(recordTypeGivenOfObjectsLines([{}, {}], false)).toEqual([]);
+    // Nor of the mute, with nothing to say of a type.
+    expect(recordTypeGivenOfObjectsLines([{}], true, true)).toEqual([]);
+  });
+
+  it('says after a run what the records were read back holding', () => {
+    const lines = recordTypeGivenOfObjectsLines(
+      [
+        {
+          recordTypeGiven: given({
+            readBack: {
+              read: 1,
+              types: [{ developerName: 'SFX_Retail', label: 'SFX Retail', rows: 1 }],
+            },
+          }),
+        },
+      ],
+      false,
+    );
+
+    expect(lines).toEqual([
+      'record types the target gave the records created without one (1 object(s)):',
+      '  Opportunity  1 record(s) on Master in the source: went in as SFX_Retail (SFX Retail), ' +
+        'read back on 1',
+    ]);
+  });
+
+  it('names the target’s automation when what was read back is not what the describe said', () => {
+    const lines = recordTypeGivenOfObjectsLines(
+      [
+        {
+          recordTypeGiven: given({
+            rows: 250,
+            why: { masterInSource: 250 },
+            readBack: {
+              read: 200,
+              types: [{ developerName: 'SFX_Hidden', label: 'SFX Hidden', rows: 200 }],
+            },
+          }),
+        },
+      ],
+      false,
+    );
+
+    expect(lines[1]).toBe(
+      '  Opportunity  250 record(s) on Master in the source: read back on 200 of 250: 200 ' +
+        'SFX_Hidden (SFX Hidden); the describe said SFX_Retail: an automation of the target sets ' +
+        'the record type',
+    );
+  });
+
+  it('says the org’s words when the read back failed', () => {
+    const lines = recordTypeGivenOfObjectsLines(
+      [
+        {
+          recordTypeGiven: given({
+            readBack: { read: 0, types: [], unread: 'INVALID_TYPE: not supported' },
+          }),
+        },
+      ],
+      false,
+    );
+
+    expect(lines[1]).toContain(
+      'the record types they hold could not be read back: ' + 'INVALID_TYPE: not supported',
     );
   });
 });

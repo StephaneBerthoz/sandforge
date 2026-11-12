@@ -9,6 +9,7 @@ import type {
   ForgeGraph,
   ForgeGraphNode,
   ForgeTargetAutomation,
+  RunCheckpointTaken,
 } from '@sandforge/shared';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
@@ -460,6 +461,114 @@ describe('a run taken up where it stopped', () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
+  describe('what the run names beside its records', () => {
+    const USER = '005000000000001AAA';
+    const TAKEN: RunCheckpointTaken = {
+      state: 'taken',
+      checkpointId: 'cp-before-run',
+      name: 'Before Forge run',
+      takenAt: '2026-10-13T09:59:00.000Z',
+      expiresAt: null,
+      objects: ['Contact'],
+      records: 3,
+      bytes: 1_000,
+      requests: 4,
+      added: [],
+      notHeld: [],
+    };
+
+    /** The target, whose identity service names the user the session writes as. */
+    const sessionOf = (userId: unknown) =>
+      vi.mocked(getJsforceConnection).mockImplementation(
+        async () =>
+          ({
+            query: vi.fn().mockResolvedValue({ records: [], done: true, totalSize: 0 }),
+            queryMore: vi.fn(),
+            request: vi.fn(async () => ({ DataStorageMB: { Max: 200, Remaining: 150 } })),
+            identity: vi.fn(async () => ({ user_id: userId })),
+          }) as never,
+      );
+
+    /** The journal's id, as the run under way writes it. */
+    const journalIdOf = (): string => {
+      const [file] = [...files.keys()].filter((name) => name.endsWith('.ndjson'));
+      return path.basename(file ?? '').replace(/\.ndjson$/, '');
+    };
+
+    it('hands the run the user it writes as, kept in its journal’s head', async () => {
+      sessionOf(USER);
+      const journal = journalOnMemory(files);
+      let head: Awaited<ReturnType<typeof journal.head>>;
+      const { handler, execute } = windowRunning(async () => {
+        head = await journal.head(journalIdOf());
+        return DONE;
+      });
+
+      await send(handler, 'wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+
+      expect(execute.mock.calls[0]?.[2]).toMatchObject({ runUserId: USER });
+      expect(head?.runUserId).toBe(USER);
+    });
+
+    it('goes on all the same when the target will not say who the session is', async () => {
+      vi.mocked(getJsforceConnection).mockImplementation(async () => {
+        throw new Error('the org did not answer');
+      });
+      const { handler, execute } = windowRunning(async () => DONE);
+
+      await send(handler, 'wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(execute.mock.calls[0]?.[2]).not.toHaveProperty('runUserId');
+    });
+
+    it('keeps the user on a run stopped part way, whose history entry its removal reads', async () => {
+      sessionOf(USER);
+      const { handler } = windowRunning(cancelledAfterOne);
+
+      await send(handler, 'wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+
+      expect(configStore.get<ForgeExecutionResult[]>('forge:history')?.[0]).toMatchObject({
+        cancelled: true,
+        runUserId: USER,
+      });
+    });
+
+    it('names, of a run a closed window stopped, the user it wrote as and the checkpoint it took first', async () => {
+      sessionOf(USER);
+      const journal = journalOnMemory(files);
+      const first = windowRunning(async (_graph, _config, options) => {
+        const store = options?.stream?.store;
+        store?.beginPart(new Date());
+        store?.setMapping('created', CONTACT, NEW_CONTACT, 'Contact');
+        store?.flush();
+        await journal.keepCheckpoint(journalIdOf(), TAKEN);
+        return new Promise<ForgeExecutionResult>(() => {});
+      });
+      void send(first.handler, 'wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+      await vi.waitFor(async () => {
+        expect((await journal.read(journalIdOf()))?.checkpoint).toEqual(TAKEN);
+      });
+
+      // The next window finds the journal with no end: the run's entry, rebuilt
+      // from it, names what its journal names.
+      const { handler } = windowRunning(async () => DONE);
+      const listed = await history(handler);
+      expect(listed[0]).toMatchObject({
+        interrupted: true,
+        runUserId: USER,
+        checkpoint: expect.objectContaining({ checkpointId: 'cp-before-run' }),
+      });
+
+      // Taken up, the run names the checkpoint its first part took.
+      await send(handler, 'wv-resume', 'forge:resume-run', { forgeId: listed[0].forgeId });
+      const [response] = posted('forge:execute:response');
+      expect((response?.payload.result as ForgeExecutionResult).checkpoint).toMatchObject({
+        checkpointId: 'cp-before-run',
+      });
+    });
+  });
+
   it('keeps a run a closed window stopped past the bound by its counts, its ids left in the journal', async () => {
     const contacts = HISTORY_IDS_BOUND + 1;
     const first = windowRunning(async (_graph, _config, options) => {
@@ -641,6 +750,82 @@ describe('a run taken up where it stopped', () => {
     expect(config).toEqual(recordConfig);
     const answer = posted('forge:execute:response').find((m) => m.correlationId === 'wv-resume');
     expect(answer?.payload.result).toMatchObject({ retryOf: stopped.forgeId, resumed: true });
+  });
+
+  describe('what the part taking the run up wrote to the part it took up', () => {
+    const NEW_ACCOUNT = '001000000000901AAA';
+    const ACCOUNT = '001000000000001AAA';
+
+    /**
+     * The resume: it creates the account, fills in the contact's lookup to it
+     * — the contact the first part wrote, which owed it — and its own
+     * account's, then ends as `end` says.
+     */
+    function resumeWriting(end: 'done' | 'cancelled'): Execute {
+      return async (_graph, _config, options) => {
+        const store = options?.stream?.store;
+        store?.beginPart(new Date());
+        store?.setMapping('created', ACCOUNT, NEW_ACCOUNT, 'Account');
+        store?.patched(NEW_CONTACT, 'AccountId');
+        store?.patched(NEW_ACCOUNT, 'ParentId');
+        const created = {
+          remapTable: { [CONTACT]: NEW_CONTACT, [ACCOUNT]: NEW_ACCOUNT },
+          createdByObject: [{ objectApiName: 'Account', sourceIds: [ACCOUNT] }],
+        };
+        if (end === 'cancelled') {
+          const error = new ForgeAbortedError('Forge execution was aborted by user request.');
+          keepPartialSummary(error, {
+            ...stoppedSummary(),
+            ...created,
+            existingSourceIds: [CONTACT],
+          });
+          throw error;
+        }
+        return {
+          ...DONE,
+          idRemapTable: created.remapTable,
+          idRemapExisting: [CONTACT],
+          idRemapCreated: [{ objectApiName: 'Account', sourceIds: [ACCOUNT] }],
+        };
+      };
+    }
+
+    it('keeps it on the entry of a part that ended, once its journal goes', async () => {
+      const { stopped } = await cancelledRun();
+      const { handler } = windowRunning(resumeWriting('done'));
+
+      await send(handler, 'wv-resume', 'forge:resume-run', { forgeId: stopped.forgeId });
+
+      // The contact the first part wrote, not the account the resume created.
+      const answer = posted('forge:execute:response').find((m) => m.correlationId === 'wv-resume');
+      expect(answer?.payload.result).toMatchObject({ wroteToEarlierParts: [NEW_CONTACT] });
+      expect(files.size).toBe(0);
+      const kept = (await history(handler)).find((entry) => entry.resumed);
+      expect(kept?.wroteToEarlierParts).toEqual([NEW_CONTACT]);
+    });
+
+    it('keeps it on the entry of a part that stopped too', async () => {
+      const { stopped } = await cancelledRun();
+      const { handler } = windowRunning(resumeWriting('cancelled'));
+
+      await send(handler, 'wv-resume', 'forge:resume-run', { forgeId: stopped.forgeId });
+
+      const kept = (await history(handler)).find((entry) => entry.resumed);
+      expect(kept).toMatchObject({ cancelled: true, wroteToEarlierParts: [NEW_CONTACT] });
+    });
+
+    it('keeps nothing of a run that took up no other', async () => {
+      const { handler } = windowRunning(async (_graph, _config, options) => {
+        const store = options?.stream?.store;
+        store?.beginPart(new Date());
+        store?.patched(NEW_CONTACT, 'AccountId');
+        return DONE;
+      });
+
+      await send(handler, 'wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+
+      expect((await history(handler))[0]).not.toHaveProperty('wroteToEarlierParts');
+    });
   });
 
   it('leaves the part it resumed the one to take up when the resumed part stops before writing', async () => {

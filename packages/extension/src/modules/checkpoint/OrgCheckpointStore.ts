@@ -57,7 +57,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, statSync } from 'node:fs';
-import { mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rename, rm, rmdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -888,7 +888,8 @@ export class OrgCheckpointStore {
    * file last, as a take does, with the bytes the folder takes here, then
    * renames the folder to the checkpoint's id. An import that fails or is
    * stopped leaves no checkpoint half there: its folder is removed, and one a
-   * killed process left, by the sweep a day later.
+   * killed process left, by the sweep a day later. Of an org it was the first
+   * to touch, it leaves no folder either.
    *
    * No lock is taken: nothing else writes a checkpoint of an id not yet kept,
    * and two imports of one rename one folder each, the second finding the
@@ -937,6 +938,9 @@ export class OrgCheckpointStore {
       return { outcome: 'imported', checkpoint };
     } finally {
       await rm(staging.dir, { recursive: true, force: true });
+      // Refuses a folder that holds anything: the org's other checkpoints, or
+      // what a take beside this import is writing, stay where they are.
+      await rmdir(orgDir).catch(() => undefined);
     }
   }
 

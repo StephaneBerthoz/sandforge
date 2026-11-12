@@ -272,6 +272,31 @@ describe('forgeRunResult', () => {
     expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('currenciesReplaced');
   });
 
+  it('keeps the record type the target gave the records created without one, predicted and read back, for the results and the history', () => {
+    const run = { startedAt: Date.now(), status: 'success' as const };
+    const recordTypesGiven = [
+      {
+        objectApiName: 'Opportunity',
+        rows: 23,
+        why: { masterInSource: 23 },
+        predicted: {
+          developerName: 'SFX_Retail',
+          label: 'SFX Retail',
+          basis: 'onlyOneOpen' as const,
+        },
+        readBack: {
+          read: 23,
+          types: [{ developerName: 'SFX_Retail', label: 'SFX Retail', rows: 23 }],
+        },
+      },
+    ];
+
+    expect(forgeRunResult(summary({ recordTypesGiven }), GRAPH, run).recordTypesGiven).toEqual(
+      recordTypesGiven,
+    );
+    expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('recordTypesGiven');
+  });
+
   it('says which fields the rows a validation rule refused went in without, only for a run that wrote some so', () => {
     const run = { startedAt: Date.now(), status: 'success' as const };
     const writtenWithoutFields = [

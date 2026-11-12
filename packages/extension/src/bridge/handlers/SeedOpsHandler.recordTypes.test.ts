@@ -134,7 +134,9 @@ describe('SeedOpsHandler — record types', () => {
       secretVault: {} as HandlerDeps['secretVault'],
       authProvider: {} as HandlerDeps['authProvider'],
       sfdxBridge: {} as HandlerDeps['sfdxBridge'],
-      infraServices: { productionGuard: new ProductionGuard() } as HandlerDeps['infraServices'],
+      infraServices: {
+        productionGuard: new ProductionGuard({ requestRunConfirmation: async () => true }),
+      } as HandlerDeps['infraServices'],
       services: {
         isAIEnabled: () => false,
         getSandforgeSetting: vi.fn(() => 200),

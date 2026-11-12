@@ -46,13 +46,24 @@ interface DangerConfirmBaseProps {
    * above the typed confirmation.
    */
   children?: React.ReactNode;
+  /**
+   * What the confirmation still waits for before it can be armed — a read of
+   * what it lists —, said above its buttons: the confirm button stays
+   * disabled, whatever is typed, while it is given. A removal whose sweep
+   * had not been read yet listed nothing firing, and its typed name sent it.
+   */
+  held?: string;
 }
 
 /** A confirmation armed by typing a word: for what deletes, or writes to production. */
 interface TypedConfirmProps {
-  /** The word to type, which arms the Confirm button. */
+  /** The word to type, which arms the confirm button. */
   confirmText: string;
-  confirmLabel?: undefined;
+  /**
+   * What the confirm button says once armed, when the dialog knows the act
+   * and its size: "Remove 4 records". Confirm, unsaid.
+   */
+  confirmLabel?: string;
   dismissLabel?: undefined;
 }
 
@@ -93,6 +104,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
   className,
   variant = 'danger',
   children,
+  held,
 }) => {
   const { t } = useTranslation();
   const [typed, setTyped] = useState('');
@@ -108,7 +120,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
     if (open) setTyped('');
   }
   const asksToType = confirmText !== undefined;
-  const isMatch = !asksToType || typed === confirmText;
+  const isMatch = (!asksToType || typed === confirmText) && held === undefined;
   const inputRef = useRef<HTMLInputElement>(null);
   const dismissRef = useRef<HTMLButtonElement>(null);
   const promptId = useId();
@@ -198,14 +210,18 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                   onCloseAutoFocus={giveFocusBack}
                 >
                   {/* Held to the panel's height, the title and what arms the
-                      Confirm button always in sight: the removal of a clone
-                      of a whole org listed some thirty objects and the
-                      automation that fires as each goes, the dialog ran past
-                      the bottom of the panel, and its field and buttons could
-                      not be reached. What is said between them scrolls. */}
+                      Confirm button always in sight: a removal lists what it
+                      takes, what the target runs and what a sweep finds — the
+                      removal of a clone of a whole org some thirty objects and
+                      the automation that fires as each goes — and, centred and
+                      taller than the panel, its field and buttons sat out of
+                      reach above and below the overlay. What is said between
+                      them scrolls, as a column whose middle gives way; the
+                      dialog itself scrolls past the window only should what
+                      stays in sight not fit. */}
                   <m.div
                     className={cn(
-                      'flex flex-col max-h-full rounded-lg p-4 max-w-md w-full',
+                      'flex flex-col rounded-lg p-4 max-w-md w-full max-h-[calc(100vh-1rem)] overflow-y-auto',
                       'bg-(--vscode-editor-background,#1e1e1e)',
                       styles.border,
                       'border shadow-xl',
@@ -289,6 +305,15 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                           data-testid="danger-input"
                         />
                       </div>
+                    )}
+                    {held !== undefined && (
+                      <p
+                        role="status"
+                        className="shrink-0 text-xs text-text-secondary mt-3"
+                        data-testid="danger-held"
+                      >
+                        {held}
+                      </p>
                     )}
                     <div className="shrink-0 flex justify-end gap-2 mt-4">
                       <button

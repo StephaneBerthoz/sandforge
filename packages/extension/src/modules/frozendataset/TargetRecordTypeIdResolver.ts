@@ -7,9 +7,15 @@
  * can carry the DeveloperName of the org's own on the same object. Results
  * are cached per (org, object, namespace, developerName): RecordType metadata
  * is stable within a load run.
+ *
+ * It also says what the target gives a record sent without a record type,
+ * from the describe it holds: what a record whose type the user cannot use
+ * goes in as once the type is dropped.
  */
 
 import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import { parseRecordTypeInfos } from '../../core/metadata/recordTypeAvailability.js';
+import { recordTypeGivenOf, type GivenRecordType } from '../../core/metadata/recordTypeGiven.js';
 import {
   findRecordTypeByParts,
   parseNamespacedRecordTypes,
@@ -82,15 +88,35 @@ export class TargetRecordTypeIdResolver implements RecordTypeIdResolver {
 
   /** Whether the running user's describe marks this record type unavailable. */
   private async isUnavailable(orgId: string, sobjectType: string, id: string): Promise<boolean> {
+    const held = this.describeOf(orgId, sobjectType);
+    if (!held) return false;
+    const info = (await held).recordTypeInfos?.find((rt) => rt.recordTypeId === id);
+    return info?.available === false;
+  }
+
+  /**
+   * What the target gives a record of the object sent without a record type,
+   * for the running user, from the describe held: undefined with no describe.
+   */
+  async givenRecordType(orgId: string, sobjectType: string): Promise<GivenRecordType | undefined> {
+    const held = this.describeOf(orgId, sobjectType);
+    if (!held) return undefined;
+    return recordTypeGivenOf(parseRecordTypeInfos((await held).recordTypeInfos));
+  }
+
+  /** The running user's describe of the object, read once; undefined when it cannot be read. */
+  private describeOf(
+    orgId: string,
+    sobjectType: string,
+  ): Promise<TargetObjectDescribe> | undefined {
     const describe = this.orgAccess.describe;
-    if (!describe) return false;
+    if (!describe) return undefined;
     const key = `${orgId}|${sobjectType}`;
     let pending = this.describes.get(key);
     if (!pending) {
       pending = describe(orgId, sobjectType);
       this.describes.set(key, pending);
     }
-    const info = (await pending).recordTypeInfos?.find((rt) => rt.recordTypeId === id);
-    return info?.available === false;
+    return pending;
   }
 }

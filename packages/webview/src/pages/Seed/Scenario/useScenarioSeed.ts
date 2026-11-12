@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  RunCheckpointInfo,
   ScenarioPack,
   SeedExecutionResult,
   SeedScenarioPreparation,
@@ -8,7 +9,9 @@ import type {
 } from '@sandforge/shared';
 import { isDevelopmentOrg } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
+import { RUN_OUTLIVED_WAIT } from '../../../hooks/useMessageResponse';
 import { useOperationProgress } from '../../../hooks/useOperationProgress';
+import { useStoppedRunCheckpoint } from '../../../hooks/useStoppedRunCheckpoint';
 import { useSendMessage } from '../../../hooks/useMessageBus';
 import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
 import { buildMessage } from '../../../bridge/messageHelpers';
@@ -57,6 +60,19 @@ export interface ScenarioSeedState {
   /** Why the pack cannot be compiled for it. */
   issues: string[];
   preparing: boolean;
+  /** Whether the run mutes the org's automation, as the confirmation's box is left: off unless ticked. */
+  muteAutomation: boolean;
+  setMuteAutomation: (mute: boolean) => void;
+  /** Whether the run takes a checkpoint first, as the confirmation's box is left: off unless ticked. */
+  checkpointFirst: boolean;
+  setCheckpointFirst: (first: boolean) => void;
+  /** What became of the checkpoint the last run took first, when its error says. */
+  stoppedCheckpoint: RunCheckpointInfo | undefined;
+  /**
+   * Whether the last run stopped on its error and can be set up again: not
+   * while it may still be writing, past the wait for its answer.
+   */
+  canSetUpAgain: boolean;
   /** Start the seed, compiled with what the preparation answered. */
   execute: () => void;
   isRunning: boolean;
@@ -97,6 +113,8 @@ export function useScenarioSeed(picked: ScenarioPicked): ScenarioSeedState {
   });
   const [seed, setSeed] = useState(1);
   const [bodyField, setBodyField] = useState<string | undefined>(undefined);
+  const [muteAutomation, setMuteAutomation] = useState(false);
+  const [checkpointFirst, setCheckpointFirst] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
 
@@ -159,6 +177,7 @@ export function useScenarioSeed(picked: ScenarioPicked): ScenarioSeedState {
     runOutlivesWait: true,
   });
   const isRunning = executeMutation.loading;
+  const stoppedCheckpoint = useStoppedRunCheckpoint('seed:error', executeMutation.requestId);
 
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
@@ -189,8 +208,14 @@ export function useScenarioSeed(picked: ScenarioPicked): ScenarioSeedState {
     setError(null);
     setElapsedMs(0);
     setPhase('executing');
-    executeMutation.mutate({ orgId, pack, options: preparation.options });
-  }, [preparation, orgId, mustSave, pack, executeMutation]);
+    executeMutation.mutate({
+      orgId,
+      pack,
+      options: preparation.options,
+      ...(muteAutomation ? { muteAutomation: true } : {}),
+      ...(checkpointFirst ? { checkpointFirst: {} } : {}),
+    });
+  }, [preparation, orgId, mustSave, pack, muteAutomation, checkpointFirst, executeMutation]);
 
   const { getProgress } = useOperationProgress();
   const runId = executeMutation.requestId;
@@ -254,6 +279,12 @@ export function useScenarioSeed(picked: ScenarioPicked): ScenarioSeedState {
     preparation,
     issues,
     preparing: prepareMutation.loading,
+    muteAutomation,
+    setMuteAutomation,
+    checkpointFirst,
+    setCheckpointFirst,
+    stoppedCheckpoint,
+    canSetUpAgain: error !== null && !isRunning && executeMutation.errorCode !== RUN_OUTLIVED_WAIT,
     execute,
     isRunning,
     operationId,

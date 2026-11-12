@@ -3,6 +3,7 @@ import { DataSync, MAX_RESULT_REFUSALS_PER_OBJECT, buildObjectResult } from './D
 import { targetWriteFieldsOf } from './targetWriteFields';
 import type { DataSyncDeps, OperationOutcome } from './DataSync';
 import { WriteCancelledError } from './WriteCancelledError';
+import { SyncRunLinks } from './syncRowPreparation';
 import type { SyncObjectConfig } from '@sandforge/shared';
 
 function createConfig(overrides?: Partial<SyncObjectConfig>): SyncObjectConfig {
@@ -886,5 +887,126 @@ describe('buildObjectResult', () => {
 
     expect(result.errors).toHaveLength(2);
     expect(result).not.toHaveProperty('refusalsDropped');
+  });
+});
+
+describe('DataSync.write — the records created without a record type, kept for the run', () => {
+  const MASTER = '012000000000000AAA';
+  const RETAIL = '0120000000000R2AAA';
+  const HIDDEN = '0120000000000H2AAA';
+
+  /** A record type of the target's describe, open and not the default unless told. */
+  const info = (
+    developerName: string,
+    recordTypeId: string,
+    over: Record<string, boolean> = {},
+  ) => ({
+    active: true,
+    available: true,
+    defaultRecordTypeMapping: false,
+    developerName,
+    master: false,
+    name: developerName,
+    recordTypeId,
+    ...over,
+  });
+
+  /** The target's Opportunity: Master the default, SFX_Retail the one other type open. */
+  const target = targetWriteFieldsOf({
+    name: 'Opportunity',
+    fields: [
+      { name: 'Name', createable: true, type: 'string' },
+      { name: 'RecordTypeId', createable: true, type: 'reference' },
+    ],
+    recordTypeInfos: [
+      info('SFX_Hidden', HIDDEN, { available: false }),
+      info('SFX_Retail', RETAIL),
+      info('Master', MASTER, { master: true, defaultRecordTypeMapping: true }),
+    ],
+  });
+
+  const rows = [
+    { Id: '006000000000001AAA', Name: 'On Master', RecordTypeId: null },
+    { Id: '006000000000002AAA', Name: 'Refused', RecordTypeId: null },
+    { Id: '006000000000003AAA', Name: 'Retail', RecordTypeId: RETAIL },
+  ];
+
+  const outcomes: OperationOutcome[] = [
+    { id: '006xx0000000001AAA', success: true, errors: [] },
+    { success: false, errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: no'] },
+    { id: '006xx0000000003AAA', success: true, errors: [] },
+  ];
+
+  const config = createConfig({ objectApiName: 'Opportunity', operation: 'insert' });
+
+  it('keeps those created, why, the type predicted and their ids; neither the refused nor the typed', async () => {
+    const kept = new Map();
+    const dataSync = new DataSync(
+      createDeps({
+        insert: vi.fn().mockResolvedValue(outcomes),
+        describeTargetFields: async () => target,
+      }),
+    );
+
+    await dataSync.write(config, rows, {
+      links: new SyncRunLinks(),
+      sources: rows,
+      createdWithoutRecordType: kept,
+    });
+
+    expect(kept.get('Opportunity')).toMatchObject({
+      given: {
+        objectApiName: 'Opportunity',
+        rows: 1,
+        why: { masterInSource: 1 },
+        predicted: { developerName: 'SFX_Retail', basis: 'onlyOneOpen' },
+      },
+      ids: ['006xx0000000001AAA'],
+    });
+  });
+
+  it('predicts from the describe read again under the lease when the run has one', async () => {
+    const kept = new Map();
+    const dataSync = new DataSync(
+      createDeps({
+        insert: vi.fn().mockResolvedValue(outcomes),
+        describeTargetFields: async () => target,
+      }),
+    );
+    // The lease's set opened SFX_Hidden: two open, and Master kept.
+    const underTheLease = (target.recordTypes ?? []).map((type) => ({ ...type, available: true }));
+
+    await dataSync.write(config, rows, {
+      links: new SyncRunLinks(),
+      sources: rows,
+      createdWithoutRecordType: kept,
+      recordTypesUnderTheLease: underTheLease,
+    });
+
+    expect(kept.get('Opportunity')?.given).not.toHaveProperty('predicted');
+  });
+
+  it('keeps what a write a cancel stopped created before it', async () => {
+    const kept = new Map();
+    const dataSync = new DataSync(
+      createDeps({
+        insert: vi
+          .fn()
+          .mockRejectedValue(
+            new WriteCancelledError('Opportunity', [outcomes[0] as OperationOutcome]),
+          ),
+        describeTargetFields: async () => target,
+      }),
+    );
+
+    await expect(
+      dataSync.write(config, rows, {
+        links: new SyncRunLinks(),
+        sources: rows,
+        createdWithoutRecordType: kept,
+      }),
+    ).rejects.toBeInstanceOf(WriteCancelledError);
+
+    expect(kept.get('Opportunity')?.ids).toEqual(['006xx0000000001AAA']);
   });
 });

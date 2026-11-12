@@ -275,7 +275,7 @@ describe('SyncOrchestrator — what a transform rule makes a run send', () => {
     // Each field's mapping became a rule for every field: "New" meant for
     // Status became "Open" in the Subject and the Description too.
     const reader = { readFile: async (path: string) => readFileSync(path, 'utf8') };
-    const imported = await new SfdmuImporter(reader).import(
+    const { config: imported } = await new SfdmuImporter(reader).import(
       join(__dirname, '..', 'migration', 'fixtures', 'export.json'),
     );
     const target = new MemoryTarget();

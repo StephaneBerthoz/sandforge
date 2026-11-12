@@ -580,7 +580,7 @@ describe('PipelineOrchestrator', () => {
       const finished = await run;
       expect(finished.status).toBe('cancelled');
       expect(finished.stepResults.map((result) => [result.stepId, result.status])).toEqual([
-        ['long', 'failed'],
+        ['long', 'stopped'],
       ]);
     });
 
@@ -715,9 +715,8 @@ describe('PipelineOrchestrator', () => {
         stepId: 'a',
         stepName: 'A',
         stepType: 'backup',
-        status: 'failed',
+        status: 'stopped',
         error: 'Backup was cancelled before it finished.',
-        cancelled: true,
       });
 
       const run = await orchestrator.execute(
@@ -733,7 +732,7 @@ describe('PipelineOrchestrator', () => {
       );
 
       expect(executed()).toEqual(['a']);
-      expect(statuses(run)).toEqual([['a', 'failed']]);
+      expect(statuses(run)).toEqual([['a', 'stopped']]);
       expect(run.status).toBe('cancelled');
       expect(run.error).toBeUndefined();
       expect(deps.history.record).toHaveBeenCalledWith(

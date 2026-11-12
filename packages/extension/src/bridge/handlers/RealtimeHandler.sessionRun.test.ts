@@ -37,6 +37,9 @@ const MADE = fakeId('00Q', 3);
 
 const STORAGE = path.join(path.sep, 'storage');
 
+/** The user the session writes as, as the target's identity service names it. */
+const SESSION_USER = '005000000000001AAA';
+
 /** A disk in memory, as the runs' store writes it. */
 function memoryRuns(): SyncRunCreations {
   const files = new Map<string, string>();
@@ -217,6 +220,7 @@ function setup(options: { targetRows?: Array<Record<string, unknown>> } = {}) {
     // Sync's own writer, as the extension's sessions write.
     writer: liveOrgAccess(deps).writer,
     tooling: vi.fn(async () => []),
+    identity: vi.fn(async () => ({ user_id: SESSION_USER })),
   };
   const handler = new RealtimeHandler(deps, access);
   const runs = memoryRuns();
@@ -272,6 +276,19 @@ describe('RealtimeHandler — a session keeps what it writes, for its removal', 
   });
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('keeps the user the session writes as in its file, asked of the target', async () => {
+    const { handler, access, transport, runs, ofType } = setup();
+    await handler.handle(start());
+    const sessionId = String(ofType('realtime:started')[0].payload.sessionId);
+
+    transport.send('/data/LeadChangeEvent', leadChange(7, 'UPDATE', { Title: 'Buyer' }));
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(access.identity).toHaveBeenCalledTimes(1);
+    expect(access.identity).toHaveBeenCalledWith('org-target');
+    expect((await runs.get(sessionId))?.runUserId).toBe(SESSION_USER);
   });
 
   it('keeps what a session writes over, with its values from before, and ends it once the session stops', async () => {

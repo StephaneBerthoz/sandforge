@@ -33,6 +33,7 @@ const mockSetAnonymizePII = vi.fn();
 
 vi.mock('../../bridge/sendBridgeMessage', () => ({
   sendBridgeMessage: (...args: unknown[]) => mockSendBridgeMessage(...args),
+  postEnvelopedMessage: vi.fn(),
 }));
 
 function makeNode(overrides: Partial<ForgeGraphNode> = {}): ForgeGraphNode {
@@ -70,14 +71,17 @@ const defaultGraph: ForgeGraph = {
 
 /** Only the ForgeConfig fields ForgeReview reads. */
 interface MockConfig {
-  /** Set of a clone of the whole org, with the depth ALL. */
-  inputMode?: 'org';
+  /** 'org' with the depth ALL sets a clone of the whole org. */
+  inputMode?: 'org' | 'record';
   depth?: 'all';
   anonymizePII: boolean;
   sourceOrgId: string;
   targetOrgId: string;
   applyAssignmentRules?: boolean;
   defaultValues?: ForgeDefaultValue[];
+  maxRecordsPerObject?: number;
+  objectSoqlFilters?: Record<string, string>;
+  recordId?: string;
 }
 
 const defaultConfig: MockConfig = {
@@ -166,6 +170,7 @@ vi.mock('../../stores/useForgeStore', () => {
 // The tab reads fields and users through the bridge; its own test answers them.
 vi.mock('./ReviewControlsTab', () => ({
   ReviewControlsTab: () => <div data-testid="review-controls-tab" />,
+  ReviewCheckpointFirst: () => <div data-testid="controls-checkpoint-first" />,
 }));
 
 /* The graph comes in a chunk of its own (lazyGraph.test.tsx); here it is drawn at once. */
@@ -245,21 +250,25 @@ describe('ForgeReview', () => {
     expect(screen.getByTestId('forge-review')).toBeDefined();
   });
 
-  it('should have 7 tabs (plan, anonymization, compliance, metadata, automation, gaps, controls)', () => {
+  it("lists Gaps, Plan, Anonymization, Compliance, Metadata and Automation, Controls in the run's column", () => {
     render(<ForgeReview />);
-    expect(screen.getAllByRole('tab').map((tab) => tab.id)).toEqual([
+    const rows = [...screen.getByTestId('review-tabs').querySelectorAll('button[aria-expanded]')];
+    expect(rows.map((row) => row.id)).toEqual([
+      'tab-gaps',
       'tab-plan',
       'tab-anonymization',
       'tab-compliance',
       'tab-metadata',
       'tab-automation',
-      'tab-gaps',
-      'tab-controls',
     ]);
+    expect(
+      within(screen.getByTestId('review-run-column')).getByTestId('tab-controls'),
+    ).toBeDefined();
   });
 
   it('marks in the graph the objects its search matches, and brings one into view', () => {
     render(<ForgeReview />);
+    fireEvent.click(screen.getByTestId('tab-plan'));
     fireEvent.change(screen.getByTestId('review-graph-search-input'), {
       target: { value: 'acc' },
     });
@@ -269,33 +278,141 @@ describe('ForgeReview', () => {
     expect(screen.getByTestId('live-graph').getAttribute('data-focus')).toBe('Account');
   });
 
-  it('walks its seven tabs with the arrows, one Tab stop, the focus following the selection', () => {
-    // Seven Tab stops, and the arrows the tab pattern promises did nothing.
+  it('is made of buttons that open and close, several at once, not of tabs', () => {
     render(<ForgeReview />);
+    expect(screen.queryAllByRole('tab')).toEqual([]);
     const plan = screen.getByTestId('tab-plan');
-    expect(screen.getAllByRole('tab').filter((tab) => tab.tabIndex === 0)).toEqual([plan]);
-    plan.focus();
-    fireEvent.keyDown(plan, { key: 'ArrowLeft' });
-    const controls = screen.getByTestId('tab-controls');
-    expect(controls.getAttribute('aria-selected')).toBe('true');
-    expect(document.activeElement).toBe(controls);
-    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe('tab-controls');
-    fireEvent.keyDown(controls, { key: 'Home' });
-    expect(document.activeElement).toBe(screen.getByTestId('tab-plan'));
-  });
+    const compliance = screen.getByTestId('tab-compliance');
+    expect(plan.tagName).toBe('BUTTON');
+    expect(plan.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByTestId('plan-loading')).toBeNull();
 
-  it('shows the controls of the run on their own tab', () => {
-    render(<ForgeReview />);
-    fireEvent.click(screen.getByTestId('tab-controls'));
+    fireEvent.click(plan);
+    fireEvent.click(compliance);
 
-    expect(screen.getByTestId('review-controls-tab')).toBeDefined();
-    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe('tab-controls');
-  });
-
-  it('should have Plan tab active by default', () => {
-    render(<ForgeReview />);
+    expect(plan.getAttribute('aria-expanded')).toBe('true');
+    expect(compliance.getAttribute('aria-expanded')).toBe('true');
     // ReviewPlanTab renders plan-loading when plan is null
     expect(screen.getByTestId('plan-loading')).toBeDefined();
+    expect(screen.getByTestId('review-compliance-tab')).toBeDefined();
+
+    fireEvent.click(plan);
+    expect(plan.getAttribute('aria-expanded')).toBe('false');
+    expect(document.getElementById('tabpanel-plan')?.hidden).toBe(true);
+    expect(compliance.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('asks for no more as Review opens than the diff, the automation and the gaps', () => {
+    // Seven tabs read nothing until opened, the rows no more: Controls'
+    // owners, drawn from the start, would read the target's users on every
+    // Review.
+    render(<ForgeReview />);
+    expect(mockSendBridgeMessage.mock.calls.map(([type]) => type)).toEqual([
+      'forge:metadata-diff:request',
+      'forge:automation:request',
+      'forge:gaps:request',
+    ]);
+    expect(screen.queryByTestId('review-controls-tab')).toBeNull();
+  });
+
+  it('keeps Checkpoint first beside Execute, and opens the controls of the run when asked', () => {
+    render(<ForgeReview />);
+    const column = within(screen.getByTestId('review-run-column'));
+    expect(column.getByTestId('controls-checkpoint-first')).toBeDefined();
+    expect(column.getByTestId('execute-button')).toBeDefined();
+    expect(column.getByTestId('simulate-button')).toBeDefined();
+    expect(column.getByTestId('rehearse-button')).toBeDefined();
+
+    fireEvent.click(screen.getByTestId('tab-controls'));
+
+    expect(column.getByTestId('review-controls-tab')).toBeDefined();
+    expect(screen.getByTestId('tab-controls').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('says on Controls, closed, how many settings it holds', () => {
+    mockConfig = {
+      ...defaultConfig,
+      maxRecordsPerObject: 100,
+      objectSoqlFilters: { Account: "Name = 'A'" },
+    };
+    render(<ForgeReview />);
+    expect(screen.getByTestId('review-row-controls-summary').textContent).toBe(
+      '2 settings on this run.',
+    );
+  });
+
+  describe('the run in a sentence', () => {
+    beforeEach(() => {
+      useOrgStore.setState({
+        orgs: [
+          { id: 'src-org', alias: 'DevSandbox', username: 'dev@example.com' } as SalesforceOrg,
+          { id: 'tgt-org', alias: 'QASandbox', username: 'qa@example.com' } as SalesforceOrg,
+        ],
+      });
+    });
+
+    afterEach(() => {
+      useOrgStore.setState({ orgs: [] });
+    });
+
+    it('names the records it copies and the two orgs, by their aliases', () => {
+      render(<ForgeReview />);
+      expect(screen.getByTestId('review-sentence').textContent).toBe(
+        'Copy 200 records from DevSandbox into QASandbox.',
+      );
+      expect(screen.getByTestId('review-sentence').tagName).toBe('H2');
+    });
+
+    it('holds to the cap Controls sets beside it, and says the count is a ceiling', () => {
+      // A cap set after discovery: the graph still counts 100 of each object.
+      mockConfig = { ...defaultConfig, maxRecordsPerObject: 10 };
+      render(<ForgeReview />);
+      expect(screen.getByTestId('review-sentence').textContent).toBe(
+        'Copy at most 20 records from DevSandbox into QASandbox.',
+      );
+    });
+
+    it("gives no count for a clone of one record, whose counts are the source tables'", () => {
+      mockConfig = {
+        ...defaultConfig,
+        inputMode: 'record',
+        recordId: '001000000000001AAA',
+      };
+      render(<ForgeReview />);
+      expect(screen.getByTestId('review-sentence').textContent).toBe(
+        'Copy one record and what it reaches in 2 objects, from DevSandbox into QASandbox.',
+      );
+    });
+
+    it('says what is left, and that nothing is written before Execute', () => {
+      render(<ForgeReview />);
+      // While the gaps are on their way, "nothing to decide" is not known.
+      expect(screen.getByTestId('review-left').textContent).toBe(
+        'Reading what the target org holds against the rows… Nothing is written until you press Execute Forge.',
+      );
+    });
+  });
+
+  it('says one decision is left, and takes the files for one', () => {
+    mockGaps = {
+      metadata: [
+        {
+          id: 'gap-region',
+          kind: 'required_field_missing',
+          severity: 'blocking',
+          source: 'metadata',
+          objectApiName: 'Account',
+          field: 'Region__c',
+          rows: 0,
+          decisions: ['set_default'],
+        },
+      ],
+      simulation: [],
+      rehearsal: [],
+    };
+    mockFileCopy = { enabled: true, maxFileSizeMB: 10, acceptedAsIs: false };
+    render(<ForgeReview />);
+    expect(screen.getByTestId('review-left').textContent).toContain('2 decisions are left.');
   });
 
   it('should render execute button', () => {
@@ -442,9 +559,24 @@ describe('ForgeReview', () => {
       };
     }
 
+    it('draws nothing, and fetches nothing, until the Plan row is opened', () => {
+      render(<ForgeReview />);
+      expect(screen.queryByTestId('live-graph')).toBeNull();
+      expect(screen.queryByTestId('forge-view-graph')).toBeNull();
+
+      fireEvent.click(screen.getByTestId('tab-plan'));
+      expect(screen.getByTestId('live-graph')).toBeDefined();
+      expect(screen.getByTestId('forge-view-graph')).toBeDefined();
+
+      // Closed, the graph goes: React Flow measures nothing in a hidden box.
+      fireEvent.click(screen.getByTestId('tab-plan'));
+      expect(screen.queryByTestId('live-graph')).toBeNull();
+    });
+
     it('lists a graph of more objects than auto draws, each box leaving out its own object', () => {
       mockGraph = graphOf(FORGE_GRAPH_MAX_OBJECTS + 1);
       render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-plan'));
 
       expect(screen.getByTestId('forge-table-view')).toBeDefined();
       expect(screen.queryByTestId('live-graph')).toBeNull();
@@ -457,11 +589,13 @@ describe('ForgeReview', () => {
     it('draws a graph of that many objects, and follows the setting and the switch', () => {
       mockGraph = graphOf(FORGE_GRAPH_MAX_OBJECTS);
       const { unmount } = render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-plan'));
       expect(screen.getByTestId('live-graph')).toBeDefined();
       unmount();
 
       useForgeViewStore.getState().adoptSetting('table');
       render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-plan'));
       expect(screen.getByTestId('forge-table-view')).toBeDefined();
 
       fireEvent.click(screen.getByTestId('forge-view-graph'));
@@ -476,6 +610,7 @@ describe('ForgeReview', () => {
       useForgeViewStore.getState().choose('graph');
       mockGraph = graphOf(FORGE_GRAPH_SLOW_OBJECTS + 1);
       render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-plan'));
 
       expect(screen.getByTestId('forge-table-view')).toBeDefined();
       expect(screen.queryByTestId('live-graph')).toBeNull();
@@ -497,6 +632,7 @@ describe('ForgeReview', () => {
     it('warns of nothing on a graph it may draw', () => {
       mockGraph = graphOf(FORGE_GRAPH_SLOW_OBJECTS);
       render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-plan'));
       expect(screen.queryByTestId('forge-view-graph-slow')).toBeNull();
       expect(screen.getByTestId('forge-view-graph').getAttribute('aria-describedby')).toBeNull();
     });
@@ -521,6 +657,7 @@ describe('ForgeReview', () => {
 
     it('lists its graph, however few objects it holds, the graph offered with its warning', () => {
       render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-plan'));
 
       expect(screen.getByTestId('forge-table-view')).toBeDefined();
       expect(screen.queryByTestId('live-graph')).toBeNull();
@@ -621,6 +758,8 @@ describe('ForgeReview', () => {
     it('says why the plan could not be made instead of loading forever', () => {
       mockPlanError = 'Describe failed on Account';
       render(<ForgeReview />);
+      expect(screen.getByTestId('review-row-plan-state').textContent).toBe('Failed');
+      fireEvent.click(screen.getByTestId('tab-plan'));
 
       expect(screen.getByTestId('plan-error').textContent).toContain('Describe failed on Account');
       expect(screen.queryByTestId('plan-loading')).toBeNull();
@@ -695,6 +834,7 @@ describe('ForgeReview', () => {
 
     it('should show the metadata tab as pending until the response lands', () => {
       render(<ForgeReview />);
+      expect(screen.getByTestId('review-row-metadata-state').textContent).toBe('Working…');
       fireEvent.click(screen.getByTestId('tab-metadata'));
       // An empty diff list means "not compared yet" while the request is in
       // flight; "no differences" there would be a lie.
@@ -703,6 +843,7 @@ describe('ForgeReview', () => {
 
       sendFromExtension('forge:metadata-diff:response', { diffs: [] });
       expect(screen.getByTestId('no-diffs')).toBeDefined();
+      expect(screen.getByTestId('review-row-metadata-state').textContent).toBe('Ready');
     });
 
     it('should surface forge:metadata-diff:error instead of loading forever', () => {
@@ -731,6 +872,10 @@ describe('ForgeReview', () => {
       expect(gapsRequests()).toEqual([
         ['forge:gaps:request', { graph: defaultGraph, config: defaultConfig }],
       ]);
+      expect(screen.getByTestId('review-row-gaps-summary').textContent).toBe(
+        'Reading what the target org holds against the rows…',
+      );
+      fireEvent.click(screen.getByTestId('tab-gaps'));
       expect(screen.getByTestId('forge-gaps-read').textContent).toBe(
         'Reading what the target org holds against the rows…',
       );
@@ -759,9 +904,19 @@ describe('ForgeReview', () => {
         );
       });
       expect(mockSetGaps).toHaveBeenCalledWith('metadata', [], []);
+      fireEvent.click(screen.getByTestId('tab-gaps'));
       expect(screen.getByTestId('forge-gaps-read-found').textContent).toBe(
         "0 gaps read from the target org's metadata. Read in 5 requests to the target org.",
       );
+    });
+
+    it('says what the read found and cost under the gaps, which come first', () => {
+      // Over the gaps, its line pushed the decision down the row.
+      render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-gaps'));
+      const read = screen.getByTestId('forge-gaps-read');
+      const tab = screen.getByTestId('review-gaps-tab');
+      expect(tab.compareDocumentPosition(read) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     describe('read again from the Gaps tab', () => {
@@ -957,7 +1112,7 @@ describe('ForgeReview', () => {
       ]);
     });
 
-    it('shows what fires once the answer lands, and counts on the tab what fires as the run inserts', () => {
+    it('shows what fires once the answer lands, and counts on the row what fires as the run inserts', () => {
       render(<ForgeReview />);
       fireEvent.click(screen.getByTestId('tab-automation'));
       expect(screen.getByTestId('automation-loading')).toBeDefined();
@@ -967,7 +1122,9 @@ describe('ForgeReview', () => {
       expect(screen.getByTestId('automation-object-Account')).toBeDefined();
       expect(screen.getByTestId('automation-object-Contact')).toBeDefined();
       // One flow on each object fires at insert; the triggers run on update.
-      expect(screen.getByTestId('tab-automation').textContent).toBe('Automation2');
+      expect(screen.getByTestId('review-row-automation-summary').textContent).toBe(
+        '2 automations fire as the run inserts its records.',
+      );
     });
 
     it('stops counting and showing what fires on an object the user leaves out after the read', () => {
@@ -985,7 +1142,9 @@ describe('ForgeReview', () => {
       rerender(<ForgeReview />);
 
       expect(screen.queryByTestId('automation-object-Contact')).toBeNull();
-      expect(screen.getByTestId('tab-automation').textContent).toBe('Automation1');
+      expect(screen.getByTestId('review-row-automation-summary').textContent).toBe(
+        '1 automation fires as the run inserts its records.',
+      );
     });
 
     it('says the assignment rules apply when the run is set to apply them, and not otherwise', () => {
@@ -1026,6 +1185,7 @@ describe('ForgeReview', () => {
       expect(screen.getByTestId('automation-error').textContent).toBe(
         'Target automation reader not configured',
       );
+      expect(screen.getByTestId('review-row-automation-state').textContent).toBe('Failed');
     });
 
     it('reads the target again when asked, and shows the bypass held once that read lands', () => {
@@ -1090,23 +1250,38 @@ describe('ForgeReview', () => {
         ],
       };
 
-      it('is offered on the Automation tab when a set silences what the run fires, and ticks the store', () => {
+      it("is offered in the run's column when a set silences what the run fires, and ticks the store", () => {
         render(<ForgeReview />);
+        expect(screen.queryByTestId('automation-mute')).toBeNull();
         sendFromExtension('forge:automation:response', { automation: mutable });
-        fireEvent.click(screen.getByTestId('tab-automation'));
 
-        expect(screen.getByTestId('automation-mute-assigns').textContent).toContain('Data_Load');
+        const column = within(screen.getByTestId('review-run-column'));
+        expect(column.getByTestId('automation-mute-assigns').textContent).toContain('Data_Load');
         fireEvent.click(screen.getByTestId('automation-mute-toggle'));
         expect(mockSetMuteAutomation).toHaveBeenCalledWith(true);
       });
 
-      it('says beside Execute, from any tab, that the run mutes once it is ticked', () => {
+      it('says in a line what the box does, its detail folded, so Controls stays in the column', () => {
+        // Fourteen lines at 320 pixels held Controls under the column's fold
+        // at 800 pixels high.
+        render(<ForgeReview />);
+        sendFromExtension('forge:automation:response', { automation: mutable });
+
+        const more = screen.getByTestId('automation-mute-more') as HTMLDetailsElement;
+        expect(more.open).toBe(false);
+        expect(more.contains(screen.getByTestId('automation-mute-assigns'))).toBe(true);
+        expect(
+          screen.getByRole('checkbox', { name: "Mute the target's automation for this run" }),
+        ).toBeDefined();
+      });
+
+      it('says under Execute that the run mutes once it is ticked', () => {
         mockMuteAutomation = true;
         render(<ForgeReview />);
         sendFromExtension('forge:automation:response', { automation: mutable });
 
         expect(screen.getByTestId('forge-mute-execute-hint').textContent).toBe(
-          "Execute mutes the target's automation, as ticked on the Automation tab.",
+          "Execute mutes the target's automation, as ticked above.",
         );
         expect(screen.getByTestId('execute-button').getAttribute('aria-describedby')).toContain(
           'forge-mute-execute-hint',
@@ -1114,7 +1289,7 @@ describe('ForgeReview', () => {
         expect(mockSetMuteAutomation).not.toHaveBeenCalled();
       });
 
-      it('is unticked, whatever tab is shown, once a read finds nothing it can silence', () => {
+      it('is unticked once a read finds nothing it can silence, and not before the read', () => {
         mockMuteAutomation = true;
         render(<ForgeReview />);
         // Before the read, the choice stands.
@@ -1129,6 +1304,74 @@ describe('ForgeReview', () => {
         render(<ForgeReview />);
         sendFromExtension('forge:automation:response', { automation: mutable });
         expect(screen.queryByTestId('forge-mute-execute-hint')).toBeNull();
+      });
+
+      describe('a validation rule its set lifts beside', () => {
+        // On the trap org's shape: the set assigned for the flow grants the
+        // permission a rule of Contact tests as well. Ticked, the Gaps tab
+        // said the rule may refuse the contacts it lets through whole.
+        const lifting = {
+          ...mutable,
+          bypassGrants: [
+            {
+              permission: 'Load_Data',
+              permissionSets: [
+                {
+                  name: 'Data_Load',
+                  label: 'Data load',
+                  grants: 2,
+                  customPermissions: ['Load_Data', 'Skip_Rules'],
+                },
+              ],
+            },
+          ],
+          validationRuleBypasses: [
+            { objectApiName: 'Contact', name: 'Email_Required', permissions: ['Skip_Rules'] },
+          ],
+          validationRulesNotRead: 0,
+        };
+        const RULE: ForgeGap = {
+          id: 'validation_rule|Contact|Email||Email_Required',
+          kind: 'validation_rule',
+          severity: 'warning',
+          source: 'metadata',
+          objectApiName: 'Contact',
+          field: 'Email',
+          value: 'Email_Required',
+          rows: 0,
+          detail: {
+            rule: 'Email_Required',
+            bypasses: ['$Permission.Skip_Rules'],
+            assign: ['Skip_Rules=Data_Load'],
+          },
+          decisions: ['leave_empty', 'ignore'],
+          defaultDecision: 'leave_empty',
+        };
+
+        it('says on the Gaps tab that the mute lifts it once the box is ticked', () => {
+          mockMuteAutomation = true;
+          mockGaps = { ...mockGaps, metadata: [RULE] };
+          render(<ForgeReview />);
+          sendFromExtension('forge:automation:response', { automation: lifting });
+          fireEvent.click(screen.getByTestId('tab-gaps'));
+
+          expect(screen.getByTestId('gap-lifted').textContent).toBe(
+            'The mute lifts it (Skip_Rules, in Data_Load).',
+          );
+          expect(screen.queryByTestId('gap-default')).toBeNull();
+        });
+
+        it('says the rule as it was while the box is not ticked', () => {
+          mockGaps = { ...mockGaps, metadata: [RULE] };
+          render(<ForgeReview />);
+          sendFromExtension('forge:automation:response', { automation: lifting });
+          fireEvent.click(screen.getByTestId('tab-gaps'));
+
+          expect(screen.queryByTestId('gap-lifted')).toBeNull();
+          expect(screen.getByTestId('gap-default').textContent).toBe(
+            'If nothing is decided: the field is left empty.',
+          );
+        });
       });
     });
 
@@ -1189,7 +1432,34 @@ describe('ForgeReview', () => {
       mockGaps = { metadata: [undecided], simulation: [], rehearsal: [] };
     });
 
-    it('says beside Execute how many will refuse rows, and opens the Gaps tab from there', () => {
+    it('opens the Gaps row by itself, the one row that asks for a decision', () => {
+      render(<ForgeReview />);
+      expect(screen.getByTestId('tab-gaps').getAttribute('aria-expanded')).toBe('true');
+      expect(screen.getByTestId('tab-plan').getAttribute('aria-expanded')).toBe('false');
+      expect(screen.getByTestId('review-row-gaps-state').textContent).toBe('Needs you');
+      expect(screen.getByTestId('review-row-gaps-state').getAttribute('data-state')).toBe('decide');
+      expect(screen.getByTestId('review-gaps-tab')).toBeDefined();
+    });
+
+    it('opens the row as a read finds a gap that refuses rows, not before', () => {
+      mockGaps = { metadata: [], simulation: [], rehearsal: [] };
+      const { rerender } = render(<ForgeReview />);
+      expect(screen.getByTestId('tab-gaps').getAttribute('aria-expanded')).toBe('false');
+
+      mockGaps = { metadata: [undecided], simulation: [], rehearsal: [] };
+      rerender(<ForgeReview />);
+
+      expect(screen.getByTestId('tab-gaps').getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('stays closed once the user closed it, the gap still undecided', () => {
+      const { rerender } = render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-gaps'));
+      rerender(<ForgeReview />);
+      expect(screen.getByTestId('tab-gaps').getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('says under Execute how many will refuse rows, and goes to the Gaps row from there', () => {
       render(<ForgeReview />);
 
       expect(screen.getByTestId('forge-gaps-undecided').textContent).toContain(
@@ -1198,17 +1468,20 @@ describe('ForgeReview', () => {
       expect(screen.getByTestId('execute-button').getAttribute('aria-describedby')).toBe(
         'forge-gaps-execute-hint',
       );
+      fireEvent.click(screen.getByTestId('tab-gaps'));
       fireEvent.click(screen.getByTestId('forge-gaps-decide'));
-      expect(screen.getByTestId('tab-gaps').getAttribute('aria-selected')).toBe('true');
+      expect(screen.getByTestId('tab-gaps').getAttribute('aria-expanded')).toBe('true');
+      // The row may be a panel's height from Execute: the keyboard goes to it.
+      expect(document.activeElement).toBe(screen.getByTestId('tab-gaps'));
     });
 
-    it('asks once on Execute: deciding opens the tab, running anyway runs, and is not asked again', () => {
+    it('asks once on Execute: deciding opens the row, running anyway runs, and is not asked again', () => {
       render(<ForgeReview />);
 
       fireEvent.click(screen.getByTestId('execute-button'));
       expect(started()).toBe(0);
       fireEvent.click(screen.getByTestId('forge-gaps-ask-decide'));
-      expect(screen.getByTestId('tab-gaps').getAttribute('aria-selected')).toBe('true');
+      expect(screen.getByTestId('tab-gaps').getAttribute('aria-expanded')).toBe('true');
       expect(started()).toBe(0);
 
       fireEvent.click(screen.getByTestId('execute-button'));
@@ -1231,14 +1504,24 @@ describe('ForgeReview', () => {
     });
   });
 
-  it('should show PII badge on anonymization tab', () => {
-    render(<ForgeReview />);
-    const anonTab = screen.getByTestId('tab-anonymization');
+  it('says on the Anonymization row the personal fields found, and whether they are anonymized', () => {
+    const { unmount } = render(<ForgeReview />);
     // 1 PII from Account + 2 from Contact = 3
-    expect(anonTab.textContent).toContain('3');
+    expect(screen.getByTestId('review-row-anonymization-summary').textContent).toBe(
+      '3 personal fields found, anonymized as the run writes them.',
+    );
+    expect(screen.getByTestId('review-row-anonymization-state').textContent).toBe('Ready');
+    unmount();
+
+    mockConfig = { ...defaultConfig, anonymizePII: false };
+    render(<ForgeReview />);
+    expect(screen.getByTestId('review-row-anonymization-summary').textContent).toBe(
+      '3 personal fields found, written as the source holds them.',
+    );
+    expect(screen.getByTestId('review-row-anonymization-state').textContent).toBe('To read');
   });
 
-  it('should show metadata badge when diffs are present', () => {
+  it('says on the Metadata row how many differences it found', () => {
     mockMetadataDiffs = [
       {
         objectApiName: 'Account',
@@ -1249,11 +1532,13 @@ describe('ForgeReview', () => {
       },
     ];
     render(<ForgeReview />);
-    const metaTab = screen.getByTestId('tab-metadata');
-    expect(metaTab.textContent).toContain('1');
+    sendFromExtension('forge:metadata-diff:response', { diffs: mockMetadataDiffs });
+    expect(screen.getByTestId('review-row-metadata-summary').textContent).toBe(
+      '1 difference found between source and target.',
+    );
   });
 
-  it('counts on the Gaps tab the blocking gaps of the objects written that no decision answers', () => {
+  it('counts on the Gaps row the blocking gaps of the objects written that no decision answers', () => {
     const gap = (id: string, objectApiName: string, severity: 'blocking' | 'warning') => ({
       id,
       kind: 'required_field_missing' as const,
@@ -1279,56 +1564,43 @@ describe('ForgeReview', () => {
     };
     render(<ForgeReview />);
 
-    expect(screen.getByTestId('tab-gaps').textContent).toBe('Gaps1');
+    expect(screen.getByTestId('review-row-gaps-summary').textContent).toBe(
+      '1 gap will refuse rows until it is decided.',
+    );
   });
 
-  it('should switch tabs on click', () => {
+  it('says the framework chosen on its row once closed, and keeps it for when it opens again', () => {
     render(<ForgeReview />);
+    expect(screen.getByTestId('review-row-compliance-summary').textContent).toBe(
+      'No framework selected.',
+    );
     fireEvent.click(screen.getByTestId('tab-compliance'));
-    // ReviewComplianceTab renders no-compliance by default
-    expect(screen.getByTestId('review-compliance-tab')).toBeDefined();
+    fireEvent.change(screen.getByTestId('framework-select'), { target: { value: 'gdpr' } });
+    expect(screen.getByTestId('review-row-compliance-summary').textContent).toBe(
+      'Analyzing compliance...',
+    );
+
+    fireEvent.click(screen.getByTestId('tab-compliance'));
+    fireEvent.click(screen.getByTestId('tab-compliance'));
+
+    expect(screen.getByTestId('framework-select')).toHaveProperty('value', 'gdpr');
   });
 
   it('should render live graph and support include toggle', () => {
     render(<ForgeReview />);
+    fireEvent.click(screen.getByTestId('tab-plan'));
     expect(screen.getByTestId('live-graph')).toBeDefined();
     fireEvent.click(screen.getByTestId('mock-toggle-Account'));
     expect(mockToggleNodeIncluded).toHaveBeenCalledWith('Account');
   });
 
-  /* ---- A11Y: Tab ARIA roles ---- */
+  /* ---- A11Y: the rows ---- */
 
-  it('should have role="tablist" on the tab container', () => {
+  it('points each row at what it opens, named by the row', () => {
     render(<ForgeReview />);
-    expect(screen.getByTestId('review-tabs').getAttribute('role')).toBe('tablist');
-  });
-
-  it('should have role="tab" and aria-selected on each tab button', () => {
-    render(<ForgeReview />);
-    const planTab = screen.getByTestId('tab-plan');
-    const complianceTab = screen.getByTestId('tab-compliance');
-    expect(planTab.getAttribute('role')).toBe('tab');
-    expect(planTab.getAttribute('aria-selected')).toBe('true');
-    expect(complianceTab.getAttribute('role')).toBe('tab');
-    expect(complianceTab.getAttribute('aria-selected')).toBe('false');
-  });
-
-  it('should update aria-selected when switching tabs', () => {
-    render(<ForgeReview />);
-    const planTab = screen.getByTestId('tab-plan');
-    const complianceTab = screen.getByTestId('tab-compliance');
-    expect(planTab.getAttribute('aria-selected')).toBe('true');
-    expect(complianceTab.getAttribute('aria-selected')).toBe('false');
-
-    fireEvent.click(complianceTab);
-    expect(planTab.getAttribute('aria-selected')).toBe('false');
-    expect(complianceTab.getAttribute('aria-selected')).toBe('true');
-  });
-
-  it('should have role="tabpanel" with aria-labelledby on tab content', () => {
-    render(<ForgeReview />);
-    const tabpanel = screen.getByRole('tabpanel');
-    expect(tabpanel.getAttribute('id')).toBe('tabpanel-plan');
-    expect(tabpanel.getAttribute('aria-labelledby')).toBe('tab-plan');
+    const plan = screen.getByTestId('tab-plan');
+    expect(plan.getAttribute('aria-controls')).toBe('tabpanel-plan');
+    fireEvent.click(plan);
+    expect(screen.getByRole('region', { name: 'Plan' }).id).toBe('tabpanel-plan');
   });
 });

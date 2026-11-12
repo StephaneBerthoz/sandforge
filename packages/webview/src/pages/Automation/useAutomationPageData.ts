@@ -7,6 +7,7 @@ import type {
   OperationFailed,
   PipelineCondition,
   PipelineDefinition,
+  PipelineDeleteResponse,
   PipelineDraftSuggestion,
   PipelineMaskingTemplateInfo,
   PipelineRewindGrantResponse,
@@ -36,6 +37,7 @@ import { useMessageListener, useSendMessage } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { usePipelineGenerator } from '../../hooks/useAIFeatures';
 import { useLatestRef } from '../../hooks/useLatestRef';
+import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import type { PipelineExecutionData } from './PipelineExecutionView';
 import { blockedSteps, paletteBlocker } from './stepRunnability';
 import { newStepName } from './stepTypeLabel';
@@ -253,6 +255,80 @@ function toPipelineDefinition(
   };
 }
 
+/**
+ * A value as JSON with the keys of every object in order: two pipelines with
+ * the same content read the same, whichever order an edit left their keys in.
+ */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, held: unknown) =>
+    typeof held === 'object' && held !== null && !Array.isArray(held)
+      ? Object.fromEntries(Object.entries(held).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : held,
+  );
+}
+
+/**
+ * What a person puts in a pipeline, and nothing the page or the extension
+ * stamps on it: not its id, version, dates or the key it is saved under.
+ */
+function contentOf(pipeline: PipelineDefinition): string {
+  return canonicalJson({
+    name: pipeline.name,
+    description: pipeline.description ?? '',
+    steps: pipeline.steps ?? [],
+    triggers: pipeline.triggers ?? [],
+    variables: pipeline.variables ?? [],
+    tags: pipeline.tags ?? [],
+  });
+}
+
+/**
+ * Whether the pipeline on the canvas holds work no save keeps: compared with
+ * the pipeline saved under its id, field by field. One never saved holds such
+ * work once it has a step, a trigger, a variable or a description; a name
+ * alone, on a pipeline with nothing in it, is not worth a question.
+ */
+export function hasUnsavedChanges(
+  pipeline: PipelineDefinition | undefined,
+  savedPipelines: readonly PipelineDefinition[],
+): boolean {
+  if (!pipeline) return false;
+  const saved = savedPipelines.find((candidate) => candidate.id === pipeline.id);
+  if (!saved) {
+    return (
+      (pipeline.steps ?? []).length > 0 ||
+      (pipeline.triggers ?? []).length > 0 ||
+      (pipeline.variables ?? []).length > 0 ||
+      (pipeline.description ?? '') !== ''
+    );
+  }
+  return contentOf(pipeline) !== contentOf(saved);
+}
+
+/**
+ * The name a new pipeline is given: "New pipeline", numbered past the names
+ * already saved. Every pipeline built by hand was called the same, and the
+ * saved list filled with names that told them apart by nothing.
+ */
+export function newPipelineName(taken: readonly string[], t: TFunction): string {
+  const base = t('automation.newPipeline');
+  if (!taken.includes(base)) return base;
+  let n = 2;
+  while (taken.includes(`${base} ${n}`)) n += 1;
+  return `${base} ${n}`;
+}
+
+/**
+ * What replaces the pipeline on the canvas: a new one, a saved one opened, a
+ * Marketplace template installed, or a draft the AI writes. Each asks first
+ * when the pipeline there holds unsaved changes.
+ */
+export type PipelineSwitch =
+  | { kind: 'new' }
+  | { kind: 'open'; pipeline: PipelineDefinition }
+  | { kind: 'install'; templateId: string }
+  | { kind: 'generate' };
+
 /** Marketplace template entry. */
 export interface MarketplaceTemplate {
   id: string;
@@ -302,6 +378,18 @@ function runFailureMessage(t: TFunction, run: Record<string, unknown>): string |
     }
   }
   return undefined;
+}
+
+/**
+ * The sentence a stopped run is reported with: the step it stopped at, when
+ * one was going, and that the steps after it did not run.
+ */
+function runStoppedMessage(t: TFunction, run: Record<string, unknown>): string {
+  const steps = Array.isArray(run.stepResults) ? run.stepResults.map(asRecord) : [];
+  const at = steps.find((result) => result.status === 'stopped');
+  return typeof at?.stepName === 'string'
+    ? t('automation.runStoppedAt', { step: at.stepName })
+    : t('automation.runStopped');
 }
 
 /** Return type for the useAutomationPageData hook. */
@@ -414,8 +502,35 @@ export interface AutomationPageData {
   genDescription: string;
   /** Set the AI generation description. */
   setGenDescription: (desc: string) => void;
-  /** Create a new empty pipeline. */
+  /**
+   * Create pipeline, and New: an empty pipeline under a name no saved one
+   * has, once the unsaved changes of the one on the canvas may be lost.
+   */
   handleCreatePipeline: () => void;
+  /**
+   * Whether the pipeline on the canvas holds work its save does not: see
+   * {@link hasUnsavedChanges}.
+   */
+  unsavedChanges: boolean;
+  /**
+   * What waits to replace the pipeline on the canvas until the person says
+   * its unsaved changes may be lost; null when nothing waits.
+   */
+  pendingSwitch: PipelineSwitch | null;
+  /** Let the unsaved changes go, and replace the pipeline as asked. */
+  handleConfirmDiscard: () => void;
+  /** Keep the pipeline on the canvas, and drop what was to replace it. */
+  handleKeepEditing: () => void;
+  /** Rename the pipeline on the canvas; saved with it. */
+  handleRenamePipeline: (name: string) => void;
+  /**
+   * Delete a saved pipeline: `pipeline:delete`. Once the extension has, the
+   * saved list is asked for again, and the pipeline leaves the canvas if it
+   * was there.
+   */
+  handleDeletePipeline: (target: PipelineDefinition) => void;
+  /** The id of the saved pipeline whose delete is on its way, if one is. */
+  deletingPipelineId: string | undefined;
   /** Run the current pipeline, unless one of its steps cannot run. */
   handleRunPipeline: () => void;
   /**
@@ -430,13 +545,17 @@ export interface AutomationPageData {
   handleAnswerApproval: (stepId: string, decision: 'approved' | 'rejected') => void;
   /** Save the current pipeline. */
   handleSavePipeline: () => void;
-  /** Load a saved pipeline and switch to canvas tab. */
+  /**
+   * Open a saved pipeline on the canvas tab, once the unsaved changes of the
+   * one there may be lost.
+   */
   handleLoadPipeline: (p: PipelineDefinition) => void;
   /**
    * Install a marketplace template.
    *
-   * Sends `marketplace:install` and loads the pipeline the host returns onto
-   * the canvas. Nothing is claimed before that answer arrives.
+   * Sends `marketplace:install`, once the unsaved changes of the pipeline on
+   * the canvas may be lost, and loads the pipeline the host returns onto the
+   * canvas. Nothing is claimed before that answer arrives.
    */
   handleInstallTemplate: (tpl: { id: string; name: string; description: string }) => void;
   /**
@@ -456,7 +575,10 @@ export interface AutomationPageData {
   handleToggleTrigger: (triggerId: string, enabled: boolean) => void;
   /** Change a trigger's cron expression, time zone or sandbox. */
   handleUpdateTriggerConfig: (triggerId: string, config: Partial<TriggerConfig>) => void;
-  /** Open the AI generate pipeline prompt dialog. */
+  /**
+   * Open the AI generate pipeline prompt dialog, once the unsaved changes of
+   * the pipeline on the canvas may be lost: its draft takes the canvas.
+   */
   handleGeneratePipeline: () => void;
   /** Submit the AI generation description. */
   handleGenSubmit: () => void;
@@ -501,8 +623,14 @@ export function useAutomationPageData(): AutomationPageData {
     'marketplace:list',
   );
 
-  // Pipeline state
-  const [pipeline, setPipeline] = useState<PipelineDefinition | undefined>();
+  // The pipeline on the canvas, kept by the panel: a shortcut or the command
+  // palette takes the panel to another page, and the page coming back opens
+  // on it again, unsaved changes and all. They used to go with the page, and
+  // with no question.
+  const [pipeline, setPipeline] = useWebviewPersistedState<PipelineDefinition | undefined>(
+    'automationPipeline',
+    undefined,
+  );
   const [error, setError] = useState<string | null>(null);
   /** What the last draft adopted leaves out, kept with the id of that draft. */
   const [draft, setDraft] = useState<{
@@ -538,6 +666,12 @@ export function useAutomationPageData(): AutomationPageData {
   // Typed on the PipelineSaveResponse payload so the acknowledgement can be
   // read: the success toast is raised from `data.success`, not from the click.
   const saveMutation = useBridgeMutation<{ success: boolean; id: string }>('pipeline:save');
+
+  // Bridge mutation: delete a saved pipeline. A pipeline a run holds is
+  // refused on `pipeline:error`, with the code PIPELINE_RUNNING.
+  const deleteMutation = useBridgeMutation<PipelineDeleteResponse['payload']>('pipeline:delete');
+  /** The saved pipeline whose delete was sent last, named as the list named it. */
+  const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null);
 
   // Bridge query: load pipeline templates
   const templatesQuery = useBridgeQuery<{ templates: Record<string, unknown>[] }>(
@@ -767,7 +901,11 @@ export function useAutomationPageData(): AutomationPageData {
       };
     });
     const ended = steps.filter(
-      (s) => s.status === 'completed' || s.status === 'failed' || s.status === 'skipped',
+      (s) =>
+        s.status === 'completed' ||
+        s.status === 'failed' ||
+        s.status === 'skipped' ||
+        s.status === 'stopped',
     ).length;
     const lastHeard = Math.max(runStartedAt, ...Object.values(stepUpdates).map((u) => u.at));
     return {
@@ -781,12 +919,22 @@ export function useAutomationPageData(): AutomationPageData {
     };
   }, [isRunning, pipeline, stepUpdates, runStartedAt, runOperationId]);
 
+  // A delete refused for a run that holds the pipeline is said in the
+  // reader's language, naming it; any other refusal as the extension wrote it.
+  const deleteError =
+    deleteMutation.error === null
+      ? null
+      : deleteMutation.errorCode === 'PIPELINE_RUNNING'
+        ? t('automation.lifecycle.deleteRunning', { name: deleting?.name ?? '' })
+        : deleteMutation.error;
+
   // Show error notifications from bridge hooks
   useEffect(() => {
     const bridgeError =
       pipelinesQuery.error ??
       executeMutation.error ??
       saveMutation.error ??
+      deleteError ??
       templatesQuery.error ??
       historyQuery.error ??
       // `ai:error` and the generator timeout had no reader: a failed generation
@@ -804,6 +952,7 @@ export function useAutomationPageData(): AutomationPageData {
     pipelinesQuery.error,
     executeMutation.error,
     saveMutation.error,
+    deleteError,
     templatesQuery.error,
     historyQuery.error,
     pipelineGen.error,
@@ -837,6 +986,29 @@ export function useAutomationPageData(): AutomationPageData {
     refetchRewindSteps();
   }, [saveMutation.data, announceSaved, refetchPipelines, refetchRewindSteps]);
 
+  // A delete is said once the extension has done it, as a save is. The
+  // pipeline leaves the canvas too when it was the one there: its Delete was
+  // asked for by name, and a Save would only write it back.
+  const settleDeleted = useLatestRef((answer: PipelineDeleteResponse['payload']) => {
+    refetchPipelines();
+    if (pipeline?.id === answer.id) {
+      setPipeline(undefined);
+      setSelectedStepId('');
+    }
+    addNotification({
+      level: 'success',
+      title: t('automation.title'),
+      message: t('automation.lifecycle.deleted', {
+        name: deleting?.id === answer.id ? deleting.name : answer.id,
+      }),
+      autoDismissMs: 3000,
+    });
+  });
+  useEffect(() => {
+    if (!deleteMutation.data) return;
+    settleDeleted.current(deleteMutation.data);
+  }, [deleteMutation.data, settleDeleted]);
+
   // The host writes a run to its history when the run ends, but answers
   // `pipeline:history` only on request, and the query fires once on mount:
   // without asking again, the History tab and its count missed every run made
@@ -845,9 +1017,19 @@ export function useAutomationPageData(): AutomationPageData {
   // nothing new to fetch.
   //
   // A failed run is also said here. It used to reach only the History tab, as
-  // a red badge and an error count, with no word of what went wrong.
+  // a red badge and an error count, with no word of what went wrong. So is a
+  // stopped one, as news and not as an error: the view of the run closed with
+  // nothing said, and only the History tab knew how far it got.
   const settleRun = useLatestRef((run: Record<string, unknown>) => {
     historyQuery.refetch();
+    if (run.status === 'cancelled') {
+      addNotification({
+        level: 'info',
+        title: t('automation.title'),
+        message: runStoppedMessage(t, run),
+      });
+      return;
+    }
     if (run.status !== 'failed') return;
     const message = runFailureMessage(t, run);
     if (message === undefined) return;
@@ -942,10 +1124,13 @@ export function useAutomationPageData(): AutomationPageData {
     adoptInstalled.current(installed);
   }, [installMutation.data, adoptInstalled]);
 
-  /** A pipeline with nothing in it yet, under the name every new one gets. */
+  /** A pipeline with nothing in it yet, under a name no saved pipeline has. */
   const emptyPipeline = (): PipelineDefinition => ({
     id: crypto.randomUUID(),
-    name: t('automation.newPipeline'),
+    name: newPipelineName(
+      savedPipelines.map((saved) => saved.name),
+      t,
+    ),
     description: '',
     version: 1,
     steps: [],
@@ -956,8 +1141,60 @@ export function useAutomationPageData(): AutomationPageData {
     updatedAt: new Date().toISOString(),
   });
 
+  const unsavedChanges = hasUnsavedChanges(pipeline, savedPipelines);
+  const [pendingSwitch, setPendingSwitch] = useState<PipelineSwitch | null>(null);
+  const [showGenPrompt, setShowGenPrompt] = useState(false);
+  const [genDescription, setGenDescription] = useState('');
+
+  const applySwitch = (next: PipelineSwitch): void => {
+    switch (next.kind) {
+      case 'new':
+        setPipeline(emptyPipeline());
+        setSelectedStepId('');
+        return;
+      case 'open':
+        setPipeline(next.pipeline);
+        setSelectedStepId('');
+        setActiveTab('canvas');
+        return;
+      case 'install':
+        installMutation.mutate({ templateId: next.templateId });
+        return;
+      case 'generate':
+        setShowGenPrompt(true);
+        return;
+    }
+  };
+
+  // Compared by id with the saved pipelines: a pipeline opened, renamed or
+  // edited asks before anything takes its place; one as saved does not.
+  const requestSwitch = (next: PipelineSwitch): void => {
+    if (unsavedChanges) setPendingSwitch(next);
+    else applySwitch(next);
+  };
+
+  const handleConfirmDiscard = () => {
+    const next = pendingSwitch;
+    setPendingSwitch(null);
+    if (next) applySwitch(next);
+  };
+
+  const handleKeepEditing = () => {
+    setPendingSwitch(null);
+  };
+
   const handleCreatePipeline = () => {
-    setPipeline(emptyPipeline());
+    requestSwitch({ kind: 'new' });
+  };
+
+  const handleRenamePipeline = (name: string) => {
+    if (!pipeline) return;
+    setPipeline({ ...pipeline, name, updatedAt: new Date().toISOString() });
+  };
+
+  const handleDeletePipeline = (target: PipelineDefinition) => {
+    setDeleting({ id: target.id, name: target.name });
+    deleteMutation.mutate({ id: target.id });
   };
 
   const handleRunPipeline = () => {
@@ -984,12 +1221,11 @@ export function useAutomationPageData(): AutomationPageData {
   };
 
   const handleLoadPipeline = (p: PipelineDefinition) => {
-    setPipeline(p);
-    setActiveTab('canvas');
+    requestSwitch({ kind: 'open', pipeline: p });
   };
 
   const handleInstallTemplate = (tpl: { id: string; name: string; description: string }) => {
-    installMutation.mutate({ templateId: tpl.id });
+    requestSwitch({ kind: 'install', templateId: tpl.id });
   };
 
   // A step picked under Steps before any pipeline is open starts one with it,
@@ -1082,11 +1318,8 @@ export function useAutomationPageData(): AutomationPageData {
     });
   };
 
-  const [showGenPrompt, setShowGenPrompt] = useState(false);
-  const [genDescription, setGenDescription] = useState('');
-
   const handleGeneratePipeline = () => {
-    setShowGenPrompt(true);
+    requestSwitch({ kind: 'generate' });
   };
 
   const handleGenSubmit = () => {
@@ -1176,6 +1409,13 @@ export function useAutomationPageData(): AutomationPageData {
     genDescription,
     setGenDescription,
     handleCreatePipeline,
+    unsavedChanges,
+    pendingSwitch,
+    handleConfirmDiscard,
+    handleKeepEditing,
+    handleRenamePipeline,
+    handleDeletePipeline,
+    deletingPipelineId: deleteMutation.loading ? deleting?.id : undefined,
     handleRunPipeline,
     handleCancelRun,
     handleAnswerApproval,

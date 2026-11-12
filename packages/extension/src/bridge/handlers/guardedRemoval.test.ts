@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 // strings stay as the guard words them.
 vi.mock('vscode', () => ({
   window: { showWarningMessage: vi.fn(), showInformationMessage: vi.fn() },
+  env: { language: 'en' },
   l10n: {
     t: (message: string, ...args: unknown[]): string =>
       message.replace(/\{(\d+)\}/g, (_m, i: string) => String(args[Number(i)] ?? '')),
@@ -198,6 +199,33 @@ describe('runGuardedRemoval', () => {
     });
   });
 
+  it('calls its end before it says the run ended, whether the write went through or failed half way', async () => {
+    for (const failing of [false, true]) {
+      const d = deps('Sandbox', new ProductionGuard());
+      /** What the run had said when its end was called: a delete's lease is given back there. */
+      let saidAtEnd: string[] = [];
+      const run = removal({
+        ...(failing
+          ? {
+              run: async () => {
+                throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+              },
+            }
+          : {}),
+        beforeEnd: async () => {
+          saidAtEnd = posted(d);
+        },
+      });
+
+      await runGuardedRemoval(d, run);
+
+      // Called once the run had started, and before it was said ended.
+      expect(saidAtEnd).toContain('operation:started');
+      expect(saidAtEnd).not.toContain(failing ? 'operation:failed' : 'operation:completed');
+      expect(posted(d)).toContain(failing ? 'operation:failed' : 'operation:completed');
+    }
+  });
+
   it('keeps no value and no Id in the audit trail', async () => {
     const d = deps('Sandbox', new ProductionGuard());
 
@@ -265,6 +293,26 @@ describe('runGuardedRemoval', () => {
       });
       expect(tracker.get(result.operationId)?.status).toBe('completed');
       expect(registry.get(result.operationId)?.status).toBe('completed');
+      tracker.dispose();
+    });
+
+    it('is listed as partial once the org refused part of what it was to delete', async () => {
+      const { d } = listed();
+      const tracker = new LiveOperationTracker();
+
+      const result = await runGuardedRemoval(
+        d,
+        removal({
+          run: async (onObject) => {
+            const counts = { done: 1, failed: 1, errors: [] };
+            onObject('Contact', counts);
+            return [{ objectApiName: 'Contact', counts }];
+          },
+        }),
+        tracker,
+      );
+
+      expect(tracker.get(result.operationId)?.status).toBe('partial');
       tracker.dispose();
     });
 

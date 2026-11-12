@@ -119,7 +119,7 @@ interface ModuleBootOptions {
   /** Leave the module's how-to open, as on a first visit; hidden otherwise. */
   readonly howTo?: boolean;
   /** The host theme the panel is painted in. */
-  readonly theme: ScannedTheme;
+  readonly theme: StateTheme;
 }
 
 /**
@@ -1011,6 +1011,7 @@ const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
   heldForExcludedParents: [
     { objectApiName: 'InsurancePolicyParticipant', count: 2, note: '2 left out' },
   ],
+  quotesLeftUnsynced: [{ objectApiName: 'Opportunity', count: 1, note: '1 left unsynced' }],
   mappingPath: '/home/qa/.sandforge-sas/referenceid-mapping.json',
   contractPath: '/home/qa/.sandforge-sas/counting-contract.json',
 };
@@ -1151,6 +1152,42 @@ const FORGE_COMPLIANCE_REPORT = {
   overallStatus: 'partial',
   checksumSha256: 'a'.repeat(64),
 };
+
+/**
+ * What the org runs as a DataOps masking, restore or cleanup writes, as the
+ * extension answers the confirmation's read of it: nothing fires, nothing
+ * sends. The confirmation waits for it.
+ */
+const NOTHING_FIRES = {
+  act: 'masking',
+  objects: [],
+  steps: {},
+  automation: {
+    objectsRead: [],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 0,
+  },
+  lines: [],
+  emails: [],
+  emailsAsk: false,
+  refusals: [],
+};
+
+/** Answer the open confirmation's read of what the org runs, until it no longer waits on it. */
+async function nothingFires(page: Page): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        await answerAll(page, 'dataops:automation', 'dataops:automation:response', NOTHING_FIRES);
+        return page.getByTestId('danger-held').count();
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(0);
+}
 
 /**
  * A pipeline an older release saved with a webhook trigger, which the panel no
@@ -1705,35 +1742,6 @@ async function inSight(page: Page, testId: string): Promise<boolean> {
 }
 
 /**
- * Scroll the panel up until the element `testId` starts in a row of axe's
- * 200-pixel grid below the row where the graph pane `graph` ends.
- *
- * axe files an element under the grid cells its box covers once clipped by
- * its overflow-hidden ancestors, then tests a point against its whole box.
- * React Flow's viewport, scaled past its pane, is so filed in the row where
- * the pane ends and reported over any text in that row: "overlapped by
- * another element", and the text's contrast goes unmeasured, though the text
- * is on top. Reached at the end of a page that scrolls no further, Review's
- * files warning sat in that row.
- */
-async function outOfGraphCellRow(page: Page, testId: string, graph: string): Promise<void> {
-  await page.evaluate(
-    ({ testId: id, graph: pane }) => {
-      const panel = document.querySelector('[data-testid="panel-app"]') as HTMLElement;
-      const element = document.querySelector(`[data-testid="${id}"]`) as HTMLElement;
-      const graphPane = document.querySelector(`[data-testid="${pane}"]`) as HTMLElement;
-      const row = (y: number) => Math.floor(y / 200);
-      for (let step = 0; step < 100; step += 1) {
-        const top = element.getBoundingClientRect().top;
-        if (row(top) > row(graphPane.getBoundingClientRect().bottom)) return;
-        panel.scrollTop -= 4;
-      }
-    },
-    { testId, graph },
-  );
-}
-
-/**
  * The edge labels of the graph `testId` that a node covers, by their text:
  * React Flow draws its edges under its nodes, and Lineage's columns, 220
  * pixels apart for nodes 180 wide, left an edge 40 pixels for "1,200
@@ -1890,6 +1898,87 @@ async function backgroundDotsContrast(page: Page, graph: string): Promise<number
   });
 }
 
+/** One object of a graph's minimap, as Chromium paints it over the minimap's background. */
+interface MinimapNodeAsPainted {
+  /** How far its fill stands out from the minimap, as a contrast ratio; null when hollow. */
+  readonly fill: number | null;
+  /** How far its outline stands out from the minimap; null when it draws none. */
+  readonly outline: number | null;
+  /** How wide its outline is on screen, in pixels. */
+  readonly outlinePx: number;
+  /** Whether its outline is dashed. */
+  readonly dashed: boolean;
+}
+
+/**
+ * The objects the minimap of the pane `graph` draws, top to bottom, as
+ * Chromium paints them: each fill and outline composited over the minimap's
+ * background and everything under it. axe looks at none of them: no text.
+ */
+async function minimapNodesAsPainted(page: Page, graph: string): Promise<MinimapNodeAsPainted[]> {
+  return page.getByTestId(graph).evaluate((pane) => {
+    type Rgba = [number, number, number, number];
+    const probe = document.createElement('canvas').getContext('2d', {
+      willReadFrequently: true,
+    }) as CanvasRenderingContext2D;
+    // Any colour syntax Chromium computes, `color(srgb …)` and `color-mix`
+    // results included, read back through a canvas as 8-bit sRGB.
+    const parse = (text: string): Rgba | null => {
+      if (text === 'none' || text === '') return null;
+      probe.clearRect(0, 0, 1, 1);
+      probe.fillStyle = 'rgba(0, 0, 0, 0)';
+      probe.fillStyle = text;
+      probe.fillRect(0, 0, 1, 1);
+      const [r, g, b, a] = probe.getImageData(0, 0, 1, 1).data;
+      return a === 0 ? null : [r, g, b, a / 255];
+    };
+    const over = (top: Rgba, under: Rgba): Rgba => [
+      top[0] * top[3] + under[0] * (1 - top[3]),
+      top[1] * top[3] + under[1] * (1 - top[3]),
+      top[2] * top[3] + under[2] * (1 - top[3]),
+      1,
+    ];
+    const luminance = ([r, g, b]: Rgba): number => {
+      const channel = (value: number): number => {
+        const s = value / 255;
+        return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    };
+    const ratio = (a: Rgba, b: Rgba): number => {
+      const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+      return Math.round(((light + 0.05) / (dark + 0.05)) * 100) / 100;
+    };
+    const svg = pane.querySelector('.react-flow__minimap-svg');
+    if (!svg) throw new Error('the pane draws no minimap');
+    // The backgrounds from the page down to the minimap's own.
+    const layers: Rgba[] = [];
+    for (let at: Element | null = svg; at; at = at.parentElement) {
+      const layer = parse(getComputedStyle(at).backgroundColor);
+      if (layer) layers.unshift(layer);
+    }
+    const under = layers.reduce<Rgba>((below, layer) => over(layer, below), [255, 255, 255, 1]);
+    return [...svg.querySelectorAll<SVGRectElement>('.react-flow__minimap-node')]
+      .sort((a, b) => a.y.baseVal.value - b.y.baseVal.value)
+      .map((rect) => {
+        const style = getComputedStyle(rect);
+        const fill = parse(style.fill);
+        const stroke = parse(style.stroke);
+        const width = parseFloat(style.strokeWidth) || 0;
+        // A stroke scales with the minimap, which draws the graph a fraction of
+        // its size, unless it is told not to.
+        const scale =
+          style.vectorEffect === 'non-scaling-stroke' ? 1 : (rect.getScreenCTM()?.a ?? 1);
+        return {
+          fill: fill ? ratio(over(fill, under), under) : null,
+          outline: stroke && width > 0 ? ratio(over(stroke, under), under) : null,
+          outlinePx: stroke ? Math.round(width * scale * 100) / 100 : 0,
+          dashed: stroke != null && style.strokeDasharray !== 'none',
+        };
+      });
+  });
+}
+
 /** What the Autopilot graph's pane draws over its graph: the minimap, the legend and the controls. */
 const AUTOPILOT_GRAPH_OVERLAYS = [
   MINIMAP,
@@ -1907,11 +1996,7 @@ async function autopilotNodesUnderItsOverlays(page: Page): Promise<Record<string
 }
 
 /** The Autopilot run of the two objects of its mock graph, under way: its execute left unanswered. */
-async function startAutopilotRun(
-  bridge: MockBridge,
-  page: Page,
-  theme: ScannedTheme,
-): Promise<void> {
+async function startAutopilotRun(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
   await navigateToModule(bridge, page, 'autopilot', 'autopilot-page', { theme, orgs: true });
   await page.getByTestId('source-org-org-src-1').click();
   await page.getByTestId('target-org-org-tgt-1').click();
@@ -3047,7 +3132,8 @@ for (const theme of SCANNED_THEMES) {
         .waitFor({ state: 'visible', timeout: 5000 });
       expectNoViolations(await checkAccessibility(page));
       await page.getByTestId('forge-gaps-ask-decide').click();
-      await expect(page.getByTestId('tab-gaps')).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByTestId('tab-gaps')).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.getByTestId('tab-gaps')).toBeFocused();
       expect(await bridge.getMessages('forge:execute')).toHaveLength(0);
 
       await page.getByTestId('tab-anonymization').click();
@@ -3590,6 +3676,8 @@ for (const theme of SCANNED_THEMES) {
 
       await page.getByTestId('forge-execute-btn').click();
       await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      // On Review the graph is drawn in the Plan row, once it is opened.
+      await page.getByTestId('tab-plan').click();
       await graphFitted(page, FORGE_GRAPH);
       expect(await graphPaneHeight(page, FORGE_GRAPH)).toBeGreaterThanOrEqual(350);
       expect(await nodesUnder(page, FORGE_GRAPH, MINIMAP)).toEqual([]);
@@ -3841,6 +3929,7 @@ for (const theme of SCANNED_THEMES) {
       await discoverForgeGraph(bridge, page, theme, FORGE_WIDE_GRAPH);
       await page.getByTestId('forge-execute-btn').click();
       await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      await page.getByTestId('tab-plan').click();
 
       // Review drew the graph whatever its size.
       const table = page.getByTestId('forge-review').getByTestId('forge-table-view');
@@ -4015,9 +4104,11 @@ for (const theme of SCANNED_THEMES) {
         automation: FORGE_TARGET_AUTOMATION,
       });
       await page.getByTestId('automation-object-Contact').waitFor({ timeout: 10_000 });
-      // Counted on the tab: the trigger before an account is inserted, and
+      // Counted on the row: the trigger before an account is inserted, and
       // the three flows, the workflow rule and the process of a contact's insert.
-      await expect(page.getByTestId('tab-automation')).toHaveText('Automation6');
+      await expect(page.getByTestId('review-row-automation-summary')).toContainText(
+        '6 automations fire as the run inserts its records.',
+      );
       await expect(page.getByTestId('automation-bypass')).toHaveText(
         'Assign the custom permission Load_Data to the user the run writes as in the target org, and the flows whose start condition excludes it stay quiet.',
       );
@@ -4132,6 +4223,11 @@ for (const theme of SCANNED_THEMES) {
       expect((request.payload as { config: { targetOrgId: string } }).config.targetOrgId).toBe(
         QA_SANDBOX.id,
       );
+      // Said on the row while it is closed, and at the head of the row once open.
+      await expect(page.getByTestId('review-row-gaps-summary')).toHaveText(
+        'Reading what the target org holds against the rows…',
+      );
+      await page.getByTestId('tab-gaps').click();
       await expect(page.getByTestId('forge-gaps-read')).toHaveText(
         'Reading what the target org holds against the rows…',
       );
@@ -4190,9 +4286,10 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(page, read, '[data-testid="forge-gaps-read"]'),
       ).toBeGreaterThan(2);
 
-      // The command the Gaps tab copied run, the target is read again from
-      // the rule's bypass assistant, and the rule shows as kept quiet.
-      await page.getByTestId('tab-gaps').click();
+      // The command the Gaps row copied run, the target is read again from
+      // the rule's bypass assistant, and the rule shows as kept quiet. Under
+      // the gap that refuses rows, the rule's group is folded.
+      await page.getByTestId('gaps-severity-warning-more').locator('summary').click();
       const rule = page.getByTestId('gap-validation_rule|Contact|Phone||Phone_Format');
       await expect(rule.getByTestId('bypass-assistant-command')).toHaveText(
         `sf org assign permset --name Data_Load --target-org ${QA_SANDBOX.alias} --on-behalf-of ${QA_SANDBOX.username}`,
@@ -4297,7 +4394,12 @@ for (const theme of SCANNED_THEMES) {
         { part: 'currencies', reason: 'INSUFFICIENT_ACCESS' },
       ]);
       await page.getByTestId('gaps-severity-blocking').waitFor({ timeout: 10_000 });
-      await expect(page.getByTestId('tab-gaps')).toHaveText('Gaps2');
+      await expect(page.getByTestId('review-row-gaps-summary')).toHaveText(
+        '2 gaps will refuse rows until each is decided.',
+      );
+      // Under the gaps that refuse rows, those that may are folded: opened,
+      // their words are measured with the rest.
+      await page.getByTestId('gaps-severity-warning-more').locator('summary').click();
       // The rule's bypass, under it: checked with the rest of the tab.
       await expect(
         page.getByTestId(`gap-${FORGE_GAPS[3].id}`).getByTestId('bypass-assistant-Phone_Bypass'),
@@ -4323,7 +4425,7 @@ for (const theme of SCANNED_THEMES) {
       await expect(refused.getByTestId('gap-decided')).toHaveText('Decided: written as “Customer”');
       await page.getByTestId(`gap-${FORGE_GAPS[2].id}`).getByTestId('gap-truncate').click();
       await page.getByTestId(`gap-${FORGE_GAPS[1].id}`).getByTestId('gap-exclude-object').click();
-      await expect(page.getByTestId('tab-gaps')).toHaveText('Gaps');
+      await expect(page.getByTestId('review-row-gaps-state')).not.toHaveText('Needs you');
       await expect(page.getByTestId('gaps-kept-decisions')).toContainText(
         'Contact: left out of the run',
       );
@@ -4364,6 +4466,16 @@ for (const theme of SCANNED_THEMES) {
             details:
               'Contact is in the target org, but the user the clone writes as may not create its records there: Execute skips it',
           },
+          // One no user can create, said an info, with no grant to ask.
+          {
+            objectApiName: 'Report',
+            fieldApiName: '',
+            issue: 'object_not_createable',
+            severity: 'info',
+            details:
+              'Report is in the target org, but no user can create its records there, not even one with Modify All Data: Execute skips it',
+            notCreatableBy: 'setup',
+          },
         ],
       });
       await answerGapsRead(bridge, page, [
@@ -4376,12 +4488,32 @@ for (const theme of SCANNED_THEMES) {
           rows: 0,
           decisions: ['exclude_object'],
         },
+        {
+          id: 'object_through_parent|OpportunityLineItem|||',
+          kind: 'object_through_parent',
+          severity: 'blocking',
+          source: 'metadata',
+          objectApiName: 'OpportunityLineItem',
+          rows: 0,
+          detail: { editOn: ['Opportunity'] },
+          decisions: ['exclude_object'],
+        },
+        {
+          id: 'object_setup_only|Report|||',
+          kind: 'object_setup_only',
+          severity: 'info',
+          source: 'metadata',
+          objectApiName: 'Report',
+          rows: 0,
+          decisions: ['exclude_object'],
+        },
       ]);
       await page.getByTestId('tab-metadata').click();
       await expect(page.getByTestId('diff-0')).toContainText('Execute skips it');
+      await expect(page.getByTestId('diff-1')).toContainText('no grant would open it');
       await expectReadable(page, theme);
 
-      await page.getByTestId('tab-gaps').click();
+      // A gap that refuses rows opened its row by itself.
       await expect(page.getByTestId('gaps-severity-blocking')).toContainText(
         'Object the user the clone writes as may not create in the target',
       );
@@ -4394,6 +4526,7 @@ for (const theme of SCANNED_THEMES) {
       await discoverForgeGraph(bridge, page, theme);
       await page.getByTestId('forge-execute-btn').click();
       await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      await page.getByTestId('tab-plan').click();
 
       // The search marks the object it matches on the graph, and offers to
       // leave out the branch it heads.
@@ -4473,10 +4606,11 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('forge-preview-clone')).toContainText(
         '4 objects · records not counted',
       );
-      await expect(page.getByTestId('forge-preview-skipped-empty')).toHaveText('Skipped (empty)0');
+      await expect(page.getByTestId('forge-preview-skipped-empty')).toHaveCount(0);
       // The plan the extension makes of that graph reckons from its zeros:
-      // the Plan tab says the records are not counted, and no call or
+      // the Plan row says the records are not counted, and no call or
       // duration reckoned from them.
+      await page.getByTestId('tab-plan').click();
       await answerAll(page, 'forge:plan:request', 'forge:plan:response', {
         plan: {
           waves: [
@@ -4519,16 +4653,16 @@ for (const theme of SCANNED_THEMES) {
       });
       await page.getByTestId('forge-execute-btn').click();
 
-      // The copy turned on: the size, and the confirmation that holds Execute.
-      // The dependency graph beside it is scanned too: its nodes were buttons
-      // holding their own checkbox (nested-interactive) until the card
+      // The copy turned on: the size, and the confirmation that holds Execute,
+      // in the column of the run. The graph, closed in its Plan row here, is
+      // scanned open on Review by the test of its minimap: its nodes were
+      // buttons holding their own checkbox (nested-interactive) until the card
       // stopped being one.
       const reviewScan = {};
       await page.getByTestId('forge-files-toggle').check();
       await page.waitForSelector('[data-testid="forge-files-as-is"]', { timeout: 10_000 });
       await expect(page.getByTestId('execute-button')).toBeDisabled();
       await toMiddle(page, 'forge-files-as-is');
-      await outOfGraphCellRow(page, 'forge-files-as-is', FORGE_GRAPH);
       const asked = await checkAccessibility(page, reviewScan);
       expectNoViolations(asked);
       expect(
@@ -5401,6 +5535,83 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
+    test('Automation header of a pipeline: its name, the saved list with each Delete, a blank name, and both questions', async ({
+      page,
+    }) => {
+      const pipeline = {
+        id: 'p-kept',
+        name: 'Nightly refresh',
+        description: '',
+        version: 1,
+        steps: [
+          {
+            id: 's-1',
+            name: 'Wait',
+            type: 'delay',
+            config: { seconds: 5 },
+            continueOnError: false,
+          },
+        ],
+        triggers: [],
+        variables: [],
+        tags: [],
+        createdAt: '2026-11-01T00:00:00.000Z',
+        updatedAt: '2026-11-01T00:00:00.000Z',
+      };
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await answerAll(page, 'pipeline:list', 'pipeline:list:response', {
+        pipelines: [pipeline, { ...pipeline, id: 'p-other', name: 'Weekly backup' }],
+        triggers: [],
+      });
+
+      // The chooser, each pipeline with its name and its own Delete.
+      await expect(page.getByTestId('saved-pipeline-delete-p-other')).toBeVisible();
+      const chooser = await checkAccessibility(page);
+      expectNoViolations(chooser);
+      expect(
+        await contrastMeasuredIn(page, chooser, '[data-testid="saved-pipelines"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('saved-pipeline-delete-p-other').click();
+      await expect(page.getByTestId('danger-title')).toHaveText('Delete “Weekly backup”?');
+      expectNoViolations(await checkAccessibility(page));
+      await page.getByTestId('danger-dismiss-btn').click();
+      await expect(page.getByTestId('danger-title')).toHaveCount(0);
+
+      // The header of a pipeline changed, Open… showing the list beside it.
+      await page.getByTestId('saved-pipeline-p-kept').click();
+      await page.getByLabel('Pipeline name').fill('Nightly refresh edited');
+      await expect(page.getByTestId('pipeline-unsaved')).toBeVisible();
+      await page.getByTestId('open-pipeline-btn').click();
+      await expect(page.getByTestId('saved-pipelines-close')).toBeVisible();
+      const header = await checkAccessibility(page);
+      expectNoViolations(header);
+      expect(
+        await contrastMeasuredIn(page, header, '[data-testid="pipeline-identity"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, header, '[data-testid="pipeline-unsaved"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('saved-pipeline-p-other').click();
+      await expect(page.getByTestId('danger-title')).toHaveText(
+        'Discard the changes to “Nightly refresh edited”?',
+      );
+      expectNoViolations(await checkAccessibility(page));
+      await page.getByTestId('danger-dismiss-btn').click();
+      await expect(page.getByTestId('danger-title')).toHaveCount(0);
+
+      // A name left blank, and what it holds back.
+      await page.getByLabel('Pipeline name').fill('');
+      await expect(page.getByRole('alert')).toBeVisible();
+      await expect(page.getByTestId('save-pipeline-btn')).toBeDisabled();
+      const blank = await checkAccessibility(page);
+      expectNoViolations(blank);
+      expect(
+        await contrastMeasuredIn(page, blank, '[data-testid="pipeline-identity"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('Automation Seed, Anonymize and Checkpoint step panels, each with what it asks for', async ({
       page,
     }) => {
@@ -5448,6 +5659,11 @@ for (const theme of SCANNED_THEMES) {
           .some((node) => node.html.includes('config-masking-note')),
         'axe did not measure the masking note',
       ).toBe(true);
+      // What the step accepts of the org's automation, opened and one ticked.
+      await page.getByTestId('masking-acceptances').locator('summary').click();
+      await page.getByTestId('config-acceptAutomation').check();
+      await expect(page.getByTestId('masking-acceptances-count')).toHaveText('1 ticked');
+      expectNoViolations(await checkAccessibility(page));
 
       await steps.nth(2).click();
       await page.getByTestId('config-orgId').selectOption(DEV_SANDBOX.id);
@@ -5627,9 +5843,15 @@ for (const theme of SCANNED_THEMES) {
       await answerAll(page, 'migration:import-sfdmu', 'migration:import-sfdmu:response', {
         success: true,
         config: imported,
+        notes: [
+          { code: 'everyField', object: 'Contact', detail: 'Id' },
+          { code: 'mockFields', object: 'Account', detail: 'Name, Phone' },
+          { code: 'notMaster', object: 'Contact' },
+        ],
       });
       await page.getByTestId('migration-edit').waitFor({ timeout: 10_000 });
       await expect(page.getByTestId('object-entry-Contact')).toBeVisible();
+      await expect(page.getByTestId('migration-notes').getByRole('listitem')).toHaveCount(3);
       // Each column named above the rows, what an object carries under its row.
       await expect(page.getByTestId('object-detail-Account')).toHaveText(
         '0 field mappings · 0 transform rules · 1 excluded field',
@@ -5638,6 +5860,9 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(editable);
       expect(
         await contrastMeasuredIn(page, editable, '[data-testid="object-set-table"] thead'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, editable, '[data-testid="migration-notes"]'),
       ).toBeGreaterThan(0);
 
       // The contact left out, and offered back; the accounts upserted with no key.
@@ -5728,24 +5953,6 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(page, saved, '[data-testid="migration-save-sync-saved"]'),
       ).toBeGreaterThan(0);
 
-      // Open in Sync: Sync's execute step, on that configuration, its own
-      // Simulate and Run beside it.
-      await page.getByTestId('migration-open-in-sync-btn').click();
-      await page.getByTestId('sync-page').waitFor({ timeout: 10_000 });
-      await expect(page.getByTestId('sync-saved-run')).toHaveText(
-        'Saved configuration: Nightly accounts 2',
-      );
-      await expect(page.getByTestId('sync-simulate')).toBeVisible();
-      await expect(page.getByTestId('sync-run')).toBeVisible();
-      const inSync = await checkAccessibility(page);
-      expectNoViolations(inSync);
-      expect(
-        await contrastMeasuredIn(page, inSync, '[data-testid="sync-saved-run"]'),
-      ).toBeGreaterThan(0);
-
-      await page.getByTestId('sync-simulate').click();
-      const load = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
-      expect(load.payload).toEqual({ id: 'cfg-saved' });
       const savedConfig = {
         id: 'cfg-saved',
         name: 'Nightly accounts 2',
@@ -5760,6 +5967,38 @@ for (const theme of SCANNED_THEMES) {
         createdAt: '2026-10-31T08:00:00.000Z',
         updatedAt: '2026-10-31T08:00:00.000Z',
       };
+
+      // Open in Sync: Sync's execute step, on that configuration, what each
+      // of its objects does said above its own Simulate and Run, which wait
+      // until it is read back.
+      await page.getByTestId('migration-open-in-sync-btn').click();
+      await page.getByTestId('sync-page').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('sync-saved-run')).toHaveText(
+        'Saved configuration: Nightly accounts 2',
+      );
+      await expect(page.getByTestId('sync-run')).toBeDisabled();
+      const opened = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
+      expect(opened.payload).toEqual({ id: 'cfg-saved' });
+      await answerAll(page, 'sync:config:load', 'sync:config:load:response', {
+        config: savedConfig,
+      });
+      await expect(page.getByTestId('sync-review-objects')).toBeVisible();
+      await expect(page.getByTestId('sync-simulate')).toBeEnabled();
+      await expect(page.getByTestId('sync-run')).toBeEnabled();
+      const inSync = await checkAccessibility(page);
+      expectNoViolations(inSync);
+      expect(
+        await contrastMeasuredIn(page, inSync, '[data-testid="sync-saved-run"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, inSync, '[data-testid="sync-review-objects"]'),
+      ).toBeGreaterThan(0);
+
+      const readBefore = (await bridge.getMessages('sync:config:load')).length;
+      await page.getByTestId('sync-simulate').click();
+      await expect
+        .poll(async () => (await bridge.getMessages('sync:config:load')).length)
+        .toBeGreaterThan(readBefore);
       await answerAll(page, 'sync:config:load', 'sync:config:load:response', {
         config: savedConfig,
       });
@@ -5785,7 +6024,7 @@ for (const theme of SCANNED_THEMES) {
       await answerAll(page, 'reports:audit', 'reports:audit:response', REPORTS_AUDIT);
       await answerAll(page, 'reports:lineage', 'reports:lineage:response', REPORTS_LINEAGE);
 
-      await page.getByRole('tab', { name: 'Audit Trail' }).click();
+      await page.getByRole('tab', { name: 'Audit trail' }).click();
       await page.waitForSelector('[data-testid="audit-audit-forge"]', { timeout: 10_000 });
       // The skipped object's row is scanned with the rest of the entry, and
       // so are the records written without a field the target refused.
@@ -5797,14 +6036,14 @@ for (const theme of SCANNED_THEMES) {
       );
       // So is the line a removal of what an earlier one left carries.
       await expect(page.getByTestId('audit-left-by-audit-removal')).toBeVisible();
-      // Each module goes by its navigation name, said once: "Cleanup Delete
-      // frozen", "Forge Clone forge".
+      // Each module goes by its navigation name, said once: "Cleanup delete
+      // frozen", "Forge clone forge".
       await expect(page.getByTestId('audit-module-audit-removal')).toHaveText('Frozen Dataset');
       await expect(page.getByTestId('audit-module-audit-restore')).toHaveText('DataOps');
       await expect(page.getByTestId('audit-module-audit-forge')).toHaveCount(0);
       await expect(page.getByTestId('module-filter').locator('option')).toHaveText([
         'Filter by module',
-        'All Modules',
+        'All modules',
         'DataOps',
         'Forge',
         'Frozen Dataset',
@@ -5839,7 +6078,7 @@ for (const theme of SCANNED_THEMES) {
       expect(content).toContain(`"'=1+1"`);
       expectNoViolations(await checkAccessibility(page));
 
-      await page.getByRole('tab', { name: 'Data Lineage' }).click();
+      await page.getByRole('tab', { name: 'Data lineage' }).click();
       await page.waitForSelector('[data-testid="lineage-run"]', { timeout: 10_000 });
       await expect(page.locator('.react-flow__edge-text')).toHaveCount(2, { timeout: 10_000 });
       expect(await edgeLabelsUnderNodes(page, 'lineage-flow')).toEqual([]);
@@ -5859,11 +6098,11 @@ for (const theme of SCANNED_THEMES) {
         runs: [],
       });
 
-      await page.getByRole('tab', { name: 'Audit Trail' }).click();
+      await page.getByRole('tab', { name: 'Audit trail' }).click();
       await page.waitForSelector('[data-testid="reports-audit-empty"]', { timeout: 10_000 });
       expectNoViolations(await checkAccessibility(page));
 
-      await page.getByRole('tab', { name: 'Data Lineage' }).click();
+      await page.getByRole('tab', { name: 'Data lineage' }).click();
       await page.waitForSelector('[data-testid="reports-lineage-empty"]', { timeout: 10_000 });
       expectNoViolations(await checkAccessibility(page));
     });
@@ -6189,6 +6428,8 @@ for (const theme of SCANNED_THEMES) {
           run('op-clone', 'clone', 'completed', { percentage: 100 }),
           run('op-csv', 'csv', 'failed', { error: 'REQUIRED_FIELD_MISSING: Name' }),
           run('op-frozen', 'frozen', 'cancelled', { processedRecords: 0, recordsPerSecond: 0 }),
+          // A run that ended with part of its work not done.
+          run('op-seed-partial', 'seed', 'partial', { percentage: 80 }),
           // A clone that stopped part way, offered to be taken up where it stopped.
           run('op-forge-stopped', 'forge', 'failed', {
             error: 'Forge execution finished with a failure status.',
@@ -6206,6 +6447,7 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('pause-op-forge')).toHaveCount(0);
       await expect(page.getByTestId('resume-run-op-forge-stopped')).toBeVisible();
       await expect(page.getByRole('img', { name: 'Cancelled' })).toBeVisible();
+      await expect(page.getByTestId('live-op-partial-op-seed-partial')).toBeVisible();
       await page.getByTestId('live-op-op-csv').scrollIntoViewIfNeeded();
 
       const results = await checkAccessibility(page);
@@ -7174,8 +7416,9 @@ for (const theme of SCANNED_THEMES) {
         plan: MOCK_PLAN,
         graph: MOCK_GRAPH,
       });
-      await page.getByTestId('step4-orgs').waitFor({ state: 'visible', timeout: 5000 });
-      await expect(page.getByTestId('step4-target-org').getByTestId('org-badge-type')).toHaveText(
+      await page.getByTestId('step4-review').waitFor({ state: 'visible', timeout: 5000 });
+      await expect(page.getByTestId('org-ribbon-source-name')).toHaveText('DevSandbox');
+      await expect(page.getByTestId('org-ribbon-target').getByTestId('org-badge-type')).toHaveText(
         'STAGING',
       );
       await expect(page.getByTestId('execute-button')).toHaveText('Copy into QASandbox');
@@ -7183,10 +7426,10 @@ for (const theme of SCANNED_THEMES) {
         'Emails and phones neutralized',
       );
 
-      await toMiddle(page, 'step4-orgs');
+      await toMiddle(page, 'org-ribbon');
       const review = await checkAccessibility(page);
       expectNoViolations(review);
-      for (const testId of ['step4-source-org', 'step4-target-org', 'stat-personal-data']) {
+      for (const testId of ['org-ribbon-source', 'org-ribbon-target', 'stat-personal-data']) {
         expect(await contrastMeasuredIn(page, review, `[data-testid="${testId}"]`)).toBeGreaterThan(
           0,
         );
@@ -7554,6 +7797,31 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Automation pipeline with a step stopped before it finished', async ({ page }) => {
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await page.getByTestId('create-pipeline-btn').click();
+      await page.getByTestId('palette-delay').click();
+      await page.locator('[data-testid^="canvas-step-"]').first().click();
+      await page.getByTestId('config-seconds').fill('5');
+      await page.getByTestId('run-pipeline-btn').click();
+      const request = await bridge.waitForMessage('pipeline:execute');
+      const stepId = (request.payload as { pipeline: { steps: Array<{ id: string }> } }).pipeline
+        .steps[0].id;
+      await sendExtensionMessage(page, {
+        type: 'pipeline:step',
+        id: 'step-stopped',
+        payload: {
+          operationId: request.id,
+          stepId,
+          status: 'stopped',
+          error: 'Step "Delay" was stopped before it finished.',
+        },
+      });
+      await page.getByTestId(`exec-error-${stepId}`).waitFor({ state: 'visible', timeout: 5000 });
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Compare deployment confirmation open over the Deploy tab', async ({ page }) => {
       await openDeployTab(bridge, page, theme);
       await validateInvoicing(page);
@@ -7796,12 +8064,73 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Frozen load removal confirmation listing what the target runs as the records go, with the box that mutes it', async ({
+      page,
+    }) => {
+      await openFrozenLastLoad(bridge, page, theme);
+      await page.getByTestId('frozen-removal-remove').click();
+      const dialog = page.getByRole('dialog', {
+        name: `Remove this load's records from ${QA_SANDBOX.alias}`,
+      });
+      await expect(dialog.getByTestId('frozen-removal-automation-loading')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+      await bridge.waitForMessage('frozen:remove:automation', { timeout: 10_000 });
+      await answerAll(page, 'frozen:remove:automation', 'frozen:remove:automation:response', {
+        loadedAt: FROZEN_LAST_LOAD_RECORDS.loadedAt,
+        steps: { setToDraft: [], delete: ['Contact', 'Account'] },
+        automation: {
+          objectsRead: ['Contact', 'Account'],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [],
+              triggers: [{ name: 'AccountCleanup', events: ['beforeDelete', 'afterDelete'] }],
+            },
+            {
+              objectApiName: 'Contact',
+              flows: [
+                {
+                  apiName: 'Contact_Gone',
+                  label: 'Contact gone',
+                  timing: 'beforeSave',
+                  startsOn: 'delete',
+                  condition: 'read',
+                  permissions: [{ name: 'Skip_Delete', bypass: true, held: false }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+          bypassGrants: [
+            {
+              permission: 'Skip_Delete',
+              permissionSets: [{ name: 'Delete_Bypass', label: 'Delete bypass', grants: 1 }],
+            },
+          ],
+        },
+      });
+      await dialog
+        .getByTestId('frozen-removal-automation-mute-toggle')
+        .waitFor({ timeout: 10_000 });
+      await expect(dialog.getByTestId('frozen-removal-automation-delete-Account')).toBeVisible();
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Frozen load removal confirmation with a sweep ticked, listing what it would take', async ({
       page,
     }) => {
       await openFrozenLastLoad(bridge, page, theme);
       await page.getByTestId('frozen-removal-remove').click();
       await page.getByTestId('frozen-removal-sweep-toggle').check();
+      // Held while the sweep's list is read: the line that says so, and the
+      // button it disables.
+      await expect(page.getByTestId('danger-held')).toBeVisible();
+      await expect(page.getByTestId('danger-confirm-btn')).toBeDisabled();
+      expectNoViolations(await checkAccessibility(page));
       await bridge.waitForMessage('frozen:remove:sweep', { timeout: 10_000 });
       await answerAll(page, 'frozen:remove:sweep', 'frozen:remove:sweep:response', {
         loadedAt: FROZEN_LAST_LOAD_RECORDS.loadedAt,
@@ -7950,6 +8279,95 @@ for (const theme of SCANNED_THEMES) {
       });
       await expect(page.getByTestId('forge-removal-mark')).toBeVisible();
       await expect(page.getByTestId('frozen-removal-kept')).toBeVisible();
+      // What a sweep that failed left in the org, offered alone.
+      await expect(page.getByTestId('frozen-removal-sweep-alone')).toBeVisible();
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Frozen reload confirmation listing what the target runs as its purge deletes, with the box that mutes it', async ({
+      page,
+    }) => {
+      await openFrozenLastLoad(bridge, page, theme, {
+        ...FROZEN_STATUS_WITH_DATASET,
+        lastLoads: FROZEN_STATUS_AFTER_LOAD.lastLoads,
+        loadRecords: [FROZEN_LAST_LOAD_RECORDS],
+      });
+      await page.getByTestId('frozen-load-reload').check();
+      await page.getByTestId('frozen-load-run').click();
+      await bridge.waitForMessage('frozen:load:preview', { timeout: 10_000 });
+      await answerAll(page, 'frozen:load:preview', 'frozen:load:preview:response', {
+        plan: FROZEN_RELOAD_PLAN,
+      });
+      const dialog = page.getByRole('dialog', { name: `Reload into ${QA_SANDBOX.alias}` });
+      await dialog.waitFor({ state: 'visible', timeout: 10_000 });
+      await expect(dialog.getByTestId('frozen-removal-automation-loading')).toBeVisible();
+      await bridge.waitForMessage('frozen:remove:automation', { timeout: 10_000 });
+      await answerAll(page, 'frozen:remove:automation', 'frozen:remove:automation:response', {
+        loadedAt: FROZEN_LAST_LOAD_RECORDS.loadedAt,
+        steps: { setToDraft: [], delete: ['Contact'] },
+        automation: {
+          objectsRead: ['Contact'],
+          objects: [
+            {
+              objectApiName: 'Contact',
+              flows: [
+                {
+                  apiName: 'Contact_Gone',
+                  label: 'Contact gone',
+                  timing: 'beforeSave',
+                  startsOn: 'delete',
+                  condition: 'read',
+                  permissions: [{ name: 'Skip_Delete', bypass: true, held: false }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+          bypassGrants: [
+            {
+              permission: 'Skip_Delete',
+              permissionSets: [{ name: 'Delete_Bypass', label: 'Delete bypass', grants: 1 }],
+            },
+          ],
+        },
+      });
+      await dialog
+        .getByTestId('frozen-removal-automation-mute-toggle')
+        .waitFor({ timeout: 10_000 });
+
+      expectNoViolations(await checkAccessibility(page));
+
+      // Its sweep ticked: what it would take for each load the reload replaces, listed.
+      await dialog.getByTestId('frozen-reload-sweep-toggle').check();
+      await bridge.waitForMessage('frozen:remove:sweep', { timeout: 10_000 });
+      await answerAll(page, 'frozen:remove:sweep', 'frozen:remove:sweep:response', {
+        loadedAt: FROZEN_LAST_LOAD_RECORDS.loadedAt,
+        reload: true,
+        loads: [
+          {
+            loadedAt: FROZEN_LAST_LOAD_RECORDS.loadedAt,
+            listing: {
+              looked: ['Contact', 'Task'],
+              found: [
+                {
+                  objectApiName: 'Task',
+                  count: 2,
+                  names: ['Follow up'],
+                  classes: { made: 2, madeOver: 0, late: 0, untied: 0 },
+                },
+              ],
+              unread: [],
+              handWork: [],
+              untied: { objects: [] },
+            },
+          },
+        ],
+      });
+      await dialog.getByTestId('frozen-reload-sweep-load').waitFor({ timeout: 10_000 });
 
       expectNoViolations(await checkAccessibility(page));
     });
@@ -8740,6 +9158,16 @@ const SEED_RUN_RESULT = {
       createdIds: [],
       errors: ['REQUIRED_FIELD_MISSING: LastName'],
     },
+    {
+      // Every role linked to the one the platform wrote with its opportunity:
+      // none created, none refused.
+      objectApiName: 'OpportunityContactRole',
+      recordsCreated: 0,
+      recordsFailed: 0,
+      createdIds: [],
+      errors: [],
+      writtenByThePlatform: { records: 50, given: 50 },
+    },
   ],
   totalRecordsCreated: 390,
   totalRecordsFailed: 10,
@@ -8867,6 +9295,7 @@ function contactAutomationAnswer(asked: {
           limit: 'SingleEmail',
           perRecord: 3,
           sentBy: ['Contact_Welcome', 'Welcome Email'],
+          alertsAmong: true,
         },
       ],
       limits: {
@@ -10942,7 +11371,7 @@ for (const theme of STATE_THEMES) {
       );
       await page.goto('/');
       await bridge.seedOrgs(MOCK_ORGS);
-      const header = page.getByTestId('page-header-actions').getByTestId('org-badge-alias');
+      const header = page.getByTestId('org-ribbon').locator('[data-testid$="-name"]');
       await expect(header).toHaveText([QA_SANDBOX.alias, DEV_SANDBOX.alias]);
       // One way into Quick Sync on the first step.
       await expect(page.getByTestId('quick-sync-card')).toHaveCount(1);
@@ -10951,9 +11380,11 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('quick-sync-start-btn').click();
       await page.getByTestId('quick-sync-preview-step').waitFor({ timeout: 10_000 });
       await expect(header).toHaveText([DEV_SANDBOX.alias, QA_SANDBOX.alias]);
+      // Named once, by the ribbon: the preview drew two badges under it.
+      await expect(page.getByTestId('quick-sync-preview-orgs')).toHaveCount(0);
       await expect(
-        page.getByTestId('quick-sync-preview-orgs').getByTestId('org-badge-alias'),
-      ).toHaveText([DEV_SANDBOX.alias, QA_SANDBOX.alias]);
+        page.getByTestId('quick-sync-preview-step').getByTestId('org-badge-alias'),
+      ).toHaveCount(0);
       await expect(page.getByTestId('quick-sync-inserts-note')).toHaveText(
         'Inserts every record; emails and phone numbers are neutralized.',
       );
@@ -11423,6 +11854,7 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('restore-confirm-objects')).toContainText(
         'Contact: 700 records',
       );
+      await nothingFires(page);
       await expectReadable(page, theme);
       await page.getByTestId('danger-confirm-btn').click();
       await bridge.waitForMessage('dataops:rollback', { timeout: 10_000 });
@@ -11525,10 +11957,10 @@ for (const theme of STATE_THEMES) {
 
       await expectReadable(page, theme);
 
-      // Said again where Apply is confirmed.
+      // Said again where Apply is confirmed: the run is refused, and masks nothing.
       await page.getByTestId('apply-btn').click();
       await expect(page.getByTestId('confirm-fields-not-found')).toContainText(
-        'field-level security',
+        'Apply will be refused',
       );
       await expectReadable(page, theme);
     });
@@ -11823,6 +12255,7 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByRole('dialog')).toContainText(
         'those changed or deleted since the run are left as they are',
       );
+      await nothingFires(page);
       await expectReadable(page, theme);
       await page.getByTestId('danger-confirm-btn').click();
       const restore = await bridge.waitForMessage('dataops:rollback', { timeout: 10_000 });
@@ -12152,6 +12585,17 @@ for (const theme of STATE_THEMES) {
                 message: 'Cannot activate a record without its products',
               },
             ],
+            lookupsFilled: 40,
+            lookupRefusals: [
+              {
+                statusCode: 'PARENT_REFUSED',
+                fields: ['ReportsToId'],
+                count: 3,
+                message:
+                  'the Contact record its ReportsToId names was refused in this run, and this ' +
+                  'record, written before it, keeps its ReportsToId empty.',
+              },
+            ],
           },
         },
       ]);
@@ -12162,9 +12606,114 @@ for (const theme of STATE_THEMES) {
       });
       await page.getByTestId('control-tab-node').click();
       await page.getByTestId('node-status-refusals').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByTestId('node-lookup-refusals').waitFor({ state: 'visible', timeout: 10_000 });
       await page
         .getByTestId('node-left-to-the-platform')
         .waitFor({ state: 'visible', timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Autopilot result of a run left partial, a node skipped on the graph and in its legend', async ({
+      page,
+    }) => {
+      // Skipped drew as Pending in a shade of grey, the legend did not name
+      // it, and nothing said a run that left records without their lookup.
+      await startAutopilotRun(bridge, page, theme);
+      await bridge.stream([
+        {
+          type: 'autopilot:node-progress',
+          payload: {
+            nodeId: 'Account',
+            objectName: 'Account',
+            status: 'completed',
+            wave: 0,
+            recordCount: 500,
+            failureCount: 0,
+          },
+        },
+        {
+          type: 'autopilot:node-progress',
+          payload: {
+            nodeId: 'Contact',
+            objectName: 'Contact',
+            status: 'skipped',
+            wave: 1,
+            recordCount: 0,
+            failureCount: 0,
+            notSent: 1200,
+          },
+        },
+      ]);
+      await sendExtensionMessage(page, {
+        type: 'autopilot:completed',
+        id: 'autopilot-run-end',
+        timestamp: Date.now(),
+        payload: {
+          status: 'partial',
+          totalRecords: 1700,
+          totalSuccessCount: 500,
+          totalFailureCount: 0,
+          totalElapsedMs: 4000,
+          totalApiCalls: 0,
+          lookupsNotFilled: [
+            {
+              objectApiName: 'Account',
+              records: 3,
+              refusals: [
+                {
+                  statusCode: 'PARENT_REFUSED',
+                  fields: ['ParentId'],
+                  count: 3,
+                  message: 'the Account record its ParentId names was refused in this run',
+                },
+              ],
+            },
+          ],
+        },
+      });
+      await page.getByTestId('control-run-status').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByTestId('control-lookups-not-filled').waitFor({ state: 'visible' });
+      await page.getByTestId('node-skipped').waitFor({ state: 'visible' });
+      await expect(page.getByTestId('graph-legend')).toContainText('Skipped');
+      // What the graph is fitted clear of, as the legend comes to draw.
+      expect((await page.getByTestId('graph-legend').boundingBox())?.height).toBe(198);
+
+      await expectReadable(page, theme);
+      expect(await autopilotNodesUnderItsOverlays(page)).toEqual(
+        Object.fromEntries(AUTOPILOT_GRAPH_OVERLAYS.map((overlay) => [overlay, []])),
+      );
+    });
+
+    test('Autopilot minimap drawing an object skipped hollow and dashed, apart from one waiting', async ({
+      page,
+    }) => {
+      // Both were filled in neighbouring greys, 1.46:1 apart on the
+      // fallbacks, in a minimap shown from the start that draws no word.
+      await startAutopilotRun(bridge, page, theme);
+      await bridge.stream([
+        {
+          type: 'autopilot:node-progress',
+          payload: {
+            nodeId: 'Contact',
+            objectName: 'Contact',
+            status: 'skipped',
+            wave: 1,
+            recordCount: 0,
+            notSent: 1200,
+          },
+        },
+      ]);
+      await page.getByTestId('node-skipped').waitFor({ state: 'visible', timeout: 10_000 });
+      await graphFitted(page, AUTOPILOT_GRAPH);
+
+      // Account waits, filled; Contact was skipped, hollow, its outline dashed.
+      const [waiting, skipped] = await minimapNodesAsPainted(page, AUTOPILOT_GRAPH);
+      expect(waiting).toMatchObject({ outline: null, dashed: false });
+      expect(waiting.fill).toBeGreaterThanOrEqual(3);
+      expect(skipped).toMatchObject({ fill: null, dashed: true });
+      expect(skipped.outline).toBeGreaterThanOrEqual(3);
+      expect(skipped.outlinePx).toBeGreaterThanOrEqual(1);
 
       await expectReadable(page, theme);
     });
@@ -12544,11 +13093,15 @@ for (const theme of STATE_THEMES) {
       const saved = await bridge.waitForMessage('file:save', { timeout: 10_000 });
       const lines = (saved.payload as { content: string }).content.split('\n');
       expect(lines[0]).toBe(
-        '"Object","Requested","Created","Failed","Created IDs","Created IDs not listed"',
+        '"Object","Requested","Created","Failed","Created IDs","Created IDs not listed","Linked to a record the platform wrote"',
       );
       expect(lines[1]).toBe(
-        '"Account","100","100","0","001000000000001AAA 001000000000002AAA","98"',
+        '"Account","100","100","0","001000000000001AAA 001000000000002AAA","98","0"',
       );
+      expect(lines[3]).toBe('"OpportunityContactRole","","0","0","","0","50"');
+      // The role object whose roles were all linked read a green 0/0.
+      await expect(page.getByText('50 linked', { exact: true })).toBeVisible();
+      await expect(page.getByText('0/0', { exact: true })).toHaveCount(0);
       await expect(page.getByTestId('seed-checkpoint-now')).toBeVisible();
 
       await expectReadable(page, theme, '[data-testid="seed-step-results-content"]');
@@ -13142,6 +13695,10 @@ for (const theme of STATE_THEMES) {
       await page
         .getByTestId('frozen-report-held-for-excluded')
         .waitFor({ state: 'visible', timeout: 10_000 });
+      // The opportunities it left unsynced with their quote, their products kept.
+      await page
+        .getByTestId('frozen-report-quotes-left-unsynced')
+        .waitFor({ state: 'visible', timeout: 10_000 });
       // The links it could not make: the lookups left empty, per object, and
       // the one that went with a contact the target refused.
       await expect(page.getByTestId('frozen-report-unresolved').locator('tbody tr')).toHaveCount(
@@ -13265,11 +13822,36 @@ for (const theme of STATE_THEMES) {
           'takes it back, and a reload purges it or finds it again.',
         code: 'LOAD_CANCELLED',
         retryable: false,
+        // What the sweep asked with the reload took before the cancel, said beside it.
+        sweeps: [
+          {
+            loadedAt: '2026-10-22T09:00:00.000Z',
+            result: {
+              status: 'cancelled',
+              objects: [
+                {
+                  objectApiName: 'Task',
+                  found: 230,
+                  deleted: 200,
+                  alreadyGone: 0,
+                  keptChanged: 0,
+                  refused: 0,
+                  reasons: [],
+                },
+              ],
+              unread: [],
+              handWork: [],
+            },
+          },
+        ],
       });
       const lines = page.getByTestId('frozen-load-progress').locator('li');
       await expect(lines).toHaveCount(4, { timeout: 10_000 });
       await expect(lines.last().locator('span').first()).toHaveClass(/bg-status-warning/);
       await page.getByTestId('frozen-error').waitFor({ state: 'visible', timeout: 10_000 });
+      await page
+        .getByTestId('frozen-load-error-sweeps')
+        .waitFor({ state: 'visible', timeout: 10_000 });
 
       await expectReadable(page, theme);
     });
@@ -13921,6 +14503,8 @@ for (const theme of STATE_THEMES) {
       });
       await page.getByTestId('dsr-erase-btn').click();
       await page.getByTestId('danger-input').fill(DEV_SANDBOX.alias);
+      // The confirmation waits for what the org runs as the records are written over.
+      await nothingFires(page);
       const reviews = (await bridge.getMessages('dataops:dsr:erase')).length;
       await page.getByTestId('danger-confirm-btn').click();
       await expect
@@ -13943,9 +14527,37 @@ for (const theme of STATE_THEMES) {
             objects: [{ objectApiName: 'Contact', done: 1, failed: 0 }],
             errors: [],
           },
+          // What its mute assigned, kept quiet and took back, read with the rest.
+          mutedAutomation: {
+            state: 'muted',
+            assigned: ['Flow_Bypass'],
+            held: [],
+            permissions: ['Skip_Flows'],
+            silenced: [
+              {
+                objectApiName: 'Contact',
+                kind: 'flow',
+                name: 'Notify Owner',
+                permission: 'Skip_Flows',
+              },
+            ],
+            stillRan: [
+              {
+                objectApiName: 'Contact',
+                kind: 'trigger',
+                name: 'ContactTrigger',
+                why: 'noBypass',
+              },
+            ],
+            released: true,
+            takenBack: ['Flow_Bypass'],
+          },
         },
       });
       await expect(page.getByTestId('removal-outcome')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('dsr-erase-muted-released')).toHaveText(
+        'Taken back as the run ended: Flow_Bypass.',
+      );
       await expect
         .poll(async () => (await bridge.getMessages('backup:list')).length)
         .toBeGreaterThan(1);

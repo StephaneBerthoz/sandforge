@@ -89,12 +89,10 @@ export class StepCancelledError extends Error {
 
 /**
  * How one try at a step ended: with the handler's own result, or with the
- * reason it did not give one. `final` marks a try the run itself stopped,
- * which no retry may follow; `cancelled`, a try whose work was cancelled
- * (see {@link StepCancelledError}), which no retry follows either.
+ * reason it did not give one. `stopped` marks a try the run stopped, or whose
+ * work was cancelled (see {@link StepCancelledError}), which no retry follows.
  */
-type Attempt =
-  { result: PipelineStepResult } | { error: string; final: boolean; cancelled?: boolean };
+type Attempt = { result: PipelineStepResult } | { error: string; stopped?: boolean };
 
 /** What a try settles with when its signal aborts before the handler answers. */
 const STOPPED: unique symbol = Symbol('stopped');
@@ -299,9 +297,10 @@ export class StepExecutor {
    * Execute a pipeline step within the given context.
    * Applies timeout and retry logic as configured on the step. A step that
    * cannot run fails at once, without retries: nothing about it is transient.
-   * Nor is a step whose work was cancelled: its result says it was, and its
-   * run ends cancelled. A Backup cancelled from Live Operations used to be
-   * tried again, and each retry took a new snapshot.
+   * A step someone stopped, by stopping its run or cancelling its work, is
+   * not tried again either: its status is `stopped`, where it read as a step
+   * that had failed, and its run ends cancelled. A Backup cancelled from Live
+   * Operations used to be tried again, and each retry took a new snapshot.
    *
    * A step's timeout stops the step, not only the wait for it. It used to give
    * up on the step and leave it running: the result said the step had timed
@@ -327,13 +326,10 @@ export class StepExecutor {
       if ('result' in outcome) {
         return outcome.result;
       }
-      if (outcome.cancelled) {
-        return { ...createFailureResult(step, outcome.error, startTime), cancelled: true };
+      if (outcome.stopped) {
+        return { ...createFailureResult(step, outcome.error, startTime), status: 'stopped' };
       }
       lastError = outcome.error;
-      if (outcome.final) {
-        break;
-      }
     }
 
     return createFailureResult(step, lastError, startTime);
@@ -357,7 +353,7 @@ export class StepExecutor {
   ): Promise<Attempt> {
     const run = context.signal;
     if (run?.aborted) {
-      return { error: `Step "${step.name}" was stopped before it started.`, final: true };
+      return { error: `Step "${step.name}" was stopped before it started.`, stopped: true };
     }
 
     const stop = new AbortController();
@@ -386,13 +382,13 @@ export class StepExecutor {
         return { result: outcome };
       }
       return timedOut
-        ? { error: `Step "${step.name}" timed out after ${timeout} ms.`, final: false }
-        : { error: `Step "${step.name}" was stopped before it finished.`, final: true };
+        ? { error: `Step "${step.name}" timed out after ${timeout} ms.` }
+        : { error: `Step "${step.name}" was stopped before it finished.`, stopped: true };
     } catch (err) {
       if (err instanceof StepCancelledError) {
-        return { error: err.message, final: true, cancelled: true };
+        return { error: err.message, stopped: true };
       }
-      return { error: extractErrorMessage(err), final: false };
+      return { error: extractErrorMessage(err) };
     } finally {
       clearTimeout(timer);
       run?.removeEventListener('abort', onRunAbort);

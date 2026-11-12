@@ -33,6 +33,25 @@ import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
 
+// What the org runs as a masking or a restore writes its records: nothing,
+// as an org without flows or triggers on them answers. The gate reads it
+// before every write; a test of what it refuses gives a reader of its own.
+vi.mock('../../modules/forge/TargetAutomationReader.js', () => ({
+  TargetAutomationReader: class {
+    read(_orgId: string, objects: readonly string[]) {
+      return Promise.resolve({
+        objectsRead: [...objects],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      });
+    }
+  },
+  targetAutomationQueries: () => ({}),
+}));
+
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));
@@ -107,6 +126,13 @@ function contactsOf(count: number, scoped = count): Array<Record<string, unknown
 /** The filter the tests give a run: the contacts whose last name starts with `Scoped`. */
 const WHERE = "LastName LIKE 'Scoped%'";
 
+/** What an org answers for a record a validation rule refuses: the trap org's phone rule. */
+const VALIDATION_REFUSAL = {
+  statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+  message: 'Phone must be written +33 X XX XX XX XX.',
+  fields: ['Phone'],
+};
+
 /** How the fake org answers beside its rows. */
 interface OrgOptions {
   /** Per object, its describe: a contact's whole by default. */
@@ -156,8 +182,11 @@ function orgOf(rows: Array<Record<string, unknown>>, options: OrgOptions = {}) {
   const update = vi.fn(async (batch: Array<Record<string, unknown>>) => {
     options.beforeUpdate?.(++updates);
     return batch.map((sent) => {
+      // As the trap org refused a masked phone: the rule's own message, its
+      // code beside it. Refused with the bare code, a run's errors read
+      // "FIELD_CUSTOM_VALIDATION_EXCEPTION", which no org ever says.
       if (options.refuses?.(String(sent.Id))) {
-        return { success: false, errors: [{ message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION' }] };
+        return { success: false, errors: [VALIDATION_REFUSAL] };
       }
       Object.assign(rows.find((r) => r.Id === sent.Id) ?? {}, sent);
       return { success: true, id: sent.Id };
@@ -178,7 +207,7 @@ function orgOf(rows: Array<Record<string, unknown>>, options: OrgOptions = {}) {
     soap: { undelete: vi.fn(async () => []) },
   };
   vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
-  return { statements, query, update, upsert };
+  return { conn, statements, query, update, upsert };
 }
 
 /** Backup files kept in memory, behind the store the handler writes them through. */
@@ -461,7 +490,7 @@ describe('DataOpsHandler.anonymizeForPipeline', () => {
       ]);
     });
 
-    it('masks the same org once the field is shown, as the page masks the hidden one partly', async () => {
+    it('masks the same org once the field is shown, the page refusing what the step refuses', async () => {
       const hidden = describeOf(
         'Contact',
         CONTACT_FIELDS.filter((f) => f !== 'Email'),
@@ -475,15 +504,54 @@ describe('DataOpsHandler.anonymizeForPipeline', () => {
           payload: { orgId: 'org-dev', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
         }),
       );
-      // The page's run writes the other fields and ends partial on Email.
-      expect(posted('dataops:anonymize:response')[0]?.payload).toMatchObject({
-        status: 'partial',
+      expect(posted('dataops:error')[0]?.payload).toMatchObject({
+        code: PIPELINE_MASKING_REFUSAL.fieldsUnseen,
         fieldsNotFound: [{ objectApiName: 'Contact', fieldApiName: 'Email' }],
       });
-      expect(update).toHaveBeenCalledTimes(1);
+      expect(posted('dataops:anonymize:response')).toEqual([]);
+      expect(update).not.toHaveBeenCalled();
 
       orgOf(contactsOf(3));
-      expect((await mask()).result).toMatchObject({ status: 'success', fieldsNotFound: [] });
+      expect((await mask()).result).toMatchObject({ status: 'success', recordsNotMasked: 0 });
+    });
+
+    it('asks the org for each object once, whatever reads its describe', async () => {
+      const { conn } = orgOf(contactsOf(3));
+
+      expect((await mask()).result.status).toBe('success');
+
+      expect(conn.describe.mock.calls.map(([name]) => name)).toEqual(['Contact']);
+    });
+
+    it('asks the org for each object once on the page too, over two objects and a snapshot', async () => {
+      const lead = describeOf('Lead', [
+        'Id',
+        'FirstName',
+        'LastName',
+        'Email',
+        'Phone',
+        'Street',
+        'City',
+        'PostalCode',
+      ]);
+      const { conn } = orgOf(contactsOf(3), { describes: { Lead: lead } });
+
+      await handler.handle(
+        inboundRequest({
+          id: 'mask-two',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: {
+            orgId: 'org-dev',
+            templateId: 'tpl-gdpr-standard',
+            objects: ['Contact', 'Lead'],
+            snapshot: true,
+          },
+        }),
+      );
+
+      expect(posted('dataops:anonymize:response')).toHaveLength(1);
+      expect(conn.describe.mock.calls.map(([name]) => name)).toEqual(['Contact', 'Lead']);
     });
 
     it('refuses an object the template has no rule for, and masks one it has', async () => {
@@ -636,6 +704,11 @@ describe('DataOpsHandler.anonymizeForPipeline', () => {
         recordsNotMasked: 2,
         objects: [{ objectApiName: 'Contact', total: 5, processed: 3, failed: 2, notMasked: 2 }],
       });
+      // Why, in the org's words: the rule's message, as the step says it.
+      expect(result.errors).toEqual([
+        { objectApiName: 'Contact', message: 'Phone must be written +33 X XX XX XX XX.' },
+        { objectApiName: 'Contact', message: 'Phone must be written +33 X XX XX XX XX.' },
+      ]);
       expect(rows[1].Email).toBe('person2@example.com');
       expect(trail()).toEqual([expect.objectContaining({ outcome: 'partial' })]);
     });

@@ -91,6 +91,24 @@ export function valueOf(flag: string, value: string): string {
   return value;
 }
 
+/**
+ * What a destroy asks of a removal's sweep: `--sweep`, which takes what the
+ * run's user created tied to the run's records. What came late, or is tied
+ * to nothing of the run, a destroy keeps.
+ */
+export interface EnvSweepAsk {
+  sweep?: boolean;
+}
+
+/**
+ * The switch a removal, or the preview of one, is given for its sweep: none
+ * without it. Previewed with it, the removal reads what the sweep would take,
+ * and what fires as its records go.
+ */
+export function sweepSwitches(ask: EnvSweepAsk): string[] {
+  return ask.sweep === true ? ['--sweep'] : [];
+}
+
 // ─── The answers ─────────────────────────────────────────────────────────────
 
 /** A Salesforce id, as every id an answer names is: a run's records, an org, a user. */
@@ -162,8 +180,31 @@ export interface EnvDryRunCount {
   emails: Array<{ limit: EnvEmailLimit; emails: number }>;
   /** What the script says a real run would be refused for now. */
   refusal?: string;
+  /** The codes of what `refusal` says, each once, where the script gave them. */
+  refusalCodes?: string[];
   /** What the script says a run would leave out, or write otherwise, without refusing it. */
   notes?: string[];
+}
+
+/**
+ * The codes of the refusals a script named, among those `said` holds: each of
+ * `messages` that `said` says, under the code the script gave it, in their
+ * order and each once. None when the script gave no code for each message:
+ * a code given to the wrong refusal is worse than none.
+ */
+export function codesSaidIn(
+  said: string,
+  messages: readonly string[] | undefined,
+  codes: readonly string[] | undefined,
+): string[] {
+  if (messages === undefined || codes?.length !== messages.length) return [];
+  const named = messages.flatMap((message, at) => {
+    const code = codes[at];
+    return code !== undefined && code !== '' && message !== '' && said.includes(message)
+      ? [code]
+      : [];
+  });
+  return [...new Set(named)];
 }
 
 /** What a run wrote, per object, read the same way for every kind. */

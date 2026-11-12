@@ -11,6 +11,7 @@ import {
   type SyncRunCreationsDeps,
 } from '../sync/SyncRunCreations';
 import { overwriteBackupIdOf } from '../sync/syncOverwrites';
+import type { RunIdentity } from '../sync/runUser';
 import type { OrgReader, TargetWrite } from './RealtimeApplier';
 import { openSessionRun, sessionStatusOf } from './sessionRun';
 
@@ -160,6 +161,7 @@ function session(
   options: {
     rows?: Array<Record<string, unknown>>;
     withBackups?: boolean;
+    identity?: RunIdentity;
   } = {},
 ) {
   const disk = memoryDisk();
@@ -173,11 +175,36 @@ function session(
     ...(options.withBackups === false ? {} : { backups: backups.files }),
     meta,
     target: target(options.rows ?? [{ Id: HELD, Ext__c: 'K1', Title: 'Before' }]),
+    ...(options.identity ? { identity: options.identity } : {}),
     log: vi.fn(),
   });
   const writer = writerOver(run.calls);
   return { ...disk, backups, meta, run, write: run.write(writer.write), sent: writer.sent };
 }
+
+describe('openSessionRun — the user a session writes as', () => {
+  const USER = fakeId('005', 1);
+
+  it('keeps it in the session’s file, once the target said', async () => {
+    const { store, run, write } = session({ identity: async () => ({ user_id: USER }) });
+
+    await write(LEAD, [{ Ext__c: 'K2', Title: 'New' }]);
+    await run.end({ status: 'success' });
+
+    expect((await store.get(SESSION))?.runUserId).toBe(USER);
+  });
+
+  it('writes as ever on a target that never says, its file without it', async () => {
+    const { store, run, write } = session({ identity: () => new Promise(() => undefined) });
+
+    await write(LEAD, [{ Ext__c: 'K2', Title: 'New' }]);
+    await run.end({ status: 'success' });
+
+    const kept = await store.get(SESSION);
+    expect(kept?.created).toEqual([{ objectApiName: 'Lead', ids: [MADE] }]);
+    expect(kept).not.toHaveProperty('runUserId');
+  });
+});
 
 describe('openSessionRun — what a Real-Time session writes, kept as a Sync run', () => {
   it('keeps what a session creates, what it writes over with its values from before, and what it deletes, under its id', async () => {

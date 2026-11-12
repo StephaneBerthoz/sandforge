@@ -262,6 +262,8 @@ import type {
   PIIScanResponse,
   DataOpsRollbackRequest,
   DataOpsAnonymizeRequest,
+  DataOpsAutomationRequest,
+  DataOpsAutomationResponse,
   DataOpsQualityScanRequest,
   DataOpsBackupResponse,
   DataOpsRollbackResponse,
@@ -309,6 +311,8 @@ import type {
   PipelineHistoryResponse,
   PipelineSaveRequest,
   PipelineSaveResponse,
+  PipelineDeleteRequest,
+  PipelineDeleteResponse,
   PipelineApprovalAnswerRequest,
   PipelineSyncConfigsRequest,
   PipelineSyncConfigsResponse,
@@ -342,6 +346,7 @@ import type {
   AutopilotScanSchemaRequest,
   AutopilotGeneratePlanRequest,
   AutopilotFitPlanRequest,
+  AutopilotFitUndoRequest,
   AutopilotExecuteRequest,
   AutopilotPauseRequest,
   AutopilotResumeRequest,
@@ -538,6 +543,7 @@ import type {
   FrozenVerifyRequest,
   FrozenRemoveRequest,
   FrozenRemoveSweepRequest,
+  FrozenRemoveAutomationRequest,
   FrozenRemovePreviewRequest,
   FrozenStatusRequest,
   FrozenRulesClearRequest,
@@ -555,6 +561,7 @@ import type {
   FrozenVerifyResultMessage,
   FrozenRemoveResponse,
   FrozenRemoveSweepResponse,
+  FrozenRemoveAutomationResponse,
   FrozenRemovePreviewResponse,
   FrozenStatusResponse,
   FrozenRulesClearResponse,
@@ -567,6 +574,7 @@ import type {
   FrozenVerifyErrorMessage,
   FrozenRemoveErrorMessage,
   FrozenRemoveSweepErrorMessage,
+  FrozenRemoveAutomationErrorMessage,
   FrozenRemovePreviewErrorMessage,
   FrozenRulesClearErrorMessage,
   FrozenRulesCreateErrorMessage,
@@ -711,6 +719,7 @@ export type WebViewToExtensionMessage =
   | PIIScanRequest
   | DataOpsRollbackRequest
   | DataOpsAnonymizeRequest
+  | DataOpsAutomationRequest
   | DataOpsQualityScanRequest
   | DataOpsPiiInventoryRequest
   | DataOpsSubjectSearchRequest
@@ -731,6 +740,7 @@ export type WebViewToExtensionMessage =
   | PipelineListRequest
   | PipelineHistoryRequest
   | PipelineSaveRequest
+  | PipelineDeleteRequest
   | PipelineTemplatesRequest
   | PipelineApprovalAnswerRequest
   | PipelineSyncConfigsRequest
@@ -750,6 +760,7 @@ export type WebViewToExtensionMessage =
   | AutopilotScanSchemaRequest
   | AutopilotGeneratePlanRequest
   | AutopilotFitPlanRequest
+  | AutopilotFitUndoRequest
   | AutopilotExecuteRequest
   | AutopilotPauseRequest
   | AutopilotResumeRequest
@@ -840,6 +851,7 @@ export type WebViewToExtensionMessage =
   | FrozenVerifyRequest
   | FrozenRemoveRequest
   | FrozenRemoveSweepRequest
+  | FrozenRemoveAutomationRequest
   | FrozenRemovePreviewRequest
   | FrozenStatusRequest
   | FrozenRulesClearRequest
@@ -996,6 +1008,7 @@ export type ExtensionToWebViewMessage =
   | DataOpsCleanupScanResponse
   | DataOpsCleanupExportResponse
   | DataOpsCleanupDeleteResponse
+  | DataOpsAutomationResponse
   | DataOpsErrorResponse
   // Governance
   | GovernancePoliciesListResult
@@ -1009,6 +1022,7 @@ export type ExtensionToWebViewMessage =
   | PipelineListResponse
   | PipelineHistoryResponse
   | PipelineSaveResponse
+  | PipelineDeleteResponse
   | PipelineRunResponse
   | PipelineStepUpdate
   | PipelineErrorResponse
@@ -1155,6 +1169,7 @@ export type ExtensionToWebViewMessage =
   | FrozenVerifyResultMessage
   | FrozenRemoveResponse
   | FrozenRemoveSweepResponse
+  | FrozenRemoveAutomationResponse
   | FrozenRemovePreviewResponse
   | FrozenStatusResponse
   | FrozenRulesClearResponse
@@ -1167,6 +1182,7 @@ export type ExtensionToWebViewMessage =
   | FrozenVerifyErrorMessage
   | FrozenRemoveErrorMessage
   | FrozenRemoveSweepErrorMessage
+  | FrozenRemoveAutomationErrorMessage
   | FrozenRemovePreviewErrorMessage
   | FrozenRulesClearErrorMessage
   | FrozenRulesCreateErrorMessage

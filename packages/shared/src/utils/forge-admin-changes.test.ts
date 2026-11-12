@@ -112,6 +112,40 @@ describe('adminChangesOf', () => {
     ]);
   });
 
+  it('asks for the package of a namespaced record type, which New in Setup cannot create', () => {
+    const [group] = adminChangesOf([
+      gap('record_type_unmapped', 'Account', { field: 'RecordTypeId', value: 'ns__Retail' }),
+      gap('record_type_unmapped', 'Account', { field: 'RecordTypeId', value: 'Wholesale' }),
+    ]);
+
+    expect(group?.changes).toEqual([
+      expect.objectContaining({
+        change: 'install_package',
+        value: 'ns__Retail',
+        namespace: 'ns',
+        setup:
+          'Install or upgrade the package with namespace ns in the target: record type ns__Retail comes with it, and Setup cannot create it',
+      }),
+      expect.objectContaining({
+        change: 'create_record_type',
+        value: 'Wholesale',
+        setup: 'Setup > Object Manager > Account > Record Types > New: Wholesale',
+      }),
+    ]);
+    expect(group?.changes[1]).not.toHaveProperty('namespace');
+  });
+
+  it('reads a double underscore at either end of a name as no namespace', () => {
+    const [group] = adminChangesOf([
+      gap('record_type_unmapped', 'Account', { value: '__Retail' }),
+      gap('record_type_unmapped', 'Account', { value: 'Retail__' }),
+    ]);
+    expect(group?.changes.map(({ change }) => change)).toEqual([
+      'create_record_type',
+      'create_record_type',
+    ]);
+  });
+
   it('names the controlling field of a value its controlling value refuses', () => {
     const [group] = adminChangesOf([
       gap('picklist_value_refused', 'Case', {
@@ -147,6 +181,11 @@ describe('adminChangesOf', () => {
         gap('unique_value_collision', 'Account', { field: 'Code__c', detail: { colliding: 2 } }),
         gap('api_budget', 'Account', { severity: 'warning' }),
         gap('rehearsal_refusal', 'Case', { value: 'CANNOT_EXECUTE_FLOW_TRIGGER' }),
+        // No grant opens an object the platform alone writes, nor setup.
+        gap('object_platform_only', 'Calendar', { severity: 'info' }),
+        gap('object_setup_only', 'Report', { severity: 'info' }),
+        // Nor anything named that would open a child no permission set covers.
+        gap('object_through_parent', 'Task'),
         gap('required_field_missing', 'Case', {
           source: 'metadata',
           field: 'Region__c',
@@ -163,6 +202,44 @@ describe('adminChangesOf', () => {
       gap('object_not_createable', 'Invoice__c'),
     ]);
     expect(kept?.changes.map((c) => c.change)).toEqual(['make_field_optional']);
+  });
+
+  it('asks Edit on each record an object no permission set covers hangs from, never a Create no Object Settings page holds', () => {
+    const contactRole = gap('object_through_parent', 'OpportunityContactRole', {
+      source: 'metadata',
+      rows: 0,
+      detail: { editOn: ['Opportunity', 'Contact'] },
+    });
+
+    const [group] = adminChangesOf([contactRole]);
+
+    expect(group?.objectApiName).toBe('OpportunityContactRole');
+    expect(group?.changes.map(({ change, value, gapId }) => ({ change, value, gapId }))).toEqual([
+      { change: 'grant_edit', value: 'Contact', gapId: contactRole.id },
+      { change: 'grant_edit', value: 'Opportunity', gapId: contactRole.id },
+    ]);
+    expect(group?.changes[1]?.setup).toBe(
+      'Setup > Users > the profile or a permission set of the user SandForge writes as > ' +
+        'Object Settings > Opportunity > Edit: tick Read and Edit',
+    );
+  });
+
+  it('asks the feature an object comes with turned on, then Create on it, when Modify All Data does not open it', () => {
+    const [group] = adminChangesOf([
+      gap('object_feature_off', 'Invoice', { source: 'metadata', rows: 0 }),
+    ]);
+
+    expect(group?.changes).toEqual([
+      expect.objectContaining({
+        change: 'enable_feature',
+        objectApiName: 'Invoice',
+        setup:
+          'Turn on in the target the feature Invoice comes with, or assign the user SandForge ' +
+          'writes as the permission set licence that includes it; then Setup > Users > the ' +
+          'profile or a permission set of the user SandForge writes as > Object Settings > ' +
+          'Invoice > Edit: tick Create',
+      }),
+    ]);
   });
 
   it('asks a text field be made longer, to no number, when no read measured its longest value', () => {

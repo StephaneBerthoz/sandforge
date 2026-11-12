@@ -215,7 +215,7 @@ describe('docs/modules/sync.md', () => {
       expect(SYNC_HANDLER).toContain(start);
     }
     expect(SYNC_CLI).toContain('const fieldless = fieldlessTransformRules(read.config.objects);');
-    expect(SYNC_PAGE).toContain('disabled={filesNeedSave || transformsNeedField}');
+    expect(SYNC_PAGE).toContain('disabled={filesNeedSave || transformsNeedField || openedUnread}');
     expect(SYNC_PAGE_DATA).toContain(
       'transformRules: transformRulesOf(entry.objectApiName, transforms),',
     );
@@ -407,7 +407,7 @@ describe('docs/modules/sync.md', () => {
     );
     expect(FIELD_MAPPING).not.toContain('const result: Record<string, unknown> = {};');
     expect(SYNC_HANDLER).toContain(
-      'const notAsRead = notSentAsRead(object.fieldMappings, object.excludedFields);',
+      'const notAsRead = notSentAsRead(written.fieldMappings, written.excludedFields);',
     );
     expect(SYNC_WRITE_ORDER).toContain('notSentAsRead(objectConfig.fieldMappings');
     expect(SYNC_DELTA).toContain('notSentAsRead(mappings, objectConfig.excludedFields ?? [])');

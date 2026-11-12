@@ -9,6 +9,7 @@ import type {
   RewindResult as RewindOutcome,
   RewindUndoCannotReason,
 } from '@sandforge/shared';
+import { rewindWroteNothing } from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
 import {
   RestoredResult,
@@ -152,6 +153,51 @@ const RecreatedResult: React.FC<{
           </li>
         ))}
       </ul>
+    </section>
+  );
+};
+
+/** The new Ids a line names at most. */
+const DRAFT_IDS_SHOWN = 3;
+
+/**
+ * What a stopped rewind made again as drafts and left before it gave them
+ * back their status, object by object, by their new Ids: an activated order
+ * made again stays a draft until Rewind again gives it its status, an update.
+ */
+const DraftsLeftResult: React.FC<{
+  draftsLeft: NonNullable<RewindOutcome['draftsLeft']>;
+  orgName: string;
+}> = ({ draftsLeft, orgName }) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="flex flex-col gap-1"
+      data-testid="checkpoint-result-drafts-left"
+    >
+      <h3 id={headingId} className="text-sm font-semibold">
+        {t('checkpoint.result.draftsLeft.title', { org: orgName })}
+      </h3>
+      <ul className="ml-4 list-disc">
+        {draftsLeft.map((object) => (
+          <li
+            key={object.objectApiName}
+            data-testid={`checkpoint-result-drafts-left-${object.objectApiName}`}
+          >
+            {t('checkpoint.result.draftsLeft.line', {
+              count: object.count,
+              formatted: formatNumber(object.count),
+              object: object.objectApiName,
+              ids:
+                object.ids.slice(0, DRAFT_IDS_SHOWN).join(', ') +
+                (object.count > DRAFT_IDS_SHOWN ? ', …' : ''),
+            })}
+          </li>
+        ))}
+      </ul>
+      <p>{t('checkpoint.result.draftsLeft.rewindAgain', { org: orgName })}</p>
     </section>
   );
 };
@@ -408,6 +454,9 @@ export const RewindResult: React.FC<RewindResultProps> = ({
       {rewinding && (result.recreated?.length ?? 0) > 0 && (
         <RecreatedResult recreated={result.recreated ?? []} orgName={orgName} />
       )}
+      {rewinding && (result.draftsLeft?.length ?? 0) > 0 && (
+        <DraftsLeftResult draftsLeft={result.draftsLeft ?? []} orgName={orgName} />
+      )}
       {result.restored.length > 0 && (
         <RestoredResult
           restored={result.restored}
@@ -546,7 +595,10 @@ const Headline: React.FC<HeadlineProps> = ({ kind, orgName, checkpoint, result, 
       result.status === 'success'
         ? t('checkpoint.result.undo.success', { org })
         : result.status === 'cancelled'
-          ? t('checkpoint.result.undo.cancelled', { org })
+          ? // Stopped before its first write, the org is as the rewind left it.
+            rewindWroteNothing(result)
+            ? t('checkpoint.result.undo.cancelledNothing', { org })
+            : t('checkpoint.result.undo.cancelled', { org })
           : result.status === 'failure'
             ? t('checkpoint.result.undo.failure', { org })
             : kept > 0
@@ -561,8 +613,11 @@ const Headline: React.FC<HeadlineProps> = ({ kind, orgName, checkpoint, result, 
       ? t('checkpoint.result.successObjects', { objects, org, name })
       : t('checkpoint.result.success', { org, name });
   } else if (result.status === 'cancelled') {
-    const stopped = t('checkpoint.result.cancelled', { org, name });
-    text = result.undo ? `${stopped} ${t('checkpoint.result.cancelledUndo', { org })}` : stopped;
+    // Stopped before it sent anything, it has no undo, and the org is not
+    // between the checkpoint and now: as it was before this rewind.
+    text = result.undo
+      ? `${t('checkpoint.result.cancelled', { org, name })} ${t('checkpoint.result.cancelledUndo', { org })}`
+      : t('checkpoint.result.cancelledNothing', { org, name });
   } else if (result.status === 'failure') {
     text = t('checkpoint.result.failure', { org, name });
   } else if (result.status === 'unstable') {

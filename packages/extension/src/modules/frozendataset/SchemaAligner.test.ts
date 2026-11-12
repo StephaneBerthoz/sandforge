@@ -392,8 +392,68 @@ describe('SchemaAligner — required fields', () => {
       );
 
       expect(result.missingRequired).toEqual([
-        { objectApiName: 'Contact', field: 'Name', isLookup: false, referenceTo: [] },
+        {
+          objectApiName: 'Contact',
+          field: 'Name',
+          isLookup: false,
+          referenceTo: [],
+          fieldType: 'string',
+        },
       ]);
+    });
+  });
+
+  describe('the two prices of a line, nillable in the describe', () => {
+    const aligner = new SchemaAligner({
+      query: vi.fn(),
+      describe: vi.fn(),
+      picklistValues: vi.fn(),
+    });
+    /** The real describe: both prices createable, neither required. */
+    const line: TargetObjectDescribe = {
+      name: 'OpportunityLineItem',
+      fields: [
+        field({ name: 'UnitPrice', type: 'currency' }),
+        field({ name: 'TotalPrice', type: 'currency' }),
+      ],
+    };
+    const alignLine = (fields: Record<string, unknown>, describe = line) =>
+      aligner.alignObject(
+        makeInput({
+          objectApiName: describe.name,
+          describe,
+          records: [{ referenceId: `${describe.name}-000001`, fields }],
+        }),
+      );
+
+    it('asks a value for the unit price of a line the rules left with neither', async () => {
+      const result = await alignLine({ UnitPrice: '', TotalPrice: '' });
+
+      expect(result.missingRequired).toEqual([
+        {
+          objectApiName: 'OpportunityLineItem',
+          field: 'UnitPrice',
+          isLookup: false,
+          referenceTo: [],
+          fieldType: 'currency',
+        },
+      ]);
+    });
+
+    it('asks nothing of a line that keeps either', async () => {
+      expect((await alignLine({ UnitPrice: 115, TotalPrice: '' })).missingRequired).toEqual([]);
+      expect((await alignLine({ UnitPrice: '', TotalPrice: 230 })).missingRequired).toEqual([]);
+    });
+
+    it('holds a quote line to its unit price: the target takes no total from an insert', async () => {
+      const quoteLine: TargetObjectDescribe = {
+        name: 'QuoteLineItem',
+        fields: [field({ name: 'UnitPrice' }), field({ name: 'TotalPrice', createable: false })],
+      };
+
+      const result = await alignLine({ UnitPrice: '', TotalPrice: 230 }, quoteLine);
+
+      expect(result.missingRequired.map((missing) => missing.field)).toEqual(['UnitPrice']);
     });
   });
 });

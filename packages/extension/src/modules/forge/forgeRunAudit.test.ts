@@ -287,6 +287,18 @@ describe('ForgeRunAudit', () => {
     });
   });
 
+  it('keeps whether the target delivered the emails, as read, and says nothing when nothing sent', () => {
+    const audit = new ForgeRunAudit(CONFIG, { reviewSkipped: false });
+    expect(audit.context()).not.toHaveProperty('deliverability');
+
+    audit.emailsRead(undefined);
+    expect(audit.context()).not.toHaveProperty('deliverability');
+
+    audit.emailsRead('withheld');
+    audit.confirm('emails');
+    expect(audit.context()).toMatchObject({ deliverability: 'withheld', confirmed: ['emails'] });
+  });
+
   it('says contact points neutralized by default, and Review not skipped when it was not', () => {
     expect(new ForgeRunAudit(CONFIG, { reviewSkipped: false }).context()).toEqual({
       anonymized: false,

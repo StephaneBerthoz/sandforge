@@ -1015,10 +1015,26 @@ async function fieldsNowOf(
       now.set(name, { unread: extractErrorMessage(err) });
     }
   }
+  // Of the fields gone, those the checkpoint compares are named, and told
+  // deleted from hidden: the take prints every field the describe lists,
+  // formulas and fields set aside with --ignore-field too, and one of them
+  // gone made the org differ with nothing to rewind and no value it holds.
+  const compared = new Map(
+    objects.map((object) => [
+      object.objectApiName,
+      new Set(
+        comparedFields(object.objectApiName, object.fields, checkpoint.ignoredFields).map((field) =>
+          field.toLowerCase(),
+        ),
+      ),
+    ]),
+  );
+  const comparedOf = (name: string, fields: readonly string[]): string[] =>
+    fields.filter((field) => compared.get(name)?.has(field.toLowerCase()) === true);
   const missing = new Map(
     [...drifts]
-      .filter(([, drift]) => drift.removed.length > 0)
-      .map(([name, drift]) => [name, drift.removed]),
+      .map(([name, drift]) => [name, comparedOf(name, drift.removed)] as const)
+      .filter(([, fields]) => fields.length > 0),
   );
   const told =
     missing.size > 0
@@ -1027,7 +1043,7 @@ async function fieldsNowOf(
   for (const [name, { removed, added, changed }] of drifts) {
     const gone = told.gone.get(name);
     now.set(name, {
-      ...(removed.length + added.length + changed.length > 0
+      ...(comparedOf(name, removed).length + added.length + changed.length > 0
         ? {
             drift: {
               removed: gone?.removed ?? [],
@@ -2321,7 +2337,14 @@ const OUT_OF_SIGHT_FIRST: ReadonlySet<string> = new Set(['Event', 'Task']);
  * - of an object Salesforce undeletes only with its parent, one whose parent
  *   stays is deleted on its own, and stays in the bin. So is one that comes
  *   back with its parent to be deleted again: it hangs from a record brought
- *   back, which the first pass never deletes.
+ *   back, which the first pass never deletes;
+ * - one that would go with its parent, but points through a lookup that
+ *   restricts the delete at a record that goes to the bin after it, or hangs
+ *   from one that does: an opportunity, with the price book deleted after its
+ *   account; a line, with its price entry. Salesforce no longer brings it back
+ *   with its parent, whichever order the undelete goes in (probed live), so it
+ *   is sent, as any record deleted before one it points at. What goes to the
+ *   bin with the same record goes in the same delete, and strands nothing.
  *
  * A line of the folder names its record, and why when it is not the first of
  * the reasons, `onlyWithParent`, as the diff's counts do.
@@ -2346,12 +2369,44 @@ async function withParentOf(
       }
     }
   }
+  const records = new Map(
+    told.flatMap(({ pending }) => pending.map((record) => [record.id.slice(0, 15), record])),
+  );
+  const goesWith = (record: PendingUndo): string | undefined =>
+    record.goesAlong ? record.parents.find((parent) => deleted.has(parent)) : undefined;
+  /** The record `key` goes to the bin with: itself, unless it goes with a parent. */
+  const rootOf = (key: string, seen: ReadonlySet<string> = new Set()): string => {
+    const record = records.get(key);
+    const parent = record && !seen.has(key) ? goesWith(record) : undefined;
+    return parent === undefined ? key : rootOf(parent, new Set([...seen, key]));
+  };
+  const stranded = new Map<string, boolean>();
+  /**
+   * Whether a record that goes with its parent would stay in the bin for good:
+   * it points, through a lookup that restricts the delete, at a record that
+   * goes to the bin after it, or hangs from one that does (see
+   * `withParentOf`'s comment).
+   */
+  const strandedOf = (key: string, record: PendingUndo): boolean => {
+    const known = stranded.get(key);
+    if (known !== undefined) return known;
+    stranded.set(key, false);
+    const root = rootOf(key);
+    const lost =
+      record.restricts.some((pointed) => deleted.has(pointed) && rootOf(pointed) !== root) ||
+      record.parents.some((parent) => {
+        const above = records.get(parent);
+        return above !== undefined && goesWith(above) !== undefined && strandedOf(parent, above);
+      });
+    stranded.set(key, lost);
+    return lost;
+  };
   const undoCannot: RewindDiff['undoCannot'] = [];
   const withParentDeleted: NonNullable<RewindDiff['withParentDeleted']> = [];
   for (const { diff, pending } of told) {
     const objectApiName = diff.objectApiName;
     const along = (record: PendingUndo): boolean =>
-      record.goesAlong && record.parents.some((parent) => deleted.has(parent));
+      goesWith(record) !== undefined && !strandedOf(record.id.slice(0, 15), record);
     const goes = pending.filter(along).length;
     if (goes > 0) withParentDeleted.push({ objectApiName, count: goes });
     const alone = pending.filter((record) => !along(record));

@@ -275,6 +275,83 @@ describe('useCsvImport', () => {
     expect(result.current.error).toBe('common.refusal.guardMissing');
   });
 
+  it('takes a checkpoint first only once its box is ticked, and only for the run itself', () => {
+    const { result } = renderHook(() => useCsvImport(tMock));
+    act(() => {
+      result.current.handleExecute();
+    });
+    expect(mockMutate.mock.calls[0][0]).not.toHaveProperty('checkpointFirst');
+
+    act(() => {
+      result.current.setCheckpointFirst(true);
+    });
+    act(() => {
+      result.current.handleValidate();
+    });
+    act(() => {
+      result.current.handleExecute();
+    });
+    expect(mockMutate.mock.calls[1][0]).not.toHaveProperty('checkpointFirst');
+    expect(mockMutate.mock.calls[2][0]).toMatchObject({ checkpointFirst: {} });
+
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.checkpointFirst).toBe(false);
+  });
+
+  it.each(['CHECKPOINT_REFUSED', 'API_BUDGET_EXCEEDED', 'SEED_CONFIRMATION_UNAVAILABLE'])(
+    'can run again after a refusal that wrote nothing (%s): its Execute comes back, the box left as it was',
+    (errorCode) => {
+      const { result, rerender } = renderHook(() => useCsvImport(tMock));
+      act(() => {
+        result.current.setCheckpointFirst(true);
+      });
+      act(() => {
+        result.current.handleExecute();
+      });
+      mockMutationState = { ...mockMutationState, error: 'Refused.', errorCode };
+      act(() => {
+        rerender();
+      });
+
+      expect(result.current.executionStatus).toBe('idle');
+      expect(result.current.error).toBe('Refused.');
+      expect(result.current.checkpointFirst).toBe(true);
+    },
+  );
+
+  it('offers no Execute again after a failure, whose rows may have gone in part', () => {
+    const { result, rerender } = renderHook(() => useCsvImport(tMock));
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockMutationState = { ...mockMutationState, error: 'It broke.', errorCode: 'UNKNOWN' };
+    act(() => {
+      rerender();
+    });
+
+    expect(result.current.executionStatus).toBe('error');
+  });
+
+  it('says an import cancelled at its question as an import, not as a seed', () => {
+    const { result, rerender } = renderHook(() => useCsvImport(tMock));
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockMutationState = {
+      ...mockMutationState,
+      error: 'The seed was cancelled before it wrote anything.',
+      errorCode: 'SEED_WRITE_DECLINED',
+    };
+    act(() => {
+      rerender();
+    });
+
+    expect(result.current.executionStatus).toBe('idle');
+    expect(result.current.error).toBe('seed.csv.wizard.writeDeclined');
+  });
+
   /* ------------------------------------------------------------------ */
   /* What one import takes                                               */
   /* ------------------------------------------------------------------ */

@@ -331,11 +331,12 @@ describe('the kinds of resource', () => {
       '--target',
       'TGT',
       '--include-changed',
+      '--accept-automation',
       '--yes',
       '--json',
     ]);
     expect(previewLineOf('frozen', removal).args).toEqual(
-      expect.arrayContaining(['remove', '--preview', '--json']),
+      expect.arrayContaining(['remove', '--accept-automation', '--preview', '--json']),
     );
     expect(refreshLineOf('frozen', { target: 'TGT', subject: '/tmp/r.1.json' })?.args).toEqual([
       'verify',

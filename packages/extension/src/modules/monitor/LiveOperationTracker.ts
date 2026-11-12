@@ -14,8 +14,11 @@ export interface LiveOperation {
   module: string;
   /** Human-readable description (e.g. 'Syncing Account'). */
   description: string;
-  /** Current status of the operation. */
-  status: 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+  /**
+   * Current status of the operation. `partial` is a run that ended with part
+   * of its work not done, as its results say: see {@link LiveOperationTracker.partial}.
+   */
+  status: 'running' | 'paused' | 'completed' | 'partial' | 'failed' | 'cancelled';
   /** Progress percentage (0-100). */
   percentage: number;
   /** Number of records processed so far. */
@@ -137,6 +140,25 @@ export class LiveOperationTracker {
 
     // Auto-remove completed operations after 30 seconds
     this.scheduleRemoval(operationId, 30_000);
+  }
+
+  /**
+   * Mark an operation as ended with part of its work not done: records the
+   * org refused, a backup stopped at its cap. Every such run was marked
+   * completed, and the Monitor listed it as a success. Its bar stays where the
+   * run took it, and it stays listed as long as a failed run does, for the
+   * same reason: something is left for the reader to do.
+   * @param operationId - ID of the operation.
+   */
+  partial(operationId: string): void {
+    const op = this.operations.get(operationId);
+    if (!op) return;
+
+    op.status = 'partial';
+    op.elapsedMs = Date.now() - new Date(op.startedAt).getTime();
+    this.notifyChange();
+
+    this.scheduleRemoval(operationId, 60_000);
   }
 
   /**

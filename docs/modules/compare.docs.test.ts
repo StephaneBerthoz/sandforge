@@ -28,18 +28,10 @@ const COMPARE_PAGE = readFileSync(
   'utf8',
 );
 
-/**
- * Feature headings that document a tab, mapped to the tab id they describe.
- * The heading wording is prose ("Metadata Diff") and the id is code ("diff"),
- * so the link has to be stated rather than derived.
- */
-const HEADING_TO_TAB: Readonly<Record<string, string>> = {
-  'Metadata Diff': 'diff',
-  'Permission Presence': 'permissions',
-  Objects: 'objects',
-  'Org Settings Drift': 'drift',
-  'Deploy from Diff': 'deploy',
-};
+/** The English catalogue, which gives each tab the label the panel shows. */
+const EN = JSON.parse(
+  readFileSync(resolve(REPO_ROOT, 'packages/webview/src/i18n/locales/en.json'), 'utf8'),
+) as Record<string, unknown>;
 
 /** Spelled-out counts, so the doc's "five tabs" can be checked against the code. */
 const NUMBER_WORDS: readonly string[] = [
@@ -63,6 +55,28 @@ function tabIdsFromSource(source: string): string[] {
   return [...block[1].matchAll(/id: '([^']+)'/g)].flatMap((m) =>
     m[1] === undefined ? [] : [m[1]],
   );
+}
+
+/**
+ * The labels the panel shows on its tabs, in their order: each tab's
+ * `label: t('…')` key, read in the English catalogue. Compared with the tab
+ * ids, the doc's "Diff, Permissions, Objects, Drift, and Deploy" passed,
+ * while the panel reads "Diff Viewer", "Permission Presence", "Objects",
+ * "Org Settings Drift" and "Deploy from Diff".
+ */
+function tabLabelsFromSource(source: string): string[] {
+  const block = /const COMPARE_TABS: PageTab\[\] = \[([\s\S]*?)\n\s*\];/.exec(source);
+  if (block?.[1] === undefined) {
+    throw new Error('COMPARE_TABS array literal not found in ComparePage.tsx');
+  }
+  return [...block[1].matchAll(/label: t\('([^']+)'\)/g)].map((m) => {
+    const key = m[1] ?? '';
+    const label = key
+      .split('.')
+      .reduce<unknown>((at, part) => (at as Record<string, unknown> | undefined)?.[part], EN);
+    if (typeof label !== 'string') throw new Error(`en.json has no string at ${key}`);
+    return label;
+  });
 }
 
 /** The tab roster the Quick Start promises the reader. */
@@ -98,22 +112,17 @@ function sectionBody(doc: string, heading: string): string {
 }
 
 describe('docs/modules/compare.md', () => {
-  it('promises exactly the tabs ComparePage renders', () => {
+  it('promises exactly the tabs ComparePage renders, by the labels the panel shows', () => {
     const tabIds = tabIdsFromSource(COMPARE_PAGE);
     const { countWord, names } = tabsFromQuickStart(DOC);
 
-    expect(names.map((n) => n.toLowerCase())).toEqual(tabIds);
+    expect(names).toEqual(tabLabelsFromSource(COMPARE_PAGE));
     expect(countWord.toLowerCase()).toBe(NUMBER_WORDS[tabIds.length]);
   });
 
-  it('documents no feature section for a tab that does not exist', () => {
-    const tabIds = tabIdsFromSource(COMPARE_PAGE);
-
-    for (const heading of featureHeadings(DOC)) {
-      const tabId = HEADING_TO_TAB[heading];
-      expect(tabId, `"### ${heading}" documents no known tab or control`).toBeDefined();
-      expect(tabIds, `"### ${heading}" describes a tab absent from COMPARE_TABS`).toContain(tabId);
-    }
+  it('documents each tab under the label the panel shows, and no tab that does not exist', () => {
+    // "### Metadata Diff" described the tab the panel calls "Diff Viewer".
+    expect(featureHeadings(DOC)).toEqual(tabLabelsFromSource(COMPARE_PAGE));
   });
 
   it('documents no Schema Advice, whose button is gone', () => {

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { forgeRunGateStopOf } from '@sandforge/shared';
-import type { ForgeRunGateStop } from '@sandforge/shared';
+import type { ForgeRunGateStop, RunCheckpointInfo } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
+import { runCheckpointOf } from '../../utils/runCheckpoint';
 
 /**
  * Why the last run stopped at its gate — the checks the extension makes
@@ -21,8 +22,18 @@ export interface ForgeRunGateState {
    * left and come back to — does not scroll to it again.
    */
   revealed: boolean;
+  /**
+   * Whether the run that stopped was asked to take a checkpoint first: a run
+   * past the day's API requests counts one among them only then.
+   */
+  checkpointAsked: boolean;
+  /** What became of a checkpoint the run had taken when it stopped, when its error says. */
+  checkpoint: RunCheckpointInfo | undefined;
   /** Keep why a run stopped at its gate, yet to be brought into view. */
-  setStop: (stop: ForgeRunGateStop) => void;
+  setStop: (
+    stop: ForgeRunGateStop,
+    run?: { checkpointAsked: boolean; checkpoint?: RunCheckpointInfo | undefined },
+  ) => void;
   /** Say the notice of this stop has been brought into view. */
   markRevealed: () => void;
   /** Forget it: a run starts, or the notice is dismissed. */
@@ -33,14 +44,21 @@ export interface ForgeRunGateState {
 export const useForgeRunGateStore = create<ForgeRunGateState>((set) => ({
   stop: null,
   revealed: false,
-  setStop(stop) {
-    set({ stop, revealed: false });
+  checkpointAsked: false,
+  checkpoint: undefined,
+  setStop(stop, run) {
+    set({
+      stop,
+      revealed: false,
+      checkpointAsked: run?.checkpointAsked ?? false,
+      checkpoint: run?.checkpoint,
+    });
   },
   markRevealed() {
     set({ revealed: true });
   },
   clear() {
-    set({ stop: null, revealed: false });
+    set({ stop: null, revealed: false, checkpointAsked: false, checkpoint: undefined });
   },
 }));
 
@@ -62,11 +80,16 @@ export function takeGateStop(event: MessageEvent): void {
   const data = event.data as
     { type?: unknown; correlationId?: unknown; payload?: unknown } | null | undefined;
   if (!data || typeof data !== 'object' || data.type !== 'forge:execute:error') return;
-  const stop = forgeRunGateStopOf((data.payload as { gate?: unknown } | undefined)?.gate);
+  const payload = data.payload as { gate?: unknown; checkpoint?: unknown } | undefined;
+  const stop = forgeRunGateStopOf(payload?.gate);
   if (!stop) return;
   const forge = useForgeStore.getState();
   if (forge.executionRequestId === null || forge.executionRequestId !== data.correlationId) return;
-  useForgeRunGateStore.getState().setStop(stop);
+  useForgeRunGateStore.getState().setStop(stop, {
+    // As the run was sent: Review's option has not moved since, it is not on screen.
+    checkpointAsked: forge.checkpointFirst,
+    checkpoint: runCheckpointOf(payload?.checkpoint),
+  });
   if (forge.retrying && forge.result) forge.backToResults();
   else forge.reviewAgain();
 }

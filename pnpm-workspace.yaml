@@ -41,6 +41,10 @@ allowBuilds:
 # took minimatch 3 as a default import and was held to it here; vsce 4 calls
 # minimatch 10 by name (`minimatch_1.minimatch`), which 3.x does not export,
 # so held on 3.x it would fail `vsce package` on the first ignore pattern.
+# GHSA-g3hv-75wg-m249 (minimatch < 11.0.1) has no fix on the 3.x line, which ESLint and
+# jsx-a11y take as a default import: 9.x and 10.x move to 11, whose named export they use,
+# and 3.x stays, for the patterns of this repository's own lint config alone.
+# glob >=14.0.2: GHSA-3g3m-2fjr-6pw4, reached by @vscode/test-cli, mocha and c8 only.
 # rollup >=4.59.0: sourcemap-injection in older 4.x. flatted >=3.4.2: prototype
 # pollution. picomatch, minimatch, rollup, flatted and lodash are devDep-only —
 # they don't ship in the marketplace VSIX. lodash used to: Recharts 2 depended
@@ -50,8 +54,8 @@ overrides:
   'picomatch@<4.0.4': '>=4.0.4'
   'lodash@<4.18.0': '>=4.18.0'
   'minimatch@<3.1.4': '>=3.1.4 <4'
-  'minimatch@>=9.0.0 <9.0.7': '>=9.0.7'
-  'minimatch@>=10.0.0 <10.2.3': '>=10.2.3'
+  'minimatch@>=9.0.0 <11.0.1': '>=11.0.1'
+  'glob@>=9.0.0 <14.0.2': '>=14.0.2'
   'rollup@>=4.0.0 <4.59.0': '>=4.59.0'
   'flatted@<3.4.2': '>=3.4.2'
   # Critical, and it SHIPS: jsforce -> faye -> faye-websocket pulls this in,

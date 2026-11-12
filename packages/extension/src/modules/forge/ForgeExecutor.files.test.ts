@@ -365,6 +365,7 @@ describe('ForgeExecutor, copying the files of the records it clones', () => {
       });
 
       await expect(run).rejects.toBeInstanceOf(ForgeFilesRefusedError);
+      await expect(run).rejects.toMatchObject({ code: 'FILES_NOT_ACCEPTED' });
       await expect(run).rejects.toThrow('copied as they are');
       expect(deps.queryRecords).not.toHaveBeenCalled();
       expect(deps.insertRecords).not.toHaveBeenCalled();
@@ -393,6 +394,8 @@ describe('ForgeExecutor, copying the files of the records it clones', () => {
     });
 
     await expect(run).rejects.toBeInstanceOf(ForgeFilesRefusedError);
+    // Its code, which the command's line and its --json summary name.
+    await expect(run).rejects.toMatchObject({ code: 'FILE_STORAGE_EXCEEDED' });
     await expect(run).rejects.toThrow(
       'The files to copy take 7 B and the target has 0 B of file storage left.',
     );
@@ -430,6 +433,7 @@ describe('ForgeExecutor, copying the files of the records it clones', () => {
       });
 
       await expect(run).rejects.toBeInstanceOf(ForgeFilesRefusedError);
+      await expect(run).rejects.toMatchObject({ code: 'FILES_UNREAD' });
       await expect(run).rejects.toThrow(
         `The files of the records to clone could not all be looked up in the source (${TIMEOUT}). ` +
           'Run it again, or leave the files out. Nothing was written.',

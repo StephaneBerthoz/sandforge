@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
@@ -11,13 +11,36 @@ vi.mock('./sfSession.js', async (importOriginal) => {
   return { ...actual, loadOrg: vi.fn(actual.loadOrg), makeConn: vi.fn(actual.makeConn) };
 });
 
+// The checkpoint a run takes first is the command line's own glue, tested on
+// its own: here, when the clone asks it what, and what it does with the answer.
+vi.mock('./beforeRunCheckpoint.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./beforeRunCheckpoint.js')>();
+  return { ...actual, commandCheckpoints: vi.fn(actual.commandCheckpoints) };
+});
+
+import type { RunCheckpointEstimate, RunCheckpointTaken } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
+import {
+  commandCheckpoints,
+  type CommandCheckpointAsk,
+  type CommandCheckpoints,
+} from './beforeRunCheckpoint.js';
+import {
+  BEFORE_RUN_DELETED_WORDS,
+  type BeforeRunTake,
+} from '../src/modules/checkpoint/beforeRunCheckpoint.js';
+import { CHECKPOINT_STOPPED_WORDS } from '../src/modules/forge/ForgeRunGate.js';
+import { EMAIL_NOT_PERMITTED } from '../src/modules/forge/targetDeliverability.js';
 import { selectRows, type FakeRow } from '../src/test/fakeSoql.js';
 import {
   memoryPermissionOrg,
   type MemoryPermissionOrgSetup,
 } from '../src/test/memoryPermissionOrg.js';
-import { main, parseRemoveArgs } from './sandforge-clone';
+import { main, parseArgs, parseRemoveArgs, parseRunSummary } from './sandforge-clone';
+import {
+  writePathOrderDefects,
+  type WritePathStep,
+} from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -126,7 +149,17 @@ function fakeOrg({
   duplicateActions = {},
   flowActions = [],
   describes = DESCRIBES,
+  deliverability = 'closed',
+  unbypassed = [],
 }: {
+  /** The flow versions whose start condition tests no permission: no bypass keeps them quiet. */
+  unbypassed?: string[];
+  /**
+   * What its anonymous Apex answers of its emails: All email, a closed org,
+   * or any other exception, in its words. Closed unless told: what fires
+   * sends nothing out, and only the tests of the gate hear of it.
+   */
+  deliverability?: 'all' | 'closed' | (string & {});
   /** The formula of each validation rule, as its metadata gives it. */
   ruleFormula?: string;
   /** The custom permissions every set of `permissionSets` grants beside `Load_Data`. */
@@ -154,6 +187,8 @@ function fakeOrg({
   /** What the read retrieved by id, `<object>/<id>`. */
   const retrieved: string[] = [];
   const written: string[] = [];
+  /** Every line of anonymous Apex it was asked to run. */
+  const anonymous: string[] = [];
   const headers: Array<Record<string, string> | undefined> = [];
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
   /** What a flow version's metadata holds: a start a permission keeps quiet, and its actions. */
@@ -282,7 +317,9 @@ function fakeOrg({
                   httpStatusCode: 200,
                   body: {
                     Id: version,
-                    Metadata: flowMetadata,
+                    Metadata: unbypassed.includes(version)
+                      ? { ...flowMetadata, start: {} }
+                      : flowMetadata,
                   },
                 };
               }
@@ -296,6 +333,17 @@ function fakeOrg({
             }),
           ),
         };
+      }
+      if (url?.startsWith('/tooling/executeAnonymous')) {
+        anonymous.push(url);
+        return deliverability === 'all'
+          ? { compiled: true, success: true }
+          : deliverability === 'closed'
+            ? { compiled: true, success: false, exceptionMessage: EMAIL_NOT_PERMITTED }
+            : { compiled: true, success: false, exceptionMessage: deliverability };
+      }
+      if (url?.includes('UserPermissionAccess')) {
+        return { records: [{ PermissionsEmailSingle: true }] };
       }
       return url === '/limits' ? limits : {};
     },
@@ -311,6 +359,7 @@ function fakeOrg({
     composites,
     retrieved,
     written,
+    anonymous,
     headers,
   };
 }
@@ -398,6 +447,25 @@ describe('sandforge-clone target automation', () => {
     // Said before the run read a row, and before it wrote one.
     expect(said).toBeLessThan(printed.indexOf('record-type mapping…'));
     expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+  });
+
+  it('names the bypass to assign without the mute to the reader of an environment, whose apply mutes nothing', async () => {
+    // Relayed by an apply, the line went on "--mute-automation assigns them",
+    // a flag no environment takes: its runs never mute.
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+    try {
+      withOrgs();
+
+      expect(await run(argv('--dry-run', '--skip-preflight'))).toBeUndefined();
+
+      expect(printed).toContain(
+        '  bypass: assign Load_Data to the user the run writes as, and the flows whose start ' +
+          'condition excludes them stay quiet',
+      );
+      expect(printed.join('\n')).not.toContain('--mute-automation');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('reads it from the target alone: its flows and rules over the regular API, its triggers, workflow rules and start conditions over the Tooling API', async () => {
@@ -516,7 +584,8 @@ describe('sandforge-clone target automation', () => {
     expect(await run(argv('--skip-preflight'))).toBe(1);
 
     expect(stderr).toBe(
-      'TGT runs automation on the records this clone inserts: Contact: flow "Contact welcome". ' +
+      'refused (AUTOMATION_NOT_ACCEPTED): TGT runs automation on the records this clone ' +
+        'inserts: Contact: flow "Contact welcome". ' +
         'No permission set of TGT holds Load_Data: an admin creates one that includes it, and ' +
         'assigns it to the user the clone writes as. Nothing was written. Add ' +
         '--accept-automation to clone all the same, or turn that automation off in TGT first.\n',
@@ -555,7 +624,10 @@ describe('sandforge-clone target automation', () => {
     expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
   });
 
-  it('gives in its refusal the command that assigns the smallest permission set holding the bypass, and runs none', async () => {
+  it('names in its refusal the smallest permission set holding the bypass, which --mute-automation assigns, and no command that assigns it by hand', async () => {
+    // Run on the trap org, the refusal gave `sf org assign permset ...
+    // --on-behalf-of <username>`, the user's name in clear: run, it left the
+    // set assigned past the clone, outside the lease another run held.
     withOrgs(
       fakeOrg({
         permissionSets: [
@@ -574,17 +646,43 @@ describe('sandforge-clone target automation', () => {
     expect(await run(argv('--skip-preflight'))).toBe(1);
 
     expect(stderr).toContain(
-      'Data_Load is the smallest permission set of TGT that holds Load_Data; Integration holds ' +
-        'it too. Assigned to the user the clone writes as, it keeps quiet what Load_Data ' +
-        'excludes: sf org assign permset --name Data_Load --target-org TGT --on-behalf-of ' +
-        'loader@example.com.dev',
+      'With --mute-automation, the clone assigns Data_Load to the user it writes as for the ' +
+        'clone alone, under a lease, and what it keeps quiet does not fire.',
     );
     expect(printed).toContain(
-      '    Load_Data: held by permission set Data_Load, the smallest; also held by Integration: ' +
-        'sf org assign permset --name Data_Load --target-org TGT --on-behalf-of loader@example.com.dev',
+      '    Load_Data: held by permission set Data_Load, the smallest; also held by Integration',
     );
-    // Shown, never run: nothing was assigned, nor written.
+    for (const said of [stderr, ...printed]) {
+      expect(said).not.toContain('sf org assign permset');
+      expect(said).not.toContain('loader@example.com.dev');
+    }
+    // Nothing was assigned, nor written.
     expect(orgs.TGT.written).toEqual([]);
+  });
+
+  it('offers no mute in its refusal once --mute-automation was given', async () => {
+    withOrgs(fakeOrg({ permissionSets: [{ name: 'Data_Load', grants: 1 }] }));
+
+    await run(argv('--skip-preflight', '--mute-automation'));
+
+    expect(stderr).not.toContain('With --mute-automation');
+  });
+
+  it('offers no mute in its refusal to the reader of an environment, which never mutes, its lines naming the set all the same', async () => {
+    // An environment's apply relayed "With --mute-automation, the clone
+    // assigns ...", which neither its line nor its file takes.
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+    try {
+      withOrgs(fakeOrg({ permissionSets: [{ name: 'Data_Load', grants: 1 }] }));
+
+      expect(await run(argv('--skip-preflight'))).toBe(1);
+
+      expect(stderr).not.toContain('With --mute-automation');
+      expect(printed.join('\n')).toContain('held by permission set Data_Load');
+      expect(orgs.TGT.written).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('writes nothing when it could not read what fires, unless told to go on', async () => {
@@ -605,8 +703,9 @@ describe('sandforge-clone target automation', () => {
     expect(await run(argv('--skip-preflight', '--dry-run'))).toBeUndefined();
 
     expect(printed).toContain(
-      '  a real run writes nothing without --accept-automation: see what fires as it inserts ' +
-        'and updates, or could not be read, above',
+      '  a real run would be refused (AUTOMATION_NOT_ACCEPTED): it writes nothing without ' +
+        '--accept-automation: see what fires as it inserts and updates, or could not be read, ' +
+        'above',
     );
     expect(stderr).toBe('');
     expect(orgs.TGT.written).toEqual([]);
@@ -656,11 +755,14 @@ describe('sandforge-clone target automation', () => {
         '      Load_Data: no permission set of TGT holds it: an admin creates one that includes it',
         '  info: API budget: the run takes at most about 4 call(s) (2 write(s) of 200 rows, 2 read(s)), ' +
           'counted on whole tables; 14000 of 15000 daily requests left',
-        // The rules, the duplicate rules, the limits, the two objects described
-        // in the target, the formula, the duplicate rule's action, the
+        // The rules, the duplicate rules, the limits, the contact described in
+        // the target, the formula, the duplicate rule's action, the
         // permissions of the user, the custom permission it does not hold and
-        // the permission sets holding it: the source's describes were discovery's.
-        '  read in 10 request(s) to TGT',
+        // the permission sets holding it: the source's describes were
+        // discovery's, and the target's describe of the account, the object
+        // the record is of, was read before discovery, for whether any user
+        // can create it.
+        '  read in 9 request(s) to TGT',
       ]);
       // The formula retrieved by id in a Tooling composite, as the flows are.
       expect(orgs.TGT.retrieved).toEqual(['ValidationRule/03d000000000001AAA']);
@@ -669,7 +771,7 @@ describe('sandforge-clone target automation', () => {
       expect(orgs.TGT.written).toEqual([]);
     });
 
-    it('names under a rule the smallest permission set that keeps it quiet, and the command that assigns it', async () => {
+    it('names under a rule the smallest permission set that keeps it quiet, and no command that assigns it by hand', async () => {
       withOrgs(
         fakeOrg({
           noFlows: true,
@@ -691,10 +793,9 @@ describe('sandforge-clone target automation', () => {
 
       const rule = printed.findIndex((line) => line.includes('validation rule "Name_Format"'));
       expect(printed[rule + 1]).toBe(
-        '      Load_Data: held by permission set Data_Load, the smallest; also held by ' +
-          'Integration: sf org assign permset --name Data_Load --target-org TGT --on-behalf-of ' +
-          'loader@example.com.dev',
+        '      Load_Data: held by permission set Data_Load, the smallest; also held by Integration',
       );
+      expect(printed.join('\n')).not.toContain('loader@example.com.dev');
       // Shown, never run.
       expect(orgs.TGT.written).toEqual([]);
     });
@@ -718,7 +819,7 @@ describe('sandforge-clone target automation', () => {
       const summary = JSON.parse(stdout) as {
         targetGaps: { gaps: Array<Record<string, unknown>>; unread: unknown[]; requests: number };
       };
-      expect(summary.targetGaps.requests).toBe(10);
+      expect(summary.targetGaps.requests).toBe(9);
       expect(summary.targetGaps.unread).toEqual([]);
       expect(summary.targetGaps.gaps.map((gap) => [gap.kind, gap.severity, gap.id])).toEqual([
         ['duplicate_rule', 'warning', 'duplicate_rule|Contact|||Contact_Rule'],
@@ -838,9 +939,85 @@ describe('sandforge-clone target automation', () => {
       expect(await run(argv('--skip-preflight', '--max-total', '1'))).toBe(1);
 
       expect(stderr).toBe(
-        'The run would write 2 records, more than --max-total 1: narrow the clone (--max, ' +
-          '--exclude-object, --filter), or raise --max-total. Nothing was written.\n',
+        'refused (MAX_TOTAL_EXCEEDED): The run would write 2 records, more than --max-total 1: ' +
+          'narrow the clone (--max, --exclude-object, --filter), or raise --max-total. Nothing ' +
+          'was written.\n',
       );
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('names --max-total and what narrows the clone as this script’s own to the reader of a command that takes none of them', async () => {
+      // Relayed by the MCP server's clone_record, "raise --max-total" named a
+      // parameter the tool does not take.
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-mcp');
+      try {
+        withOrgs(fakeOrg({ noFlows: true, limits: STORAGE }));
+
+        expect(await run(argv('--skip-preflight', '--max-total', '1'))).toBe(1);
+
+        expect(stderr).toBe(
+          "refused (MAX_TOTAL_EXCEEDED): The run would write 2 records, more than the 1 this script's " +
+            "own --max-total holds it to: narrow the clone with this script's own --max, " +
+            '--exclude-object or --filter, or raise its --max-total. Nothing was written.\n',
+        );
+        expect(orgs.TGT.written).toEqual([]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it('says to the reader of an environment what its file and its plan hold the run to, which no --max-total of its own raises', async () => {
+      // Relayed by an apply, "raise its --max-total" sent the reader to a flag
+      // the environment sets itself: the plan's count for the run, the
+      // resource's maxTotal for its dry run.
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+      try {
+        withOrgs(fakeOrg({ noFlows: true, limits: STORAGE }));
+
+        expect(await run(argv('--skip-preflight', '--max-total', '1'))).toBe(1);
+        expect(stderr).toBe(
+          'refused (MAX_TOTAL_EXCEEDED): The run would write 2 records, more than the 1 its ' +
+            'plan counted: the source holds more records than when it was planned. Plan again. ' +
+            'Nothing was written.\n',
+        );
+
+        stdout = '';
+        expect(
+          await run(argv('--skip-preflight', '--max-total', '1', '--dry-run', '--json')),
+        ).toBeUndefined();
+        expect(JSON.parse(stdout)).toMatchObject({
+          wouldBeRefused: [
+            "The run would write 2 records, more than the 1 the resource's maxTotal holds it " +
+              'to: narrow the resource in the file, or raise its maxTotal.',
+          ],
+          wouldBeRefusedCodes: ['MAX_TOTAL_EXCEEDED'],
+        });
+        expect(orgs.TGT.written).toEqual([]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it('answers a refusal at its gate with --json on stdout, its code apart, as Sync does', async () => {
+      // stdout stayed empty: a CI job's `jq .refused.code` read nothing.
+      withOrgs(fakeOrg({ noFlows: true, limits: STORAGE }));
+
+      expect(await run(argv('--skip-preflight', '--max-total', '1', '--json'))).toBe(1);
+
+      expect(JSON.parse(stdout)).toEqual({
+        tool: 'sandforge-clone',
+        source: 'SRC',
+        target: 'TGT',
+        dryRun: false,
+        refused: {
+          code: 'MAX_TOTAL_EXCEEDED',
+          message:
+            'The run would write 2 records, more than --max-total 1: narrow the clone (--max, ' +
+            '--exclude-object, --filter), or raise --max-total. Nothing was written.',
+        },
+        elapsedMs: expect.any(Number) as number,
+      });
+      expect(stderr.trimEnd().split('\n').at(-1)).toMatch(/^refused \(MAX_TOTAL_EXCEEDED\): /);
       expect(orgs.TGT.written).toEqual([]);
     });
 
@@ -850,7 +1027,8 @@ describe('sandforge-clone target automation', () => {
       expect(await run(argv('--skip-preflight'))).toBe(1);
 
       expect(stderr).toBe(
-        'The records to write take about 0.01 MB of data storage, and TGT has 0 MB left of ' +
+        'refused (STORAGE_EXCEEDED): The records to write take about 0.01 MB of data storage, ' +
+          'and TGT has 0 MB left of ' +
           '200 MB: leave objects out, lower the records per object, or free data storage in ' +
           'TGT. Nothing was written.\n',
       );
@@ -876,8 +1054,9 @@ describe('sandforge-clone target automation', () => {
       expect(await run(argv('--skip-preflight', '--dry-run', '--max-total', '1'))).toBe(undefined);
 
       expect(printed).toContain(
-        '  a real run would be refused: The run would write 2 records, more than --max-total 1: ' +
-          'narrow the clone (--max, --exclude-object, --filter), or raise --max-total.',
+        '  a real run would be refused (MAX_TOTAL_EXCEEDED): The run would write 2 records, ' +
+          'more than --max-total 1: narrow the clone (--max, --exclude-object, --filter), or ' +
+          'raise --max-total.',
       );
       expect(orgs.TGT.written).toEqual([]);
     });
@@ -902,7 +1081,7 @@ describe('sandforge-clone target automation', () => {
       expect(await run(argv('--skip-preflight', '--dry-run'))).toBeUndefined();
 
       expect(printed).toContain(
-        '  emails: these records make TGT send about 1 single emails (1 per Contact, by Contact ' +
+        '  emails: these records make TGT send about 1 single email (1 per Contact, by Contact ' +
           'welcome), its email alerts among them: TGT counts them against its single emails, ' +
           'as a Developer Edition does, more than the 0 of 15 it has left today: past them the ' +
           'action fails, and a record whose flow fails in the save is refused ' +
@@ -910,8 +1089,9 @@ describe('sandforge-clone target automation', () => {
           'avoids it',
       );
       expect(printed).toContain(
-        "  a real run would be refused: The target's automation would make TGT send about 1 " +
-          'single emails (its email alerts among them, as a Developer Edition counts them), 0 ' +
+        '  a real run would be refused (EMAILS_EXCEEDED): ' +
+          "The target's automation would make TGT send about 1 " +
+          'single email (its email alerts among them, as a Developer Edition counts them), 0 ' +
           'of 15 left today: past them, each record whose flow fails in the save is refused ' +
           "(CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop for the rest of the " +
           'day. Assign the user a bypass that keeps what sends quiet, or write fewer records.',
@@ -921,7 +1101,9 @@ describe('sandforge-clone target automation', () => {
       withOrgs(developerEdition());
       expect(await run(argv('--skip-preflight', '--accept-automation'))).toBe(1);
 
-      expect(stderr).toContain("The target's automation would make TGT send about 1 single emails");
+      expect(stderr).toContain("The target's automation would make TGT send about 1 single email ");
+      // Under the code its dry run named.
+      expect(stderr).toContain('refused (EMAILS_EXCEEDED): ');
       expect(stderr).toContain('Nothing was written.');
       expect(orgs.TGT.written).toEqual([]);
     });
@@ -988,7 +1170,7 @@ describe('sandforge-clone target automation', () => {
         expect(await run(argv('--skip-preflight'))).toBe(1);
 
         expect(stderr).toMatch(
-          /^TGT runs automation on the records this clone inserts: Contact: flow "Contact feedback"/,
+          /^refused \(AUTOMATION_NOT_ACCEPTED\): TGT runs automation on the records this clone inserts: Contact: flow "Contact feedback"/,
         );
         expect(orgs.TGT.written).toEqual([]);
       });
@@ -1014,57 +1196,65 @@ describe('sandforge-clone target automation', () => {
     expect(orgs.TGT.regular.some((soql) => soql.includes(' FROM FlowDefinitionView '))).toBe(false);
   });
 
-  describe('--mute-automation', () => {
-    /** The permission set the target's bypass of the welcome flow is held by. */
-    const DATA_LOAD = '0PSxx0000000001AAA';
+  /** The permission set the target's bypass of the welcome flow is held by. */
+  const DATA_LOAD = '0PSxx0000000001AAA';
 
-    /**
-     * The target, its permission sets and their assignments answered as
-     * Salesforce answers them, and every write in the order it was sent: the
-     * assignments and the records alike.
-     */
-    function mutableTarget(setup: MemoryPermissionOrgSetup = {}) {
-      const events: string[] = [];
-      const perms = memoryPermissionOrg({
-        sets: [{ id: DATA_LOAD, name: 'Data_Load' }],
-        beforeWrite: (write) => {
-          events.push(`assignment ${write.kind}`);
-        },
-        ...setup,
-      });
-      const target = fakeOrg({ permissionSets: [{ name: 'Data_Load', grants: 1 }] });
-      const base = target.conn as unknown as {
-        query: (soql: string) => Promise<unknown>;
-        sobject: (name: string) => Record<string, unknown> & {
-          create: (records: unknown[], options?: unknown) => Promise<unknown>;
+  /**
+   * The target, its permission sets and their assignments answered as
+   * Salesforce answers them, and every write in the order it was sent: the
+   * assignments and the records alike.
+   */
+  function mutableTarget(
+    setup: MemoryPermissionOrgSetup = {},
+    describes: Record<string, DescribeSObjectResult> = DESCRIBES,
+    more: Parameters<typeof fakeOrg>[0] = {},
+  ) {
+    const events: string[] = [];
+    const perms = memoryPermissionOrg({
+      sets: [{ id: DATA_LOAD, name: 'Data_Load' }],
+      beforeWrite: (write) => {
+        events.push(`assignment ${write.kind}`);
+      },
+      ...setup,
+    });
+    const target = fakeOrg({
+      permissionSets: [{ name: 'Data_Load', grants: 1 }],
+      describes,
+      ...more,
+    });
+    const base = target.conn as unknown as {
+      query: (soql: string) => Promise<unknown>;
+      sobject: (name: string) => Record<string, unknown> & {
+        create: (records: unknown[], options?: unknown) => Promise<unknown>;
+      };
+    };
+    const permsConn = perms.connection as unknown as {
+      query: (soql: string) => Promise<unknown>;
+      sobject: (name: string) => unknown;
+      identity: () => Promise<unknown>;
+    };
+    const conn = Object.assign(Object.create(null) as object, target.conn, {
+      identity: permsConn.identity,
+      query: (soql: string) =>
+        /FROM (UserPermissionAccess|PermissionSet|PermissionSetAssignment)\b/.test(soql)
+          ? permsConn.query(soql)
+          : base.query(soql),
+      sobject: (name: string) => {
+        if (name === 'PermissionSetAssignment') return permsConn.sobject(name);
+        const object = base.sobject(name);
+        return {
+          ...object,
+          create: async (records: unknown[], options?: unknown) => {
+            events.push(`write ${name}`);
+            return object.create(records, options);
+          },
         };
-      };
-      const permsConn = perms.connection as unknown as {
-        query: (soql: string) => Promise<unknown>;
-        sobject: (name: string) => unknown;
-        identity: () => Promise<unknown>;
-      };
-      const conn = Object.assign(Object.create(null) as object, target.conn, {
-        identity: permsConn.identity,
-        query: (soql: string) =>
-          /FROM (UserPermissionAccess|PermissionSet|PermissionSetAssignment)\b/.test(soql)
-            ? permsConn.query(soql)
-            : base.query(soql),
-        sobject: (name: string) => {
-          if (name === 'PermissionSetAssignment') return permsConn.sobject(name);
-          const object = base.sobject(name);
-          return {
-            ...object,
-            create: async (records: unknown[], options?: unknown) => {
-              events.push(`write ${name}`);
-              return object.create(records, options);
-            },
-          };
-        },
-      });
-      return { target: { ...target, conn: conn as unknown as Connection }, perms, events };
-    }
+      },
+    });
+    return { target: { ...target, conn: conn as unknown as Connection }, perms, events };
+  }
 
+  describe('--mute-automation', () => {
     it('assigns the set holding the bypass before the first write, asks only for what still runs, and takes it back after the last', async () => {
       const { target, perms, events } = mutableTarget();
       withOrgs(target);
@@ -1085,6 +1275,122 @@ describe('sandforge-clone target automation', () => {
       expect(printed).toContain('  taken back: Data_Load, as the run ended');
     });
 
+    /** The record type the target's accounts give one sent without a type. */
+    const RETAIL = '012Fk00000RtAcCIAV';
+    /**
+     * The target's accounts, Master the user's default and one other type
+     * open: an account sent without a type gets that one.
+     */
+    const TYPED_ACCOUNT = {
+      ...DESCRIBES.Account,
+      recordTypeInfos: [
+        {
+          active: true,
+          available: true,
+          defaultRecordTypeMapping: false,
+          developerName: 'Retail',
+          master: false,
+          name: 'Retail',
+          recordTypeId: RETAIL,
+          urls: {},
+        },
+        {
+          active: true,
+          available: true,
+          defaultRecordTypeMapping: true,
+          developerName: 'Master',
+          master: true,
+          name: 'Master',
+          recordTypeId: '012000000000000AAA',
+          urls: {},
+        },
+      ],
+    } as unknown as DescribeSObjectResult;
+
+    it('reads the account’s record types again under the lease, gives the lease back after the last write, then reads back the type the target gave', async () => {
+      const { target, perms, events } = mutableTarget({}, { ...DESCRIBES, Account: TYPED_ACCOUNT });
+      const conn = target.conn as unknown as {
+        query: (soql: string) => Promise<unknown>;
+        sobject: (name: string) => Record<string, unknown> & { describe: () => Promise<unknown> };
+      };
+      const query = conn.query;
+      const sobject = conn.sobject;
+      const watched = Object.assign(Object.create(null) as object, conn, {
+        query: async (soql: string) => {
+          const readBack = /^SELECT RecordTypeId, COUNT\(Id\) n FROM (\w+) WHERE Id IN /.exec(soql);
+          if (!readBack) return query(soql);
+          events.push(`read back ${readBack[1]}`);
+          return { totalSize: 1, done: true, records: [{ RecordTypeId: RETAIL, n: 1 }] };
+        },
+        sobject: (name: string) => {
+          const object = sobject(name);
+          return {
+            ...object,
+            describe: async () => {
+              events.push(`describe ${name}`);
+              return object.describe();
+            },
+          };
+        },
+      });
+      withOrgs({ ...target, conn: watched as unknown as Connection });
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--json'))).toBeUndefined();
+
+      // The describes before the lease are the run's reads; the one after it,
+      // of the account alone, is read again for the set it assigned.
+      const fromTheLease = events.slice(events.indexOf('assignment insert'));
+      expect(fromTheLease).toEqual([
+        'assignment insert',
+        'describe Account',
+        'write Account',
+        'write Contact',
+        'assignment delete',
+        'read back Account',
+      ]);
+      const steps = events.map((event): WritePathStep => {
+        if (event === 'assignment insert') return 'leaseAcquire';
+        if (event === 'assignment delete') return 'leaseRelease';
+        if (event.startsWith('write')) return 'write';
+        if (event.startsWith('read back')) return 'recordTypeReadBack';
+        return events.indexOf(event) > events.indexOf('assignment insert')
+          ? 'afterLeaseCheck'
+          : 'reads';
+      });
+      expect(writePathOrderDefects([...steps, 'result'])).toEqual([]);
+      expect(perms.assignments()).toEqual([]);
+      expect(JSON.parse(stdout).result.recordTypesGiven).toEqual([
+        {
+          objectApiName: 'Account',
+          rows: 1,
+          why: { notRead: 1 },
+          predicted: { developerName: 'Retail', label: 'Retail', basis: 'onlyOneOpen' },
+          readBack: { read: 1, types: [{ developerName: 'Retail', label: 'Retail', rows: 1 }] },
+        },
+      ]);
+    });
+
+    it('says on a dry run the type the target would give the account, that the sets to assign may open others, and reads nothing back', async () => {
+      const { target, perms } = mutableTarget({}, { ...DESCRIBES, Account: TYPED_ACCOUNT });
+      withOrgs(target);
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--dry-run'))).toBeUndefined();
+
+      expect(printed).toEqual(
+        expect.arrayContaining([
+          'record types the target would give the records created without one (1 object(s)):',
+          '  Account  1 record(s) whose record type the run does not write: would go in as ' +
+            'Retail, the only other Account record type open to the user the run writes as, ' +
+            'whose describe names Master the default',
+          '  the permission sets a real run assigns to mute the automation may open other record ' +
+            'types to the user it writes as: it reads them again once assigned, and its summary ' +
+            'says what the target gave',
+        ]),
+      );
+      expect(perms.writes).toEqual([]);
+      expect(orgs.TGT.regular.some((soql) => soql.includes('GROUP BY RecordTypeId'))).toBe(false);
+    });
+
     it('says on a dry run what would be muted and what still runs, and assigns nothing', async () => {
       const { target, perms } = mutableTarget();
       withOrgs(target);
@@ -1092,15 +1398,16 @@ describe('sandforge-clone target automation', () => {
       expect(await run(argv('--skip-preflight', '--mute-automation', '--dry-run'))).toBeUndefined();
 
       expect(printed).toContain(
-        '  mute: a real run would assign the permission set(s) holding Load_Data to the user it ' +
-          'writes as in TGT, for the run alone; this dry run assigns nothing',
+        '  mute: planned, the permission set(s) holding Load_Data for the user it ' +
+          'writes as in TGT, for the run alone; nothing is assigned yet',
       );
       expect(printed).toContain('    silenced: Contact: flow "Contact welcome" (bypass Load_Data)');
       expect(perms.writes).toEqual([]);
       // The flow it would mute is asked about no more.
       expect(printed).not.toContain(
-        '  a real run writes nothing without --accept-automation: see what fires as it inserts ' +
-          'and updates, or could not be read, above',
+        '  a real run would be refused (AUTOMATION_NOT_ACCEPTED): it writes nothing without ' +
+          '--accept-automation: see what fires as it inserts and updates, or could not be read, ' +
+          'above',
       );
     });
 
@@ -1135,12 +1442,21 @@ describe('sandforge-clone target automation', () => {
         }) as unknown as Connection,
       });
 
-      // Without the mute, the rule's rows go again without the field.
+      // Without the mute, the rule's rows go again without the field, and the
+      // target's admin is asked to turn it off.
       expect(await run(argv('--skip-preflight', '--dry-run', '--json'))).toBeUndefined();
       expect(errored).toContain(
         '    warning: validation rule "Name_Required" on LastName: "A last name is required." ' +
           '(not when $Permission.Bypass_VR; a row it refuses goes again without LastName)',
       );
+      const deactivations = (json: string): unknown[] =>
+        (
+          (JSON.parse(json) as { adminChanges?: Array<{ changes: Array<{ change: string }> }> })
+            .adminChanges ?? []
+        ).flatMap((group) =>
+          group.changes.filter((change) => change.change === 'deactivate_validation_rule'),
+        );
+      expect(deactivations(stdout)).toEqual([expect.objectContaining({ value: 'Name_Required' })]);
       errored.length = 0;
       stdout = '';
 
@@ -1173,6 +1489,126 @@ describe('sandforge-clone target automation', () => {
       ]);
       expect(summary.mutePlan?.assign.map((set) => set.permissionSet)).toEqual(['Data_Load']);
       expect(summary.mutePlan?.alsoLifts).toHaveLength(1);
+      // The mute lifts the rule: its admin is no longer asked to turn it off.
+      expect(deactivations(stdout)).toEqual([]);
+      expect(perms.writes).toEqual([]);
+    });
+
+    it('says a rehearsal refusal by a rule the mute lifts lifted, the rehearsal taking no mute', async () => {
+      // The trap org's shape: the set assigned for the welcome flow's bypass
+      // holds the bypass of a rule that refuses a contact without an email.
+      // The rehearsal assigns nothing, so the rule refused the contact, and
+      // its line said a real run writes it again without the field, where the
+      // run under the mute writes it whole.
+      const withEmail = {
+        ...DESCRIBES,
+        Contact: object('Contact', '003', [
+          { name: 'LastName' },
+          { name: 'Email', type: 'email' },
+          { name: 'AccountId', type: 'reference', referenceTo: ['Account'] },
+        ]),
+      };
+      const { target, perms } = mutableTarget({}, withEmail);
+      const withRule = fakeOrg({
+        describes: withEmail,
+        permissionSets: [{ name: 'Data_Load', grants: 2 }],
+        alsoGranted: [{ id: '0CP000000000002AAA', name: 'Bypass_VR' }],
+        validationRules: [
+          {
+            Id: '03d000000000001AAA',
+            ValidationName: 'Email_Required',
+            NamespacePrefix: null,
+            ErrorDisplayField: 'Email',
+            ErrorMessage: 'An email is required.',
+            EntityDefinition: { QualifiedApiName: 'Contact' },
+          },
+        ],
+        ruleFormula: 'AND(NOT($Permission.Bypass_VR), ISBLANK(Email))',
+      });
+      /** Each rehearsal call, answered as the platform answers it for a user without the bypass. */
+      const halted = {
+        body: [{ errorCode: 'PROCESSING_HALTED', message: 'halted' }],
+        httpStatusCode: 400,
+      };
+      const composite = async (request: unknown): Promise<unknown> => {
+        const { method, url, body } = request as { method?: string; url?: string; body?: string };
+        if (method !== 'POST' || url !== '/composite')
+          return withRule.conn.request(request as string);
+        const sent = JSON.parse(body ?? '{}') as {
+          compositeRequest: Array<{ body?: { records?: Array<Record<string, unknown>> } }>;
+        };
+        const collections = sent.compositeRequest.slice(0, -1);
+        const answers: unknown[] = collections.map(() => halted);
+        const at = collections.findIndex((sub) =>
+          (sub.body?.records ?? []).some(
+            (r) => (r['attributes'] as { type: string }).type === 'Contact' && !r['Email'],
+          ),
+        );
+        if (at !== -1) {
+          answers[at] = {
+            body: (collections[at].body?.records ?? []).map(() => ({
+              success: false,
+              errors: [
+                {
+                  statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                  message: 'An email is required.',
+                  fields: ['Email'],
+                },
+              ],
+            })),
+            httpStatusCode: 200,
+          };
+        }
+        answers.push(halted);
+        return { compositeResponse: answers };
+      };
+      withOrgs({
+        ...target,
+        conn: Object.assign(Object.create(null) as object, target.conn, {
+          query: (soql: string) =>
+            /FROM (UserPermissionAccess|PermissionSet|PermissionSetAssignment)\b/.test(soql)
+              ? target.conn.query(soql)
+              : withRule.conn.query(soql),
+          tooling: withRule.conn.tooling,
+          request: composite,
+        }) as unknown as Connection,
+      });
+
+      expect(
+        await run(argv('--skip-preflight', '--rehearse', '--mute-automation')),
+      ).toBeUndefined();
+
+      // The rehearsal poses no mute: nothing is assigned.
+      expect(perms.writes).toEqual([]);
+      expect(printed).toContain(
+        '  refused  Contact.Email: FIELD_CUSTOM_VALIDATION_EXCEPTION, 1 row(s), validation rule ' +
+          '"Email_Required": the mute lifts it (Bypass_VR, in Data_Load), which the rehearsal ran ' +
+          'without; a real run under it writes the row whole',
+      );
+      expect(printed.join('\n')).not.toContain('a real run writes it again without the field');
+
+      // With --json, the refusal names the rule lifted, as its line says it:
+      // a CI job reading detail.rule alone took the row for one the run loses.
+      stdout = '';
+      expect(
+        await run(argv('--skip-preflight', '--rehearse', '--mute-automation', '--json')),
+      ).toBeUndefined();
+      const answered = JSON.parse(stdout) as {
+        rehearsal: { gaps: Array<{ objectApiName: string; detail?: Record<string, unknown> }> };
+      };
+      expect(
+        answered.rehearsal.gaps.map(({ objectApiName, detail }) => [objectApiName, detail]),
+      ).toEqual([
+        [
+          'Contact',
+          expect.objectContaining({
+            statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+            rule: 'Email_Required',
+            liftedByPermission: 'Bypass_VR',
+            liftedByPermissionSet: 'Data_Load',
+          }),
+        ],
+      ]);
       expect(perms.writes).toEqual([]);
     });
 
@@ -1186,6 +1622,73 @@ describe('sandforge-clone target automation', () => {
       expect(events).toEqual([]);
       expect(perms.queries.some((soql) => /FROM PermissionSet\b/.test(soql))).toBe(false);
     });
+
+    it('names the code of a refused mute in its line, and answers it with --json on stdout', async () => {
+      withOrgs(mutableTarget({ canAssign: false }).target);
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--json'))).toBe(1);
+
+      expect(stderr.trimEnd().split('\n').at(-1)).toMatch(
+        /^refused \(MUTE_NO_RIGHT\): .*cannot assign permission sets/,
+      );
+      expect(JSON.parse(stdout)).toMatchObject({
+        tool: 'sandforge-clone',
+        dryRun: false,
+        refused: { code: 'MUTE_NO_RIGHT' },
+      });
+
+      // A dry run names that code on its line and beside its words.
+      withOrgs(mutableTarget({ canAssign: false }).target);
+      stdout = '';
+      expect(
+        await run(argv('--skip-preflight', '--mute-automation', '--dry-run', '--json')),
+      ).toBeUndefined();
+      expect(errored).toContainEqual(
+        expect.stringMatching(
+          /^ {2}a real run would be refused \(MUTE_NO_RIGHT\): .*cannot assign permission sets/,
+        ),
+      );
+      const dry = JSON.parse(stdout) as { wouldBeRefused: string[]; wouldBeRefusedCodes: string[] };
+      expect(dry.wouldBeRefusedCodes[0]).toBe('MUTE_NO_RIGHT');
+      expect(dry.wouldBeRefused[0]).toMatch(/cannot assign permission sets/);
+    });
+
+    // Run with the leases' folder turned read only once the lease was
+    // journaled, the clone failed uncoded and left the set assigned.
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+      'refuses with its code and writes nothing when the journal of its lease cannot be written once the set is assigned, the set taken back',
+      async () => {
+        const leases = process.env['SANDFORGE_MUTE_LEASES_DIR']!;
+        let readOnly = false;
+        const { target, perms, events } = mutableTarget({
+          beforeWrite: (write) => {
+            events.push(`assignment ${write.kind}`);
+            if (write.kind === 'insert' && !readOnly) {
+              chmodSync(leases, 0o500);
+              readOnly = true;
+            }
+          },
+        });
+        withOrgs(target);
+
+        try {
+          expect(await run(argv('--skip-preflight', '--mute-automation', '--json'))).toBe(1);
+        } finally {
+          if (readOnly) chmodSync(leases, 0o700);
+        }
+
+        expect(events).toEqual(['assignment insert', 'assignment delete']);
+        expect(perms.assignments()).toEqual([]);
+        expect(stderr.trimEnd().split('\n').at(-1)).toMatch(
+          /^refused \(MUTE_FAILED\): The journal of the mute leases in .* could not be written \(EACCES\): .* What this run had assigned was taken back: Data_Load\.$/,
+        );
+        expect(JSON.parse(stdout)).toMatchObject({
+          tool: 'sandforge-clone',
+          dryRun: false,
+          refused: { code: 'MUTE_FAILED' },
+        });
+      },
+    );
 
     it('assigns nothing to a run refused at its write gate: the lease is taken once the gate lets the rows through', async () => {
       const { target, perms, events } = mutableTarget();
@@ -1211,6 +1714,674 @@ describe('sandforge-clone target automation', () => {
           '--mute-automation',
         ]).muteAutomation,
       ).toBe(true);
+    });
+  });
+
+  describe('--checkpoint-first', () => {
+    /** What the checkpoint of the clone would hold and cost, as its scope says. */
+    const ESTIMATE: RunCheckpointEstimate = {
+      state: 'planned',
+      estimate: {
+        records: 38,
+        apiRequests: 68,
+        apiRequestsLeft: 14_000,
+        seconds: 44,
+        bytes: 2_200_000,
+      },
+      objects: ['Account', 'Contact'],
+      added: [],
+      notHeld: [],
+      keepDays: 7,
+    };
+    /** The checkpoint the take keeps. */
+    const TAKEN: RunCheckpointTaken = {
+      state: 'taken',
+      checkpointId: 'ck-20261101-100000-a1b2',
+      name: 'Before Forge run 2026-11-01 10:00 UTC',
+      takenAt: '2026-11-01T10:00:05.000Z',
+      expiresAt: '2026-11-08T10:00:00.000Z',
+      objects: ['Account', 'Contact'],
+      records: 2,
+      bytes: 4_096,
+      requests: 66,
+      added: [],
+      notHeld: [],
+    };
+
+    /**
+     * The checkpoint the clone asks for, each call in `events` with the
+     * target's writes: its scope answers `estimate`, its take `take`.
+     */
+    function checkpointsOf(
+      events: string[],
+      options: { estimate?: Partial<RunCheckpointEstimate>; take?: BeforeRunTake } = {},
+    ) {
+      const asked: CommandCheckpointAsk[] = [];
+      const port: CommandCheckpoints = {
+        scope: vi.fn(async (ask: CommandCheckpointAsk) => {
+          asked.push(ask);
+          events.push('scope');
+          return { ...ESTIMATE, ...options.estimate };
+        }),
+        take: vi.fn(async () => {
+          events.push('take');
+          return options.take ?? { taken: true as const, checkpoint: TAKEN };
+        }),
+        settle: vi.fn(async (taken: RunCheckpointTaken, wrote: boolean) => {
+          events.push(`settle ${String(wrote)}`);
+          return wrote ? taken : { state: 'deleted' as const, deleted: 'nothingWritten' as const };
+        }),
+      };
+      vi.mocked(commandCheckpoints).mockReturnValue(port);
+      return { port, asked };
+    }
+
+    it('takes it once the gate let the rows through, before the lease and the first write, and keeps it once the run wrote', async () => {
+      const { target, perms, events } = mutableTarget();
+      withOrgs(target);
+      const { asked } = checkpointsOf(events);
+
+      expect(
+        await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first', '--json')),
+      ).toBeUndefined();
+
+      expect(events).toEqual([
+        'scope',
+        'take',
+        'assignment insert',
+        'write Account',
+        'write Contact',
+        'assignment delete',
+        'settle true',
+      ]);
+      // The flags stand for the question a command line is never asked.
+      const steps = events.map((event): WritePathStep => {
+        if (event === 'scope') return 'stillRunning';
+        if (event === 'take') return 'checkpointTake';
+        if (event === 'assignment insert') return 'leaseAcquire';
+        if (event === 'assignment delete') return 'leaseRelease';
+        if (event.startsWith('write')) return 'write';
+        return 'result';
+      });
+      expect(writePathOrderDefects(['reads', 'leasePlan', 'question', ...steps])).toEqual([]);
+      expect(perms.assignments()).toEqual([]);
+      // The objects the rows go to, and nothing the muted flow would have started.
+      expect(asked).toEqual([{ written: ['Account', 'Contact'], running: { firing: [] } }]);
+      expect(vi.mocked(commandCheckpoints).mock.calls[0][0]).toMatchObject({
+        module: 'forge',
+        request: {},
+        session: { alias: 'TGT' },
+        org: { id: '00D000000000002AAA', orgType: 'Sandbox' },
+      });
+      expect(JSON.parse(stdout).checkpoint).toEqual(TAKEN);
+      // Said before the first write, with the command that rewinds to it, muting as the run did.
+      expect(errored).toContain(
+        "checkpoint before the run: ck-20261101-100000-a1b2 'Before Forge run 2026-11-01 10:00 " +
+          "UTC', 2 object(s), 2 record(s), kept until 2026-11-08",
+      );
+      expect(errored).toContain(
+        '  rewind to it: sandforge-checkpoint rewind --org TGT --checkpoint ' +
+          'ck-20261101-100000-a1b2 --mute-automation',
+      );
+    });
+
+    it('scopes it from what still runs as the rows go in: the flow that fires, unless the mute keeps it quiet', async () => {
+      const unmuted: string[] = [];
+      withOrgs(mutableTarget().target);
+      const { asked } = checkpointsOf(unmuted);
+      expect(
+        await run(argv('--skip-preflight', '--accept-automation', '--checkpoint-first')),
+      ).toBeUndefined();
+      expect(asked[0].running.firing.map((entry) => [entry.name, entry.write])).toEqual([
+        ['Contact welcome', 'insert'],
+      ]);
+
+      withOrgs(mutableTarget().target);
+      const muted = checkpointsOf([]);
+      expect(
+        await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first')),
+      ).toBeUndefined();
+      expect(muted.asked[0].running.firing).toEqual([]);
+    });
+
+    it('says on a dry run what it would hold and cost, gives it under checkpoint, and takes nothing', async () => {
+      const events: string[] = [];
+      withOrgs(fakeOrg({ noFlows: true }));
+      const { port } = checkpointsOf(events);
+
+      expect(
+        await run(argv('--skip-preflight', '--dry-run', '--checkpoint-first', '--json')),
+      ).toBeUndefined();
+
+      expect(events).toEqual(['scope']);
+      expect(port.take).not.toHaveBeenCalled();
+      expect(orgs.TGT.written).toEqual([]);
+      expect(JSON.parse(stdout).checkpoint).toEqual(ESTIMATE);
+      expect(errored).toContain(
+        '  Checkpoint first: about 38 records of 2 objects, 68 API requests, 44 s, 2.1 MB on ' +
+          "this machine, unencrypted, and none of the org's storage, kept 7 days.",
+      );
+    });
+
+    it('refuses the run before the take, the lease and any write when its scope is refused, in the command’s words', async () => {
+      const refusal = {
+        code: 'RUN_WRITING' as const,
+        message:
+          'A SandForge run is writing to TGT: start this run once it has ended. No record was read.',
+      };
+      const { target, perms, events } = mutableTarget();
+      withOrgs(target);
+      checkpointsOf(events, { estimate: { refusal } });
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first'))).toBe(
+        1,
+      );
+
+      expect(events).toEqual(['scope']);
+      expect(perms.assignments()).toEqual([]);
+      expect(stderr).toBe(
+        'refused (CHECKPOINT_REFUSED): The checkpoint before the run was refused: A SandForge ' +
+          'run is writing to TGT: start ' +
+          'this run once it has ended. Fix what refuses it, or run without --checkpoint-first to ' +
+          'write without one. Nothing was written.\n',
+      );
+
+      // A dry run says it, and gives it under wouldBeRefused.
+      withOrgs(mutableTarget().target);
+      checkpointsOf([], { estimate: { refusal } });
+      stdout = '';
+      expect(
+        await run(argv('--skip-preflight', '--dry-run', '--checkpoint-first', '--json')),
+      ).toBeUndefined();
+      expect(JSON.parse(stdout).wouldBeRefused).toContain(
+        'The checkpoint before the run was refused: A SandForge run is writing to TGT: start ' +
+          'this run once it has ended. Fix what refuses it, or run without --checkpoint-first to ' +
+          'write without one.',
+      );
+      // Under the code the real run above was refused with.
+      expect(JSON.parse(stdout).wouldBeRefusedCodes).toContain('CHECKPOINT_REFUSED');
+    });
+
+    it('writes nothing and assigns nothing when the take is refused', async () => {
+      const { target, perms, events } = mutableTarget();
+      withOrgs(target);
+      checkpointsOf(events, {
+        take: {
+          taken: false,
+          refusal: { code: 'DISK', message: 'Too little room. No record was read.' },
+        },
+      });
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first'))).toBe(
+        1,
+      );
+
+      expect(events).toEqual(['scope', 'take']);
+      expect(perms.assignments()).toEqual([]);
+      expect(stderr).toBe(
+        'refused (CHECKPOINT_REFUSED): The checkpoint before the run was refused: Too little ' +
+          'room. Fix what refuses it, leave ' +
+          'an object out of it (--checkpoint-exclude-object <ApiName>), or run without ' +
+          '--checkpoint-first to write without one. Nothing was written.\n',
+      );
+    });
+
+    it('deletes the checkpoint of a run whose lease was refused after the take, before any write', async () => {
+      const { target, events } = mutableTarget({
+        refuseAssigning: { [DATA_LOAD]: 'INSUFFICIENT_ACCESS_OR_READONLY' },
+      });
+      withOrgs(target);
+      checkpointsOf(events);
+      // The process ends there: the checkpoint is deleted before it does.
+      vi.mocked(process.exit).mockImplementation((code?: string | number | null) => {
+        events.push('exit');
+        throw new ExitCalled(typeof code === 'number' ? code : undefined);
+      });
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first'))).toBe(
+        1,
+      );
+
+      expect(events.filter((event) => !event.startsWith('assignment'))).toEqual([
+        'scope',
+        'take',
+        'settle false',
+        'exit',
+      ]);
+      expect(events.some((event) => event.startsWith('write'))).toBe(false);
+      expect(printed).toContain(BEFORE_RUN_DELETED_WORDS);
+    });
+
+    it('answers a lease refused after the take with --json on stdout, its code apart', async () => {
+      const { target, events } = mutableTarget({
+        refuseAssigning: { [DATA_LOAD]: 'INSUFFICIENT_ACCESS_OR_READONLY' },
+      });
+      withOrgs(target);
+      checkpointsOf(events);
+
+      expect(
+        await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first', '--json')),
+      ).toBe(1);
+
+      expect(JSON.parse(stdout)).toMatchObject({ dryRun: false, refused: { code: 'MUTE_FAILED' } });
+      expect(stderr.trimEnd().split('\n').at(-1)).toMatch(/^refused \(MUTE_FAILED\): /);
+      expect(events.some((event) => event.startsWith('write'))).toBe(false);
+    });
+
+    it('stops at Ctrl-C during the take with nothing kept and nothing written, and exits 130', async () => {
+      const { target, perms, events } = mutableTarget();
+      withOrgs(target);
+      checkpointsOf(events, { take: { taken: false, stopped: true } });
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first'))).toBe(
+        130,
+      );
+
+      expect(events).toEqual(['scope', 'take']);
+      expect(perms.assignments()).toEqual([]);
+      expect(printed).toContain(CHECKPOINT_STOPPED_WORDS);
+    });
+
+    it("refuses a run whose checkpoint takes it past the target's daily API requests, naming the checkpoint's part", async () => {
+      const limits = {
+        DataStorageMB: { Max: 200, Remaining: 150 },
+        DailyApiRequests: { Max: 15_000, Remaining: 50 },
+      };
+      const events: string[] = [];
+      withOrgs(fakeOrg({ noFlows: true, limits }));
+      const { port } = checkpointsOf(events);
+
+      expect(await run(argv('--skip-preflight', '--checkpoint-first'))).toBe(1);
+
+      expect(stderr).toBe(
+        'refused (API_BUDGET_EXCEEDED): The run takes about 70 API requests (68 of them for the ' +
+          'checkpoint taken first), and ' +
+          'TGT has 50 of its 15000 daily requests left: it would stop part way through, its ' +
+          'records refused with REQUEST_LIMIT_EXCEEDED. Run it once the org has requests to ' +
+          'spare — the limit is counted over the last 24 hours — or write fewer records. ' +
+          'Nothing was written.\n',
+      );
+      expect(port.take).not.toHaveBeenCalled();
+      expect(orgs.TGT.written).toEqual([]);
+
+      // Without the checkpoint, the run's own requests fit.
+      withOrgs(fakeOrg({ noFlows: true, limits }));
+      expect(await run(argv('--skip-preflight'))).toBeUndefined();
+      expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+    });
+
+    it("refuses a run past the target's daily API requests whatever it asks, saying them before it writes", async () => {
+      withOrgs(
+        fakeOrg({
+          noFlows: true,
+          limits: {
+            DataStorageMB: { Max: 200, Remaining: 150 },
+            DailyApiRequests: { Max: 15_000, Remaining: 1 },
+          },
+        }),
+      );
+
+      expect(await run(argv('--skip-preflight'))).toBe(1);
+
+      expect(printed).toContain(
+        '  API requests: about 2, of the 1 TGT has left of its 15000 a day: more than it has left',
+      );
+      expect(stderr).toBe(
+        'refused (API_BUDGET_EXCEEDED): The run takes about 2 API requests, and TGT has 1 of ' +
+          'its 15000 daily requests left: it ' +
+          'would stop part way through, its records refused with REQUEST_LIMIT_EXCEEDED. Run it ' +
+          'once the org has requests to spare — the limit is counted over the last 24 hours — or ' +
+          'write fewer records. Nothing was written.\n',
+      );
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('refuses the option where nothing would be kept to take back, or a run that wrote already is taken up', () => {
+      for (const flag of [['--rehearse'], ['--list-objects'], ['--resume', 'run-1']]) {
+        stderr = '';
+        expect(() => parseArgs(argv('--checkpoint-first', ...flag))).toThrow(ExitCalled);
+        expect(stderr).toMatch(new RegExp(`^--checkpoint-first does not go with ${flag[0]}: `));
+      }
+      expect(() =>
+        parseRemoveArgs([
+          'node',
+          'sandforge-clone.ts',
+          '--remove',
+          'summary.json',
+          '--target',
+          'TGT',
+          '--checkpoint-first',
+        ]),
+      ).toThrow(ExitCalled);
+    });
+  });
+
+  describe('--accept-emails', () => {
+    /** The welcome flow's alert, which emails each contact created. */
+    const ALERT = [{ name: 'Welcome_Alert', label: 'Welcome alert', actionType: 'emailAlert' }];
+    const LIMITS = {
+      DataStorageMB: { Max: 200, Remaining: 150 },
+      DailyApiRequests: { Max: 15_000, Remaining: 14_000 },
+      SingleEmail: { Max: 15, Remaining: 15 },
+      DailyWorkflowEmails: { Max: 500, Remaining: 500 },
+    };
+    /** A target whose welcome flow emails each contact, and whose Apex answers as `deliverability`. */
+    const sending = (deliverability: 'all' | 'closed' | (string & {}) = 'all') =>
+      fakeOrg({ flowActions: ALERT, limits: LIMITS, deliverability });
+
+    it('refuses a run on All email with --accept-automation alone, exit 1, nothing written, and the read sends nothing else', async () => {
+      withOrgs(sending());
+
+      expect(await run(argv('--skip-preflight', '--accept-automation'))).toBe(1);
+
+      expect(orgs.TGT.written).toEqual([]);
+      expect(orgs.TGT.anonymous).toEqual([
+        '/tooling/executeAnonymous?anonymousBody=' +
+          encodeURIComponent('Messaging.reserveSingleEmailCapacity(1);'),
+      ]);
+      expect(stderr).toBe(
+        'refused (EMAILS_NOT_ACCEPTED): TGT delivers every email its automation sends (Setup > ' +
+          'Deliverability: All email), and ' +
+          'what still runs as this clone writes its records sends some: flow "Contact welcome" on ' +
+          'Contact. They go to the addresses the records and the alerts name: those this clone ' +
+          "writes are under .invalid, but not the records' owners, the records already in TGT, " +
+          'nor an address an alert names. Nothing was written. Add --accept-emails to clone all ' +
+          "the same, set the org's deliverability to System email only, or turn off what sends " +
+          'them.\n',
+      );
+      // Said with the rest of what fires, before a row is read.
+      const line = printed.indexOf(
+        '  deliverability: All email — the emails of what still runs go out (read with one line ' +
+          'of anonymous Apex that sends nothing)',
+      );
+      expect(line).toBeGreaterThan(-1);
+      expect(printed.indexOf('record-type mapping…')).toBe(-1);
+    });
+
+    it('answers --json with the code of what refused it, each of both at once', async () => {
+      withOrgs(sending());
+
+      expect(await run(argv('--skip-preflight', '--accept-automation', '--json'))).toBe(1);
+
+      expect(JSON.parse(stdout)).toMatchObject({
+        tool: 'sandforge-clone',
+        target: 'TGT',
+        dryRun: false,
+        refused: { code: 'EMAILS_NOT_ACCEPTED' },
+      });
+      expect(JSON.parse(stdout)).not.toHaveProperty('alsoRefused');
+
+      withOrgs(sending());
+      stdout = '';
+      expect(await run(argv('--skip-preflight', '--json'))).toBe(1);
+
+      expect(JSON.parse(stdout)).toMatchObject({
+        refused: { code: 'AUTOMATION_NOT_ACCEPTED' },
+        alsoRefused: [{ code: 'EMAILS_NOT_ACCEPTED' }],
+      });
+    });
+
+    it('prints a summary --remove reads as a run that wrote nothing, not one to clean up after', async () => {
+      withOrgs(sending());
+
+      expect(await run(argv('--skip-preflight', '--accept-automation', '--json'))).toBe(1);
+
+      expect(parseRunSummary(stdout)).toEqual({
+        refusal:
+          'is the summary of a run refused before its first write (EMAILS_NOT_ACCEPTED), which ' +
+          'wrote nothing to the target: there is nothing of it to remove.',
+      });
+    });
+
+    it('writes once given --accept-emails', async () => {
+      withOrgs(sending());
+
+      expect(
+        await run(argv('--skip-preflight', '--accept-automation', '--accept-emails')),
+      ).toBeUndefined();
+
+      expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+    });
+
+    it('never takes --accept-emails for --accept-automation: both refusals said at once', async () => {
+      withOrgs(sending());
+
+      expect(await run(argv('--skip-preflight', '--accept-emails'))).toBe(1);
+
+      expect(orgs.TGT.written).toEqual([]);
+      expect(stderr).toContain('Add --accept-automation to clone all the same');
+      expect(stderr).not.toContain('Add --accept-emails');
+
+      withOrgs(sending());
+      stderr = '';
+      expect(await run(argv('--skip-preflight'))).toBe(1);
+      expect(stderr).toContain('Add --accept-emails to clone all the same');
+      expect(stderr.split('\n').filter((line) => line !== '')).toHaveLength(2);
+    });
+
+    it('asks nothing of an org on System email only or No access, and says why in a line', async () => {
+      withOrgs(sending('closed'));
+
+      expect(await run(argv('--skip-preflight', '--accept-automation'))).toBeUndefined();
+
+      expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+      expect(printed).toContain(
+        '  deliverability: System email only or No access — none of the emails its flows, ' +
+          'processes, workflow rules and Apex send goes out, and the org still counts them against ' +
+          'its daily email limits (read with one line of anonymous Apex ' +
+          'that sends nothing)',
+      );
+    });
+
+    it('refuses on any other answer of the org, its words in the refusal', async () => {
+      withOrgs(sending('System.LimitException: Too many'));
+
+      expect(await run(argv('--skip-preflight', '--accept-automation'))).toBe(1);
+
+      expect(stderr).toContain(
+        'Whether TGT delivers the emails its automation sends could not be read (the org ' +
+          'answered: System.LimitException: Too many)',
+      );
+      expect(stderr).toContain('check Setup > Deliverability');
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('says where they go by --keep-contact-points', async () => {
+      withOrgs(sending());
+
+      expect(
+        await run(argv('--skip-preflight', '--accept-automation', '--keep-contact-points')),
+      ).toBe(1);
+
+      expect(stderr).toContain('those of the records this clone writes, as they hold them');
+      expect(stderr).not.toContain('.invalid');
+    });
+
+    it('names --mute-automation for what a bypass a permission set holds keeps quiet', async () => {
+      withOrgs(
+        fakeOrg({
+          flowActions: ALERT,
+          limits: LIMITS,
+          permissionSets: [{ name: 'Data_Load', grants: 1 }],
+          deliverability: 'all',
+        }),
+      );
+
+      expect(await run(argv('--skip-preflight', '--accept-automation'))).toBe(1);
+
+      expect(stderr).toContain(
+        '--mute-automation keeps quiet flow "Contact welcome" on Contact, which tests a bypass a ' +
+          'permission set of TGT holds.',
+      );
+    });
+
+    it('says on a dry run what a real run would be refused for, and gives the reading with --json', async () => {
+      withOrgs(sending());
+
+      expect(
+        await run(argv('--skip-preflight', '--dry-run', '--accept-automation', '--json')),
+      ).toBeUndefined();
+
+      const summary = JSON.parse(stdout) as {
+        wouldBeRefused: string[];
+        wouldBeRefusedCodes: string[];
+        targetAutomation: { deliverability?: unknown };
+      };
+      expect(summary.wouldBeRefused).toContainEqual(
+        expect.stringContaining('Add --accept-emails to clone all the same'),
+      );
+      // Each beside the code a real run is refused with, in the same order.
+      expect(
+        summary.wouldBeRefusedCodes[
+          summary.wouldBeRefused.findIndex((words) => words.includes('Add --accept-emails'))
+        ],
+      ).toBe('EMAILS_NOT_ACCEPTED');
+      expect(summary.wouldBeRefusedCodes).toHaveLength(summary.wouldBeRefused.length);
+      expect(summary.targetAutomation.deliverability).toEqual({ level: 'all' });
+      expect(errored).toContainEqual(
+        expect.stringContaining(
+          '  a real run would be refused (EMAILS_NOT_ACCEPTED): TGT delivers every email',
+        ),
+      );
+    });
+
+    it('runs no Apex in a production org a dry run reads, and says it was not read', async () => {
+      const prod = sending();
+      const answer = prod.conn.query.bind(prod.conn);
+      (prod.conn as unknown as { query: (soql: string) => Promise<unknown> }).query = async (
+        soql: string,
+      ) =>
+        soql === 'SELECT Id, IsSandbox FROM Organization LIMIT 1'
+          ? { totalSize: 1, done: true, records: [{ Id: '00D000000000002AAA', IsSandbox: false }] }
+          : soql === 'SELECT OrganizationType FROM Organization LIMIT 1'
+            ? { totalSize: 1, done: true, records: [{ OrganizationType: 'Enterprise Edition' }] }
+            : answer(soql);
+      withOrgs(prod);
+
+      expect(
+        await run(argv('--skip-preflight', '--dry-run', '--accept-automation', '--json')),
+      ).toBeUndefined();
+
+      expect(orgs.TGT.anonymous).toEqual([]);
+      expect(JSON.parse(stdout).targetAutomation.deliverability).toEqual({
+        unread: 'SandForge runs no Apex in a production org',
+      });
+    });
+
+    it('reads nothing of the org when nothing that fires sends an email', async () => {
+      withOrgs(fakeOrg({ limits: LIMITS }));
+
+      expect(await run(argv('--skip-preflight', '--accept-automation'))).toBeUndefined();
+
+      expect(orgs.TGT.anonymous).toEqual([]);
+      expect(printed.some((line) => line.includes('deliverability:'))).toBe(false);
+    });
+
+    it('counts what the read sent among the run’s requests, named in the line of the requests', async () => {
+      withOrgs(
+        fakeOrg({
+          flowActions: ALERT,
+          limits: { ...LIMITS, DailyApiRequests: { Max: 15_000, Remaining: 3 } },
+          deliverability: 'closed',
+        }),
+      );
+
+      expect(await run(argv('--skip-preflight', '--accept-automation'))).toBe(1);
+
+      expect(stderr).toContain('2 of them to read whether the target delivers its emails');
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('reads nothing, and asks nothing of the emails, when the mute keeps every sender quiet', async () => {
+      const { target, events } = mutableTarget({}, DESCRIBES, {
+        flowActions: ALERT,
+        limits: LIMITS,
+      });
+      withOrgs(target);
+
+      expect(await run(argv('--skip-preflight', '--mute-automation'))).toBeUndefined();
+
+      expect(orgs.TGT.anonymous).toEqual([]);
+      expect(events).toEqual([
+        'assignment insert',
+        'write Account',
+        'write Contact',
+        'assignment delete',
+      ]);
+    });
+
+    it('keeps the order of the write path: the read before the lease, the lease before the writes', async () => {
+      const { target, events } = mutableTarget({}, DESCRIBES, {
+        flowActions: ALERT,
+        limits: LIMITS,
+        deliverability: 'all',
+        // A flow that emails each contact too, and that no bypass keeps quiet.
+        moreFlows: [
+          {
+            ...SYNC_FLOW,
+            ApiName: 'Contact_Notice',
+            Label: 'Contact notice',
+            RecordTriggerType: 'Create',
+          },
+        ],
+        unbypassed: [String(SYNC_FLOW.ActiveVersionId)],
+      });
+      const request = target.conn.request.bind(target.conn);
+      (target.conn as unknown as { request: (r: unknown) => Promise<unknown> }).request = async (
+        r: unknown,
+      ) => {
+        const url = (r as { url?: string }).url ?? '';
+        if (url.startsWith('/tooling/executeAnonymous')) events.push('deliverability read');
+        return request(r as never);
+      };
+      withOrgs(target);
+
+      expect(
+        await run(
+          argv('--skip-preflight', '--mute-automation', '--accept-automation', '--accept-emails'),
+        ),
+      ).toBeUndefined();
+
+      const steps = events.map((event): WritePathStep => {
+        if (event === 'deliverability read') return 'deliverabilityRead';
+        if (event === 'assignment insert') return 'leaseAcquire';
+        if (event === 'assignment delete') return 'leaseRelease';
+        return 'write';
+      });
+      expect(events).toEqual([
+        'deliverability read',
+        'assignment insert',
+        'write Account',
+        'write Contact',
+        'assignment delete',
+      ]);
+      // The flags stand for the question a command line is never asked.
+      expect(
+        writePathOrderDefects([
+          'reads',
+          'leasePlan',
+          'stillRunning',
+          ...steps.slice(0, 1),
+          'question',
+          ...steps.slice(1),
+          'result',
+        ]),
+      ).toEqual([]);
+    });
+
+    it('reads the flag apart from --accept-automation, and says it in --help', async () => {
+      expect(parseArgs(argv('--accept-emails'))).toMatchObject({
+        acceptEmails: true,
+        acceptAutomation: false,
+      });
+      expect(parseArgs(argv('--accept-automation'))).toMatchObject({
+        acceptEmails: false,
+        acceptAutomation: true,
+      });
+      expect(await run(['node', 'sandforge-clone.ts', '--help'])).toBe(0);
+      expect(stdout).toMatch(/--accept-emails\s+write although the target delivers every email/);
+      expect(stdout).toContain('--accept-automation never stands for');
+      expect(stdout).toContain('(EMAILS_NOT_ACCEPTED)');
     });
   });
 });

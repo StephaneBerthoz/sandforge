@@ -2,10 +2,12 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle } from 'lucide-react';
 import type {
+  CheckpointBeforeRunModule,
   CheckpointInvalidReason,
   CheckpointListEntry,
   OrgCheckpoint,
 } from '@sandforge/shared';
+import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { Dialog } from '../../components/ui/Dialog';
@@ -35,6 +37,19 @@ const WHY_KEYS: Readonly<Record<CheckpointInvalidReason, string>> = {
   failed: 'checkpoint.list.why.failed',
   refreshed: 'checkpoint.list.why.refreshedUndated',
   scratchExpired: 'checkpoint.list.why.scratchExpired',
+};
+
+/**
+ * The chip of a checkpoint a run took of what it writes before its first
+ * write, by the module that ran it: its name can be changed, and says it no
+ * more then.
+ */
+const BEFORE_RUN_KEYS: Readonly<Record<CheckpointBeforeRunModule, string>> = {
+  forge: 'checkpoint.list.beforeRun.forge',
+  sync: 'checkpoint.list.beforeRun.sync',
+  seed: 'checkpoint.list.beforeRun.seed',
+  autopilot: 'checkpoint.list.beforeRun.autopilot',
+  frozen: 'checkpoint.list.beforeRun.frozen',
 };
 
 /** Props for {@link CheckpointList}. */
@@ -77,7 +92,8 @@ function nameOf(entry: CheckpointListEntry): string {
 /**
  * The checkpoints of an org kept on this machine, read without contacting
  * the org: each with when it was taken, the records it holds, the room it
- * takes and how long it is kept, Rewind…, which opens what a rewind to it
+ * takes and how long it is kept, beside its name the run that took it before
+ * its first write — "Before Forge run" —, Rewind…, which opens what a rewind to it
  * would do, and Export…, which saves it encrypted for a teammate who rewinds
  * the same org. Beneath, what the store says of it: that it was taken with View
  * All and Modify All per object, its user having no View All Data and Modify
@@ -235,9 +251,16 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 id={nameId} className="text-sm font-semibold text-text-primary break-words">
-            {nameOf(entry)}
-          </h3>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <h3 id={nameId} className="text-sm font-semibold text-text-primary break-words">
+              {nameOf(entry)}
+            </h3>
+            {checkpoint?.beforeRun && (
+              <Badge data-testid={`checkpoint-row-before-run-${entry.checkpointId}`}>
+                {t(BEFORE_RUN_KEYS[checkpoint.beforeRun.module])}
+              </Badge>
+            )}
+          </div>
           {checkpoint && (
             <p
               className="text-xs text-text-secondary"

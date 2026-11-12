@@ -35,6 +35,8 @@ const DEV = {
   id: 'org-dev',
   alias: 'DEV-SANDBOX',
   status: 'connected',
+  orgType: 'Sandbox',
+  tags: [],
 } as unknown as SalesforceOrg;
 
 const STATUS: FrozenStatusInfo = {

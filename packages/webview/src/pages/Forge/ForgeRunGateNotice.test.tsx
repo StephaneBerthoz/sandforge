@@ -3,6 +3,8 @@ import { render, screen, act, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import type { ForgeConfig } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
+import { useOrgStore } from '../../stores/useOrgStore';
+import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { useForgeRunGateStore } from './runGate';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
 
@@ -154,14 +156,21 @@ describe('ForgeRunGateNotice', () => {
     expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(text);
   });
 
-  it('says a refusal for the API budget that names no allowance in the words of the code', () => {
-    act(() => useForgeRunGateStore.getState().setStop({ code: 'API_BUDGET_EXCEEDED' }));
+  it.each([
+    [
+      'CHECKPOINT_REFUSED' as const,
+      'The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken. Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.',
+    ],
+    [
+      'API_BUDGET_EXCEEDED' as const,
+      'The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records.',
+    ],
+  ])('alerts that the run was refused at its write gate (%s)', (code, text) => {
+    act(() => useForgeRunGateStore.getState().setStop({ code }));
     render(<ForgeRunGateNotice />);
 
     expect(screen.getByTestId('forge-run-gate-notice').getAttribute('role')).toBe('alert');
-    expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
-      'The run was refused before it wrote anything: it would take more API requests than the source or target org has left today, or more Bulk API batches than the target has left. Run it once the org has some to spare.',
-    );
+    expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(text);
   });
 
   it('alerts that a clone of the whole org was refused for the objects it reads whole past its bound', () => {
@@ -195,6 +204,131 @@ describe('ForgeRunGateNotice', () => {
 
     expect(screen.queryByTestId('forge-run-gate-notice')).toBeNull();
     expect(useForgeRunGateStore.getState().stop).toBeNull();
+  });
+
+  describe('a run refused for the checkpoint it was to take first', () => {
+    it('says what refused it, by the take’s own code', () => {
+      act(() =>
+        useForgeRunGateStore.getState().setStop({ code: 'CHECKPOINT_REFUSED', reason: 'DISK' }),
+      );
+      render(<ForgeRunGateNotice />);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
+        "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused. This machine's disk has too little room for it. Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
+      );
+      expect(screen.getByTestId('forge-run-gate-notice').getAttribute('role')).toBe('alert');
+    });
+
+    it('says another run holds the org, as it would be told', () => {
+      act(() =>
+        useForgeRunGateStore
+          .getState()
+          .setStop({ code: 'CHECKPOINT_REFUSED', reason: 'RUN_WRITING' }),
+      );
+      render(<ForgeRunGateNotice />);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toContain(
+        'Another SandForge run, take, rewind or undo is writing to the org',
+      );
+    });
+
+    it('says it was refused or could not be taken when the stop names nothing', () => {
+      act(() => useForgeRunGateStore.getState().setStop({ code: 'CHECKPOINT_REFUSED' }));
+      render(<ForgeRunGateNotice />);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toContain(
+        'was refused, or could not be taken',
+      );
+    });
+  });
+
+  describe('a run past the day’s API requests', () => {
+    it('names the checkpoint among them only when the run was to take one', () => {
+      act(() =>
+        useForgeRunGateStore
+          .getState()
+          .setStop({ code: 'API_BUDGET_EXCEEDED' }, { checkpointAsked: true }),
+      );
+      const { unmount } = render(<ForgeRunGateNotice />);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toContain(
+        'the checkpoint it was to take first among them',
+      );
+      unmount();
+
+      act(() => useForgeRunGateStore.getState().setStop({ code: 'API_BUDGET_EXCEEDED' }));
+      render(<ForgeRunGateNotice />);
+      const reason = screen.getByTestId('forge-run-gate-reason').textContent;
+      expect(reason).toContain('more API requests than the target org has left today');
+      expect(reason).not.toContain('checkpoint');
+    });
+
+    it('names the checkpoint among the target’s requests a clone of the whole org gave figures for, when it was to take one', () => {
+      const api = {
+        kind: 'requests',
+        org: 'target',
+        estimate: 182_000,
+        remaining: 150_000,
+      } as const;
+      act(() =>
+        useForgeRunGateStore
+          .getState()
+          .setStop({ code: 'API_BUDGET_EXCEEDED', api }, { checkpointAsked: true }),
+      );
+      const { unmount } = render(<ForgeRunGateNotice />);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
+        'The run was refused before it wrote anything: it would take about 182,000 API requests of the target org, the checkpoint it was to take first among them, and the org has 150,000 left today. Run it once the org has more to spare, leave objects out on Review, or untick Checkpoint first.',
+      );
+      unmount();
+
+      act(() => useForgeRunGateStore.getState().setStop({ code: 'API_BUDGET_EXCEEDED', api }));
+      render(<ForgeRunGateNotice />);
+      const reason = screen.getByTestId('forge-run-gate-reason').textContent;
+      expect(reason).toBe(
+        'The run was refused before it wrote anything: it would take about 182,000 API requests of the target org, which has 150,000 left today. Run it once the org has more to spare, or leave objects out on Review.',
+      );
+      expect(reason).not.toContain('checkpoint');
+    });
+
+    it('leaves the checkpoint out of the source’s requests and the Bulk API batches, which do not count it', () => {
+      act(() =>
+        useForgeRunGateStore.getState().setStop(
+          {
+            code: 'API_BUDGET_EXCEEDED',
+            api: { kind: 'requests', org: 'source', estimate: 9_000, remaining: 1_000 },
+          },
+          { checkpointAsked: true },
+        ),
+      );
+      const { unmount } = render(<ForgeRunGateNotice />);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).not.toContain('checkpoint');
+      unmount();
+
+      act(() =>
+        useForgeRunGateStore.getState().setStop(
+          {
+            code: 'API_BUDGET_EXCEEDED',
+            api: { kind: 'bulkBatches', org: 'target', estimate: 20_000, remaining: 100 },
+          },
+          { checkpointAsked: true },
+        ),
+      );
+      render(<ForgeRunGateNotice />);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).not.toContain('checkpoint');
+    });
+  });
+
+  it('says what became of a checkpoint the run had taken when it stopped', () => {
+    useOrgStore.setState({ orgs: [developerOrg()], selectedOrgId: 'org-dev' });
+    act(() =>
+      useForgeRunGateStore.getState().setStop(
+        { code: 'WRITE_DECLINED' },
+        {
+          checkpointAsked: true,
+          checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+        },
+      ),
+    );
+    render(<ForgeRunGateNotice />);
+    expect(screen.getByTestId('forge-run-gate-checkpoint-deleted').textContent).toBe(
+      'The checkpoint taken before the run was deleted: the run wrote nothing.',
+    );
   });
 });
 

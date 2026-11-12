@@ -1,15 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import type { ForgeTargetAutomation, ForgeTargetFlow, RewindDiffObject } from '@sandforge/shared';
-
 import {
+  firedOnRemovalStepsOf,
+  type CheckpointRefusal,
+  type ForgeTargetAutomation,
+  type ForgeTargetFlow,
+  type RewindDiffObject,
+} from '@sandforge/shared';
+
+import { rewindStepsOf } from './rewindBounds.js';
+import {
+  actDeliverability,
+  actEmailsGate,
+  actSendersOf,
+  afterLeaseEmailsRefusal,
   checkpointEmails,
   checkpointEmailsUncounted,
   emailsRefusal,
   emailsUncountedWords,
+  pageEmailsRefusal,
   writtenByDiff,
   writtenByPlan,
   writtenByUndo,
 } from './rewindEmails.js';
+import { heldPlanOf } from '../forge/targetDeliverability.js';
 
 /** A flow that sends `emails` on the writes it starts on. */
 function flow(
@@ -92,6 +105,102 @@ describe('what a rewind and an undo write, per object and write', () => {
       { objectApiName: 'Contact', write: 'update', records: 5 },
       { objectApiName: 'Contact', write: 'delete', records: 4 },
     ]);
+  });
+
+  it('lists among the steps every object whose update its emails count: a flow on an update fires on what comes back from the bin', () => {
+    const objects = [
+      diffObject('Contact', { inBin: 2 }),
+      diffObject('Account', { giveBack: 1 }),
+      // Back with a parent, then given its values back as well.
+      {
+        ...diffObject('Case', {}),
+        toBringBack: { inBin: 0, withParent: 3, deletedWhileTaken: 0 },
+      },
+      // Deleted while the checkpoint was taken: it comes back and nothing more.
+      {
+        ...diffObject('Lead', {}),
+        toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 4 },
+      },
+    ];
+    const updated = writtenByDiff(objects)
+      .filter((each) => each.write === 'update')
+      .map((each) => each.objectApiName);
+    expect(updated).toEqual(['Contact', 'Account', 'Case']);
+    expect(rewindStepsOf({ objects }).giveBack).toEqual(updated);
+
+    // The line of what fires names the flow the emails count on that update.
+    const contact = [diffObject('Contact', { inBin: 2 })];
+    expect(
+      firedOnRemovalStepsOf(
+        automationOf({ Contact: [flow('Touch', 'update', [])] }),
+        rewindStepsOf({ objects: contact }),
+      ).map((each) => ({ step: each.step, name: each.name })),
+    ).toEqual([{ step: 'giveBack', name: 'Touch' }]);
+  });
+
+  it('counts each order a rewind deletes as updated too, as it sets one activated since back to Draft first: the steps, the emails and what was not counted read the same', () => {
+    const objects = [diffObject('Order', { createdSince: 3 })];
+    const steps = rewindStepsOf({ objects });
+    expect(steps.setToDraft).toEqual(['Order']);
+    expect(steps.delete).toEqual(['Order']);
+
+    const written = writtenByDiff(objects);
+    expect(written).toEqual([
+      { objectApiName: 'Order', write: 'update', records: 3 },
+      { objectApiName: 'Order', write: 'delete', records: 3 },
+    ]);
+    // The flow its step lists as fired sends one email an order, counted
+    // against the day's single emails.
+    const touch = automationOf({ Order: [flow('Order Touch', 'update', ['SingleEmail'])] });
+    expect(firedOnRemovalStepsOf(touch, steps).map((each) => [each.step, each.name])).toEqual([
+      ['setToDraft', 'Order Touch'],
+    ]);
+    expect(
+      checkpointEmails(written, touch, DEVELOPER_EDITION).map(({ limit, emails, verdict }) => [
+        limit,
+        emails,
+        verdict,
+      ]),
+    ).toEqual([
+      ['SingleEmail', 3, 'fits'],
+      ['DailyWorkflowEmails', 3, 'fits'],
+    ]);
+    // Its definition unread, what it sends is said not counted.
+    const unread = automationOf({
+      Order: [{ ...flow('Order Touch', 'update', []), condition: 'notRead' }],
+    });
+    expect(checkpointEmailsUncounted(written, unread)).toBe(
+      'the definition of Order Touch on Order',
+    );
+    // Of a plan, the orders it deletes, those going with a parent among them.
+    expect(
+      writtenByPlan([
+        {
+          objectApiName: 'Order',
+          deleted: 2,
+          withParentDeleted: 1,
+          undoCannot: 0,
+          nextPassDeleted: 0,
+          broughtBack: 0,
+          backWithParent: 0,
+          recreated: 0,
+          givenBackFirst: 0,
+          givenBackAfter: 0,
+          givenBackNextPass: 0,
+          skipped: 0,
+        },
+      ]),
+    ).toEqual([
+      { objectApiName: 'Order', write: 'update', records: 3 },
+      { objectApiName: 'Order', write: 'delete', records: 3 },
+    ]);
+    // No other object is set back to Draft: a contract past Draft the org deletes as it stands.
+    expect(writtenByDiff([diffObject('Contract', { createdSince: 2 })])).toEqual([
+      { objectApiName: 'Contract', write: 'delete', records: 2 },
+    ]);
+    expect(
+      rewindStepsOf({ objects: [diffObject('Contract', { createdSince: 2 })] }).setToDraft,
+    ).toEqual([]);
   });
 
   it('counts what a rewind makes again with new Ids as inserted, after what it brings back, and the emails that sends', () => {
@@ -203,7 +312,7 @@ describe('checkpointEmails', () => {
     { objectApiName: 'Contact', write: 'delete' as const, records: 5 },
   ];
 
-  it('counts the emails each record given back sends, its alerts among the single emails of a Developer Edition, past what it has left', () => {
+  it('counts the emails each record given back sends, its alerts among the single emails of a Developer Edition and its single emails among the workflow ones, past what it has left', () => {
     expect(checkpointEmails(written, contactChanged, DEVELOPER_EDITION)).toEqual([
       {
         limit: 'SingleEmail',
@@ -224,14 +333,16 @@ describe('checkpointEmails', () => {
       },
       {
         limit: 'DailyWorkflowEmails',
-        emails: 20,
+        emails: 40,
         objects: [
           {
             objectApiName: 'Contact',
             write: 'update',
             records: 20,
-            perRecord: 1,
-            sentBy: ['Owner alert'],
+            // Measured on a Developer Edition: a flow's single email counts
+            // against its workflow emails too.
+            perRecord: 2,
+            sentBy: ['Owner alert', 'Contact changed'],
           },
         ],
         verdict: 'fits',
@@ -291,6 +402,18 @@ describe('emailsRefusal', () => {
       DEVELOPER_EDITION,
     );
     expect(emailsRefusal('rewind', fits, 'DEV-ED')).toBeUndefined();
+  });
+
+  it('says one email in the singular, against an org with none left today', () => {
+    const one = checkpointEmails(
+      [{ objectApiName: 'Contact', write: 'update', records: 1 }],
+      automationOf({ Contact: [flow('Contact changed', 'update', ['SingleEmail'])] }),
+      { SingleEmail: { max: 15, remaining: 0 } },
+    );
+
+    expect(emailsRefusal('rewind', one, 'DEV-ED')?.message).toMatch(
+      /^This rewind would make DEV-ED send about 1 single email, 0 of 15 left today: past them/,
+    );
   });
 });
 
@@ -381,5 +504,286 @@ describe('checkpointEmailsUncounted', () => {
         'what sends them was not read (the definition of Contact edited on Contact). ',
     );
     expect(emailsUncountedWords('rewind', undefined)).toBe('');
+  });
+});
+
+describe('whether the org delivers the emails of what still runs', () => {
+  const sending = automationOf({ Contact: [flow('Contact changed', 'update', ['SingleEmail'])] });
+  /** A rewind that gives contacts back and deletes nothing. */
+  const steps = { giveBack: ['Contact'] };
+  const input = { act: 'rewind' as const, orgName: 'DEV-ED', steps, mayMute: false };
+  const SENDER = {
+    objectApiName: 'Contact',
+    kind: 'flow' as const,
+    name: 'Contact changed',
+    why: 'email' as const,
+  };
+  /** The same flow, kept quiet for whoever holds the set the org grants its bypass in. */
+  const bypassed = {
+    ...automationOf({
+      Contact: [
+        {
+          ...flow('Contact changed', 'update', ['SingleEmail']),
+          permissions: [{ name: 'Skip_Contact', bypass: true, held: false }],
+        },
+      ],
+    }),
+    bypassGrants: [
+      {
+        permission: 'Skip_Contact',
+        permissionSets: [{ name: 'Skip_Set', label: 'Skip', grants: 1 }],
+      },
+    ],
+  };
+  const plan = {
+    assign: [{ permissionSet: 'Skip_Set', label: 'Skip', permissions: ['Skip_Contact'] }],
+  };
+  let reads = 0;
+  const reading = (level: 'all' | 'withheld') => () => {
+    reads++;
+    return Promise.resolve({ reading: { level }, requests: 1 });
+  };
+
+  it('reads nothing when what the act writes starts nothing that sends', async () => {
+    reads = 0;
+    const emails = await actDeliverability({
+      ...input,
+      automation: sending,
+      steps: { delete: ['Contact'] },
+      accepted: false,
+      read: reading('all'),
+    });
+
+    expect(reads).toBe(0);
+    expect(emails.gate.verdict).toBe('nothingSends');
+    expect(emails.refusal).toBeUndefined();
+    expect(emails.ofRun).toEqual({ senders: [] });
+  });
+
+  it('refuses it where the org delivers them, the accord alone lifting the refusal', async () => {
+    reads = 0;
+    const refused = await actDeliverability({
+      ...input,
+      automation: sending,
+      accepted: false,
+      read: reading('all'),
+    });
+    expect(refused.refusal?.code).toBe('EMAILS_DELIVERED');
+    expect(refused.refusal?.message).toContain('Add --accept-emails to rewind all the same');
+    expect(refused.gate.audit).toBe('all');
+
+    const accepted = await actDeliverability({
+      ...input,
+      automation: sending,
+      accepted: true,
+      read: reading('all'),
+    });
+    expect(accepted.refusal).toBeUndefined();
+    expect(accepted.gate.verdict).toBe('asks');
+    expect(reads).toBe(2);
+  });
+
+  it('says the emails go to the addresses the records hold, an act’s values being the org’s own', async () => {
+    const { refusal } = await actDeliverability({
+      ...input,
+      act: 'undo',
+      automation: sending,
+      accepted: false,
+      read: reading('all'),
+    });
+
+    expect(refusal?.message).toContain('those of the records this undo writes, as they hold them');
+    expect(refusal?.message).not.toContain('.invalid');
+  });
+
+  it('lets through an org that withholds them, and says so', async () => {
+    const { gate, refusal } = await actDeliverability({
+      ...input,
+      automation: sending,
+      accepted: false,
+      read: reading('withheld'),
+    });
+
+    expect(refusal).toBeUndefined();
+    expect(gate).toMatchObject({
+      verdict: 'withheld',
+      audit: 'withheld',
+      deliverability: { reading: { level: 'withheld' }, senders: [SENDER] },
+    });
+  });
+
+  it('reads the org, and asks, when what sends could not all be read', async () => {
+    reads = 0;
+    const blind = { ...automationOf({}), unread: [{ part: 'flows' as const, reason: 'refused' }] };
+    const { refusal, ofRun } = await actDeliverability({
+      ...input,
+      automation: blind,
+      accepted: false,
+      read: reading('all'),
+    });
+
+    expect(reads).toBe(1);
+    expect(ofRun.sendersUnread).toBe("the target's flows: refused");
+    expect(refusal?.code).toBe('EMAILS_DELIVERED');
+  });
+
+  it('counts what the mute’s plan keeps quiet out of what sends, and reads nothing for it', async () => {
+    reads = 0;
+
+    expect(actSendersOf({ automation: bypassed, steps, plan })).toEqual({ senders: [] });
+    const emails = await actDeliverability({
+      ...input,
+      automation: bypassed,
+      plan,
+      accepted: false,
+      read: reading('all'),
+    });
+    expect(reads).toBe(0);
+    expect(emails.refusal).toBeUndefined();
+  });
+
+  it('names what the mute keeps quiet only to an act that could have been asked to mute', () => {
+    const of = (mayMute: boolean): string | undefined =>
+      actEmailsGate({
+        ...input,
+        mayMute,
+        automation: bypassed,
+        accepted: false,
+        senders: [SENDER],
+        reading: { level: 'all' },
+      }).refusal?.message;
+
+    expect(of(true)).toContain('--mute-automation keeps quiet flow "Contact changed"');
+    expect(of(false)).not.toContain('--mute-automation');
+  });
+
+  describe('the lease read back against its plan', () => {
+    const after = (
+      held: { assigned: string[]; held: string[] },
+      overrides: { accepted?: boolean; reading?: { level: 'all' } | { level: 'withheld' } } = {},
+    ) =>
+      afterLeaseEmailsRefusal({
+        act: 'rewind',
+        orgName: 'DEV-ED',
+        automation: bypassed,
+        steps,
+        plan,
+        held,
+        planned: [],
+        accepted: false,
+        ...overrides,
+      });
+
+    it('holds a set assigned, and one the user held already', () => {
+      expect(heldPlanOf(plan, { assigned: ['Skip_Set'], held: [] })).toEqual(plan);
+      expect(heldPlanOf(plan, { assigned: [], held: ['Skip_Set'] })).toEqual(plan);
+      expect(heldPlanOf(plan, { assigned: [], held: [] })).toEqual({ assign: [] });
+    });
+
+    it('lets through a lease that holds its plan', () => {
+      expect(after({ assigned: ['Skip_Set'], held: [] })).toBeUndefined();
+    });
+
+    it('refuses one that leaves a sender running that no one was asked about', () => {
+      const refusal = after({ assigned: [], held: [] });
+
+      expect(refusal?.code).toBe('EMAILS_DELIVERED');
+      expect(refusal?.message).toContain('flow "Contact changed" on Contact may send emails');
+      expect(refusal?.message).toContain('Add --accept-emails to rewind all the same');
+    });
+
+    it('lets it through once the emails were accepted, or where the org withholds them', () => {
+      expect(after({ assigned: [], held: [] }, { accepted: true })).toBeUndefined();
+      expect(after({ assigned: [], held: [] }, { reading: { level: 'withheld' } })).toBeUndefined();
+    });
+  });
+
+  describe('in the words of the page that asked', () => {
+    /** The gate's own refusal, as the host would send it, for an act on an org that reads as `reading`. */
+    const gateRefusal = (
+      act: 'rewind' | 'undo',
+      reading: { level: 'all' } | { unread: string },
+    ): CheckpointRefusal => {
+      const { refusal } = actEmailsGate({
+        ...input,
+        act,
+        mayMute: true,
+        automation: bypassed,
+        accepted: false,
+        senders: [SENDER],
+        reading,
+      });
+      if (!refusal) throw new Error('the gate refused nothing');
+      return refusal;
+    };
+    const leaseRefusal = (act: 'rewind' | 'undo'): CheckpointRefusal => {
+      const refusal = afterLeaseEmailsRefusal({
+        act,
+        orgName: 'DEV-ED',
+        automation: bypassed,
+        steps,
+        plan,
+        held: { assigned: [], held: [] },
+        planned: [],
+        accepted: false,
+      });
+      if (!refusal) throw new Error('the lease refused nothing');
+      return refusal;
+    };
+
+    it.each(['rewind', 'undo'] as const)(
+      'names no flag of the command line in any refusal of a %s, who sends kept',
+      (act) => {
+        for (const refused of [
+          gateRefusal(act, { level: 'all' }),
+          gateRefusal(act, { unread: 'the org would not say' }),
+          leaseRefusal(act),
+        ]) {
+          // Positive control: each comes from the gate with the flag in it.
+          expect(refused.message).toContain('--accept-emails');
+
+          const { message, code } = pageEmailsRefusal(refused, act, 'DEV-ED');
+
+          expect(code).toBe('EMAILS_DELIVERED');
+          expect(message).not.toContain('--accept-emails');
+          expect(message).not.toContain('--mute-automation');
+          expect(message).toContain('flow "Contact changed" on Contact');
+          expect(message).toContain('Nothing was written.');
+        }
+      },
+    );
+
+    it('points a rewind at the box of its preview, and an undo at its confirmation', () => {
+      expect(
+        pageEmailsRefusal(gateRefusal('rewind', { level: 'all' }), 'rewind', 'DEV-ED').message,
+      ).toContain('Tick "Let DEV-ED send these emails" in the preview to rewind all the same,');
+      expect(
+        pageEmailsRefusal(gateRefusal('undo', { level: 'all' }), 'undo', 'DEV-ED').message,
+      ).toContain("Tick the box for these emails in the undo's confirmation to undo all the same,");
+    });
+
+    it('says what the mute keeps quiet as the page names it', () => {
+      expect(
+        pageEmailsRefusal(gateRefusal('rewind', { level: 'all' }), 'rewind', 'DEV-ED').message,
+      ).toContain('Mute automation keeps quiet flow "Contact changed"');
+    });
+
+    it('sends a rewind its lease refused to the mute, which hides the preview’s box, and an undo to its own', () => {
+      expect(pageEmailsRefusal(leaseRefusal('rewind'), 'rewind', 'DEV-ED').message).toContain(
+        'Untick Mute automation to be asked about them and rewind all the same, or run it again once the lease can assign them.',
+      );
+      expect(pageEmailsRefusal(leaseRefusal('undo'), 'undo', 'DEV-ED').message).toContain(
+        "Tick the box for these emails in the undo's confirmation to undo all the same, or run it again once the lease can assign them.",
+      );
+    });
+
+    it('leaves any other refusal as it came', () => {
+      const other: CheckpointRefusal = {
+        code: 'EMAILS',
+        message: 'Add --accept-emails to rewind all the same.',
+      };
+
+      expect(pageEmailsRefusal(other, 'rewind', 'DEV-ED')).toBe(other);
+    });
   });
 });

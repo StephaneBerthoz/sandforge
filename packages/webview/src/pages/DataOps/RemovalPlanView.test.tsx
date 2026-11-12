@@ -54,6 +54,48 @@ describe('RemovalPlanView', () => {
     expect(screen.getByTestId('removal-plan-Account').textContent).toContain('1 record');
   });
 
+  it('says why some were not counted, and that what goes along runs none of its delete automation', () => {
+    render(
+      <RemovalPlanView
+        mode="delete"
+        plan={[
+          {
+            objectApiName: 'Account',
+            label: 'Account',
+            records: 1,
+            related: [{ objectApiName: 'Contact', label: 'Contact', records: 4 }],
+            // Past the relationships counted, or refused by the org: the plan
+            // does not say which, and the org was not asked for the first.
+            uncounted: ['Actionable List Member'],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('removal-plan-uncounted').textContent).toBe(
+      'Not counted — past the relationships counted, or the org would not count them — and ' +
+        'deleted along with them all the same: Actionable List Member',
+    );
+    // A contact deleted with its account ran neither the before delete flow
+    // nor the after delete trigger of Contact, which each ran on its own delete.
+    expect(screen.getByTestId('removal-plan-along-automation').textContent).toBe(
+      'What the org deletes along with them runs none of its delete automation: Salesforce runs ' +
+        'no flow or trigger on a record deleted with its parent, so the confirmation lists what ' +
+        'fires on these records alone.',
+    );
+  });
+
+  it('says nothing of what goes along when nothing does', () => {
+    render(
+      <RemovalPlanView
+        mode="delete"
+        plan={[{ objectApiName: 'Lead', label: 'Lead', records: 3, related: [], uncounted: [] }]}
+      />,
+    );
+
+    expect(screen.queryByTestId('removal-plan-along-automation')).toBeNull();
+  });
+
   it('says why an object is left alone', () => {
     render(
       <RemovalPlanView

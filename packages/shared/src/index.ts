@@ -29,6 +29,9 @@ export {
   type AutopilotFitCutWithParent,
   type AutopilotFitObject,
   type AutopilotFitEmptied,
+  type AutopilotFitHeldBy,
+  type AutopilotFitOver,
+  type AutopilotCannotFit,
   type AutopilotFitReport,
   type AutopilotPlanWriteGate,
   type AutopilotCurrencyPlan,
@@ -42,6 +45,7 @@ export {
   type AutopilotNodeCompletedEvent,
   type AutopilotNodeFailedEvent,
   type AutopilotRefusal,
+  type AutopilotRunStatus,
   type AnonymizationOverride,
   type PIICategory,
   type PIIFieldDetection,
@@ -166,6 +170,7 @@ export {
 export {
   EXCLUSIVE_FIELD_GROUPS,
   exclusiveFieldsToDrop,
+  exclusiveFieldToFill,
   type ExclusiveFieldGroup,
 } from './constants/exclusive-fields.js';
 export {
@@ -185,6 +190,7 @@ export {
 // Barrel exports — Utils
 export * from './utils/sf-utils.js';
 export * from './utils/org-kind.js';
+export * from './utils/rewind-result.js';
 export * from './utils/format-utils.js';
 export * from './utils/persona-field-rules.js';
 export * from './utils/seed-relations.js';
@@ -270,8 +276,12 @@ export { leftOutCosts, type ForgeLeftOutCost } from './utils/forge-left-out-cost
 export {
   forgeGapId,
   forgeGapParts,
+  ignoredGapEntry,
+  picklistMappingEntry,
+  skippedRowsEntry,
   gapAssignEntry,
   gapAssignments,
+  gapLiftedBy,
   mergeGaps,
 } from './utils/forge-gaps.js';
 export type { ForgeGapAssignment, ForgeGapParts } from './utils/forge-gaps.js';
@@ -289,6 +299,7 @@ export {
   bypassAssignmentsOf,
   bypassesOfWrites,
   bypassPermissionsOf,
+  emailSendersOf,
   emailsPerInsertOf,
   emailsPerWriteOf,
   firedOnInsert,
@@ -299,7 +310,9 @@ export {
   removalBypassesOf,
   removalRisksOf,
   removalStepsBypassesOf,
+  removalStepsWithSweep,
   removalStepsWrites,
+  sweepTakenObjects,
   type ForgeAutomationFired,
   type ForgeAutomationOfWrite,
   type ForgeAutomationWrite,

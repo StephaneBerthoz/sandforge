@@ -159,7 +159,7 @@ import {
   type RewindSelectionPlan,
   type RewindUndoCannot,
 } from '@sandforge/shared';
-import type { RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
+import { setBackToDraftOf, type RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
 import { orgDateTime } from '../sync/SyncDelta.js';
 import type { SyncRestoreInput } from '../sync/SyncRunRestore.js';
 import { OrgReadStopped, type OrgRow } from './compositeQueries.js';
@@ -483,6 +483,11 @@ export interface RewindPlan {
    * earlier write of the rewind left.
    */
   goesAlong: RecordKeySet;
+  /**
+   * Of {@link goesAlong}, the records of an object a removal sets back to
+   * Draft: an order past Draft would keep the parent it goes with.
+   */
+  alongToDraft: SpooledRunRecords;
   /** What is made again with new Ids, parents first, by the Ids the records had. */
   recreate: IdSpool;
   /** What is given its checkpoint values back, a chunk at a time. */
@@ -1370,6 +1375,14 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
   // ─── What goes with its parent, and what Undo couldn't bring back ───
   const goesAlong = new RecordKeySet();
   const deleted = (id: string): boolean => toDelete.has(id) && !kept.has(id);
+  /** By key, the record what goes along goes to the bin with: a record sent is its own. */
+  const rootOf = new Map<string, string>();
+  const root = (id: string): string => {
+    const key = id.slice(0, 15);
+    return rootOf.get(key) ?? key;
+  };
+  /** What Salesforce would keep in the bin for good, though it goes with its parent. */
+  const stranded = new RecordKeySet();
   const parentsFirst = [...objects].reverse();
   const beforeParent: RewindPlan['beforeParent'] = [];
   for (const object of parentsFirst) {
@@ -1388,14 +1401,29 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
       // that undelete, and goes back to the bin with it. Sent on its own
       // before it, Salesforce would keep it in the bin for good.
       const modified = dateMs(row.LastModifiedDate);
+      const carriers = cascadeOf(object, row).filter(deleted);
       const along =
-        cascadeOf(object, row).some(deleted) &&
+        carriers.length > 0 &&
         dateMs(row.CreatedDate) >= t1 &&
         (modified <= before || modified <= (stampOf.get(id.slice(0, 15)) ?? Number.NaN));
       if (along) {
-        goesAlong.add(id);
-        countsOf(name).withParentDeleted++;
-        continue;
+        // But one that points, through a lookup that restricts the delete, at
+        // a record going to the bin after it, or hangs from one that does:
+        // Salesforce would no longer bring it back with its parent, in any
+        // order (probed live: an opportunity whose price book went after its
+        // account, a line whose price entry did). Sent, it is named, Undo
+        // tries it and says so. What goes with the same record goes with it.
+        const carrier = root(carriers[0]);
+        const lost =
+          carriers.some((parent) => stranded.has(parent)) ||
+          restrictOf(object, row).some((pointed) => deleted(pointed) && root(pointed) !== carrier);
+        if (!lost) {
+          goesAlong.add(id);
+          rootOf.set(id.slice(0, 15), carrier);
+          countsOf(name).withParentDeleted++;
+          continue;
+        }
+        stranded.add(id);
       }
       // Of an object Salesforce undeletes on its own, a record deleted alone
       // comes back alone — unless a record it points at that this pass
@@ -1426,6 +1454,7 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
 
   // ─── What the removal is handed, and the records its deletes hold ───
   const writer = new IdSpoolWriter(`${dir}/deletes`);
+  const toDraftWriter = new IdSpoolWriter(`${dir}/along-to-draft`);
   const stamps: Record<string, string> = {};
   /** The parents of what this pass deletes; flags: the deleting object's place, plus one. */
   const holdersNow = new RecordKeySet();
@@ -1443,7 +1472,10 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
       for (const parent of cascadeOf(object, row)) {
         if (!holdersNow.has(parent)) holdersNow.add(parent, (order.get(name) ?? 0) + 1);
       }
-      if (goesAlong.has(id)) continue;
+      if (goesAlong.has(id)) {
+        if (setBackToDraftOf([name]).length > 0) await toDraftWriter.add(name, id);
+        continue;
+      }
       await writer.add(name, id);
       sent++;
       // What the rewind's own users changed after Tr is its own doing: the
@@ -1460,6 +1492,7 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     throw new Error("The fresh diff's reads do not hold every record its classes name to delete.");
   }
   const deletes = await SpooledRunRecords.of(writer);
+  const alongToDraft = await SpooledRunRecords.of(toDraftWriter);
 
   // ─── The parents of what the second pass deletes ───
   const holdersNext = new RecordKeySet();
@@ -1622,6 +1655,7 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     bringBack: await back.finish(),
     carriers,
     goesAlong,
+    alongToDraft,
     recreate: await made.finish(),
     giveBack: { beforeDeletes: await first.finish(), afterDeletes: await last.finish(), heldBy },
     restore: {
@@ -1786,7 +1820,8 @@ export interface SelectionPlanInput {
   previewDir: string;
   /** Tr of the preview: when it read the org. */
   readAt: string;
-  objects: ReadonlySet<string>;
+  /** The objects picked; absent, every object, as a rewind of them all plans it. */
+  objects?: ReadonlySet<string>;
   /** As the rewind is asked it: without it, a record whose deletion takes such records along is left. */
   acceptOutside: boolean;
   heldRows?: RewindPlanInput['heldRows'];
@@ -1794,7 +1829,8 @@ export interface SelectionPlanInput {
 }
 
 /**
- * The plan of a rewind limited to `objects`, made on this machine from the
+ * The plan of a rewind limited to `objects` — of every object, none given —,
+ * made on this machine from the
  * preview's folder by the rewind's own plan, the org not read: what the
  * rewind that follows acts on, while the org has not moved since the preview.
  * Undo's limits and new Ids are planned as accepted, and said
@@ -1815,7 +1851,7 @@ export async function planSelection(input: SelectionPlanInput): Promise<RewindSe
       acceptOutside: input.acceptOutside,
       acceptNoUndo: true,
       acceptRecreate: true,
-      objects: input.objects,
+      ...(input.objects ? { objects: input.objects } : {}),
       ...(input.heldRows ? { heldRows: input.heldRows } : {}),
       dir,
       ...(input.signal ? { signal: input.signal } : {}),

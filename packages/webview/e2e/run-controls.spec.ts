@@ -77,6 +77,42 @@ async function answerAll(
   }
 }
 
+/**
+ * What the org runs as a DataOps masking, restore or cleanup writes, as the
+ * extension answers the confirmation's read of it: nothing fires, nothing
+ * sends. The confirmation waits for it.
+ */
+const NOTHING_FIRES = {
+  act: 'masking',
+  objects: [],
+  steps: {},
+  automation: {
+    objectsRead: [],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 0,
+  },
+  lines: [],
+  emails: [],
+  emailsAsk: false,
+  refusals: [],
+};
+
+/** Answer the open confirmation's read of what the org runs, until it no longer waits on it. */
+async function nothingFires(page: Page): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        await answerAll(page, 'dataops:automation', 'dataops:automation:response', NOTHING_FIRES);
+        return page.getByTestId('danger-held').count();
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(0);
+}
+
 /** Boot a module's panel, painted in `theme`, the orgs connected. */
 async function openModule(page: Page, module: string, theme: Theme): Promise<MockBridge> {
   const bridge = new MockBridge();
@@ -259,6 +295,7 @@ for (const theme of THEMES) {
       await page.getByTestId('restore-btn-op-backup-1').click();
       // It asks first, naming the org, and passes axe asking.
       await expect(page.getByTestId('danger-title')).toContainText('DevSandbox');
+      await nothingFires(page);
       await passesAxe(page);
       await page.getByTestId('danger-confirm-btn').click();
 
@@ -277,6 +314,7 @@ for (const theme of THEMES) {
       await passesAxe(page);
 
       await page.getByTestId('danger-input').fill('DevSandbox');
+      await nothingFires(page);
       await page.getByTestId('danger-confirm-btn').click();
       const [run] = await outgoing(page, 'dataops:anonymize');
       expect(run.payload).toMatchObject({ templateId: 'tpl-gdpr', snapshot: true });
@@ -291,6 +329,7 @@ for (const theme of THEMES) {
       await pickTemplate(page);
       await page.getByTestId('apply-btn').click();
       await page.getByTestId('danger-input').fill('DevSandbox');
+      await nothingFires(page);
       await page.getByTestId('danger-confirm-btn').click();
       const [refused] = await outgoing(page, 'dataops:anonymize');
       await sendExtensionMessage(page, {
@@ -307,6 +346,7 @@ for (const theme of THEMES) {
 
       await page.getByTestId('apply-btn').click();
       await page.getByTestId('danger-input').fill('DevSandbox');
+      await nothingFires(page);
       await page.getByTestId('danger-confirm-btn').click();
       await expect.poll(async () => (await outgoing(page, 'dataops:anonymize')).length).toBe(2);
       const ran = (await outgoing(page, 'dataops:anonymize'))[1];
@@ -323,13 +363,45 @@ for (const theme of THEMES) {
           objects: [],
           message: 'Anonymization completed: 42 records processed.',
           errors: [],
-          fieldsNotFound: [],
           snapshot: { operationId: `${String(ran.id)}-snapshot`, totalRecords: 42 },
         },
       });
       await expect(page.getByTestId('anonymize-snapshot-taken')).toContainText(
         'kept in a backup of 42 records',
       );
+      await passesAxe(page);
+    });
+
+    test('a masking run refused for a field the org hides names it and what to do, keeps Apply offered, and passes axe', async ({
+      page,
+    }) => {
+      await openDataOps(page, theme);
+      await pickTemplate(page);
+      await page.getByTestId('apply-btn').click();
+      await page.getByTestId('danger-input').fill('DevSandbox');
+      await nothingFires(page);
+      await page.getByTestId('danger-confirm-btn').click();
+      const [refused] = await outgoing(page, 'dataops:anonymize');
+      await sendExtensionMessage(page, {
+        type: 'dataops:error',
+        id: 'err-hidden',
+        correlationId: String(refused.id),
+        payload: {
+          message: 'The template "GDPR" masks Contact.Birthdate: the English of the host.',
+          code: 'MASKING_FIELDS_UNSEEN',
+          fieldsNotFound: [{ objectApiName: 'Contact', fieldApiName: 'Birthdate' }],
+          objectsNotCovered: [],
+        },
+      });
+
+      const banner = page.getByTestId('dataops-error');
+      await expect(banner).toContainText('This template masks Contact.Birthdate', {
+        timeout: 10_000,
+      });
+      await expect(banner).toContainText('take the field out of the template');
+      await expect(banner).toContainText('Nothing was masked.');
+      await expect(page.getByTestId('anonymize-stop')).toHaveCount(0);
+      await expect(page.getByTestId('apply-btn')).toBeEnabled();
       await passesAxe(page);
     });
 

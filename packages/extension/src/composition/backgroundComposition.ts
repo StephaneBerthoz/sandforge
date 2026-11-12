@@ -5,6 +5,9 @@ import { OfflineManager } from '../core/connection/OfflineManager';
 import {
   ProductionGuard,
   RELATED_RECORDS_ALSO_WRITTEN,
+  checkpointQuestionLines,
+  inQuestionOrder,
+  type CheckpointQuestionWords,
   type QuestionWords,
   type SafetyTier,
 } from '../core/precheck/ProductionGuard';
@@ -18,8 +21,14 @@ import type {
   WriteConfirmation,
 } from '../core/precheck/ProductionGuard';
 import { PIIDetector } from '../core/precheck/PIIDetector';
-import { DATA_STORAGE_NOT_TOLD, type ForgeRemovalRisk } from '@sandforge/shared';
+import {
+  DATA_STORAGE_NOT_TOLD,
+  type EmailSender,
+  type ForgeRemovalRisk,
+  type RunDeliverability,
+} from '@sandforge/shared';
 import { formatMB } from '../modules/forge/ForgeRunGate';
+import { uiLocaleOf } from '../core/i18n/catalogueText';
 import type { ConfigStore } from '../core/storage/ConfigStore';
 import type { WebviewStateSync } from '../bridge/WebviewStateSync';
 import type { WebviewPanelManager } from '../providers/WebviewPanelManager';
@@ -323,14 +332,104 @@ function assignCommands(question: RunConfirmation): string[] {
     : [];
 }
 
+/** A sender of emails as the question lists it, by its kind and why it counts. */
+function senderLine({ objectApiName, kind, name, why }: EmailSender): string {
+  if (kind === 'assignmentRule') {
+    return vscode.l10n.t(
+      '• {0}: assignment rule "{1}", which can mail the owner it assigns',
+      objectApiName,
+      name,
+    );
+  }
+  if (why === 'notRead') {
+    return kind === 'flow'
+      ? vscode.l10n.t('• {0}: Flow "{1}", whose definition was not read', objectApiName, name)
+      : kind === 'process'
+        ? vscode.l10n.t('• {0}: process "{1}", whose definition was not read', objectApiName, name)
+        : vscode.l10n.t(
+            '• {0}: workflow rule "{1}", whose definition was not read',
+            objectApiName,
+            name,
+          );
+  }
+  return kind === 'flow'
+    ? vscode.l10n.t('• {0}: Flow "{1}"', objectApiName, name)
+    : kind === 'process'
+      ? vscode.l10n.t('• {0}: process "{1}"', objectApiName, name)
+      : vscode.l10n.t('• {0}: workflow rule "{1}"', objectApiName, name);
+}
+
+/**
+ * What a run's question says first, when the target delivers the emails what
+ * still runs sends, or would not say whether it does: that it does, who sends
+ * them, and where they go — not only to the records the run writes. Nothing
+ * when it delivers none of them, or nothing sends: the question then has no
+ * such block. Its answer is "Execute and send the emails".
+ */
+function deliverabilityLines(question: {
+  org: string;
+  deliverability?: RunDeliverability;
+}): string[] {
+  const said = question.deliverability;
+  if (said === undefined || ('level' in said.reading && said.reading.level === 'withheld')) {
+    return [];
+  }
+  const { org } = question;
+  const lines = [
+    'unread' in said.reading
+      ? vscode.l10n.t(
+          'Whether {0} delivers the emails its automation sends could not be read ({1}), and what still runs as the records go in may send some:',
+          org,
+          said.reading.unread,
+        )
+      : vscode.l10n.t(
+          '{0} delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the records go in may send some:',
+          org,
+        ),
+  ];
+  lines.push(...said.senders.slice(0, LISTED_IN_A_QUESTION).map(senderLine));
+  if (said.senders.length > LISTED_IN_A_QUESTION) {
+    lines.push(vscode.l10n.t('• and {0} more', said.senders.length - LISTED_IN_A_QUESTION));
+  }
+  // A part of the automation that sends emails refused whole lists nothing,
+  // which is not the same as sending nothing.
+  if (said.sendersUnread !== undefined) {
+    lines.push(
+      vscode.l10n.t('• what could not be read of its automation: {0}', said.sendersUnread),
+    );
+  }
+  lines.push(
+    said.keepsAddresses
+      ? vscode.l10n.t(
+          'They go to the addresses the records and the alerts name: those of the records the run writes, as they hold them, the owners of the records, the records already in {0}, and an address an alert names.',
+          org,
+        )
+      : vscode.l10n.t(
+          'They go to the addresses the records and the alerts name: those of the records the run writes are under .invalid, but not those of the owners of the records, of the records already in {0}, nor an address an alert names.',
+          org,
+        ),
+  );
+  if ('unread' in said.reading) {
+    lines.push(
+      vscode.l10n.t(
+        'On System email only or No access (Setup > Deliverability), none of them goes out.',
+      ),
+    );
+  }
+  lines.push(vscode.l10n.t('Execute and send the emails lets them go out.'));
+  return lines;
+}
+
 /**
  * What a run's question says of what fires in the target as the run inserts
  * and updates. One asked only for what may refuse a removal — a run started
  * with Clone directly, which never showed Review — says first that nothing
- * fires: the lines that follow are the whole of why it asks.
+ * fires: the lines that follow are the whole of why it asks. Whether the
+ * target delivers the emails of what still runs comes first, what leaves the
+ * org before what runs in it.
  */
 function automationQuestion(question: AutomationConfirmation): string[] {
-  const lines: string[] = [];
+  const lines: string[] = [...deliverabilityLines(question)];
   if (
     question.fired.length === 0 &&
     question.firedOnUpdate.length === 0 &&
@@ -466,6 +565,228 @@ function readQuestion(question: ReadConfirmation): string[] {
   return lines;
 }
 
+/**
+ * What a run's question says first, of what leaves the org: whether the
+ * target delivers the emails of what still runs, the daily email limits the
+ * records take the target past, those it did not say it has left of, and the
+ * emails no read counted.
+ */
+function leavesTheOrgLines(question: WriteConfirmation): string[] {
+  const lines: string[] = [...deliverabilityLines(question)];
+  // The daily email limits the records take the target past: the rest of
+  // them would be refused one by one, as the flow that sends fails.
+  for (const over of question.emails ?? []) {
+    const perRecord = over.objects
+      .map(({ objectApiName, perRecord }) => `${objectApiName} ${perRecord}`)
+      .join(', ');
+    lines.push(
+      over.limit === 'SingleEmail'
+        ? vscode.l10n.t(
+            'These records make the flows of {0} send about {1} single emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.',
+            question.org,
+            over.emails,
+            over.remaining,
+            over.max,
+            perRecord,
+          )
+        : vscode.l10n.t(
+            'These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.',
+            question.org,
+            over.emails,
+            over.remaining,
+            over.max,
+            perRecord,
+          ),
+    );
+    // A Developer Edition counts its email alerts against its single emails:
+    // counted against the workflow emails alone, a clone said it fitted.
+    if (over.alertsCounted) {
+      lines.push(
+        vscode.l10n.t(
+          '{0} counts its email alerts against its single emails too, as a Developer Edition does: they are among them.',
+          question.org,
+        ),
+      );
+    }
+  }
+  // The emails the records make the target send that it did not say it has
+  // left of: whether they fit is not known.
+  for (const unread of question.emailsUnread ?? []) {
+    lines.push(
+      unread.limit === 'SingleEmail'
+        ? vscode.l10n.t(
+            'These records make the flows of {0} send about {1} single emails. What it has left today could not be read ({2}), so whether they fit is not known.',
+            question.org,
+            unread.emails,
+            unread.unread,
+          )
+        : vscode.l10n.t(
+            'These records make the flows of {0} send about {1} workflow emails. What it has left today could not be read ({2}), so whether they fit is not known.',
+            question.org,
+            unread.emails,
+            unread.unread,
+          ),
+    );
+  }
+  // What the target runs could not be read: no email of its flows was counted.
+  if (question.emailsUncounted !== undefined) {
+    lines.push(
+      vscode.l10n.t(
+        'What {0} runs on these objects could not be read ({1}), so the emails its flows send as the records go in were not counted against its daily limits.',
+        question.org,
+        question.emailsUncounted,
+      ),
+    );
+  }
+  return lines;
+}
+
+/**
+ * The words of the checkpoint's block, in the user's language: its cost and
+ * what it keeps where; why an object is added or left out is the engine's
+ * sentence, put in as it is.
+ */
+const HOST_CHECKPOINT_WORDS: CheckpointQuestionWords = {
+  cost: ({ records, objects, requests, seconds, megabytes, keepDays }) =>
+    keepDays === 0
+      ? vscode.l10n.t(
+          'Checkpoint first: about {0} records of {1} objects, {2} API requests, {3} s, {4} MB on this machine, unencrypted, and no storage in the org, kept until you delete it.',
+          records,
+          objects,
+          requests,
+          seconds,
+          megabytes,
+        )
+      : vscode.l10n.t(
+          'Checkpoint first: about {0} records of {1} objects, {2} API requests, {3} s, {4} MB on this machine, unencrypted, and no storage in the org, kept {5} days.',
+          records,
+          objects,
+          requests,
+          seconds,
+          megabytes,
+          keepDays,
+        ),
+  added: (objectApiName, reason) => vscode.l10n.t('Added: {0} — {1}', objectApiName, reason),
+  notHeld: (objectApiName, reason) =>
+    vscode.l10n.t('Not in the checkpoint: {0} — {1}', objectApiName, reason),
+  more: (count) => vscode.l10n.t('• and {0} more', count),
+  get unknown() {
+    return vscode.l10n.t(
+      'What an Apex trigger, or automation that could not be read, creates as the run writes is not known: a rewind leaves those records as they are.',
+    );
+  },
+};
+
+/**
+ * What a run's question says last, of the target's limits: the data storage
+ * the rows take against what it has left, and the day's API requests the run
+ * would leave it short of, each part beside the run's own named.
+ */
+function limitsLines(question: WriteConfirmation): string[] {
+  const lines: string[] = [];
+  const { storage } = question;
+  if ('unread' in storage && storage.unread === DATA_STORAGE_NOT_TOLD) {
+    // A Standard User's limits leave the storage out: said in the question's
+    // language, not in the English reason the command line prints.
+    lines.push(
+      vscode.l10n.t(
+        'They take about {0} MB of data storage. {1} does not tell the user the run writes as what it has left, so whether they fit is not known.',
+        formatMB(storage.estimateMB),
+        question.org,
+      ),
+    );
+  } else if ('unread' in storage) {
+    lines.push(
+      vscode.l10n.t(
+        'They take about {0} MB of data storage. What {1} has left could not be read ({2}), so whether they fit is not known.',
+        formatMB(storage.estimateMB),
+        question.org,
+        storage.unread,
+      ),
+    );
+  } else {
+    lines.push(
+      vscode.l10n.t(
+        'They take about {0} MB of data storage; {1} has {2} MB left of {3} MB.',
+        formatMB(storage.estimateMB),
+        question.org,
+        storage.remainingMB,
+        storage.maxMB,
+      ),
+    );
+    if (storage.near) {
+      lines.push(
+        vscode.l10n.t(
+          'That is more than 80% of what is left. Salesforce counts storage a while after a load, so less may be left than it says.',
+        ),
+      );
+    }
+  }
+  // A limit the org would not give: the user it answers needs View Setup.
+  if ('unread' in question.storage || (question.emailsUnread ?? []).length > 0) {
+    lines.push(
+      vscode.l10n.t(
+        '{0} gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.',
+        question.org,
+      ),
+    );
+  }
+  // A clone of the whole org says its own limits — its files, the API
+  // requests of both orgs, the Bulk API batches of the target — whatever is
+  // left, with the rest of what it is always told, and says there when they
+  // run short.
+  const { wholeOrg } = question;
+  if (wholeOrg) {
+    lines.push(...wholeOrgLines(question, wholeOrg));
+    return lines;
+  }
+  // The day's API requests the run would leave the org short of, and what
+  // of them is not the run's own: the checkpoint taken first, the read-backs.
+  const api = question.apiRequests;
+  if (api) {
+    lines.push(
+      vscode.l10n.t(
+        'The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them.',
+        api.estimate,
+        question.org,
+        api.remaining,
+        api.max,
+      ),
+      ...apiPartsLines(api),
+    );
+  }
+  return lines;
+}
+
+/**
+ * What of a run's API requests on the target is not the run's own writes:
+ * the checkpoint taken first, the record types read back, the read of
+ * whether the target delivers its emails, the fit to the storage. Said just
+ * after the line that counts them.
+ */
+function apiPartsLines(api: NonNullable<WriteConfirmation['apiRequests']>): string[] {
+  const lines: string[] = [];
+  const { checkpoint = 0, readBack = 0, deliverability = 0, fit = 0 } = api.parts ?? {};
+  if (checkpoint > 0) {
+    lines.push(vscode.l10n.t('{0} of them are for the checkpoint taken first.', checkpoint));
+  }
+  if (readBack > 0) {
+    lines.push(
+      vscode.l10n.t(
+        '{0} of them read back the record type the target gave the records created without one.',
+        readBack,
+      ),
+    );
+  }
+  if (deliverability > 0) {
+    lines.push(
+      vscode.l10n.t('{0} of them read whether the target delivers its emails.', deliverability),
+    );
+  }
+  if (fit > 0) lines.push(vscode.l10n.t('{0} of them fit the run to the storage.', fit));
+  return lines;
+}
+
 /** What a run's question says of the rows it is about to write, and their storage. */
 function writeQuestion(question: WriteConfirmation): string[] {
   const { wholeOrg } = question;
@@ -559,7 +880,7 @@ function writeQuestion(question: WriteConfirmation): string[] {
     );
   }
   // The objects the target takes none of: confirmed, the sync leaves them out.
-  for (const { objectApiName, rows, why } of question.unwritable ?? []) {
+  for (const { objectApiName, rows, why, key } of question.unwritable ?? []) {
     lines.push(
       why === 'notInTarget'
         ? vscode.l10n.t(
@@ -582,12 +903,49 @@ function writeQuestion(question: WriteConfirmation): string[] {
                 rows,
                 question.org,
               )
-            : vscode.l10n.t(
-                'Left out: {0}, {1} records: {2} did not describe it, so what it takes could not be told.',
-                objectApiName,
-                rows,
-                question.org,
-              ),
+            : why === 'notAKey'
+              ? vscode.l10n.t(
+                  'Left out: {0}, {1} records: its upsert matches on {2}, neither an External ID nor an idLookup field in {3}.',
+                  objectApiName,
+                  rows,
+                  key ?? '',
+                  question.org,
+                )
+              : vscode.l10n.t(
+                  'Left out: {0}, {1} records: {2} did not describe it, so what it takes could not be told.',
+                  objectApiName,
+                  rows,
+                  question.org,
+                ),
+    );
+  }
+  // The rows whose lookup names a record left out, or one held back: the
+  // question named the account it left out and not the contacts under it,
+  // which the result then counted failed.
+  const leftOutObjects = new Set((question.unwritable ?? []).map((o) => o.objectApiName));
+  // One line per object and lookup, with its rows: named by the first alone,
+  // 13 prices were said held back by Pricebook2Id where 9 were by Product2Id.
+  const heldBy = (question.heldBack ?? []).flatMap(
+    ({ objectApiName, rows, parent, field, parents }) =>
+      (parents ?? [{ parent, field, rows }]).map((one) => ({ objectApiName, ...one })),
+  );
+  for (const { objectApiName, rows, parent, field } of heldBy) {
+    lines.push(
+      leftOutObjects.has(parent)
+        ? vscode.l10n.t(
+            'Held back: {0}, {1} records: their {2} names {3} records left out, so none of them is written and each counts as failed.',
+            objectApiName,
+            rows,
+            field,
+            parent,
+          )
+        : vscode.l10n.t(
+            'Held back: {0}, {1} records: their {2} names {3} records held back, so none of them is written and each counts as failed.',
+            objectApiName,
+            rows,
+            field,
+            parent,
+          ),
     );
   }
   for (const { objectApiName, rows } of leftOut?.heldBack ?? []) {
@@ -599,11 +957,51 @@ function writeQuestion(question: WriteConfirmation): string[] {
       ),
     );
   }
+  // What the platform writes itself with a record the run creates: linked
+  // to, never sent, as the line of each object says once written. An
+  // email's task is counted, the run sending it for an email refused.
+  for (const { objectApiName, rows } of leftOut?.byThePlatform ?? []) {
+    lines.push(
+      objectApiName === 'Contact'
+        ? vscode.l10n.t(
+            'Not counted: {0}, {1} records written by the platform with their person account, which the run links to and does not send.',
+            objectApiName,
+            rows,
+          )
+        : objectApiName === 'OpportunityContactRole'
+          ? vscode.l10n.t(
+              'Not counted: {0}, {1} records written by the platform with their opportunity, for its contact, which the run links to and does not send.',
+              objectApiName,
+              rows,
+            )
+          : vscode.l10n.t(
+              'Not counted: {0}, {1} records written by the platform with their opportunity, for its owner, which the run links to and does not send.',
+              objectApiName,
+              rows,
+            ),
+    );
+  }
   if (question.alreadyCopied !== undefined && question.alreadyCopied > 0) {
     lines.push(
       vscode.l10n.t(
         'Not counted: {0} records an earlier run of this configuration copied, still in the target, which the sync leaves as they are.',
         question.alreadyCopied,
+      ),
+    );
+  }
+  if (question.alreadyLinked !== undefined && question.alreadyLinked > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0} records an earlier run of this configuration linked to records the target held, which the sync leaves as they are.',
+        question.alreadyLinked,
+      ),
+    );
+  }
+  if (question.rolesLinked !== undefined && question.rolesLinked > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0} contact roles the platform writes itself with the opportunities the sync creates, for their contact, which the sync links to and does not send.',
+        question.rolesLinked,
       ),
     );
   }
@@ -629,6 +1027,22 @@ function writeQuestion(question: WriteConfirmation): string[] {
       vscode.l10n.t('More than {0} records is a large volume for this org.', question.largeVolume),
     );
   }
+  // Counted in, where the gate could not tell them: said, as the command
+  // line says them.
+  if (question.rolesMayBeByThePlatform !== undefined) {
+    const { rows, before } = question.rolesMayBeByThePlatform;
+    lines.push(
+      before === true
+        ? vscode.l10n.t(
+            'Of them, up to {0} contact roles the platform may have written with their opportunity, for its contact, in the run this one takes up, which the clone links to and does not send.',
+            rows,
+          )
+        : vscode.l10n.t(
+            'Of them, up to {0} contact roles the platform may write itself with their opportunity, for its contact, which the clone links to and does not send.',
+            rows,
+          ),
+    );
+  }
   if (question.pricesForLines !== undefined) {
     lines.push(
       vscode.l10n.t(
@@ -637,133 +1051,18 @@ function writeQuestion(question: WriteConfirmation): string[] {
       ),
     );
   }
-  const { storage } = question;
-  if ('unread' in storage && storage.unread === DATA_STORAGE_NOT_TOLD) {
-    // A Standard User's limits leave the storage out: said in the question's
-    // language, not in the English reason the command line prints.
-    lines.push(
-      vscode.l10n.t(
-        'They take about {0} MB of data storage. {1} does not tell the user the run writes as what it has left, so whether they fit is not known.',
-        formatMB(storage.estimateMB),
-        question.org,
-      ),
-    );
-  } else if ('unread' in storage) {
-    lines.push(
-      vscode.l10n.t(
-        'They take about {0} MB of data storage. What {1} has left could not be read ({2}), so whether they fit is not known.',
-        formatMB(storage.estimateMB),
-        question.org,
-        storage.unread,
-      ),
-    );
-  } else {
-    lines.push(
-      vscode.l10n.t(
-        'They take about {0} MB of data storage; {1} has {2} MB left of {3} MB.',
-        formatMB(storage.estimateMB),
-        question.org,
-        storage.remainingMB,
-        storage.maxMB,
-      ),
-    );
-    if (storage.near) {
-      lines.push(
-        vscode.l10n.t(
-          'That is more than 80% of what is left. Salesforce counts storage a while after a load, so less may be left than it says.',
-        ),
-      );
-    }
-  }
-  if (wholeOrg) lines.push(...wholeOrgLines(question, wholeOrg));
-  // The emails the records make the target send that it did not say it has
-  // left of: whether they fit is not known.
-  for (const unread of question.emailsUnread ?? []) {
-    lines.push(
-      unread.limit === 'SingleEmail'
-        ? vscode.l10n.t(
-            'These records make the flows of {0} send about {1} single emails. What it has left today could not be read ({2}), so whether they fit is not known.',
-            question.org,
-            unread.emails,
-            unread.unread,
-          )
-        : vscode.l10n.t(
-            'These records make the flows of {0} send about {1} workflow emails. What it has left today could not be read ({2}), so whether they fit is not known.',
-            question.org,
-            unread.emails,
-            unread.unread,
-          ),
-    );
-  }
-  // What the target runs could not be read: no email of its flows was counted.
-  if (question.emailsUncounted !== undefined) {
-    lines.push(
-      vscode.l10n.t(
-        'What {0} runs on these objects could not be read ({1}), so the emails its flows send as the records go in were not counted against its daily limits.',
-        question.org,
-        question.emailsUncounted,
-      ),
-    );
-  }
-  // A limit the org would not give: the user it answers needs View Setup.
-  if ('unread' in question.storage || (question.emailsUnread ?? []).length > 0) {
-    lines.push(
-      vscode.l10n.t(
-        '{0} gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.',
-        question.org,
-      ),
-    );
-  }
-  // The day's API requests the run would leave the org short of. A clone of
-  // the whole org says them whatever is left, among its own lines, and says
-  // there when they run short.
-  if (question.apiRequests && !wholeOrg) {
-    lines.push(
-      vscode.l10n.t(
-        'The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them.',
-        question.apiRequests.estimate,
-        question.org,
-        question.apiRequests.remaining,
-        question.apiRequests.max,
-      ),
-    );
-  }
-  // The daily email limits the records take the target past: the rest of
-  // them would be refused one by one, as the flow that sends fails.
-  for (const over of question.emails ?? []) {
-    const perRecord = over.objects
-      .map(({ objectApiName, perRecord }) => `${objectApiName} ${perRecord}`)
-      .join(', ');
-    lines.push(
-      over.limit === 'SingleEmail'
-        ? vscode.l10n.t(
-            'These records make the flows of {0} send about {1} single emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.',
-            question.org,
-            over.emails,
-            over.remaining,
-            over.max,
-            perRecord,
-          )
-        : vscode.l10n.t(
-            'These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.',
-            question.org,
-            over.emails,
-            over.remaining,
-            over.max,
-            perRecord,
-          ),
-    );
-    // A Developer Edition counts its email alerts against its single emails:
-    // counted against the workflow emails alone, a clone said it fitted.
-    if (over.alertsCounted) {
-      lines.push(
-        vscode.l10n.t(
-          '{0} counts its email alerts against its single emails too, as a Developer Edition does: they are among them.',
-          question.org,
-        ),
-      );
-    }
-  }
+  // The blocks of the question, each in its place whatever order they are
+  // made in: what leaves the org, the checkpoint taken first, then the
+  // storage and the API requests.
+  lines.push(
+    ...inQuestionOrder({
+      leavesTheOrg: leavesTheOrgLines(question),
+      checkpoint: question.checkpoint
+        ? checkpointQuestionLines(question.checkpoint, HOST_CHECKPOINT_WORDS)
+        : [],
+      limits: limitsLines(question),
+    }),
+  );
   // The rows of a call the run resumed had under way when it stopped, which
   // the target may hold already: written only on the user's word.
   for (const { objectApiName, rows } of question.mayBeInTarget ?? []) {
@@ -903,6 +1202,7 @@ function wholeOrgLines(
           question.org,
         ),
   );
+  if (question.apiRequests) lines.push(...apiPartsLines(question.apiRequests));
   // A budget the run would leave short is said as such: the source is often
   // a production org whose integrations draw on the same requests.
   if (question.apiRequests && wholeOrg.targetApiNear) {
@@ -1124,9 +1424,18 @@ export function runQuestionDetail(question: RunConfirmation): string {
  */
 export async function confirmRun(question: RunConfirmation): Promise<boolean> {
   // Compared against the same localized value it is shown with (see the
-  // production confirmation below).
+  // production confirmation below). A question that says the target delivers
+  // the emails of what still runs is answered by sending them: no other
+  // button stands for that.
   const rehearsal = question.stage === 'rehearsal';
-  const go = rehearsal ? vscode.l10n.t('Rehearse') : vscode.l10n.t('Execute');
+  const sends =
+    (question.stage === 'write' || question.stage === 'automation') &&
+    deliverabilityLines(question).length > 0;
+  const go = rehearsal
+    ? vscode.l10n.t('Rehearse')
+    : sends
+      ? vscode.l10n.t('Execute and send the emails')
+      : vscode.l10n.t('Execute');
   // A modal's text cannot be selected everywhere: the command that would
   // assign a bypass goes to the clipboard from a button of its own. It
   // cancels the clone, which the user runs again once the command ran.
@@ -1266,6 +1575,17 @@ function tierWord(tier: SafetyTier): string {
 }
 
 /**
+ * Whether `count` takes the singular, by the plural rule of the language
+ * whose bundle VS Code shows, as the status bar's count of orgs takes it
+ * (`extension.ts`): French says "0 enregistrement" where English says
+ * "0 records", and an editor in a language SandForge ships no bundle for is
+ * shown the English strings, and English's rule.
+ */
+function takesSingular(count: number): boolean {
+  return new Intl.PluralRules(uiLocaleOf(undefined, vscode.env.language)).select(count) === 'one';
+}
+
+/**
  * The confirmation's question in the UI language. Every piece is a whole
  * phrase with its placeholders, so a language orders the operation, the
  * records and the org its own way; the English keys are the guard's own words.
@@ -1291,11 +1611,15 @@ export const L10N_QUESTION_WORDS: QuestionWords = {
     if (unit === 'component') {
       if (count === 'unknown') return vscode.l10n.t('components');
       if (typeof count !== 'number') return vscode.l10n.t('at most {0} components', count.atMost);
-      return count === 1 ? vscode.l10n.t('1 component') : vscode.l10n.t('{0} components', count);
+      return takesSingular(count)
+        ? vscode.l10n.t('{0} component', count)
+        : vscode.l10n.t('{0} components', count);
     }
     if (count === 'unknown') return vscode.l10n.t('records');
     if (typeof count !== 'number') return vscode.l10n.t('at most {0} records', count.atMost);
-    return count === 1 ? vscode.l10n.t('1 record') : vscode.l10n.t('{0} records', count);
+    return takesSingular(count)
+      ? vscode.l10n.t('{0} record', count)
+      : vscode.l10n.t('{0} records', count);
   },
   besides: (counted, alsoWrites) =>
     vscode.l10n.t(

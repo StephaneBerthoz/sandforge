@@ -1,6 +1,6 @@
 {
   "forge dry run": {
-    "nodes": 78
+    "nodes": 71
   },
   "forge rehearsal": {
     "rows": 39,
@@ -21,6 +21,9 @@
     "leftByRemoval": 30,
     "listed": 30,
     "sweepStatus": "success",
+    "leftBySweep": 30,
+    "kept": 30,
+    "untiedStatus": "success",
     "left": 0
   },
   "frozen select": {

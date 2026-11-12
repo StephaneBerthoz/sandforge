@@ -4,6 +4,7 @@
  */
 
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { noUserCreates, type NotCreatableBy } from './targetCreators.js';
 
 /** Field descriptor returned by org metadata describe. */
 export interface DescribedField {
@@ -26,6 +27,16 @@ export interface MetadataDiffDeps {
     orgId: string,
     objectApiName: string,
   ) => Promise<{ fields: DescribedField[]; createable?: boolean }>;
+  /**
+   * Why the user may not create each of the objects named in an org
+   * (`notCreatableBy`), asked once for every object whose target describe
+   * says so. Without it, or unanswered, each is said one the user may not
+   * create, with the grant that would open it.
+   */
+  whyNotCreatable?: (
+    orgId: string,
+    objectApiNames: readonly string[],
+  ) => Promise<ReadonlyMap<string, NotCreatableBy>>;
 }
 
 /** A single metadata diff entry. */
@@ -51,7 +62,26 @@ export interface MetadataDiffEntry {
   severity: 'info' | 'warning' | 'error';
   /** Human-readable description. */
   details: string;
+  /**
+   * Of `object_not_createable`, who may create its records, as the target
+   * said: what the tab asks of the target's admin, or that no one can.
+   */
+  notCreatableBy?: NotCreatableBy;
 }
+
+/** What an object the user may not create is said to be, by who may create it. */
+const NOT_CREATABLE_DETAILS: Readonly<Record<NotCreatableBy, (object: string) => string>> = {
+  platform: (object) =>
+    `${object} is in the target org, but no user can create its records there, the platform writes them itself: Execute skips it`,
+  setup: (object) =>
+    `${object} is in the target org, but no user can create its records there, not even one with Modify All Data: Execute skips it`,
+  feature: (object) =>
+    `${object} is in the target org, but even a user with Modify All Data may not create its records there: a feature or licence the target has not turned on keeps it closed, and Execute skips it`,
+  parent: (object) =>
+    `${object} is in the target org, but the user the clone writes as may not create its records there, and no permission set gives Create on it: Edit on the records it hangs from may, or no user can. Execute skips it`,
+  user: (object) =>
+    `${object} is in the target org, but the user the clone writes as may not create its records there: Execute skips it`,
+};
 
 /**
  * Compares source and target org schemas for field-level compatibility.
@@ -77,6 +107,8 @@ export class ForgeMetadataDiff {
     objectApiNames: string[],
   ): Promise<MetadataDiffEntry[]> {
     const diffs: MetadataDiffEntry[] = [];
+    /** Where the entries of the objects the target user may not create are. */
+    const closed: number[] = [];
 
     for (const objectApiName of objectApiNames) {
       // Each object on its own: one the target lacks is what the comparison
@@ -119,6 +151,7 @@ export class ForgeMetadataDiff {
       // each field "createable in source but not in target", in English, and
       // nothing said Execute would skip the object, after its parents.
       if (targetDesc.createable === false) {
+        closed.push(diffs.length);
         diffs.push({
           objectApiName,
           fieldApiName: '',
@@ -167,7 +200,42 @@ export class ForgeMetadataDiff {
       }
     }
 
+    await this.sayWhoMayCreate(targetOrgId, diffs, closed);
     return diffs;
+  }
+
+  /**
+   * The entries at `closed`, each said by who may create its object, as the
+   * target says it: once for all of them. One no user can create is an info,
+   * and none asks a grant no permission set gives.
+   */
+  private async sayWhoMayCreate(
+    targetOrgId: string,
+    diffs: MetadataDiffEntry[],
+    closed: readonly number[],
+  ): Promise<void> {
+    const ask = this.deps.whyNotCreatable;
+    if (!ask || closed.length === 0) return;
+    let answered: ReadonlyMap<string, NotCreatableBy>;
+    try {
+      answered = await ask(
+        targetOrgId,
+        closed.map((at) => diffs[at].objectApiName),
+      );
+    } catch {
+      return;
+    }
+    for (const at of closed) {
+      const { objectApiName } = diffs[at];
+      const by = answered.get(objectApiName);
+      if (by === undefined) continue;
+      diffs[at] = {
+        ...diffs[at],
+        severity: noUserCreates(by) ? 'info' : 'error',
+        details: NOT_CREATABLE_DETAILS[by](objectApiName),
+        notCreatableBy: by,
+      };
+    }
   }
 }
 

@@ -8,6 +8,7 @@ import type {
 } from '@sandforge/shared';
 
 import {
+  REWIND_MUTING_STEP_WORDS,
   REWIND_STEP_WORDS,
   acceptanceRefusal,
   boundsRefusal,
@@ -243,7 +244,10 @@ describe('boundsRefusal — the acceptances and the emails', () => {
         preview: { diff: FOUR, automation },
       });
       expect(refused?.code).toBe('AUTOMATION');
-      expect(refused?.message).toContain('turn on acceptAutomation in the step');
+      expect(refused?.message).toContain(
+        'turn on muteAutomation in the step for what a bypass keeps quiet, or acceptAutomation to ' +
+          'let it run, and confirm it again',
+      );
       expect(
         await boundsRefusal({
           ...check(FOUR, bounds, { accepted: { ...NOTHING_ACCEPTED, acceptAutomation: true } }),
@@ -251,6 +255,42 @@ describe('boundsRefusal — the acceptances and the emails', () => {
         }),
       ).toBeUndefined();
     }
+  });
+
+  it('counts once what fires on two of its writes: a flow on an order’s creation and update, as it makes the order again, then gives it its status back (GC4-C2)', async () => {
+    const remade = diffOf([object({ objectApiName: 'Order', toRecreate: 1 })]);
+    const onSave: ForgeTargetAutomation = {
+      ...NO_AUTOMATION,
+      objectsRead: ['Order'],
+      objects: [
+        {
+          objectApiName: 'Order',
+          flows: [
+            {
+              apiName: 'Order_Saved',
+              label: 'Order saved',
+              timing: 'afterSave',
+              startsOn: 'createAndUpdate',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    };
+
+    const refused = acceptanceRefusal(
+      'DEV-SB',
+      { diff: remade, automation: onSave },
+      { ...NOTHING_ACCEPTED, acceptRecreate: true },
+      REWIND_STEP_WORDS.lift,
+    );
+
+    expect(refused?.code).toBe('AUTOMATION');
+    expect(refused?.message).toMatch(
+      /^DEV-SB: 1 flow\(s\), trigger\(s\) or rule\(s\) of Order run as the rewind brings records back, makes them again, gives them their values back or deletes them\./,
+    );
   });
 
   it('refuses a rewind whose writes would send more emails than a Developer Edition has left today, whatever it accepts', async () => {
@@ -281,6 +321,149 @@ describe('boundsRefusal — the acceptances and the emails', () => {
     expect(refused?.message).toContain(
       'about 4 single emails (its email alerts among them, as a Developer Edition counts them), 1 of 15 left today',
     );
+  });
+});
+
+describe('boundsRefusal — the emails the org delivers', () => {
+  /** A flow that emails an owner as an account is updated: what a rewind of {@link FOUR} starts. */
+  const SENDING: ForgeTargetAutomation = {
+    objectsRead: ['Account'],
+    objects: [
+      {
+        objectApiName: 'Account',
+        flows: [
+          {
+            apiName: 'Account_changed',
+            label: 'Account changed',
+            timing: 'afterSave',
+            startsOn: 'update',
+            condition: 'read',
+            permissions: [],
+            messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+          },
+        ],
+        triggers: [],
+      },
+    ],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 0,
+  };
+  const SENDER = {
+    objectApiName: 'Account',
+    kind: 'flow' as const,
+    name: 'Account changed',
+    why: 'email' as const,
+  };
+  const accepted = {
+    acceptAutomation: true,
+    acceptNoUndo: true,
+    acceptRecreate: true,
+    acceptUnseen: true,
+  };
+  const of = (reading: { level: 'all' } | { level: 'withheld' } | { unread: string }) =>
+    acceptanceRefusal(
+      'DEV-SB',
+      { diff: FOUR, automation: SENDING, deliverability: { reading, senders: [SENDER] } },
+      accepted,
+      REWIND_STEP_WORDS.lift,
+      undefined,
+      REWIND_STEP_WORDS.mutes,
+    );
+
+  it('tells a step that already mutes to accept what no bypass keeps quiet, not to turn its mute on', () => {
+    const refusalWith = (words: typeof REWIND_STEP_WORDS) =>
+      acceptanceRefusal(
+        'DEV-SB',
+        {
+          diff: FOUR,
+          automation: SENDING,
+          deliverability: { reading: { level: 'withheld' }, senders: [SENDER] },
+        },
+        { ...accepted, acceptAutomation: false },
+        words.lift,
+        undefined,
+        words.mutes,
+      );
+    const muting = refusalWith(REWIND_MUTING_STEP_WORDS);
+    expect(muting?.message).toContain('turn on acceptAutomation in the step');
+    expect(muting?.message).not.toContain('turn on muteAutomation');
+    expect(refusalWith(REWIND_STEP_WORDS)?.message).toContain('turn on muteAutomation');
+  });
+
+  it('refuses an org that delivers them, naming the step’s setting, though its automation was accepted', () => {
+    const refusal = of({ level: 'all' });
+
+    expect(refusal?.code).toBe('EMAILS_DELIVERED');
+    expect(refusal?.message).toContain(
+      'Turn on acceptEmails in the step and confirm it again to rewind all the same',
+    );
+    expect(refusal?.message).not.toContain('--accept-emails');
+  });
+
+  it('refuses an org that would not say, the reason said, and nothing of an org that withholds them', () => {
+    expect(of({ unread: 'the org answered: no' })?.message).toContain(
+      'could not be read (the org answered: no)',
+    );
+    expect(of({ level: 'withheld' })).toBeUndefined();
+  });
+
+  it('lets the rewind through once the emails are accepted, and asks nothing when nothing sends', () => {
+    expect(
+      acceptanceRefusal(
+        'DEV-SB',
+        {
+          diff: FOUR,
+          automation: SENDING,
+          deliverability: { reading: { level: 'all' }, senders: [SENDER] },
+        },
+        { ...accepted, acceptEmails: true },
+        REWIND_STEP_WORDS.lift,
+      ),
+    ).toBeUndefined();
+    expect(
+      acceptanceRefusal(
+        'DEV-SB',
+        { diff: FOUR, automation: { ...SENDING, objects: [] } },
+        accepted,
+        REWIND_STEP_WORDS.lift,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('leaves a preview that read none to the rewind’s own read: it found nothing that sends', () => {
+    expect(
+      acceptanceRefusal(
+        'DEV-SB',
+        { diff: FOUR, automation: SENDING },
+        accepted,
+        REWIND_STEP_WORDS.lift,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('comes before the daily limit, which its own acceptance does not lift', async () => {
+    const emails: CheckpointEmails[] = [
+      { limit: 'SingleEmail', emails: 3, objects: [], verdict: 'exceeds', remaining: 1, max: 15 },
+    ];
+    const check = (acceptEmails: boolean) =>
+      boundsRefusal({
+        orgName: 'DEV-SB',
+        preview: {
+          diff: FOUR,
+          automation: SENDING,
+          emails,
+          deliverability: { reading: { level: 'all' }, senders: [SENDER] },
+        },
+        bounds: { refuseWhenActive: false },
+        accepted: { ...accepted, acceptEmails },
+        writers: () => Promise.resolve([SELF]),
+        words: REWIND_STEP_WORDS,
+      });
+
+    expect((await check(false))?.code).toBe('EMAILS_DELIVERED');
+    expect((await check(true))?.code).toBe('EMAILS');
   });
 });
 
@@ -338,7 +521,7 @@ describe('the refusals of a rewind nobody can be asked about', () => {
       code: 'NOT_CONFIRMED',
       message:
         'Rewind step "Nightly reset" has not been confirmed since it was changed: open it and ' +
-        "type the org's alias. No record was written.",
+        "type the org's alias, or its username for an org that has none. No record was written.",
     });
     expect(notConfirmedRefusal('Nightly reset', false).message).toMatch(
       /^Rewind step "Nightly reset" has never been confirmed: /,

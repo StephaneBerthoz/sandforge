@@ -765,7 +765,7 @@ describe('SeedOrchestrator — relations', () => {
             {
               fieldApiName: 'AccountId',
               ruleType: 'reference',
-              config: { referenceObject: 'Account', referenceField: 'Id' },
+              config: { referenceObject: 'Account' },
             },
           ],
           excludedFields: [],

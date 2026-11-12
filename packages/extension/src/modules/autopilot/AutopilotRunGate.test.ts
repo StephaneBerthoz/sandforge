@@ -319,7 +319,11 @@ describe('autopilotEmails', () => {
 
   it("reads what the target runs on the plan's objects, and counts its emails against what it has left today", async () => {
     const readAutomation = vi.fn(async (_objects: readonly string[]) => WELCOME_FLOW);
-    const readLimits = vi.fn(async () => ({ SingleEmail: { max: 15, remaining: 15 } }));
+    // A Developer Edition's /limits, which list both.
+    const readLimits = vi.fn(async () => ({
+      SingleEmail: { max: 15, remaining: 15 },
+      DailyWorkflowEmails: { max: 8_040, remaining: 8_040 },
+    }));
 
     const emails = await autopilotEmails({
       plan,
@@ -340,6 +344,8 @@ describe('autopilotEmails', () => {
           { objectApiName: 'Contact', rows: 30, perRecord: 2, sentBy: ['Contact welcome'] },
         ],
       }),
+      // Its single emails count against its workflow emails too, as the trap took them.
+      expect.objectContaining({ limit: 'DailyWorkflowEmails', emails: 60, verdict: 'fits' }),
     ]);
   });
 

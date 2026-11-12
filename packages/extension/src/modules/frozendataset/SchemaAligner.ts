@@ -23,6 +23,8 @@
  *     reported for the placeholder pattern; records are never dropped.
  */
 
+import { exclusiveFieldToFill } from '@sandforge/shared';
+
 import {
   ACCOUNT,
   accountKindRequiring,
@@ -208,15 +210,42 @@ export class SchemaAligner {
         // What a default for it must do: give each record a value of its own
         // for a field the target keeps unique, or for the object's name.
         const distinct = fd.unique ? 'unique' : fd.nameField ? 'name' : undefined;
+        const isLookup = (fd.referenceTo?.length ?? 0) > 0;
+        // What a default for it must hold, as the describe types it: a
+        // lookup takes a placeholder, never a default.
+        const activeValues = (fd.picklistValues ?? [])
+          .filter((value) => value.active)
+          .map((value) => value.value);
         missing.push({
           objectApiName: input.objectApiName,
           field: fd.name,
-          isLookup: (fd.referenceTo?.length ?? 0) > 0,
+          isLookup,
           referenceTo: fd.referenceTo ?? [],
           ...(distinct ? { distinct } : {}),
           ...(ofKind ? { accountKind: ofKind } : {}),
+          ...(!isLookup && fd.type ? { fieldType: fd.type } : {}),
+          ...(!isLookup && activeValues.length > 0 ? { activeValues } : {}),
         });
       }
+    }
+    // Two fields the describe leaves nillable, of which the platform needs
+    // one: rules that cleared both counted the lines to insert, and the org
+    // refused each. Asked here as any required field: said before the first
+    // write, and settled by a declared default.
+    const toFill = exclusiveFieldToFill(
+      input.objectApiName,
+      (name) => input.describe.fields.some((fd) => fd.name === name && fd.createable),
+      (name) => written.some((r) => r[name] !== undefined && r[name] !== null && r[name] !== ''),
+    );
+    if (toFill !== undefined && !missing.some((m) => m.field === toFill)) {
+      const fieldType = input.describe.fields.find((fd) => fd.name === toFill)?.type;
+      missing.push({
+        objectApiName: input.objectApiName,
+        field: toFill,
+        isLookup: false,
+        referenceTo: [],
+        ...(fieldType ? { fieldType } : {}),
+      });
     }
     return missing;
   }

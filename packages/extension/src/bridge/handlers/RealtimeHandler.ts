@@ -86,6 +86,8 @@ export interface RealtimeOrgAccess {
   openTransport(orgId: string): Promise<CometdTransport>;
   /** Reads an org. */
   reader(orgId: string): OrgReader;
+  /** Who the session is on an org, as its identity service says it. */
+  identity?(orgId: string): Promise<{ user_id?: unknown }>;
   /**
    * Sync's write path into an org, each write announced as SandForge's
    * real-time client. A write is never stopped halfway: a session that stops
@@ -120,6 +122,9 @@ export function liveOrgAccess(deps: HandlerDeps): RealtimeOrgAccess {
           };
         },
       });
+    },
+    async identity(orgId) {
+      return (await connect(orgId)).identity();
     },
     reader(orgId) {
       return {
@@ -567,6 +572,7 @@ export class RealtimeHandler implements DomainHandler {
               ...(this.backupRecords ? { backups: this.backupRecords } : {}),
               meta: this.deps.configStore,
               target,
+              identity: async () => (await this.access.identity?.(parsed.targetOrgId)) ?? {},
               log: (message) => this.deps.log(message),
             })
           : undefined;

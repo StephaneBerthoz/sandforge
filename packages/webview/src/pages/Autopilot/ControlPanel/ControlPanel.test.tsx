@@ -4,6 +4,9 @@ import i18n from '../../../i18n';
 import en from '../../../i18n/locales/en.json';
 import fr from '../../../i18n/locales/fr.json';
 import { ControlPanel } from './ControlPanel';
+import { useOrgStore } from '../../../stores/useOrgStore';
+import { useAppStore } from '../../../stores/useAppStore';
+import { developerOrg } from '../../Checkpoint/testing/checkpointFixtures';
 
 /** Captured bridge messages sent by the control panel. */
 const mockSendMessage = vi.fn();
@@ -23,10 +26,18 @@ vi.mock('../../../stores/useAutopilotStore', () => {
   return { useAutopilotStore: store };
 });
 
+/** What the panel asks of a rewind's mark, and what it answers. */
+const mockMarkOf = vi.fn();
+vi.mock('../../../hooks/useRewoundMarks', () => ({
+  useRewoundMarks: () => mockMarkOf,
+}));
+
 describe('ControlPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockMarkOf.mockReturnValue(undefined);
     mockStoreState = {
+      runEnd: null,
       liveStats: {
         recordsProcessed: 0,
         recordsTotal: 100,
@@ -48,6 +59,151 @@ describe('ControlPanel', () => {
       setExecutionStatus: vi.fn(),
       updateNodeStatus: vi.fn(),
     };
+  });
+
+  describe('the checkpoint the run took first', () => {
+    const RUN_END = {
+      orgId: 'org-dev',
+      startedAt: '2026-11-01T10:15:00.000Z',
+      endedAt: '2026-11-01T10:25:00.000Z',
+      objects: ['Account', 'Contact'],
+    };
+
+    beforeEach(() => {
+      useOrgStore.setState({ orgs: [developerOrg()], selectedOrgId: 'org-dev' });
+    });
+
+    it('names it, and says it is the way back of a run with no removal', () => {
+      mockStoreState = {
+        ...mockStoreState,
+        runEnd: {
+          ...RUN_END,
+          checkpoint: {
+            state: 'taken' as const,
+            checkpointId: 'ck-20261101-101540-a1b2',
+            name: 'Before Autopilot run 2026-11-01 10:15 UTC',
+            takenAt: '2026-11-01T10:15:40.000Z',
+            expiresAt: '2026-11-08T10:15:40.000Z',
+            objects: ['Account', 'Contact'],
+            records: 38,
+            bytes: 2_100_000,
+            requests: 66,
+            added: [],
+            notHeld: [],
+          },
+        },
+      };
+      render(<ControlPanel />);
+
+      expect(screen.getByTestId('control-checkpoint-taken').textContent).toContain(
+        '“Before Autopilot run 2026-11-01 10:15 UTC”, 38 records of Account and Contact.',
+      );
+      expect(screen.getByTestId('control-checkpoint-beside').textContent).toContain(
+        'An Autopilot run has no removal: rewinding to this checkpoint is the way back.',
+      );
+      expect(screen.getByTestId('control-checkpoint-action').textContent).toBe(
+        'Rewind to before this run…',
+      );
+    });
+
+    it('says a run that wrote nothing deleted it', () => {
+      mockStoreState = {
+        ...mockStoreState,
+        runEnd: { ...RUN_END, checkpoint: { state: 'deleted', deleted: 'nothingWritten' } },
+      };
+      render(<ControlPanel />);
+      expect(screen.getByTestId('control-checkpoint-deleted').textContent).toBe(
+        'The checkpoint taken before the run was deleted: the run wrote nothing.',
+      );
+    });
+
+    it('marks a run a rewind took back, by its own checkpoint', () => {
+      mockMarkOf.mockReturnValue({
+        kind: 'rewound',
+        rewindId: 'rw-20261101-120000-aaaa',
+        checkpointId: 'ck-20261101-101540-a1b2',
+        checkpointName: 'Before Autopilot run 2026-11-01 10:15 UTC',
+        at: '2026-11-01T12:00:00.000Z',
+        leftSome: false,
+        outside: [],
+      });
+      mockStoreState = {
+        ...mockStoreState,
+        runEnd: {
+          ...RUN_END,
+          checkpoint: {
+            state: 'taken' as const,
+            checkpointId: 'ck-20261101-101540-a1b2',
+            name: 'Before Autopilot run 2026-11-01 10:15 UTC',
+            takenAt: '2026-11-01T10:15:40.000Z',
+            expiresAt: '2026-11-08T10:15:40.000Z',
+            objects: ['Account', 'Contact'],
+            records: 38,
+            bytes: 2_100_000,
+            requests: 66,
+            added: [],
+            notHeld: [],
+          },
+        },
+      };
+      render(<ControlPanel />);
+
+      expect(mockMarkOf).toHaveBeenCalledWith({
+        ...RUN_END,
+        checkpointId: 'ck-20261101-101540-a1b2',
+      });
+      expect(screen.getByTestId('control-rewound').getAttribute('data-kind')).toBe('rewound');
+    });
+
+    it('opens the preview of a rewind to it with its mute ticked once the run muted, and unticked otherwise', () => {
+      const checkpoint = {
+        state: 'taken' as const,
+        checkpointId: 'ck-20261101-101540-a1b2',
+        name: 'Before Autopilot run 2026-11-01 10:15 UTC',
+        takenAt: '2026-11-01T10:15:40.000Z',
+        expiresAt: '2026-11-08T10:15:40.000Z',
+        objects: ['Account', 'Contact'],
+        records: 38,
+        bytes: 2_100_000,
+        requests: 66,
+        added: [],
+        notHeld: [],
+      };
+      mockStoreState = { ...mockStoreState, runEnd: { ...RUN_END, checkpoint } };
+      useAppStore.setState({ currentRoute: 'autopilot', navigationIntent: null });
+      const { unmount } = render(
+        <ControlPanel
+          mutedAutomation={{
+            state: 'muted',
+            assigned: ['Data_Load'],
+            held: [],
+            permissions: ['Load_Data'],
+            silenced: [],
+            stillRan: [],
+            released: true,
+          }}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('control-checkpoint-action'));
+      expect(useAppStore.getState().navigationIntent).toEqual(
+        expect.objectContaining({
+          previewCheckpointId: checkpoint.checkpointId,
+          previewMuted: true,
+        }),
+      );
+      unmount();
+
+      useAppStore.setState({ currentRoute: 'autopilot', navigationIntent: null });
+      render(<ControlPanel />);
+      fireEvent.click(screen.getByTestId('control-checkpoint-action'));
+      expect(useAppStore.getState().navigationIntent).not.toHaveProperty('previewMuted');
+    });
+
+    it('says nothing of a run that took none, and asks no mark before one ended', () => {
+      render(<ControlPanel />);
+      expect(screen.queryByTestId('control-checkpoint')).toBeNull();
+      expect(mockMarkOf).not.toHaveBeenCalled();
+    });
   });
 
   it('says, once the run ended, what it muted of the target’s automation, and nothing before', () => {
@@ -217,6 +373,104 @@ describe('ControlPanel', () => {
       expect(screen.getByTestId('control-stopped-emails-held').textContent).toBe(
         '1 email on a case was never sent: it waited for its task to be written, and the run stopped first.',
       );
+    });
+  });
+
+  describe('how the run ended', () => {
+    it('says a run that ended partial, which no node said on the stats tab', () => {
+      mockStoreState.executionStatus = 'completed';
+      render(<ControlPanel runStatus="partial" />);
+
+      expect(screen.getByTestId('control-run-status').textContent).toBe(
+        en.autopilot.control.runPartial,
+      );
+      expect(screen.getByTestId('control-run-status').getAttribute('role')).toBe('status');
+    });
+
+    it('says a run that wrote nothing', () => {
+      mockStoreState.executionStatus = 'completed';
+      render(<ControlPanel runStatus="failure" />);
+
+      expect(screen.getByTestId('control-run-status').textContent).toBe(
+        en.autopilot.control.runFailure,
+      );
+    });
+
+    it('adds nothing to a run that did all it set out to, or to a stopped one, which says its own end', () => {
+      mockStoreState.executionStatus = 'completed';
+      const { unmount } = render(<ControlPanel runStatus="success" />);
+      expect(screen.queryByTestId('control-run-status')).toBeNull();
+      unmount();
+
+      render(<ControlPanel runStatus="partial" notWritten={['Contact']} />);
+      expect(screen.queryByTestId('control-run-status')).toBeNull();
+    });
+
+    it('says, object by object, how many records stayed drafts and why', () => {
+      mockStoreState.executionStatus = 'completed';
+      render(
+        <ControlPanel
+          runStatus="partial"
+          statusesNotApplied={[
+            {
+              objectApiName: 'Order',
+              records: 2,
+              refusals: [
+                {
+                  statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+                  fields: ['Status'],
+                  count: 2,
+                  message: 'An order needs a product',
+                },
+              ],
+            },
+          ]}
+        />,
+      );
+
+      expect(
+        [...screen.getByTestId('control-statuses-not-applied').querySelectorAll('li')].map(
+          (item) => item.textContent,
+        ),
+      ).toEqual([
+        'Order: 2 records stay drafts: their status was refused (FIELD_INTEGRITY_EXCEPTION).',
+      ]);
+    });
+
+    it('says, object by object, how many records stayed without which lookup and why', () => {
+      mockStoreState.executionStatus = 'completed';
+      render(
+        <ControlPanel
+          runStatus="partial"
+          lookupsNotFilled={[
+            {
+              objectApiName: 'Account',
+              records: 3,
+              refusals: [
+                {
+                  statusCode: 'PARENT_REFUSED',
+                  fields: ['ParentId'],
+                  count: 2,
+                  message: 'the Account record its ParentId names was refused in this run',
+                },
+                {
+                  statusCode: 'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
+                  fields: ['ParentId', 'Partner__c'],
+                  count: 1,
+                  message: 'insufficient access rights on cross-reference id',
+                },
+              ],
+            },
+          ]}
+        />,
+      );
+
+      const items = [...screen.getByTestId('control-lookups-not-filled').querySelectorAll('li')];
+      expect(items.map((item) => item.textContent)).toEqual([
+        'Account: 2 records keep ParentId empty (PARENT_REFUSED).',
+        'Account: 1 record keeps ParentId, Partner__c empty ' +
+          '(INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY).',
+      ]);
     });
   });
 

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { describe, expect, it } from 'vitest';
 import type { PipelineStep } from '@sandforge/shared';
 import { rewindGrantDigest, pipelineRewindStepConfigSchema } from '@sandforge/shared';
@@ -79,6 +81,42 @@ describe('RewindGrants', () => {
     });
   });
 
+  it('takes the emails accepted for a change of what the step does: a confirmation given without them does not cover them', () => {
+    const grants = new RewindGrants(storeWith());
+    grants.write(grantOf());
+
+    expect(grants.verify('p-1', rewindStep({ ...CONFIG, acceptEmails: true }))).toEqual({
+      refusal: 'changed',
+    });
+    expect('grant' in grants.verify('p-1', rewindStep({ ...CONFIG, acceptEmails: false }))).toBe(
+      true,
+    );
+  });
+
+  it('holds void a confirmation kept with the digest of before the emails were bound', () => {
+    const grants = new RewindGrants(storeWith());
+    const before = createHash('sha256')
+      .update(
+        JSON.stringify({
+          binding: 'sandforge-rewind-grant/1',
+          orgId: CONFIG.orgId,
+          checkpointId: CONFIG.checkpointId,
+          objects: null,
+          acceptAutomation: false,
+          acceptNoUndo: false,
+          acceptRecreate: false,
+          acceptOutside: false,
+          acceptUnseen: false,
+          maxRecords: CONFIG.maxRecords,
+          refuseWhenActive: true,
+        }),
+      )
+      .digest('hex');
+    grants.write(grantOf({ digest: `sha256:${before}` }));
+
+    expect(grants.verify('p-1', rewindStep())).toEqual({ refusal: 'changed' });
+  });
+
   it('holds a confirmation void once its pipeline is no longer saved', () => {
     const store = storeWith();
     const grants = new RewindGrants(store);
@@ -87,13 +125,35 @@ describe('RewindGrants', () => {
     expect(grants.verify('p-1', rewindStep())).toEqual({ refusal: 'never' });
   });
 
-  it('takes back a confirmation once a save changes the step, and saving it back does not revive it', () => {
+  it('takes back a confirmation once a save changes the step, saying it changed since, and saving it back does not revive it', () => {
     const grants = new RewindGrants(storeWith());
     grants.write(grantOf());
-    expect(grants.revokeChanged('p-1', [rewindStep({ ...CONFIG, maxRecords: 5 })])).toEqual([
-      'step-r',
-    ]);
+    const changed = rewindStep({ ...CONFIG, maxRecords: 5 });
+    const savedAt = () => new Date('2026-10-31T08:00:00.000Z');
+    expect(grants.revokeChanged('p-1', [changed], savedAt)).toEqual(['step-r']);
+    // Confirmed, then changed: never "never confirmed".
+    expect(grants.verify('p-1', changed)).toEqual({ refusal: 'changed' });
+    expect(grantRefusalWords('Nightly reset', 'changed')).toContain(
+      'has not been confirmed since it was changed',
+    );
+    expect(grants.get('p-1', 'step-r')).toMatchObject({
+      grantedAt: '2026-10-30T09:00:00.000Z',
+      takenBackAt: '2026-10-31T08:00:00.000Z',
+    });
     expect(grants.revokeChanged('p-1', [rewindStep()])).toEqual([]);
+    expect(grants.verify('p-1', rewindStep())).toEqual({ refusal: 'changed' });
+    // A confirmation given again stands for what is saved then.
+    grants.write(grantOf());
+    expect('grant' in grants.verify('p-1', rewindStep())).toBe(true);
+  });
+
+  it('forgets a confirmation taken back once its step leaves the pipeline, saying nothing again', () => {
+    const grants = new RewindGrants(storeWith());
+    grants.write(grantOf());
+    grants.revokeChanged('p-1', [rewindStep({ ...CONFIG, maxRecords: 5 })]);
+
+    expect(grants.revokeChanged('p-1', [])).toEqual([]);
+    expect(grants.get('p-1', 'step-r')).toBeUndefined();
     expect(grants.verify('p-1', rewindStep())).toEqual({ refusal: 'never' });
   });
 

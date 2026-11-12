@@ -15,6 +15,7 @@ import type {
   BaseMessage,
   ForgeTargetAutomation,
   OrgCheckpoint,
+  RunCheckpointTaken,
   SalesforceOrg,
   UUID,
 } from '@sandforge/shared';
@@ -43,11 +44,22 @@ import {
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { newArchiveKey, parseArchiveKey } from '../../modules/checkpoint/checkpointArchive.js';
 import { appendToRewindLedger, rewindLedgerFileOf } from '../../modules/checkpoint/rewindLedger.js';
+import {
+  writePathOrderDefects,
+  type BeforeRunAsk,
+  type BeforeRunTake,
+  type WritePathStep,
+} from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
+import { mutedOfError } from '../../modules/forge/AutomationMuteLease.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector.js';
 import type { SyncRunKept } from '../../modules/sync/SyncRunCreations.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import {
+  memoryPermissionOrg,
+  type MemoryPermissionOrgSetup,
+} from '../../test/memoryPermissionOrg.js';
 import {
   MEMORY_ORG_USER,
   type MemoryChild,
@@ -79,6 +91,19 @@ const REGISTERED = 'org-dev';
 
 /** T0 on the org's clock. */
 const T0 = Date.parse('2026-10-22T14:05:12.731Z');
+
+// This machine's clock pinned a minute after T0, going on: what the store
+// and the handler date by it — an undo's fifteen days, a checkpoint's expiry —
+// reads as the tests' org does, whatever day they run. Left to the real one,
+// every undo these tests offer was refused fifteen days after they were written.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: T0 + 60_000, shouldAdvanceTime: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 const LONG_AGO = Date.parse('2026-10-01T09:00:00.000Z');
 let clock = T0;
 
@@ -152,6 +177,7 @@ class HandlerTestOrg extends MemoryRestoreOrg {
       PermissionsViewAllData: true,
       PermissionsModifyAllData: true,
       PermissionsViewEncryptedData: false,
+      PermissionsEmailSingle: true,
     });
     this.add('User', { Id: AUTOMATED_PROCESS, UserType: 'AutomatedProcess' });
     this.add('Account', { Id: id('001', 1), Name: 'Northwind' });
@@ -283,6 +309,8 @@ function harness(
     self?: { pid: number; startedAt: string };
     /** The window's dialogs the page's Export… and Import… pick their file in. */
     checkpointFiles?: CheckpointFileDialogs;
+    /** The window's SandForge settings, by key without its `sandforge.`; none unless told. */
+    settings?: Record<string, unknown>;
   } = {},
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-checkpoint-host-'));
@@ -325,6 +353,14 @@ function harness(
     },
     nextId: () => `ext-${++ids}`,
     sandboxRefreshes: detector,
+    ...(options.settings
+      ? {
+          services: {
+            getSandforgeSetting: <T>(key: string, fallback: T): T =>
+              (options.settings?.[key] as T | undefined) ?? fallback,
+          },
+        }
+      : {}),
   } as unknown as HandlerDeps;
   let hook: (soql: string) => void = () => undefined;
   vi.mocked(getJsforceConnection).mockImplementation(
@@ -642,6 +678,7 @@ describe('CheckpointHandler — the scope', () => {
     ]);
     expect(excluded.payload.leftOut).toContainEqual({
       objectApiName: 'Case',
+      code: 'excludedByUser',
       reason: 'Left out as asked.',
     });
     expect(excluded.payload.refusal).toBeUndefined();
@@ -770,6 +807,7 @@ describe('CheckpointHandler — what a take is asked beside its scope', () => {
     expect(checkpoint.objects.map((object) => object.objectApiName)).toEqual(['Account']);
     expect(checkpoint.scope.leftOut).toContainEqual({
       objectApiName: 'Case',
+      code: 'excludedByUser',
       reason: 'Left out as asked.',
     });
   });
@@ -1006,6 +1044,194 @@ describe('CheckpointHandler — the preview', () => {
     });
   });
 
+  it('answers a preview asked to mute for what still runs: the emails a bypass keeps quiet count against nothing and refuse nothing, the automation as read', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    clock = T0 + 120_000;
+    h.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 0 } };
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [
+                {
+                  apiName: 'Account_changed',
+                  label: 'Account changed',
+                  timing: 'afterSave',
+                  startsOn: 'update',
+                  condition: 'read',
+                  permissions: [{ name: 'Skip_Flows', bypass: true, held: false }],
+                  messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          bypassGrants: [
+            {
+              permission: 'Skip_Flows',
+              permissionSets: [{ name: 'Flows_Bypass', label: 'Flows bypass', grants: 1 }],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation),
+    });
+
+    await h.send('wv-preview-1', 'checkpoint:preview', { checkpointId });
+    expect(answerOf(h, 'wv-preview-1').payload).toMatchObject({ refusal: { code: 'EMAILS' } });
+
+    // The harness's user may not assign permission sets: the rewind's mute
+    // is refused, and so the preview says.
+    await h.send('wv-preview-0', 'checkpoint:preview', { checkpointId, muteAutomation: true });
+    expect(answerOf(h, 'wv-preview-0').payload).toMatchObject({
+      refusal: {
+        code: 'MUTE',
+        message: expect.stringContaining('cannot assign permission sets') as unknown,
+      },
+    });
+    Object.assign(h.org.all('UserPermissionAccess')[0] ?? {}, {
+      PermissionsAssignPermissionSets: true,
+    });
+
+    await h.send('wv-preview-2', 'checkpoint:preview', { checkpointId, muteAutomation: true });
+    const muted = answerOf(h, 'wv-preview-2');
+    expect(muted.type).toBe('checkpoint:preview:response');
+    expect(muted.payload).not.toHaveProperty('refusal');
+    expect(muted.payload).not.toHaveProperty('emails');
+    expect(muted.payload).toMatchObject({
+      automation: { objects: [{ objectApiName: 'Account' }] },
+    });
+  });
+
+  it('answers whether the org delivers the emails in the preview, refuses the rewind unaccepted whatever its automation’s box says, and writes once the request accepts them', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    clock = T0 + 120_000;
+    h.org.anonymousApex = { compiled: true, success: true };
+    sendingEmail(h);
+
+    await h.send('wv-preview-1', 'checkpoint:preview', { checkpointId });
+
+    const answer = answerOf(h, 'wv-preview-1');
+    expect(answer.payload).toMatchObject({
+      deliverability: {
+        reading: { level: 'all' },
+        senders: [
+          { objectApiName: 'Account', kind: 'flow', name: 'Account changed', why: 'email' },
+        ],
+      },
+    });
+    expect(answer.payload.refusal).toBeUndefined();
+    const previewId = (answer.payload.diff as { previewId: string }).previewId;
+
+    await h.send(
+      'wv-rewind-1',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { acceptAutomation: true }),
+    );
+
+    expect(answerOf(h, 'wv-rewind-1').payload).toMatchObject({ code: 'EMAILS_DELIVERED' });
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_rewind',
+      outcome: 'stopped',
+      details: { code: 'EMAILS_DELIVERED' },
+    });
+
+    h.org.ticking = true;
+    await h.send(
+      'wv-rewind-2',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { acceptAutomation: true, acceptEmails: true }),
+    );
+
+    expect(resultOf(h, 'wv-rewind-2', 'checkpoint:rewind:response').status).toBe('success');
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_rewind',
+      outcome: 'success',
+      details: { deliverability: 'all', confirmed: 'emails' },
+    });
+  });
+
+  it('names the box to the page that asked and the flag to the command line, which replays its request, for a rewind and an undo', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    clock = T0 + 120_000;
+    h.org.anonymousApex = { compiled: true, success: true };
+    sendingEmail(h);
+    await h.send('wv-preview-1', 'checkpoint:preview', { checkpointId });
+    const previewId = (answerOf(h, 'wv-preview-1').payload.diff as { previewId: string }).previewId;
+    const said = (requestId: string): string =>
+      (answerOf(h, requestId).payload as { message: string }).message;
+    const accepted = { acceptAutomation: true };
+
+    await h.send('wv-rewind-1', 'checkpoint:rewind', rewindOf(checkpointId, previewId, accepted));
+    await h.send(
+      'wv-rewind-2',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { ...accepted, fromPage: true }),
+    );
+
+    expect(said('wv-rewind-1')).toContain('Add --accept-emails to rewind all the same');
+    expect(said('wv-rewind-2')).toContain(
+      'Tick "Let DEV-SB send these emails" in the preview to rewind all the same',
+    );
+    expect(said('wv-rewind-2')).not.toContain('--accept-emails');
+
+    h.org.ticking = true;
+    await h.send(
+      'wv-rewind-3',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { ...accepted, acceptEmails: true }),
+    );
+    const { rewindId } = resultOf(h, 'wv-rewind-3', 'checkpoint:rewind:response');
+    const undo = { checkpointId, rewindId, ...accepted };
+
+    await h.send('wv-undo-1', 'checkpoint:undo', undo);
+    await h.send('wv-undo-2', 'checkpoint:undo', { ...undo, fromPage: true });
+
+    expect(said('wv-undo-1')).toContain('Add --accept-emails to undo all the same');
+    expect(said('wv-undo-2')).toContain(
+      "Tick the box for these emails in the undo's confirmation to undo all the same",
+    );
+    expect(said('wv-undo-2')).not.toContain('--accept-emails');
+    // The words change, not the stop: both are refused under the emails' code.
+    expect(answerOf(h, 'wv-undo-2').payload).toMatchObject({ code: 'EMAILS_DELIVERED' });
+  });
+
+  it('says nothing was confirmed of the emails an org withholds, whatever the request accepts', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    clock = T0 + 120_000;
+    sendingEmail(h);
+    const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+
+    h.org.ticking = true;
+    await h.send(
+      'wv-rewind-1',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { acceptAutomation: true, acceptEmails: true }),
+    );
+
+    expect(resultOf(h, 'wv-rewind-1', 'checkpoint:rewind:response').status).toBe('success');
+    const [entry] = h.trail();
+    expect(entry?.details).toMatchObject({ deliverability: 'withheld' });
+    expect(entry?.details).not.toHaveProperty('confirmed');
+  });
+
   it('refuses the preview of a checkpoint of the org before a refresh, without reaching the org', async () => {
     const h = harness();
     const checkpointId = await taken(h);
@@ -1151,6 +1377,37 @@ function noAutomation(h: Harness): void {
       Promise.resolve({
         objectsRead: [...objects],
         objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      } satisfies ForgeTargetAutomation),
+  });
+}
+
+/** A reader of what the org runs that finds a flow emailing an owner as an account is updated. */
+function sendingEmail(h: Harness): void {
+  h.handler.setTargetAutomation({
+    read: (_orgId, objects) =>
+      Promise.resolve({
+        objectsRead: [...objects],
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [
+              {
+                apiName: 'Account_changed',
+                label: 'Account changed',
+                timing: 'afterSave',
+                startsOn: 'update',
+                condition: 'read',
+                permissions: [],
+                messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+              },
+            ],
+            triggers: [],
+          },
+        ],
         unread: [],
         conditionsNotRead: 0,
         conditionsBound: 0,
@@ -1453,6 +1710,141 @@ describe('CheckpointHandler — the rewind and its undo', () => {
     const result = resultOf(h, 'wv-rewind-2', 'checkpoint:rewind:response');
     expect(result.status).toBe('success');
     expect(h.org.all('Case')).toHaveLength(1);
+  });
+
+  it('passes on to the preview whether the rewind may delete the records outside a checkpoint of picked objects: an account it keeps for them counts no email', async () => {
+    // The cases go with their account, and the checkpoint holds the accounts alone.
+    const h = harness({
+      org: new HandlerTestOrg(
+        {},
+        { Account: [{ childSObject: 'Case', field: 'AccountId', cascadeDelete: true }] },
+      ),
+    });
+    // A flow that emails an account's owner as it is deleted.
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [
+                {
+                  apiName: 'Account_gone',
+                  label: 'Account gone',
+                  timing: 'beforeSave',
+                  startsOn: 'delete',
+                  condition: 'read',
+                  permissions: [],
+                  messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation),
+    });
+    await h.send('wv-take-1', 'checkpoint:take', { ...TAKE, mode: 'picked', objects: ['Account'] });
+    const checkpointId = (answerOf(h, 'wv-take-1').payload.checkpoint as { checkpointId: string })
+      .checkpointId;
+    clock = T0 + 60_000;
+    h.org.add('Account', { Id: id('001', 3), Name: 'New', LastModifiedById: COLLEAGUE });
+    h.org.add('Case', {
+      Id: id('500', 3),
+      Subject: 'Under it',
+      AccountId: id('001', 3),
+      LastModifiedById: COLLEAGUE,
+    });
+    clock = T0 + 120_000;
+    h.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 15 } };
+    const emailsOf = async (requestId: string, asked: Record<string, boolean>) => {
+      await h.send(requestId, 'checkpoint:preview', { checkpointId, ...asked });
+      const answer = answerOf(h, requestId);
+      expect(answer.type).toBe('checkpoint:preview:response');
+      return (answer.payload.emails as Array<{ emails: number }> | undefined)?.map(
+        (each) => each.emails,
+      );
+    };
+
+    expect(await emailsOf('wv-preview-1', { acceptOutside: false })).toBeUndefined();
+    expect(await emailsOf('wv-preview-2', { acceptOutside: true })).toEqual([1]);
+    expect(await emailsOf('wv-preview-3', {})).toEqual([1]);
+  });
+
+  it('answers the page, which asks without saying whether the rewind may delete the records outside a checkpoint of picked objects, the emails of the rewind that keeps what they hang from beside those of the one that deletes it, each as the command line counts it', async () => {
+    // The page counted every email a rewind sends deleting the account the
+    // case hangs from, its box unticked, where that rewind keeps the account
+    // and the command line's preview counted none of its emails.
+    const h = harness({
+      org: new HandlerTestOrg(
+        {},
+        { Account: [{ childSObject: 'Case', field: 'AccountId', cascadeDelete: true }] },
+      ),
+    });
+    // A flow that emails an account's owner as it is deleted, another as it is changed.
+    const sends = (apiName: string, startsOn: 'delete' | 'update') => ({
+      apiName,
+      label: apiName,
+      timing: startsOn === 'delete' ? ('beforeSave' as const) : ('afterSave' as const),
+      startsOn,
+      condition: 'read' as const,
+      permissions: [],
+      messages: [{ kind: 'email' as const, name: 'Tell owner', limit: 'SingleEmail' as const }],
+    });
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [sends('Account_gone', 'delete'), sends('Account_changed', 'update')],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation),
+    });
+    await h.send('wv-take-1', 'checkpoint:take', { ...TAKE, mode: 'picked', objects: ['Account'] });
+    const checkpointId = (answerOf(h, 'wv-take-1').payload.checkpoint as { checkpointId: string })
+      .checkpointId;
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    h.org.add('Account', { Id: id('001', 3), Name: 'New', LastModifiedById: COLLEAGUE });
+    h.org.add('Case', {
+      Id: id('500', 3),
+      Subject: 'Under it',
+      AccountId: id('001', 3),
+      LastModifiedById: COLLEAGUE,
+    });
+    clock = T0 + 120_000;
+    h.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 15 } };
+    const previewOf = async (requestId: string, asked: Record<string, boolean>) => {
+      await h.send(requestId, 'checkpoint:preview', { checkpointId, ...asked });
+      const answer = answerOf(h, requestId);
+      expect(answer.type).toBe('checkpoint:preview:response');
+      return answer.payload as { emails?: unknown[]; emailsKeepingOutside?: unknown[] };
+    };
+
+    const keeps = await previewOf('wv-preview-1', { acceptOutside: false });
+    const deletes = await previewOf('wv-preview-2', { acceptOutside: true });
+    const page = await previewOf('wv-preview-3', {});
+
+    // The rewind that keeps the account gives the other its name back: one email.
+    expect(keeps.emails).toEqual([expect.objectContaining({ limit: 'SingleEmail', emails: 1 })]);
+    expect(deletes.emails).toEqual([expect.objectContaining({ limit: 'SingleEmail', emails: 2 })]);
+    expect(page.emails).toEqual(deletes.emails);
+    expect(page.emailsKeepingOutside).toEqual(keeps.emails);
+    // Told which rewind it is of, a preview counts that one alone.
+    expect(keeps).not.toHaveProperty('emailsKeepingOutside');
+    expect(deletes).not.toHaveProperty('emailsKeepingOutside');
   });
 
   it('passes on whether a rewind by a user read object by object may delete what takes along records the user is not proven to see: refused without it, writing nothing, rewound with it', async () => {
@@ -2832,6 +3224,29 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
     expect(h.posted.filter((message) => message.type === 'checkpoint:rewind:response')).toEqual([]);
   });
 
+  it('lists a rewind the org refused part of as partial in Live Operations, never completed', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    // A validation rule on the account: its name is not given back, the cases are.
+    h.org.refuseUpdate.set(id('001', 1), {
+      statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+      message: 'Name is locked',
+    });
+    h.org.ticking = true;
+
+    const rewound = await h.handler.rewindForPipeline(rewindStep(checkpointId));
+
+    expect(rewound.result.status).toBe('partial');
+    expect(operationMessages(h, 'operation:completed', rewound.operationId)).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({ result: { status: 'partial' } }) as unknown,
+      }),
+    ]);
+    expect(h.tracker.get(rewound.operationId)?.status).toBe('partial');
+  });
+
   it('leaves the panel’s preview as it was: the panel’s rewind confirmed on it goes after the step’s, reading the org again', async () => {
     const h = harness();
     noAutomation(h);
@@ -2971,7 +3386,7 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
 
     expect(refused.code).toBe('AUTOMATION');
     expect(refused.message).toMatch(
-      /Rewind refused; turn on acceptAutomation in the step and confirm it again to rewind all the same\. No record was written\.$/,
+      /Rewind refused; turn on muteAutomation in the step for what a bypass keeps quiet, or acceptAutomation to let it run, and confirm it again to rewind all the same\. No record was written\.$/,
     );
     expect(writesOf(h.org)).toEqual(before);
 
@@ -2980,6 +3395,181 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
       rewindStep(checkpointId, { acceptAutomation: true }),
     );
     expect(rewound.result.status).toBe('success');
+  });
+
+  describe('a Rewind step that mutes', () => {
+    /** What the org runs as accounts are updated: a flow a bypass keeps quiet that emails the owner, and what is said beside. */
+    const quietable = (
+      rest: ForgeTargetAutomation['objects'][number]['flows'] = [],
+    ): { read: (orgId: string, objects: readonly string[]) => Promise<ForgeTargetAutomation> } => ({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [
+                {
+                  apiName: 'Account_changed',
+                  label: 'Account changed',
+                  timing: 'afterSave',
+                  startsOn: 'update',
+                  condition: 'read',
+                  permissions: [{ name: 'Skip_Account', bypass: true, held: false }],
+                  messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+                },
+                ...rest,
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+          bypassGrants: [
+            {
+              permission: 'Skip_Account',
+              permissionSets: [{ name: 'Skip_Account_Set', label: 'Skip', grants: 1 }],
+            },
+          ],
+        } satisfies ForgeTargetAutomation),
+    });
+
+    /** The org's permission sets, reached through the connection its records are read by. */
+    function withPermissionSets(
+      h: Harness,
+      setup: Pick<MemoryPermissionOrgSetup, 'refuseDeleting'> = {},
+    ): ReturnType<typeof memoryPermissionOrg> {
+      const permissions = memoryPermissionOrg({
+        organizationId: ORG_ID,
+        userId: MEMORY_ORG_USER,
+        sets: [{ id: '0PS000000000001AAA', name: 'Skip_Account_Set' }],
+        ...setup,
+      });
+      const base = connectionOf(h.org);
+      vi.mocked(getJsforceConnection).mockImplementation(
+        async () =>
+          ({
+            ...base,
+            identity: () => permissions.connection.identity(),
+            query: (soql: string, options?: { scanAll?: boolean }) =>
+              /PermissionSet|PermissionsAssign/.test(soql)
+                ? permissions.connection.query(soql)
+                : base.query(soql, options),
+            sobject: (objectApiName: string) =>
+              objectApiName === 'PermissionSetAssignment'
+                ? permissions.connection.sobject(objectApiName)
+                : base.sobject(objectApiName),
+          }) as never,
+      );
+      h.handler.setMuteLeases({ dir: dirs[dirs.length - 1] ?? tmpdir(), renewEveryMs: 0 });
+      return permissions;
+    }
+
+    it('rewinds through the bypass, with neither acceptance, what it would have sent left unsent, the set assigned for the rewind and taken back', async () => {
+      const h = harness();
+      const checkpointId = await taken(h);
+      changedSince(h);
+      h.handler.setTargetAutomation(quietable());
+      // An org on All email, with one email left today: the flow would be refused twice.
+      h.org.anonymousApex = { compiled: true, success: true };
+      h.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 0 } };
+      const permissions = withPermissionSets(h);
+
+      const without = await stepRefusal(h.handler.rewindForPipeline(rewindStep(checkpointId)));
+      expect(without.code).toBe('EMAILS');
+      expect(permissions.writes).toEqual([]);
+
+      h.org.ticking = true;
+      const rewound = await h.handler.rewindForPipeline(
+        rewindStep(checkpointId, { muteAutomation: true }),
+      );
+
+      expect(rewound.result.status).toBe('success');
+      expect(rewound.result.mutedAutomation).toMatchObject({
+        state: 'muted',
+        assigned: ['Skip_Account_Set'],
+        released: true,
+      });
+      expect(permissions.writes.map((write) => write.kind)).toEqual(['insert', 'delete']);
+    });
+
+    it('is still refused for what no bypass keeps quiet, naming the one setting that lifts it, nothing assigned', async () => {
+      const h = harness();
+      const checkpointId = await taken(h);
+      changedSince(h);
+      h.handler.setTargetAutomation(
+        quietable([
+          {
+            apiName: 'Account_noted',
+            label: 'Account noted',
+            timing: 'afterSave',
+            startsOn: 'update',
+            condition: 'read',
+            permissions: [],
+          },
+        ]),
+      );
+      const permissions = withPermissionSets(h);
+      const before = writesOf(h.org);
+
+      const refused = await stepRefusal(
+        h.handler.rewindForPipeline(rewindStep(checkpointId, { muteAutomation: true })),
+      );
+
+      expect(refused.code).toBe('AUTOMATION');
+      expect(refused.message).toContain('1 flow(s), trigger(s) or rule(s) of Account run');
+      // The step mutes already: what it lists is what no bypass keeps quiet,
+      // which only acceptAutomation lets through.
+      expect(refused.message).toMatch(
+        /Rewind refused; turn on acceptAutomation in the step to let what no bypass keeps quiet run, and confirm it again to rewind all the same\. No record was written\.$/,
+      );
+      expect(refused.message).not.toContain('muteAutomation');
+      expect(permissions.writes).toEqual([]);
+      expect(writesOf(h.org)).toEqual(before);
+    });
+
+    it('says what it assigned and that the org would not take it back of a rewind that throws once it wrote: in the error, the audit trail and the log', async () => {
+      const h = harness();
+      const checkpointId = await taken(h);
+      changedSince(h);
+      h.handler.setTargetAutomation(quietable());
+      // The session expires once the first pass wrote: the read again after
+      // it fails, and so does the delete of the assignment.
+      withPermissionSets(h, { refuseDeleting: { '0Paxx0000000001AAA': 'INVALID_SESSION_ID' } });
+      const serverTime = h.org.serverTime.bind(h.org);
+      h.org.serverTime = async () => {
+        if (h.org.updates.length + h.org.deletes.length > 0) {
+          throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+        }
+        return serverTime();
+      };
+      h.org.ticking = true;
+
+      const thrown = await h.handler
+        .rewindForPipeline(rewindStep(checkpointId, { muteAutomation: true }))
+        .catch((err: unknown) => err);
+
+      expect((thrown as Error).message).toBe('INVALID_SESSION_ID: Session expired or invalid');
+      expect(mutedOfError(thrown)).toMatchObject({
+        state: 'muted',
+        assigned: ['Skip_Account_Set'],
+        released: false,
+      });
+      expect(h.trail()[0]).toMatchObject({
+        action: 'checkpoint_rewind',
+        outcome: 'failure',
+        muted: { assigned: ['Skip_Account_Set'], released: false },
+      });
+      expect(h.logs).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(
+            /^\[WARN\] checkpoint:rewind .*mute: assigned Skip_Account_Set .*not taken back: .*INVALID_SESSION_ID/,
+          ),
+        ]),
+      );
+    });
   });
 
   it('refuses a rewind whose writes would send more emails than the org has left today, whatever it accepts', async () => {
@@ -3031,6 +3621,46 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
 
     expect(refused.code).toBe('EMAILS');
     expect(writesOf(h.org)).toEqual(before);
+  });
+
+  it('refuses a rewind the org delivers the emails of, naming the step’s setting and no flag of a command line, before it writes; acceptEmails lets it through', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    clock = T0 + 120_000;
+    h.org.anonymousApex = { compiled: true, success: true };
+    sendingEmail(h);
+    const accepted = {
+      acceptAutomation: true,
+      acceptNoUndo: true,
+      acceptRecreate: true,
+      acceptUnseen: true,
+    };
+    const before = writesOf(h.org);
+
+    const refused = await stepRefusal(
+      h.handler.rewindForPipeline(rewindStep(checkpointId, accepted)),
+    );
+
+    expect(refused.code).toBe('EMAILS_DELIVERED');
+    expect(refused.message).toContain(
+      'Turn on acceptEmails in the step and confirm it again to rewind all the same',
+    );
+    expect(refused.message).not.toContain('--accept-emails');
+    expect(refused.message).not.toContain('--mute-automation');
+    expect(writesOf(h.org)).toEqual(before);
+
+    h.org.ticking = true;
+    const rewound = await h.handler.rewindForPipeline(
+      rewindStep(checkpointId, { ...accepted, acceptEmails: true }),
+    );
+
+    expect(rewound.result.status).toBe('success');
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_rewind',
+      details: { deliverability: 'all', confirmed: 'emails' },
+    });
   });
 
   it('answers no, with nobody to ask, to deleting the rest when its user may not delete some of it: nothing written, the step failing with the objects named', async () => {
@@ -3131,7 +3761,7 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
     expect(changed.code).toBe('NOT_CONFIRMED');
     expect(changed.message).toBe(
       'Rewind step "Rewind the sandbox" has not been confirmed since it was changed: open it ' +
-        "and type the org's alias. No record was written.",
+        "and type the org's alias, or its username for an org that has none. No record was written.",
     );
     expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connected);
   });
@@ -3156,5 +3786,463 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
       outcome: 'stopped',
       details: { code: 'PRODUCTION', trigger: 'schedule' },
     });
+  });
+});
+
+// ─── A checkpoint before a run (Checkpoint first) ────────────────────────────
+
+/** The operation of the Forge run a checkpoint is taken before. */
+const OWN_RUN = 'wv-forge-execute-1';
+
+/** A flow of the target that still runs as the run inserts Accounts, opening a Case for each. */
+const OPENS_A_CASE = {
+  objectApiName: 'Account',
+  kind: 'flow' as const,
+  name: 'Open a case',
+  write: 'insert' as const,
+  flow: {
+    apiName: 'Open_A_Case',
+    label: 'Open a case',
+    timing: 'afterSave' as const,
+    startsOn: 'create' as const,
+    condition: 'read' as const,
+    permissions: [],
+    creates: ['Case'],
+  },
+};
+
+/** What a Forge run writing Accounts asks of the checkpoint before it. */
+function beforeRun(extra: Partial<BeforeRunAsk> = {}): BeforeRunAsk {
+  return {
+    orgId: REGISTERED,
+    module: 'forge',
+    operationId: OWN_RUN,
+    written: ['Account'],
+    running: { firing: [OPENS_A_CASE] },
+    request: {},
+    ...extra,
+  };
+}
+
+/** The take's answer, kept: its checkpoint as the run's result names it. */
+function takenFirst(outcome: BeforeRunTake): RunCheckpointTaken {
+  if (!outcome.taken) {
+    throw new Error(
+      'refusal' in outcome ? `refused: ${outcome.refusal.message}` : 'stopped while it read',
+    );
+  }
+  return outcome.checkpoint;
+}
+
+/** Days between now and an instant, rounded to the hour's tenth: a take's expiry from this machine's clock. */
+function daysFromNow(at: string | null): number | null {
+  return at === null ? null : Math.round(((Date.parse(at) - Date.now()) / 86_400_000) * 10) / 10;
+}
+
+describe('CheckpointHandler — a checkpoint before a run', () => {
+  it('says at the run’s gate what it would hold and cost — the objects the run writes, then what a flow that still runs creates, with why — reading no record and keeping nothing', async () => {
+    const h = harness();
+    const asked: string[] = [];
+    h.onQuery((soql) => asked.push(soql));
+
+    const estimate = await h.handler.scopeBeforeRun(beforeRun(), { operationId: OWN_RUN });
+
+    expect(estimate).toMatchObject({
+      state: 'planned',
+      objects: ['Account', 'Case'],
+      added: [
+        {
+          objectApiName: 'Case',
+          reason: "The target's flow 'Open a case' creates Case records as Account records go in.",
+        },
+      ],
+      notHeld: [],
+      keepDays: 7,
+      estimate: { records: 3, apiRequestsLeft: 4_999_000 },
+    });
+    expect(estimate.estimate.apiRequests).toBeGreaterThan(0);
+    expect(estimate.refusal).toBeUndefined();
+    expect(asked.filter((soql) => /SELECT Id, SystemModstamp/.test(soql))).toEqual([]);
+    expect(await h.store.list()).toEqual([]);
+  });
+
+  it('takes it once asked, named after the run, the run written into its file, kept seven days unless the request or the setting says otherwise, and records the take with the run', async () => {
+    const h = harness();
+    const changed = vi.fn();
+    h.handler.onCheckpointsChanged(changed);
+
+    const checkpoint = takenFirst(
+      await h.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN }),
+    );
+
+    expect(checkpoint).toMatchObject({
+      state: 'taken',
+      name: 'Before Forge run 2026-10-22 14:05 UTC',
+      objects: ['Account', 'Case'],
+      records: 3,
+      notHeld: [],
+    });
+    expect(checkpoint.added.map(({ objectApiName }) => objectApiName)).toEqual(['Case']);
+    expect(daysFromNow(checkpoint.expiresAt)).toBe(7);
+    expect(checkpoint.requests).toBeGreaterThan(0);
+    const read = await h.store.read(checkpoint.checkpointId);
+    expect(read?.checkpoint).toMatchObject({
+      status: 'ready',
+      beforeRun: { module: 'forge', operationId: OWN_RUN, tool: 'panel' },
+      scope: { mode: 'picked' },
+    });
+    expect(changed).toHaveBeenCalled();
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_take',
+      module: 'checkpoint',
+      outcome: 'success',
+      beforeRun: { module: 'forge', operationId: OWN_RUN },
+      details: { checkpointId: checkpoint.checkpointId, records: 3, objects: 2 },
+    });
+    // Listed in Live Operations under an operation of its own, complete.
+    const operationId = h.trail()[0].operationId ?? '';
+    expect(operationId).toMatch(/^checkpoint:before-run:/);
+    expect(h.tracker.get(operationId)).toMatchObject({ module: 'checkpoint', status: 'completed' });
+
+    const set = harness({ settings: { 'checkpoint.beforeRunKeepDays': 30 } });
+    const bySetting = takenFirst(
+      await set.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN }),
+    );
+    expect(daysFromNow(bySetting.expiresAt)).toBe(30);
+    clock += 60_000;
+    const asked = takenFirst(
+      await set.handler.takeBeforeRun(beforeRun({ request: { keepDays: 2 } }), {
+        operationId: OWN_RUN,
+      }),
+    );
+    expect(daysFromNow(asked.expiresAt)).toBe(2);
+    clock += 60_000;
+    const kept = takenFirst(
+      await set.handler.takeBeforeRun(beforeRun({ request: { keepDays: 0 } }), {
+        operationId: OWN_RUN,
+      }),
+    );
+    expect(kept.expiresAt).toBeNull();
+  });
+
+  it('leaves out an object the run’s request leaves out by name, naming it so', async () => {
+    const h = harness();
+
+    const checkpoint = takenFirst(
+      await h.handler.takeBeforeRun(beforeRun({ request: { excluded: ['Case'] } }), {
+        operationId: OWN_RUN,
+      }),
+    );
+
+    expect(checkpoint.objects).toEqual(['Account']);
+    expect(checkpoint.added).toEqual([]);
+    expect(checkpoint.notHeld).toEqual([
+      {
+        objectApiName: 'Case',
+        code: 'excludedByUser',
+        reason: 'Left out as asked. A rewind leaves its records as they are.',
+      },
+    ]);
+  });
+
+  it('is not refused by the run’s own mark alone: its operation, and its run file this process writes', async () => {
+    // The window's Forge handler writes for its own run, and names it.
+    const writing = new Set([OWN_RUN]);
+    const h = harness({
+      writers: {
+        writingTo: (orgId, except) =>
+          orgId === REGISTERED && [...writing].some((operation) => operation !== except),
+        isRunning: (runId) => runId === 'sync-run-1',
+      },
+    });
+    const self = (h.handler as unknown as { self: { pid: number; startedAt: string } }).self;
+    h.handler.setRunFiles('sync', {
+      list: () =>
+        Promise.resolve([
+          syncRun({ writer: { pid: self.pid, hostStartedAt: self.startedAt } } as never),
+        ]),
+    });
+
+    takenFirst(
+      await h.handler.takeBeforeRun(beforeRun({ module: 'sync' }), {
+        operationId: OWN_RUN,
+        runId: 'sync-run-1',
+      }),
+    );
+  });
+
+  it('is refused by any other run writing to the org — another run of the window, another run file, its own run file another process writes — and by another take, keeping nothing', async () => {
+    const refusedBy = async (
+      options: Parameters<typeof harness>[0],
+      runs: SyncRunKept[] = [],
+      own: { operationId?: string; runId?: string } = { operationId: OWN_RUN },
+    ): Promise<string> => {
+      const h = harness(options);
+      h.handler.setRunFiles('sync', { list: () => Promise.resolve(runs) });
+      const outcome = await h.handler.takeBeforeRun(beforeRun(), own);
+      expect(await h.store.list()).toEqual([]);
+      expect(h.trail()[0]).toMatchObject({ action: 'checkpoint_take', outcome: 'stopped' });
+      if (outcome.taken || !('refusal' in outcome)) throw new Error('not refused');
+      return `${outcome.refusal.code}: ${outcome.refusal.message}`;
+    };
+    const otherRun = 'wv-forge-execute-2';
+
+    expect(
+      await refusedBy({
+        writers: { writingTo: (orgId, except) => orgId === REGISTERED && except !== otherRun },
+      }),
+    ).toBe(
+      'RUN_WRITING: A SandForge run is writing to DEV-SB: start this run once it has ended. ' +
+        'No record was read.',
+    );
+    // A run file of another id this window writes.
+    expect(
+      await refusedBy(
+        { writers: { isRunning: (runId) => runId === 'sync-run-2' } },
+        [syncRun({ runId: 'sync-run-2' })],
+        { operationId: OWN_RUN, runId: 'sync-run-1' },
+      ),
+    ).toMatch(/^RUN_WRITING: /);
+    // Its own id, in a file another process alive writes.
+    expect(
+      await refusedBy(
+        { self: { pid: process.pid + 1, startedAt: new Date().toISOString() } },
+        [
+          syncRun({
+            writer: { pid: process.pid, hostStartedAt: new Date().toISOString() },
+            lastWriteAt: new Date().toISOString(),
+          } as never),
+        ],
+        { operationId: OWN_RUN, runId: 'sync-run-1' },
+      ),
+    ).toMatch(/^RUN_WRITING: /);
+
+    // A take of the org another process holds the lock of.
+    const h = harness();
+    const held = h.store.lock(ORG_ID, 'take');
+    if (!('lock' in held)) throw new Error('lock not taken');
+    try {
+      const outcome = await h.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN });
+      expect(outcome).toMatchObject({ taken: false, refusal: { code: 'RUN_WRITING' } });
+      expect(outcome.taken === false && 'refusal' in outcome && outcome.refusal.message).toContain(
+        'A checkpoint of DEV-SB is being taken',
+      );
+    } finally {
+      held.lock.release();
+    }
+  });
+
+  it('holds what a user without View All Data and Modify All Data is proven to hold, names the rest, and refuses one that would hold none of the objects the run writes, writing nothing', async () => {
+    const h = harness();
+    clock = LONG_AGO;
+    h.org.edit('UserPermissionAccess', '0Up000000000001AAA', { PermissionsModifyAllData: false });
+    h.org.add('PermissionSetAssignment', {
+      Id: '0Pa000000000001AAA',
+      AssigneeId: MEMORY_ORG_USER,
+      PermissionSetId: '0PS000000000001AAA',
+      PermissionSetGroupId: null,
+    });
+    h.org.add('ObjectPermissions', {
+      Id: '110000000000001AAA',
+      ParentId: '0PS000000000001AAA',
+      SobjectType: 'Account',
+      PermissionsViewAllRecords: true,
+      PermissionsModifyAllRecords: true,
+    });
+    // View All on the cases, not Modify All: they are seen, not put back whole.
+    h.org.add('ObjectPermissions', {
+      Id: '110000000000002AAA',
+      ParentId: '0PS000000000001AAA',
+      SobjectType: 'Case',
+      PermissionsViewAllRecords: true,
+      PermissionsModifyAllRecords: false,
+    });
+    clock = T0;
+    const noCase =
+      'Without View All Data and Modify All Data, an object is held only with View All and ' +
+      'Modify All on it, and the user SandForge connects as has View All on this one, not ' +
+      'Modify All: a rewind could not put back what others changed. A rewind leaves its ' +
+      'records as they are.';
+
+    const estimate = await h.handler.scopeBeforeRun(beforeRun(), { operationId: OWN_RUN });
+    expect(estimate).toMatchObject({
+      objects: ['Account'],
+      added: [],
+      notHeld: [{ objectApiName: 'Case', reason: noCase }],
+    });
+    expect(estimate.refusal).toBeUndefined();
+    const checkpoint = takenFirst(
+      await h.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN }),
+    );
+    expect(checkpoint.objects).toEqual(['Account']);
+    expect(checkpoint.notHeld).toEqual([
+      { objectApiName: 'Case', code: 'noModifyAll', reason: noCase },
+    ]);
+
+    // A run that writes only what the user cannot be proven to hold.
+    const cases = beforeRun({ written: ['Case'], running: { firing: [] } });
+    const refused = await h.handler.scopeBeforeRun(cases, { operationId: OWN_RUN });
+    expect(refused.refusal).toEqual({
+      code: 'NOTHING_HELD',
+      message:
+        'The checkpoint before the run would hold none of the objects the run writes, so a ' +
+        `rewind to it could take nothing of the run back. Case: ${noCase.replace(
+          ' A rewind leaves its records as they are.',
+          '',
+        )} No record was read.`,
+    });
+    expect(writesOf(h.org)).toMatchObject({ updates: 0, deletes: 0 });
+    expect(h.org.creates).toEqual([]);
+  });
+
+  it('is refused when the store’s disk has less free than its bytes and a tenth more, at the gate and again before the take reads anything', async () => {
+    const h = harness();
+    const estimate = await h.handler.scopeBeforeRun(beforeRun(), { operationId: OWN_RUN });
+    h.handler.setFreeBytes(async () => Math.ceil(estimate.estimate.bytes * 1.1) - 1);
+
+    const atGate = await h.handler.scopeBeforeRun(beforeRun(), { operationId: OWN_RUN });
+    expect(atGate.refusal?.code).toBe('DISK');
+
+    const sent = h.org.requests + h.org.soapCalls;
+    const outcome = await h.handler.takeBeforeRun(
+      beforeRun(),
+      { operationId: OWN_RUN },
+      { planned: estimate },
+    );
+    expect(outcome).toMatchObject({ taken: false, refusal: { code: 'DISK' } });
+    expect(h.org.requests + h.org.soapCalls).toBe(sent);
+    expect(await h.store.list()).toEqual([]);
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_take',
+      outcome: 'stopped',
+      details: { code: 'DISK' },
+    });
+
+    // With room for it, the same take goes through.
+    h.handler.setFreeBytes(async () => Math.ceil(estimate.estimate.bytes * 1.1));
+    takenFirst(
+      await h.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN }, { planned: estimate }),
+    );
+  });
+
+  it('is stopped by the run’s Stop, before the take and between two reads, keeping nothing and answering that it was stopped', async () => {
+    const h = harness();
+    const before = new AbortController();
+    before.abort();
+
+    expect(
+      await h.handler.takeBeforeRun(
+        beforeRun(),
+        { operationId: OWN_RUN },
+        { signal: before.signal },
+      ),
+    ).toEqual({ taken: false, stopped: true });
+    expect(h.org.requests + h.org.soapCalls).toBe(0);
+
+    const during = new AbortController();
+    const progress: number[] = [];
+    h.onQuery((soql) => {
+      if (/^SELECT Id, SystemModstamp, CreatedDate/.test(soql)) during.abort();
+    });
+    expect(
+      await h.handler.takeBeforeRun(
+        beforeRun(),
+        { operationId: OWN_RUN },
+        { signal: during.signal, onProgress: (p) => progress.push(p.percentage) },
+      ),
+    ).toEqual({ taken: false, stopped: true });
+    expect(progress.length).toBeGreaterThan(0);
+    expect(await h.store.list()).toEqual([]);
+    expect(h.trail()[0]).toMatchObject({ action: 'checkpoint_take', outcome: 'cancelled' });
+  });
+
+  it('refuses a production org with the checkpoint guard’s words, the registry’s or the org’s, before any record is read', async () => {
+    const byRegistry = harness({
+      org: new HandlerTestOrg({ sandbox: false, edition: 'Enterprise Edition' }),
+      registered: registered({ orgType: 'Production' }),
+    });
+    const asked: string[] = [];
+    byRegistry.onQuery((soql) => asked.push(soql));
+    expect(
+      (await byRegistry.handler.scopeBeforeRun(beforeRun(), { operationId: OWN_RUN })).refusal
+        ?.code,
+    ).toBe('PRODUCTION');
+
+    const byOrg = harness({
+      org: new HandlerTestOrg({ sandbox: false, edition: 'Enterprise Edition' }),
+    });
+    byOrg.onQuery((soql) => asked.push(soql));
+    const outcome = await byOrg.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN });
+    expect(outcome).toMatchObject({ taken: false, refusal: { code: 'PRODUCTION' } });
+    expect(asked.filter((soql) => /SELECT Id, SystemModstamp/.test(soql))).toEqual([]);
+    expect(await byOrg.store.list()).toEqual([]);
+  });
+
+  it('keeps the checkpoint of a run that wrote a record, and deletes that of a run that wrote none', async () => {
+    const h = harness();
+    const changed = vi.fn();
+    const first = takenFirst(await h.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN }));
+    clock += 60_000;
+    const second = takenFirst(
+      await h.handler.takeBeforeRun(beforeRun({ operationId: 'wv-forge-execute-2' }), {
+        operationId: 'wv-forge-execute-2',
+      }),
+    );
+    h.handler.onCheckpointsChanged(changed);
+
+    expect(await h.handler.settleBeforeRun(first, true)).toBe(first);
+    expect(await h.handler.settleBeforeRun(second, false)).toEqual({
+      state: 'deleted',
+      deleted: 'nothingWritten',
+    });
+
+    expect((await h.store.list()).map((entry) => entry.checkpointId)).toEqual([first.checkpointId]);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(h.logs).toContain(
+      "[INFO] Deleted checkpoint 'Before Forge run 2026-10-22 14:06 UTC', taken before a run " +
+        'that wrote nothing',
+    );
+  });
+
+  it('takes it after the run’s question and before its lease and first write, writing nothing and assigning nothing itself; refused, the run writes and assigns nothing', async () => {
+    /** A run as its host keeps the write path's order, the lease a permission set assignment. */
+    const run = async (
+      h: Harness,
+      own: { operationId: string },
+    ): Promise<{ steps: WritePathStep[]; answeredAt: number; outcome: BeforeRunTake }> => {
+      const steps: WritePathStep[] = ['reads', 'leasePlan', 'stillRunning'];
+      const planned = await h.handler.scopeBeforeRun(beforeRun(), own);
+      steps.push('question');
+      // The person answers a minute later.
+      clock += 60_000;
+      const answeredAt = clock;
+      const outcome = await h.handler.takeBeforeRun(beforeRun(), own, { planned });
+      if (!outcome.taken) return { steps: [...steps, 'result'], answeredAt, outcome };
+      steps.push('checkpointTake');
+      expect(h.org.creates).toEqual([]);
+      expect(writesOf(h.org)).toMatchObject({ updates: 0, deletes: 0 });
+      await h.org.create('PermissionSetAssignment', [
+        { AssigneeId: MEMORY_ORG_USER, PermissionSetId: '0PS000000000009AAA' },
+      ]);
+      steps.push('leaseAcquire', 'afterLeaseCheck');
+      await h.org.create('Account', [{ Name: 'Written by the run' }]);
+      steps.push('write', 'leaseRelease', 'result');
+      return { steps, answeredAt, outcome };
+    };
+
+    const h = harness();
+    const ran = await run(h, { operationId: OWN_RUN });
+    expect(writePathOrderDefects(ran.steps)).toEqual([]);
+    const checkpoint = takenFirst(ran.outcome);
+    const read = await h.store.read(checkpoint.checkpointId);
+    // T0 is read by the take, once the question is answered.
+    expect(Date.parse(read?.checkpoint?.readFrom ?? '')).toBeGreaterThanOrEqual(ran.answeredAt);
+
+    // Another run of the window writes to the org: nothing is assigned, nothing written.
+    const refused = harness({ writers: { writingTo: (orgId) => orgId === REGISTERED } });
+    const stopped = await run(refused, { operationId: OWN_RUN });
+    expect(stopped.outcome).toMatchObject({ taken: false, refusal: { code: 'RUN_WRITING' } });
+    expect(refused.org.creates).toEqual([]);
+    expect(writePathOrderDefects(stopped.steps)).toEqual([]);
   });
 });

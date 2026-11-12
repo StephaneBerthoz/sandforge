@@ -21,6 +21,7 @@ import {
   PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_ENTRY_PRODUCT_FIELD,
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
+  PRICEBOOK_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
   isRequiredLookup,
   isSettableField,
@@ -35,6 +36,7 @@ import {
 } from '../forge/GraphDiscoveryService.js';
 import { FORGE_QUERY_MAX_RECORDS, queryAllPages } from '../forge/queryAllPages.js';
 import { CURRENCY_FIELD, readRunCurrencies } from '../../core/common/recordCurrencies.js';
+import { readColumnsApart } from '../../core/common/wideRead.js';
 import { ACCOUNT, CONTACT } from '../../core/common/platformRecords.js';
 import { logger } from '../../logger.js';
 
@@ -146,7 +148,8 @@ export interface SchemaScanResult {
   /**
    * Of the objects that were not selected, the ids of the records the
    * selection references: a run reads those, by id, and no other record of
-   * the object.
+   * the object. On a plan fitted to the target's storage, the selected
+   * objects too, by the ids the fit kept.
    */
   parentIds: Map<ApiName, string[]>;
   /** What the plan copies and what it leaves out: see `AutopilotPlanScope`. */
@@ -223,13 +226,50 @@ const MAX_REQUIRED_ROUNDS = 10;
 const FOLLOWED_BY_DEFAULT: ReadonlySet<ApiName> = new Set([ACCOUNT]);
 
 /** The flag of an account, and of a contact, that tells a person account's. */
-const PERSON_ACCOUNT_FLAG = 'IsPersonAccount';
+export const PERSON_ACCOUNT_FLAG = 'IsPersonAccount';
+
+/** The flag of the price book every other price of a product stands on. */
+export const STANDARD_PRICEBOOK_FLAG = 'IsStandard';
 
 /** A lookup of a planned object to another, as the walk of the records follows it. */
-interface PlannedLookup {
+export interface PlannedLookup {
   field: string;
   targets: ApiName[];
   required: boolean;
+  /** The describe lets it point at several objects: its value tells which by its key prefix. */
+  polymorphic: boolean;
+}
+
+/**
+ * What a fit reads of a record of a selected object: its id, its lookups at
+ * the objects of the plan, and the flags that say what it weighs and whether
+ * it may be cut.
+ */
+export type FitRow = Record<string, unknown> & { readonly Id: string };
+
+/** A record read by id naming a record of a selected object, as a walk from kept rows met it. */
+export interface FitParentNaming {
+  /** The object read by id. */
+  objectApiName: ApiName;
+  field: string;
+  required: boolean;
+  /** The selected object the lookup names a record of, and the record. */
+  target: ApiName;
+  id: string;
+}
+
+/** What a walk from the records a fit kept reached: see {@link SchemaScanner.walkFrom}. */
+export interface FitWalk {
+  /** The objects read by id it reached, in the order it reached them. */
+  added: ApiName[];
+  /** Of each, the ids of the records the kept rows reference. */
+  parentIds: Map<ApiName, string[]>;
+  /** Of the accounts and contacts read by id, how many are person accounts or their contacts. */
+  personAccounts: Map<ApiName, number>;
+  /** Lookups left empty, and why, as a scan says them. */
+  leftEmpty: AutopilotLookupLeftEmpty[];
+  /** The lookups of the records read by id that name a record of a selected object. */
+  namingSelected: FitParentNaming[];
 }
 
 /**
@@ -467,6 +507,109 @@ export class SchemaScanner {
   }
 
   /**
+   * What a fit needs of each selected object to choose its records: every
+   * row a run would copy, to the same bound and in the same order of the
+   * ids, with its lookups at the objects of the plan — those between selected
+   * objects a scan never reads — and `IsPersonAccount` where the source
+   * describes it, which sizes it exactly. A price book says which is the
+   * standard one, which a run matches in the target and every price stands
+   * on. A table too wide to name its lookups in one query is read by groups
+   * of columns.
+   *
+   * ⌈rows / 2 000⌉ requests an object, asked only of a person who asked for a
+   * fit. A read refused stops the fit: a fit of what could not be read would
+   * cut records no one chose.
+   */
+  async readFitRows(
+    conn: AutopilotConnection,
+    scan: Pick<SchemaScanResult, 'objectDescribes' | 'scope'>,
+    say: (line: string) => void = () => {},
+  ): Promise<Map<ApiName, FitRow[]>> {
+    const inPlan = new Set(scan.objectDescribes.keys());
+    const rows = new Map<ApiName, FitRow[]>();
+    for (const name of scan.scope.selected) {
+      const describe = scan.objectDescribes.get(name);
+      if (!describe) continue;
+      say(`reading the lookups of ${name} to fit it…`);
+      const has = new Set(describe.fields.map((field) => field.name));
+      const lookups = lookupsOf(name, describe).filter((lookup) =>
+        lookup.targets.some((target) => inPlan.has(target)),
+      );
+      const fields = [
+        'Id',
+        ...new Set(lookups.map((lookup) => lookup.field)),
+        ...((name === ACCOUNT || name === CONTACT) && has.has(PERSON_ACCOUNT_FLAG)
+          ? [PERSON_ACCOUNT_FLAG]
+          : []),
+        ...(name === PRICEBOOK_OBJECT && has.has(STANDARD_PRICEBOOK_FLAG)
+          ? [STANDARD_PRICEBOOK_FLAG]
+          : []),
+      ];
+      const read = await readColumnsApart(
+        `SELECT ${fields.map(assertSoqlIdentifier).join(', ')} ` +
+          `FROM ${assertSoqlIdentifier(name)} ORDER BY Id`,
+        async (statement) => (await this.readAll(conn, statement)).records,
+      );
+      rows.set(
+        name,
+        read.filter((row): row is FitRow => typeof row['Id'] === 'string'),
+      );
+    }
+    return rows;
+  }
+
+  /**
+   * The walk of a scan, from the rows a fit kept: the records they reference,
+   * read by id, as far as the plan's bounds go. Only objects the plan holds
+   * are reached, and described by nothing more: a fit takes records away, and
+   * a walk that started from fewer rows must not take in, past a bound the
+   * first one stopped at, an object no one was told of.
+   *
+   * What the first walk took for granted is said here: "a selected object is
+   * copied whole, its records are there already" no longer holds of a fitted
+   * one. So a record read by id that names a selected record is listed in
+   * `namingSelected`, for the fit to keep the one a required lookup needs and
+   * name the one an optional lookup leaves empty.
+   *
+   * @param rows - Of each selected object, the rows kept ({@link readFitRows}).
+   */
+  async walkFrom(
+    conn: AutopilotConnection,
+    scan: Pick<SchemaScanResult, 'objectDescribes' | 'scope'>,
+    rows: ReadonlyMap<ApiName, readonly FitRow[]>,
+    say: (line: string) => void = () => {},
+  ): Promise<FitWalk> {
+    const describes = new Map(scan.objectDescribes);
+    const inPlan = new Set(describes.keys());
+    const keyPrefixes = new Map<string, ApiName>();
+    for (const [name, describe] of describes) {
+      if (describe.keyPrefix) keyPrefixes.set(describe.keyPrefix, name);
+    }
+    const walk = await this.walkRecords(
+      conn,
+      describes,
+      new Set(scan.scope.selected),
+      {
+        isStandard: () => false,
+        includeStandardObjects: true,
+        leftOut: (name) => !inPlan.has(name),
+        keyPrefixes,
+        maxDepth: scan.scope.maxDepth,
+        maxObjects: inPlan.size,
+        say,
+      },
+      rows,
+    );
+    return {
+      added: walk.added,
+      parentIds: walk.parentIds,
+      personAccounts: walk.personAccounts,
+      leftEmpty: walk.leftEmpty,
+      namingSelected: walk.namingSelected,
+    };
+  }
+
+  /**
    * Of the accounts and the contacts the plan copies, how many are person
    * accounts or their contacts: of a selected object, its table's, one
    * `COUNT()` — of one cut to its first records by Id, those up to the last
@@ -608,6 +751,9 @@ export class SchemaScanner {
    * why: the run leaves it empty. One that holds none takes nothing into the
    * plan, so a polymorphic lookup's hundred possible objects cost nothing
    * unless a record names one of them.
+   *
+   * @param given - The rows to start from, a fit's ({@link walkFrom}), in
+   *   place of a read of the selected objects: nothing of them is read.
    */
   private async walkRecords(
     conn: AutopilotConnection,
@@ -622,6 +768,7 @@ export class SchemaScanner {
       maxObjects: number;
       say: (line: string) => void;
     },
+    given?: ReadonlyMap<ApiName, readonly FitRow[]>,
   ): Promise<{
     added: ApiName[];
     leftEmpty: AutopilotLookupLeftEmpty[];
@@ -632,6 +779,10 @@ export class SchemaScanner {
     cutAt: Map<ApiName, string>;
     recordCounts: Map<ApiName, number>;
     parentIds: Map<ApiName, string[]>;
+    /** From `given` only: the person accounts among the accounts and contacts read by id. */
+    personAccounts: Map<ApiName, number>;
+    /** From `given` only: the records read by id that name a selected one. */
+    namingSelected: FitParentNaming[];
   }> {
     const planned = new Set<ApiName>(selected);
     const unreadable = new Set<ApiName>();
@@ -646,6 +797,8 @@ export class SchemaScanner {
     const recordCounts = new Map<ApiName, number>();
     /** Of each object read by id, the ids of the records read. */
     const read = new Map<ApiName, Set<string>>();
+    const personAccounts = new Map<ApiName, number>();
+    const namingSelected: FitParentNaming[] = [];
     /** The lookups of an object a copy writes, to objects a copy may write. */
     const lookups = (name: ApiName): PlannedLookup[] => {
       const describe = describes.get(name);
@@ -657,9 +810,21 @@ export class SchemaScanner {
         }))
         .filter((lookup) => lookup.targets.length > 0);
     };
-    /** The fields a read of an object asks for: its id and its lookups. */
+    /**
+     * The fields a read of an object asks for: its id and its lookups, and
+     * for a fit, which counts the bytes of what it reads with no count of its
+     * own, what tells a person account's.
+     */
     const fieldsOf = (name: ApiName): string =>
-      ['Id', ...new Set(lookups(name).map((lookup) => lookup.field))]
+      [
+        'Id',
+        ...new Set(lookups(name).map((lookup) => lookup.field)),
+        ...(given &&
+        (name === ACCOUNT || name === CONTACT) &&
+        describes.get(name)?.fields.some((field) => field.name === PERSON_ACCOUNT_FLAG)
+          ? [PERSON_ACCOUNT_FLAG]
+          : []),
+      ]
         .map(assertSoqlIdentifier)
         .join(', ');
     const noteLeftEmpty = (
@@ -686,15 +851,39 @@ export class SchemaScanner {
     };
     let met = new Map<ApiName, Met>();
     /** Note the parents the rows of `objectApiName` name, as far as their level allows. */
-    const meet = (objectApiName: ApiName, rows: Record<string, unknown>[], level: number): void => {
+    const meet = (
+      objectApiName: ApiName,
+      rows: readonly Record<string, unknown>[],
+      level: number,
+    ): void => {
       const own = lookups(objectApiName);
       for (const row of rows) {
         for (const lookup of own) {
           const value = row[lookup.field];
           if (typeof value !== 'string' || value === '') continue;
-          const target = ownerOf(value, lookup.targets, bounds.keyPrefixes);
-          // A selected object is copied whole: its records are there already.
-          if (!target || selected.has(target)) continue;
+          // A walk of a fit knows the key prefixes of the plan's objects
+          // alone: a lookup that may point at others says by its value.
+          const target = ownerOf(
+            value,
+            lookup.targets,
+            bounds.keyPrefixes,
+            given !== undefined && lookup.polymorphic,
+          );
+          if (!target) continue;
+          if (selected.has(target)) {
+            // A selected object is copied whole, its records there already;
+            // of a fitted one, the fit says what becomes of this record.
+            if (given && level > 0) {
+              namingSelected.push({
+                objectApiName,
+                field: lookup.field,
+                required: lookup.required,
+                target,
+                id: value,
+              });
+            }
+            continue;
+          }
           const via = { objectApiName, field: lookup.field, required: lookup.required };
           if (level >= bounds.maxDepth && !lookup.required) {
             if (!planned.has(target)) noteLeftEmpty(via, target, 'depth');
@@ -718,6 +907,10 @@ export class SchemaScanner {
     // object that was not selected, counted otherwise.
     const counted: ApiName[] = [];
     for (const name of selected) {
+      if (given) {
+        meet(name, given.get(name) ?? [], 0);
+        continue;
+      }
       const onward = lookups(name).filter((lookup) =>
         lookup.targets.some((target) => !selected.has(target)),
       );
@@ -813,10 +1006,14 @@ export class SchemaScanner {
         }
       }
       if (fresh.length > 0) {
-        bounds.say(`describing ${fresh.length} parent object(s) at depth ${level}…`);
-        const described = await this.describeAll(conn, fresh);
+        // A walk of a fit holds them already, from the scan it fits.
+        const unknown = fresh.filter((name) => !describes.has(name));
+        if (unknown.length > 0) {
+          bounds.say(`describing ${unknown.length} parent object(s) at depth ${level}…`);
+        }
+        const described = await this.describeAll(conn, unknown);
         for (const name of fresh) {
-          const describe = described.get(name);
+          const describe = describes.get(name) ?? described.get(name);
           if (describe) {
             describes.set(name, describe);
             added.push(name);
@@ -847,6 +1044,10 @@ export class SchemaScanner {
           const rows = answer.records.filter((row) => typeof row['Id'] === 'string');
           for (const row of rows) kept.add(row['Id'] as string);
           readNow.push(...rows);
+          const persons = rows.filter((row) => row[PERSON_ACCOUNT_FLAG] === true).length;
+          if (given && persons > 0) {
+            personAccounts.set(name, (personAccounts.get(name) ?? 0) + persons);
+          }
           meet(name, rows, level);
         }
         // A custom price is refused for a product the target holds no
@@ -890,6 +1091,8 @@ export class SchemaScanner {
       cutAt,
       recordCounts,
       parentIds,
+      personAccounts,
+      namingSelected,
     };
   }
 
@@ -1083,26 +1286,34 @@ function wholeOr(value: number | undefined, fallback: number): number {
  * sets — a converted lead's account — is the platform's to fill, and leads
  * nowhere.
  */
-function lookupsOf(objectApiName: ApiName, describe: ObjectDescribeResult): PlannedLookup[] {
+export function lookupsOf(
+  objectApiName: ApiName,
+  describe: Pick<ObjectDescribeResult, 'fields'>,
+): PlannedLookup[] {
   return describe.fields
     .filter((f) => f.referenceTo.length > 0 && isSettableField(f))
     .map((f) => ({
       field: f.name,
       targets: [...f.referenceTo],
       required: isRequiredLookup(objectApiName, f.name, f.nillable),
+      polymorphic: f.referenceTo.length > 1,
     }));
 }
 
 /**
  * The object an id a lookup holds belongs to: the lookup's one target, or the
  * one whose key prefix the id begins with.
+ *
+ * @param byPrefix - Read the prefix even of one target: the others of a
+ *   lookup that may point at several were left out of `targets`.
  */
 function ownerOf(
   id: string,
   targets: readonly ApiName[],
   keyPrefixes: ReadonlyMap<string, ApiName>,
+  byPrefix = false,
 ): ApiName | undefined {
-  if (targets.length === 1) return targets[0];
+  if (targets.length === 1 && !byPrefix) return targets[0];
   const owner = keyPrefixes.get(id.slice(0, 3));
   return owner !== undefined && targets.includes(owner) ? owner : undefined;
 }

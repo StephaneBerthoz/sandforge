@@ -2407,13 +2407,21 @@ function firedNotes(fired: ForgeAutomationFired, write: ForgeRunWrite): string[]
  * read could not read or left unread, and what it cost.
  *
  * @param target - The alias of the target, as the command names it.
- * @param options - Whether the run applies the target's assignment rules, and
- *   the user the run writes as, whom a bypass's command assigns it to.
+ * @param options - Whether the run applies the target's assignment rules,
+ *   the user the run writes as, whom a bypass's command assigns it to, and
+ *   whether the command's reader can mute (`--mute-automation`) and apply
+ *   the rules (`--apply-assignment-rules`): relayed by an environment, which
+ *   takes neither, the lines named both flags.
  */
 export function automationLines(
   automation: ForgeTargetAutomation,
   target: string,
-  options: { applyAssignmentRules?: boolean; username?: string } = {},
+  options: {
+    applyAssignmentRules?: boolean;
+    username?: string;
+    mayMute?: boolean;
+    mayApplyAssignmentRules?: boolean;
+  } = {},
 ): string[] {
   const lines = [
     `target automation: what ${target} runs on the ${automation.objectsRead.length} object(s) the run writes`,
@@ -2426,11 +2434,12 @@ export function automationLines(
       );
       lines.push(`    ${WRITE_WORDS[write]}: ${entries.join(', ')}`);
     }
+    const flag = options.mayApplyAssignmentRules !== false;
     for (const rule of object.assignmentRules ?? []) {
       lines.push(
         options.applyAssignmentRules
-          ? `    assignment rule "${rule.name}": applied (--apply-assignment-rules): it can give the records it routes another owner, and mail that owner`
-          : `    assignment rule "${rule.name}": not applied: the run sends Sforce-Auto-Assign: FALSE and keeps the owner it sets (--apply-assignment-rules applies it)`,
+          ? `    assignment rule "${rule.name}": applied${flag ? ' (--apply-assignment-rules)' : ''}: it can give the records it routes another owner, and mail that owner`
+          : `    assignment rule "${rule.name}": not applied: the run sends Sforce-Auto-Assign: FALSE and keeps the owner it sets${flag ? ' (--apply-assignment-rules applies it)' : ''}`,
       );
     }
     const duplicates = object.duplicateRules ?? [];
@@ -2453,8 +2462,10 @@ export function automationLines(
   if (toAssign.length > 0) {
     lines.push(
       `  bypass: assign ${toAssign.join(', ')} to the user the run writes as, and the flows ` +
-        'whose start condition excludes them stay quiet; --mute-automation assigns them for ' +
-        'the run alone, and takes them back as it ends',
+        'whose start condition excludes them stay quiet' +
+        (options.mayMute !== false
+          ? '; --mute-automation assigns them for the run alone, and takes them back as it ends'
+          : ''),
     );
     // What would assign each, as the read found it: shown, never run.
     for (const { permission, permissionSet, others } of bypassAssignmentsOf(automation, toAssign)) {

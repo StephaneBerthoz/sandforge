@@ -25,6 +25,15 @@ const PAST_EMAILS: SyncWriteCheck = {
 };
 
 describe('SyncWriteCheckCard', () => {
+  it('says why a run would be refused for a checkpoint whose scope could not be read', () => {
+    const why = 'The checkpoint before the run could not be taken: the org would not say.';
+    render(
+      <SyncWriteCheckCard check={{ ...PAST_EMAILS, verdict: 'refused', checkpointUnread: why }} />,
+    );
+    expect(screen.getByTestId('sync-write-check-checkpoint-unread').textContent).toBe(why);
+    expect(screen.getByTestId('sync-write-check-verdict').className).toContain('text-status-error');
+  });
+
   it('says what a run would meet before its first write, and that it asks first', () => {
     render(<SyncWriteCheckCard check={PAST_EMAILS} />);
 
@@ -83,6 +92,33 @@ describe('SyncWriteCheckCard', () => {
     );
   });
 
+  it('says the contact roles the platform may write with the opportunities, which the run links and sends not', () => {
+    // On a scratch org the gate counted the role, and the run linked it.
+    const { unmount } = render(
+      <SyncWriteCheckCard check={{ ...PAST_EMAILS, rolesByThePlatform: 1 }} />,
+    );
+
+    expect(screen.getByTestId('sync-write-check-platform-roles').textContent).toBe(
+      'Of them, 1 may be a contact role the platform writes itself with an opportunity the run ' +
+        'creates, for its contact: the run links it and does not send it.',
+    );
+    unmount();
+    render(<SyncWriteCheckCard check={PAST_EMAILS} />);
+    expect(screen.queryByTestId('sync-write-check-platform-roles')).toBeNull();
+  });
+
+  it('says apart from the records to write the contact roles the run links to the platform’s', () => {
+    // On a scratch org the page counted the role among the records to write,
+    // and the run linked it.
+    render(<SyncWriteCheckCard check={{ ...PAST_EMAILS, rolesLinked: 1 }} />);
+
+    expect(screen.getByTestId('sync-write-check-roles-linked').textContent).toBe(
+      'Not counted: 1 contact role the platform writes itself with an opportunity the run ' +
+        'creates, for its contact: the run links it and does not send it.',
+    );
+    expect(screen.queryByTestId('sync-write-check-platform-roles')).toBeNull();
+  });
+
   it('names each object the target would take none of, and that the run asks whether to leave it out', () => {
     // Nothing said it: the run wrote the objects before, then had every
     // record of these refused.
@@ -108,6 +144,164 @@ describe('SyncWriteCheckCard', () => {
     );
     expect(screen.getByTestId('sync-write-check').textContent).toContain(
       'Started from the page, the run asks whether to leave these objects out and writes the rest',
+    );
+  });
+
+  it('counts what a simulation found the run would write, and says what of the count it would not', () => {
+    render(<SyncWriteCheckCard check={{ ...PAST_EMAILS, total: 4, notWritten: 3 }} />);
+
+    expect(screen.getByTestId('sync-write-check-records').textContent).toContain(
+      '1 record to write',
+    );
+    expect(screen.getByTestId('sync-write-check-not-written').textContent).toBe(
+      'Of the 4 a run counts from the source, 3 would not be written: held back or refused, as each object says. What follows is measured on all of them.',
+    );
+  });
+
+  it('says of a simulation that would write none of what it counts that it has nothing to write, and what it counted', () => {
+    // 34 prices whose product and book name nothing the target holds.
+    render(
+      <SyncWriteCheckCard
+        check={{
+          ...PAST_EMAILS,
+          objects: [{ objectApiName: 'PricebookEntry', rows: 34 }],
+          total: 0,
+          notWritten: 34,
+          emails: [],
+          verdict: 'nothing',
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-write-check-records').textContent).toBe(
+      '0 records to write (PricebookEntry 34)',
+    );
+    expect(screen.getByTestId('sync-write-check-not-written').textContent).toBe(
+      'Of the 34 a run counts from the source, 34 would not be written: held back or refused, as each object says. What follows is measured on all of them.',
+    );
+    expect(screen.getByTestId('sync-write-check-storage')).toBeTruthy();
+    expect(screen.getByTestId('sync-write-check-verdict').textContent).toBe(
+      'The run would write none of the records it counts: each is held back or refused, as its object says.',
+    );
+  });
+
+  it('says what of the count it would not write under the count, above the figures measured on all of it', () => {
+    // Said below the storage, the API requests and the emails, "what follows"
+    // spoke of the lines above it, read as measured on the records written.
+    render(<SyncWriteCheckCard check={{ ...PAST_EMAILS, total: 4, notWritten: 3 }} />);
+
+    const notWritten = screen.getByTestId('sync-write-check-not-written');
+    expect(screen.getByTestId('sync-write-check-records').nextElementSibling).toBe(notWritten);
+    for (const figure of ['sync-write-check-storage', 'sync-write-check-emails-SingleEmail']) {
+      expect(
+        notWritten.compareDocumentPosition(screen.getByTestId(figure)) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  });
+
+  it('names the field of an upsert the target matches none on', () => {
+    render(
+      <SyncWriteCheckCard
+        check={{
+          ...PAST_EMAILS,
+          unwritable: [{ objectApiName: 'Account', rows: 2, why: 'notAKey', key: 'Name' }],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-write-check-unwritable-Account').textContent).toContain(
+      'its upsert matches on Name, neither an External ID nor an idLookup field',
+    );
+  });
+
+  it('says the contacts an account left out holds back, and the cases under them, none of them to write', async () => {
+    // Counted under each filter alone, they were said to be written: "4
+    // records to write" of a run that would write none.
+    const check: SyncWriteCheck = {
+      ...PAST_EMAILS,
+      objects: [],
+      total: 0,
+      alreadyCopied: 0,
+      emails: [],
+      verdict: 'refused',
+      unwritable: [{ objectApiName: 'Account', rows: 2, why: 'notAKey', key: 'Name' }],
+      heldBack: [
+        { objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' },
+        { objectApiName: 'Case', rows: 1, parent: 'Contact', field: 'ContactId' },
+      ],
+    };
+    const { unmount } = render(<SyncWriteCheckCard check={check} />);
+
+    expect(screen.getByTestId('sync-write-check-records').textContent).toBe('0 records to write');
+    expect(screen.getByTestId('sync-write-check-held-back-Contact').textContent).toBe(
+      'Contact (4 records): held back, not written — their AccountId names Account records ' +
+        'left out, and written without them, they would stand without their Account.',
+    );
+    expect(screen.getByTestId('sync-write-check-held-back-Case').textContent).toBe(
+      'Case (1 record): held back, not written — its ContactId names a Contact record held back.',
+    );
+    unmount();
+
+    // In the page's language.
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      render(<SyncWriteCheckCard check={check} />);
+      expect(screen.getByTestId('sync-write-check-held-back-Contact').textContent).toBe(
+        fr.sync.writeCheck.heldBack.leftOut_other
+          .replace('{{object}}', 'Contact')
+          .replace('{{count}}', '4')
+          .replace('{{field}}', 'AccountId')
+          .split('{{parent}}')
+          .join('Account'),
+      );
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
+  });
+
+  it('says each lookup that holds back rows of an object, with its rows', () => {
+    // Named by their first row alone, 13 prices were said held back by
+    // Pricebook2Id where the dry run held 9 back by Product2Id.
+    render(
+      <SyncWriteCheckCard
+        check={{
+          ...PAST_EMAILS,
+          objects: [],
+          total: 0,
+          alreadyCopied: 0,
+          emails: [],
+          verdict: 'refused',
+          unwritable: [
+            { objectApiName: 'Product2', rows: 3, why: 'notAKey', key: 'Description' },
+            { objectApiName: 'Pricebook2', rows: 1, why: 'notAKey', key: 'Description' },
+          ],
+          heldBack: [
+            {
+              objectApiName: 'PricebookEntry',
+              rows: 13,
+              parent: 'Pricebook2',
+              field: 'Pricebook2Id',
+              parents: [
+                { parent: 'Pricebook2', field: 'Pricebook2Id', rows: 4 },
+                { parent: 'Product2', field: 'Product2Id', rows: 9 },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-write-check-held-back-PricebookEntry').textContent).toBe(
+      'PricebookEntry (4 records): held back, not written — their Pricebook2Id names ' +
+        'Pricebook2 records left out, and written without them, they would stand without ' +
+        'their Pricebook2. PricebookEntry (9 records): held back, not written — their ' +
+        'Product2Id names Product2 records left out, and written without them, they would ' +
+        'stand without their Product2.',
     );
   });
 
@@ -187,6 +381,25 @@ describe('SyncAlreadyCopiedLine', () => {
     rerender(<SyncAlreadyCopiedLine count={1} simulated testId="copied" />);
     expect(screen.getByTestId('copied').textContent).toBe(
       '1 already copied by an earlier run of this configuration, left as it is.',
+    );
+  });
+
+  it('says linked, not copied, what an earlier run linked to records the target held', () => {
+    // A second run said "already copied" of an account the first had linked
+    // to one the target held: no run copied it.
+    const { rerender } = render(<SyncAlreadyCopiedLine count={1} linked testId="linked" />);
+    expect(screen.getByTestId('linked').textContent).toBe(
+      '1 record already linked by an earlier run of this configuration to a record the target held, left as it was.',
+    );
+
+    rerender(<SyncAlreadyCopiedLine count={2} simulated linked testId="linked" />);
+    expect(screen.getByTestId('linked').textContent).toBe(
+      '2 already linked by an earlier run of this configuration to records the target holds, left as they are.',
+    );
+
+    render(<SyncWriteCheckCard check={{ ...PAST_EMAILS, alreadyLinked: 3 }} />);
+    expect(screen.getByTestId('sync-write-check-linked').textContent).toBe(
+      'Not counted: 3 records an earlier run of this configuration linked to records the target held, left as they are.',
     );
   });
 });

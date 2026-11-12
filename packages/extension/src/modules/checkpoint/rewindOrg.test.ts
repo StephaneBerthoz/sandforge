@@ -51,7 +51,7 @@ import {
   type Taken,
 } from '../../test/rewindTestOrg.js';
 import { removeRunRecords } from '../forge/ForgeRunRemoval.js';
-import { rewindDirOf } from './OrgCheckpointStore.js';
+import { latestRewindOf, rewindDirOf } from './OrgCheckpointStore.js';
 import { previewCheckpoint } from './previewCheckpoint.js';
 import { readRewindJournal } from './rewindJournal.js';
 import {
@@ -65,6 +65,7 @@ import {
   splitAllowanceOf,
   type RewindOutcome,
 } from './rewindOrg.js';
+import { undoCheckpoint } from './undoCheckpoint.js';
 import { KEPT_IN_BIN_WORDS } from './undoRewind.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
@@ -931,6 +932,176 @@ describe('rewindOrg: what it refuses before it writes', () => {
     expect(resultOf(fits).status).toBe('success');
   });
 
+  it('counts against the day’s emails what a flow on an order’s update sends as the rewind sets the orders activated since back to Draft before deleting them, as its preview counts them', async () => {
+    const t = await taken(
+      (org) => {
+        baseRecords(org);
+        org.add('OrderStatus', { Id: 'status-1', ApiName: 'Draft', StatusCode: 'Draft' });
+        org.add('OrderStatus', { Id: 'status-2', ApiName: 'Activated', StatusCode: 'Activated' });
+      },
+      new RewindTestOrg(),
+      [...PICKED, 'Order'],
+    );
+    clock.now = SINCE;
+    for (const n of [1, 2, 3]) {
+      t.org.add('Order', { Id: order(n), Status: 'Activated', LastModifiedById: COLLEAGUE });
+    }
+    const before = stateOf(t.org);
+    // A flow that emails an order's owner as it is updated: setting each
+    // order back to Draft, the one way the org deletes it, sends one.
+    const sending = automationOf({
+      objects: [
+        {
+          objectApiName: 'Order',
+          flows: [
+            {
+              apiName: 'Order_touched',
+              label: 'Order touched',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 2 } };
+    clock.now = PREVIEWED;
+    const preview = await previewCheckpoint(
+      { org: t.org, store: t.store, readAutomation: sending },
+      request(t),
+    );
+    if (!preview.previewed) throw new Error(preview.refusal.message);
+    expect(preview.emails?.find((each) => each.limit === 'SingleEmail')).toMatchObject({
+      emails: 3,
+      objects: [{ objectApiName: 'Order', write: 'update', records: 3, perRecord: 1 }],
+      verdict: 'exceeds',
+    });
+    expect(preview.refusal?.code).toBe('EMAILS');
+
+    const outcome = await rewound(t, preview.diff.previewId, {
+      deps: { readAutomation: sending },
+      request: { acceptAutomation: true },
+    });
+
+    expect(outcome).toMatchObject({
+      rewound: false,
+      refusal: {
+        code: 'EMAILS',
+        message: expect.stringMatching(
+          /^This rewind would make DEV-ED send about 3 single emails, 2 of 15 left today: /,
+        ) as unknown,
+      },
+    });
+    untouched(t, before);
+
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 15 } };
+    const fits = resultOf(
+      await rewound(t, preview.diff.previewId, {
+        deps: { readAutomation: sending },
+        request: { acceptAutomation: true },
+      }),
+    );
+    expect(fits.status).toBe('success');
+    expect(t.org.updates.flatMap(({ records }) => records)).toEqual(
+      [1, 2, 3].map((n) => ({ Id: order(n), Status: 'Draft' })),
+    );
+    expect(liveIds(t.org, 'Order')).toEqual([]);
+  });
+
+  it('asks for and counts, as an undo sends back to the bin an order its rewind brought back activated, the one update that sets it back to Draft first: its give-back, before its removal finds it past Draft', async () => {
+    const t = await taken(
+      (org) => {
+        baseRecords(org);
+        org.add('OrderStatus', { Id: 'status-1', ApiName: 'Draft', StatusCode: 'Draft' });
+        org.add('OrderStatus', { Id: 'status-2', ApiName: 'Activated', StatusCode: 'Activated' });
+        org.add('Order', { Id: order(1), Status: 'Activated', Description: 'Signed' });
+      },
+      new RewindTestOrg(),
+      [...PICKED, 'Order'],
+    );
+    // Activated at the checkpoint, set back to Draft since, the one way the
+    // org deletes an order, then deleted: the rewind brings it back and gives
+    // it back its status.
+    clock.now = SINCE;
+    t.org.edit('Order', order(1), { Status: 'Draft' }, COLLEAGUE);
+    t.org.trash('Order', order(1), COLLEAGUE);
+    const rewind = resultOf(await rewound(t, (await previewed(t)).previewId));
+    expect(t.org.all('Order').map(({ Id, Status }) => ({ Id, Status }))).toEqual([
+      { Id: order(1), Status: 'Activated' },
+    ]);
+    const sending = automationOf({
+      objects: [
+        {
+          objectApiName: 'Order',
+          flows: [
+            {
+              apiName: 'Order_touched',
+              label: 'Order touched',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+    const undo = async (asked: { acceptAutomation: boolean }) => {
+      const read = await t.store.read(t.checkpoint.checkpointId);
+      if (!read?.checkpoint) throw new Error('the checkpoint is gone');
+      clock.now += 60_000;
+      t.org.ticking = true;
+      try {
+        return await undoCheckpoint(
+          {
+            org: t.org,
+            undelete: (ids) => t.org.undelete(ids),
+            store: t.store,
+            readAutomation: sending,
+          },
+          { ...request(t), checkpoint: read.checkpoint, rewindId: rewind.rewindId, ...asked },
+        );
+      } finally {
+        t.org.ticking = false;
+      }
+    };
+    const updatesBefore = t.org.updates.length;
+
+    // The flow on an order's update fires as the undo gives the order back
+    // its status from before the rewind: asked for, then counted.
+    expect(await undo({ acceptAutomation: false })).toMatchObject({
+      undone: false,
+      refusal: { code: 'AUTOMATION' },
+    });
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 0 } };
+    expect(await undo({ acceptAutomation: true })).toMatchObject({
+      undone: false,
+      refusal: {
+        code: 'EMAILS',
+        message: expect.stringMatching(
+          /^This undo would make DEV-ED send about 1 single email/,
+        ) as unknown,
+      },
+    });
+    expect(t.org.updates).toHaveLength(updatesBefore);
+
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 15 } };
+    const outcome = await undo({ acceptAutomation: true });
+    expect(outcome).toMatchObject({ undone: true, result: { status: 'success' } });
+    // One update only: the give-back sets it back to Draft, and the removal
+    // that follows finds no order past Draft to set back again.
+    expect(t.org.updates.slice(updatesBefore).flatMap(({ records }) => records)).toEqual([
+      { Id: order(1), Status: 'Draft' },
+    ]);
+    expect(t.org.inBin('Order').map(({ Id }) => Id)).toEqual([order(1)]);
+  });
+
   it('refuses a rewind that would take more requests than the org has left today', async () => {
     const t = await taken();
     changedSince(t.org);
@@ -1629,6 +1800,191 @@ describe('rewindOrg: stopped, and taken up again', () => {
     const undo = await undone(t, second.rewindId);
     expect(undo.status).toBe('success');
     expect(t.org.all('Account').find((row) => row.Id === account(1))?.Name).toBe('Renamed again');
+  });
+
+  /**
+   * A rewind that went through, then a colleague's account deleted and
+   * emptied from the bin: Salesforce still lists it deleted, so the next
+   * rewind's preview counts it to bring back, and the org answers its
+   * undelete that it is not in the recycle bin, as it did live.
+   */
+  async function rewoundThenEmptied(): Promise<{ t: Taken; first: RewindResult }> {
+    const t = await taken();
+    changedSince(t.org);
+    const first = resultOf(await rewound(t, (await previewed(t)).previewId));
+    expect(first.status).toBe('success');
+    expect(first.undo).toBeDefined();
+    clock.now += 60_000;
+    t.org.trash('Account', account(3), COLLEAGUE);
+    t.org.empty(account(3));
+    return { t, first };
+  }
+
+  it('through with nothing written, the org refusing its every write, deletes no journal: the rewind before it stays the one its list offers to undo, and its Undo goes through', async () => {
+    const { t, first } = await rewoundThenEmptied();
+
+    const second = resultOf(await rewound(t, (await previewed(t)).previewId));
+
+    expect(second.status).toBe('failure');
+    expect(second.residual).toEqual([
+      { objectApiName: 'Account', reason: 'notInBin', count: 1, ids: [account(3)] },
+    ]);
+    expect(t.org.creates).toEqual([]);
+    expect(second.undo).toBeUndefined();
+    expect(second.removedJournals).toBeUndefined();
+    // Its own journal holds no value it wrote over: it goes, the first's stays.
+    expect(readdirSync(t.folder.rewindsDir)).toEqual([first.rewindId]);
+    expect(latestRewindOf(await t.store.checkpointsOf(ORG_ID))).toEqual({
+      checkpointId: t.checkpoint.checkpointId,
+      rewindId: first.rewindId,
+    });
+    expect((await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind).toEqual({
+      rewindId: first.rewindId,
+      endedAt: expect.any(String),
+      undoUntil: first.undo?.until,
+    });
+    const [entry] = await t.store.list({ now: new Date(clock.now) });
+    expect(entry?.undo).toEqual({ rewindId: first.rewindId, until: first.undo?.until });
+
+    const undo = await undone(t, first.rewindId);
+
+    expect(undo.status).toBe('success');
+    // The colleague's work is back, but for the account they deleted since.
+    expect(t.org.all('Account').find((row) => row.Id === account(1))?.Name).toBe('Renamed');
+    expect(liveIds(t.org, 'Account')).toEqual([account(1), account(4), account(5)]);
+  });
+
+  it('with nothing to write, opens no journal and leaves the checkpoint’s last rewind as it was', async () => {
+    const t = await taken();
+    changedSince(t.org);
+    const first = resultOf(await rewound(t, (await previewed(t)).previewId));
+    const kept = (await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind;
+    clock.now += 60_000;
+
+    const second = resultOf(await rewound(t, (await previewed(t)).previewId));
+
+    expect(second.status).toBe('success');
+    expect(second.removedJournals).toBeUndefined();
+    expect(readdirSync(t.folder.rewindsDir)).toEqual([first.rewindId]);
+    expect((await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind).toEqual(kept);
+  });
+
+  it('through with a part written, still deletes the journal of the rewind before it, and Undo reaches its own alone', async () => {
+    const { t, first } = await rewoundThenEmptied();
+    t.org.edit('Account', account(1), { Name: 'Renamed again' }, COLLEAGUE);
+
+    const second = resultOf(await rewound(t, (await previewed(t)).previewId));
+
+    expect(second.status).toBe('partial');
+    expect(t.org.all('Account').find((row) => row.Id === account(1))?.Name).toBe('Account one');
+    expect(second.undo).toBeDefined();
+    expect(second.removedJournals).toEqual([
+      { checkpointId: t.checkpoint.checkpointId, name: 'Before UAT', rewindId: first.rewindId },
+    ]);
+    expect(readdirSync(t.folder.rewindsDir)).toEqual([second.rewindId]);
+    expect(latestRewindOf(await t.store.checkpointsOf(ORG_ID))).toEqual({
+      checkpointId: t.checkpoint.checkpointId,
+      rewindId: second.rewindId,
+    });
+  });
+
+  it('stopped before its first write, leaves its checkpoint no rewind said stopped part way, nor a journal, and the rewind after it with nothing left to write leaves none either', async () => {
+    const t = await taken();
+    clock.now = SINCE;
+    t.org.trash('Account', account(3), COLLEAGUE);
+    const controller = new AbortController();
+    try {
+      const stoppedRun = await rewound(t, (await previewed(t)).previewId, {
+        deps: {
+          signal: controller.signal,
+          onProgress: ({ phase }) => {
+            if (phase === 'bringingBack') controller.abort();
+          },
+        },
+      });
+      expect(resultOf(stoppedRun).status).toBe('cancelled');
+      expect(resultOf(stoppedRun).undo).toBeUndefined();
+    } catch (err: unknown) {
+      expect(err).toBeInstanceOf(RewindStopped);
+    }
+    expect((await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind).toBeUndefined();
+    expect(readdirSync(t.folder.rewindsDir)).toEqual([]);
+    expect(t.org.inBin('Account').map((row) => row.Id)).toEqual([account(3)]);
+    // The colleague brings the account back themselves: nothing differs.
+    await t.org.undelete([account(3)]);
+
+    const again = resultOf(await rewound(t, (await previewed(t)).previewId));
+
+    expect(again.status).toBe('success');
+    expect(again.undo).toBeUndefined();
+    expect((await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind).toBeUndefined();
+    expect(readdirSync(t.folder.rewindsDir)).toEqual([]);
+  });
+
+  it('stopped before it sent anything, gives its checkpoint back the rewind before it: the list offers that one’s Undo, its journal kept, and the stopped one keeps none (w50f)', async () => {
+    const { t, first } = await rewoundThenEmptied();
+    const controller = new AbortController();
+    const sent: string[] = [];
+
+    const stopped = resultOf(
+      await rewound(t, (await previewed(t)).previewId, {
+        deps: {
+          signal: controller.signal,
+          undelete: (ids) => {
+            sent.push(...ids);
+            return t.org.undelete(ids);
+          },
+          // Stopped as it is about to bring the account back: nothing sent.
+          onProgress: ({ phase }) => {
+            if (phase === 'bringingBack') controller.abort();
+          },
+        },
+      }),
+    );
+
+    expect(stopped.status).toBe('cancelled');
+    expect(sent).toEqual([]);
+    expect(stopped.undo).toBeUndefined();
+    expect(readdirSync(t.folder.rewindsDir)).toEqual([first.rewindId]);
+    expect((await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind).toEqual({
+      rewindId: first.rewindId,
+      endedAt: expect.any(String),
+      undoUntil: first.undo?.until,
+    });
+    const [entry] = await t.store.list({ now: new Date(clock.now) });
+    expect(entry?.undo).toEqual({ rewindId: first.rewindId, until: first.undo?.until });
+
+    const undo = await undone(t, first.rewindId);
+
+    expect(undo.status).toBe('success');
+  });
+
+  it('stopped once it sent something, keeps its Undo and its journal, which the next rewind takes up: as before', async () => {
+    const { t, first } = await rewoundThenEmptied();
+    t.org.edit('Account', account(2), { Name: 'Renamed again' }, COLLEAGUE);
+    const controller = new AbortController();
+    // Stopped as the org answers its first update: the account given back.
+    const update = t.org.update.bind(t.org);
+    t.org.update = async (objectApiName, records) => {
+      const answer = await update(objectApiName, records);
+      controller.abort();
+      return answer;
+    };
+
+    const stopped = resultOf(
+      await rewound(t, (await previewed(t)).previewId, {
+        deps: { signal: controller.signal },
+      }),
+    );
+
+    expect(stopped.status).toBe('cancelled');
+    expect(stopped.undo).toBeDefined();
+    const last = (await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind;
+    expect(last?.rewindId).toBe(stopped.rewindId);
+    expect(last?.endedAt).toBeUndefined();
+    expect(readdirSync(t.folder.rewindsDir).sort()).toEqual(
+      [first.rewindId, stopped.rewindId].sort(),
+    );
   });
 });
 

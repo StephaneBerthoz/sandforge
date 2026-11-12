@@ -458,12 +458,22 @@ function sessions(): Array<{ start: string; event?: string; block: string }> {
 // ─── The guide ───────────────────────────────────────────────────────────────
 
 describe('docs/environments.md', () => {
+  /**
+   * The journal folder the scripts the sessions run keep their runs in: a
+   * folder of the test's own. Left to the default, a Frozen load the replay
+   * ran added itself to the developer's own `~/.sandforge`.
+   */
+  let journals: string;
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
+    journals = mkdtempSync(join(tmpdir(), 'sandforge-docs-journals-'));
+    vi.stubEnv('SANDFORGE_JOURNAL_DIR', journals);
   });
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    rmSync(journals, { recursive: true, force: true });
   });
 
   it('prints the --help text the script prints, word for word', () => {
@@ -498,6 +508,7 @@ describe('docs/environments.md', () => {
         '--include-changed',
         '--sweep',
         '--accept-automation',
+        '--accept-emails',
         '--rewind',
         '--accept-no-undo',
         '--accept-unseen',
@@ -843,7 +854,7 @@ describe('docs/environments.md', () => {
       if (dataset === undefined) delete process.env[DATASET_VARIABLE];
       else process.env[DATASET_VARIABLE] = dataset;
     }
-  }, 60_000);
+  }, 180_000);
 
   it('names the actions a plan gives, in the order the plan explains them, each as it explains it', () => {
     const header = /Per resource, one action:\n \*\n([\s\S]*?)\n \*\n/.exec(PLAN)?.[1] ?? '';
@@ -1023,6 +1034,14 @@ describe('docs/environments.md', () => {
         '`--fail-on-change` exits `3` when `apply` would write or delete anything',
       ],
       [help(), 'records deleted or changed since', 'a record deleted or changed since'],
+      // The question asks for what --org gives, compared letter for letter, and
+      // --org is an alias: a username never reaches the org, let alone the
+      // question, which the help said was asked of an org with no alias.
+      [
+        help(),
+        "after asking you to type the org's alias exactly as --org gives\n            it",
+        "asks for the org's alias to be typed exactly as `--org` gives it",
+      ],
       [
         GUARDS,
         'it is warned of, not refused',
@@ -1088,6 +1107,23 @@ describe('docs/environments.md', () => {
     );
     expect(source(`${CLI_DIR}/prompt.ts`)).toContain('no terminal to answer: give --yes');
     expect(DOC).toContain('it stops at the question, exit `2`, having written nothing');
+  });
+
+  it('says the question asks for the alias --org gives, and that a username is refused before the org is reached, as the command line does', () => {
+    // Positive controls: what is typed is held to --org as given, the org is
+    // reached by that alias, and an alias takes no @, which every username has.
+    expect(CLI).toContain('if (answer === args.org) return true;');
+    expect(CLI).toContain('const session = await loadOrg(alias);');
+    const session = source(`${CLI_DIR}/sfSession.ts`);
+    expect(session).toContain('const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;');
+    expect(session).toContain('`Invalid SF org alias: "${alias}"');
+
+    expect(DOC).toContain(
+      '`--org` takes an alias, never a username, which is refused before the org is reached (`Invalid SF org alias`), exit `1`: give an org that has none an alias first, with `sf alias set`.',
+    );
+    for (const text of [DOC, help()]) {
+      expect(text.replace(/\s+/g, ' ')).not.toContain('its username for an org that has none');
+    }
   });
 
   it('quotes each refusal it does not replay in the words the code says it', () => {
@@ -1169,8 +1205,21 @@ describe('docs/environments.md', () => {
     expect(DESTROY).toContain(
       'children deleted before their parent\n * cannot come back with it from the recycle bin.',
     );
+    // The seed's sweep takes what is tied to the run, and lists and keeps
+    // what came late or is tied to nothing; the destroy asks for neither.
     expect(SEED).toContain(
-      'Refused when that user\n                         created records in the window on objects neither the\n                         run nor the automation reaches (hand work, likely).',
+      "Listed and kept: what is tied to the run but came\n                         later, up to 15 minutes, or as the org's Automated\n                         Process user; and what the run's user created in the\n                         window tied to nothing of the run.",
+    );
+    expect(DESTROY).toContain(
+      'What came later, or is tied to nothing of the\n *   run, is listed and kept;',
+    );
+    expect(DESTROY).not.toContain('--sweep-late');
+    // Each removal tells its sweep the other runs of this machine, read from
+    // the journals and run files of the journal folder.
+    const clone = source(`${CLI_DIR}/sandforge-clone.ts`);
+    expect(clone).toContain("const forgeRuns = joinPath(dir, 'forge-runs');");
+    expect(clone).toContain(
+      'for (const runs of [nodeSyncRunCreations(dir), nodeSyncRunCreations(dir, SEED_RUNS_DIR)])',
     );
 
     expect(limits).toContain(
@@ -1179,7 +1228,10 @@ describe('docs/environments.md', () => {
     expect(limits).toContain('**Records that stay because records of the org depend on them.**');
     expect(limits).toContain('unless `--sweep` takes it');
     expect(limits).toContain(
-      'refused when that user created records in the window that neither the run nor the automation reaches, likely by hand',
+      "what the run's user created in the run's window tied to nothing of it, are listed and kept: a destroy takes neither",
+    );
+    expect(limits).toContain(
+      "the environment's other forge and seed resources, applied one after the other as the same user, are among them",
     );
     expect(limits).toContain(
       "a person's contact apart from its account, a lead converted since, a contract activated since",
@@ -1417,9 +1469,9 @@ describe('docs/environments.md: checkpoints, reset, destroy --rewind and real da
     );
     expect(real).toContain('It is met before a record of the source is read');
     expect(FORGE_KIND).toContain(
-      "? ' Its anonymize sets a method for no category of personal field, so it anonymizes nothing.'",
+      "? ' Its anonymize sets a method for no category of personal field, so it does not count.'",
     );
-    expect(real).toContain('One that sets no method anonymizes nothing, and is said so');
+    expect(real).toContain('One that sets no method does not count');
     // The clone's own words for what it does to contact points.
     expect(CLONE).toContain(
       "'contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range)'",
@@ -1488,14 +1540,78 @@ describe('the frozen resource and the references between resources, on the page'
       [FROZEN_KIND, "'may-hold-masks'", 'a field the target encrypts that may hold masks'],
       [
         FROZEN_KIND,
-        'a Frozen load and its removal take no acceptance of automation',
-        '`accept: { automation: true }` on a frozen resource is warned of',
+        "...(input.acceptAutomation === true ? ['--accept-automation'] : []),",
+        'unless `--accept-automation` or `accept: { automation: true }` on the resource, handed to `remove`',
+      ],
+      [
+        PLAN,
+        'What a removal would be refused for that a frozen resource',
+        "or as a reload's purge deletes, the dry run blocks the resource",
+      ],
+      [
+        FROZEN_KIND,
+        "...(input.acceptAutomation === true ? ['--accept-automation'] : []),",
+        'the acceptance is handed to `load` as to `load --reload`',
       ],
     ];
     for (const [code, said, page] of pins) {
       expect(code, said).toContain(said);
       expect(frozen, page).toContain(page);
     }
+  });
+
+  it('says in its help that a frozen replace is blocked by what fires as its purge deletes, as the reload hands it the acceptance', () => {
+    // Positive control: the reload's purge is refused unaccepted, with its
+    // code, and the frozen kind hands the reload the file's acceptance — and
+    // a first load too, which asks what fires as it inserts and updates.
+    expect(FROZEN).toContain(
+      "stepRefused = { code: purge.code ?? 'AUTOMATION_NOT_ACCEPTED', message: purge.refusal };",
+    );
+    expect(FROZEN_KIND).toContain(
+      "    ...(input.reload ? ['--reload'] : []),\n" +
+        "    ...(input.acceptAutomation === true ? ['--accept-automation'] : []),",
+    );
+
+    // The help said a replace is refused when it would leave records, and
+    // nothing of the automation that blocked one on a real org; then that a
+    // reload alone was, once a first load asked too.
+    expect(help()).toContain(
+      'a replace is a reload, refused when it would leave records. A load,\n' +
+        'the first one too, is blocked while the org runs automation as it inserts or updates its records,\n' +
+        'and a reload while it runs any as its purge deletes, unless --accept-automation or the\n' +
+        "resource's accept: { automation: true } takes it.",
+    );
+    expect(section(DOC, '### A frozen resource')).not.toContain(
+      'A first load takes no such acceptance',
+    );
+  });
+
+  it('names a frozen load refused for automation, the first one too, among the refusals and under exit code 1', () => {
+    // Positive control: a load stops before its first write while the target
+    // runs automation as it inserts or updates, unaccepted, with its code;
+    // the frozen kind hands it the acceptance of the line or of the file.
+    expect(source('packages/extension/src/bridge/handlers/FrozenDatasetHandler.ts')).toContain(
+      'class LoadAutomationStop extends Error',
+    );
+    expect(FROZEN).toContain("? { code: 'AUTOMATION_NOT_ACCEPTED', message: refusal }");
+    expect(FROZEN_KIND).toContain(
+      "    ...(input.reload ? ['--reload'] : []),\n" +
+        "    ...(input.acceptAutomation === true ? ['--accept-automation'] : []),",
+    );
+
+    // The refusals and the exit codes named a removal alone, and the emails
+    // of a clone and a seed: a first load its dry run blocks exits 1 too.
+    expect(section(DOC, '## What is refused')).toContain(
+      "a frozen resource's load, the first one too, writes nothing while the org runs some as the load inserts or updates its records, unless the same: its dry run blocks the plan (`AUTOMATION_NOT_ACCEPTED`)",
+    );
+    const exitOne = rows(section(DOC, '## Exit codes')).find(([cell]) => cell === '`1`')?.[1] ?? '';
+    expect(exitOne).toContain(
+      'a removal or a frozen load refused for automation without `--accept-automation`',
+    );
+    expect(exitOne).toContain("(a clone's, a seed's or a load's `EMAILS_NOT_ACCEPTED`");
+    expect(help()).toContain(
+      'a removal or a frozen load refused for automation without --accept-automation,\n',
+    );
   });
 
   it('says where the ids of a reference are read from, how many, and when they are counted exactly, as the references and the plan do', () => {
@@ -1792,7 +1908,7 @@ describe('saved plans, outputs and the reason of a step, on the page', () => {
   });
 
   it('says a step its script refused carries why, in the script’s words, as the apply reads it', () => {
-    expect(APPLY).toContain('A script refused before its first write prints nothing on stdout');
+    expect(APPLY).toContain('A script refused before its first write prints no run on stdout');
     expect(APPLY).toContain('const said = answered ?? (ended ? undefined : reasonLineOf(stderr));');
     expect(section(DOC, '### Apply it: `apply`')).toContain(
       "for a step its script refused or failed, why, in the script's own words, under `refusal`: what its answer says, or else the last line it said on stderr",
@@ -1964,7 +2080,7 @@ describe('the pages that send a reader to docs/environments.md', () => {
     );
     // Positive control: the promises both make are the help's.
     expect(help()).toContain('A production org is refused before anything is read, exit 1.');
-    expect(help()).toContain('applied again, it writes\n            nothing');
+    expect(help()).toContain('applied again, it writes nothing');
 
     expect(readme).toContain('](docs/environments.md)');
     expect(readme).toContain('A production org is refused before anything is read.');

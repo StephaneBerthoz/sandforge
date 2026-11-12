@@ -40,6 +40,8 @@ const KEY_PREFIX: Record<string, string> = {
   Account: '001',
   Contact: '003',
   Contract: '800',
+  Event: '00U',
+  EventRelation: '0RE',
   Opportunity: '006',
   Invoice__c: 'a0I',
   Policy__c: 'a0P',
@@ -2854,6 +2856,10 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
       expect(run.summary.remapTable[TASK_OF_ACCOUNT_EMAIL]).toMatch(/^00TP/);
       expect(run.summary.existingSourceIds).toContain(TASK_OF_ACCOUNT_EMAIL);
       expect(run.summary.withTheirRecordSourceIds).toEqual([TASK_OF_ACCOUNT_EMAIL]);
+      // The task the platform wrote with the email is counted as written by
+      // it, never among the records the target held before the run.
+      expect(run.summary.writtenByThePlatform).toEqual([{ objectApiName: 'Task', rows: 1 }]);
+      expect(run.summary.existingRecords).toEqual([]);
       expect(run.summary.failedCount).toBe(0);
       expect(run.summary.remapTable[DELETED_TASK]).toBeUndefined();
       expect(run.summary.remapTable[PLAIN_TASK]).toBeDefined();
@@ -3886,4 +3892,80 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
     expect(paged.updated).toEqual([2_000]);
     expect(paged.restUpdates).toBe(COUNT - 1 - 2_000);
   }, 60_000);
+});
+
+describe('the relations of events read page by page', () => {
+  it('says once, for the whole table, how many of the relations it linked went without the invitee flag', async () => {
+    // Each page of a table of event relations said its own note on the line
+    // that ends the table: "1 linked without IsInvitee: …, 1 linked without
+    // IsInvitee: …", one per page, where the notes of an opportunity's team
+    // are said once for the object.
+    const who = sourceId('Contact', 1);
+    const events = [1, 2, 3].map((n) => sourceId('Event', n));
+    const schema: Schema = {
+      Contact: { fields: [text('LastName')], rows: [{ Id: who, LastName: 'Who' }] },
+      Event: {
+        fields: [text('Subject'), lookup('WhoId', 'Contact', true)],
+        rows: events.map((Id, n) => ({ Id, Subject: `Visit ${n}`, WhoId: who })),
+      },
+      EventRelation: {
+        fields: [
+          lookup('EventId', 'Event', false),
+          lookup('RelationId', 'Contact', false),
+          text('IsParent', 'boolean'),
+          { ...text('IsInvitee', 'boolean'), updateable: false },
+          text('IsWhat', 'boolean'),
+        ],
+        rows: events.map((EventId, n) => ({
+          Id: sourceId('EventRelation', n),
+          EventId,
+          RelationId: who,
+          IsParent: true,
+          IsInvitee: true,
+          IsWhat: false,
+        })),
+      },
+    };
+    const graph = graphOf(
+      [node('Contact', 1), node('Event', 3), node('EventRelation', 3)],
+      [
+        edge('Contact', 'Event', false),
+        edge('Event', 'EventRelation', true),
+        edge('Contact', 'EventRelation', true),
+      ],
+    );
+    const orgs = fakeOrgs(schema);
+    // The target writes the relation of each event to its who as it takes
+    // the event, no invitee: the run links each row read to it.
+    const platform: FakeRow[] = [];
+    const insert = orgs.deps.insertRecords;
+    orgs.deps.insertRecords = async (org, object, rows) => {
+      const results = await insert(org, object, rows);
+      if (object === 'Event') {
+        results.forEach((result, i) =>
+          platform.push({
+            Id: canonicalRecordId(`0RET${String(platform.length + 1).padStart(11, '0')}`) ?? '',
+            EventId: result.id,
+            RelationId: String(rows[i]?.['WhoId']),
+          }),
+        );
+      }
+      return results;
+    };
+    const query = orgs.deps.queryRecords;
+    orgs.deps.queryRecords = async (org, soql, onTruncated) =>
+      org === 'tgt' && soql.includes(' FROM EventRelation WHERE EventId IN ')
+        ? selectRows({ EventRelation: platform }, soql)
+        : query(org, soql, onTruncated);
+    const said: ForgeProgressEvent[] = [];
+
+    await orgs.executor.execute(graph, 'src', 'tgt', (e) => said.push(e), {
+      stream: { pageSize: 1 },
+    });
+
+    expect(said.filter((e) => e.objectName === 'EventRelation').at(-1)?.message).toBe(
+      'Completed EventRelation: 0 succeeded, 3 linked to records already in the target, 0 failed, ' +
+        '3 linked without IsInvitee: the target does not let it be updated',
+    );
+  });
 });

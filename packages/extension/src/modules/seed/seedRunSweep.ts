@@ -28,18 +28,34 @@
  * window is its first write to its last alone (`writesWindow`), and the user
  * it wrote as is read from the records it wrote over (`writerOf`), before a
  * removal puts their values back.
+ *
+ * A run whose file keeps the user it wrote as (`runUserId`) is not read for
+ * it: once a removal has put the values back, the records a Sync run only
+ * wrote over no longer say who wrote them, and its sweep was refused.
+ *
+ * Asked to tell the records tied to the run from the rest (`SweepTies`), the
+ * sweep ties what the target's automation made to the records the run
+ * created, and, as `madeOver`, to those it only wrote over: the one tie a
+ * Sync run that only updated leaves, what its update flows opened under the
+ * records it updated.
  */
 
-import type { ForgeTargetAutomation, ForgeWrittenBetween } from '@sandforge/shared';
+import type {
+  ForgeTargetAutomation,
+  ForgeUndoObjectResult,
+  ForgeWrittenBetween,
+} from '@sandforge/shared';
 
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
-import { idLists } from '../dataops/RecordRemoval.js';
-import type { RemovalOrg } from '../forge/ForgeRunRemoval.js';
+import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
+import { deleteBatch, type RemovalOrg } from '../forge/ForgeRunRemoval.js';
 import {
   SWEEP_LEAD_MS,
   SWEEP_TRAIL_MS,
   sweepAutomationOf,
   type SweepInput,
+  type SweepTies,
 } from '../forge/ForgeRunSweep.js';
 
 /** What a run created, per object, as it kept it. */
@@ -75,6 +91,97 @@ export async function seedWrittenBetween(
   }
   if (!Number.isFinite(first) || !Number.isFinite(last)) return undefined;
   return { first: new Date(first).toISOString(), last: new Date(last).toISOString() };
+}
+
+/** What a removal did of the duplicate record sets its deletes left empty. */
+interface EmptyDuplicateSets {
+  /** The sets, as a line of the removal's objects; absent when none was left empty. */
+  object?: ForgeUndoObjectResult;
+  /** Why they could not be read, when they could not: said, never thrown. */
+  note?: string;
+}
+
+/**
+ * The duplicate record sets of a run, read before its removal, and what takes
+ * them once its deletes emptied them.
+ *
+ * An org whose duplicate rules report writes a set and an item per record as
+ * the records go in. The removal's deletes take the items with the records, and
+ * the org keeps the set, empty. Run for real, a seed into a Developer Edition
+ * org left sixteen of them that no removal and no sweep named. Read by the
+ * items that name the run's records, before they go: a set dated in the run's
+ * window could be anyone's, and a set that still holds an item names a record
+ * that stays. Nothing of a run that reads none is asked of the org again.
+ */
+export async function duplicateSetsOfRemoval(
+  org: RemovalOrg,
+  created: Created,
+): Promise<{ take: () => Promise<EmptyDuplicateSets> }> {
+  const unread = (err: unknown): EmptyDuplicateSets => ({
+    note:
+      'What the duplicate rules of the target reported of the run could not be read ' +
+      `(${extractErrorMessage(err)}): the empty DuplicateRecordSet records it left, if any, stay.`,
+  });
+  const sets = new Set<string>();
+  try {
+    for (const { ids } of created) {
+      for (const list of idLists(ids)) {
+        const { records } = await org.query(
+          `SELECT DuplicateRecordSetId FROM DuplicateRecordItem WHERE RecordId IN (${list})`,
+        );
+        for (const row of records) {
+          const set = (row as { DuplicateRecordSetId?: unknown }).DuplicateRecordSetId;
+          if (typeof set === 'string') sets.add(set);
+        }
+      }
+    }
+  } catch (err: unknown) {
+    return { take: async () => unread(err) };
+  }
+  return {
+    take: async () => {
+      if (sets.size === 0) return {};
+      const held = new Set<string>();
+      try {
+        for (const list of idLists([...sets])) {
+          const { records } = await org.query(
+            `SELECT DuplicateRecordSetId FROM DuplicateRecordItem WHERE DuplicateRecordSetId IN (${list})`,
+          );
+          for (const row of records) {
+            held.add(String((row as { DuplicateRecordSetId?: unknown }).DuplicateRecordSetId));
+          }
+        }
+      } catch (err: unknown) {
+        return unread(err);
+      }
+      const empty = [...sets].filter((set) => !held.has(set));
+      if (empty.length === 0) return {};
+      const object: ForgeUndoObjectResult = {
+        objectApiName: 'DuplicateRecordSet',
+        planned: empty.length,
+        deleted: 0,
+        alreadyGone: 0,
+        keptChanged: 0,
+        keptDependents: 0,
+        refused: 0,
+        heldBy: [],
+        unchecked: [],
+        reasons: [],
+      };
+      for (let at = 0; at < empty.length; at += RECORDS_PER_CALL) {
+        const batch = empty.slice(at, at + RECORDS_PER_CALL);
+        for (const outcome of await deleteBatch(org, object.objectApiName, batch)) {
+          if (outcome.kind === 'deleted') object.deleted += 1;
+          else if (outcome.kind === 'gone') object.alreadyGone += 1;
+          else {
+            object.refused += 1;
+            if (!object.reasons.includes(outcome.reason)) object.reasons.push(outcome.reason);
+          }
+        }
+      }
+      return { object };
+    },
+  };
 }
 
 /**
@@ -217,6 +324,22 @@ export async function writerOf(
   return writers.size === 1 ? [...writers.values()][0] : undefined;
 }
 
+/** What a run's file keeps that a sweep of it is told beside its records. */
+export interface SeedSweepKept {
+  /**
+   * The user the run wrote as, as its file keeps it (`runUserId`): taken
+   * first, and nothing is read to tell it.
+   */
+  runUserId?: string;
+  /**
+   * Tell the records tied to the run from the rest: what the removal knows
+   * of the run beyond its records — the other runs of this machine in its
+   * window, its mute, when its removal began, what an earlier sweep found
+   * made. The records it created and those it wrote over are added here.
+   */
+  ties: Omit<SweepTies, 'writtenOver'>;
+}
+
 /**
  * What a sweep of a Seed run is told: its window, read back from its records
  * (`seedWrittenBetween`), begun at its first write and ended at its last when
@@ -230,26 +353,33 @@ export async function writerOf(
  *   which may be updates before anything was created or after the last.
  * @param writtenOver - The records a Sync run wrote over: never swept, and,
  *   of a run that created nothing, what tells the user it wrote as. Read
- *   before a removal puts their values back.
+ *   before a removal puts their values back. What is tied to them alone is
+ *   `madeOver`, their writes dated by the run's window.
+ * @param kept - What the run's file keeps beside its records: the user it
+ *   wrote as, read first, and what ties a record to the run.
  */
 export async function seedSweepInput(
   org: Pick<RemovalOrg, 'queryDeleted'> & Partial<Pick<RemovalOrg, 'query'>>,
   created: Created,
   automation: ForgeTargetAutomation | { error: string },
-  signal?: AbortSignal,
-  writes?: RunWrites,
-  writtenOver: Created = [],
+  signal: AbortSignal | undefined,
+  writes: RunWrites | undefined,
+  writtenOver: Created,
+  kept: SeedSweepKept,
 ): Promise<SweepInput> {
   const createdAny = created.some(({ ids }) => ids.length > 0);
   // A run that created nothing is dated by its writes alone.
   const writtenBetween = createdAny
     ? await writtenSince(await seedWrittenBetween(org, created, signal), writes)
     : await writesWindow(writes);
+  const runUserId =
+    kept.runUserId !== undefined && SF_ID.test(kept.runUserId) ? kept.runUserId : undefined;
   const query = org.query?.bind(org);
   const user =
-    !createdAny && writtenBetween && query
+    !runUserId && !createdAny && writtenBetween && query
       ? await writerOf({ query }, writtenOver, writtenBetween, signal)
       : undefined;
+  const over = writtenOver.filter(({ ids }) => ids.length > 0);
   return {
     writtenBetween,
     created,
@@ -257,7 +387,9 @@ export async function seedSweepInput(
       [...created, ...writtenOver].flatMap(({ ids }) => ids.map((id) => id.slice(0, 15))),
     ),
     automation: sweepAutomationOf(automation),
+    ...(runUserId ? { runUserId } : {}),
     ...(user ? { user } : {}),
+    ties: { ...kept.ties, ...(over.length > 0 ? { writtenOver: over } : {}) },
     ...(signal ? { signal } : {}),
   };
 }

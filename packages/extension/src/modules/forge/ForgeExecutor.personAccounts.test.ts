@@ -5,8 +5,10 @@ import type {
   FieldInfo,
   ForgeExecutorDeps,
   ForgeProgressEvent,
+  ForgeWriteBoundary,
   InsertResult,
 } from './ForgeExecutor.js';
+import { leftOutLines, writePlanOf } from './ForgeRunGate.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -179,7 +181,9 @@ function orgsWithPersonAccounts(
   { fields = FIELDS, recordTypes = [], describeObject }: PersonAccountOrgs = {},
 ) {
   let created = 0;
-  const newId = (prefix: string): string => `${prefix}Tg${String(created++).padStart(13, '0')}`;
+  // Told apart by their first fifteen characters, as an org's ids are: the
+  // target answers a person account's contact by them.
+  const newId = (prefix: string): string => `${prefix}Tg${String(created++).padStart(10, '0')}AAA`;
   const inserted: Array<{ object: string; rows: Record<string, unknown>[] }> = [];
   const updated: Array<{ object: string; rows: Record<string, unknown>[] }> = [];
   /** The contact the target wrote with each person account it holds, by the account's first fifteen characters. */
@@ -302,9 +306,11 @@ describe('ForgeExecutor, person accounts', () => {
       CONTACT,
     ]);
     expect(summary.linkedCount).toBe(1);
-    expect(summary.existingRecords).toEqual([
-      { objectApiName: 'Contact', linked: 1, unidentified: 0 },
-    ]);
+    // Written by the platform with the account the run created, it is no
+    // record the target held: listed with them, the results said the target
+    // had refused it because it already held it.
+    expect(summary.existingRecords).toEqual([]);
+    expect(summary.writtenByThePlatform).toEqual([{ objectApiName: 'Contact', rows: 1 }]);
     // The account's lookup at its contact is owed nothing: the platform
     // refuses an update of it.
     expect(updated.flatMap(({ rows }) => rows).some((row) => 'PersonContactId' in row)).toBe(false);
@@ -519,6 +525,7 @@ describe('ForgeExecutor, person accounts', () => {
     expect(summary.remapTable[PERSON_CONTACT]).toBe(
       personContactOf.get(summary.remapTable[PERSON].slice(0, 15)),
     );
+    expect(summary.existingRecords).toEqual([]);
   });
 
   it('takes no order from a lookup the fields say no write sets, where the graph does not say it', async () => {
@@ -658,6 +665,11 @@ describe('ForgeExecutor, person accounts', () => {
 
     expect(summary.existingSourceIds).toContain(PERSON_CONTACT);
     expect(summary.withTheirRecordSourceIds).toBeUndefined();
+    // The target held it with its account before the run: listed with them.
+    expect(summary.existingRecords).toEqual([
+      { objectApiName: 'Account', linked: 1, unidentified: 0 },
+      { objectApiName: 'Contact', linked: 1, unidentified: 0 },
+    ]);
   });
 
   describe('a target that writes no contact with the account', () => {
@@ -833,7 +845,8 @@ describe('ForgeExecutor, person accounts', () => {
     });
 
     describe("a person account whose record type in the target is a business account's", () => {
-      const SOURCE_TYPE = fakeId('012', 1);
+      // Eighteen characters, as an org's ids are: a count names it in a statement.
+      const SOURCE_TYPE = '012Fk00000SrCTyAAA';
       const PERSON_TYPE = '012Tg0000000PeRAAA';
       const BUSINESS_TYPE = '012Tg0000000BuSAAA';
       /** The target's record types of the account. */
@@ -879,6 +892,69 @@ describe('ForgeExecutor, person accounts', () => {
         active: true,
         master: false,
         defaultRecordTypeMapping,
+      });
+
+      it('counts at the gate of a run read page by page the contact it sends as one of its own, and not one the platform writes', async () => {
+        const graph = graphOf(
+          [node('Contact', 0), node('Account', 0)],
+          [edge('Account', 'Contact', 'Contacts'), edge('Contact', 'Account', 'PersonContact')],
+        );
+        /** The source's tables counted, a contact's account's record type among what a count may ask. */
+        const tables: Record<string, Record<string, unknown>[]> = TYPED_SOURCE;
+        const countRecords = vi.fn(async (_org: string, soql: string) => {
+          const object = /FROM (\w+)/.exec(soql)?.[1] ?? '';
+          const types = /Account\.RecordTypeId IN \(([^)]*)\)/.exec(soql)?.[1];
+          const typeOf = (accountId: unknown) =>
+            tables['Account'].find((account) => account['Id'] === accountId)?.['RecordTypeId'];
+          return (tables[object] ?? []).filter(
+            (row) =>
+              (!soql.includes('IsPersonAccount = true') || row['IsPersonAccount'] === true) &&
+              (types === undefined || types.includes(`'${String(typeOf(row['AccountId']))}'`)),
+          ).length;
+        });
+        for (const [type, sent, byThePlatform] of [
+          [BUSINESS_TYPE, 2, undefined],
+          [PERSON_TYPE, 1, [{ objectApiName: 'Contact', rows: 1 }]],
+        ] as const) {
+          const orgs = orgsWithPersonAccounts(refusedWithoutName, TYPED_SOURCE, {
+            fields: TYPED_FIELDS,
+            recordTypes: RECORD_TYPES,
+          });
+          let shown: ForgeWriteBoundary | undefined;
+
+          await new ForgeExecutor({ ...orgs.deps, countRecords }).execute(
+            graph,
+            'src',
+            'tgt',
+            () => undefined,
+            {
+              recordTypeMappings: [
+                { sourceId: SOURCE_TYPE, targetId: type, developerName: 'Retail' },
+              ],
+              stream: { pageSize: 1 },
+              beforeWrite: async (boundary) => {
+                shown = boundary;
+              },
+            },
+          );
+
+          const plan = writePlanOf(shown?.objects ?? []);
+          const contacts = orgs.inserted
+            .filter(({ object }) => object === 'Contact')
+            .flatMap(({ rows }) => rows);
+          expect(contacts).toHaveLength(sent);
+          expect(plan.objects.find((o) => o.objectApiName === 'Contact')?.rows).toBe(sent);
+          expect(plan.leftOut?.byThePlatform).toEqual(byThePlatform);
+          // The contacts of accounts mapped to a business type are counted by
+          // their account's type.
+          expect(countRecords).toHaveBeenLastCalledWith(
+            'src',
+            type === BUSINESS_TYPE
+              ? `SELECT COUNT() FROM Contact WHERE IsPersonAccount = true AND Account.RecordTypeId IN ('${SOURCE_TYPE}')`
+              : 'SELECT COUNT() FROM Contact WHERE IsPersonAccount = true',
+          );
+          countRecords.mockClear();
+        }
       });
 
       it('writes it as a business account by its name, and its contact as one of its own', async () => {
@@ -967,6 +1043,45 @@ describe('ForgeExecutor, person accounts', () => {
 
         expect(inserted.find(({ object }) => object === 'Account')?.rows).toEqual([
           { Name: 'Jane Doe' },
+          { Name: 'Acme' },
+        ]);
+        expect(summary.failedCount).toBe(0);
+      });
+
+      it('writes as a person account one sent without its record type where the only type open to the user is a person account’s, its describe naming Master the default', async () => {
+        // A scratch org's describe named Master the admin's default for
+        // Opportunity, one other type open to them, and an opportunity sent
+        // without a type went in with that one. Read from the default alone,
+        // Master, this person account was sent as a business account.
+        const MASTER_TYPE = '012000000000000AAA';
+        const { executor, inserted } = orgsWithPersonAccounts(undefined, TYPED_SOURCE, {
+          fields: TYPED_FIELDS,
+          recordTypes: RECORD_TYPES,
+          describeObject: async (_org, object) => ({
+            keyPrefix: null,
+            recordTypes:
+              object === 'Account'
+                ? [
+                    { ...recordType(BUSINESS_TYPE, false), available: false },
+                    recordType(PERSON_TYPE, false),
+                    {
+                      ...recordType(MASTER_TYPE, true),
+                      developerName: 'Master',
+                      name: 'Master',
+                      master: true,
+                    },
+                  ]
+                : [],
+          }),
+        });
+
+        const summary = await executor.execute(CASE_GRAPH, 'src', 'tgt', () => undefined, {
+          ...mappedTo(PERSON_TYPE),
+          fieldExclusions: { Account: ['RecordTypeId'] },
+        });
+
+        expect(inserted.find(({ object }) => object === 'Account')?.rows).toEqual([
+          { LastName: 'Doe', PersonEmail: 'person@example.com' },
           { Name: 'Acme' },
         ]);
         expect(summary.failedCount).toBe(0);
@@ -1087,6 +1202,135 @@ describe('ForgeExecutor, person accounts', () => {
     expect(lastLines(events).get('Contact')).toBe(
       'Simulated Contact: 1 would be inserted, 1 written by the platform with their person account, 0 failed',
     );
+    // Not in the target before the run, nor after a dry run.
+    expect(summary.existingRecords).toEqual([]);
+  });
+
+  it("counts no person account's contact at its gate, which the run never sends, in a run or a dry run", async () => {
+    for (const dryRun of [false, true]) {
+      const { executor, inserted } = orgsWithPersonAccounts();
+      let shown: ForgeWriteBoundary | undefined;
+
+      const summary = await executor.execute(CASE_GRAPH, 'src', 'tgt', () => undefined, {
+        ...ROOTED_AT_THE_CASE,
+        dryRun,
+        beforeWrite: async (boundary) => {
+          shown = boundary;
+        },
+      });
+
+      const plan = writePlanOf(shown?.objects ?? []);
+      const written = dryRun
+        ? summary.wouldInsertCount
+        : inserted.reduce((sum, { rows }) => sum + rows.length, 0);
+      // Two accounts, the business account's contact and the case.
+      expect(written).toBe(4);
+      expect(plan.totalRows).toBe(written);
+      expect(plan.leftOut?.byThePlatform).toEqual([{ objectApiName: 'Contact', rows: 1 }]);
+      expect(leftOutLines(plan.leftOut)).toEqual([
+        '  not counted: Contact, 1 record(s) written by the platform with their person account, ' +
+          'which the run links to and does not send',
+      ]);
+    }
+  });
+
+  describe('a run of whole tables read page by page', () => {
+    const SECOND_PERSON = fakeId('001', 3);
+    const SECOND_PERSON_CONTACT = fakeId('003', 3);
+    /** Two person accounts and a business account, each with its contact. */
+    const TABLES: Record<string, Record<string, unknown>[]> = {
+      Account: [
+        ...SOURCE['Account'],
+        {
+          Id: SECOND_PERSON,
+          Name: 'John Roe',
+          LastName: 'Roe',
+          IsPersonAccount: true,
+          PersonContactId: SECOND_PERSON_CONTACT,
+          Key_Contact__c: null,
+        },
+      ],
+      Contact: [
+        ...SOURCE['Contact'],
+        {
+          Id: SECOND_PERSON_CONTACT,
+          LastName: 'Roe',
+          AccountId: SECOND_PERSON,
+          IsPersonAccount: true,
+        },
+      ],
+    };
+    const TABLES_GRAPH = graphOf(
+      [node('Contact', 0), node('Account', 0)],
+      [edge('Account', 'Contact', 'Contacts'), edge('Contact', 'Account', 'PersonContact')],
+    );
+
+    /** The orgs of {@link orgsWithPersonAccounts} holding {@link TABLES}, whose source counts its tables. */
+    function pagedOrgs() {
+      const orgs = orgsWithPersonAccounts(undefined, TABLES);
+      const countRecords = vi.fn(async (_org: string, soql: string) => {
+        const object = /FROM (\w+)/.exec(soql)?.[1] ?? '';
+        const persons = soql.includes('IsPersonAccount = true');
+        return (TABLES[object] ?? []).filter((row) => !persons || row['IsPersonAccount'] === true)
+          .length;
+      });
+      return { ...orgs, executor: new ForgeExecutor({ ...orgs.deps, countRecords }) };
+    }
+
+    it("links each person account's contact to the one the platform wrote, page after page, and says it once", async () => {
+      const { executor, inserted, personContactOf } = pagedOrgs();
+      const events: ForgeProgressEvent[] = [];
+
+      const summary = await executor.execute(TABLES_GRAPH, 'src', 'tgt', (e) => events.push(e), {
+        stream: { pageSize: 1 },
+      });
+
+      expect(
+        inserted.filter(({ object }) => object === 'Contact').flatMap(({ rows }) => rows),
+      ).toEqual([{ LastName: 'Roe', AccountId: summary.remapTable[BUSINESS] }]);
+      for (const [account, contact] of [
+        [PERSON, PERSON_CONTACT],
+        [SECOND_PERSON, SECOND_PERSON_CONTACT],
+      ]) {
+        expect(summary.remapTable[contact]).toBe(
+          personContactOf.get(summary.remapTable[account].slice(0, 15)),
+        );
+      }
+      expect(summary.existingRecords).toEqual([]);
+      expect(summary.writtenByThePlatform).toEqual([{ objectApiName: 'Contact', rows: 2 }]);
+      expect(summary.errors).toEqual([]);
+      expect(lastLines(events).get('Contact')).toBe(
+        'Completed Contact: 1 succeeded, 2 written by the platform with their person account, 0 failed',
+      );
+    });
+
+    it("counts no person account's contact at its gate, which counts the tables, in a run or a dry run", async () => {
+      // The gate of a run read page by page counts the rows of each table: it
+      // counted the two contacts the platform writes with their accounts
+      // among those to write, and held --max-total to five where the run
+      // wrote three.
+      for (const dryRun of [false, true]) {
+        const { executor, inserted } = pagedOrgs();
+        let shown: ForgeWriteBoundary | undefined;
+
+        const summary = await executor.execute(TABLES_GRAPH, 'src', 'tgt', () => undefined, {
+          stream: { pageSize: 1 },
+          dryRun,
+          beforeWrite: async (boundary) => {
+            shown = boundary;
+          },
+        });
+
+        const plan = writePlanOf(shown?.objects ?? []);
+        const written = dryRun
+          ? summary.wouldInsertCount
+          : inserted.reduce((sum, { rows }) => sum + rows.length, 0);
+        // Three accounts and the business account's contact.
+        expect(written).toBe(4);
+        expect(plan.totalRows).toBe(written);
+        expect(plan.leftOut?.byThePlatform).toEqual([{ objectApiName: 'Contact', rows: 2 }]);
+      }
+    });
   });
 });
 

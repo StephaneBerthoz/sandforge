@@ -127,6 +127,15 @@ describe('useAppStore', () => {
     expect(getState().whatsNewSince).toBe('');
   });
 
+  it("asks for a stand-in only when Help opens What's New, and forgets it as the panel closes", () => {
+    getState().setShowWhatsNew(true, '1.70.1', undefined, true);
+    expect(getState().whatsNewStandIn).toBe(true);
+    getState().setShowWhatsNew(false);
+    expect(getState().whatsNewStandIn).toBe(false);
+    getState().setShowWhatsNew(true, '1.70.1', '1.70.0');
+    expect(getState().whatsNewStandIn).toBe(false);
+  });
+
   it('should handle multiple state changes independently', () => {
     getState().navigate('monitor');
     getState().setLoading(true);

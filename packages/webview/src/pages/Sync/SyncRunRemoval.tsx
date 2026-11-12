@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Square, Trash2 } from 'lucide-react';
 import type {
   ForgeRemovalStep,
@@ -17,6 +18,7 @@ import {
   mutePlanOf,
   removalStepsBypassesOf,
   removalStepsWrites,
+  sweepTakenObjects,
 } from '@sandforge/shared';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -35,8 +37,13 @@ import {
   ForgeRunRemovalMark,
   ForgeRunRemovalPlan,
   ForgeRunRemovalResult,
+  removalConfirmLabel,
 } from '../Forge/ForgeRunRemovalView';
-import { ForgeSweepListingView } from '../Forge/ForgeRemovalSweep';
+import {
+  ForgeSweepListingView,
+  useRemovalSweep,
+  type SweepTicks,
+} from '../Forge/ForgeRemovalSweep';
 import {
   DELETE_WHEN_KEYS,
   RemovalAutomationView,
@@ -118,15 +125,18 @@ const STEP_KEYS: Readonly<Record<Exclude<ForgeRemovalStep, 'delete'>, string>> =
  * read shown stays until the answer lands. A removal of every record the run
  * created (`again`) reads what fires on the objects of each. Where a bypass
  * silences something of it, the box that mutes it for the removal is offered
- * under it, planned from the same steps.
+ * under it, planned from the same steps. What a sweep ticked with the removal
+ * deletes counts among its deletes, read again as the ticks change it.
  */
 const SyncRemovalAutomation: React.FC<{
   runId: string;
   org: string;
   targetOrgId: string;
   again: boolean;
+  /** The objects a sweep ticked with the removal deletes records of. */
+  sweptObjects: readonly string[];
   mute: { checked: boolean; onChange: (checked: boolean) => void };
-}> = ({ runId, org, targetOrgId, again, mute }) => {
+}> = ({ runId, org, targetOrgId, again, sweptObjects, mute }) => {
   const read = useBridgeMutation<AutomationAnswer>('sync:remove:automation', {
     responseType: 'sync:remove:automation:response',
     errorType: 'sync:remove:automation:error',
@@ -136,17 +146,26 @@ const SyncRemovalAutomation: React.FC<{
   // A new request clears the answer it waits on: the last one is shown
   // meanwhile.
   const [lastRead, setLastRead] = useState<AutomationAnswer | null>(null);
+  // By value: a new list of the same objects reads nothing again.
+  const swept = sweptObjects.join(',');
+  const readAgain = useCallback(
+    () =>
+      mutate({
+        runId,
+        ...(again ? { again: true } : {}),
+        ...(swept !== '' ? { sweptObjects: swept.split(',') } : {}),
+      }),
+    [runId, again, swept, mutate],
+  );
   useEffect(() => {
     setLastRead(null);
-    mutate({ runId, ...(again ? { again: true } : {}) });
-  }, [runId, again, mutate]);
+  }, [runId, again]);
+  useEffect(() => {
+    readAgain();
+  }, [readAgain]);
   useEffect(() => {
     if (read.data) setLastRead(read.data);
   }, [read.data]);
-  const readAgain = useCallback(
-    () => mutate({ runId, ...(again ? { again: true } : {}) }),
-    [runId, again, mutate],
-  );
   const answer = read.data ?? lastRead;
   const shown: RemovalAutomationShown | undefined =
     answer && answer.runId === runId
@@ -188,12 +207,19 @@ const SyncRemovalAutomation: React.FC<{
 /**
  * What a sweep asked with the removal would take, read as the confirmation's
  * sweep is ticked and listed before the user types the org's name: what the
- * target's automation created during the run, as its user, that the run did
- * not write — Forge's sweep, listed as Forge lists it, in its words. Read
- * only; the sweep runs before the run's records go, and finds again what is
- * there.
+ * target's automation made for the run, as its user, that the run did not
+ * write, what it keeps and the ticks that take that too — Forge's sweep,
+ * listed as Forge lists it, in its words. Read only; the sweep reads again as
+ * the removal begins, and takes what it can before the run's records go.
  */
-const SyncRemovalSweep: React.FC<{ runId: string; org: string }> = ({ runId, org }) => {
+const SyncRemovalSweep: React.FC<{
+  runId: string;
+  org: string;
+  ticks: SweepTicks;
+  onTicksChange: (ticks: SweepTicks) => void;
+  /** Told what it read, null until it has: what the confirmation reads the automation of. */
+  onListing: (listing: ForgeSweepListing | null) => void;
+}> = ({ runId, org, ticks, onTicksChange, onListing }) => {
   const { t } = useTranslation();
   const headingId = useId();
   const read = useBridgeMutation<SweepAnswer>('sync:remove:sweep', {
@@ -205,6 +231,11 @@ const SyncRemovalSweep: React.FC<{ runId: string; org: string }> = ({ runId, org
   useEffect(() => {
     mutate({ runId });
   }, [runId, mutate]);
+  const listing = read.data?.runId === runId ? (read.data?.listing ?? null) : null;
+  useEffect(() => {
+    onListing(listing);
+  }, [listing, onListing]);
+  useEffect(() => () => onListing(null), [onListing]);
 
   let body: React.ReactNode;
   if (read.error) {
@@ -213,14 +244,14 @@ const SyncRemovalSweep: React.FC<{ runId: string; org: string }> = ({ runId, org
         {t('runRemoval.sweep.error', { org, reason: read.error })}
       </p>
     );
-  } else if (!read.data || read.data.runId !== runId) {
+  } else if (!listing) {
     body = (
       <p data-testid="sync-sweep-loading" className="text-text-secondary">
         {t('runRemoval.sweep.loading', { org })}
       </p>
     );
   } else {
-    body = <ForgeSweepListingView listing={read.data.listing} />;
+    body = <ForgeSweepListingView listing={listing} ticks={ticks} onTicksChange={onTicksChange} />;
   }
   return (
     <section
@@ -338,6 +369,35 @@ function descriptionKey(kept: SyncRunRemovalInfo, kind: RemovalKind): string {
   return 'runRemoval.sync.removeDescriptionCreated';
 }
 
+/**
+ * What the confirmation's button says: the act and its size. A run that
+ * created nothing deletes nothing, and one that wrote over or deleted records
+ * as well as created some does more than remove: "Remove 3 records" would say
+ * less than it does.
+ */
+function confirmLabelOf(
+  t: TFunction,
+  removing: ReadonlyArray<{ objectApiName: string; count: number }>,
+  putBack: ReadonlyArray<{ count: number }>,
+  bringBack: ReadonlyArray<{ count: number }>,
+  sweep: boolean,
+): string {
+  const total = (objects: ReadonlyArray<{ count: number }>): number =>
+    objects.reduce((sum, object) => sum + object.count, 0);
+  const back = total(putBack) + total(bringBack);
+  if (back === 0) return removalConfirmLabel(t, removing, sweep);
+  const count = total(removing) + back;
+  const options = { count, formatted: formatNumber(count) };
+  if (sweep) return t('runRemoval.sync.confirmTakeBackSweep', options);
+  if (removing.length > 0 || (putBack.length > 0 && bringBack.length > 0)) {
+    return t('runRemoval.sync.confirmTakeBack', options);
+  }
+  return t(
+    putBack.length > 0 ? 'runRemoval.sync.confirmGiveBack' : 'runRemoval.sync.confirmBringBack',
+    options,
+  );
+}
+
 /** Props for {@link SyncRunRemoval}. */
 export interface SyncRunRemovalProps {
   /** The run, by the id its creations are kept under (`SyncRunCreated.runId`). */
@@ -379,7 +439,9 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId, r
   const orgs = useOrgStore((s) => s.orgs);
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
-  const [sweep, setSweep] = useState(false);
+  const { sweep, setSweep, ticks, setTicks, asked } = useRemovalSweep();
+  /** What the sweep's list says, while it is shown: what fires as its records go is read with the run's. */
+  const [sweepListing, setSweepListing] = useState<ForgeSweepListing | null>(null);
   /** The confirmation's box: the removal mutes what it fires, through the target's own bypass. */
   const [muteAutomation, setMuteAutomation] = useState(false);
   const info = useBridgeQuery<{ info: SyncRunRemovalInfo | null }>(
@@ -483,11 +545,18 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId, r
     removal.mutate({
       runId,
       ...(includeChanged ? { includeChanged: true } : {}),
-      ...(sweep ? { sweep: true } : {}),
+      ...asked,
       ...(again ? { again: true } : {}),
       ...(muteAutomation ? { muteAutomation: true } : {}),
     });
     setConfirming(false);
+  };
+  /** The confirmation again, its sweep ticked by this gesture and its list read. */
+  const askSweep = (): void => {
+    setIncludeChanged(false);
+    setSweep(true);
+    setMuteAutomation(false);
+    setConfirming(true);
   };
   const result = removal.data?.result;
 
@@ -590,7 +659,11 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId, r
           {(result.objects.length > 0 ||
             result.sweep ||
             (!result.restored && !result.undeleted)) && (
-            <ForgeRunRemovalResult result={result} org={org} />
+            <ForgeRunRemovalResult
+              result={result}
+              org={org}
+              {...(offered && !kept.refusal ? { onTakeBackMade: askSweep } : {})}
+            />
           )}
           {result.undeleted && (
             <UndeletedResult
@@ -637,6 +710,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId, r
         title={t(words.removeTitle, { org })}
         description={t(descriptionKey(kept, kind), { org })}
         confirmText={org}
+        confirmLabel={confirmLabelOf(t, removing, putBack, bringBack, sweep)}
       >
         {bringBack.length > 0 && (
           <>
@@ -708,6 +782,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId, r
           org={org}
           targetOrgId={kept.targetOrgId}
           again={again}
+          sweptObjects={sweep && sweepListing ? sweepTakenObjects(sweepListing, ticks) : []}
           mute={{ checked: muteAutomation, onChange: setMuteAutomation }}
         />
         <label className="flex items-center gap-2 mt-2 cursor-pointer">
@@ -729,7 +804,15 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId, r
           />
           {t('runRemoval.removeSweep')}
         </label>
-        {sweep && confirming && <SyncRemovalSweep runId={runId} org={org} />}
+        {sweep && confirming && (
+          <SyncRemovalSweep
+            runId={runId}
+            org={org}
+            ticks={ticks}
+            onTicksChange={setTicks}
+            onListing={setSweepListing}
+          />
+        )}
       </DangerConfirm>
     </section>
   );

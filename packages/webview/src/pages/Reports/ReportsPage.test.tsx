@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
+import de from '../../i18n/locales/de.json';
+import es from '../../i18n/locales/es.json';
+import ptBR from '../../i18n/locales/pt-BR.json';
 import { ReportsPage } from './ReportsPage';
 import type { GeneratedReport, AuditLogEntry, DataLineageGraph } from '@sandforge/shared';
 import type { AnalyticsSummary } from './AnalyticsDashboard';
@@ -126,7 +129,18 @@ describe('ReportsPage', () => {
 
   it('should show page title', () => {
     render(<ReportsPage />);
-    expect(screen.getByText('Reports & Analytics')).toBeDefined();
+    expect(screen.getByText('Reports and analytics')).toBeDefined();
+  });
+
+  it('names the page and its analytics in words of the language, not in calques of the English', () => {
+    // "Berichte & Analysen", "Analíticas", "Analíticos": the English ampersand
+    // and adjectives standing as nouns, where each language says analyses.
+    expect(de.reports.title).toBe('Berichte und Analysen');
+    for (const { reports: strings } of [es, ptBR]) {
+      expect(`${strings.title} ${strings.analytics} ${strings.analyticsUnreadable}`).not.toMatch(
+        /analític/i,
+      );
+    }
   });
 
   it('should show a tab for each producer', () => {
@@ -141,8 +155,8 @@ describe('ReportsPage', () => {
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
       'Executions',
       'Analytics',
-      'Audit Trail',
-      'Data Lineage',
+      'Audit trail',
+      'Data lineage',
     ]);
   });
 
@@ -178,13 +192,13 @@ describe('ReportsPage', () => {
 
   it('should switch to audit tab', () => {
     render(<ReportsPage auditEntries={auditEntries} />);
-    fireEvent.click(screen.getByText('Audit Trail'));
+    fireEvent.click(screen.getByText('Audit trail'));
     expect(screen.getByTestId('audit-trail-viewer')).toBeDefined();
   });
 
   it('should switch to lineage tab', async () => {
     render(<ReportsPage lineageData={lineageData} />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Data Lineage' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Data lineage' }));
     expect(await screen.findByTestId('lineage-graph')).toBeDefined();
   });
 
@@ -241,8 +255,8 @@ describe('ReportsPage', () => {
       render(<ReportsPage auditEntries={auditEntries} lineageData={lineageData} />);
 
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-        'Audit Trail',
-        'Data Lineage',
+        'Audit trail',
+        'Data lineage',
       ]);
       expect(screen.getByTestId('audit-trail-viewer')).toBeDefined();
     });
@@ -267,14 +281,14 @@ describe('ReportsPage', () => {
       render(<ReportsPage auditLoading lineageLoading />);
 
       expect(screen.getByTestId('reports-audit-loading')).toBeDefined();
-      fireEvent.click(screen.getByRole('tab', { name: 'Data Lineage' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Data lineage' }));
       expect(screen.getByTestId('reports-lineage-loading')).toBeDefined();
     });
 
     it('keeps the tab of a read that failed, to say why', () => {
       render(<ReportsPage auditError="timed out" />);
 
-      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Audit Trail']);
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Audit trail']);
       expect(screen.getByTestId('reports-audit-error').textContent).toContain('timed out');
     });
   });
@@ -296,7 +310,7 @@ describe('ReportsPage', () => {
       const { unmount } = render(
         <ReportsPage auditEntries={[]} auditTotal={0} auditFacets={{ modules: [], orgs: [] }} />,
       );
-      fireEvent.click(screen.getByText('Audit Trail'));
+      fireEvent.click(screen.getByText('Audit trail'));
       expect(screen.getByTestId('reports-audit-empty')).toBeDefined();
       unmount();
 
@@ -309,7 +323,7 @@ describe('ReportsPage', () => {
           onAuditFilterChange={vi.fn()}
         />,
       );
-      fireEvent.click(screen.getByText('Audit Trail'));
+      fireEvent.click(screen.getByText('Audit trail'));
       expect(screen.queryByTestId('reports-audit-empty')).toBeNull();
       expect(screen.getByTestId('audit-filters')).toBeDefined();
       expect(screen.getByText('No audit entries')).toBeDefined();
@@ -329,12 +343,12 @@ describe('ReportsPage', () => {
           onSelectLineageRun={onSelectLineageRun}
         />,
       );
-      fireEvent.click(screen.getByRole('tab', { name: 'Audit Trail' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Audit trail' }));
 
       fireEvent.click(screen.getByTestId('audit-view-run-aud-op-0'));
 
       expect(onSelectLineageRun).toHaveBeenCalledWith('op-0');
-      expect(screen.getByRole('tab', { name: 'Data Lineage' }).getAttribute('aria-selected')).toBe(
+      expect(screen.getByRole('tab', { name: 'Data lineage' }).getAttribute('aria-selected')).toBe(
         'true',
       );
       expect(await screen.findByTestId('mock-reactflow')).toBeDefined();
@@ -355,7 +369,7 @@ describe('ReportsPage', () => {
           onSelectLineageRun={onSelectLineageRun}
         />,
       );
-      fireEvent.click(screen.getByRole('tab', { name: 'Data Lineage' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Data lineage' }));
       expect(screen.queryByTestId('lineage-run')).toBeNull();
       unmount();
 
@@ -366,10 +380,10 @@ describe('ReportsPage', () => {
           onSelectLineageRun={onSelectLineageRun}
         />,
       );
-      fireEvent.click(screen.getByRole('tab', { name: 'Data Lineage' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Data lineage' }));
       // Each run is named by what it was, where it wrote and when.
       expect(
-        screen.getAllByRole('option', { name: 'Forge Clone · target-sandbox · 2026-02-20 10:00' }),
+        screen.getAllByRole('option', { name: 'Forge clone · target-sandbox · 2026-02-20 10:00' }),
       ).toHaveLength(2);
       fireEvent.change(screen.getByTestId('lineage-run'), { target: { value: 'op-0' } });
       expect(onSelectLineageRun).toHaveBeenCalledWith('op-0');
@@ -386,7 +400,7 @@ describe('ReportsPage', () => {
           onSelectLineageRun={vi.fn()}
         />,
       );
-      fireEvent.click(screen.getByRole('tab', { name: 'Data Lineage' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Data lineage' }));
 
       expect(
         screen.getByRole('option', { name: 'Frozen Dataset · 2026-02-20 10:00' }),

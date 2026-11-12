@@ -156,6 +156,43 @@ describe('a seed from the command line', () => {
     expect(summary.result.objectResults[0].recordsCreated).toBe(250);
   });
 
+  /** The file a run named on stderr, as it reads back. */
+  const runFile = () => {
+    const file = /run file: (\S+)/.exec(stderr.join(''))?.[1];
+    return readRunFile(readFileSync(file ?? '', 'utf8'));
+  };
+
+  it('keeps in its file the user the org says it writes as, for the sweep of its removal', async () => {
+    const org = fakeOrg();
+    const user = '005000000000007AAA';
+    Object.assign(org.conn, { identity: async () => ({ user_id: user }) });
+
+    await main(argv(2, '--json'));
+
+    expect(runFile()?.runUserId).toBe(user);
+  });
+
+  it('ends without an answer from an org that does not say who the session is', async () => {
+    const org = fakeOrg();
+    Object.assign(org.conn, { identity: () => new Promise(() => undefined) });
+
+    // Not the 15 seconds the read is given: this test's five would end first.
+    await main(argv(2, '--json'));
+
+    expect(runFile()).toMatchObject({ end: { status: 'success' } });
+    expect(runFile()?.runUserId).toBeUndefined();
+  });
+
+  it('asks a dry run’s org nothing of who the session is: nothing is written to hold it to', async () => {
+    const org = fakeOrg();
+    const identity = vi.fn(async () => ({ user_id: '005000000000007AAA' }));
+    Object.assign(org.conn, { identity });
+
+    await main(argv(2, '--dry-run', '--json'));
+
+    expect(identity).not.toHaveBeenCalled();
+  });
+
   it('writes 200 records or fewer through REST, --batch-size a call', async () => {
     const org = fakeOrg();
 
@@ -310,6 +347,22 @@ describe('a seed from the command line', () => {
     // Nothing the org runs can be muted: said so, and nothing assigned.
     expect(summary.mutedAutomation).toMatchObject({ state: 'nothing' });
     expect(summary.mutePlan).toEqual({ assign: [], silenced: [], stillRuns: [] });
+    expect(org.restCalls).toEqual([]);
+  });
+
+  it('gives in a dry run’s --json summary, under wouldBeRefused, the mute a real run would be refused', async () => {
+    // Said on stderr alone: the summary showed no refusal, exit 0, and the
+    // real run with the same flags exited 1.
+    const org = fakeOrg(undefined, { IsSandbox: false, OrganizationType: 'Enterprise Edition' });
+
+    await main(argv(2, '--dry-run', '--json', '--mute-automation'));
+
+    const summary = JSON.parse(stdout.join('')) as { wouldBeRefused?: string[] };
+    expect(summary.wouldBeRefused).toEqual([
+      'The target is a production org: its automation is never muted there, whatever the ' +
+        'setting says. Nothing was assigned; run without the option.',
+    ]);
+    expect(process.exitCode).toBeUndefined();
     expect(org.restCalls).toEqual([]);
   });
 

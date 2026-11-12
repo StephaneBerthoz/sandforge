@@ -5,7 +5,7 @@
  */
 
 import type { ForgeContactPointsReport } from './forge.types.js';
-import type { RunCheckpointRequest } from './checkpoint.types.js';
+import type { RunCheckpointInfo, RunCheckpointRequest } from './checkpoint.types.js';
 
 /**
  * Configuration for a single object to clone.
@@ -32,8 +32,8 @@ export interface CloneConfig {
   /**
    * Write the email addresses and phone numbers as the source holds them.
    * Absent or false, every address goes in under `.invalid` and every phone
-   * number as a fictional one, as Forge, Sync and Autopilot write them: the
-   * target's flows and email alerts then reach no one.
+   * number as a fictional one, as Forge, Sync and Autopilot write them: what
+   * the target's flows and email alerts send to them then reaches no one.
    */
   keepContactPoints?: boolean;
   /**
@@ -61,6 +61,13 @@ export interface CloneObjectResult {
    * inserted nor failed. Optional for results produced before it existed.
    */
   linkedCount?: number;
+  /**
+   * Of `linkedCount`, the contact roles linked to the one the platform wrote
+   * itself as it took an opportunity the clone created, for the contact the
+   * opportunity went in with, and given the source's fields. Absent when
+   * there were none.
+   */
+  writtenByThePlatform?: number;
   /**
    * Records found and never sent: the platform writes them itself and refuses
    * one from a copy — a tracked change — or they cannot go in without one it
@@ -171,6 +178,12 @@ export interface CloneExecutionResult {
    * Set when it created a record; a record it linked to was the target's.
    */
   runId?: string;
+  /**
+   * The checkpoint of what the clone writes, when it was asked to take one
+   * before its first write (`checkpointFirst`): taken, or deleted as it wrote
+   * nothing.
+   */
+  checkpoint?: RunCheckpointInfo;
 }
 
 /**

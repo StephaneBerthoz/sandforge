@@ -32,19 +32,25 @@ import type { RewindDiff } from '@sandforge/shared';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import type { MemoryChild } from '../../test/memoryRemovalOrg.js';
 import {
+  CHILDREN as TEST_CHILDREN,
   COLLEAGUE,
+  FIELDS as TEST_FIELDS,
+  PICKED,
   PREVIEWED,
   REWOUND,
   SINCE,
   STAMP_FIELDS,
   T0,
   RewindTestOrg,
+  account,
   automationOf,
+  baseRecords,
   clock,
   id,
   removeTaken,
   request,
   resultOf,
+  rewound,
   spent,
   taken,
   writable,
@@ -348,6 +354,134 @@ describe('what a rewind sends against its estimate, on the org of gate G-D2', ()
 
       expectRewound(t, result);
       expect(result.apiRequests.used).toBe(spent(t.org) - asked + AUTOMATION_REQUESTS);
+      expect(result.apiRequests.used).toBe(preview.estimate.apiRequests);
+    },
+    paced(60_000),
+  );
+});
+
+describe('what a rewind that makes an activated order again sends against its estimate, on the order of gate GC4 P4', () => {
+  /** Requests the read of the org's automation took, as the gate's dry run counted them. */
+  const ORDER_AUTOMATION_REQUESTS = 13;
+
+  /**
+   * An order's fields, its activation among them as the checkpoint of an
+   * activated order of a C1 org held it: a field the org stamps as the order
+   * is activated, which a record made again does not get from its insert.
+   */
+  const orderFields = (activation: boolean): Record<string, unknown[]> => ({
+    ...TEST_FIELDS,
+    Order: [
+      ...STAMP_FIELDS,
+      writable('Status'),
+      writable('Description'),
+      writable('AccountId', 'reference', { referenceTo: ['Account'] }),
+      ...(activation ? [writable('ActivatedDate', 'datetime', { createable: false })] : []),
+    ],
+    OrderItem: [
+      ...STAMP_FIELDS,
+      writable('Quantity', 'double'),
+      writable('OrderId', 'reference', { referenceTo: ['Order'], updateable: false }),
+    ],
+  });
+  const ORDER_CHILDREN = {
+    ...TEST_CHILDREN,
+    Order: [{ childSObject: 'OrderItem', field: 'OrderId', cascadeDelete: true }],
+  };
+
+  /**
+   * GC4, gate 3: an activated order with a product, set back to Draft since,
+   * deleted with its product, then emptied from the recycle bin; the
+   * preview read as the command line reads it, for the rewind it runs from it.
+   */
+  async function purged(activation: boolean): Promise<{
+    t: Taken;
+    preview: { diff: RewindDiff; estimate: { apiRequests: number } };
+  }> {
+    const t = await taken(
+      (org) => {
+        baseRecords(org);
+        org.add('OrderStatus', { Id: 'status-1', ApiName: 'Draft', StatusCode: 'Draft' });
+        org.add('OrderStatus', { Id: 'status-2', ApiName: 'Activated', StatusCode: 'Activated' });
+        org.add('Order', {
+          Id: id('801', 1),
+          Status: 'Activated',
+          Description: 'Signed',
+          AccountId: account(1),
+          ...(activation ? { ActivatedDate: '2026-11-05T22:30:00.000+0000' } : {}),
+        });
+        org.add('OrderItem', { Id: id('802', 1), Quantity: 1, OrderId: id('801', 1) });
+      },
+      new RewindTestOrg({ fields: orderFields(activation), children: ORDER_CHILDREN }),
+      [...PICKED, 'Order', 'OrderItem'],
+    );
+    clock.now = SINCE;
+    t.org.edit('Order', id('801', 1), { Status: 'Draft' }, COLLEAGUE);
+    clock.now = SINCE + 5_000;
+    t.org.trash('Order', id('801', 1), COLLEAGUE);
+    t.org.purge(id('801', 1));
+    clock.now = PREVIEWED;
+    const preview = await previewCheckpoint(
+      {
+        org: t.org,
+        store: t.store,
+        readAutomation: automationOf({ requests: ORDER_AUTOMATION_REQUESTS }),
+      },
+      { ...request(t), reusesPreview: true },
+    );
+    if (!preview.previewed) throw new Error(preview.refusal.message);
+    return { t, preview };
+  }
+
+  /** The rewind the command line runs from that preview, told it may make records again. */
+  async function remade(t: Taken, diff: RewindDiff): Promise<ReturnType<typeof resultOf>> {
+    return resultOf(
+      await rewound(t, diff.previewId, {
+        deps: { readAutomation: automationOf({ requests: ORDER_AUTOMATION_REQUESTS }) },
+        request: { acceptRecreate: true, reusesPreview: diff },
+      }),
+    );
+  }
+
+  it(
+    'counts the second pass that gives the order made again back the activation the org stamped anew, and the read that names who did: live, 48 requests went for 33 estimated (GC4-C3)',
+    async () => {
+      const { t, preview } = await purged(true);
+      expect(
+        preview.diff.objects
+          .filter(({ objectApiName }) => objectApiName.startsWith('Order'))
+          .map(({ objectApiName, toRecreate }) => [objectApiName, toRecreate]),
+      ).toEqual([
+        ['OrderItem', 1],
+        ['Order', 1],
+      ]);
+      const asked = spent(t.org);
+
+      const result = await remade(t, preview.diff);
+
+      expect(result.status).toBe('success');
+      expect(result.passes).toBe(2);
+      expect(result.restored).toEqual([
+        expect.objectContaining({ objectApiName: 'Order', planned: 1, restored: 1 }),
+      ]);
+      // Counted as the org counts them, the automation read through the host's own reader.
+      expect(result.apiRequests.used).toBe(spent(t.org) - asked + ORDER_AUTOMATION_REQUESTS);
+      expect(result.apiRequests.used).toBe(preview.estimate.apiRequests);
+    },
+    paced(60_000),
+  );
+
+  it(
+    'counts no second pass for an order whose checkpoint holds no activation: made again in one pass, as estimated',
+    async () => {
+      const { t, preview } = await purged(false);
+      const asked = spent(t.org);
+
+      const result = await remade(t, preview.diff);
+
+      expect(result.status).toBe('success');
+      expect(result.passes).toBe(1);
+      expect(result.apiRequests.used).toBe(spent(t.org) - asked + ORDER_AUTOMATION_REQUESTS);
       expect(result.apiRequests.used).toBe(preview.estimate.apiRequests);
     },
     paced(60_000),

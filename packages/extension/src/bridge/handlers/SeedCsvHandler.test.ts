@@ -120,6 +120,16 @@ function posted(deps: HandlerDeps, type: string): Array<BaseMessage & { payload:
     .filter((msg) => msg.type === type);
 }
 
+/** A target nothing fires on as the rows go in: nothing is asked about emails. */
+const nothingFires = async (_orgId: string, objects: readonly string[]) => ({
+  objectsRead: [...objects],
+  objects: [],
+  unread: [],
+  conditionsNotRead: 0,
+  conditionsBound: 25,
+  requests: 1,
+});
+
 describe('SeedCsvHandler', () => {
   let deps: HandlerDeps;
   let handler: SeedCsvHandler;
@@ -128,6 +138,7 @@ describe('SeedCsvHandler', () => {
     vi.clearAllMocks();
     deps = createMockDeps();
     handler = new SeedCsvHandler(deps);
+    handler.setTargetAutomation({ read: nothingFires });
 
     mockGetConn.mockResolvedValue({
       describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Name', type: 'string' }] }),
@@ -692,6 +703,7 @@ describe('SeedCsvHandler', () => {
         throw new Error('bulk write exploded');
       });
       const failing = new SeedCsvHandler(deps);
+      failing.setTargetAutomation({ read: nothingFires });
       failing.setRunCreations(runs);
       await failing.handle(
         inboundRequest({
@@ -724,6 +736,19 @@ describe('SeedCsvHandler', () => {
     });
     afterEach(() => {
       tracker.dispose();
+    });
+
+    it('lists an import the org refused a row of as partial', async () => {
+      writer.insert.mockResolvedValue([
+        { id: '001TGT1', success: true, errors: [] },
+        { id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] },
+      ]);
+
+      await handler.handle(
+        buildMsg('seed:csv:execute', csvPayload({ records: [{ name: 'Acme' }, { name: 'Beta' }] })),
+      );
+
+      expect(tracker.get(OPERATION_ID)?.status).toBe('partial');
     });
 
     it('lists an import while it runs, with its rows, under the id its Cancel reaches it by', async () => {

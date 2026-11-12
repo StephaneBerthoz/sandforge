@@ -225,6 +225,82 @@ describe('ReviewGapsTab', () => {
       expect(within(item(rule)).queryByTestId('bypass-assistant-command')).toBeNull();
     });
 
+    describe('a rule the mute lifts', () => {
+      // On the trap org's shape, the set the mute assigns for a flow grants
+      // the permission Email_Required tests as well: the contacts it refuses
+      // go in whole. The clone's lines said the mute lifts it; the tab said
+      // the rule may refuse them, the field left empty, and the command that
+      // assigns the set.
+      const RULE: ForgeGap = {
+        id: forgeGapId('validation_rule', 'Contact', 'Email', undefined, 'Email_Required'),
+        kind: 'validation_rule',
+        severity: 'warning',
+        source: 'metadata',
+        objectApiName: 'Contact',
+        field: 'Email',
+        value: 'Email_Required',
+        rows: 0,
+        detail: {
+          rule: 'Email_Required',
+          bypasses: ['$Permission.Skip_Rules'],
+          assign: ['Skip_Rules=Data_Load'],
+        },
+        decisions: ['leave_empty', 'ignore'],
+        defaultDecision: 'leave_empty',
+      };
+      const LIFTS = {
+        objectApiName: 'Contact',
+        kind: 'validationRule' as const,
+        name: 'Email_Required',
+        permission: 'Skip_Rules',
+        permissionSet: 'Data_Load',
+      };
+      const TARGET = { alias: 'TGT', username: 'loader@example.com' };
+
+      it('says the mute lifts it in the words of the command line, among the gaps that refuse nothing', () => {
+        act(() => useForgeStore.getState().setGaps('metadata', [RULE]));
+        render(<ReviewGapsTab target={TARGET} lifted={[LIFTS]} />);
+        const gap = item(RULE);
+
+        expect(within(gap).getByTestId('gap-lifted').textContent).toBe(
+          'The mute lifts it (Skip_Rules, in Data_Load).',
+        );
+        // Its rows go in whole, and the mute assigns the set for the run.
+        expect(within(gap).queryByTestId('gap-default')).toBeNull();
+        expect(within(gap).queryByTestId('bypass-assistant')).toBeNull();
+        expect(
+          within(screen.getByTestId('gaps-severity-info')).getByTestId(`gap-${RULE.id}`),
+        ).toBeTruthy();
+        expect(
+          within(screen.getByTestId('gaps-severity-warning')).queryByTestId(`gap-${RULE.id}`),
+        ).toBeNull();
+      });
+
+      it('says nothing of the mute for a rule it does not lift, nor once it is not ticked', () => {
+        act(() => useForgeStore.getState().setGaps('metadata', [RULE]));
+        const { rerender } = render(
+          <ReviewGapsTab target={TARGET} lifted={[{ ...LIFTS, name: 'Phone_Format' }]} />,
+        );
+        const said = (): void => {
+          const gap = item(RULE);
+          expect(within(gap).queryByTestId('gap-lifted')).toBeNull();
+          expect(within(gap).getByTestId('gap-default').textContent).toBe(
+            'If nothing is decided: the field is left empty.',
+          );
+          expect(within(gap).getByTestId('bypass-assistant-command').textContent).toBe(
+            'sf org assign permset --name Data_Load --target-org TGT --on-behalf-of loader@example.com',
+          );
+          expect(
+            within(screen.getByTestId('gaps-severity-warning')).getByTestId(`gap-${RULE.id}`),
+          ).toBeTruthy();
+        };
+        said();
+
+        rerender(<ReviewGapsTab target={TARGET} />);
+        said();
+      });
+    });
+
     describe('reading the target again', () => {
       // The tab showed what Review read as it opened: a bypass assigned with
       // the command it copied showed as not held until Review opened again.
@@ -333,6 +409,116 @@ describe('ReviewGapsTab', () => {
       ).toBeTruthy();
       fireEvent.click(within(item(closed)).getByTestId('gap-exclude-object'));
       expect(useForgeStore.getState().config?.excludedObjects).toEqual(['Case']);
+    });
+
+    it('asks again of a package’s record type a decision kept under the bare name of the org’s own, which has no gap', () => {
+      // The simulation says the source's own Retail carries the package's
+      // name too: the run takes an ignore kept before namespaces under the
+      // bare name for the org's own. The tab said the package's gap "left as
+      // it is" and Execute no longer asked.
+      const unmapped: ForgeGap = {
+        id: forgeGapId('record_type_unmapped', 'Case', 'RecordTypeId', undefined, 'ns__Retail'),
+        kind: 'record_type_unmapped',
+        severity: 'blocking',
+        source: 'simulation',
+        objectApiName: 'Case',
+        field: 'RecordTypeId',
+        value: 'ns__Retail',
+        rows: 1,
+        detail: { mapTo: ['Claim', 'Retail'], sameDeveloperName: ['Retail'] },
+        decisions: ['map_record_type', 'exclude_object', 'ignore'],
+      };
+      const old = forgeGapId('record_type_unmapped', 'Case', 'RecordTypeId', undefined, 'Retail');
+      act(() => {
+        useForgeStore.getState().setConfig({ ...CONFIG, ignoredGaps: [old] });
+        useForgeStore.getState().setGaps('metadata', []);
+        useForgeStore.getState().setGaps('simulation', [unmapped]);
+      });
+      render(<ReviewGapsTab />);
+      const gap = item(unmapped);
+
+      expect(within(gap).queryByTestId('gap-decided')).toBeNull();
+      expect(within(gap).getByTestId('gap-decisions')).toBeTruthy();
+      expect(renderHook(() => useUndecidedBlockingGaps()).result.current).toBe(1);
+      // What the run read of the source's record types decides; it is no
+      // detail of the gap the reader is given under a name of the code.
+      expect(within(gap).getByTestId('gap-detail').textContent).toBe(
+        'Target record typesClaim, Retail',
+      );
+    });
+
+    it('says an object no user can create the platform’s, asked of nobody before Execute', () => {
+      // A calendar the clone reached was said blocking, the admin asked to
+      // grant a Create no user can be granted.
+      const platform: ForgeGap = {
+        id: forgeGapId('object_platform_only', 'Calendar'),
+        kind: 'object_platform_only',
+        severity: 'info',
+        source: 'metadata',
+        objectApiName: 'Calendar',
+        rows: 0,
+        decisions: ['exclude_object'],
+      };
+      act(() => {
+        useForgeStore.getState().setGaps('metadata', [platform]);
+        useForgeStore.getState().setGaps('simulation', []);
+      });
+      render(<ReviewGapsTab />);
+
+      expect(
+        within(item(platform)).getByText(
+          'Object no user can create in the target: the platform writes its records, Execute skips it',
+        ),
+      ).toBeTruthy();
+      expect(renderHook(() => useUndecidedBlockingGaps()).result.current).toBe(0);
+    });
+
+    it('says a report no user can create left out without asking anything, and asks Edit on the opportunity for its products', () => {
+      // The dry run of a clone said Report BLOCKING and asked to tick Create
+      // on it, and on an opportunity's products, which no Object Settings
+      // page holds.
+      const setup: ForgeGap = {
+        id: forgeGapId('object_setup_only', 'Report'),
+        kind: 'object_setup_only',
+        severity: 'info',
+        source: 'metadata',
+        objectApiName: 'Report',
+        rows: 0,
+        decisions: ['exclude_object'],
+      };
+      const products: ForgeGap = {
+        id: forgeGapId('object_through_parent', 'OpportunityLineItem'),
+        kind: 'object_through_parent',
+        severity: 'blocking',
+        source: 'metadata',
+        objectApiName: 'OpportunityLineItem',
+        rows: 0,
+        detail: { editOn: ['Opportunity'] },
+        decisions: ['exclude_object'],
+      };
+      act(() => {
+        useForgeStore.getState().setGaps('metadata', [setup, products]);
+        useForgeStore.getState().setGaps('simulation', []);
+      });
+      render(<ReviewGapsTab />);
+
+      expect(
+        within(item(setup)).getByText(
+          "Object no user can create in the target, not even with Modify All Data: setup or the platform's own, Execute skips it",
+        ),
+      ).toBeTruthy();
+      expect(within(item(products)).getByTestId('gap-detail').textContent).toBe(
+        'Edit needed onOpportunity',
+      );
+      const admin = screen.getByTestId('gaps-admin-text').textContent ?? '';
+      expect(admin).toContain(
+        'Give the user SandForge writes as Read and Edit on Opportunity, which ' +
+          'OpportunityLineItem hangs from (Setup > their profile or a permission set > Object ' +
+          'Settings > Opportunity).',
+      );
+      expect(admin).not.toContain('Create on');
+      expect(admin).not.toContain('Report');
+      expect(renderHook(() => useUndecidedBlockingGaps()).result.current).toBe(1);
     });
 
     it('maps a refused value in one pick, shows it chosen, and takes it back', () => {
@@ -554,6 +740,23 @@ describe('ReviewGapsTab', () => {
       expect(within(admin).getByTestId('gaps-admin-copied').textContent).toBe('Copied');
     });
 
+    it('asks for the package of a record type only its package can bring', () => {
+      useForgeStore.getState().setGaps('simulation', [
+        {
+          ...UNMAPPED,
+          id: forgeGapId('record_type_unmapped', 'Case', undefined, undefined, 'ns__Retail'),
+          value: 'ns__Retail',
+        },
+      ]);
+      render(<ReviewGapsTab />);
+
+      const list = screen.getByTestId('gaps-admin').textContent;
+      expect(list).toContain(
+        'Install or upgrade the package with namespace ns in the target: record type ns__Retail comes with it, and Setup cannot create it.',
+      );
+      expect(list).not.toContain('Create record type');
+    });
+
     it('is absent when no gap asks a change of the target, or its object is left out', () => {
       useForgeStore.getState().setGaps('simulation', [TOO_LONG]);
       const { unmount } = render(<ReviewGapsTab />);
@@ -570,5 +773,65 @@ describe('ReviewGapsTab', () => {
   it('offers to save the run as a template from Review', () => {
     render(<ReviewGapsTab />);
     expect(screen.getByTestId('review-save-template-open')).toBeTruthy();
+  });
+
+  describe('held to what it must show first', () => {
+    // Opened on a single gap, the row was 420 pixels high: Plan to
+    // Automation went under the fold of a 1280 by 800 panel.
+    const follows = (a: Element, b: Element): boolean =>
+      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+    it('shows the gap and its decision before the list for the admin and the template', () => {
+      useForgeStore.getState().setGaps('metadata', [REQUIRED]);
+      render(<ReviewGapsTab />);
+
+      const gap = item(REQUIRED);
+      const decision = within(gap).getByTestId('gap-decisions');
+      const tools = screen.getByTestId('gaps-tools');
+      expect(follows(decision, tools)).toBe(true);
+      expect(tools.contains(screen.getByTestId('gaps-admin'))).toBe(true);
+      expect(tools.contains(screen.getByTestId('review-save-template-open'))).toBe(true);
+      // Which read found it is said on the gap's line, not over the list too.
+      expect(within(gap).getByTestId('gap-source').textContent).toBe(
+        "Read from the target's metadata",
+      );
+      expect(screen.queryByTestId('gaps-read')).toBeNull();
+    });
+
+    it('folds the list for the admin and what it is for, its copy at hand', () => {
+      useForgeStore.getState().setGaps('metadata', [REQUIRED]);
+      render(<ReviewGapsTab />);
+
+      const list = screen.getByTestId('gaps-admin-list') as HTMLDetailsElement;
+      expect(list.tagName).toBe('DETAILS');
+      expect(list.open).toBe(false);
+      expect(list.querySelector('summary')?.textContent).toBe(
+        "For the target's admin Show the change",
+      );
+      expect(list.contains(screen.getByTestId('gaps-admin-text'))).toBe(true);
+      expect(list.textContent).toContain('SandForge changes none of it');
+      expect(list.contains(screen.getByTestId('gaps-admin-copy'))).toBe(false);
+    });
+
+    it('keeps the gravest group open and folds the others under their heading, counted', () => {
+      useForgeStore.getState().setGaps('metadata', [REQUIRED]);
+      useForgeStore.getState().setGaps('simulation', [TOO_LONG]);
+      render(<ReviewGapsTab />);
+
+      expect(screen.queryByTestId('gaps-severity-blocking-more')).toBeNull();
+      const warnings = screen.getByTestId('gaps-severity-warning-more') as HTMLDetailsElement;
+      expect(warnings.open).toBe(false);
+      expect(warnings.querySelector('summary')?.textContent).toBe('May refuse or change rows (1)');
+      expect(warnings.contains(item(TOO_LONG))).toBe(true);
+      expect(follows(item(REQUIRED), warnings)).toBe(true);
+    });
+
+    it('opens a lesser group when nothing graver is left', () => {
+      useForgeStore.getState().setGaps('simulation', [TOO_LONG]);
+      render(<ReviewGapsTab />);
+
+      expect(screen.queryByTestId('gaps-severity-warning-more')).toBeNull();
+      expect(screen.getByTestId('gaps-severity-warning').contains(item(TOO_LONG))).toBe(true);
+    });
   });
 });

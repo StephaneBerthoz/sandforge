@@ -12,8 +12,26 @@ import {
   formatStoredDate,
   collator,
   dateTimeFormat,
+  roundedUpMegabytes,
+  shareRoundedDown,
   uiLocale,
 } from './formatters';
+
+describe('roundedUpMegabytes', () => {
+  it('rounds up, to two decimals under 10 MB and one above', () => {
+    expect(roundedUpMegabytes(2.991, 'en-US')).toBe('3');
+    expect(roundedUpMegabytes(0.211, 'en-US')).toBe('0.22');
+    expect(roundedUpMegabytes(12.31, 'en-US')).toBe('12.4');
+    expect(roundedUpMegabytes(0, 'en-US')).toBe('0');
+  });
+});
+
+describe('shareRoundedDown', () => {
+  it('never says more was kept than was', () => {
+    expect(shareRoundedDown(0.2029, 'en-US')).toBe('20.2%');
+    expect(shareRoundedDown(0.9999, 'en-US')).toBe('99.9%');
+  });
+});
 
 describe('formatStoredDate', () => {
   it('writes a stored date with a date-fns pattern', () => {

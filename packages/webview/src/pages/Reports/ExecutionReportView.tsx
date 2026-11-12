@@ -15,14 +15,6 @@ export interface ExecutionReportViewProps {
   className?: string;
 }
 
-/** Formats a report type into a human-readable label. */
-function formatReportType(type: string): string {
-  return type
-    .split('_')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
-}
-
 /** View for displaying execution reports with detail panel. */
 export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
   reports,
@@ -57,7 +49,7 @@ export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
                         </span>
                         <span className="text-[10px] text-text-secondary">{report.summary}</span>
                       </div>
-                      <Badge variant="info">{formatReportType(report.type)}</Badge>
+                      <Badge variant="info">{t(`reports.reportTypes.${report.type}`)}</Badge>
                     </div>
                   </CardBody>
                 </Card>

@@ -707,6 +707,13 @@ export interface SyncObjectResult {
    */
   alreadyCopied?: number;
   /**
+   * Of the records an insert of a saved configuration read, those an earlier
+   * run of it linked to a record the target held, which no run created: left
+   * as they are, counted among `skipped`, apart from `alreadyCopied`. Absent
+   * when none.
+   */
+  alreadyLinked?: number;
+  /**
    * The records the target refused as a duplicate of one it holds, naming
    * it, and that the run linked to that record rather than writing: counted
    * among `skipped`, neither written nor failed. Said apart from `errors`,
@@ -714,6 +721,14 @@ export interface SyncObjectResult {
    * refusals, in red under a run that had succeeded. Absent when none.
    */
   linkedToExisting?: SyncLinkedToExisting;
+  /**
+   * The contact roles linked to the one the platform wrote itself as it took
+   * an opportunity the run created, for the contact the opportunity went in
+   * with, rather than written beside it: counted among `skipped`, how many
+   * an update gave the source's fields they lacked, and what the target
+   * answered an update it refused. Absent when none.
+   */
+  writtenByThePlatform?: { records: number; given: number; refusal?: string };
   /**
    * The records written without lookups they held from the source, and why.
    * Written, so said apart from `errors` too. Absent when none.
@@ -850,10 +865,12 @@ export interface SyncEncryptedFieldsMasked {
  * Why a target takes no record of an object as a run writes it: it has not
  * the object, or the user the run writes as cannot see it (its describe
  * answers NOT_FOUND alike); that user may not create its records, for an
- * insert or an upsert, or edit them, for an update or an upsert; or its
- * describe failed.
+ * insert or an upsert, or edit them, for an update or an upsert; its
+ * describe failed; or the field an upsert matches on is neither an External
+ * ID nor one its describe marks `idLookup`, which every record is refused for.
  */
-export type SyncUnwritableReason = 'notInTarget' | 'notCreateable' | 'notUpdateable' | 'unread';
+export type SyncUnwritableReason =
+  'notInTarget' | 'notCreateable' | 'notUpdateable' | 'unread' | 'notAKey';
 
 /**
  * What a run is held to before its first write, as the run and a simulation
@@ -865,9 +882,19 @@ export type SyncUnwritableReason = 'notInTarget' | 'notCreateable' | 'notUpdatea
 export interface SyncWriteCheck {
   /** Records the run writes, per object, the most first. */
   objects: Array<{ objectApiName: ApiName; rows: number }>;
+  /**
+   * The records of `objects`, which a run is measured by. Of a simulation
+   * that finds the run would write none of them, 0: nothing to write,
+   * `notWritten` saying how many it counted.
+   */
   total: number;
   /** Of the records read, those an earlier run of the configuration copied, left as they are. */
   alreadyCopied: number;
+  /**
+   * Of the records read, those an earlier run of the configuration linked to
+   * a record the target held, left as they are. Absent when none.
+   */
+  alreadyLinked?: number;
   /**
    * Of `total`, the records an update or an upsert writes, which may each
    * write over a record the target holds — every one an update writes, at
@@ -875,8 +902,34 @@ export interface SyncWriteCheck {
    * kept first, and removing the run puts them back. Absent when none.
    */
   overwrites?: number;
+  /**
+   * Of `total`, the contact roles the platform may write itself as it takes
+   * the opportunities the run creates, for the contact each goes in with,
+   * which the run links to and does not send: at most, as a count of the
+   * source says them, where the gate could not tell them from the rows
+   * (`rolesLinked`). Counted in all the same. Absent when none.
+   */
+  rolesByThePlatform?: number;
+  /**
+   * The contact roles the run links to the one the platform writes itself as
+   * it takes an opportunity the run creates, for the contact it goes in
+   * with, and does not send: told from the rows the run writes — of a
+   * simulation, as its reading found them. Not in `objects` nor `total`.
+   * Counted in, the gate of one opportunity's sync said 4 records to write
+   * of a run that wrote 3 and linked its role. Absent when none.
+   */
+  rolesLinked?: number;
   /** The `sandforge.safety.confirmAboveRecords` value `total` is past; absent when it is not. */
   aboveRecords?: number;
+  /**
+   * Of a simulation, of the records of `objects`: what the run counts from
+   * the source that the simulation found it would not write, held back or
+   * refused, as each object's line says. A run is measured by what it
+   * counts, so a simulation is too: what it writes is `total` less these, and
+   * none when `total` is 0, every record it counted being among these.
+   * Absent when none, and of a run.
+   */
+  notWritten?: number;
   /** The data storage the records it creates take, against what the target has left. */
   storage: {
     verdict: 'fits' | 'near' | 'exceeds' | 'unread';
@@ -915,7 +968,35 @@ export interface SyncWriteCheck {
    * describe it. Not counted in `objects`. A run asks whether to leave them
    * out; one nobody watches, and the command line, are refused. Absent when none.
    */
-  unwritable?: Array<{ objectApiName: ApiName; rows: number; why: SyncUnwritableReason }>;
+  unwritable?: Array<{
+    objectApiName: ApiName;
+    rows: number;
+    why: SyncUnwritableReason;
+    /** Of `notAKey`: the field the upsert matches on. */
+    key?: ApiName;
+  }>;
+  /**
+   * The rows of the objects written after one of `unwritable` the run holds
+   * back, not written: a lookup of theirs names a record of an object left
+   * out — `parent`, by `field` —, or a row held back in turn. Not counted in
+   * `objects`. Counted under each filter alone, they were said to be written:
+   * "4 records to write" of a run that would write none. Absent when none.
+   */
+  heldBack?: Array<{
+    objectApiName: ApiName;
+    rows: number;
+    /** The object and the lookup that hold back the first of them. */
+    parent: ApiName;
+    field: ApiName;
+    /**
+     * Each object and lookup that holds rows back, with how many, in the
+     * order first met: `rows` in all. A price left out for one held back is
+     * counted under that one's. `parent` alone said 13 prices held back by
+     * `Pricebook2Id` where the dry run held 9 back by `Product2Id`. Absent
+     * from a check made before it was counted.
+     */
+    parents?: Array<{ parent: ApiName; field: ApiName; rows: number }>;
+  }>;
   /**
    * The API requests the run takes of the target, roughly, against the daily
    * requests it has left: `near` when the run would leave it under a tenth of
@@ -936,9 +1017,16 @@ export interface SyncWriteCheck {
    * storage could not be read, past a daily email limit, or when what is
    * left of one, or the target's automation, could not be read — or it is
    * refused, past the storage. A run nobody watches is refused past a daily
-   * email limit too, and the command line past either.
+   * email limit too, and the command line past either. Of a simulation that
+   * finds the run would write none of the records it counts, and would not
+   * be asked or refused first, `nothing`: it said `writes` beside them.
    */
-  verdict: 'writes' | 'asks' | 'refused';
+  verdict: 'writes' | 'asks' | 'refused' | 'nothing';
+  /**
+   * Why what the checkpoint asked first would hold could not be read, which
+   * refuses the run: its verdict alone said refused, with no reason.
+   */
+  checkpointUnread?: string;
 }
 
 /**
@@ -1006,6 +1094,20 @@ export interface SyncObjectSimulation {
    * leaves as they are: counted among `skipped`. Absent when none.
    */
   alreadyCopied?: number;
+  /**
+   * Of the records an insert of a saved configuration would read, those an
+   * earlier run of it linked to a record the target held, which a run leaves
+   * as they are: counted among `skipped`, apart from `alreadyCopied`. Absent
+   * when none.
+   */
+  alreadyLinked?: number;
+  /**
+   * The contact roles a run would link to the one the platform writes itself
+   * as it takes an opportunity the run creates, for the contact it goes in
+   * with, rather than insert: counted among `skipped`, as a run counts them
+   * ({@link SyncObjectResult.writtenByThePlatform}). Absent when none.
+   */
+  writtenByThePlatform?: number;
   /** See {@link SyncObjectResult.encryptedLeftOut}: what a run would leave out. */
   encryptedLeftOut?: ApiName[];
   /**

@@ -169,7 +169,15 @@ describe('sandforge-clone --remove --preview: the command line', () => {
     expect(loadOrg).not.toHaveBeenCalled();
   });
 
-  it.each(['--sweep', '--sweep-list', '--audit'])(
+  it('reads --sweep with --preview, and what it would take beside it: the preview lists the sweep and reads what fires on it', () => {
+    expect(
+      parseRemoveArgs(
+        argv('--remove', 'run.json', '--target', 'TGT', '--preview', '--sweep', '--sweep-untied'),
+      ),
+    ).toEqual(expect.objectContaining({ preview: true, sweep: true, sweepUntied: true }));
+  });
+
+  it.each(['--sweep-list', '--audit'])(
     'refuses %s with --preview, which writes nothing',
     (flag) => {
       const exit = stubExit();
@@ -284,8 +292,11 @@ describe('sandforge-clone --remove --preview', () => {
 
     await main(argv('--remove', file, '--target', 'TGT', '--preview', '--json'));
 
-    const answer = JSON.parse(stdout) as { refusals: string[] };
+    const answer = JSON.parse(stdout) as { refusals: string[]; refusalCodes?: string[] };
     expect(answer.refusals).toEqual([expect.stringContaining('TGT is a production org')]);
+    // Beside the words, the code a removal is refused with: the words alone,
+    // a pipeline could not tell one refusal from another.
+    expect(answer.refusalCodes).toEqual(['PRODUCTION_TARGET']);
     expect(writes.destroy).not.toHaveBeenCalled();
   });
 
@@ -293,18 +304,23 @@ describe('sandforge-clone --remove --preview', () => {
     org.undeletable.add('Contact');
 
     await main(argv('--remove', file, '--target', 'TGT', '--preview', '--json'));
-    const refused = JSON.parse(stdout) as { refusals: string[]; preview: CloneRemovalPreview };
+    const refused = JSON.parse(stdout) as {
+      refusals: string[];
+      refusalCodes?: string[];
+      preview: CloneRemovalPreview;
+    };
     stdout = '';
     await main(
       argv('--remove', file, '--target', 'TGT', '--preview', '--leave-undeletable', '--json'),
     );
-    const left = JSON.parse(stdout) as { refusals: string[] };
+    const left = JSON.parse(stdout) as { refusals: string[]; refusalCodes?: string[] };
 
     expect(refused.refusals).toEqual([
       expect.stringContaining('may not delete the records of Contact (2 records)'),
     ]);
+    expect(refused.refusalCodes).toEqual(['UNDELETABLE_NOT_LEFT']);
     expect(refused.preview.undeletable).toEqual([{ objectApiName: 'Contact', records: 2 }]);
-    expect(left.refusals).toEqual([]);
+    expect(left).toMatchObject({ refusals: [], refusalCodes: [] });
   });
 
   it('refuses an org that is not the one the run wrote to, exit 1, having read none of the run', async () => {
@@ -312,11 +328,19 @@ describe('sandforge-clone --remove --preview', () => {
     vi.mocked(makeConn).mockReturnValue(targetConn({ Id: OTHER_ORG, IsSandbox: true }));
     const queried = vi.spyOn(org, 'query');
 
-    await expect(main(argv('--remove', file, '--target', 'TGT', '--preview'))).rejects.toThrow(
-      'exit 1',
-    );
+    await expect(
+      main(argv('--remove', file, '--target', 'TGT', '--preview', '--json')),
+    ).rejects.toThrow('exit 1');
 
-    expect(exit.stderr()).toContain(`TGT is not the org the run wrote to (${ORG_ID})`);
+    expect(exit.stderr()).toContain(
+      `refused (OTHER_ORG): TGT is not the org the run wrote to (${ORG_ID})`,
+    );
+    // Its code with --json, which a pipeline reads: the sentence alone, and stdout empty.
+    expect(JSON.parse(stdout)).toMatchObject({
+      tool: 'sandforge-clone',
+      action: 'remove-preview',
+      refused: { code: 'OTHER_ORG' },
+    });
     expect(queried).not.toHaveBeenCalled();
   });
 
@@ -357,7 +381,7 @@ describe('sandforge-clone --remove --preview', () => {
         ],
         userNames: { [COLLEAGUE]: 'A colleague' },
       },
-      ['a refusal'],
+      [{ code: 'AUTOMATION_NOT_ACCEPTED', message: 'a refusal' }],
       ['a note'],
       false,
     );
@@ -366,7 +390,7 @@ describe('sandforge-clone --remove --preview', () => {
       'preview: what a removal would do; nothing was written',
       '  Contact: 1 to delete, 1 kept, changed since the run of 2',
       '      last changed by: A colleague 1',
-      'a removal would be refused: a refusal',
+      'a removal would be refused (AUTOMATION_NOT_ACCEPTED): a refusal',
       'a note',
     ]);
   });

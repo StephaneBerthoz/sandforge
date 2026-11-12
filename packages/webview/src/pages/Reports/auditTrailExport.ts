@@ -5,21 +5,23 @@ import {
   type AuditObjectCounts,
 } from '@sandforge/shared';
 
-/** The part of the trail an export holds: what the Audit Trail's filters showed. */
+/** The part of the trail an export holds: what the Audit trail's filters showed. */
 export interface AuditExportFilter {
   module?: string;
   orgId?: string;
   action?: AuditAction;
 }
 
-/** An object's counts, in the order a line of the Audit Trail reads them. */
+/** An object's counts, in the order a line of the Audit trail reads them. */
 const COUNT_COLUMNS = [
   'created',
   'updated',
   'upserted',
   'writtenWithoutFields',
   'lookupsLeftEmpty',
+  'lookupsNotFilled',
   'statusesNotGivenBack',
+  'statusesNotApplied',
   'deleted',
   'failed',
   'mayHaveBeenWritten',

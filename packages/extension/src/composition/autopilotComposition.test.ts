@@ -331,6 +331,75 @@ describe('autopilotComposition', () => {
     });
   });
 
+  describe('a run whose lease assigned a permission set', () => {
+    const RETAIL = '012Fk00000RtDeFIAV';
+    const HIDDEN = '012Fk00000RtDeGIAV';
+
+    /** A type as the target describes it for the running user. */
+    const type = (developerName: string, recordTypeId: string, available: boolean) => ({
+      active: true,
+      available,
+      defaultRecordTypeMapping: false,
+      developerName,
+      master: false,
+      name: developerName,
+      recordTypeId,
+      urls: {},
+    });
+
+    it('reads the record types again from the target, past the describe it holds', async () => {
+      const { handlers, getOrchestrator } = createFakeHandlers();
+      await initAutopilotComposition({ handlers, log: vi.fn() });
+      const orchestrator = getOrchestrator();
+      const source = fakeOrg(1, [{ Id: 'src1', Name: 'Acme', RecordTypeId: null }], 'tgt1');
+      const target = fakeOrg(0, [], '006000000000001AAA');
+      /** Whether the lease is held: it opened the second type to the user. */
+      let assigned = false;
+      const targetDescribe = vi.fn(async () => ({
+        ...mockObjectDescribe('Account'),
+        fields: [
+          { name: 'Name', createable: true },
+          { name: 'RecordTypeId', createable: true },
+        ],
+        recordTypeInfos: [
+          type('Retail', RETAIL, true),
+          type('Hidden', HIDDEN, assigned),
+          {
+            ...type('Master', '012000000000000AAA', true),
+            defaultRecordTypeMapping: true,
+            master: true,
+          },
+        ],
+      }));
+      (target.conn as unknown as { describe: typeof targetDescribe }).describe = targetDescribe;
+      const scanResult = await orchestrator.scanSchemas(source.conn, target.conn, {
+        selectedObjects: ['Account' as ApiName],
+        includeStandardObjects: false,
+      });
+      const graph = orchestrator.buildGraph(scanResult);
+      const plan = orchestrator.generatePlan(graph, 'gdpr', []);
+      const describedBefore = targetDescribe.mock.calls.length;
+      assigned = true;
+
+      const result = await orchestrator.executePlan(
+        plan,
+        graph,
+        [],
+        scanResult.recordCounts,
+        undefined,
+        undefined,
+        undefined,
+        { lease: { assigned: 1, giveBack: async () => undefined } },
+      );
+
+      // Read before the first write, and read fresh: two types open under a
+      // Master default, the target keeps a record sent without one on Master.
+      expect(targetDescribe.mock.calls.length).toBeGreaterThan(describedBefore + 1);
+      expect(result.objectOutcomes?.['Account']?.recordTypeGiven).toMatchObject({ rows: 1 });
+      expect(result.objectOutcomes?.['Account']?.recordTypeGiven).not.toHaveProperty('predicted');
+    });
+  });
+
   it('uses the connections of the latest scan per execution ("latest wins")', async () => {
     const { handlers, getOrchestrator } = createFakeHandlers();
     await initAutopilotComposition({ handlers, log: vi.fn() });

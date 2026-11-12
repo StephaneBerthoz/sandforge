@@ -420,6 +420,7 @@ describe('the modules a JWT sign-in runs through', () => {
     const modules = [
       'OrgHandler.ts',
       '../../core/connection/SfdxBridge.ts',
+      '../../core/connection/sfEnvironment.ts',
       '../validatePayload.ts',
     ].map((file) => readFileSync(join(__dirname, file), 'utf8'));
 

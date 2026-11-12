@@ -57,6 +57,7 @@ import { ForgeDecisionsResult } from './ForgeDecisionsResult';
 import { ForgeFilesResult } from './ForgeFilesResult';
 import { ForgePicklistsResult } from './ForgePicklistsResult';
 import { ForgeCurrenciesResult } from './ForgeCurrenciesResult';
+import { RecordTypesGivenSection, stillRanOf } from '../shared/RecordTypeGivenLine';
 import { ForgeContactPointsResult } from './ForgeContactPointsResult';
 import { estimatedApiCallsOf } from './forgeApiCalls';
 import { ForgeResultsRemoval } from './ForgeResultsRemoval';
@@ -76,6 +77,9 @@ import {
 } from './forgeResultsExport';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
+import { CheckpointFirstEstimate } from '../../components/ui/CheckpointFirstOption';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
+import { runCheckpointEstimateOf, takenOrDeleted } from '../../utils/runCheckpoint';
 
 /**
  * Whether a failure's samples name a required field left empty: the refusal
@@ -231,6 +235,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   // result recorded before the count was carried still falls back on them.
   /** Whether the run was a simulation: nothing was written, and its counts are what a real run would do. */
   const simulation = result?.dryRun === true;
+  /** What the checkpoint a simulation was asked for would hold and cost. */
+  const simulatedCheckpoint = runCheckpointEstimateOf(result?.checkpoint);
   const inserted = useMemo(
     () =>
       simulation
@@ -881,6 +887,13 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             <p data-testid="forge-results-simulation-gaps">
               {t('forgeRun.simulation.gapsFound', { gaps: result?.gaps?.length ?? 0 })}
             </p>
+            {simulatedCheckpoint && (
+              <CheckpointFirstEstimate
+                estimate={simulatedCheckpoint}
+                lead={t('runResults.checkpoint.estimate.simulation')}
+                testId="forge-results-simulation-checkpoint"
+              />
+            )}
           </div>
           <Button
             variant="secondary"
@@ -1350,6 +1363,16 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       {result?.currenciesReplaced && result.currenciesReplaced.length > 0 && (
         <ForgeCurrenciesResult entries={result.currenciesReplaced} />
       )}
+      {/* The record type the target gave the records the run created without
+          one — of a simulation, what the describe of the user it writes as
+          says it would —, the type read back from them once written, and
+          what still ran of a muted run named where it set another. */}
+      <RecordTypesGivenSection
+        entries={result?.recordTypesGiven}
+        stage={simulation ? 'predicted' : 'written'}
+        stillRan={stillRanOf(result?.mutedAutomation)}
+        testId="forge-results-record-types"
+      />
       {/* Refused by a validation rule of the target on the fields it named,
           by a restricted picklist on their value, or by the lookup filter of
           a lookup it lets be empty, these records went in once written again
@@ -1614,6 +1637,18 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           run={result}
           targetOrgId={config?.targetOrgId}
           onRemoved={handleRemoved}
+        />
+      )}
+      {/* Under the removal, which takes back what the run wrote alone: the
+          rewind takes back everything since, whoever did it. */}
+      {!simulated && (
+        <RewindBeforeRun
+          checkpoint={takenOrDeleted(result?.checkpoint)}
+          orgId={targetOrgId}
+          beside="run"
+          leftByRemoval={(result?.undo?.kept ?? 0) + (result?.undo?.refused ?? 0) > 0}
+          muted={result?.mutedAutomation !== undefined}
+          testId="forge-results-checkpoint"
         />
       )}
     </div>

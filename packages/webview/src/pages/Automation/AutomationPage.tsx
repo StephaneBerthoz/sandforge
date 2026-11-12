@@ -1,11 +1,10 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { OrgCheckpoint } from '@sandforge/shared';
+import type { OrgCheckpoint, PipelineDefinition } from '@sandforge/shared';
 import { useTranslation } from 'react-i18next';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { m } from 'framer-motion';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
-import { PageHeader } from '../../components/ui/PageHeader';
 import { PageTabs } from '../../components/ui/PageTabs';
 import type { PageTab } from '../../components/ui/PageTabs';
 import { Button } from '../../components/ui/Button';
@@ -23,11 +22,12 @@ import { StepConfigPanel } from './StepConfigPanel';
 import { PipelineExecutionView } from './PipelineExecutionView';
 import { TriggerConfigPanel } from './TriggerConfigPanel';
 import { PipelineHistoryView } from './PipelineHistoryView';
-import { RewindStepConfirm, SchedulerCalendar } from './automationParts';
+import { PipelineQuestion, RewindStepConfirm, SchedulerCalendar } from './automationParts';
 import { draftSuggestionText, useAutomationPageData } from './useAutomationPageData';
 import { blockedSteps, typeBlocker } from './stepRunnability';
 import { stepTypeLabel } from './stepTypeLabel';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
+import { PipelineHeader } from './PipelineHeader';
 
 /** Main Automation page — wired to extension via bridge hooks. */
 export const AutomationPage: React.FC = () => {
@@ -35,6 +35,16 @@ export const AutomationPage: React.FC = () => {
   const orgs = useOrgStore((s) => s.orgs);
   const orgIds = useMemo(() => new Set(orgs.map((org) => org.id)), [orgs]);
   const blockedNoticeId = useId();
+  const savedListId = useId();
+  const savedListHeadingId = useId();
+  const nameRef = useRef<HTMLInputElement>(null);
+  /**
+   * The pipeline Open… showed the saved list for, by id: the list closes by
+   * itself once another pipeline takes the canvas.
+   */
+  const [listOpenFor, setListOpenFor] = useState<string | null>(null);
+  /** The saved pipeline whose Delete waits for an answer to its question. */
+  const [askingDelete, setAskingDelete] = useState<PipelineDefinition | null>(null);
   /** The Rewind step whose preview is open, its confirmation typed below it, and its checkpoint. */
   const [confirming, setConfirming] = useState<{
     stepId: string;
@@ -92,6 +102,13 @@ export const AutomationPage: React.FC = () => {
     genDescription,
     setGenDescription,
     handleCreatePipeline,
+    unsavedChanges,
+    pendingSwitch,
+    handleConfirmDiscard,
+    handleKeepEditing,
+    handleRenamePipeline,
+    handleDeletePipeline,
+    deletingPipelineId,
     handleRunPipeline,
     handleCancelRun,
     handleAnswerApproval,
@@ -136,6 +153,18 @@ export const AutomationPage: React.FC = () => {
     }
   }, [rewindGrantAnswer, confirming]);
 
+  // Once another pipeline takes the canvas, the keyboard goes to its name,
+  // where the Open… list or the button that opened it was, and is gone: it
+  // was left on the page itself. Not as the page opens, and not when
+  // something else holds it.
+  const shownPipelineId = useRef(pipeline?.id);
+  useEffect(() => {
+    if (shownPipelineId.current === pipeline?.id) return;
+    shownPipelineId.current = pipeline?.id;
+    const active = document.activeElement;
+    if (pipeline && (active === null || active === document.body)) nameRef.current?.focus();
+  }, [pipeline]);
+
   const navigate = useAppStore((s) => s.navigate);
 
   if (orgs.length === 0) {
@@ -171,9 +200,12 @@ export const AutomationPage: React.FC = () => {
     </div>
   );
 
-  const subtitle = pipeline
-    ? `${pipeline.name} v${pipeline.version} \u00b7 ${t('automation.stepCount', { count: stepCount })}`
-    : t('automation.subtitle');
+  // Not while a run lasts: its progress is drawn on the pipeline on the canvas.
+  const listOpen = pipeline !== undefined && listOpenFor === pipeline.id && !isRunning;
+  const showSavedList =
+    !pipelinesLoading && (listOpen || (pipeline === undefined && savedPipelines.length > 0));
+  /** What a question names a pipeline by: its name, or a new one's when it has none yet. */
+  const nameOf = (p: PipelineDefinition): string => p.name.trim() || t('automation.newPipeline');
 
   return (
     <m.div
@@ -183,48 +215,22 @@ export const AutomationPage: React.FC = () => {
       initial="hidden"
       animate="visible"
     >
-      <PageHeader
-        title={t('automation.title')}
-        subtitle={subtitle}
-        icon="circuit-board"
-        actions={
-          <div className="flex items-center gap-(--sf-space-2)">
-            {!pipeline && (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleCreatePipeline}
-                data-testid="create-pipeline-btn"
-              >
-                {t('automation.createPipeline')}
-              </Button>
-            )}
-            {pipeline && (
-              <>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleSavePipeline}
-                  loading={savingPipeline}
-                  data-testid="save-pipeline-btn"
-                >
-                  {savingPipeline ? t('automation.saving') : t('automation.savePipeline')}
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleRunPipeline}
-                  loading={isRunning}
-                  disabled={runBlockers.length > 0}
-                  aria-describedby={runBlockers.length > 0 ? blockedNoticeId : undefined}
-                  data-testid="run-pipeline-btn"
-                >
-                  {isRunning ? t('automation.running') : t('automation.run')}
-                </Button>
-              </>
-            )}
-          </div>
-        }
+      <PipelineHeader
+        pipeline={pipeline}
+        stepCount={stepCount}
+        unsaved={unsavedChanges}
+        saving={savingPipeline}
+        running={isRunning}
+        runBlocked={runBlockers.length > 0}
+        blockedNoticeId={blockedNoticeId}
+        listOpen={listOpen}
+        listId={savedListId}
+        nameRef={nameRef}
+        onCreate={handleCreatePipeline}
+        onToggleList={() => setListOpenFor(listOpen ? null : (pipeline?.id ?? null))}
+        onRename={handleRenamePipeline}
+        onSave={handleSavePipeline}
+        onRun={handleRunPipeline}
       />
       <ModuleHowTo module="automation" />
 
@@ -300,42 +306,88 @@ export const AutomationPage: React.FC = () => {
         </div>
       )}
 
-      {/* Saved pipelines list — shown when no pipeline is active */}
-      {!pipeline && !pipelinesLoading && savedPipelines.length > 0 && (
-        <div className="flex flex-col gap-2" data-testid="saved-pipelines">
-          <h3 className="text-xs font-semibold text-text-primary">
-            {t('automation.savedPipelines')}
-          </h3>
-          <div className="grid gap-2">
-            {savedPipelines.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => handleLoadPipeline(p)}
-                className="flex items-center justify-between px-3 py-2 rounded-lg border border-subtle bg-surface-2 hover:border-active transition-colors text-left cursor-pointer"
-                data-testid={`saved-pipeline-${p.id}`}
+      {/* The saved pipelines: the chooser while no pipeline is open, and
+          what Open… shows beside one. Each opens with its name and is
+          deleted with its own button: one button for the whole row could
+          hold no second action. */}
+      {showSavedList && (
+        <section
+          id={savedListId}
+          aria-labelledby={savedListHeadingId}
+          className="flex flex-col gap-2"
+          data-testid="saved-pipelines"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <h3 id={savedListHeadingId} className="text-xs font-semibold text-text-primary">
+              {t('automation.savedPipelines')}
+            </h3>
+            {listOpen && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setListOpenFor(null)}
+                data-testid="saved-pipelines-close"
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-text-primary">{p.name}</span>
-                  <Badge variant="default">v{p.version}</Badge>
-                  <span className="text-xs text-text-secondary">
-                    {t('automation.stepCount', { count: p.steps.length })}
-                  </span>
-                  {blockedSteps(p.steps, orgIds, {
-                    syncConfigs,
-                    ...(seedTemplates ? { seedTemplates } : {}),
-                    ...(maskingTemplates ? { maskingTemplates } : {}),
-                    ...(stepAround.tierOf ? { tierOf: stepAround.tierOf } : {}),
-                    declared: new Set((p.variables ?? []).map((variable) => variable.name)),
-                  }).length > 0 && (
-                    <Badge variant="warning" data-testid={`saved-pipeline-blocked-${p.id}`}>
-                      {t('automation.runnability.cannotRun')}
-                    </Badge>
-                  )}
-                </div>
-              </button>
-            ))}
+                {t('common.close')}
+              </Button>
+            )}
           </div>
-        </div>
+          {savedPipelines.length === 0 ? (
+            <p className="text-xs text-text-secondary" data-testid="saved-pipelines-none">
+              {t('automation.lifecycle.noneSaved')}
+            </p>
+          ) : (
+            <ul className="grid grid-cols-1 gap-2">
+              {savedPipelines.map((p) => {
+                const current = p.id === pipeline?.id;
+                const nameId = `${savedListId}-name-${p.id}`;
+                return (
+                  <li
+                    key={p.id}
+                    className={`flex items-center gap-2 rounded-lg border bg-surface-2 pr-2 transition-colors hover:border-active ${current ? 'border-active' : 'border-subtle'}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleLoadPipeline(p)}
+                      aria-current={current ? 'true' : undefined}
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2 text-left cursor-pointer"
+                      data-testid={`saved-pipeline-${p.id}`}
+                    >
+                      <span id={nameId} className="truncate text-sm font-medium text-text-primary">
+                        {p.name}
+                      </span>
+                      <Badge variant="default">v{p.version}</Badge>
+                      <span className="text-xs text-text-secondary">
+                        {t('automation.stepCount', { count: p.steps.length })}
+                      </span>
+                      {blockedSteps(p.steps, orgIds, {
+                        syncConfigs,
+                        ...(seedTemplates ? { seedTemplates } : {}),
+                        ...(maskingTemplates ? { maskingTemplates } : {}),
+                        ...(stepAround.tierOf ? { tierOf: stepAround.tierOf } : {}),
+                        declared: new Set((p.variables ?? []).map((variable) => variable.name)),
+                      }).length > 0 && (
+                        <Badge variant="warning" data-testid={`saved-pipeline-blocked-${p.id}`}>
+                          {t('automation.runnability.cannotRun')}
+                        </Badge>
+                      )}
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setAskingDelete(p)}
+                      loading={deletingPipelineId === p.id}
+                      aria-describedby={nameId}
+                      data-testid={`saved-pipeline-delete-${p.id}`}
+                    >
+                      {t('common.delete')}
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
       )}
 
       {/* KPI overview row */}
@@ -571,6 +623,33 @@ export const AutomationPage: React.FC = () => {
           onClose={() => setShowGenPrompt(false)}
         />
       )}
+
+      {/* Before a new, opened, installed or drafted pipeline takes the place
+          of one whose changes are not saved: they went without a word. */}
+      <PipelineQuestion
+        open={pendingSwitch !== null && pipeline !== undefined}
+        onClose={handleKeepEditing}
+        onConfirm={handleConfirmDiscard}
+        title={pipeline ? t('automation.lifecycle.discardTitle', { name: nameOf(pipeline) }) : ''}
+        description={t('automation.lifecycle.discardDescription')}
+        confirmLabel={t('automation.lifecycle.discard')}
+        dismissLabel={t('automation.lifecycle.keepEditing')}
+        variant="warning"
+      />
+
+      <PipelineQuestion
+        open={askingDelete !== null}
+        onClose={() => setAskingDelete(null)}
+        onConfirm={() => {
+          if (askingDelete) handleDeletePipeline(askingDelete);
+          setAskingDelete(null);
+        }}
+        title={
+          askingDelete ? t('automation.lifecycle.deleteTitle', { name: nameOf(askingDelete) }) : ''
+        }
+        description={t('automation.lifecycle.deleteDescription')}
+        confirmLabel={t('automation.lifecycle.deleteConfirm')}
+      />
     </m.div>
   );
 };

@@ -220,6 +220,203 @@ describe('SyncRunRemoval', () => {
     expect(screen.getByTestId('forge-sweep-result')).toBeTruthy();
   });
 
+  /** What the sweep lists of the run: what it takes, what came late, what is tied to nothing. */
+  const TOLD_LISTING = {
+    looked: ['Account', 'Task'],
+    found: [
+      {
+        objectApiName: 'Task',
+        count: 4,
+        names: ['Follow up'],
+        classes: { made: 1, madeOver: 1, late: 1, untied: 1 },
+      },
+    ],
+    unread: [],
+    handWork: [],
+    late: [{ objectApiName: 'Task', count: 1 }],
+    untied: { objects: [{ objectApiName: 'Task', count: 1 }] },
+  };
+
+  it('shows the classes of what it found, and sends what is ticked under the list', () => {
+    render(<SyncRunRemoval runId="run-1" />);
+    answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+    fireEvent.click(screen.getByTestId('sync-removal-remove'));
+    fireEvent.click(screen.getByTestId('sync-removal-sweep-toggle'));
+    answer('sync:remove:sweep', 'sync:remove:sweep:response', {
+      runId: 'run-1',
+      listing: TOLD_LISTING,
+    });
+
+    expect(screen.getByTestId('forge-sweep-takes').textContent).toContain('takes 2 records');
+    expect(screen.getByTestId('forge-sweep-classes-Task').textContent).toContain(
+      '1 made on a record it wrote over',
+    );
+    expect(screen.getByTestId('forge-sweep-stays')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('forge-sweep-late-tick'));
+    fireEvent.click(screen.getByTestId('forge-sweep-untied-tick'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(sentAll('sync:remove').pop()?.payload).toEqual({
+      runId: 'run-1',
+      sweep: true,
+      sweepLate: true,
+      sweepUntied: true,
+    });
+  });
+
+  it('keeps what is tied to nothing, with the extension’s words, when taking it is refused', () => {
+    render(<SyncRunRemoval runId="run-1" />);
+    answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+    fireEvent.click(screen.getByTestId('sync-removal-remove'));
+    fireEvent.click(screen.getByTestId('sync-removal-sweep-toggle'));
+    answer('sync:remove:sweep', 'sync:remove:sweep:response', {
+      runId: 'run-1',
+      listing: {
+        ...TOLD_LISTING,
+        untied: { ...TOLD_LISTING.untied, refusal: 'Another run of this machine wrote.' },
+      },
+    });
+
+    expect((screen.getByTestId('forge-sweep-untied-tick') as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByTestId('forge-sweep-untied-refused').textContent).toContain(
+      'Another run of this machine wrote.',
+    );
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(sentAll('sync:remove').pop()?.payload).toEqual({ runId: 'run-1', sweep: true });
+  });
+
+  it('proposes the sweep after a removal that left records for what the automation made', () => {
+    render(<SyncRunRemoval runId="run-1" />);
+    answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+    confirmRemoval();
+    answer('sync:remove', 'sync:remove:response', {
+      result: {
+        ...DONE,
+        status: 'partial',
+        objects: [
+          {
+            ...DONE.objects[1],
+            deleted: 0,
+            keptDependents: 2,
+            heldBy: ['Task'],
+            heldByAutomation: 2,
+            automationHolders: ['Task'],
+          },
+        ],
+      },
+      operationId: 'req',
+    });
+
+    expect(screen.getByTestId('forge-removal-held-by-automation').textContent).toContain(
+      "2 records of this run were kept for records created under them during the run, as its user, likely by the target's automation: Task.",
+    );
+    expect(sentAll('sync:remove:sweep')).toEqual([]);
+    fireEvent.click(screen.getByTestId('forge-removal-take-back-made'));
+
+    expect((screen.getByTestId('sync-removal-sweep-toggle') as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect(sentAll('sync:remove:sweep').pop()?.payload).toEqual({ runId: 'run-1' });
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(sentAll('sync:remove').pop()?.payload).toEqual({ runId: 'run-1', sweep: true });
+  });
+
+  it('proposes no sweep once Production Guard allows no delete: it names what held them all the same', () => {
+    render(<SyncRunRemoval runId="run-1" />);
+    answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+    confirmRemoval();
+    answer('sync:remove', 'sync:remove:response', {
+      result: {
+        ...DONE,
+        status: 'partial',
+        objects: [
+          {
+            ...DONE.objects[1],
+            deleted: 0,
+            keptDependents: 2,
+            heldBy: ['Task'],
+            heldByAutomation: 2,
+            automationHolders: ['Task'],
+          },
+        ],
+      },
+      operationId: 'req',
+    });
+    expect(screen.getByTestId('forge-removal-take-back-made')).toBeTruthy();
+
+    answer('sync:removal:info', 'sync:removal:info:response', {
+      info: {
+        ...KEPT,
+        refusal: { code: 'GUARD_BLOCKED', message: 'Production Guard allows no delete.' },
+      },
+    });
+
+    expect(screen.getByTestId('forge-removal-held-by-automation')).toBeTruthy();
+    expect(screen.queryByTestId('forge-removal-take-back-made')).toBeNull();
+  });
+
+  describe('its button', () => {
+    /** Open the confirmation of a run that kept `info`, and read what its button says. */
+    function buttonOf(info: Partial<SyncRunRemovalInfo>, remove = 'sync-removal-remove'): string {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', {
+        info: { ...KEPT, ...info },
+      });
+      fireEvent.click(screen.getByTestId(remove));
+      return screen.getByTestId('danger-confirm-btn').textContent ?? '';
+    }
+
+    const accounts = [{ objectApiName: 'Account', count: 2 }];
+
+    it('says what goes, files named', () => {
+      expect(buttonOf({})).toBe('Remove 3 records and files');
+    });
+
+    it('says records alone are records', () => {
+      expect(buttonOf({ left: accounts })).toBe('Remove 2 records');
+    });
+
+    it('says a run that only wrote over records gives them back', () => {
+      expect(buttonOf({ created: 0, left: [], overwritten: 2, putBack: accounts })).toBe(
+        'Give back 2 records',
+      );
+    });
+
+    it('says a run that only deleted brings its records back', () => {
+      expect(buttonOf({ created: 0, left: [], deleted: 2, bringBack: accounts })).toBe(
+        'Bring back 2 records',
+      );
+    });
+
+    it('says a run that did both takes them back, every record counted', () => {
+      expect(buttonOf({ left: accounts, overwritten: 2, putBack: accounts })).toBe(
+        'Take back 4 records',
+      );
+      cleanup();
+      expect(
+        buttonOf({
+          created: 0,
+          left: [],
+          overwritten: 2,
+          putBack: accounts,
+          deleted: 2,
+          bringBack: accounts,
+        }),
+      ).toBe('Take back 4 records');
+    });
+
+    it('says a sweep goes with what it gives back', () => {
+      buttonOf({ created: 0, left: [], overwritten: 2, putBack: accounts });
+      fireEvent.click(screen.getByTestId('sync-removal-sweep-toggle'));
+      expect(screen.getByTestId('danger-confirm-btn').textContent).toBe(
+        'Take back 2 records and what the sweep takes',
+      );
+    });
+  });
+
   it('sends no sweep unless it is ticked, and reads nothing of the org for one', () => {
     render(<SyncRunRemoval runId="run-1" />);
     answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
@@ -780,6 +977,51 @@ describe('SyncRunRemoval', () => {
       ]);
       expect(screen.getByTestId('sync-removal-automation-bringBack-Case')).toBeTruthy();
       expect(sentAll('sync:remove')).toEqual([]);
+    });
+
+    it('reads what fires on what the sweep’s list takes, and on the run’s objects alone once it is unticked', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+      fireEvent.click(screen.getByTestId('sync-removal-remove'));
+      fireEvent.click(screen.getByTestId('sync-removal-sweep-toggle'));
+      answer('sync:remove:sweep', 'sync:remove:sweep:response', {
+        runId: 'run-1',
+        listing: {
+          looked: ['Account', 'Asset', 'Task'],
+          found: [
+            {
+              objectApiName: 'Asset',
+              count: 1,
+              names: [],
+              classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+            },
+            {
+              objectApiName: 'Task',
+              count: 1,
+              names: [],
+              classes: { made: 0, madeOver: 0, late: 1, untied: 0 },
+            },
+          ],
+          unread: [],
+          handWork: [],
+          late: [{ objectApiName: 'Task', count: 1 }],
+          untied: { objects: [] },
+        },
+      });
+
+      expect(sentAll('sync:remove:automation').pop()?.payload).toEqual({
+        runId: 'run-1',
+        sweptObjects: ['Asset'],
+      });
+
+      fireEvent.click(screen.getByTestId('forge-sweep-late-tick'));
+      expect(sentAll('sync:remove:automation').pop()?.payload).toEqual({
+        runId: 'run-1',
+        sweptObjects: ['Asset', 'Task'],
+      });
+
+      fireEvent.click(screen.getByTestId('sync-removal-sweep-toggle'));
+      expect(sentAll('sync:remove:automation').pop()?.payload).toEqual({ runId: 'run-1' });
     });
 
     /** The same read, the contact's flow quiet for a user holding a bypass a set of the target holds. */

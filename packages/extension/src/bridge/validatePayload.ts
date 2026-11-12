@@ -43,6 +43,7 @@ import {
   scenarioPackSchema,
   scenarioCompileOptionsSchema,
   agentTestChoiceSchema,
+  TRANSFORM_RULE_BAD_PATTERN,
   unreadablePatternRefusal,
   unreadablePatternRules,
 } from '@sandforge/shared';
@@ -92,6 +93,12 @@ export const sfApiNameSchema = z
   .string()
   .regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'Invalid Salesforce API name')
   .max(80);
+
+/**
+ * The objects a confirmation's sweep deletes records of, as its list reads
+ * them, for the read of what they fire: a sweep looks at 300 objects at most.
+ */
+export const sweptObjectsSchema = z.array(sfApiNameSchema).max(300);
 
 /** Bounded opaque identifier (operation ids, template ids, alert ids, config ids). */
 export const opaqueIdSchema = z.string().min(1).max(200);
@@ -248,14 +255,18 @@ export const syncObjectPayloadSchema = syncObjectConfigSchema
    * it). The run reached Salesforce and failed there, or wrote nothing, and
    * the reason never surfaced. Refused here instead, with the two ways out.
    */
-  .refine((object) => object.operation !== 'upsert' || (object.externalIdField ?? 'Id') !== 'Id', {
-    path: ['externalIdField'],
-    error: (issue) =>
-      `An upsert of "${String((issue.input as { objectApiName?: unknown }).objectApiName)}" ` +
-      `needs an External ID field: matching on Id cannot work, because the id belongs to ` +
-      `the source org and the target has never issued it. Name an External ID field both ` +
-      `orgs share, or set the operation to insert. The sync was not started.`,
-  })
+  .refine(
+    (object) =>
+      object.operation !== 'upsert' || (object.externalIdField ?? 'Id').toLowerCase() !== 'id',
+    {
+      path: ['externalIdField'],
+      error: (issue) =>
+        `An upsert of "${String((issue.input as { objectApiName?: unknown }).objectApiName)}" ` +
+        `needs an External ID field: matching on Id cannot work, because the id belongs to ` +
+        `the source org and the target has never issued it. Name an External ID field both ` +
+        `orgs share, or set the operation to insert. The sync was not started.`,
+    },
+  )
   /*
    * A Regex replace rule whose pattern is no regular expression, the object's
    * or a field mapping's. Run, it threw JavaScript's own SyntaxError at the
@@ -269,6 +280,7 @@ export const syncObjectPayloadSchema = syncObjectConfigSchema
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: `${unreadablePatternRefusal(unreadable)} The sync was not started.`,
+      params: { unreadablePatterns: unreadable },
     });
   });
 
@@ -428,8 +440,15 @@ export const syncExecutePayloadSchema = z.object({
   // Take a checkpoint of what the run writes before its first write.
   checkpointFirst: checkpointFirstPayloadSchema.optional(),
 });
-/** `sync:simulate` — the configuration a run would be given, checked as one is. */
-export const syncSimulatePayloadSchema = z.object({ config: syncConfigPayloadSchema });
+/**
+ * `sync:simulate` — the configuration a run would be given, checked as one
+ * is, and the checkpoint it would take first, which a simulation says the
+ * hold, the cost and the refusal of, and takes nothing.
+ */
+export const syncSimulatePayloadSchema = z.object({
+  config: syncConfigPayloadSchema,
+  checkpointFirst: checkpointFirstPayloadSchema.optional(),
+});
 /** `sync:pause` / `sync:resume` — the run, by the id of the request that started it. */
 export const syncRunControlPayloadSchema = z.object({ operationId: opaqueIdSchema });
 export const syncConfigSavePayloadSchema = z.object({ config: syncConfigPayloadSchema });
@@ -546,6 +565,8 @@ export const syncRemoveSweepPayloadSchema = z.object({ runId: opaqueIdSchema });
 export const syncRemoveAutomationPayloadSchema = z.object({
   runId: opaqueIdSchema,
   again: z.boolean().optional(),
+  // As the sweep's list reads them: its objects, for this read alone.
+  sweptObjects: sweptObjectsSchema.optional(),
 });
 // ── seed:removal:info / seed:remove payload schemas ─────────────────────────
 // The run is named, never its records: what is removed is what the run kept.
@@ -665,12 +686,19 @@ export const seedExecutePayloadSchema = z.object({
   checkpointFirst: checkpointFirstPayloadSchema.optional(),
   /**
    * The fit to the org's storage the counts were taken from, as a person
-   * applied it (`SeedFitApplied`): said in the audit trail, never acted on.
+   * applied it (`SeedFitApplied`): the share, the bound asked, and the
+   * records the template held before it. Said in the audit trail, never
+   * acted on: the counts the seed writes are its template's.
    */
   fit: z
     .object({
       share: z.number().gt(0).max(1),
       withinMB: z.number().positive().max(1_000_000).optional(),
+      before: z
+        .number()
+        .int()
+        .positive()
+        .max(SEED_MAX_RECORDS_PER_OBJECT * MAX_OBJECTS_PER_REQUEST),
     })
     .strict()
     .optional(),
@@ -704,6 +732,8 @@ export const seedAutomationPayloadSchema = z
   .object({
     orgId: orgIdSchema,
     objects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
+    /** The run publishes its articles once written, a scenario's: its mute is planned for it. */
+    publishes: z.boolean().optional(),
   })
   .strict();
 export const seedDescribeObjectPayloadSchema = z.object({
@@ -747,6 +777,10 @@ export const seedScenarioExecutePayloadSchema = z
       .string()
       .regex(/^[a-z]{2,3}(?:_[A-Za-z0-9]{2,4}){0,2}$/)
       .optional(),
+    // Mute the org's automation for the run, as a template's seed does.
+    muteAutomation: z.boolean().optional(),
+    // Take a checkpoint of what the run writes before its first write.
+    checkpointFirst: checkpointFirstPayloadSchema.optional(),
   })
   .strict();
 
@@ -859,6 +893,18 @@ export const dataOpsBackupDeletePayloadSchema = z.object({
   orgId: orgIdSchema,
   operationIds: z.array(z.string().min(1).max(200)).min(1).max(1000).optional(),
 });
+/**
+ * What a DataOps write carries of the question put before it: the automation
+ * that fires accepted, the emails the org delivers accepted, the mute asked
+ * for. Absent, none of them: the write is refused on what it would fire.
+ */
+const dataOpsWriteAccordShape = {
+  acceptAutomation: z.boolean().optional(),
+  acceptEmails: z.boolean().optional(),
+  muteAutomation: z.boolean().optional(),
+};
+/** Asked from the DataOps page, whose refusals name its confirmation and boxes, not flags. */
+const dataOpsAskedFromShape = { fromPage: z.literal(true).optional() };
 export const dataOpsRollbackPayloadSchema = z.object({
   orgId: orgIdSchema,
   operationId: opaqueIdSchema,
@@ -866,6 +912,24 @@ export const dataOpsRollbackPayloadSchema = z.object({
   rewriteAll: z.boolean().optional(),
   /** Of a Sync run's backup, restore the records changed or deleted since the run too. */
   includeChanged: z.boolean().optional(),
+  ...dataOpsWriteAccordShape,
+  ...dataOpsAskedFromShape,
+});
+/**
+ * What the org runs as a DataOps act writes the records of these objects:
+ * the act, and each object with the records it writes. Read only. A subject
+ * erasure writes over its records as a masking does, or deletes them as a
+ * cleanup does, and is named so (`erasure`).
+ */
+export const dataOpsAutomationPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  act: z.enum(['masking', 'restore', 'cleanup']),
+  objects: z
+    .array(z.object({ objectApiName: sfApiNameSchema, records: z.number().int().min(0) }))
+    .max(MAX_OBJECTS_PER_REQUEST),
+  erasure: z.boolean().optional(),
+  ...dataOpsWriteAccordShape,
+  ...dataOpsAskedFromShape,
 });
 /**
  * The objects and the filter of a masking run, as its preview and its
@@ -894,6 +958,8 @@ export const dataOpsAnonymizePayloadSchema = z
     // The checkpoint a resume names: matched against the one kept, never read as anything else.
     resumeFrom: opaqueIdSchema.optional(),
     snapshot: z.boolean().optional(),
+    ...dataOpsWriteAccordShape,
+    ...dataOpsAskedFromShape,
   })
   .refine(filterOnOneObject, FILTER_ON_ONE_OBJECT)
   // A resume carries on over rows the run it resumes already masked: a
@@ -1030,6 +1096,7 @@ export const dataOpsSubjectErasePayloadSchema = dataOpsSubjectRequestPayloadSche
       { message: 'Each object may be named once per request' },
     ),
   dryRun: z.boolean(),
+  ...dataOpsWriteAccordShape,
 });
 
 /** A cleanup recommendation, as the page names one. */
@@ -1052,6 +1119,8 @@ export const dataOpsCleanupExportPayloadSchema = z.object({
 /** `dataops:cleanup:delete`: the same, and whether to delete or only say what would go. */
 export const dataOpsCleanupDeletePayloadSchema = dataOpsCleanupExportPayloadSchema.extend({
   dryRun: z.boolean(),
+  ...dataOpsWriteAccordShape,
+  ...dataOpsAskedFromShape,
 });
 
 // ── monitor:* payload schemas ─────────────────────────────────────────────
@@ -1238,6 +1307,19 @@ export const frozenLoadPayloadSchema = z.object({
   muteAutomation: z.boolean().optional(),
   // Take a checkpoint of what the load writes before its first write.
   checkpointFirst: checkpointFirstPayloadSchema.optional(),
+  // With a reload: sweep too, around its purge, what the target's automation
+  // made for each load it replaces, as a removal of that load sweeps it.
+  sweep: z.boolean().optional(),
+  ...sweepClassesShape,
+  // With the sweep: take too what it finds changed since the load it sweeps.
+  includeChanged: z.boolean().optional(),
+  // Write although the target delivers the emails of what still runs, or would not say.
+  acceptEmails: z.boolean().optional(),
+  // Write although the target runs automation as the load inserts and updates, or would not say.
+  acceptAutomation: z.boolean().optional(),
+  // With a reload's preview: the records taken back before the reload runs,
+  // which hold none of the loads' records then.
+  goneFirst: z.array(recordIdSchema).max(1_000_000).optional(),
 });
 export const frozenVerifyPayloadSchema = z.object({ targetOrgId: orgIdSchema });
 // The load is named — its org, when it wrote its last record — never its
@@ -1249,11 +1331,24 @@ export const frozenRemovePayloadSchema = z.object({
   // Sweep too what the target's automation created during the load, as its user.
   sweep: z.boolean().optional(),
   ...sweepClassesShape,
+  // Mute what the removal fires, what its sweep deletes included, through the target's own bypass.
+  muteAutomation: z.boolean().optional(),
 });
 // What a sweep asked with a load's removal would take: the load, named as for its removal.
 export const frozenRemoveSweepPayloadSchema = z.object({
   targetOrgId: orgIdSchema,
   loadedAt: z.string().min(1).max(64),
+  // Listed for a reload's purge: the sweep of each load it replaces.
+  reload: z.boolean().optional(),
+});
+// What the target runs as a load's removal takes it back: the load, named as for its removal.
+export const frozenRemoveAutomationPayloadSchema = z.object({
+  targetOrgId: orgIdSchema,
+  loadedAt: z.string().min(1).max(64),
+  // As the sweep's list reads them: its objects, for this read alone.
+  sweptObjects: sweptObjectsSchema.optional(),
+  // Read for a reload's purge, not for a removal of this load.
+  reload: z.boolean().optional(),
 });
 // What a removal of a load would do, read and nothing written: the load, named as for its removal.
 export const frozenRemovePreviewPayloadSchema = z.object({
@@ -1356,6 +1451,10 @@ export const checkpointTakePayloadSchema = z
 export const checkpointPreviewPayloadSchema = z.object({
   checkpointId: checkpointIdSchema,
   objects: checkpointObjectsSchema.optional(),
+  // Asked to mute: what it says of the emails is of what still runs.
+  muteAutomation: z.boolean().optional(),
+  // Said: what it says of the emails is of what the rewind then writes.
+  acceptOutside: z.boolean().optional(),
 });
 // Each acceptance is said, never assumed: a rewind that deletes what Undo
 // couldn't bring back, makes records again with new Ids, fires the org's
@@ -1374,6 +1473,8 @@ export const checkpointRewindPayloadSchema = z.object({
   acceptRecreate: z.boolean(),
   acceptOutside: z.boolean(),
   acceptUnseen: z.boolean(),
+  // Sent by the page alone: the command line replays this request and names its flags.
+  fromPage: z.literal(true).optional(),
 });
 // The plan of a selection is read from the preview's folder on this
 // machine, named by its id as a rewind names it.
@@ -1409,6 +1510,8 @@ export const checkpointUndoPayloadSchema = z.object({
   muteAutomation: z.boolean().optional(),
   // The emails the org delivers as the undo writes: never lifted by acceptAutomation.
   acceptEmails: z.boolean().optional(),
+  // Sent by the page alone: the command line replays this request and names its flags.
+  fromPage: z.literal(true).optional(),
 });
 export const checkpointDeletePayloadSchema = z.object({
   checkpointIds: z
@@ -1509,7 +1612,8 @@ export const autopilotExecutePayloadSchema = z.object({
  * `autopilot:fit-plan`: how to fit the plan under review to the target's
  * storage (`AutopilotFitMode`), as a person asked: by share, by caps per
  * object or for every one, within so many MB. A fit asks for one of share
- * and caps at least: a bound alone fits nothing.
+ * and caps at least: a bound alone fits nothing. With it, what the run is set
+ * to do, which counts in what fits.
  */
 export const autopilotFitPlanPayloadSchema = z.object({
   mode: z
@@ -1527,6 +1631,8 @@ export const autopilotFitPlanPayloadSchema = z.object({
       (mode) => mode.share === true || mode.caps !== undefined || mode.all !== undefined,
       'Fit by share, by caps, or both',
     ),
+  muteAutomation: z.boolean().optional(),
+  checkpointFirst: checkpointFirstPayloadSchema.optional(),
 });
 
 export const autopilotSkipNodePayloadSchema = z.object({
@@ -2003,6 +2109,8 @@ export const pipelineSavePayloadSchema = z.object({
   id: z.string().max(200),
   config: z.record(z.string(), z.unknown()),
 });
+/** `pipeline:delete` — the id a saved pipeline was saved under. */
+export const pipelineDeletePayloadSchema = z.object({ id: opaqueIdSchema });
 /** `pipeline:approval` — the page's answer to an Approval step of the run it started. */
 export const pipelineApprovalPayloadSchema = z.object({
   operationId: opaqueIdSchema,
@@ -2054,6 +2162,18 @@ export function payloadIssues(error: z.ZodError): string {
 }
 
 /**
+ * The rules of a payload refused for their patterns and nothing else, which
+ * the page says in its language from them: the refusal came in English, under
+ * the code of a payload no page should send. Undefined for any other refusal.
+ */
+function unreadablePatternsOf(error: z.ZodError): unknown[] | undefined {
+  const rules = error.issues.map((issue) =>
+    issue.code === 'custom' ? (issue.params?.['unreadablePatterns'] as unknown[]) : undefined,
+  );
+  return rules.every((found) => found !== undefined) ? rules.flat() : undefined;
+}
+
+/**
  * Validate a webview message payload against a zod schema. Returns parsed
  * data on success; on failure, posts a handler error and returns null so
  * the caller can early-return. Defense-in-depth against compromised webview.
@@ -2072,9 +2192,17 @@ export function validatePayload<T>(
   const result = schema.safeParse(msg.payload);
   if (!result.success) {
     const summary = payloadIssues(result.error);
-    sendHandlerError(deps, msg.type, responseType, msg, new Error(`Invalid payload — ${summary}`), {
-      code: 'INVALID_PAYLOAD',
-    });
+    const rules = unreadablePatternsOf(result.error);
+    sendHandlerError(
+      deps,
+      msg.type,
+      responseType,
+      msg,
+      new Error(`Invalid payload — ${summary}`),
+      rules
+        ? { code: TRANSFORM_RULE_BAD_PATTERN, extraPayload: { rules } }
+        : { code: 'INVALID_PAYLOAD' },
+    );
     return null;
   }
   return result.data;

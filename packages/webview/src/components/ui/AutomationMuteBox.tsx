@@ -1,6 +1,6 @@
-import React, { useEffect, useId } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BellOff } from 'lucide-react';
+import { AlertTriangle, BellOff } from 'lucide-react';
 import type {
   MuteLiftsUnread,
   MutedAutomationAlsoLifted,
@@ -9,6 +9,7 @@ import type {
   MutedAutomationStillRunning,
   MuteStillRunsWhy,
 } from '@sandforge/shared';
+import { cn } from '../../theme';
 import { listWords } from '../../utils/listWords';
 import { muteOffered, type MuteOffer } from '../../utils/muteOffer';
 
@@ -46,7 +47,8 @@ export interface MuteEntryListProps {
     | undefined;
   /** What could not be read of what the sets lift beside, said under the list. */
   unread?: readonly MuteLiftsUnread[] | undefined;
-  testId: string;
+  /** Test id of the list, its lines taking `-<object>`; none for a copy that describes a box. */
+  testId?: string;
 }
 
 /**
@@ -72,7 +74,7 @@ export const MuteEntryList: React.FC<MuteEntryListProps> = ({
         {entries.map((entry) => (
           <li
             key={`${entry.objectApiName}-${entry.kind}-${entry.name}`}
-            data-testid={`${testId}-${entry.objectApiName}`}
+            data-testid={testId === undefined ? undefined : `${testId}-${entry.objectApiName}`}
           >
             <span className="font-mono">{entry.objectApiName}</span>
             {': '}
@@ -117,6 +119,21 @@ export interface AutomationMuteBoxProps {
   /** Test id of the box; its checkbox takes `-toggle`, its lists `-silenced` and `-still-runs`. */
   testId: string;
   className?: string;
+  /**
+   * Shown and not changed here: a Rewind step's mute is its configuration's,
+   * which its confirmation is bound to. Off unless given.
+   */
+  readOnly?: boolean;
+  /**
+   * Say in a line what it does, and fold the rest under a disclosure, as
+   * Checkpoint first folds its own: in Forge's column of the run, the box
+   * took fourteen lines at 320 pixels, and Controls went under the fold of the
+   * column at 800 pixels high. What its sets lift beside is named on the line,
+   * and what could not be read flagged there. A screen reader hears with the
+   * box the line and what the fold holds, from a hidden copy of it: Chromium
+   * describes a box by nothing a closed disclosure holds.
+   */
+  foldDetails?: boolean;
 }
 
 /**
@@ -129,7 +146,10 @@ export interface AutomationMuteBoxProps {
  * box says so.
  *
  * A box no longer offered — read again, the org found nothing to silence — is
- * unticked: a run sent from a page that showed no box mutes nothing.
+ * unticked: a run sent from a page that showed no box mutes nothing. A
+ * read-only box is not: it shows a setting saved elsewhere, which mutes
+ * whatever this read found — a Rewind step's, whose preview it unticked, and
+ * whose next read then showed the step as one that does not mute.
  */
 export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
   offer,
@@ -138,16 +158,85 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
   org,
   testId,
   className,
+  readOnly = false,
+  foldDetails = false,
 }) => {
   const { t } = useTranslation();
   const detailsId = useId();
+  const foldedId = useId();
+  const [open, setOpen] = useState(false);
   const offered = muteOffered(offer);
   useEffect(() => {
-    if (!offered && checked) onChange(false);
-  }, [offered, checked, onChange]);
+    if (!readOnly && !offered && checked) onChange(false);
+  }, [readOnly, offered, checked, onChange]);
   if (!offered || offer == null) return null;
   const list = (items: readonly string[]): string => listWords(items, (key) => t(key));
   const sets = offer === 'atStart' ? [] : offer.assign.map((set) => set.permissionSet);
+  /** What the mute does, with the test ids of its parts, or without for the copy that describes the box. */
+  const detailOf = (ids: boolean): React.ReactNode => {
+    const idOf = (part: string): string | undefined => (ids ? `${testId}-${part}` : undefined);
+    return (
+      <>
+        {offer === 'atStart' ? (
+          <p data-testid={idOf('at-start')}>{t('automationMute.box.atStart', { org })}</p>
+        ) : (
+          <>
+            <p data-testid={idOf('assigns')}>
+              {t('automationMute.box.assigns', { count: sets.length, sets: list(sets), org })}
+            </p>
+            <MuteEntryList
+              title={t('automationMute.box.silences')}
+              entries={offer.silenced}
+              testId={idOf('silenced')}
+            />
+            <MuteEntryList
+              title={t('automationMute.box.stillRuns')}
+              entries={offer.stillRuns}
+              testId={idOf('still-runs')}
+            />
+            <MuteEntryList
+              title={t('automationMute.box.alsoLifts')}
+              entries={offer.alsoLifts}
+              unread={offer.liftsUnread}
+              testId={idOf('also-lifts')}
+            />
+          </>
+        )}
+        <p className="text-text-secondary">{t('automationMute.box.never')}</p>
+      </>
+    );
+  };
+  const detail = detailOf(true);
+  /**
+   * Folded, the box is also described by a hidden copy of what the fold
+   * holds: Chromium describes a box by nothing a closed disclosure holds, and
+   * the box was described by its line alone — what it silences, the sets it
+   * assigns and what still runs unsaid until opened. A hidden element a box
+   * names is read whole. Opened, the fold describes it, and the copy goes.
+   */
+  const describedByFold = foldDetails && !open;
+  /** Something its sets grant was not read: folded, the line says so. */
+  const unreadFolded = offer !== 'atStart' && (offer.liftsUnread?.length ?? 0) > 0;
+  /**
+   * What its sets lift beside what they are assigned for, each by its kind
+   * and name: folded, the line names them, and the fold their objects and the
+   * sets that lift them. On the trap org, the set assigned for a flow's bypass
+   * lifted two validation rules beside it: under a line that said only what
+   * it silences, nothing before the write said so. With their objects, two
+   * rules took a third line, which put Controls under the column's fold at
+   * 800 pixels.
+   */
+  const lifted =
+    offer === 'atStart'
+      ? []
+      : (offer.alsoLifts ?? []).map((entry) => t(KIND_KEYS[entry.kind], { name: entry.name }));
+  const flagged = unreadFolded || lifted.length > 0;
+  const summary =
+    lifted.length > 0
+      ? t(unreadFolded ? 'automationMute.box.moreLiftsUnread' : 'automationMute.box.moreLifts', {
+          lifts: list(lifted),
+        })
+      : t(unreadFolded ? 'automationMute.box.moreUnread' : 'automationMute.box.more');
   return (
     <div
       data-testid={testId}
@@ -157,43 +246,49 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
         <input
           type="checkbox"
           checked={checked}
+          disabled={readOnly}
           onChange={(event) => onChange(event.target.checked)}
-          aria-describedby={detailsId}
+          aria-describedby={describedByFold ? `${detailsId} ${foldedId}` : detailsId}
           data-testid={`${testId}-toggle`}
           className="mt-0.5"
         />
         <span className="flex items-start gap-1 font-medium">
           <BellOff size={12} aria-hidden="true" className="mt-0.5 shrink-0" />
-          {t('automationMute.box.label')}
+          {t(foldDetails ? 'automationMute.box.labelShort' : 'automationMute.box.label')}
         </span>
       </label>
+      {describedByFold && (
+        <div id={foldedId} hidden>
+          {detailOf(false)}
+        </div>
+      )}
       <div id={detailsId} className="ml-5 flex flex-col gap-1">
-        {offer === 'atStart' ? (
-          <p data-testid={`${testId}-at-start`}>{t('automationMute.box.atStart', { org })}</p>
+        {foldDetails ? (
+          <details
+            data-testid={`${testId}-more`}
+            onToggle={(event) => setOpen(event.currentTarget.open)}
+          >
+            <summary
+              data-testid={`${testId}-more-summary`}
+              className={cn(
+                'cursor-pointer',
+                flagged ? 'text-status-warning' : 'text-text-secondary',
+              )}
+            >
+              {flagged && (
+                <AlertTriangle
+                  size={11}
+                  aria-hidden="true"
+                  className="mr-1 inline-block align-[-1px]"
+                />
+              )}
+              {summary}
+            </summary>
+            <div className="mt-1 flex flex-col gap-1">{detail}</div>
+          </details>
         ) : (
-          <>
-            <p data-testid={`${testId}-assigns`}>
-              {t('automationMute.box.assigns', { count: sets.length, sets: list(sets), org })}
-            </p>
-            <MuteEntryList
-              title={t('automationMute.box.silences')}
-              entries={offer.silenced}
-              testId={`${testId}-silenced`}
-            />
-            <MuteEntryList
-              title={t('automationMute.box.stillRuns')}
-              entries={offer.stillRuns}
-              testId={`${testId}-still-runs`}
-            />
-            <MuteEntryList
-              title={t('automationMute.box.alsoLifts')}
-              entries={offer.alsoLifts}
-              unread={offer.liftsUnread}
-              testId={`${testId}-also-lifts`}
-            />
-          </>
+          detail
         )}
-        <p className="text-text-secondary">{t('automationMute.box.never')}</p>
       </div>
     </div>
   );

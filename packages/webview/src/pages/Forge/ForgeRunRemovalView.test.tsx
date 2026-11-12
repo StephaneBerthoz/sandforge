@@ -1,11 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ForgeUndoObjectResult, ForgeUndoResult } from '@sandforge/shared';
-import '../../i18n';
+import i18n from '../../i18n';
 import {
   ForgeRunRemovalMark,
   ForgeRunRemovalPlan,
   ForgeRunRemovalResult,
+  removalConfirmLabel,
 } from './ForgeRunRemovalView';
 
 /** One object's outcome, nothing counted but what a test names. */
@@ -35,6 +36,40 @@ function result(overrides: Partial<ForgeUndoResult>): ForgeUndoResult {
     ...overrides,
   };
 }
+
+describe('removalConfirmLabel', () => {
+  const t = i18n.t.bind(i18n) as Parameters<typeof removalConfirmLabel>[0];
+  const contacts = [{ objectApiName: 'Contact', count: 4 }];
+  const withFiles = [{ objectApiName: 'ContentDocument', count: 1 }, ...contacts];
+
+  it('says the act and its size, one or several', () => {
+    expect(removalConfirmLabel(t, contacts, false)).toBe('Remove 4 records');
+    expect(removalConfirmLabel(t, [{ objectApiName: 'Contact', count: 1 }], false)).toBe(
+      'Remove 1 record',
+    );
+  });
+
+  it('counts the plan’s files as files, as the plan names them', () => {
+    expect(removalConfirmLabel(t, withFiles, false)).toBe('Remove 5 records and files');
+  });
+
+  it('says a sweep goes with it: it deletes records the plan does not count', () => {
+    expect(removalConfirmLabel(t, contacts, true)).toBe(
+      'Remove 4 records and what the sweep takes',
+    );
+    expect(removalConfirmLabel(t, withFiles, true)).toBe(
+      'Remove 5 records and files, and what the sweep takes',
+    );
+  });
+
+  it('never says it removes no record: nothing planned is the sweep alone', () => {
+    expect(removalConfirmLabel(t, [], true)).toBe('Delete what the sweep takes');
+  });
+
+  it('names no size it does not know, and no sweep that is not asked', () => {
+    expect(removalConfirmLabel(t, [], false)).toBe('Confirm');
+  });
+});
 
 describe('ForgeRunRemovalPlan', () => {
   it('counts the records of each object, one or several', () => {
@@ -76,6 +111,55 @@ describe('ForgeRunRemovalPlan', () => {
     ).toEqual(['ContentDocument: 1 file', 'Attachment: 2 files', 'Account: 1 record']);
   });
 
+  it('says the lines the platform copied go too, for a plan with a quote and its lines', () => {
+    const { rerender } = render(
+      <ForgeRunRemovalPlan
+        plan={[
+          { objectApiName: 'QuoteLineItem', count: 2 },
+          { objectApiName: 'Quote', count: 1 },
+        ]}
+        linked={0}
+      />,
+    );
+    expect(screen.getByTestId('forge-removal-quote-copies').textContent).toBe(
+      'The lines the platform copied between a quote the run synced and its opportunity go too: they are read as the removal begins, and counted apart in its result.',
+    );
+
+    rerender(
+      <ForgeRunRemovalPlan
+        plan={[
+          { objectApiName: 'OpportunityLineItem', count: 2 },
+          { objectApiName: 'Quote', count: 1 },
+        ]}
+        linked={0}
+      />,
+    );
+    expect(screen.getByTestId('forge-removal-quote-copies')).toBeDefined();
+  });
+
+  it('says nothing of copies for a plan without a quote, or without its lines', () => {
+    const { rerender } = render(
+      <ForgeRunRemovalPlan plan={[{ objectApiName: 'Quote', count: 1 }]} linked={0} />,
+    );
+    expect(screen.queryByTestId('forge-removal-quote-copies')).toBeNull();
+
+    rerender(
+      <ForgeRunRemovalPlan plan={[{ objectApiName: 'QuoteLineItem', count: 2 }]} linked={0} />,
+    );
+    expect(screen.queryByTestId('forge-removal-quote-copies')).toBeNull();
+
+    rerender(
+      <ForgeRunRemovalPlan
+        plan={[
+          { objectApiName: 'QuoteLineItem', count: 0 },
+          { objectApiName: 'Quote', count: 1 },
+        ]}
+        linked={0}
+      />,
+    );
+    expect(screen.queryByTestId('forge-removal-quote-copies')).toBeNull();
+  });
+
   it('says the linked records are kept', () => {
     render(<ForgeRunRemovalPlan plan={[{ objectApiName: 'Account', count: 1 }]} linked={3} />);
 
@@ -104,6 +188,71 @@ describe('ForgeRunRemovalPlan', () => {
 });
 
 describe('ForgeRunRemovalResult', () => {
+  describe('a removal its sweep made partial', () => {
+    const sweep = {
+      status: 'failure' as const,
+      objects: [],
+      unread: [],
+      handWork: [],
+    };
+
+    it('says the run’s records went, and that the sweep left what it was asked to take', () => {
+      render(
+        <ForgeRunRemovalResult
+          org="DEV-SANDBOX"
+          result={result({
+            status: 'partial',
+            objects: [outcome({ objectApiName: 'Case', planned: 3, deleted: 3 })],
+            sweep,
+          })}
+        />,
+      );
+
+      const title = screen.getAllByRole('heading')[0];
+      expect(title?.textContent).toBe(
+        'No record this run created is left in DEV-SANDBOX, but the sweep did not take all it was asked to, as listed below.',
+      );
+      expect(title?.className).toContain('text-status-warning');
+    });
+
+    it('blames no sweep that took all it was asked to, the removal partial for what it could not give back', () => {
+      // A Sync removal whose every record went, its sweep a success, ends
+      // partial for a value it could not give back, listed under it: the
+      // title said the sweep had left something.
+      render(
+        <ForgeRunRemovalResult
+          org="DEV-SANDBOX"
+          result={result({
+            status: 'partial',
+            objects: [outcome({ objectApiName: 'Case', planned: 3, deleted: 3 })],
+            sweep: { ...sweep, status: 'success' },
+          })}
+        />,
+      );
+
+      expect(screen.getAllByRole('heading')[0]?.textContent).toBe(
+        'Records this run created were removed from DEV-SANDBOX; the others stay, as listed.',
+      );
+    });
+
+    it('says a partial removal as ever when records of the run stay too', () => {
+      render(
+        <ForgeRunRemovalResult
+          org="DEV-SANDBOX"
+          result={result({
+            status: 'partial',
+            objects: [outcome({ objectApiName: 'Case', planned: 3, deleted: 2, refused: 1 })],
+            sweep,
+          })}
+        />,
+      );
+
+      expect(screen.getAllByRole('heading')[0]?.textContent).toBe(
+        'Records this run created were removed from DEV-SANDBOX; the others stay, as listed.',
+      );
+    });
+  });
+
   it('says, per object, only the counts that are not zero', () => {
     render(
       <ForgeRunRemovalResult
@@ -281,6 +430,53 @@ describe('ForgeRunRemovalResult', () => {
     );
   });
 
+  it('says, of a run stopped and taken up, that the other part holds what was kept, and how it goes', () => {
+    render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({
+          status: 'partial',
+          objects: [
+            outcome({
+              objectApiName: 'Opportunity',
+              planned: 1,
+              keptDependents: 1,
+              heldBy: ['OpportunityLineItem', 'Quote'],
+            }),
+          ],
+          heldByOtherParts: [
+            { forgeId: 'forge-resumed', objects: ['OpportunityLineItem', 'Quote'] },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-held-by-other-parts').textContent).toBe(
+      'This run was stopped and taken up where it left off: records of OpportunityLineItem, Quote ' +
+        'the other part wrote hold what was kept. Remove that part first, then this one again; ' +
+        'there is no need to include what changed.',
+    );
+    expect(screen.queryByTestId('forge-removal-other-parts-left')).toBeNull();
+  });
+
+  it('says what an earlier removal of the other part left, which that part takes asked again', () => {
+    const { rerender } = render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({ otherPartsLeft: [{ forgeId: 'forge-cut', records: 2 }] })}
+      />,
+    );
+    expect(screen.getByTestId('forge-removal-other-parts-left').textContent).toBe(
+      'This run was stopped and taken up where it left off: an earlier removal of the other part ' +
+        'left 2 records in DEV-SANDBOX, which records of this one may have held. Remove that part ' +
+        'again to take them.',
+    );
+    expect(screen.queryByTestId('forge-removal-held-by-other-parts')).toBeNull();
+
+    rerender(<ForgeRunRemovalResult org="DEV-SANDBOX" result={result({})} />);
+    expect(screen.queryByTestId('forge-removal-other-parts-left')).toBeNull();
+  });
+
   it('says a removal of what an earlier one left picked up where that one left off', () => {
     const { rerender } = render(
       <ForgeRunRemovalResult org="DEV-SANDBOX" result={result({ status: 'success' })} />,
@@ -305,6 +501,166 @@ describe('ForgeRunRemovalResult', () => {
     );
     expect(screen.getByTestId('forge-removal-result-left-by').textContent).toBe(
       'Picked up where the removal of unknown left off.',
+    );
+  });
+});
+
+describe('ForgeRunRemovalResult of what the automation made', () => {
+  /** A removal that kept an opportunity and two contacts for what hung under them. */
+  const HELD = result({
+    status: 'partial',
+    objects: [
+      outcome({
+        objectApiName: 'Opportunity',
+        keptDependents: 1,
+        heldBy: ['Task'],
+        heldByAutomation: 1,
+        automationHolders: ['Task'],
+      }),
+      outcome({
+        objectApiName: 'Contact',
+        keptDependents: 2,
+        heldBy: ['Task', 'FeedItem'],
+        heldByAutomation: 2,
+        automationHolders: ['Task', 'FeedItem'],
+      }),
+    ],
+  });
+
+  it('names what the automation likely made, once each, and how many of the run’s it held', () => {
+    render(<ForgeRunRemovalResult result={HELD} org="DEV-SANDBOX" />);
+
+    expect(screen.getByTestId('forge-removal-held-by-automation').textContent).toBe(
+      "3 records of this run were kept for records created under them during the run, as its user, likely by the target's automation: Task, FeedItem.",
+    );
+  });
+
+  it('proposes the sweep, and says what it leaves that a rewind takes back', () => {
+    const onTakeBackMade = vi.fn();
+    render(
+      <ForgeRunRemovalResult result={HELD} org="DEV-SANDBOX" onTakeBackMade={onTakeBackMade} />,
+    );
+
+    const button = screen.getByTestId('forge-removal-take-back-made');
+    expect(button.textContent).toBe(
+      "Take back what the target's automation made for this run, then remove again",
+    );
+    fireEvent.click(button);
+    expect(onTakeBackMade).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('forge-removal-held-by-automation').textContent).toContain(
+      'only a rewind to a checkpoint takes that back',
+    );
+  });
+
+  it('names them without a button where no removal can follow', () => {
+    render(<ForgeRunRemovalResult result={HELD} org="DEV-SANDBOX" />);
+
+    expect(screen.queryByTestId('forge-removal-take-back-made')).toBeNull();
+  });
+
+  it('says nothing of the automation for records held by others, or by nothing it made', () => {
+    render(
+      <ForgeRunRemovalResult
+        result={result({
+          status: 'partial',
+          objects: [
+            outcome({ objectApiName: 'Contact', keptDependents: 1, heldBy: ['Case'] }),
+            outcome({ objectApiName: 'Account', deleted: 1, heldByAutomation: 0 }),
+          ],
+        })}
+        org="DEV-SANDBOX"
+        onTakeBackMade={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('forge-removal-held-by-automation')).toBeNull();
+    expect(screen.queryByTestId('forge-removal-take-back-made')).toBeNull();
+  });
+
+  it('says a sweep that was asked left them, and its list says why', () => {
+    render(
+      <ForgeRunRemovalResult
+        result={{
+          ...HELD,
+          sweep: { status: 'success', objects: [], unread: [], handWork: [] },
+        }}
+        org="DEV-SANDBOX"
+        onTakeBackMade={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-held-sweep-left').textContent).toBe(
+      'The sweep left them: its list says why, and what came late can be asked for.',
+    );
+  });
+
+  it('says it of a load in a load’s words', () => {
+    render(
+      <ForgeRunRemovalResult
+        result={HELD}
+        org="DEV-SANDBOX"
+        subject="load"
+        onTakeBackMade={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-held-by-automation').textContent).toContain(
+      '3 records of this load were kept for records created under them during the load',
+    );
+    expect(screen.getByTestId('forge-removal-take-back-made').textContent).toBe(
+      "Take back what the target's automation made for this load, then remove again",
+    );
+  });
+
+  it('says nothing of it for a rewind, whose records are what was added since a checkpoint', () => {
+    render(
+      <ForgeRunRemovalResult
+        result={HELD}
+        org="DEV-SANDBOX"
+        subject="rewind"
+        onTakeBackMade={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('forge-removal-held-by-automation')).toBeNull();
+  });
+});
+
+describe('ForgeRunRemovalResult of the lines the platform copied', () => {
+  it('names them beside what it deleted: a plan of 2 lines ended in 4 deleted', () => {
+    render(
+      <ForgeRunRemovalResult
+        result={result({
+          objects: [
+            outcome({
+              objectApiName: 'QuoteLineItem',
+              planned: 4,
+              deleted: 4,
+              platformCopies: 2,
+            }),
+          ],
+        })}
+        org="DEV-SANDBOX"
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-result-QuoteLineItem').textContent).toBe(
+      'QuoteLineItem: 4 deleted · 2 the platform copied between the quote the run synced and its opportunity',
+    );
+  });
+
+  it('says nothing of copies when there were none', () => {
+    render(
+      <ForgeRunRemovalResult
+        result={result({
+          objects: [outcome({ objectApiName: 'QuoteLineItem', planned: 2, deleted: 2 })],
+        })}
+        org="DEV-SANDBOX"
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-result-QuoteLineItem').textContent).toBe(
+      'QuoteLineItem: 2 deleted',
     );
   });
 });
@@ -352,6 +708,50 @@ describe('ForgeRunRemovalResult of a Frozen load', () => {
       '2 files attached to them stay in DEV-SANDBOX, as the load did not create them: Confirmation-0001.pdf, Confirmation-0002.pdf',
     );
     expect(screen.queryByTestId('forge-removal-files-Contact')).toBeNull();
+  });
+
+  it('says what a removal including changes took along that the load never wrote', () => {
+    // Run for real, the contact made by hand under an account of the load
+    // went with the account, and the result counted the load's four contacts.
+    const { rerender } = render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        subject="load"
+        result={result({
+          objects: [
+            outcome({ objectApiName: 'Contact', deleted: 4 }),
+            outcome({
+              objectApiName: 'Account',
+              deleted: 2,
+              tookAlong: { count: 1, objects: ['Contact'] },
+            }),
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-took-along-Account').textContent).toBe(
+      "Also took along 1 record that was not the load's, added or changed since it: Contact",
+    );
+    expect(screen.queryByTestId('forge-removal-took-along-Contact')).toBeNull();
+
+    rerender(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({
+          objects: [
+            outcome({
+              objectApiName: 'Account',
+              deleted: 1,
+              tookAlong: { count: 2, objects: ['Contact', 'Task'] },
+            }),
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByTestId('forge-removal-took-along-Account').textContent).toBe(
+      "Also took along 2 records that were not the run's, added or changed since it: Contact, Task",
+    );
   });
 });
 

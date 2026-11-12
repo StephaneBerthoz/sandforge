@@ -1,4 +1,5 @@
 import { lazy } from 'react';
+import { loadOrgRibbon } from '../../components/ui/lazyOrgRibbon';
 import { withEnglish } from '../../i18n/englishNamespaces';
 
 /*
@@ -29,7 +30,7 @@ const loadDiscovery = () =>
 
 /** Review: the plan, the gaps, the automation and the controls before a run. */
 const loadReview = () =>
-  withEnglish(() => import('./ForgeReview'), ['forgeRun'])().then((module) => ({
+  withEnglish(() => import('./ForgeReview'), ['checkpointNotes', 'forgeRun'])().then((module) => ({
     default: module.ForgeReview,
   }));
 
@@ -41,9 +42,11 @@ const loadExecution = () =>
 
 /** Results: what the run wrote, and what it left. */
 const loadResults = () =>
-  withEnglish(() => import('./ForgeResults'), ['forgeRun', 'list'])().then((module) => ({
-    default: module.ForgeResults,
-  }));
+  withEnglish(() => import('./ForgeResults'), ['checkpointNotes', 'forgeRun', 'list'])().then(
+    (module) => ({
+      default: module.ForgeResults,
+    }),
+  );
 
 export const ForgeDiscovery = lazy(loadDiscovery);
 export const ForgeReview = lazy(loadReview);
@@ -60,7 +63,8 @@ export const ForgeResults = lazy(loadResults);
  * it is in the module map by the time Execute is pressed.
  */
 const NEXT_STEPS: Readonly<Record<string, readonly (() => Promise<unknown>)[]>> = {
-  discovery: [loadReview],
+  // The ribbon of the two orgs comes with Review: the steps before it draw none.
+  discovery: [loadReview, loadOrgRibbon],
   review: [loadExecution, loadResults],
 };
 

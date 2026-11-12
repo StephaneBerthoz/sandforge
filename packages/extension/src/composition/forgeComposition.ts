@@ -204,6 +204,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
     import('../modules/forge/lostBulkJobs.js'),
     import('../core/engine/trackedBulkConnection.js'),
     import('../modules/seed/seedDuplicateRules.js'),
+    import('../modules/forge/targetCreators.js'),
   ])
     .then(
       ([
@@ -219,13 +220,14 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         { getJsforceConnection },
         fileTransfer,
         { TargetAutomationReader, targetAutomationQueries },
-        { TargetGapReader },
+        { TargetGapReader, readActiveValidationRules },
         { ForgeRemovalPlanStore },
         { nodeRunJournal },
         { forgeBulkWrite, BulkJobLostError },
         { LostBulkJobs },
         { trackedBulkConnection },
         { objectsUnderDuplicateRules },
+        { createFactsOnce, readCreateFacts, whyNotCreatableOver },
       ]) => {
         // Shared schema cache + timeout manager. Eliminates the 600+ describe
         // round-trips per forge run on a large org (350+ SObjects).
@@ -658,6 +660,17 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             }
             return { keyPrefix: described.keyPrefix, recordTypes: described.recordTypes };
           },
+          // The same, read again from the org, never from what this window
+          // holds: asked once the mute's lease assigned a permission set,
+          // which may have opened record types to the user the run writes as.
+          // A describe read just after the assignment says so; the one held
+          // from before it says the types as they were.
+          describeObjectAgain: async (orgId, objectName) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            countExecutorRequest();
+            const described = toForgeObjectDescribe(await conn.describe(objectName));
+            return { keyPrefix: described.keyPrefix, recordTypes: described.recordTypes };
+          },
           // What a record type allows of the object's picklists: one UI API
           // request per object and record type, which the run keeps.
           recordTypePicklists: async (orgId, objectName, recordTypeId) => {
@@ -745,6 +758,13 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             countExecutorRequest();
             return objectsUnderDuplicateRules(conn);
           },
+          // The owner of an opportunity the run sends without one, whose
+          // team the platform writes with it: what a simulation links a team
+          // row to, as the rehearsal and the run do.
+          runningUser: async (orgId) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            return (await conn.identity()).user_id;
+          },
           // No `anonymize`: what a run anonymizes comes with the run — the
           // fields selected on each node, the methods Review holds — and the
           // executor keys an anonymizer of its own to each run. The one wired
@@ -756,7 +776,35 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         const planGenerator = new ForgePlanGenerator();
         const complianceService = new ForgeComplianceService();
 
+        // Review's read of the target's queries, which the metadata diff
+        // shares with the gaps: what a permission set can give Create on and
+        // whether the user holds Modify All Data, read once for both while
+        // the describes are kept.
+        const targetQueries = targetAutomationQueries((orgId) =>
+          getJsforceConnection(orgId, orgRegistry, orgManager),
+        );
+        const createFacts = createFactsOnce(
+          async (orgId) =>
+            (
+              await readCreateFacts(
+                {
+                  describeFields: async (factsOrgId, objectApiName) => {
+                    let sent = false;
+                    const described = await describeOnce(factsOrgId, objectApiName, [], () => {
+                      sent = true;
+                    });
+                    return { sent, fields: described.fields };
+                  },
+                  query: targetQueries.query,
+                },
+                orgId,
+              )
+            ).facts,
+          5 * 60_000,
+        );
+
         const metadataDiff = new ForgeMetadataDiff({
+          whyNotCreatable: whyNotCreatableOver(targetQueries.toolingQuery, createFacts),
           describeObject: async (orgId, objectApiName) => {
             const described = await describeOnce(orgId, objectApiName);
             return {
@@ -772,9 +820,6 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
 
         // Review's read of the target's flows and triggers: the regular API for
         // the flows, the Tooling API for the triggers and the start conditions.
-        const targetQueries = targetAutomationQueries((orgId) =>
-          getJsforceConnection(orgId, orgRegistry, orgManager),
-        );
         const targetAutomation = new TargetAutomationReader(targetQueries);
 
         // Review's read of what the target holds against the rows: its rules
@@ -783,6 +828,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         // actions from the Metadata API.
         const targetGaps = new TargetGapReader({
           ...targetQueries,
+          createFacts,
           describeFields: async (orgId, objectApiName) => {
             let sent = false;
             const described = await describeOnce(orgId, objectApiName, [], () => {
@@ -864,6 +910,19 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             return `/services/data/v${conn.version}`;
           },
+          // The owner of an opportunity the run sends without one, whose
+          // team the platform writes with it.
+          runningUser: async (orgId) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            return (await conn.identity()).user_id;
+          },
+          // The rule a validation refusal is of, read as Review's gaps read
+          // the rules: one the ticked mute lifts is said lifted in Gaps.
+          validationRules: (orgId, objectApiNames) =>
+            readActiveValidationRules(
+              async (soql) => (await targetQueries.toolingQuery(orgId, soql)).records,
+              objectApiNames,
+            ),
         });
 
         const forgeOrchestrator = new ForgeOrchestrator({

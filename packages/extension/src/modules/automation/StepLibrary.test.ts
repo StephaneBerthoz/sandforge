@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { StepLibrary } from './StepLibrary';
 import {
   PIPELINE_STEP_TYPES,
+  pipelineAnonymizeStepConfigSchema,
   pipelineCheckpointStepConfigSchema,
   pipelineRewindStepConfigSchema,
 } from '@sandforge/shared';
@@ -67,6 +68,8 @@ describe('StepLibrary', () => {
         orgId: '',
         checkpointId: '',
         acceptAutomation: false,
+        acceptEmails: false,
+        muteAutomation: false,
         acceptNoUndo: false,
         acceptRecreate: false,
         acceptOutside: false,
@@ -93,6 +96,24 @@ describe('StepLibrary', () => {
       expect(
         pipelineCheckpointStepConfigSchema.safeParse({ ...config, orgId: 'org-1' }).success,
       ).toBe(true);
+    });
+
+    it('gives an Anonymize step every acceptance off, as its schema reads one it does not name', () => {
+      const config = library.getDefaultConfig('anonymize');
+      expect(config).toEqual({
+        orgId: '',
+        templateId: '',
+        acceptAutomation: false,
+        acceptEmails: false,
+        muteAutomation: false,
+      });
+      expect(
+        pipelineAnonymizeStepConfigSchema.parse({
+          ...config,
+          orgId: 'org-1',
+          templateId: 'tpl-gdpr-standard',
+        }),
+      ).toMatchObject({ acceptAutomation: false, acceptEmails: false, muteAutomation: false });
     });
 
     it('says none of the steps that run in a pipeline is not runnable there', () => {

@@ -206,8 +206,12 @@ export function scopeAnswer(
       },
     ],
     leftOut: [
-      { objectApiName: 'FeedItem', reason: 'Chatter posts are left out.' },
-      { objectApiName: 'AccountHistory', reason: 'History is the audit trail.' },
+      { objectApiName: 'FeedItem', code: 'chatter', reason: CHATTER_LEFT_OUT },
+      {
+        objectApiName: 'AccountHistory',
+        code: 'history',
+        reason: "History is left out: it is the org's own trace of changes.",
+      },
     ],
     estimate: {
       records: 2424,
@@ -222,6 +226,11 @@ export function scopeAnswer(
 
 /** The opening the take gives each reason it leaves an object out for its user's permissions. */
 const WITHOUT_BOTH = 'Without View All Data and Modify All Data,';
+
+/** Why every checkpoint leaves a feed out, in the extension's words and the page's. */
+const CHATTER_LEFT_OUT =
+  'Chatter posts, comments and feeds are left out: Salesforce brings a post back only with ' +
+  'what it was posted on.';
 
 /**
  * What `checkpoint:scope` answers a user without View All Data and Modify
@@ -239,19 +248,23 @@ export function perObjectScope(): CheckpointScopeResponse['payload'] {
       { ...contact, access: 'object', leftOutFields: [] },
     ],
     leftOut: [
-      { objectApiName: 'FeedItem', reason: 'Chatter posts are left out.' },
-      { objectApiName: 'Task', reason: activities },
-      { objectApiName: 'Event', reason: activities },
+      { objectApiName: 'FeedItem', code: 'chatter', reason: CHATTER_LEFT_OUT },
+      { objectApiName: 'Task', code: 'activities', reason: activities },
+      { objectApiName: 'Event', code: 'activities', reason: activities },
       {
         objectApiName: 'Opportunity',
+        code: 'noModifyAll',
         reason: `${WITHOUT_BOTH} an object is held only with View All and Modify All on it, and the user SandForge connects as has View All on this one, not Modify All: a rewind could not put back what others changed.`,
       },
       {
         objectApiName: 'OpportunityLineItem',
+        code: 'parentNotSeen',
         reason: `${WITHOUT_BOTH} an object with no permissions of its own is held only when the user has View All and Modify All on every record it hangs from, which is not proven here (Opportunity, which OpportunityId names, is not held whole).`,
+        detail: 'Opportunity, which OpportunityId names, is not held whole',
       },
       {
         objectApiName: 'Product2',
+        code: 'catalog',
         reason: `${WITHOUT_BOTH} products and price books are left out: Salesforce has no View All or Modify All for them.`,
       },
     ],
@@ -711,4 +724,156 @@ export function undoResult(
   });
   if (!('undo' in overrides)) delete result.undo;
   return result;
+}
+
+/**
+ * A checkpoint a Forge run took of what it writes before its first write, as
+ * the list shows it beside the run's chip.
+ */
+export function beforeRunCheckpoint(): OrgCheckpoint {
+  return readyCheckpoint({
+    checkpointId: 'ck-before-forge',
+    name: 'Before Forge run 2026-11-01 10:15 UTC',
+    readFrom: daysFromNow(-1),
+    takenAt: daysFromNow(-1),
+    expiresAt: daysFromNow(6),
+    scope: { mode: 'picked', leftOut: [] },
+    beforeRun: { module: 'forge', operationId: 'forge-execute-1', tool: 'panel' },
+  });
+}
+
+/**
+ * What `checkpoint:preview` answers for a rewind whose writes fire what sends
+ * emails, as the trap org's automation does: a flow on the contact's update
+ * that tests the org's bypass, and an alert on the account's delete that
+ * tests none — and whether the org delivers them, as the extension read it:
+ * All email, System email only or No access (`withheld`), or not read.
+ */
+export function previewThatSends(
+  checkpointId: string,
+  reading: NonNullable<CheckpointPreviewResponse['payload']['deliverability']>['reading'],
+): CheckpointPreviewResponse['payload'] {
+  return {
+    ...plainPreview(checkpointId, 'pv-emails'),
+    automation: {
+      objectsRead: ['Contact', 'Account'],
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [
+            {
+              apiName: 'Contact_Welcome_Email',
+              label: 'Contact Welcome Email',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [{ name: 'Bypass_Flow', bypass: true, held: false }],
+              messages: [{ kind: 'email', name: 'Welcome', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_Gone_Alert',
+              label: 'Account Gone Alert',
+              timing: 'beforeDelete',
+              startsOn: 'delete',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Owner alert', limit: 'DailyWorkflowEmails' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      bypassGrants: [
+        {
+          permission: 'Bypass_Flow',
+          permissionSets: [{ name: 'Flow_Bypass', label: 'Flow bypass', grants: 1 }],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 4,
+    },
+    deliverability: {
+      reading,
+      senders: [
+        { objectApiName: 'Contact', kind: 'flow', name: 'Contact Welcome Email', why: 'email' },
+        { objectApiName: 'Account', kind: 'flow', name: 'Account Gone Alert', why: 'email' },
+      ],
+    },
+  };
+}
+
+/**
+ * What `checkpoint:preview` answers the page for a checkpoint of picked
+ * objects whose rewind deletes an account made since that a case outside it
+ * hangs from, and gives another account its name back: a flow emails the
+ * owner as an account is changed, another as one is deleted. Asked without
+ * saying whether the rewind may delete the case's account, the extension
+ * counts the emails of both rewinds: the one that deletes it sends two, the
+ * one that keeps it one.
+ */
+export function previewKeepingOutside(checkpointId: string): CheckpointPreviewResponse['payload'] {
+  const sends = (sentBy: string[]) => ({
+    limit: 'SingleEmail' as const,
+    emails: sentBy.length,
+    verdict: 'fits' as const,
+    remaining: 15,
+    max: 15,
+    objects: [
+      {
+        objectApiName: 'Account',
+        write: 'update' as const,
+        records: sentBy.length,
+        perRecord: 1,
+        sentBy,
+      },
+    ],
+  });
+  const flow = (label: string, startsOn: 'update' | 'delete') => ({
+    apiName: label.replace(/ /g, '_'),
+    label,
+    timing: startsOn === 'update' ? ('afterSave' as const) : ('beforeDelete' as const),
+    startsOn,
+    condition: 'read' as const,
+    permissions: [],
+    messages: [{ kind: 'email' as const, name: 'Tell owner', limit: 'SingleEmail' as const }],
+  });
+  const plain = plainPreview(checkpointId, 'pv-outside');
+  return {
+    ...plain,
+    diff: {
+      ...plain.diff,
+      objects: [
+        diffObject('Account', {
+          toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+          toGiveBack: { records: 1, fields: 1, clearedLookups: 0 },
+          outside: [{ objectApiName: 'Case', count: 1, parents: 1 }],
+          lastChangedBy: { [USERS.alice]: 2 },
+        }),
+      ],
+    },
+    automation: {
+      objectsRead: ['Account'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [flow('Account changed', 'update'), flow('Account gone', 'delete')],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 2,
+    },
+    emails: [sends(['Account changed', 'Account gone'])],
+    emailsKeepingOutside: [sends(['Account changed'])],
+  };
 }

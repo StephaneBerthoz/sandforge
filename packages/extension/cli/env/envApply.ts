@@ -82,7 +82,13 @@ import type { CommandRunner } from '../scriptRunner.js';
 import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from '../stopSignals.js';
 import { deleteEnvCheckpoint, takeEnvCheckpoint, withCheckpoint } from './envCheckpoints.js';
 import type { EnvFileResolved, EnvFileResource } from './envFile.js';
-import { checkpointActRefusal, lockRefusal, type EnvTarget } from './envGuards.js';
+import {
+  checkpointActRefusal,
+  lockRefusal,
+  STATE_MOVED,
+  stateRefusal,
+  type EnvTarget,
+} from './envGuards.js';
 import {
   applyLineOf,
   dryRunCountOf,
@@ -180,10 +186,10 @@ interface Where {
  * What refused or failed a step, in its script's own words: what its `--json`
  * answer says, where it says it; else, for a step that ended neither done,
  * partial, unstable nor stopped, the last line it said on stderr that says
- * why. A script refused before its first write prints nothing on stdout:
- * live, a forge run its gate refused — `The run would write 6 records, more
- * than --max-total 5` — left the apply's `--json` with its exit code alone,
- * and the reason on the clone's stderr.
+ * why. A script refused before its first write prints no run on stdout,
+ * only its refusal (`isRefusedSummary`): live, a forge run its gate refused —
+ * `The run would write 6 records, more than --max-total 5` — left the apply's
+ * `--json` with its exit code alone, and the reason on the clone's stderr.
  */
 function stepRefusalOf(
   code: number,
@@ -234,13 +240,26 @@ function runObjects(count: EnvRunCount | undefined): EnvStepObject[] {
   }));
 }
 
+/**
+ * Whether `--json` answered that the run's gate refused it (`refusedSummary`):
+ * no run to read, which is no misreading. Its reason is its last line on stderr.
+ */
+function isRefusedSummary(stdout: string): boolean {
+  try {
+    const answer = JSON.parse(stdout) as { refused?: { code?: unknown } } | null;
+    return typeof answer?.refused?.code === 'string';
+  } catch {
+    return false;
+  }
+}
+
 /** What a script printed on stdout read with `read`, or undefined, the reason said. */
 function answerOf<T>(
   read: (stdout: string) => T,
   stdout: string,
   say: (line: string) => void,
 ): T | undefined {
-  if (stdout.trim() === '') return undefined;
+  if (stdout.trim() === '' || isRefusedSummary(stdout)) return undefined;
   try {
     return read(stdout);
   } catch (err: unknown) {
@@ -481,6 +500,33 @@ async function forgetMask(
   };
 }
 
+/**
+ * The scripts that read the target's automation before they write, and are
+ * refused for the emails what still runs sends where it delivers them
+ * (`EMAILS_NOT_ACCEPTED`): a seed, a clone, a masking and a frozen load.
+ */
+const SCRIPTS_THAT_ASK_FOR_THE_EMAILS: ReadonlySet<string> = new Set([
+  'sandforge-seed',
+  'sandforge-clone',
+  'sandforge-dataops',
+  'sandforge-frozen',
+]);
+
+/**
+ * A resource's line, dry run or run, with the accord of the environment's own
+ * line (`--accept-emails`) when its script asks for one: the question it
+ * would put has nobody to answer it, and the file holds no such accord, which
+ * is the person's to give each time.
+ */
+export function withEmailsAccepted<L extends { script: string; args: string[] }>(
+  line: L,
+  acceptEmails: boolean,
+): L {
+  return acceptEmails && SCRIPTS_THAT_ASK_FOR_THE_EMAILS.has(line.script)
+    ? { ...line, args: [...line.args, '--accept-emails'] }
+    : line;
+}
+
 /** What an apply is given beside its plan. */
 export interface EnvApplyInput {
   plan: EnvPlan;
@@ -492,6 +538,12 @@ export interface EnvApplyInput {
   dryRuns: Readonly<Record<string, EnvDryRun>>;
   /** Delete although the target runs automation as the records go: the line's. */
   acceptAutomation: boolean;
+  /**
+   * Write although the target delivers the emails what still runs sends, or
+   * would not say whether it does: the line's, handed to the resources'
+   * runs. Not given, not accepted; never `acceptAutomation`.
+   */
+  acceptEmails?: boolean;
 }
 
 /** A step of an apply: a resource's runs taken back, or its script run. */
@@ -563,7 +615,15 @@ function verifiedEnd(
   ended: ReturnType<typeof runEnd>,
   verified: Verified | undefined,
 ): ReturnType<typeof runEnd> {
-  if (verified === undefined || ended.status !== 'applied') return ended;
+  if (verified === undefined) return ended;
+  // A frozen load its own verification ended partial, exit 3, says what that
+  // verification found, as an applied run does.
+  if (ended.status === 'partial' && ended.short === undefined && 'short' in verified) {
+    return verified.short === undefined || verified.unstable
+      ? ended
+      : { ...ended, short: `its verification found ${verified.short}` };
+  }
+  if (ended.status !== 'applied') return ended;
   if ('unread' in verified) return { ...ended, short: `not verified: ${verified.unread}` };
   if (verified.unstable) {
     return {
@@ -595,6 +655,10 @@ interface RunStepInput {
   readTooEarly: boolean;
   /** Whether the run replaces runs of it still in the org: a frozen resource's is a reload. */
   replace: boolean;
+  /** The line's `--accept-automation` or the file's, which a reload's purge is held to. */
+  acceptAutomation: boolean;
+  /** The line's `--accept-emails`, handed to a run whose script asks for it. */
+  acceptEmails: boolean;
   signal: AbortSignal;
 }
 
@@ -665,13 +729,16 @@ async function runResourceStep(
         },
       }),
     );
-    const line = applyLineOf(resource, {
-      target: target.alias,
-      templateFile,
-      runId,
-      summaryFile: '',
-      ...(seed !== undefined ? { seed } : {}),
-    });
+    const line = withEmailsAccepted(
+      applyLineOf(resource, {
+        target: target.alias,
+        templateFile,
+        runId,
+        summaryFile: '',
+        ...(seed !== undefined ? { seed } : {}),
+      }),
+      input.acceptEmails,
+    );
     const ran = await deps.runner(line.script, line.args, signal);
     const answer = answerOf(readSeedRun, ran.stdout, deps.say);
     const count = answer !== undefined ? seedRunCount(answer) : undefined;
@@ -719,13 +786,16 @@ async function runResourceStep(
   );
   // Held to its dry run's count: a scope that widened since is refused, not written.
   const maxTotal = dryRunTotalOf(dry);
-  const line = applyLineOf(resource, {
-    target: target.alias,
-    templateFile,
-    runId: '',
-    summaryFile,
-    ...(maxTotal !== undefined ? { maxTotal } : {}),
-  });
+  const line = withEmailsAccepted(
+    applyLineOf(resource, {
+      target: target.alias,
+      templateFile,
+      runId: '',
+      summaryFile,
+      ...(maxTotal !== undefined ? { maxTotal } : {}),
+    }),
+    input.acceptEmails,
+  );
   const ran = await deps.runner(line.script, line.args, signal);
   // The summary as the clone wrote it, read back: it says what the run
   // created however it ended, where stdout says nothing of a run killed.
@@ -771,7 +841,8 @@ async function runResourceStep(
     ...(planned !== undefined ? { planned } : {}),
     ...(verified !== undefined ? { verified } : {}),
     // A run that failed past its first objects keeps why in its summary; one
-    // its gate refused before its first write says it on stderr alone.
+    // its gate refused before its first write says it in its line on stderr,
+    // its code named, its summary naming no run to read.
     ...(answer?.error !== undefined ? { answered: answer.error } : {}),
     stderr: ran.stderr,
   };
@@ -805,14 +876,20 @@ async function runFrozenStep(
   // Held to what its dry run counted to insert: a dataset or a target that
   // changed since is refused before its first write, the purge included.
   const maxTotal = dryRunTotalOf(dry);
-  const line = applyLineOf(resource, {
-    target: target.alias,
-    templateFile,
-    runId: '',
-    summaryFile: '',
-    replace: input.replace,
-    ...(maxTotal !== undefined ? { maxTotal } : {}),
-  });
+  // With the accord of the environment's line, as a seed's and a clone's:
+  // the load is refused for its emails otherwise, where the org delivers them.
+  const line = withEmailsAccepted(
+    applyLineOf(resource, {
+      target: target.alias,
+      templateFile,
+      runId: '',
+      summaryFile: '',
+      replace: input.replace,
+      acceptAutomation: input.acceptAutomation,
+      ...(maxTotal !== undefined ? { maxTotal } : {}),
+    }),
+    input.acceptEmails,
+  );
   const ran = await deps.runner(line.script, line.args, signal);
   const answer = answerOf(readFrozenRun, ran.stdout, deps.say);
   const count = answer !== undefined ? frozenRunCount(answer) : undefined;
@@ -887,13 +964,18 @@ async function runMaskStep(
     where.env,
     maskStoreOf(resource.name),
   );
-  const line = applyLineOf(resource, {
-    target: target.alias,
-    templateFile,
-    runId: '',
-    summaryFile: '',
-    store,
-  });
+  // With the accord of the environment's own line: a masking is refused for
+  // the emails what the org runs sends as the records are written over.
+  const line = withEmailsAccepted(
+    applyLineOf(resource, {
+      target: target.alias,
+      templateFile,
+      runId: '',
+      summaryFile: '',
+      store,
+    }),
+    input.acceptEmails,
+  );
   const ran = await deps.runner(line.script, line.args, signal);
   const answer = answerOf(readMaskRun, ran.stdout, deps.say);
   const masking = answer !== undefined ? maskRunCount(answer) : undefined;
@@ -929,9 +1011,9 @@ async function runMaskStep(
 
 /**
  * How a masking ended: applied once it went through every record and left
- * no value as it was; partial when it left some — refused by the org, or of
- * a field the org does not show the user, which the script ends 0 with —;
- * as every run ends otherwise.
+ * no value as it was; partial when it left some, refused by the org; as every
+ * run ends otherwise, a field the org does not show the user among them, which
+ * the script refuses before it writes.
  */
 function maskEnd(code: number, masking: MaskRunCount | undefined): ReturnType<typeof runEnd> {
   const ended = runEnd(code, undefined, undefined);
@@ -1020,17 +1102,23 @@ export function statusOf(exitCode: number): EnvRunResult['status'] {
 export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promise<EnvRunOutcome> {
   const { plan, target, resolved } = input;
   const env = resolved.checked.file.name;
-  const refused = (refusal: string, state = input.state): EnvRunOutcome => ({
+  /** Refused before its first step, under the codes of what refused it where they are known. */
+  const refused = (
+    refusal: string,
+    state = input.state,
+    codes: readonly string[] = [],
+  ): EnvRunOutcome => ({
     result: {
       plan,
       steps: [],
       status: 'failure',
       refusal,
+      ...(codes.length > 0 ? { refusalCodes: [...codes] } : {}),
       state: { serial: state?.serial ?? 0 },
     },
     exitCode: FAILED_EXIT,
   });
-  if (plan.refusal !== undefined) return refused(plan.refusal);
+  if (plan.refusal !== undefined) return refused(plan.refusal, input.state, plan.refusalCodes);
   const steps = applySteps(plan, input.state);
   const beforeTake = plan.checkpoints?.find((c) => c.step === 'before');
   const afterTake = plan.checkpoints?.find((c) => c.step === 'after');
@@ -1048,7 +1136,10 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
     { operation: 'apply' satisfies EnvLockOperation, env, alias: target.alias },
     deps.lockOptions,
   );
-  if ('busy' in taken) return refused(lockRefusal(taken.busy).message);
+  if ('busy' in taken) {
+    const busy = lockRefusal(taken.busy);
+    return refused(busy.message, input.state, [busy.code]);
+  }
   const stop = new AbortController();
   let stoppedBy: StopSignal | undefined;
   const release = (deps.onStop ?? onStopSignal)((signal) => {
@@ -1074,6 +1165,7 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
           `The state of ${env} on ${target.alias} changed since the plan (another apply or ` +
             'destroy ran, or a cache put back another state). Nothing was written: plan again.',
           read,
+          [STATE_MOVED],
         );
       }
       current =
@@ -1090,7 +1182,9 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
           sandforgeVersion: deps.sandforgeVersion,
         });
     } catch (err: unknown) {
-      if (err instanceof EnvStateError) return refused(err.message);
+      if (err instanceof EnvStateError) {
+        return refused(err.message, input.state, [stateRefusal(err).code]);
+      }
       throw err;
     }
     current = {
@@ -1243,6 +1337,10 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
           dry: input.dryRuns[step.resource],
           readTooEarly,
           replace: step.action === 'replace' && replacesInOneRun(resource.kind),
+          acceptAutomation:
+            input.acceptAutomation ||
+            resolved.checked.file.resources[step.resource]?.accept?.automation === true,
+          acceptEmails: input.acceptEmails === true,
           signal: stop.signal,
         });
         current = outcome.state;

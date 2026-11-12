@@ -59,6 +59,7 @@ describe('a script in a process of its own', () => {
       expect(JSON.parse(ran.stdout)).toEqual({
         args: ['two words', 'a "quoted" one'],
         ipc: process.platform === 'win32',
+        relayedBy: null,
       });
     },
     STARTS_WITHIN,

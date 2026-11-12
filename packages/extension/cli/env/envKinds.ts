@@ -19,7 +19,12 @@ import type {
   EnvSeedRun,
 } from '@sandforge/shared';
 import type { EnvFileResource } from './envFile.js';
-import type { EnvDryRunCount, EnvFileRefusal, EnvRemovalObject } from './kinds/common.js';
+import type {
+  EnvDryRunCount,
+  EnvFileRefusal,
+  EnvRemovalObject,
+  EnvSweepAsk,
+} from './kinds/common.js';
 import {
   FORGE_DEFAULT_MAX_TOTAL,
   FORGE_SCRIPT,
@@ -290,8 +295,16 @@ export interface EnvDryRunContext {
   runId: string;
   /** Whether the run replaces runs before it: a frozen resource's is a reload. */
   replace?: boolean;
+  /** Whether what fires as a reload's purge deletes is accepted: the line's, or the file's. */
+  acceptAutomation?: boolean;
   /** The store a frozen dry run keeps the script's own state in, apart from the sas. */
   storeFile?: string;
+  /**
+   * The file of the ids the apply takes back before any run, handed to the
+   * dry run of a frozen replace: hanging from the loads' records, they hold
+   * nothing by the time the reload runs.
+   */
+  goneFirstFile?: string;
   /** The DataOps store a mask resource's script keeps its snapshots and its template in. */
   store?: string;
   /**
@@ -344,7 +357,9 @@ export function dryRunLineOf(
           configFile: context.templateFile,
           target: context.target,
           reload: context.replace === true,
+          acceptAutomation: context.acceptAutomation === true,
           ...(context.storeFile !== undefined ? { store: context.storeFile } : {}),
+          ...(context.goneFirstFile !== undefined ? { goneFirst: context.goneFirstFile } : {}),
         }),
       };
     case 'mask':
@@ -501,6 +516,7 @@ export function applyLineOf(
           configFile: context.templateFile,
           target: context.target,
           reload: context.replace === true,
+          acceptAutomation: context.acceptAutomation === true,
           maxTotal: context.maxTotal,
         }),
       };
@@ -542,17 +558,22 @@ export interface EnvRemovalContext {
   acceptAutomation: boolean;
 }
 
-/** The script and line of a removal's preview. */
+/**
+ * The script and line of a removal's preview: with the sweep a destroy asks,
+ * what that sweep would take and what fires on it are read too.
+ */
 export function previewLineOf(
   kind: EnvResourceKind,
-  context: EnvRemovalContext,
+  context: EnvRemovalContext & EnvSweepAsk,
 ): { script: EnvKindScript; args: string[] } {
   const script = scriptOfKind(kind);
+  const sweep = context.sweep === true ? { sweep: true } : {};
   const input = {
     target: context.target,
     summary: context.subject,
     includeChanged: context.includeChanged,
     acceptAutomation: context.acceptAutomation,
+    ...sweep,
   };
   switch (script) {
     case SEED_SCRIPT:
@@ -566,6 +587,8 @@ export function previewLineOf(
           configFile: context.subject,
           target: context.target,
           includeChanged: context.includeChanged,
+          acceptAutomation: context.acceptAutomation,
+          ...sweep,
         }),
       };
     case DATAOPS_SCRIPT:
@@ -645,7 +668,6 @@ export function removeLineOf(
     case FORGE_SCRIPT:
       return { script, args: forgeRemoveLine(input) };
     case FROZEN_SCRIPT:
-      // A Frozen removal takes no acceptance of automation: it reads none.
       return {
         script,
         args: frozenRemoveLine({
@@ -653,6 +675,7 @@ export function removeLineOf(
           target: context.target,
           includeChanged: context.includeChanged,
           sweep: context.sweep,
+          acceptAutomation: context.acceptAutomation,
         }),
       };
     case DATAOPS_SCRIPT:

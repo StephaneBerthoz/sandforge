@@ -131,9 +131,15 @@ export const ComparePage: React.FC = () => {
     }
   }, [compareMutation.error, addNotification, t]);
 
+  /**
+   * Two different orgs this machine holds: one disconnected while it was
+   * picked keeps its id here, which the ribbon says, and a run sent it.
+   */
+  const held = (id: string): boolean => orgs.some((org) => org.id === id);
+  const orgsPicked = held(sourceOrgId) && held(targetOrgId) && sourceOrgId !== targetOrgId;
+
   const handleRunCompare = () => {
-    if (!sourceOrgId || !targetOrgId || sourceOrgId === targetOrgId || selectedTypes.length === 0)
-      return;
+    if (!orgsPicked || selectedTypes.length === 0) return;
     setError(null);
     compareMutation.mutate({
       sourceOrgId,
@@ -145,12 +151,11 @@ export const ComparePage: React.FC = () => {
 
   // What Run Comparison waits for, said under it: two different orgs first,
   // then a category.
-  const runNeeds: 'orgs' | 'categories' | null =
-    !sourceOrgId || !targetOrgId || sourceOrgId === targetOrgId
-      ? 'orgs'
-      : selectedTypes.length === 0
-        ? 'categories'
-        : null;
+  const runNeeds: 'orgs' | 'categories' | null = !orgsPicked
+    ? 'orgs'
+    : selectedTypes.length === 0
+      ? 'categories'
+      : null;
   const canRun = runNeeds === null;
 
   /** Enriched compare report computed from raw diffs. */
@@ -221,7 +226,7 @@ export const ComparePage: React.FC = () => {
         />
       )}
 
-      {/* Org selection */}
+      {/* The two orgs, picked in the ribbon that names them */}
       <OrgSelector
         orgs={orgs}
         sourceOrgId={sourceOrgId}

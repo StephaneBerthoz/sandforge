@@ -25,23 +25,57 @@
  * rewind of an org where a package runs a flow on an object the checkpoint
  * holds: it fires as the rewind writes, so the rewind asks for its automation
  * to be accepted, and the question says its emails were not counted.
+ *
+ * Whether the emails leave the org at all is the other half: an org on All
+ * email delivers every one of them, to the addresses the records hold — a
+ * rewind's are the org's own, never under `.invalid` — and to the records'
+ * owners. What still runs as the act writes, once its mute's plan holds, is
+ * judged by Forge's gate (`deliverabilityGate`): nothing that sends, nothing
+ * read; an org that withholds them (System email only, No access), a line;
+ * one that delivers them, or would not say, a refusal (`EMAILS_DELIVERED`)
+ * unless the emails were accepted (`acceptEmails`, `--accept-emails`), which
+ * the acceptance of the automation never stands for. The org is read only
+ * when something that still runs may send one (`deliverabilityOfRun`): one
+ * line of anonymous Apex that sends nothing, as the act's user.
  */
 
 import {
+  emailSendersOf,
   emailsPerWriteOf,
+  removalStepsWrites,
+  stillRunningOf,
   type CheckpointEmails,
   type CheckpointRefusal,
   type CheckpointWrite,
+  type EmailDeliverability,
+  type EmailSender,
   type ForgeEmailLimit,
+  type ForgeRemovalSteps,
   type ForgeTargetAutomation,
+  type MutedAutomation,
+  type MutePlan,
   type RewindDiffObject,
 } from '@sandforge/shared';
 import {
   alertsCountAsSingle,
+  singleCountAsWorkflow,
+  deliverabilityAfterLeaseStop,
+  deliverabilityGate,
   emailsCountedPerRecord,
   emailsUncountedOf,
+  sendersUnreadOf,
+  type DeliverabilityGate,
   type EmailLimit,
 } from '../forge/ForgeRunGate.js';
+import {
+  deliverabilityOfRun,
+  heldPlanOf,
+  sendersTheMuteQuiets,
+  type DeliverabilityRead,
+  type RunDeliverabilityRead,
+} from '../forge/targetDeliverability.js';
+import { STATUS_LIFECYCLES } from '../../core/common/platformRecords.js';
+import { emailsRefusalWords } from '../forge/runEmailsSaid.js';
 import type { RewoundObject } from './rewindEstimate.js';
 import type { RewindPlanObject } from './rewindPlan.js';
 
@@ -58,11 +92,21 @@ export interface WrittenRecords {
 /** The writes of an act, in the order it makes them. */
 const WRITES: readonly CheckpointWrite[] = ['undelete', 'insert', 'update', 'delete'];
 
-/** How each daily email limit is said. */
-const LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, string>> = {
-  SingleEmail: 'single emails',
-  DailyWorkflowEmails: 'workflow emails',
+/** How each daily email limit is said, of one email and of more. */
+const LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, { one: string; more: string }>> = {
+  SingleEmail: { one: 'single email', more: 'single emails' },
+  DailyWorkflowEmails: { one: 'workflow email', more: 'workflow emails' },
 };
+
+/**
+ * `emails` emails of a daily limit, as a line says them: "1 single email",
+ * "20 single emails". A preview that counted one said "about 1 single
+ * emails", live.
+ */
+export function emailsOfLimit(emails: number, limit: ForgeEmailLimit): string {
+  const words = LIMIT_WORDS[limit];
+  return `${emails} ${emails === 1 ? words.one : words.more}`;
+}
 
 /** What the act refused is called, and what it does not do. */
 const ACT_WORDS: Readonly<Record<'rewind' | 'undo', { what: string; then: string }>> = {
@@ -71,11 +115,105 @@ const ACT_WORDS: Readonly<Record<'rewind' | 'undo', { what: string; then: string
 };
 
 /**
+ * Records of an object a rewind updates, as its preview counts them: what it
+ * gives back, and what it brings back, the values it had when deleted given
+ * back once it is back. What its emails count and what its steps list read
+ * this one number: a flow on an update fires on either.
+ */
+export function updatedByDiff(
+  object: Pick<RewindDiffObject, 'toGiveBack' | 'toBringBack'>,
+): number {
+  return object.toGiveBack.records + object.toBringBack.inBin + object.toBringBack.withParent;
+}
+
+/**
+ * The object whose records a rewind sets back to Draft before it deletes
+ * them, as a removal does: an order activated since, which the platform
+ * deletes no other way. A contract past Draft it deletes as it stands.
+ */
+const SET_TO_DRAFT_OBJECT = 'Order';
+
+/**
+ * Records of an object a rewind deletes, as its preview counts them: created
+ * since, brought back from the bin since, back with a parent and gone again,
+ * and the carriers it brings back for a moment.
+ */
+function deletedByDiff(object: Pick<RewindDiffObject, 'toDelete' | 'toBringBack'>): number {
+  return (
+    object.toDelete.createdSince +
+    object.toDelete.broughtBackSince +
+    object.toDelete.comesBackWithParent +
+    (object.toBringBack.carriers ?? 0)
+  );
+}
+
+/**
+ * Records of an object a rewind may set back to Draft before it deletes
+ * them, as its preview counts them: each order it deletes, once. Only those
+ * past Draft are updated, and the preview reads no order's status, so the
+ * count errs by saying too much, as every count of emails here does. Counted
+ * as nothing, a flow on an order's update was listed as fired on that step
+ * while its emails were held to no daily limit, nor said uncounted. What its
+ * emails count and what its steps list read this one number.
+ */
+export function draftedByDiff(
+  object: Pick<RewindDiffObject, 'objectApiName' | 'toDelete' | 'toBringBack'>,
+): number {
+  return object.objectApiName === SET_TO_DRAFT_OBJECT ? deletedByDiff(object) : 0;
+}
+
+/**
+ * Records of an object a rewind's pass deletes, as its plan holds them: sent,
+ * gone with a parent, and left to the next pass.
+ */
+function deletedByPlan(
+  object: Pick<RewindPlanObject, 'deleted' | 'withParentDeleted' | 'nextPassDeleted'>,
+): number {
+  return object.deleted + object.withParentDeleted + object.nextPassDeleted;
+}
+
+/**
+ * {@link draftedByDiff} of a pass, as its plan holds it: an order going with
+ * a parent is set back to Draft too, as one past Draft would keep that parent.
+ */
+export function draftedByPlan(
+  object: Pick<
+    RewindPlanObject,
+    'objectApiName' | 'deleted' | 'withParentDeleted' | 'nextPassDeleted'
+  >,
+): number {
+  return object.objectApiName === SET_TO_DRAFT_OBJECT ? deletedByPlan(object) : 0;
+}
+
+/**
+ * Records of an object a rewind makes again as drafts, then gives their
+ * status back, as its preview counts them: each order or contract it makes
+ * again, once — the platform refuses one made past Draft, and an order takes
+ * its products only as a draft. Only those past Draft are updated, and the
+ * preview reads no status from the checkpoint, so the count errs by saying
+ * too much, as {@link draftedByDiff}. What its emails count and what its
+ * steps list read this one number.
+ */
+export function statusBackByDiff(
+  object: Pick<RewindDiffObject, 'objectApiName' | 'toRecreate'>,
+): number {
+  return STATUS_LIFECYCLES[object.objectApiName] !== undefined ? (object.toRecreate ?? 0) : 0;
+}
+
+/** {@link statusBackByDiff} of a pass, as its plan holds it. */
+export function statusBackByPlan(
+  object: Pick<RewindPlanObject, 'objectApiName' | 'recreated'>,
+): number {
+  return STATUS_LIFECYCLES[object.objectApiName] !== undefined ? object.recreated : 0;
+}
+
+/**
  * What a rewind would write, per object and write, as its preview counts it:
  * what it brings back, what it makes again with new Ids, what it gives back —
  * what it brings back among it, the values it had when deleted given back
- * once it is back — and what it deletes. A carrier is brought back and
- * deleted again: the automation of either write fires on it.
+ * once it is back, the status of what it made again as a draft — and the
+ * orders it sets back to Draft, then what it deletes. A carrier is brought
+ * back and deleted again: the automation of either write fires on it.
  */
 export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenRecords[] {
   return objects.flatMap((object) =>
@@ -86,12 +224,8 @@ export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenReco
         object.toBringBack.deletedWhileTaken +
         (object.toBringBack.carriers ?? 0),
       insert: object.toRecreate ?? 0,
-      update: object.toGiveBack.records + object.toBringBack.inBin + object.toBringBack.withParent,
-      delete:
-        object.toDelete.createdSince +
-        object.toDelete.broughtBackSince +
-        object.toDelete.comesBackWithParent +
-        (object.toBringBack.carriers ?? 0),
+      update: updatedByDiff(object) + statusBackByDiff(object) + draftedByDiff(object),
+      delete: deletedByDiff(object),
     }),
   );
 }
@@ -99,15 +233,22 @@ export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenReco
 /**
  * What a rewind's first pass writes, per object and write, as its plan holds
  * it: what comes back with a parent and what goes with one counted with what
- * is sent, as the org's automation may fire on them all.
+ * is sent, as the org's automation may fire on them all, and the statuses it
+ * gives back to what it made again as drafts and the orders it sets back to
+ * Draft among its updates.
  */
 export function writtenByPlan(objects: readonly RewindPlanObject[]): WrittenRecords[] {
   return objects.flatMap((object) =>
     written(object.objectApiName, {
       undelete: object.broughtBack + object.backWithParent + (object.carriers ?? 0),
       insert: object.recreated,
-      update: object.givenBackFirst + object.givenBackAfter + object.givenBackNextPass,
-      delete: object.deleted + object.withParentDeleted + object.nextPassDeleted,
+      update:
+        object.givenBackFirst +
+        object.givenBackAfter +
+        object.givenBackNextPass +
+        statusBackByPlan(object) +
+        draftedByPlan(object),
+      delete: deletedByPlan(object),
     }),
   );
 }
@@ -116,23 +257,38 @@ export function writtenByPlan(objects: readonly RewindPlanObject[]): WrittenReco
  * What an undo writes, per object and write, from what its rewind did: it
  * brings back what the rewind deleted, gives back what it wrote over, and
  * sends back to the bin what it brought back and what it made again — what
- * goes with a parent among it (`along`).
+ * goes with a parent among it (`along`) —, the orders it made again among
+ * them set back to Draft first (`drafted`), which the platform deletes no
+ * other way: each one, once. An order it brought back gets its Draft from
+ * before back with what it wrote over, and is a draft by its delete. Counted
+ * as nothing, the Draft update of an order a rewind had made again was sent
+ * unasked.
  */
 export function writtenByUndo(
   rewound: readonly RewoundObject[],
   along: ReadonlyArray<{ objectApiName: string; count: number }> = [],
+  drafted: ReadonlyArray<{ objectApiName: string; count: number }> = [],
 ): WrittenRecords[] {
-  const alongOf = new Map<string, number>();
-  for (const { objectApiName, count } of along) {
-    alongOf.set(objectApiName, (alongOf.get(objectApiName) ?? 0) + count);
-  }
-  const objects = [...new Set([...rewound.map((o) => o.objectApiName), ...alongOf.keys()])];
+  const sum = (
+    rows: ReadonlyArray<{ objectApiName: string; count: number }>,
+  ): Map<string, number> => {
+    const of = new Map<string, number>();
+    for (const { objectApiName, count } of rows) {
+      of.set(objectApiName, (of.get(objectApiName) ?? 0) + count);
+    }
+    return of;
+  };
+  const alongOf = sum(along);
+  const draftedOf = sum(drafted);
+  const objects = [
+    ...new Set([...rewound.map((o) => o.objectApiName), ...alongOf.keys(), ...draftedOf.keys()]),
+  ];
   return objects.flatMap((objectApiName) => {
     const object = rewound.find((o) => o.objectApiName === objectApiName);
     return written(objectApiName, {
       undelete: object?.deleted ?? 0,
       insert: 0,
-      update: object?.givenBack ?? 0,
+      update: (object?.givenBack ?? 0) + (draftedOf.get(objectApiName) ?? 0),
       delete: (object?.broughtBack ?? 0) + (alongOf.get(objectApiName) ?? 0),
     });
   });
@@ -206,11 +362,12 @@ export function checkpointEmails(
   limits: EmailLimits,
 ): CheckpointEmails[] {
   const alertsAsSingle = !isUnread(limits) && alertsCountAsSingle(limits);
+  const singleAsWorkflow = !isUnread(limits) && singleCountAsWorkflow(limits);
   const byLimit = new Map<ForgeEmailLimit, CheckpointEmails>();
   for (const write of WRITES) {
     const sending = emailsPerWriteOf(automation, write);
     if (sending.length === 0) continue;
-    const counted = emailsCountedPerRecord(sending, alertsAsSingle);
+    const counted = emailsCountedPerRecord(sending, alertsAsSingle, singleAsWorkflow);
     const alerting = new Set(
       sending
         .filter((each) => each.limit === 'DailyWorkflowEmails')
@@ -269,7 +426,7 @@ export function emailsRefusal(
   const said = over
     .map(
       (check) =>
-        `about ${check.emails} ${LIMIT_WORDS[check.limit]}` +
+        `about ${emailsOfLimit(check.emails, check.limit)}` +
         (check.alertsCounted
           ? ' (its email alerts among them, as a Developer Edition counts them)'
           : '') +
@@ -284,5 +441,202 @@ export function emailsRefusal(
       "fails in the save is refused (CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails " +
       'stop for the rest of the day. Turn off what sends them, or assign the user a bypass ' +
       `that keeps it quiet, then ${words.then}. No record was written.`,
+  };
+}
+
+// ─── Whether the org delivers them ───────────────────────────────────────────
+
+/** What a rewind's or an undo's gate on whether the org delivers its emails is told. */
+export interface ActEmailsInput {
+  act: 'rewind' | 'undo';
+  /** How the user knows the org: its alias, else its username. */
+  orgName: string;
+  /**
+   * What the org runs as the act writes, as it was read: before the mute's
+   * plan holds it, which `plan` says.
+   */
+  automation: ForgeTargetAutomation;
+  /** What the act writes, object by object, as its mute and its automation's gate take it. */
+  steps: ForgeRemovalSteps;
+  /** The sets the act's lease is to hold; absent for an act that does not mute. */
+  plan?: Pick<MutePlan, 'assign'>;
+  /**
+   * Whether the emails were accepted: `acceptEmails`, `--accept-emails`. The
+   * acceptance of the automation never stands for it: a CI script passes
+   * `--accept-automation` on every run.
+   */
+  accepted: boolean;
+  /**
+   * Whether the act could mute the org's automation and was not asked to
+   * (`--mute-automation`, the page's box): its refusal then names what the
+   * mute would keep quiet. A pipeline's Rewind step says its own setting
+   * instead (`REWIND_STEP_WORDS`).
+   */
+  mayMute: boolean;
+}
+
+/**
+ * What may send an email as the act writes: what still runs once its mute's
+ * plan holds (`stillRunningOf`, `emailSendersOf`), and why what may send
+ * could not all be listed. Reads nothing: what a preview's answer is judged
+ * on again before a rewind is asked, as the act judges what it reads.
+ */
+export function actSendersOf(input: Pick<ActEmailsInput, 'automation' | 'steps' | 'plan'>): {
+  senders: EmailSender[];
+  sendersUnread?: string;
+} {
+  const writes = removalStepsWrites(input.steps);
+  const senders = emailSendersOf(stillRunningOf(input.automation, input.plan, writes), { writes });
+  const sendersUnread = sendersUnreadOf(input.automation.unread);
+  return { senders, ...(sendersUnread !== undefined ? { sendersUnread } : {}) };
+}
+
+/** What an act's gate on whether the org delivers its emails came to. */
+export interface ActEmailsGate {
+  gate: DeliverabilityGate;
+  /**
+   * `EMAILS_DELIVERED`: the org delivers them, or would not say, and they
+   * were not accepted. Absent when the act may go on.
+   */
+  refusal?: CheckpointRefusal;
+}
+
+/**
+ * An act's gate on whether the org delivers the emails what still runs
+ * sends: Forge's own (`deliverabilityGate`), on the senders and the reading.
+ * What an act writes back is the org's own values, never put under
+ * `.invalid`: its refusal says the emails go to the addresses the records
+ * hold (`keepsAddresses`).
+ */
+export function actEmailsGate(
+  input: ActEmailsInput & {
+    senders: readonly EmailSender[];
+    sendersUnread?: string;
+    reading?: EmailDeliverability;
+  },
+): ActEmailsGate {
+  const quiets =
+    input.mayMute && input.plan === undefined && input.senders.length > 0
+      ? sendersTheMuteQuiets(input.automation, { writes: removalStepsWrites(input.steps) })
+      : [];
+  const gate = deliverabilityGate({
+    senders: input.senders,
+    ...(input.sendersUnread !== undefined ? { sendersUnread: input.sendersUnread } : {}),
+    ...(input.reading !== undefined ? { reading: input.reading } : {}),
+    accepted: input.accepted,
+    target: input.orgName,
+    run: input.act,
+    muteQuiets: quiets,
+    keepsAddresses: true,
+  });
+  return gate.stop
+    ? { gate, refusal: { code: 'EMAILS_DELIVERED', message: gate.stop.message } }
+    : { gate };
+}
+
+/**
+ * Steps 3 and 4 of an act's write path for its emails, then its gate: what
+ * may send them once the mute's plan holds, the org's deliverability read
+ * only when something may (`deliverabilityOfRun`), and what the gate makes of
+ * the two ({@link actEmailsGate}). An act whose writes start nothing that
+ * sends sends no request for it.
+ *
+ * @param input.read - The read, as the user the act writes as
+ *   (`readEmailDeliverability` through the act's own counted connection).
+ */
+export async function actDeliverability(
+  input: ActEmailsInput & { read: () => Promise<DeliverabilityRead> },
+): Promise<ActEmailsGate & { ofRun: RunDeliverabilityRead }> {
+  const writes = removalStepsWrites(input.steps);
+  const ofRun = await deliverabilityOfRun({
+    running: stillRunningOf(input.automation, input.plan, writes),
+    writes,
+    read: input.read,
+  });
+  return {
+    ofRun,
+    ...actEmailsGate({
+      ...input,
+      senders: ofRun.senders,
+      ...(ofRun.sendersUnread !== undefined ? { sendersUnread: ofRun.sendersUnread } : {}),
+      ...(ofRun.read !== undefined ? { reading: ofRun.read.reading } : {}),
+    }),
+  };
+}
+
+/**
+ * Step 8 of an act's write path for its emails: once its lease is taken and
+ * read back, what then still runs that may send one and that its gate was
+ * not told of — what a set the lease does not hold was to keep quiet —
+ * refuses it before its first write (`deliverabilityAfterLeaseStop`), unless
+ * the emails were accepted or the org withholds them. The act then writes
+ * nothing, and gives the lease back.
+ *
+ * @param input.planned - What may send on the lease's plan ({@link actDeliverability}'s senders).
+ * @param input.held - What the lease holds, read back (`HeldMute.outcome`).
+ */
+export function afterLeaseEmailsRefusal(
+  input: Pick<ActEmailsInput, 'act' | 'orgName' | 'automation' | 'steps' | 'accepted'> & {
+    plan: Pick<MutePlan, 'assign'>;
+    held: Pick<MutedAutomation, 'assigned' | 'held'>;
+    planned: readonly EmailSender[];
+    reading?: EmailDeliverability;
+  },
+): CheckpointRefusal | undefined {
+  const writes = removalStepsWrites(input.steps);
+  const held = emailSendersOf(
+    stillRunningOf(input.automation, heldPlanOf(input.plan, input.held), writes),
+    { writes },
+  );
+  const stop = deliverabilityAfterLeaseStop({
+    planned: input.planned,
+    held,
+    ...(input.reading !== undefined ? { reading: input.reading } : {}),
+    accepted: input.accepted,
+    target: input.orgName,
+    run: input.act,
+  });
+  return stop ? { code: 'EMAILS_DELIVERED', message: stop.message } : undefined;
+}
+
+// ─── What the page says of it ────────────────────────────────────────────────
+
+/** What a refusal after the lease says besides the accord: nothing else lifts it. */
+const ONCE_THE_LEASE_HOLDS = ', or run it again once the lease can assign them';
+
+/** How a refusal for the emails names the mute on the command line. */
+const MUTE_FLAG_QUIETS = '--mute-automation keeps quiet';
+
+/**
+ * A refusal for the emails in the words of the page that asked for the act.
+ * The gate's are the command line's, which replays the page's request through
+ * this same host (`panelHost.ts`), so nothing here can tell the two apart: the
+ * page says it asked (`fromPage`), and a request that does not say so keeps
+ * the flags.
+ *
+ * On the page, what lifts it is a box. An undo's is in its confirmation,
+ * always offered. A rewind's is in its preview, which offers none while the
+ * mute leaves nothing to ask about: refused after its lease, whose set did not
+ * hold what the preview took as quiet, it is the mute that hides the box.
+ * Any other refusal comes back as it was.
+ */
+export function pageEmailsRefusal(
+  refusal: CheckpointRefusal,
+  act: 'rewind' | 'undo',
+  orgName: string,
+): CheckpointRefusal {
+  if (refusal.code !== 'EMAILS_DELIVERED') return refusal;
+  const liftedBy =
+    act === 'undo'
+      ? "Tick the box for these emails in the undo's confirmation to undo all the same"
+      : refusal.message.includes(ONCE_THE_LEASE_HOLDS)
+        ? 'Untick Mute automation to be asked about them and rewind all the same'
+        : `Tick "Let ${orgName} send these emails" in the preview to rewind all the same`;
+  return {
+    ...refusal,
+    message: emailsRefusalWords(refusal.message, act, liftedBy).replace(
+      MUTE_FLAG_QUIETS,
+      'Mute automation keeps quiet',
+    ),
   };
 }

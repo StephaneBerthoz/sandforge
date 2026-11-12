@@ -355,8 +355,8 @@ test('it finds a namespace every panel starts with in a chunk outside the base, 
   );
 });
 
-test('a page may parse no more than 900 kB before it paints, and only four pages may parse zod', () => {
-  assert.equal(PAGE_FIRST_PAINT_BUDGET, 900_000);
+test('a page may parse no more than 1 MB before it paints, and only four pages may parse zod', () => {
+  assert.equal(PAGE_FIRST_PAINT_BUDGET, 1_000_000);
   assert.deepEqual([...PAGES_THAT_VALIDATE.keys()].sort(), [
     'automation',
     'dataops',

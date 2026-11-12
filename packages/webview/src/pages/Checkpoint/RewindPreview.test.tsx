@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import '@testing-library/jest-dom/vitest';
 import i18n from '../../i18n';
 import de from '../../i18n/locales/de.json';
+import fr from '../../i18n/locales/fr.json';
 import type {
   ForgeTargetAutomation,
   OrgCheckpoint,
@@ -805,6 +806,30 @@ describe('RewindPreview', () => {
     );
   });
 
+  it('says an order or a contract it makes again is made as a draft, then given its status back, an update: the page did not, and the rewind did it (GC2)', () => {
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        objects: [
+          diffObject('Order', { toRecreate: 1 }),
+          diffObject('Contract', {
+            toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+          }),
+        ],
+      }),
+    });
+    expect(screen.getByTestId('checkpoint-preview-recreate-as-draft').textContent).toBe(
+      'Salesforce refuses an order or a contract made past Draft: the rewind makes one again as a draft (Order and Contract), the records under it next, then gives it its status back — an update, which runs what DEV-SB runs as one is updated.',
+    );
+    cleanup();
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({ objects: [diffObject('Case', { toRecreate: 2 })] }),
+    });
+    expect(screen.getByTestId('checkpoint-preview-recreate')).toBeInTheDocument();
+    expect(screen.queryByTestId('checkpoint-preview-recreate-as-draft')).toBeNull();
+  });
+
   it('shows no number nor column for records to make again when there is none', () => {
     renderPreview();
     answerPreview();
@@ -824,7 +849,7 @@ describe('RewindPreview', () => {
     expect(screen.queryByTestId('checkpoint-preview-recreate')).toBeNull();
   });
 
-  it('offers to make again what Salesforce answers is no longer in the recycle bin whenever the rewind brings records back, saying it still lists one emptied from it, without holding Rewind for it (live: five emptied records read in the bin)', () => {
+  it('offers to make again what Salesforce answers is no longer in the recycle bin whenever the rewind brings records back, saying it still lists one emptied from it, and that it leaves what making it again runs unlisted here, without holding Rewind for it (live: five emptied records read in the bin)', () => {
     const { onRewind } = renderPreview();
     answerPreview();
     const section = screen.getByTestId('checkpoint-preview-recreate');
@@ -832,7 +857,7 @@ describe('RewindPreview', () => {
       'If the recycle bin no longer holds them',
     );
     expect(screen.getByTestId('checkpoint-preview-recreate-if-emptied').textContent).toBe(
-      'Salesforce still lists a record emptied from the recycle bin as deleted, for minutes to hours, and says the bin no longer holds it only once the rewind asks for it back. Ticked, the rewind then makes it again from the checkpoint, with a new Id, and the records that were to come back with it too, running what the org runs as a record is created; unticked, it leaves them, and names them.',
+      'Salesforce still lists a record emptied from the recycle bin as deleted, for minutes to hours, and says the bin no longer holds it only once the rewind asks for it back. Ticked, the rewind then makes it again from the checkpoint, with a new Id, and the records that were to come back with it too — unless making it again runs something of the org this preview does not list, as a record is created or an order given its status back: it then leaves them, names them, and the next preview counts them to make again and asks. Unticked, it leaves them, and names them.',
     );
     expect(within(section).queryByRole('listitem')).toBeNull();
     const rewind = screen.getByTestId('checkpoint-preview-rewind');
@@ -904,6 +929,55 @@ describe('RewindPreview', () => {
     );
     expect(screen.getByTestId('checkpoint-preview-automation-delete-Contact').textContent).toBe(
       'Contact: Apex trigger: ContactGone · before delete',
+    );
+    const rewind = screen.getByTestId('checkpoint-preview-rewind');
+    expect(rewind).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Run even if triggers, flows or workflow rules fire on the records it writes',
+      }),
+    );
+    fireEvent.click(rewind);
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptAutomation: true }),
+      expect.anything(),
+    );
+  });
+
+  it('lists a flow on an order’s update as the rewind sets an order activated since back to Draft to delete it, and holds Rewind until it is accepted', () => {
+    const { onRewind } = renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        objects: [
+          diffObject('Order', {
+            toDelete: { createdSince: 3, broughtBackSince: 0, comesBackWithParent: 0 },
+          }),
+        ],
+      }),
+      automation: {
+        ...AUTOMATION,
+        objectsRead: ['Order'],
+        objects: [
+          {
+            objectApiName: 'Order',
+            flows: [
+              {
+                apiName: 'Order_Touch',
+                label: 'Order Touch',
+                timing: 'afterSave',
+                startsOn: 'update',
+                condition: 'read',
+                permissions: [],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+      },
+    });
+    expect(screen.getByTestId('checkpoint-preview-automation-setToDraft-Order').textContent).toBe(
+      'Order: Flow: Order Touch · as the rewind sets it back to Draft to delete it',
     );
     const rewind = screen.getByTestId('checkpoint-preview-rewind');
     expect(rewind).toBeDisabled();
@@ -1138,6 +1212,41 @@ describe('RewindPreview', () => {
     expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
   });
 
+  it('says one email in the singular where the language agrees with it: "environ 1 envoyés" read wrong in French', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(() => i18n.changeLanguage('fr'));
+    try {
+      renderPreview();
+      answerPreview({
+        automation: AUTOMATION,
+        emails: [
+          {
+            limit: 'SingleEmail',
+            emails: 1,
+            objects: [
+              {
+                objectApiName: 'Account',
+                write: 'update',
+                records: 1,
+                perRecord: 1,
+                sentBy: ['Account touch'],
+              },
+            ],
+            verdict: 'fits',
+            remaining: 10,
+            max: 15,
+          },
+        ],
+      });
+
+      expect(screen.getByTestId('checkpoint-preview-emails-SingleEmail').textContent).toBe(
+        "E-mails individuels : environ 1 envoyé par l'automatisation de DEV-SB quand le retour arrière écrit (Account touch), 10 sur 15 restants aujourd'hui.",
+      );
+    } finally {
+      await act(() => i18n.changeLanguage('en'));
+    }
+  });
+
   it('says the emails of what it could not read were not counted, though nothing it read sends one, and asks for the automation to be accepted', () => {
     const { onRewind } = renderPreview();
     answerPreview({
@@ -1229,11 +1338,12 @@ describe('RewindPreview', () => {
 
       fireEvent.click(screen.getByTestId('checkpoint-preview-automation-mute-toggle'));
       expect(screen.queryByTestId('checkpoint-preview-accept-automation')).not.toBeInTheDocument();
+      answerPreview({ automation: MUTABLE, diff: previewDiff({ previewId: 'pv-2' }) });
       fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
       confirmRewind();
       expect(onRewind).toHaveBeenCalledWith(
         {
-          previewId: 'pv-1',
+          previewId: 'pv-2',
           acceptAutomation: false,
           acceptNoUndo: false,
           acceptRecreate: false,
@@ -1247,20 +1357,20 @@ describe('RewindPreview', () => {
 
     it('still asks acceptance for what still runs once muted', () => {
       const { onRewind } = renderPreview();
-      answerPreview({
-        automation: {
-          ...MUTABLE,
-          objects: [
-            ...MUTABLE.objects,
-            {
-              objectApiName: 'Contact',
-              flows: [],
-              triggers: [{ name: 'ContactGone', events: ['beforeDelete'] }],
-            },
-          ],
-        },
-      });
+      const automation: ForgeTargetAutomation = {
+        ...MUTABLE,
+        objects: [
+          ...MUTABLE.objects,
+          {
+            objectApiName: 'Contact',
+            flows: [],
+            triggers: [{ name: 'ContactGone', events: ['beforeDelete'] }],
+          },
+        ],
+      };
+      answerPreview({ automation });
       fireEvent.click(screen.getByTestId('checkpoint-preview-automation-mute-toggle'));
+      answerPreview({ automation, diff: previewDiff({ previewId: 'pv-2' }) });
 
       expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
       fireEvent.click(screen.getByTestId('checkpoint-preview-accept-automation'));
@@ -1270,6 +1380,113 @@ describe('RewindPreview', () => {
         expect.objectContaining({ acceptAutomation: true, muteAutomation: true }),
         expect.anything(),
       );
+    });
+  });
+
+  describe('read again by the box that mutes', () => {
+    /** A flow on the account's update the box silences: all the rewind fires on it. */
+    const MUTABLE: ForgeTargetAutomation = {
+      ...AUTOMATION,
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_Touch',
+              label: 'Account touch',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [{ name: 'Skip_Touch', bypass: true, held: false }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      bypassGrants: [
+        {
+          permission: 'Skip_Touch',
+          permissionSets: [{ name: 'Touch_Bypass', label: 'Touch bypass', grants: 1 }],
+        },
+      ],
+    };
+    const toggle = (): HTMLElement =>
+      screen.getByTestId('checkpoint-preview-automation-mute-toggle');
+    const rewindButton = (): HTMLElement => screen.getByTestId('checkpoint-preview-rewind');
+
+    it('keeps Rewind off when the read fails: what is up is not what is ticked, until a retry answers', () => {
+      renderPreview();
+      answerPreview({ automation: MUTABLE });
+      fireEvent.click(toggle());
+      act(() =>
+        host.current?.fail('checkpoint:preview', {
+          message: 'The org did not answer.',
+          code: 'PREVIEW_ERROR',
+        }),
+      );
+
+      expect(screen.getByTestId('checkpoint-preview-error')).toHaveTextContent(
+        'The org did not answer.',
+      );
+      expect(rewindButton()).toBeDisabled();
+      expect(screen.getByTestId('checkpoint-preview-rewind-needs').textContent).toBe(
+        'DEV-SB could not be read again: try again above.',
+      );
+
+      fireEvent.click(screen.getByTestId('checkpoint-preview-retry'));
+      expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
+        checkpointId: ID,
+        muteAutomation: true,
+      });
+      answerPreview({ automation: MUTABLE, diff: previewDiff({ previewId: 'pv-2' }) });
+      expect(screen.queryByTestId('checkpoint-preview-error')).toBeNull();
+      expect(rewindButton()).toBeEnabled();
+    });
+
+    it('unticks what was accepted of the last answer, and keeps the box’s keyboard and the objects left out', () => {
+      // A trigger on the same object: what the box does not silence stays to accept.
+      const automation: ForgeTargetAutomation = {
+        ...MUTABLE,
+        objects: MUTABLE.objects.map((object) => ({
+          ...object,
+          triggers: [{ name: 'AccountGone', events: ['beforeDelete'] }],
+        })),
+      };
+      renderPreview();
+      answerPreview({ automation });
+      fireEvent.click(screen.getByTestId('checkpoint-preview-pick-Contact'));
+      expect(screen.getByTestId('checkpoint-preview-pick-Contact')).not.toBeChecked();
+      fireEvent.click(screen.getByTestId('checkpoint-preview-accept-automation'));
+
+      const box = toggle();
+      box.focus();
+      fireEvent.click(box);
+      answerPreview({ automation, diff: previewDiff({ previewId: 'pv-2' }) });
+
+      expect(toggle()).toBe(box);
+      expect(document.activeElement).toBe(box);
+      expect(screen.getByTestId('checkpoint-preview-pick-Contact')).not.toBeChecked();
+      expect(screen.getByTestId('checkpoint-preview-accept-automation')).not.toBeChecked();
+    });
+
+    it('asks no mute of a preview that opened muted and finds nothing to silence, and reads what the rewind then does', () => {
+      render(
+        <RewindPreview
+          org={developerOrg()}
+          checkpoint={readyCheckpoint()}
+          onClose={vi.fn()}
+          onRewind={vi.fn()}
+          muteBox={MUTE_BOX}
+          startMuted
+        />,
+      );
+      expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
+        checkpointId: ID,
+        muteAutomation: true,
+      });
+      answerPreview({ automation: AUTOMATION });
+      expect(host.current?.lastPayload('checkpoint:preview')).toEqual({ checkpointId: ID });
+      expect(rewindButton()).toBeDisabled();
     });
   });
 

@@ -93,8 +93,10 @@ import {
   directAccountContactRelations,
   existingActivityRelations,
   existingSellingModelOptions,
-  giveLinkedRelationsTheirFlags,
   recordsByNaturalKey,
+  relationsLeftWithoutTheirFlags,
+  withFlagsNotKept,
+  type FlagsNotKept,
 } from '../../../core/common/platformRecords.js';
 import { logger } from '../../../logger.js';
 import {
@@ -329,6 +331,13 @@ export interface WriteNodeInput {
    */
   onWritten?: (built: CleanedRecord, targetId: string) => void;
   /**
+   * Told of each row the target created that went without `RecordTypeId`, as
+   * its call's answer is counted: the target gave it a record type of its
+   * own, which the run reads back once it is through. A row an upsert wrote
+   * over keeps the type it had, and is not told. Absent, none is.
+   */
+  onCreatedWithoutRecordType?: (built: CleanedRecord | undefined, targetId: string) => void;
+  /**
    * Where each insert call is kept before it goes and once its answer is
    * counted: the run's journal. A process killed while a call was under way
    * left records in the target the journal did not name, and a resume wrote
@@ -452,13 +461,13 @@ export interface BatchWriteResult {
   /** Nullified cycle FKs of successfully inserted records — pass-2 input. */
   pendingFkUpdates: PendingFkUpdate[];
   /**
-   * What the node's line says of the relations linked to without a flag
-   * their row carried, or without a field of the answer that goes with it —
-   * an invitee's status, response and when it responded: see
-   * `giveLinkedRelationsTheirFlags`. Absent when all of it went back, or
-   * there was none to give.
+   * The relations linked to without a flag their row carried, or without a
+   * field of the answer that goes with it — an invitee's status, response and
+   * when it responded — counted by the field and why, for the node's line to
+   * say once (`flagsNotKeptNote`): see `giveLinkedRelationsTheirFlags`.
+   * Absent when all of it went back, or there was none to give.
    */
-  flagsNotKept?: string;
+  flagsNotKept?: FlagsNotKept;
   /**
    * The rows linked to a record the platform wrote with one the run created,
    * which it deletes with that record, by source id: the direct relation of a
@@ -567,6 +576,17 @@ function owedBy(row: RowToWrite): OwedAtInsert[] {
   }));
 }
 
+/**
+ * Whether a payload names the record type it goes in with. One that does not
+ * goes without the field, and the target gives it the type it gives the user
+ * the run writes as: a record on Master in the source, one a decision sends
+ * to the default, one whose field the run does not write.
+ */
+export function carriesRecordTypeId(payload: Readonly<Record<string, unknown>>): boolean {
+  const recordTypeId = payload['RecordTypeId'];
+  return typeof recordTypeId === 'string' && recordTypeId !== '';
+}
+
 /** What a row is sent as now: the payload first sent, without each field refused since. */
 function sentAs(row: RowToWrite): Record<string, unknown> {
   return row.refusals.length === 0 ? row.payload : without(row.payload, leftOutOf(row));
@@ -584,6 +604,9 @@ interface NodeWrite {
   readonly oweLookups: ((updates: readonly PendingFkUpdate[]) => void) | undefined;
   /** Told of each row the target took: see `WriteNodeInput.onWritten`. */
   readonly onWritten: ((built: CleanedRecord, targetId: string) => void) | undefined;
+  /** Told of each row created without a record type: see `WriteNodeInput.onCreatedWithoutRecordType`. */
+  readonly onCreatedWithoutRecordType:
+    ((built: CleanedRecord | undefined, targetId: string) => void) | undefined;
   /** Where each insert call is kept as it goes and as it is answered: see `WriteNodeInput.calls`. */
   readonly calls: InsertCallJournal | undefined;
   /** How the run sends its writes as Bulk API jobs; absent, every call goes by REST. */
@@ -1051,11 +1074,7 @@ export class BatchWriter {
     }
     tally.linkedExistingCount += direct.size;
     const flagsNotKept = await this.giveFlagsBack(node.objectApiName, targetOrgId, input, direct);
-    if (flagsNotKept) {
-      tally.flagsNotKept = tally.flagsNotKept
-        ? `${tally.flagsNotKept}, ${flagsNotKept}`
-        : flagsNotKept;
-    }
+    if (flagsNotKept) tally.flagsNotKept = withFlagsNotKept(tally.flagsNotKept, flagsNotKept);
     let records = input.records.filter((_, i) => !direct.has(i));
     let cleanedRecords = input.cleanedRecords.filter((_, i) => !direct.has(i));
 
@@ -1124,6 +1143,7 @@ export class BatchWriter {
       tally,
       oweLookups: input.oweLookups,
       onWritten: input.onWritten,
+      onCreatedWithoutRecordType: input.onCreatedWithoutRecordType,
       calls: input.calls,
       bulk: input.bulk,
       byNaturalKey: [],
@@ -2161,6 +2181,11 @@ export class BatchWriter {
         else remapper.add(oldId, result.id, objectApiName);
       }
       if (built) write.onWritten?.(built, result.id);
+      // Created without a record type, as it was last sent: the target gave
+      // it one, which may not be the one its describe names the default.
+      if (!updated && !carriesRecordTypeId(payload)) {
+        write.onCreatedWithoutRecordType?.(built, result.id);
+      }
       // Record nullified FKs so pass 2 can patch them
       // once the parent target is in the IdRemapper.
       if (built && built.nullifiedFks.length > 0) {
@@ -2616,8 +2641,8 @@ export class BatchWriter {
    * Give the relations linked to before the insert the flags their source
    * rows carried and the platform's relation lacks — an event's who the event
    * also invites — and the invitee's answer, its status, response and when
-   * it responded, when the target's describe lets them be updated: what the
-   * node's line says of what it could not give. See
+   * it responded, when the target's describe lets them be updated: what it
+   * could not give, counted for the node's line. See
    * `giveLinkedRelationsTheirFlags`. A run given no update of the target
    * asks nothing.
    */
@@ -2626,7 +2651,7 @@ export class BatchWriter {
     targetOrgId: string,
     input: WriteNodeInput,
     linked: ReadonlyMap<number, string>,
-  ): Promise<string | undefined> {
+  ): Promise<FlagsNotKept | undefined> {
     const update = this.deps.updateRecords;
     if (!update || linked.size === 0 || !FLAGS_THE_PLATFORM_LEAVES[objectApiName]) {
       return undefined;
@@ -2641,7 +2666,7 @@ export class BatchWriter {
     const described = await this.deps
       .describeFields?.(targetOrgId, objectApiName)
       .catch(() => undefined);
-    return giveLinkedRelationsTheirFlags(
+    return relationsLeftWithoutTheirFlags(
       objectApiName,
       rows,
       (field) => described?.find((f) => f.name === field)?.updateable !== false,

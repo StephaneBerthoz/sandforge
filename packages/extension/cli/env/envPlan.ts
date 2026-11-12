@@ -144,6 +144,8 @@ export interface EnvPlanInput {
   replaceDrifted?: boolean;
   /** What a real apply would meet now, a guard's: no state without `--accept-no-state`. */
   refusal?: string;
+  /** The code of that guard's refusal: `NO_STATE`. */
+  refusalCodes?: readonly string[];
   warnings?: readonly string[];
   /** What the checkpoint script estimates a take costs, when the apply takes one; absent with `--quick`. */
   checkpointEstimate?: CheckpointEstimateRead;
@@ -165,6 +167,8 @@ export interface EnvActionDraft {
   objects: EnvPlanObject[];
   /** What refuses it already: its removal's preview. */
   refusal?: string;
+  /** The codes of what `refusal` says, where its script gave them. */
+  refusalCodes?: string[];
 }
 
 const WRITES: ReadonlySet<EnvActionKind> = new Set(['create', 'replace', 'delete']);
@@ -239,6 +243,14 @@ interface Held {
   objects: Map<string, { present: number; gone: number; changed: number; unread: number }>;
   changedBy: Map<string, number>;
   refusals: string[];
+  /**
+   * What a removal would be refused for that a frozen resource's replace is
+   * not asked here: what its purge fires is the reload's own dry run's to say,
+   * of every load it replaces.
+   */
+  removalAlone: string[];
+  /** The code of each refusal and of each of `removalAlone`, where its script gave one. */
+  codes: Map<string, string>;
   failed: string[];
   /** What its verification FAILED, each object named. */
   verified: string[];
@@ -249,6 +261,8 @@ function heldOf(previews: readonly EnvRunPreview[]): Held {
     objects: new Map(),
     changedBy: new Map(),
     refusals: [],
+    removalAlone: [],
+    codes: new Map(),
     failed: [],
     verified: [],
   };
@@ -285,8 +299,43 @@ function heldOf(previews: readonly EnvRunPreview[]): Held {
     for (const refusal of run.preview.refusals) {
       if (!held.refusals.includes(refusal)) held.refusals.push(refusal);
     }
+    codesOf(held.codes, run.preview.refusals, run.preview.refusalCodes);
+    if ('removalAlone' in run.preview) {
+      held.removalAlone.push(...run.preview.removalAlone);
+      const aloneCodes =
+        'removalAloneCodes' in run.preview ? run.preview.removalAloneCodes : undefined;
+      codesOf(held.codes, run.preview.removalAlone, aloneCodes);
+    }
   }
   return held;
+}
+
+/** Keep the code of each refusal, where the script gave one for each. */
+function codesOf(
+  codes: Map<string, string>,
+  refusals: readonly string[],
+  given: readonly string[] | undefined,
+): void {
+  if (given?.length !== refusals.length) return;
+  refusals.forEach((refusal, at) => codes.set(refusal, given[at] ?? ''));
+}
+
+/** What a removal of a resource's runs would be refused for now, whatever else its replace is. */
+function removalRefusalsOf(held: Held): string[] {
+  return [...held.refusals, ...held.removalAlone];
+}
+
+/**
+ * The codes of what a removal of a resource's runs would be refused for, each
+ * once, as its scripts name them; none for a refusal whose script gave none.
+ */
+function removalRefusalCodesOf(held: Held, refusals = removalRefusalsOf(held)): string[] {
+  return [...new Set(refusals.flatMap((refusal) => held.codes.get(refusal) || []))];
+}
+
+/** `codes` as a draft or an action carries them: none when there are none. */
+function codedWith(codes: readonly string[]): { refusalCodes?: string[] } {
+  return codes.length > 0 ? { refusalCodes: [...new Set(codes)] } : {};
 }
 
 function heldObjects(held: Held): EnvPlanObject[] {
@@ -445,6 +494,10 @@ export function classifyResources(
         : held.failed.length > 0
           ? `what the org holds of it could not be read (${held.failed.join('; ')}): plan again`
           : undefined);
+    const removalCodes =
+      unread === undefined && held.refusals.length > 0
+        ? removalRefusalCodesOf(held, held.refusals)
+        : [];
     if (reasons.length > 0) {
       actions.set(resource.name, {
         resource: resource.name,
@@ -452,7 +505,7 @@ export function classifyResources(
         action: 'replace',
         why: `replaced: ${reasons.join('; ')}`,
         objects,
-        ...(refusal !== undefined ? { refusal } : {}),
+        ...(refusal !== undefined ? { refusal, ...codedWith(removalCodes) } : {}),
       });
     } else if (quick) {
       actions.set(resource.name, {
@@ -516,9 +569,10 @@ export function classifyResources(
       };
     }
     const held = heldOf(previews?.[name] ?? []);
+    const refused = removalRefusalsOf(held);
     const refusal =
-      held.refusals.length > 0
-        ? `a removal of its runs would be refused now: ${held.refusals.join(' ')}`
+      refused.length > 0
+        ? `a removal of its runs would be refused now: ${refused.join(' ')}`
         : held.failed.length > 0
           ? `what the org holds of it could not be read (${held.failed.join('; ')}): plan again`
           : undefined;
@@ -528,7 +582,9 @@ export function classifyResources(
       action: 'delete',
       why: 'in the state, gone from the file: its records are taken back',
       objects: heldObjects(held),
-      ...(refusal !== undefined ? { refusal } : {}),
+      ...(refusal !== undefined
+        ? { refusal, ...codedWith(refused.length > 0 ? removalRefusalCodesOf(held) : []) }
+        : {}),
     };
   });
   return [...deletes, ...resolved.resources.flatMap((r) => actions.get(r.name) ?? [])];
@@ -833,6 +889,8 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
     let objects = draft.objects;
     let gates: EnvActionGates | undefined;
     let refusal = draft.refusal;
+    /** The codes of what `refusal` says, where its script gave them: none for the plan's own words. */
+    let codes: readonly string[] = draft.refusal !== undefined ? (draft.refusalCodes ?? []) : [];
     const dry = RUNS.has(draft.action) ? input.dryRuns?.[draft.resource] : undefined;
     // A relation of it may draw existing parents from what they write: its
     // dry run read the org before they did, and counted none of those.
@@ -856,7 +914,10 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
         emails: counted.count.emails,
       };
       const own = counted.count.refusal;
-      if (own !== undefined) refusal ??= `its own dry run says a real run would be refused: ${own}`;
+      if (own !== undefined && refusal === undefined) {
+        refusal = `its own dry run says a real run would be refused: ${own}`;
+        codes = counted.count.refusalCodes ?? [];
+      }
       dryNotes = counted.count.notes ?? [];
     } else if (RUNS.has(draft.action) && !quick) {
       refusal ??= 'it was not dry-run: plan again';
@@ -892,7 +953,7 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
       objects,
       ...(draws !== undefined && draws.draws.length > 0 ? { draws: draws.draws } : {}),
       ...(gates !== undefined ? { gates } : {}),
-      ...(refusal !== undefined ? { refusal } : {}),
+      ...(refusal !== undefined ? { refusal, ...codedWith(codes) } : {}),
       ...(notes.length > 0 ? { notes } : {}),
     };
   });
@@ -939,35 +1000,24 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
           `${blocked.map((action) => `${action.resource} (${action.refusal ?? action.why})`).join('; ')}`
         : undefined) ??
     checkpointRefusalOf(checkpoints);
-  // A Frozen load's dry run counts no email: the day's email gate holds
-  // without what its records make the org send. Live, a load of 73 contacts
-  // into a Developer Edition of 15 single emails a day was let through,
-  // said nothing of.
-  const loads = actions
-    .filter((action) => action.kind === 'frozen' && RUNS.has(action.action))
-    .map((action) => action.resource);
-  // Nor does a masking's: an update of every contact can send as many.
-  const masks = actions
-    .filter((action) => action.kind === 'mask' && RUNS.has(action.action))
-    .map((action) => action.resource);
-  const warnings = [
-    ...(input.warnings ?? []),
-    ...checkpointWarningsOf(file, input.state),
-    ...(loads.length > 0
-      ? [
-          `the emails the org sends as the records of ${loads.join(', ')} are loaded are not ` +
-            'counted: a Frozen load’s dry run does not count them, and the day’s email gate holds ' +
-            'without them',
-        ]
-      : []),
-    ...(masks.length > 0
-      ? [
-          `the emails the org sends as the records of ${masks.join(', ')} are masked ` +
-            'are not counted: a masking’s dry run does not count them, and the day’s email gate ' +
-            'holds without them',
-        ]
-      : []),
-  ];
+  // The codes of what `refusal` says, as a destroy's and an apply's carry
+  // theirs: the guard's, the blocked resources' where their scripts gave
+  // them, or the checkpoint script's; none for the day's sums, in the plan's
+  // own words. A pipeline read the code of a refused plan from no key.
+  const refusalCodes =
+    input.refusal !== undefined
+      ? [...(input.refusalCodes ?? [])]
+      : summed.length > 0
+        ? []
+        : blocked.length > 0
+          ? blocked.flatMap((action) => action.refusalCodes ?? [])
+          : checkpoints.flatMap((checkpoint) =>
+              checkpoint.refusal !== undefined ? [checkpoint.refusal.code] : [],
+            );
+  // A Frozen load's dry run counts its emails, which the day's gate adds: it
+  // counted none, and a load of 73 contacts into a Developer Edition of 15
+  // single emails a day was let through, said nothing of.
+  const warnings = [...(input.warnings ?? []), ...checkpointWarningsOf(file, input.state)];
 
   const count = (kind: EnvActionKind): number =>
     actions.filter((action) => action.action === kind).length;
@@ -988,7 +1038,7 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
     gates,
     ...(checkpoints.length > 0 ? { checkpoints } : {}),
     ...(input.drift !== undefined ? { drift: input.drift } : {}),
-    ...(refusal !== undefined ? { refusal } : {}),
+    ...(refusal !== undefined ? { refusal, ...codedWith(refusalCodes) } : {}),
     ...(quick ? { quick: true as const } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
   };
@@ -1022,12 +1072,14 @@ export function destructionPlan(
       };
     }
     const held = heldOf(input.previews?.[name] ?? []);
+    const refused = removalRefusalsOf(held);
     const refusal =
-      held.refusals.length > 0
-        ? `a removal of its runs would be refused now: ${held.refusals.join(' ')}`
+      refused.length > 0
+        ? `a removal of its runs would be refused now: ${refused.join(' ')}`
         : held.failed.length > 0
           ? `what the org holds of it could not be read (${held.failed.join('; ')}): run destroy again`
           : undefined;
+    const codes = refused.length > 0 ? removalRefusalCodesOf(held) : [];
     return {
       resource: name,
       kind: kept?.kind ?? 'seed',
@@ -1035,9 +1087,11 @@ export function destructionPlan(
       why: 'taken back by destroy, into the recycle bin',
       objects: heldObjects(held),
       ...(refusal !== undefined ? { refusal } : {}),
+      ...(codes.length > 0 ? { refusalCodes: codes } : {}),
     };
   });
   const blocked = actions.filter((action) => action.action === 'blocked');
+  const blockedCodes = [...new Set(blocked.flatMap((action) => action.refusalCodes ?? []))];
   const removals = actions
     .filter((action) => action.kind !== 'mask')
     .map((action) => `the removal of the runs of ${action.resource}`);
@@ -1069,6 +1123,7 @@ export function destructionPlan(
           refusal:
             `${blocked.map((action) => `${action.resource}: ${action.refusal ?? ''}`).join(' ')} ` +
             'Nothing was deleted.',
+          ...(blockedCodes.length > 0 ? { refusalCodes: blockedCodes } : {}),
         }
       : {}),
     ...(input.previews === undefined ? { quick: true as const } : {}),
@@ -1126,8 +1181,18 @@ export function actionCountsOf(action: Pick<EnvAction, 'kind' | 'objects'>): str
     .join('; ');
 }
 
-/** The plan as a terminal shows it. */
-export function planLines(plan: EnvPlan): string[] {
+/** How the last line of a plan names the act it is the plan of. */
+const ACT_NOW: Readonly<Record<'apply' | 'destroy', string>> = {
+  apply: 'an apply now',
+  destroy: 'a destroy now',
+};
+
+/**
+ * The plan as a terminal shows it, ending on what refuses the act it is the
+ * plan of: an apply's, or a destroy's, which ended on "an apply now would be
+ * refused" of an apply nobody asked for.
+ */
+export function planLines(plan: EnvPlan, act: 'apply' | 'destroy' = 'apply'): string[] {
   const lines = [
     `plan of ${plan.env} on ${plan.org.alias ?? plan.org.organizationId} ` +
       `(${plan.org.kind}, ${plan.org.organizationId})`,
@@ -1178,6 +1243,6 @@ export function planLines(plan: EnvPlan): string[] {
   }
   lines.push(...checkpointPlanLines(plan));
   for (const warning of plan.warnings ?? []) lines.push(`warning: ${warning}`);
-  if (plan.refusal !== undefined) lines.push(`an apply now would be refused: ${plan.refusal}`);
+  if (plan.refusal !== undefined) lines.push(`${ACT_NOW[act]} would be refused: ${plan.refusal}`);
   return lines;
 }

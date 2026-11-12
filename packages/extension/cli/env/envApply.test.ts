@@ -18,6 +18,7 @@ vi.mock('../../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
 }));
 
 import { acquireOrgLock } from '../../src/modules/checkpoint/OrgCheckpointStore.js';
+import { refusedLine, refusedSummary } from '../runRefused.js';
 import type { CommandRunner } from '../scriptRunner.js';
 import { EnvWorld, dryRunsIn, previewsIn } from '../testing/envWorld.js';
 import {
@@ -25,6 +26,7 @@ import {
   applySteps,
   removalSubjectOf,
   runResultLines,
+  withEmailsAccepted,
   type EnvStepDeps,
 } from './envApply.js';
 import { readEnvFile, type EnvFileResolved } from './envFile.js';
@@ -483,6 +485,76 @@ describe('how a step ends, and what the apply then does', () => {
     expect(world.records('Asset')).toEqual([]);
   });
 
+  it('stops at a seed refused for the emails the org delivers, exit 1, its words in the step and nothing written', async () => {
+    const message =
+      'TGT delivers every email its automation sends (Setup > Deliverability: All email). ' +
+      'Nothing was written. Add --accept-emails to seed all the same.';
+    const refused = { code: 'EMAILS_NOT_ACCEPTED', message };
+    const line = refusedLine(refused);
+    const from = world.calls.length;
+    const refusing: CommandRunner = async (script, args, signal) =>
+      args.includes('--dry-run') || args.includes('--remove')
+        ? world.runner(script, args, signal)
+        : {
+            code: 1,
+            stdout: refusedSummary({ tool: script, target: 'TGT', elapsedMs: 1 }, refused),
+            stderr: `${line}\n`,
+          };
+
+    const outcome = await apply(resolvedOf(), {}, { runner: refusing });
+
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.result.status).toBe('failure');
+    expect(outcome.result.steps).toEqual([
+      expect.objectContaining({ resource: 'assets', status: 'failed', refusal: line }),
+    ]);
+    // A refusal is no summary misread: nothing is said of one that could not be read.
+    expect(said.filter((each) => each.includes('sandforge-seed'))).toEqual([]);
+    expect(runsSince(from)).toEqual([]);
+    expect(world.records('Asset')).toEqual([]);
+  });
+
+  it('hands the line’s --accept-emails to the runs of a seed, a clone and a masking, and to no other script', async () => {
+    const resolved = resolvedOf();
+    const { plan, dryRuns, state } = await planned(resolved);
+    const lines: string[][] = [];
+    const runner: CommandRunner = async (script, args, signal) => {
+      lines.push([...args]);
+      // The seed of this test's own host reads no such flag: what it was handed is what counts.
+      return world.runner(
+        script,
+        args.filter((arg) => arg !== '--accept-emails'),
+        signal,
+      );
+    };
+
+    const outcome = await applyPlan(deps({ runner }), {
+      plan,
+      resolved,
+      target: TARGET,
+      state,
+      dryRuns,
+      acceptAutomation: false,
+      acceptEmails: true,
+    });
+
+    expect(outcome.exitCode).toBe(0);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expect(line).toContain('--accept-emails');
+    expect(withEmailsAccepted({ script: 'sandforge-clone', args: ['--json'] }, true).args).toEqual([
+      '--json',
+      '--accept-emails',
+    ]);
+    expect(withEmailsAccepted({ script: 'sandforge-seed', args: [] }, false).args).toEqual([]);
+    expect(
+      withEmailsAccepted({ script: 'sandforge-dataops', args: ['--json'] }, true).args,
+    ).toEqual(['--json', '--accept-emails']);
+    // A frozen load is refused for its emails as a seed and a clone are.
+    expect(withEmailsAccepted({ script: 'sandforge-frozen', args: ['--json'] }, true).args).toEqual(
+      ['--json', '--accept-emails'],
+    );
+  });
+
   it('carries a seed’s refusal its answer gives into the step, in its words: parents deleted between its dry run and its run', async () => {
     const drawing = {
       version: 1,
@@ -848,6 +920,7 @@ describe('refused before its first step', () => {
 
     expect(outcome.exitCode).toBe(1);
     expect(outcome.result.refusal).toContain('changed since the plan');
+    expect(outcome.result.refusalCodes).toEqual(['STATE_MOVED']);
   });
 
   it('starts no step while a checkpoint act of the org runs', async () => {

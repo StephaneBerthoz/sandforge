@@ -56,6 +56,30 @@ on:
         options:
           - 'true'
           - 'false'
+      accept_emails:
+        description: 'Clone for real although the target delivers the emails of what still runs, or would not say whether it does'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      checkpoint_first:
+        description: 'Take a checkpoint of what the clone writes before its first write'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      removal_sweep:
+        description: 'With the removal, delete too what the automation of the target made for the clone'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
       accept_removal_automation:
         description: 'Remove all the same although flows or Apex triggers of the target fire as the records are deleted'
         required: false
@@ -72,6 +96,9 @@ env:
   DRY_RUN: ${{ github.event.inputs.dry_run || 'true' }}
   REMOVE_AFTER: ${{ github.event.inputs.remove_after || 'false' }}
   ACCEPT_AUTOMATION: ${{ github.event.inputs.accept_automation || 'false' }}
+  ACCEPT_EMAILS: ${{ github.event.inputs.accept_emails || 'false' }}
+  CHECKPOINT_FIRST: ${{ github.event.inputs.checkpoint_first || 'false' }}
+  REMOVAL_SWEEP: ${{ github.event.inputs.removal_sweep || 'false' }}
   ACCEPT_REMOVAL_AUTOMATION: ${{ github.event.inputs.accept_removal_automation || 'false' }}
 
 jobs:
@@ -160,6 +187,17 @@ jobs:
           # on insert, unless told to go on: see ci-examples/README.md.
           AUTOMATION_FLAG=""
           [ "$ACCEPT_AUTOMATION" = "true" ] && AUTOMATION_FLAG="--accept-automation"
+          # Nor does it write where the target delivers the emails of what still
+          # runs, or would not say whether it does, unless told to go on:
+          # --accept-automation never stands for it.
+          EMAILS_FLAG=""
+          [ "$ACCEPT_EMAILS" = "true" ] && EMAILS_FLAG="--accept-emails"
+          # A checkpoint of what it writes, before its first write; a dry run
+          # says what it would hold and cost. It stays in sandforge-journal/
+          # checkpoints, unencrypted, and goes with a hosted runner: rewind to
+          # it in this job, and never upload that folder.
+          CHECKPOINT_FLAG=""
+          [ "$CHECKPOINT_FIRST" = "true" ] && CHECKPOINT_FLAG="--checkpoint-first"
           # --summary writes the summary as the run goes, after each object it
           # ends: a clone that fails part way keeps there what it created,
           # where its stdout carries nothing. stdout is kept beside it.
@@ -170,6 +208,8 @@ jobs:
             --upsert \
             $DRY_FLAG \
             $AUTOMATION_FLAG \
+            $EMAILS_FLAG \
+            $CHECKPOINT_FLAG \
             --json \
             --summary clone-summary.json \
             --remap-csv remap.csv \
@@ -186,16 +226,20 @@ jobs:
       # clone-summary.removals.json, which a later --remove of the same summary
       # reads: both are kept with the report. It writes nothing and exits 1
       # when the target's flows or triggers fire as the records are deleted,
-      # unless told to go on: see ci-examples/README.md.
+      # unless told to go on: see ci-examples/README.md. --sweep deletes too
+      # what it ties to the clone; add --sweep-late for what came late.
       - name: Remove what the clone created (sandforge-clone --remove)
         if: env.DRY_RUN != 'true' && env.REMOVE_AFTER == 'true'
         run: |
           REMOVAL_AUTOMATION_FLAG=""
           [ "$ACCEPT_REMOVAL_AUTOMATION" = "true" ] && REMOVAL_AUTOMATION_FLAG="--accept-automation"
+          SWEEP_FLAG=""
+          [ "$REMOVAL_SWEEP" = "true" ] && SWEEP_FLAG="--sweep"
           pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
             --remove clone-summary.json \
             --target ci-target \
             $REMOVAL_AUTOMATION_FLAG \
+            $SWEEP_FLAG \
             --json \
             --audit clone-audit.json \
             > clone-removal.json

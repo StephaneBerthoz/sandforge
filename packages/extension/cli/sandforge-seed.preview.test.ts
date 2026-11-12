@@ -17,6 +17,11 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
   ...(await original<typeof import('../src/modules/forge/ForgeRunRemoval.js')>()),
   removalOrg: vi.fn(),
 }));
+// The sweep's listing is Forge's, tested with it: here, what the preview does with it.
+vi.mock('../src/modules/forge/ForgeRunSweep.js', async (original) => ({
+  ...(await original<typeof import('../src/modules/forge/ForgeRunSweep.js')>()),
+  listSweep: vi.fn(),
+}));
 /** What the target runs as the removal writes, as it reads it: nothing, unless a test says what. */
 const automationRead = vi.fn(async (..._args: unknown[]): Promise<ForgeTargetAutomation> => ({
   objectsRead: [],
@@ -33,6 +38,7 @@ vi.mock('./sandforge-clone.js', async (original) => ({
 
 import { makeConn } from './sfSession.js';
 import { removalOrg, type RemovalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
+import { listSweep } from '../src/modules/forge/ForgeRunSweep.js';
 import {
   PREVIEW_UNREAD,
   main,
@@ -139,18 +145,23 @@ describe('sandforge-seed --remove --preview: the command line', () => {
     expect(exit.stderr()).toContain('--preview says what the removal would do');
   });
 
-  it.each(['--sweep', '--sweep-list'])(
-    'refuses %s with --preview, which writes nothing',
-    (flag) => {
-      const exit = stubExit();
+  it('refuses --sweep-list with --preview, which reads what --sweep would take itself', () => {
+    const exit = stubExit();
 
-      expect(() =>
-        parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--preview', flag)),
-      ).toThrow('exit 2');
+    expect(() =>
+      parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--preview', '--sweep-list')),
+    ).toThrow('exit 2');
 
-      expect(exit.stderr()).toContain('give --preview without them');
-    },
-  );
+    expect(exit.stderr()).toContain('give --preview without it, or with --sweep');
+  });
+
+  it('reads --sweep with --preview, and what it would take beside it', () => {
+    expect(
+      parseRemoveArgs(
+        argv('--remove', 'run.json', '--target', 'TGT', '--preview', '--sweep', '--sweep-late'),
+      ),
+    ).toEqual(expect.objectContaining({ preview: true, sweep: true, sweepLate: true }));
+  });
 });
 
 describe('sandforge-seed --remove --preview', () => {
@@ -237,11 +248,68 @@ describe('sandforge-seed --remove --preview', () => {
         userNames: { [COLLEAGUE]: 'A colleague' },
       },
       refusals: [],
+      refusalCodes: [],
       notes: [PREVIEW_UNREAD],
       elapsedMs: expect.any(Number),
     });
     // Asked what fires as a removal would delete, as the removal asks.
     expect(automationRead).toHaveBeenCalledWith('TGT', ['Contact', 'Account']);
+  });
+
+  it('lists with --sweep what the sweep would take, and reads what fires on its objects with the run’s', async () => {
+    vi.stubEnv('SANDFORGE_JOURNAL_DIR', join(dir, 'journal'));
+    vi.mocked(listSweep).mockResolvedValue({
+      window: { from: '2026-10-01T09:59:59Z', to: '2026-10-01T10:01:05Z' },
+      looked: ['Account', 'Contact', 'Task'],
+      found: [
+        {
+          objectApiName: 'Task',
+          count: 2,
+          names: ['Welcome call'],
+          classes: { made: 2, madeOver: 0, late: 0, untied: 0 },
+        },
+      ],
+      unread: [],
+      handWork: [],
+    });
+    // A trigger on the tasks the sweep deletes, read only when asked for them.
+    automationRead.mockImplementation(async (...args: unknown[]) => ({
+      objectsRead: [],
+      objects: (args[1] as string[]).includes('Task')
+        ? [
+            {
+              objectApiName: 'Task',
+              flows: [],
+              triggers: [{ name: 'TaskGuard', events: ['beforeDelete'] }],
+            },
+          ]
+        : [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 1,
+    }));
+    let stderr = '';
+    vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string) => {
+      stderr += chunk;
+      return true;
+    }) as never);
+
+    await main(argv('--remove', file, '--target', 'TGT', '--preview', '--sweep', '--json'));
+
+    const answer = JSON.parse(stdout) as { refusals: string[]; sweepListing?: unknown };
+    expect(answer.sweepListing).toMatchObject({ found: [{ objectApiName: 'Task', count: 2 }] });
+    expect(answer.refusals).toEqual([
+      expect.stringContaining('TGT runs automation on the records this removal deletes'),
+    ]);
+    expect(answer.refusals[0]).toContain('TaskGuard');
+    expect(automationRead).toHaveBeenLastCalledWith('TGT', ['Contact', 'Account', 'Task']);
+    expect(stderr).toContain(
+      'it found 2 record(s) and would delete 2 of them, children first; per object, all it found:',
+    );
+    expect(org.deletes).toEqual([]);
+    automationRead.mockReset();
+    vi.unstubAllEnvs();
   });
 
   it('says what a removal would be refused for, asks nothing, and exits 0', async () => {
@@ -273,6 +341,7 @@ describe('sandforge-seed --remove --preview', () => {
     expect(exit).not.toHaveBeenCalled();
     const answer = JSON.parse(stdout) as {
       refusals: string[];
+      refusalCodes?: string[];
       preview: SeedRemovalPreview;
     };
     expect(answer.refusals).toEqual([
@@ -282,6 +351,13 @@ describe('sandforge-seed --remove --preview', () => {
         'may not delete the records of Account (2 records) in TGT: a removal stops before its ' +
           'first delete, unless given --leave-undeletable',
       ),
+    ]);
+    // Beside the words, in their order, the code a removal is refused with for
+    // each: the words alone, a pipeline could not tell them apart.
+    expect(answer.refusalCodes).toEqual([
+      'PRODUCTION_TARGET',
+      'AUTOMATION_NOT_ACCEPTED',
+      'UNDELETABLE_NOT_LEFT',
     ]);
     expect(answer.preview.undeletable).toEqual([{ objectApiName: 'Account', records: 2 }]);
     expect(answer.preview.objects.find((o) => o.objectApiName === 'Account')).toMatchObject({
@@ -324,7 +400,7 @@ describe('sandforge-seed --remove --preview', () => {
       ),
     );
 
-    expect((JSON.parse(stdout) as { refusals: string[] }).refusals).toEqual([]);
+    expect(JSON.parse(stdout)).toMatchObject({ refusals: [], refusalCodes: [] });
   });
 
   it('counts the records changed since to delete with --include-changed', async () => {
@@ -349,11 +425,17 @@ describe('sandforge-seed --remove --preview', () => {
     writeFileSync(file, JSON.stringify(summary({ targetOrgId: '00D000000000002AAA' })));
     const exit = stubExit();
 
-    await expect(main(argv('--remove', file, '--target', 'OTHER', '--preview'))).rejects.toThrow(
-      'exit 1',
-    );
+    await expect(
+      main(argv('--remove', file, '--target', 'OTHER', '--preview', '--json')),
+    ).rejects.toThrow('exit 1');
 
-    expect(exit.stderr()).toContain('is not the org the run wrote to');
+    expect(exit.stderr()).toContain('refused (OTHER_ORG): OTHER is not the org the run wrote to');
+    // Its code with --json, which a pipeline reads: the sentence alone, and stdout empty.
+    expect(JSON.parse(stdout)).toMatchObject({
+      tool: 'sandforge-seed',
+      action: 'remove-preview',
+      refused: { code: 'OTHER_ORG' },
+    });
     expect(org.requests).toBe(0);
   });
 
@@ -424,12 +506,19 @@ describe('the lines of a preview', () => {
       userNames: {},
     };
 
-    expect(removalPreviewLines(preview, ['TGT is a production org'], ['a note'], true)).toEqual([
+    expect(
+      removalPreviewLines(
+        preview,
+        [{ code: 'PRODUCTION_TARGET', message: 'TGT is a production org' }],
+        ['a note'],
+        true,
+      ),
+    ).toEqual([
       'preview: what a removal would do; nothing was written',
       '  Contact: 2 to delete, 1 of them changed since the run, 1 not visible of 3',
       `      last changed by: ${COLLEAGUE} 1`,
       '      Not visible: 1 record(s) …',
-      'a removal would be refused: TGT is a production org',
+      'a removal would be refused (PRODUCTION_TARGET): TGT is a production org',
       'a note',
     ]);
   });

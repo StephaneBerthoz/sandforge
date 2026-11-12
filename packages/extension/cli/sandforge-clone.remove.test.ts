@@ -29,7 +29,13 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (importOriginal) => {
 // So is the sweep: here, what the command hands it, when, and what it says of it.
 vi.mock('../src/modules/forge/ForgeRunSweep.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/modules/forge/ForgeRunSweep.js')>();
-  return { ...actual, listSweep: vi.fn(), sweepRunRecords: vi.fn() };
+  return { ...actual, listSweep: vi.fn(), sweepParts: vi.fn() };
+});
+// The mute as it is, unless a test holds its lease to count when it is taken.
+vi.mock('../src/modules/forge/AutomationMuteLease.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../src/modules/forge/AutomationMuteLease.js')>();
+  return { ...actual, muteForRun: vi.fn(actual.muteForRun) };
 });
 
 import { loadOrg, makeConn } from './sfSession.js';
@@ -42,12 +48,22 @@ import {
 } from '../src/modules/forge/ForgeRunRemoval.js';
 import {
   listSweep,
-  sweepRunRecords,
+  sweepParts,
   type SweepInput,
   type SweepOptions,
+  type SweepParts,
 } from '../src/modules/forge/ForgeRunSweep.js';
 import { fingerprintFields, rowFingerprint } from '../src/modules/forge/ForgeInFlight.js';
 import { RUN_SPLIT_CALLS, SplitAllowance } from '../src/core/common/governorLimit.js';
+import { refusedSummary } from './runRefused.js';
+import { MuteRefusedError, muteForRun } from '../src/modules/forge/AutomationMuteLease.js';
+import { nodeRunJournal } from '../src/modules/forge/ForgeRunJournal.js';
+import {
+  writePathOrderDefects,
+  type WritePathStep,
+} from '../src/modules/checkpoint/beforeRunCheckpoint.js';
+import { REFUSED_UNTIED_LOOSE, refusedUntiedSweep } from '../src/test/refusedUntiedSweep.js';
+import type { MutedAutomation } from '@sandforge/shared';
 import {
   main,
   parseRunSummary,
@@ -58,8 +74,10 @@ import {
   removalsAfter,
   removalsPath,
   runKey,
+  sweepPartsOptions,
   typeOrg,
 } from './sandforge-clone';
+import { forgeRemovalAnswerSchema } from './env/kinds/forge.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -195,8 +213,37 @@ function removalAnswering(
     if (options.signal?.aborted) {
       return { objects: [], cancelled: true, gone: [], left: noneLeft, stamps: {} };
     }
+    await options.afterRemoval?.();
     return outcome;
   };
+}
+
+/**
+ * A sweep in parts answering `result`, as the real one goes about it: its
+ * listing said as it asks, unless it takes nothing and so asks nothing
+ * (`takesNothing`), `first` when the removal makes it, `afterRemoval` once the
+ * run's records are gone. What it found made for the run is `made`.
+ */
+function partsAnswering(
+  result: ForgeSweepResult | (() => ForgeSweepResult),
+  listing?: ForgeSweepListing,
+  made: readonly string[] = [],
+  takesNothing = false,
+): (org: unknown, input: SweepInput, options: SweepOptions) => SweepParts {
+  return (_org, _input, options) => ({
+    automationMade: new Set(made),
+    made: new Set(made),
+    late: new Set<string>(),
+    gone: new Set<string>(),
+    ask: vi.fn(async () => {
+      if (listing && !takesNothing) await options.approve?.(listing);
+    }),
+    listing,
+    takes: [],
+    first: vi.fn(async () => true),
+    afterRemoval: vi.fn(async () => false),
+    result: () => (typeof result === 'function' ? result() : result),
+  });
 }
 
 /** The plan the summary of `runSummary` gives a removal, children first. */
@@ -351,10 +398,13 @@ describe('sandforge-clone --remove', () => {
     vi.mocked(makeConn).mockReturnValue(targetConn);
     vi.mocked(removalOrg).mockReturnValue(session);
     vi.mocked(removeRunRecords).mockImplementation(removalAnswering(TOOK_ALL));
+    // The runs of this machine a sweep is told of: those a test keeps there.
+    vi.stubEnv('SANDFORGE_JOURNAL_DIR', join(dir, 'journal'));
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -391,6 +441,30 @@ describe('sandforge-clone --remove', () => {
       expect(stderr.join('')).toContain(
         `--remove ${path} is the summary of a dry run, which wrote nothing to the target: ` +
           'there is nothing of it to remove.',
+      );
+      expect(loadOrg).not.toHaveBeenCalled();
+    });
+
+    it("refuses a refused run's summary, which wrote nothing, and sends no one to sandforge-cleanup", async () => {
+      // As `> clone-summary.json` keeps it of a run its gate refused: its
+      // code, no result. Read as a summary printed before createdByObject,
+      // it sent the user to a cleanup that takes every record created today.
+      const path = file(
+        refusedSummary(
+          { tool: 'sandforge-clone', source: 'SRC', target: 'TGT', elapsedMs: 12 },
+          {
+            code: 'EMAILS_NOT_ACCEPTED',
+            message: 'TGT delivers every email. Nothing was written.',
+          },
+        ),
+      );
+
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBe(2);
+
+      expect(stderr.join('')).toBe(
+        `--remove ${path} is the summary of a run refused before its first write ` +
+          '(EMAILS_NOT_ACCEPTED), which wrote nothing to the target: there is nothing of it to ' +
+          'remove.\n',
       );
       expect(loadOrg).not.toHaveBeenCalled();
     });
@@ -492,15 +566,22 @@ describe('sandforge-clone --remove', () => {
       expect(removeRunRecords).toHaveBeenCalledTimes(1);
     });
 
-    it('refuses an org other than the one the run wrote to, and deletes nothing', async () => {
+    it('refuses an org other than the one the run wrote to under its code, and deletes nothing', async () => {
+      // Refused so, it said a sentence with no code on stderr and left stdout empty.
       organization = { Id: '00D000000000003AAA', IsSandbox: true };
 
-      expect(await run(['--remove', file(runSummary()), '--target', 'TGT'])).toBe(1);
+      expect(await run(['--remove', file(runSummary()), '--target', 'TGT', '--json'])).toBe(1);
 
       expect(stderr.join('')).toContain(
-        `TGT is not the org the run wrote to (${TARGET_ORG}), and its records are removed from ` +
-          'that org only. Nothing was deleted.',
+        `refused (OTHER_ORG): TGT is not the org the run wrote to (${TARGET_ORG}), and its ` +
+          'records are removed from that org only. Nothing was deleted.',
       );
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        tool: 'sandforge-clone',
+        action: 'remove',
+        target: 'TGT',
+        refused: { code: 'OTHER_ORG' },
+      });
       expect(removeRunRecords).not.toHaveBeenCalled();
     });
 
@@ -517,6 +598,76 @@ describe('sandforge-clone --remove', () => {
       expect(removalOrg).not.toHaveBeenCalled();
       expect(removeRunRecords).not.toHaveBeenCalled();
     });
+  });
+
+  describe('a removal refused before its first delete', () => {
+    it.each([
+      ['a production org', 'PRODUCTION_TARGET', 'TGT is a production org'],
+      [
+        'what fires as it deletes',
+        'AUTOMATION_NOT_ACCEPTED',
+        'TGT runs automation on the records this removal deletes',
+      ],
+      [
+        'objects its user may not delete',
+        'UNDELETABLE_NOT_LEFT',
+        'The user SandForge connects as may not delete the records of Account (1 records) in ' +
+          'TGT. Nothing was removed. Give that user Delete on those objects, or run again with ' +
+          '--leave-undeletable to remove the rest and leave them.',
+      ],
+    ])(
+      'names the code of one refused for %s, on its line, with --json on stdout, and in the audit trail',
+      async (_why, code, words) => {
+        // Refused so, it said a sentence with no code on stderr and left
+        // stdout empty: a CI job could not tell one refusal from another.
+        if (code === 'PRODUCTION_TARGET') organization = { Id: TARGET_ORG, IsSandbox: false };
+        if (code === 'AUTOMATION_NOT_ACCEPTED') {
+          targetTriggers = [
+            {
+              Name: 'AccountCleanup',
+              NamespacePrefix: null,
+              EntityDefinition: { QualifiedApiName: 'Account' },
+              UsageBeforeDelete: true,
+              UsageAfterDelete: false,
+            },
+          ];
+        }
+        // As the removal asks before its first delete, once it has read the records.
+        vi.mocked(removeRunRecords).mockImplementation(async (_org, _plan, options) =>
+          code === 'UNDELETABLE_NOT_LEFT' &&
+          !(await options.onUndeletable?.([{ objectApiName: 'Account', records: 1 }]))
+            ? { ...TOOK_ALL, objects: [], stoppedForUndeletable: true }
+            : TOOK_ALL,
+        );
+        const summaryPath = file(runSummary());
+        const auditPath = join(dir, 'audit.json');
+
+        expect(
+          await run(['--remove', summaryPath, '--target', 'TGT', '--json', '--audit', auditPath]),
+        ).toBe(1);
+
+        expect(stderr.join('')).toContain(`refused (${code}): ${words}`);
+        expect(JSON.parse(stdout.join(''))).toEqual({
+          tool: 'sandforge-clone',
+          action: 'remove',
+          summary: summaryPath,
+          target: 'TGT',
+          refused: { code, message: expect.stringContaining(words) as string },
+          elapsedMs: expect.any(Number) as number,
+        });
+        const kept = JSON.parse(readFileSync(auditPath, 'utf8')) as Record<
+          string,
+          { value: string }
+        >;
+        expect(JSON.parse(kept['audit:trail'].value)).toEqual([
+          expect.objectContaining({
+            action: 'cleanup_delete',
+            outcome: 'stopped',
+            details: { code },
+          }),
+        ]);
+      },
+    );
   });
 
   describe('the removal', () => {
@@ -558,6 +709,22 @@ describe('sandforge-clone --remove', () => {
       );
     });
 
+    it("names --include-changed as this script's own to the reader of an apply, whose replace does not take it", async () => {
+      // Relayed by sandforge-env apply, the plan of a replace's removal said
+      // "(--include-changed takes them)": a flag no apply takes.
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+      try {
+        expect(await run(['--remove', file(runSummary()), '--target', 'TGT'])).toBeUndefined();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+
+      expect(printed).toContain(
+        'records changed since the run stay, as do those records added since depend on ' +
+          "(this script's own removal with --include-changed takes them)",
+      );
+    });
+
     it('dates a run the target did not date by when it ended, as the wizard dates a history entry', async () => {
       const path = file(runSummary({}, { writtenBetween: undefined }));
 
@@ -568,6 +735,36 @@ describe('sandforge-clone --remove', () => {
       expect(options.runEndedAt).toBeUndefined();
       expect(options.runDurationMs).toBe(9_000);
       expect(options.runRecordedAt).toEqual(new Date('2026-10-01T10:00:06.000Z'));
+    });
+
+    it('reads a summary whose run the machine’s clock went back across as a run that took no time', async () => {
+      // A clone across a clock set back under WSL, by 1.25 s every 31 s or
+      // so, wrote elapsedMs -1250, and --remove refused the summary it had
+      // just written: "elapsedMs: Too small".
+      const path = file(runSummary({ elapsedMs: -1_250 }, { writtenBetween: undefined }));
+
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBeUndefined();
+
+      const options = removalOptions();
+      expect(options.runDurationMs).toBe(0);
+      expect(options.runRecordedAt).toEqual(new Date('2026-10-01T10:00:06.000Z'));
+    });
+
+    it('answers with no time below none when the machine sets its clock back during the removal, as an environment reads it', async () => {
+      // A removal across one answered elapsedMs -1250, which the reader of
+      // env destroy refused (countSchema) once the records were deleted.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-11-09T10:15:05.000Z'));
+      vi.mocked(removeRunRecords).mockImplementation(async (...args) => {
+        vi.setSystemTime(Date.now() - 1_250);
+        return removalAnswering(TOOK_ALL)(...args);
+      });
+      const path = file(runSummary());
+
+      expect(await run(['--remove', path, '--target', 'TGT', '--json'])).toBeUndefined();
+
+      const answer = forgeRemovalAnswerSchema.safeParse(JSON.parse(stdout.join('')));
+      expect(answer.success ? answer.data.elapsedMs : answer.error.issues).toBe(0);
     });
 
     it('takes the records changed since the run too with --include-changed', async () => {
@@ -747,6 +944,47 @@ describe('sandforge-clone --remove', () => {
       expect(removeRunRecords).not.toHaveBeenCalled();
     });
 
+    it('says what fires on the quote lines the platform copied from the run’s line items, none of the quote’s lines in its plan, and deletes nothing without --accept-automation', async () => {
+      targetFlows = [
+        {
+          ApiName: 'Quote_Line_Gone',
+          Label: 'Quote line gone',
+          TriggerType: 'RecordBeforeDelete',
+          RecordTriggerType: 'Delete',
+          TriggerObjectOrEvent: { QualifiedApiName: 'QuoteLineItem' },
+          ActiveVersionId: '301000000000009AAA',
+        },
+      ];
+      const deal = [SRC('006', 1), SRC('0Q0', 1), SRC('00k', 1)];
+      const summaryPath = file(
+        runSummary(
+          {},
+          {
+            remapTable: Object.fromEntries(
+              deal.map((id) => [id, TGT(id.slice(0, 3), Number(id.slice(3, 15)))]),
+            ),
+            existingSourceIds: [],
+            updatedSourceIds: [],
+            withTheirRecordSourceIds: [],
+            createdByObject: [
+              { objectApiName: 'Opportunity', sourceIds: [SRC('006', 1)] },
+              { objectApiName: 'Quote', sourceIds: [SRC('0Q0', 1)] },
+              { objectApiName: 'OpportunityLineItem', sourceIds: [SRC('00k', 1)] },
+            ],
+          },
+        ),
+      );
+
+      expect(await run(['--remove', summaryPath, '--target', 'TGT'])).toBe(1);
+
+      expect(printed).toContain('  QuoteLineItem: before delete: flow "Quote line gone"');
+      expect(stderr.join('')).toContain(
+        'TGT runs automation on the records this removal deletes: QuoteLineItem: flow ' +
+          '"Quote line gone" (before delete).',
+      );
+      expect(removeRunRecords).not.toHaveBeenCalled();
+    });
+
     it('removes all the same with --accept-automation, having said what fires', async () => {
       firing();
       const summaryPath = file(runSummary());
@@ -767,6 +1005,78 @@ describe('sandforge-clone --remove', () => {
       expect(printed).toContain('  nothing fires on the 2 object(s) it deletes records of');
       expect(removeRunRecords).toHaveBeenCalledTimes(1);
     });
+
+    it.each([
+      [
+        'as it plans the mute',
+        'plan',
+        {
+          code: 'MUTE_NO_RIGHT' as const,
+          message: 'The user cannot assign permission sets in TGT. Nothing was assigned.',
+        },
+      ],
+      [
+        'as it takes the lease',
+        'lease',
+        {
+          code: 'MUTE_FAILED' as const,
+          message: 'The lease could not be kept. Nothing was assigned.',
+        },
+      ],
+    ])(
+      'ends a removal whose mute is refused %s under its code, on stderr and with --json on stdout, nothing deleted',
+      async (_when, when, refusal) => {
+        // A sentence on stderr and an empty stdout: a CI job could not tell why.
+        if (when === 'plan') {
+          vi.mocked(muteForRun).mockRejectedValueOnce(new MuteRefusedError(refusal));
+        } else {
+          const automation = { objectsRead: [], objects: [], unread: [] } as never;
+          const muted: MutedAutomation = {
+            state: 'muted',
+            assigned: ['PS_Bypass'],
+            held: [],
+            permissions: ['Bypass'],
+            silenced: [],
+            stillRan: [],
+          };
+          vi.mocked(muteForRun).mockResolvedValueOnce({
+            automation,
+            muted,
+            prepared: {
+              plan: { assign: [], silenced: [], stillRuns: [] },
+              automation,
+              planned: muted,
+              acquire: async () => {
+                throw new MuteRefusedError(refusal);
+              },
+            },
+          });
+        }
+        // As the removal goes: the lease before its first delete.
+        const deleted: string[] = [];
+        vi.mocked(removeRunRecords).mockImplementation(async (_org, _plan, options) => {
+          await options.beforeFirstWrite?.();
+          deleted.push('the run’s records');
+          return TOOK_ALL;
+        });
+        const summaryPath = file(runSummary());
+
+        expect(
+          await run(['--remove', summaryPath, '--target', 'TGT', '--mute-automation', '--json']),
+        ).toBe(1);
+
+        expect(stderr.join('')).toContain(`refused (${refusal.code}): ${refusal.message}\n`);
+        expect(JSON.parse(stdout.join(''))).toEqual({
+          tool: 'sandforge-clone',
+          action: 'remove',
+          summary: summaryPath,
+          target: 'TGT',
+          refused: refusal,
+          elapsedMs: expect.any(Number),
+        });
+        expect(deleted).toEqual([]);
+      },
+    );
 
     it('deletes nothing when it could not read what fires, without --accept-automation', async () => {
       vi.mocked(targetConn.tooling.query).mockRejectedValueOnce(
@@ -1014,8 +1324,18 @@ describe('sandforge-clone --remove', () => {
       window: { from: '2026-10-01T09:59:59Z', to: '2026-10-01T10:01:05Z' },
       looked: ['Contact', 'Account', 'Task', 'Asset'],
       found: [
-        { objectApiName: 'Task', count: 1, names: ['Welcome call'] },
-        { objectApiName: 'Asset', count: 1, names: ['Insured risk'] },
+        {
+          objectApiName: 'Task',
+          count: 1,
+          names: ['Welcome call'],
+          classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+        },
+        {
+          objectApiName: 'Asset',
+          count: 1,
+          names: ['Insured risk'],
+          classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+        },
       ],
       unread: [],
       handWork: [],
@@ -1049,17 +1369,14 @@ describe('sandforge-clone --remove', () => {
 
     beforeEach(() => {
       vi.mocked(listSweep).mockResolvedValue(LISTING);
-      vi.mocked(sweepRunRecords).mockImplementation(async (_org, _input, options) => {
-        await options.approve?.(LISTING);
-        return SWEPT;
-      });
+      vi.mocked(sweepParts).mockImplementation(partsAnswering(SWEPT, LISTING));
     });
 
     /** What the command handed the sweep, from its one call. */
-    function sweepCall(): { input: SweepInput; options: SweepOptions } {
-      expect(sweepRunRecords).toHaveBeenCalledTimes(1);
-      const [, input, options] = vi.mocked(sweepRunRecords).mock.calls[0];
-      return { input, options };
+    function sweepCall(): { input: SweepInput; options: SweepOptions; parts: SweepParts } {
+      expect(sweepParts).toHaveBeenCalledTimes(1);
+      const [, input, options] = vi.mocked(sweepParts).mock.calls[0];
+      return { input, options, parts: vi.mocked(sweepParts).mock.results[0].value as SweepParts };
     }
 
     it('refuses --sweep beside --sweep-list, before anything is read', async () => {
@@ -1074,10 +1391,87 @@ describe('sandforge-clone --remove', () => {
       expect(await run(['--remove', path, '--target', 'TGT', '--sweep-list'])).toBeUndefined();
 
       expect(removeRunRecords).not.toHaveBeenCalled();
-      expect(sweepRunRecords).not.toHaveBeenCalled();
-      expect(printed).toContain('it would delete 2 record(s), children first:');
-      expect(printed).toContain('  Task: 1 (Welcome call)');
-      expect(printed).toContain('  Asset: 1 (Insured risk)');
+      expect(sweepParts).not.toHaveBeenCalled();
+      expect(printed).toContain(
+        'it found 2 record(s) and would delete 2 of them, children first; per object, all it found:',
+      );
+      expect(printed).toContain('  Task: 1 — 1 made for the run (Welcome call)');
+      expect(printed).toContain('  Asset: 1 — 1 made for the run (Insured risk)');
+      expect(existsSync(removalsPath(path))).toBe(false);
+    });
+
+    it('lists what --sweep-untied would take beside it, which it took for a refused line before, and deletes nothing', async () => {
+      vi.mocked(listSweep).mockResolvedValue({
+        ...LISTING,
+        found: [
+          ...LISTING.found,
+          {
+            objectApiName: 'Event',
+            count: 2,
+            names: ['Follow-up'],
+            classes: { made: 0, madeOver: 0, late: 0, untied: 2 },
+          },
+        ],
+        untied: { objects: [{ objectApiName: 'Event', count: 2 }] },
+      });
+      const path = file(runSummary());
+
+      expect(
+        await run(['--remove', path, '--target', 'TGT', '--sweep-list', '--sweep-untied']),
+      ).toBeUndefined();
+
+      expect(removeRunRecords).not.toHaveBeenCalled();
+      expect(sweepParts).not.toHaveBeenCalled();
+      expect(printed).toContain(
+        'it found 4 record(s) and would delete 4 of them, children first; per object, all it found:',
+      );
+      expect(printed).toContain(
+        'with --sweep-untied, it would delete too what is tied to nothing of the run: Event: 2',
+      );
+      expect(printed).not.toContain('(--sweep-untied takes them)');
+    });
+
+    it('previews with --sweep what the sweep would take, and what fires on its objects with the run’s, deleting nothing', async () => {
+      // A Flow on the assets the sweep deletes, which the removal's question
+      // reads: previewed without it, an environment's destroy blocked nothing
+      // and stopped part way.
+      targetFlows = [
+        {
+          ApiName: 'Asset_Gone',
+          Label: 'Asset gone',
+          TriggerType: 'RecordBeforeDelete',
+          RecordTriggerType: 'Delete',
+          TriggerObjectOrEvent: { QualifiedApiName: 'Asset' },
+          ActiveVersionId: '301000000000009AAA',
+        },
+      ];
+      vi.mocked(removeRunRecords).mockResolvedValue({
+        objects: [],
+        cancelled: false,
+        gone: [],
+        stamps: {},
+        left: noneLeft,
+        preview: { objects: [], userNames: {} },
+      });
+      const path = file(runSummary());
+
+      expect(
+        await run(['--remove', path, '--target', 'TGT', '--preview', '--sweep', '--json']),
+      ).toBeUndefined();
+
+      const answer = JSON.parse(stdout.join('')) as { refusals: string[] };
+      expect(answer).toMatchObject({
+        action: 'remove-preview',
+        sweepListing: { found: LISTING.found },
+      });
+      expect(answer.refusals).toEqual([
+        expect.stringContaining(
+          'TGT runs automation on the records this removal deletes: Asset: flow "Asset gone" ' +
+            '(before delete).',
+        ),
+      ]);
+      expect(sweepParts).not.toHaveBeenCalled();
+      expect(vi.mocked(removeRunRecords).mock.calls[0]?.[2]).toMatchObject({ previewOnly: true });
       expect(existsSync(removalsPath(path))).toBe(false);
     });
 
@@ -1095,6 +1489,25 @@ describe('sandforge-clone --remove', () => {
       });
     });
 
+    it('says the list on stderr under --json, as every other line, the warning about hand work among it', async () => {
+      // Run for real on the trap org, the list said nothing on either stream
+      // but its JSON, and the warning was lost.
+      const path = file(runSummary());
+
+      expect(
+        await run(['--remove', path, '--target', 'TGT', '--sweep-list', '--json']),
+      ).toBeUndefined();
+
+      expect(printed).toEqual([]);
+      expect(stderr).toContain('  Task: 1 — 1 made for the run (Welcome call)');
+      expect(stderr).toContain(
+        "a record made by hand as the run's user under the run's records within a minute of " +
+          "them reads as the automation's, and one changed by hand before the run's last write " +
+          'as unchanged: check the names before a --sweep',
+      );
+      expect(JSON.parse(stdout.join(''))).toMatchObject({ action: 'sweep-list' });
+    });
+
     it('hands the removal the sweep, with the run’s window, records and id map, for it to make before its first delete', async () => {
       // Swept after it, a task the target's automation opened under a cloned
       // contact after the run's last write kept the contact back as a record
@@ -1108,10 +1521,14 @@ describe('sandforge-clone --remove', () => {
       expect(await run(['--remove', path, '--target', 'TGT', '--sweep', '--json'])).toBeUndefined();
 
       expect(removalOptions().sweep).toEqual(expect.any(Function));
-      expect(vi.mocked(removeRunRecords).mock.invocationCallOrder[0]).toBeLessThan(
-        vi.mocked(sweepRunRecords).mock.invocationCallOrder[0],
+      const { input, options, parts } = sweepCall();
+      // It reads and asks before the removal, and deletes at its turn in it.
+      expect(vi.mocked(parts.ask).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(removeRunRecords).mock.invocationCallOrder[0],
       );
-      const { input, options } = sweepCall();
+      expect(vi.mocked(removeRunRecords).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(parts.first).mock.invocationCallOrder[0],
+      );
       expect(input.writtenBetween).toEqual(WRITTEN_BETWEEN);
       expect(input.created).toEqual(PLAN);
       // Every record the id map holds is out of the sweep's reach: the ones
@@ -1122,9 +1539,16 @@ describe('sandforge-clone --remove', () => {
       }
       // No removal of the run ran before it.
       expect(options).toMatchObject({ includeChanged: false, removalSpans: [] });
-      expect(stderr).toContain('it would delete 2 record(s), children first:');
+      expect(stderr).toContain(
+        'it found 2 record(s) and would delete 2 of them, children first; per object, all it found:',
+      );
       expect(JSON.parse(stdout.join(''))).toMatchObject({
-        result: { status: 'success', sweep: { status: 'success' } },
+        result: {
+          status: 'success',
+          sweep: { status: 'success' },
+          // What it listed and kept is said with what it did.
+          sweepListing: { found: LISTING.found },
+        },
       });
       expect(removalsOf(path)).toMatchObject({
         sweep: { deleted: 2, keptChanged: 0, refused: 0 },
@@ -1132,7 +1556,7 @@ describe('sandforge-clone --remove', () => {
       });
     });
 
-    it('asks about what the target runs as the records go before the sweep deletes anything', async () => {
+    it('asks about what the target runs as the records go once the sweep has read, before it deletes anything', async () => {
       targetTriggers = [
         {
           Name: 'ContactCleanup',
@@ -1149,18 +1573,40 @@ describe('sandforge-clone --remove', () => {
         },
       ];
 
+      const parts = partsAnswering(SWEPT, LISTING);
+      const made: SweepParts[] = [];
+      vi.mocked(sweepParts).mockImplementation((org, input, options) => {
+        made.push(parts(org, input, options));
+        return made[0];
+      });
+
       expect(await run(['--remove', file(runSummary()), '--target', 'TGT', '--sweep'])).toBe(1);
 
-      expect(sweepRunRecords).not.toHaveBeenCalled();
+      expect(made[0].ask).toHaveBeenCalledTimes(1);
+      expect(made[0].first).not.toHaveBeenCalled();
       expect(removeRunRecords).not.toHaveBeenCalled();
+      // Said in that order: the run's plan, what the sweep found, what fires.
+      const said = printed.join('\n');
+      expect(said.indexOf('a removal deletes the')).toBeLessThan(said.indexOf('a sweep looks in'));
+      expect(said.indexOf('a sweep looks in')).toBeLessThan(said.indexOf('removal automation:'));
     });
 
     it('removes none of the run’s records once a Ctrl-C stopped the sweep', async () => {
       const once = vi.spyOn(process, 'once');
-      vi.mocked(sweepRunRecords).mockImplementation(async () => {
-        const interrupt = once.mock.calls.find(([event]) => event === 'SIGINT')?.[1];
-        (interrupt as () => void)();
-        return { ...SWEPT, status: 'cancelled', objects: [] };
+      vi.mocked(sweepParts).mockImplementation((org, input, options) => {
+        const parts = partsAnswering({ ...SWEPT, status: 'cancelled', objects: [] })(
+          org,
+          input,
+          options,
+        );
+        return {
+          ...parts,
+          first: vi.fn(async () => {
+            const interrupt = once.mock.calls.find(([event]) => event === 'SIGINT')?.[1];
+            (interrupt as () => void)();
+            return false;
+          }),
+        };
       });
       const path = file(runSummary());
 
@@ -1173,12 +1619,151 @@ describe('sandforge-clone --remove', () => {
       });
     });
 
+    it('takes no lease, and removes nothing, once a Ctrl-C came as the sweep read', async () => {
+      const acquire = vi.fn();
+      const automation = {
+        objectsRead: ['Contact', 'Account'],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+        requests: 0,
+      };
+      const muted: MutedAutomation = {
+        state: 'muted',
+        assigned: ['PS_Bypass'],
+        held: [],
+        permissions: ['Bypass'],
+        silenced: [],
+        stillRan: [],
+      };
+      vi.mocked(muteForRun).mockResolvedValue({
+        automation,
+        muted,
+        prepared: {
+          plan: { assign: [], silenced: [], stillRuns: [] },
+          automation,
+          planned: muted,
+          acquire,
+        },
+      });
+      vi.mocked(sweepParts).mockImplementation((org, input, options) => ({
+        ...partsAnswering({ ...SWEPT, status: 'cancelled', objects: [] })(org, input, options),
+        ask: vi.fn(async () => {
+          process.emit('SIGINT');
+        }),
+      }));
+      vi.mocked(removeRunRecords).mockImplementation(
+        removalAnswering({ ...TOOK_ALL, objects: [], cancelled: true }),
+      );
+
+      await run([
+        '--remove',
+        file(runSummary()),
+        '--target',
+        'TGT',
+        '--sweep',
+        '--mute-automation',
+        '--json',
+      ]);
+
+      expect(acquire).not.toHaveBeenCalled();
+      expect(removalOptions().signal?.aborted).toBe(true);
+    });
+
+    describe('that takes nothing, so asks nothing', () => {
+      /** What it read: a task made late, one tied to nothing. */
+      const KEPT: ForgeSweepListing = {
+        window: LISTING.window,
+        looked: ['Contact', 'Task'],
+        found: [
+          {
+            objectApiName: 'Task',
+            count: 2,
+            names: ['Late call', 'Loose call'],
+            classes: { made: 0, madeOver: 0, late: 1, untied: 1 },
+          },
+        ],
+        unread: [],
+        handWork: [],
+        late: [{ objectApiName: 'Task', count: 1 }],
+        untied: { objects: [{ objectApiName: 'Task', count: 1 }] },
+      };
+      const NOTHING: ForgeSweepResult = {
+        status: 'success',
+        objects: [],
+        unread: [],
+        handWork: [],
+      };
+
+      beforeEach(() => {
+        vi.mocked(sweepParts).mockImplementation(partsAnswering(NOTHING, KEPT, [], true));
+        vi.mocked(removeRunRecords).mockImplementation(removalAnswering(TOOK_ALL));
+      });
+
+      it('says what it kept and why, before the removal deletes', async () => {
+        expect(
+          await run(['--remove', file(runSummary()), '--target', 'TGT', '--sweep']),
+        ).toBeUndefined();
+
+        expect(printed).toContain(
+          'it found 2 record(s) and would delete none of them; per object, all it found:',
+        );
+        const said = printed.join('\n');
+        expect(said).toContain('kept, made late');
+        expect(said).toContain('(--sweep-untied takes them)');
+      });
+
+      it('gives it under --json with what the sweep did', async () => {
+        expect(
+          await run(['--remove', file(runSummary()), '--target', 'TGT', '--sweep', '--json']),
+        ).toBeUndefined();
+
+        expect(JSON.parse(stdout.join('')).result.sweepListing).toEqual(KEPT);
+      });
+
+      it('says it of a sweep that goes alone too, nothing of the run left', async () => {
+        const path = file(runSummary());
+        file(
+          {
+            tool: 'sandforge-clone',
+            version: 1,
+            run: runKey(PLAN),
+            removalStamps: {},
+            removalSpans: [FIRST_SPAN],
+            removalLeft: [],
+          },
+          'clone-summary.removals.json',
+        );
+
+        expect(await run(['--remove', path, '--target', 'TGT', '--sweep'])).toBeUndefined();
+
+        expect(printed.join('\n')).toContain('kept, made late');
+      });
+
+      it('says nothing of a sweep refused, whose result says why', async () => {
+        vi.mocked(sweepParts).mockImplementation(
+          partsAnswering(
+            { status: 'refused', refusal: 'No window.', objects: [], unread: [], handWork: [] },
+            { ...KEPT, found: [], refusal: 'No window.' },
+            [],
+            true,
+          ),
+        );
+
+        expect(await run(['--remove', file(runSummary()), '--target', 'TGT', '--sweep'])).toBe(3);
+
+        expect(printed.join('\n')).not.toContain('a sweep looks in');
+        expect(printed).toContain('  No window.');
+      });
+    });
+
     it('sweeps nothing unasked', async () => {
       const path = file(runSummary());
 
       expect(await run(['--remove', path, '--target', 'TGT'])).toBeUndefined();
 
-      expect(sweepRunRecords).not.toHaveBeenCalled();
+      expect(sweepParts).not.toHaveBeenCalled();
       expect(listSweep).not.toHaveBeenCalled();
     });
 
@@ -1223,19 +1808,451 @@ describe('sandforge-clone --remove', () => {
 
       expect(await run(['--remove', path, '--target', 'TGT', '--sweep'])).toBe(1);
 
-      expect(sweepRunRecords).not.toHaveBeenCalled();
+      expect(sweepParts).not.toHaveBeenCalled();
+    });
+
+    describe('told what ties a record to the run', () => {
+      /** The user the run wrote as, kept in its summary. */
+      const RUN_USER = '005000000000007AAA';
+      /** A task an earlier sweep found made for the run, its tie since cleared. */
+      const MADE_TASK = '00T000000000901AAA';
+      /** What the run's mute kept quiet, and what still ran. */
+      const MUTED: Pick<MutedAutomation, 'silenced' | 'stillRan'> = {
+        silenced: [
+          { objectApiName: 'Contact', kind: 'flow', name: 'Welcome task', permission: 'Bypass' },
+        ],
+        stillRan: [
+          { objectApiName: 'Contact', kind: 'trigger', name: 'ContactTrigger', why: 'noBypass' },
+        ],
+      };
+
+      /** Another clone of this machine into the same org, a few seconds after the run. */
+      async function anotherCloneBeside(): Promise<string> {
+        const journals = nodeRunJournal(join(dir, 'journal'));
+        await journals.begin('beside', TARGET_ORG, new Date('2026-10-01T10:00:20.000Z'));
+        const store = journals.open('beside');
+        store.beginPart(new Date('2026-10-01T10:00:20.000Z'));
+        store.setMapping('created', SRC('003', 50), TGT('003', 50), 'Contact');
+        store.close();
+        await journals.stop('beside', 'success', 'beside#0');
+        return TGT('003', 50);
+      }
+
+      it('hands the sweep the other runs of this machine in its window, its mute, its first removal, what earlier sweeps found made, and the user it wrote as', async () => {
+        const besides = await anotherCloneBeside();
+        const path = file(
+          runSummary({ mutedAutomation: { state: 'muted', ...MUTED } }, { runUserId: RUN_USER }),
+        );
+        file(
+          {
+            tool: 'sandforge-clone',
+            version: 1,
+            run: runKey(PLAN),
+            removalStamps: {},
+            removalSpans: [SECOND_SPAN, FIRST_SPAN],
+            made: [MADE_TASK],
+          },
+          'clone-summary.removals.json',
+        );
+
+        expect(
+          await run(['--remove', path, '--target', 'TGT', '--sweep', '--json']),
+        ).toBeUndefined();
+
+        const { input } = sweepCall();
+        expect(input.runUserId).toBe(RUN_USER);
+        expect(input.ties).toEqual({
+          otherRuns: [{ ids: [besides] }],
+          muted: MUTED,
+          removalBegan: FIRST_SPAN.first,
+          madeEarlier: [MADE_TASK],
+        });
+        // The sweep's counts go five to a composite.
+        const [sweptOrg] = vi.mocked(sweepParts).mock.calls[0];
+        expect(sweptOrg.counts).toEqual(expect.any(Function));
+        expect(removalOptions().runUserId).toBe(RUN_USER);
+      });
+
+      it('lists what a sweep would take told the same ties', async () => {
+        const besides = await anotherCloneBeside();
+        const path = file(runSummary({}, { runUserId: RUN_USER }));
+
+        expect(await run(['--remove', path, '--target', 'TGT', '--sweep-list'])).toBeUndefined();
+
+        const [sweptOrg, input] = vi.mocked(listSweep).mock.calls[0];
+        expect(input.ties?.otherRuns).toEqual([{ ids: [besides] }]);
+        expect(input.runUserId).toBe(RUN_USER);
+        expect(sweptOrg.counts).toEqual(expect.any(Function));
+      });
+
+      it('hands the removal the sweep in its three parts: the first before its first delete, what it takes, the last once the run’s records are gone', async () => {
+        const path = file(runSummary());
+
+        expect(
+          await run(['--remove', path, '--target', 'TGT', '--sweep', '--json']),
+        ).toBeUndefined();
+
+        const { parts } = sweepCall();
+        const options = removalOptions();
+        // What the sweep takes holds none of the run's records back: the same set, filled by its first part.
+        expect(options.automationMade).toBe(parts.automationMade);
+        expect(parts.first).toHaveBeenCalledTimes(1);
+        expect(parts.afterRemoval).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(parts.first).mock.invocationCallOrder[0]).toBeLessThan(
+          vi.mocked(parts.afterRemoval).mock.invocationCallOrder[0],
+        );
+      });
+
+      it('takes what the sweep lists as late, or tied to nothing, only when asked', async () => {
+        const path = file(runSummary());
+
+        expect(
+          await run(['--remove', path, '--target', 'TGT', '--sweep', '--json']),
+        ).toBeUndefined();
+        expect(sweepCall().options).not.toHaveProperty('sweepLate');
+        expect(sweepCall().options).not.toHaveProperty('sweepUntied');
+
+        vi.mocked(sweepParts).mockClear();
+        vi.mocked(removeRunRecords).mockClear();
+        stdout = [];
+        expect(
+          await run([
+            '--remove',
+            path,
+            '--target',
+            'TGT',
+            '--sweep',
+            '--sweep-late',
+            '--sweep-untied',
+            '--json',
+          ]),
+        ).toBeUndefined();
+        expect(sweepCall().options).toMatchObject({ sweepLate: true, sweepUntied: true });
+      });
+
+      it('keeps what the sweep found made beside the summary, and tells the next removal’s sweep', async () => {
+        const path = file(runSummary());
+        vi.mocked(sweepParts).mockImplementation(partsAnswering(SWEPT, LISTING, [MADE_TASK]));
+        // The first removal takes the contacts, and leaves the account.
+        vi.mocked(removeRunRecords).mockImplementation(
+          removalAnswering({ ...STOPPED_AFTER_CONTACTS, cancelled: false }),
+        );
+
+        await run(['--remove', path, '--target', 'TGT', '--sweep', '--json']);
+
+        expect(removalsOf(path)).toMatchObject({ made: [MADE_TASK] });
+
+        vi.mocked(sweepParts).mockClear();
+        vi.mocked(removeRunRecords).mockClear();
+        vi.mocked(sweepParts).mockImplementation(partsAnswering(SWEPT, LISTING));
+        vi.mocked(removeRunRecords).mockImplementation(removalAnswering(TOOK_ALL));
+        stdout = [];
+
+        expect(
+          await run(['--remove', path, '--target', 'TGT', '--sweep', '--json']),
+        ).toBeUndefined();
+
+        expect(sweepCall().input.ties?.madeEarlier).toEqual([MADE_TASK]);
+        // Still kept: a third removal's sweep may find them again.
+        expect(removalsOf(path)).toMatchObject({ made: [MADE_TASK] });
+      });
+
+      it('keeps what the sweep found made late beside the summary, and tells the next removal’s sweep, which takes it with --sweep-late', async () => {
+        const LATE_TASK = '00T000000000902AAA';
+        const path = file(runSummary());
+        vi.mocked(sweepParts).mockImplementation((sweptOrg, input, options) => ({
+          ...partsAnswering(SWEPT, LISTING)(sweptOrg, input, options),
+          late: new Set([LATE_TASK]),
+        }));
+        vi.mocked(removeRunRecords).mockImplementation(removalAnswering(TOOK_ALL));
+
+        await run(['--remove', path, '--target', 'TGT', '--sweep', '--json']);
+
+        expect(removalsOf(path)).toMatchObject({ late: [LATE_TASK] });
+        expect(removalsOf(path)).not.toHaveProperty('made');
+
+        vi.mocked(sweepParts).mockClear();
+        vi.mocked(sweepParts).mockImplementation(partsAnswering(SWEPT, LISTING));
+        stdout = [];
+
+        expect(
+          await run(['--remove', path, '--target', 'TGT', '--sweep', '--sweep-late', '--json']),
+        ).toBeUndefined();
+
+        expect(sweepCall().input.ties?.lateEarlier).toEqual([LATE_TASK]);
+        expect(sweepCall().options).toMatchObject({ sweepLate: true });
+        expect(removalsOf(path)).toMatchObject({ late: [LATE_TASK] });
+      });
+
+      it('names, after a removal that left records of the run, what the automation likely made that kept them, and that --sweep takes it', async () => {
+        const path = file(runSummary());
+        vi.mocked(removeRunRecords).mockImplementation(
+          removalAnswering({
+            ...TOOK_ALL,
+            objects: [
+              objectResult('Contact', 2),
+              objectResult('Account', 1, {
+                deleted: 0,
+                keptDependents: 1,
+                heldBy: ['Task'],
+                heldByAutomation: 1,
+                automationHolders: ['Task'],
+              }),
+            ],
+          }),
+        );
+
+        expect(await run(['--remove', path, '--target', 'TGT'])).toBe(3);
+
+        // With what that sweep takes that may not be the run's, as
+        // --sweep-list warns: said by --sweep-list alone, a contact role made
+        // by hand went unwarned by the removal that offered the sweep.
+        expect(printed).toContain(
+          "1 record(s) of the run kept for records created under them during the run, as its user, likely by the target's automation (Task): --sweep takes them first (--sweep-list shows them); a record made by hand as the run's user under the run's records within a minute of them reads as the automation's, and one changed by hand before the run's last write as unchanged: check the names before a --sweep",
+        );
+      });
+
+      it('offers no --sweep after a removal of a run the target never dated, whose sweep is refused', async () => {
+        // A sweep of a run whose window cannot be told is refused ("cannot
+        // tell the window the run wrote in"): told "--sweep takes them
+        // first", the reader ran a removal that took nothing more.
+        const path = file(runSummary({}, { writtenBetween: undefined }));
+        vi.mocked(removeRunRecords).mockImplementation(
+          removalAnswering({
+            ...TOOK_ALL,
+            objects: [
+              objectResult('Contact', 2),
+              objectResult('Account', 1, {
+                deleted: 0,
+                keptDependents: 1,
+                heldBy: ['OpportunityContactRole'],
+                heldByAutomation: 1,
+                automationHolders: ['OpportunityContactRole'],
+              }),
+            ],
+          }),
+        );
+
+        expect(await run(['--remove', path, '--target', 'TGT'])).toBe(3);
+
+        const said = printed.find((line) => line.startsWith('1 record(s) of the run kept'));
+        expect(said).toContain(
+          'a sweep cannot take them, as it cannot tell the window the run wrote in now',
+        );
+        expect(said).not.toContain('--sweep');
+      });
+
+      it('offers --sweep after a removal by its journal while the target still dates the run, and none once the records that dated it are gone', async () => {
+        // Live, the removal of a run's journal said "--sweep takes them first";
+        // --sweep-list of the same journal then answered "cannot tell the
+        // window the run wrote in": the records its journal dated it by had
+        // gone with that removal.
+        const journal = file(
+          [
+            {
+              run: {
+                journalId: 'j',
+                targetOrgId: TARGET_ORG,
+                startedAt: '2026-10-01T10:00:00.000Z',
+              },
+            },
+            { part: { n: 0, startedAt: '2026-10-01T10:00:00.000Z' } },
+            ['c', ACCOUNT, TGT('001', 1), 'Account'],
+            ['c', CONTACTS[0], TGT('003', 1), 'Contact'],
+          ]
+            .map((line) => JSON.stringify(line))
+            .join('\n') + '\n',
+          'journal.ndjson',
+        );
+        let gone = false;
+        // The target's own query, the dates of the records the journal names
+        // answered while they are there.
+        const query = vi.mocked(targetConn.query);
+        const base = query.getMockImplementation();
+        query.mockImplementation(((soql: string) =>
+          !gone && /^SELECT CreatedDate FROM \w+ WHERE Id = /.test(soql)
+            ? Promise.resolve(page([{ CreatedDate: '2026-10-01T10:00:01.000Z' }]))
+            : base!(soql)) as never);
+        const kept = () =>
+          removalAnswering({
+            ...TOOK_ALL,
+            objects: [
+              objectResult('Contact', 1),
+              objectResult('Account', 1, {
+                deleted: 0,
+                keptDependents: 1,
+                heldBy: ['OpportunityContactRole'],
+                heldByAutomation: 1,
+                automationHolders: ['OpportunityContactRole'],
+              }),
+            ],
+          });
+        const heldLine = () =>
+          printed.find((line) => line.startsWith('1 record(s) of the run kept'));
+        try {
+          vi.mocked(removeRunRecords).mockImplementation(kept());
+          expect(await run(['--remove', journal, '--target', 'TGT'])).toBe(3);
+          expect(heldLine()).toContain(': --sweep takes them first (--sweep-list shows them)');
+
+          printed.length = 0;
+          const taking = kept();
+          vi.mocked(removeRunRecords).mockImplementation(async (...args) => {
+            const outcome = await taking(...args);
+            gone = true;
+            return outcome;
+          });
+          expect(await run(['--remove', journal, '--target', 'TGT'])).toBe(3);
+          expect(heldLine()).toContain('a sweep cannot take them');
+          expect(heldLine()).not.toContain('--sweep');
+        } finally {
+          query.mockImplementation(base!);
+        }
+      });
+
+      it('holds the mute’s lease from the sweep’s first delete to its last part, then gives it back', async () => {
+        // What the removal did, in order: the lease, each part's deletes, the release.
+        const events: WritePathStep[] = [];
+        const said: string[] = [];
+        const muted: MutedAutomation = {
+          state: 'muted',
+          assigned: ['PS_Bypass'],
+          held: [],
+          permissions: ['Bypass'],
+          silenced: [],
+          stillRan: [],
+        };
+        vi.mocked(muteForRun).mockResolvedValue({
+          automation: {
+            objectsRead: ['Contact', 'Account'],
+            objects: [],
+            unread: [],
+            conditionsNotRead: 0,
+            conditionsBound: 25,
+            requests: 0,
+          },
+          muted,
+          prepared: {
+            plan: { assign: [], silenced: [], stillRuns: [] },
+            automation: {
+              objectsRead: ['Contact', 'Account'],
+              objects: [],
+              unread: [],
+              conditionsNotRead: 0,
+              conditionsBound: 25,
+              requests: 0,
+            },
+            planned: muted,
+            acquire: async () => {
+              events.push('leaseAcquire');
+              said.push('lease');
+              return {
+                outcome: muted,
+                release: async () => {
+                  events.push('leaseRelease');
+                  said.push('release');
+                  return { ...muted, released: true };
+                },
+              };
+            },
+          },
+        });
+        vi.mocked(sweepParts).mockImplementation((org, input, options) => ({
+          ...partsAnswering(SWEPT, LISTING)(org, input, options),
+          ask: vi.fn(async () => {
+            events.push('question');
+            said.push('sweep asks');
+          }),
+          first: vi.fn(async () => {
+            events.push('write');
+            said.push('sweep before');
+            return true;
+          }),
+          afterRemoval: vi.fn(async () => {
+            events.push('write');
+            said.push('sweep after');
+            return true;
+          }),
+        }));
+        // As the removal goes: what goes before its first write once its
+        // questions are answered, then the sweep, the run's records, the rest.
+        vi.mocked(removeRunRecords).mockImplementation(async (_org, _plan, options) => {
+          await options.beforeFirstWrite?.();
+          await options.sweep?.(new SplitAllowance(RUN_SPLIT_CALLS));
+          events.push('write');
+          said.push('the run’s records');
+          await options.afterRemoval?.();
+          return TOOK_ALL;
+        });
+        const path = file(runSummary());
+
+        expect(
+          await run([
+            '--remove',
+            path,
+            '--target',
+            'TGT',
+            '--sweep',
+            '--mute-automation',
+            '--json',
+          ]),
+        ).toBeUndefined();
+
+        expect(said).toEqual([
+          'sweep asks',
+          'lease',
+          'sweep before',
+          'the run’s records',
+          'sweep after',
+          'release',
+        ]);
+        expect(writePathOrderDefects(events)).toEqual([]);
+      });
+    });
+
+    it('exits 3 and says partial when --sweep-untied was refused, where it ended 0 and a success', async () => {
+      const sweep = refusedUntiedSweep({
+        sweepParts: (
+          await vi.importActual<typeof import('../src/modules/forge/ForgeRunSweep.js')>(
+            '../src/modules/forge/ForgeRunSweep.js',
+          )
+        ).sweepParts,
+        removalOrg: (
+          await vi.importActual<typeof import('../src/modules/forge/ForgeRunRemoval.js')>(
+            '../src/modules/forge/ForgeRunRemoval.js',
+          )
+        ).removalOrg,
+      });
+      vi.mocked(sweepParts).mockImplementation(sweep.parts);
+      const path = file(runSummary());
+
+      expect(
+        await run(['--remove', path, '--target', 'TGT', '--sweep', '--sweep-untied', '--json']),
+      ).toBe(3);
+
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        result: {
+          status: 'partial',
+          sweep: {
+            status: 'partial',
+            left: [expect.objectContaining({ class: 'untied', refusal: expect.any(String) })],
+          },
+        },
+      });
+      expect(sweep.org.ids('Task')).toEqual([REFUSED_UNTIED_LOOSE]);
     });
 
     it('exits 3 when the sweep is refused, and records it in the audit trail', async () => {
       const path = file(runSummary());
       const auditPath = join(dir, 'audit.json');
-      vi.mocked(sweepRunRecords).mockResolvedValue({
-        status: 'refused',
-        refusal: 'hand work, likely',
-        objects: [],
-        unread: [],
-        handWork: [{ objectApiName: 'Opportunity', count: 1 }],
-      });
+      vi.mocked(sweepParts).mockImplementation(
+        partsAnswering({
+          status: 'refused',
+          refusal: 'hand work, likely',
+          objects: [],
+          unread: [],
+          handWork: [{ objectApiName: 'Opportunity', count: 1 }],
+        }),
+      );
 
       expect(
         await run(['--remove', path, '--target', 'TGT', '--sweep', '--audit', auditPath]),
@@ -1326,6 +2343,23 @@ describe('sandforge-clone removals file', () => {
     ).toEqual([TGT('001', 1)]);
   });
 
+  it('keeps no more what the sweep said gone, made for the run or made late, kept before or found now', () => {
+    const task = (n: number): string => TGT('00T', n);
+    const after = removalsAfter(
+      'run',
+      { removalStamps: {}, removalSpans: [], made: [task(1), task(2)], late: [task(5)] },
+      { stamps: {} },
+      [],
+      undefined,
+      [task(3)],
+      [task(6)],
+      [task(2), task(5), task(6)],
+    );
+
+    expect(after?.made).toEqual([task(1), task(3)]);
+    expect(after).not.toHaveProperty('late');
+  });
+
   it("adds a removal's stamps over the earlier ones for a record both stamped, and its span after theirs", () => {
     const later = { [TGT('001', 1)]: '2026-10-01T12:00:07.000+0000' };
 
@@ -1345,6 +2379,22 @@ describe('sandforge-clone removals file', () => {
       removalStamps: { ...later, [TGT('003', 1)]: '2026-10-01T11:00:03.000+0000' },
       removalSpans: [FIRST_SPAN, SECOND_SPAN],
     });
+  });
+});
+
+describe('sweepPartsOptions', () => {
+  it('hands the sweep’s first part the removal’s allowance of smaller calls, one bound for the two', async () => {
+    const first = vi.fn(async (_allowance?: SplitAllowance) => true);
+    const parts = {
+      first,
+      afterRemoval: async () => false,
+      automationMade: new Set<string>(),
+    } as unknown as SweepParts;
+    const allowance = new SplitAllowance(7);
+
+    expect(await sweepPartsOptions(parts).sweep?.(allowance)).toBe(true);
+
+    expect(first).toHaveBeenCalledWith(allowance);
   });
 });
 
@@ -1388,6 +2438,20 @@ describe('sandforge-clone removal lines', () => {
       'removal: CANCELLED',
       '  Contact: 3 deleted, 2 not reached of 5',
       '  Account: 1 not reached of 1',
+    ]);
+  });
+
+  it('says what a removal including changes took along that the run never wrote', () => {
+    expect(
+      removalLines('success', [
+        objectResult('Contact', 4),
+        objectResult('Account', 2, { tookAlong: { count: 1, objects: ['Contact'] } }),
+      ]),
+    ).toEqual([
+      'removal: SUCCESS',
+      '  Contact: 4 deleted of 4',
+      '  Account: 2 deleted of 2',
+      "      took along 1 record(s) that were not the run's, added or changed since it: Contact",
     ]);
   });
 });

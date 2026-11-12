@@ -334,10 +334,12 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     keys: ['errors.malformedId.explanation', 'errors.malformedId.action'],
     forge: ['errors.malformedId.forge.explanation', 'errors.malformedId.forge.action'],
   },
-  // A Flow of the org failing on save. One a sandbox often meets is a Send
-  // Email action: with the org's deliverability at No access, the action
-  // fails once it uses an email template or logs the email, and the save
-  // fails with it (Salesforce Help, Send Email action).
+  // A Flow of the org failing on save. The org's deliverability is not a
+  // cause, whatever Salesforce Help says of the Send Email action: rehearsed
+  // on a Developer Edition switched to System email only and to No access,
+  // a contact whose Flow sends with a template saved, its email held back
+  // without an error. Past the emails the org has left today, a Flow that
+  // sends does fail, and the record with it.
   CANNOT_EXECUTE_FLOW_TRIGGER: {
     severity: 'error',
     keys: ['errors.flowFailed.explanation', 'errors.flowFailed.action'],
@@ -437,6 +439,13 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     own: true,
     keys: ['errors.parentNotWritten.explanation', 'errors.parentNotWritten.action'],
   },
+  // A lookup Autopilot left empty: the record it names was read, then held
+  // back with a record the fit of the plan cut, which it came to name since.
+  CUT_WITH_PARENT: {
+    severity: 'warning',
+    own: true,
+    keys: ['errors.cutWithParent.explanation', 'errors.cutWithParent.action'],
+  },
   PERSON_ACCOUNT_NOT_WRITTEN: {
     severity: 'warning',
     own: true,
@@ -534,6 +543,44 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     wordsTheMessage: true,
     keys: ['errors.syncEarlierUnread.explanation', 'errors.syncEarlierUnread.action'],
   },
+  // A run refused for the checkpoint it was to take first, at its scope or at
+  // its take: the panel says what refused it between the two, by the take's
+  // code, which the error carries beside its own (`checkpointRefusal`).
+  CHECKPOINT_REFUSED: {
+    severity: 'error',
+    own: true,
+    wordsTheMessage: true,
+    keys: ['errors.checkpointRefused.explanation', 'errors.checkpointRefused.action'],
+  },
+  // A seed, a CSV import or a clone with a question to put before its first
+  // write, its checkpoint's cost among them, and nobody to answer it.
+  SEED_CONFIRMATION_UNAVAILABLE: {
+    severity: 'warning',
+    own: true,
+    wordsTheMessage: true,
+    keys: [
+      'errors.seedConfirmationUnavailable.explanation',
+      'errors.seedConfirmationUnavailable.action',
+    ],
+  },
+  // A run refused before its first write for the emails of what still runs,
+  // which nobody accepted. On a page it is the rare one: a lease that does not
+  // hold every set it was to assign, or a question that could not be put. The
+  // host says it with the command line's flag, which no page has.
+  EMAILS_NOT_ACCEPTED: {
+    severity: 'error',
+    own: true,
+    wordsTheMessage: true,
+    keys: ['errors.emailsNotAccepted.explanation', 'errors.emailsNotAccepted.action'],
+  },
+  // A rewind or an undo refused for the same emails. Its message stays, as it
+  // names who sends them, which a question never read for an undo does not;
+  // the hint says it in the interface language with the way past it.
+  EMAILS_DELIVERED: {
+    severity: 'error',
+    own: true,
+    keys: ['errors.emailsDelivered.explanation', 'errors.emailsDelivered.action'],
+  },
 };
 
 /**
@@ -596,6 +643,33 @@ const VARIANTS: ReadonlyArray<{
       forge: [
         'errors.recordTypeUnavailable.forge.explanation',
         'errors.recordTypeUnavailable.forge.action',
+      ],
+    },
+  },
+  // Autopilot's own, on a lookup and not on a record: the record was written
+  // before the one it names, which never followed, and keeps the lookup
+  // empty. Read as a record held back, the hint denied what the line above it
+  // says. Before the two below, which match the same message.
+  {
+    code: 'PARENT_REFUSED',
+    match: /keeps its \S+ empty/,
+    says: 'PARENT_REFUSED',
+    entry: {
+      severity: 'warning',
+      own: true,
+      keys: ['errors.parentRefused.keptEmpty.explanation', 'errors.parentRefused.keptEmpty.action'],
+    },
+  },
+  {
+    code: 'PARENT_NOT_WRITTEN',
+    match: /keeps its \S+ empty/,
+    says: 'PARENT_NOT_WRITTEN',
+    entry: {
+      severity: 'warning',
+      own: true,
+      keys: [
+        'errors.parentNotWritten.keptEmpty.explanation',
+        'errors.parentNotWritten.keptEmpty.action',
       ],
     },
   },

@@ -36,8 +36,13 @@ import {
 } from 'node:fs/promises';
 import * as path from 'node:path';
 import * as z from 'zod';
-import type { ForgeRemovalSpan, ForgeUndoMark } from '@sandforge/shared';
-import { forgeRemovalPlanLeft } from '@sandforge/shared';
+import type { ForgeRemovalSpan, ForgeUndoMark, RunCheckpointTaken } from '@sandforge/shared';
+import {
+  checkpointIdSchema,
+  forgeRemovalPlanLeft,
+  runCheckpointNoteCodeFields,
+} from '@sandforge/shared';
+import { MADE_KEPT_PER_OBJECT } from '../forge/sweepTies.js';
 import { SyncIdMap } from './SyncIdMap.js';
 import { THIS_HOST, type RunWriterHost } from './runWriter.js';
 
@@ -166,6 +171,12 @@ const headSchema = z.object({
     configId: z.string().min(1).max(200),
     configName: z.string().max(500),
     sourceOrgId: z.string().min(1).max(200),
+    /**
+     * The org as its writer names it: the panel by the id it registers the
+     * org under, the command line by the alias it was given, which its
+     * `--remove` of a file that names no Organization id asks for again. Its
+     * Organization id, where known, is `targetOrganizationId`.
+     */
     targetOrgId: z.string().min(1).max(200),
     startedAt: dateSchema,
     /**
@@ -209,6 +220,16 @@ const headSchema = z.object({
      * Absent from a file written before files named their process.
      */
     writer: z.object({ pid: z.number().int().positive(), hostStartedAt: dateSchema }).optional(),
+    /**
+     * The user the run writes as, by Salesforce id, when its recorder was
+     * told it before the file began (a line of its own says it otherwise:
+     * `runUserSchema`): what the sweep of its removal holds the records the
+     * target's automation made to (`SweepInput.runUserId`). Read back from
+     * the run's records otherwise — which a removal may have taken, and a
+     * Sync run that only wrote over records no longer says once their values
+     * are back. Absent from a file written before files named it.
+     */
+    runUserId: idSchema.optional(),
   }),
 });
 
@@ -375,6 +396,49 @@ const deletedSchema = z.object({
   }),
 });
 
+/**
+ * A line once the run's user was read after its first write had begun the
+ * file (`SyncCreationRecorder.runUser`): the read is never waited for, so a
+ * target slow to say who the session is holds no write back, and what it says
+ * late is kept all the same.
+ */
+const runUserSchema = z.object({ runUser: idSchema });
+
+/** The most objects a checkpoint's line names in each of its lists. */
+const CHECKPOINT_OBJECTS_KEPT = 1_000;
+
+/** An object a checkpoint holds beside those the run writes, or leaves out, and why, in words. */
+const checkpointNoteSchema = z.object({
+  objectApiName: objectSchema,
+  reason: z.string().max(4_000),
+  // The code a page says it by: read without it, the history's note was English.
+  ...runCheckpointNoteCodeFields,
+});
+
+/**
+ * A line once the run took a checkpoint of what it writes before its first
+ * write (Checkpoint first): which one, when, what it holds and what it does
+ * not — what a rewind to before the run is offered from, once the run is
+ * listed again after a reload, or after a window that closed under it. Written
+ * with the file's first line, never alone: a run that wrote nothing leaves no
+ * file, and its checkpoint is deleted. Names and counts alone, never a value.
+ */
+const checkpointSchema = z.object({
+  checkpoint: z.object({
+    state: z.literal('taken'),
+    checkpointId: checkpointIdSchema,
+    name: z.string().min(1).max(500),
+    takenAt: dateSchema,
+    expiresAt: dateSchema.nullable(),
+    objects: z.array(objectSchema).max(CHECKPOINT_OBJECTS_KEPT),
+    records: z.number().int().nonnegative(),
+    bytes: z.number().int().nonnegative(),
+    requests: z.number().int().nonnegative(),
+    added: z.array(checkpointNoteSchema).max(CHECKPOINT_OBJECTS_KEPT),
+    notHeld: z.array(checkpointNoteSchema).max(CHECKPOINT_OBJECTS_KEPT),
+  }),
+});
+
 /** The last line: how the run ended, on this machine's clock. */
 const endSchema = z.object({
   end: z.object({
@@ -383,6 +447,12 @@ const endSchema = z.object({
     cancelled: z.literal(true).optional(),
   }),
 });
+
+/**
+ * The most objects whose finds a run's removal file reads, each at most
+ * {@link MADE_KEPT_PER_OBJECT}: far more than a sweep finds records of.
+ */
+const MADE_OBJECTS_READ = 100;
 
 /** What the removals of a run did, kept beside its file. */
 const removalSchema = z.object({
@@ -407,6 +477,21 @@ const removalSchema = z.object({
   restoredAt: dateSchema.optional(),
   undeleteLeft: z.array(idSchema).optional(),
   undeletedAt: dateSchema.optional(),
+  /**
+   * A list that reads as anything else is left out on its own: the rest of
+   * the file is what the next removal sets out from, and read as nothing, it
+   * would set out to take records already gone.
+   */
+  madeEarlier: z
+    .array(idSchema)
+    .max(MADE_KEPT_PER_OBJECT * MADE_OBJECTS_READ)
+    .optional()
+    .catch(undefined),
+  lateEarlier: z
+    .array(idSchema)
+    .max(MADE_KEPT_PER_OBJECT * MADE_OBJECTS_READ)
+    .optional()
+    .catch(undefined),
 });
 
 /**
@@ -426,6 +511,8 @@ export function readRemovalState(raw: unknown): SyncRunRemovalState | undefined 
     restoredAt,
     undeleteLeft,
     undeletedAt,
+    madeEarlier,
+    lateEarlier,
   } = parsed.data;
   return {
     ...(undo ? { undo } : {}),
@@ -436,6 +523,8 @@ export function readRemovalState(raw: unknown): SyncRunRemovalState | undefined 
     ...(restoredAt !== undefined ? { restoredAt } : {}),
     ...(undeleteLeft ? { undeleteLeft } : {}),
     ...(undeletedAt !== undefined ? { undeletedAt } : {}),
+    ...(madeEarlier ? { madeEarlier } : {}),
+    ...(lateEarlier ? { lateEarlier } : {}),
   };
 }
 
@@ -464,6 +553,21 @@ export interface SyncRunRemovalState {
   undeleteLeft?: string[];
   /** When the last removal that brought records back from the recycle bin ended. */
   undeletedAt?: string;
+  /**
+   * What the sweeps of its removals found made for the run, by id, as they
+   * read it before their first delete (`SweepParts.made`): the only word left
+   * on a record whose tie a removal cleared, the org emptying the lookup that
+   * told it as the run's record went (`SweepTies.madeEarlier`).
+   */
+  madeEarlier?: string[];
+  /**
+   * What the sweeps of its removals found made late for the run, by id
+   * (`SweepParts.late`), kept as `madeEarlier` is: late still for the next
+   * sweep, which takes it when asked to take what came late
+   * (`SweepTies.lateEarlier`). Left by a sweep that did not take it, its
+   * tie went with the run's record, and the next sweep found it in no class.
+   */
+  lateEarlier?: string[];
 }
 
 /** The run a file names. */
@@ -550,6 +654,12 @@ export interface SyncRunKept extends Omit<SyncRunHead, 'answersNameJobs'> {
    * Absent when none.
    */
   unkept?: Array<{ objectApiName: string; fields: string[] }>;
+  /**
+   * The checkpoint it took of what it writes before its first write, when it
+   * was asked to (Checkpoint first): where a rewind to before the run goes.
+   * Absent when it took none.
+   */
+  checkpoint?: RunCheckpointTaken;
   /** What its removals did, once one ran. */
   removal?: SyncRunRemovalState;
 }
@@ -595,6 +705,8 @@ function parseLine(line: string): unknown {
 export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefined {
   let head: SyncRunHead | undefined;
   let end: SyncRunKept['end'];
+  let checkpoint: RunCheckpointTaken | undefined;
+  let runUser: string | undefined;
   let lastWrittenAt: string | undefined;
   let firstWrittenAt: string | undefined;
   let lastWriteAt: string | undefined;
@@ -731,6 +843,16 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
       byObject.set(created.data.object, ids);
       continue;
     }
+    const taken = checkpointSchema.safeParse(value);
+    if (taken.success) {
+      checkpoint = taken.data.checkpoint;
+      continue;
+    }
+    const user = runUserSchema.safeParse(value);
+    if (user.success) {
+      runUser = user.data.runUser;
+      continue;
+    }
     const ended = endSchema.safeParse(value);
     if (ended.success) end = ended.data.end;
   }
@@ -741,6 +863,7 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
   const overwritten = overwrites.read();
   return {
     ...run,
+    ...(run.runUserId === undefined && runUser !== undefined ? { runUserId: runUser } : {}),
     ...(end ? { end } : {}),
     ...(lastWrittenAt !== undefined ? { lastWrittenAt } : {}),
     ...(firstWrittenAt !== undefined ? { firstWrittenAt } : {}),
@@ -768,6 +891,7 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
           })),
         }
       : {}),
+    ...(checkpoint ? { checkpoint } : {}),
   };
 }
 
@@ -942,9 +1066,22 @@ function namedLeft(run: SyncRunKept): Set<string> {
  */
 function sameTarget(run: SyncRunKept, runs: readonly SyncRunKept[]): SyncRunKept[] {
   return runs.filter(
-    (other) =>
-      other.runId !== run.runId && other.targetOrgId === run.targetOrgId && !settled(other),
+    (other) => other.runId !== run.runId && sameTargetOrg(run, other) && !settled(other),
   );
+}
+
+/**
+ * Whether two runs wrote to the same org: by its Organization id when both
+ * name it, as a run of the command line does beside the alias it was given;
+ * by the name they give the org otherwise, the panel's registered id. Two
+ * runs of the command line under two aliases of one org were taken for runs
+ * of two targets.
+ */
+function sameTargetOrg(a: SyncRunKept, b: SyncRunKept): boolean {
+  if (a.targetOrganizationId !== undefined && b.targetOrganizationId !== undefined) {
+    return a.targetOrganizationId.slice(0, 15) === b.targetOrganizationId.slice(0, 15);
+  }
+  return a.targetOrgId === b.targetOrgId;
 }
 
 /**
@@ -1016,6 +1153,13 @@ export interface SyncCreationRecorder {
    */
   note(objectApiName: string, ids: readonly string[], at?: string): void;
   /**
+   * What the write of `objectApiName` created, told once it returned: written
+   * as {@link note} writes it, but for what its calls' answers wrote
+   * ({@link answered}), which a run that keeps its calls had in its file
+   * twice. Absent from a recorder no call is told to: {@link note} is told.
+   */
+  noteUnanswered?(objectApiName: string, ids: readonly string[]): void;
+  /**
    * A call of `rows` rows of `objectApiName` is about to go: written at once,
    * so a run cut short while it is under way says so (`SyncRunKept.inFlight`).
    * Said again with `call.job` once the org has opened the Bulk API job the
@@ -1077,6 +1221,20 @@ export interface SyncCreationRecorder {
    * values from before are not kept, written at once, as field names.
    */
   unkept?(objectApiName: string, fields: readonly string[]): void;
+  /**
+   * The run took `taken`, a checkpoint of what it writes, before its first
+   * write: written with the file's first line, right after the line naming
+   * the run, and never alone — a run that writes nothing leaves no file, and
+   * deletes its checkpoint. One that does not read as a checkpoint is left out.
+   */
+  checkpoint?(taken: RunCheckpointTaken): void;
+  /**
+   * The user the run writes as, by Salesforce id, once it was read
+   * (`keepRunUser`), which nothing waits for: in the file's first line when
+   * it has not begun, on a line of its own when it has, a short run's after
+   * the line of its end. A run that writes nothing leaves no file for it.
+   */
+  runUser?(userId: string): void;
   /** How many records the run has written over so far, as its lines name them. */
   overwrittenCount?(): number;
   /**
@@ -1178,10 +1336,14 @@ export class SyncRunCreations {
      * writes over nothing, and leaves no file.
      */
     let held: unknown;
+    /** The checkpoint taken before the run's first write, until the file begins. */
+    let checkpointHeld: unknown;
     const append = (line: unknown): void => {
       queued = true;
       const before = held;
       held = undefined;
+      const taken = checkpointHeld;
+      checkpointHeld = undefined;
       writes = writes.then(async () => {
         if (failure !== undefined) return;
         try {
@@ -1193,6 +1355,7 @@ export class SyncRunCreations {
             await this.keepWithinBounds(start.runId).catch(() => undefined);
             await this.deps.appendFile(file, `${JSON.stringify({ run: head })}\n`);
           }
+          if (taken !== undefined) await this.deps.appendFile(file, `${JSON.stringify(taken)}\n`);
           if (before !== undefined) await this.deps.appendFile(file, `${JSON.stringify(before)}\n`);
           await this.deps.appendFile(file, `${JSON.stringify(line)}\n`);
         } catch (err: unknown) {
@@ -1200,13 +1363,36 @@ export class SyncRunCreations {
         }
       });
     };
+    /** The ids the calls' answers wrote, until the write they belong to returned. */
+    const answeredIds = new Set<string>();
+    /**
+     * `ids` in lines of what a line holds, past `first` written by the caller:
+     * read back, a longer line is no line. One Bulk API job past it left a run
+     * of its records with nothing in its file, and nothing for its removal.
+     */
+    const inLines = (
+      objectApiName: string,
+      ids: readonly string[],
+      at: string,
+      first = 0,
+    ): void => {
+      for (let from = first; from < ids.length; from += IDS_PER_LINE) {
+        append({ object: objectApiName, created: ids.slice(from, from + IDS_PER_LINE), at });
+      }
+    };
+    const note = (objectApiName: string, ids: readonly string[], at?: string): void => {
+      const valid = ids.filter((id) => idSchema.safeParse(id).success);
+      if (valid.length === 0 || !objectSchema.safeParse(objectApiName).success) return;
+      inLines(objectApiName, valid, at ?? new Date().toISOString());
+    };
     return {
       runId: start.runId,
-      note: (objectApiName, ids, at) => {
-        const valid = ids.filter((id) => idSchema.safeParse(id).success);
-        if (valid.length === 0 || !objectSchema.safeParse(objectApiName).success) return;
-        append({ object: objectApiName, created: valid, at: at ?? new Date().toISOString() });
-      },
+      note,
+      noteUnanswered: (objectApiName, ids) =>
+        note(
+          objectApiName,
+          ids.filter((id) => !answeredIds.delete(id.slice(0, 15))),
+        ),
       sending: (objectApiName, rows, call) => {
         if (rows <= 0 || !objectSchema.safeParse(objectApiName).success) return;
         const job = call?.job !== undefined && idSchema.safeParse(call.job).success ? call.job : '';
@@ -1228,12 +1414,16 @@ export class SyncRunCreations {
         const valid = ids.filter((id) => idSchema.safeParse(id).success);
         const job = jobOf.get(objectApiName);
         jobOf.delete(objectApiName);
+        for (const id of valid) answeredIds.add(id.slice(0, 15));
+        const at = new Date().toISOString();
+        // A line however few it created: the call is answered once one follows it.
         append({
           object: objectApiName,
-          created: valid,
-          at: new Date().toISOString(),
+          created: valid.slice(0, IDS_PER_LINE),
+          at,
           ...(job !== undefined ? { job } : {}),
         });
+        inLines(objectApiName, valid, at, IDS_PER_LINE);
       },
       writing: (objectApiName, rows) => {
         if (rows <= 0 || !objectSchema.safeParse(objectApiName).success) return;
@@ -1327,6 +1517,20 @@ export class SyncRunCreations {
             at: new Date().toISOString(),
           },
         });
+      },
+      checkpoint: (taken) => {
+        const line = checkpointSchema.safeParse({ checkpoint: taken });
+        if (!line.success) return;
+        // Taken before the first write, it waits for the file to begin; one
+        // noted once the file has begun goes at once.
+        if (queued) append(line.data);
+        else checkpointHeld = line.data;
+      },
+      runUser: (userId) => {
+        if (!idSchema.safeParse(userId).success) return;
+        // Read before the first line, it is the run's as its other names are.
+        if (queued) append({ runUser: userId });
+        else head.runUserId = userId;
       },
       overwrittenCount: () => overwrites.count,
       flush: async () => {

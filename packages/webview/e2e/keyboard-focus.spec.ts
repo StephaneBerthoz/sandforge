@@ -725,6 +725,7 @@ test.describe('Keyboard and screen reader — the Forge flow', () => {
     await answerAll(page, 'forge:discover', 'forge:discover:response', { graph: WIDE_GRAPH });
     await page.getByTestId('forge-execute-btn').click();
     await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+    await page.getByTestId('tab-plan').click();
     const pane = page.getByTestId('live-graph');
     await pane.locator('.react-flow__node').first().waitFor({ timeout: 10_000 });
     const checkbox = (name: string) =>
@@ -842,11 +843,11 @@ test.describe('Keyboard and screen reader — Reports', () => {
         },
       ],
     });
-    await page.getByRole('tab', { name: 'Audit Trail' }).click();
+    await page.getByRole('tab', { name: 'Audit trail' }).click();
 
     await pressWithKeyboard(page, 'audit-view-run-audit-forge');
 
-    const lineageTab = page.getByRole('tab', { name: 'Data Lineage' });
+    const lineageTab = page.getByRole('tab', { name: 'Data lineage' });
     await expect(lineageTab).toBeFocused();
     await expect(lineageTab).toHaveAttribute('aria-selected', 'true');
   });

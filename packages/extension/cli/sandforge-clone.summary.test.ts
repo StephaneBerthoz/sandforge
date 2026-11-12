@@ -314,6 +314,36 @@ describe('sandforge-clone --summary', () => {
     ]);
   });
 
+  it('writes a summary --remove reads although the machine’s clock was set back during the run', async () => {
+    // Under WSL the clock was set back by 1.25 s every 31 s or so: a run
+    // across one wrote a negative elapsedMs, and --remove refused the
+    // summary the run had just written ("elapsedMs: Too small").
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-09T10:15:05.000Z'));
+    withOrgs(
+      fakeOrg([], (name) => {
+        if (name === 'Account') vi.setSystemTime(Date.now() - 1_250);
+      }),
+    );
+    const path = join(dir, 'clone-summary.json');
+
+    expect(await run(argv('--summary', path, '--json'))).toBeUndefined();
+
+    const writes = writesOf(path);
+    expect(writes).toHaveLength(3);
+    // Killed after any object, the run leaves one --remove takes back.
+    for (const document of writes) {
+      const read = parseRunSummary(JSON.stringify(document));
+      expect('summary' in read ? 'read' : read.refusal).toBe('read');
+    }
+    const kept = readFileSync(path, 'utf8');
+    expect((JSON.parse(kept) as Record<string, unknown>).elapsedMs).toBe(0);
+    const read = parseRunSummary(kept);
+    expect(
+      'summary' in read ? removalPlan(read.summary).map((o) => o.objectApiName) : read,
+    ).toEqual(['Contact', 'Account']);
+  });
+
   it('stops on Ctrl-C between two objects, writes what the run created by then, and exits 130', async () => {
     const once = vi.spyOn(process, 'once');
     const listening = process.listenerCount('SIGINT');
@@ -448,6 +478,91 @@ describe('sandforge-clone --summary', () => {
     expect(printed).toContain(interruptedLine(undefined));
   });
 
+  describe('a run the target refused records of', () => {
+    /**
+     * A target that refuses every contact as a real org refused a clone's
+     * opportunity team member, whose user the clone does not carry: in its
+     * words, the account going in.
+     */
+    function refusingContacts(): ReturnType<typeof fakeOrg> {
+      const target = fakeOrg();
+      const sobject = target.conn.sobject.bind(target.conn);
+      (target.conn as unknown as { sobject: (name: string) => unknown }).sobject = (name) => {
+        const real = sobject(name) as unknown as Record<string, unknown>;
+        if (name !== 'Contact') return real;
+        return {
+          ...real,
+          create: async (records: unknown[]) =>
+            records.map(() => ({
+              success: false,
+              errors: [
+                {
+                  statusCode: 'REQUIRED_FIELD_MISSING',
+                  message: 'Required fields are missing: [UserId]',
+                  fields: ['UserId'],
+                },
+              ],
+            })),
+        };
+      };
+      return target;
+    }
+
+    it('ends partial, says so on its first line and under result.status, and exits 0', async () => {
+      withOrgs(refusingContacts());
+
+      expect(await run(argv('--json'))).toBeUndefined();
+
+      const document = JSON.parse(stdout) as { result: Record<string, unknown> };
+      expect(document.result.successCount).toBe(1);
+      expect(document.result.failedCount).toBe(1);
+      expect(document.result.status).toBe('partial');
+      expect(stderr).not.toContain('status:');
+
+      stdout = '';
+      printed = [];
+      withOrgs(refusingContacts());
+      expect(await run(argv())).toBeUndefined();
+      expect(printed).toContain('status:  partial');
+      expect(printed.indexOf('status:  partial')).toBeLessThan(printed.indexOf('success: 1'));
+    });
+
+    it('exits 3 with --fail-on-partial, as Sync and Seed do', async () => {
+      withOrgs(refusingContacts());
+
+      expect(await run(argv('--json', '--fail-on-partial'))).toBe(3);
+
+      expect((JSON.parse(stdout) as { result: { status: string } }).result.status).toBe('partial');
+    });
+
+    it('says success of a run the target refused nothing of, and exits 0 with --fail-on-partial', async () => {
+      withOrgs();
+
+      expect(await run(argv('--json', '--fail-on-partial'))).toBeUndefined();
+
+      expect((JSON.parse(stdout) as { result: { status: string } }).result.status).toBe('success');
+    });
+
+    it('keeps the status out of the summary a run writes as it goes, which is no end', async () => {
+      withOrgs(refusingContacts());
+      const path = join(dir, 'clone-summary.json');
+
+      expect(await run(argv('--summary', path, '--json'))).toBeUndefined();
+
+      const writes = writesOf(path);
+      expect(
+        writes.map((document) => [
+          document.running,
+          (document.result as { status?: string }).status,
+        ]),
+      ).toEqual([
+        [true, undefined],
+        [true, undefined],
+        [undefined, 'partial'],
+      ]);
+    });
+  });
+
   it('says before the run what may refuse a removal of its records, and gives it under removalRisks', async () => {
     withOrgs(fakeOrg([ACCOUNT_GUARD]));
 
@@ -464,6 +579,23 @@ describe('sandforge-clone --summary', () => {
     expect((JSON.parse(stdout) as { removalRisks: unknown }).removalRisks).toEqual([
       { objectApiName: 'Account', kind: 'flow', name: 'Account guard' },
     ]);
+  });
+
+  it('names the removal an environment runs, its destroy or a replace, where its reader takes no --remove', async () => {
+    // Relayed by sandforge-env, the line named "(--remove)": the clone's own
+    // removal, which the environment's reader runs as a destroy or a replace.
+    withOrgs(fakeOrg([ACCOUNT_GUARD]));
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env plan');
+    try {
+      expect(await run(argv('--dry-run', '--json'))).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(printed).toContain(
+      "reversibility: a removal of this run's records (destroy, or a replace) may be refused in TGT:",
+    );
+    expect(printed.join('\n')).not.toContain('--remove');
   });
 
   it('says the Apex triggers it could not read as not known, instead of finding none on a delete', async () => {

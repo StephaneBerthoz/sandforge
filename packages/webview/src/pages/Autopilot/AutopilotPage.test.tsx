@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
 import en from '../../i18n/locales/en.json';
 import { AutopilotPage } from './AutopilotPage';
 import { RUN_OUTLIVED_WAIT } from '../../hooks/useMessageResponse';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
+import { useMessageListener } from '../../hooks/useMessageBus';
 
 /** Mock message bus hooks used by AutopilotPage. */
 vi.mock('../../hooks/useMessageBus', () => ({
@@ -121,6 +122,10 @@ const defaultAutopilotState = (): Record<string, unknown> => ({
   recordNodeFinish: vi.fn(),
   clearNodeFinishes: vi.fn(),
   nodeFinishes: {},
+  setRunEnd: vi.fn(),
+  runEnd: null,
+  checkpointFirst: false,
+  setCheckpointFirst: vi.fn(),
   reset: vi.fn(),
 });
 
@@ -153,6 +158,26 @@ describe('AutopilotPage', () => {
       timeoutMs: WRITE_RUN_TIMEOUT_MS,
       runOutlivesWait: true,
     });
+  });
+
+  it('names the two orgs in the ribbon while the run writes', () => {
+    mockAutopilotState = {
+      ...defaultAutopilotState(),
+      step: 'executing',
+      executionStatus: 'executing',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-gone',
+    };
+
+    render(<AutopilotPage />);
+
+    expect(screen.getByTestId('org-ribbon-source-name').textContent).toBe('DevSandbox');
+    // An org this machine no longer holds is said so, with the id the run kept
+    // of it second: printed as its name, the id read as an alias.
+    expect(screen.getByTestId('org-ribbon-target-name').textContent).toBe(
+      'An org this machine no longer holds',
+    );
+    expect(screen.getByTestId('org-ribbon-target-id').textContent).toBe('org-gone');
   });
 
   it('stays on the run once it stops waiting for it, and says where to follow it', () => {
@@ -320,5 +345,151 @@ describe('AutopilotPage', () => {
     };
     render(<AutopilotPage />);
     expect(screen.getByTestId('view-compliance-report')).toBeDefined();
+  });
+
+  describe('the checkpoint first', () => {
+    /** The listener the page last gave for `type`. */
+    const listenerOf = (type: string): ((msg: Record<string, unknown>) => void) => {
+      const calls = vi.mocked(useMessageListener).mock.calls.filter(([t]) => t === type);
+      return calls[calls.length - 1]?.[1] as unknown as (msg: Record<string, unknown>) => void;
+    };
+    const addError = (): ReturnType<typeof vi.fn> =>
+      (mockAutopilotState as { addError: ReturnType<typeof vi.fn> }).addError;
+
+    it('asks the run for it once the review’s option is ticked, and not before', () => {
+      mockAutopilotState = {
+        ...defaultAutopilotState(),
+        step: 'review',
+        selectedObjects: ['Account'],
+        checkpointFirst: true,
+      };
+      render(<AutopilotPage />);
+      fireEvent.click(screen.getByTestId('execute-button'));
+      expect(mockExecuteMutate).toHaveBeenCalledWith({ grappeThreshold: 0, checkpointFirst: {} });
+    });
+
+    it('forgets the last run as another starts', () => {
+      mockAutopilotState = {
+        ...defaultAutopilotState(),
+        step: 'review',
+        selectedObjects: ['Account'],
+      };
+      render(<AutopilotPage />);
+      fireEvent.click(screen.getByTestId('execute-button'));
+      expect(
+        (mockAutopilotState as { setRunEnd: ReturnType<typeof vi.fn> }).setRunEnd,
+      ).toHaveBeenCalledWith(null);
+    });
+
+    it.each([
+      [
+        'CHECKPOINT_REFUSED',
+        false,
+        'The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken, which the SandForge output says. Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.',
+      ],
+      [
+        'API_BUDGET_EXCEEDED',
+        false,
+        'The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or copy fewer records.',
+      ],
+      [
+        'API_BUDGET_EXCEEDED',
+        true,
+        'The run was refused before it wrote anything: it takes more API requests than the target org has left today, the checkpoint it was to take first among them, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours —, copy fewer records, or untick Checkpoint first.',
+      ],
+      [
+        'RUN_CANCELLED',
+        true,
+        'The run was stopped while it took the checkpoint first: nothing of it was kept, and nothing was written.',
+      ],
+    ])('words %s from its own keys, not the host’s English (asked: %s)', (code, asked, words) => {
+      executeEnded = { error: 'The English the host logs', errorCode: code };
+      mockAutopilotState = { ...defaultAutopilotState(), checkpointFirst: asked };
+      render(<AutopilotPage />);
+      expect(addError()).toHaveBeenLastCalledWith(words);
+    });
+
+    it('keeps the host’s words for a code it has none of its own for', () => {
+      executeEnded = { error: 'Past the data storage', errorCode: 'AUTOPILOT_STORAGE_EXCEEDED' };
+      render(<AutopilotPage />);
+      expect(addError()).toHaveBeenLastCalledWith('Past the data storage');
+    });
+
+    it('keeps what became of the checkpoint of a run its error ended, for the review to say', () => {
+      executeEnded = { error: 'The mute was refused.', errorCode: 'MUTE_REFUSED' };
+      mockAutopilotState = { ...defaultAutopilotState(), targetOrgId: 'org-1' };
+      render(<AutopilotPage />);
+      act(() =>
+        listenerOf('autopilot:error')({
+          correlationId: null,
+          timestamp: Date.parse('2026-11-01T10:25:00.000Z'),
+          payload: { checkpoint: { state: 'deleted', deleted: 'nothingWritten' } },
+        }),
+      );
+      expect(
+        (mockAutopilotState as { setRunEnd: ReturnType<typeof vi.fn> }).setRunEnd,
+      ).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          endedAt: '2026-11-01T10:25:00.000Z',
+          checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+        }),
+      );
+      expect(addError()).toHaveBeenLastCalledWith('The mute was refused.');
+    });
+
+    it('keeps no end of a run its error says nothing of a checkpoint for', () => {
+      executeEnded = { error: 'Socket hang up', errorCode: 'UNKNOWN' };
+      mockAutopilotState = { ...defaultAutopilotState(), targetOrgId: 'org-1' };
+      render(<AutopilotPage />);
+      act(() => listenerOf('autopilot:error')({ correlationId: null, timestamp: 1, payload: {} }));
+      expect(
+        (mockAutopilotState as { setRunEnd: ReturnType<typeof vi.fn> }).setRunEnd,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('keeps the run that ended, with its checkpoint, for the panel and a rewind’s mark', () => {
+      const taken = {
+        state: 'taken' as const,
+        checkpointId: 'ck-20261101-101540-a1b2',
+        name: 'Before Autopilot run 2026-11-01 10:15 UTC',
+        takenAt: '2026-11-01T10:15:40.000Z',
+        expiresAt: '2026-11-08T10:15:40.000Z',
+        objects: ['Account', 'Contact'],
+        records: 38,
+        bytes: 2_100_000,
+        requests: 66,
+        added: [],
+        notHeld: [],
+      };
+      mockAutopilotState = {
+        ...defaultAutopilotState(),
+        targetOrgId: 'org-1',
+        plan: { waves: [{ objects: ['Account', 'Contact'] }] },
+      };
+      render(<AutopilotPage />);
+      act(() =>
+        listenerOf('autopilot:completed')({
+          timestamp: Date.parse('2026-11-01T10:25:00.000Z'),
+          payload: {
+            totalRecords: 2,
+            totalSuccessCount: 2,
+            totalFailureCount: 0,
+            totalElapsedMs: 600_000,
+            totalApiCalls: 3,
+            checkpoint: taken,
+          },
+        }),
+      );
+      expect(
+        (mockAutopilotState as { setRunEnd: ReturnType<typeof vi.fn> }).setRunEnd,
+      ).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        startedAt: '2026-11-01T10:15:00.000Z',
+        endedAt: '2026-11-01T10:25:00.000Z',
+        objects: ['Account', 'Contact'],
+        checkpoint: taken,
+      });
+    });
   });
 });

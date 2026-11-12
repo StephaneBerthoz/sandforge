@@ -1,9 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import type { SyncObjectConfig } from '@sandforge/shared';
-import { SyncRunLinks, prepareSyncRows } from './syncRowPreparation.js';
+import {
+  SyncRunLinks,
+  namedTargetRecordTypes,
+  prepareSyncRows,
+  recordTypeGivenOfRows,
+} from './syncRowPreparation.js';
 import { targetWriteFieldsOf } from './targetWriteFields.js';
 import type { SyncRecordTypes } from './syncRecordTypes.js';
 import { orgCurrenciesOf, type RunCurrencies } from '../../core/common/recordCurrencies.js';
+import { buildBulkCsv } from '../../core/engine/bulkCsv.js';
 
 /** Fake ids of the source org's records. */
 const SOURCE_ACCOUNT_1 = '001000000000001AAA';
@@ -821,6 +827,45 @@ describe('SyncRunLinks', () => {
   });
 });
 
+describe('prepareSyncRows — lookups at an object written later in a cycle, in the case it is written', () => {
+  it('holds a lookup at a later object an export names in lower case', () => {
+    const target = targetWriteFieldsOf({
+      name: 'Account',
+      fields: [
+        { name: 'Name', createable: true, type: 'string' },
+        {
+          name: 'Primary__c',
+          createable: true,
+          type: 'reference',
+          referenceTo: ['Contact'],
+          nillable: true,
+        },
+      ],
+    });
+    const rows = [
+      { Id: '001000000000001AAA', Name: 'Northwind', Primary__c: '003000000000001AAA' },
+    ];
+
+    const prepared = prepareSyncRows({
+      config: {
+        objectApiName: 'Account',
+        operation: 'insert',
+        fieldMappings: [],
+        transformRules: [],
+        excludedFields: [],
+        addOnFields: [],
+        batchSize: 200,
+        insertOrder: 0,
+      },
+      records: rows,
+      target,
+      run: { links: new SyncRunLinks(), sources: rows, later: new Set(['contact']) },
+    });
+
+    expect(prepared.payloads[0]).not.toHaveProperty('Primary__c');
+  });
+});
+
 describe('prepareSyncRows — lookups at an object written later in a cycle', () => {
   /** The target's Account, with a lookup at its primary contact. */
   const accountTarget = (required = false) =>
@@ -906,5 +951,248 @@ describe('prepareSyncRows — lookups at an object written later in a cycle', ()
 
     expect(prepared.payloads[0].Primary_Contact__c).toBe(SOURCE_CONTACT_1);
     expect(prepared.deferredAcross).toEqual([]);
+  });
+});
+
+/** Fake ids of the target's Opportunity record types. */
+const MASTER_TYPE = '012000000000000AAA';
+const TARGET_RETAIL = '0120000000000T1AAA';
+const TARGET_HIDDEN = '0120000000000T2AAA';
+
+/**
+ * The target's Opportunity as a scratch org's describe gave it for its
+ * admin: Master the default, SFX_Retail the one other type open to them,
+ * SFX_Hidden kept from them. A record sent without a type went in as
+ * SFX_Retail.
+ */
+function opportunityTarget(recordTypes = true) {
+  return targetWriteFieldsOf({
+    name: 'Opportunity',
+    fields: [
+      { name: 'Id', createable: false, type: 'id' },
+      { name: 'Name', createable: true, type: 'string' },
+      ...(recordTypes ? [{ name: 'RecordTypeId', createable: true, type: 'reference' }] : []),
+    ],
+    recordTypeInfos: [
+      ...(recordTypes
+        ? [
+            recordTypeInfo('SFX_Hidden', TARGET_HIDDEN, false),
+            recordTypeInfo('SFX_Retail', TARGET_RETAIL),
+          ]
+        : []),
+      { ...recordTypeInfo('Master', MASTER_TYPE), master: true, defaultRecordTypeMapping: true },
+    ],
+  });
+}
+
+const opportunityRow = (n: number, RecordTypeId?: string | null): Record<string, unknown> => ({
+  Id: `006000000000${String(n).padStart(3, '0')}AAA`,
+  Name: `Opportunity ${n}`,
+  ...(RecordTypeId !== undefined ? { RecordTypeId } : {}),
+});
+
+describe('prepareSyncRows — the rows a write creates without a record type', () => {
+  it('notes a row on Master in the source, and one whose RecordTypeId the run does not write, each with why', () => {
+    const rows = [opportunityRow(1, null), opportunityRow(2), opportunityRow(3, TARGET_RETAIL)];
+
+    const prepared = prepareSyncRows({
+      config: objectConfig({ objectApiName: 'Opportunity' }),
+      records: rows,
+      target: opportunityTarget(),
+    });
+
+    expect([...prepared.withoutRecordType]).toEqual([
+      [0, 'masterInSource'],
+      [1, 'notRead'],
+    ]);
+    expect(prepared.payloads.map((payload) => 'RecordTypeId' in payload)).toEqual([
+      false,
+      false,
+      true,
+    ]);
+  });
+
+  it('notes a row sent with Master’s own id or an empty value as on Master', () => {
+    const prepared = prepareSyncRows({
+      config: objectConfig({ objectApiName: 'Opportunity', operation: 'upsert' }),
+      records: [opportunityRow(1, MASTER_TYPE), opportunityRow(2, '')],
+      target: opportunityTarget(),
+    });
+
+    expect([...prepared.withoutRecordType.values()]).toEqual(['masterInSource', 'masterInSource']);
+  });
+
+  it('notes nothing of an update, which keeps the record’s own type, nor of a delete', () => {
+    for (const operation of ['update', 'delete'] as const) {
+      const prepared = prepareSyncRows({
+        config: objectConfig({ objectApiName: 'Opportunity', operation }),
+        records: [opportunityRow(1, null)],
+        target: opportunityTarget(),
+      });
+
+      expect(prepared.withoutRecordType.size).toBe(0);
+    }
+  });
+
+  it('notes nothing of an object whose target has no record type but Master', () => {
+    const prepared = prepareSyncRows({
+      config: objectConfig({ objectApiName: 'Opportunity' }),
+      records: [opportunityRow(1, null)],
+      target: opportunityTarget(false),
+    });
+
+    expect(prepared.withoutRecordType.size).toBe(0);
+  });
+
+  it('notes nothing of a row it holds back', () => {
+    const row = { ...opportunityRow(1, null), AccountId: SOURCE_ACCOUNT_1 };
+    const links = new SyncRunLinks();
+    links.noteRefused(SOURCE_ACCOUNT_1, 'Account');
+
+    const prepared = prepareSyncRows({
+      config: objectConfig({ objectApiName: 'Opportunity' }),
+      records: [row],
+      target: targetWriteFieldsOf({
+        name: 'Opportunity',
+        fields: [
+          { name: 'Name', createable: true, type: 'string' },
+          { name: 'AccountId', createable: true, type: 'reference' },
+          { name: 'RecordTypeId', createable: true, type: 'reference' },
+        ],
+        recordTypeInfos: [
+          recordTypeInfo('SFX_Retail', TARGET_RETAIL),
+          {
+            ...recordTypeInfo('Master', MASTER_TYPE),
+            master: true,
+            defaultRecordTypeMapping: true,
+          },
+        ],
+      }),
+      run: { links, sources: [row] },
+    });
+
+    expect(prepared.held).toHaveLength(1);
+    expect(prepared.withoutRecordType.size).toBe(0);
+  });
+
+  it('leaves the cell of a row on Master empty in a Bulk API job, never #N/A, which the target refuses', () => {
+    // In the same job, a row with its type makes RecordTypeId a column.
+    const prepared = prepareSyncRows({
+      config: objectConfig({ objectApiName: 'Opportunity' }),
+      records: [opportunityRow(1, TARGET_RETAIL), opportunityRow(2, null)],
+      target: opportunityTarget(),
+    });
+
+    const csv = buildBulkCsv('insert', prepared.payloads);
+    const column = csv.columns.indexOf('RecordTypeId');
+
+    expect(column).toBeGreaterThanOrEqual(0);
+    expect(csv.rows.map((row) => row[column])).toEqual([TARGET_RETAIL, '']);
+    expect(csv.text).not.toContain('#N/A');
+  });
+});
+
+describe('prepareSyncRows — a person account sent without its record type', () => {
+  /** The target's Account: Master the user's default, the person type the only one open. */
+  const personOnlyOpen = () =>
+    targetWriteFieldsOf({
+      name: 'Account',
+      fields: [
+        { name: 'Id', createable: false, type: 'id' },
+        { name: 'Name', createable: true, type: 'string' },
+        { name: 'Phone', createable: true, type: 'phone' },
+        { name: 'FirstName', createable: true, type: 'string' },
+        { name: 'LastName', createable: true, type: 'string' },
+        { name: 'Salutation', createable: true, type: 'picklist' },
+        { name: 'PersonEmail', createable: true, type: 'email' },
+        { name: 'Hobby__pc', createable: true, type: 'string' },
+        { name: 'IsPersonAccount', createable: false, type: 'boolean' },
+        { name: 'PersonContactId', createable: false, type: 'reference' },
+        { name: 'RecordTypeId', createable: true, type: 'reference' },
+      ],
+      recordTypeInfos: [
+        { ...recordTypeInfo('Business', TARGET_BUSINESS, false), defaultRecordTypeMapping: false },
+        recordTypeInfo('PersonAccount', TARGET_PERSON),
+        { ...recordTypeInfo('Master', MASTER_TYPE), master: true, defaultRecordTypeMapping: true },
+      ],
+    });
+
+  it('sends it as a person account where the person type is the one the target gives the user', () => {
+    // The run does not write RecordTypeId: the field was excluded.
+    const row: Record<string, unknown> = { ...PERSON_ROW };
+    delete row.RecordTypeId;
+
+    const prepared = prepareSyncRows({
+      config: objectConfig(),
+      records: [row],
+      target: personOnlyOpen(),
+      run: { links: new SyncRunLinks(), sources: [row], recordTypes: RECORD_TYPES },
+    });
+
+    // Its name left out, as a person account goes; its person fields kept.
+    expect(prepared.payloads).toEqual([
+      {
+        Phone: null,
+        FirstName: 'Jane',
+        LastName: 'Roe',
+        Salutation: 'Ms.',
+        PersonEmail: 'jane@example.invalid',
+        Hobby__pc: 'Chess',
+      },
+    ]);
+    expect([...prepared.withoutRecordType]).toEqual([[0, 'notRead']]);
+  });
+});
+
+describe('recordTypeGivenOfRows', () => {
+  const types = opportunityTarget().recordTypes ?? [];
+
+  it('counts the rows by why, and predicts the type the target gives them', () => {
+    expect(
+      recordTypeGivenOfRows('Opportunity', ['masterInSource', 'notRead', 'masterInSource'], types),
+    ).toEqual({
+      objectApiName: 'Opportunity',
+      rows: 3,
+      why: { masterInSource: 2, notRead: 1 },
+      predicted: { developerName: 'SFX_Retail', label: 'SFX_Retail', basis: 'onlyOneOpen' },
+    });
+  });
+
+  it('predicts nothing when the target keeps them on Master, and says nothing of no row or no type', () => {
+    const twoOpen = types.map((type) => ({ ...type, available: true }));
+
+    expect(recordTypeGivenOfRows('Opportunity', ['notRead'], twoOpen)).toEqual({
+      objectApiName: 'Opportunity',
+      rows: 1,
+      why: { notRead: 1 },
+    });
+    expect(recordTypeGivenOfRows('Opportunity', [], types)).toBeUndefined();
+    expect(
+      recordTypeGivenOfRows(
+        'Opportunity',
+        ['notRead'],
+        types.filter((type) => type.master),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('names the types by the target’s RecordType rows when the run read them', () => {
+    const named = namedTargetRecordTypes(types, {
+      mappings: [],
+      source: [],
+      target: [
+        {
+          id: TARGET_RETAIL,
+          name: 'Retail',
+          developerName: 'SFX_Retail',
+          namespacePrefix: 'ns',
+          sobjectType: 'Opportunity',
+        },
+      ],
+    });
+
+    expect(named.find((type) => type.recordTypeId === TARGET_RETAIL)?.developerName).toBe(
+      'ns__SFX_Retail',
+    );
   });
 });

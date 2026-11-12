@@ -2370,9 +2370,9 @@ test("no user-facing surface keeps Production Guard's decisions to the session",
     "these keep Production Guard's decisions to the session, and the rule lets them through",
   );
   const honest = [
-    'Safety is on by default: Production Guard requires double confirmation before any write on a Production org and blocks DELETE there. Each of its decisions is recorded with the run it concerns, in Reports → Audit Trail.',
+    'Safety is on by default: Production Guard requires double confirmation before any write on a Production org and blocks DELETE there. Each of its decisions is recorded with the run it concerns, in Reports → Audit trail.',
     '- All DML goes through the existing **Production Guard** (tier check; each decision is recorded with the load in the audit trail, unless `sandforge.safety.auditLogging` is off).',
-    'Record each Production Guard safety-check decision with the run it concerns in the audit trail (Reports → Audit Trail). Off, runs are still recorded, without the decisions.',
+    'Record each Production Guard safety-check decision with the run it concerns in the audit trail (Reports → Audit trail). Off, runs are still recorded, without the decisions.',
     'Production Guard の安全性チェックの判定を、対象の実行とともに監査ログ（レポート → 監査ログ）に記録します。オフにすると、実行は判定なしで記録されます。',
   ];
   assert.deepEqual(
@@ -5274,5 +5274,117 @@ test('the Forge guide sends the rows a lookup filter refuses to the rehearsal', 
     metadataLine,
     /rehearsal[^\n]*FIELD_FILTER_VALIDATION_EXCEPTION/i,
     'the metadata read of lookup filters does not say a rehearsal names the rows they refuse',
+  );
+});
+
+/*
+ * Removed part by part, live, a clone cut and taken up kept the cut part's
+ * opportunity as changed since the run for the synced quote the resume had
+ * given it, and its contact for the contact role the resume linked to; the
+ * advice was then to include what changed, which takes a colleague's work
+ * too. The removal of one part names what another part holds, and the
+ * journal's removal reads each part against its own span.
+ */
+test('anchor: the removal of a resumed clone reads each part with what the others wrote, and names what another part holds', () => {
+  const clone = read(...EXT, 'cli', 'sandforge-clone.ts');
+  const handler = read(...EXT, 'src', 'bridge', 'handlers', 'ForgeHandler.ts');
+  assert.match(
+    clone,
+    /heldByOtherParts: keptForParts/,
+    'the clone command no longer names under its JSON what another part holds — re-point this gate',
+  );
+  assert.match(
+    clone,
+    /export function journalPartsOf\(/,
+    'the journal removal no longer splits the run by its parts — re-point this gate',
+  );
+  assert.match(
+    handler,
+    /heldByOtherParts\.length > 0 \? \{ heldByOtherParts \}/,
+    'the panel removal no longer says what another part holds — re-point this gate',
+  );
+  assert.match(
+    handler,
+    /wroteToEarlierPartsOf\(/,
+    'a resumed part no longer keeps what it wrote to the parts before it — re-point this gate',
+  );
+});
+
+test('the Forge reference says how each part of a resumed clone is removed, from the panel and the command line', () => {
+  const reference = read('docs', 'forge-reference.md');
+  const start = reference.indexOf('## Resume a run that stopped');
+  const end = reference.indexOf('\n## ', start + 1);
+  assert.ok(
+    start !== -1 && end !== -1,
+    'docs/forge-reference.md has no "## Resume a run that stopped"',
+  );
+  const resume = reference.slice(start, end).replace(/\s+/g, ' ');
+  assert.match(
+    resume,
+    /resumed part wrote to the records of the parts before it[^.]*a lookup they owed/,
+    'the resume section no longer says what a resumed part wrote to the parts before it is the run’s doing',
+  );
+  assert.match(
+    resume,
+    /remove that part first, then this one again, without including what changed/,
+    'the resume section no longer says how a part held by another part’s records is removed',
+  );
+  const commandLine = reference
+    .split('\n')
+    .find((line) => line.includes('`--remove <journal>` takes the parts one after the other'));
+  assert.ok(
+    commandLine,
+    'docs/forge-reference.md no longer says the journal removal takes each part apart',
+  );
+  assert.match(
+    commandLine,
+    /each read against its own span[^.]*between two parts stays/,
+    'the journal removal no longer says a record changed between two parts stays',
+  );
+  assert.match(
+    commandLine,
+    /Each part ends with its last write as the target dated it, to the second/,
+    'the journal removal no longer says each part ends with its last write as the target dated it',
+  );
+  assert.match(
+    commandLine,
+    /A record made under them in a later second stays, the run's user's own included/,
+    'the journal removal no longer says a record made in the second after a part stays',
+  );
+  assert.doesNotMatch(
+    commandLine,
+    /unless made within ten seconds of the end of the part before it/,
+    'the journal removal still says a record made within ten seconds of a part is that part’s own',
+  );
+  assert.match(
+    commandLine,
+    /`result\.heldByOtherParts`/,
+    'the command line paragraph no longer names result.heldByOtherParts',
+  );
+});
+
+test('the Forge reference and the exit codes say a --sweep-list a sweep would be refused for exits 3, as the refused --sweep', () => {
+  const sweep = read('docs', 'forge-reference.md')
+    .split('\n')
+    .find((line) => line.startsWith('`--sweep` precedes the removal'));
+  assert.ok(sweep, 'docs/forge-reference.md no longer has its paragraph on --sweep');
+  assert.match(
+    sweep,
+    /`--sweep-list` lists what `--sweep` would delete[^.]*\. It exits `0` once it has listed, and `3`, as a refused `--sweep` does, when it says the sweep would be refused/,
+    'the Forge reference no longer says what a refused --sweep-list exits',
+  );
+  assert.match(
+    sweep,
+    /a sweep that is refused or leaves some of what it set out to take[^.]*exits `3`/,
+    'the Forge reference no longer says a refused --sweep exits 3',
+  );
+  const partial = read('ci-examples', 'README.md')
+    .split('\n')
+    .find((line) => line.startsWith('| `3`'));
+  assert.ok(partial, 'ci-examples/README.md no longer has the row of exit 3');
+  assert.match(
+    partial,
+    /its `--sweep` was refused[^;]*, or its `--sweep-list` says that sweep would be refused;/,
+    'the exit codes no longer say a refused --sweep-list exits 3',
   );
 });

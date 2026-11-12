@@ -22,6 +22,7 @@ import {
   type OrgCheckpointStore,
 } from './OrgCheckpointStore.js';
 import { heldFileDocuments, heldFileLinks } from './checkpointFiles.js';
+import { beforeRunEstimateOf, beforeRunScopeOf } from './beforeRunCheckpoint.js';
 import { BYTES_PER_BIN_ID_KEPT, takeEstimate } from './rewindEstimate.js';
 import { SnapshotIndex, compressedSnapshotFileOf, writeSnapshotIndex } from './snapshotIndex.js';
 import { spooledRows } from './orgStreams.js';
@@ -62,6 +63,19 @@ const AUTOMATED_PROCESS = '005000000000002AAA';
 
 /** T0 on the org's clock, with its milliseconds. */
 const T0 = Date.parse('2026-10-22T14:05:12.731Z');
+
+// This machine's clock pinned a minute after T0, going on: what the store
+// and the handler date by it — an undo's fifteen days, a checkpoint's expiry —
+// reads as the tests' org does, whatever day they run. Left to the real one,
+// every undo these tests offer was refused fifteen days after they were written.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: T0 + 60_000, shouldAdvanceTime: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 /** Long before the checkpoint: the records the org held. */
 const LONG_AGO = Date.parse('2026-10-01T09:00:00.000Z');
 /** This machine's clock when the take runs. */
@@ -930,6 +944,9 @@ describe('takeCheckpoint — refused before anything is read', () => {
     expect(checkpoint.objects.map((object) => object.objectApiName)).not.toContain('Account');
     expect(checkpoint.scope.leftOut).toContainEqual({
       objectApiName: 'Account',
+      code: 'pastTheLimit',
+      records: 32,
+      limit: 20,
       reason:
         "Account has 32 records, past the checkpoint's limit of 20 for one object: left out of " +
         'the checkpoint, as part of it would be taken for all of it.',
@@ -968,23 +985,32 @@ describe('takeCheckpoint — the scope', () => {
     expect(checkpoint.scope.leftOut).toEqual([
       {
         objectApiName: 'Config__c',
+        code: 'customSetting',
         reason:
           'Custom settings are left out unless you pick them as custom settings: they are ' +
           'configuration, which a rewind sets back.',
       },
       {
         objectApiName: 'FeedItem',
+        code: 'chatter',
         reason:
           'Chatter posts, comments and feeds are left out: Salesforce brings a post back only ' +
           'with what it was posted on.',
       },
       {
         objectApiName: 'Lead',
+        code: 'unreadable',
         reason:
           'Left out: the org refuses to read it whole (MALFORMED_QUERY: Implementation ' +
           'restriction: Lead requires a filter).',
+        detail: 'MALFORMED_QUERY: Implementation restriction: Lead requires a filter',
       },
-      { objectApiName: 'User', reason: 'Users, permissions and setup are left out.' },
+      {
+        objectApiName: 'User',
+        code: 'setup',
+        reason:
+          "Users, permissions and setup are left out, and so are the org's own logs and jobs.",
+      },
     ]);
   });
 
@@ -1018,7 +1044,7 @@ describe('takeCheckpoint — the scope', () => {
       'Account',
     ]);
     expect(checkpoint.scope.leftOut).toEqual([
-      { objectApiName: 'Nope__c', reason: 'The org has no object of this name.' },
+      { objectApiName: 'Nope__c', code: 'notFound', reason: 'The org has no object of this name.' },
     ]);
     expect(snapshotReads(h.sent)).toEqual(['Contact', 'Account']);
   });
@@ -1092,8 +1118,8 @@ describe('takeCheckpoint — custom settings', () => {
     expect(all.objects.some((object) => object.customSetting !== undefined)).toBe(false);
     expect(all.scope.leftOut).toEqual(
       expect.arrayContaining([
-        { objectApiName: 'App_Switches__c', reason: LEFT_OUT_UNLESS_PICKED },
-        { objectApiName: 'Endpoints__c', reason: LEFT_OUT_UNLESS_PICKED },
+        { objectApiName: 'App_Switches__c', code: 'customSetting', reason: LEFT_OUT_UNLESS_PICKED },
+        { objectApiName: 'Endpoints__c', code: 'customSetting', reason: LEFT_OUT_UNLESS_PICKED },
       ]),
     );
     expect(permissionReads(everything.org.asked).join(' ')).not.toContain(
@@ -1110,6 +1136,7 @@ describe('takeCheckpoint — custom settings', () => {
     expect(some.objects.map((object) => object.objectApiName)).toEqual(['Account']);
     expect(some.scope.leftOut).toContainEqual({
       objectApiName: 'Endpoints__c',
+      code: 'customSetting',
       reason: LEFT_OUT_UNLESS_PICKED,
     });
     expect(snapshotReads(picked.sent)).toEqual(['Account']);
@@ -1144,6 +1171,7 @@ describe('takeCheckpoint — custom settings', () => {
     ).not.toHaveProperty('customSetting');
     expect(checkpoint.scope.leftOut).toContainEqual({
       objectApiName: 'Nope__c',
+      code: 'notCustomSetting',
       reason: 'Picked as a custom setting: the org has no custom setting of this name.',
     });
     expect(snapshotReads(h.sent)).toEqual(
@@ -1175,6 +1203,7 @@ describe('takeCheckpoint — custom settings', () => {
     ]);
     expect(checkpoint.scope.leftOut).toContainEqual({
       objectApiName: 'App_Switches__c',
+      code: 'excludedByUser',
       reason: 'Left out as asked.',
     });
   });
@@ -1719,14 +1748,17 @@ describe('takeCheckpoint — the files', () => {
       expect.arrayContaining([
         {
           objectApiName: 'ContentVersion',
+          code: 'heldWithFiles',
           reason: expect.stringContaining('Held with its file (ContentDocument)'),
         },
         {
           objectApiName: 'ContentDocumentLink',
+          code: 'heldWithFiles',
           reason: expect.stringContaining('Held with its file (ContentDocument)'),
         },
         {
           objectApiName: 'Document',
+          code: 'files',
           reason:
             'Documents of the Documents tab are left out: they are shared content kept in ' +
             'folders, as setup is.',
@@ -1859,6 +1891,36 @@ describe('takeCheckpoint — the files', () => {
       'Attachment',
     ]);
     expect(without).not.toHaveProperty('files');
+    // Named left out, as an object picked and left out by name is: the
+    // files went from the checkpoint with no word of them.
+    expect(without.scope.leftOut).toContainEqual({
+      objectApiName: 'ContentDocument',
+      code: 'excludedByUser',
+      reason: 'Left out as asked.',
+    });
+    // And among what a checkpoint taken first before a run does not hold,
+    // as its dry run says it.
+    const before = beforeRunScopeOf({
+      module: 'sync',
+      written: ['Account'],
+      running: { firing: [] },
+      request: { excluded: ['ContentDocument'] },
+    });
+    const estimate = beforeRunEstimateOf(
+      before,
+      await scopeCheckpoint(
+        h.deps,
+        request({ mode: 'picked', objects: before.picked, excluded: before.excluded }),
+      ),
+      7,
+    );
+    expect(estimate.notHeld).toEqual([
+      {
+        objectApiName: 'ContentDocument',
+        code: 'excludedByUser',
+        reason: 'Left out as asked. A rewind leaves its records as they are.',
+      },
+    ]);
     const read = await h.store.read(without.checkpointId);
     expect(read !== undefined && existsSync(read.folder.filesDir)).toBe(false);
   });
@@ -1951,9 +2013,9 @@ describe('takeCheckpoint — a user without View All Data and Modify All Data', 
     });
     expect(checkpoint.scope.leftOut).toEqual(
       expect.arrayContaining([
-        { objectApiName: 'Case', reason: WITHOUT_BOTH.noModifyAll },
-        { objectApiName: 'Lead', reason: WITHOUT_BOTH.noViewAll },
-        { objectApiName: 'Task', reason: WITHOUT_BOTH.activities },
+        { objectApiName: 'Case', code: 'noModifyAll', reason: WITHOUT_BOTH.noModifyAll },
+        { objectApiName: 'Lead', code: 'noViewAll', reason: WITHOUT_BOTH.noViewAll },
+        { objectApiName: 'Task', code: 'activities', reason: WITHOUT_BOTH.activities },
       ]),
     );
     // Neither the cases nor the tasks were read, nor their recycle bins.
@@ -2055,19 +2117,62 @@ describe('takeCheckpoint — a user without View All Data and Modify All Data', 
     expect(checkpoint.scope.leftOut).toEqual([
       {
         objectApiName: 'Attachment',
+        code: 'parentNotSeen',
         reason:
           'Without View All Data and Modify All Data, an object with no permissions of its own ' +
           'is held only when the user has View All and Modify All on every record it hangs ' +
           'from, which is not proven here (ParentId may name a record of Account, Contact, ' +
           'Case).',
+        detail: 'ParentId may name a record of Account, Contact, Case',
       },
       {
         objectApiName: 'ContentDocument',
+        code: 'filesNotProven',
         reason:
           'Without View All Data and Modify All Data, files are left out: nothing proves the ' +
           'user sees every file.',
       },
     ]);
+  });
+
+  it('leaves out, named with why, a picked object the user is not proven to hold when asked to, and holds the rest', async () => {
+    const h = harness({ modifyAllData: false });
+    seed(h.org);
+    grantObjects(h.org, { Account: { modifyAll: true }, Case: { viewAll: true } });
+    const asked = request({
+      mode: 'picked',
+      objects: ['Account', 'Case', 'Task'],
+      unprovenLeftOut: true,
+    });
+
+    const scope = await scopeCheckpoint(h.deps, asked);
+    const { checkpoint } = taken(await takeCheckpoint(h.deps, asked));
+
+    expect(scope.refusal).toBeUndefined();
+    expect(checkpoint.objects.map(({ objectApiName }) => objectApiName)).toEqual(['Account']);
+    expect(checkpoint.scope.leftOut).toEqual(
+      expect.arrayContaining([
+        { objectApiName: 'Case', code: 'noModifyAll', reason: WITHOUT_BOTH.noModifyAll },
+        { objectApiName: 'Task', code: 'activities', reason: WITHOUT_BOTH.activities },
+      ]),
+    );
+    expect(scope.leftOut).toEqual(checkpoint.scope.leftOut);
+    expect(snapshotReads(h.sent)).toEqual(['Account']);
+  });
+
+  it('refuses a take of which no object is proven though it is asked to leave the unproven out, before reading any record', async () => {
+    const h = harness({ modifyAllData: false });
+    seed(h.org);
+    grantObjects(h.org, { Case: { viewAll: true } });
+
+    const outcome = await takeCheckpoint(
+      h.deps,
+      request({ mode: 'picked', objects: ['Case', 'Task'], unprovenLeftOut: true }),
+    );
+
+    expect(outcome).toMatchObject({ taken: false, refusal: { code: 'PERMISSIONS' } });
+    expect(readsRecords(h.org.asked)).toEqual([]);
+    expect(checkpointFolders(h.root)).toEqual([]);
   });
 
   it('refuses a take of which no object is proven, before reading any record', async () => {
@@ -2124,6 +2229,47 @@ describe('takeCheckpoint — a user without View All Data and Modify All Data', 
     expect(new Set(checkpoint.objects.map(({ access }) => access))).toEqual(new Set(['org']));
     expect(checkpoint.takenBy).toMatchObject({ viewAllData: true, modifyAllData: true });
     expect(h.org.asked.join(' ')).not.toMatch(/ObjectPermissions|PermissionSetAssignment/);
+  });
+});
+
+describe('takeCheckpoint — a take before a run', () => {
+  it('writes the run it was taken before into its file, which reads back with it, and one taken by hand has none', async () => {
+    const h = harness();
+    seed(h.org);
+    const beforeRun = {
+      module: 'forge' as const,
+      operationId: 'wv-execute-1',
+      tool: 'panel' as const,
+    };
+
+    const { checkpoint } = taken(
+      await takeCheckpoint(h.deps, request({ mode: 'picked', objects: ['Account'], beforeRun })),
+    );
+
+    expect(checkpoint.beforeRun).toEqual(beforeRun);
+    expect((await h.store.read(checkpoint.checkpointId))?.checkpoint?.beforeRun).toEqual(beforeRun);
+    const [entry] = await h.store.list({ organizationId: ORG_ID, now: MACHINE_NOW });
+    expect(entry).toMatchObject({ checkpointId: checkpoint.checkpointId, valid: true });
+
+    clock = T0 + 60_000;
+    const byHand = taken(
+      await takeCheckpoint(h.deps, request({ mode: 'picked', objects: ['Account'] })),
+    );
+    expect(byHand.checkpoint).not.toHaveProperty('beforeRun');
+  });
+
+  it('refuses an origin its file would not read back, before the org is asked anything', async () => {
+    const h = harness();
+    seed(h.org);
+
+    await expect(
+      takeCheckpoint(
+        h.deps,
+        request({ beforeRun: { module: 'forge', operationId: '', tool: 'panel' } }),
+      ),
+    ).rejects.toThrow();
+    expect(h.org.asked).toEqual([]);
+    expect(checkpointFolders(h.root)).toEqual([]);
   });
 });
 

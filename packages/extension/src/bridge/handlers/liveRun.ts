@@ -3,8 +3,8 @@ import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTr
 /**
  * A run's entry in the Monitor's Live Operations, from its start to its end.
  *
- * A run ends once: the first of `complete`, `fail` and `cancel` says how, and
- * the others change nothing. A restore that stopped at an object it may not
+ * A run ends once: the first of `complete`, `partial`, `fail` and `cancel` says
+ * how, and the others change nothing. A restore that stopped at an object it may not
  * write, then reached the `finally` that ends every restore, would otherwise
  * be listed failed and then completed; a cancelled masking run listed
  * cancelled, then failed on the error the cancel left behind it.
@@ -13,6 +13,8 @@ export interface LiveRun {
   /** How far the run is: ignored once it ended. */
   progress(percentage: number, processed: number, total: number, step: string): void;
   complete(): void;
+  /** It ended with part of its work not done. */
+  partial(): void;
   fail(reason: string): void;
   cancel(): void;
 }
@@ -47,6 +49,7 @@ export function listLive(
       if (!ended) tracker?.updateProgress(operationId, percentage, processed, all, step);
     },
     complete: () => end(() => tracker?.complete(operationId)),
+    partial: () => end(() => tracker?.partial(operationId)),
     fail: (reason) => end(() => tracker?.fail(operationId, reason)),
     cancel: () => end(() => tracker?.cancel(operationId)),
   };

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import type { OrgStatus } from '@sandforge/shared';
 import * as fs from 'fs/promises';
 import { readFileSync } from 'fs';
 import { MessageBroker } from './bridge/MessageBroker';
@@ -80,7 +81,36 @@ export interface StatusBarOrg {
   id: string;
   alias: string;
   username: string;
-  status: string;
+  status: OrgStatus;
+}
+
+/**
+ * An org's connection status in the words of the side panel's badge. The
+ * tooltip showed the stored word itself, `expired` or `error`, in English
+ * whatever the editor's language.
+ */
+function orgStatusLabel(status: OrgStatus): string {
+  switch (status) {
+    case 'connected':
+      return vscode.l10n.t('connected');
+    case 'expired':
+      return vscode.l10n.t('session expired');
+    case 'error':
+      return vscode.l10n.t('connection error');
+    case 'refreshing':
+      return vscode.l10n.t('refreshing');
+  }
+}
+
+/**
+ * Whether `count` takes the singular, by the plural rule of the language
+ * whose bundle VS Code shows. That is the editor's display language when the
+ * extension ships a bundle for it, and English otherwise: French says
+ * "0 org" where English says "0 orgs", and an editor in Russian, shown the
+ * English strings, must not get Russian's singular for 21.
+ */
+function takesSingular(count: number, displayLanguage: string | undefined): boolean {
+  return new Intl.PluralRules(uiLocaleOf(undefined, displayLanguage)).select(count) === 'one';
 }
 
 /**
@@ -94,31 +124,42 @@ export interface StatusBarOrg {
  * registered, and Organizations before: it opened Monitor, whose API limits
  * say nothing to someone with no org yet, nor to someone whose org is empty.
  *
+ * Every word is the host bundle's, in the editor's language: the label was
+ * English, with English plurals, in all six languages.
+ *
  * @param orgs - All orgs known to the OrgManager.
  * @param selectedOrgId - The org currently selected in the sidebar, if any.
+ * @param displayLanguage - The editor's display language (`vscode.env.language`).
  */
 export function buildStatusBarLabel(
   orgs: StatusBarOrg[],
   selectedOrgId: string | undefined,
+  displayLanguage: string | undefined,
 ): { text: string; tooltip: string; command: string } {
   const count = orgs.length;
-  const countLabel = `${count} org${count !== 1 ? 's' : ''}`;
+  const singular = takesSingular(count, displayLanguage);
   const command = count > 0 ? LANDING_COMMAND : 'sandforge.openOrgs';
   const displayed =
     orgs.find((org) => org.id === selectedOrgId) ?? orgs.find((org) => org.status === 'connected');
   if (!displayed) {
+    const counted = singular
+      ? vscode.l10n.t('SandForge: {0} org', count)
+      : vscode.l10n.t('SandForge: {0} orgs', count);
     return {
-      text: `$(flame) SandForge: ${countLabel}`,
+      text: `$(flame) ${counted}`,
       tooltip:
         count > 0
-          ? 'SandForge — Click to open Home'
-          : 'SandForge — Click to connect an org in Organizations',
+          ? vscode.l10n.t('SandForge — Click to open Home')
+          : vscode.l10n.t('SandForge — Click to connect an org in Organizations'),
       command,
     };
   }
+  const named = singular
+    ? vscode.l10n.t('SandForge: {0} ({1} org)', displayed.alias, count)
+    : vscode.l10n.t('SandForge: {0} ({1} orgs)', displayed.alias, count);
   return {
-    text: `$(flame) SandForge: ${displayed.alias} (${countLabel})`,
-    tooltip: `${displayed.alias} — ${displayed.username} (${displayed.status})`,
+    text: `$(flame) ${named}`,
+    tooltip: `${displayed.alias} — ${displayed.username} (${orgStatusLabel(displayed.status)})`,
     command,
   };
 }
@@ -657,7 +698,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.createStatusBarItem(alignment, priority),
   );
   const refreshStatusBar = (): void => {
-    const label = buildStatusBarLabel(orgManager.getAllOrgs(), selectedOrgId);
+    const label = buildStatusBarLabel(orgManager.getAllOrgs(), selectedOrgId, vscode.env.language);
     statusBar.setItem({
       id: 'sandforge.status',
       text: label.text,

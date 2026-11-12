@@ -131,10 +131,22 @@ export function seedMutePlanOf(preview: SeedAutomationPreview): MutePlan {
  * What `orgId` runs as a seed creates the records of `objects`, read before
  * Start, once per org and set of objects: a count changed is counted from
  * the same read. Nothing is asked without an org or an object.
+ *
+ * @param publishes - Whether the run publishes its articles once written, a
+ *   scenario's: the mute offered is planned for their update too, as the run
+ *   plans its own. Planned for it whatever the run, the box offered a seed of
+ *   a template a set for a flow on that update, which the run never assigned.
  */
-export function useSeedAutomation(orgId: string, objects: readonly string[]): SeedAutomationState {
+export function useSeedAutomation(
+  orgId: string,
+  objects: readonly string[],
+  publishes = false,
+): SeedAutomationState {
   const key = objects.join(',');
-  const payload = useMemo(() => ({ orgId, objects: key ? key.split(',') : [] }), [orgId, key]);
+  const payload = useMemo(
+    () => ({ orgId, objects: key ? key.split(',') : [], ...(publishes ? { publishes } : {}) }),
+    [orgId, key, publishes],
+  );
   const query = useBridgeQuery<SeedAutomationAnswer>('seed:automation', payload, {
     errorType: 'seed:automation:error',
     timeoutMs: AUTOMATION_READ_TIMEOUT_MS,

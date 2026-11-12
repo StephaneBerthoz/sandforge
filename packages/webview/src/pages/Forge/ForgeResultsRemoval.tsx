@@ -15,7 +15,7 @@ import {
   ForgeRunRemovalResult,
   ForgeRunRemovalRunning,
 } from './ForgeRunRemovalView';
-import { ForgeRunSweepMark } from './ForgeRemovalSweep';
+import { ForgeRunSweepMark, useRemovalSweep } from './ForgeRemovalSweep';
 
 /** What `forge:undo` answers. */
 interface UndoAnswer {
@@ -41,7 +41,9 @@ export interface ForgeResultsRemovalProps {
  * the removal the history of runs offers, with the same confirmation
  * (`ForgeRunRemovalConfirm`), and what it did shown in place. A removal that
  * left records in the org — kept, refused, or not reached before a cancel —
- * is followed by one of what it left. A run whose records are all removed
+ * is followed by one of what it left. One that left records for what the
+ * target's automation likely made offers the sweep, the confirmation opening
+ * with it ticked and its list read. A run whose records are all removed
  * already is offered the sweep alone, when the target dated its writes.
  *
  * The extension removes what its own history says the run created; what that
@@ -58,7 +60,7 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
   const org = useOrgStore((s) => s.orgs.find((o) => o.id === targetOrgId)?.alias);
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
-  const [sweep, setSweep] = useState(false);
+  const { sweep, setSweep, ticks, setTicks, asked } = useRemovalSweep();
   /** The confirmation's box: the removal mutes what it fires, through the target's own bypass. */
   const [muteAutomation, setMuteAutomation] = useState(false);
   const removal = useBridgeMutation<UndoAnswer>('forge:undo', {
@@ -110,10 +112,18 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
     removal.mutate({
       forgeId: run.forgeId,
       includeChanged,
-      ...(sweep ? { sweep: true } : {}),
+      ...asked,
       ...(muteAutomation ? { muteAutomation: true } : {}),
     });
     setConfirming(false);
+  };
+
+  /** The confirmation again, its sweep ticked by this gesture and its list read. */
+  const askSweep = (): void => {
+    setIncludeChanged(false);
+    setSweep(true);
+    setMuteAutomation(false);
+    setConfirming(true);
   };
 
   let action: React.ReactNode = null;
@@ -158,12 +168,7 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
         icon={<Eraser size={14} />}
         loading={removal.loading}
         disabled={removal.loading}
-        onClick={() => {
-          setIncludeChanged(false);
-          setSweep(true);
-          setMuteAutomation(false);
-          setConfirming(true);
-        }}
+        onClick={askSweep}
         data-testid="forge-results-sweep"
         className="self-start"
       >
@@ -195,7 +200,15 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
           data-testid="forge-results-remove-error"
         />
       )}
-      {answered && <ForgeRunRemovalResult result={answered.result} org={org ?? ''} />}
+      {answered && (
+        <ForgeRunRemovalResult
+          result={answered.result}
+          org={org ?? ''}
+          {...(entry && !awaitingEntry && !entry.journalGone && left.length > 0 && org
+            ? { onTakeBackMade: askSweep }
+            : {})}
+        />
+      )}
       <ForgeRunRemovalConfirm
         run={confirming ? entry : null}
         org={org ?? ''}
@@ -203,6 +216,8 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
         onIncludeChangedChange={setIncludeChanged}
         sweep={sweep}
         onSweepChange={setSweep}
+        sweepTicks={ticks}
+        onSweepTicksChange={setTicks}
         muteAutomation={muteAutomation}
         onMuteAutomationChange={setMuteAutomation}
         onClose={() => setConfirming(false)}

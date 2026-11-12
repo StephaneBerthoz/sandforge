@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { isNeverCopiedWhenPicked } from '../forge/excludedObjects';
 import { removalOrder } from '../forge/ForgeRunRemoval';
 import { MemoryRemovalOrg, type MemoryChild } from '../../test/memoryRemovalOrg';
 import type { CheckpointDescribe } from './checkpointFields';
@@ -149,6 +150,144 @@ describe('scopeCandidates', () => {
     );
   });
 
+  it('says a case’s CaseHistory2 left out as history, and the delete logs and every event store only the platform writes as the org’s own logs, picked or not', () => {
+    // As a global describe read as the org's administrator lists them:
+    // nothing of them createable, editable or deletable, some event stores
+    // alone with a page layout. Those a feed item may hang from were said
+    // so; the others, picked or holding a layout, were said left out for a
+    // permission the user lacks, which no user has.
+    const platform = (name: string, layoutable: boolean): GlobalObject => ({
+      name,
+      queryable: true,
+      createable: false,
+      updateable: false,
+      deletable: false,
+      layoutable,
+    });
+    const logs = [
+      platform('OpportunityRelatedDeleteLog', false),
+      platform('ApiAnomalyEventStore', true),
+      platform('CredentialStuffingEventStore', true),
+      platform('GuestUserAnomalyEventStore', true),
+      platform('LoginAnomalyEventStore', true),
+      platform('ReportAnomalyEventStore', true),
+      platform('SessionHijackingEventStore', true),
+      platform('BulkApiResultEventStore', false),
+      platform('FileEventStore', false),
+      platform('IdentityProviderEventStore', false),
+      platform('PermissionSetEventStore', false),
+    ];
+    const globalObjects = [data('Case'), platform('CaseHistory2', false), ...logs];
+    const expected = {
+      CaseHistory2: 'history',
+      ...Object.fromEntries(logs.map(({ name }) => [name, 'setup'])),
+    };
+
+    expect(reasons(scopeCandidates(globalObjects, { mode: 'everything' }).leftOut)).toEqual(
+      expected,
+    );
+    expect(
+      reasons(
+        scopeCandidates(globalObjects, {
+          mode: 'picked',
+          objects: globalObjects.map(({ name }) => name),
+        }).leftOut,
+      ),
+    ).toEqual(expected);
+  });
+
+  it('says what only Salesforce creates left out as such — approvals, Einstein insights, Data.com clean info, matching information, invoices and credit memos — and a calendar and an entitlement process as setup, picked or not', () => {
+    // As an administrator's global describe lists them: none createable,
+    // some editable, an approval's submission and a record's insight even
+    // deletable. Once every copy left them out by name, a checkpoint said
+    // each was setup, as users and permissions are; before, that the user
+    // SandForge connects as may not write them, which no user may.
+    const platform = (name: string, flags: Partial<GlobalObject>): GlobalObject => ({
+      name,
+      queryable: true,
+      createable: false,
+      updateable: false,
+      deletable: false,
+      ...flags,
+    });
+    const created = [
+      platform('AccountCleanInfo', { updateable: true, layoutable: false }),
+      platform('ContactCleanInfo', { updateable: true, layoutable: false }),
+      platform('LeadCleanInfo', { updateable: true, layoutable: false }),
+      platform('ApprovalSubmission', { updateable: true, deletable: true, layoutable: true }),
+      platform('ApprovalSubmissionDetail', { updateable: true, layoutable: true }),
+      platform('ApprovalWorkItem', { updateable: true, layoutable: true }),
+      platform('AIRecordInsight', { deletable: true, layoutable: false }),
+      platform('AIInsightValue', { layoutable: false }),
+      platform('MatchingInformation', { layoutable: false }),
+      platform('Invoice', { updateable: true, layoutable: true }),
+      platform('InvoiceLine', { updateable: true, layoutable: true }),
+      platform('CreditMemo', { updateable: true, layoutable: true }),
+      platform('CreditMemoLine', { updateable: true, layoutable: true }),
+    ];
+    const globalObjects = [
+      data('Account'),
+      ...created,
+      platform('Calendar', { layoutable: false }),
+      platform('SlaProcess', { layoutable: true }),
+    ];
+    const expected = {
+      ...Object.fromEntries(created.map(({ name }) => [name, 'platformCreated'])),
+      Calendar: 'setup',
+      SlaProcess: 'setup',
+    };
+
+    expect(reasons(scopeCandidates(globalObjects, { mode: 'everything' }).leftOut)).toEqual(
+      expected,
+    );
+    expect(
+      reasons(
+        scopeCandidates(globalObjects, {
+          mode: 'picked',
+          objects: globalObjects.map(({ name }) => name),
+        }).leftOut,
+      ),
+    ).toEqual(expected);
+    // Every copy leaves each of them out by name too.
+    for (const { name } of created) expect(isNeverCopiedWhenPicked(name), name).toBe(true);
+  });
+
+  it('says the records of an approval process, Einstein’s insight records and a credit memo’s application to an invoice left out as what only Salesforce creates, picked or not', () => {
+    // As a scratch org's administrator reads them in its global describe,
+    // Modify All Data held: none createable, a work item editable and
+    // deletable. Picked, a checkpoint said the user it connects as may not
+    // write them, and an approval process's instance setup.
+    const platform = (name: string, flags: Partial<GlobalObject>): GlobalObject => ({
+      name,
+      queryable: true,
+      createable: false,
+      updateable: false,
+      deletable: false,
+      layoutable: false,
+      ...flags,
+    });
+    const created = [
+      platform('ProcessInstance', {}),
+      platform('ProcessInstanceNode', {}),
+      platform('ProcessInstanceStep', {}),
+      platform('ProcessInstanceWorkitem', { updateable: true, deletable: true }),
+      platform('CreditMemoInvApplication', { updateable: true, layoutable: true }),
+      platform('AIInsightAction', {}),
+      platform('AIInsightFeedback', {}),
+      platform('AIInsightReason', {}),
+    ];
+    const globalObjects = [data('Account'), ...created];
+    const expected = Object.fromEntries(created.map(({ name }) => [name, 'platformCreated']));
+
+    for (const mode of ['everything', 'picked'] as const) {
+      const scope = scopeCandidates(globalObjects, {
+        mode,
+        objects: globalObjects.map(({ name }) => name),
+      });
+      expect(reasons(scope.leftOut), mode).toEqual(expected);
+    }
+  });
+
   it('leaves out as setup the objects the org gives no page layout, permissions among them, but keeps the related-list objects people work in, and holds one picked by name', () => {
     const globalObjects = [
       data('Account', { layoutable: true }),
@@ -232,7 +371,12 @@ describe('scopeCandidates', () => {
     expect(asked.addedToPicked).toEqual(['ContentDocument']);
     expect(excluded.candidates).toEqual(['Account']);
     expect(excluded.addedToPicked).toEqual([]);
-    expect(excluded.leftOut).toEqual([]);
+    // Named left out as asked, by the org's names: left out by name, the
+    // files went from the checkpoint with no word of them.
+    expect(excluded.leftOut).toEqual([
+      { objectApiName: 'Attachment', reason: 'excludedByUser' },
+      { objectApiName: 'ContentDocument', reason: 'excludedByUser' },
+    ]);
     expect(none.addedToPicked).toEqual([]);
     expect(everything.addedToPicked).toEqual([]);
   });

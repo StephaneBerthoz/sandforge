@@ -9,6 +9,7 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { OrgBadge } from '../../components/ui/OrgBadge';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { SeedWizard } from './SeedWizard';
 import type { WizardStep } from './SeedWizard';
 import { SeedSelectStep } from './SeedSelectStep';
@@ -20,6 +21,7 @@ import { PersonaGallery } from './Persona/PersonaGallery';
 import { personaName } from './Persona/personaText';
 import { refusedForEmails, useSeedAutomation } from './useSeedAutomation';
 import { objectLabelsOf } from '../../utils/objectLabels';
+import { SeedFitProposalCard, SeedFitResultLine } from './SeedFitProposal';
 
 const SEED_STEPS: WizardStep[] = [
   { id: 'select', labelKey: 'seed.stepSelect' },
@@ -259,15 +261,49 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
               volumes={state.volumes}
               automation={state.selectedOrgId ? wizardAutomation : undefined}
               orgName={wizardOrgName}
+              orgId={state.selectedOrgId}
               records={wizardRecords}
               mute={{ checked: state.muteAutomation, onChange: state.setMuteAutomation }}
+              checkpoint={{ checked: state.checkpointFirst, onChange: state.setCheckpointFirst }}
+              {...(state.stoppedCheckpoint ? { stoppedCheckpoint: state.stoppedCheckpoint } : {})}
+              fit={{ proposal: state.fitProposal, onSeed: state.seedFitted }}
             />
           )}
 
-          {/* STEP 4: RESULTS */}
+          {/* STEP 4: RESULTS — where the run is started, and refused: the
+              counts that fit under the refusal; and, for a run whose counts
+              were fitted, which. */}
+          {state.currentStep === 3 &&
+            state.fitProposal &&
+            !state.isRunning &&
+            !state.executionResult && (
+              <SeedFitProposalCard
+                proposal={state.fitProposal}
+                org={wizardOrgName}
+                onSeed={state.seedFitted}
+              />
+            )}
+          {state.currentStep === 3 && !state.isRunning && !state.executionResult && (
+            <RewindBeforeRun
+              checkpoint={state.stoppedCheckpoint}
+              orgId={state.selectedOrgId}
+              beside="run"
+              compact
+              testId="seed-results-error-checkpoint"
+            />
+          )}
+          {state.currentStep === 3 && state.fitApplied && state.executionResult && (
+            <SeedFitResultLine
+              fitted={state.fitApplied}
+              org={wizardOrgName}
+              testId="seed-results-fitted"
+            />
+          )}
           {state.currentStep === 3 && (
             <SeedResultsStep
               executionResult={state.executionResult}
+              isRunning={state.isRunning}
+              stopped={state.executionError !== undefined}
               template={state.lastTemplate}
               orgName={wizardOrgName}
               orgId={state.selectedOrgId}

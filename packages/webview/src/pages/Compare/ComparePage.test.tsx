@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { OrgSafetyTier } from '@sandforge/shared';
@@ -228,6 +228,26 @@ describe('ComparePage', () => {
     fireEvent.click(screen.getByTestId('cat-ApexClass'));
   }
 
+  it('picks the two orgs in the ribbon, which names each once, as a source and a target: it writes nothing', () => {
+    // The pickers sat over a ribbon that named both orgs again once picked.
+    render(<ComparePage />);
+    const ribbon = screen.getByTestId('org-ribbon');
+    const source = screen.getByLabelText('Source Org');
+    const target = screen.getByLabelText('Target Org');
+    expect(ribbon.contains(source)).toBe(true);
+    expect(screen.getByTestId('org-ribbon-target').contains(target)).toBe(true);
+
+    fireEvent.change(source, { target: { value: 'org-1' } });
+    fireEvent.change(target, { target: { value: 'org-2' } });
+
+    expect(screen.getAllByTestId('org-ribbon')).toHaveLength(1);
+    // Each org is named by its picker alone: the ribbon draws no name beside it.
+    expect(screen.queryByTestId('org-ribbon-source-name')).toBeNull();
+    expect(screen.queryByTestId('org-ribbon-target-name')).toBeNull();
+    expect(screen.getByTestId('org-ribbon-source-url').textContent).toBe('dev.salesforce.com');
+    expect(ribbon.textContent).not.toContain('Written into');
+  });
+
   it('says under Run Comparison what it waits for: two different orgs, then a category', () => {
     // Categories start at none, so the button stayed off once two orgs were
     // picked, with nothing near it to say why.
@@ -251,6 +271,46 @@ describe('ComparePage', () => {
     expect(needs()).toBeNull();
     expect(run.hasAttribute('disabled')).toBe(false);
     expect(run.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  it('says a picked org this machine no longer holds, shows no other in its picker, and runs nothing', () => {
+    // Disconnected from the Organizations panel while Compare kept it picked:
+    // the picker showed the first org left, Run stayed on and sent the old id.
+    const third: SalesforceOrg = {
+      ...twoOrgs[0]!,
+      id: 'org-3',
+      alias: 'QA',
+      username: 'qa@test.com',
+      orgId: 'oid-3',
+    };
+    useOrgStore.setState({ orgs: [...twoOrgs, third] });
+    render(<ComparePage />);
+    readyToRun();
+    expect(screen.getByTestId('run-compare-btn').hasAttribute('disabled')).toBe(false);
+
+    act(() => {
+      useOrgStore.setState({ orgs: [twoOrgs[1]!, third] });
+    });
+
+    const source = screen.getByLabelText('Source Org') as HTMLSelectElement;
+    expect(source.value).toBe('');
+    expect(screen.getByTestId('org-ribbon-source-not-held').textContent).toBe(
+      'An org this machine no longer holds',
+    );
+    expect(screen.getByTestId('org-ribbon-source-id').textContent).toBe('org-1');
+    expect(screen.queryByTestId('org-ribbon-target-not-held')).toBeNull();
+    const run = screen.getByTestId('run-compare-btn');
+    expect(run.hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('compare-run-needs').textContent).toBe(
+      'Pick a source and a different target org',
+    );
+    fireEvent.click(run);
+    expect(mockCompareMutate).not.toHaveBeenCalled();
+
+    // Picked again, the org left first is a change like any other.
+    fireEvent.change(source, { target: { value: 'org-3' } });
+    expect(screen.queryByTestId('org-ribbon-source-not-held')).toBeNull();
+    expect(run.hasAttribute('disabled')).toBe(false);
   });
 
   it('offers no Schema Advice, which compared nothing', () => {

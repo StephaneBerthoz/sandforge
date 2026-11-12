@@ -107,6 +107,25 @@ describe('settleSyncPrices', () => {
     ]);
   });
 
+  it('leaves as they are, for the write to hold back, the prices of a product the run refused', () => {
+    // Left out for the USD price the write then held back with its product,
+    // the GBP price was said replaced by a price never written.
+    const settled = settleSyncPrices(
+      'PricebookEntry',
+      rowsOf([
+        price('01u-standard-USD', BOOKS.source, 'USD'),
+        price('01u-standard-GBP', BOOKS.source, 'GBP'),
+      ]),
+      BOOKS,
+      CURRENCIES,
+      (id) => id === '01t000000000001AAA',
+    );
+
+    expect(settled.sourceIds).toEqual(['01u-standard-USD', '01u-standard-GBP']);
+    expect(settled.standsFor.size).toBe(0);
+    expect(settled.prices).toEqual([]);
+  });
+
   it('hands back the rows of any other object, and every row when the books could not be read', () => {
     const rows = rowsOf([price('01u-custom-GBP', '01s000000000002AAA', 'GBP')]);
 
