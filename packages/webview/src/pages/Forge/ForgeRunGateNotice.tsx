@@ -26,6 +26,7 @@ const STOP_KEYS: Record<ForgeRunGateCode, string> = {
   CONFIRMATION_UNAVAILABLE: 'forgeRun.gate.confirmationUnavailable',
   CHECKPOINT_REFUSED: 'forgeRun.gate.checkpointRefused',
   API_BUDGET_EXCEEDED: 'forgeRun.gate.apiBudgetExceeded',
+  READ_BOUND_EXCEEDED: 'forgeRun.gate.readBoundExceeded',
 };
 
 /** A stop the user chose, at one of the run's questions, rather than one the extension made. */
@@ -132,6 +133,12 @@ export const ForgeRunGateNotice: React.FC = () => {
             // The number the run held, which the settings may have raised.
             ceiling: (stop.ceiling ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(uiLocale()),
             reason: checkpointRefusalWords(stop.reason, t),
+            // A clone of the whole org refused for an object it reads whole:
+            // the bound it held, and each object past it.
+            bound: (stop.readBound?.bound ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(
+              uiLocale(),
+            ),
+            objects: (stop.readBound?.objects ?? []).map((o) => o.objectApiName).join(', '),
           })}
         </p>
         <RewindBeforeRun

@@ -18,7 +18,8 @@ import * as z from 'zod';
  * - `WRITE_DECLINED`: cancelled at the confirmation of what the run was about
  *   to write, once it had read it.
  * - `STORAGE_EXCEEDED`: the rows to write take more data storage than the
- *   target has left.
+ *   target has left, or the files a clone of the whole org copies more file
+ *   storage — the stop's `storage.kind` says which.
  * - `CONFIRMATION_UNAVAILABLE`: a confirmation was needed, and there was no
  *   one to ask.
  * - `CHECKPOINT_REFUSED`: the checkpoint the run was asked to take of what it
@@ -26,7 +27,15 @@ import * as z from 'zod';
  *   scope or at its take — the stop's `reason` says by what —, or could not
  *   be taken. The mute assigned nothing.
  * - `API_BUDGET_EXCEEDED`: the rows, and the checkpoint taken first, take
- *   more API requests than the target has left today.
+ *   more API requests than the target has left today; a clone of the whole
+ *   org, besides, more than the source has left, or more Bulk API batches
+ *   than the target has left — the stop's `api` says which. Refused, not
+ *   cancelled.
+ * - `READ_BOUND_EXCEEDED`: a clone of the whole org reads a few objects whole
+ *   — the price catalog, reference data — and one of them holds more rows
+ *   than `sandforge.forge.maxRecordsPerObject` lets a run hold at once.
+ *   Refused before anything was written, rather than cut short: the setting
+ *   bounds the memory, and nobody declined anything.
  */
 /**
  * The rows of one object past which a run reading it with no cap asks first
@@ -52,6 +61,7 @@ export const FORGE_RUN_GATE_CODES = [
   'CONFIRMATION_UNAVAILABLE',
   'CHECKPOINT_REFUSED',
   'API_BUDGET_EXCEEDED',
+  'READ_BOUND_EXCEEDED',
 ] as const;
 
 /** A way a Forge run stops at its gate. */
@@ -63,9 +73,10 @@ export interface ForgeRunGateStop {
   /**
    * For a run refused for its storage: what its rows take, and what the
    * target had left, in MB. What is left can be below zero: an org over its
-   * allocation says so.
+   * allocation says so. `kind` says which storage: the data storage when it
+   * is absent, as every refusal before files were weighed was.
    */
-  storage?: { estimateMB: number; remainingMB: number };
+  storage?: { estimateMB: number; remainingMB: number; kind?: 'data' | 'files' };
   /**
    * For a run cancelled at the confirmation of the tables it reads past the
    * most rows of one object it is set to read: that number, as the run held
@@ -80,16 +91,64 @@ export interface ForgeRunGateStop {
    * that failed rather than refused, and for any other stop.
    */
   reason?: string;
+  /**
+   * For a clone of the whole org refused for an API budget: which allowance
+   * — the org's daily API requests, or the target's daily Bulk API batches —
+   * of which org, what the run would take of it and what is left of it today.
+   */
+  api?: {
+    kind: 'requests' | 'bulkBatches';
+    org: 'source' | 'target';
+    estimate: number;
+    remaining: number;
+  };
+  /**
+   * For a clone of the whole org refused for an object it reads whole: the
+   * most rows of one object it may hold (`sandforge.forge.maxRecordsPerObject`),
+   * and each object past it with its rows.
+   */
+  readBound?: { bound: number; objects: Array<{ objectApiName: string; rows: number }> };
 }
 
 const stopSchema = z.object({
   code: z.enum(FORGE_RUN_GATE_CODES),
-  storage: z.object({ estimateMB: z.number().nonnegative(), remainingMB: z.number() }).optional(),
+  storage: z
+    .object({
+      estimateMB: z.number().nonnegative(),
+      remainingMB: z.number(),
+      kind: z.enum(['data', 'files']).optional(),
+    })
+    .optional(),
   ceiling: z.number().int().positive().optional(),
   // A refusal's code as the checkpoint's guards spell it: never words.
   reason: z
     .string()
     .regex(/^[A-Z][A-Z_]{0,39}$/)
+    .optional(),
+  // What is left can be below zero, as an org over its allocation says.
+  api: z
+    .object({
+      kind: z.enum(['requests', 'bulkBatches']),
+      org: z.enum(['source', 'target']),
+      estimate: z.number().int().nonnegative(),
+      remaining: z.number().int(),
+    })
+    .optional(),
+  // Bounded as a message is: the page names each object, and a forged one
+  // naming thousands would only make the notice unreadable.
+  readBound: z
+    .object({
+      bound: z.number().int().positive(),
+      objects: z
+        .array(
+          z.object({
+            objectApiName: z.string().min(1).max(255),
+            rows: z.number().int().nonnegative(),
+          }),
+        )
+        .min(1)
+        .max(200),
+    })
     .optional(),
 });
 
@@ -105,11 +164,22 @@ export function isForgeRunGateCode(value: unknown): value is ForgeRunGateCode {
 export function forgeRunGateStopOf(value: unknown): ForgeRunGateStop | null {
   const parsed = stopSchema.safeParse(value);
   if (!parsed.success) return null;
-  const { code, storage, ceiling, reason } = parsed.data;
+  const { code, storage, ceiling, reason, api, readBound } = parsed.data;
   return {
     code,
-    ...(storage ? { storage } : {}),
+    ...(storage
+      ? {
+          storage: {
+            estimateMB: storage.estimateMB,
+            remainingMB: storage.remainingMB,
+            ...(storage.kind !== undefined ? { kind: storage.kind } : {}),
+          },
+        }
+      : {}),
     ...(ceiling !== undefined ? { ceiling } : {}),
     ...(reason !== undefined && code === 'CHECKPOINT_REFUSED' ? { reason } : {}),
+    // Each says something of its own stop only, as the reason does.
+    ...(api && code === 'API_BUDGET_EXCEEDED' ? { api } : {}),
+    ...(readBound && code === 'READ_BOUND_EXCEEDED' ? { readBound } : {}),
   };
 }

@@ -107,6 +107,27 @@ describe('ForgeRunGateNotice', () => {
     expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(text);
   });
 
+  it('alerts that a clone of the whole org was refused for the objects it reads whole, naming the bound and each object past it', () => {
+    act(() =>
+      useForgeRunGateStore.getState().setStop({
+        code: 'READ_BOUND_EXCEEDED',
+        readBound: {
+          bound: 50_000,
+          objects: [
+            { objectApiName: 'PricebookEntry', rows: 72_000 },
+            { objectApiName: 'Product2', rows: 51_000 },
+          ],
+        },
+      }),
+    );
+    render(<ForgeRunGateNotice />);
+
+    expect(screen.getByTestId('forge-run-gate-notice').getAttribute('role')).toBe('alert');
+    expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
+      'The run was refused before it wrote anything: a clone of the whole org reads a few objects whole, and more than 50,000 records, as many as the sandforge.forge.maxRecordsPerObject setting lets it hold at once, were found in PricebookEntry, Product2. Raise the setting, or leave these objects out on Review.',
+    );
+  });
+
   it('goes once dismissed', () => {
     act(() => useForgeRunGateStore.getState().setStop({ code: 'WRITE_DECLINED' }));
     render(<ForgeRunGateNotice />);

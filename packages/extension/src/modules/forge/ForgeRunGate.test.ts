@@ -275,7 +275,12 @@ describe('readDataStorage', () => {
       FileStorageMB: { Max: 1_000, Remaining: 900 },
     });
 
-    await expect(readDataStorage({ request })).resolves.toEqual({ maxMB: 200, remainingMB: 37 });
+    // The file storage of the same answer, which a clone of the whole org weighs its files against.
+    await expect(readDataStorage({ request })).resolves.toEqual({
+      maxMB: 200,
+      remainingMB: 37,
+      fileStorage: { maxMB: 1_000, remainingMB: 900 },
+    });
     expect(request).toHaveBeenCalledWith({ method: 'GET', url: '/limits' });
   });
 

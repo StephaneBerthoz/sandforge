@@ -46,6 +46,8 @@ import type {
   ForgeFiredOnRemovalStep,
   ForgeFiredOnWrite,
   ForgeGraph,
+  ForgeLeftOutCount,
+  ForgeLeftOutObject,
   ForgeRemovalRisk,
   ForgeRemovalStep,
   ForgeRemovalSteps,
@@ -81,7 +83,18 @@ import type {
 } from '../../core/precheck/ProductionGuard.js';
 import type { ForgeMayBeByThePlatform, ForgeWriteBoundary } from './ForgeExecutor.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
-import { bulkJobCost } from '../../core/engine/bulkJobCost.js';
+import {
+  FORGE_BULK_POLL_SCHEDULE,
+  bulkJobCost,
+  bulkJobRequests,
+  bulkJobSeconds,
+  bulkJobStateReads,
+} from '../../core/engine/bulkJobCost.js';
+import {
+  DUPLICATE_RULE_FALLBACK_OBJECTS,
+  FORGE_BULK_MIN_ROWS,
+  FORGE_REST_ONLY_OBJECTS,
+} from './ForgeBatchStrategy.js';
 import { RUN_CANCELLED } from './forgeAudit.js';
 import { ordersTheWrite } from './stages/ScopeResolver.js';
 import { objectsTheRunWrites } from './TargetAutomationReader.js';
@@ -483,6 +496,17 @@ export interface DataStorage {
    * the answer did not list them.
    */
   dailyApiRequests?: ApiBudget;
+  /**
+   * The daily Bulk API batches it has, from the same answer — what a job of
+   * Bulk API 2.0 takes a batch of per ten thousand records, shared with Bulk
+   * API 1.0: absent when the answer did not list them.
+   */
+  dailyBulkApiBatches?: ApiBudget;
+  /**
+   * Its file storage, in MB, from the same answer — what the files a clone of
+   * the whole org copies take: absent when the answer did not list it.
+   */
+  fileStorage?: { maxMB: number; remainingMB: number };
 }
 
 /** What an org has of its daily API requests, as its `/limits` say. */
@@ -496,11 +520,20 @@ export interface LimitsTransport {
   request(request: { method: 'GET'; url: string }): Promise<unknown>;
 }
 
-/** What `/limits` says of an org's data storage, and of its daily API requests when it lists them. */
+/** A limit as `/limits` gives each: its most, and what is left of it. */
+const limitSchema = z.object({ Max: z.number(), Remaining: z.number() }).loose();
+
+/**
+ * What `/limits` says of an org's data storage, and, when it lists them, of
+ * its daily API requests, its daily Bulk API batches and its file storage:
+ * one answer the write gate reads them all from.
+ */
 const dataStorageSchema = z
   .object({
-    DataStorageMB: z.object({ Max: z.number(), Remaining: z.number() }).loose(),
-    DailyApiRequests: z.object({ Max: z.number(), Remaining: z.number() }).loose().optional(),
+    DataStorageMB: limitSchema,
+    DailyApiRequests: limitSchema.optional(),
+    DailyBulkApiBatches: limitSchema.optional(),
+    FileStorageMB: limitSchema.optional(),
   })
   .loose();
 
@@ -546,6 +579,22 @@ export async function readDataStorage(transport: LimitsTransport): Promise<DataS
           dailyApiRequests: {
             max: limits.DailyApiRequests.Max,
             remaining: limits.DailyApiRequests.Remaining,
+          },
+        }
+      : {}),
+    ...(limits.DailyBulkApiBatches
+      ? {
+          dailyBulkApiBatches: {
+            max: limits.DailyBulkApiBatches.Max,
+            remaining: limits.DailyBulkApiBatches.Remaining,
+          },
+        }
+      : {}),
+    ...(limits.FileStorageMB
+      ? {
+          fileStorage: {
+            maxMB: limits.FileStorageMB.Max,
+            remainingMB: limits.FileStorageMB.Remaining,
           },
         }
       : {}),
@@ -824,12 +873,120 @@ export async function takeCheckpointFirst(
 }
 
 /**
+ * Records of one object Forge's writer sends in one Bulk API job at most:
+ * `FORGE_BULK_JOB_ROWS` of `forgeBulkWrite`, which the gate does not load.
+ */
+const ROWS_PER_FORGE_JOB = 10_000;
+
+/**
+ * Records of a Bulk API 2.0 job one of the day's Bulk API batches counts:
+ * the platform cuts what a job is sent into batches of this many, each taken
+ * from `DailyBulkApiBatches`, which Bulk API 1.0 shares.
+ */
+const ROWS_PER_BULK_BATCH = 10_000;
+
+/**
+ * Seconds a REST write takes a record, about: the figure discovery gives a
+ * graph's duration (`SECONDS_PER_RECORD`).
+ */
+const REST_SECONDS_PER_ROW = 0.01;
+
+/**
+ * How a run that writes through the Bulk API (`ExecuteOptions.writeApi:
+ * 'auto'`, a clone of the whole org) sends its writes, as its gate prices
+ * them.
+ */
+export interface ForgeBulkWrites {
+  /**
+   * The objects it writes by REST whatever their number besides those always
+   * written so (`FORGE_REST_ONLY_OBJECTS`): those an active duplicate rule of
+   * the target watches, which no job can waive. Absent while the target has
+   * not said, the objects of the standard rules every org starts with
+   * (`DUPLICATE_RULE_FALLBACK_OBJECTS`), as the writer takes them then.
+   */
+  restOnly?: ReadonlySet<string>;
+}
+
+/**
+ * Whether a run that writes through the Bulk API writes `rows` records of
+ * `objectApiName` by REST all the same: under {@link FORGE_BULK_MIN_ROWS},
+ * an object always written by REST ({@link FORGE_REST_ONLY_OBJECTS}), or one
+ * a duplicate rule watches ({@link ForgeBulkWrites.restOnly}).
+ */
+function likelyRest(objectApiName: string, rows: number, restOnly?: ReadonlySet<string>): boolean {
+  return (
+    rows < FORGE_BULK_MIN_ROWS ||
+    FORGE_REST_ONLY_OBJECTS.has(objectApiName) ||
+    (restOnly ?? DUPLICATE_RULE_FALLBACK_OBJECTS).has(objectApiName)
+  );
+}
+
+/**
+ * How Forge's writer sends `rows` records of one object when the run writes
+ * through the Bulk API: in jobs of {@link ROWS_PER_FORGE_JOB}, what is left
+ * past them by REST when it is under {@link FORGE_BULK_MIN_ROWS}
+ * (`BatchWriter.sendRows`), and every row by REST for an object no job
+ * writes ({@link likelyRest}). Priced for a writer handed ten thousand rows
+ * at a time, as a clone of the whole org streams them: one handed fewer
+ * would send smaller jobs, each priced whole.
+ *
+ * @returns The rows of each job, in order, and those sent by REST.
+ */
+export function forgeWritesOf(
+  objectApiName: string,
+  rows: number,
+  bulk: ForgeBulkWrites,
+): { jobs: number[]; rest: number } {
+  if (rows <= 0) return { jobs: [], rest: 0 };
+  if (likelyRest(objectApiName, rows, bulk.restOnly)) return { jobs: [], rest: rows };
+  const jobs: number[] = [];
+  for (let left = rows; left > 0; left -= ROWS_PER_FORGE_JOB) {
+    const job = Math.min(left, ROWS_PER_FORGE_JOB);
+    if (job < FORGE_BULK_MIN_ROWS) return { jobs, rest: job };
+    jobs.push(job);
+  }
+  return { jobs, rest: 0 };
+}
+
+/**
+ * Every call one Bulk API job of Forge's writer sends: opened, sent, closed,
+ * its state read after the waits Forge's writer grows
+ * (`FORGE_BULK_POLL_SCHEDULE`) for as long as a job that saves `records`
+ * takes, and its results read three ways (`bulkJobRequests`).
+ *
+ * Priced as a job that saves its records, at the pace a seed of 12,000 cases
+ * was measured at: a job of ten thousand rows sends thirteen calls, where
+ * the pace of deletes priced it eleven.
+ */
+function forgeJobRequests(records: number): number {
+  return bulkJobRequests({
+    stateReads: bulkJobStateReads(records, FORGE_BULK_POLL_SCHEDULE, 'save'),
+  });
+}
+
+/**
+ * The calls Forge's writer sends `rows` records of one object in when the
+ * run writes through the Bulk API: each job by the calls it sends, what is
+ * left by REST calls of {@link ROWS_PER_REST_CALL} ({@link forgeWritesOf}).
+ */
+function forgeWriteRequests(objectApiName: string, rows: number, bulk: ForgeBulkWrites): number {
+  const { jobs, rest } = forgeWritesOf(objectApiName, rows, bulk);
+  return (
+    jobs.reduce((calls, job) => calls + forgeJobRequests(job), 0) +
+    Math.ceil(rest / ROWS_PER_REST_CALL)
+  );
+}
+
+/**
  * The parts of the API requests a Forge run takes of its target once its
  * write gate lets the rows through:
  *
  * - `run`: its writes — a REST call per 200 rows of each object, every row
  *   going through sObject collections, and as many again for the objects its
- *   second pass updates (`objectsUpdatedAfterInsert`), at most;
+ *   second pass updates (`objectsUpdatedAfterInsert`), at most; for a run
+ *   that writes through the Bulk API (`bulk`), an object's rows as its
+ *   writer sends them, jobs and REST ({@link forgeWritesOf}); and a call per
+ *   file it copies (`files`);
  * - `checkpoint`: the take of the checkpoint it takes first, as its scope
  *   estimates it;
  * - `readBack`: the reads of the record types the target gave the records
@@ -848,6 +1005,10 @@ export function forgeRequestPartsOf(input: {
   checkpoint?: Pick<RunCheckpointEstimate, 'estimate'>;
   /** What the read of whether the target delivers its emails sent (`deliverabilityPartOf`). */
   deliverability?: number;
+  /** How the run sends its writes when it writes through the Bulk API; absent, every one by REST. */
+  bulk?: ForgeBulkWrites;
+  /** The files the run copies, a call each. */
+  files?: number;
 }): RunRequestParts {
   const updated = new Set(input.updatedAfterInsert ?? []);
   // The rows a write links by a value the target holds create nothing, and
@@ -860,17 +1021,27 @@ export function forgeRequestPartsOf(input: {
   );
   const writes = [
     ...input.plan.objects.map(({ objectApiName, rows }) => ({
+      objectApiName,
       rows: rows + (linked.get(objectApiName) ?? 0),
     })),
     ...[...linked]
       .filter(([name]) => !input.plan.objects.some((o) => o.objectApiName === name))
-      .map(([, rows]) => ({ rows })),
+      .map(([objectApiName, rows]) => ({ objectApiName, rows })),
   ];
   const updates = input.plan.objects
     .filter(({ objectApiName }) => updated.has(objectApiName))
-    .map(({ rows }) => ({ rows }));
+    .map(({ objectApiName, rows }) => ({ objectApiName, rows }));
+  const { bulk } = input;
+  const files = input.files !== undefined && input.files > 0 ? input.files : 0;
   return {
-    run: runRequestsEstimate([...writes, ...updates]),
+    run:
+      (bulk
+        ? [...writes, ...updates].reduce(
+            (calls, { objectApiName, rows }) =>
+              calls + forgeWriteRequests(objectApiName, rows, bulk),
+            0,
+          )
+        : runRequestsEstimate([...writes, ...updates])) + files,
     ...checkpointPartOf(input.checkpoint),
     ...(input.readBack !== undefined && input.readBack > 0 ? { readBack: input.readBack } : {}),
     ...(input.deliverability !== undefined && input.deliverability > 0
@@ -880,9 +1051,279 @@ export function forgeRequestPartsOf(input: {
 }
 
 /**
+ * What a clone of the whole org measured of both orgs before its write gate,
+ * beside the records of each object its counts hand the gate
+ * (`ForgeWriteBoundary.objects`): what the gate holds the run to that no
+ * count says.
+ */
+export interface WholeOrgMeasures {
+  /**
+   * The data storage the text of the emails it writes takes, in bytes, as the
+   * source summed it page by page: an email takes the size of its text
+   * (`rowStorageBytes`), and counted, it took none. Absent when it writes none.
+   */
+  emailTextBytes?: number;
+  /**
+   * The files it copies, as the source summed them: how many, and their
+   * bytes. Absent when it copies none, as it does unless asked; `unmeasured`
+   * when the source would neither sum them nor list them.
+   */
+  files?: { count: number; bytes: number } | { unmeasured: true };
+  /**
+   * The requests its reads of the source still send once its gate lets it
+   * through. Absent, the gate counts them: a page per 2,000 rows of each
+   * object it writes, a read of each file's content, and a query of their
+   * links per 200 files.
+   */
+  sourceReads?: number;
+  /** The objects it writes by REST whatever their number besides those always written so: see {@link ForgeBulkWrites}. */
+  restOnly?: ReadonlySet<string>;
+  /**
+   * The objects it reads whole — the price catalog, an object mapped by name
+   * — whose rows are past the bound of such a read, with that bound: read so,
+   * the run would write part of them. Absent when none is.
+   */
+  readWholeOver?: ReadonlyArray<{ objectApiName: string; rows: number; bound: number }>;
+}
+
+/** Files whose links to their records one query reads, as a clone of the whole org asks for them. */
+const FILES_PER_LINK_QUERY = 200;
+
+/**
+ * What a clone of the whole org takes beside the target's requests, which
+ * its gate counts part by part ({@link forgeRequestPartsOf}): see
+ * {@link wholeOrgCostOf}.
+ */
+export interface WholeOrgCost {
+  /** Per object it writes, its rows and the Bulk API jobs they go in, none when they go by REST; the most first. */
+  objects: Array<{ objectApiName: string; rows: number; jobs: number }>;
+  /** The API requests its reads take of the source, those still to come. */
+  sourceRequests: number;
+  /** The Bulk API batches its jobs take of the target's day, its second pass's among them. */
+  bulkBatches: number;
+  /** The seconds its writes take, about, one job or call after another. */
+  durationSeconds: number;
+  /** The objects with rows to write that it writes by REST all the same, by name. */
+  restObjects: string[];
+}
+
+/**
+ * What a clone of the whole org is about to take besides the target's
+ * requests, from the rows its gate counted and what it measured:
+ * - of the source, the requests its reads still send ({@link WholeOrgMeasures.sourceReads}):
+ *   the counts, the describes and the measure of the emails' text were taken
+ *   before the gate, and what the source says it has left, read at the gate,
+ *   has them out already;
+ * - of the target's day, a Bulk API batch per {@link ROWS_PER_BULK_BATCH}
+ *   records of each job its writes and its second pass send;
+ * - of the time, its writes and updates one after another: a job its wait
+ *   and then its records, at the pace of a job that saves them, a REST
+ *   write {@link REST_SECONDS_PER_ROW} a record.
+ */
+export function wholeOrgCostOf(input: {
+  plan: Pick<WritePlan, 'objects'>;
+  /** The objects whose rows the run writes a second time. */
+  updatedAfterInsert?: readonly string[];
+  measures: WholeOrgMeasures;
+}): WholeOrgCost {
+  const bulk: ForgeBulkWrites = {
+    ...(input.measures.restOnly ? { restOnly: input.measures.restOnly } : {}),
+  };
+  const updated = new Set(input.updatedAfterInsert ?? []);
+  const objects = input.plan.objects.map(({ objectApiName, rows }) => ({
+    objectApiName,
+    rows,
+    writes: forgeWritesOf(objectApiName, rows, bulk),
+    updates: updated.has(objectApiName) ? forgeWritesOf(objectApiName, rows, bulk) : undefined,
+  }));
+  const sent = objects.flatMap(({ writes, updates }) => (updates ? [writes, updates] : [writes]));
+  const files = input.measures.files;
+  const fileCount = files && 'count' in files && files.count > 0 ? files.count : 0;
+  return {
+    objects: objects.map(({ objectApiName, rows, writes }) => ({
+      objectApiName,
+      rows,
+      jobs: writes.jobs.length,
+    })),
+    sourceRequests:
+      input.measures.sourceReads ??
+      objects.reduce((sum, { rows }) => sum + Math.ceil(Math.max(0, rows) / ROWS_PER_READ), 0) +
+        fileCount +
+        Math.ceil(fileCount / FILES_PER_LINK_QUERY),
+    bulkBatches: sent.reduce(
+      (sum, { jobs }) =>
+        sum + jobs.reduce((batches, job) => batches + Math.ceil(job / ROWS_PER_BULK_BATCH), 0),
+      0,
+    ),
+    durationSeconds: sent.reduce(
+      (sum, { jobs, rest }) =>
+        sum +
+        jobs.reduce((seconds, job) => seconds + bulkJobSeconds(job, 'save'), 0) +
+        rest * REST_SECONDS_PER_ROW,
+      0,
+    ),
+    restObjects: objects
+      .filter(({ rows, writes }) => rows > 0 && writes.jobs.length === 0)
+      .map(({ objectApiName }) => objectApiName),
+  };
+}
+
+/**
+ * Why the target's daily Bulk API batches are not known when its `/limits`
+ * list none, as {@link API_REQUESTS_NOT_TOLD} is for its requests.
+ */
+export const BULK_BATCHES_NOT_TOLD = 'the limits the org answered list no DailyBulkApiBatches';
+
+/**
+ * Why a clone of the whole org cannot be written for the Bulk API batches
+ * its jobs take of the target's day, or nothing when it can.
+ */
+export function bulkBatchesRefusal(check: ApiBudgetCheck, target: string): string | undefined {
+  if (check.verdict !== 'exceeds') return undefined;
+  return (
+    `The run writes through Bulk API jobs that take about ${check.estimate} of the daily Bulk ` +
+    `API batches, and ${target} has ${check.remaining} of its ${check.max} left: its jobs would ` +
+    'be refused part way through. Run it once the org has batches to spare — the limit is ' +
+    'counted over the last 24 hours, and Bulk API 1.0 shares it — or leave objects out. ' +
+    'Nothing was written.'
+  );
+}
+
+/**
+ * Why a clone of the whole org cannot be run for the API requests its reads
+ * take of the source, or nothing when it can: the source is often a
+ * production org, whose integrations draw on the same daily requests.
+ */
+export function sourceApiBudgetRefusal(check: ApiBudgetCheck, source: string): string | undefined {
+  if (check.verdict !== 'exceeds') return undefined;
+  return (
+    `The run reads the source records in about ${check.estimate} API requests, and ${source} ` +
+    `has ${check.remaining} of its ${check.max} daily requests left: the reads would stop part ` +
+    "way through, and the org's own integrations with them. Run it once the org has requests " +
+    'to spare — the limit is counted over the last 24 hours — or leave objects out. Nothing ' +
+    'was written.'
+  );
+}
+
+/**
+ * Why the files a clone of the whole org copies cannot be written for the
+ * file storage they take, or nothing when they can.
+ */
+export function fileStorageRefusal(check: StorageCheck, target: string): string | undefined {
+  if (check.verdict !== 'exceeds') return undefined;
+  return (
+    `The files to copy take about ${formatMB(check.estimateMB)} MB of file storage, and ` +
+    `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB: leave out the objects ` +
+    `whose files take it, turn the copy of files off on Review, or free file storage in ` +
+    `${target}. Nothing was written.`
+  );
+}
+
+/**
+ * Why a clone of the whole org cannot be run for the objects it reads whole
+ * — the price catalog, an object mapped by name — past the most rows of one
+ * object the extension lets a run hold at once, each named with its rows.
+ * Read so, the run would write part of them; refused, nobody declined
+ * anything.
+ */
+export function readBoundRefusal(
+  over: ReadonlyArray<{ objectApiName: string; rows: number }>,
+  bound: number,
+): string {
+  const named = over.map(({ objectApiName, rows }) => `${objectApiName} (${rows} rows)`).join(', ');
+  return (
+    `A clone of the whole org reads a few objects whole, and ${named} ` +
+    `${over.length === 1 ? 'holds' : 'hold'} more than the ${bound} rows of one object the ` +
+    'sandforge.forge.maxRecordsPerObject setting lets a run hold at once: raise the setting ' +
+    'or leave the object out on Review. Nothing was written.'
+  );
+}
+
+/**
+ * A stop a check of the write gate comes to, nothing written, with what the
+ * run's error carries of it ({@link ForgeRunGateError.of}).
+ */
+export interface ForgeGateStop {
+  code: ForgeRunGateErrorCode;
+  message: string;
+  /** For a checkpoint first refused: the take's refusal. */
+  refusal?: CheckpointRefusal;
+  /** For a refusal for storage: what is taken, what is left, and which storage. */
+  storage?: NonNullable<ForgeRunGateStop['storage']>;
+  /** For a refusal of a clone of the whole org for an API budget: which, of which org. */
+  api?: NonNullable<ForgeRunGateStop['api']>;
+  /** For a refusal for objects read whole: the bound, and the objects past it. */
+  readBound?: NonNullable<ForgeRunGateStop['readBound']>;
+}
+
+/** The objects a refusal for objects read whole names, at most, as the page reads it. */
+const READ_BOUND_NAMED = 200;
+
+/**
+ * The stop of a clone of the whole org whose objects read whole are past the
+ * bound of such a read (`READ_BOUND_EXCEEDED`), or none. Checked before the
+ * target's limits are read: none is spent on a run refused for it.
+ */
+export function readBoundStopOf(
+  over: WholeOrgMeasures['readWholeOver'],
+): ForgeGateStop | undefined {
+  if (!over || over.length === 0) return undefined;
+  const bound = Math.min(...over.map((object) => object.bound));
+  const objects = over.map(({ objectApiName, rows }) => ({ objectApiName, rows }));
+  return {
+    code: 'READ_BOUND_EXCEEDED',
+    message: readBoundRefusal(objects, bound),
+    readBound: { bound, objects: objects.slice(0, READ_BOUND_NAMED) },
+  };
+}
+
+/** What the files of a clone of the whole org take against the target's file storage. */
+export type WholeOrgFilesCheck = { count: number; check: StorageCheck } | { unmeasured: true };
+
+/**
+ * The files a clone of the whole org copies against the target's file
+ * storage, from the `/limits` its gate read for the data storage: refused
+ * past it (`STORAGE_EXCEEDED`, `storage.kind: 'files'`). None to copy, no
+ * check; files the source would not sum are said so, and refuse nothing.
+ */
+export function wholeOrgFilesOf(
+  files: WholeOrgMeasures['files'],
+  limits: DataStorage | { unread: string },
+  target: string,
+): { files?: WholeOrgFilesCheck; stop?: ForgeGateStop } {
+  if (!files) return {};
+  if ('unmeasured' in files) return { files: { unmeasured: true } };
+  if (files.count <= 0) return {};
+  const check = storageCheckOf(
+    { storageBytes: files.bytes },
+    'unread' in limits
+      ? limits
+      : (limits.fileStorage ?? { unread: 'the limits the org answered list no FileStorageMB' }),
+  );
+  const refused = fileStorageRefusal(check, target);
+  return {
+    files: { count: files.count, check },
+    ...(refused !== undefined && check.verdict === 'exceeds'
+      ? {
+          stop: {
+            code: 'STORAGE_EXCEEDED',
+            message: refused,
+            storage: {
+              estimateMB: Number(formatMB(check.estimateMB)),
+              remainingMB: check.remainingMB,
+              kind: 'files',
+            },
+          },
+        }
+      : {}),
+  };
+}
+
+/**
  * What Forge's write gate holds a run's rows to beside their storage and
  * their emails: the target's daily API requests, part by part, and the
- * checkpoint the run takes first.
+ * checkpoint the run takes first; for a clone of the whole org, the source's
+ * daily API requests and the target's Bulk API batches besides.
  */
 export interface ForgeWriteBudget {
   /** The requests against what the target has left today, every part together. */
@@ -890,21 +1331,54 @@ export interface ForgeWriteBudget {
   /**
    * Why the run is refused, nothing written: its checkpoint first refused at
    * the gate, or its requests past what the target has left, the refusal
-   * naming each part beside the run's own. Absent when neither refuses it.
+   * naming each part beside the run's own; for a clone of the whole org, its
+   * jobs past the target's Bulk API batches, or its reads past the source's
+   * requests, the stop's `api` saying which. Absent when none refuses it.
    */
-  stop?: {
-    code: typeof API_BUDGET_EXCEEDED | typeof CHECKPOINT_REFUSED;
-    message: string;
-    refusal?: CheckpointRefusal;
-  };
+  stop?: ForgeGateStop & { code: typeof API_BUDGET_EXCEEDED | typeof CHECKPOINT_REFUSED };
+  /**
+   * The refusals past the first, in the order the gate meets them: what a
+   * dry run names besides. Absent when there is none.
+   */
+  alsoRefused?: Array<ForgeGateStop & { code: typeof API_BUDGET_EXCEEDED }>;
+  /**
+   * Of a clone of the whole org: the source's requests and the target's Bulk
+   * API batches against what each has left today — none when it sends no
+   * job — and what else it takes. Absent for any other run.
+   */
+  wholeOrg?: { source: ApiBudgetCheck; bulkBatches?: ApiBudgetCheck; cost: WholeOrgCost };
   /**
    * Whether the gate asks for them, whatever the volume: a checkpoint taken
    * first reads whole tables of the target, not the run's rows, and its cost
-   * is said before anything is taken.
+   * is said before anything is taken; a clone of the whole org is always
+   * asked.
    */
   asks: boolean;
   /** What the run's question says of them: the requests when they run short, and the checkpoint. */
   confirmation: Pick<WriteConfirmation, 'apiRequests' | 'checkpoint'>;
+}
+
+/** What a clone of the whole org brings its write gate beside a run's: see {@link forgeWriteBudgetOf}. */
+export interface WholeOrgBudgetInput {
+  measures: WholeOrgMeasures;
+  /** The target's daily Bulk API batches, read with its storage, or why they could not be. */
+  bulkBatches: ApiBudget | { unread: string } | undefined;
+  /** The source's daily API requests, or why they could not be read. */
+  sourceBudget: ApiBudget | { unread: string } | undefined;
+  /** The source, as a refusal names it. */
+  source: string;
+}
+
+/** What Forge's write gate prices a run's requests from: see {@link forgeWriteBudgetOf}. */
+export interface ForgeWriteBudgetInput {
+  plan: Pick<WritePlan, 'objects' | 'leftOut'>;
+  updatedAfterInsert?: readonly string[];
+  readBack?: number;
+  checkpoint?: RunCheckpointEstimate;
+  deliverability?: number;
+  budget: ApiBudget | { unread: string } | undefined;
+  target: string;
+  wholeOrg?: WholeOrgBudgetInput;
 }
 
 /**
@@ -917,29 +1391,109 @@ export interface ForgeWriteBudget {
  * integrations had spent the day's requests stopped part way through, as
  * Sync, Seed and Autopilot no longer do.
  *
+ * A clone of the whole org (`wholeOrg`) is held to the same parts, its
+ * writes priced as the Bulk API sends them and its files among them, not to
+ * a check of its own: then, past the target's requests, to the Bulk API
+ * batches its jobs take of the target's day, and to the requests its reads
+ * take of the source's, each refusal naming the allowance and the org
+ * (`api`). It is always asked.
+ *
  * @param input.budget - The daily API requests the target has, read with its
  *   storage (`DataStorage.dailyApiRequests`), or on their own when the
  *   storage could not be read (`readApiBudget`), or why they could not be.
  * @param input.target - The org, as the refusal names it.
+ * @param input.wholeOrg - Of a clone of the whole org: what it measured, the
+ *   target's daily Bulk API batches read with its storage
+ *   (`DataStorage.dailyBulkApiBatches`), the source's daily API requests
+ *   (`readApiBudget`), or why either could not be read, and the source as
+ *   the refusal names it.
  */
-export function forgeWriteBudgetOf(input: {
-  plan: Pick<WritePlan, 'objects' | 'leftOut'>;
-  updatedAfterInsert?: readonly string[];
-  readBack?: number;
-  checkpoint?: RunCheckpointEstimate;
-  deliverability?: number;
-  budget: ApiBudget | { unread: string } | undefined;
-  target: string;
-}): ForgeWriteBudget {
-  const api = apiBudgetCheckOf(forgeRequestPartsOf(input), input.budget);
+export function forgeWriteBudgetOf(
+  input: ForgeWriteBudgetInput & { wholeOrg: WholeOrgBudgetInput },
+): ForgeWriteBudget & Required<Pick<ForgeWriteBudget, 'wholeOrg'>>;
+export function forgeWriteBudgetOf(input: ForgeWriteBudgetInput): ForgeWriteBudget;
+export function forgeWriteBudgetOf(input: ForgeWriteBudgetInput): ForgeWriteBudget {
+  const whole = input.wholeOrg;
+  const files = whole?.measures.files;
+  const api = apiBudgetCheckOf(
+    forgeRequestPartsOf({
+      ...input,
+      ...(whole
+        ? {
+            bulk: whole.measures.restOnly ? { restOnly: whole.measures.restOnly } : {},
+            ...(files && 'count' in files ? { files: files.count } : {}),
+          }
+        : {}),
+    }),
+    input.budget,
+  );
   const overBudget = apiBudgetRefusal(api, input.target);
-  const stop =
-    checkpointScopeStop(input.checkpoint) ??
-    (overBudget !== undefined ? { code: API_BUDGET_EXCEEDED, message: overBudget } : undefined);
+  const stops: NonNullable<ForgeWriteBudget['stop']>[] = [];
+  const checkpointStop = checkpointScopeStop(input.checkpoint);
+  if (checkpointStop) stops.push(checkpointStop);
+  if (overBudget !== undefined) {
+    stops.push({
+      code: API_BUDGET_EXCEEDED,
+      message: overBudget,
+      ...(whole && api.verdict === 'exceeds'
+        ? {
+            api: {
+              kind: 'requests',
+              org: 'target',
+              estimate: api.estimate,
+              remaining: api.remaining,
+            },
+          }
+        : {}),
+    });
+  }
+  let wholeOrg: ForgeWriteBudget['wholeOrg'];
+  if (whole) {
+    const cost = wholeOrgCostOf({ ...input, measures: whole.measures });
+    const batches =
+      cost.bulkBatches > 0
+        ? apiBudgetCheckOf(cost.bulkBatches, whole.bulkBatches ?? { unread: BULK_BATCHES_NOT_TOLD })
+        : undefined;
+    const overBatches = batches && bulkBatchesRefusal(batches, input.target);
+    if (overBatches !== undefined && batches?.verdict === 'exceeds') {
+      stops.push({
+        code: API_BUDGET_EXCEEDED,
+        message: overBatches,
+        api: {
+          kind: 'bulkBatches',
+          org: 'target',
+          estimate: batches.estimate,
+          remaining: batches.remaining,
+        },
+      });
+    }
+    const source = apiBudgetCheckOf(cost.sourceRequests, whole.sourceBudget);
+    const overSource = sourceApiBudgetRefusal(source, whole.source);
+    if (overSource !== undefined && source.verdict === 'exceeds') {
+      stops.push({
+        code: API_BUDGET_EXCEEDED,
+        message: overSource,
+        api: {
+          kind: 'requests',
+          org: 'source',
+          estimate: source.estimate,
+          remaining: source.remaining,
+        },
+      });
+    }
+    wholeOrg = { source, ...(batches ? { bulkBatches: batches } : {}), cost };
+  }
+  const [stop, ...also] = stops;
+  const alsoRefused = also.filter(
+    (refused): refused is ForgeGateStop & { code: typeof API_BUDGET_EXCEEDED } =>
+      refused.code === API_BUDGET_EXCEEDED,
+  );
   return {
     api,
     ...(stop ? { stop } : {}),
-    asks: input.checkpoint !== undefined,
+    ...(whole && alsoRefused.length > 0 ? { alsoRefused } : {}),
+    ...(wholeOrg ? { wholeOrg } : {}),
+    asks: input.checkpoint !== undefined || whole !== undefined,
     confirmation: {
       ...confirmationApiOf(api),
       ...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
@@ -976,6 +1530,239 @@ export function storageCheckOf(
         ? 'near'
         : 'fits';
   return { verdict, estimateMB, maxMB, remainingMB };
+}
+
+/**
+ * The write plan of a clone of the whole org: its counts ({@link writePlanOf}),
+ * the emails at the size of their text, which the source summed page by page
+ * (`WholeOrgMeasures.emailTextBytes`). An email takes the size of its text
+ * (`rowStorageBytes`), and counted, without one, it took none.
+ */
+export function wholeOrgWritePlanOf(
+  objects: ForgeWriteBoundary['objects'],
+  measures: Pick<WholeOrgMeasures, 'emailTextBytes'>,
+): WritePlan {
+  const plan = writePlanOf(objects);
+  const text = measures.emailTextBytes;
+  const counted = objects.some(
+    (object) => sizedName(object.objectApiName) === EMAIL_MESSAGE && object.counted,
+  );
+  if (text === undefined || !Number.isFinite(text) || !counted) return plan;
+  const measured = plan.objects.map((object) =>
+    sizedName(object.objectApiName) === EMAIL_MESSAGE
+      ? { ...object, storageBytes: object.storageBytes + Math.max(0, text) }
+      : object,
+  );
+  return {
+    ...plan,
+    objects: measured,
+    storageBytes: measured.reduce((sum, object) => sum + object.storageBytes, 0),
+  };
+}
+
+/**
+ * The personal fields a run copies as they are, per object it writes: those
+ * discovery named personal (`piiFields`) that the run does not anonymize —
+ * every one with Anonymize off, those not selected on their node with it on
+ * (`anonymizeFields`), as `ForgeComplianceService` reads the run. An object
+ * with none is left out.
+ *
+ * @param written - The objects the run writes rows of.
+ */
+export function personalFieldsAsIsOf(
+  nodes: ReadonlyArray<
+    Pick<
+      ForgeGraph['nodes'][number],
+      'objectApiName' | 'included' | 'piiFields' | 'anonymizeFields'
+    >
+  >,
+  written: ReadonlySet<string>,
+  anonymizePII: boolean,
+): Array<{ objectApiName: string; fields: string[] }> {
+  return nodes.flatMap(({ objectApiName, included, piiFields, anonymizeFields }) => {
+    if (!included || !written.has(objectApiName)) return [];
+    const anonymized = new Set(anonymizePII ? anonymizeFields : []);
+    const fields = piiFields.filter((field) => !anonymized.has(field));
+    return fields.length > 0 ? [{ objectApiName, fields }] : [];
+  });
+}
+
+/** What the dry run of a clone of the whole org reads of its graph: its nodes' fields and who left them out, and what discovery left out. */
+export interface WholeOrgGraph {
+  nodes: ReadonlyArray<
+    Pick<
+      ForgeGraph['nodes'][number],
+      'objectApiName' | 'included' | 'piiFields' | 'anonymizeFields' | 'leftOutByUser'
+    >
+  >;
+  leftOut?: ForgeGraph['leftOut'];
+}
+
+/**
+ * What a clone of the whole org leaves of the source, object by object with
+ * why: the objects discovery left out (`ForgeGraph.leftOut`), and the nodes
+ * the user took out on the page (`excludedByUser`); and how many for each
+ * reason, the most first.
+ */
+export function wholeOrgLeftOutOf(graph: WholeOrgGraph): {
+  objects: ForgeLeftOutObject[];
+  counts: ForgeLeftOutCount[];
+} {
+  const listed = graph.leftOut ?? [];
+  const named = new Set(listed.map(({ objectApiName }) => objectApiName));
+  const objects: ForgeLeftOutObject[] = [
+    ...listed,
+    ...graph.nodes
+      .filter((node) => node.leftOutByUser === true && !named.has(node.objectApiName))
+      .map(({ objectApiName }): ForgeLeftOutObject => ({
+        objectApiName,
+        reason: 'excludedByUser',
+      })),
+  ];
+  const counts = new Map<ForgeLeftOutObject['reason'], number>();
+  for (const { reason } of objects) counts.set(reason, (counts.get(reason) ?? 0) + 1);
+  return {
+    objects,
+    counts: [...counts]
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason)),
+  };
+}
+
+/**
+ * What the dry run of a clone of the whole org says, stopped at its write
+ * gate once the source is counted: see {@link wholeOrgDryRunOf}.
+ */
+export interface WholeOrgDryRun {
+  /** Per object, the records the run would insert, the most first, and how many go in Bulk API jobs or by REST. */
+  wouldInsert: Array<{ objectApiName: string; rows: number; jobs: number; byRest: number }>;
+  /** The records in all. */
+  totalRows: number;
+  /** The target's API requests, every part together, against what it has left today. */
+  targetRequests: ApiBudgetCheck;
+  /** The requests its reads would still take of the source, against what the source has left today. */
+  sourceRequests: ApiBudgetCheck;
+  /** The target's daily Bulk API batches its jobs would take; absent when it would send none. */
+  bulkBatches?: ApiBudgetCheck;
+  /** The data storage its records would take, emails by their text, against what the target has left. */
+  storage: StorageCheck;
+  /** The files it would copy against the target's file storage; absent when it copies none. */
+  files?: WholeOrgFilesCheck;
+  /** The seconds its writes would take, about. */
+  durationSeconds: number;
+  /**
+   * What it leaves out: the objects of the source, each with why, how many
+   * for each reason, and of the objects it writes, the rows it would not
+   * write (`WritePlan.leftOut`).
+   */
+  leftOut: {
+    objects: ForgeLeftOutObject[];
+    counts: ForgeLeftOutCount[];
+    rows?: WritePlanLeftOut;
+  };
+  /** Per object it writes, the personal fields it would copy as they are. */
+  personalAsIs: Array<{ objectApiName: string; fields: string[] }>;
+  /** Every refusal the run would meet, in the order it meets them; none when it would go through. */
+  wouldBeRefused: ForgeGateStop[];
+}
+
+/**
+ * The dry run of a clone of the whole org: stopped at the write gate once
+ * the source is counted, it says what the run would write of each object,
+ * what it would take of both orgs, what it leaves out and why, the personal
+ * fields it copies as they are, and every refusal the run would meet. It
+ * reads no row and keeps no journal: what it reads of the orgs is the
+ * target's `/limits` — its storage, requests, Bulk API batches and file
+ * storage in one answer, the requests alone when that one is refused — and
+ * the source's, for its requests. It writes nothing to either.
+ *
+ * The refusals come in the order the run meets them: the objects it reads
+ * whole past their bound, the data storage, the file storage, then the
+ * checkpoint first, the target's requests, its Bulk API batches and the
+ * source's requests ({@link forgeWriteBudgetOf}).
+ *
+ * @param input.objects - What the run's counts hand its gate, as a run's
+ *   (`ForgeWriteBoundary.objects`).
+ * @param input.updatedAfterInsert - The objects whose rows its second pass
+ *   updates.
+ * @param input.checkpoint - The checkpoint first's scope, when it is asked.
+ */
+export async function wholeOrgDryRunOf(input: {
+  objects: ForgeWriteBoundary['objects'];
+  measures: WholeOrgMeasures;
+  graph: WholeOrgGraph;
+  anonymizePII: boolean;
+  updatedAfterInsert?: readonly string[];
+  checkpoint?: RunCheckpointEstimate;
+  target: { org: string; limits: LimitsTransport };
+  source: { org: string; limits: LimitsTransport };
+}): Promise<WholeOrgDryRun> {
+  const unread = (err: unknown): { unread: string } => ({ unread: extractErrorMessage(err) });
+  const plan = wholeOrgWritePlanOf(input.objects, input.measures);
+  const limits = await readDataStorage(input.target.limits).catch(unread);
+  const budget =
+    'unread' in limits
+      ? await readApiBudget(input.target.limits).catch(unread)
+      : limits.dailyApiRequests;
+  const sourceBudget = await readApiBudget(input.source.limits).catch(unread);
+
+  const storage = storageCheckOf(plan, limits);
+  const overStorage = storageRefusal(storage, input.target.org);
+  const files = wholeOrgFilesOf(input.measures.files, limits, input.target.org);
+  const requests = forgeWriteBudgetOf({
+    plan,
+    ...(input.updatedAfterInsert ? { updatedAfterInsert: input.updatedAfterInsert } : {}),
+    ...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
+    budget,
+    target: input.target.org,
+    wholeOrg: {
+      measures: input.measures,
+      bulkBatches: 'unread' in limits ? limits : limits.dailyBulkApiBatches,
+      sourceBudget,
+      source: input.source.org,
+    },
+  });
+  const wouldBeRefused = [
+    readBoundStopOf(input.measures.readWholeOver),
+    overStorage !== undefined && storage.verdict === 'exceeds'
+      ? {
+          code: 'STORAGE_EXCEEDED' as const,
+          message: `${overStorage} Nothing was written.`,
+          storage: {
+            estimateMB: Number(formatMB(storage.estimateMB)),
+            remainingMB: storage.remainingMB,
+          },
+        }
+      : undefined,
+    files.stop,
+    requests.stop,
+    ...(requests.alsoRefused ?? []),
+  ].filter((stop): stop is ForgeGateStop => stop !== undefined);
+
+  const bulk: ForgeBulkWrites = input.measures.restOnly
+    ? { restOnly: input.measures.restOnly }
+    : {};
+  const written = new Set(plan.objects.map(({ objectApiName }) => objectApiName));
+  const { wholeOrg } = requests;
+  return {
+    wouldInsert: plan.objects.map(({ objectApiName, rows }) => {
+      const { jobs, rest } = forgeWritesOf(objectApiName, rows, bulk);
+      return { objectApiName, rows, jobs: jobs.length, byRest: rest };
+    }),
+    totalRows: plan.totalRows,
+    targetRequests: requests.api,
+    sourceRequests: wholeOrg.source,
+    ...(wholeOrg.bulkBatches ? { bulkBatches: wholeOrg.bulkBatches } : {}),
+    storage,
+    ...(files.files ? { files: files.files } : {}),
+    durationSeconds: wholeOrg.cost.durationSeconds,
+    leftOut: {
+      ...wholeOrgLeftOutOf(input.graph),
+      ...(plan.leftOut ? { rows: plan.leftOut } : {}),
+    },
+    personalAsIs: personalFieldsAsIsOf(input.graph.nodes, written, input.anonymizePII),
+    wouldBeRefused,
+  };
 }
 
 /** What an org has of a daily email limit, as its `/limits` say. */
@@ -2249,8 +3036,12 @@ export type ForgeRunGateErrorCode =
  */
 export class ForgeRunGateError extends Error {
   readonly code: ForgeRunGateErrorCode;
-  /** For a refusal for storage: what the rows take, and what the target had left, in MB. */
-  readonly storage?: { estimateMB: number; remainingMB: number };
+  /**
+   * For a refusal for storage: what the rows or the files take, and what the
+   * target had left, in MB, and which storage (`kind`, the data storage when
+   * absent).
+   */
+  readonly storage?: NonNullable<ForgeRunGateStop['storage']>;
   /** For a run cancelled at its read: the most rows of one object it was set to read. */
   readonly ceiling?: number;
   /**
@@ -2259,13 +3050,18 @@ export class ForgeRunGateError extends Error {
    * failed rather than refused.
    */
   readonly reason?: CheckpointRefusalCode;
+  /** For a clone of the whole org refused for an API budget: which allowance of which org, what the run takes and what is left. */
+  readonly api?: NonNullable<ForgeRunGateStop['api']>;
+  /** For a clone of the whole org refused for what it reads whole: the bound, and the objects past it. */
+  readonly readBound?: NonNullable<ForgeRunGateStop['readBound']>;
 
   constructor(
     code: ForgeRunGateErrorCode,
     message: string,
-    storage?: { estimateMB: number; remainingMB: number },
+    storage?: NonNullable<ForgeRunGateStop['storage']>,
     ceiling?: number,
     reason?: CheckpointRefusalCode,
+    detail?: Pick<ForgeRunGateStop, 'api' | 'readBound'>,
   ) {
     super(message);
     this.name = 'ForgeRunGateError';
@@ -2273,6 +3069,8 @@ export class ForgeRunGateError extends Error {
     if (storage) this.storage = storage;
     if (ceiling !== undefined) this.ceiling = ceiling;
     if (reason !== undefined) this.reason = reason;
+    if (detail?.api) this.api = detail.api;
+    if (detail?.readBound) this.readBound = detail.readBound;
   }
 
   /**
@@ -2280,14 +3078,22 @@ export class ForgeRunGateError extends Error {
    * first came to ({@link forgeWriteBudgetOf}, {@link takeCheckpointFirst}),
    * with the take's refusal kept by its code: the page said a checkpoint was
    * refused, never by what — the disk of this machine, another run writing,
-   * its limit of records — which the English message alone named.
+   * its limit of records — which the English message alone named. A stop of
+   * a clone of the whole org keeps what it names besides: the storage and
+   * which, the allowance and the org, the objects read whole.
    */
-  static of(stop: {
-    code: ForgeRunGateErrorCode;
-    message: string;
-    refusal?: CheckpointRefusal;
-  }): ForgeRunGateError {
-    return new ForgeRunGateError(stop.code, stop.message, undefined, undefined, stop.refusal?.code);
+  static of(stop: ForgeGateStop): ForgeRunGateError {
+    return new ForgeRunGateError(
+      stop.code,
+      stop.message,
+      stop.storage,
+      undefined,
+      stop.refusal?.code,
+      {
+        ...(stop.api ? { api: stop.api } : {}),
+        ...(stop.readBound ? { readBound: stop.readBound } : {}),
+      },
+    );
   }
 
   /** The stop as the page is told it: none for a code of the command line's own. */
@@ -2299,6 +3105,10 @@ export class ForgeRunGateError extends Error {
       ...(this.ceiling !== undefined ? { ceiling: this.ceiling } : {}),
       ...(this.reason !== undefined && this.code === CHECKPOINT_REFUSED
         ? { reason: this.reason }
+        : {}),
+      ...(this.api && this.code === API_BUDGET_EXCEEDED ? { api: this.api } : {}),
+      ...(this.readBound && this.code === 'READ_BOUND_EXCEEDED'
+        ? { readBound: this.readBound }
         : {}),
     };
   }
