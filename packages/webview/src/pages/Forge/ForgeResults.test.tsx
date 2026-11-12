@@ -2932,6 +2932,53 @@ describe('ForgeResults', () => {
     ]);
   });
 
+  it('names an owner the target holds inactive as what refused the record, in the panel language, and in the report it copies', async () => {
+    // A record the target refused for its owner, inactive there, went in again
+    // without OwnerId: the row says so in the words of the panel's language,
+    // never as the key the extension recorded; the report, in English.
+    mockResult = Object.assign(makeMockResult(), {
+      writtenWithoutFields: [
+        {
+          objectApiName: 'Station__c',
+          rows: 2,
+          fields: [
+            {
+              field: 'OwnerId',
+              refusedBy: 'inactive-owner',
+              reason:
+                'INACTIVE_OWNER_OR_USER: operation performed with inactive user [005000000000001] as owner of station__c',
+              rows: 2,
+            },
+          ],
+        },
+      ],
+    });
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-results-written-without-row').textContent).toContain(
+        ` — ${fr.runResults.writtenWithoutFields.byInactiveOwner} — INACTIVE_OWNER_OR_USER: `,
+      );
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('forge-copy-report'));
+      });
+      expect(writeText.mock.calls[0]?.[0] ?? '').toContain(
+        '| Station__c | OwnerId | 2 | inactive owner | INACTIVE_OWNER_OR_USER: ',
+      );
+    } finally {
+      await i18n.changeLanguage('en');
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
   it('says nothing of fields left out for a run whose rows no validation rule refused', () => {
     mockResult = makeMockResult();
     render(<ForgeResults />);

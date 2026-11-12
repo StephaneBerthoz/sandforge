@@ -6052,10 +6052,11 @@
     "encryptedLeftOut": "{{fields}}: verschlüsselte Felder, die der Benutzer, mit dem SandForge die Quell-Org liest, ohne die Berechtigung View Encrypted Data maskiert sieht. Aus jedem geschriebenen Datensatz weggelassen, statt maskiert kopiert.",
     "writtenWithoutFields": {
       "title": "Ohne ein Feld geschrieben, das die Ziel-Org abgelehnt hat",
-      "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln, eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das —, oder der Suchfilter eines Nachschlagefelds, das leer bleiben darf, der den genannten Datensatz nicht annimmt. Der Klon hat jeden Datensatz ohne diese Felder erneut geschrieben: Der Datensatz ist in der Ziel-Org, ohne den Wert, den die Quelle für diese Felder enthält.",
+      "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln, eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das —, oder der Suchfilter eines Nachschlagefelds, das leer bleiben darf, der den genannten Datensatz nicht annimmt. Der Klon hat jeden Datensatz ohne diese Felder erneut geschrieben: Der Datensatz ist in der Ziel-Org, ohne den Wert, den die Quelle für diese Felder enthält. Ein Datensatz, den die Ziel-Org wegen seines dort inaktiven Inhabers abgelehnt hat, wurde ohne ihn erneut geschrieben: Er gehört dem Benutzer, unter dem der Klon schreibt.",
       "byValidationRule": "von einer Validierungsregel abgelehnt",
       "byRestrictedPicklist": "Wert von einer eingeschränkten Auswahlliste abgelehnt",
-      "byLookupFilter": "genannter Datensatz von einem Suchfilter abgelehnt"
+      "byLookupFilter": "genannter Datensatz von einem Suchfilter abgelehnt",
+      "byInactiveOwner": "Inhaber von der Ziel-Org abgelehnt, da dort inaktiv"
     },
     "checkpointNow": {
       "why": "Bevor Ihre Tester beginnen, halten Sie {{org}} im jetzigen Stand als Punkt fest, zu dem Sie zurückkehren können. Das Zurücksetzen bringt die Org dann dorthin zurück, egal wer sie danach ändert.",
@@ -6512,7 +6513,7 @@
       "explanation": "Salesforce hat den Datensatz abgelehnt, weil er einem Benutzer gehören oder zugewiesen würde, der in der Org inaktiv ist.",
       "action": "Richten Sie die Zuweisungsregel oder den Flow, der diesen Benutzer wählt, auf einen aktiven Benutzer oder eine Warteschlange aus, oder aktivieren Sie den Benutzer wieder, und starten Sie dann erneut.",
       "forge": {
-        "explanation": "Salesforce hat den Datensatz abgelehnt, weil er einem Benutzer gehören oder zugewiesen würde, der in der Ziel-Org inaktiv ist. Der Klon überlässt jeden Datensatz, den er anlegt, dem Benutzer, unter dem er schreibt: Dieser Benutzer kommt also aus der Ziel-Org — eine Zuweisungsregel oder ein Flow, der den Inhaber setzt oder eine Aufgabe zuweist — oder aus einem Inhaber, der unter Überprüfung → Einstellungen angegeben wurde.",
+        "explanation": "Salesforce hat den Datensatz abgelehnt, weil er einem Benutzer gehören oder zugewiesen würde, der in der Ziel-Org inaktiv ist. Ein Klon eines Datensatzes überlässt jeden Datensatz, den er anlegt, dem Benutzer, unter dem er schreibt; jeder andere Klon behält einen Inhaber, der in der Ziel-Org aktiv ist, und gibt diesem Benutzer einen Datensatz, dessen Inhaber in der Ziel-Org inaktiv ist, es sei denn, dieser Benutzer hat die Berechtigung Update Records with Inactive Owners. Die unter Überprüfung → Einstellungen angegebenen Inhaber haben Vorrang, und ein Inhaber, der einem in der Ziel-Org inaktiven Benutzer gegeben wurde, hält den Lauf an, bevor er etwas liest. Was weiterhin abgelehnt wird, kommt von einer Zuweisungsregel oder einem Flow der Ziel-Org, der den Inhaber setzt oder eine Aufgabe zuweist, von einem Prüffeld wie Erstellt von, das einen inaktiven Benutzer nennt, oder von einem unter Überprüfung → Einstellungen angegebenen Inhaber, den die Ziel-Org seit Beginn des Laufs als inaktiv führt.",
         "action": "Richten Sie diese Regel oder diesen Flow in der Ziel-Org auf einen aktiven Benutzer oder eine Warteschlange aus, oder aktivieren Sie den Benutzer wieder; oder geben Sie die Datensätze unter Überprüfung → Einstellungen bei „Besitzer, die Benutzern des Ziels zugewiesen werden“ einem aktiven Benutzer. Wiederholen Sie dann die fehlgeschlagenen Objekte."
       }
     },
@@ -6770,6 +6771,10 @@
     "filesNotAccepted": {
       "explanation": "Dieser Lauf anonymisiert seine Datensätze und kopiert ihre Dateien, deren Inhalt nicht anonymisiert werden kann: Dateien werden erst kopiert, wenn Sie akzeptieren, dass sie so kopiert werden, wie sie sind. Es wurde nichts gelesen oder geschrieben.",
       "action": "Akzeptieren Sie in der Überprüfung, dass die Dateien so kopiert werden, wie sie sind, oder schalten Sie das Kopieren aus, und starten Sie dann erneut."
+    },
+    "ownerMapInactive": {
+      "explanation": "Unter Überprüfung → Einstellungen angegebene Inhaber geben Datensätze einem Benutzer, der in der Ziel-Org inaktiv ist und in der Meldung genannt wird. Die Ziel-Org lehnt einen Datensatz ab, dessen Inhaber inaktiv ist, und der Klon gibt ihn nicht dem Benutzer, unter dem er schreibt, statt dem von Ihnen gewählten. Es wurde nichts gelesen oder geschrieben.",
+      "action": "Geben Sie diese Datensätze unter Überprüfung → Einstellungen bei „Besitzer, die Benutzern des Ziels zugewiesen werden“ einem aktiven Benutzer, oder aktivieren Sie den Benutzer in der Ziel-Org wieder, und starten Sie dann erneut."
     },
     "abortedBeforeStart": {
       "explanation": "Sie haben den Lauf gestoppt, bevor er begann. Es wurde nichts geschrieben.",

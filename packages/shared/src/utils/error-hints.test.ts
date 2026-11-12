@@ -144,6 +144,13 @@ const REFUSALS: ReadonlyArray<{
     severity: 'warning',
   },
   {
+    message:
+      'Owners given to users the target holds inactive: Former Admin (005000000000003), given the records of 005000000000001AAA. Nothing was read or written.',
+    code: 'OWNER_MAP_INACTIVE',
+    hint: 'ownerMapInactive',
+    severity: 'warning',
+  },
+  {
     message: 'Forge execution was aborted before it started. Nothing was written.',
     code: 'ABORTED_BEFORE_START',
     hint: 'abortedBeforeStart',

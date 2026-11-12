@@ -6052,10 +6052,11 @@
     "encryptedLeftOut": "{{fields}} : champs chiffrés que l'utilisateur avec lequel SandForge lit l'org source voit masqués, faute de l'autorisation View Encrypted Data. Laissés hors de chaque enregistrement écrit, plutôt que copiés masqués.",
     "writtenWithoutFields": {
       "title": "Écrits sans un champ refusé par l'org cible",
-      "hint": "L'org cible a refusé ces enregistrements sur les champs qu'elle désignait : une de ses règles de validation, une liste de sélection restreinte qui n'accepte pas la valeur pour le type d'enregistrement de l'enregistrement — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune, ce que rien de ce qui est lu avant l'écriture ne dit —, ou le filtre de recherche d'un champ de référence qu'elle permet de laisser vide, qui n'accepte pas l'enregistrement désigné. Le clone a écrit de nouveau chaque enregistrement sans ces champs : l'enregistrement est dans l'org cible, sans la valeur que la source leur donne.",
+      "hint": "L'org cible a refusé ces enregistrements sur les champs qu'elle désignait : une de ses règles de validation, une liste de sélection restreinte qui n'accepte pas la valeur pour le type d'enregistrement de l'enregistrement — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune, ce que rien de ce qui est lu avant l'écriture ne dit —, ou le filtre de recherche d'un champ de référence qu'elle permet de laisser vide, qui n'accepte pas l'enregistrement désigné. Le clone a écrit de nouveau chaque enregistrement sans ces champs : l'enregistrement est dans l'org cible, sans la valeur que la source leur donne. Un enregistrement refusé par l'org cible pour son propriétaire, inactif dans celle-ci, a été écrit de nouveau sans lui : l'utilisateur sous lequel le clone écrit en est le propriétaire.",
       "byValidationRule": "refusé par une règle de validation",
       "byRestrictedPicklist": "valeur refusée par une liste de sélection restreinte",
-      "byLookupFilter": "enregistrement désigné refusé par un filtre de recherche"
+      "byLookupFilter": "enregistrement désigné refusé par un filtre de recherche",
+      "byInactiveOwner": "propriétaire refusé par l'org cible, où il est inactif"
     },
     "checkpointNow": {
       "why": "Avant que vos testeurs ne commencent, gardez {{org}} telle qu'elle est maintenant comme point où revenir. Revenir à ce point l'y ramène ensuite, quel que soit l'auteur des changements à venir.",
@@ -6512,7 +6513,7 @@
       "explanation": "Salesforce a refusé l'enregistrement parce qu'il appartiendrait, ou serait attribué, à un utilisateur inactif dans l'org.",
       "action": "Faites pointer la règle d'attribution ou le Flow qui choisit cet utilisateur vers un utilisateur actif ou une file d'attente, ou réactivez l'utilisateur, puis relancez.",
       "forge": {
-        "explanation": "Salesforce a refusé l'enregistrement parce qu'il appartiendrait, ou serait attribué, à un utilisateur inactif dans l'org cible. Le clone laisse chaque enregistrement qu'il crée à l'utilisateur sous lequel il écrit : cet utilisateur vient donc de l'org cible — une règle d'attribution, ou un Flow qui fixe le propriétaire ou attribue une tâche — ou d'un propriétaire donné dans Revue → Réglages.",
+        "explanation": "Salesforce a refusé l'enregistrement parce qu'il appartiendrait, ou serait attribué, à un utilisateur inactif dans l'org cible. Un clone d'enregistrement laisse chaque enregistrement qu'il crée à l'utilisateur sous lequel il écrit ; tout autre clone garde un propriétaire actif dans la cible, et donne à cet utilisateur un enregistrement dont le propriétaire est inactif dans la cible, sauf si cet utilisateur a l'autorisation Update Records with Inactive Owners. Les propriétaires donnés dans Revue → Réglages passent avant, et un propriétaire donné à un utilisateur inactif dans la cible arrête l'exécution avant toute lecture. Ce qui reste refusé vient d'une règle d'attribution ou d'un Flow de la cible qui fixe le propriétaire ou attribue une tâche, d'un champ d'audit, comme Créé par, qui désigne un utilisateur inactif, ou d'un propriétaire donné dans Revue → Réglages que la cible tient pour inactif depuis le début de l'exécution.",
         "action": "Dans l'org cible, faites pointer cette règle ou ce Flow vers un utilisateur actif ou une file d'attente, ou réactivez l'utilisateur ; ou, dans Revue → Réglages, confiez les enregistrements à un utilisateur actif sous Propriétaires confiés aux utilisateurs de la cible. Puis relancez les objets en échec."
       }
     },
@@ -6770,6 +6771,10 @@
     "filesNotAccepted": {
       "explanation": "Cette exécution anonymise ses enregistrements et copie leurs fichiers, dont le contenu ne peut pas être anonymisé : les fichiers ne sont copiés qu'une fois que vous acceptez qu'ils le soient tels qu'ils sont. Rien n'a été lu ni écrit.",
       "action": "Dans la revue, acceptez que les fichiers soient copiés tels qu'ils sont, ou désactivez la copie, puis relancez."
+    },
+    "ownerMapInactive": {
+      "explanation": "Des propriétaires donnés dans Revue → Réglages confient des enregistrements à un utilisateur inactif dans l'org cible, nommé dans le message. La cible refuse un enregistrement dont le propriétaire est inactif, et le clone ne le donne pas à l'utilisateur sous lequel il écrit à la place de celui que vous avez choisi. Rien n'a été lu ni écrit.",
+      "action": "Dans Revue → Réglages, confiez ces enregistrements à un utilisateur actif sous Propriétaires confiés aux utilisateurs de la cible, ou réactivez l'utilisateur dans l'org cible, puis relancez."
     },
     "abortedBeforeStart": {
       "explanation": "Vous avez arrêté l'exécution avant qu'elle ne démarre. Rien n'a été écrit.",

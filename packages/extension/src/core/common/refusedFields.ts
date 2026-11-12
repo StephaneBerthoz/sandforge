@@ -22,6 +22,19 @@
  * out only by a caller that knows which lookups the target lets be empty:
  * Frozen's loader passes none, and a lookup filter's refusal leaves its row
  * failed there.
+ *
+ * The owner is left out only by a caller that asks for it (`inactiveOwner`):
+ * Forge's batch writer, and nothing else — not the parents it copies from
+ * outside the graph, nor Sync, Seed or Frozen. A target that holds the row's
+ * owner inactive refuses it (`INACTIVE_OWNER_OR_USER`) and names no field: a
+ * sandbox made from a production holds the production's users, its inactive
+ * ones inactive, and refused so every record such a user owned, and every
+ * record under them for want of their parent. Written again without its
+ * owner, the record goes to the user the run writes as. The same code also
+ * says a target's assignment rule, its Flow or an audit field named an
+ * inactive user, which leaving the owner out would not cure: the owner goes
+ * only when the refusal names the very owner the row was sent with, or names
+ * no one of a row that carries no audit field.
  */
 
 import type { ForgeFieldRefusal, ForgeRefusedField } from '@sandforge/shared';
@@ -50,6 +63,78 @@ export const RESTRICTED_PICKLIST_REFUSAL = 'INVALID_OR_NULL_FOR_RESTRICTED_PICKL
  * (`REQUIRED_FIELD_MISSING`).
  */
 export const LOOKUP_FILTER_REFUSAL = 'FIELD_FILTER_VALIDATION_EXCEPTION';
+
+/**
+ * The code a target refuses a row with when a user the write names is
+ * inactive there: `operation performed with inactive user [005…] as owner of
+ * account`, the user's id between brackets on fifteen characters, the object
+ * in lower case after it, no field named. The owner the row was sent with is
+ * one such user; a user an assignment rule, a Flow or an audit field of the
+ * row names is another.
+ */
+export const INACTIVE_OWNER_REFUSAL = 'INACTIVE_OWNER_OR_USER';
+
+/**
+ * The user an inactive owner's refusal names: the first id of a user between
+ * brackets, 15 or 18 characters. Read by the id alone, whatever language the
+ * words around it are in: they are the running user's.
+ */
+const NAMED_USER_RE = /\[(005[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)\]/;
+
+/** The key prefix of a user's id: what an owner a target can hold inactive begins with. */
+const USER_PREFIX = '005';
+
+/** The fields of a row naming the users who made it and last changed it, which a target may hold inactive too. */
+const AUDIT_FIELDS: readonly string[] = ['CreatedById', 'LastModifiedById'];
+
+/**
+ * The owner the refusal of `detail` names, when it is the very owner
+ * `payload` was sent with: its id on fifteen characters, the case-sensitive
+ * part every form of it shares. Nothing when the refusal is not an inactive
+ * owner's, names no user, or names another than the row's owner — an
+ * assignment rule's, a Flow's, an audit field's.
+ */
+export function inactiveOwnerNamed(
+  detail: SaveErrorDetail,
+  payload: Record<string, unknown>,
+): string | undefined {
+  if (detail.statusCode !== INACTIVE_OWNER_REFUSAL) return undefined;
+  const key = heldKeyOf(payload, 'OwnerId');
+  const owner = key === undefined ? undefined : payload[key];
+  const named = NAMED_USER_RE.exec(detail.message)?.[1];
+  if (typeof owner !== 'string' || named === undefined) return undefined;
+  return owner.slice(0, 15) === named.slice(0, 15) ? named.slice(0, 15) : undefined;
+}
+
+/**
+ * The owner to write a row again without once the target refused it as
+ * inactive: `OwnerId` as the payload spells it, when the refusal names the
+ * owner the row was sent with — or names no user at all, and the row carries
+ * no audit field the user it meant could be. Nothing otherwise: a user the
+ * refusal names that is not the row's owner came from the target's own
+ * assignment rule or Flow, or from an audit field, and the row left without
+ * its owner would be refused again. Nor for a row whose owner is the external
+ * id it is upserted by, or that names a field beside the owner, nor for a row
+ * a queue owns: a queue is never inactive, and the user the refusal meant is
+ * another.
+ */
+function inactiveOwnerLeftOut(
+  detail: SaveErrorDetail,
+  payload: Record<string, unknown>,
+  keep: string | undefined,
+): FieldToLeaveOut | undefined {
+  const field = heldKeyOf(payload, 'OwnerId');
+  if (field === undefined || field.toLowerCase() === keep?.toLowerCase()) return undefined;
+  const owner = payload[field];
+  if (typeof owner !== 'string' || !owner.startsWith(USER_PREFIX)) return undefined;
+  if (detail.fields.some((named) => named.toLowerCase() !== 'ownerid')) return undefined;
+  const namesAUser = NAMED_USER_RE.test(detail.message);
+  const owned = namesAUser
+    ? inactiveOwnerNamed(detail, payload) !== undefined
+    : AUDIT_FIELDS.every((audit) => heldKeyOf(payload, audit) === undefined);
+  if (!owned) return undefined;
+  return { field, refusedBy: 'inactive-owner', reason: codeAndMessage(detail) };
+}
 
 /** What refused a row on the fields its error named, by the code it refused with. */
 const REFUSED_BY: ReadonlyMap<string, ForgeFieldRefusal> = new Map([
@@ -104,23 +189,39 @@ export function heldKeyOf(payload: Record<string, unknown>, named: string): stri
  * first alone: run against a real target, the refusal named one field of the
  * two. Written again without it, the row is refused for the second.
  *
+ * A caller that asks for it (`options.inactiveOwner`) has the row go again
+ * without its owner too, when the target held that owner inactive: see
+ * `inactiveOwnerLeftOut`. The owner goes beside the fields a rule named in the
+ * same refusal, as any two fields do.
+ *
  * @param details - Every error the target refused the row with.
  * @param keep - A field the row cannot go without: the external id an upsert matches it by.
  * @param mayBeEmpty - Whether the target lets a row leave a field empty, by
  *   the payload's name for it: what says a lookup a filter refused can be left
  *   out. Without it, none is.
+ * @param options - `inactiveOwner`: whether an inactive owner's refusal has
+ *   the row go again without its owner. Forge's batch writer alone asks.
  */
 export function refusedFields(
   details: readonly SaveErrorDetail[] | undefined,
   payload: Record<string, unknown>,
   keep: string | undefined,
   mayBeEmpty?: (field: string) => boolean,
+  options?: { readonly inactiveOwner?: boolean },
 ): FieldToLeaveOut[] | undefined {
   if (!details || details.length === 0) return undefined;
   const leftOut = new Map<string, FieldToLeaveOut>();
   for (const detail of details) {
     const refusedBy = REFUSED_BY.get(detail.statusCode);
-    if (!refusedBy) return undefined;
+    if (!refusedBy) {
+      const owner =
+        options?.inactiveOwner === true && detail.statusCode === INACTIVE_OWNER_REFUSAL
+          ? inactiveOwnerLeftOut(detail, payload, keep)
+          : undefined;
+      if (!owner) return undefined;
+      if (!leftOut.has(owner.field)) leftOut.set(owner.field, owner);
+      continue;
+    }
     const held = detail.fields
       .map((named) => heldKeyOf(payload, named))
       .filter(
@@ -184,6 +285,7 @@ const REFUSED_IT: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'a validation rule of the target refused it',
   'restricted-picklist': 'a restricted picklist of the target refused its value',
   'lookup-filter': 'a lookup filter of the target refused the record it names',
+  'inactive-owner': 'the target holds the owner it names inactive',
 };
 
 /**

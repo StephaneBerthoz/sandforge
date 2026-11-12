@@ -14,6 +14,7 @@ import { PROTOCOL_VERSION, forgeRunCountsLeft } from '@sandforge/shared';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { DiscoveryOptions } from '../../modules/forge/GraphDiscoveryService.js';
 import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
+import { ForgeRunGateError, OWNER_MAP_INACTIVE } from '../../modules/forge/ForgeRunGate.js';
 import type { ExecutionSummary } from '../../modules/forge/ForgeExecutor.js';
 import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import { MAX_DISCOVERIES } from '../../modules/forge/ForgeStops.js';
@@ -581,6 +582,35 @@ describe('ForgeHandler stops and discoveries, with two panels', () => {
 
       expect(orchestrator.abort).not.toHaveBeenCalled();
       expect(taken(panelA, 'forge:abort:error')).toEqual([]);
+    });
+  });
+
+  describe('a run its owner mapping stops before it reads anything', () => {
+    it('tells the page the code it was refused under and the words naming the user, records it stopped, and keeps no run', async () => {
+      const run = send(panelA, 'wv-run-a', 'forge:execute', {
+        graph: graphOf('Account'),
+        config: CONFIG,
+      });
+      await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(1));
+      const words =
+        'Owners given to users the target holds inactive: Former Admin (005000000000002AAA), ' +
+        'given the records of 005000000000001AAA. Nothing was read or written.';
+
+      stopRun(new ForgeRunGateError(OWNER_MAP_INACTIVE, words));
+      await run;
+
+      const [refused] = taken(panelA, 'forge:execute:error');
+      expect(refused?.payload).toMatchObject({ code: OWNER_MAP_INACTIVE, message: words });
+      // No stop of the page's gate, which goes back to Review: a hint says it.
+      expect(refused?.payload).not.toHaveProperty('gate');
+      expect(refused?.payload).not.toHaveProperty('result');
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          action: 'forge_execute',
+          outcome: 'stopped',
+          details: expect.objectContaining({ code: OWNER_MAP_INACTIVE }),
+        }),
+      ]);
     });
   });
 

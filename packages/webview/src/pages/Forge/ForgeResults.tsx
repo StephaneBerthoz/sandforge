@@ -128,6 +128,7 @@ const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'runResults.writtenWithoutFields.byValidationRule',
   'restricted-picklist': 'runResults.writtenWithoutFields.byRestrictedPicklist',
   'lookup-filter': 'runResults.writtenWithoutFields.byLookupFilter',
+  'inactive-owner': 'runResults.writtenWithoutFields.byInactiveOwner',
 };
 
 /** The same, as the copied report says it, in English as the rest of it. */
@@ -135,6 +136,7 @@ const REFUSED_BY_REPORT: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'validation rule',
   'restricted-picklist': 'restricted picklist',
   'lookup-filter': 'lookup filter',
+  'inactive-owner': 'inactive owner',
 };
 
 /** Status badge colors. */

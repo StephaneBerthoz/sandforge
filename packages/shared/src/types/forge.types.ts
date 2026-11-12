@@ -1293,8 +1293,20 @@ export interface ForgeFieldsLeftOut {
  * past the check made before the write when the record type the row goes in
  * with was never given values of the field: it takes none of them, while the
  * target's UI API answers the field's every value for it.
+ *
+ * Or the target itself, holding the row's owner inactive
+ * (`INACTIVE_OWNER_OR_USER`, which names no field): Forge's alone, and only of
+ * `OwnerId`. A sandbox made from a production holds the production's users,
+ * its inactive ones inactive, and refuses a record such a user owns unless the
+ * user the run writes as may give one an inactive owner. The run leaves such an
+ * owner out before the write when it can tell; one the target refuses all the
+ * same — the refusal naming the owner the row was sent with, or naming no one
+ * of a row that carries no audit field — has its row written again without it,
+ * and the record goes to the user the run writes as. An owner the run's owner
+ * mapping gives is never left out.
  */
-export type ForgeFieldRefusal = 'validation-rule' | 'restricted-picklist' | 'lookup-filter';
+export type ForgeFieldRefusal =
+  'validation-rule' | 'restricted-picklist' | 'lookup-filter' | 'inactive-owner';
 
 /** A field the target refused rows on, left out as they were written again. */
 export interface ForgeRefusedField {

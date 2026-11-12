@@ -132,6 +132,7 @@ const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'runResults.writtenWithoutFields.byValidationRule',
   'restricted-picklist': 'runResults.writtenWithoutFields.byRestrictedPicklist',
   'lookup-filter': 'runResults.writtenWithoutFields.byLookupFilter',
+  'inactive-owner': 'runResults.writtenWithoutFields.byInactiveOwner',
 };
 
 /** What a reload's purge would take, by the preview's plan: records deleted, and deactivated. */

@@ -2178,12 +2178,23 @@ export function automationUnreadOf(
 }
 
 /**
+ * The code a clone is refused under, before it reads anything, when its owner
+ * mapping gives records to a user the target holds inactive: the target
+ * refuses every record that user would own, and the run will not give them to
+ * the user it writes as instead of the one chosen. Worded by the panel
+ * (`error-hints.ts`), the message naming each user.
+ */
+export const OWNER_MAP_INACTIVE = 'OWNER_MAP_INACTIVE';
+
+/**
  * The codes a run's gate stops it with: the extension's, the command line's
- * own, and those every module's run is refused under — past the target's
- * daily API requests, and for the checkpoint it takes first.
+ * own, those every module's run is refused under — past the target's daily
+ * API requests, and for the checkpoint it takes first — and a clone's owner
+ * mapping to an inactive user.
  */
 export type ForgeRunGateErrorCode =
   | ForgeRunGateCode
+  | typeof OWNER_MAP_INACTIVE
   | 'MAX_TOTAL_EXCEEDED'
   | 'AUTOMATION_NOT_ACCEPTED'
   | 'EMAILS_EXCEEDED'

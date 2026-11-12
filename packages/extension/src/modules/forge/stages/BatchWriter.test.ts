@@ -3,6 +3,7 @@ import {
   BatchWriter,
   addWrittenWithoutFields,
   emptyBatchWriteResult,
+  fieldsToLeaveOut,
   resolveWriteBatching,
   summarizeRecordForError,
   writtenWithoutFieldsNote,
@@ -2656,6 +2657,276 @@ describe('BatchWriter — a row a restricted picklist refused for its value', ()
       expect(insertRecords.mock.calls[2]?.[2]).toEqual([{ Name: 'V2', RecordTypeId: VISIT }]);
       expect(result.writtenWithoutFields?.rows).toBe(1);
     });
+  });
+});
+
+describe('BatchWriter — a row the target refused for an owner inactive there', () => {
+  /** The owner as the source gave it, on 18 characters, and as the target names it, on 15. */
+  const OWNER = '005000000000001AAA';
+  const NAMED = '005000000000001';
+  /** Another owner, active in the target. */
+  const ACTIVE = '005000000000002AAA';
+  /**
+   * The refusal as a target answered an insert of an account whose owner it
+   * holds inactive: the user on fifteen characters between brackets, the
+   * object in lower case, no field named.
+   */
+  const MESSAGE = `operation performed with inactive user [${NAMED}] as owner of account`;
+  const REASON = `INACTIVE_OWNER_OR_USER: ${MESSAGE}`;
+
+  /** A refusal as the REST writers hand it on: read from the platform's save result. */
+  function refused(
+    ...errors: Array<{ statusCode: string; message: string; fields: string[] }>
+  ): InsertResult {
+    return toSaveOutcome({ success: false, errors }, 'Account');
+  }
+
+  const byInactiveOwner = (message = MESSAGE): InsertResult =>
+    refused({ statusCode: 'INACTIVE_OWNER_OR_USER', message, fields: [] });
+
+  const written = (id: string): InsertResult => ({ id, success: true, errors: [] });
+
+  /** Rows as the cleaning stage hands them on, owned as given. */
+  function owned(
+    rows: Array<Record<string, unknown>>,
+    overrides?: Partial<WriteNodeInput>,
+    objectApiName = 'Account',
+  ): WriteNodeInput {
+    const payloadOf = (row: Record<string, unknown>): Record<string, unknown> =>
+      Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'Id'));
+    return makeInput(rows, {
+      node: makeNode(objectApiName, rows.length),
+      records: rows.map(payloadOf),
+      cleanedRecords: rows.map((row) => ({
+        source: { ...row },
+        cleaned: payloadOf(row),
+        nullifiedFks: [],
+      })),
+      creatableFields: new Set(['Name', 'OwnerId']),
+      ...overrides,
+    });
+  }
+
+  const progressOf = (input: WriteNodeInput): string[] =>
+    vi.mocked(input.onProgress).mock.calls.map(([event]) => event.message);
+
+  it('writes it once more without its owner, the key gone and not emptied, and says the target held the owner inactive', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byInactiveOwner()])
+      .mockResolvedValueOnce([written('001NEW1')]);
+    const input = owned([{ Id: '001OLD1', Name: 'Acme', OwnerId: OWNER }]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(2);
+    const sentAgain = insertRecords.mock.calls[1]?.[2]?.[0];
+    expect(sentAgain).toEqual({ Name: 'Acme' });
+    expect(sentAgain).not.toHaveProperty('OwnerId');
+    expect(input.remapper.get('001OLD1')).toBe('001NEW1');
+    expect(result).toMatchObject({ successCount: 1, failureCount: 0, errorSamples: [] });
+    expect(result.writtenWithoutFields).toEqual({
+      rows: 1,
+      fields: [{ field: 'OwnerId', refusedBy: 'inactive-owner', reason: REASON, rows: 1 }],
+    });
+    expect(writtenWithoutFieldsNote(result.writtenWithoutFields)).toBe(
+      `, 1 written without OwnerId: the target holds the owner it names inactive, ${REASON}`,
+    );
+    expect(progressOf(input)).toContain(
+      'Writing 1 Account record again without the fields the target, the owner being ' +
+        'inactive there, refused...',
+    );
+  });
+
+  it('keeps the owner of a row the target refused for another inactive user: a rule or a Flow of its own', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValue([
+        byInactiveOwner(
+          'operation performed with inactive user [005000000000009] as owner of account',
+        ),
+      ]);
+    const input = owned([{ Id: '001OLD1', Name: 'Acme', OwnerId: OWNER }]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(result.writtenWithoutFields).toBeUndefined();
+  });
+
+  it('keeps an owner the run maps to: the row fails with the target words rather than go to the user the run writes as', async () => {
+    const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([byInactiveOwner()]);
+    const writer = new BatchWriter({ insertRecords });
+    const input = owned([{ Id: '001OLD1', Name: 'Acme', OwnerId: OWNER }], {
+      ownersMapped: new Set([NAMED]),
+    });
+
+    const result = await writer.writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(result.errorSamples[0]?.messages).toEqual([REASON]);
+    expect(result.writtenWithoutFields).toBeUndefined();
+    // Nor remembered: a later row of the same owner, not mapped, is sent with it.
+    await writer.writeNode(owned([{ Id: '001OLD2', Name: 'Beta', OwnerId: OWNER }]));
+    expect(insertRecords.mock.calls[1]?.[2]).toEqual([{ Name: 'Beta', OwnerId: OWNER }]);
+  });
+
+  it('leaves it failed, sent no third time, when the target refuses it again without its owner', async () => {
+    // The owner gone, a Flow of the target gives the record another inactive
+    // user: there is no owner left to go, and the row does not loop.
+    const flow = 'operation performed with inactive user [005000000000008] as owner of account';
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byInactiveOwner()])
+      .mockResolvedValueOnce([byInactiveOwner(flow)]);
+    const input = owned([{ Id: '001OLD1', Name: 'Acme', OwnerId: OWNER }]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(2);
+    expect(input.remapper.get('001OLD1')).toBeUndefined();
+    expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(result.errorSamples[0]?.messages).toEqual([
+      `INACTIVE_OWNER_OR_USER: ${flow}`,
+      `Sent again without OwnerId after the first refusal: ${REASON}`,
+    ]);
+  });
+
+  it('sends a row no fifth time when its owner is refused after three rounds without fields', async () => {
+    const byRule = (field: string): InsertResult =>
+      refused({
+        statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+        message: `${field} rule`,
+        fields: [field],
+      });
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule('Phone')])
+      .mockResolvedValueOnce([byRule('Fax')])
+      .mockResolvedValueOnce([byRule('Website')])
+      .mockResolvedValueOnce([byInactiveOwner()])
+      .mockResolvedValue([written('001NEW1')]);
+    const input = owned([
+      {
+        Id: '001OLD1',
+        Name: 'Acme',
+        OwnerId: OWNER,
+        Phone: '0100',
+        Fax: '0200',
+        Website: 'example.com',
+      },
+    ]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(4);
+    expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(result.errorSamples[0]?.messages.at(-1)).toBe(
+      'Not sent again: a row goes again without the fields the target refused 3 times at most.',
+    );
+  });
+
+  it('leaves the row a failure, saying why, when a cancel comes before the call that writes it again', async () => {
+    const insertRecords = vi.fn<InsertImpl>().mockResolvedValueOnce([byInactiveOwner()]);
+    const waitIfPaused = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('cancelled'));
+    const input = owned([{ Id: '001OLD1', Name: 'Acme', OwnerId: OWNER }], { waitIfPaused });
+    const tally = emptyBatchWriteResult();
+
+    await expect(new BatchWriter({ insertRecords }).writeNode(input, tally)).rejects.toThrow(
+      'cancelled',
+    );
+
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(tally).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(tally.errorSamples[0]?.messages).toEqual([
+      REASON,
+      'Not written again without OwnerId: cancelled',
+    ]);
+  });
+
+  describe('an owner it refused earlier in the run', () => {
+    it('sends a later row of another object without it from its first call, and keeps another owner', async () => {
+      // Account then Contact, refused for the same inactive owner: the second
+      // object learns it from the first.
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([byInactiveOwner()])
+        .mockResolvedValueOnce([written('001NEW1')])
+        .mockResolvedValueOnce([
+          written('003NEW1'),
+          refused({
+            statusCode: 'STRING_TOO_LONG',
+            message: 'Name: data value too large',
+            fields: ['Name'],
+          }),
+          written('003NEW3'),
+        ]);
+      const writer = new BatchWriter({ insertRecords });
+
+      await writer.writeNode(owned([{ Id: '001OLD1', Name: 'Acme', OwnerId: OWNER }]));
+      const input = owned(
+        [
+          { Id: '003OLD1', Name: 'C1', OwnerId: NAMED },
+          { Id: '003OLD2', Name: 'C2 with a name too long', OwnerId: OWNER },
+          { Id: '003OLD3', Name: 'C3', OwnerId: ACTIVE },
+        ],
+        undefined,
+        'Contact',
+      );
+      const result = await writer.writeNode(input);
+
+      expect(insertRecords).toHaveBeenCalledTimes(3);
+      expect(insertRecords.mock.calls[2]?.[2]).toEqual([
+        { Name: 'C1' },
+        { Name: 'C2 with a name too long' },
+        { Name: 'C3', OwnerId: ACTIVE },
+      ]);
+      // The payload the cleaning stage built is left as it was.
+      expect(input.records[0]).toEqual({ Name: 'C1', OwnerId: NAMED });
+      expect(input.remapper.get('003OLD1')).toBe('003NEW1');
+      expect(result).toMatchObject({ successCount: 2, failureCount: 1 });
+      expect(result.writtenWithoutFields).toEqual({
+        rows: 1,
+        fields: [{ field: 'OwnerId', refusedBy: 'inactive-owner', reason: REASON, rows: 1 }],
+      });
+      expect(result.errorSamples[0]?.messages).toEqual([
+        'STRING_TOO_LONG: Name: data value too large [Name]',
+        'Sent without OwnerId: the target refused the same owner, inactive there, earlier in ' +
+          `the run, ${REASON}`,
+      ]);
+    });
+
+    it('remembers nothing of a refusal that named no user', async () => {
+      const unnamed = 'operation performed with inactive user as owner of account';
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([byInactiveOwner(unnamed)])
+        .mockImplementation(async (_org, _object, rows) => rows.map(() => written('001NEW')));
+      const writer = new BatchWriter({ insertRecords });
+
+      await writer.writeNode(owned([{ Id: '001OLD1', Name: 'Acme', OwnerId: OWNER }]));
+      await writer.writeNode(owned([{ Id: '001OLD2', Name: 'Beta', OwnerId: OWNER }]));
+
+      // Written again without its owner, as the refusal leaves no other cure...
+      expect(insertRecords.mock.calls[1]?.[2]).toEqual([{ Name: 'Acme' }]);
+      // ...but the next row goes with its owner: nothing said it was this one.
+      expect(insertRecords.mock.calls[2]?.[2]).toEqual([{ Name: 'Beta', OwnerId: OWNER }]);
+    });
+  });
+
+  it('leaves the owner of a parent copied from outside the graph: only the node write asks', () => {
+    const result = byInactiveOwner();
+    const payload = { Name: 'Acme', OwnerId: OWNER };
+
+    expect(fieldsToLeaveOut(result, payload, undefined)).toBeUndefined();
+    expect(
+      fieldsToLeaveOut(result, payload, undefined, undefined, { inactiveOwner: true }),
+    ).toEqual([{ field: 'OwnerId', refusedBy: 'inactive-owner', reason: REASON }]);
   });
 });
 

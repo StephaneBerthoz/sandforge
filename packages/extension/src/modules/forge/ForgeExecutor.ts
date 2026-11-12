@@ -207,7 +207,14 @@ import {
 import { UNSCOPED_NO_PARENT_REASON } from './ScopedSoqlBuilder.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { idLists } from '../dataops/RecordRemoval.js';
-import { idsTheTargetLacks } from './stages/TargetHolds.js';
+import {
+  idsTheTargetLacks,
+  inactiveMappedOwners,
+  inactiveOwnersOf,
+  writesInactiveOwnersOnce,
+  type MappedOwnerInactive,
+} from './stages/TargetHolds.js';
+import { ForgeRunGateError, OWNER_MAP_INACTIVE } from './ForgeRunGate.js';
 import {
   PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_OBJECT,
@@ -1553,6 +1560,11 @@ interface PageCarry {
    * target holding no record of the id it names.
    */
   readonly lookupsOutsideTheRun: Map<string, number>;
+  /**
+   * The rows sent with the user the run writes as for owner, the target
+   * holding the one they named inactive: see `ownersInactiveNote`.
+   */
+  ownersInactive: number;
   writtenWithoutFields?: WrittenWithoutFields;
   /**
    * The flags of relations linked to that could not be given back, counted
@@ -1597,6 +1609,7 @@ function emptyPageCarry(): PageCarry {
     currencies: new CurrencyReplacementTally(),
     lookupsNotCarried: new Map(),
     lookupsOutsideTheRun: new Map(),
+    ownersInactive: 0,
   };
 }
 
@@ -1758,6 +1771,24 @@ interface ExecutionState {
   readonly targetHolds: Map<string, boolean>;
   /** The objects the target refused a read of, asked so: not asked again. */
   readonly targetReadsRefused: Set<string>;
+  /**
+   * Of the users asked about in `targetHolds`, those the target holds
+   * inactive, as rows carry them and as the target answered them: every ask
+   * of the run asks a user's `IsActive` with it. See `inactiveOwnersToLeaveOut`.
+   */
+  readonly inactiveUsers: Set<string>;
+  /**
+   * Whether the user the run writes as may give a record an inactive owner
+   * (Update Records with Inactive Owners), read of the target once, the first
+   * time a row names an owner it holds inactive: see `writesInactiveOwnersOnce`.
+   */
+  readonly writesInactiveOwners: () => Promise<boolean>;
+  /**
+   * Per object, the rows written with the user the run writes as for owner,
+   * the target holding the one they named inactive, and those owners: said
+   * once, at the end. See `inactiveOwnersReports`.
+   */
+  readonly ownersInactive: Map<string, OwnersInactive>;
   /**
    * Per object, per lookup at an object outside the run, the rows written
    * without it, the target holding no record of the id it names: said once,
@@ -3223,6 +3254,125 @@ function lookupsOutsideTheRunReports(state: ExecutionState): ExecutionObjectErro
   }));
 }
 
+/**
+ * The rows of an object written with the user the run writes as for owner,
+ * the target holding the owner they named inactive, and those owners as the
+ * rows named them: see `inactiveOwnersReports`.
+ */
+interface OwnersInactive {
+  rows: number;
+  readonly owners: Set<string>;
+}
+
+/** The most owners the note of an object names: the others are counted. */
+const OWNERS_INACTIVE_NAMED = 10;
+
+/**
+ * What an object's line says of the rows a write sends without their owner,
+ * the target holding that user inactive and the user the run writes as not
+ * allowed to give a record an inactive owner: the platform gives them that
+ * user. Nothing when no row went so. The line that says the lookups the
+ * target holds no record of (`lookupsNotCarriedNote`) says nothing of these:
+ * the target holds their owner.
+ */
+function ownersInactiveNote(rows: number): string {
+  if (rows === 0) return '';
+  return `, written with the user the run writes as for owner on ${rows}: the target holds their owner inactive`;
+}
+
+/** The cleaned rows that go without their owner, the target holding it inactive: see `ownersInactiveNote`. */
+function countOwnersInactive(cleaned: ReadonlyArray<Pick<CleanedRecord, 'ownerInactive'>>): number {
+  return cleaned.filter(({ ownerInactive }) => ownerInactive !== undefined).length;
+}
+
+/**
+ * Count, for the run's reports, the cleaned rows of `objectApiName` that go
+ * without their owner, the target holding it inactive, and those owners: see
+ * `inactiveOwnersReports`.
+ */
+function noteOwnersInactive(
+  state: ExecutionState,
+  objectApiName: string,
+  cleaned: ReadonlyArray<Pick<CleanedRecord, 'ownerInactive'>>,
+): void {
+  let entry = state.ownersInactive.get(objectApiName);
+  for (const { ownerInactive } of cleaned) {
+    if (ownerInactive === undefined) continue;
+    entry ??= { rows: 0, owners: new Set<string>() };
+    entry.rows += 1;
+    entry.owners.add(ownerInactive);
+  }
+  if (entry) state.ownersInactive.set(objectApiName, entry);
+}
+
+/**
+ * The rows written with the user the run writes as for owner, the target
+ * holding the owner they named inactive, said once per object among the run's
+ * notes, with those owners' ids — at most ten, the others counted — for the
+ * user to map under Owners: counted neither failed nor attempted, the row
+ * being written. Said on the object's line alone, the records would have
+ * changed hands with nothing in the run's result, its history or its audit
+ * entry to say so.
+ *
+ * The note names no error code: it is no failure, and a failure's code is
+ * what has the results explain a sample as one.
+ */
+function inactiveOwnersReports(state: ExecutionState): ExecutionObjectError[] {
+  return [...state.ownersInactive].map(
+    ([objectApiName, { rows, owners }]): ExecutionObjectError => {
+      const ids = [...owners];
+      const named = ids.slice(0, OWNERS_INACTIVE_NAMED).join(', ');
+      const more = ids.length - OWNERS_INACTIVE_NAMED;
+      return {
+        objectApiName,
+        stage: 'scope',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: `OwnerId → User (${rows} record${rows === 1 ? '' : 's'})`,
+            messages: [
+              'Written with the user the run writes as for owner: the target holds these owners ' +
+                `inactive (${more > 0 ? `${named}, and ${more} more` : named}) and that user may ` +
+                'not give a record an inactive owner (Update Records with Inactive Owners). Map ' +
+                'them to an active user under Owners (Review → Controls, or --owner-map on the ' +
+                'command line) to give the records to that user.',
+            ],
+          },
+        ],
+      };
+    },
+  );
+}
+
+/** The most users a refusal of the run's owner mapping names: the others are counted. */
+const MAPPED_INACTIVE_NAMED = 10;
+
+/**
+ * Why a run whose owner mapping gives records to users the target holds
+ * inactive is refused before it reads anything: each user by name and id,
+ * with the source owners mapped to it, at most ten, the others counted.
+ */
+export function ownerMapInactiveRefusal(inactive: readonly MappedOwnerInactive[]): string {
+  const said = inactive
+    .slice(0, MAPPED_INACTIVE_NAMED)
+    .map(
+      ({ user, name, sources }) =>
+        `${name !== undefined ? `${name} (${user})` : user}, given the records of ` +
+        sources.join(', '),
+    )
+    .join('; ');
+  const more = inactive.length - MAPPED_INACTIVE_NAMED;
+  return (
+    'Owners given to users the target holds inactive: ' +
+    `${said}${more > 0 ? `; and ${more} more` : ''}. The target refuses a record owned by an ` +
+    'inactive user, and the run will not give it to the user it writes as instead of the one ' +
+    'chosen. Give those records to an active user under Owners (Review → Controls, or ' +
+    '--owner-map on the command line), or reactivate the user in the target. Nothing was read ' +
+    'or written.'
+  );
+}
+
 /** What an object's progress says of `count` emails waiting for the task each names. */
 function waitingForTheirTask(count: number): string {
   return `${count} on a case waiting for ${count === 1 ? 'its task' : 'their tasks'}`;
@@ -3754,6 +3904,16 @@ export class ForgeExecutor {
       const unwired = this.fileCopyUnwired();
       if (unwired) throw new ForgeFilesRefusedError(unwired, 'FILES_NOT_COPYABLE');
     }
+    // An owner mapping that gives records to a user the target holds inactive
+    // is refused before anything is read, a simulation's as a run's: the
+    // target refuses every record that user would own, and the run will not
+    // give them to the user it writes as instead of the one chosen.
+    const mappedInactive = await inactiveMappedOwners(resolved.ownerMappings, (soql) =>
+      this.deps.queryRecords(targetOrgId, soql),
+    );
+    if (mappedInactive.length > 0) {
+      throw new ForgeRunGateError(OWNER_MAP_INACTIVE, ownerMapInactiveRefusal(mappedInactive));
+    }
     // The record types the user decided to write as others, in ids, over the
     // run's own mapping: every stage that reads the mapping reads them.
     const recordTypeRows: RecordTypeRowsOfARun = new Map();
@@ -3839,6 +3999,11 @@ export class ForgeExecutor {
       askedForRowsThatNeedThem: new Map<string, Set<string>>(),
       targetHolds: new Map<string, boolean>(),
       targetReadsRefused: new Set<string>(),
+      inactiveUsers: new Set<string>(),
+      writesInactiveOwners: writesInactiveOwnersOnce((soql) =>
+        this.deps.queryRecords(targetOrgId, soql),
+      ),
+      ownersInactive: new Map<string, OwnersInactive>(),
       lookupsOutsideTheRun: new Map<string, Map<string, LookupOutsideTheRun>>(),
       parentsOutside: new Map<string, ForgeGraphNode>(),
       readAsParents: new Map<string, { count: number; neededBy: Set<string> }>(),
@@ -5330,8 +5495,44 @@ export class ForgeExecutor {
       mapped: (sourceId) => state.remapper.get(sourceId) !== undefined,
       known: state.targetHolds,
       refused: state.targetReadsRefused,
+      // Asked of every call, so that no user the run keeps an answer for was
+      // asked without its `IsActive`: see `inactiveOwnersToLeaveOut`.
+      inactive: state.inactiveUsers,
       query: (soql) => this.deps.queryRecords(state.targetOrgId, soql),
     });
+  }
+
+  /**
+   * The owners `rows` name that the target holds inactive, when the user the
+   * run writes as may not give a record an inactive owner (Update Records
+   * with Inactive Owners): what the write sends a row without, the platform
+   * giving it that user (`cleanNodeRecords`). None when the insert does not
+   * carry the owner, when no row names one the target holds inactive — the
+   * permission is then never read — or when that user may: the owner goes as
+   * read, as faithful a copy as the target takes.
+   *
+   * A sandbox made from a production holds the production's users, its
+   * inactive ones inactive: carried, such an owner had the target refuse the
+   * row (INACTIVE_OWNER_OR_USER), and every record under it for want of its
+   * parent. What the target holds inactive is read with what it holds
+   * (`idsTheTargetLacks`, called before this on the same rows); the
+   * permission once a run, the first time it matters, which is after the
+   * write gate and after the permission sets a run that mutes the target's
+   * automation assigns. An owner mapped to a user of the target goes mapped.
+   *
+   * @param ownerCarried - Whether the insert sends the owner: createable in
+   *   both orgs, neither excluded nor written under another name.
+   */
+  private async inactiveOwnersToLeaveOut(
+    state: ExecutionState,
+    rows: readonly Record<string, unknown>[],
+    ownerCarried: boolean,
+  ): Promise<ReadonlySet<string> | undefined> {
+    if (!ownerCarried || state.inactiveUsers.size === 0) return undefined;
+    const owners = inactiveOwnersOf(rows, state.inactiveUsers, state.config.ownerMappings);
+    if (owners.size === 0) return undefined;
+    if (await state.writesInactiveOwners()) return undefined;
+    return owners;
   }
 
   /**
@@ -5951,6 +6152,7 @@ export class ForgeExecutor {
       picklistChangesNote(carry.picklists.list()) +
       currencyReplacementsNote(carry.currencies.list()) +
       lookupsNotCarriedNote(carry.lookupsNotCarried) +
+      ownersInactiveNote(carry.ownersInactive) +
       lookupsOutsideTheRunNote(carry.lookupsOutsideTheRun) +
       pricesSwappedNote(state, object);
     const withoutFields = writtenWithoutFieldsNote(carry.writtenWithoutFields);
@@ -6017,6 +6219,7 @@ export class ForgeExecutor {
         `${picklistChangesNote(carry.picklists.list())}` +
         `${currencyReplacementsNote(carry.currencies.list())}` +
         `${lookupsNotCarriedNote(carry.lookupsNotCarried)}` +
+        `${ownersInactiveNote(carry.ownersInactive)}` +
         `${lookupsOutsideTheRunNote(carry.lookupsOutsideTheRun)}${pricesSwappedNote(state, object)}` +
         `${writtenWithoutFieldsNote(carry.writtenWithoutFields)}${leftToThePlatformNote(state, object)}`,
     });
@@ -7219,12 +7422,14 @@ export class ForgeExecutor {
       // reads of its object found it; so are the rows held back for an
       // object the user excluded, read twice as a node of the catalog is, and
       // the rows written without a lookup at a record outside the run, page
-      // after page.
+      // after page, and with the user the run writes as for owner, the target
+      // holding theirs inactive.
       errors: [
         ...state.errors,
         ...heldForExclusionsReports(state),
         ...leftToThePlatformReports(state),
         ...lookupsOutsideTheRunReports(state),
+        ...inactiveOwnersReports(state),
       ],
       truncatedObjects: [...state.truncatedObjects],
       ...cappedObjectsOf(state),
@@ -13370,6 +13575,19 @@ export class ForgeExecutor {
                 fieldRename[field] === undefined,
             )
           : undefined;
+      // Of the owners the target holds, those it holds inactive, which the
+      // user the run writes as may not give a record: a row goes without its
+      // owner, rather than be refused for it with every record under it.
+      const inactiveOwners =
+        config.referenceFallback === 'keep'
+          ? await this.inactiveOwnersToLeaveOut(
+              state,
+              toWrite,
+              effectiveCreatableSet.has('OwnerId') &&
+                !excludedFields.has('OwnerId') &&
+                fieldRename['OwnerId'] === undefined,
+            )
+          : undefined;
       const cleanedRecords = cleanNodeRecords({
         objectApiName: node.objectApiName,
         records: toWrite,
@@ -13382,6 +13600,7 @@ export class ForgeExecutor {
         ownerMappings: config.ownerMappings,
         ...(team.lookups.size > 0 ? { resolvedLookups: team.lookups } : {}),
         ...(targetLacks && targetLacks.size > 0 ? { targetLacks } : {}),
+        ...(inactiveOwners ? { inactiveOwners } : {}),
         excludedFields,
         fieldRename,
         creatableFields: effectiveCreatableSet,
@@ -13430,15 +13649,18 @@ export class ForgeExecutor {
         picklistChangesNote(changed.list()) +
         currencyReplacementsNote(currenciesChanged.list()) +
         lookupsNotCarriedNote(countLookupsNotCarried(new Map(), cleanedRecords)) +
+        ownersInactiveNote(countOwnersInactive(cleanedRecords)) +
         lookupsOutsideTheRunNote(countLookupsOutsideTheRun(new Map(), cleanedRecords)) +
         (page ? '' : pricesSwappedNote(state, node.objectApiName));
       // Said on the line that ends an object read page by page, for all its pages.
       if (page) {
         countLookupsNotCarried(page.lookupsNotCarried, cleanedRecords);
         countLookupsOutsideTheRun(page.lookupsOutsideTheRun, cleanedRecords);
+        page.ownersInactive += countOwnersInactive(cleanedRecords);
       }
       // And among the run's reports, once per object.
       this.noteLookupsOutsideTheRun(state, node.objectApiName, fieldInfos, cleanedRecords);
+      noteOwnersInactive(state, node.objectApiName, cleanedRecords);
       let recordsToInsert = cleanedRecords.map((b) => b.cleaned);
       if (state.recordTypeMapper && config.recordTypeMappings) {
         recordsToInsert = state.recordTypeMapper.apply(
@@ -13648,6 +13870,15 @@ export class ForgeExecutor {
                   }
                 : {}),
               ...(createdWithoutType ? { onCreatedWithoutRecordType: createdWithoutType } : {}),
+              // The owners the user chose, which a row never goes without:
+              // see `WriteNodeInput.ownersMapped`.
+              ...(Object.keys(config.ownerMappings).length > 0
+                ? {
+                    ownersMapped: new Set(
+                      Object.values(config.ownerMappings).map((user) => user.slice(0, 15)),
+                    ),
+                  }
+                : {}),
               waitIfPaused: () => this.waitIfPaused(),
               stopped: () => this.isAborted,
               onProgress,

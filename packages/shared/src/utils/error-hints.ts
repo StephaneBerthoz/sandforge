@@ -262,9 +262,11 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     forge: ['errors.duplicateRule.forge.explanation', 'errors.duplicateRule.forge.action'],
     seedAction: 'errors.duplicateRule.seed.action',
   },
-  // A Forge clone leaves OwnerId out unless an owner mapping sets it: the
-  // inactive user comes from that mapping, or from the target's own
-  // assignment rules and Flows.
+  // A Forge clone of a record leaves OwnerId out unless an owner mapping sets
+  // it, and any clone leaves out an owner the target holds inactive; a
+  // mapping to an inactive user stops the run first (OWNER_MAP_INACTIVE). The
+  // inactive user comes from the target's own assignment rules and Flows, or
+  // from an audit field.
   INACTIVE_OWNER_OR_USER: {
     severity: 'error',
     keys: ['errors.inactiveUser.explanation', 'errors.inactiveUser.action'],
@@ -822,6 +824,12 @@ const FORGE_REFUSALS: Readonly<Record<string, { keys: HintKeys; severity: ErrorH
   },
   FILES_NOT_ACCEPTED: {
     keys: ['errors.filesNotAccepted.explanation', 'errors.filesNotAccepted.action'],
+    severity: 'warning',
+  },
+  // A clone whose owner mapping gives records to a user the target holds
+  // inactive: refused before it read anything, the message naming the user.
+  OWNER_MAP_INACTIVE: {
+    keys: ['errors.ownerMapInactive.explanation', 'errors.ownerMapInactive.action'],
     severity: 'warning',
   },
   // Not a failure: the user's own Abort, which came before the run started.

@@ -7,9 +7,11 @@
  * source→target ID mappings, links rows the target refused because it
  * already holds them to the record it named, writes again without them the
  * rows a validation rule, a restricted picklist or the lookup filter of a
- * lookup the target lets be empty refused on fields it named, up to three
+ * lookup the target lets be empty refused on fields it named, and without its
+ * owner a row the target refused for holding that owner inactive, up to three
  * rounds a row — and sends without it from the start a row holding a picklist
- * value the target refused under the same record type earlier in the run —
+ * value the target refused under the same record type earlier in the run, or
+ * an owner it refused as inactive earlier in the run —
  * sends again, after a wait, a call that never reached the target and the
  * rows it could not lock a record for, stops at a call whose answer was lost
  * and says which rows the target may hold, collects per-record failure
@@ -31,10 +33,12 @@ import { SELLING_MODEL_OPTION_OBJECT, isAlreadyExistsError } from '@sandforge/sh
 import { codeAndMessage, existingRecordOf } from '../../../core/common/existingRecordMatch.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import {
+  INACTIVE_OWNER_REFUSAL,
   LOOKUP_FILTER_REFUSAL,
   RESTRICTED_PICKLIST_REFUSAL,
   addWrittenWithoutFields,
   heldKeyOf,
+  inactiveOwnerNamed,
   refusedFields,
   refusedOnNoField,
   without,
@@ -284,6 +288,14 @@ export interface WriteNodeInput {
    * left the records it had created in the target. Absent, no call is kept.
    */
   calls?: InsertCallJournal;
+  /**
+   * The users the run's owner mapping gives records to, by their id on
+   * fifteen characters. The target refusing a row for one of them as
+   * inactive leaves the row a failure, with the target's words: left out,
+   * the owner the user chose would have gone to the user the run writes as.
+   * Absent, the run maps no owner.
+   */
+  ownersMapped?: ReadonlySet<string>;
   /** Pause/abort checkpoint — called between batch iterations. */
   waitIfPaused: () => Promise<void>;
   /**
@@ -511,6 +523,8 @@ interface NodeWrite {
   readonly locked: LockedRow[];
   /** The external id the rows are upserted by, which a row never goes without. */
   readonly upsertField: string | undefined;
+  /** The users the run's owner mapping gives records to: see `WriteNodeInput.ownersMapped`. */
+  readonly ownersMapped: ReadonlySet<string> | undefined;
   /**
    * The picklist fields, by their lowercased name, whose values the run
    * remembers once the target refuses them: those the target's describe
@@ -545,17 +559,37 @@ const REFUSER: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'a validation rule',
   'restricted-picklist': 'a restricted picklist',
   'lookup-filter': 'a lookup filter',
+  'inactive-owner': 'the target, the owner being inactive there',
 };
 
-/** What refused the fields of `leftOut`, as the line of their write without them says it. */
+/**
+ * What refused the fields of `leftOut`, as the line of their write without
+ * them says it: the rules of the target, then the target itself when it held
+ * the owner inactive, set apart by a comma as the line goes on after it.
+ */
 function whatRefused(leftOut: readonly FieldToLeaveOut[]): string {
   const by = new Set(leftOut.map((f) => f.refusedBy));
   const named = (Object.keys(REFUSER) as ForgeFieldRefusal[])
-    .filter((refusal) => by.has(refusal))
+    .filter((refusal) => refusal !== 'inactive-owner' && by.has(refusal))
     .map((refusal) => REFUSER[refusal]);
   const said =
     named.length > 1 ? `${named.slice(0, -1).join(', ')} or ${named[named.length - 1]}` : named[0];
-  return `${said ?? REFUSER['validation-rule']} of the target`;
+  const rules = said === undefined ? undefined : `${said} of the target`;
+  if (!by.has('inactive-owner')) return rules ?? `${REFUSER['validation-rule']} of the target`;
+  const owner = `${REFUSER['inactive-owner']},`;
+  return rules === undefined ? owner : `${rules} or ${owner}`;
+}
+
+/**
+ * Whether the owner a payload sends is one the run's owner mapping gives
+ * (`NodeWrite.ownersMapped`): one the user chose, which a row never goes
+ * without.
+ */
+function ownerMapped(write: NodeWrite, payload: Record<string, unknown>): boolean {
+  if (!write.ownersMapped || write.ownersMapped.size === 0) return false;
+  const field = heldKeyOf(payload, 'OwnerId');
+  const owner = field === undefined ? undefined : payload[field];
+  return typeof owner === 'string' && write.ownersMapped.has(owner.slice(0, 15));
 }
 
 /**
@@ -565,20 +599,25 @@ function whatRefused(leftOut: readonly FieldToLeaveOut[]): string {
  * fields the row gives a value to, on the rules of `refusedFields`. A result
  * whose details do not answer its errors one for one says less than the row
  * was refused for, and nothing is left out. A parent copied from outside the
- * graph is written again on the same rule (`OrphanExpander`).
+ * graph is written again on the same rule (`OrphanExpander`), its owner kept:
+ * only the node's own write (`BatchWriter.settle`) asks for an inactive
+ * owner's refusal to leave the owner out.
  *
  * @param keep - A field the row cannot go without: the external id an upsert matches it by.
  * @param mayBeEmpty - Whether the target lets a row leave a field empty; without it, no lookup is left out.
+ * @param options - `inactiveOwner`: whether the target holding the row's owner
+ *   inactive has the row go again without it. See `refusedFields`.
  */
 export function fieldsToLeaveOut(
   result: InsertResult,
   payload: Record<string, unknown>,
   keep: string | undefined,
   mayBeEmpty?: (field: string) => boolean,
+  options?: { readonly inactiveOwner?: boolean },
 ): FieldToLeaveOut[] | undefined {
   const details = result.errorDetails ?? [];
   if (details.length !== result.errors.length) return undefined;
-  return refusedFields(details, payload, keep, mayBeEmpty);
+  return refusedFields(details, payload, keep, mayBeEmpty, options);
 }
 
 /** Whether every error the target refused a row with is its failure to lock a record the write needed. */
@@ -625,16 +664,28 @@ function sentAgainNotes(refusals: readonly RefusalOnFields[]): string[] {
 }
 
 /**
- * What the sample of a row first sent without the values the target had
- * refused under its record type says: which fields, and the refusal. Nothing
- * for a row that went with all of its values.
+ * What the sample of a row first sent without what the target had refused
+ * earlier in the run says: the values it refused under the row's record type,
+ * then the owner it held inactive, each with which fields and the refusal.
+ * Nothing for a row that went with all of its values.
  */
 function sentWithoutNote(before: readonly FieldToLeaveOut[]): string[] {
-  if (before.length === 0) return [];
-  const refusals = [...new Set(before.map((f) => f.reason))].join('; ');
+  const said = (leftOut: readonly FieldToLeaveOut[], why: string): string[] =>
+    leftOut.length === 0
+      ? []
+      : [
+          `Sent without ${fieldList(leftOut)}: ${why} earlier in the run, ` +
+            [...new Set(leftOut.map((f) => f.reason))].join('; '),
+        ];
   return [
-    `Sent without ${fieldList(before)}: the target refused the same value under the same ` +
-      `record type earlier in the run, ${refusals}`,
+    ...said(
+      before.filter((f) => f.refusedBy !== 'inactive-owner'),
+      'the target refused the same value under the same record type',
+    ),
+    ...said(
+      before.filter((f) => f.refusedBy === 'inactive-owner'),
+      'the target refused the same owner, inactive there,',
+    ),
   ];
 }
 
@@ -695,6 +746,19 @@ export class BatchWriter {
    * for it. See `refusedValueKey`.
    */
   private readonly refusedValues = new Map<string, FieldToLeaveOut>();
+
+  /**
+   * The owners the target refused in the run as inactive there, by their id
+   * on fifteen characters, each with the refusal: a later row — of any object
+   * — sent with the same owner goes without it from its first call, and the
+   * record to the user the run writes as, rather than be refused for it and
+   * sent again. Kept only of a refusal that named the row's own owner: one
+   * that named no user says nothing of the next row's. Kept for the run, as
+   * the values are: one inactive user may own records of a dozen objects. An
+   * owner the run's owner mapping gives is never kept. See
+   * `inactiveOwnerNamed`.
+   */
+  private readonly refusedOwners = new Map<string, FieldToLeaveOut>();
 
   /** How long to wait before each send of a call, or of a row, the target never had. */
   private readonly backoff = new RetryStrategy({ initialDelay: RESEND_DELAY_MS });
@@ -815,6 +879,7 @@ export class BatchWriter {
       refusedOnTheirFields: [],
       locked: [],
       upsertField,
+      ownersMapped: input.ownersMapped,
       remembered: new Set(
         [...(input.picklistFields ?? [])]
           .filter(([, field]) => field.controllerName === undefined)
@@ -1252,6 +1317,7 @@ export class BatchWriter {
       return;
     }
     this.rememberRefusedValues(write, result, payload);
+    this.rememberRefusedOwners(write, result, payload);
     const existing = existingRecordOf(result, write.targetKeyPrefix);
     if (existing.kind === 'linked') {
       // The target refused the row because it holds it, and said which
@@ -1276,14 +1342,20 @@ export class BatchWriter {
     }
     // Refused on fields a validation rule named — a phone the target wants
     // in another format — on a restricted picklist's value its record type
-    // does not take, or on a lookup its filter refuses the record of, the row
-    // went down, and every record hanging from it failed or was skipped for
-    // want of it. Written again without them once the calls are through, it
-    // is in the target, short of a value. A second refusal, on fields the
-    // first did not name, gets a round of its own.
+    // does not take, on a lookup its filter refuses the record of, or for an
+    // owner the target holds inactive, the row went down, and every record
+    // hanging from it failed or was skipped for want of it. Written again
+    // without them once the calls are through, it is in the target, short of
+    // a value — or owned by the user the run writes as. A second refusal, on
+    // fields the first did not name, gets a round of its own: the same
+    // owner's refusal again finds no owner left to go, and the row fails. An
+    // owner the run's owner mapping gives is never left out: the row fails
+    // with the target's words rather than go to another than the user chose.
     const mayBeEmpty = (field: string): boolean =>
       write.mayBeEmpty?.has(field.toLowerCase()) ?? false;
-    const leftOut = fieldsToLeaveOut(result, payload, write.upsertField, mayBeEmpty);
+    const leftOut = fieldsToLeaveOut(result, payload, write.upsertField, mayBeEmpty, {
+      inactiveOwner: !ownerMapped(write, payload),
+    });
     const roundsLeft = row.refusals.length < ROUNDS_WITHOUT_FIELDS;
     if (leftOut && roundsLeft) {
       write.refusedOnTheirFields.push({
@@ -1377,23 +1449,67 @@ export class BatchWriter {
   }
 
   /**
+   * Keep for the run each owner the target refused a row for as inactive,
+   * when the refusal named the row's own owner: see `refusedOwners`. Never
+   * the external id the row is upserted by, which it never goes without, nor
+   * an owner the run's owner mapping gives.
+   */
+  private rememberRefusedOwners(
+    write: NodeWrite,
+    result: InsertResult,
+    payload: Record<string, unknown>,
+  ): void {
+    const field = heldKeyOf(payload, 'OwnerId');
+    if (field === undefined || field.toLowerCase() === write.upsertField?.toLowerCase()) return;
+    if (ownerMapped(write, payload)) return;
+    for (const detail of result.errorDetails ?? []) {
+      if (detail.statusCode !== INACTIVE_OWNER_REFUSAL) continue;
+      const owner = inactiveOwnerNamed(detail, payload);
+      if (owner === undefined || this.refusedOwners.has(owner)) continue;
+      this.refusedOwners.set(owner, {
+        field: 'OwnerId',
+        refusedBy: 'inactive-owner',
+        reason: codeAndMessage(detail),
+      });
+    }
+  }
+
+  /**
    * A row's payload as it is first sent: without the values the target
-   * refused under the record type it names earlier in the run, and those it
-   * goes without, with the refusal of each. Sent with them, the row would be
-   * refused for them and sent again without them, as it now is from the
-   * start; its rounds without fields stay for whatever else the target
-   * refuses it on. The payload itself, left as it was, when it holds none.
+   * refused under the record type it names earlier in the run, nor an owner
+   * it refused as inactive earlier in the run, and those it goes without,
+   * with the refusal of each. Sent with them, the row would be refused for
+   * them and sent again without them, as it now is from the start; its rounds
+   * without fields stay for whatever else the target refuses it on. The
+   * payload itself, left as it was, when it holds none.
+   *
+   * The owner's key is taken out of the payload, never set to null nor left
+   * empty, and before the call is journaled: the record goes to the user the
+   * run writes as, and the journal sees the row as it went.
    */
   private withoutRefusedValues(
     write: NodeWrite,
     payload: Record<string, unknown>,
   ): { sent: Record<string, unknown>; before: FieldToLeaveOut[] } {
     const before: FieldToLeaveOut[] = [];
-    if (this.refusedValues.size === 0) return { sent: payload, before };
+    if (this.refusedValues.size === 0 && this.refusedOwners.size === 0) {
+      return { sent: payload, before };
+    }
     for (const field of Object.keys(payload)) {
       const key = this.refusedValueKey(write, payload, field);
       const refused = key === undefined ? undefined : this.refusedValues.get(key);
       if (refused) before.push({ ...refused, field });
+    }
+    const ownerField = heldKeyOf(payload, 'OwnerId');
+    const owner = ownerField === undefined ? undefined : payload[ownerField];
+    if (
+      ownerField !== undefined &&
+      typeof owner === 'string' &&
+      ownerField.toLowerCase() !== write.upsertField?.toLowerCase() &&
+      !ownerMapped(write, payload)
+    ) {
+      const refused = this.refusedOwners.get(owner.slice(0, 15));
+      if (refused) before.push({ ...refused, field: ownerField });
     }
     return before.length === 0
       ? { sent: payload, before }

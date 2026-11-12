@@ -94,6 +94,14 @@ export interface CleanedRecord {
    * second pass, the run writing no record of it. Absent, there were none.
    */
   lookupsOutsideTheRun?: string[];
+  /**
+   * The owner the payload goes without because the target holds that user
+   * inactive and the user the run writes as may not give a record an inactive
+   * owner (`CleanNodeRecordsInput.inactiveOwners`), as the row named it: the
+   * platform fills it with the user the run writes as. Absent, the row went
+   * with its owner, or without it for another reason.
+   */
+  ownerInactive?: string;
 }
 
 /** Field sets derived from the *target* org describe (schema-drift defense). */
@@ -250,6 +258,16 @@ export interface CleanNodeRecordsInput {
    * row. See {@link cleanNodeRecords}.
    */
   targetLacks?: ReadonlySet<string>;
+  /**
+   * The owners the rows name that the target holds inactive, when the user
+   * the run writes as may not give a record an inactive owner (Update
+   * Records with Inactive Owners): a run that carries ids as read
+   * (`referenceFallback: 'keep'`) sends a row without an `OwnerId` naming
+   * one, the platform filling it with that user. Absent, every owner the
+   * target holds goes as read. An owner mapped to a user of the target goes
+   * mapped, whatever this says. See {@link cleanNodeRecords}.
+   */
+  inactiveOwners?: ReadonlySet<string>;
   /** Field exclusions resolved for this node. */
   excludedFields: ReadonlySet<string>;
   /** Source→target field rename map resolved for this node. */
@@ -352,6 +370,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     ownerMappings,
     resolvedLookups,
     targetLacks,
+    inactiveOwners,
     excludedFields,
     fieldRename,
     creatableFields,
@@ -520,6 +539,8 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     const lookupsNotCarried: string[] = [];
     /** Of those, the lookups at an object a clone can create, outside the run. */
     const lookupsOutsideTheRun: string[] = [];
+    /** The owner the row goes without, the target holding that user inactive. */
+    let ownerInactive: string | undefined;
     for (const key of Object.keys(remapped)) {
       if (excludedFields.has(key)) continue;
       // Field-mapping path: if the source field is renamed on target,
@@ -578,6 +599,20 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
         const value = remapped[key];
         if (typeof value === 'string' && targetLacks?.has(value)) {
           lookupsNotCarried.push(key);
+          continue;
+        }
+        // An owner the target holds inactive, which the user the run writes
+        // as may not give a record: carried, the target refused the row
+        // (INACTIVE_OWNER_OR_USER), and every record under it failed after
+        // it for want of its parent. The row goes without the key, as one
+        // whose owner the target lacks — never with a null or an empty owner,
+        // which the target refuses for a field it requires. The platform
+        // fills it with the user the run writes as, and the run names the
+        // owners among its notes. A lookup at a user other than the owner — an
+        // approver — goes as read: only the owner is refused so. An owner
+        // mapped is not here (`ownerResolved` above).
+        if (key === 'OwnerId' && typeof value === 'string' && inactiveOwners?.has(value)) {
+          ownerInactive = value;
           continue;
         }
       } else if (referenceFallback === 'keep' && key !== 'RecordTypeId' && lookupNames.has(key)) {
@@ -671,6 +706,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       ...(currencyChange ? { currencyChange } : {}),
       ...(lookupsNotCarried.length > 0 ? { lookupsNotCarried } : {}),
       ...(lookupsOutsideTheRun.length > 0 ? { lookupsOutsideTheRun } : {}),
+      ...(ownerInactive !== undefined ? { ownerInactive } : {}),
     };
   });
 }

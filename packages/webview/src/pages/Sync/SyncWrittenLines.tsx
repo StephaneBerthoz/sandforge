@@ -40,6 +40,7 @@ const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'runResults.writtenWithoutFields.byValidationRule',
   'restricted-picklist': 'runResults.writtenWithoutFields.byRestrictedPicklist',
   'lookup-filter': 'runResults.writtenWithoutFields.byLookupFilter',
+  'inactive-owner': 'runResults.writtenWithoutFields.byInactiveOwner',
 };
 
 /** Whether an object's write did anything {@link SyncWrittenLines} says. */

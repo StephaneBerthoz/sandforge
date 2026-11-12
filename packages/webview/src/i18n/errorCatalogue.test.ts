@@ -78,6 +78,7 @@ const FORGE_REFUSAL_CODES: readonly string[] = [
   'RESUME_CHANGED',
   'RESUME_UNCERTAIN',
   'FILES_NOT_ACCEPTED',
+  'OWNER_MAP_INACTIVE',
   'ABORTED_BEFORE_START',
 ];
 
@@ -338,9 +339,16 @@ describe('what the hints say, in English', () => {
     expect(errors.rowLocked.explanation).toContain('transient');
   });
 
-  it('names the inactive user as one of the target, since every record the clone creates is its running user', () => {
+  it('says which clone leaves its records to the user it writes as, and which keeps an owner the target holds active', () => {
     expect(errors.inactiveUser.forge.explanation).toContain(
-      'The clone leaves each record it creates to the user it writes as',
+      'A clone of a record leaves each record it creates to the user it writes as',
+    );
+    expect(errors.inactiveUser.forge.explanation).toContain(
+      'any other clone keeps an owner the target holds active',
+    );
+    // An owner given in Controls to an inactive user stops the run first.
+    expect(errors.inactiveUser.forge.explanation).toContain(
+      'stops the run before it reads anything',
     );
   });
 

@@ -798,6 +798,8 @@ ${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
                          e.g. --owner-map 005AB...=005XY...
                          Useful when source records were authored by users
                          that don't exist on the target sandbox (ex-employees).
+                         A target user the target holds inactive is refused
+                         before anything is read (OWNER_MAP_INACTIVE).
   --filter <obj=where>   per-object SOQL WHERE filter (repeatable)
                          e.g. --filter "Case=Status = 'Open' AND CreatedDate > LAST_N_DAYS:30"
                          Lets BAs narrow a clone to a subset without changing
@@ -1083,6 +1085,7 @@ const REFUSED_IT: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'a validation rule refused it',
   'restricted-picklist': 'a restricted picklist refused its value',
   'lookup-filter': 'a lookup filter refused the record it names',
+  'inactive-owner': 'the target holds the owner it names inactive',
 };
 
 /** The flag each ForgeConfig field is read from, to name it in an error. */

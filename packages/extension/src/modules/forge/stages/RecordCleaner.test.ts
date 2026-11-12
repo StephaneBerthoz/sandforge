@@ -1294,3 +1294,121 @@ describe('lookups at objects no clone creates', () => {
     expect(out.cleaned.AccountId).toBe('001SOURCE');
   });
 });
+
+describe('an owner the target holds inactive', () => {
+  /*
+   * A sandbox made from a production holds the production's users, its
+   * inactive ones inactive: it refuses a record such a user owns, and every
+   * record under it then fails for want of its parent.
+   */
+  const INACTIVE = '005000000000001AAA';
+  const ACTIVE = '005000000000002AAA';
+  const MAPPED_TO = '005000000000009AAA';
+  const withOwner: FieldInfo[] = [
+    { name: 'Id', queryable: true, createable: false, isReference: false },
+    { name: 'Name', queryable: true, createable: true, isReference: false },
+    {
+      name: 'OwnerId',
+      queryable: true,
+      createable: true,
+      isReference: true,
+      referenceTo: ['Group', 'User'],
+    },
+    {
+      name: 'Approver__c',
+      queryable: true,
+      createable: true,
+      isReference: true,
+      referenceTo: ['User'],
+    },
+  ];
+  const ownersInput = (overrides: Partial<CleanNodeRecordsInput> = {}): CleanNodeRecordsInput =>
+    makeInput({
+      objectApiName: 'Station__c',
+      fieldInfos: withOwner,
+      referenceFallback: 'keep',
+      creatableFields: new Set(['Name', 'OwnerId', 'Approver__c']),
+      inactiveOwners: new Set([INACTIVE]),
+      ...overrides,
+    });
+
+  it('sends a row without the key of an owner the target holds inactive, and says whose, keeping an active one', () => {
+    const [inactive, active] = cleanNodeRecords(
+      ownersInput({
+        records: [
+          { Id: 'a01A', Name: 'North', OwnerId: INACTIVE },
+          { Id: 'a01B', Name: 'South', OwnerId: ACTIVE },
+        ],
+      }),
+    );
+
+    // Left out, never sent empty: the target refuses an empty owner.
+    expect('OwnerId' in inactive.cleaned).toBe(false);
+    expect(inactive.cleaned).toEqual({ Name: 'North' });
+    expect(inactive.ownerInactive).toBe(INACTIVE);
+    expect(inactive).not.toHaveProperty('lookupsNotCarried');
+    expect(inactive.nullifiedFks).toEqual([]);
+    expect(active.cleaned).toEqual({ Name: 'South', OwnerId: ACTIVE });
+    expect(active).not.toHaveProperty('ownerInactive');
+  });
+
+  it('gives a mapped owner the user it is mapped to, whatever the target holds of the source one', () => {
+    const [out] = cleanNodeRecords(
+      ownersInput({
+        records: [{ Id: 'a01A', Name: 'North', OwnerId: INACTIVE }],
+        ownerMappings: { [INACTIVE]: MAPPED_TO },
+      }),
+    );
+
+    expect(out.cleaned).toEqual({ Name: 'North', OwnerId: MAPPED_TO });
+    expect(out).not.toHaveProperty('ownerInactive');
+  });
+
+  it('keeps a lookup at a user other than the owner naming the same user', () => {
+    const [out] = cleanNodeRecords(
+      ownersInput({
+        records: [{ Id: 'a01A', Name: 'North', OwnerId: INACTIVE, Approver__c: INACTIVE }],
+      }),
+    );
+
+    expect(out.cleaned).toEqual({ Name: 'North', Approver__c: INACTIVE });
+    expect(out.ownerInactive).toBe(INACTIVE);
+  });
+
+  it('leaves a run that nullifies as it was: the owner never goes, and none is said inactive', () => {
+    const [out] = cleanNodeRecords(
+      ownersInput({
+        records: [{ Id: 'a01A', Name: 'North', OwnerId: INACTIVE }],
+        referenceFallback: 'nullify',
+      }),
+    );
+
+    expect(out.cleaned).toEqual({ Name: 'North' });
+    expect(out).not.toHaveProperty('ownerInactive');
+  });
+
+  it('does nothing where the owner is not createable: the detail side of a master-detail', () => {
+    const [out] = cleanNodeRecords(
+      ownersInput({
+        records: [{ Id: 'a01A', Name: 'North', OwnerId: INACTIVE }],
+        creatableFields: new Set(['Name', 'Approver__c']),
+      }),
+    );
+
+    expect(out.cleaned).toEqual({ Name: 'North' });
+    expect(out).not.toHaveProperty('ownerInactive');
+  });
+
+  it('says an owner the target lacks as one it lacks, not as one it holds inactive', () => {
+    const [out] = cleanNodeRecords(
+      ownersInput({
+        records: [{ Id: 'a01A', Name: 'North', OwnerId: INACTIVE }],
+        targetLacks: new Set([INACTIVE]),
+      }),
+    );
+
+    expect(out.cleaned).toEqual({ Name: 'North' });
+    expect(out.lookupsNotCarried).toEqual(['OwnerId']);
+    expect(out).not.toHaveProperty('ownerInactive');
+  });
+});

@@ -6052,10 +6052,11 @@
     "encryptedLeftOut": "{{fields}}: campos criptografados que o usuário com que o SandForge lê a org de origem vê mascarados, por não ter a permissão View Encrypted Data. Deixados de fora de cada registro gravado, em vez de copiados mascarados.",
     "writtenWithoutFields": {
       "title": "Gravados sem um campo recusado pela org de destino",
-      "hint": "A org de destino recusou estes registros pelos campos que indicou: uma de suas regras de validação, uma lista de opções restrita que não aceita o valor para o tipo de registro do registro — um tipo de registro ao qual nunca foram dados valores do campo não aceita nenhum, o que nada do que é lido antes da gravação indica —, ou o filtro de pesquisa de um campo de pesquisa que ela permite deixar vazio, que não aceita o registro indicado. O clone gravou cada registro de novo sem esses campos: o registro está na org de destino, sem o valor que a origem tem para eles.",
+      "hint": "A org de destino recusou estes registros pelos campos que indicou: uma de suas regras de validação, uma lista de opções restrita que não aceita o valor para o tipo de registro do registro — um tipo de registro ao qual nunca foram dados valores do campo não aceita nenhum, o que nada do que é lido antes da gravação indica —, ou o filtro de pesquisa de um campo de pesquisa que ela permite deixar vazio, que não aceita o registro indicado. O clone gravou cada registro de novo sem esses campos: o registro está na org de destino, sem o valor que a origem tem para eles. Um registro que a org de destino recusou por seu proprietário, inativo nela, foi gravado de novo sem ele: pertence ao usuário com que o clone grava.",
       "byValidationRule": "recusado por uma regra de validação",
       "byRestrictedPicklist": "valor recusado por uma lista de opções restrita",
-      "byLookupFilter": "registro indicado recusado por um filtro de pesquisa"
+      "byLookupFilter": "registro indicado recusado por um filtro de pesquisa",
+      "byInactiveOwner": "proprietário recusado pela org de destino, onde está inativo"
     },
     "checkpointNow": {
       "why": "Antes que seus testadores comecem, guarde {{org}} como está agora como o ponto ao qual voltar. Retroceder depois a devolve a esse ponto, não importa quem a altere em seguida.",
@@ -6512,7 +6513,7 @@
       "explanation": "O Salesforce recusou o registro porque ele pertenceria, ou seria atribuído, a um usuário inativo na org.",
       "action": "Faça a regra de atribuição ou o Flow que escolhe esse usuário apontar para um usuário ativo ou uma fila, ou reative o usuário, e execute de novo.",
       "forge": {
-        "explanation": "O Salesforce recusou o registro porque ele pertenceria, ou seria atribuído, a um usuário inativo na org de destino. O clone deixa cada registro que cria com o usuário com que grava, então esse usuário vem da org de destino — uma regra de atribuição, ou um Flow que define o proprietário ou atribui uma tarefa — ou de um proprietário dado em Revisão → Ajustes.",
+        "explanation": "O Salesforce recusou o registro porque ele pertenceria, ou seria atribuído, a um usuário inativo na org de destino. Um clone de um registro deixa cada registro que cria com o usuário com que grava; qualquer outro clone mantém um proprietário ativo no destino e dá a esse usuário um registro cujo proprietário está inativo no destino, a menos que esse usuário tenha a permissão Update Records with Inactive Owners. Os proprietários dados em Revisão → Ajustes têm prioridade, e um dado a um usuário inativo no destino interrompe a execução antes que ela leia qualquer coisa. O que ainda é recusado vem de uma regra de atribuição ou um Flow do destino que define o proprietário ou atribui uma tarefa, de um campo de auditoria, como Criado por, que indica um usuário inativo, ou de um proprietário dado em Revisão → Ajustes que o destino tem como inativo desde o início da execução.",
         "action": "Na org de destino, faça essa regra ou esse Flow apontar para um usuário ativo ou uma fila, ou reative o usuário; ou, em Revisão → Ajustes, dê os registros a um usuário ativo em Proprietários atribuídos a usuários do destino. Então tente de novo os objetos com falha."
       }
     },
@@ -6770,6 +6771,10 @@
     "filesNotAccepted": {
       "explanation": "Esta execução anonimiza seus registros e copia os arquivos deles, cujo conteúdo não pode ser anonimizado: os arquivos só são copiados quando você aceita que sejam copiados como estão. Nada foi lido nem gravado.",
       "action": "Na revisão, aceite que os arquivos sejam copiados como estão, ou desative a cópia, e execute de novo."
+    },
+    "ownerMapInactive": {
+      "explanation": "Proprietários dados em Revisão → Ajustes dão registros a um usuário inativo na org de destino, nomeado na mensagem. O destino recusa um registro cujo proprietário está inativo, e o clone não o dá ao usuário com que grava no lugar do que você escolheu. Nada foi lido nem gravado.",
+      "action": "Em Revisão → Ajustes, dê esses registros a um usuário ativo em Proprietários atribuídos a usuários do destino, ou reative o usuário na org de destino, e execute de novo."
     },
     "abortedBeforeStart": {
       "explanation": "Você interrompeu a execução antes que ela começasse. Nada foi gravado.",

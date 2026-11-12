@@ -6052,10 +6052,11 @@
     "encryptedLeftOut": "{{fields}}: encrypted fields the user SandForge reads the source org as sees masked, lacking View Encrypted Data. Left out of every record written, rather than copied as masks.",
     "writtenWithoutFields": {
       "title": "Written without a field the target org refused",
-      "hint": "The target org refused these records on the fields it named: a validation rule of its own, a restricted picklist that does not take the value for the record's record type — one never given values of a field takes none, which nothing read before the write tells — or the lookup filter of a lookup it lets be empty, which does not take the record the lookup names. The clone wrote each record again without those fields: the record is in the target org, without the value the source holds for them.",
+      "hint": "The target org refused these records on the fields it named: a validation rule of its own, a restricted picklist that does not take the value for the record's record type — one never given values of a field takes none, which nothing read before the write tells — or the lookup filter of a lookup it lets be empty, which does not take the record the lookup names. The clone wrote each record again without those fields: the record is in the target org, without the value the source holds for them. A record the target refused for its owner, inactive there, was written again without it: the user the clone writes as owns it.",
       "byValidationRule": "a validation rule refused it",
       "byRestrictedPicklist": "a restricted picklist refused its value",
-      "byLookupFilter": "a lookup filter refused the record it names"
+      "byLookupFilter": "a lookup filter refused the record it names",
+      "byInactiveOwner": "the target refused its owner, inactive there"
     },
     "checkpointNow": {
       "why": "Before your testers start, keep {{org}} as it is now: it becomes the point to come back to, and a rewind returns it there, whoever changes it next.",
@@ -6512,7 +6513,7 @@
       "explanation": "Salesforce refused the record because it would be owned by, or assigned to, a user who is inactive in the org.",
       "action": "Point the assignment rule or Flow that picks that user at an active user or a queue, or reactivate the user, then run again.",
       "forge": {
-        "explanation": "Salesforce refused the record because it would be owned by, or assigned to, a user who is inactive in the target org. The clone leaves each record it creates to the user it writes as, so that user comes from the target — an assignment rule, or a Flow that sets the owner or assigns a task — or from an owner given in Review → Controls.",
+        "explanation": "Salesforce refused the record because it would be owned by, or assigned to, a user who is inactive in the target org. A clone of a record leaves each record it creates to the user it writes as; any other clone keeps an owner the target holds active, and gives that user a record whose owner the target holds inactive, unless that user has Update Records with Inactive Owners. Owners given in Review → Controls come first, and one given to a user inactive in the target stops the run before it reads anything. What is still refused comes from an assignment rule or a Flow of the target that sets the owner or assigns a task, from an audit field, such as Created By, that names an inactive user, or from an owner given in Review → Controls whom the target holds inactive since the run began.",
         "action": "In the target org, point that rule or Flow at an active user or a queue, or reactivate the user; or, in Review → Controls, give the records to an active user under Owners given to the target's users. Then retry the failed objects."
       }
     },
@@ -6770,6 +6771,10 @@
     "filesNotAccepted": {
       "explanation": "This run anonymizes its records and copies their files, whose content cannot be anonymized: files are copied only once you accept that they are copied as they are. Nothing was read or written.",
       "action": "On Review, accept that the files are copied as they are, or turn the copy off, then run again."
+    },
+    "ownerMapInactive": {
+      "explanation": "Owners given in Review → Controls give records to a user the target org holds inactive, named in the message. The target refuses a record owned by an inactive user, and the clone does not give it to the user it writes as instead of the one you chose. Nothing was read or written.",
+      "action": "In Review → Controls, give those records to an active user under Owners given to the target's users, or reactivate the user in the target org, then run again."
     },
     "abortedBeforeStart": {
       "explanation": "You stopped the run before it started. Nothing was written.",

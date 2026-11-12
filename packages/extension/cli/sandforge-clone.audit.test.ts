@@ -453,6 +453,46 @@ describe('sandforge-clone --audit', () => {
     ]);
   });
 
+  it('refuses an --owner-map to a user the target holds inactive before it writes, names the user and its code, and records the stop', async () => {
+    const SOURCE_OWNER = '005000000000001AAA';
+    const INACTIVE_USER = '005000000000002AAA';
+    const target = fakeOrg(TARGET_ORG);
+    const read = target.conn.query.bind(target.conn);
+    Object.assign(target.conn, {
+      query: async (soql: string) =>
+        soql.startsWith('SELECT Id, Name, IsActive FROM User WHERE Id IN (')
+          ? {
+              totalSize: 1,
+              done: true,
+              records: [{ Id: INACTIVE_USER, Name: 'Former Admin', IsActive: false }],
+            }
+          : read(soql),
+    });
+    withOrgs(target);
+
+    expect(
+      await run(
+        argv('--audit', auditPath, '--json', '--owner-map', `${SOURCE_OWNER}=${INACTIVE_USER}`),
+      ),
+    ).toBe(1);
+
+    expect(orgs.TGT.written).toEqual([]);
+    expect(stderr).toContain(
+      'refused (OWNER_MAP_INACTIVE): Owners given to users the target holds inactive: ' +
+        `Former Admin (${INACTIVE_USER}), given the records of ${SOURCE_OWNER}.`,
+    );
+    expect(JSON.parse(stdout)).toMatchObject({
+      tool: 'sandforge-clone',
+      refused: {
+        code: 'OWNER_MAP_INACTIVE',
+        message: expect.stringMatching(/Nothing was read or written\.$/) as string,
+      },
+    });
+    expect(entries()).toEqual([
+      expect.objectContaining({ outcome: 'stopped', details: { code: 'OWNER_MAP_INACTIVE' } }),
+    ]);
+  });
+
   it('records nothing for a dry run, which writes nothing', async () => {
     withOrgs();
 
