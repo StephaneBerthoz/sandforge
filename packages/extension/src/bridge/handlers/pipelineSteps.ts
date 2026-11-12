@@ -1615,6 +1615,8 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
           orgId: config.orgId,
           checkpointId: config.checkpointId,
           code: err.code,
+          // Every other refusal, each with its code, as the page's rewind is answered.
+          ...(err.alsoRefused.length > 0 ? { alsoRefused: [...err.alsoRefused] } : {}),
           ...(err.result ? { status: err.result.status, ...rewound(err.result) } : {}),
           ...(muted ? { mutedAutomation: muted } : {}),
         },

@@ -218,8 +218,20 @@ function refusedOutcome(
   const also = (alsoRefused ?? []).map(words);
   if (also.length === 0) return { done: false, refusal: first };
   if (!fromPage) return { done: false, refusal: first, alsoRefused: also };
+  return {
+    done: false,
+    refusal: { code: first.code, message: saidAtOnce([first, ...also]) },
+    alsoRefused: also,
+  };
+}
+
+/**
+ * Refusals said in one message, each in turn, that nothing was written said
+ * once: what a page shows, and what a pipeline's step fails with.
+ */
+function saidAtOnce(refusals: ReadonlyArray<{ readonly message: string }>): string {
   let said = false;
-  const message = [first, ...also]
+  return refusals
     .map(({ message: each }) => {
       const quiet = each.replace(WROTE_NOTHING, '').trim();
       if (said) return quiet;
@@ -227,7 +239,6 @@ function refusedOutcome(
       return each;
     })
     .join(' ');
-  return { done: false, refusal: { code: first.code, message }, alsoRefused: also };
 }
 
 /** Refusals worth trying again once what refused them has passed: a run writing, the day's requests. */
@@ -390,13 +401,16 @@ export interface CheckpointPipelineRewindOutcome {
  * Why a pipeline's Checkpoint or Rewind step did not go through: a refusal
  * before it wrote, its code and its words, or — `UNDELETABLE_UNATTENDED` — a
  * rewind that ran and was left untouched where nobody could be asked, with
- * its result.
+ * its result. Refused for more than one reason, its code is the first's and
+ * its words say each in turn, the others beside it in `alsoRefused`: told
+ * of one, a step given what lifts it was refused next for another.
  */
 export class CheckpointStepRefused extends Error {
   constructor(
     readonly code: string,
     message: string,
     readonly result?: RewindResult,
+    readonly alsoRefused: readonly CheckpointRefusal[] = [],
   ) {
     super(message);
     this.name = 'CheckpointStepRefused';
@@ -476,7 +490,7 @@ async function loadCheckpointModules() {
     planSelection: plan.planSelection,
     snapshotRowsOf: plan.snapshotRowsOf,
     rewindWriters: plan.rewindWriters,
-    boundsRefusal: bounds.boundsRefusal,
+    boundsRefusals: bounds.boundsRefusals,
     selectionDiff: bounds.selectionDiff,
     rewindStepsOf: bounds.rewindStepsOf,
     notConfirmedRefusal: bounds.notConfirmedRefusal,
@@ -546,9 +560,13 @@ class Refused extends Error {
 function stepErrorOf(err: unknown): unknown {
   if (err instanceof StepCancelledError) return err;
   if (err instanceof Refused) {
-    return err.code === CANCELLED
-      ? new StepCancelledError(err.message)
-      : new CheckpointStepRefused(err.code, err.message, err.result);
+    if (err.code === CANCELLED) return new StepCancelledError(err.message);
+    return new CheckpointStepRefused(
+      err.code,
+      err.alsoRefused.length > 0 ? saidAtOnce([err, ...err.alsoRefused]) : err.message,
+      err.result,
+      err.alsoRefused,
+    );
   }
   return err;
 }
@@ -1243,7 +1261,8 @@ export class CheckpointHandler implements DomainHandler {
    * 4. the bounds (`rewindBounds.ts`): records past `maxRecords`, people at
    *    work in the org in the hour before (`refuseWhenActive`), an acceptance
    *    it needs and the configuration does not give, the emails of a daily
-   *    limit;
+   *    limit — every refusal of 3 and 4 said at once, the preview's own
+   *    first, the others beside it (`CheckpointStepRefused.alsoRefused`);
    * 5. the rewind, from that preview as read (`reusesPreview`, for this call
    *    alone), under the org's lock, in the registry and in Live Operations,
    *    whose Cancel and the step's `signal` stop it before its next call. A
@@ -1257,8 +1276,9 @@ export class CheckpointHandler implements DomainHandler {
    * @returns How the rewind ended: its result whole, one a Stop ended once it
    *   had written included (`cancelled`).
    * @throws {CheckpointStepRefused} When it was refused: before it wrote,
-   *   with the refusal's code and words; `UNDELETABLE_UNATTENDED` with the
-   *   result of the rewind that was left untouched.
+   *   with the first refusal's code and every refusal's words, those of the
+   *   rewind's own gate once it read the org again too; `UNDELETABLE_UNATTENDED`
+   *   with the result of the rewind that was left untouched.
    * @throws {StepCancelledError} When it was stopped before it wrote anything.
    * @throws A read's or the rewind's error when it fails.
    */
@@ -1315,9 +1335,12 @@ export class CheckpointHandler implements DomainHandler {
         this.audit(at, 'rewind', org, checkpoint, 'stopped', { code: ABORTED_BEFORE_START });
         return new StepCancelledError(new m.RewindStopped().message);
       };
-      const refuse = (refusal: CheckpointRefusal): Refused => {
+      const refuse = (
+        refusal: CheckpointRefusal,
+        alsoRefused: readonly CheckpointRefusal[] = [],
+      ): Refused => {
         this.audit(at, 'rewind', org, checkpoint, 'stopped', { code: refusal.code });
-        return this.refusalOf(refusal);
+        return this.refusalOf(refusal, alsoRefused);
       };
       if (signal?.aborted) throw stopped();
 
@@ -1357,9 +1380,8 @@ export class CheckpointHandler implements DomainHandler {
         if (signal?.aborted) throw stopped();
         throw err;
       }
-      // The guard's refusal, or the one the rewind would meet now.
+      // The guard's refusal: nothing else was read.
       if (!preview.previewed) throw refuse(preview.refusal);
-      if (preview.refusal !== undefined) throw refuse(preview.refusal);
       // Of a rewind of some objects, the counts its plan acts on.
       const acted =
         objects !== undefined
@@ -1381,7 +1403,7 @@ export class CheckpointHandler implements DomainHandler {
         config.muteAutomation && preview.automation
           ? planMute(preview.automation, removalStepsWrites(m.rewindStepsOf(acted))).automation
           : preview.automation;
-      const bound = await m.boundsRefusal({
+      const bounds = await m.boundsRefusals({
         orgName,
         preview: {
           diff: acted,
@@ -1398,7 +1420,15 @@ export class CheckpointHandler implements DomainHandler {
         words: config.muteAutomation ? m.REWIND_MUTING_STEP_WORDS : m.REWIND_STEP_WORDS,
         user: org.username,
       });
-      if (bound !== undefined) throw refuse(bound);
+      // Every refusal the rewind would meet now, said at once: the preview's
+      // own first, then each bound and acceptance under another code, as the
+      // command line's dry run names them. Told of one, a step given what
+      // lifts it was refused next for the one after.
+      const [refused, ...alsoRefused] = [
+        ...(preview.refusal !== undefined ? [preview.refusal] : []),
+        ...bounds.filter((bound) => bound.code !== preview.refusal?.code),
+      ];
+      if (refused !== undefined) throw refuse(refused, alsoRefused);
       if (signal?.aborted) throw stopped();
 
       // Nobody is there to say whether to delete the rest.
@@ -1453,10 +1483,12 @@ export class CheckpointHandler implements DomainHandler {
               acceptUnseen: config.acceptUnseen,
             },
           );
-          if (outcome.rewound) notes = outcome.notes;
-          return outcome.rewound
-            ? writtenOutcome(outcome)
-            : { done: false, refusal: outcome.refusal };
+          if (outcome.rewound) {
+            notes = outcome.notes;
+            return writtenOutcome(outcome);
+          }
+          // Every refusal of its gate, once it read the org again.
+          return refusedOutcome(outcome.refusal, outcome.alsoRefused, (refusal) => refusal, false);
         },
         (err) => err instanceof m.RewindStopped,
         {

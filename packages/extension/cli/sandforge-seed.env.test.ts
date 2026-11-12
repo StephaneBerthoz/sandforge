@@ -319,7 +319,7 @@ describe('a seed run without the environment’s lines', () => {
     ).replace(/"writer":\{"pid":\d+,"hostStartedAt":"[^"]+"\}/, '"writer":"<this process>"');
     expect(file).toBe(
       [
-        '{"run":{"runId":"sandforge-seed-00000000-0000-4000-8000-000000000000","configId":"sandforge-seed","configName":"sandforge-seed","sourceOrgId":"TGT","targetOrgId":"TGT","startedAt":"2026-10-01T09:00:00.000Z","targetOrganizationId":"00D000000000002AAA","answersNameJobs":true,"writer":"<this process>"}}',
+        '{"run":{"runId":"sandforge-seed-00000000-0000-4000-8000-000000000000","configId":"sandforge-seed","configName":"sandforge-seed","sourceOrgId":"00D000000000002AAA","targetOrgId":"00D000000000002AAA","startedAt":"2026-10-01T09:00:00.000Z","targetOrganizationId":"00D000000000002AAA","targetAlias":"TGT","answersNameJobs":true,"writer":"<this process>"}}',
         '{"sending":{"object":"Asset","rows":3,"at":"2026-10-01T09:00:00.000Z"}}',
         '{"object":"Asset","created":["02i000000000000AAA","02i000000000001AAA","02i000000000002AAA"],"at":"2026-10-01T09:00:00.000Z"}',
         '{"end":{"at":"2026-10-01T09:00:00.000Z","status":"success"}}',

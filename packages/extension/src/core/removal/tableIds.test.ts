@@ -6,7 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IdSpool, idsFileOf } from '../../modules/checkpoint/spooledRunRecords.js';
 import type { QueryPage } from '../../modules/forge/queryAllPages.js';
 import type { Connection } from 'jsforce';
-import { spoolTableIds, tableIdSourceOf, tableIdsQuery, type TableIdSource } from './tableIds.js';
+import {
+  EMPTYING,
+  spoolTableIds,
+  tableIdSourceOf,
+  tableIdsQuery,
+  type TableIdSource,
+} from './tableIds.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -191,6 +197,21 @@ describe('spoolTableIds', () => {
 
     await expect(spoolTableIds(org, dir, [{ objectApiName: 'Contact' }])).rejects.toThrow(
       'kept answering empty pages of Contact',
+    );
+  });
+
+  it('names the emptying, not a rewind, when what it wrote is no longer as written', async () => {
+    const org = new TableOrg({ Contact: CONTACTS });
+
+    const read = await spoolTableIds(org, dir, [{ objectApiName: 'Contact' }]);
+    if (read.stopped) throw new Error('stopped');
+    await rm(idsFileOf(dir, 'Contact'));
+
+    await expect(readBack(read.spool, 'Contact')).rejects.toThrow(
+      'The Contact records an emptying sets out to act on are not as they were written.',
+    );
+    await expect(readBack(await IdSpool.open(dir, EMPTYING), 'Contact')).rejects.toThrow(
+      'The Contact records an emptying sets out to act on are not as they were written.',
     );
   });
 

@@ -39,6 +39,7 @@ import type { SyncCopiedFile } from './SyncFiles.js';
 import type { SyncLinkForgetter } from './SyncIdMap.js';
 import {
   SYNC_FILE_OBJECTS,
+  configTargetOf,
   syncRemovalPlan,
   syncRestorePlan,
   syncUndeletePlan,
@@ -515,10 +516,11 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
   }
 
   // The configuration forgets what is gone: the copies of files deleted, and
-  // the watermarks of the objects whose copies went.
+  // the watermarks of the objects whose copies went. It keeps them under the
+  // name it gives the target, the alias of a command line's run.
   const configs = input.configs;
   if (configs && gone.size > 0 && configs.isSaved(run.configId)) {
-    const orgs = { sourceOrgId: run.sourceOrgId, targetOrgId: run.targetOrgId };
+    const orgs = { sourceOrgId: run.sourceOrgId, targetOrgId: configTargetOf(run) };
     try {
       const filesGone = plan
         .filter((object) => SYNC_FILE_OBJECTS.includes(object.objectApiName))
@@ -554,7 +556,7 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
     try {
       linksForgotten = await input.links.forget(
         run.configId,
-        { sourceOrgId: run.sourceOrgId, targetOrgId: run.targetOrgId },
+        { sourceOrgId: run.sourceOrgId, targetOrgId: configTargetOf(run) },
         [...gone],
       );
     } catch (err: unknown) {

@@ -172,12 +172,22 @@ const headSchema = z.object({
     configName: z.string().max(500),
     sourceOrgId: z.string().min(1).max(200),
     /**
-     * The org as its writer names it: the panel by the id it registers the
-     * org under, the command line by the alias it was given, which its
+     * The org the run wrote to: the panel names it by the id it registers the
+     * org under; the command line by its Organization id, as its summary
+     * names it, the alias it was given beside it (`targetAlias`). A file of
+     * the command line written before named the alias here, which its
      * `--remove` of a file that names no Organization id asks for again. Its
-     * Organization id, where known, is `targetOrganizationId`.
+     * Organization id, where known, is `targetOrganizationId` too.
      */
     targetOrgId: z.string().min(1).max(200),
+    /**
+     * The alias the command line was given for the target (`sandforge-sync`,
+     * `sandforge-seed`): what its saved configuration keeps its watermarks,
+     * copied files and links under, between the orgs of the line
+     * (`configTargetOf`). Absent from the panel's runs, and from a file
+     * written before, whose `targetOrgId` is that alias.
+     */
+    targetAlias: z.string().min(1).max(200).optional(),
     startedAt: dateSchema,
     /**
      * Which of the Seed module's ways wrote the run, when not its generator:
@@ -1058,6 +1068,18 @@ function namedLeft(run: SyncRunKept): Set<string> {
       ids.map((id) => id.slice(0, 15)),
     ),
   );
+}
+
+/**
+ * The target as the configuration a run was of names it, which its
+ * watermarks, copied files and links are kept under (`SyncConfigStore`,
+ * `SyncIdMap`): the alias a command line was given, its file naming the org
+ * by its Organization id; the name the run gives its target otherwise — the
+ * panel's registered id, or the alias a command line's file written before
+ * kept there.
+ */
+export function configTargetOf(run: Pick<SyncRunKept, 'targetOrgId' | 'targetAlias'>): string {
+  return run.targetAlias ?? run.targetOrgId;
 }
 
 /**

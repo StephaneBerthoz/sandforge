@@ -722,6 +722,37 @@ describe('the Rewind step', () => {
     expect(result.error).toContain("past this step's limit of 2");
   });
 
+  it('fails with every refusal its rewind met: under the first one’s code, each named, the others beside it with theirs', async () => {
+    const people = {
+      code: 'PEOPLE_ACTIVE' as const,
+      message:
+        '1 person other than the user the rewind writes as changed records. No record was written.',
+    };
+    const automation = {
+      code: 'AUTOMATION' as const,
+      message: 'dev: a flow runs on Account. No record was written.',
+    };
+    const said =
+      "Rewind refused; it would rewind 4 records, past this step's limit of 2. No record was " +
+      'written. 1 person other than the user the rewind writes as changed records. dev: a flow ' +
+      'runs on Account.';
+    const rewind = vi.fn(async () => {
+      throw new CheckpointStepRefused('TOO_MANY_TO_REWIND', said, undefined, [people, automation]);
+    });
+
+    const result = await executorWith(runners({ rewind })).execute(
+      step('rewind', REWIND),
+      context(),
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toBe(said);
+    expect(result.output).toMatchObject({
+      code: 'TOO_MANY_TO_REWIND',
+      alsoRefused: [people, automation],
+    });
+  });
+
   it('hands the rewind the emails its configuration accepts, none unless it says so, and fails on the refusal of those it does not', async () => {
     const said =
       'dev delivers every email its automation sends (Setup > Deliverability: All email). ' +

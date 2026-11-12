@@ -1919,12 +1919,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const runId = `sandforge-sync-${randomUUID()}`;
   const kept = memoryCreations(runId);
   const runs = args.dryRun ? undefined : nodeSyncRunCreations(journalDirOf());
+  // The target by its own id, as the summary names it, and by the alias it
+  // was given, which a saved configuration keeps its watermarks, copied files
+  // and links under.
   const runFile = runs?.recorder({
     runId,
     configId: saved ? config.id : LINE_RUN,
     configName: saved ? config.name : LINE_RUN,
     sourceOrgId: args.source,
-    targetOrgId: args.target,
+    targetOrgId: typed?.id ?? args.target,
+    targetAlias: args.target,
     ...(typed ? { targetOrganizationId: typed.id } : {}),
   });
   // Who the run writes as, for the sweep of its removal: its file takes it

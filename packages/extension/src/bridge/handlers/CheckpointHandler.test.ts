@@ -3503,6 +3503,104 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
     expect(rewound.result.status).toBe('success');
   });
 
+  it('names every bound and acceptance it is refused for before it writes, the first as its code, saying once that nothing was written', async () => {
+    // Refused past its limit alone, a step whose limit was raised and
+    // confirmed again was refused next for the people at work, then for its
+    // automation, where its own check had read all three.
+    const h = harness();
+    const checkpointId = await taken(h);
+    changedSince(h);
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [],
+          unread: [{ part: 'flows', reason: 'Tooling API timed out' }],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation),
+    });
+    const before = writesOf(h.org);
+
+    const refused = await stepRefusal(
+      h.handler.rewindForPipeline(
+        rewindStep(checkpointId, { maxRecords: 2, refuseWhenActive: true }),
+      ),
+    );
+
+    expect(refused.code).toBe('TOO_MANY_TO_REWIND');
+    expect(refused.alsoRefused.map(({ code }) => code)).toEqual(['PEOPLE_ACTIVE', 'AUTOMATION']);
+    expect(refused.message).toMatch(
+      /^The rewind of DEV-SB would rewind 3 records [^]*past this step's limit of 2\. Rewind refused; [^]*No record was written\. 1 person other than the user the rewind writes as [^]*Rewind refused; [^]*turn on muteAutomation in the step [^]*to rewind all the same\.$/,
+    );
+    expect(refused.message.match(/No record was (read or )?written\./g)).toEqual([
+      'No record was written.',
+    ]);
+    expect(refused.alsoRefused[1]?.message).toMatch(/No record was written\.$/);
+    expect(writesOf(h.org)).toEqual(before);
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_rewind',
+      outcome: 'stopped',
+      details: { checkpointId, code: 'TOO_MANY_TO_REWIND', pipeline: 'Nightly reset' },
+    });
+  });
+
+  it('names every refusal of the rewind’s own gate once it read the org again, the first as its code', async () => {
+    // What the org runs, read again by the rewind after the step's own check:
+    // a flow emailing an account's owner, read in part, with no single email
+    // left today.
+    const h = harness();
+    const checkpointId = await taken(h);
+    changedSince(h);
+    let reads = 0;
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) => {
+        reads++;
+        return Promise.resolve({
+          objectsRead: [...objects],
+          objects:
+            reads === 1
+              ? []
+              : [
+                  {
+                    objectApiName: 'Account',
+                    flows: [
+                      {
+                        apiName: 'Account_changed',
+                        label: 'Account changed',
+                        timing: 'afterSave',
+                        startsOn: 'update',
+                        condition: 'read',
+                        permissions: [],
+                        messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+                      },
+                    ],
+                    triggers: [],
+                  },
+                ],
+          unread: reads === 1 ? [] : [{ part: 'flows', reason: 'Tooling API timed out' }],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation);
+      },
+    });
+    h.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 0 } };
+    const before = writesOf(h.org);
+
+    const refused = await stepRefusal(h.handler.rewindForPipeline(rewindStep(checkpointId)));
+
+    expect(reads).toBe(2);
+    expect(refused.code).toBe('EMAILS');
+    expect(refused.alsoRefused.map(({ code }) => code)).toEqual(['AUTOMATION']);
+    expect(refused.message).toMatch(
+      /^This rewind would make DEV-SB send about 1 single email, 0 of 15 left today[^]*No record was written\. DEV-SB: 1 flow\(s\), trigger\(s\) or rule\(s\) of Account run [^]*Rewind refused; accept that it runs to rewind all the same\.$/,
+    );
+    expect(refused.alsoRefused[0]?.message).toMatch(/No record was written\.$/);
+    expect(writesOf(h.org)).toEqual(before);
+  });
+
   describe('a Rewind step that mutes', () => {
     /** What the org runs as accounts are updated: a flow a bypass keeps quiet that emails the owner, and what is said beside. */
     const quietable = (

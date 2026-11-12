@@ -10,6 +10,7 @@ import {
   SCENARIO_COMPANION_SUFFIX,
   SYNC_RUNS_DIR,
   SyncRunCreations,
+  configTargetOf,
   readRemovalState,
   createdCount,
   deletedCount,
@@ -757,8 +758,8 @@ describe('earlierRunsOf and writtenAgainBy — the runs of the same target', () 
 
   /** Two runs that created the same account, the second a day after the first. */
   async function twoRuns(
-    first: { targetOrgId: string; targetOrganizationId?: string },
-    second: { targetOrgId: string; targetOrganizationId?: string },
+    first: { targetOrgId: string; targetAlias?: string; targetOrganizationId?: string },
+    second: { targetOrgId: string; targetAlias?: string; targetOrganizationId?: string },
   ) {
     const { deps } = memoryDisk();
     const store = new SyncRunCreations(deps);
@@ -796,6 +797,16 @@ describe('earlierRunsOf and writtenAgainBy — the runs of the same target', () 
     expect(writtenAgainBy(older, runs)).toEqual([]);
   });
 
+  it('takes a command-line run that names its target by the org’s id and one written before under its alias for runs of the same target', async () => {
+    const { runs, older, newer } = await twoRuns(
+      { targetOrgId: 'dev-a', targetOrganizationId: ORG },
+      { targetOrgId: ORG, targetAlias: 'dev-b', targetOrganizationId: ORG },
+    );
+
+    expect(earlierRunsOf(newer, runs).map((run) => run.runId)).toEqual(['run-1']);
+    expect(writtenAgainBy(older, runs).map((run) => run.runId)).toEqual(['run-2']);
+  });
+
   it('reads the target by the name the runs give it when one names no Organization id, as the panel’s do', async () => {
     const same = await twoRuns({ targetOrgId: 'tgt-org' }, { targetOrgId: 'tgt-org' });
     expect(earlierRunsOf(same.newer, same.runs).map((run) => run.runId)).toEqual(['run-1']);
@@ -805,6 +816,32 @@ describe('earlierRunsOf and writtenAgainBy — the runs of the same target', () 
       { targetOrgId: 'dev-b' },
     );
     expect(earlierRunsOf(other.newer, other.runs)).toEqual([]);
+  });
+});
+
+describe('configTargetOf — the target as a run’s configuration keeps it', () => {
+  const ORG = fakeId('00D', 1);
+
+  it('keeps the alias a command line was given beside the org’s own id, and names the target by it, which its configuration keeps its watermarks, files and links under', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder({
+      ...start('run-1'),
+      targetOrgId: ORG,
+      targetAlias: 'dev',
+      targetOrganizationId: ORG,
+    });
+    recorder.note('Account', [fakeId('001', 1)]);
+    await recorder.end({ status: 'success' });
+
+    const [run] = await store.list();
+    expect(run).toMatchObject({ targetOrgId: ORG, targetAlias: 'dev', targetOrganizationId: ORG });
+    expect(configTargetOf(run)).toBe('dev');
+  });
+
+  it('names the target as the run names it where it keeps no alias: the panel’s registered id, or the alias a command line’s file written before kept there', () => {
+    expect(configTargetOf({ targetOrgId: 'tgt-org' })).toBe('tgt-org');
+    expect(configTargetOf({ targetOrgId: 'dev' })).toBe('dev');
   });
 });
 

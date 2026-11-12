@@ -22,7 +22,9 @@
  * A spool is written whole or not at all: each object's file is flushed to the
  * disk before the list of its objects and their counts is written, temp and
  * rename, and a spool read back whose files do not hold what that list says is
- * refused as damaged, never read in part for all of it.
+ * refused as damaged, never read in part for all of it. The refusal names
+ * who set out to act on the records: a rewind, unless the spool is told of
+ * another act, such as the pass that empties whole tables (`tableIds.ts`).
  */
 
 import { randomBytes } from 'node:crypto';
@@ -54,6 +56,13 @@ const LINES_PER_WRITE = 2_000;
 
 /** What a spool's list of its objects is named in its folder. */
 const MANIFEST = 'spool.json';
+
+/**
+ * Who sets out to act on a spool's records unless it is told: a rewind, as
+ * the refusal of a spool no longer as written has always named it to whoever
+ * rewinds.
+ */
+const REWIND = 'a rewind';
 
 /** The key of `id`, or undefined when it is no id. */
 function keyOf(id: unknown): string | undefined {
@@ -214,16 +223,19 @@ async function flushed(file: string): Promise<void> {
  * Close a spool whose ids files are written: flush each to the disk, then
  * write the list of its objects and their counts, in their order — the
  * spool, as it is read back. An object of no record has no file.
+ *
+ * @param act - Who sets out to act on its records, as its refusals name it.
  */
 export async function closeSpool(
   dir: string,
   objects: Array<{ objectApiName: string; count: number }>,
+  act: string = REWIND,
 ): Promise<IdSpool> {
   for (const { objectApiName, count } of objects) {
     if (count > 0) await flushed(idsFileOf(dir, objectApiName));
   }
   await writeWhole(join(dir, MANIFEST), `${JSON.stringify({ version: 1, objects })}\n`);
-  return new IdSpool(dir, objects);
+  return new IdSpool(dir, objects, act);
 }
 
 /**
@@ -240,7 +252,14 @@ export class IdSpoolWriter {
   readonly keys = new RecordKeySet();
   private made = false;
 
-  constructor(readonly dir: string) {}
+  /**
+   * @param dir - The folder its files are written to.
+   * @param act - Who sets out to act on its records, as the spool's refusals name it.
+   */
+  constructor(
+    readonly dir: string,
+    readonly act: string = REWIND,
+  ) {}
 
   /**
    * Add a record of `objectApiName`: whether it was added, and not held
@@ -303,15 +322,21 @@ export class IdSpoolWriter {
       this.made = true;
     }
     for (const objectApiName of this.order) await this.flush(objectApiName);
-    return closeSpool(this.dir, order ? order(this.objects) : this.objects);
+    return closeSpool(this.dir, order ? order(this.objects) : this.objects, this.act);
   }
 }
 
 /** Ids per object, as a spool's folder holds them: read a page at a time, each time they are asked. */
 export class IdSpool {
+  /**
+   * @param dir - The folder its files are in.
+   * @param objects - Records it holds of each object, in its order.
+   * @param act - Who sets out to act on its records, as its refusals name it.
+   */
   constructor(
     readonly dir: string,
     readonly objects: ReadonlyArray<{ readonly objectApiName: string; readonly count: number }>,
+    readonly act: string = REWIND,
   ) {}
 
   /** Records it holds, every object's. */
@@ -322,28 +347,29 @@ export class IdSpool {
   /**
    * The spool written to `dir`.
    *
+   * @param act - Who sets out to act on its records, as its refusals name it.
    * @throws {CheckpointStoreError} `damaged`, when its list of objects is not
    *   there or does not read as one.
    */
-  static async open(dir: string): Promise<IdSpool> {
+  static async open(dir: string, act: string = REWIND): Promise<IdSpool> {
     let raw: unknown;
     try {
       raw = JSON.parse(await readFile(join(dir, MANIFEST), 'utf8'));
     } catch {
       throw new CheckpointStoreError(
         'damaged',
-        'The list of what a rewind sets out to do is not on this machine.',
+        `The list of what ${act} sets out to do is not on this machine.`,
       );
     }
     const parsed = manifestSchema.safeParse(raw);
     if (!parsed.success) {
       throw new CheckpointStoreError(
         'damaged',
-        'The list of what a rewind sets out to do does not read as one.',
+        `The list of what ${act} sets out to do does not read as one.`,
       );
     }
     for (const { objectApiName } of parsed.data.objects) sanitizeSoqlObjectName(objectApiName);
-    return new IdSpool(dir, parsed.data.objects);
+    return new IdSpool(dir, parsed.data.objects, act);
   }
 
   /**
@@ -361,7 +387,7 @@ export class IdSpool {
     const damaged = (): CheckpointStoreError =>
       new CheckpointStoreError(
         'damaged',
-        `The ${objectApiName} records a rewind sets out to act on are not as they were written.`,
+        `The ${objectApiName} records ${this.act} sets out to act on are not as they were written.`,
       );
     const per = Math.max(1, Math.floor(size));
     const stream = createReadStream(idsFileOf(this.dir, objectApiName), { encoding: 'utf8' });
@@ -418,10 +444,11 @@ export class SpooledRunRecords implements RunRecords {
    * The records spooled to `dir`, every page read once to hold their keys: a
    * removal resumed, or an undo, takes them up as they were written.
    *
+   * @param act - Who sets out to act on them, as the spool's refusals name it.
    * @throws {CheckpointStoreError} `damaged`, when the spool is not as written.
    */
-  static async open(dir: string): Promise<SpooledRunRecords> {
-    const spool = await IdSpool.open(dir);
+  static async open(dir: string, act: string = REWIND): Promise<SpooledRunRecords> {
+    const spool = await IdSpool.open(dir, act);
     const keys = new RecordKeySet();
     for (const { objectApiName } of spool.objects) {
       for await (const page of spool.pages(objectApiName)) {

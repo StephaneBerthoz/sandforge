@@ -112,6 +112,45 @@ const ACCOUNT_GUARD = {
 /** The user the fake orgs' connections are of. */
 const RUN_USER = '005000000000001AAA';
 
+/** The machine's clock as these tests pin it, whatever it says. */
+const PINNED = Date.parse('2026-11-09T10:15:05.000Z');
+
+/** The clock of the machine, kept to put it back. */
+const MACHINE_DATE = Date;
+
+/**
+ * Run `fn` on the clock pinned at {@link PINNED}, set back by 1.25 s at its
+ * `at`-th read, as WSL set the machine's clock back by 1.25 s every 31 s or
+ * so; never set back at 0, nor at an `at` past its last read. Gives how many
+ * times it was read.
+ */
+async function onAClockSetBackAt(at: number, fn: () => Promise<void>): Promise<number> {
+  let reads = 0;
+  let now = PINNED;
+  const read = (): number => {
+    reads++;
+    if (reads === at) now -= 1_250;
+    return now;
+  };
+  class SetBack extends MACHINE_DATE {
+    constructor(...given: [] | [string | number | Date]) {
+      if (given.length === 0) super(read());
+      else super(given[0]);
+    }
+
+    static now(): number {
+      return read();
+    }
+  }
+  vi.stubGlobal('Date', SetBack);
+  try {
+    await fn();
+  } finally {
+    vi.stubGlobal('Date', MACHINE_DATE);
+  }
+  return reads;
+}
+
 /**
  * An org holding an account and its contact, a sandbox, running nothing on
  * insert; `flows` are its record-triggered flows. `onCreate` is told of each
@@ -292,6 +331,14 @@ describe('sandforge-clone --summary', () => {
   });
 
   it('writes the summary as the run goes: after each object it ended, then whole once it ends', async () => {
+    // On the machine's clock, the summary said what that clock did: under
+    // WSL it went back by 1.25 s now and then, and a run across it — likelier
+    // the more loaded the machine, the longer the run — wrote elapsedMs below
+    // none, which parseRunSummary refused: the way this test failed under
+    // load. Pinned, the run reads the same clock every time; a clock set back
+    // is the next test's.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(PINNED);
     withOrgs();
     const path = join(dir, 'clone-summary.json');
 
@@ -314,34 +361,43 @@ describe('sandforge-clone --summary', () => {
     ]);
   });
 
-  it('writes a summary --remove reads although the machine’s clock was set back during the run', async () => {
+  it('writes a summary --remove reads although the machine’s clock was set back during the run, whichever read of it the run was at', async () => {
     // Under WSL the clock was set back by 1.25 s every 31 s or so: a run
     // across one wrote a negative elapsedMs, and --remove refused the
-    // summary the run had just written ("elapsedMs: Too small").
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-11-09T10:15:05.000Z'));
-    withOrgs(
-      fakeOrg([], (name) => {
-        if (name === 'Account') vi.setSystemTime(Date.now() - 1_250);
-      }),
-    );
-    const path = join(dir, 'clone-summary.json');
+    // summary the run had just written ("elapsedMs: Too small"). Set back at
+    // each of the run's reads of the clock in turn, from its start to its end.
+    const clone = async (at: number): Promise<void> => {
+      withOrgs();
+      stdout = '';
+      const path = join(dir, `clone-summary-${at}.json`);
 
-    expect(await run(argv('--summary', path, '--json'))).toBeUndefined();
+      expect(
+        await run(argv('--summary', path, '--json')),
+        `set back at read ${at}`,
+      ).toBeUndefined();
 
-    const writes = writesOf(path);
-    expect(writes).toHaveLength(3);
-    // Killed after any object, the run leaves one --remove takes back.
-    for (const document of writes) {
-      const read = parseRunSummary(JSON.stringify(document));
-      expect('summary' in read ? 'read' : read.refusal).toBe('read');
-    }
-    const kept = readFileSync(path, 'utf8');
-    expect((JSON.parse(kept) as Record<string, unknown>).elapsedMs).toBe(0);
-    const read = parseRunSummary(kept);
-    expect(
-      'summary' in read ? removalPlan(read.summary).map((o) => o.objectApiName) : read,
-    ).toEqual(['Contact', 'Account']);
+      const writes = writesOf(path);
+      expect(writes, `set back at read ${at}`).toHaveLength(3);
+      // Killed after any object, the run leaves one --remove takes back.
+      for (const document of writes) {
+        const read = parseRunSummary(JSON.stringify(document));
+        expect('summary' in read ? 'read' : read.refusal, `set back at read ${at}`).toBe('read');
+      }
+      const kept = readFileSync(path, 'utf8');
+      expect(JSON.parse(kept)).toEqual(JSON.parse(stdout));
+      expect((JSON.parse(kept) as Record<string, unknown>).elapsedMs).toBe(0);
+      const read = parseRunSummary(kept);
+      expect(
+        'summary' in read ? removalPlan(read.summary).map((o) => o.objectApiName) : read,
+        `set back at read ${at}`,
+      ).toEqual(['Contact', 'Account']);
+    };
+
+    const reads = await onAClockSetBackAt(0, () => clone(0));
+
+    // A run reads the clock as it starts, as it writes and as it ends.
+    expect(reads).toBeGreaterThan(2);
+    for (let at = 1; at <= reads; at++) await onAClockSetBackAt(at, () => clone(at));
   });
 
   it('stops on Ctrl-C between two objects, writes what the run created by then, and exits 130', async () => {

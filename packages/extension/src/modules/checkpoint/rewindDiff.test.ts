@@ -1802,7 +1802,10 @@ describe('rewindDiff: what it says beside the classes', () => {
           if (account) account.PersonEmail = 'moved@example.com';
           org.trash('Account', accountId(31));
           org.addPersonAccount({ Id: accountId(32), Name: 'Person 32' }, contactId(32));
-          org.hardDelete('Account', accountId(33));
+          // Gone from the recycle bin, which queryAll no longer reads a day
+          // after it was emptied: a hard delete still reads there, deleted.
+          org.trash('Account', accountId(33));
+          org.purge(accountId(33));
           org.edit('Contact', contactId(40), { LastName: 'Changed' });
         },
       });

@@ -671,9 +671,13 @@ describe('MemoryRemovalOrg', () => {
       });
     });
 
-    it('shows a hard-deleted record nowhere, or deleted in queryAll when told; it never comes back', async () => {
-      for (const shown of [false, true]) {
-        const { org } = seeded({ facts: { hardDeleteInQueryAll: shown } });
+    it('shows a hard-deleted record and what went with it deleted in queryAll, as the org did, or nowhere when told; it never comes back', async () => {
+      // A Bulk API hardDelete of an account with two contacts and an
+      // opportunity, on a test org: queryAll read the account and its
+      // children IsDeleted = true, as after a delete to the recycle bin, and
+      // their undelete answered "Entity is not in the recycle bin".
+      for (const shown of [true, false]) {
+        const { org } = seeded(shown ? {} : { facts: { hardDeleteInQueryAll: false } });
 
         org.hardDelete('Account', ACCOUNT);
 
@@ -1147,7 +1151,7 @@ describe('MemoryRemovalOrg', () => {
         undeleterIsLastModifier: true,
         clearedLookupRestamps: true,
         undeleteRestoresLookups: true,
-        hardDeleteInQueryAll: false,
+        hardDeleteInQueryAll: true,
         parentsDeletedFirst: true,
         cascadeChildComesBackAlone: false,
         childDeletedAloneThenParentLimbo: true,
@@ -1158,11 +1162,12 @@ describe('MemoryRemovalOrg', () => {
     it('gives every combination of the facts named, each once', () => {
       const combinations = factCombinations(['deleteStamps', 'hardDeleteInQueryAll']);
 
+      // The probes' own answers first: queryAll reads a hard-deleted record.
       expect(combinations).toEqual([
-        { ...MEMORY_ORG_FACTS, deleteStamps: true, hardDeleteInQueryAll: false },
         { ...MEMORY_ORG_FACTS, deleteStamps: true, hardDeleteInQueryAll: true },
-        { ...MEMORY_ORG_FACTS, deleteStamps: false, hardDeleteInQueryAll: false },
+        { ...MEMORY_ORG_FACTS, deleteStamps: true, hardDeleteInQueryAll: false },
         { ...MEMORY_ORG_FACTS, deleteStamps: false, hardDeleteInQueryAll: true },
+        { ...MEMORY_ORG_FACTS, deleteStamps: false, hardDeleteInQueryAll: false },
       ]);
       expect(factCombinations()).toHaveLength(2 ** Object.keys(MEMORY_ORG_FACTS).length);
     });

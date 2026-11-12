@@ -34,6 +34,13 @@
  *   after `Database.emptyRecycleBin`, and half an hour later still; a day
  *   later `queryAll` no longer read it (`purge`). No read tells it from a
  *   record still in the bin; only the undelete's answer does.
+ * - So does a record deleted for good (`hardDelete`), with what its delete
+ *   took along: a Bulk API `hardDelete` job of an account with two contacts
+ *   and an opportunity, by a user given the Bulk API Hard Delete right on a
+ *   test org, left the account and its children read `IsDeleted = true` by
+ *   `queryAll`, as a delete to the recycle bin leaves them, and the undelete
+ *   of the account and of a contact answered "Entity is not in the recycle
+ *   bin".
  * - Deleting a record clears a lookup to it that does not cascade (a
  *   contact's `ReportsToId`) and restamps the child; undeleting the record
  *   puts the lookup back and restamps the child again.
@@ -60,10 +67,8 @@
  *   One released or expired fails its next read. A test may set a limit past
  *   which the oldest is released.
  *
- * One fact the probes could not settle: no user of the test orgs could
- * hard-delete, so a hard-deleted record shows nowhere unless told. A child
- * deleted in cascade is refused an undelete of its own while its parent is in
- * the bin unless told, as the org was seen to refuse it.
+ * A child deleted in cascade is refused an undelete of its own while its
+ * parent is in the bin unless told, as the org was seen to refuse it.
  *
  * A statement it cannot read throws (`memorySoql.ts`), so one it cannot read
  * never passes for one that selects nothing. A semi-join, `Field IN (SELECT
@@ -135,8 +140,8 @@ export interface MemoryOrgFacts {
    */
   undeleteRestoresLookups: boolean;
   /**
-   * A hard-deleted record still shows, deleted, in `queryAll`. Unknown: no
-   * user of the test orgs could hard-delete. Off: it shows nowhere.
+   * A hard-deleted record, with what its delete took along, still shows,
+   * deleted, in `queryAll`, as the org showed it. Off: it shows nowhere.
    */
   hardDeleteInQueryAll: boolean;
   /**
@@ -176,17 +181,14 @@ export interface MemoryOrgFacts {
   emptiedStillListed: boolean;
 }
 
-/**
- * The facts as the live probes saw them; the one they could not see, a hard
- * delete, as the answer that brings back less.
- */
+/** The facts as the live probes saw them. */
 export const MEMORY_ORG_FACTS: Readonly<MemoryOrgFacts> = Object.freeze({
   deleteStamps: true,
   childDeletedAloneStays: true,
   undeleterIsLastModifier: true,
   clearedLookupRestamps: true,
   undeleteRestoresLookups: true,
-  hardDeleteInQueryAll: false,
+  hardDeleteInQueryAll: true,
   parentsDeletedFirst: true,
   cascadeChildComesBackAlone: false,
   childDeletedAloneThenParentLimbo: true,

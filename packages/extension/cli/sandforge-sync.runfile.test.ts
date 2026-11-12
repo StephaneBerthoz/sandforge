@@ -45,7 +45,7 @@ vi.mock('../src/modules/sync/SyncOrchestrator.js', () => ({
 import { makeConn } from './sfSession.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
-import { main, runFileOf } from './sandforge-sync.js';
+import { main, runFileOf, savedConfigStore } from './sandforge-sync.js';
 
 /** A fake id: the object's prefix and a counter, the length of a real one. */
 const fakeId = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
@@ -165,9 +165,12 @@ describe('the file a run of sandforge-sync keeps', () => {
     const [name] = runFiles();
     const file = join(runsDir(), name);
     const kept = readRunFile(readFileSync(file, 'utf8'));
+    // The target by its own id, as the summary names it, the alias it was
+    // given beside it.
     expect(kept).toMatchObject({
       sourceOrgId: 'SRC',
-      targetOrgId: 'TGT',
+      targetOrgId: ORG_ID,
+      targetAlias: 'TGT',
       targetOrganizationId: ORG_ID,
       end: { status: 'success' },
       created: [{ objectApiName: 'Account', ids: [A1] }],
@@ -561,6 +564,87 @@ describe('the file a run of sandforge-sync keeps', () => {
       );
       expect(stdout).not.toContain('; --sweep-list shows');
     });
+  });
+
+  it('tells, removed from its file, the store of the configuration it ran what it took, kept under the alias it was given', async () => {
+    // The configuration keeps its watermarks between the orgs of the line, by
+    // the aliases it was given: the file names the target by its own id, and
+    // a removal told the store under it would have left the watermark, and
+    // the next delta run would never have read the accounts it took again.
+    const config = join(process.env['SANDFORGE_JOURNAL_DIR'] ?? '', 'accounts.json');
+    const store = join(process.env['SANDFORGE_JOURNAL_DIR'] ?? '', 'state');
+    rmSync(store, { recursive: true, force: true });
+    writeFileSync(
+      config,
+      JSON.stringify({
+        id: 'cfg-accounts',
+        name: 'Accounts',
+        description: '',
+        sourceOrgId: 'SRC',
+        targetOrgId: 'TGT',
+        direction: 'source_to_target',
+        mode: 'delta',
+        objects: [
+          {
+            objectApiName: 'Account',
+            operation: 'upsert',
+            externalIdField: 'Ext_Id__c',
+            fieldMappings: [],
+            transformRules: [],
+            excludedFields: [],
+            addOnFields: [],
+            insertOrder: 0,
+          },
+        ],
+        conflictStrategy: 'source_wins',
+        enableRollback: false,
+      }),
+    );
+    const watermark = {
+      sourceOrgId: 'SRC',
+      targetOrgId: 'TGT',
+      objectApiName: 'Account',
+      watermark: '2026-10-14T08:00:00.000Z',
+      fingerprint: 'a'.repeat(64),
+      recordedAt: '2026-10-14T08:01:00.000Z',
+    };
+    engine.run = async (deps, ran) => {
+      deps.deltaStore?.record(ran.id, watermark);
+      deps.creations?.note('Account', [A1]);
+      return answered(ran);
+    };
+    await main(
+      argv(
+        '--config-file',
+        config,
+        '--store',
+        store,
+        '--source',
+        'SRC',
+        '--target',
+        'TGT',
+        '--json',
+      ),
+    );
+    const file = join(runsDir(), runFiles()[0]);
+    expect(readRunFile(readFileSync(file, 'utf8'))).toMatchObject({
+      configId: 'cfg-accounts',
+      targetOrgId: ORG_ID,
+      targetAlias: 'TGT',
+    });
+    org.add('Account', { Id: A1 }, new Date(Date.now() - 60_000).toISOString());
+    stdout = '';
+
+    await main(argv('--remove', file, '--target', 'TGT', '--store', store, '--json'));
+
+    expect(org.all('Account')).toEqual([]);
+    expect(JSON.parse(stdout)).toMatchObject({
+      result: { status: 'success', readWhole: ['Account'] },
+    });
+    const delta = savedConfigStore(store).loadDelta('cfg-accounts');
+    expect(delta.kind === 'stored' ? delta.state.entries : []).toEqual([
+      { ...watermark, removedAt: expect.any(String) },
+    ]);
   });
 
   it('tells a run file, and a run id, from a summary', () => {

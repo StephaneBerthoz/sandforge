@@ -79,8 +79,13 @@ const SEED_CONFIGURATION = 'sandforge-seed';
  */
 export interface SeedRunStart {
   runId: string;
-  /** The org it writes to: the org's id in the panel. */
+  /**
+   * The org it writes to: the org's id in the panel; its Organization id on
+   * the command line, which names the alias it was given in `targetAlias`.
+   */
   targetOrgId: string;
+  /** The alias the command line was given for the org: absent from a run of the panel. */
+  targetAlias?: string;
   startedAt?: string;
   /** The org a clone reads from; the target for the other ways. */
   sourceOrgId?: string;
@@ -89,9 +94,10 @@ export interface SeedRunStart {
   /** The pipeline whose Seed step runs the seed, by its name: absent for a run of the page. */
   pipeline?: { name: string };
   /**
-   * The target's own Organization id, for a run of the command line, whose
-   * `targetOrgId` is an alias: its removal is refused from any other org,
-   * whatever org the alias names by then.
+   * The target's own Organization id, for a run of the command line: its
+   * removal is refused from any other org, whatever org the alias names by
+   * then. A file written before named the alias in `targetOrgId`, and the
+   * Organization id here alone.
    */
   targetOrganizationId?: string;
   /**
@@ -249,6 +255,7 @@ export class SeedRunCreations implements SyncRemovalStateStore {
       ...(start.targetOrganizationId !== undefined
         ? { targetOrganizationId: start.targetOrganizationId }
         : {}),
+      ...(start.targetAlias !== undefined ? { targetAlias: start.targetAlias } : {}),
       // Kept only as an id: the file's first line would not read otherwise.
       ...(start.runUserId !== undefined && SF_ID.test(start.runUserId)
         ? { runUserId: start.runUserId }

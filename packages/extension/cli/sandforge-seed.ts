@@ -2424,11 +2424,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // Seed keeps its runs (`SeedRunCreations`): the command kept it in memory,
   // printed once the run returned, and a run killed by its CI job's timeout,
   // out of memory or ended by an error left its records in the org with
-  // nothing --remove could read. Ids and dates only.
+  // nothing --remove could read. Ids and dates only. The org by its own id,
+  // as the summary names it, the alias it was given beside it.
   const runs = args.dryRun ? undefined : nodeSeedRunCreations(journalDirOf());
   const kept = runs?.recorder({
     runId,
-    targetOrgId: args.target,
+    targetOrgId: typedTarget?.id ?? args.target,
+    targetAlias: args.target,
     startedAt,
     ...(typedTarget ? { targetOrganizationId: typedTarget.id } : {}),
   });

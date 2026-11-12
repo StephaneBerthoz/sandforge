@@ -32,6 +32,13 @@ export const ARCHIVED_ACTIVITIES: ReadonlySet<string> = new Set(['Task', 'Event'
 /** A Salesforce id, of either length. */
 const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
 
+/**
+ * Who sets out to act on the ids a read of tables spools, as the refusal of
+ * a spool no longer as written names it: its spool is read back again under
+ * the same words (`IdSpool.open`). The rewind's spools name a rewind.
+ */
+export const EMPTYING = 'an emptying';
+
 /** A row of a page, as the org answers it. */
 type Row = Record<string, unknown>;
 
@@ -157,5 +164,5 @@ export async function spoolTableIds(
       page = await source.queryMore(page.nextRecordsUrl);
     }
   }
-  return { stopped: false, spool: await closeSpool(dir, read) };
+  return { stopped: false, spool: await closeSpool(dir, read, EMPTYING) };
 }

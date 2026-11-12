@@ -232,6 +232,45 @@ describe('a spool of ids', () => {
     await expect(SpooledRunRecords.open(dir)).rejects.toMatchObject({ code: 'damaged' });
   });
 
+  it('names who set out to act on a damaged spool: a rewind, in the words a rewind has always said, or the act it is told', async () => {
+    const dir = folder();
+    const writer = new IdSpoolWriter(dir);
+    await writer.add('Account', accountId(1));
+    const spool = await writer.finish();
+    const other = folder();
+    const emptied = new IdSpoolWriter(other, 'an emptying');
+    await emptied.add('Account', accountId(2));
+    const emptying = await emptied.finish();
+    const read = async (from: IdSpool): Promise<void> => {
+      for await (const page of from.pages('Account')) void page;
+    };
+    rmSync(join(dir, 'Account.ids'));
+    rmSync(join(other, 'Account.ids'));
+
+    await expect(read(spool)).rejects.toThrow(
+      'The Account records a rewind sets out to act on are not as they were written.',
+    );
+    await expect(read(emptying)).rejects.toThrow(
+      'The Account records an emptying sets out to act on are not as they were written.',
+    );
+    await expect(SpooledRunRecords.open(other, 'an emptying')).rejects.toThrow(
+      'The Account records an emptying sets out to act on are not as they were written.',
+    );
+    writeFileSync(join(dir, 'spool.json'), '{"version":2}');
+    await expect(IdSpool.open(dir)).rejects.toThrow(
+      'The list of what a rewind sets out to do does not read as one.',
+    );
+    await expect(IdSpool.open(dir, 'an emptying')).rejects.toThrow(
+      'The list of what an emptying sets out to do does not read as one.',
+    );
+    await expect(IdSpool.open(join(dir, 'elsewhere'))).rejects.toThrow(
+      'The list of what a rewind sets out to do is not on this machine.',
+    );
+    await expect(IdSpool.open(join(dir, 'elsewhere'), 'an emptying')).rejects.toThrow(
+      'The list of what an emptying sets out to do is not on this machine.',
+    );
+  });
+
   it('is the plan a removal takes: read a page at a time, its records deleted children first, and nothing else', async () => {
     const org = new MemoryRemovalOrg({
       Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
