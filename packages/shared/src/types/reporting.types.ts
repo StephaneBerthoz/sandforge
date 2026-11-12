@@ -266,7 +266,7 @@ export interface AuditLogEntry {
 
 /** The run a checkpoint was taken before, as the take's entry names it. */
 export interface AuditBeforeRun {
-  module: 'forge' | 'sync' | 'seed' | 'autopilot' | 'frozen';
+  module: 'forge' | 'sync' | 'seed' | 'autopilot' | 'frozen' | 'empty';
   operationId: string;
 }
 

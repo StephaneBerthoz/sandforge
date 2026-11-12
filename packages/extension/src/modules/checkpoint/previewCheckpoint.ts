@@ -243,7 +243,9 @@ function lockedRefusal(orgName: string, holder: OrgLockHolder): CheckpointRefusa
         ? `A rewind is writing to ${orgName}`
         : holder.operation === 'undo'
           ? `An undo is writing to ${orgName}`
-          : `SandForge is deleting checkpoints of ${orgName}`;
+          : holder.operation === 'empty'
+            ? `An emptying of its objects is writing to ${orgName}`
+            : `SandForge is deleting checkpoints of ${orgName}`;
   return {
     code: 'RUN_WRITING',
     message: `${what} (process ${holder.pid} on ${holder.host}): rewind once it has ended. ${NOTHING_WRITTEN}`,

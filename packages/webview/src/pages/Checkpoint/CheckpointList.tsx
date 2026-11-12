@@ -50,6 +50,7 @@ const BEFORE_RUN_KEYS: Readonly<Record<CheckpointBeforeRunModule, string>> = {
   seed: 'checkpoint.list.beforeRun.seed',
   autopilot: 'checkpoint.list.beforeRun.autopilot',
   frozen: 'checkpoint.list.beforeRun.frozen',
+  empty: 'checkpoint.list.beforeRun.empty',
 };
 
 /** Props for {@link CheckpointList}. */

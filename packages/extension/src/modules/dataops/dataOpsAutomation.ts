@@ -599,6 +599,16 @@ export interface DataOpsActInput {
   assignTo?: { alias: string; username: string };
   /** Whose words its refusals are said in (`dataOpsSaid`): the command line's when not said. */
   voice?: DataOpsVoice;
+  /**
+   * What the act writes, when not what its own steps say (`dataOpsStepsOf`,
+   * `dataOpsWrittenOf`): the steps what fires is read on, and the records
+   * its emails are counted on. An emptying sets its activated orders back to
+   * Draft before it deletes, an update of those orders alone; its undo brings
+   * records back from the recycle bin and puts no value back, where a restore
+   * does both and would be asked about the org's "on update" automation it
+   * never fires.
+   */
+  writes?: { steps: ForgeRemovalSteps; written: readonly WrittenRecords[] };
 }
 
 /** What an act's read came to: what is said and refused, the mute planned, and the emails' gate. */
@@ -633,7 +643,7 @@ export async function readDataOpsAct(input: DataOpsActInput): Promise<DataOpsAct
   const { act, target, accord } = input;
   const objects = input.objects.filter((object) => object.records > 0);
   const names = objects.map((object) => object.objectApiName);
-  const steps = dataOpsStepsOf(act, names);
+  const steps = input.writes?.steps ?? dataOpsStepsOf(act, names);
   const writes = removalStepsWrites(steps);
   const read: ForgeTargetAutomation | { unread: string } =
     names.length === 0
@@ -679,7 +689,9 @@ export async function readDataOpsAct(input: DataOpsActInput): Promise<DataOpsAct
 
   // The emails of what still runs, counted against what the org has left
   // today: its limits are read only when something sends one.
-  const written = dataOpsWrittenOf(act, objects);
+  const written = input.writes
+    ? input.writes.written.filter((each) => each.records > 0)
+    : dataOpsWrittenOf(act, objects);
   let emails: CheckpointEmails[] = [];
   let uncounted: string | undefined;
   /** What the mute does for them, once they are past what the org has left. */

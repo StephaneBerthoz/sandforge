@@ -285,6 +285,16 @@ import type {
   DataOpsCleanupExportResponse,
   DataOpsCleanupDeleteRequest,
   DataOpsCleanupDeleteResponse,
+  DataOpsEmptyScopeMessage,
+  DataOpsEmptyScopeResponse,
+  DataOpsEmptyPreviewRequest,
+  DataOpsEmptyPreviewResponse,
+  DataOpsEmptyRunRequest,
+  DataOpsEmptyRunResponse,
+  DataOpsEmptyCancelRequest,
+  DataOpsEmptyCancelResponse,
+  DataOpsEmptyUndoRequest,
+  DataOpsEmptyUndoResponse,
   DataOpsErrorResponse,
   GovernancePoliciesListRequest,
   GovernancePoliciesListResult,
@@ -729,6 +739,11 @@ export type WebViewToExtensionMessage =
   | DataOpsCleanupScanRequest
   | DataOpsCleanupExportRequest
   | DataOpsCleanupDeleteRequest
+  | DataOpsEmptyScopeMessage
+  | DataOpsEmptyPreviewRequest
+  | DataOpsEmptyRunRequest
+  | DataOpsEmptyCancelRequest
+  | DataOpsEmptyUndoRequest
   // Governance
   | GovernancePoliciesListRequest
   | GovernancePolicySaveRequest
@@ -1008,6 +1023,11 @@ export type ExtensionToWebViewMessage =
   | DataOpsCleanupScanResponse
   | DataOpsCleanupExportResponse
   | DataOpsCleanupDeleteResponse
+  | DataOpsEmptyScopeResponse
+  | DataOpsEmptyPreviewResponse
+  | DataOpsEmptyRunResponse
+  | DataOpsEmptyCancelResponse
+  | DataOpsEmptyUndoResponse
   | DataOpsAutomationResponse
   | DataOpsErrorResponse
   // Governance

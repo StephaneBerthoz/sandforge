@@ -672,7 +672,9 @@ function holderWords(holder: OrgLockHolder): string {
         ? 'a rewind is writing'
         : holder.operation === 'undo'
           ? 'an undo is writing'
-          : 'SandForge is deleting checkpoints';
+          : holder.operation === 'empty'
+            ? 'an emptying of its objects is writing'
+            : 'SandForge is deleting checkpoints';
   return `${what} (process ${holder.pid} on ${holder.host})`;
 }
 
@@ -2101,6 +2103,17 @@ export class CheckpointHandler implements DomainHandler {
    * writes, refuses the take as ever: a checkpoint taken while another run
    * writes would hold that run half written.
    */
+  writingTo(
+    orgId: string,
+    orgName: string,
+    then: string,
+    done: string,
+    own: BeforeRunOwn = {},
+  ): (organizationId: string) => Promise<string | undefined> {
+    return this.runWriting(orgId, orgName, then, done, own);
+  }
+
+  /** See {@link writingTo}: what a rewind and a take are refused for, an emptying too. */
   private runWriting(
     orgId: string,
     orgName: string,

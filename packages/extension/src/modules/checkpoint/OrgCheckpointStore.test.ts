@@ -866,6 +866,17 @@ describe('the lock of an org', () => {
     if ('lock' in again) again.lock.release();
   });
 
+  it('is held by an emptying of the org as by a rewind: read back as its, never taken over', () => {
+    const store = storeIn();
+    const emptying = store.lock(ORG, 'empty');
+    if (!('lock' in emptying)) throw new Error('the lock was not taken');
+
+    expect(store.lock(ORG_15, 'rewind')).toMatchObject({ busy: { operation: 'empty' } });
+    expect(store.lock(ORG, 'take')).toMatchObject({ busy: { operation: 'empty' } });
+    emptying.lock.release();
+    expect(store.heldBy(ORG)).toBeUndefined();
+  });
+
   it('is shared by two stores, the default one and one a command line names', () => {
     const dir = scratch();
     vi.stubEnv('HOME', join(dir, 'home'));

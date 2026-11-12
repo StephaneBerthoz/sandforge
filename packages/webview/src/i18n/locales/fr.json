@@ -6921,7 +6921,8 @@
         "sync": "Avant l'exécution Sync",
         "seed": "Avant l'exécution Seed",
         "autopilot": "Avant l'exécution Autopilot",
-        "frozen": "Avant le chargement du Jeu de données figé"
+        "frozen": "Avant le chargement du Jeu de données figé",
+        "empty": "Avant le vidage d'objets"
       }
     },
     "rename": {

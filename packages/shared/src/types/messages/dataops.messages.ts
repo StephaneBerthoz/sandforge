@@ -20,6 +20,16 @@ import type {
 } from '../../constants/saved-anonymization-templates.js';
 import type { GovernancePolicySummary } from '../governance.types.js';
 import type { CheckpointEmails } from '../checkpoint.types.js';
+import type {
+  DataOpsEmptyDeleteMode,
+  DataOpsEmptyLeftOut,
+  DataOpsEmptyMode,
+  DataOpsEmptyPreviewKept,
+  DataOpsEmptyRefusal,
+  DataOpsEmptyRunResult,
+  DataOpsEmptyScopeRequest,
+  DataOpsEmptyUndoResult,
+} from '../dataOpsEmpty.types.js';
 import type { ForgeTargetAutomation, RunDeliverability } from '../forge.types.js';
 import type { ForgeRemovalSteps } from '../../utils/forge-target-automation.js';
 import type { MutedAutomation, MutePlan } from '../../utils/automation-mute.js';
@@ -872,6 +882,107 @@ export interface DataOpsCleanupDeleteResponse extends BaseMessage {
     /** What the delete's mute assigned, kept quiet and left running, when it was asked to mute. */
     mutedAutomation?: MutedAutomation;
   };
+}
+
+/**
+ * The objects an emptying would delete the records of, and those it leaves
+ * out with why, from the org's global describe alone: nothing is counted.
+ */
+export interface DataOpsEmptyScopeMessage extends BaseMessage {
+  type: 'dataops:empty:scope';
+  payload: { orgId: string } & DataOpsEmptyScopeRequest;
+}
+
+/** Result of `dataops:empty:scope`. */
+export interface DataOpsEmptyScopeResponse extends BaseMessage {
+  type: 'dataops:empty:scope:response';
+  payload: {
+    mode: DataOpsEmptyMode;
+    /** The objects emptied, by the names the org gives them. */
+    objects: string[];
+    leftOut: DataOpsEmptyLeftOut[];
+    /** Every object people work in that the user may delete: what a pick is made among. */
+    candidates: string[];
+  };
+}
+
+/**
+ * The dry run of an emptying: what it deletes and leaves, what fires, what
+ * it costs, what the user does not see, and what the run would be refused
+ * for now. Kept under its id for the run to act on; nothing is written.
+ */
+export interface DataOpsEmptyPreviewRequest extends BaseMessage {
+  type: 'dataops:empty:preview';
+  payload: {
+    orgId: string;
+    request: DataOpsEmptyScopeRequest;
+    deleteMode: DataOpsEmptyDeleteMode;
+    /** What a checkpoint before the run would hold and cost, asked for. */
+    checkpointFirst?: boolean;
+    /** Delete records no undo would bring back. */
+    acceptNoUndo?: boolean;
+  } & DataOpsWriteAccord &
+    DataOpsAskedFrom;
+}
+
+/** Result of `dataops:empty:preview`. */
+export interface DataOpsEmptyPreviewResponse extends BaseMessage {
+  type: 'dataops:empty:preview:response';
+  payload: DataOpsEmptyPreviewKept & {
+    automation: DataOpsAutomationAnswer;
+    /** What the run would meet now, as asked: the first stops it, the others beside it. */
+    refusals: DataOpsEmptyRefusal[];
+  };
+}
+
+/**
+ * Empty the org as a preview said, or take up the org's last emptying where
+ * it stopped (`resumeRunId`). Production Guard is asked; the org's lock is
+ * held for the whole run, which is listed in Live Operations.
+ */
+export interface DataOpsEmptyRunRequest extends BaseMessage {
+  type: 'dataops:empty:run';
+  payload: {
+    orgId: string;
+    /** The preview confirmed: the run reads the org again and refuses past what it showed. */
+    previewId?: string;
+    /** The run to take up, stopped part way. */
+    resumeRunId?: string;
+    acceptNoUndo?: boolean;
+    /** Take a checkpoint of what the run deletes before its first delete. */
+    checkpointFirst?: boolean;
+  } & DataOpsWriteAccord &
+    DataOpsAskedFrom;
+}
+
+/** Result of `dataops:empty:run`. */
+export interface DataOpsEmptyRunResponse extends BaseMessage {
+  type: 'dataops:empty:run:response';
+  payload: { operationId: string; result: DataOpsEmptyRunResult };
+}
+
+/** Stop an emptying, a dry run or an undo under way, before its next call or job. */
+export interface DataOpsEmptyCancelRequest extends BaseMessage {
+  type: 'dataops:empty:cancel';
+  payload: { operationId: string };
+}
+
+/** Result of `dataops:empty:cancel`: whether something under that id was stopped. */
+export interface DataOpsEmptyCancelResponse extends BaseMessage {
+  type: 'dataops:empty:cancel:response';
+  payload: { operationId: string; cancelled: boolean };
+}
+
+/** Bring back from the recycle bin what the org's last emptying deleted. */
+export interface DataOpsEmptyUndoRequest extends BaseMessage {
+  type: 'dataops:empty:undo';
+  payload: { orgId: string; runId: string } & DataOpsWriteAccord & DataOpsAskedFrom;
+}
+
+/** Result of `dataops:empty:undo`. */
+export interface DataOpsEmptyUndoResponse extends BaseMessage {
+  type: 'dataops:empty:undo:response';
+  payload: { operationId: string; result: DataOpsEmptyUndoResult };
 }
 
 /**

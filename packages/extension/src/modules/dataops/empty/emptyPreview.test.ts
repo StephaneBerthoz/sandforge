@@ -126,6 +126,20 @@ describe('previewEmpty, objects picked', () => {
     ]);
   });
 
+  it('says how the run reads the activated orders going along, to set them back to Draft before the accounts go', async () => {
+    const { result } = await preview({ mode: 'objects', objects: ['Account'] });
+
+    expect(result.toDraftAlong).toEqual([
+      { objectApiName: 'Order', condition: 'AccountId != null' },
+    ]);
+  });
+
+  it('sets back none along when the orders are emptied themselves: their own pass does', async () => {
+    const { result } = await preview({ mode: 'objects', objects: ['Account', 'Order'] });
+
+    expect(result.toDraftAlong).toEqual([]);
+  });
+
   it('counts the records of the account and what goes with it in the act’s size', async () => {
     const { result } = await preview({ mode: 'objects', objects: ['Account'] });
 

@@ -926,6 +926,20 @@ describe('takeCheckpoint — refused before anything is read', () => {
     expect(h.store.heldBy(ORG_ID)).toBeUndefined();
   });
 
+  it('refuses while an emptying of the org holds its lock, and says it is one', async () => {
+    const h = harness();
+    seed(h.org);
+    const emptying = h.store.lock(ORG_ID, 'empty');
+    if (!('lock' in emptying)) throw new Error('not locked');
+
+    const locked = await takeCheckpoint(h.deps, request());
+    emptying.lock.release();
+
+    expect(locked.taken ? '' : locked.refusal.message).toMatch(
+      /^An emptying of its objects is writing to DEV-SB \(process \d+ on .+\): take the checkpoint once it has ended\./,
+    );
+  });
+
   it('refuses more records than its limit before reading any of them, and leaves out an object past it alone, named', async () => {
     const h = harness();
     seed(h.org);

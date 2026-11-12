@@ -6523,7 +6523,8 @@
         "sync": "Sync 実行前",
         "seed": "Seed 実行前",
         "autopilot": "Autopilot 実行前",
-        "frozen": "凍結データセットの読み込み前"
+        "frozen": "凍結データセットの読み込み前",
+        "empty": "オブジェクトを空にする前"
       }
     },
     "rename": {

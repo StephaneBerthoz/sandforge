@@ -95,6 +95,7 @@ describe('the checkpoint file and its schema', () => {
       'seed',
       'autopilot',
       'frozen',
+      'empty',
     ]);
   });
 });

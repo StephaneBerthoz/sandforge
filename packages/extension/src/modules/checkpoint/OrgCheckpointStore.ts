@@ -1266,13 +1266,17 @@ async function sweepOne(read: CheckpointRead, now: number, swept: CheckpointSwee
 
 // ─── The lock of an org ──────────────────────────────────────────────────────
 
-/** What holds an org's lock: a take, a rewind, an undo, or the store deleting checkpoints. */
-export type OrgLockOperation = 'take' | 'rewind' | 'undo' | 'delete' | 'sweep';
+/**
+ * What holds an org's lock: a take, a rewind, an undo, the store deleting
+ * checkpoints, or an emptying of the org's objects and its undo, which delete
+ * and bring back whole tables a rewind or a take would read half done.
+ */
+export type OrgLockOperation = 'take' | 'rewind' | 'undo' | 'delete' | 'sweep' | 'empty';
 
 /** An org's lock file, as it is written and read back. */
 const lockFileSchema = z.object({
   ...lockHolderShape,
-  operation: z.enum(['take', 'rewind', 'undo', 'delete', 'sweep']),
+  operation: z.enum(['take', 'rewind', 'undo', 'delete', 'sweep', 'empty']),
   checkpointId: checkpointIdSchema.optional(),
 });
 

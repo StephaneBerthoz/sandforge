@@ -468,6 +468,59 @@ describe('readDataOpsAct', () => {
     });
   });
 
+  it('reads what fires on the writes it is told, not its act’s own: an undo that brings back and puts no value back is asked nothing of an update flow', async () => {
+    const org = orgOf(
+      automationOf({ Contact: { flows: [flow('Notify Owner', 'update', { emails: 1 })] } }),
+    );
+    const read = await readDataOpsAct({
+      act: 'restore',
+      target: 'TGT',
+      objects: contacts,
+      org,
+      accord: {},
+      mayMute: true,
+      writes: { steps: { bringBack: ['Contact'] }, written: [] },
+    });
+    expect(read.answer.steps).toEqual({ bringBack: ['Contact'] });
+    expect(read.answer.refusals).toEqual([]);
+    expect(read.answer.emails).toEqual([]);
+
+    // Its own steps put the values back too, and its update flow is asked about.
+    const own = await readDataOpsAct({
+      act: 'restore',
+      target: 'TGT',
+      objects: contacts,
+      org,
+      accord: {},
+      mayMute: true,
+    });
+    expect(own.answer.refusals.map((r) => r.code)).toContain(AUTOMATION_NOT_ACCEPTED);
+  });
+
+  it('counts the emails on the records it is told are written: the orders an emptying sets back to Draft', async () => {
+    const org = orgOf(
+      automationOf({ Order: { flows: [flow('Order Changed', 'update', { emails: 1 })] } }),
+    );
+    const read = await readDataOpsAct({
+      act: 'cleanup',
+      target: 'TGT',
+      objects: [{ objectApiName: 'Order', records: 3 }],
+      org,
+      accord: { acceptAutomation: true, acceptEmails: true },
+      mayMute: true,
+      writes: {
+        steps: { delete: ['Order'], setToDraft: ['Order'] },
+        written: [
+          { objectApiName: 'Order', write: 'delete', records: 3 },
+          { objectApiName: 'Order', write: 'update', records: 1 },
+        ],
+      },
+    });
+    expect(read.answer.emails).toEqual([
+      expect.objectContaining({ limit: 'SingleEmail', emails: 1, verdict: 'fits' }),
+    ]);
+  });
+
   it('reads nothing and refuses nothing when no object holds a record to write', async () => {
     const org = orgOf(automationOf({ Contact: { flows: [flow('Notify Owner', 'update')] } }));
     const read = await readDataOpsAct({

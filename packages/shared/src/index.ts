@@ -10,6 +10,7 @@ export * from './types/monitor.types.js';
 export * from './types/governance.types.js';
 export * from './types/compare.types.js';
 export * from './types/dataops.types.js';
+export * from './types/dataOpsEmpty.types.js';
 export * from './types/automation.types.js';
 export {
   type AutopilotNodeStatus,

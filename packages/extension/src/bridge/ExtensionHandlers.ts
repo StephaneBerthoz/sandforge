@@ -49,6 +49,7 @@ import { CompareHandler } from './handlers/CompareHandler.js';
 import { DataOpsHandler } from './handlers/DataOpsHandler.js';
 import { DataOpsComplianceHandler } from './handlers/DataOpsComplianceHandler.js';
 import { DataOpsCleanupHandler } from './handlers/DataOpsCleanupHandler.js';
+import { DataOpsEmptyHandler } from './handlers/DataOpsEmptyHandler.js';
 import { AutomationHandler } from './handlers/AutomationHandler.js';
 import type { PipelineTriggerWiring } from './handlers/AutomationHandler.js';
 import type { TriggerClaims } from '../modules/automation/TriggerClaims.js';
@@ -183,6 +184,8 @@ export class ExtensionHandlers {
   private readonly dataOpsHandler: DataOpsHandler;
   private readonly complianceHandler: DataOpsComplianceHandler;
   private readonly cleanupHandler: DataOpsCleanupHandler;
+  /** Emptying objects, or the whole org, from DataOps Cleanup. */
+  private readonly emptyHandler: DataOpsEmptyHandler;
   private readonly automationHandler: AutomationHandler;
   private readonly aiHandler: AIHandler;
   private readonly autopilotHandler: AutopilotHandler;
@@ -282,6 +285,7 @@ export class ExtensionHandlers {
     this.dataOpsHandler = new DataOpsHandler(this.handlerDeps);
     this.complianceHandler = new DataOpsComplianceHandler(this.handlerDeps);
     this.cleanupHandler = new DataOpsCleanupHandler(this.handlerDeps);
+    this.emptyHandler = new DataOpsEmptyHandler(this.handlerDeps);
     this.automationHandler = new AutomationHandler(this.handlerDeps);
     this.aiHandler = new AIHandler(this.handlerDeps);
     this.autopilotHandler = new AutopilotHandler(this.handlerDeps);
@@ -332,6 +336,15 @@ export class ExtensionHandlers {
     this.seedHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
     this.seedCsvHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
     this.seedCloneHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
+    // An emptying takes its checkpoint the same way, and is refused while
+    // another run of this machine writes to the org, as a rewind is: its own
+    // act, named, alone left out.
+    this.emptyHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
+    this.emptyHandler.setRunWriting((orgId, orgName, operationId) =>
+      this.checkpointHandler.writingTo(orgId, orgName, 'empty it', 'Nothing was deleted.', {
+        operationId,
+      }),
+    );
     // The sweep of a run's removal is told of the runs of every module on the
     // org, not of its own module's alone: what is tied to nothing of the run
     // may be theirs.
@@ -498,6 +511,7 @@ export class ExtensionHandlers {
     // promised by the docs and offered nowhere.
     this.dataOpsHandler.setLiveOperationTracker(tracker);
     this.cleanupHandler.setLiveOperationTracker(tracker);
+    this.emptyHandler.setLiveOperationTracker(tracker);
     this.complianceHandler.setLiveOperationTracker(tracker);
     this.automationHandler.setLiveOperationTracker(tracker);
     this.realtimeHandler.setLiveOperationTracker(tracker);
@@ -1141,6 +1155,18 @@ export class ExtensionHandlers {
     route(
       ['dataops:cleanup:scan', 'dataops:cleanup:export', 'dataops:cleanup:delete'],
       this.cleanupHandler,
+    );
+
+    // DataOps — Cleanup: emptying objects, or the whole org
+    route(
+      [
+        'dataops:empty:scope',
+        'dataops:empty:preview',
+        'dataops:empty:run',
+        'dataops:empty:cancel',
+        'dataops:empty:undo',
+      ],
+      this.emptyHandler,
     );
 
     // Automation

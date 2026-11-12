@@ -71,7 +71,14 @@ export type CheckpointCustomSettingKind = 'hierarchy' | 'list';
 export type CheckpointStatus = 'taking' | 'ready' | 'failed';
 
 /** The modules whose run can take a checkpoint of the objects it writes before its first write. */
-export type CheckpointBeforeRunModule = 'forge' | 'sync' | 'seed' | 'autopilot' | 'frozen';
+export type CheckpointBeforeRunModule =
+  | 'forge'
+  | 'sync'
+  | 'seed'
+  | 'autopilot'
+  | 'frozen'
+  /** An emptying of objects, or of the whole org, of DataOps Cleanup. */
+  | 'empty';
 
 /**
  * Where a checkpoint taken before a run comes from (`Checkpoint first`): the

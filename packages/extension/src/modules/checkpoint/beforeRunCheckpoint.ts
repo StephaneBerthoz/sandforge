@@ -548,6 +548,7 @@ const RUN_WORDS: Readonly<Record<CheckpointBeforeRunModule, string>> = {
   seed: 'Seed run',
   autopilot: 'Autopilot run',
   frozen: 'Frozen Dataset load',
+  empty: 'emptying',
 };
 
 /**
@@ -661,7 +662,9 @@ function lockHolderWords(holder: OrgLockHolder): string {
         ? 'a rewind is writing'
         : holder.operation === 'undo'
           ? 'an undo is writing'
-          : 'SandForge is deleting checkpoints';
+          : holder.operation === 'empty'
+            ? 'an emptying of its objects is writing'
+            : 'SandForge is deleting checkpoints';
   return `${what} (process ${holder.pid} on ${holder.host})`;
 }
 

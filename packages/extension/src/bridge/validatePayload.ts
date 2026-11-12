@@ -1123,6 +1123,77 @@ export const dataOpsCleanupDeletePayloadSchema = dataOpsCleanupExportPayloadSche
   ...dataOpsAskedFromShape,
 });
 
+// ── dataops:empty:* payload schemas ───────────────────────────────────────
+
+/** Objects one emptying names at most, picked or left out: an org's global describe holds fewer. */
+const EMPTY_MAX_OBJECTS = 2_000;
+
+/** What a person asks an emptying to delete: the objects picked, or the whole org less some. */
+const dataOpsEmptyScopeRequestShape = {
+  mode: z.enum(['objects', 'org']),
+  objects: z.array(sfApiNameSchema).min(1).max(EMPTY_MAX_OBJECTS).optional(),
+  excluded: z.array(sfApiNameSchema).max(EMPTY_MAX_OBJECTS).optional(),
+  customSettings: z.boolean().optional(),
+  files: z.boolean().optional(),
+  managedPackages: z.boolean().optional(),
+};
+
+/** The objects picked are named in `objects` mode, and only there. */
+const dataOpsEmptyScopeRequestSchema = z
+  .object(dataOpsEmptyScopeRequestShape)
+  .strict()
+  .refine((request) => (request.mode === 'objects') === (request.objects !== undefined), {
+    message: 'The objects picked are named in objects mode, and only there',
+  });
+
+/** `dataops:empty:scope`: the org, and what is asked. */
+export const dataOpsEmptyScopePayloadSchema = z
+  .object({ orgId: orgIdSchema, ...dataOpsEmptyScopeRequestShape })
+  .strict()
+  .refine((request) => (request.mode === 'objects') === (request.objects !== undefined), {
+    message: 'The objects picked are named in objects mode, and only there',
+  });
+
+/** `dataops:empty:preview`: what is asked, to the recycle bin or for good, and what the run accepts. */
+export const dataOpsEmptyPreviewPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  request: dataOpsEmptyScopeRequestSchema,
+  deleteMode: z.enum(['recycle', 'hard']),
+  checkpointFirst: z.boolean().optional(),
+  acceptNoUndo: z.boolean().optional(),
+  ...dataOpsWriteAccordShape,
+  ...dataOpsAskedFromShape,
+});
+
+/** `dataops:empty:run`: the preview confirmed, or the run to take up — one of them. */
+export const dataOpsEmptyRunPayloadSchema = z
+  .object({
+    orgId: orgIdSchema,
+    previewId: opaqueIdSchema.optional(),
+    resumeRunId: z
+      .string()
+      .regex(/^em-\d{8}-\d{6}-[a-z0-9]{4}$/)
+      .optional(),
+    acceptNoUndo: z.boolean().optional(),
+    checkpointFirst: z.boolean().optional(),
+    ...dataOpsWriteAccordShape,
+    ...dataOpsAskedFromShape,
+  })
+  .refine((request) => (request.previewId === undefined) !== (request.resumeRunId === undefined), {
+    message: 'An emptying acts on a preview, or takes up a run: one of them',
+  });
+
+/** `dataops:empty:cancel`: the act to stop, by its operation id. */
+export const dataOpsEmptyCancelPayloadSchema = z.object({ operationId: opaqueIdSchema });
+
+/** `dataops:empty:undo`: the org's last emptying, by its id. */
+export const dataOpsEmptyUndoPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  runId: z.string().regex(/^em-\d{8}-\d{6}-[a-z0-9]{4}$/),
+  ...dataOpsWriteAccordShape,
+  ...dataOpsAskedFromShape,
+});
+
 // ── monitor:* payload schemas ─────────────────────────────────────────────
 
 export const monitorOrgPayloadSchema = z.object({ orgId: orgIdSchema });

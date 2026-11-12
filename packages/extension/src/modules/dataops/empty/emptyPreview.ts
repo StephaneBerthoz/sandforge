@@ -25,6 +25,7 @@ import { deletedForGood, emptyCostOf, type EmptyCost } from './emptyCost.js';
 import { emptyOrderOf, type BeforeParent, type OrderConstraint } from './emptyOrder.js';
 import {
   affectedBy,
+  anyRouteCondition,
   emptyDescribeSchema,
   MOST_ROUTE_STEPS,
   relationsOf,
@@ -99,6 +100,14 @@ export interface EmptyPreview {
   undo: boolean;
   /** The objects whose records go, emptied and along: what fires as they go is read on these. */
   affected: string[];
+  /**
+   * Of the objects going along, those whose records past Draft the run sets
+   * back to Draft before its first delete — an activated order refuses its
+   * own delete and its account's — with the condition that reads the records
+   * of it that go along; none where no path to them reads, and then the run
+   * leaves them as they are, to be refused.
+   */
+  toDraftAlong: Array<{ objectApiName: string; condition?: string }>;
   cost: EmptyCost;
   /**
    * What the button says: the records deleted and the objects they belong to;
@@ -243,6 +252,12 @@ export async function previewEmpty(
     undoLost: counts.undoLost,
     undo: input.deleteMode === 'recycle',
     affected: [...affected.emptied, ...affected.along].sort(),
+    toDraftAlong: order.toDraft
+      .filter((name) => !affected.emptied.has(name))
+      .map((objectApiName) => {
+        const condition = anyRouteCondition(affected.routes.get(objectApiName) ?? [], describes);
+        return { objectApiName, ...(condition ? { condition: condition.soql } : {}) };
+      }),
     cost,
     total: { records: deletedRecords, objects: counted.length, uncounted },
     statements: counts.statements,

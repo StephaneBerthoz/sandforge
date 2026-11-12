@@ -303,6 +303,17 @@ const DataOpsMessages = [
   msg('dataops:cleanup:export:response'),
   msg('dataops:cleanup:delete'),
   msg('dataops:cleanup:delete:response'),
+  // Emptying objects or the whole org: its scope, its dry run, the run, a stop, its undo.
+  msg('dataops:empty:scope'),
+  msg('dataops:empty:scope:response'),
+  msg('dataops:empty:preview'),
+  msg('dataops:empty:preview:response'),
+  msg('dataops:empty:run'),
+  msg('dataops:empty:run:response'),
+  msg('dataops:empty:cancel'),
+  msg('dataops:empty:cancel:response'),
+  msg('dataops:empty:undo'),
+  msg('dataops:empty:undo:response'),
   // Error channel for backup/rollback/anonymize/quality-scan failures, and for
   // the inventory, subject-request and cleanup requests that cannot start.
   msg('dataops:error'),

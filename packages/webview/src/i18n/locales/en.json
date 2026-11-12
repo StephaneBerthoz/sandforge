@@ -6921,7 +6921,8 @@
         "sync": "Before Sync run",
         "seed": "Before Seed run",
         "autopilot": "Before Autopilot run",
-        "frozen": "Before Frozen Dataset load"
+        "frozen": "Before Frozen Dataset load",
+        "empty": "Before emptying objects"
       }
     },
     "rename": {

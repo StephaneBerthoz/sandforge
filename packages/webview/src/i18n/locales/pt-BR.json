@@ -6921,7 +6921,8 @@
         "sync": "Antes da execução do Sync",
         "seed": "Antes da execução do Seed",
         "autopilot": "Antes da execução do Autopilot",
-        "frozen": "Antes da carga do Dataset congelado"
+        "frozen": "Antes da carga do Dataset congelado",
+        "empty": "Antes de esvaziar objetos"
       }
     },
     "rename": {

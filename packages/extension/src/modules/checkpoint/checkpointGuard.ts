@@ -340,9 +340,10 @@ async function allRows(
  * What the user holds object by object, from every row of `ObjectPermissions`
  * of their permission sets: those assigned on their own and the profile's,
  * by the assignments that name no group, then each group they are assigned
- * by its aggregate. Or why it could not be read, in the org's words.
+ * by its aggregate. Or why it could not be read, in the org's words. An
+ * emptying reads it too, to say which objects such a user does not see whole.
  */
-async function grantsByObject(
+export async function grantsByObject(
   conn: CheckpointGuardConnection,
   userId: () => Promise<string>,
 ): Promise<{ grants: ObjectGrants; requests: number } | { unread: string }> {

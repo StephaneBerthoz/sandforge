@@ -212,7 +212,7 @@ const checkpointFilesSchema = z
  * version adds to it is dropped, never refused: the checkpoint stays usable.
  */
 export const checkpointBeforeRunSchema = z.object({
-  module: z.enum(['forge', 'sync', 'seed', 'autopilot', 'frozen']),
+  module: z.enum(['forge', 'sync', 'seed', 'autopilot', 'frozen', 'empty']),
   operationId: z.string().min(1).max(200),
   tool: z.enum(['panel', 'cli']),
 });
