@@ -3,8 +3,8 @@ import {
   INACTIVE_OWNER_PERMISSION_SOQL,
   KNOWN_IDS_BOUND,
   idsTheTargetLacks,
-  inactiveMappedOwners,
   inactiveOwnersOf,
+  mappedOwnersTheTargetRefuses,
   writesInactiveOwners,
   writesInactiveOwnersOnce,
 } from './TargetHolds.js';
@@ -440,9 +440,10 @@ describe('the users the target holds inactive', () => {
   });
 });
 
-describe('inactiveMappedOwners', () => {
+describe('mappedOwnersTheTargetRefuses', () => {
   const INACTIVE = '005000000000003AAA';
   const OTHER_SOURCE = '005000000000005AAA';
+  const UNKNOWN = '005000000000009AAA';
 
   /** A target holding `users`: each with its name and whether it is active. */
   function targetWithNamedUsers(users: Record<string, { name?: string; active?: boolean }>) {
@@ -463,7 +464,7 @@ describe('inactiveMappedOwners', () => {
       [TARGET_USER]: { name: 'Current Admin', active: true },
     });
 
-    const inactive = await inactiveMappedOwners(
+    const refused = await mappedOwnersTheTargetRefuses(
       {
         [SOURCE_USER]: INACTIVE.slice(0, 15),
         [OTHER_SOURCE]: INACTIVE.slice(0, 15),
@@ -472,40 +473,82 @@ describe('inactiveMappedOwners', () => {
       query,
     );
 
-    expect(inactive).toEqual([
-      {
-        user: INACTIVE.slice(0, 15),
-        name: 'Former Admin',
-        sources: [SOURCE_USER, OTHER_SOURCE],
-      },
-    ]);
+    expect(refused).toEqual({
+      inactive: [
+        {
+          user: INACTIVE.slice(0, 15),
+          name: 'Former Admin',
+          sources: [SOURCE_USER, OTHER_SOURCE],
+        },
+      ],
+      unknown: [],
+    });
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][0]).toMatch(/^SELECT Id, Name, IsActive FROM User WHERE Id IN \(/);
   });
 
-  it('asks nothing of a run that maps no owner, and finds none inactive', async () => {
+  it('names each user a mapping gives that the target holds no user of, in the same statement', async () => {
+    // A template made for another org maps its owners to that org's users:
+    // carried, every record they own was refused INVALID_CROSS_REFERENCE_KEY.
+    const query = targetWithNamedUsers({
+      [INACTIVE]: { name: 'Former Admin', active: false },
+      [TARGET_USER]: { name: 'Current Admin', active: true },
+    });
+
+    const refused = await mappedOwnersTheTargetRefuses(
+      {
+        [SOURCE_USER]: UNKNOWN,
+        [OTHER_SOURCE]: UNKNOWN.slice(0, 15),
+        '005000000000006AAA': INACTIVE,
+        '005000000000007AAA': TARGET_USER,
+      },
+      query,
+    );
+
+    expect(refused.unknown).toEqual([{ user: UNKNOWN, sources: [SOURCE_USER, OTHER_SOURCE] }]);
+    expect(refused.inactive).toEqual([
+      { user: INACTIVE, name: 'Former Admin', sources: ['005000000000006AAA'] },
+    ]);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('says no queue unknown: a statement of users says nothing of one', async () => {
+    const query = targetWithNamedUsers({ [TARGET_USER]: { name: 'Current Admin', active: true } });
+
+    expect(
+      await mappedOwnersTheTargetRefuses(
+        { [SOURCE_USER]: QUEUE, [OTHER_SOURCE]: TARGET_USER },
+        query,
+      ),
+    ).toEqual({ inactive: [], unknown: [] });
+  });
+
+  it('asks nothing of a run that maps no owner, and finds none refused', async () => {
     const query = targetWithNamedUsers({});
 
-    expect(await inactiveMappedOwners({}, query)).toEqual([]);
+    expect(await mappedOwnersTheTargetRefuses({}, query)).toEqual({ inactive: [], unknown: [] });
     expect(query).not.toHaveBeenCalled();
   });
 
-  it('finds none inactive in an answer that says nothing of the field, nor of a user the target lacks', async () => {
+  it('finds none inactive in an answer that says nothing of the field', async () => {
     const query = targetWithNamedUsers({ [INACTIVE]: { name: 'Former Admin' } });
 
-    expect(
-      await inactiveMappedOwners(
-        { [SOURCE_USER]: INACTIVE, [OTHER_SOURCE]: '005000000000009AAA' },
-        query,
-      ),
-    ).toEqual([]);
+    expect(await mappedOwnersTheTargetRefuses({ [SOURCE_USER]: INACTIVE }, query)).toEqual({
+      inactive: [],
+      unknown: [],
+    });
   });
 
-  it('finds none inactive when the target refuses the read: the rows then go mapped', async () => {
+  it('finds none refused when the target refuses the read: the rows then go mapped', async () => {
     const query = vi.fn(async (): Promise<Array<Record<string, unknown>>> => {
       throw new Error('INSUFFICIENT_ACCESS');
     });
 
-    expect(await inactiveMappedOwners({ [SOURCE_USER]: INACTIVE }, query)).toEqual([]);
+    expect(
+      await mappedOwnersTheTargetRefuses(
+        { [SOURCE_USER]: INACTIVE, [OTHER_SOURCE]: UNKNOWN },
+        query,
+      ),
+    ).toEqual({ inactive: [], unknown: [] });
   });
 });

@@ -251,6 +251,12 @@ export interface WritePlanLeftOut {
    * creates, which the write links to and never sends. Absent when none.
    */
   byThePlatform?: Array<{ objectApiName: string; rows: number }>;
+  /**
+   * Per object, the rows holding in a unique field a value the target holds
+   * already, and the fields: sent, refused, and linked to the target's
+   * record, which the write creates none of. Absent when none.
+   */
+  linkedByValue?: Array<{ objectApiName: string; rows: number; fields: readonly string[] }>;
 }
 
 /**
@@ -316,16 +322,25 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
   const byThePlatform = objects
     .filter((object) => (object.leftOut?.byThePlatform ?? 0) > 0)
     .map(({ objectApiName, leftOut }) => ({ objectApiName, rows: leftOut?.byThePlatform ?? 0 }));
+  const linkedByValue = objects.flatMap(({ objectApiName, leftOut }) =>
+    leftOut?.linkedByValue && leftOut.linkedByValue.rows > 0
+      ? [{ objectApiName, ...leftOut.linkedByValue }]
+      : [],
+  );
   return {
     objects: measured,
     totalRows: measured.reduce((sum, object) => sum + object.rows, 0),
     storageBytes: measured.reduce((sum, object) => sum + object.storageBytes, 0),
-    ...(writtenBefore > 0 || heldBack.length > 0 || byThePlatform.length > 0
+    ...(writtenBefore > 0 ||
+    heldBack.length > 0 ||
+    byThePlatform.length > 0 ||
+    linkedByValue.length > 0
       ? {
           leftOut: {
             writtenBefore,
             heldBack,
             ...(byThePlatform.length > 0 ? { byThePlatform } : {}),
+            ...(linkedByValue.length > 0 ? { linkedByValue } : {}),
           },
         }
       : {}),
@@ -826,7 +841,7 @@ export async function takeCheckpointFirst(
  * paid for them.
  */
 export function forgeRequestPartsOf(input: {
-  plan: Pick<WritePlan, 'objects'>;
+  plan: Pick<WritePlan, 'objects' | 'leftOut'>;
   /** The objects whose rows the run writes a second time. */
   updatedAfterInsert?: readonly string[];
   readBack?: number;
@@ -835,7 +850,22 @@ export function forgeRequestPartsOf(input: {
   deliverability?: number;
 }): RunRequestParts {
   const updated = new Set(input.updatedAfterInsert ?? []);
-  const writes = input.plan.objects.map(({ rows }) => ({ rows }));
+  // The rows a write links by a value the target holds create nothing, and
+  // still go in its calls: counted with their object's.
+  const linked = new Map(
+    (input.plan.leftOut?.linkedByValue ?? []).map(({ objectApiName, rows }) => [
+      objectApiName,
+      rows,
+    ]),
+  );
+  const writes = [
+    ...input.plan.objects.map(({ objectApiName, rows }) => ({
+      rows: rows + (linked.get(objectApiName) ?? 0),
+    })),
+    ...[...linked]
+      .filter(([name]) => !input.plan.objects.some((o) => o.objectApiName === name))
+      .map(([, rows]) => ({ rows })),
+  ];
   const updates = input.plan.objects
     .filter(({ objectApiName }) => updated.has(objectApiName))
     .map(({ rows }) => ({ rows }));
@@ -893,7 +923,7 @@ export interface ForgeWriteBudget {
  * @param input.target - The org, as the refusal names it.
  */
 export function forgeWriteBudgetOf(input: {
-  plan: Pick<WritePlan, 'objects'>;
+  plan: Pick<WritePlan, 'objects' | 'leftOut'>;
   updatedAfterInsert?: readonly string[];
   readBack?: number;
   checkpoint?: RunCheckpointEstimate;
@@ -2187,14 +2217,24 @@ export function automationUnreadOf(
 export const OWNER_MAP_INACTIVE = 'OWNER_MAP_INACTIVE';
 
 /**
+ * The code a clone is refused under, before it reads anything, when its owner
+ * mapping gives records to a user the target holds no user of: a template
+ * made for another org, an id mistyped. The target refuses every record
+ * given to it, and the cure is another user, not one reactivated: a code of
+ * its own, as a record type the target lacks is told from one it closes.
+ */
+export const OWNER_MAP_UNKNOWN = 'OWNER_MAP_UNKNOWN';
+
+/**
  * The codes a run's gate stops it with: the extension's, the command line's
  * own, those every module's run is refused under — past the target's daily
  * API requests, and for the checkpoint it takes first — and a clone's owner
- * mapping to an inactive user.
+ * mapping to an inactive user, or to one the target lacks.
  */
 export type ForgeRunGateErrorCode =
   | ForgeRunGateCode
   | typeof OWNER_MAP_INACTIVE
+  | typeof OWNER_MAP_UNKNOWN
   | 'MAX_TOTAL_EXCEEDED'
   | 'AUTOMATION_NOT_ACCEPTED'
   | 'EMAILS_EXCEEDED'
@@ -2347,8 +2387,9 @@ export function writePlanLines(plan: WritePlan, check: StorageCheck, target: str
 /**
  * What the command line says of the rows a run read or counted and will not
  * write, left out of the records to write: those the run it retries or
- * resumes wrote, an object held back whole for a record type, and the rows
- * the platform writes itself with a record the run creates.
+ * resumes wrote, an object held back whole for a record type, the rows the
+ * platform writes itself with a record the run creates, and those holding a
+ * unique value the target holds, which the write links to.
  */
 export function leftOutLines(leftOut: WritePlanLeftOut | undefined): string[] {
   if (!leftOut) return [];
@@ -2369,6 +2410,12 @@ export function leftOutLines(leftOut: WritePlanLeftOut | undefined): string[] {
     lines.push(
       `  not counted: ${objectApiName}, ${rows} record(s) written by the platform with ` +
         `${writtenWithWords(objectApiName)}, which the run links to and does not send`,
+    );
+  }
+  for (const { objectApiName, rows, fields } of leftOut.linkedByValue ?? []) {
+    lines.push(
+      `  not counted: ${objectApiName}, ${rows} record(s) the target holds under the same ` +
+        `${fields.join(', ')}, which the run links to and does not create`,
     );
   }
   return lines;

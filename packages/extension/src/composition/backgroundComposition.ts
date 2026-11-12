@@ -951,6 +951,18 @@ function writeQuestion(question: WriteConfirmation): string[] {
             ),
     );
   }
+  // What holds a unique value the target holds: its insert refused, the
+  // write links it to the record the refusal names and creates none.
+  for (const { objectApiName, rows, fields } of leftOut?.linkedByValue ?? []) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0}, {1} records the target holds under the same {2}, which the run links to and does not create.',
+        objectApiName,
+        rows,
+        fields.join(', '),
+      ),
+    );
+  }
   if (question.alreadyCopied !== undefined && question.alreadyCopied > 0) {
     lines.push(
       vscode.l10n.t(

@@ -2124,7 +2124,11 @@ describe('a run of whole tables, with owners the target may not have', () => {
   });
 
   it("puts a mapped owner's user of the target in place, without asking about the source's", async () => {
-    const { owners, asked } = await runWith([], { ownerMappings: { [MAPPED]: TARGET_USER } });
+    // The target holds the user mapped to: one it held none of, the run is
+    // refused before it reads anything (OWNER_MAP_UNKNOWN).
+    const { owners, asked } = await runWith([TARGET_USER], {
+      ownerMappings: { [MAPPED]: TARGET_USER },
+    });
 
     expect(owners.filter((owner) => owner !== undefined)).toEqual([TARGET_USER]);
     expect(asked.join(' ')).not.toContain(MAPPED);

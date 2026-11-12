@@ -871,6 +871,12 @@ const FORGE_REFUSALS: Readonly<Record<string, { keys: HintKeys; severity: ErrorH
     keys: ['errors.ownerMapInactive.explanation', 'errors.ownerMapInactive.action'],
     severity: 'warning',
   },
+  // The same, to a user the target holds no user of: another user is the
+  // cure, not one reactivated.
+  OWNER_MAP_UNKNOWN: {
+    keys: ['errors.ownerMapUnknown.explanation', 'errors.ownerMapUnknown.action'],
+    severity: 'warning',
+  },
   // Not a failure: the user's own Abort, which came before the run started.
   ABORTED_BEFORE_START: {
     keys: ['errors.abortedBeforeStart.explanation', 'errors.abortedBeforeStart.action'],

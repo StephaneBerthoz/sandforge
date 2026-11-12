@@ -453,22 +453,50 @@ describe('sandforge-clone --audit', () => {
     ]);
   });
 
+  /**
+   * A target that holds `users`, each with its name and whether it is
+   * active, and keeps every statement it is asked; and a source that keeps
+   * every one it is asked, and every describe.
+   */
+  function withUsers(users: Record<string, { Name: string; IsActive: boolean }>) {
+    const target = fakeOrg(TARGET_ORG);
+    const read = target.conn.query.bind(target.conn);
+    const asked: string[] = [];
+    Object.assign(target.conn, {
+      query: async (soql: string) => {
+        asked.push(soql);
+        if (!soql.startsWith('SELECT Id, Name, IsActive FROM User WHERE Id IN ('))
+          return read(soql);
+        const records = Object.entries(users)
+          .filter(([id]) => soql.includes(`'${id}'`))
+          .map(([Id, user]) => ({ Id, ...user }));
+        return { totalSize: records.length, done: true, records };
+      },
+    });
+    withOrgs(target);
+    // The source's own Organization record aside, which --audit types it by
+    // before anything: the statements and describes discovery sends.
+    const sourceRead: string[] = [];
+    const source = orgs.SRC.conn as unknown as Record<string, (...args: never[]) => unknown>;
+    for (const method of ['query', 'describeGlobal', 'sobject'] as const) {
+      const own = source[method]!.bind(source);
+      source[method] = ((...args: never[]) => {
+        const [first] = args as unknown[];
+        if (typeof first !== 'string' || !first.includes(' FROM Organization ')) {
+          sourceRead.push(typeof first === 'string' ? first : method);
+        }
+        return own(...args);
+      }) as never;
+    }
+    return { asked, sourceRead };
+  }
+
   it('refuses an --owner-map to a user the target holds inactive before it writes, names the user and its code, and records the stop', async () => {
     const SOURCE_OWNER = '005000000000001AAA';
     const INACTIVE_USER = '005000000000002AAA';
-    const target = fakeOrg(TARGET_ORG);
-    const read = target.conn.query.bind(target.conn);
-    Object.assign(target.conn, {
-      query: async (soql: string) =>
-        soql.startsWith('SELECT Id, Name, IsActive FROM User WHERE Id IN (')
-          ? {
-              totalSize: 1,
-              done: true,
-              records: [{ Id: INACTIVE_USER, Name: 'Former Admin', IsActive: false }],
-            }
-          : read(soql),
+    const { asked, sourceRead } = withUsers({
+      [INACTIVE_USER]: { Name: 'Former Admin', IsActive: false },
     });
-    withOrgs(target);
 
     expect(
       await run(
@@ -476,6 +504,11 @@ describe('sandforge-clone --audit', () => {
       ),
     ).toBe(1);
 
+    // Before discovery read the source, and before the target's automation
+    // was read: refused at the executor, the clone had printed what the
+    // target runs, then said that nothing was read.
+    expect(sourceRead).toEqual([]);
+    expect(asked.filter((soql) => soql.includes(' FROM FlowDefinitionView '))).toEqual([]);
     expect(orgs.TGT.written).toEqual([]);
     expect(stderr).toContain(
       'refused (OWNER_MAP_INACTIVE): Owners given to users the target holds inactive: ' +
@@ -491,6 +524,63 @@ describe('sandforge-clone --audit', () => {
     expect(entries()).toEqual([
       expect.objectContaining({ outcome: 'stopped', details: { code: 'OWNER_MAP_INACTIVE' } }),
     ]);
+  });
+
+  it('refuses an --owner-map to a user the target holds no user of before anything is read, naming the id under its own code', async () => {
+    const SOURCE_OWNER = '005000000000001AAA';
+    const ACTIVE_USER = '005000000000003AAA';
+    const UNKNOWN_USER = '005000000000004AAA';
+    const { sourceRead } = withUsers({ [ACTIVE_USER]: { Name: 'Current Admin', IsActive: true } });
+
+    expect(
+      await run(
+        argv('--audit', auditPath, '--json', '--owner-map', `${SOURCE_OWNER}=${UNKNOWN_USER}`),
+      ),
+    ).toBe(1);
+
+    expect(sourceRead).toEqual([]);
+    expect(orgs.TGT.written).toEqual([]);
+    expect(stderr).toContain(
+      'refused (OWNER_MAP_UNKNOWN): Owners given to users the target does not hold: ' +
+        `${UNKNOWN_USER}, given the records of ${SOURCE_OWNER}.`,
+    );
+    expect(JSON.parse(stdout)).toMatchObject({ refused: { code: 'OWNER_MAP_UNKNOWN' } });
+    expect(entries()).toEqual([
+      expect.objectContaining({ outcome: 'stopped', details: { code: 'OWNER_MAP_UNKNOWN' } }),
+    ]);
+  });
+
+  it('refuses a dry run of such a mapping too, before anything is read, and records nothing', async () => {
+    const { sourceRead } = withUsers({});
+
+    expect(
+      await run(
+        argv(
+          '--audit',
+          auditPath,
+          '--dry-run',
+          '--owner-map',
+          '005000000000001AAA=005000000000004AAA',
+        ),
+      ),
+    ).toBe(1);
+
+    expect(sourceRead).toEqual([]);
+    expect(stderr).toContain('refused (OWNER_MAP_UNKNOWN): ');
+    expect(existsSync(auditPath)).toBe(false);
+  });
+
+  it('runs an --owner-map to a user the target holds active', async () => {
+    const ACTIVE_USER = '005000000000003AAA';
+    withUsers({ [ACTIVE_USER]: { Name: 'Current Admin', IsActive: true } });
+
+    expect(
+      await run(
+        argv('--audit', auditPath, '--json', '--owner-map', `005000000000001AAA=${ACTIVE_USER}`),
+      ),
+    ).toBeUndefined();
+
+    expect(orgs.TGT.written).toContain('Account');
   });
 
   it('records nothing for a dry run, which writes nothing', async () => {

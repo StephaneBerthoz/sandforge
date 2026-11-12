@@ -147,6 +147,7 @@ import type {
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
 import { forgeExecuteOptions } from '../src/modules/forge/ForgeOrchestrator.js';
 import { ForgeAbortedError, ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
+import { ownerMapRefusalOf } from '../src/modules/forge/ownerMapRefusal.js';
 import { ForgeStops } from '../src/modules/forge/ForgeStops.js';
 import { cursorPages, queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { controllersOf, fieldBoundsOf } from '../src/modules/forge/describeBounds.js';
@@ -800,7 +801,8 @@ ${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
                          Useful when source records were authored by users
                          that don't exist on the target sandbox (ex-employees).
                          A target user the target holds inactive is refused
-                         before anything is read (OWNER_MAP_INACTIVE).
+                         before anything is read (OWNER_MAP_INACTIVE), and
+                         one it holds no user of (OWNER_MAP_UNKNOWN).
   --filter <obj=where>   per-object SOQL WHERE filter (repeatable)
                          e.g. --filter "Case=Status = 'Open' AND CreatedDate > LAST_N_DAYS:30"
                          Lets BAs narrow a clone to a subset without changing
@@ -7794,6 +7796,36 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       process.exit(1);
     }
   }
+  // An owner mapping to a user the target holds inactive, or holds no user
+  // of, is refused here, before discovery reads the source and before the
+  // target's automation is read. Refused only once the executor had the run,
+  // a clone printed what the target runs and then said "Nothing was read or
+  // written." A listing writes nothing, and gives no record an owner.
+  if (!args.listObjects) {
+    const ownersRefused = await ownerMapRefusalOf(
+      args.ownerMappings,
+      async (soql) => (await conns.get(args.target)!.query<Record<string, unknown>>(soql)).records,
+    );
+    if (ownersRefused) {
+      recordClone({ outcome: 'stopped', code: ownersRefused.code, context: runAudit().context() });
+      const refused = { code: ownersRefused.code, message: ownersRefused.message };
+      process.stderr.write(`${refusedLine(refused)}\n`);
+      if (args.json) {
+        process.stdout.write(
+          refusedSummary(
+            {
+              tool: 'sandforge-clone',
+              source: args.source,
+              target: args.target,
+              elapsedMs: elapsedSince(t0),
+            },
+            refused,
+          ),
+        );
+      }
+      process.exit(1);
+    }
+  }
   // The checkpoint the run takes of what it writes before its first write:
   // scoped at the write gate once the rows are read, taken once the gate lets
   // them through and before the mute's lease, kept or deleted as the run
@@ -7919,9 +7951,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   );
   const root = discovered.nodes[0]?.objectApiName;
   if (root !== undefined && args.excludedObjects.includes(root)) {
+    // An environment gives no flag: the template its file names left the
+    // object out, and its reader was told of a flag never given.
     process.stderr.write(
-      `--exclude-object ${root}: the ${args.tables ? 'first table' : 'record'} to clone is of ` +
-        'this object, and nothing would be left to clone.\n',
+      `${envWords(`--exclude-object ${root}`, `the resource's template leaves out ${root}`)}: ` +
+        `the ${args.tables ? 'first table' : 'record'} to clone is of this object, and nothing ` +
+        'would be left to clone.\n',
     );
     process.exit(2);
   }

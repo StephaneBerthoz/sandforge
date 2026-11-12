@@ -6784,6 +6784,10 @@
       "explanation": "Proprietários dados em Revisão → Ajustes dão registros a um usuário inativo na org de destino, nomeado na mensagem. O destino recusa um registro cujo proprietário está inativo, e o clone não o dá ao usuário com que grava no lugar do que você escolheu. Nada foi lido nem gravado.",
       "action": "Em Revisão → Ajustes, dê esses registros a um usuário ativo em Proprietários atribuídos a usuários do destino, ou reative o usuário na org de destino, e execute de novo."
     },
+    "ownerMapUnknown": {
+      "explanation": "Proprietários dados em Revisão → Ajustes dão registros a um usuário que a org de destino não tem, nomeado na mensagem: um modelo feito para outra org, ou um id digitado errado. O destino recusa um registro cujo proprietário não tem, e o clone não o dá ao usuário com que grava no lugar do que você escolheu. Nada foi lido nem gravado.",
+      "action": "Em Revisão → Ajustes, dê esses registros a um usuário do destino em Proprietários atribuídos a usuários do destino, e execute de novo."
+    },
     "abortedBeforeStart": {
       "explanation": "Você interrompeu a execução antes que ela começasse. Nada foi gravado.",
       "action": "Execute-a de novo a partir da revisão quando estiver pronto."

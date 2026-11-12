@@ -6784,6 +6784,10 @@
       "explanation": "Unter Überprüfung → Einstellungen angegebene Inhaber geben Datensätze einem Benutzer, der in der Ziel-Org inaktiv ist und in der Meldung genannt wird. Die Ziel-Org lehnt einen Datensatz ab, dessen Inhaber inaktiv ist, und der Klon gibt ihn nicht dem Benutzer, unter dem er schreibt, statt dem von Ihnen gewählten. Es wurde nichts gelesen oder geschrieben.",
       "action": "Geben Sie diese Datensätze unter Überprüfung → Einstellungen bei „Besitzer, die Benutzern des Ziels zugewiesen werden“ einem aktiven Benutzer, oder aktivieren Sie den Benutzer in der Ziel-Org wieder, und starten Sie dann erneut."
     },
+    "ownerMapUnknown": {
+      "explanation": "Unter Überprüfung → Einstellungen angegebene Inhaber geben Datensätze einem Benutzer, den es in der Ziel-Org nicht gibt und der in der Meldung genannt wird: eine Vorlage für eine andere Org oder eine falsch eingegebene ID. Die Ziel-Org lehnt einen Datensatz ab, dessen Inhaber es dort nicht gibt, und der Klon gibt ihn nicht dem Benutzer, unter dem er schreibt, statt dem von Ihnen gewählten. Es wurde nichts gelesen oder geschrieben.",
+      "action": "Geben Sie diese Datensätze unter Überprüfung → Einstellungen bei „Besitzer, die Benutzern des Ziels zugewiesen werden“ einem Benutzer des Ziels, und starten Sie dann erneut."
+    },
     "abortedBeforeStart": {
       "explanation": "Sie haben den Lauf gestoppt, bevor er begann. Es wurde nichts geschrieben.",
       "action": "Starten Sie ihn erneut aus der Überprüfung, wenn Sie bereit sind."

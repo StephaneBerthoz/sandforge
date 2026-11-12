@@ -6784,6 +6784,10 @@
       "explanation": "Owners given in Review → Controls give records to a user the target org holds inactive, named in the message. The target refuses a record owned by an inactive user, and the clone does not give it to the user it writes as instead of the one you chose. Nothing was read or written.",
       "action": "In Review → Controls, give those records to an active user under Owners given to the target's users, or reactivate the user in the target org, then run again."
     },
+    "ownerMapUnknown": {
+      "explanation": "Owners given in Review → Controls give records to a user the target org does not hold, named in the message: a template made for another org, or an id mistyped. The target refuses a record owned by a user it does not hold, and the clone does not give it to the user it writes as instead of the one you chose. Nothing was read or written.",
+      "action": "In Review → Controls, give those records to one of the target's users under Owners given to the target's users, then run again."
+    },
     "abortedBeforeStart": {
       "explanation": "You stopped the run before it started. Nothing was written.",
       "action": "Run it again from Review when you are ready."

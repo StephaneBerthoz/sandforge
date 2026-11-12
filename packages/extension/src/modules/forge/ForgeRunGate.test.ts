@@ -1907,6 +1907,28 @@ describe('what the gate says', () => {
     ]);
   });
 
+  it('says on the command line the rows it does not count for a unique value the target holds, which the run links to', () => {
+    const linked = writePlanOf([
+      { objectApiName: 'Contact', rows: rows(1) },
+      {
+        objectApiName: 'Account',
+        rows: rows(1),
+        leftOut: { linkedByValue: { rows: 1, fields: ['Ext_Id__c'] } },
+      },
+    ]);
+
+    expect(linked.totalRows).toBe(2);
+    expect(linked.leftOut?.linkedByValue).toEqual([
+      { objectApiName: 'Account', rows: 1, fields: ['Ext_Id__c'] },
+    ]);
+    expect(
+      writePlanLines(linked, storageCheckOf(linked, { maxMB: 5, remainingMB: 5 }), 'TGT'),
+    ).toContain(
+      '  not counted: Account, 1 record(s) the target holds under the same Ext_Id__c, which ' +
+        'the run links to and does not create',
+    );
+  });
+
   it('says when the storage comes near what is left, or could not be read', () => {
     const near = writePlanLines(plan, storageCheckOf(plan, { maxMB: 1, remainingMB: 0.08 }), 'T');
     expect(near.at(-1)).toBe(

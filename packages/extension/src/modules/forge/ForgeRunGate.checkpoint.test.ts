@@ -78,6 +78,25 @@ describe('the parts of a Forge run’s API requests at its write gate', () => {
     expect(checkpointPartOf(undefined)).toEqual({});
   });
 
+  it('counts in the calls of their object the rows the write links by a value the target holds: sent, though they create nothing', () => {
+    // 200 contacts to create, 1 linked by its value: two calls, as sent.
+    const linked = writePlanOf([
+      {
+        objectApiName: 'Contact',
+        rows: rows(200),
+        leftOut: { linkedByValue: { rows: 1, fields: ['Ext_Id__c'] } },
+      },
+      {
+        objectApiName: 'Lead',
+        rows: [],
+        leftOut: { linkedByValue: { rows: 3, fields: ['Key__c'] } },
+      },
+    ]);
+
+    expect(linked.totalRows).toBe(200);
+    expect(forgeRequestPartsOf({ plan: linked })).toEqual({ run: 3 });
+  });
+
   it('counts what the read of the target’s deliverability sent, a part of its own, and nothing when it sent none', () => {
     expect(forgeRequestPartsOf({ plan, deliverability: 2 })).toEqual({ run: 3, deliverability: 2 });
     expect(forgeRequestPartsOf({ plan, deliverability: 0 })).toEqual({ run: 3 });

@@ -865,6 +865,21 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     );
   });
 
+  it('says apart the records the target holds by a unique value, which the run links to', () => {
+    const lines = runQuestionDetail({
+      ...write,
+      leftOut: {
+        writtenBefore: 0,
+        heldBack: [],
+        linkedByValue: [{ objectApiName: 'Account', rows: 1, fields: ['Ext_Id__c'] }],
+      },
+    }).split('\n');
+
+    expect(lines).toContain(
+      'Not counted: Account, 1 records the target holds under the same Ext_Id__c, which the run links to and does not create.',
+    );
+  });
+
   it('says the daily email limits the records take the target past, first of what follows the records', () => {
     const lines = runQuestionDetail({
       ...write,

@@ -754,6 +754,18 @@ describe('sandforge-clone of whole tables', () => {
       expect(orgs.TGT.creates).toEqual([]);
     });
 
+    it('refuses the object of the first table left out, by the flag that left it out', async () => {
+      const orgs = withFakeOrgs();
+
+      expect(await run(argv('--exclude-object', 'Account'))).toBe(2);
+
+      expect(stderr.join('')).toContain(
+        '--exclude-object Account: the first table to clone is of this object, and nothing ' +
+          'would be left to clone.',
+      );
+      expect(orgs.TGT.creates).toEqual([]);
+    });
+
     describe('of an object no user can create', () => {
       /** Objects added to both orgs' describes for one test, taken out after it. */
       const added: string[] = [];

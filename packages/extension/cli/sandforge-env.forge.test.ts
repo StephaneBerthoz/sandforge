@@ -879,6 +879,56 @@ describe('what a forge resource’s clone says, relayed by the environment', () 
     );
     expect(clone.said()).not.toMatch(/--object|--depth|--max-nodes/);
   });
+
+  it('names a template that leaves out the object of the first table in the words of the file, not as a flag', async () => {
+    // Relayed, the refusal said "--exclude-object Account: …" to a reader who
+    // gave no flag: the template the file names had left the object out.
+    mkdirSync(join(project, '.sandforge'), { recursive: true });
+    writeFileSync(
+      join(project, '.sandforge', 'forge-templates.json'),
+      JSON.stringify([
+        {
+          id: 'no-accounts',
+          name: 'No accounts',
+          description: '',
+          config: {
+            inputMode: 'soql',
+            soqlQuery: 'SELECT Id FROM Account',
+            depth: 'direct',
+            anonymizePII: false,
+            skipEmpty: true,
+            batchSize: 'auto',
+            excludedObjects: ['Account'],
+          },
+          objectCount: 2,
+          recordCount: 4,
+          createdAt: '2026-10-01T09:00:00.000Z',
+          lastUsedAt: '2026-10-01T09:00:00.000Z',
+        },
+      ]),
+    );
+    writeFileSync(
+      fileOf,
+      JSON.stringify(
+        file(
+          withSettings({
+            template: { file: '.sandforge/forge-templates.json', id: 'no-accounts' },
+          }),
+        ),
+      ),
+    );
+    const clone = relaying();
+
+    const ran = await run(['plan', '--org', 'TGT', '--json'], { runner: clone.runner });
+
+    expect(envPlanSchema.parse(ran.answer).actions[0]?.action).toBe('blocked');
+    expect(clone.said()).toContain(
+      "the resource's template leaves out Account: the first table to clone is of this " +
+        'object, and nothing would be left to clone.',
+    );
+    expect(clone.said()).not.toContain('--exclude-object');
+    expect(world.records('Account')).toEqual([]);
+  });
 });
 
 describe('the codes of a refused plan', () => {

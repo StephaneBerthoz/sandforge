@@ -6784,6 +6784,10 @@
       "explanation": "Propietarios dados en Revisión → Ajustes dan registros a un usuario inactivo en la org de destino, nombrado en el mensaje. El destino rechaza un registro cuyo propietario está inactivo, y el clon no lo da al usuario con el que escribe en lugar del que usted eligió. No se leyó ni escribió nada.",
       "action": "En Revisión → Ajustes, dé esos registros a un usuario activo en Propietarios asignados a usuarios del destino, o reactive al usuario en la org de destino, y vuelva a ejecutar."
     },
+    "ownerMapUnknown": {
+      "explanation": "Propietarios dados en Revisión → Ajustes dan registros a un usuario que la org de destino no tiene, nombrado en el mensaje: una plantilla hecha para otra org, o un id mal escrito. El destino rechaza un registro cuyo propietario no tiene, y el clon no lo da al usuario con el que escribe en lugar del que usted eligió. No se leyó ni escribió nada.",
+      "action": "En Revisión → Ajustes, dé esos registros a un usuario del destino en Propietarios asignados a usuarios del destino, y vuelva a ejecutar."
+    },
     "abortedBeforeStart": {
       "explanation": "Detuvo la ejecución antes de que empezara. No se escribió nada.",
       "action": "Vuelva a ejecutarla desde la revisión cuando esté listo."

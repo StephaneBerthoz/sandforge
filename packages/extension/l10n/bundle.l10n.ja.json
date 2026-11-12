@@ -106,6 +106,7 @@
   "Not counted: {0}, {1} records written by the platform with their opportunity, for its owner, which the run links to and does not send.": "カウント対象外: {0} の {1} 件のレコード。プラットフォームが商談とともにその所有者のために書き込むため、実行はそれらにリンクし、送信しません。",
   "Not counted: {0}, {1} records written by the platform with their person account, which the run links to and does not send.": "カウント対象外: {0} の {1} 件のレコード。プラットフォームが個人取引先とともに書き込むため、実行はそれらにリンクし、送信しません。",
   "Not counted: {0}, {1} records written by the platform with their opportunity, for its contact, which the run links to and does not send.": "カウント対象外: {0} の {1} 件のレコード。プラットフォームが商談とともにその取引先責任者のために書き込むため、実行はそれらにリンクし、送信しません。",
+  "Not counted: {0}, {1} records the target holds under the same {2}, which the run links to and does not create.": "カウント対象外: {0} の {1} 件のレコード。ターゲットは同じ {2} 項目の値を持つレコードをすでに保持しているため、実行はそれらにリンクし、作成しません。",
   "Not counted: {0} records an earlier run of this configuration copied, still in the target, which the sync leaves as they are.": "カウント対象外: この設定の以前の実行がコピーし、まだターゲットにある {0} 件のレコード。同期はこれらをそのまま残します。",
   "Not counted: {0} records an earlier run of this configuration linked to records the target held, which the sync leaves as they are.": "カウント対象外: この設定の以前の実行がターゲットの既存レコードにリンクした {0} 件のレコード。同期はそのまま残します。",
   "Not counted: {0} contact roles the platform writes itself with the opportunities the sync creates, for their contact, which the sync links to and does not send.": "カウント対象外: 同期が作成する商談とともに、その取引先責任者についてプラットフォーム自身が書き込む取引先責任者の役割 {0} 件。同期はこれらをリンクし、送信しません。",

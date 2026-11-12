@@ -14,7 +14,12 @@ import { PROTOCOL_VERSION, forgeRunCountsLeft } from '@sandforge/shared';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { DiscoveryOptions } from '../../modules/forge/GraphDiscoveryService.js';
 import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
-import { ForgeRunGateError, OWNER_MAP_INACTIVE } from '../../modules/forge/ForgeRunGate.js';
+import {
+  ForgeRunGateError,
+  OWNER_MAP_INACTIVE,
+  OWNER_MAP_UNKNOWN,
+} from '../../modules/forge/ForgeRunGate.js';
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import type { ExecutionSummary } from '../../modules/forge/ForgeExecutor.js';
 import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import { MAX_DISCOVERIES } from '../../modules/forge/ForgeStops.js';
@@ -611,6 +616,94 @@ describe('ForgeHandler stops and discoveries, with two panels', () => {
           details: expect.objectContaining({ code: OWNER_MAP_INACTIVE }),
         }),
       ]);
+    });
+
+    /** The target answering a statement of users with `users`, each with its name and whether it is active. */
+    function targetUsers(users: Array<{ Id: string; Name: string; IsActive: boolean }>) {
+      const asked: string[] = [];
+      vi.mocked(getJsforceConnection).mockResolvedValueOnce({
+        query: vi.fn(async (soql: string) => {
+          asked.push(soql);
+          const records = users.filter(({ Id }) => soql.includes(`'${Id}'`));
+          return { records, done: true, totalSize: records.length };
+        }),
+        queryMore: vi.fn(),
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      return asked;
+    }
+
+    it('refuses a mapping to an inactive user before the guard is asked or the target read, the executor never handed the run', async () => {
+      // Refused by the executor alone, the run had read the target's
+      // automation and put its questions to the user first, then said that
+      // nothing had been read.
+      const asked = targetUsers([
+        { Id: '005000000000002AAA', Name: 'Former Admin', IsActive: false },
+      ]);
+
+      await send(panelA, 'wv-run-a', 'forge:execute', {
+        graph: graphOf('Account'),
+        config: { ...CONFIG, ownerMappings: { '005000000000001AAA': '005000000000002AAA' } },
+      });
+
+      const [refused] = taken(panelA, 'forge:execute:error');
+      expect(refused?.payload).toMatchObject({
+        code: OWNER_MAP_INACTIVE,
+        message:
+          'Owners given to users the target holds inactive: Former Admin (005000000000002AAA), ' +
+          'given the records of 005000000000001AAA. The target refuses a record owned by an ' +
+          'inactive user, and the run will not give it to the user it writes as instead of the ' +
+          'one chosen. Give those records to an active user under Owners (Review → Controls, or ' +
+          '--owner-map on the command line), or reactivate the user in the target. Nothing was ' +
+          'read or written.',
+      });
+      expect(asked).toEqual([
+        "SELECT Id, Name, IsActive FROM User WHERE Id IN ('005000000000002AAA')",
+      ]);
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      expect(deps.infraServices?.productionGuard?.check).not.toHaveBeenCalled();
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          action: 'forge_execute',
+          outcome: 'stopped',
+          details: expect.objectContaining({ code: OWNER_MAP_INACTIVE }),
+        }),
+      ]);
+    });
+
+    it('refuses a mapping to a user the target holds no user of under its own code, and a simulation of it records nothing', async () => {
+      targetUsers([]);
+
+      await send(panelA, 'wv-run-a', 'forge:execute', {
+        graph: graphOf('Account'),
+        config: {
+          ...CONFIG,
+          dryRun: true,
+          ownerMappings: { '005000000000001AAA': '005000000000004AAA' },
+        },
+      });
+
+      const [refused] = taken(panelA, 'forge:execute:error');
+      expect(refused?.payload).toMatchObject({ code: OWNER_MAP_UNKNOWN });
+      expect(String(refused?.payload['message'])).toContain(
+        'Owners given to users the target does not hold: 005000000000004AAA, given the records ' +
+          'of 005000000000001AAA.',
+      );
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      expect(new AuditTrailStore(store).list().entries).toEqual([]);
+    });
+
+    it('hands the executor a mapping to an active user', async () => {
+      targetUsers([{ Id: '005000000000003AAA', Name: 'Current Admin', IsActive: true }]);
+
+      const run = send(panelA, 'wv-run-a', 'forge:execute', {
+        graph: graphOf('Account'),
+        config: { ...CONFIG, ownerMappings: { '005000000000001AAA': '005000000000003AAA' } },
+      });
+      await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(1));
+      finishRun(RESULT);
+      await run;
+
+      expect(taken(panelA, 'forge:execute:error')).toEqual([]);
     });
   });
 

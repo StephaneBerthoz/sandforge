@@ -13,9 +13,11 @@ import type {
   FieldInfo,
   ForgeExecutorDeps,
   ForgeProgressEvent,
+  ForgeWriteBoundary,
   InsertResult,
   TargetObjectInfo,
 } from './ForgeExecutor.js';
+import { writePlanOf, type WritePlan } from './ForgeRunGate.js';
 import type {
   RecordTypePicklist,
   RecordTypePicklists,
@@ -460,6 +462,132 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
     // Its id is the simulation's own, never given back.
     expect(summary.remapTable).toEqual({});
     expect(summary.existingSourceIds).toEqual([]);
+  });
+
+  describe('the write gate of a row the target holds by its unique value', () => {
+    /** A run's gate, kept by the name of the run: what it was shown, counted as the command line counts it. */
+    function gates() {
+      const shown = new Map<string, WritePlan>();
+      return {
+        shown,
+        of: (name: string) => async (boundary: ForgeWriteBoundary) => {
+          shown.set(name, writePlanOf(boundary.objects));
+        },
+      };
+    }
+
+    /** A target that refuses the order holding a code it holds, naming its record, as a real one does. */
+    function refusingTheCode() {
+      const real = fakeOrgs();
+      const inserting = real.deps.insertRecords.getMockImplementation();
+      real.deps.insertRecords.mockImplementation(async (org, object, rows) => {
+        const answers = (await inserting?.(org, object, rows)) ?? [];
+        return answers.map((answer, at) =>
+          rows[at]?.['Code__c'] === 'TAKEN'
+            ? {
+                id: '',
+                success: false,
+                errors: [
+                  `DUPLICATE_VALUE: duplicate value found: Code__c duplicates value on record with id: ${id('a01', 500)}`,
+                ],
+              }
+            : answer,
+        );
+      });
+      return real;
+    }
+
+    it('leaves it out of the gate of the dry run and of the run alike, said linked, as many as the simulation inserts and the run creates', async () => {
+      // Run on a Developer Edition, the dry run of a contact's clone said
+      // "write gate: 3 record(s)", then that its simulation linked one of
+      // them, and the run inserted 2. An environment holds a run to its dry
+      // run's gate: both gates count alike.
+      const gate = gates();
+      const real = refusingTheCode();
+
+      const { summary } = await run(fakeOrgs().deps, {
+        ...OPTIONS,
+        dryRun: true,
+        decisions: REGION_GIVEN,
+        beforeWrite: gate.of('dry run'),
+      });
+      const { summary: written } = await run(real.deps, {
+        ...OPTIONS,
+        decisions: REGION_GIVEN,
+        beforeWrite: gate.of('run'),
+      });
+
+      for (const name of ['dry run', 'run']) {
+        const plan = gate.shown.get(name);
+        expect(plan?.objects.map(({ objectApiName, rows }) => [objectApiName, rows])).toEqual([
+          ['Order__c', 2],
+          ['Account', 1],
+        ]);
+        expect(plan?.leftOut?.linkedByValue).toEqual([
+          { objectApiName: 'Order__c', rows: 1, fields: ['Code__c'] },
+        ]);
+      }
+      expect(summary).toMatchObject({ wouldInsertCount: 3, linkedCount: 1 });
+      expect(gate.shown.get('dry run')?.totalRows).toBe(summary.wouldInsertCount);
+      expect(written).toMatchObject({ successCount: 3, linkedCount: 1 });
+      expect(gate.shown.get('run')?.totalRows).toBe(written.successCount);
+      // The row still goes in the run's call, which the target refuses.
+      expect(real.sent.filter(({ row }) => row['Code__c'] === 'TAKEN')).toHaveLength(1);
+    });
+
+    it('counts it where the value sent is not the value read: a field the write leaves out, or cuts', async () => {
+      for (const changed of [
+        { fieldExclusions: { Order__c: ['Code__c'] } },
+        {
+          decisions: {
+            ...REGION_GIVEN,
+            truncateFields: [{ object: 'Order__c', field: 'Code__c' }],
+          },
+        },
+      ] satisfies ExecuteOptions[]) {
+        const gate = gates();
+
+        await run(fakeOrgs().deps, {
+          ...OPTIONS,
+          decisions: REGION_GIVEN,
+          ...changed,
+          dryRun: true,
+          beforeWrite: gate.of('dry run'),
+        });
+
+        expect(gate.shown.get('dry run')?.totalRows).toBe(4);
+        expect(gate.shown.get('dry run')?.leftOut?.linkedByValue).toBeUndefined();
+      }
+    });
+
+    it('counts a value the target holds in another case, and every row when the target will not say what it holds', async () => {
+      const otherCase = fakeOrgs();
+      const answer = otherCase.deps.queryRecords.getMockImplementation();
+      otherCase.deps.queryRecords.mockImplementation(async (org, soql) =>
+        org === 'tgt' && soql.startsWith('SELECT Code__c FROM Order__c')
+          ? [{ Code__c: 'taken' }]
+          : ((await answer?.(org, soql)) ?? []),
+      );
+      const refusing = fakeOrgs();
+      const read = refusing.deps.queryRecords.getMockImplementation();
+      refusing.deps.queryRecords.mockImplementation(async (org, soql) => {
+        if (org === 'tgt' && soql.startsWith('SELECT Code__c FROM Order__c')) {
+          throw new Error('INVALID_FIELD');
+        }
+        return (await read?.(org, soql)) ?? [];
+      });
+
+      for (const deps of [otherCase.deps, refusing.deps]) {
+        const gate = gates();
+        await run(deps, {
+          ...OPTIONS,
+          dryRun: true,
+          decisions: REGION_GIVEN,
+          beforeWrite: gate.of('dry run'),
+        });
+        expect(gate.shown.get('dry run')?.totalRows).toBe(4);
+      }
+    });
   });
 
   it('says on its dry-run lines one fewer to insert for a row linked by its unique value, as its Simulated line and summary count it', async () => {

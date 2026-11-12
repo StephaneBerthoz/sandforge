@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
 import { parseSoql, selectFrom } from '../../test/memorySoql.js';
 import { ForgeExecutor } from './ForgeExecutor.js';
-import { ForgeRunGateError, OWNER_MAP_INACTIVE } from './ForgeRunGate.js';
+import { ForgeRunGateError, OWNER_MAP_INACTIVE, OWNER_MAP_UNKNOWN } from './ForgeRunGate.js';
 import { INACTIVE_OWNER_PERMISSION_SOQL } from './stages/TargetHolds.js';
 import type {
   ExecuteOptions,
@@ -517,6 +517,28 @@ describe('ForgeExecutor, an owner mapping to a user the target holds inactive', 
     expect(fake.asked).toEqual([
       `SELECT Id, Name, IsActive FROM User WHERE Id IN ('${INACTIVE}', '${ACTIVE}')`,
     ]);
+  });
+
+  it('refuses a mapping to a user the target holds no user of before it reads anything, naming the id', async () => {
+    // Carried, the owner had the target refuse every record it gave with
+    // INVALID_CROSS_REFERENCE_KEY: a template made for another org.
+    const UNKNOWN = '005000000000008AAA';
+    const fake = orgs(ROWS);
+
+    await expect(
+      fake.executor.execute(graphOf(ROWS), 'src', 'tgt', () => undefined, {
+        ownerMappings: { [MAPPED_FROM]: UNKNOWN },
+      }),
+    ).rejects.toMatchObject({
+      code: OWNER_MAP_UNKNOWN,
+      message: expect.stringContaining(
+        `Owners given to users the target does not hold: ${UNKNOWN}, given the records of ` +
+          `${MAPPED_FROM}.`,
+      ) as string,
+    });
+    expect(fake.read).toEqual([]);
+    expect(fake.deps.describeFields).not.toHaveBeenCalled();
+    expect(fake.deps.insertRecords).not.toHaveBeenCalled();
   });
 
   it('refuses a simulation the same way: the run it rehearses would be refused', async () => {

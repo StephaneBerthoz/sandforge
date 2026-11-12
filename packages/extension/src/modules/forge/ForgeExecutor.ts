@@ -108,7 +108,7 @@ import {
 } from './stages/SyncedQuoteLines.js';
 import { pagesOfStatement, readingInColumnGroups } from './stages/PagedRows.js';
 import { FORGE_QUERY_MAX_RECORDS } from './queryAllPages.js';
-import { ContactPointNeutralizer } from './stages/ContactPointNeutralizer.js';
+import { ContactPointNeutralizer, contactPointFieldsOf } from './stages/ContactPointNeutralizer.js';
 import {
   cleanNodeRecords,
   describeTargetFieldSets,
@@ -209,12 +209,10 @@ import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { idLists } from '../dataops/RecordRemoval.js';
 import {
   idsTheTargetLacks,
-  inactiveMappedOwners,
   inactiveOwnersOf,
   writesInactiveOwnersOnce,
-  type MappedOwnerInactive,
 } from './stages/TargetHolds.js';
-import { ForgeRunGateError, OWNER_MAP_INACTIVE } from './ForgeRunGate.js';
+import { ownerMapRefusalOf } from './ownerMapRefusal.js';
 import {
   PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_OBJECT,
@@ -880,6 +878,13 @@ export interface ForgeRowsLeftOut {
    * the run sends itself when the email, or its record, is refused.
    */
   byThePlatform?: number;
+  /**
+   * Rows holding, in a unique field, a value the target holds already, and
+   * the fields: sent, their insert is refused naming the target's record,
+   * which the write links each to. Created by none, yet each sent in the
+   * write's calls.
+   */
+  linkedByValue?: { rows: number; fields: readonly string[] };
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -3404,34 +3409,6 @@ function inactiveOwnersReports(state: ExecutionState): ExecutionObjectError[] {
   );
 }
 
-/** The most users a refusal of the run's owner mapping names: the others are counted. */
-const MAPPED_INACTIVE_NAMED = 10;
-
-/**
- * Why a run whose owner mapping gives records to users the target holds
- * inactive is refused before it reads anything: each user by name and id,
- * with the source owners mapped to it, at most ten, the others counted.
- */
-export function ownerMapInactiveRefusal(inactive: readonly MappedOwnerInactive[]): string {
-  const said = inactive
-    .slice(0, MAPPED_INACTIVE_NAMED)
-    .map(
-      ({ user, name, sources }) =>
-        `${name !== undefined ? `${name} (${user})` : user}, given the records of ` +
-        sources.join(', '),
-    )
-    .join('; ');
-  const more = inactive.length - MAPPED_INACTIVE_NAMED;
-  return (
-    'Owners given to users the target holds inactive: ' +
-    `${said}${more > 0 ? `; and ${more} more` : ''}. The target refuses a record owned by an ` +
-    'inactive user, and the run will not give it to the user it writes as instead of the one ' +
-    'chosen. Give those records to an active user under Owners (Review → Controls, or ' +
-    '--owner-map on the command line), or reactivate the user in the target. Nothing was read ' +
-    'or written.'
-  );
-}
-
 /** What an object's progress says of `count` emails waiting for the task each names. */
 function waitingForTheirTask(count: number): string {
   return `${count} on a case waiting for ${count === 1 ? 'its task' : 'their tasks'}`;
@@ -4046,16 +4023,16 @@ export class ForgeExecutor {
       const unwired = this.fileCopyUnwired();
       if (unwired) throw new ForgeFilesRefusedError(unwired, 'FILES_NOT_COPYABLE');
     }
-    // An owner mapping that gives records to a user the target holds inactive
-    // is refused before anything is read, a simulation's as a run's: the
-    // target refuses every record that user would own, and the run will not
-    // give them to the user it writes as instead of the one chosen.
-    const mappedInactive = await inactiveMappedOwners(resolved.ownerMappings, (soql) =>
+    // An owner mapping that gives records to a user the target holds inactive,
+    // or holds no user of, is refused before anything is read, a simulation's
+    // as a run's: the target refuses every record that user would own, and
+    // the run will not give them to the user it writes as instead of the one
+    // chosen. The command line and the panel ask it first, before their own
+    // reads of the target; asked again here, it holds whoever calls.
+    const ownersRefused = await ownerMapRefusalOf(resolved.ownerMappings, (soql) =>
       this.deps.queryRecords(targetOrgId, soql),
     );
-    if (mappedInactive.length > 0) {
-      throw new ForgeRunGateError(OWNER_MAP_INACTIVE, ownerMapInactiveRefusal(mappedInactive));
-    }
+    if (ownersRefused) throw ownersRefused;
     // The record types the user decided to write as others, in ids, over the
     // run's own mapping: every stage that reads the mapping reads them.
     const recordTypeRows: RecordTypeRowsOfARun = new Map();
@@ -4910,15 +4887,18 @@ export class ForgeExecutor {
       // them: see `pricesTheGateCounts`.
       const pricesForLines = await this.pricesTheGateCounts(state);
       const capped = cappedObjectsOf(state).cappedObjects;
-      const objects = await this.withoutWhatThePlatformWrites(
+      const objects = await this.withoutWhatTheTargetHoldsByValue(
         state,
-        await Promise.all(
-          [...state.preread].map(([objectApiName, read]) =>
-            this.toWriteAtTheGate(
-              state,
-              objectApiName,
-              read,
-              isPricebookEntry(objectApiName) ? pricesForLines : 0,
+        await this.withoutWhatThePlatformWrites(
+          state,
+          await Promise.all(
+            [...state.preread].map(([objectApiName, read]) =>
+              this.toWriteAtTheGate(
+                state,
+                objectApiName,
+                read,
+                isPricebookEntry(objectApiName) ? pricesForLines : 0,
+              ),
             ),
           ),
         ),
@@ -11872,6 +11852,134 @@ export class ForgeExecutor {
         ...before,
       };
     });
+  }
+
+  /**
+   * The objects the gate is shown, less the rows holding, in a unique field of
+   * the target, a value the target holds already, said beside them
+   * (`leftOut.linkedByValue`): the target refuses their insert and names its
+   * record, and the write links each to it, creating none — as a simulation
+   * links them (`uniqueValueGaps`). Counted, the dry run of a contact's clone
+   * said `write gate: 3 record(s)` and then that one of them would be linked,
+   * where its run inserted 2; and an environment held the run to the gate's
+   * count, its dry run's included, so both gates leave them out alike.
+   *
+   * Left out only where the gate can tell, never counting fewer than the run
+   * writes: the value as the write sends it is the value read, the field
+   * written under its own name, neither renamed, excluded, read masked,
+   * anonymized, neutralized as a contact point, cut by a decision nor only a
+   * person account's; and it equals one the target holds, case and all. A
+   * value that differs only in case, which a field that ignores case refuses
+   * as well, stays counted, as does every row of a field the target would not
+   * answer of: the run then writes no more than the gate said. An external id
+   * an upsert matches by is no collision.
+   */
+  private async withoutWhatTheTargetHoldsByValue(
+    state: ExecutionState,
+    objects: Array<ForgeWriteBoundary['objects'][number]>,
+  ): Promise<Array<ForgeWriteBoundary['objects'][number]>> {
+    const { config } = state;
+    const out: Array<ForgeWriteBoundary['objects'][number]> = [];
+    for (const object of objects) {
+      const { objectApiName, rows } = object;
+      const read = state.preread.get(objectApiName);
+      if (rows.length === 0 || object.counted || !read) {
+        out.push(object);
+        continue;
+      }
+      const sets = await (read.targetSetsPending ??
+        describeTargetFieldSets(this.deps.describeFields, state.targetOrgId, objectApiName).then(
+          (described) => ({ ok: true as const, sets: described }),
+          (error: unknown) => ({ ok: false as const, error }),
+        ));
+      if (!sets.ok) {
+        out.push(object);
+        continue;
+      }
+      const creatable = intersect(read.createableSet, sets.sets.creatable);
+      const excluded = new Set(config.fieldExclusions[objectApiName] ?? []);
+      const rename = config.fieldMappings[objectApiName] ?? {};
+      const renamedTo = new Set(Object.values(rename));
+      const masked = new Set(
+        await state.maskedSourceFields(objectApiName).catch((): string[] => []),
+      );
+      const anonymization = config.anonymization;
+      const anonymized = new Set(
+        state.anonymize && anonymization
+          ? (anonymization.fields[objectApiName] ??
+              this.detectedPersonalFields(state, anonymization, objectApiName, read.fieldInfos))
+          : [],
+      );
+      const neutralized = new Set(
+        state.contactPoints ? contactPointFieldsOf(read.fieldInfos).map(({ name }) => name) : [],
+      );
+      const cut = config.decisions.truncatedFieldsOf(objectApiName);
+      const sentAsRead = sets.sets.fields.filter(
+        ({ name, unique, externalId }) =>
+          unique === true &&
+          creatable.has(name) &&
+          !(config.upsertMode === 'auto' && externalId === true) &&
+          !excluded.has(name) &&
+          rename[name] === undefined &&
+          !renamedTo.has(name) &&
+          !masked.has(name) &&
+          !anonymized.has(name) &&
+          !neutralized.has(name) &&
+          !cut.has(name) &&
+          !(objectApiName === ACCOUNT && name.endsWith('__pc')),
+      );
+      /** Of the rows, those linked, each under the first field that links it. */
+      const linked = new Map<Record<string, unknown>, string>();
+      for (const { name } of sentAsRead) {
+        const values = [
+          ...new Set(
+            rows.flatMap((row) => {
+              const value = row[name];
+              return typeof value === 'string' && value !== '' && !CONTROL_CHARACTER.test(value)
+                ? [value]
+                : [];
+            }),
+          ),
+        ];
+        if (values.length === 0) continue;
+        const held = new Set<string>();
+        try {
+          const objectName = assertSoqlIdentifier(objectApiName);
+          const column = assertSoqlIdentifier(name);
+          for (const list of idLists(values, UNIQUE_VALUES_PER_REQUEST)) {
+            const found = await this.deps.queryRecords(
+              state.targetOrgId,
+              `SELECT ${column} FROM ${objectName} WHERE ${column} IN (${list})`,
+            );
+            for (const row of found) {
+              const value = row[name];
+              if (typeof value === 'string') held.add(value);
+            }
+          }
+        } catch {
+          continue;
+        }
+        for (const row of rows) {
+          const value = row[name];
+          if (typeof value === 'string' && held.has(value) && !linked.has(row)) {
+            linked.set(row, name);
+          }
+        }
+      }
+      if (linked.size === 0) {
+        out.push(object);
+        continue;
+      }
+      out.push({
+        ...object,
+        rows: rows.filter((row) => !linked.has(row)),
+        leftOut: {
+          ...object.leftOut,
+          linkedByValue: { rows: linked.size, fields: [...new Set(linked.values())] },
+        },
+      });
+    }
+    return out;
   }
 
   /**

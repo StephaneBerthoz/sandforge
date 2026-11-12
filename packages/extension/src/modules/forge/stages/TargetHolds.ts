@@ -31,11 +31,14 @@
  */
 
 import { assertSoqlIdentifier } from '../../../core/common/soqlValidator.js';
-import { idLists } from '../../dataops/RecordRemoval.js';
+import { RECORDS_PER_CALL, idLists } from '../../dataops/RecordRemoval.js';
 import { isNeverCopied } from '../excludedObjects.js';
 
 /** The object of the target's users: the one asked whether a record is active. */
 const USER = 'User';
+
+/** The key prefix of a user's id: what a statement of users can say the target lacks. */
+const USER_PREFIX = '005';
 
 /** A Salesforce id, 15 or 18 characters: what goes into the statement that asks for it. */
 const SALESFORCE_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
@@ -292,22 +295,42 @@ export interface MappedOwnerInactive {
   readonly sources: readonly string[];
 }
 
+/** A user an owner mapping gives records to whom the target holds no user of. */
+export interface MappedOwnerUnknown {
+  /** The user's id, as the mapping gives it. */
+  readonly user: string;
+  /** The source owners mapped to it, as the mapping names them. */
+  readonly sources: readonly string[];
+}
+
+/** The users a run's owner mapping gives records to that the target refuses as owners. */
+export interface MappedOwnersRefused {
+  /** Those it holds inactive. */
+  readonly inactive: MappedOwnerInactive[];
+  /** Those it holds no user of. */
+  readonly unknown: MappedOwnerUnknown[];
+}
+
 /**
  * The users the run's owner mapping gives records to that the target holds
- * inactive, each with its name and the source owners mapped to it: asked of
- * the target before the run reads anything, `Id, Name, IsActive` of each, in
- * statements of a bounded number of ids. A mapping is the user's own choice of
- * an owner, and one the target holds inactive has every record it gives
- * refused (`INACTIVE_OWNER_OR_USER`) — or, left out to have the record go in,
- * written with the user the run writes as for owner, which is not what the
- * mapping said. The run is refused instead, naming the user. A user the
- * answer says nothing of, or a read refused, is not among them: the rows then
- * go mapped, and a refusal of one says so.
+ * inactive, each with its name and the source owners mapped to it, and those
+ * it holds no user of: asked of the target before the run reads anything,
+ * `Id, Name, IsActive` of each, in statements of a bounded number of ids. A
+ * mapping is the user's own choice of an owner. One the target holds inactive
+ * has every record it gives refused (`INACTIVE_OWNER_OR_USER`) — or, left out
+ * to have the record go in, written with the user the run writes as for
+ * owner, which is not what the mapping said. One the target holds no user of
+ * — a template made for another org, an id mistyped — has every record it
+ * gives refused too (`INVALID_CROSS_REFERENCE_KEY`). The run is refused
+ * instead, naming each. Only a user's id is said unknown: a queue the mapping
+ * names is no user, and the statement of users says nothing of it. A user the
+ * answer says nothing of the field of, or a read refused, is among neither:
+ * the rows then go mapped, and a refusal of one says so.
  */
-export async function inactiveMappedOwners(
+export async function mappedOwnersTheTargetRefuses(
   ownerMappings: Readonly<Record<string, string>>,
   query: TargetRowsQuery,
-): Promise<MappedOwnerInactive[]> {
+): Promise<MappedOwnersRefused> {
   /** Per user mapped to, by its id on fifteen characters, the form it is given in and its sources. */
   const mappedTo = new Map<string, { user: string; sources: string[] }>();
   for (const [source, user] of Object.entries(ownerMappings)) {
@@ -318,16 +341,24 @@ export async function inactiveMappedOwners(
     mappedTo.set(key, entry);
   }
   const inactive: MappedOwnerInactive[] = [];
-  for (const list of idLists([...mappedTo.values()].map(({ user }) => user))) {
+  const unknown: MappedOwnerUnknown[] = [];
+  const entries = [...mappedTo.values()];
+  for (let at = 0; at < entries.length; at += RECORDS_PER_CALL) {
+    const asked = entries.slice(at, at + RECORDS_PER_CALL);
+    const [list] = idLists(asked.map(({ user }) => user));
     let rows: readonly Record<string, unknown>[];
     try {
       rows = await query(`SELECT Id, Name, IsActive FROM ${USER} WHERE Id IN (${list})`);
     } catch {
       continue;
     }
+    /** The users of this statement the answer holds, on fifteen characters. */
+    const held = new Set<string>();
     for (const row of rows) {
       const id = row['Id'];
-      if (typeof id !== 'string' || row['IsActive'] !== false) continue;
+      if (typeof id !== 'string') continue;
+      held.add(id.slice(0, 15));
+      if (row['IsActive'] !== false) continue;
       const entry = mappedTo.get(id.slice(0, 15));
       if (!entry) continue;
       const name = row['Name'];
@@ -337,6 +368,11 @@ export async function inactiveMappedOwners(
         sources: entry.sources,
       });
     }
+    for (const { user, sources } of asked) {
+      if (user.startsWith(USER_PREFIX) && !held.has(user.slice(0, 15))) {
+        unknown.push({ user, sources });
+      }
+    }
   }
-  return inactive;
+  return { inactive, unknown };
 }

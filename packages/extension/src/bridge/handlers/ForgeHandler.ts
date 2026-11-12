@@ -257,6 +257,7 @@ import type {
   ForgeWriteBoundary,
   ForgeWriteGateAnswer,
 } from '../../modules/forge/ForgeExecutor.js';
+import { ownerMapRefusalOf } from '../../modules/forge/ownerMapRefusal.js';
 import {
   beforeRunFailedWords,
   beforeRunProgressWords,
@@ -2207,6 +2208,31 @@ export class ForgeHandler implements DomainHandler {
       );
       return;
     }
+    // An owner mapping to a user the target holds inactive, or holds no user
+    // of, is refused here, before the guard's question and the read of the
+    // target's automation. Refused only once the executor had the run, the
+    // user had answered the run's questions, and was then told nothing had
+    // been read. A simulation is refused as the run it rehearses, and
+    // recorded as none.
+    const ownersRefused = await this.ownerMapRefusal(config);
+    if (ownersRefused) {
+      if (!dryRun) {
+        recordWriteRun(this.deps, {
+          action: 'forge_execute',
+          module: 'forge',
+          operationId: msg.id,
+          orgId: config.targetOrgId,
+          outcome: 'stopped',
+          code: ownersRefused.code,
+          context: audit.context(),
+        });
+      }
+      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, ownersRefused, {
+        code: ownersRefused.code,
+        retryable: true,
+      });
+      return;
+    }
     const guardRequest = {
       orgId: config.targetOrgId,
       orgTier,
@@ -3332,6 +3358,36 @@ export class ForgeHandler implements DomainHandler {
         `Forge run journal not read for what the part wrote: ${extractErrorMessage(err)}`,
       );
       return {};
+    }
+  }
+
+  /**
+   * The refusal of a run whose owner mapping gives records to users the
+   * target holds inactive or holds no user of (`ownerMapRefusalOf`), asked of
+   * the target before anything else; none for a run that maps no owner. A
+   * target that cannot be reached refuses nothing here: the executor asks
+   * again as the run begins, and refuses it there.
+   */
+  private async ownerMapRefusal(
+    config: Pick<ForgeConfig, 'ownerMappings' | 'targetOrgId'>,
+  ): Promise<ForgeRunGateError | undefined> {
+    const mappings = config.ownerMappings ?? {};
+    if (Object.keys(mappings).length === 0) return undefined;
+    try {
+      const conn = await getJsforceConnection(
+        config.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      return await ownerMapRefusalOf(
+        mappings,
+        async (soql) => (await conn.query<Record<string, unknown>>(soql)).records,
+      );
+    } catch (err: unknown) {
+      logger.warn(
+        `Forge run: the users its owners are mapped to could not be read first (${extractErrorMessage(err)})`,
+      );
+      return undefined;
     }
   }
 
