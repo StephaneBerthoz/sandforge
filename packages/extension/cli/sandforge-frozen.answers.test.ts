@@ -157,6 +157,10 @@ const removeAnswer = z
           refused: count,
           notReached: count,
           notVisible: count,
+          tookAlong: z
+            .object({ count, objects: z.array(name) })
+            .strict()
+            .optional(),
         })
         .strict(),
     ),
@@ -546,6 +550,56 @@ describe('the --json answer of each step, as an environment reads it', () => {
 
     const read = removeAnswer.parse(answer);
     expect(read.objects[0]).toMatchObject({ keptChanged: 1, notReached: 0, notVisible: 0 });
+    expect(read.objects[0]).not.toHaveProperty('tookAlong');
+  });
+
+  it('gives a removal including changes what it took along per object, beside its counts', async () => {
+    // Run for real, the contact made by hand that went with an account of the
+    // load was said in the panel's answer alone: a script reading the counts
+    // read "Contact: 4 deleted", the load's four.
+    const object = {
+      planned: 2,
+      deleted: 2,
+      alreadyGone: 0,
+      keptChanged: 0,
+      keptDependents: 0,
+      refused: 0,
+      heldBy: [],
+      unchecked: [],
+      reasons: [],
+    };
+    const answer = await frozenAnswer(
+      'remove',
+      [
+        {
+          type: 'frozen:remove:response',
+          payload: {
+            result: {
+              status: 'success',
+              includeChanged: true,
+              finishedAt: 'x',
+              objects: [
+                { ...object, objectApiName: 'Contact', planned: 4, deleted: 4 },
+                {
+                  ...object,
+                  objectApiName: 'Account',
+                  tookAlong: { count: 1, objects: ['Contact'] },
+                },
+              ],
+            },
+          },
+        },
+      ],
+      context(),
+    );
+
+    const read = removeAnswer.parse(answer);
+    expect(read.objects[0]).not.toHaveProperty('tookAlong');
+    expect(read.objects[1]).toMatchObject({
+      objectApiName: 'Account',
+      deleted: 2,
+      tookAlong: { count: 1, objects: ['Contact'] },
+    });
   });
 });
 

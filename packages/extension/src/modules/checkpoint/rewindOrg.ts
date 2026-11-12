@@ -2872,6 +2872,9 @@ class Rewind {
         runStartedAt: plan.removal.runStartedAt,
         runEndedAt: plan.removal.runEndedAt,
         includeChanged: plan.removal.includeChanged,
+        // The plan read what hangs from what it deletes, and what outside the
+        // checkpoint goes along was accepted: see `alongAccepted`.
+        alongAccepted: true,
         ...(Object.keys(removalStamps).length > 0 ? { removalStamps } : {}),
         ...(spans.length > 0 ? { removalSpans: spans } : {}),
         ...(this.carried.size + plan.carriers.size + plan.goesAlong.size > 0

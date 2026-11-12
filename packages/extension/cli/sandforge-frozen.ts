@@ -2004,8 +2004,11 @@ export interface FrozenAnswer {
   dataset?: FrozenAnswerDataset;
   /** The file in the sas naming the records the loads into the target created. */
   mapping?: string;
-  /** Per object, what the step counted. */
-  objects?: Array<Record<string, string | number>>;
+  /**
+   * Per object, what the step counted; for a removal, with what it took
+   * along that the load never wrote (`tookAlong`), where it took any.
+   */
+  objects?: Array<Record<string, string | number | { count: number; objects: string[] }>>;
   /** Verify's verdict, and the one a load chains after it. */
   verdict?: FrozenAnswerVerdict;
   /** How a load or a removal ended: a load's `partial` once the verification it chains did not pass. */
@@ -2199,6 +2202,9 @@ export async function frozenAnswer(
           refused: o.refused,
           notReached: o.notReached ?? 0,
           notVisible: o.notVisible ?? 0,
+          // What went along that the load never wrote: said in the panel's
+          // answer alone, a script reading these counts did not see it.
+          ...(o.tookAlong ? { tookAlong: o.tookAlong } : {}),
         }));
       } else if (preview) {
         answer.preview = true;

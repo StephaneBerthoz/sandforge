@@ -3878,6 +3878,161 @@ describe('removeRunRecords — what the target automation made under the run rec
   });
 });
 
+describe('removeRunRecords — what came with the run under its records, and what hangs from that', () => {
+  const ACCOUNT = id('001', 1);
+  /** A contact the target's automation made under the run's account as the run wrote it. */
+  const CAME = id('003', 3);
+  const MEMBER = id('00v', 1);
+
+  /**
+   * The run's account and contacts, a contact that came with the run under
+   * the account, and a campaign member under that contact: the org deletes a
+   * contact's members with it, as it deletes an account's contacts.
+   */
+  function withMember(member: Record<string, unknown>): {
+    org: FakeOrg;
+    plan: ForgeRunObjectRecords[];
+  } {
+    const { org, plan } = accountWithContacts();
+    org.relationships.set('Contact', [
+      { childSObject: 'CampaignMember', field: 'ContactId', cascadeDelete: true },
+    ]);
+    org.add('Contact', runRow(CAME, { AccountId: ACCOUNT }));
+    org.add('CampaignMember', { Id: MEMBER, ContactId: CAME, ...member });
+    return { org, plan };
+  }
+
+  /** Added by someone else, after the run. */
+  const ADDED_SINCE = {
+    CreatedById: COLLEAGUE,
+    CreatedDate: AFTER_RUN,
+    LastModifiedDate: AFTER_RUN,
+  };
+
+  it('keeps the parent when what came with the run under it holds a record added since, and names both', async () => {
+    // Read one level down, the contact went with the account, and the org
+    // took along with it the campaign member a colleague had added: a Frozen
+    // reload's purge said success.
+    const { org, plan } = withMember(ADDED_SINCE);
+
+    const outcome = await removeRunRecords(org, plan, options());
+
+    expect(outcome.objects[0]).toMatchObject({ objectApiName: 'Contact', deleted: 2 });
+    expect(outcome.objects[1]).toMatchObject({
+      objectApiName: 'Account',
+      deleted: 0,
+      keptDependents: 1,
+      heldBy: ['Contact', 'CampaignMember'],
+    });
+    expect(org.has('Contact', CAME)).toBe(true);
+    expect(org.has('CampaignMember', MEMBER)).toBe(true);
+  });
+
+  it('counts it kept in a preview asked what hangs from the records, deleting nothing', async () => {
+    const { org, plan } = withMember(ADDED_SINCE);
+
+    const outcome = await removeRunRecords(
+      org,
+      plan,
+      options({ previewOnly: true, previewHeld: true }),
+    );
+
+    expect(outcome.preview?.objects[1]).toMatchObject({
+      objectApiName: 'Account',
+      toDelete: 0,
+      keptDependents: 1,
+      heldBy: ['Contact', 'CampaignMember'],
+    });
+    expect(org.deletes).toEqual([]);
+  });
+
+  it('takes it along when changes are included, and says what it took', async () => {
+    const { org, plan } = withMember(ADDED_SINCE);
+
+    const outcome = await removeRunRecords(org, plan, options({ includeChanged: true }));
+
+    expect(outcome.objects[1]).toMatchObject({
+      objectApiName: 'Account',
+      deleted: 1,
+      keptDependents: 0,
+      tookAlong: { count: 1, objects: ['CampaignMember'] },
+    });
+    expect(org.has('CampaignMember', MEMBER)).toBe(false);
+  });
+
+  it('deletes the parent when what hangs a level further down came with the run too', async () => {
+    const { org, plan } = withMember({ CreatedDate: DURING_RUN, LastModifiedDate: DURING_RUN });
+
+    const outcome = await removeRunRecords(org, plan, options());
+
+    expect(outcome.objects[1]).toMatchObject({ deleted: 1, keptDependents: 0 });
+    expect(outcome.objects[1]).not.toHaveProperty('tookAlong');
+    expect(org.has('CampaignMember', MEMBER)).toBe(false);
+  });
+
+  it('leaves what the caller says goes with its parent as it is, unread further down', async () => {
+    // A reload names so the records of the other loads it replaces, whose own
+    // removal reads them by their own load's dates.
+    const { org, plan } = withMember(ADDED_SINCE);
+
+    const outcome = await removeRunRecords(
+      org,
+      plan,
+      options({ goesWithParent: (row) => row.Id === CAME }),
+    );
+
+    expect(outcome.objects[1]).toMatchObject({ deleted: 1, keptDependents: 0 });
+  });
+
+  it('reads nothing further down once what goes along was read and accepted before, as a rewind’s plan does', async () => {
+    const { org, plan } = withMember(ADDED_SINCE);
+    const asked: string[] = [];
+    org.onQuery = (soql) => asked.push(soql);
+
+    const outcome = await removeRunRecords(org, plan, options({ alongAccepted: true }));
+
+    expect(outcome.objects[1]).toMatchObject({ deleted: 1, keptDependents: 0 });
+    // The run's own contacts are read for their members at their turn; the
+    // one that came with the run is not.
+    expect(asked.filter((soql) => soql.includes('FROM CampaignMember'))).toHaveLength(1);
+    expect(asked.filter((soql) => soql.includes(CAME))).toHaveLength(0);
+  });
+
+  it('reads four levels down what came with the run, and keeps the parent past them, unread', async () => {
+    // Account, its contact, the contact's member, then two levels of custom
+    // details, every one of them made as the run wrote.
+    const chain = (levels: number) => {
+      const { org, plan } = withMember({ CreatedDate: DURING_RUN, LastModifiedDate: DURING_RUN });
+      const objects = ['CampaignMember', 'Detail__c', 'Subdetail__c'].slice(0, levels - 1);
+      objects.forEach((parent, at) => {
+        const child = ['Detail__c', 'Subdetail__c'][at];
+        org.relationships.set(parent, [
+          { childSObject: child, field: 'ParentId', cascadeDelete: true },
+        ]);
+        org.add(
+          child,
+          runRow(id(child === 'Detail__c' ? 'a01' : 'a02', 1), {
+            ParentId: at === 0 ? MEMBER : id('a01', 1),
+          }),
+        );
+      });
+      return { org, plan };
+    };
+    const read = chain(2);
+    const past = chain(3);
+
+    const deleted = await removeRunRecords(read.org, read.plan, options());
+    const kept = await removeRunRecords(past.org, past.plan, options());
+
+    expect(deleted.objects[1]).toMatchObject({ deleted: 1, keptDependents: 0 });
+    expect(kept.objects[1]).toMatchObject({
+      deleted: 0,
+      keptDependents: 1,
+      heldBy: ['Contact', 'CampaignMember', 'Detail__c', 'Subdetail__c'],
+    });
+  });
+});
+
 describe('removeRunRecords — what only a removal of the run changed since', () => {
   const ACCOUNT = id('001', 1);
   const CONTACT = id('003', 1);

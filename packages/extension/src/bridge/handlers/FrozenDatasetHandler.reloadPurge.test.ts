@@ -380,6 +380,77 @@ describe('a reload, whose purge deletes what the loads before it created', () =>
     expect(tied.ids('Contact')).toEqual([]);
   });
 
+  describe('of a load one of whose accounts holds a contact that came with it, to which someone added a campaign member since', () => {
+    /** The contact the target's automation made as the load wrote the account. */
+    const CAME_WITH_IT = id('003', 3);
+    /** A campaign member someone else added to that contact, seven minutes later. */
+    const MEMBER = id('00v', 1);
+    const COLLEAGUE = id('005', 2);
+
+    beforeEach(() => {
+      tied.shape('Contact', {
+        references: { AccountId: ['Account'] },
+        children: [{ childSObject: 'CampaignMember', field: 'ContactId', cascadeDelete: true }],
+      });
+      tied.shape('CampaignMember', { references: { ContactId: ['Contact'] } });
+      tied.add(
+        'Contact',
+        made(CAME_WITH_IT, 'Made with the account', ACCOUNT_MADE, { AccountId: ACCOUNT }),
+      );
+      tied.add('CampaignMember', {
+        ...made(MEMBER, 'Added by hand', SINCE, { ContactId: CAME_WITH_IT }),
+        CreatedById: COLLEAGUE,
+        LastModifiedById: COLLEAGUE,
+      });
+    });
+
+    it('is refused before anything is written, naming both, and the member stays', async () => {
+      // Read one level down only, the contact came with the load and went with
+      // the account; the org took the campaign member along with the contact,
+      // and the reload said success.
+      await reload();
+
+      expect(loaderLoad).not.toHaveBeenCalled();
+      expect(tied.deletes).toEqual([]);
+      expect(tied.ids('CampaignMember')).toEqual([MEMBER]);
+      expect(tied.ids('Contact')).toEqual([CONTACT, CAME_WITH_IT]);
+      const [refusal] = errors();
+      expect(refusal?.code).toBe('REPLACE_LEAVES_RECORDS');
+      expect(refusal?.message).toContain(
+        'A removal of the loads this reload replaces would leave 1 of their records in the org — ' +
+          'Account (1: 1 kept for records that stay under them (Contact, CampaignMember))',
+      );
+      expect(refusal?.message).toContain(
+        'records changed since, and what was added under them since, go too when it is told to include them',
+      );
+    });
+
+    it('is refused the same way by its dry run', async () => {
+      await handler.handle(
+        buildMsg('frozen:load:preview', { targetOrgId: TARGET_ORG, reload: true }),
+      );
+
+      expect(errors('frozen:load:preview:error')[0]).toMatchObject({
+        code: 'REPLACE_LEAVES_RECORDS',
+        message: expect.stringContaining(
+          'Account (1: 1 kept for records that stay under them (Contact, CampaignMember))',
+        ),
+      });
+      expect(tied.deletes).toEqual([]);
+    });
+
+    it('goes on, the contact going with the account, once that member is no longer the contact’s', async () => {
+      tied.row('CampaignMember', MEMBER)!.ContactId = null;
+
+      await reload();
+
+      expect(errors()).toEqual([]);
+      expect(loaderLoad).toHaveBeenCalledTimes(1);
+      expect(tied.ids('Contact')).toEqual([]);
+      expect(tied.ids('CampaignMember')).toEqual([MEMBER]);
+    });
+  });
+
   describe('refused by its loader, which finds hanging from what the purge deletes a record it finds again', () => {
     const refused = () =>
       new ReloadTakesAlongError([{ objectApiName: 'Quote', count: 1, under: ['Opportunity'] }]);
