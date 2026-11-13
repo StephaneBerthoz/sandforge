@@ -387,7 +387,15 @@ rm -f /tmp/sf-shots.txt
 # and why the pattern that preceded them could never pass, are in the script.
 if node scripts/check-confidential.mjs > /tmp/sf-confidential.txt 2>&1; then
   grep "^WARN" /tmp/sf-confidential.txt || true
-  echo "PASS: $(tail -1 /tmp/sf-confidential.txt)"
+  # A CI runner never has the names; a checkout that publishes must. A
+  # worktree has no `.confidential-names` (git ignores it), and the check
+  # passed there without the names for a whole wave (13/11).
+  if grep -q "^WARN: .* absent" /tmp/sf-confidential.txt && [ "${CI:-}" != "true" ]; then
+    echo "FAIL: .confidential-names absent from this checkout — copy it from the main checkout, client names unchecked"
+    ERRORS=$((ERRORS + 1))
+  else
+    echo "PASS: $(tail -1 /tmp/sf-confidential.txt)"
+  fi
 else
   echo "FAIL: client identity or real org identifiers in tracked files — scrub before publishing"
   grep -E "✗|^Confidentiality:" /tmp/sf-confidential.txt | head -20 | sed 's/^/       /'
