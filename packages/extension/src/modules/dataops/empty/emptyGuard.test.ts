@@ -165,7 +165,7 @@ describe('peopleActiveIn', () => {
       ['005000000000001AAA'],
       '2026-11-12T09:00:00.000Z',
     );
-    expect(active.people).toEqual(['005000000000002', '005000000000003']);
+    expect(active.people).toEqual(['005000000000002AAA', '005000000000003AAA']);
     expect(sent[0]).toBe(
       "SELECT LastModifiedById, LastModifiedDate FROM Account WHERE LastModifiedDate >= 2026-11-12T09:00:00.000Z AND LastModifiedById NOT IN ('005000000000001') LIMIT 2000",
     );
@@ -199,7 +199,7 @@ describe('peopleActiveIn', () => {
       '2026-11-12T09:00:00.000Z',
     );
     expect(active.who).toEqual([
-      { userId: '005000000000002', records: 3, lastChangedAt: '2026-11-12T09:50:00.000+0000' },
+      { userId: '005000000000002AAA', records: 3, lastChangedAt: '2026-11-12T09:50:00.000+0000' },
     ]);
     expect(peopleActiveRefusal('dev', active)?.message).toContain(
       'in the last hour, the last at 2026-11-12T09:50:00.000+0000',
@@ -232,11 +232,11 @@ describe('peopleActiveIn', () => {
     const active = await peopleActiveIn(conn as never, ['Account'], [], '2026-11-12T09:00:00.000Z');
     const named = await namedPeople(conn as never, active);
     expect(sent.at(-1)).toBe(
-      "SELECT Id, Name FROM User WHERE Id IN ('005000000000002', '005000000000003')",
+      "SELECT Id, Name FROM User WHERE Id IN ('005000000000002AAA', '005000000000003AAA')",
     );
     expect(named.who.map((person) => [person.userId, person.name])).toEqual([
-      ['005000000000002', 'Ada Example'],
-      ['005000000000003', undefined],
+      ['005000000000002AAA', 'Ada Example'],
+      ['005000000000003AAA', undefined],
     ]);
     // The refusal names how many and when, never who.
     expect(peopleActiveRefusal('dev', named)?.message).not.toContain('Ada Example');
@@ -270,6 +270,26 @@ describe('peopleActiveIn', () => {
     );
     await namedPeople(nobody.conn as never, none);
     expect(nobody.sent.some((soql) => soql.includes('FROM User'))).toBe(false);
+  });
+
+  it('gives each person by the user Id the org gave, eighteen characters, one person whatever the case of its last three', async () => {
+    const { conn } = orgAnswering(() => [
+      { LastModifiedById: '005000000000002AAA', LastModifiedDate: '2026-11-12T09:10:00.000+0000' },
+      { LastModifiedById: '005000000000002aaa', LastModifiedDate: '2026-11-12T09:20:00.000+0000' },
+    ]);
+    const active = await peopleActiveIn(conn as never, ['Contact'], [], '2026-11-12T09:00:00.000Z');
+
+    // Read live, a JSON of fifteen matched none of the ids of eighteen REST
+    // gives everywhere else.
+    expect(active.who).toEqual([
+      { userId: '005000000000002AAA', records: 2, lastChangedAt: '2026-11-12T09:20:00.000+0000' },
+    ]);
+    expect(active.people).toEqual(['005000000000002AAA']);
+    // A preview's acceptance covers them, by their id of fifteen or eighteen.
+    expect(peopleActiveRefusal('dev', active, { accepted: ['005000000000002'] })).toBeUndefined();
+    expect(
+      peopleActiveRefusal('dev', active, { accepted: ['005000000000002AAA'] }),
+    ).toBeUndefined();
   });
 
   it('says at least, past the rows one read answers', async () => {

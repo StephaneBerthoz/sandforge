@@ -7841,7 +7841,8 @@
     "count": {
       "unread": "not counted",
       "atMost": "at most {{formatted}}",
-      "atLeast": "at least {{formatted}}"
+      "atLeast": "at least {{formatted}}",
+      "about": "about {{formatted}}"
     },
     "size": {
       "records_one": "{{formatted}} record",
@@ -7891,8 +7892,11 @@
       },
       "archived": "of them {{records}} archived",
       "kept": "{{records}} kept: the standard price book",
+      "blocked": "{{records}} kept by what blocks them: they stay",
       "along": "Records of other objects that go along with them",
       "alongLine": "{{records}} {{object}}, by {{via}}",
+      "alongBlocking": "{{records}} more of them block the delete and stay.",
+      "alongNotRead": "Routes through {{objects}} were not read: there may be more.",
       "likelyTitle": "What the org would refuse, and what the run does about it",
       "likely": {
         "activatedOrder": "{{records}} {{object}} past Draft: set back to Draft first, as an activated order refuses its delete and its account's",
@@ -7901,7 +7905,9 @@
         "personAccountContact": "{{records}} {{object}} of person accounts: left, as each goes only with its account"
       },
       "blockersTitle": "What blocks the emptying",
+      "blockersStay": "What blocks stays, and so do the records it names, with what hangs from them: the size above leaves out what blocks, and the records it keeps where they are counted.",
       "blocker": "{{records}} {{object}}, not emptied, name these records by {{field}} → {{parent}}, which refuses the delete: pick {{object}} too, or leave {{parent}} out.",
+      "blockerKeeps": "They keep {{records}} {{parent}}, which stay too.",
       "beforeParentTitle": "Records that go before the record they name, as Salesforce requires",
       "beforeParentRestricted": "{{object}} before {{parent}}: {{field}} refuses the delete of a record it names",
       "beforeParentPrices": "{{object}}: custom prices before the standard ones ({{field}})",
@@ -8022,7 +8028,8 @@
       "notInBin": "{{formatted}} not in the recycle bin any more.",
       "othersDeletion": "{{formatted}} deleted by another user, which only Modify All Data brings back.",
       "refusedCount": "{{formatted}} refused.",
-      "notReached": "{{formatted}} not reached."
+      "notReached": "{{formatted}} not reached.",
+      "previewedLostTitle": "Not brought back, as the preview said Undo could not"
     },
     "history": {
       "title": "Emptyings of {{org}}",

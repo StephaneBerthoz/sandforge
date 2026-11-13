@@ -354,6 +354,18 @@ describe('a run, and its undo', () => {
     );
     expect(org.live('Task')).toContain(SALES.taskOfAccount1);
     expect(undone.result.status).toBe('partial');
+    // What the preview said no undo would bring back, named again: seen live,
+    // the undo named the entitlement and the case alone.
+    expect(undone.result.previewedLost).toEqual(
+      kept.preview.undoLost.map((lost) => ({
+        objectApiName: lost.objectApiName,
+        ...(lost.field !== undefined ? { field: lost.field } : {}),
+        ...(lost.parent !== undefined ? { parent: lost.parent } : {}),
+        reason: lost.reason,
+        records: lost.records,
+      })),
+    );
+    expect(undone.result.previewedLost?.length).toBeGreaterThan(0);
     // Done once: a second undo is refused.
     const again = await undoEmptyAct(context, { runId: run.result.runId, accord: {} });
     expect(!again.ran && again.refusal.code).toBe('UNDO_UNAVAILABLE');
@@ -492,6 +504,30 @@ describe('a cancel, and its resume', () => {
     expect(undone.ran && undone.result.status).toBe('success');
     expect(org.live('Contact')).toHaveLength(3);
   });
+
+  it('names nothing the preview said lost when the run stopped before its passes went through: what it did not delete is there', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const stop = new AbortController();
+    const kept = await previewed(contextOf(org), {
+      mode: 'objects',
+      objects: ['Account', 'Contact', 'Case', 'Order'],
+    });
+    expect(kept.preview.undoLost.length).toBeGreaterThan(0);
+    org.beforeDelete = (_via, objectApiName) => {
+      if (objectApiName === 'Account') stop.abort();
+    };
+    const answer = await runEmptyAct(contextOf(org, { signal: stop.signal }), {
+      confirmed: kept,
+      accord: {},
+      acceptNoUndo: true,
+    });
+    if (!answer.ran) throw new Error(answer.refusal.message);
+    expect(answer.result.status).toBe('cancelled');
+
+    const undone = await undoEmptyAct(contextOf(org), { runId: answer.result.runId, accord: {} });
+
+    expect(undone.ran && undone.result.previewedLost).toBeUndefined();
+  });
 });
 
 describe('a resume the org refuses again', () => {
@@ -627,6 +663,62 @@ describe('the requests an emptying sends', () => {
         readings: 2,
       });
     }
+  });
+
+  it('prices its undo above what the undo sent, counted as sent, as its run is priced', async () => {
+    for (const [at, request] of [
+      ACCOUNTS_AND_CONTACTS,
+      { mode: 'objects', objects: ['Account', 'Contact', 'Case', 'Order'] } as EmptyScopeRequest,
+      { mode: 'org' } as EmptyScopeRequest,
+    ].entries()) {
+      const org = new MemoryEmptyOrg(emptySalesSpecs());
+      const context = contextOf(org, {
+        requestsSent: () => org.requestsSent(),
+        store: new EmptyJournalStore(join(root, `empty-${at}`)),
+      });
+      const kept = await previewed(context, request);
+      const run = await runEmptyAct(context, { confirmed: kept, accord: {}, acceptNoUndo: true });
+      if (!run.ran) throw new Error(run.refusal.message);
+      const before = org.requestsSent();
+
+      const undone = await undoEmptyAct(context, { runId: run.result.runId, accord: {} });
+
+      if (!undone.ran) throw new Error(undone.refusal.message);
+      expect(undone.result.requestsSent).toBe(org.requestsSent() - before);
+      expect(undone.result.requestsSent).toBeGreaterThan(0);
+      // Connecting the org and checking the connection are the command line's to add.
+      expect(undone.result.requestsEstimate).toBeGreaterThanOrEqual(
+        (undone.result.requestsSent ?? 0) + 5,
+      );
+    }
+  });
+
+  it('prices a run it takes up above what the resume sent, counted as sent', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const stop = new AbortController();
+    const kept = await previewed(contextOf(org), {
+      mode: 'objects',
+      objects: ['Contact', 'Opportunity'],
+    });
+    org.beforeDelete = (_via, objectApiName) => {
+      if (objectApiName === 'Opportunity') stop.abort();
+    };
+    const answer = await runEmptyAct(contextOf(org, { signal: stop.signal }), {
+      confirmed: kept,
+      accord: {},
+    });
+    if (!answer.ran) throw new Error(answer.refusal.message);
+    org.beforeDelete = undefined;
+    const context = contextOf(org, { requestsSent: () => org.requestsSent() });
+    const before = org.requestsSent();
+
+    const resumed = await runEmptyAct(context, { resumeRunId: answer.result.runId, accord: {} });
+
+    if (!resumed.ran) throw new Error(resumed.refusal.message);
+    expect(resumed.result.requestsSent).toBe(org.requestsSent() - before);
+    expect(resumed.result.requestsEstimate).toBeGreaterThanOrEqual(
+      (resumed.result.requestsSent ?? 0) + 5,
+    );
   });
 });
 
@@ -841,7 +933,7 @@ describe('the guards before the first delete', () => {
     const kept = await previewed(context, { mode: 'objects', objects: ['Contact'] });
     expect(kept.peopleActive.people).toBe(1);
     expect(kept.peopleActive.who).toEqual([
-      { userId: fakeId('005', 77).slice(0, 15), records: 1, lastChangedAt: expect.any(String) },
+      { userId: fakeId('005', 77), records: 1, lastChangedAt: expect.any(String) },
     ]);
     // A command line names no one: the names are read for the page alone.
     expect(kept.peopleActive.who?.[0]?.name).toBeUndefined();
@@ -915,6 +1007,22 @@ describe('the guards before the first delete', () => {
     const refused = await runEmptyAct(context, { confirmed: kept, accord: {} });
     expect(!refused.ran && refused.refusal.code).toBe('NO_UNDO');
     expect(org.sent).toEqual([]);
+  });
+
+  it('says how many records no undo would bring back, each once, where a pair names it twice', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const context = contextOf(org);
+    const kept = await previewed(context, { mode: 'org' });
+    const pairs = kept.preview.undoLost.reduce((sum, lost) => sum + (lost.records.records ?? 0), 0);
+    const once = kept.preview.undoLostRecords?.records ?? 0;
+
+    // Read live: 22 said lost for 16 records, an order product counted under
+    // its product and under its price.
+    expect(once).toBeLessThan(pairs);
+    const refused = await runEmptyAct(context, { confirmed: kept, accord: {} });
+    expect(!refused.ran && refused.refusal.message).toMatch(
+      new RegExp(`^${once} record\\(s\\) would stay gone after Undo`),
+    );
   });
 
   it('refuses what fires unaccepted, and says every refusal at once', async () => {

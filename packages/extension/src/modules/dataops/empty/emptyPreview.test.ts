@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { salesOrg } from '../../../test/emptyFixtureOrg';
+import { assetsOrg, salesOrg } from '../../../test/emptyFixtureOrg';
 import { previewEmpty, type EmptyPreviewInput } from './emptyPreview';
 
 const TOOLING = ['ApexClass'];
@@ -21,7 +21,8 @@ describe('previewEmpty, the whole org', () => {
   it('says the act and its size: every record it deletes, from how many objects', async () => {
     const { result } = await preview({ mode: 'org' });
 
-    expect(result.total).toEqual({ records: 50, objects: 22, uncounted: [] });
+    // The contact a portal user keeps stays, and is not in the size.
+    expect(result.total).toEqual({ records: 49, objects: 22, uncounted: [] });
     expect(result.passes).toHaveLength(23);
   });
 
@@ -50,7 +51,13 @@ describe('previewEmpty, the whole org', () => {
 
     expect(org.described).toContain('User');
     expect(result.blockers).toEqual([
-      { objectApiName: 'User', field: 'ContactId', parent: 'Contact', records: { records: 1 } },
+      {
+        objectApiName: 'User',
+        field: 'ContactId',
+        parent: 'Contact',
+        records: { records: 1 },
+        keeps: { records: 1 },
+      },
     ]);
   });
 
@@ -67,7 +74,7 @@ describe('previewEmpty, the whole org', () => {
     );
 
     expect(result.cost.api.verdict).toBe('fits');
-    expect(result.cost.binRecords).toBe(50);
+    expect(result.cost.binRecords).toBe(49);
     expect(result.cost.bin).toEqual({ documentedCapacity: 125, past: false });
     expect(result.cost.batches).toBeUndefined();
   });
@@ -143,9 +150,55 @@ describe('previewEmpty, objects picked', () => {
   it('counts the records of the account and what goes with it in the act’s size', async () => {
     const { result } = await preview({ mode: 'objects', objects: ['Account'] });
 
-    // 4 accounts; along: 6 relations, 1 asset, 1 member, 5 contacts, 1
-    // contract, 1 event, 2 opportunities, 1 role, 2 products, 2 orders, 1
-    // order product, 1 quote, 1 line, 3 tasks.
-    expect(result.total).toEqual({ records: 32, objects: 15, uncounted: [] });
+    // 4 accounts, less the 2 their cases keep; along: 6 relations, 1 asset,
+    // 1 member, 5 contacts, 1 contract, 1 event, 2 opportunities, 1 role, 2
+    // products, 2 orders, 1 order product, 1 quote, 1 line, 3 tasks.
+    expect(result.total).toEqual({ records: 30, objects: 15, uncounted: [] });
+  });
+});
+
+describe('previewEmpty, what its counts cost the org', () => {
+  it('prices every statement it sends: each lookup to a contact read first, and what blocks keeps of an account', async () => {
+    const cases = [
+      { org: assetsOrg(), objects: ['Contact'] },
+      {
+        org: salesOrg({
+          extraRows: { Opportunity: [{ Id: 'O-WON', AccountId: 'A1', IsWon: true }] },
+        }),
+        objects: ['Account'],
+      },
+    ];
+    for (const { org, objects } of cases) {
+      const result = await previewEmpty(
+        {
+          global: org.global(),
+          tooling: TOOLING,
+          request: { mode: 'objects', objects },
+          deleteMode: 'recycle',
+        },
+        org,
+      );
+
+      expect(result.statements).toBe(org.sent.length);
+      expect(result.cost.requests?.reads).toBeGreaterThanOrEqual(
+        org.sent.length + org.described.length,
+      );
+    }
+  });
+
+  it('says the task its contact takes along, and the size at least where routes to it were not read', async () => {
+    const org = assetsOrg();
+    const result = await previewEmpty(
+      {
+        global: org.global(),
+        tooling: TOOLING,
+        request: { mode: 'objects', objects: ['Contact'] },
+        deleteMode: 'recycle',
+      },
+      org,
+    );
+
+    expect(result.along.find((along) => along.objectApiName === 'Task')?.records.records).toBe(1);
+    expect(result.total.atLeast).toBe(true);
   });
 });

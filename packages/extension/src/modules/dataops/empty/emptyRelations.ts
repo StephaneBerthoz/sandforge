@@ -203,9 +203,11 @@ export interface Route {
 export const MOST_ROUTE_STEPS = 5;
 
 /**
- * Routes read into one object at most. An object that many emptied ones take
- * along by that many paths is counted by the first, the count then saying it
- * may count less than goes.
+ * Routes of more than one lookup read into one object at most. Its direct
+ * lookups to emptied objects are read whatever their number, and first: an
+ * object that many emptied ones take along by that many longer paths is
+ * counted by the first of those, the count then saying it may count less than
+ * goes, and through which objects the routes it left were.
  */
 export const MOST_ROUTES = 8;
 
@@ -221,13 +223,27 @@ export interface Affected {
   routes: ReadonlyMap<string, readonly Route[]>;
   /** The objects not emptied whose records go along, in code-unit order. */
   along: string[];
-  /** Objects some of whose routes were not read: past {@link MOST_ROUTES}. */
-  routesCut: ReadonlySet<string>;
+  /**
+   * Objects some of whose routes were not read — past {@link MOST_ROUTES}, or
+   * up an object whose routes were not all read — each with the objects those
+   * routes went through, in code-unit order: a count of it may count less.
+   */
+  routesCut: ReadonlyMap<string, readonly string[]>;
   /**
    * Objects going along that were not described: what goes along with them
    * is not read until they are.
    */
   undescribed: string[];
+}
+
+/** Whether `field` of `objectApiName`, as described, may point at several objects. */
+function pointsAtSeveral(
+  describes: ReadonlyMap<string, EmptyDescribe>,
+  objectApiName: string,
+  field: string,
+): boolean {
+  const described = fieldOf(describes, objectApiName, field);
+  return (described?.referenceTo?.length ?? 0) > 1 || described?.polymorphicForeignKey === true;
 }
 
 /**
@@ -237,6 +253,16 @@ export interface Affected {
  * {@link MOST_ROUTE_STEPS} lookups from an emptied object. An emptied object
  * met on the way ends the route: what hangs from it goes with it, read from
  * it.
+ *
+ * The routes are read a level at a time, every emptied object's direct
+ * lookups before any longer path: read down each lookup in turn, a contact's
+ * asset, its fourth, and the assets' own children filled the routes of a
+ * task and an event before their own lookups to the contact were reached, the
+ * 26th and the 38th, and the count missed the one task and the one event
+ * that went with their contacts. Past {@link MOST_ROUTES}, the longer routes
+ * are left, and said: so is an object read up one whose routes were not all
+ * read, unless its own lookup to that one may point at several objects —
+ * then it is read by the type of what it names, whichever way that goes.
  *
  * @param describes - The objects described, emptied ones and those going along.
  */
@@ -255,40 +281,72 @@ export function affectedBy(
   const isEmptied = new Set(emptied.map((name) => name.toLowerCase()));
   const isWorked = new Set([...worked, ...emptied].map((name) => name.toLowerCase()));
   const routes = new Map<string, Route[]>();
-  const routesCut = new Set<string>();
+  const routesCut = new Map<string, Set<string>>();
   const undescribed = new Set<string>();
+  const cut = (object: string, through: string): void => {
+    const known = routesCut.get(object) ?? new Set<string>();
+    known.add(through);
+    routesCut.set(object, known);
+  };
 
-  const walk = (top: string, from: string, above: readonly RouteStep[]): void => {
-    const described = describeOf(from);
-    if (!described) {
-      undescribed.add(from);
-      return;
-    }
-    for (const relationship of described.childRelationships ?? []) {
-      if (relationKindOf(relationship, from) !== 'cascade') continue;
-      const child = nameOf(relationship.childSObject);
-      const key = child.toLowerCase();
-      if (!isWorked.has(key) || key === from.toLowerCase()) continue;
-      if (above.some((step) => step.object.toLowerCase() === key)) continue;
-      const steps = [{ object: child, field: relationship.field, parent: from }, ...above];
-      const known = routes.get(child) ?? [];
-      if (known.length >= MOST_ROUTES) {
-        routesCut.add(child);
+  let level: Array<{ top: string; from: string; above: readonly RouteStep[] }> = emptied.map(
+    (name) => ({ top: name, from: name, above: [] }),
+  );
+  while (level.length > 0) {
+    const next: typeof level = [];
+    for (const { top, from, above } of level) {
+      const described = describeOf(from);
+      if (!described) {
+        undescribed.add(from);
         continue;
       }
-      routes.set(child, [...known, { object: child, steps, emptied: top }]);
-      if (isEmptied.has(key) || steps.length >= MOST_ROUTE_STEPS) continue;
-      walk(top, child, steps);
+      for (const relationship of described.childRelationships ?? []) {
+        if (relationKindOf(relationship, from) !== 'cascade') continue;
+        const child = nameOf(relationship.childSObject);
+        const key = child.toLowerCase();
+        if (!isWorked.has(key) || key === from.toLowerCase()) continue;
+        if (above.some((step) => step.object.toLowerCase() === key)) continue;
+        const steps = [{ object: child, field: relationship.field, parent: from }, ...above];
+        const known = routes.get(child) ?? [];
+        if (steps.length > 1 && known.length >= MOST_ROUTES) {
+          cut(child, from);
+          continue;
+        }
+        routes.set(child, [...known, { object: child, steps, emptied: top }]);
+        if (isEmptied.has(key) || steps.length >= MOST_ROUTE_STEPS) continue;
+        next.push({ top, from: child, above: steps });
+      }
     }
-  };
-  for (const name of emptied) walk(name, name, []);
+    level = next;
+  }
+
+  // An object read up one whose routes were not all read misses what came
+  // that way, unless a lookup below it reads by type, whichever way it goes.
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [object, its] of routes) {
+      for (const route of its) {
+        for (const [at, step] of route.steps.entries()) {
+          if (at === 0 || !routesCut.has(step.object)) continue;
+          const byType = route.steps
+            .slice(0, at)
+            .some((below) => pointsAtSeveral(describes, below.object, below.field));
+          if (byType || routesCut.get(object)?.has(step.object)) continue;
+          cut(object, step.object);
+          changed = true;
+        }
+      }
+    }
+  }
 
   const along = [...routes.keys()].filter((name) => !isEmptied.has(name.toLowerCase())).sort();
   return {
     emptied: new Set(emptied),
     routes,
     along,
-    routesCut,
+    routesCut: new Map(
+      [...routesCut].map(([object, through]) => [object, [...through].sort()] as const),
+    ),
     undescribed: [...undescribed].filter((name) => !isEmptied.has(name.toLowerCase())).sort(),
   };
 }
@@ -399,22 +457,24 @@ export function stepsCondition(
 
 /**
  * The condition that a record goes by any of `routes`, each route's own in
- * parentheses, joined by OR; nothing when no route reads.
+ * parentheses, joined by OR, each once: routes up a lookup that reads by type
+ * read alike past it, and an attachment's count named an event's type three
+ * times. Nothing when no route reads.
  */
 export function anyRouteCondition(
   routes: readonly Route[],
   describes: ReadonlyMap<string, EmptyDescribe>,
   deletedRows: (objectApiName: string) => string | undefined = deletedRowsOf,
 ): Condition | undefined {
-  const conditions = routes
+  const read = routes
     .map((route) => stepsCondition(route.steps, describes, deletedRows))
     .filter((condition): condition is Condition => condition !== undefined);
-  if (conditions.length === 0) return undefined;
-  if (conditions.length === 1) return conditions[0];
-  return {
-    soql: conditions.map((condition) => `(${condition.soql})`).join(' OR '),
-    exact: conditions.every((condition) => condition.exact) && conditions.length === routes.length,
-  };
+  if (read.length === 0) return undefined;
+  if (read.length === 1) return read[0];
+  const exact = read.every((condition) => condition.exact) && read.length === routes.length;
+  const conditions = [...new Set(read.map((condition) => condition.soql))];
+  if (conditions.length === 1) return { soql: conditions[0], exact };
+  return { soql: conditions.map((soql) => `(${soql})`).join(' OR '), exact };
 }
 
 /**

@@ -17,8 +17,9 @@
  * - `head`: what was confirmed — the request, whether to the recycle bin or
  *   for good (`hard`), the passes in their order with the records the
  *   preview counted of each, the pairs whose records go before the record
- *   they name (`beforeParent`), and when the preview read the org: the run
- *   never deletes a record made after that;
+ *   they name (`beforeParent`), what it said no undo would bring back
+ *   (`undoLost`), and when the preview read the org: the run never deletes a
+ *   record made after that;
  * - `attempt`: the run, or a resume of it, starting;
  * - `spooled`: a pass's ids read, before any of them is deleted;
  * - `settled`: what the org answered for a delete — the ids it deleted, and
@@ -151,6 +152,23 @@ const headSchema = z.object({
       reason: z.enum(['restricted', 'customPrices']),
     }),
   ),
+  /**
+   * What the preview said no undo would bring back, as it counted it: its
+   * Undo names them. Absent from a journal begun before it was kept.
+   */
+  undoLost: z
+    .array(
+      z.object({
+        objectApiName: objectSchema,
+        field: z.string().optional(),
+        parent: objectSchema.optional(),
+        reason: z.enum(['restricted', 'unordered', 'notRestorable']),
+        /** Absent when the preview could not count them. */
+        records: z.number().int().nonnegative().optional(),
+        atLeast: z.literal(true).optional(),
+      }),
+    )
+    .optional(),
 });
 
 const attemptSchema = z.object({

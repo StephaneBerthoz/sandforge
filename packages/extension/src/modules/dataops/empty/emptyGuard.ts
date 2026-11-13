@@ -233,7 +233,11 @@ const USER_ID = /^005[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
 
 /** What was read of the people at work. */
 export interface PeopleActive {
-  /** The people other than the run's own writers who changed a record, by their key. */
+  /**
+   * The people other than the run's own writers who changed a record, by
+   * their user Id as the org gave it — eighteen characters over the API, as
+   * every other id a command line prints —, each once whatever its case.
+   */
   people: string[];
   /** Set when a read reached its row limit: there may be more people than counted. */
   atLeast?: true;
@@ -285,11 +289,14 @@ export async function peopleActiveIn(
           LastModifiedDate?: unknown;
         };
         if (typeof by !== 'string' || !USER_ID.test(by)) continue;
+        // One person by the first fifteen characters of their id, given as
+        // the org gave it: a JSON of fifteen matched none of the ids of
+        // eighteen the API gives everywhere else.
         const key = by.slice(0, 15);
         const when = typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? at : '';
         const known = who.get(key);
         if (!known) {
-          who.set(key, { userId: key, records: 1, lastChangedAt: when });
+          who.set(key, { userId: by, records: 1, lastChangedAt: when });
           continue;
         }
         known.records += 1;
@@ -304,11 +311,11 @@ export async function peopleActiveIn(
       unread.push(`${objectApiName}: ${extractErrorMessage(err)}`);
     }
   }
-  const people = [...who.keys()].sort();
+  const keys = [...who.keys()].sort();
   return {
-    people,
+    people: keys.map((key) => (who.get(key) as DataOpsEmptyPersonActive).userId),
     ...(atLeast ? { atLeast: true as const } : {}),
-    who: people.map((key) => who.get(key) as DataOpsEmptyPersonActive),
+    who: keys.map((key) => who.get(key) as DataOpsEmptyPersonActive),
     unread,
   };
 }
@@ -347,7 +354,7 @@ export async function namedPeople(
   return {
     ...active,
     who: active.who.map((person) => {
-      const name = names.get(person.userId);
+      const name = names.get(person.userId.slice(0, 15));
       return name !== undefined ? { ...person, name } : person;
     }),
   };
@@ -387,7 +394,7 @@ export function peopleActiveRefusal(
 ): DataOpsEmptyRefusal | undefined {
   if (options.accepted === true) return undefined;
   const covered = new Set((options.accepted ?? []).map((id) => id.slice(0, 15)));
-  const others = active.people.filter((key) => !covered.has(key));
+  const others = active.people.filter((id) => !covered.has(id.slice(0, 15)));
   if (others.length === 0) return undefined;
   const count = others.length;
   const people = `${active.atLeast ? 'At least ' : ''}${count} ${count === 1 ? 'person' : 'people'}`;

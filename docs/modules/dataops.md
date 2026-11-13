@@ -490,7 +490,9 @@ tasks), counted per object. A record of an object you did not pick whose
 lookup refuses the delete of its parent is named as blocking, with its object,
 field and count: an account's entitlements among them, which the org refuses
 the account's delete for though its describe says they go along, and its
-opportunities closed won, which keep it as long as they live.
+opportunities closed won, which keep it as long as they live. What blocks
+stays, and so do the records it names: neither is counted among what goes,
+and the records of an object you picked that it keeps are said apart.
 
 #### Empty the org
 
@@ -517,7 +519,10 @@ sandbox instead ([below](#from-the-command-line)).
 The dry run comes first, and says:
 
 - per object, in the order the run takes them, the records it deletes, and
-  per object the records the org deletes along with them;
+  per object the records the org deletes along with them — read first by
+  each lookup to an object emptied, then by longer paths, a few per object:
+  a count whose paths were not all read says at least, and through which
+  objects they went;
 - what will likely be refused, or what the run does first so that it is not:
   an activated order is set back to Draft before any delete, the standard
   price book is kept, a direct relation of a contact to its account goes with
@@ -528,7 +533,8 @@ The dry run comes first, and says:
   restricts, an entitlement before its account, or a custom price, which
   goes with its book before its product when both are emptied; and what an
   object whose records Salesforce does not bring back sends by its own pass.
-  The run is refused until that is accepted;
+  A record lost under two lookups is counted once. The run is refused until
+  that is accepted;
 - the API requests and Bulk API batches it takes against what the org has
   left today — the dry run's reads of the org, the run's own read again
   before its first delete, and its deletes — about how long it runs, and how
@@ -586,8 +592,9 @@ org refuses as it is opened without the permission.
 
 **Undo** brings back from the recycle bin what the org's last emptying
 deleted, parents first, while the bin holds them, and names what could not
-come back: records emptied from the bin since, and records only Modify All
-Data brings back. It reaches the org's last emptying alone: once a run ends,
+come back: records emptied from the bin since, records only Modify All Data
+brings back, and, once the run went through, what its preview said no undo
+would bring back. It reaches the org's last emptying alone: once a run ends,
 the journals of the org's earlier ones go. It is refused for a run that
 deleted for good.
 
@@ -619,9 +626,10 @@ for good, `--accept-no-undo` accepts what no undo would bring back,
 at work in the last hour, each by user Id with their last change,
 `--unrestorable` empties with the org the objects Salesforce does not bring
 back from the recycle bin, and `--checkpoint-first` takes a checkpoint first.
-With `--json`, `apiRequests` gives `estimate`, what the dry run priced, and
-`sent`, every request the command sent the org — connecting it, its dry run
-and its run, a mute's permission sets among them — counted as sent;
+With `--json`, `apiRequests` gives `estimate`, what the dry run priced — for
+`--undo` and `--resume`, what they were priced at before their first write —,
+and `sent`, every request the command sent the org — connecting it, its dry
+run and its run, a mute's permission sets among them — counted as sent;
 `--accept-automation`,
 `--accept-emails` and `--mute-automation` are every DataOps script's. Exit
 `0` done, `1` refused before anything was deleted, `2` a bad command line, `3`

@@ -7841,7 +7841,8 @@
     "count": {
       "unread": "sin contar",
       "atMost": "como mucho {{formatted}}",
-      "atLeast": "al menos {{formatted}}"
+      "atLeast": "al menos {{formatted}}",
+      "about": "aproximadamente {{formatted}}"
     },
     "size": {
       "records_one": "{{formatted}} registro",
@@ -7891,8 +7892,11 @@
       },
       "archived": "de ellos {{records}} archivados",
       "kept": "{{records}} conservados: la lista de precios estándar",
+      "blocked": "{{records}} retenidos por lo que los bloquea: se quedan",
       "along": "Registros de otros objetos que van con ellos",
       "alongLine": "{{records}} {{object}}, por {{via}}",
+      "alongBlocking": "{{records}} más bloquean la eliminación y se quedan.",
+      "alongNotRead": "No se leyeron las rutas por {{objects}}: puede haber más.",
       "likelyTitle": "Lo que la org rechazaría, y lo que la ejecución hace al respecto",
       "likely": {
         "activatedOrder": "{{records}} {{object}} más allá de Borrador: devueltos primero a Borrador, ya que un pedido activado rechaza su eliminación y la de su cuenta",
@@ -7901,7 +7905,9 @@
         "personAccountContact": "{{records}} {{object}} de cuentas personales: se quedan, ya que cada uno solo se va con su cuenta"
       },
       "blockersTitle": "Lo que bloquea el vaciado",
+      "blockersStay": "Lo que bloquea se queda, y también los registros que nombra, con lo que depende de ellos: el tamaño de arriba deja fuera lo que bloquea y los registros retenidos donde se cuentan.",
       "blocker": "{{records}} {{object}}, no vaciados, nombran estos registros por {{field}} → {{parent}}, que rechaza la eliminación: elija también {{object}}, o deje fuera {{parent}}.",
+      "blockerKeeps": "Retienen {{records}} {{parent}}, que también se quedan.",
       "beforeParentTitle": "Registros que se van antes del registro que nombran, como exige Salesforce",
       "beforeParentRestricted": "{{object}} antes de {{parent}}: {{field}} rechaza la eliminación de un registro que nombra",
       "beforeParentPrices": "{{object}}: los precios personalizados antes de los estándar ({{field}})",
@@ -8022,7 +8028,8 @@
       "notInBin": "{{formatted}} ya no están en la papelera.",
       "othersDeletion": "{{formatted}} eliminados por otro usuario, lo que solo Modify All Data recupera.",
       "refusedCount": "{{formatted}} rechazados.",
-      "notReached": "{{formatted}} no alcanzados."
+      "notReached": "{{formatted}} no alcanzados.",
+      "previewedLostTitle": "No recuperados, como anunciaba la vista previa"
     },
     "history": {
       "title": "Vaciados de {{org}}",

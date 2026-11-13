@@ -7841,7 +7841,8 @@
     "count": {
       "unread": "nicht gezählt",
       "atMost": "höchstens {{formatted}}",
-      "atLeast": "mindestens {{formatted}}"
+      "atLeast": "mindestens {{formatted}}",
+      "about": "etwa {{formatted}}"
     },
     "size": {
       "records_one": "{{formatted}} Datensatz",
@@ -7891,8 +7892,11 @@
       },
       "archived": "davon {{records}} archiviert",
       "kept": "{{records}} behalten: das Standardpreisbuch",
+      "blocked": "{{records}} von dem gehalten, was sie blockiert: sie bleiben",
       "along": "Datensätze anderer Objekte, die mit ihnen gehen",
       "alongLine": "{{records}} {{object}}, über {{via}}",
+      "alongBlocking": "{{records}} weitere blockieren das Löschen und bleiben.",
+      "alongNotRead": "Wege über {{objects}} wurden nicht gelesen: Es können mehr sein.",
       "likelyTitle": "Was die Org verweigern würde, und was der Lauf dagegen tut",
       "likely": {
         "activatedOrder": "{{records}} {{object}} über Entwurf hinaus: zuerst auf Entwurf zurückgesetzt, da ein aktivierter Auftrag sein Löschen und das seines Accounts verweigert",
@@ -7901,7 +7905,9 @@
         "personAccountContact": "{{records}} {{object}} von Personenaccounts: bleiben, da jeder nur mit seinem Account gelöscht wird"
       },
       "blockersTitle": "Was das Leeren blockiert",
+      "blockersStay": "Was blockiert, bleibt, ebenso die Datensätze, auf die es verweist, mit allem, was an ihnen hängt: Die Größe oben lässt aus, was blockiert, und die gehaltenen Datensätze, wo sie gezählt sind.",
       "blocker": "{{records}} {{object}}, nicht geleert, verweisen über {{field}} → {{parent}} auf diese Datensätze, was das Löschen verweigert: Wählen Sie auch {{object}}, oder lassen Sie {{parent}} aus.",
+      "blockerKeeps": "Sie halten {{records}} {{parent}}, die ebenfalls bleiben.",
       "beforeParentTitle": "Datensätze, die vor dem Datensatz gehen, auf den sie verweisen, wie Salesforce es verlangt",
       "beforeParentRestricted": "{{object}} vor {{parent}}: {{field}} verweigert das Löschen eines Datensatzes, auf den es verweist",
       "beforeParentPrices": "{{object}}: benutzerdefinierte Preise vor den Standardpreisen ({{field}})",
@@ -8022,7 +8028,8 @@
       "notInBin": "{{formatted}} nicht mehr im Papierkorb.",
       "othersDeletion": "{{formatted}} von einem anderen Benutzer gelöscht, was nur Modify All Data zurückholt.",
       "refusedCount": "{{formatted}} verweigert.",
-      "notReached": "{{formatted}} nicht erreicht."
+      "notReached": "{{formatted}} nicht erreicht.",
+      "previewedLostTitle": "Nicht zurückgeholt, wie die Vorschau es angekündigt hat"
     },
     "history": {
       "title": "Leerungen von {{org}}",

@@ -366,6 +366,65 @@ export function emptyCostOf(input: EmptyCostInput): EmptyCost {
   };
 }
 
+/** A pass of a run taken up, as its journal leaves it. */
+export interface ResumedPass {
+  objectApiName: string;
+  /** The records left for it to send: its spool less what the journal names deleted or gone, or the preview's count. */
+  records: number;
+  /** Whether its ids were read already: the spool is read again, not the org. */
+  idsRead: boolean;
+}
+
+/**
+ * What taking up a run costs, from its connect to its last delete: `reads`,
+ * the requests its reads of the org sent before its first delete, as
+ * counted; what is left of each pass, sent as the run sends it — its ids
+ * read unless its spool holds them, its deletes, the count of what was made
+ * since —; the lease of its mute; and the margin. Its JSON gave what it sent
+ * alone, which nothing held to an estimate.
+ */
+export function resumeRequestsOf(
+  mode: DeleteMode,
+  passes: readonly ResumedPass[],
+  reads: number,
+  mute = 0,
+): number {
+  const passCost = sum(
+    passes.map((pass) => {
+      const deletes = passDeletesOf(pass.objectApiName, Math.max(0, pass.records), mode);
+      const cost = deletesCost(deletes);
+      if (!pass.idsRead || deletes.notSent) return cost;
+      const pages = idPages(deletes.records);
+      return {
+        apiRequests: cost.apiRequests - pages,
+        seconds: cost.seconds - pages * SECONDS_PER_PAGE,
+      };
+    }),
+  );
+  return withReads(passCost, Math.max(0, reads), 1, Math.max(0, mute)).apiRequests;
+}
+
+/**
+ * The requests an undo sends past its reads, for each 200 ids its journal
+ * names: the recycle bin read, the org read, the undelete.
+ */
+export const UNDO_CALLS_PER_BATCH = 3;
+
+/**
+ * What an undo costs, from its connect to its last read: `reads`, what its
+ * reads of the org sent before its first undelete, as counted; `calls`,
+ * those its batches send and its reads again of what the bin would not give
+ * back (`undoCallsOf`); the lease of its mute; and the margin.
+ */
+export function undoRequestsOf(calls: number, reads: number, mute = 0): number {
+  return withReads(
+    { apiRequests: Math.max(0, calls), seconds: 0 },
+    Math.max(0, reads),
+    1,
+    Math.max(0, mute),
+  ).apiRequests;
+}
+
 /**
  * `cost` priced again with `reads` for one read of the org — the requests a
  * read sent, as counted once it was through — held `readings` times: a dry

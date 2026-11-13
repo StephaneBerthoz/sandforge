@@ -66,8 +66,8 @@ export const LEFT_OUT_KEYS: Readonly<Record<DataOpsEmptyLeftOut['reason'], strin
   notForGood: 'dataopsEmpty.reason.notForGood',
 };
 
-/** Why Undo would not bring records back, in the page's words. */
-const UNDO_LOST_KEYS: Readonly<Record<DataOpsEmptyUndoLost['reason'], string>> = {
+/** Why Undo would not bring records back, in the page's words: the preview's, and the undo's after it. */
+export const UNDO_LOST_KEYS: Readonly<Record<DataOpsEmptyUndoLost['reason'], string>> = {
   restricted: 'dataopsEmpty.preview.undoLost',
   unordered: 'dataopsEmpty.preview.undoLost',
   notRestorable: 'dataopsEmpty.preview.undoLostNotRestorable',
@@ -118,6 +118,8 @@ export function countWords(t: TFunction, counted: DataOpsEmptyCounted): string {
       return t('dataopsEmpty.count.atMost', { formatted: formatNumber(shown.records) });
     case 'atLeast':
       return t('dataopsEmpty.count.atLeast', { formatted: formatNumber(shown.records) });
+    case 'about':
+      return t('dataopsEmpty.count.about', { formatted: formatNumber(shown.records) });
     default:
       return formatNumber(shown.records);
   }
@@ -450,6 +452,16 @@ export const EmptyPreview: React.FC<EmptyPreviewProps> = ({
                           {t('dataopsEmpty.preview.kept', { records: countWords(t, pass.kept) })}
                         </span>
                       )}
+                      {pass.blocked && holdsRecords(pass.blocked) && (
+                        <span
+                          className="block text-status-error"
+                          data-testid={`empty-preview-blocked-${pass.objectApiName}`}
+                        >
+                          {t('dataopsEmpty.preview.blocked', {
+                            records: countWords(t, pass.blocked),
+                          })}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -471,9 +483,31 @@ export const EmptyPreview: React.FC<EmptyPreviewProps> = ({
                 {t('dataopsEmpty.preview.alongLine', {
                   records: countWords(t, object.records),
                   object: object.objectApiName,
-                  // Field and object names, the same in every language.
-                  via: object.via.map((route) => `${route.field} → ${route.parent}`).join(', '),
+                  // Field and object names, the same in every language,
+                  // each once: the routes of one lookup from several
+                  // emptied objects named it again and again.
+                  via: [
+                    ...new Set(object.via.map((route) => `${route.field} → ${route.parent}`)),
+                  ].join(', '),
                 })}
+                {object.blocking && holdsRecords(object.blocking) && (
+                  <>
+                    {' '}
+                    {t('dataopsEmpty.preview.alongBlocking', {
+                      records: countWords(t, object.blocking),
+                    })}
+                  </>
+                )}
+                {object.routesNotRead && object.routesNotRead.length > 0 && (
+                  <span
+                    className="block text-status-warning"
+                    data-testid={`empty-preview-along-not-read-${object.objectApiName}`}
+                  >
+                    {t('dataopsEmpty.preview.alongNotRead', {
+                      objects: object.routesNotRead.join(', '),
+                    })}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
@@ -502,6 +536,7 @@ export const EmptyPreview: React.FC<EmptyPreviewProps> = ({
       {blockers.length > 0 && (
         <div className="text-status-error" data-testid="empty-preview-blockers">
           <p className="font-medium">{t('dataopsEmpty.preview.blockersTitle')}</p>
+          <p>{t('dataopsEmpty.preview.blockersStay')}</p>
           <ul className="ml-4 list-disc">
             {blockers.map((blocker) => (
               <li
@@ -514,6 +549,15 @@ export const EmptyPreview: React.FC<EmptyPreviewProps> = ({
                   field: blocker.field,
                   parent: blocker.parent,
                 })}
+                {blocker.keeps && holdsRecords(blocker.keeps) && (
+                  <>
+                    {' '}
+                    {t('dataopsEmpty.preview.blockerKeeps', {
+                      records: countWords(t, blocker.keeps),
+                      parent: blocker.parent,
+                    })}
+                  </>
+                )}
               </li>
             ))}
           </ul>

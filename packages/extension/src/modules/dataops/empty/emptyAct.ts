@@ -104,11 +104,16 @@ import {
   type EmptyJournalStore,
 } from './emptyJournal.js';
 import type { EmptyOrg } from './emptyOrg.js';
-import { pricedWithReads } from './emptyCost.js';
+import {
+  pricedWithReads,
+  resumeRequestsOf,
+  undoRequestsOf,
+  type ResumedPass,
+} from './emptyCost.js';
 import { previewEmpty, type EmptyPreview } from './emptyPreview.js';
 import { emptyPasses } from './emptyRun.js';
 import type { EmptyScopeRequest } from './emptyScope.js';
-import { undoEmpty } from './emptyUndo.js';
+import { undoCallsOf, undoEmpty } from './emptyUndo.js';
 
 /** What refuses a run once it stands before its first delete. */
 const NOTHING_DELETED = 'Nothing was deleted.';
@@ -414,6 +419,26 @@ export function undoLostWords(entry: EmptyPreview['undoLost'][number]): string {
   }
 }
 
+/**
+ * The records no undo would bring back, each once, as the preview counted
+ * them together; a preview kept before it did adds up its entries.
+ */
+export function undoLostTotal(preview: Pick<EmptyPreview, 'undoLost' | 'undoLostRecords'>): {
+  records: number;
+  atLeast: boolean;
+} {
+  const together = preview.undoLostRecords;
+  if (together?.records !== undefined) {
+    return { records: together.records, atLeast: together.atLeast === true };
+  }
+  return {
+    records: preview.undoLost.reduce((sum, entry) => sum + (entry.records.records ?? 0), 0),
+    atLeast: preview.undoLost.some(
+      (entry) => entry.records.records === undefined || entry.records.atLeast === true,
+    ),
+  };
+}
+
 /** The refusal of records no undo would bring back, not accepted. */
 function noUndoRefusal(preview: EmptyPreview): DataOpsEmptyRefusal | undefined {
   if (preview.deleteMode !== 'recycle') return undefined;
@@ -421,7 +446,8 @@ function noUndoRefusal(preview: EmptyPreview): DataOpsEmptyRefusal | undefined {
     (entry) => entry.records.records === undefined || entry.records.records > 0,
   );
   if (lost.length === 0) return undefined;
-  const records = lost.reduce((sum, entry) => sum + (entry.records.records ?? 0), 0);
+  const total = undoLostTotal(preview);
+  const records = `${total.atLeast ? 'at least ' : ''}${total.records.toLocaleString('en-US')}`;
   const named = [...new Set(lost.map(undoLostWords))];
   const before = lost.some(
     (entry) => entry.reason === 'restricted' || entry.reason === 'unordered',
@@ -429,7 +455,7 @@ function noUndoRefusal(preview: EmptyPreview): DataOpsEmptyRefusal | undefined {
   return {
     code: 'NO_UNDO',
     message:
-      `${records.toLocaleString('en-US')} record(s) would stay gone after Undo ` +
+      `${records} record(s) would stay gone after Undo ` +
       `(${named.slice(0, 5).join(', ')}${named.length > 5 ? ', …' : ''})` +
       (before
         ? ': some go before a record they name, as Salesforce requires, and once both have ' +
@@ -509,8 +535,7 @@ export function changedSince(confirmed: EmptyPreview, fresh: EmptyPreview): stri
     }
   }
   if (fresh.deleteMode === 'recycle') {
-    const lostOf = (preview: EmptyPreview): number =>
-      preview.undoLost.reduce((sum, entry) => sum + (entry.records.records ?? 0), 0);
+    const lostOf = (preview: EmptyPreview): number => undoLostTotal(preview).records;
     const pairs = (preview: EmptyPreview): Set<string> =>
       new Set(
         preview.undoLost.map(
@@ -816,6 +841,51 @@ function journalRequestOf(request: EmptyScopeRequest): EmptyJournalHead['request
   };
 }
 
+/** What a preview said no undo would bring back, as the journal keeps it for its Undo to name. */
+function journalUndoLostOf(preview: EmptyPreview): NonNullable<EmptyJournalHead['undoLost']> {
+  return preview.undoLost
+    .filter((entry) => entry.records.records === undefined || entry.records.records > 0)
+    .map((entry) => ({
+      objectApiName: entry.objectApiName,
+      ...(entry.field !== undefined ? { field: entry.field } : {}),
+      ...(entry.parent !== undefined ? { parent: entry.parent } : {}),
+      reason: entry.reason,
+      ...(entry.records.records !== undefined ? { records: entry.records.records } : {}),
+      ...(entry.records.atLeast === true ? { atLeast: true as const } : {}),
+    }));
+}
+
+/**
+ * What is left of each pass of a run to take up, as its journal says: of a
+ * pass whose ids were read, its spool less what was answered deleted or
+ * gone; of one not reached, what its preview said it sends.
+ */
+async function resumedPassesOf(journal: EmptyJournal): Promise<ResumedPass[]> {
+  const spooled = new Map<string, number>();
+  const settled = new Map<string, number>();
+  for await (const line of journal.lines()) {
+    if (line.kind === 'spooled') spooled.set(line.objectApiName, line.count);
+    else if (line.kind === 'settled') {
+      const known = settled.get(line.objectApiName) ?? 0;
+      settled.set(line.objectApiName, known + line.deleted.length + line.gone.length);
+    }
+  }
+  return journal.head.passes.map((pass) => {
+    const read = spooled.get(pass.objectApiName);
+    return read === undefined
+      ? {
+          objectApiName: pass.objectApiName,
+          records: pass.sent ?? pass.records ?? 0,
+          idsRead: false,
+        }
+      : {
+          objectApiName: pass.objectApiName,
+          records: Math.max(0, read - (settled.get(pass.objectApiName) ?? 0)),
+          idsRead: true,
+        };
+  });
+}
+
 /** The totals of a run's passes. */
 function totalsOf(passes: readonly DataOpsEmptyPassResult[]): DataOpsEmptyRunResult['totals'] {
   return passes.reduce(
@@ -899,6 +969,8 @@ export async function runEmptyAct(
   let read: OrgRead | undefined;
   let answer: Awaited<ReturnType<typeof readDataOpsAct>>;
   let checkpoint: RunCheckpointEstimate | undefined;
+  /** What a run taken up was priced at before its first delete: see `resumeRequestsOf`. */
+  let resumeEstimate: number | undefined;
   if (confirmed) {
     // The dry run read again: refused past what it showed.
     read = await readTheOrg(context, confirmed.request, deleteMode);
@@ -1002,6 +1074,14 @@ export async function runEmptyAct(
     });
     const stop = dataOpsStop(answer.answer);
     if (stop) refusals.push({ code: stop.code, message: stop.message }, ...stop.alsoRefused);
+    // Priced as a run is, its reads counted as sent: its JSON gave what it
+    // sent alone, held to nothing.
+    resumeEstimate = resumeRequestsOf(
+      deleteMode,
+      await resumedPassesOf(resumed as EmptyJournal),
+      context.requestsSent !== undefined ? context.requestsSent() - sentBefore : 0,
+      muteLeaseRequests(answer.mute?.plan),
+    );
   }
   if (refusals.length > 0) return refusedFor(refusals);
 
@@ -1123,6 +1203,7 @@ export async function runEmptyAct(
         })),
         toDraftAlong: (going as EmptyPreview).toDraftAlong,
         beforeParent: (going as EmptyPreview).beforeParent,
+        ...(deleteMode === 'recycle' ? { undoLost: journalUndoLostOf(going as EmptyPreview) } : {}),
       }));
 
     const allowance =
@@ -1200,6 +1281,7 @@ export async function runEmptyAct(
       ...(context.requestsSent !== undefined
         ? { requestsSent: context.requestsSent() - sentBefore }
         : {}),
+      ...(resumeEstimate !== undefined ? { requestsEstimate: resumeEstimate } : {}),
       startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),
     };
@@ -1284,6 +1366,13 @@ export async function undoEmptyAct(
     const [refusal, ...also] = refusals;
     return { ran: false, refusal, ...(also.length > 0 ? { alsoRefused: also } : {}) };
   }
+  // Priced before its first undelete, its reads counted as sent, as a run's
+  // is: its JSON gave what it sent alone.
+  const estimate = undoRequestsOf(
+    await undoCallsOf(journal),
+    context.requestsSent !== undefined ? context.requestsSent() - sentBefore : 0,
+    muteLeaseRequests(answer.mute?.plan),
+  );
 
   const locked = context.lock(organizationId);
   if ('busy' in locked) {
@@ -1333,6 +1422,8 @@ export async function undoEmptyAct(
         ...(context.requestsSent !== undefined
           ? { requestsSent: context.requestsSent() - sentBefore }
           : {}),
+        requestsEstimate: estimate,
+        ...(outcome.previewedLost ? { previewedLost: outcome.previewedLost } : {}),
         finishedAt: finishedAt.toISOString(),
       },
     };

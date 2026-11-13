@@ -48,6 +48,32 @@ describe('EmptyFixtureOrg', () => {
     expect(org.sent.map(({ all }) => all)).toEqual([false, true, true]);
   });
 
+  it('reads a subquery as what it selects, two in a statement at most and never beside an OR', async () => {
+    const org = salesOrg();
+
+    // Two accounts named by a case, one of them with its contact's case too.
+    await expect(
+      org.count('SELECT COUNT() FROM Account WHERE Id IN (SELECT AccountId FROM Case)'),
+    ).resolves.toBe(2);
+    await expect(
+      org.count(
+        'SELECT COUNT() FROM Account WHERE (Id IN (SELECT AccountId FROM Case WHERE ContactId != null)) ' +
+          'AND (Id IN (SELECT AccountId FROM Contact))',
+      ),
+    ).resolves.toBe(1);
+    await expect(
+      org.count(
+        'SELECT COUNT() FROM Account WHERE (Id IN (SELECT AccountId FROM Case)) OR (Name = null)',
+      ),
+    ).rejects.toThrow(/^MALFORMED_QUERY: semi join sub-selects are not allowed with the 'OR'/);
+    await expect(
+      org.count(
+        'SELECT COUNT() FROM Account WHERE (Id IN (SELECT AccountId FROM Case)) AND ' +
+          '(Id IN (SELECT AccountId FROM Contact)) AND (Id IN (SELECT AccountId FROM Order))',
+      ),
+    ).rejects.toThrow(/^MALFORMED_QUERY: maximum of 2 semi join sub-selects/);
+  });
+
   it('reads a checkbox left unset as false, never as empty', async () => {
     await expect(
       salesOrg().count('SELECT COUNT() FROM Pricebook2 WHERE IsStandard = false'),

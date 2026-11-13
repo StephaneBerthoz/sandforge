@@ -46,6 +46,7 @@ import type {
   DataOpsEmptyRunResult,
   DataOpsEmptyScopeRequest,
   DataOpsEmptyStatus,
+  DataOpsEmptyUndoLost,
   DataOpsEmptyUndoResult,
   DataOpsWriteAccord,
   SalesforceOrg,
@@ -421,9 +422,14 @@ function refuseUnasked(common: CommonArgs, act: 'empty' | 'undo' | 'resume'): ne
 
 const count = (n: number): string => n.toLocaleString('en-US');
 
-/** A count the org gave, or that it gave none, and why. */
+/**
+ * A count the org gave, or that it gave none, and why: about a number when it
+ * may count more than goes and less too — a path read by type, and routes
+ * not read.
+ */
 function countedWords(counted: DataOpsEmptyCounted): string {
   if (counted.records === undefined) return `not counted (${counted.unread ?? 'no count'})`;
+  if (counted.atMost && counted.atLeast) return `about ${count(counted.records)}`;
   const more = counted.atMost ? ' at most' : counted.atLeast ? ' at least' : '';
   return `${count(counted.records)}${more}`;
 }
@@ -510,7 +516,7 @@ export function refusalWords(refusal: DataOpsEmptyRefusal): DataOpsEmptyRefusal 
 }
 
 /** What no undo brings back of one object, and why, as a line says it. */
-function undoLostLine(lost: EmptyPreviewAnswer['preview']['undoLost'][number]): string {
+function undoLostLine(lost: DataOpsEmptyUndoLost): string {
   switch (lost.reason) {
     case 'notRestorable':
       return `${lost.objectApiName} sent by its own pass: Salesforce does not bring them back`;
@@ -535,7 +541,8 @@ export function previewLines(target: string, answer: EmptyPreviewAnswer): string
   );
   lines.push(`read at ${answer.readAt} on the org's clock: records made after it are left`);
   lines.push(
-    `${count(preview.total.records)} record(s) of ${count(preview.total.objects)} object(s)` +
+    `${preview.total.atLeast ? 'at least ' : ''}${count(preview.total.records)} record(s) of ` +
+      `${count(preview.total.objects)} object(s)` +
       (preview.total.uncounted.length > 0
         ? `, and ${preview.total.uncounted.join(', ')} not counted`
         : ''),
@@ -554,8 +561,12 @@ export function previewLines(target: string, answer: EmptyPreviewAnswer): string
           : '';
       const archived = pass.archived?.records ? `, ${countedWords(pass.archived)} archived` : '';
       const kept = pass.kept?.records ? `, ${countedWords(pass.kept)} kept` : '';
+      // Sent, refused, and left: what blocks them stays, and so do they.
+      const blocked = pass.blocked
+        ? `, ${countedWords(pass.blocked)} kept by what blocks them, which stay`
+        : '';
       lines.push(
-        `  ${pass.objectApiName.padEnd(40)} ${countedWords(pass.records)}${sent}${archived}${kept}`,
+        `  ${pass.objectApiName.padEnd(40)} ${countedWords(pass.records)}${sent}${archived}${kept}${blocked}`,
       );
     }
     const empty = preview.passes.length - holding.length;
@@ -571,8 +582,16 @@ export function previewLines(target: string, answer: EmptyPreviewAnswer): string
       const via = [...new Set(along.via.map((route) => `${route.field} → ${route.parent}`))].join(
         ', ',
       );
+      const blocking = along.blocking
+        ? `; ${countedWords(along.blocking)} more block the delete and stay`
+        : '';
+      // Said where it is cut: the routes left were not counted.
+      const notRead = along.routesNotRead?.length
+        ? `; routes through ${along.routesNotRead.join(', ')} not read, there may be more`
+        : '';
       lines.push(
-        `  ${along.objectApiName.padEnd(40)} ${countedWords(along.records)}${via ? `  (${via})` : ''}`,
+        `  ${along.objectApiName.padEnd(40)} ${countedWords(along.records)}${via ? `  (${via})` : ''}` +
+          `${blocking}${notRead}`,
       );
     }
   }
@@ -587,10 +606,18 @@ export function previewLines(target: string, answer: EmptyPreviewAnswer): string
   }
   const blockers = preview.blockers.filter((each) => each.records.records !== 0);
   if (blockers.length > 0) {
-    lines.push('', 'Blocking: records of objects not emptied whose lookup refuses the delete:');
+    lines.push(
+      '',
+      'Blocking: records of objects not emptied whose lookup refuses the delete; they stay, and ' +
+        'so do the records they name, with what hangs from those:',
+    );
     for (const each of blockers) {
+      const keeps =
+        each.keeps && each.keeps.records !== 0
+          ? `, keeping ${countedWords(each.keeps)} ${each.parent}`
+          : '';
       lines.push(
-        `  ${each.objectApiName}.${each.field} → ${each.parent}: ${countedWords(each.records)}`,
+        `  ${each.objectApiName}.${each.field} → ${each.parent}: ${countedWords(each.records)}${keeps}`,
       );
     }
   }
@@ -788,6 +815,12 @@ export function undoLines(target: string, result: DataOpsEmptyUndoResult): strin
     ];
     lines.push(`  ${object.objectApiName.padEnd(40)} ${parts.join(', ')}`);
     for (const reason of object.reasons) lines.push(`      ${reason}`);
+  }
+  const lost = result.previewedLost ?? [];
+  if (lost.length > 0) {
+    // As the preview said: no undelete names them, and they are not back.
+    lines.push('not brought back, as the preview said Undo could not:');
+    for (const each of lost) lines.push(`  ${undoLostLine(each)}: ${countedWords(each.records)}`);
   }
   for (const note of result.notes) lines.push(note);
   return lines;
@@ -1058,7 +1091,7 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
         answerJson({
           runId: args.runId,
           result,
-          ...apiRequestsJson(undefined, connecting(), result.requestsSent),
+          ...apiRequestsJson(result.requestsEstimate, connecting(), result.requestsSent),
         });
         endWith(emptyExitCode(result.status, sent.stoppedBy));
       } else {
@@ -1067,7 +1100,7 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
         answerJson({
           runId: args.runId,
           result,
-          ...apiRequestsJson(undefined, connecting(), result.requestsSent),
+          ...apiRequestsJson(result.requestsEstimate, connecting(), result.requestsSent),
         });
         endWith(emptyExitCode(result.status, sent.stoppedBy));
       }

@@ -7841,7 +7841,8 @@
     "count": {
       "unread": "non compté",
       "atMost": "au plus {{formatted}}",
-      "atLeast": "au moins {{formatted}}"
+      "atLeast": "au moins {{formatted}}",
+      "about": "environ {{formatted}}"
     },
     "size": {
       "records_one": "{{formatted}} enregistrement",
@@ -7891,8 +7892,11 @@
       },
       "archived": "dont {{records}} archivés",
       "kept": "{{records}} gardés : le catalogue standard",
+      "blocked": "{{records}} retenus par ce qui les bloque : ils restent",
       "along": "Enregistrements d'autres objets qui partent avec eux",
       "alongLine": "{{records}} {{object}}, par {{via}}",
+      "alongBlocking": "{{records}} autres bloquent la suppression et restent.",
+      "alongNotRead": "Les chemins par {{objects}} n'ont pas été lus : il peut y en avoir plus.",
       "likelyTitle": "Ce que l'org refuserait, et ce que le run fait pour l'éviter",
       "likely": {
         "activatedOrder": "{{records}} {{object}} au-delà de Brouillon : remis en Brouillon d'abord, car une commande activée refuse sa suppression et celle de son compte",
@@ -7901,7 +7905,9 @@
         "personAccountContact": "{{records}} {{object}} de comptes personnels : laissés, car chacun ne part qu'avec son compte"
       },
       "blockersTitle": "Ce qui bloque le vidage",
+      "blockersStay": "Ce qui bloque reste, ainsi que les enregistrements qu'il désigne et ce qui en dépend : la taille ci-dessus laisse de côté ce qui bloque, et les enregistrements retenus là où ils sont comptés.",
       "blocker": "{{records}} {{object}}, non vidés, désignent ces enregistrements par {{field}} → {{parent}}, qui refuse la suppression : choisissez aussi {{object}}, ou laissez {{parent}} de côté.",
+      "blockerKeeps": "Ils retiennent {{records}} {{parent}}, qui restent aussi.",
       "beforeParentTitle": "Enregistrements qui partent avant celui qu'ils désignent, comme Salesforce l'impose",
       "beforeParentRestricted": "{{object}} avant {{parent}} : {{field}} refuse la suppression d'un enregistrement qu'il désigne",
       "beforeParentPrices": "{{object}} : les prix personnalisés avant les prix standard ({{field}})",
@@ -8022,7 +8028,8 @@
       "notInBin": "{{formatted}} ne sont plus dans la corbeille.",
       "othersDeletion": "{{formatted}} supprimés par un autre utilisateur, que seul Modify All Data fait revenir.",
       "refusedCount": "{{formatted}} refusés.",
-      "notReached": "{{formatted}} non atteints."
+      "notReached": "{{formatted}} non atteints.",
+      "previewedLostTitle": "Non rendus, comme l'aperçu l'annonçait"
     },
     "history": {
       "title": "Vidages de {{org}}",

@@ -380,9 +380,8 @@ describe('DataOpsEmptyHandler', () => {
       refusals: Array<{ code: string; message: string }>;
       peopleActive: { people: number; who?: Array<{ userId: string }> };
     }>(deps, 'dataops:empty:preview:response');
-    expect(preview.peopleActive.who?.map((person) => person.userId)).toEqual([
-      fakeId('005', 77).slice(0, 15),
-    ]);
+    // Eighteen characters, as the API gives every other id.
+    expect(preview.peopleActive.who?.map((person) => person.userId)).toEqual([fakeId('005', 77)]);
     expect(preview.refusals.map((refusal) => refusal.code)).toContain('PEOPLE_ACTIVE');
 
     await handler.handle(

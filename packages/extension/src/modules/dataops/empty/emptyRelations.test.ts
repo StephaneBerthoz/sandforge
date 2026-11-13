@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { EmptyFixtureOrg, salesOrg, type FixtureObject } from '../../../test/emptyFixtureOrg';
+import {
+  ASSET_CHILDREN,
+  EmptyFixtureOrg,
+  assetsOrg,
+  salesOrg,
+  type FixtureObject,
+} from '../../../test/emptyFixtureOrg';
 import {
   affectedBy,
   anyRouteCondition,
@@ -203,7 +209,7 @@ describe('affectedBy', () => {
     expect(affected.routes.has('OpportunityLineItem')).toBe(false);
   });
 
-  it('reads at most a few routes into one object, and says it cut the rest', async () => {
+  it('reads every lookup from an emptied object, however many: the cap cuts longer routes alone', async () => {
     const parents: FixtureObject[] = Array.from({ length: MOST_ROUTES + 2 }, (_, at) => ({
       name: `Parent${at}__c`,
       children: [{ childSObject: 'Child__c', field: `Parent${at}__c`, cascadeDelete: true }],
@@ -218,8 +224,43 @@ describe('affectedBy', () => {
       describes,
     );
 
-    expect(affected.routes.get('Child__c')).toHaveLength(MOST_ROUTES);
-    expect([...affected.routesCut]).toEqual(['Child__c']);
+    expect(affected.routes.get('Child__c')).toHaveLength(MOST_ROUTES + 2);
+    expect(affected.routesCut.size).toBe(0);
+  });
+
+  it('reads a contact’s own lookups before any longer path: its tasks and events by WhoId, though its asset’s children name them first', async () => {
+    const org = assetsOrg();
+    const names = org.global().map((object) => object.name);
+    const describes = await describesOf(org, names);
+
+    const affected = affectedBy(['Contact'], names, describes);
+
+    // Read down each lookup in turn, the asset's children filled the routes
+    // of a task and an event before their own lookup to the contact came.
+    for (const activity of ['Task', 'Event']) {
+      expect(affected.routes.get(activity)?.[0]).toEqual({
+        object: activity,
+        steps: [{ object: activity, field: 'WhoId', parent: 'Contact' }],
+        emptied: 'Contact',
+      });
+    }
+  });
+
+  it('cuts the longer routes past the cap, and names the objects they went through, and so for what is read up a cut object, unless its lookup reads by type', async () => {
+    const org = assetsOrg();
+    const names = org.global().map((object) => object.name);
+    const describes = await describesOf(org, names);
+
+    const affected = affectedBy(['Contact'], names, describes);
+
+    // Its own lookup, its asset's and its contact participant's, then the
+    // asset's children's, up to the cap: the last three are left.
+    expect(affected.routes.get('Task')).toHaveLength(MOST_ROUTES);
+    expect(affected.routesCut.get('Task')).toEqual([...ASSET_CHILDREN.slice(-3)].sort());
+    expect(affected.routesCut.get('Task_Detail__c')).toContain('Task');
+    // An attachment is read by the type of what it hangs from, whichever way that goes.
+    expect(affected.routesCut.has('Attachment')).toBe(false);
+    expect(affected.routesCut.has('Asset')).toBe(false);
   });
 });
 

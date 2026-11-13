@@ -116,6 +116,30 @@ describe('EmptyOutcome', () => {
     expect(screen.getByTestId('empty-undo-object-Account')).toHaveTextContent(
       '110 of 118 brought back. 8 not in the recycle bin any more.',
     );
+    expect(screen.queryByTestId('empty-undo-previewed-lost')).toBeNull();
+  });
+
+  it('names what its preview said no undo would bring back, which no undelete names', () => {
+    renderOutcome({
+      kind: 'undo',
+      undo: {
+        ...undoResultOf(),
+        previewedLost: [
+          {
+            objectApiName: 'Opportunity',
+            field: 'Pricebook2Id',
+            parent: 'Pricebook2',
+            reason: 'restricted',
+            records: { records: 1 },
+          },
+          { objectApiName: 'OrderItem', reason: 'notRestorable', records: { records: 0 } },
+        ],
+      },
+    });
+    const lost = screen.getByTestId('empty-undo-previewed-lost');
+    expect(lost).toHaveTextContent('Not brought back, as the preview said Undo could not');
+    expect(lost).toHaveTextContent('1 Opportunity: gone before Pricebook2');
+    expect(lost).not.toHaveTextContent('OrderItem');
   });
 
   it('says a stop before anything was deleted, and a refusal in its words', () => {

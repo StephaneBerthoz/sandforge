@@ -530,6 +530,84 @@ describe('sandforge-empty: a person account’s contacts', () => {
   });
 });
 
+describe('sandforge-empty: what a count leaves out, said', () => {
+  /** A dry run of the accounts, its preview as `preview` says beside it. */
+  const linesOf = async (
+    preview: (answer: EmptyPreviewAnswer['preview']) => Partial<EmptyPreviewAnswer['preview']>,
+  ): Promise<string[]> => {
+    const h = harness();
+    const { stdout } = await h.run(
+      '--target',
+      'DEV',
+      '--objects',
+      'Account',
+      '--dry-run',
+      '--json',
+    );
+    const answer = JSON.parse(stdout) as EmptyPreviewAnswer;
+    return previewLines('DEV', {
+      ...answer,
+      refusals: [],
+      preview: { ...answer.preview, ...preview(answer.preview) },
+    });
+  };
+
+  it('says a count cut short at least, or about where it may count more too, and the objects whose routes were not read', async () => {
+    const lines = await linesOf(() => ({
+      along: [
+        {
+          objectApiName: 'Task',
+          records: { records: 1, atMost: true, atLeast: true },
+          via: [{ field: 'WhoId', parent: 'Contact', emptied: 'Contact', records: { records: 1 } }],
+          routesNotRead: ['AssetWarranty', 'MaintenanceAsset'],
+        },
+      ],
+      total: { records: 4, objects: 2, uncounted: [], atLeast: true },
+    }));
+
+    expect(lines).toContain('at least 4 record(s) of 2 object(s)');
+    expect(lines.join('\n')).toContain(
+      'Task                                     about 1  (WhoId → Contact); routes through ' +
+        'AssetWarranty, MaintenanceAsset not read, there may be more',
+    );
+  });
+
+  it('says what blocks stays, what it keeps of an emptied object, and those going along that block', async () => {
+    const lines = await linesOf((preview) => ({
+      passes: preview.passes.map((pass) =>
+        pass.objectApiName === 'Account' ? { ...pass, blocked: { records: 2 } } : pass,
+      ),
+      along: [
+        {
+          objectApiName: 'Opportunity',
+          records: { records: 1 },
+          via: [
+            { field: 'AccountId', parent: 'Account', emptied: 'Account', records: { records: 1 } },
+          ],
+          blocking: { records: 1 },
+        },
+      ],
+      blockers: [
+        {
+          objectApiName: 'Opportunity',
+          field: 'AccountId',
+          parent: 'Account',
+          records: { records: 1 },
+          keeps: { records: 1 },
+        },
+      ],
+    }));
+    const said = lines.join('\n');
+
+    expect(said).toMatch(/ {2}Account {34}\d+, 2 kept by what blocks them, which stay/);
+    expect(said).toContain(
+      'Opportunity                              1  (AccountId → Account); 1 more block the delete and stay',
+    );
+    expect(said).toContain('they stay, and so do the records they name');
+    expect(said).toContain('  Opportunity.AccountId → Account: 1, keeping 1 Account');
+  });
+});
+
 describe('sandforge-empty: a Partial Copy or Full sandbox', () => {
   it('refuses the whole org of a sandbox whose data storage says it copies production, exit 1, before anything is read: the panel knows whether it is marked Staging', async () => {
     const h = harness({ sandboxStorageMB: 5_120 });
@@ -694,11 +772,11 @@ describe('sandforge-empty: a run', () => {
     expect(dry.code).toBe(1);
     expect(JSON.parse(dry.stdout)).toMatchObject({
       wouldBeRefusedCodes: ['PEOPLE_ACTIVE'],
-      peopleActive: { people: 1, who: [{ userId: fakeId('005', 77).slice(0, 15), records: 1 }] },
+      // Eighteen characters, as every other id the org gives over the API.
+      peopleActive: { people: 1, who: [{ userId: fakeId('005', 77), records: 1 }] },
     });
-    expect(dry.stderr).toContain(
-      `user ${fakeId('005', 77).slice(0, 15)}: 1 record(s), the last changed at`,
-    );
+    expect(fakeId('005', 77)).toHaveLength(18);
+    expect(dry.stderr).toContain(`user ${fakeId('005', 77)}: 1 record(s), the last changed at`);
     expect(dry.stdout + dry.stderr).not.toContain('Ada Example');
     expect(org.sent).toEqual([]);
 
@@ -832,9 +910,15 @@ describe('sandforge-empty: a stop, its resume and its undo', () => {
     const resumed = await h.run('--target', 'DEV', '--resume', result.runId, '--yes', '--json');
 
     expect(resumed.code).toBe(0);
-    const taken = JSON.parse(resumed.stdout) as { result: DataOpsEmptyRunResult };
+    const taken = JSON.parse(resumed.stdout) as {
+      result: DataOpsEmptyRunResult;
+      apiRequests: { estimate: number; sent: number };
+    };
     expect(taken.result).toMatchObject({ runId: result.runId, resumed: true, status: 'success' });
     expect(h.org.live('Opportunity')).toEqual([]);
+    // Priced as a run is: its JSON gave what it sent alone.
+    expect(taken.apiRequests.sent).toBeGreaterThan(0);
+    expect(taken.apiRequests.estimate).toBeGreaterThanOrEqual(taken.apiRequests.sent);
   });
 
   it('brings back with --undo what the run deleted, named by its journal’s folder', async () => {
@@ -854,11 +938,49 @@ describe('sandforge-empty: a stop, its resume and its undo', () => {
     );
 
     expect(code).toBe(0);
-    const undone = JSON.parse(stdout) as { action: string; result: DataOpsEmptyUndoResult };
+    const undone = JSON.parse(stdout) as {
+      action: string;
+      result: DataOpsEmptyUndoResult;
+      apiRequests: { estimate: number; sent: number };
+    };
     expect(undone.action).toBe('undo');
     expect(undone.result.status).toBe('success');
     expect(h.org.live('Contact')).toHaveLength(3);
     expect(stderr).toContain(`undid the emptying ${result.runId} of DEV: success`);
+    // Read live, an undo's JSON gave what it sent, and no estimate above it.
+    expect(undone.apiRequests.sent).toBeGreaterThan(0);
+    expect(undone.apiRequests.estimate).toBeGreaterThanOrEqual(undone.apiRequests.sent);
+  });
+
+  it('names with --undo what its preview said no undo would bring back, once the run went through', async () => {
+    const h = harness();
+    const ran = await h.run(
+      '--target',
+      'DEV',
+      '--objects',
+      'Account,Contact,Case,Order',
+      '--accept-no-undo',
+      '--yes',
+      '--json',
+    );
+    const { result } = JSON.parse(ran.stdout) as { result: DataOpsEmptyRunResult };
+
+    const { code, stdout, stderr } = await h.run(
+      '--target',
+      'DEV',
+      '--undo',
+      result.runId,
+      '--yes',
+      '--json',
+    );
+
+    expect(code).toBe(3);
+    const undone = JSON.parse(stdout) as { result: DataOpsEmptyUndoResult };
+    expect(undone.result.previewedLost?.length).toBeGreaterThan(0);
+    expect(stderr).toContain('not brought back, as the preview said Undo could not:');
+    expect(stderr).toMatch(
+      / {2}Case before Account \(AccountId\): they go before a record they name: 1/,
+    );
   });
 
   it('refuses, exit 1, a resume of a run that is not the org’s last one stopped part way', async () => {

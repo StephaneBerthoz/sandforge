@@ -33,17 +33,30 @@
  * unwritten: its undo reads the ids of each pass that attempt read, less
  * those named gone, and brings back those the recycle bin holds.
  *
+ * **What the preview said would not come back** is named once the run went
+ * through every pass, as the preview counted it: what went before a record
+ * it names and is not in the journal — an opportunity, the orders and the
+ * quotes its account took along before their price book went —, which no
+ * undelete of a pass brings back and none of its answers names. Seen live,
+ * an undo said `partial` naming an entitlement and a case alone, the
+ * opportunity, the orders, the quote and their lines left unsaid.
+ *
  * Stop reaches it between two calls; an undo stopped part way is taken up by
  * the next one, which finds back in the org what this one brought back.
  */
 
-import type { DataOpsEmptyStatus, DataOpsEmptyUndoObject } from '@sandforge/shared';
+import type {
+  DataOpsEmptyStatus,
+  DataOpsEmptyUndoLost,
+  DataOpsEmptyUndoObject,
+} from '@sandforge/shared';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import { assertSoqlIdentifier } from '../../../core/common/soqlValidator.js';
 import { idLists, RECORDS_PER_CALL } from '../RecordRemoval.js';
 import type { UndeleteCall } from '../../sync/SyncRunUndelete.js';
 import { EMPTYING } from '../../../core/removal/tableIds.js';
 import { IdSpool, RecordKeySet } from '../../checkpoint/spooledRunRecords.js';
+import { UNDO_CALLS_PER_BATCH } from './emptyCost.js';
 import type { EmptyJournal } from './emptyJournal.js';
 
 /** What an undo reads the org through: queries, and queries of its recycle bin too. */
@@ -66,6 +79,8 @@ export interface EmptyUndoOutcome {
   status: DataOpsEmptyStatus;
   objects: DataOpsEmptyUndoObject[];
   notes: string[];
+  /** What the preview said no undo would bring back, once the run went through: see the module's comment. */
+  previewedLost?: DataOpsEmptyUndoLost[];
 }
 
 /** What the org answers an undelete of a record not in the recycle bin, in its words. */
@@ -159,22 +174,32 @@ async function* undoIdsOf(
   }
 }
 
-/** Bring back what the run deleted: see the module's comment. */
-export async function undoEmpty(deps: EmptyUndoDeps): Promise<EmptyUndoOutcome> {
-  const { journal, org } = deps;
-  const head = journal.head;
-  const notes: string[] = [];
-  const stopped = (): boolean => deps.signal?.aborted === true;
+/** Where a run's attempts left its journal, as an undo reads it. */
+interface UndoStart {
+  /** Per pass whose ids an attempt read: their place, how many, and which attempt. */
+  spooledIn: Map<string, { place: number; count: number; attempt: number }>;
+  /** The attempt that began and wrote no end, when one did. */
+  unendedAttempt?: number;
+  /** Whether the run's last attempt went through every pass: it ended `success` or `partial`. */
+  wentThrough: boolean;
+}
 
+/** Read where the run's attempts left the journal. */
+async function undoStartOf(journal: EmptyJournal): Promise<UndoStart> {
   // An attempt that began and wrote no end: its process stopped while it
   // deleted, and the answers of its last deletes may be unwritten.
   let attempts = 0;
   let ends = 0;
+  let last: DataOpsEmptyStatus | undefined;
   const spooledIn = new Map<string, { place: number; count: number; attempt: number }>();
   for await (const line of journal.lines()) {
-    if (line.kind === 'attempt') attempts++;
-    else if (line.kind === 'end') ends++;
-    else if (line.kind === 'spooled') {
+    if (line.kind === 'attempt') {
+      attempts++;
+      last = undefined;
+    } else if (line.kind === 'end') {
+      ends++;
+      last = line.status;
+    } else if (line.kind === 'spooled') {
       spooledIn.set(line.objectApiName, {
         place: line.place,
         count: line.count,
@@ -182,7 +207,79 @@ export async function undoEmpty(deps: EmptyUndoDeps): Promise<EmptyUndoOutcome> 
       });
     }
   }
-  const unendedAttempt = attempts > ends ? attempts : undefined;
+  return {
+    spooledIn,
+    ...(attempts > ends ? { unendedAttempt: attempts } : {}),
+    wentThrough: last === 'success' || last === 'partial',
+  };
+}
+
+/** The ids the undo reads again of an object, as its pass's spool left them unended. */
+function unendedOf(
+  start: UndoStart,
+  objectApiName: string,
+): { place: number; count: number } | undefined {
+  const read = start.spooledIn.get(objectApiName);
+  return read !== undefined &&
+    start.unendedAttempt !== undefined &&
+    read.attempt === start.unendedAttempt
+    ? read
+    : undefined;
+}
+
+/** What the run's preview said no undo brings back, as its journal kept it, those it counted any of. */
+function previewedLostOf(journal: EmptyJournal): DataOpsEmptyUndoLost[] {
+  return (journal.head.undoLost ?? [])
+    .filter((entry) => entry.records === undefined || entry.records > 0)
+    .map((entry) => ({
+      objectApiName: entry.objectApiName,
+      ...(entry.field !== undefined ? { field: entry.field } : {}),
+      ...(entry.parent !== undefined ? { parent: entry.parent } : {}),
+      reason: entry.reason,
+      records: {
+        ...(entry.records !== undefined ? { records: entry.records } : { unread: 'not counted' }),
+        ...(entry.atLeast === true ? { atLeast: true as const } : {}),
+      },
+    }));
+}
+
+/**
+ * The calls an undo of `journal` sends past its reads: {@link UNDO_CALLS_PER_BATCH}
+ * for each 200 ids of each page it reads — what the journal names deleted,
+ * and of a pass an unended attempt read, its spool —, and a read again of
+ * each 200 the preview said would not come back of an object its passes
+ * sent, which the bin answers it does not hold.
+ */
+export async function undoCallsOf(journal: EmptyJournal): Promise<number> {
+  const start = await undoStartOf(journal);
+  let calls = 0;
+  for (const { objectApiName } of journal.head.passes) {
+    let planned = 0;
+    for await (const line of journal.settledOf(objectApiName)) {
+      if (line.deleted.length === 0) continue;
+      planned += line.deleted.length;
+      calls += Math.ceil(line.deleted.length / RECORDS_PER_CALL) * UNDO_CALLS_PER_BATCH;
+    }
+    const unended = unendedOf(start, objectApiName);
+    if (unended) {
+      planned += unended.count;
+      calls += Math.ceil(unended.count / RECORDS_PER_CALL) * UNDO_CALLS_PER_BATCH;
+    }
+    const lost = (journal.head.undoLost ?? [])
+      .filter((entry) => entry.objectApiName === objectApiName)
+      .reduce((sum, entry) => sum + (entry.records ?? 0), 0);
+    calls += Math.ceil(Math.min(lost, planned) / RECORDS_PER_CALL);
+  }
+  return calls;
+}
+
+/** Bring back what the run deleted: see the module's comment. */
+export async function undoEmpty(deps: EmptyUndoDeps): Promise<EmptyUndoOutcome> {
+  const { journal, org } = deps;
+  const head = journal.head;
+  const notes: string[] = [];
+  const stopped = (): boolean => deps.signal?.aborted === true;
+  const start = await undoStartOf(journal);
 
   const objects: DataOpsEmptyUndoObject[] = [];
   const notInBin = new Map<string, string[]>();
@@ -192,11 +289,7 @@ export async function undoEmpty(deps: EmptyUndoDeps): Promise<EmptyUndoOutcome> 
     const tally = emptyTally(objectApiName);
     objects.push(tally);
     const object = assertSoqlIdentifier(objectApiName);
-    const read = spooledIn.get(objectApiName);
-    const unended =
-      read !== undefined && unendedAttempt !== undefined && read.attempt === unendedAttempt
-        ? read
-        : undefined;
+    const unended = unendedOf(start, objectApiName);
     for await (const page of undoIdsOf(journal, objectApiName, unended)) {
       tally.planned += page.length;
       for (let from = 0; from < page.length; from += RECORDS_PER_CALL) {
@@ -319,11 +412,15 @@ export async function undoEmpty(deps: EmptyUndoDeps): Promise<EmptyUndoOutcome> 
     }
   }
 
+  // What the preview said would not come back, the run having gone through:
+  // no undelete names it, and it is not back all the same.
+  const previewedLost = start.wentThrough ? previewedLostOf(journal) : [];
   const back = objects.reduce((sum, o) => sum + o.undeleted + o.alreadyBack, 0);
-  const left = objects.reduce(
-    (sum, o) => sum + o.notInBin + o.othersDeletion + o.refused + (o.notReached ?? 0),
-    0,
-  );
+  const left =
+    objects.reduce(
+      (sum, o) => sum + o.notInBin + o.othersDeletion + o.refused + (o.notReached ?? 0),
+      0,
+    ) + previewedLost.length;
   const status: DataOpsEmptyStatus = cancelled
     ? 'cancelled'
     : left === 0
@@ -331,5 +428,10 @@ export async function undoEmpty(deps: EmptyUndoDeps): Promise<EmptyUndoOutcome> 
       : back > 0
         ? 'partial'
         : 'failure';
-  return { status, objects: objects.filter((o) => o.planned > 0), notes };
+  return {
+    status,
+    objects: objects.filter((o) => o.planned > 0),
+    notes,
+    ...(previewedLost.length > 0 ? { previewedLost } : {}),
+  };
 }

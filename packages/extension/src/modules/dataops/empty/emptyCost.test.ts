@@ -5,6 +5,9 @@ import {
   passDeletesOf,
   pricedWithReads,
   RECORDS_PER_BULK_BATCH,
+  resumeRequestsOf,
+  UNDO_CALLS_PER_BATCH,
+  undoRequestsOf,
 } from './emptyCost';
 
 describe('passDeletesOf', () => {
@@ -279,5 +282,38 @@ describe('pricedWithReads', () => {
     expect(muted.apiRequests - quiet.apiRequests).toBeGreaterThanOrEqual(9);
     expect(muted.requests.mute).toBe(9);
     expect(quiet.requests).not.toHaveProperty('mute');
+  });
+});
+
+describe('the requests of an undo and of a run taken up', () => {
+  it('prices an undo on its reads as counted, three calls per 200 ids, its connect and its check, and the margin', () => {
+    const calls = 51 * UNDO_CALLS_PER_BATCH + 2;
+    const counted = 7 + calls + 5;
+
+    // Read live: an undo of 10,200 contacts and 16 other records sent 182,
+    // with no estimate to hold it to.
+    expect(undoRequestsOf(calls, 7)).toBe(counted + Math.ceil(counted * 0.05));
+    expect(undoRequestsOf(calls, 7, 9)).toBe(counted + 9 + Math.ceil((counted + 9) * 0.05));
+  });
+
+  it('prices what is left of a run taken up: its spool read again, not the org, and the passes not reached as the preview counted them', () => {
+    const spooled = resumeRequestsOf(
+      'recycle',
+      [{ objectApiName: 'Contact', records: 400, idsRead: true }],
+      40,
+    );
+    const unread = resumeRequestsOf(
+      'recycle',
+      [{ objectApiName: 'Contact', records: 400, idsRead: false }],
+      40,
+    );
+    // 2 calls of 200 and the count of what was made since, read once more.
+    const counted = 40 + 5 + 2 + 1;
+
+    expect(spooled).toBe(counted + Math.ceil(counted * 0.05));
+    expect(unread).toBeGreaterThan(spooled);
+    expect(
+      resumeRequestsOf('recycle', [{ objectApiName: 'Contact', records: 0, idsRead: true }], 40),
+    ).toBeLessThan(spooled);
   });
 });

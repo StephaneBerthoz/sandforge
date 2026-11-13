@@ -100,6 +100,11 @@ export interface DataOpsEmptyPreviewPass {
   archived?: DataOpsEmptyCounted;
   /** Rows kept whatever is asked: the standard price book. */
   kept?: DataOpsEmptyCounted;
+  /**
+   * Of its records, those a record not emptied keeps (`DataOpsEmptyBlocker.keeps`):
+   * sent, refused by the org, and left. Absent when nothing blocking it holds a record.
+   */
+  blocked?: DataOpsEmptyCounted;
 }
 
 /** Records of an object not emptied that go along all the same. */
@@ -108,6 +113,14 @@ export interface DataOpsEmptyAlong {
   records: DataOpsEmptyCounted;
   /** By route: the lookup the records hang by, and the emptied object at the top. */
   via: Array<{ field: string; parent: string; emptied: string; records: DataOpsEmptyCounted }>;
+  /**
+   * Of the records its routes reach, those that refuse their parent's delete
+   * all the same — an opportunity closed won — and stay: named among the
+   * blockers, left out of `records`.
+   */
+  blocking?: DataOpsEmptyCounted;
+  /** The objects routes into it went through that were not read: `records` says there may be more. */
+  routesNotRead?: string[];
 }
 
 /** What the org will likely refuse, or what the run does first so that it does not. */
@@ -127,6 +140,8 @@ export interface DataOpsEmptyBlocker {
   field: string;
   parent: string;
   records: DataOpsEmptyCounted;
+  /** The records of `parent`, emptied, they keep from being deleted: those stay too. */
+  keeps?: DataOpsEmptyCounted;
 }
 
 /**
@@ -231,10 +246,13 @@ export interface DataOpsEmptyPreview {
   beforeParent: DataOpsEmptyBeforeParent[];
   unordered: DataOpsEmptyOrderConstraint[];
   undoLost: DataOpsEmptyUndoLost[];
+  /** The records of `undoLost` together, each once. */
+  undoLostRecords?: DataOpsEmptyCounted;
   undo: boolean;
   affected: string[];
   cost: DataOpsEmptyCost;
-  total: { records: number; objects: number; uncounted: string[] };
+  /** Less what blocks and what it keeps; `atLeast` when a count in it may count less. */
+  total: { records: number; objects: number; uncounted: string[]; atLeast?: true };
   statements: number;
   stopped?: true;
 }
@@ -353,6 +371,12 @@ export interface DataOpsEmptyRunResult {
    * delete, counted as sent; absent where nothing counts them.
    */
   requestsSent?: number;
+  /**
+   * What a run taken up was priced at before its first delete, its reads
+   * counted as sent and what is left of its passes: absent for a run acted on
+   * a preview, whose preview prices it.
+   */
+  requestsEstimate?: number;
   startedAt: string;
   finishedAt: string;
 }
@@ -387,6 +411,13 @@ export interface DataOpsEmptyUndoResult {
   mutedAutomation?: MutedAutomation;
   /** Every request the undo sent the org, counted as sent; absent where nothing counts them. */
   requestsSent?: number;
+  /** What the undo was priced at before its first undelete, its reads counted as sent. */
+  requestsEstimate?: number;
+  /**
+   * What the preview the run acted on said no undo would bring back, once the
+   * run went through every pass: the undo names them, as they do not come back.
+   */
+  previewedLost?: DataOpsEmptyUndoLost[];
   finishedAt: string;
 }
 
@@ -395,7 +426,7 @@ export type DataOpsEmptyTier = Exclude<GuardTier, 'production'>;
 
 /** Someone other than the user who changed records an emptying deletes, in the hour before its read. */
 export interface DataOpsEmptyPersonActive {
-  /** Their user Id, its first fifteen characters. */
+  /** Their user Id, eighteen characters as the API gives it. */
   userId: string;
   /** Their name (`User.Name`), read for the page alone: a command line names no one. */
   name?: string;

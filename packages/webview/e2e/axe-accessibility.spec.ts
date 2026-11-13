@@ -25,6 +25,7 @@ import {
   orgPreview,
   peopleAtWork,
   runResult,
+  undoResult,
 } from './fixtures/empty';
 import { sendExtensionMessage } from './mocks/vscode-api';
 import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
@@ -8819,6 +8820,91 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(page, results, '[data-testid="empty-preview"]'),
         'axe measured no text of the preview',
       ).toBeGreaterThan(10);
+    });
+
+    test('DataOps emptying preview saying what blocks stays and what it keeps, a count whose routes were not read, then an undo naming what its preview said would not come back', async ({
+      page,
+    }) => {
+      await openEmptying(bridge, page, theme);
+      const answer = objectsPreview();
+      await answerEmptyPreview(page, 'objects', {
+        ...answer,
+        preview: {
+          ...answer.preview,
+          passes: answer.preview.passes.map((pass) =>
+            pass.objectApiName === 'Account' ? { ...pass, blocked: { records: 2 } } : pass,
+          ),
+          along: answer.preview.along.map((object) =>
+            object.objectApiName === 'Task'
+              ? {
+                  ...object,
+                  records: { records: 96, atMost: true, atLeast: true },
+                  routesNotRead: ['AssetWarranty', 'MaintenanceAsset'],
+                }
+              : object.objectApiName === 'Opportunity'
+                ? { ...object, blocking: { records: 1 } }
+                : object,
+          ),
+          blockers: answer.preview.blockers.map((blocker) => ({
+            ...blocker,
+            keeps: { records: 2 },
+          })),
+          total: { ...answer.preview.total, atLeast: true },
+        },
+      });
+      await expect(page.getByTestId('empty-preview-along-not-read-Task')).toBeVisible();
+      await toMiddle(page, 'empty-preview-along');
+      const along = await checkAccessibility(page);
+      expectNoViolations(along);
+      expect(
+        await contrastMeasuredIn(page, along, '[data-testid="empty-preview-along"]'),
+        'axe measured no text of what goes along',
+      ).toBeGreaterThan(2);
+      await toMiddle(page, 'empty-preview-blocked-Account');
+      const blocked = await checkAccessibility(page);
+      expectNoViolations(blocked);
+      expect(
+        await contrastMeasuredIn(page, blocked, '[data-testid="empty-preview-blocked-Account"]'),
+        'axe measured no text of what blocks keeps',
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('empty-preview-empty').click();
+      await page.getByTestId('danger-input').fill(EMPTY_ORG.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      const run = await bridge.waitForMessage('dataops:empty:run', { timeout: 10_000 });
+      await answerAll(page, 'dataops:empty:run', 'dataops:empty:run:response', {
+        operationId: run.id,
+        result: runResult(),
+      });
+      await page.getByTestId('empty-result-undo').click();
+      await page.getByTestId('empty-act-accept-automation').check();
+      await page.getByTestId('danger-input').fill(EMPTY_ORG.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      const undo = await bridge.waitForMessage('dataops:empty:undo', { timeout: 10_000 });
+      await answerAll(page, 'dataops:empty:undo', 'dataops:empty:undo:response', {
+        operationId: undo.id,
+        result: {
+          ...undoResult(),
+          status: 'partial',
+          previewedLost: [
+            {
+              objectApiName: 'Opportunity',
+              field: 'Pricebook2Id',
+              parent: 'Pricebook2',
+              reason: 'restricted',
+              records: { records: 1 },
+            },
+          ],
+        },
+      });
+      await page.getByTestId('empty-undo-previewed-lost').waitFor({ timeout: 10_000 });
+      await toMiddle(page, 'empty-undo-previewed-lost');
+      const undone = await checkAccessibility(page);
+      expectNoViolations(undone);
+      expect(
+        await contrastMeasuredIn(page, undone, '[data-testid="empty-undo-previewed-lost"]'),
+        'axe measured no text of what the undo did not bring back',
+      ).toBeGreaterThan(1);
     });
 
     test('DataOps emptying preview with people at work: each named with when, the box that lets their work go, the resume that asks it', async ({

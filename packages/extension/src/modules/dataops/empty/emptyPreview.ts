@@ -99,6 +99,11 @@ export interface EmptyPreview {
    * for good, which no undo brings back at all (`undo: false`).
    */
   undoLost: EmptyCounts['undoLost'];
+  /**
+   * The records of {@link undoLost} together, each once; absent from a
+   * preview kept before it was counted so, whose entries are added up.
+   */
+  undoLostRecords?: Counted;
   /** Whether an undo can bring the records back from the recycle bin. */
   undo: boolean;
   /** The objects whose records go, emptied and along: what fires as they go is read on these. */
@@ -113,11 +118,13 @@ export interface EmptyPreview {
   toDraftAlong: Array<{ objectApiName: string; condition?: string }>;
   cost: EmptyCost;
   /**
-   * What the button says: the records deleted and the objects they belong to;
-   * `uncounted`, the objects the org would not count, whose records are not
-   * in the sum.
+   * What the button says: the records deleted and the objects they belong to,
+   * less what blocks and what it keeps, which stay; `uncounted`, the objects
+   * the org would not count, whose records are not in the sum; `atLeast`, set
+   * when a count in it may count less — routes not read, records kept that
+   * two lookups may both name.
    */
-  total: { records: number; objects: number; uncounted: string[] };
+  total: { records: number; objects: number; uncounted: string[]; atLeast?: true };
   /** The counts sent: what the dry run cost the org, besides its describes. */
   statements: number;
   /** Set when it was stopped before every count was in. */
@@ -221,10 +228,18 @@ export async function previewEmpty(
     ...counts.objects.filter((object) => numberOf(object.records) === undefined),
     ...counts.along.filter((object) => numberOf(object.records) === undefined),
   ].map((object) => object.objectApiName);
-  const counted = [...counts.objects, ...counts.along]
-    .map((object) => numberOf(object.records) ?? 0)
-    .filter((records) => records > 0);
+  // What blocks stays, and so do the records it keeps: the run sends them,
+  // the org refuses them, and they are not in what goes.
+  const counted = [
+    ...counts.objects.map((object) =>
+      Math.max(0, (numberOf(object.records) ?? 0) - (object.blocked?.records ?? 0)),
+    ),
+    ...counts.along.map((object) => numberOf(object.records) ?? 0),
+  ].filter((records) => records > 0);
   const deletedRecords = counted.reduce((sum, records) => sum + records, 0);
+  const short =
+    counts.along.some((object) => object.records.atLeast === true) ||
+    counts.objects.some((object) => object.blocked?.atMost === true);
   const activated = counts.refusals
     .filter((refusal) => refusal.code === 'activatedOrder')
     .reduce((sum, refusal) => sum + (numberOf(refusal.records) ?? 0), 0);
@@ -278,11 +293,17 @@ export async function previewEmpty(
     beforeParent: order.beforeParent,
     unordered: order.unordered,
     undoLost: counts.undoLost,
+    undoLostRecords: counts.undoLostRecords,
     undo: input.deleteMode === 'recycle',
     affected: [...affected.emptied, ...affected.along].sort(),
     toDraftAlong,
     cost,
-    total: { records: deletedRecords, objects: counted.length, uncounted },
+    total: {
+      records: deletedRecords,
+      objects: counted.length,
+      uncounted,
+      ...(short ? { atLeast: true as const } : {}),
+    },
     statements: counts.statements,
     ...(counts.stopped ? { stopped: true as const } : {}),
   };

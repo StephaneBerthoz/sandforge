@@ -20,6 +20,9 @@
  *   read `Pricebook2.IsStandard = false` of prices whose book was gone;
  * - a query leaves out deleted rows and archived activities; `queryAll`
  *   returns both;
+ * - a subquery, `Id IN (SELECT AccountId FROM Opportunity WHERE …)`, is read
+ *   as the list of what it selects; a third one in a statement, or one beside
+ *   an OR, is refused, as Salesforce documents its limits;
  * - an object not given, or given as one the user may not see, is refused
  *   its describe, `NOT_FOUND`.
  *
@@ -235,6 +238,39 @@ export class EmptyFixtureOrg implements EmptyPreviewOrg {
 
   private counted(soql: string, all: boolean): number {
     this.sent.push({ soql, all });
+    return this.matching(this.withSubqueriesRead(soql, all), all).length;
+  }
+
+  /**
+   * `soql` with each subquery, `IN (SELECT Column FROM Object [WHERE …])`,
+   * read as the list of what its statement selects, as the memory org reads
+   * one; past two in a statement, or joined by OR, it is refused, as
+   * Salesforce documents it.
+   */
+  private withSubqueriesRead(soql: string, all: boolean): string {
+    const subquery = /\bIN\s*\(\s*SELECT\s+(\w+)\s+FROM\s+(\w+)((?:\s+WHERE\s+[^()]+)?)\s*\)/gi;
+    const found = soql.match(subquery) ?? [];
+    if (found.length > 2) {
+      throw orgError('MALFORMED_QUERY', 'maximum of 2 semi join sub-selects are allowed');
+    }
+    if (found.length > 0 && /\bOR\b/.test(soql.replace(subquery, ''))) {
+      throw orgError(
+        'MALFORMED_QUERY',
+        "semi join sub-selects are not allowed with the 'OR' operator",
+      );
+    }
+    return soql.replace(subquery, (_whole, column: string, object: string, where: string) => {
+      const values = this.matching(`SELECT ${column} FROM ${object}${where}`, all)
+        .map((row) => row[column])
+        .filter((value): value is string => typeof value === 'string');
+      // An empty list is no statement the org reads: one no id can match.
+      const listed = values.length > 0 ? values : ['000000000000000AAA'];
+      return `IN (${listed.map((value) => `'${value}'`).join(', ')})`;
+    });
+  }
+
+  /** The rows of the statement's object `soql` selects, read as the org reads a path. */
+  private matching(soql: string, all: boolean): SoqlRow[] {
     const paths: string[] = [];
     const quoted = soql.split(/('(?:[^'\\]|\\.)*')/);
     const plain = quoted
@@ -270,7 +306,7 @@ export class EmptyFixtureOrg implements EmptyPreviewOrg {
           },
         ),
     );
-    return selectFrom(views, statement).length;
+    return selectFrom(views, statement);
   }
 }
 
@@ -665,5 +701,112 @@ export function salesOrg(options: SalesOrgOptions = {}): EmptyFixtureOrg {
     { name: 'Read_Only__c', global: { deletable: false } },
     { name: 'Archive__b' },
     { name: 'No_Bin__c', noRecycleBin: true },
+  ]);
+}
+
+/**
+ * The children of an asset that take records along with it, in the order a
+ * scratch org's describe listed them, each named by tasks and events.
+ */
+export const ASSET_CHILDREN = [
+  'AssetAccountParticipant',
+  'AssetContactParticipant',
+  'AssetDowntimePeriod',
+  'AssetRelationship',
+  'AssetWarranty',
+  'MaintenanceAsset',
+  'AssignedResource',
+  'GeolocationBasedAction',
+] as const;
+
+/**
+ * A contact as a scratch org's describe lists what its delete takes along:
+ * three lookups, then its assets', fourth, then its events' (`WhoId`) and its
+ * tasks' — the 26th and the 38th there. An asset takes along the children of
+ * {@link ASSET_CHILDREN}, and each of those, like the asset, its tasks and
+ * events by their `WhatId`. A task's details (`Task_Detail__c`) and its
+ * attachments go with it.
+ *
+ * It holds a contact under an account, its task and its event, each naming
+ * the contact and the account, and a detail and an attachment of the task:
+ * nothing under an asset.
+ */
+export function assetsOrg(): EmptyFixtureOrg {
+  const activity = (name: 'Task' | 'Event'): FixtureObject => ({
+    name,
+    fields: [
+      lookup('WhoId', ['Contact', 'Lead'], 'Who'),
+      lookup('WhatId', ['Account', 'Asset', ...ASSET_CHILDREN], 'What'),
+      { name: 'IsArchived' },
+    ],
+    children:
+      name === 'Task'
+        ? [
+            { childSObject: 'Task_Detail__c', field: 'Task__c', cascadeDelete: true },
+            { childSObject: 'Attachment', field: 'ParentId', cascadeDelete: true },
+          ]
+        : [],
+    rows: [{ Id: name === 'Task' ? 'T1' : 'EV1', WhoId: 'C1', WhatId: 'A1' }],
+  });
+  const takesActivities: FixtureChild[] = [
+    { childSObject: 'Task', field: 'WhatId', cascadeDelete: true },
+    { childSObject: 'Event', field: 'WhatId', cascadeDelete: true },
+  ];
+  return new EmptyFixtureOrg([
+    {
+      name: 'Account',
+      children: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+      rows: [{ Id: 'A1' }],
+    },
+    {
+      name: 'Contact',
+      fields: [lookup('AccountId', 'Account', 'Account')],
+      children: [
+        { childSObject: 'AccountContactRole', field: 'ContactId', cascadeDelete: true },
+        { childSObject: 'CampaignMember', field: 'ContactId', cascadeDelete: true },
+        { childSObject: 'CaseContactRole', field: 'ContactId', cascadeDelete: true },
+        { childSObject: 'Asset', field: 'ContactId', cascadeDelete: true },
+        { childSObject: 'AssetContactParticipant', field: 'ContactId', cascadeDelete: true },
+        { childSObject: 'Event', field: 'WhoId', cascadeDelete: true },
+        { childSObject: 'Task', field: 'WhoId', cascadeDelete: true },
+      ],
+      rows: [{ Id: 'C1', AccountId: 'A1' }],
+    },
+    ...['AccountContactRole', 'CampaignMember', 'CaseContactRole'].map((name) => ({
+      name,
+      fields: [lookup('ContactId', 'Contact', 'Contact')],
+    })),
+    {
+      name: 'Asset',
+      fields: [lookup('ContactId', 'Contact', 'Contact')],
+      children: [
+        ...ASSET_CHILDREN.map((child) => ({
+          childSObject: child,
+          field: 'AssetId',
+          cascadeDelete: true,
+        })),
+        ...takesActivities,
+      ],
+    },
+    ...ASSET_CHILDREN.map((name) => ({
+      name,
+      fields: [
+        lookup('AssetId', 'Asset', 'Asset'),
+        ...(name === 'AssetContactParticipant' ? [lookup('ContactId', 'Contact', 'Contact')] : []),
+      ],
+      children: takesActivities,
+    })),
+    activity('Task'),
+    activity('Event'),
+    {
+      name: 'Task_Detail__c',
+      fields: [lookup('Task__c', 'Task', 'Task__r')],
+      rows: [{ Id: 'TD1', Task__c: 'T1' }],
+    },
+    {
+      name: 'Attachment',
+      fields: [lookup('ParentId', ['Task', 'Event', 'Contact'], 'Parent')],
+      rows: [{ Id: 'ATT1', ParentId: 'T1' }],
+    },
   ]);
 }

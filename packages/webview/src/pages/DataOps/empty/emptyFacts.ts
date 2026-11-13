@@ -64,11 +64,16 @@ export function asksBox(refusals: readonly DataOpsEmptyRefusal[], box: EmptyBox)
 
 /** How a count reads: a number, a bound, or none with the org's words. */
 export type CountShown =
-  { kind: 'exact' | 'atMost' | 'atLeast'; records: number } | { kind: 'unread'; reason: string };
+  | { kind: 'exact' | 'atMost' | 'atLeast' | 'about'; records: number }
+  | { kind: 'unread'; reason: string };
 
-/** What `counted` says, as the page shows it. */
+/**
+ * What `counted` says, as the page shows it: about a number when it may count
+ * more than goes — a path read by type — and less too — routes not read.
+ */
 export function countShown(counted: DataOpsEmptyCounted): CountShown {
   if (counted.records === undefined) return { kind: 'unread', reason: counted.unread ?? '' };
+  if (counted.atMost && counted.atLeast) return { kind: 'about', records: counted.records };
   if (counted.atMost) return { kind: 'atMost', records: counted.records };
   if (counted.atLeast) return { kind: 'atLeast', records: counted.records };
   return { kind: 'exact', records: counted.records };
@@ -82,7 +87,7 @@ export function holdsRecords(counted: DataOpsEmptyCounted): boolean {
 /**
  * The emptying's size, as its button and its confirmation say it: the
  * records it deletes and the objects they belong to, and whether objects the
- * org would not count leave the sum short.
+ * org would not count, or routes it did not read, leave the sum short.
  */
 export function emptySize(preview: Pick<DataOpsEmptyPreview, 'total'>): {
   records: number;
@@ -92,7 +97,7 @@ export function emptySize(preview: Pick<DataOpsEmptyPreview, 'total'>): {
   return {
     records: preview.total.records,
     objects: preview.total.objects,
-    atLeast: preview.total.uncounted.length > 0,
+    atLeast: preview.total.uncounted.length > 0 || preview.total.atLeast === true,
   };
 }
 

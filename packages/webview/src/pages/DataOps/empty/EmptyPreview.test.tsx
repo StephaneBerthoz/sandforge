@@ -219,6 +219,74 @@ describe('EmptyPreview', () => {
     );
   });
 
+  it('says a count cut short, about where it may count more too, the routes not read, and the size at least', () => {
+    const answer = previewAnswer();
+    renderPreview({
+      answer: {
+        ...answer,
+        preview: {
+          ...answer.preview,
+          along: [
+            {
+              objectApiName: 'Task',
+              records: { records: 1, atMost: true, atLeast: true },
+              via: [
+                { field: 'WhoId', parent: 'Contact', emptied: 'Contact', records: { records: 1 } },
+                { field: 'WhoId', parent: 'Contact', emptied: 'Account', records: { records: 1 } },
+              ],
+              routesNotRead: ['AssetWarranty', 'MaintenanceAsset'],
+            },
+          ],
+          total: { records: 461, objects: 3, uncounted: [], atLeast: true },
+        },
+      },
+    });
+    expect(screen.getByTestId('empty-preview-along-Task')).toHaveTextContent(
+      'about 1 Task, by WhoId → Contact',
+    );
+    expect(screen.getByTestId('empty-preview-along-not-read-Task')).toHaveTextContent(
+      'Routes through AssetWarranty, MaintenanceAsset were not read: there may be more.',
+    );
+    expect(screen.getByTestId('empty-preview-empty')).toHaveTextContent('at least 461');
+  });
+
+  it('says what blocks stays, what it keeps of an emptied object, and those going along that block', () => {
+    const answer = previewAnswer();
+    renderPreview({
+      answer: {
+        ...answer,
+        preview: {
+          ...answer.preview,
+          passes: answer.preview.passes.map((pass) =>
+            pass.objectApiName === 'Account' ? { ...pass, blocked: { records: 2 } } : pass,
+          ),
+          along: answer.preview.along.map((object) => ({ ...object, blocking: { records: 1 } })),
+          blockers: [
+            {
+              objectApiName: 'Opportunity',
+              field: 'AccountId',
+              parent: 'Account',
+              records: { records: 1 },
+              keeps: { records: 1 },
+            },
+          ],
+        },
+      },
+    });
+    expect(screen.getByTestId('empty-preview-blocked-Account')).toHaveTextContent(
+      '2 kept by what blocks them: they stay',
+    );
+    expect(screen.getByTestId('empty-preview-along-Opportunity')).toHaveTextContent(
+      '1 more of them block the delete and stay.',
+    );
+    expect(screen.getByTestId('empty-preview-blockers')).toHaveTextContent(
+      'What blocks stays, and so do the records it names',
+    );
+    expect(screen.getByTestId('empty-preview-blocker-Opportunity')).toHaveTextContent(
+      'They keep 1 Account, which stay too.',
+    );
+  });
+
   it('says what a user without View All Data does not see, object by object', () => {
     renderPreview({
       answer: previewAnswer({

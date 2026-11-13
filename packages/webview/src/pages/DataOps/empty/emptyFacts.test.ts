@@ -63,6 +63,11 @@ describe('counts', () => {
     expect(countShown({ records: 4 })).toEqual({ kind: 'exact', records: 4 });
     expect(countShown({ records: 4, atMost: true })).toEqual({ kind: 'atMost', records: 4 });
     expect(countShown({ records: 4, atLeast: true })).toEqual({ kind: 'atLeast', records: 4 });
+    // A path read by type may count more; routes not read, less: about.
+    expect(countShown({ records: 4, atMost: true, atLeast: true })).toEqual({
+      kind: 'about',
+      records: 4,
+    });
     expect(countShown({ unread: 'QUERY_TIMEOUT' })).toEqual({
       kind: 'unread',
       reason: 'QUERY_TIMEOUT',
@@ -80,6 +85,13 @@ describe('counts', () => {
       objects: 2,
       atLeast: true,
     });
+  });
+
+  it('says the size short where routes were not read, though every object was counted', () => {
+    expect(
+      emptySize({ total: { records: 10, objects: 2, uncounted: [], atLeast: true } }).atLeast,
+    ).toBe(true);
+    expect(emptySize({ total: { records: 10, objects: 2, uncounted: [] } }).atLeast).toBe(false);
   });
 });
 

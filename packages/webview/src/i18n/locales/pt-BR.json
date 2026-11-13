@@ -7841,7 +7841,8 @@
     "count": {
       "unread": "não contado",
       "atMost": "no máximo {{formatted}}",
-      "atLeast": "pelo menos {{formatted}}"
+      "atLeast": "pelo menos {{formatted}}",
+      "about": "cerca de {{formatted}}"
     },
     "size": {
       "records_one": "{{formatted}} registro",
@@ -7891,8 +7892,11 @@
       },
       "archived": "dos quais {{records}} arquivados",
       "kept": "{{records}} mantidos: o catálogo de preços padrão",
+      "blocked": "{{records}} retidos pelo que os bloqueia: eles ficam",
       "along": "Registros de outros objetos que vão junto com eles",
       "alongLine": "{{records}} {{object}}, por {{via}}",
+      "alongBlocking": "Mais {{records}} bloqueiam a exclusão e ficam.",
+      "alongNotRead": "Os caminhos por {{objects}} não foram lidos: pode haver mais.",
       "likelyTitle": "O que a org recusaria, e o que a execução faz a respeito",
       "likely": {
         "activatedOrder": "{{records}} {{object}} além de Rascunho: voltados para Rascunho primeiro, pois um pedido ativado recusa sua exclusão e a da sua conta",
@@ -7901,7 +7905,9 @@
         "personAccountContact": "{{records}} {{object}} de contas pessoais: ficam, pois cada um só sai com a sua conta"
       },
       "blockersTitle": "O que bloqueia o esvaziamento",
+      "blockersStay": "O que bloqueia fica, assim como os registros que ele aponta e o que depende deles: o tamanho acima deixa de fora o que bloqueia e os registros retidos onde são contados.",
       "blocker": "{{records}} {{object}}, não esvaziados, apontam para estes registros por {{field}} → {{parent}}, que recusa a exclusão: escolha também {{object}}, ou deixe {{parent}} de fora.",
+      "blockerKeeps": "Eles retêm {{records}} {{parent}}, que também ficam.",
       "beforeParentTitle": "Registros que saem antes do registro que apontam, como o Salesforce exige",
       "beforeParentRestricted": "{{object}} antes de {{parent}}: {{field}} recusa a exclusão de um registro que aponta",
       "beforeParentPrices": "{{object}}: os preços personalizados antes dos padrão ({{field}})",
@@ -8022,7 +8028,8 @@
       "notInBin": "{{formatted}} não estão mais na lixeira.",
       "othersDeletion": "{{formatted}} excluídos por outro usuário, o que só o Modify All Data traz de volta.",
       "refusedCount": "{{formatted}} recusados.",
-      "notReached": "{{formatted}} não alcançados."
+      "notReached": "{{formatted}} não alcançados.",
+      "previewedLostTitle": "Não trazidos de volta, como a prévia anunciou"
     },
     "history": {
       "title": "Esvaziamentos de {{org}}",

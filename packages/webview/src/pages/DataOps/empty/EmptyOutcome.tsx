@@ -13,6 +13,8 @@ import { MutedAutomationResult } from '../../../components/ui/MutedAutomationRes
 import { ProgressAnnouncer, ProgressBar } from '../../../components/ui/ProgressBar';
 import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { formatNumber } from '../../../utils/formatters';
+import { holdsRecords } from './emptyFacts';
+import { countWords, UNDO_LOST_KEYS } from './EmptyPreview';
 
 /** The code a run or an undo stopped before its first delete or undelete comes back with. */
 const CANCELLED = 'CANCELLED';
@@ -368,6 +370,9 @@ const UndoResult: React.FC<{ orgName: string; result: DataOpsEmptyUndoResult }> 
         (object.notReached ?? 0) >
       0,
   );
+  // What the preview said no undo brings back, once the run went through:
+  // no undelete names it, and seen live, the undo said nothing of it.
+  const lost = (result.previewedLost ?? []).filter((each) => holdsRecords(each.records));
   return (
     <div className="flex flex-col gap-2" data-testid="empty-undo-result">
       <ul className="ml-4 list-disc">
@@ -399,6 +404,22 @@ const UndoResult: React.FC<{ orgName: string; result: DataOpsEmptyUndoResult }> 
           </li>
         ))}
       </ul>
+      {lost.length > 0 && (
+        <div className="text-status-warning" data-testid="empty-undo-previewed-lost">
+          <p className="font-medium">{t('dataopsEmpty.undo.previewedLostTitle')}</p>
+          <ul className="ml-4 list-disc">
+            {lost.map((each) => (
+              <li key={`${each.objectApiName}.${each.field ?? ''}.${each.reason}`}>
+                {t(UNDO_LOST_KEYS[each.reason], {
+                  records: countWords(t, each.records),
+                  object: each.objectApiName,
+                  parent: each.parent ?? '',
+                })}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {result.notes.length > 0 && (
         <ul className="ml-4 list-disc" data-testid="empty-undo-notes">
           {result.notes.map((note) => (

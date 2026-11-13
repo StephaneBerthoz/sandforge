@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { EmptyFixtureOrg, salesOrg } from '../../../test/emptyFixtureOrg';
+import {
+  ASSET_CHILDREN,
+  EmptyFixtureOrg,
+  assetsOrg,
+  salesOrg,
+} from '../../../test/emptyFixtureOrg';
 import { countEmpty, type Counted, type EmptyCounts } from './emptyCounts';
 import { emptyOrderOf } from './emptyOrder';
 import { affectedBy, emptyDescribeSchema, relationsOf, type EmptyDescribe } from './emptyRelations';
@@ -157,7 +162,13 @@ describe('countEmpty, the whole org', () => {
     const counts = await counted(salesOrg(), WORKED);
 
     expect(counts.blockers).toEqual([
-      { objectApiName: 'User', field: 'ContactId', parent: 'Contact', records: { records: 1 } },
+      {
+        objectApiName: 'User',
+        field: 'ContactId',
+        parent: 'Contact',
+        records: { records: 1 },
+        keeps: { records: 1 },
+      },
     ]);
     expect(counts.refusals).toEqual([
       { code: 'activatedOrder', objectApiName: 'Order', records: { records: 1 } },
@@ -165,7 +176,7 @@ describe('countEmpty, the whole org', () => {
     ]);
   });
 
-  it('names no id in any statement: every count reads a whole table', async () => {
+  it('names no id in any statement: every count reads a whole table, a subquery included', async () => {
     const org = salesOrg();
     await counted(org, WORKED);
 
@@ -174,7 +185,7 @@ describe('countEmpty, the whole org', () => {
       (soql.match(/'[^']*'/g) ?? []).map((quoted) => quoted.slice(1, -1)),
     );
     expect(org.sent.length).toBeGreaterThan(0);
-    expect(org.sent.filter(({ soql }) => /\bIN\s*\(/i.test(soql))).toEqual([]);
+    expect(org.sent.filter(({ soql }) => /\bIN\s*\((?!SELECT )/i.test(soql))).toEqual([]);
     expect(literals.filter((literal) => ids.has(literal))).toEqual([]);
   });
 
@@ -229,11 +240,21 @@ describe('countEmpty, objects picked', () => {
   it('names the cases of an account and of its contacts and the portal user of its contact, whose lookups refuse their delete', async () => {
     const counts = await counted(salesOrg(), ['Account']);
 
+    // The cases under an account keep it, counted apart; the case and the
+    // portal user of a contact going along keep it, and through it its
+    // account, which no statement of the account alone reads.
     expect(counts.blockers).toEqual([
-      { objectApiName: 'Case', field: 'AccountId', parent: 'Account', records: { records: 2 } },
+      {
+        objectApiName: 'Case',
+        field: 'AccountId',
+        parent: 'Account',
+        records: { records: 2 },
+        keeps: { records: 2 },
+      },
       { objectApiName: 'Case', field: 'ContactId', parent: 'Contact', records: { records: 1 } },
       { objectApiName: 'User', field: 'ContactId', parent: 'Contact', records: { records: 1 } },
     ]);
+    expect(passOf(counts, 'Account').blocked).toEqual({ records: 2 });
   });
 
   it('sets back to Draft the activated orders that go along with their account', async () => {
@@ -282,15 +303,31 @@ describe('countEmpty, objects picked', () => {
       { code: 'personAccountContact', objectApiName: 'Contact', records: { records: 1 } },
     ]);
     expect(counts.blockers).toEqual([
-      { objectApiName: 'Case', field: 'ContactId', parent: 'Contact', records: { records: 2 } },
+      {
+        objectApiName: 'Case',
+        field: 'ContactId',
+        parent: 'Contact',
+        records: { records: 2 },
+        keeps: { records: 2 },
+      },
       {
         objectApiName: 'Order',
         field: 'BillToContactId',
         parent: 'Contact',
         records: { records: 1 },
+        keeps: { records: 1 },
       },
-      { objectApiName: 'User', field: 'ContactId', parent: 'Contact', records: { records: 1 } },
+      {
+        objectApiName: 'User',
+        field: 'ContactId',
+        parent: 'Contact',
+        records: { records: 1 },
+        keeps: { records: 1 },
+      },
     ]);
+    // Past two lookups, those two keep the same contact are not read: the
+    // sum may count one twice.
+    expect(passOf(counts, 'Contact').blocked).toEqual({ records: 4, atMost: true });
   });
 });
 
@@ -330,6 +367,7 @@ describe('countEmpty, a person account’s contact', () => {
       field: 'ContactId',
       parent: 'Contact',
       records: { records: 2 },
+      keeps: { records: 2 },
     });
     expect(
       contactsAlone.along.find((along) => along.objectApiName === 'OpportunityContactRole'),
@@ -340,6 +378,7 @@ describe('countEmpty, a person account’s contact', () => {
       field: 'ContactId',
       parent: 'Contact',
       records: { records: 3 },
+      keeps: { records: 3 },
     });
   });
 
@@ -445,8 +484,10 @@ describe('countEmpty, an account’s entitlements', () => {
         field: 'AccountId',
         parent: 'Account',
         records: { records: 1 },
+        keeps: { records: 1 },
       },
     ]);
+    expect(passOf(counts, 'Account').blocked).toEqual({ records: 1 });
   });
 
   it('sends the entitlements before their account when both are emptied, and says them beyond Undo', async () => {
@@ -482,6 +523,7 @@ describe('countEmpty, an account’s closed won opportunities', () => {
       field: 'AccountId',
       parent: 'Account',
       records: { records: 1 },
+      keeps: { records: 1 },
     });
   });
 
@@ -508,6 +550,108 @@ describe('countEmpty, an account’s closed won opportunities', () => {
       counts.undoLost.map((lost) => `${lost.objectApiName}.${lost.field ?? ''}`),
     ).not.toContain('Opportunity.AccountId');
     expect(along.blockers.map((blocker) => blocker.objectApiName)).not.toContain('Opportunity');
+  });
+
+  it('counts an opportunity closed won among what blocks, never among what goes along: it stays, said apart', async () => {
+    const counts = await counted(wonOrg(), ['Account']);
+    const without = await counted(salesOrg(), ['Account']);
+    const opportunities = counts.along.find((along) => along.objectApiName === 'Opportunity');
+
+    // The two under an account that go, as without it; the one closed won stays.
+    expect(opportunities).toMatchObject({
+      records: { records: 2 },
+      via: [{ field: 'AccountId', parent: 'Account', records: { records: 2 } }],
+      blocking: { records: 1 },
+    });
+    expect(opportunities?.records).toEqual(
+      without.along.find((along) => along.objectApiName === 'Opportunity')?.records,
+    );
+  });
+
+  it('counts the accounts what blocks keeps, each once, though a case and an opportunity closed won both keep one', async () => {
+    const counts = await counted(wonOrg(), ['Account']);
+
+    // A case keeps each of two accounts; the opportunity, the first of them.
+    expect(passOf(counts, 'Account')).toMatchObject({
+      records: { records: 4 },
+      blocked: { records: 2 },
+    });
+  });
+});
+
+describe('countEmpty, routes to a contact’s tasks', () => {
+  /** Count an emptying of the contacts of {@link assetsOrg}. */
+  const contacts = async (org = assetsOrg()): Promise<EmptyCounts> =>
+    countedIn(
+      org,
+      ['Contact'],
+      org.global().map((object) => object.name),
+    );
+
+  it('counts the task and the event that go with their contact by its own lookup, though its asset’s children name tasks first', async () => {
+    const org = assetsOrg();
+    const counts = await contacts(org);
+
+    // Read live, every route of a task went up an asset's child, none up the
+    // contact: the one task and the one event went with their contact unsaid.
+    expect(org.sent.map(({ soql }) => soql)).toContain(
+      "SELECT COUNT() FROM Task WHERE (Who.Type = 'Contact') AND (IsDeleted = false)",
+    );
+    for (const activity of ['Task', 'Event']) {
+      expect(n(counts.along.find((along) => along.objectApiName === activity)?.records)).toBe(1);
+    }
+  });
+
+  it('says a count whose routes were cut may count more, and through which objects they went', async () => {
+    const counts = await contacts();
+    const task = counts.along.find((along) => along.objectApiName === 'Task');
+
+    expect(task?.records.atLeast).toBe(true);
+    expect(task?.routesNotRead).toEqual([...ASSET_CHILDREN.slice(-3)].sort());
+    expect(
+      counts.along.find((along) => along.objectApiName === 'Task_Detail__c')?.routesNotRead,
+    ).toEqual(['Task']);
+  });
+});
+
+describe('countEmpty, what no undo brings back, together', () => {
+  it('counts each record once: an order product lost before its product and before its price is one record', async () => {
+    const counts = await counted(salesOrg(), WORKED);
+    const pairs = counts.undoLost.reduce((sum, lost) => sum + (lost.records.records ?? 0), 0);
+    const orderProducts = counts.undoLost.filter((lost) => lost.objectApiName === 'OrderItem');
+
+    expect(orderProducts.map((lost) => n(lost.records))).toEqual([1, 1]);
+    // Read live, 22 said lost for 16 records.
+    expect(counts.undoLostRecords).toEqual({ records: 13 });
+    expect(pairs).toBe(17);
+  });
+
+  it('counts an opportunity closed won lost before its account and before its price book once, at least', async () => {
+    const org = salesOrg({
+      extraRows: {
+        Opportunity: [{ Id: 'O-WON', AccountId: 'A1', IsWon: true, Pricebook2Id: 'PBC' }],
+      },
+    });
+    const counts = await counted(org, ['Account', 'Opportunity', 'Pricebook2']);
+    const opportunities = counts.undoLost.filter((lost) => lost.objectApiName === 'Opportunity');
+
+    expect(opportunities.map((lost) => lost.parent).sort()).toEqual(['Account', 'Pricebook2']);
+    expect(
+      org.sent.some(
+        ({ soql }) =>
+          soql.startsWith('SELECT COUNT() FROM Opportunity WHERE (') && soql.includes(' OR '),
+      ),
+    ).toBe(true);
+    expect(counts.undoLostRecords.atLeast).toBe(true);
+  });
+
+  it('counts an object lost under two lookups by one statement of both', async () => {
+    const org = salesOrg();
+    await counted(org, WORKED);
+
+    expect(org.sent.map(({ soql }) => soql)).toContain(
+      'SELECT COUNT() FROM OrderItem WHERE (PricebookEntryId != null) OR (Product2.Id != null)',
+    );
   });
 });
 

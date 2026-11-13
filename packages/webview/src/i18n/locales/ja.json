@@ -7304,7 +7304,8 @@
     "count": {
       "unread": "未集計",
       "atMost": "最大 {{formatted}}",
-      "atLeast": "{{formatted}} 以上"
+      "atLeast": "{{formatted}} 以上",
+      "about": "約 {{formatted}}"
     },
     "size": {
       "records_other": "{{formatted}} 件のレコード",
@@ -7350,8 +7351,11 @@
       },
       "archived": "うち {{records}} 件はアーカイブ済み",
       "kept": "{{records}} 件を保持: 標準価格表",
+      "blocked": "{{records}} 件はブロックするレコードに保持され、残ります",
       "along": "一緒に削除される、ほかのオブジェクトのレコード",
       "alongLine": "{{object}} {{records}} 件 ({{via}} 経由)",
+      "alongBlocking": "ほかに {{records}} 件が削除を妨げ、残ります。",
+      "alongNotRead": "{{objects}} 経由の経路は読み取っていません。さらにある可能性があります。",
       "likelyTitle": "組織が拒否しそうなものと、実行の対処",
       "likely": {
         "activatedOrder": "ドラフト以外の {{object}} {{records}} 件: 有効化された注文は自身と取引先の削除を拒否するため、先にドラフトに戻します",
@@ -7360,7 +7364,9 @@
         "personAccountContact": "個人取引先の {{object}} {{records}} 件: 取引先と一緒にしか削除されないため、残ります"
       },
       "blockersTitle": "空にする操作を妨げるもの",
+      "blockersStay": "妨げるレコードは残り、それが参照するレコードとその下位のレコードも残ります。上の件数には、妨げるレコードと、集計できた保持されるレコードは含まれません。",
       "blocker": "空にしない {{object}} {{records}} 件が {{field}} → {{parent}} でこれらのレコードを参照しており、この項目が削除を拒否します。{{object}} も選ぶか、{{parent}} を除外してください。",
+      "blockerKeeps": "これにより {{parent}} {{records}} 件も残ります。",
       "beforeParentTitle": "Salesforce の要求により、参照先のレコードより先に削除されるレコード",
       "beforeParentRestricted": "{{parent}} より先に {{object}}: {{field}} は参照先レコードの削除を拒否します",
       "beforeParentPrices": "{{object}}: 標準価格より先にカスタム価格 ({{field}})",
@@ -7478,7 +7484,8 @@
       "notInBin": "{{formatted}} 件はもうごみ箱にありません。",
       "othersDeletion": "{{formatted}} 件はほかのユーザーが削除したもので、Modify All Data がなければ戻せません。",
       "refusedCount": "{{formatted}} 件が拒否されました。",
-      "notReached": "{{formatted}} 件は未到達です。"
+      "notReached": "{{formatted}} 件は未到達です。",
+      "previewedLostTitle": "プレビューのとおり、元に戻せなかったもの"
     },
     "history": {
       "title": "{{org}} を空にした履歴",

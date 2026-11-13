@@ -20,7 +20,10 @@
  *   deleted while it lives: an object not emptied that names deleted records
  *   so blocks them, named with its count, and so does an object going along
  *   by those of its records that stay — an opportunity under no account
- *   naming a price book emptied with the accounts;
+ *   naming a price book emptied with the accounts. What blocks stays, and so
+ *   does what it keeps: a record going along that blocks is not counted
+ *   among what goes, and the records of an emptied object it names by that
+ *   lookup are counted apart (`blocked`), read by a subquery of the blocker;
  * - a direct relation of a contact to its account goes only with the
  *   contact: emptying the relations alone leaves the direct ones;
  * - an opportunity closed won refuses its account's delete, which its
@@ -122,15 +125,32 @@ export interface EmptyObjectCount {
   archived?: Counted;
   /** Rows the emptying keeps whatever is asked: the standard price book. */
   kept?: Counted;
+  /**
+   * Of its records, those a record not emptied keeps (`EmptyBlocker.keeps`):
+   * its pass sends them, the org refuses them, and they stay. Absent when
+   * nothing blocking it holds a record.
+   */
+  blocked?: Counted;
 }
 
 /** Records of an object not emptied that go along all the same. */
 export interface EmptyAlongCount {
   objectApiName: string;
-  /** Every route together. */
+  /** Every route together, less those that block (`blocking`): what goes. */
   records: Counted;
   /** By route: the lookup the records hang by, and the emptied object at the top. */
   via: Array<{ field: string; parent: string; emptied: string; records: Counted }>;
+  /**
+   * Of the records its routes reach, those that refuse their parent's delete
+   * all the same — an opportunity closed won under an account emptied — and
+   * stay: named among the blockers, left out of `records`.
+   */
+  blocking?: Counted;
+  /**
+   * The objects routes into it went through that were not read
+   * (`Affected.routesCut`): `records` says there may be more.
+   */
+  routesNotRead?: string[];
 }
 
 /** What the org will likely refuse, or what the run does first so that it does not. */
@@ -161,6 +181,13 @@ export interface EmptyBlocker {
   field: string;
   parent: string;
   records: Counted;
+  /**
+   * The records of `parent` they keep from being deleted, where `parent` is
+   * emptied and its records are named by `field` itself: the org refuses
+   * them, and they stay with what hangs from them. Absent where no statement
+   * of `parent` alone reads them.
+   */
+  keeps?: Counted;
 }
 
 /**
@@ -191,6 +218,12 @@ export interface EmptyCounts {
   refusals: EmptyRefusal[];
   blockers: EmptyBlocker[];
   undoLost: EmptyUndoLost[];
+  /**
+   * The records of {@link undoLost} together, each once: an order product
+   * lost before its product and before its price was counted twice, 22 lost
+   * for 16 records.
+   */
+  undoLostRecords: Counted;
   /** The statements the org was sent: what the preview cost it. */
   statements: number;
   /** Set when it was stopped before every count was in: what is missing says it. */
@@ -284,6 +317,21 @@ function less(a: Counted, b: Counted): Counted {
 }
 
 /**
+ * `a` less `b`, `a`'s bounds kept: what goes along, less those of its records
+ * that block and stay.
+ */
+function minus(a: Counted, b: Counted): Counted {
+  if (a.records === undefined) return a;
+  if (b.records === undefined) return { ...a, atMost: true };
+  return {
+    ...a,
+    records: Math.max(0, a.records - b.records),
+    ...(b.atMost ? { atLeast: true as const } : {}),
+    ...(b.atLeast ? { atMost: true as const } : {}),
+  };
+}
+
+/**
  * Whether `counted` says for certain there is nothing: a zero the org gave,
  * not one left of a difference that may be short. Nothing is not listed.
  */
@@ -299,6 +347,58 @@ function mayHold(counted: Counted | undefined): boolean {
 /** The answer of a condition that does not read, said as a count: no number, and why. */
 function unreadable(objectApiName: string): Counted {
   return { unread: `${objectApiName}: the lookup its records go by is hidden from the user` };
+}
+
+/** `counted`, said to hold at least what it counts: some of its routes were not read. */
+function short(counted: Counted): Counted {
+  return counted.records === undefined ? counted : { ...counted, atLeast: true };
+}
+
+/** `counted`, said to hold at most what it counts. */
+function overcounted(counted: Counted): Counted {
+  return counted.records === undefined ? counted : { ...counted, atMost: true };
+}
+
+/**
+ * The condition that a record meets every condition of one of `groups`: each
+ * group's conditions joined by AND, the groups by OR, each once. It counts
+ * exactly when each of its conditions does.
+ */
+function anyGroup(groups: ReadonlyArray<ReadonlyArray<string | Condition>>): Condition {
+  const soql = (condition: string | Condition): string =>
+    typeof condition === 'string' ? condition : condition.soql;
+  const each = [
+    ...new Set(
+      groups.map((group) =>
+        group.length === 1 ? soql(group[0]) : group.map((one) => `(${soql(one)})`).join(' AND '),
+      ),
+    ),
+  ];
+  return {
+    soql: each.length === 1 ? each[0] : each.map((one) => `(${one})`).join(' OR '),
+    exact: groups.every((group) =>
+      group.every((condition) => typeof condition === 'string' || condition.exact),
+    ),
+  };
+}
+
+/**
+ * `counts` added up, each once: at least the sum when one of them may count
+ * less or the org gave none, at most when one may count more; nothing when
+ * the org gave no number at all.
+ */
+function sumOf(counts: readonly Counted[]): Counted {
+  const known = counts.filter((counted) => counted.records !== undefined);
+  if (known.length === 0) {
+    return counts.length === 0 ? { records: 0 } : { unread: counts[0].unread ?? STOPPED };
+  }
+  const atLeast = counts.some((counted) => counted.records === undefined || counted.atLeast);
+  const atMost = counts.some((counted) => counted.atMost);
+  return {
+    records: known.reduce((sum, counted) => sum + (counted.records ?? 0), 0),
+    ...(atMost ? { atMost: true as const } : {}),
+    ...(atLeast ? { atLeast: true as const } : {}),
+  };
 }
 
 /** The price book whose custom prices go with it, before their product. */
@@ -385,7 +485,12 @@ export async function countEmpty(
     kept: new Map<string, string>(),
     goneBefore: new Map<string, { key?: string; unreadable: boolean }>(),
     along: new Map<string, { total?: string; via: Array<{ route: Route; key?: string }> }>(),
-    refusals: [] as Array<{ code: EmptyRefusalCode; objectApiName: string; key?: string }>,
+    refusals: [] as Array<{
+      code: EmptyRefusalCode;
+      objectApiName: string;
+      key?: string;
+      under?: true;
+    }>,
     blockers: [] as Array<{
       objectApiName: string;
       field: string;
@@ -393,15 +498,36 @@ export async function countEmpty(
       key?: string;
       /** Those of them that go along, to take off: they go before they could block. */
       going?: string;
+      /** Set when they are counted among what goes along too, by a route up `field`. */
+      along?: true;
+      /** Set when their count may be over: some routes of what goes along were not read. */
+      over?: true;
+      /**
+       * Where `parent` is emptied, the condition of a statement of the child
+       * alone that reads which of `parent`'s records they name: empty when
+       * every record of it naming one does.
+       */
+      naming?: string;
     }>,
     undoLost: [] as Array<
       Omit<EmptyUndoLost, 'records'> & {
         key?: string;
+        /** The conditions of `key`'s statement: what a count of the object's losses together reads. */
+        conditions?: Array<string | Condition>;
         /** Set when more records than it counts go so: there are at least that many. */
         more?: true;
+        /** Set when it may count less: some routes of what goes along were not read. */
+        under?: true;
       }
     >,
   };
+  /**
+   * Whether `name` goes along by routes some of which were not read: a count
+   * through its routes may count less. An emptied object's own records are
+   * counted whole, whatever its routes.
+   */
+  const isCut = (name: string): boolean =>
+    !affected.emptied.has(name) && affected.routesCut.has(name);
 
   for (const pass of order.passes) {
     const name = pass.objectApiName;
@@ -425,12 +551,13 @@ export async function countEmpty(
     for (const route of after) {
       const condition = steps(route.steps);
       const step = route.steps[0];
+      const conditions = condition ? [...rows, condition] : undefined;
       asked.undoLost.push({
         objectApiName: name,
         field: step.field,
         parent: step.parent,
         reason: 'unordered',
-        ...(condition ? { key: second.ask(name, [...rows, condition]) } : {}),
+        ...(conditions ? { key: second.ask(name, conditions), conditions } : {}),
       });
     }
   }
@@ -462,12 +589,14 @@ export async function countEmpty(
       if (placeOf(PRICE_BOOK) > placeOf(pair.parent)) continue;
       const withBook = namesDeleted(pair.objectApiName, 'Pricebook2Id', PRICE_BOOK);
       const names = namesDeleted(pair.objectApiName, pair.field, pair.parent);
+      const conditions = withBook && names ? [withBook, names] : undefined;
       asked.undoLost.push({
         objectApiName: pair.objectApiName,
         field: pair.field,
         parent: pair.parent,
         reason: 'restricted',
-        ...(withBook && names ? { key: second.ask(pair.objectApiName, [withBook, names]) } : {}),
+        ...(conditions ? { key: second.ask(pair.objectApiName, conditions), conditions } : {}),
+        ...(isCut(PRICE_BOOK) || isCut(pair.parent) ? { under: true as const } : {}),
       });
       continue;
     }
@@ -478,12 +607,19 @@ export async function countEmpty(
       const goes = anyRoute(routesFrom(affected.routes.get(pair.objectApiName) ?? []));
       if (goes) conditions.push(goes);
     }
+    const under = isCut(pair.objectApiName) || isCut(pair.parent);
     asked.undoLost.push({
       objectApiName: pair.objectApiName,
       field: pair.field,
       parent: pair.parent,
       reason: 'restricted',
-      ...(names ? { key: second.ask(pair.objectApiName, [...conditions, names]) } : {}),
+      ...(names
+        ? {
+            key: second.ask(pair.objectApiName, [...conditions, names]),
+            conditions: [...conditions, names],
+          }
+        : {}),
+      ...(under ? { under: true as const } : {}),
     });
   }
 
@@ -502,6 +638,14 @@ export async function countEmpty(
       parent,
       ...(names ? { key: second.ask(child, [names]) } : {}),
       ...(names && goes ? { going: second.ask(child, [goes, names]) } : {}),
+      // Some of those that go along may not be counted: those that block,
+      // what is left, may be fewer.
+      ...(goes && isCut(child) ? { over: true as const } : {}),
+      // Every record of the child naming one of the parent's blocks it, when
+      // none of the child goes along: which of them, a statement of the
+      // child alone reads. One that goes along by part would need what goes
+      // left out of it, which no such statement says.
+      ...(affected.emptied.has(parent) && !affected.routes.has(child) ? { naming: '' } : {}),
     });
   }
 
@@ -526,14 +670,19 @@ export async function countEmpty(
         parent,
         reason: 'restricted',
         key: second.ask(child, [refusing, names]),
+        conditions: [refusing, names],
         more: true,
       });
     } else if (affected.routes.has(child)) {
+      // Counted among what goes along too, by its route up this lookup: they
+      // do not go, and are taken off it.
       asked.blockers.push({
         objectApiName: child,
         field,
         parent,
         key: second.ask(child, [refusing, names]),
+        along: true,
+        ...(affected.emptied.has(parent) ? { naming: refusing } : {}),
       });
     }
   }
@@ -542,8 +691,14 @@ export async function countEmpty(
     code: EmptyRefusalCode,
     objectApiName: string,
     conditions: Array<string | Condition>,
+    under = false,
   ): void => {
-    asked.refusals.push({ code, objectApiName, key: second.ask(objectApiName, conditions) });
+    asked.refusals.push({
+      code,
+      objectApiName,
+      key: second.ask(objectApiName, conditions),
+      ...(under ? { under: true as const } : {}),
+    });
   };
   for (const name of order.toDraft) {
     if (!mayGo(name)) continue;
@@ -553,7 +708,12 @@ export async function countEmpty(
       continue;
     }
     const goes = anyRoute(routesFrom(affected.routes.get(name) ?? []));
-    refusal('activatedOrder', name, goes ? [goes, pastDraft] : [{ soql: pastDraft, exact: false }]);
+    refusal(
+      'activatedOrder',
+      name,
+      goes ? [goes, pastDraft] : [{ soql: pastDraft, exact: false }],
+      goes !== undefined && isCut(name),
+    );
   }
   for (const [name, key] of asked.kept)
     asked.refusals.push({ code: 'standardPriceBook', objectApiName: name, key });
@@ -581,6 +741,101 @@ export async function countEmpty(
 
   cut = (await second.run(org, stopped)) || cut;
 
+  /** What an asked entry counts, its bounds said. */
+  const countOf = (entry: {
+    objectApiName: string;
+    key?: string;
+    going?: string;
+    more?: true;
+    under?: true;
+    over?: true;
+  }): Counted => {
+    const counted = entry.key ? second.answer(entry.key) : unreadable(entry.objectApiName);
+    let records = entry.going ? less(counted, second.answer(entry.going)) : counted;
+    const some = (records.records ?? 0) > 0;
+    if (entry.more && some) records = { ...records, atLeast: true };
+    if (entry.under && some) records = short(records);
+    if (entry.over && some) records = overcounted(records);
+    return records;
+  };
+
+  // The third round, on what the second found: the records of an emptied
+  // object that what blocks keeps — an account whose opportunity was closed
+  // won, refused to the admin all the same —, and what no undo brings back of
+  // an object counted under two lookups, each record once.
+  const third = new Round();
+  const keepsKeys = new Map<number, string>();
+  const naming = new Map<string, string[]>();
+  asked.blockers.forEach((blocker, at) => {
+    if (blocker.naming === undefined || blocker.key === undefined) return;
+    if ((countOf(blocker).records ?? 0) === 0) return;
+    const inner =
+      `Id IN (SELECT ${assertSoqlIdentifier(blocker.field)} FROM ` +
+      `${assertSoqlIdentifier(blocker.objectApiName)}` +
+      `${blocker.naming !== '' ? ` WHERE ${blocker.naming}` : ''})`;
+    keepsKeys.set(at, third.ask(blocker.parent, [...deletedRows(blocker.parent), inner]));
+    naming.set(blocker.parent, [...(naming.get(blocker.parent) ?? []), inner]);
+  });
+  // Two lookups may keep the same record — an account under a closed won
+  // opportunity and an entitlement —: those both keep are read too. Salesforce
+  // documents two subqueries at most in a statement, never joined by OR.
+  const bothKeys = new Map<string, string>();
+  for (const [parent, inners] of naming) {
+    if (inners.length === 2) {
+      bothKeys.set(parent, third.ask(parent, [...deletedRows(parent), ...inners]));
+    }
+  }
+  const lostKeys = new Map<string, string>();
+  const lostOf = new Map<string, typeof asked.undoLost>();
+  for (const entry of asked.undoLost) {
+    lostOf.set(entry.objectApiName, [...(lostOf.get(entry.objectApiName) ?? []), entry]);
+  }
+  for (const [name, entries] of lostOf) {
+    const holding = entries.filter((entry) => !none(countOf(entry)));
+    if (holding.length < 2) continue;
+    const groups = holding.map((entry) => entry.conditions);
+    if (groups.some((group) => group === undefined)) continue;
+    lostKeys.set(name, third.ask(name, [anyGroup(groups as Array<Array<string | Condition>>)]));
+  }
+  cut = (await third.run(org, stopped)) || cut;
+
+  const blockers: EmptyBlocker[] = asked.blockers
+    .map((blocker, at) => {
+      const kept = keepsKeys.get(at);
+      return {
+        objectApiName: blocker.objectApiName,
+        field: blocker.field,
+        parent: blocker.parent,
+        records: countOf(blocker),
+        ...(kept !== undefined ? { keeps: third.answer(kept) } : {}),
+      };
+    })
+    .filter((entry) => !none(entry.records));
+  /**
+   * Of `name`'s records, those what blocks keeps, each once: two lookups'
+   * less those both keep; past two, their sum, which may count one twice.
+   */
+  const blockedOf = (name: string): Counted | undefined => {
+    const keeps = blockers.flatMap((blocker) =>
+      blocker.parent === name && blocker.keeps !== undefined ? [blocker.keeps] : [],
+    );
+    if (keeps.length === 0) return undefined;
+    const sum = sumOf(keeps);
+    const both = bothKeys.get(name);
+    if (both !== undefined) return minus(sum, third.answer(both));
+    return keeps.length > 1 && (sum.records ?? 0) > 0 ? overcounted(sum) : sum;
+  };
+  /** The blockers counted among what goes along by a route up their lookup. */
+  const blockingAlong = blockers.filter((blocker) =>
+    asked.blockers.some(
+      (each) =>
+        each.along === true &&
+        each.objectApiName === blocker.objectApiName &&
+        each.field === blocker.field &&
+        each.parent === blocker.parent,
+    ),
+  );
+
   const objects = order.passes.map((pass): EmptyObjectCount => {
     const name = pass.objectApiName;
     const rows = passRowsOf(name, personAccounts);
@@ -594,14 +849,19 @@ export async function countEmpty(
       };
     }
     const gone = asked.goneBefore.get(name);
+    // What went before by routes not read is in what the count says its own
+    // pass sends: it may send fewer.
     const sent =
       gone === undefined
         ? records
         : gone.unreadable || gone.key === undefined
           ? unreadable(name)
-          : less(records, second.answer(gone.key));
+          : affected.routesCut.has(name)
+            ? overcounted(less(records, second.answer(gone.key)))
+            : less(records, second.answer(gone.key));
     const archived = asked.archived.get(name);
     const kept = asked.kept.get(name);
+    const blocked = blockedOf(name);
     return {
       objectApiName: name,
       ...(rows !== undefined ? { rows } : {}),
@@ -609,6 +869,7 @@ export async function countEmpty(
       sent,
       ...(archived ? { archived: second.answer(archived) } : {}),
       ...(kept ? { kept: second.answer(kept) } : {}),
+      ...(blocked && !none(blocked) ? { blocked } : {}),
     };
   });
   // What the pass of an object no undelete brings back on its own sends: a
@@ -626,40 +887,97 @@ export async function countEmpty(
         }))
     : [];
   const along = [...asked.along]
-    .map(([name, { total, via }]) => ({
-      objectApiName: name,
-      records: total ? second.answer(total) : unreadable(name),
-      via: via
-        .map(({ route, key }) => ({
-          field: route.steps[0].field,
-          parent: route.steps[0].parent,
-          emptied: route.emptied,
-          records: key ? second.answer(key) : unreadable(name),
-        }))
-        .filter((route) => !none(route.records)),
-    }))
+    .map(([name, { total, via }]): EmptyAlongCount => {
+      const reached = total ? second.answer(total) : unreadable(name);
+      const notRead = affected.routesCut.get(name);
+      // Those that block their parent's delete do not go: taken off what
+      // goes, and off the route up the lookup they block by.
+      const blocking = blockingAlong.filter((blocker) => blocker.objectApiName === name);
+      const staying =
+        blocking.length > 0 ? sumOf(blocking.map((blocker) => blocker.records)) : undefined;
+      const goes = staying ? minus(reached, staying) : reached;
+      return {
+        objectApiName: name,
+        records: notRead ? short(goes) : goes,
+        via: via
+          .map(({ route, key }) => {
+            const counted = key ? second.answer(key) : unreadable(name);
+            const step = route.steps[0];
+            const blocks = blocking.filter(
+              (blocker) => blocker.field === step.field && blocker.parent === step.parent,
+            );
+            return {
+              field: step.field,
+              parent: step.parent,
+              emptied: route.emptied,
+              records:
+                blocks.length > 0
+                  ? minus(counted, sumOf(blocks.map((blocker) => blocker.records)))
+                  : counted,
+            };
+          })
+          .filter((route) => !none(route.records)),
+        ...(staying && !none(staying) ? { blocking: staying } : {}),
+        ...(notRead ? { routesNotRead: [...notRead] } : {}),
+      };
+    })
     .filter((object) => !none(object.records));
-  const answered = <T extends { key?: string; going?: string; more?: true; objectApiName: string }>(
+  const answered = <T extends { objectApiName: string; key?: string }, S>(
     entries: readonly T[],
-  ): Array<Omit<T, 'key' | 'going' | 'more'> & { records: Counted }> =>
+    shown: (entry: T) => S,
+  ): Array<S & { records: Counted }> =>
     entries
-      .map(({ key, going, more, ...rest }) => {
-        const counted = key ? second.answer(key) : unreadable(rest.objectApiName);
-        const records = going ? less(counted, second.answer(going)) : counted;
-        return {
-          ...rest,
-          records:
-            more && (records.records ?? 0) > 0 ? { ...records, atLeast: true as const } : records,
-        };
-      })
+      .map((entry) => ({ ...shown(entry), records: countOf(entry) }))
       .filter((entry) => !none(entry.records));
+  const undoLost = onceEach([
+    ...answered(asked.undoLost, (entry) => ({
+      objectApiName: entry.objectApiName,
+      ...(entry.field !== undefined ? { field: entry.field } : {}),
+      ...(entry.parent !== undefined ? { parent: entry.parent } : {}),
+      reason: entry.reason,
+    })),
+    ...notRestorable,
+  ]);
+  // Each record once: an object lost under two lookups counted by one
+  // statement of both, what a pass no undelete brings back sends added.
+  const lostByObject = new Map<string, EmptyUndoLost[]>();
+  for (const entry of undoLost) {
+    lostByObject.set(entry.objectApiName, [
+      ...(lostByObject.get(entry.objectApiName) ?? []),
+      entry,
+    ]);
+  }
+  const undoLostRecords = sumOf(
+    [...lostByObject].map(([name, entries]) => {
+      const together = lostKeys.get(name);
+      const alone = entries.filter((entry) => entry.reason === 'notRestorable');
+      if (together === undefined) {
+        const sum = sumOf(entries.map((entry) => entry.records));
+        return entries.length > 1 && (sum.records ?? 0) > 0 ? overcounted(sum) : sum;
+      }
+      let counted = third.answer(together);
+      if (
+        entries.some((entry) => entry.reason !== 'notRestorable' && entry.records.atLeast) &&
+        (counted.records ?? 0) > 0
+      ) {
+        counted = short(counted);
+      }
+      return alone.length > 0
+        ? overcounted(sumOf([counted, ...alone.map((entry) => entry.records)]))
+        : counted;
+    }),
+  );
   return {
     objects,
     along,
-    refusals: answered(asked.refusals),
-    blockers: answered(asked.blockers),
-    undoLost: onceEach([...answered(asked.undoLost), ...notRestorable]),
-    statements: first.size + second.size,
+    refusals: answered(asked.refusals, (entry) => ({
+      code: entry.code,
+      objectApiName: entry.objectApiName,
+    })),
+    blockers,
+    undoLost,
+    undoLostRecords,
+    statements: first.size + second.size + third.size,
     ...(cut ? { stopped: true as const } : {}),
   };
 }
