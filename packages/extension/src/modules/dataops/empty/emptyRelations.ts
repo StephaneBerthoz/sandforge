@@ -168,6 +168,11 @@ export function relationsOf(
   const relations: Relation[] = [];
   for (const [parent, described] of describes) {
     for (const relationship of described.childRelationships ?? []) {
+      const child = names(relationship.childSObject);
+      const field = describes.get(child)
+        ? fieldOf(describes, child, relationship.field)
+        : undefined;
+      if (namesAnotherObject(field, parent)) continue;
       relations.push({
         parent,
         child: names(relationship.childSObject),
@@ -234,6 +239,27 @@ export interface Affected {
    * is not read until they are.
    */
   undescribed: string[];
+}
+
+/**
+ * Whether a lookup a parent lists among its children names other objects
+ * alone: with person accounts, an account's describe lists its person
+ * contact's children (`PersonOpportunityContactRoles`, on a role's
+ * ContactId), whose lookup names a contact, never an account. A route up it
+ * compared contact ids to account ids, and a role under an account what
+ * blocks keeps was counted as going (13/11). The route through the contact,
+ * which goes with its account, reads those roles. A lookup not described is
+ * kept, as before.
+ */
+function namesAnotherObject(
+  field: { referenceTo?: readonly string[] | null; polymorphicForeignKey?: boolean } | undefined,
+  parent: string,
+): boolean {
+  // A lookup that may point at several objects names one where it names
+  // more (an operation log's related record lists an asset alone): kept.
+  if (field?.polymorphicForeignKey === true) return false;
+  const to = field?.referenceTo ?? [];
+  return to.length > 0 && !to.some((name) => name.toLowerCase() === parent.toLowerCase());
 }
 
 /** Whether `field` of `objectApiName`, as described, may point at several objects. */
@@ -303,6 +329,11 @@ export function affectedBy(
       for (const relationship of described.childRelationships ?? []) {
         if (relationKindOf(relationship, from) !== 'cascade') continue;
         const child = nameOf(relationship.childSObject);
+        const childDescribed = describeOf(child);
+        const field = childDescribed?.fields.find(
+          (candidate) => candidate.name.toLowerCase() === relationship.field.toLowerCase(),
+        );
+        if (namesAnotherObject(field, from)) continue;
         const key = child.toLowerCase();
         if (!isWorked.has(key) || key === from.toLowerCase()) continue;
         if (above.some((step) => step.object.toLowerCase() === key)) continue;

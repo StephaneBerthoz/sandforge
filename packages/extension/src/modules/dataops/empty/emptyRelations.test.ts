@@ -175,6 +175,47 @@ describe('affectedBy', () => {
     ]);
   });
 
+  it('reads no route up a relationship an account lists of another object, its person contact’s roles: their lookup names a contact', async () => {
+    // An org with person accounts lists, in an account's describe, the
+    // children of its person contact (`PersonOpportunityContactRoles`, on a
+    // role's ContactId). A route up it compared contact ids to account ids,
+    // and a role under an account what blocks keeps was counted as going
+    // (13/11). The role goes with its contact, which goes with its account.
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+    const account = describes.get('Account');
+    if (!account) throw new Error('no Account describe');
+    describes.set('Account', {
+      ...account,
+      childRelationships: [
+        ...(account.childRelationships ?? []),
+        { childSObject: 'OpportunityContactRole', field: 'ContactId', cascadeDelete: true },
+      ],
+    });
+
+    const affected = affectedBy(['Account'], SALES, describes);
+    const relations = relationsOf(describes);
+
+    const roleSteps = (affected.routes.get('OpportunityContactRole') ?? []).flatMap(
+      (route) => route.steps,
+    );
+    expect(roleSteps).not.toContainEqual({
+      object: 'OpportunityContactRole',
+      field: 'ContactId',
+      parent: 'Account',
+    });
+    expect(roleSteps).toContainEqual({
+      object: 'OpportunityContactRole',
+      field: 'ContactId',
+      parent: 'Contact',
+    });
+    expect(
+      relations.filter(
+        (relation) => relation.parent === 'Account' && relation.field === 'ContactId',
+      ),
+    ).toEqual([]);
+  });
+
   it('ends a route at an emptied object: what hangs from it is read from it', async () => {
     const org = salesOrg();
     const describes = await describesOf(org, SALES);
