@@ -52,7 +52,7 @@ import {
   type EmptyActContext,
   type EmptyKeptPreview,
 } from '../../modules/dataops/empty/emptyAct.js';
-import { guardEmpty } from '../../modules/dataops/empty/emptyGuard.js';
+import { emptyPermissionsOf, guardEmpty } from '../../modules/dataops/empty/emptyGuard.js';
 import { defaultEmptyRoot, EmptyJournalStore } from '../../modules/dataops/empty/emptyJournal.js';
 import { emptyOrgOf, type EmptyOrg } from '../../modules/dataops/empty/emptyOrg.js';
 import { emptyScopeOf } from '../../modules/dataops/empty/emptyScope.js';
@@ -357,31 +357,43 @@ export class DataOpsEmptyHandler implements DomainHandler {
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
 
-  /** `dataops:empty:scope`: the global describe alone, no record counted. */
+  /**
+   * `dataops:empty:scope`: the global describe alone, no record counted, and
+   * whether the user may delete for good, read live: the page greys the
+   * option out with its reason before any preview is asked for.
+   */
   private async handleScope(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(dataOpsEmptyScopePayloadSchema, msg, 'dataops:error', this.deps);
     if (!parsed) return;
     try {
       const { orgId, ...request } = parsed;
       const context = await this.contextOf(orgId, msg.id, {});
-      const guard = await guardEmpty(
-        { query: (soql: string) => context.org.query(soql) } as unknown as Pick<
-          Connection,
-          'query'
-        >,
-        { orgName: context.orgName, registered: context.registered, mode: request.mode },
-      );
+      const conn = { query: (soql: string) => context.org.query(soql) } as unknown as Pick<
+        Connection,
+        'query'
+      >;
+      const guard = await guardEmpty(conn, {
+        orgName: context.orgName,
+        registered: context.registered,
+        mode: request.mode,
+      });
       if (!guard.allowed) throw new EmptyRefused(guard.refusal);
       const global = z
         .object({ sobjects: z.array(globalObjectSchema) })
         .loose()
         .parse(await context.org.describeGlobal()).sobjects;
       const scope = emptyScopeOf(global, await context.org.toolingObjects(), request);
+      const permissions = await emptyPermissionsOf(conn);
       this.respond(msg, 'dataops:empty:scope:response', {
         mode: scope.mode,
         objects: scope.objects,
         leftOut: scope.leftOut,
         candidates: scope.worked,
+        tier: guard.tier,
+        hardDelete: {
+          permitted: permissions.hardDelete,
+          ...(permissions.unread !== undefined ? { unread: permissions.unread } : {}),
+        },
       });
     } catch (err: unknown) {
       this.fail(msg, err, 'EMPTY_SCOPE_ERROR');

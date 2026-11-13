@@ -7588,5 +7588,270 @@
       "grants": "Was {{set}} gewährt, konnte nicht gelesen werden: Was er sonst noch aufhebt, ist nicht bekannt.",
       "validationRules": "Nicht alle Validierungsregeln konnten gelesen werden: Ob die Sätze weitere aufheben, ist nicht bekannt."
     }
+  },
+  "dataopsEmpty": {
+    "title": "Objekte oder die Org leeren",
+    "production": "{{org}} ist eine Produktions-Org oder lässt sich nicht von einer unterscheiden. Leeren ist für Sandboxes, Scratch-Orgs und Developer-Edition-Orgs gedacht: SandForge leert nie Objekte einer Produktions-Org, und nichts hebt diese Sperre auf.",
+    "scopeReading": "Die Objekte von {{org}} werden gelesen…",
+    "previewButton": "Vorschau",
+    "list": {
+      "filter": "Filtern",
+      "noMatch": "Kein Objekt passt zum Filter.",
+      "more": "{{shown}} von {{total}} angezeigt: Filtern Sie, um die anderen zu erreichen."
+    },
+    "objects": {
+      "title": "Objekte leeren",
+      "intro": "Löscht alle Datensätze der gewählten Objekte und das, was Salesforce mit ihnen löscht. Eine Vorschau zählt zuerst alles; gelöscht wird erst, wenn Sie mit dem Namen der Org bestätigen.",
+      "legend": "Zu leerende Objekte",
+      "picked_one": "{{formatted}} Objekt gewählt",
+      "picked_other": "{{formatted}} Objekte gewählt",
+      "notPickable_one": "{{formatted}} Objekt kann nicht gewählt werden, mit Grund",
+      "notPickable_other": "{{formatted}} Objekte können nicht gewählt werden, jedes mit Grund",
+      "staging": "{{org}} ist eine als Staging markierte Sandbox: Production Guard fragt, bevor ihre Objekte geleert werden."
+    },
+    "org": {
+      "title": "Die Org leeren",
+      "intro": "Löscht alle Datensätze, mit denen gearbeitet wird, außer dem, was Sie auslassen. Benutzer, Berechtigungen und das übrige Setup, Chatter, Verlauf, Freigaben und das Standardpreisbuch werden nie berührt.",
+      "staging": "{{org}} ist eine als Staging markierte Sandbox: Sie enthält echte Daten, und SandForge leert sie nie ganz. Wählen Sie stattdessen oben die zu leerenden Objekte, oder heben Sie die Markierung auf der Seite Organisationen auf, wenn sie niemandes Arbeit enthält.",
+      "optIn": "Auch leeren, nur wenn angehakt",
+      "customSettings": "Benutzerdefinierte Einstellungen: Konfiguration, etwa der Endpunkt einer Integration oder ein Schalter, den ein Administrator umgelegt hat",
+      "files": "Dateien und Anhänge: Eine mit einem Kollegen geteilte Datei gehört auch ihm",
+      "managedPackages": "Objekte verwalteter Pakete: Ein Paket kann darin seine eigene Konfiguration ablegen",
+      "exclude": "Auszulassende Objekte",
+      "excluded_one": "{{formatted}} Objekt von Ihnen ausgelassen",
+      "excluded_other": "{{formatted}} Objekte von Ihnen ausgelassen",
+      "emptied_one": "{{formatted}} Objekt wird geleert.",
+      "emptied_other": "{{formatted}} Objekte werden geleert.",
+      "leftOut_one": "{{formatted}} Objekt wird nie berührt, mit Grund",
+      "leftOut_other": "{{formatted}} Objekte werden nie berührt, jedes mit Grund"
+    },
+    "reason": {
+      "excludedByUser": "Von Ihnen ausgelassen",
+      "notFound": "Die Org hat kein Objekt dieses Namens",
+      "chatter": "Chatter-Beiträge, -Kommentare und -Feeds",
+      "history": "Verlauf: die eigene Spur der Änderungen in der Org",
+      "sharing": "Freigaben, die die Org selbst führt",
+      "changeEvent": "Änderungsereignisse",
+      "unsupportedKind": "Big Objects, externe und Data-Cloud-Objekte, Knowledge-Versionen und Plattformereignisse",
+      "customSetting": "Benutzerdefinierte Einstellungen, nicht angefragt",
+      "files": "Dateien und Anhänge, nicht angefragt",
+      "managedPackage": "Objekte verwalteter Pakete, nicht angefragt",
+      "documents": "Dokumente der Registerkarte Dokumente, in Ordnern abgelegt wie das Setup",
+      "heldWithFiles": "Geht mit seiner Datei, nie allein",
+      "setup": "Benutzer, Berechtigungen und Setup sowie die eigenen Protokolle und Jobs der Org",
+      "platformCreated": "Datensätze, die nur Salesforce anlegt",
+      "metadata": "Metadaten, die die Tooling API liefert",
+      "notDeletable": "Sie dürfen seine Datensätze weder abfragen noch löschen",
+      "notDescribed": "Die Org wollte es nicht beschreiben",
+      "noRecycleBin": "Kein Papierkorb: Seine Datensätze wären endgültig weg, außerhalb jeder Rückgängig-Aktion",
+      "notForGood": "Eine Datei wird nie endgültig gelöscht"
+    },
+    "options": {
+      "hard": "Endgültig löschen (Hard Delete): Nichts kommt in den Papierkorb, und Rückgängig ist nicht möglich",
+      "hardReading": "Es wird gelesen, ob Sie endgültig löschen dürfen…",
+      "hardPermitted": "Sie haben Bulk API Hard Delete: Angehakt wird auch das, was mit den Datensätzen geht, endgültig gelöscht.",
+      "hardNotPermitted": "Ausgegraut: {{user}} hat Bulk API Hard Delete nicht, und Salesforce verweigert ohne es ein endgültiges Löschen. Ein Berechtigungssatz damit erlaubt es, dies anzuhaken.",
+      "hardUnread": "Ausgegraut: Ob Sie Bulk API Hard Delete haben, konnte nicht gelesen werden ({{reason}})."
+    },
+    "count": {
+      "unread": "nicht gezählt",
+      "atMost": "höchstens {{formatted}}",
+      "atLeast": "mindestens {{formatted}}"
+    },
+    "size": {
+      "records_one": "{{formatted}} Datensatz",
+      "records_other": "{{formatted}} Datensätze",
+      "objects_one": "{{formatted}} Objekt",
+      "objects_other": "{{formatted}} Objekten",
+      "button": "{{records}} aus {{objects}} löschen",
+      "buttonAtLeast": "Mindestens {{records}} aus {{objects}} löschen"
+    },
+    "automation": {
+      "title": "Was {{org}} ausführt, wenn diese Datensätze gelöscht werden",
+      "loading": "Es wird gelesen, was {{org}} ausführt, wenn diese Datensätze gelöscht werden…",
+      "intro": "Wenn das Leeren diese Datensätze löscht, führt {{org}} aus:",
+      "none": "Nichts, was {{org}} automatisiert, läuft, wenn diese Datensätze gelöscht werden.",
+      "error": "Was {{org}} ausführt, wenn diese Datensätze gelöscht werden, konnte nicht gelesen werden: {{reason}}",
+      "drafted": "wenn das Leeren ihn zum Löschen auf Entwurf zurücksetzt"
+    },
+    "preview": {
+      "reading": "Die Datensätze von {{org}} und was mit ihnen geht, werden gezählt…",
+      "stop": "Vorschau anhalten",
+      "titleObjects": "Was das Leeren dieser Objekte von {{org}} löschen würde",
+      "titleOrg": "Was das Leeren von {{org}} löschen würde",
+      "nothing": "{{org}} enthält nichts, was diese Objekte löschen würden.",
+      "summary": "{{records}} aus {{objects}} kommen in den Papierkorb.",
+      "summaryHard": "{{records}} aus {{objects}} werden endgültig gelöscht.",
+      "readAt": "Gezählt um {{at}}: Danach angelegte Datensätze bleiben, wie sie sind.",
+      "uncounted": "Diese wollte die Org nicht zählen, und ihre Datensätze sind nicht in der Summe: {{objects}}.",
+      "hard": "Endgültig gelöscht: Salesforce holt nichts zurück, was ein Hard Delete nimmt, auch nicht, was mitgeht. Rückgängig wird nicht möglich sein.",
+      "stopped": "Die Vorschau wurde angehalten, bevor alle Zählungen vorlagen: Erstellen Sie die Vorschau erneut, um zu leeren.",
+      "stale": "Die Optionen haben sich seit dieser Vorschau geändert: Erstellen Sie die Vorschau erneut, bevor Sie leeren.",
+      "openRun": "Das letzte Leeren von {{org}} ({{runId}}, begonnen am {{at}}) hat mittendrin angehalten. Setzen Sie es fort oder machen Sie es rückgängig, bevor ein weiteres beginnt: Sein Rückgängig erreicht die Org dann noch so, wie sie war.",
+      "resume": "Fortsetzen…",
+      "undoOpen": "Rückgängig machen…",
+      "passes": "Jedes Objekt, in der Reihenfolge, in der der Lauf es löscht",
+      "col": {
+        "object": "Objekt",
+        "records": "Gelöschte Datensätze",
+        "sent": "Von seinem eigenen Durchgang gesendet",
+        "how": "Wie"
+      },
+      "how": {
+        "calls_one": "{{formatted}} Aufruf",
+        "calls_other": "{{formatted}} Aufrufe",
+        "jobs_one": "{{formatted}} Bulk-API-Job",
+        "jobs_other": "{{formatted}} Bulk-API-Jobs",
+        "notSent": "Nicht gesendet: Eine Datei wird nie endgültig gelöscht"
+      },
+      "archived": "davon {{records}} archiviert",
+      "kept": "{{records}} behalten: das Standardpreisbuch",
+      "along": "Datensätze anderer Objekte, die mit ihnen gehen",
+      "alongLine": "{{records}} {{object}}, über {{via}}",
+      "likelyTitle": "Was die Org verweigern würde, und was der Lauf dagegen tut",
+      "likely": {
+        "activatedOrder": "{{records}} {{object}} über Entwurf hinaus: zuerst auf Entwurf zurückgesetzt, da ein aktivierter Auftrag sein Löschen und das seines Accounts verweigert",
+        "standardPriceBook": "{{records}} {{object}} im Standardpreisbuch: nie gelöscht",
+        "directContactRelation": "{{records}} direkte {{object}}: mit ihrem Kontakt gelöscht, nie allein",
+        "personAccountContact": "{{records}} {{object}} von Personenaccounts: mit ihrem Account gelöscht, nie allein"
+      },
+      "blockersTitle": "Was das Leeren blockiert",
+      "blocker": "{{records}} {{object}}, nicht geleert, verweisen über {{field}} → {{parent}} auf diese Datensätze, was das Löschen verweigert: Wählen Sie auch {{object}}, oder lassen Sie {{parent}} aus.",
+      "beforeParentTitle": "Datensätze, die vor dem Datensatz gehen, auf den sie verweisen, wie Salesforce es verlangt",
+      "beforeParentRestricted": "{{object}} vor {{parent}}: {{field}} verweigert das Löschen eines Datensatzes, auf den es verweist",
+      "beforeParentPrices": "{{object}}: benutzerdefinierte Preise vor den Standardpreisen ({{field}})",
+      "undoLostTitle": "Was Rückgängig nicht zurückholen würde",
+      "undoLost": "{{records}} {{object}}: vor {{parent}} gegangen, Rückgängig kann sie nicht zurückholen, sobald beide weg sind",
+      "acceptNoUndo": "Trotzdem leeren: Diese Datensätze bleiben nach Rückgängig weg",
+      "cost": {
+        "title": "Was es {{org}} kostet",
+        "requests": "Etwa {{estimate}} API-Anfragen, {{remaining}} von {{max}} heute übrig.",
+        "requestsUnread": "Etwa {{estimate}} API-Anfragen; was {{org}} heute übrig hat, konnte nicht gelesen werden ({{reason}}).",
+        "batches": "{{estimate}} Bulk-API-Batches, {{remaining}} von {{max}} heute übrig.",
+        "batchesUnread": "{{estimate}} Bulk-API-Batches; was {{org}} heute übrig hat, konnte nicht gelesen werden ({{reason}}).",
+        "time": "Etwa {{time}}.",
+        "bin": "{{records}} kommen in den Papierkorb.",
+        "binNone": "Nichts kommt in den Papierkorb.",
+        "binPast": "Das liegt über den {{capacity}} Datensätzen, die Salesforce für den Papierkorb von {{org}} dokumentiert: Darüber hinaus drängt der Papierkorb seine ältesten Datensätze hinaus, darunter von Kollegen gelöschte."
+      },
+      "access": {
+        "title": "Sie haben nicht View All Data und Modify All Data: Datensätze dieser Objekte, die Sie nicht sehen, werden weder gezählt noch gelöscht, die aber, die ein gelöschter Datensatz mitnimmt, schon, ob gesehen oder nicht.",
+        "why": {
+          "noViewAll": "Sie haben darauf weder View All noch Modify All",
+          "noModifyAll": "Sie haben darauf View All, nicht Modify All",
+          "activities": "Salesforce hat kein View All für Aktivitäten",
+          "catalog": "Salesforce hat kein View All für Produkte und Preisbücher",
+          "files": "nichts belegt, dass Sie jede Datei sehen",
+          "setting": "nichts belegt, dass Sie jede Zeile einer benutzerdefinierten Einstellung sehen",
+          "parent": "nichts belegt, dass Sie jeden Datensatz sehen, an dem es hängt",
+          "unread": "Ihre Berechtigungen konnten nicht gelesen werden"
+        }
+      },
+      "peopleUnread": "Wer in der letzten Stunde Datensätze geändert hat, konnte nicht gelesen werden für: {{objects}}.",
+      "leftOut_one": "{{formatted}} Objekt ausgelassen, mit Grund",
+      "leftOut_other": "{{formatted}} Objekte ausgelassen, jedes mit Grund",
+      "checkpointLead": "Zuerst ein Prüfpunkt, wie diese Vorschau ihn liest:",
+      "holding": "Was das Leeren jetzt verhindert",
+      "again": "Vorschau erneut erstellen"
+    },
+    "confirm": {
+      "title": "{{org}} leeren?",
+      "description": "{{records}} aus {{objects}} kommen in den Papierkorb. Rückgängig holt sie zurück, solange der Papierkorb sie hält.",
+      "descriptionHard": "{{records}} aus {{objects}} werden endgültig gelöscht.",
+      "noUndo": "Rückgängig wird nicht möglich sein: Salesforce holt nichts zurück, was ein Hard Delete nimmt.",
+      "automation": "Während die Datensätze gehen, führt {{org}} aus, was die Vorschau aufgeführt hat.",
+      "muted": "Was die Stummschaltung zum Schweigen bringt, bleibt während des Laufs still und wird dann zurückgegeben.",
+      "blockers": "{{records}} nicht geleerter Objekte verweisen über ein Nachschlagefeld, das das Löschen verweigert, auf Datensätze, die es löscht: Die Datensätze, auf die sie verweisen, werden verweigert.",
+      "checkpoint": "Zuerst wird ein Prüfpunkt dessen erstellt, was der Lauf löscht."
+    },
+    "run": {
+      "title": "{{org}} wird geleert",
+      "undoTitle": "Was das Leeren aus {{org}} gelöscht hat, wird zurückgeholt",
+      "starting": "Wird gestartet…",
+      "progress": "Leeren läuft",
+      "undoProgress": "Rückgängig läuft",
+      "stop": "Leeren anhalten",
+      "stopUndo": "Rückgängig anhalten",
+      "stopping": "Wird vor dem nächsten Aufruf oder Job an {{org}} angehalten: Ein Bulk-API-Job, den {{org}} schon hat, endet zuerst…"
+    },
+    "result": {
+      "status": {
+        "success": "{{org}} geleert",
+        "partial": "{{org}} teilweise geleert",
+        "failure": "Nichts von {{org}} wurde geleert",
+        "cancelled": "Das Leeren von {{org}} wurde angehalten"
+      },
+      "refused": "Das Leeren von {{org}} wurde verweigert",
+      "stoppedNothing": "Das Leeren von {{org}} wurde angehalten",
+      "stoppedNothingDetail": "Es wurde angehalten, bevor etwas gelöscht wurde.",
+      "totals": "{{deleted}} gelöscht, {{gone}} vor ihrer Reihe schon weg (mitgenommen oder von jemandem gelöscht), {{refused}} verweigert, {{notReached}} nicht erreicht.",
+      "totalsHard": "{{deleted}} endgültig gelöscht, {{gone}} vor ihrer Reihe schon weg (mitgenommen oder von jemandem gelöscht), {{refused}} verweigert, {{notReached}} nicht erreicht.",
+      "resumed": "Es hat das Leeren fortgesetzt, das mittendrin angehalten hatte.",
+      "hardRefused": "Salesforce hat das endgültige Löschen verweigert, bevor ein Datensatz gesendet wurde: {{reason}}",
+      "perObject": "Was es mit jedem Objekt getan hat",
+      "col": {
+        "deleted": "Gelöscht",
+        "gone": "Vorher weg",
+        "refused": "Verweigert",
+        "notReached": "Nicht erreicht"
+      },
+      "madeSince_one": "{{formatted}} seit der Vorschau angelegter Datensatz bleibt, wie er ist",
+      "madeSince_other": "{{formatted}} seit der Vorschau angelegte Datensätze bleiben, wie sie sind",
+      "removedRuns_one": "Das Journal des früheren Leerens der Org wurde verworfen: Rückgängig erreicht nur dieses.",
+      "removedRuns_other": "Die Journale der früheren Leerungen der Org wurden verworfen: Rückgängig erreicht nur dieses.",
+      "undo": "Rückgängig machen…",
+      "undoWhile": "Holt {{runId}} aus dem Papierkorb zurück, solange er die Datensätze hält.",
+      "noUndoHard": "Rückgängig ist nicht möglich: Dieses Leeren hat endgültig gelöscht.",
+      "noUndoNothing": "Nichts wurde gelöscht: Es gibt nichts rückgängig zu machen.",
+      "previewAgain": "Vorschau erneut erstellen",
+      "done": "Fertig"
+    },
+    "resume": {
+      "title": "Das Leeren {{runId}} von {{org}} fortsetzen?",
+      "description": "Es löscht, was der angehaltene Lauf noch nicht erreicht hatte, wie seine Vorschau es zeigte, und liest beim Start erneut, was {{org}} ausführt.",
+      "button": "Leeren fortsetzen",
+      "acceptAutomation": "Ausführen lassen, was {{org}} beim Löschen der Datensätze ausführt"
+    },
+    "undo": {
+      "title": "Zurückholen, was {{runId}} aus {{org}} gelöscht hat?",
+      "description": "Die Datensätze kommen aus dem Papierkorb zurück, Eltern zuerst, solange er sie hält. Was aus dem Papierkorb entfernt oder von einem anderen Benutzer gelöscht wurde, während Ihnen Modify All Data fehlt, kommt nicht zurück.",
+      "button": "Datensätze zurückholen",
+      "acceptAutomation": "Ausführen lassen, was {{org}} nach dem Wiederherstellen ausführt",
+      "status": {
+        "success": "Was das Leeren gelöscht hat, ist wieder in {{org}}",
+        "partial": "Ein Teil dessen, was das Leeren gelöscht hat, ist wieder in {{org}}",
+        "failure": "Nichts ist nach {{org}} zurückgekommen",
+        "cancelled": "Das Rückgängigmachen wurde angehalten"
+      },
+      "refused": "Das Rückgängigmachen wurde verweigert",
+      "stoppedNothingDetail": "Es wurde angehalten, bevor etwas zurückgeholt wurde.",
+      "line": "{{undeleted}} von {{planned}} zurückgeholt.",
+      "alreadyBack": "{{formatted}} waren schon zurück.",
+      "notInBin": "{{formatted}} nicht mehr im Papierkorb.",
+      "othersDeletion": "{{formatted}} von einem anderen Benutzer gelöscht, was nur Modify All Data zurückholt.",
+      "refusedCount": "{{formatted}} verweigert.",
+      "notReached": "{{formatted}} nicht erreicht."
+    },
+    "history": {
+      "title": "Leerungen von {{org}}",
+      "loading": "Das Audit-Protokoll wird gelesen…",
+      "none": "Das Audit-Protokoll dieses Rechners enthält kein Leeren von {{org}}.",
+      "where": "Aus dem Audit-Protokoll dieses Rechners: Ein Leeren über die Befehlszeile oder von einem anderen Rechner ist hier nicht aufgeführt.",
+      "run": "Leeren",
+      "runHard": "Leeren, endgültig",
+      "undo": "Rückgängig",
+      "outcome": {
+        "success": "erledigt",
+        "partial": "teilweise erledigt",
+        "failure": "fehlgeschlagen",
+        "cancelled": "angehalten",
+        "stopped": "vor dem Start verweigert"
+      },
+      "deleted_one": "{{formatted}} Datensatz gelöscht",
+      "deleted_other": "{{formatted}} Datensätze gelöscht",
+      "broughtBack_one": "{{formatted}} Datensatz zurückgeholt",
+      "broughtBack_other": "{{formatted}} Datensätze zurückgeholt",
+      "refused": "{{formatted}} verweigert"
+    }
   }
 }

@@ -16,6 +16,14 @@ function rewindableCheckpoint() {
   return readyCheckpoint({ checkpointId: 'ck-20261029-020000-abcd', name: 'Training baseline' });
 }
 import { VSCODE_DEFAULT_STYLES } from './fixtures/vscode-default-styles';
+import {
+  EMPTY_ORG,
+  emptyAudit,
+  emptyScope,
+  objectsPreview,
+  orgPreview,
+  runResult,
+} from './fixtures/empty';
 import { sendExtensionMessage } from './mocks/vscode-api';
 import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
 import { BUILT_IN_SCENARIO_PACKS, RETAIL_ORDERS_PACK } from '@sandforge/shared';
@@ -1208,6 +1216,65 @@ async function answerAll(
       payload,
     });
   }
+}
+
+/**
+ * DataOps' Cleanup tab drawn with its emptying, the scope of the org and its
+ * history answered as the extension answers them (fixtures/empty.ts).
+ */
+async function openEmptying(
+  bridge: MockBridge,
+  page: Page,
+  theme: StateTheme,
+  scope = emptyScope(),
+): Promise<void> {
+  await openPanel(bridge, page, 'dataops', theme);
+  await bridge.seedOrgs(MOCK_ORGS);
+  await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+  await page.getByTestId('page-tab-cleanup').click();
+  await bridge.waitForMessage('dataops:empty:scope', { timeout: 10_000 });
+  await answerAll(page, 'dataops:empty:scope', 'dataops:empty:scope:response', scope);
+  await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+    objects: [{ apiName: 'Account', label: 'Account' }],
+  });
+  await bridge.waitForMessage('reports:audit', { timeout: 10_000 });
+  await answerAll(page, 'reports:audit', 'reports:audit:response', {
+    entries: emptyAudit(),
+    total: 1,
+    offset: 0,
+    facets: { modules: ['dataops'], orgs: [] },
+  });
+  await page.getByTestId('empty-history-list').waitFor({ timeout: 10_000 });
+}
+
+/** Ask the emptying's preview of a section, and answer it with `answer`. */
+async function answerEmptyPreview(
+  page: Page,
+  section: 'objects' | 'org',
+  answer: object,
+): Promise<void> {
+  if (section === 'objects') {
+    await page.getByTestId('empty-pick-option-Account').check();
+    await page.getByTestId('empty-pick-option-Contact').check();
+  }
+  await page.getByTestId(`empty-${section}-preview`).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          ((window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [])
+            .map((m) => ((m as Record<string, unknown>).payload ?? m) as Record<string, unknown>)
+            .filter((m) => m.type === 'dataops:empty:preview').length,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await answerAll(
+    page,
+    'dataops:empty:preview',
+    'dataops:empty:preview:response',
+    answer as Record<string, unknown>,
+  );
+  await page.getByTestId('empty-preview').waitFor({ timeout: 10_000 });
 }
 
 /**
@@ -8617,6 +8684,143 @@ for (const theme of SCANNED_THEMES) {
         'axe measured no text of the cron field or its help',
       ).toBeGreaterThan(0);
     });
+
+    test('DataOps Empty objects and Empty the org: what may be picked, what is never touched, the delete for good greyed out, the history', async ({
+      page,
+    }) => {
+      await openEmptying(bridge, page, theme);
+      await page.getByTestId('empty-objects-not-pickable').locator('summary').click();
+      await page.getByTestId('empty-org-left-out').locator('summary').click();
+      await expect(page.getByTestId('empty-objects-hard')).toBeDisabled();
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="empty-panel"]'),
+        'axe measured no text of the emptying',
+      ).toBeGreaterThan(10);
+    });
+
+    test('DataOps emptying preview of objects: what goes along, what the org refuses and what blocks it, what fires, its cost', async ({
+      page,
+    }) => {
+      await openEmptying(bridge, page, theme);
+      await answerEmptyPreview(page, 'objects', objectsPreview());
+      await expect(page.getByTestId('empty-preview-blockers')).toBeVisible();
+      await toMiddle(page, 'empty-preview');
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="empty-preview"]'),
+        'axe measured no text of the preview',
+      ).toBeGreaterThan(10);
+    });
+
+    test('DataOps emptying preview of the whole org: what Undo leaves with its box, a recycle bin past its size, the refusal it holds', async ({
+      page,
+    }) => {
+      await openEmptying(bridge, page, theme);
+      await answerEmptyPreview(page, 'org', orgPreview());
+      await expect(page.getByTestId('empty-preview-holding-NO_UNDO')).toBeVisible();
+      await page.getByTestId('empty-preview-left-out').locator('summary').click();
+      await toMiddle(page, 'empty-preview-cost');
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="empty-preview-cost"]'),
+        'axe measured no text of the cost',
+      ).toBeGreaterThan(2);
+    });
+
+    test('DataOps emptying confirmation for good: the org name typed, the act and its size, no Undo', async ({
+      page,
+    }) => {
+      await openEmptying(bridge, page, theme, emptyScope({ permitted: true }));
+      await page.getByTestId('empty-objects-hard').check();
+      const hard = objectsPreview();
+      await answerEmptyPreview(page, 'objects', {
+        ...hard,
+        preview: { ...hard.preview, deleteMode: 'hard', undo: false },
+        hardDelete: { permitted: true },
+      });
+      await page.getByTestId('empty-preview-empty').click();
+      const dialog = page.getByRole('dialog', { name: `Empty ${EMPTY_ORG.alias}?` });
+      await dialog.waitFor({ state: 'visible', timeout: 5000 });
+      await expect(dialog.getByTestId('empty-confirm-no-undo')).toBeVisible();
+      await page.getByTestId('danger-input').fill(EMPTY_ORG.alias);
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('DataOps emptying under way with its Stop, then its result with Undo', async ({
+      page,
+    }) => {
+      await openEmptying(bridge, page, theme);
+      await answerEmptyPreview(page, 'objects', objectsPreview());
+      await page.getByTestId('empty-preview-empty').click();
+      await page.getByTestId('danger-input').fill(EMPTY_ORG.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      const run = await bridge.waitForMessage('dataops:empty:run', { timeout: 10_000 });
+      await sendExtensionMessage(page, {
+        type: 'operation:progress',
+        payload: {
+          operationId: run.id,
+          percentage: 40,
+          processedRecords: 0,
+          totalRecords: 0,
+          currentStep: 'Contact: 10 of about 25 settled',
+        },
+      });
+      await page.getByTestId('empty-outcome-running').waitFor({ timeout: 10_000 });
+      const running = await checkAccessibility(page);
+      expectNoViolations(running);
+
+      await answerAll(page, 'dataops:empty:run', 'dataops:empty:run:response', {
+        operationId: run.id,
+        result: runResult({
+          status: 'partial',
+          passes: [
+            {
+              objectApiName: 'Account',
+              planned: 120,
+              deleted: 118,
+              gone: 0,
+              refused: 2,
+              madeSince: 3,
+              reasons: ['DELETE_FAILED: a Case still names it in AccountId'],
+            },
+          ],
+          totals: { deleted: 118, gone: 0, refused: 2, notReached: 0 },
+        }),
+      });
+      await page.getByTestId('empty-result-undo').waitFor({ timeout: 10_000 });
+      const done = await checkAccessibility(page);
+      expectNoViolations(done);
+      expect(
+        await contrastMeasuredIn(page, done, '[data-testid="empty-outcome"]'),
+        'axe measured no text of the result',
+      ).toBeGreaterThan(5);
+    });
+
+    test('DataOps emptying refused on a production org', async ({ page }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs([
+        { ...DEV_SANDBOX, id: 'org-prod-1', alias: 'Prod', orgType: 'Production' },
+      ]);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await page.getByTestId('page-tab-cleanup').click();
+      await page.getByTestId('empty-production-refusal').waitFor({ timeout: 10_000 });
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="empty-production"]'),
+        'axe measured no text of the refusal',
+      ).toBeGreaterThan(0);
+    });
   });
 }
 
@@ -11708,6 +11912,17 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('delete-template-question')).toBeVisible();
 
       await expectReadable(page, theme);
+    });
+
+    test('DataOps emptying sections and a preview of objects, each text against the theme', async ({
+      page,
+    }) => {
+      await openEmptying(bridge, page, theme);
+      await page.getByTestId('empty-objects-not-pickable').locator('summary').click();
+      await expectReadable(page, theme, '[data-testid="empty-panel"]');
+      await answerEmptyPreview(page, 'objects', objectsPreview());
+      await toMiddle(page, 'empty-preview');
+      await expectReadable(page, theme, '[data-testid="empty-preview"]');
     });
 
     test('DataOps backups a cap stopped short, on Backup, Restore and in the restore check', async ({

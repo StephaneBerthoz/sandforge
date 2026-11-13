@@ -7588,5 +7588,270 @@
       "grants": "What {{set}} grants couldn't be read: what else it lifts isn't known.",
       "validationRules": "Not every validation rule could be read: whether the sets lift more isn't known."
     }
+  },
+  "dataopsEmpty": {
+    "title": "Empty objects or the org",
+    "production": "{{org}} is a production org, or cannot be told from one. Emptying is for sandboxes, scratch orgs and Developer Edition orgs: SandForge never empties objects of a production org, and nothing lifts this.",
+    "scopeReading": "Reading the objects of {{org}}…",
+    "previewButton": "Preview",
+    "list": {
+      "filter": "Filter",
+      "noMatch": "No object matches the filter.",
+      "more": "{{shown}} of {{total}} shown: filter to reach the others."
+    },
+    "objects": {
+      "title": "Empty objects",
+      "intro": "Deletes every record of the objects you pick, and what Salesforce deletes along with them. A preview counts everything first; nothing is deleted until you confirm it with the org's name.",
+      "legend": "Objects to empty",
+      "picked_one": "{{formatted}} object picked",
+      "picked_other": "{{formatted}} objects picked",
+      "notPickable_one": "{{formatted}} object cannot be picked, with why",
+      "notPickable_other": "{{formatted}} objects cannot be picked, each with why",
+      "staging": "{{org}} is a sandbox marked Staging: Production Guard asks before its objects are emptied."
+    },
+    "org": {
+      "title": "Empty the org",
+      "intro": "Deletes every record people work in, less what you leave out. Users, permissions and the rest of setup, Chatter, history, sharing and the standard price book are never touched.",
+      "staging": "{{org}} is a sandbox marked Staging: it holds real data, and SandForge never empties the whole of it. Pick the objects to empty above instead, or unmark it on the Organizations page if it holds nobody's work.",
+      "optIn": "Also empty, only when ticked",
+      "customSettings": "Custom settings: configuration, such as an integration's endpoint or a switch an admin flipped",
+      "files": "Files and attachments: a file shared with a colleague is theirs too",
+      "managedPackages": "Objects of managed packages: a package may keep its own configuration in them",
+      "exclude": "Objects to leave out",
+      "excluded_one": "{{formatted}} object left out by you",
+      "excluded_other": "{{formatted}} objects left out by you",
+      "emptied_one": "{{formatted}} object is emptied.",
+      "emptied_other": "{{formatted}} objects are emptied.",
+      "leftOut_one": "{{formatted}} object is never touched, with why",
+      "leftOut_other": "{{formatted}} objects are never touched, each with why"
+    },
+    "reason": {
+      "excludedByUser": "Left out by you",
+      "notFound": "The org has no object of this name",
+      "chatter": "Chatter posts, comments and feeds",
+      "history": "History: the org's own trace of changes",
+      "sharing": "Sharing, which the org keeps itself",
+      "changeEvent": "Change events",
+      "unsupportedKind": "Big, external and Data Cloud objects, Knowledge versions and platform events",
+      "customSetting": "Custom settings, not asked for",
+      "files": "Files and attachments, not asked for",
+      "managedPackage": "Objects of managed packages, not asked for",
+      "documents": "Documents of the Documents tab, kept in folders as setup is",
+      "heldWithFiles": "Goes with its file, never on its own",
+      "setup": "Users, permissions and setup, and the org's own logs and jobs",
+      "platformCreated": "Records Salesforce alone creates",
+      "metadata": "Metadata, which the Tooling API serves",
+      "notDeletable": "You may not query or delete its records",
+      "notDescribed": "The org would not describe it",
+      "noRecycleBin": "No recycle bin: its records would be gone for good, beyond any Undo",
+      "notForGood": "A file is never deleted for good"
+    },
+    "options": {
+      "hard": "Delete for good (hard delete): nothing goes to the recycle bin, and Undo is not possible",
+      "hardReading": "Reading whether you may delete for good…",
+      "hardPermitted": "You have Bulk API Hard Delete: ticked, what goes along with the records is deleted for good too.",
+      "hardNotPermitted": "Greyed out: {{user}} doesn't have Bulk API Hard Delete, and Salesforce refuses a hard delete without it. A permission set with it lets you tick this.",
+      "hardUnread": "Greyed out: whether you have Bulk API Hard Delete could not be read ({{reason}})."
+    },
+    "count": {
+      "unread": "not counted",
+      "atMost": "at most {{formatted}}",
+      "atLeast": "at least {{formatted}}"
+    },
+    "size": {
+      "records_one": "{{formatted}} record",
+      "records_other": "{{formatted}} records",
+      "objects_one": "{{formatted}} object",
+      "objects_other": "{{formatted}} objects",
+      "button": "Delete {{records}} from {{objects}}",
+      "buttonAtLeast": "Delete at least {{records}} from {{objects}}"
+    },
+    "automation": {
+      "title": "What {{org}} runs as these records are deleted",
+      "loading": "Reading what {{org}} runs as these records are deleted…",
+      "intro": "As the emptying deletes these records, {{org}} runs:",
+      "none": "Nothing {{org}} automates runs as these records are deleted.",
+      "error": "What {{org}} runs as these records are deleted could not be read: {{reason}}",
+      "drafted": "as the emptying sets it back to Draft to delete it"
+    },
+    "preview": {
+      "reading": "Counting the records of {{org}}, and what goes with them…",
+      "stop": "Stop the preview",
+      "titleObjects": "What emptying these objects of {{org}} would delete",
+      "titleOrg": "What emptying {{org}} would delete",
+      "nothing": "{{org}} holds nothing these objects would delete.",
+      "summary": "{{records}} of {{objects}} go to the recycle bin.",
+      "summaryHard": "{{records}} of {{objects}} are deleted for good.",
+      "readAt": "Counted at {{at}}: records made after that are left as they are.",
+      "uncounted": "The org would not count these, and their records are not in the sum: {{objects}}.",
+      "hard": "Deleted for good: Salesforce brings back nothing a hard delete takes, what goes along included. Undo will not be possible.",
+      "stopped": "The preview was stopped before every count was in: preview again to empty.",
+      "stale": "The options changed since this preview: preview again before you empty.",
+      "openRun": "The last emptying of {{org}} ({{runId}}, started {{at}}) stopped part way. Resume it, or undo it, before another one starts: its Undo then still reaches the org as it was.",
+      "resume": "Resume it…",
+      "undoOpen": "Undo it…",
+      "passes": "Each object, in the order the run deletes it",
+      "col": {
+        "object": "Object",
+        "records": "Records deleted",
+        "sent": "Sent by its own pass",
+        "how": "How"
+      },
+      "how": {
+        "calls_one": "{{formatted}} call",
+        "calls_other": "{{formatted}} calls",
+        "jobs_one": "{{formatted}} Bulk API job",
+        "jobs_other": "{{formatted}} Bulk API jobs",
+        "notSent": "Not sent: a file is never deleted for good"
+      },
+      "archived": "of them {{records}} archived",
+      "kept": "{{records}} kept: the standard price book",
+      "along": "Records of other objects that go along with them",
+      "alongLine": "{{records}} {{object}}, by {{via}}",
+      "likelyTitle": "What the org would refuse, and what the run does about it",
+      "likely": {
+        "activatedOrder": "{{records}} {{object}} past Draft: set back to Draft first, as an activated order refuses its delete and its account's",
+        "standardPriceBook": "{{records}} {{object}} in the standard price book: never deleted",
+        "directContactRelation": "{{records}} direct {{object}}: deleted with their contact, never on their own",
+        "personAccountContact": "{{records}} {{object}} of person accounts: deleted with their account, never on their own"
+      },
+      "blockersTitle": "What blocks the emptying",
+      "blocker": "{{records}} {{object}}, not emptied, name these records by {{field}} → {{parent}}, which refuses the delete: pick {{object}} too, or leave {{parent}} out.",
+      "beforeParentTitle": "Records that go before the record they name, as Salesforce requires",
+      "beforeParentRestricted": "{{object}} before {{parent}}: {{field}} refuses the delete of a record it names",
+      "beforeParentPrices": "{{object}}: custom prices before the standard ones ({{field}})",
+      "undoLostTitle": "What Undo would not bring back",
+      "undoLost": "{{records}} {{object}}: gone before {{parent}}, Undo cannot bring them back once both have gone",
+      "acceptNoUndo": "Empty all the same: these records stay gone after Undo",
+      "cost": {
+        "title": "What it costs {{org}}",
+        "requests": "About {{estimate}} API requests, {{remaining}} of {{max}} left today.",
+        "requestsUnread": "About {{estimate}} API requests; what {{org}} has left today could not be read ({{reason}}).",
+        "batches": "{{estimate}} Bulk API batches, {{remaining}} of {{max}} left today.",
+        "batchesUnread": "{{estimate}} Bulk API batches; what {{org}} has left today could not be read ({{reason}}).",
+        "time": "About {{time}}.",
+        "bin": "{{records}} go to the recycle bin.",
+        "binNone": "Nothing goes to the recycle bin.",
+        "binPast": "That is past the {{capacity}} records Salesforce documents for {{org}}'s recycle bin: past it, the bin pushes out its oldest records, colleagues' deleted records among them."
+      },
+      "access": {
+        "title": "You don't have View All Data and Modify All Data: records of these objects you cannot see are neither counted nor deleted, but those a deleted record takes along are, seen or not.",
+        "why": {
+          "noViewAll": "you have neither View All nor Modify All on it",
+          "noModifyAll": "you have View All on it, not Modify All",
+          "activities": "Salesforce has no View All for activities",
+          "catalog": "Salesforce has no View All for products and price books",
+          "files": "nothing proves you see every file",
+          "setting": "nothing proves you see every row of a custom setting",
+          "parent": "nothing proves you see every record it hangs from",
+          "unread": "your permissions could not be read"
+        }
+      },
+      "peopleUnread": "Who changed records in the last hour could not be read for: {{objects}}.",
+      "leftOut_one": "{{formatted}} object left out, with why",
+      "leftOut_other": "{{formatted}} objects left out, each with why",
+      "checkpointLead": "Checkpoint first, as this preview reads it:",
+      "holding": "What stops the emptying now",
+      "again": "Preview again"
+    },
+    "confirm": {
+      "title": "Empty {{org}}?",
+      "description": "{{records}} of {{objects}} go to the recycle bin. Undo brings them back while the bin holds them.",
+      "descriptionHard": "{{records}} of {{objects}} are deleted for good.",
+      "noUndo": "Undo will not be possible: Salesforce brings back nothing a hard delete takes.",
+      "automation": "As the records go, {{org}} runs what the preview listed.",
+      "muted": "What the mute silences is kept quiet for the run, then given back.",
+      "blockers": "{{records}} of objects not emptied name records it deletes, by a lookup that refuses the delete: the records they name will be refused.",
+      "checkpoint": "A checkpoint of what the run deletes is taken first."
+    },
+    "run": {
+      "title": "Emptying {{org}}",
+      "undoTitle": "Bringing back what the emptying deleted from {{org}}",
+      "starting": "Starting…",
+      "progress": "Emptying under way",
+      "undoProgress": "Undo under way",
+      "stop": "Stop the emptying",
+      "stopUndo": "Stop the undo",
+      "stopping": "Stopping before the next call or job to {{org}}: a Bulk API job {{org}} already holds finishes first…"
+    },
+    "result": {
+      "status": {
+        "success": "{{org}} emptied",
+        "partial": "{{org}} emptied in part",
+        "failure": "Nothing of {{org}} was emptied",
+        "cancelled": "The emptying of {{org}} was stopped"
+      },
+      "refused": "The emptying of {{org}} was refused",
+      "stoppedNothing": "The emptying of {{org}} was stopped",
+      "stoppedNothingDetail": "It was stopped before anything was deleted.",
+      "totals": "{{deleted}} deleted, {{gone}} gone before their turn (taken along, or deleted by someone), {{refused}} refused, {{notReached}} not reached.",
+      "totalsHard": "{{deleted}} deleted for good, {{gone}} gone before their turn (taken along, or deleted by someone), {{refused}} refused, {{notReached}} not reached.",
+      "resumed": "It took up the emptying that had stopped part way.",
+      "hardRefused": "Salesforce refused to delete for good before a record was sent: {{reason}}",
+      "perObject": "What it did with each object",
+      "col": {
+        "deleted": "Deleted",
+        "gone": "Gone before",
+        "refused": "Refused",
+        "notReached": "Not reached"
+      },
+      "madeSince_one": "{{formatted}} record made since the preview is left as it is",
+      "madeSince_other": "{{formatted}} records made since the preview are left as they are",
+      "removedRuns_one": "The journal of the org's earlier emptying was let go: Undo reaches this one alone.",
+      "removedRuns_other": "The journals of the org's earlier emptyings were let go: Undo reaches this one alone.",
+      "undo": "Undo…",
+      "undoWhile": "Brings back {{runId}} from the recycle bin while it holds the records.",
+      "noUndoHard": "Undo is not possible: this emptying deleted for good.",
+      "noUndoNothing": "Nothing was deleted: there is nothing to undo.",
+      "previewAgain": "Preview again",
+      "done": "Done"
+    },
+    "resume": {
+      "title": "Resume the emptying {{runId}} of {{org}}?",
+      "description": "It deletes what the stopped run had not reached yet, as its preview showed, and reads what {{org}} runs again as it starts.",
+      "button": "Resume the emptying",
+      "acceptAutomation": "Let what {{org}} runs as the records are deleted fire"
+    },
+    "undo": {
+      "title": "Bring back what {{runId}} deleted from {{org}}?",
+      "description": "The records come back from the recycle bin, parents first, while it holds them. What was purged from the bin, or deleted by another user while you lack Modify All Data, does not come back.",
+      "button": "Bring back the records",
+      "acceptAutomation": "Let what {{org}} runs after undelete fire",
+      "status": {
+        "success": "What the emptying deleted is back in {{org}}",
+        "partial": "Part of what the emptying deleted is back in {{org}}",
+        "failure": "Nothing came back to {{org}}",
+        "cancelled": "The undo was stopped"
+      },
+      "refused": "The undo was refused",
+      "stoppedNothingDetail": "It was stopped before anything was brought back.",
+      "line": "{{undeleted}} of {{planned}} brought back.",
+      "alreadyBack": "{{formatted}} were back already.",
+      "notInBin": "{{formatted}} not in the recycle bin any more.",
+      "othersDeletion": "{{formatted}} deleted by another user, which only Modify All Data brings back.",
+      "refusedCount": "{{formatted}} refused.",
+      "notReached": "{{formatted}} not reached."
+    },
+    "history": {
+      "title": "Emptyings of {{org}}",
+      "loading": "Reading the audit trail…",
+      "none": "The audit trail of this machine holds no emptying of {{org}}.",
+      "where": "From the audit trail of this machine: an emptying run from the command line or from another machine is not listed here.",
+      "run": "Emptying",
+      "runHard": "Emptying, for good",
+      "undo": "Undo",
+      "outcome": {
+        "success": "done",
+        "partial": "done in part",
+        "failure": "failed",
+        "cancelled": "stopped",
+        "stopped": "refused before it began"
+      },
+      "deleted_one": "{{formatted}} record deleted",
+      "deleted_other": "{{formatted}} records deleted",
+      "broughtBack_one": "{{formatted}} record brought back",
+      "broughtBack_other": "{{formatted}} records brought back",
+      "refused": "{{formatted}} refused"
+    }
   }
 }

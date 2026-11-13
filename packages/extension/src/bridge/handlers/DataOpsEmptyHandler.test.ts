@@ -130,6 +130,53 @@ describe('DataOpsEmptyHandler', () => {
     expect(org.sent).toEqual([]);
   });
 
+  it('says with the scope whether the user may delete for good, as the org answers it now', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const deps = depsOf();
+    const handler = handlerOn(org, deps);
+    await handler.handle(request('dataops:empty:scope', { orgId: 'org-1', mode: 'org' }, 'a'));
+    expect(
+      answer<{ hardDelete: unknown; tier: string }>(deps, 'dataops:empty:scope:response'),
+    ).toMatchObject({ hardDelete: { permitted: false }, tier: 'development' });
+
+    // Granted since: the next scope reads it again rather than keeping the first answer.
+    org.hardDeletePermitted = true;
+    await handler.handle(request('dataops:empty:scope', { orgId: 'org-1', mode: 'org' }, 'b'));
+    expect(
+      answer<{ hardDelete: unknown }>(deps, 'dataops:empty:scope:response').hardDelete,
+    ).toEqual({ permitted: true });
+    expect(org.sent).toEqual([]);
+  });
+
+  it('lists what may be picked in a sandbox marked Staging, whose whole it refuses', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const deps = depsOf();
+    vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+      id: 'org-1',
+      orgType: 'Sandbox',
+      staging: true,
+      alias: 'uat',
+      username: 'admin@example.invalid',
+    } as never);
+    const handler = handlerOn(org, deps);
+
+    // Nothing picked yet: the objects a pick is made among.
+    await handler.handle(
+      request('dataops:empty:scope', { orgId: 'org-1', mode: 'objects', objects: [] }, 'a'),
+    );
+    const scope = answer<{ candidates: string[]; objects: string[]; tier: string }>(
+      deps,
+      'dataops:empty:scope:response',
+    );
+    expect(scope.candidates).toContain('Account');
+    expect(scope.objects).toEqual([]);
+    expect(scope.tier).toBe('staging');
+
+    await handler.handle(request('dataops:empty:scope', { orgId: 'org-1', mode: 'org' }, 'b'));
+    expect(answer<{ code: string }>(deps, 'dataops:error').code).toBe('STAGING_ORG');
+    expect(org.sent).toEqual([]);
+  });
+
   it('keeps the dry run under its id, and a run on it deletes, is audited, and is answered with its result', async () => {
     const org = new MemoryEmptyOrg(emptySalesSpecs());
     const deps = depsOf();

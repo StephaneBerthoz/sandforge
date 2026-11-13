@@ -101,11 +101,6 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
     reason:
       'sandforge-frozen remove --preview sends it through the handler it drives; the Load tab offers no preview of a removal yet.',
   },
-  ...['scope', 'preview', 'run', 'cancel', 'undo'].map((act) => ({
-    channel: `dataops:empty:${act}`,
-    reason:
-      'Emptying objects or the org has its handler; the Cleanup page has no section for it yet.',
-  })),
 ];
 
 function repoPath(...parts: string[]): string {

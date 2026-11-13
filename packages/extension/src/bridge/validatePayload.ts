@@ -1148,7 +1148,13 @@ const dataOpsEmptyScopeRequestSchema = z
 
 /** `dataops:empty:scope`: the org, and what is asked. */
 export const dataOpsEmptyScopePayloadSchema = z
-  .object({ orgId: orgIdSchema, ...dataOpsEmptyScopeRequestShape })
+  .object({
+    orgId: orgIdSchema,
+    ...dataOpsEmptyScopeRequestShape,
+    // None picked yet: a sandbox marked Staging refuses the whole-org scope, and
+    // its page asks the objects one with nothing in it, for what to pick among.
+    objects: z.array(sfApiNameSchema).max(EMPTY_MAX_OBJECTS).optional(),
+  })
   .strict()
   .refine((request) => (request.mode === 'objects') === (request.objects !== undefined), {
     message: 'The objects picked are named in objects mode, and only there',

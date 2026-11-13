@@ -7588,5 +7588,270 @@
       "grants": "Ce qu'accorde {{set}} n'a pas pu être lu : ce qu'il lève d'autre n'est pas connu.",
       "validationRules": "Les règles de validation n'ont pas toutes pu être lues : on ne sait pas si les ensembles en lèvent d'autres."
     }
+  },
+  "dataopsEmpty": {
+    "title": "Vider des objets ou l'org",
+    "production": "{{org}} est une org de production, ou ne se distingue pas d'une org de production. Vider est réservé aux sandboxes, aux scratch orgs et aux orgs Developer Edition : SandForge ne vide jamais les objets d'une org de production, et rien ne lève ce refus.",
+    "scopeReading": "Lecture des objets de {{org}}…",
+    "previewButton": "Aperçu",
+    "list": {
+      "filter": "Filtrer",
+      "noMatch": "Aucun objet ne correspond au filtre.",
+      "more": "{{shown}} sur {{total}} affichés : filtrez pour atteindre les autres."
+    },
+    "objects": {
+      "title": "Vider des objets",
+      "intro": "Supprime tous les enregistrements des objets choisis, et ce que Salesforce supprime avec eux. Un aperçu compte tout d'abord ; rien n'est supprimé avant que vous confirmiez avec le nom de l'org.",
+      "legend": "Objets à vider",
+      "picked_one": "{{formatted}} objet choisi",
+      "picked_other": "{{formatted}} objets choisis",
+      "notPickable_one": "{{formatted}} objet ne peut pas être choisi, avec la raison",
+      "notPickable_other": "{{formatted}} objets ne peuvent pas être choisis, chacun avec sa raison",
+      "staging": "{{org}} est une sandbox marquée Staging : Production Guard demande confirmation avant que ses objets soient vidés."
+    },
+    "org": {
+      "title": "Vider l'org",
+      "intro": "Supprime tous les enregistrements sur lesquels on travaille, moins ce que vous laissez de côté. Les utilisateurs, les autorisations et le reste de la configuration, Chatter, l'historique, le partage et le catalogue standard ne sont jamais touchés.",
+      "staging": "{{org}} est une sandbox marquée Staging : elle contient des données réelles, et SandForge ne la vide jamais en entier. Choisissez plutôt les objets à vider ci-dessus, ou retirez la marque sur la page Organisations si elle ne contient le travail de personne.",
+      "optIn": "Vider aussi, seulement si coché",
+      "customSettings": "Paramètres personnalisés : de la configuration, comme l'adresse d'une intégration ou un interrupteur qu'un administrateur a basculé",
+      "files": "Fichiers et pièces jointes : un fichier partagé avec un collègue est aussi le sien",
+      "managedPackages": "Objets de packages gérés : un package peut y garder sa propre configuration",
+      "exclude": "Objets à laisser de côté",
+      "excluded_one": "{{formatted}} objet laissé de côté par vous",
+      "excluded_other": "{{formatted}} objets laissés de côté par vous",
+      "emptied_one": "{{formatted}} objet est vidé.",
+      "emptied_other": "{{formatted}} objets sont vidés.",
+      "leftOut_one": "{{formatted}} objet n'est jamais touché, avec la raison",
+      "leftOut_other": "{{formatted}} objets ne sont jamais touchés, chacun avec sa raison"
+    },
+    "reason": {
+      "excludedByUser": "Laissé de côté par vous",
+      "notFound": "L'org n'a aucun objet de ce nom",
+      "chatter": "Publications, commentaires et fils Chatter",
+      "history": "Historique : la trace des modifications que garde l'org",
+      "sharing": "Partage, que l'org tient elle-même",
+      "changeEvent": "Événements de modification",
+      "unsupportedKind": "Big objects, objets externes et Data Cloud, versions Knowledge et événements de plateforme",
+      "customSetting": "Paramètres personnalisés, non demandés",
+      "files": "Fichiers et pièces jointes, non demandés",
+      "managedPackage": "Objets de packages gérés, non demandés",
+      "documents": "Documents de l'onglet Documents, rangés dans des dossiers comme la configuration",
+      "heldWithFiles": "Va avec son fichier, jamais seul",
+      "setup": "Utilisateurs, autorisations et configuration, et les journaux et jobs propres à l'org",
+      "platformCreated": "Enregistrements que seul Salesforce crée",
+      "metadata": "Métadonnées, servies par l'API Tooling",
+      "notDeletable": "Vous ne pouvez ni lire ni supprimer ses enregistrements",
+      "notDescribed": "L'org n'a pas voulu le décrire",
+      "noRecycleBin": "Sans corbeille : ses enregistrements disparaîtraient définitivement, hors de portée d'Annuler",
+      "notForGood": "Un fichier n'est jamais supprimé définitivement"
+    },
+    "options": {
+      "hard": "Supprimer définitivement (hard delete) : rien ne va dans la corbeille, et Annuler n'est pas possible",
+      "hardReading": "Lecture de votre droit de supprimer définitivement…",
+      "hardPermitted": "Vous avez Bulk API Hard Delete : coché, ce qui part avec les enregistrements est aussi supprimé définitivement.",
+      "hardNotPermitted": "Grisé : {{user}} n'a pas Bulk API Hard Delete, et Salesforce refuse une suppression définitive sans lui. Un ensemble d'autorisations qui l'accorde permet de cocher cette case.",
+      "hardUnread": "Grisé : impossible de lire si vous avez Bulk API Hard Delete ({{reason}})."
+    },
+    "count": {
+      "unread": "non compté",
+      "atMost": "au plus {{formatted}}",
+      "atLeast": "au moins {{formatted}}"
+    },
+    "size": {
+      "records_one": "{{formatted}} enregistrement",
+      "records_other": "{{formatted}} enregistrements",
+      "objects_one": "{{formatted}} objet",
+      "objects_other": "{{formatted}} objets",
+      "button": "Supprimer {{records}} de {{objects}}",
+      "buttonAtLeast": "Supprimer au moins {{records}} de {{objects}}"
+    },
+    "automation": {
+      "title": "Ce que {{org}} exécute quand ces enregistrements sont supprimés",
+      "loading": "Lecture de ce que {{org}} exécute quand ces enregistrements sont supprimés…",
+      "intro": "Quand le vidage supprime ces enregistrements, {{org}} exécute :",
+      "none": "Rien de ce que {{org}} automatise ne s'exécute quand ces enregistrements sont supprimés.",
+      "error": "Impossible de lire ce que {{org}} exécute quand ces enregistrements sont supprimés : {{reason}}",
+      "drafted": "quand le vidage le remet en Brouillon pour le supprimer"
+    },
+    "preview": {
+      "reading": "Comptage des enregistrements de {{org}}, et de ce qui part avec eux…",
+      "stop": "Arrêter l'aperçu",
+      "titleObjects": "Ce que vider ces objets de {{org}} supprimerait",
+      "titleOrg": "Ce que vider {{org}} supprimerait",
+      "nothing": "{{org}} ne contient rien que ces objets supprimeraient.",
+      "summary": "{{records}} de {{objects}} vont dans la corbeille.",
+      "summaryHard": "{{records}} de {{objects}} sont supprimés définitivement.",
+      "readAt": "Compté à {{at}} : les enregistrements créés après restent tels quels.",
+      "uncounted": "L'org n'a pas voulu compter ceux-ci, et leurs enregistrements ne sont pas dans la somme : {{objects}}.",
+      "hard": "Supprimé définitivement : Salesforce ne rend rien de ce qu'une suppression définitive emporte, y compris ce qui part avec. Annuler ne sera pas possible.",
+      "stopped": "L'aperçu a été arrêté avant que tous les comptes soient faits : relancez l'aperçu pour vider.",
+      "stale": "Les options ont changé depuis cet aperçu : relancez l'aperçu avant de vider.",
+      "openRun": "Le dernier vidage de {{org}} ({{runId}}, commencé le {{at}}) s'est arrêté en cours de route. Reprenez-le, ou annulez-le, avant d'en lancer un autre : son Annuler atteint alors encore l'org telle qu'elle était.",
+      "resume": "Le reprendre…",
+      "undoOpen": "L'annuler…",
+      "passes": "Chaque objet, dans l'ordre où le run le supprime",
+      "col": {
+        "object": "Objet",
+        "records": "Enregistrements supprimés",
+        "sent": "Envoyés par son propre passage",
+        "how": "Comment"
+      },
+      "how": {
+        "calls_one": "{{formatted}} appel",
+        "calls_other": "{{formatted}} appels",
+        "jobs_one": "{{formatted}} job Bulk API",
+        "jobs_other": "{{formatted}} jobs Bulk API",
+        "notSent": "Non envoyé : un fichier n'est jamais supprimé définitivement"
+      },
+      "archived": "dont {{records}} archivés",
+      "kept": "{{records}} gardés : le catalogue standard",
+      "along": "Enregistrements d'autres objets qui partent avec eux",
+      "alongLine": "{{records}} {{object}}, par {{via}}",
+      "likelyTitle": "Ce que l'org refuserait, et ce que le run fait pour l'éviter",
+      "likely": {
+        "activatedOrder": "{{records}} {{object}} au-delà de Brouillon : remis en Brouillon d'abord, car une commande activée refuse sa suppression et celle de son compte",
+        "standardPriceBook": "{{records}} {{object}} dans le catalogue standard : jamais supprimés",
+        "directContactRelation": "{{records}} {{object}} directs : supprimés avec leur contact, jamais seuls",
+        "personAccountContact": "{{records}} {{object}} de comptes personnels : supprimés avec leur compte, jamais seuls"
+      },
+      "blockersTitle": "Ce qui bloque le vidage",
+      "blocker": "{{records}} {{object}}, non vidés, désignent ces enregistrements par {{field}} → {{parent}}, qui refuse la suppression : choisissez aussi {{object}}, ou laissez {{parent}} de côté.",
+      "beforeParentTitle": "Enregistrements qui partent avant celui qu'ils désignent, comme Salesforce l'impose",
+      "beforeParentRestricted": "{{object}} avant {{parent}} : {{field}} refuse la suppression d'un enregistrement qu'il désigne",
+      "beforeParentPrices": "{{object}} : les prix personnalisés avant les prix standard ({{field}})",
+      "undoLostTitle": "Ce qu'Annuler ne rendrait pas",
+      "undoLost": "{{records}} {{object}} : partis avant {{parent}}, Annuler ne peut plus les rendre une fois les deux partis",
+      "acceptNoUndo": "Vider quand même : ces enregistrements restent perdus après Annuler",
+      "cost": {
+        "title": "Ce que cela coûte à {{org}}",
+        "requests": "Environ {{estimate}} requêtes API, {{remaining}} sur {{max}} restantes aujourd'hui.",
+        "requestsUnread": "Environ {{estimate}} requêtes API ; impossible de lire ce qu'il reste aujourd'hui à {{org}} ({{reason}}).",
+        "batches": "{{estimate}} lots Bulk API, {{remaining}} sur {{max}} restants aujourd'hui.",
+        "batchesUnread": "{{estimate}} lots Bulk API ; impossible de lire ce qu'il reste aujourd'hui à {{org}} ({{reason}}).",
+        "time": "Environ {{time}}.",
+        "bin": "{{records}} vont dans la corbeille.",
+        "binNone": "Rien ne va dans la corbeille.",
+        "binPast": "C'est au-delà des {{capacity}} enregistrements que Salesforce documente pour la corbeille de {{org}} : au-delà, la corbeille pousse dehors ses plus anciens enregistrements, dont ceux que des collègues ont supprimés."
+      },
+      "access": {
+        "title": "Vous n'avez pas View All Data et Modify All Data : les enregistrements de ces objets que vous ne voyez pas ne sont ni comptés ni supprimés, mais ceux qu'un enregistrement supprimé emporte avec lui le sont, vus ou non.",
+        "why": {
+          "noViewAll": "vous n'avez ni View All ni Modify All sur cet objet",
+          "noModifyAll": "vous avez View All sur cet objet, pas Modify All",
+          "activities": "Salesforce n'a pas de View All pour les activités",
+          "catalog": "Salesforce n'a pas de View All pour les produits et les catalogues de prix",
+          "files": "rien ne prouve que vous voyez chaque fichier",
+          "setting": "rien ne prouve que vous voyez chaque ligne d'un paramètre personnalisé",
+          "parent": "rien ne prouve que vous voyez chaque enregistrement dont il dépend",
+          "unread": "vos autorisations n'ont pas pu être lues"
+        }
+      },
+      "peopleUnread": "Impossible de lire qui a modifié des enregistrements dans la dernière heure pour : {{objects}}.",
+      "leftOut_one": "{{formatted}} objet laissé de côté, avec la raison",
+      "leftOut_other": "{{formatted}} objets laissés de côté, chacun avec sa raison",
+      "checkpointLead": "Point de contrôle d'abord, tel que cet aperçu le lit :",
+      "holding": "Ce qui empêche le vidage maintenant",
+      "again": "Relancer l'aperçu"
+    },
+    "confirm": {
+      "title": "Vider {{org}} ?",
+      "description": "{{records}} de {{objects}} vont dans la corbeille. Annuler les rend tant que la corbeille les garde.",
+      "descriptionHard": "{{records}} de {{objects}} sont supprimés définitivement.",
+      "noUndo": "Annuler ne sera pas possible : Salesforce ne rend rien de ce qu'une suppression définitive emporte.",
+      "automation": "À mesure que les enregistrements partent, {{org}} exécute ce que l'aperçu a listé.",
+      "muted": "Ce que la mise en sourdine fait taire reste silencieux pendant le run, puis est rendu.",
+      "blockers": "{{records}} d'objets non vidés désignent des enregistrements qu'il supprime, par une relation de recherche qui refuse la suppression : les enregistrements qu'ils désignent seront refusés.",
+      "checkpoint": "Un point de contrôle de ce que le run supprime est pris d'abord."
+    },
+    "run": {
+      "title": "Vidage de {{org}}",
+      "undoTitle": "Retour de ce que le vidage a supprimé de {{org}}",
+      "starting": "Démarrage…",
+      "progress": "Vidage en cours",
+      "undoProgress": "Annulation en cours",
+      "stop": "Arrêter le vidage",
+      "stopUndo": "Arrêter l'annulation",
+      "stopping": "Arrêt avant le prochain appel ou job vers {{org}} : un job Bulk API que {{org}} a déjà se termine d'abord…"
+    },
+    "result": {
+      "status": {
+        "success": "{{org}} vidée",
+        "partial": "{{org}} vidée en partie",
+        "failure": "Rien de {{org}} n'a été vidé",
+        "cancelled": "Le vidage de {{org}} a été arrêté"
+      },
+      "refused": "Le vidage de {{org}} a été refusé",
+      "stoppedNothing": "Le vidage de {{org}} a été arrêté",
+      "stoppedNothingDetail": "Il a été arrêté avant que quoi que ce soit soit supprimé.",
+      "totals": "{{deleted}} supprimés, {{gone}} déjà partis avant leur tour (emportés, ou supprimés par quelqu'un), {{refused}} refusés, {{notReached}} non atteints.",
+      "totalsHard": "{{deleted}} supprimés définitivement, {{gone}} déjà partis avant leur tour (emportés, ou supprimés par quelqu'un), {{refused}} refusés, {{notReached}} non atteints.",
+      "resumed": "Il a repris le vidage qui s'était arrêté en cours de route.",
+      "hardRefused": "Salesforce a refusé la suppression définitive avant qu'un enregistrement soit envoyé : {{reason}}",
+      "perObject": "Ce qu'il a fait de chaque objet",
+      "col": {
+        "deleted": "Supprimés",
+        "gone": "Partis avant",
+        "refused": "Refusés",
+        "notReached": "Non atteints"
+      },
+      "madeSince_one": "{{formatted}} enregistrement créé depuis l'aperçu reste tel quel",
+      "madeSince_other": "{{formatted}} enregistrements créés depuis l'aperçu restent tels quels",
+      "removedRuns_one": "Le journal du vidage précédent de l'org a été abandonné : Annuler n'atteint que celui-ci.",
+      "removedRuns_other": "Les journaux des vidages précédents de l'org ont été abandonnés : Annuler n'atteint que celui-ci.",
+      "undo": "Annuler…",
+      "undoWhile": "Rend {{runId}} depuis la corbeille tant qu'elle garde les enregistrements.",
+      "noUndoHard": "Annuler n'est pas possible : ce vidage a supprimé définitivement.",
+      "noUndoNothing": "Rien n'a été supprimé : il n'y a rien à annuler.",
+      "previewAgain": "Relancer l'aperçu",
+      "done": "Terminé"
+    },
+    "resume": {
+      "title": "Reprendre le vidage {{runId}} de {{org}} ?",
+      "description": "Il supprime ce que le run arrêté n'avait pas encore atteint, tel que son aperçu l'a montré, et relit au départ ce que {{org}} exécute.",
+      "button": "Reprendre le vidage",
+      "acceptAutomation": "Laisser s'exécuter ce que {{org}} exécute quand les enregistrements sont supprimés"
+    },
+    "undo": {
+      "title": "Rendre ce que {{runId}} a supprimé de {{org}} ?",
+      "description": "Les enregistrements reviennent de la corbeille, les parents d'abord, tant qu'elle les garde. Ce qui a été purgé de la corbeille, ou supprimé par un autre utilisateur alors que vous n'avez pas Modify All Data, ne revient pas.",
+      "button": "Rendre les enregistrements",
+      "acceptAutomation": "Laisser s'exécuter ce que {{org}} exécute après un rétablissement",
+      "status": {
+        "success": "Ce que le vidage a supprimé est de retour dans {{org}}",
+        "partial": "Une partie de ce que le vidage a supprimé est de retour dans {{org}}",
+        "failure": "Rien n'est revenu dans {{org}}",
+        "cancelled": "L'annulation a été arrêtée"
+      },
+      "refused": "L'annulation a été refusée",
+      "stoppedNothingDetail": "Elle a été arrêtée avant que quoi que ce soit soit rendu.",
+      "line": "{{undeleted}} sur {{planned}} rendus.",
+      "alreadyBack": "{{formatted}} étaient déjà revenus.",
+      "notInBin": "{{formatted}} ne sont plus dans la corbeille.",
+      "othersDeletion": "{{formatted}} supprimés par un autre utilisateur, que seul Modify All Data fait revenir.",
+      "refusedCount": "{{formatted}} refusés.",
+      "notReached": "{{formatted}} non atteints."
+    },
+    "history": {
+      "title": "Vidages de {{org}}",
+      "loading": "Lecture du journal d'audit…",
+      "none": "Le journal d'audit de cette machine ne contient aucun vidage de {{org}}.",
+      "where": "D'après le journal d'audit de cette machine : un vidage lancé en ligne de commande ou depuis une autre machine n'est pas listé ici.",
+      "run": "Vidage",
+      "runHard": "Vidage, définitif",
+      "undo": "Annulation",
+      "outcome": {
+        "success": "terminé",
+        "partial": "terminé en partie",
+        "failure": "échoué",
+        "cancelled": "arrêté",
+        "stopped": "refusé avant de commencer"
+      },
+      "deleted_one": "{{formatted}} enregistrement supprimé",
+      "deleted_other": "{{formatted}} enregistrements supprimés",
+      "broughtBack_one": "{{formatted}} enregistrement rendu",
+      "broughtBack_other": "{{formatted}} enregistrements rendus",
+      "refused": "{{formatted}} refusés"
+    }
   }
 }

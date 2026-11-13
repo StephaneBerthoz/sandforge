@@ -4,6 +4,7 @@ import { PartBoundary } from '../../components/ui/PartBoundary';
 import type { CompliancePanelProps } from './CompliancePanel';
 import type { CleanupPanelProps } from './CleanupPanel';
 import type { QualityPanelProps } from './QualityPanel';
+import type { EmptyPanelProps } from './empty/EmptyPanel';
 
 /*
  * The tabs of the DataOps page its first paint does not draw, each a chunk of
@@ -23,6 +24,16 @@ const LoadedCleanupPanel = lazy(() =>
   withEnglish(() => import('./CleanupPanel'), [])().then((module) => ({
     default: module.CleanupPanel,
   })),
+);
+
+// Emptying objects or the whole org: its own chunk and its own words, fetched
+// once the Cleanup tab is opened, as what the page paints first leaves out.
+const LoadedEmptyPanel = lazy(() =>
+  withEnglish(() => import('./empty/EmptyPanel'), ['checkpointNotes', 'dataopsEmpty'])().then(
+    (module) => ({
+      default: module.EmptyPanel,
+    }),
+  ),
 );
 
 const LoadedQualityPanel = lazy(() =>
@@ -45,6 +56,15 @@ export const CleanupPanel: FC<CleanupPanelProps> = (props) => (
   <PartBoundary>
     <Suspense fallback={null}>
       <LoadedCleanupPanel {...props} />
+    </Suspense>
+  </PartBoundary>
+);
+
+/** The Cleanup tab's emptying: every record of objects picked, or of the whole org. */
+export const EmptyPanel: FC<EmptyPanelProps> = (props) => (
+  <PartBoundary>
+    <Suspense fallback={null}>
+      <LoadedEmptyPanel {...props} />
     </Suspense>
   </PartBoundary>
 );

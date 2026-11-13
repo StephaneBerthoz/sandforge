@@ -34,7 +34,7 @@ import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
 import { BackupPanel } from './BackupPanel';
 import { RestorePanel, type RestoreCounts } from './RestorePanel';
 import { AnonymizePanel } from './AnonymizePanel';
-import { CleanupPanel, CompliancePanel, QualityPanel } from './dataOpsParts';
+import { CleanupPanel, CompliancePanel, EmptyPanel, QualityPanel } from './dataOpsParts';
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
 import {
   accordPayloadOf,
@@ -821,8 +821,13 @@ export const DataOpsPage: React.FC = () => {
             <CompliancePanel key={currentOrg.id} orgId={currentOrg.id} orgName={orgName} />
           )}
 
+          {/* Beside the recommendations, emptying objects or the whole org:
+              a chunk of its own, fetched once the tab is opened. */}
           {activeTab === 'cleanup' && currentOrg && orgName && (
-            <CleanupPanel key={currentOrg.id} orgId={currentOrg.id} orgName={orgName} />
+            <div className="flex flex-col gap-6">
+              <CleanupPanel key={currentOrg.id} orgId={currentOrg.id} orgName={orgName} />
+              <EmptyPanel key={`empty-${currentOrg.id}`} orgId={currentOrg.id} orgName={orgName} />
+            </div>
           )}
 
           {activeTab === 'quality' && currentOrg && (

@@ -28,6 +28,7 @@ import type {
   DataOpsEmptyRefusal,
   DataOpsEmptyRunResult,
   DataOpsEmptyScopeRequest,
+  DataOpsEmptyTier,
   DataOpsEmptyUndoResult,
 } from '../dataOpsEmpty.types.js';
 import type { ForgeTargetAutomation, RunDeliverability } from '../forge.types.js';
@@ -903,6 +904,10 @@ export interface DataOpsEmptyScopeResponse extends BaseMessage {
     leftOut: DataOpsEmptyLeftOut[];
     /** Every object people work in that the user may delete: what a pick is made among. */
     candidates: string[];
+    /** The org's tier, as the guard read it: a production org is refused before this answer. */
+    tier: DataOpsEmptyTier;
+    /** Whether the user may delete for good, as `UserPermissionAccess` says, read live. */
+    hardDelete: { permitted: boolean; unread?: string };
   };
 }
 

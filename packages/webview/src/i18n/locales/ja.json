@@ -7079,5 +7079,256 @@
       "grants": "{{set}} が付与するものを読み取れませんでした。ほかに何を解除するかは不明です。",
       "validationRules": "一部の入力規則を読み取れませんでした。権限セットがほかに解除するかは不明です。"
     }
+  },
+  "dataopsEmpty": {
+    "title": "オブジェクトまたは組織を空にする",
+    "production": "{{org}} は本番組織か、本番組織と区別できません。空にする操作は Sandbox、スクラッチ組織、Developer Edition 組織が対象です。SandForge が本番組織のオブジェクトを空にすることはなく、この拒否を解除する方法はありません。",
+    "scopeReading": "{{org}} のオブジェクトを読み込んでいます…",
+    "previewButton": "プレビュー",
+    "list": {
+      "filter": "絞り込み",
+      "noMatch": "絞り込みに一致するオブジェクトはありません。",
+      "more": "{{total}} 件中 {{shown}} 件を表示しています。ほかのオブジェクトは絞り込んで表示してください。"
+    },
+    "objects": {
+      "title": "オブジェクトを空にする",
+      "intro": "選んだオブジェクトのすべてのレコードと、Salesforce がそれと一緒に削除するものを削除します。まずプレビューですべてを数えます。組織名で確定するまで何も削除されません。",
+      "legend": "空にするオブジェクト",
+      "picked_other": "{{formatted}} 個のオブジェクトを選択済み",
+      "notPickable_other": "選択できないオブジェクト {{formatted}} 個 (理由付き)",
+      "staging": "{{org}} は Staging とマークされた Sandbox です。オブジェクトを空にする前に Production Guard が確認します。"
+    },
+    "org": {
+      "title": "組織を空にする",
+      "intro": "業務で扱うすべてのレコードを、除外したものを除いて削除します。ユーザー、権限などの設定、Chatter、履歴、共有、標準価格表には決して触れません。",
+      "staging": "{{org}} は Staging とマークされた Sandbox です。実データを含むため、SandForge が組織全体を空にすることはありません。代わりに上で空にするオブジェクトを選ぶか、誰の作業も含まない場合は [組織] ページでマークを外してください。",
+      "optIn": "チェックした場合のみ、これも空にする",
+      "customSettings": "カスタム設定: インテグレーションのエンドポイントや管理者が切り替えたスイッチなどの構成",
+      "files": "ファイルと添付ファイル: 同僚と共有しているファイルはその同僚のものでもあります",
+      "managedPackages": "管理パッケージのオブジェクト: パッケージが独自の構成を保存している場合があります",
+      "exclude": "除外するオブジェクト",
+      "excluded_other": "{{formatted}} 個のオブジェクトを除外済み",
+      "emptied_other": "{{formatted}} 個のオブジェクトを空にします。",
+      "leftOut_other": "決して触れないオブジェクト {{formatted}} 個 (理由付き)"
+    },
+    "reason": {
+      "excludedByUser": "あなたが除外したもの",
+      "notFound": "この名前のオブジェクトは組織にありません",
+      "chatter": "Chatter の投稿、コメント、フィード",
+      "history": "履歴: 組織自身の変更の記録",
+      "sharing": "共有: 組織自身が管理します",
+      "changeEvent": "変更イベント",
+      "unsupportedKind": "ビッグオブジェクト、外部オブジェクトと Data Cloud オブジェクト、ナレッジのバージョン、プラットフォームイベント",
+      "customSetting": "カスタム設定 (指定なし)",
+      "files": "ファイルと添付ファイル (指定なし)",
+      "managedPackage": "管理パッケージのオブジェクト (指定なし)",
+      "documents": "[ドキュメント] タブのドキュメント: 設定と同じくフォルダーで管理されます",
+      "heldWithFiles": "ファイルと一緒に扱われ、単独では扱いません",
+      "setup": "ユーザー、権限、設定、および組織自身のログとジョブ",
+      "platformCreated": "Salesforce だけが作成するレコード",
+      "metadata": "メタデータ (Tooling API が提供するもの)",
+      "notDeletable": "このオブジェクトのレコードを照会または削除する権限がありません",
+      "notDescribed": "組織がこのオブジェクトの記述を返しませんでした",
+      "noRecycleBin": "ごみ箱がありません: レコードは完全に消え、元に戻せません",
+      "notForGood": "ファイルは完全削除されません"
+    },
+    "options": {
+      "hard": "完全に削除する (ハード削除): ごみ箱には何も入らず、元に戻せません",
+      "hardReading": "完全に削除できるかどうかを読み込んでいます…",
+      "hardPermitted": "Bulk API Hard Delete の権限があります。チェックすると、レコードと一緒に削除されるものも完全に削除されます。",
+      "hardNotPermitted": "無効: {{user}} には Bulk API Hard Delete の権限がなく、Salesforce はこの権限なしの完全削除を拒否します。この権限を含む権限セットがあればチェックできます。",
+      "hardUnread": "無効: Bulk API Hard Delete の権限があるかどうかを読み込めませんでした ({{reason}})。"
+    },
+    "count": {
+      "unread": "未集計",
+      "atMost": "最大 {{formatted}}",
+      "atLeast": "{{formatted}} 以上"
+    },
+    "size": {
+      "records_other": "{{formatted}} 件のレコード",
+      "objects_other": "{{formatted}} 個のオブジェクト",
+      "button": "{{objects}}の{{records}}を削除",
+      "buttonAtLeast": "{{objects}}の{{records}}以上を削除"
+    },
+    "automation": {
+      "title": "これらのレコードを削除するときに {{org}} が実行するもの",
+      "loading": "これらのレコードを削除するときに {{org}} が実行するものを読み込んでいます…",
+      "intro": "空にする操作でこれらのレコードを削除すると、{{org}} は次を実行します。",
+      "none": "これらのレコードを削除しても、{{org}} の自動化は何も実行されません。",
+      "error": "これらのレコードを削除するときに {{org}} が実行するものを読み込めませんでした: {{reason}}",
+      "drafted": "空にする操作で削除のためにドラフトに戻すとき"
+    },
+    "preview": {
+      "reading": "{{org}} のレコードと、一緒に削除されるものを数えています…",
+      "stop": "プレビューを停止",
+      "titleObjects": "{{org}} のこれらのオブジェクトを空にすると削除されるもの",
+      "titleOrg": "{{org}} を空にすると削除されるもの",
+      "nothing": "{{org}} には、これらのオブジェクトで削除されるものがありません。",
+      "summary": "{{objects}}の{{records}}がごみ箱に移ります。",
+      "summaryHard": "{{objects}}の{{records}}が完全に削除されます。",
+      "readAt": "{{at}} に集計しました。それ以降に作成されたレコードはそのまま残ります。",
+      "uncounted": "組織がこれらを集計しなかったため、合計に含まれていません: {{objects}}。",
+      "hard": "完全に削除: ハード削除で消えたものは、一緒に削除されたものも含め、Salesforce は何も戻しません。元に戻すことはできません。",
+      "stopped": "すべての集計が終わる前にプレビューを停止しました。空にするにはもう一度プレビューしてください。",
+      "stale": "このプレビューの後にオプションが変わりました。空にする前にもう一度プレビューしてください。",
+      "openRun": "{{org}} の最後の空にする操作 ({{runId}}、{{at}} 開始) は途中で止まっています。次の操作を始める前に、再開するか元に戻してください。そうすれば、元に戻す操作で組織を以前の状態に戻せます。",
+      "resume": "再開…",
+      "undoOpen": "元に戻す…",
+      "passes": "実行が削除する順序で並べた各オブジェクト",
+      "col": {
+        "object": "オブジェクト",
+        "records": "削除するレコード",
+        "sent": "自身のパスで送信",
+        "how": "方法"
+      },
+      "how": {
+        "calls_other": "{{formatted}} 回の呼び出し",
+        "jobs_other": "{{formatted}} 個の Bulk API ジョブ",
+        "notSent": "送信しません: ファイルは完全削除されません"
+      },
+      "archived": "うち {{records}} 件はアーカイブ済み",
+      "kept": "{{records}} 件を保持: 標準価格表",
+      "along": "一緒に削除される、ほかのオブジェクトのレコード",
+      "alongLine": "{{object}} {{records}} 件 ({{via}} 経由)",
+      "likelyTitle": "組織が拒否しそうなものと、実行の対処",
+      "likely": {
+        "activatedOrder": "ドラフト以外の {{object}} {{records}} 件: 有効化された注文は自身と取引先の削除を拒否するため、先にドラフトに戻します",
+        "standardPriceBook": "標準価格表の {{object}} {{records}} 件: 決して削除しません",
+        "directContactRelation": "直接の {{object}} {{records}} 件: 単独ではなく取引先責任者と一緒に削除します",
+        "personAccountContact": "個人取引先の {{object}} {{records}} 件: 単独ではなく取引先と一緒に削除します"
+      },
+      "blockersTitle": "空にする操作を妨げるもの",
+      "blocker": "空にしない {{object}} {{records}} 件が {{field}} → {{parent}} でこれらのレコードを参照しており、この項目が削除を拒否します。{{object}} も選ぶか、{{parent}} を除外してください。",
+      "beforeParentTitle": "Salesforce の要求により、参照先のレコードより先に削除されるレコード",
+      "beforeParentRestricted": "{{parent}} より先に {{object}}: {{field}} は参照先レコードの削除を拒否します",
+      "beforeParentPrices": "{{object}}: 標準価格より先にカスタム価格 ({{field}})",
+      "undoLostTitle": "元に戻す操作で戻らないもの",
+      "undoLost": "{{object}} {{records}} 件: {{parent}} より先に削除され、両方が削除されると元に戻せません",
+      "acceptNoUndo": "それでも空にする: これらのレコードは元に戻した後も消えたままです",
+      "cost": {
+        "title": "{{org}} にかかるコスト",
+        "requests": "約 {{estimate}} 件の API 要求 (本日の残り {{max}} 件中 {{remaining}} 件)。",
+        "requestsUnread": "約 {{estimate}} 件の API 要求。{{org}} の本日の残りを読み込めませんでした ({{reason}})。",
+        "batches": "{{estimate}} 個の Bulk API バッチ (本日の残り {{max}} 個中 {{remaining}} 個)。",
+        "batchesUnread": "{{estimate}} 個の Bulk API バッチ。{{org}} の本日の残りを読み込めませんでした ({{reason}})。",
+        "time": "約 {{time}}。",
+        "bin": "{{records}}がごみ箱に移ります。",
+        "binNone": "ごみ箱には何も移りません。",
+        "binPast": "これは、Salesforce が {{org}} のごみ箱について文書化している {{capacity}} 件を超えています。超えた分は、同僚が削除したレコードも含め、古いものからごみ箱の外に押し出されます。"
+      },
+      "access": {
+        "title": "View All Data と Modify All Data の権限がありません。これらのオブジェクトのうち参照できないレコードは集計も削除もされませんが、削除されたレコードと一緒に削除されるものは、参照できるかどうかにかかわらず削除されます。",
+        "why": {
+          "noViewAll": "このオブジェクトに対する View All も Modify All もありません",
+          "noModifyAll": "このオブジェクトに対して View All はありますが、Modify All はありません",
+          "activities": "Salesforce には活動の View All がありません",
+          "catalog": "Salesforce には商品と価格表の View All がありません",
+          "files": "すべてのファイルを参照できることが証明されていません",
+          "setting": "カスタム設定のすべての行を参照できることが証明されていません",
+          "parent": "これが関連するすべてのレコードを参照できることが証明されていません",
+          "unread": "権限を読み込めませんでした"
+        }
+      },
+      "peopleUnread": "過去 1 時間にレコードを変更したユーザーを読み込めませんでした: {{objects}}。",
+      "leftOut_other": "除外したオブジェクト {{formatted}} 個 (理由付き)",
+      "checkpointLead": "このプレビューから見た「最初にチェックポイント」:",
+      "holding": "現在、空にする操作を止めているもの",
+      "again": "もう一度プレビュー"
+    },
+    "confirm": {
+      "title": "{{org}} を空にしますか？",
+      "description": "{{objects}}の{{records}}がごみ箱に移ります。ごみ箱に残っている間は、元に戻す操作で戻せます。",
+      "descriptionHard": "{{objects}}の{{records}}が完全に削除されます。",
+      "noUndo": "元に戻すことはできません: ハード削除で消えたものを Salesforce は何も戻しません。",
+      "automation": "レコードが削除されるとき、{{org}} はプレビューに示したものを実行します。",
+      "muted": "ミュートで止めたものは実行中は止まったままで、終了後に元に戻されます。",
+      "blockers": "空にしないオブジェクトの{{records}}が、削除を拒否する参照項目で削除対象のレコードを参照しています。参照されているレコードの削除は拒否されます。",
+      "checkpoint": "実行が削除するもののチェックポイントを先に作成します。"
+    },
+    "run": {
+      "title": "{{org}} を空にしています",
+      "undoTitle": "空にする操作で {{org}} から削除したものを戻しています",
+      "starting": "開始しています…",
+      "progress": "空にする操作の進行状況",
+      "undoProgress": "元に戻す操作の進行状況",
+      "stop": "空にする操作を停止",
+      "stopUndo": "元に戻す操作を停止",
+      "stopping": "{{org}} への次の呼び出しまたはジョブの前に停止しています。{{org}} がすでに受け付けた Bulk API ジョブは先に完了します…"
+    },
+    "result": {
+      "status": {
+        "success": "{{org}} を空にしました",
+        "partial": "{{org}} を一部空にしました",
+        "failure": "{{org}} の何も空にできませんでした",
+        "cancelled": "{{org}} を空にする操作を停止しました"
+      },
+      "refused": "{{org}} を空にする操作は拒否されました",
+      "stoppedNothing": "{{org}} を空にする操作を停止しました",
+      "stoppedNothingDetail": "何も削除する前に停止しました。",
+      "totals": "{{deleted}} 件を削除、{{gone}} 件は順番が来る前に消えていました (一緒に削除されたか、誰かが削除)、{{refused}} 件が拒否、{{notReached}} 件は未到達です。",
+      "totalsHard": "{{deleted}} 件を完全に削除、{{gone}} 件は順番が来る前に消えていました (一緒に削除されたか、誰かが削除)、{{refused}} 件が拒否、{{notReached}} 件は未到達です。",
+      "resumed": "途中で止まっていた空にする操作を再開しました。",
+      "hardRefused": "レコードを送信する前に、Salesforce が完全削除を拒否しました: {{reason}}",
+      "perObject": "各オブジェクトで行ったこと",
+      "col": {
+        "deleted": "削除",
+        "gone": "先に消失",
+        "refused": "拒否",
+        "notReached": "未到達"
+      },
+      "madeSince_other": "プレビュー後に作成された {{formatted}} 件のレコードはそのまま残ります",
+      "removedRuns_other": "この組織の以前の空にする操作のジャーナルは破棄されました。元に戻せるのはこの操作だけです。",
+      "undo": "元に戻す…",
+      "undoWhile": "ごみ箱にレコードが残っている間、{{runId}} をごみ箱から戻します。",
+      "noUndoHard": "元に戻せません: この操作は完全に削除しました。",
+      "noUndoNothing": "何も削除されなかったため、元に戻すものはありません。",
+      "previewAgain": "もう一度プレビュー",
+      "done": "完了"
+    },
+    "resume": {
+      "title": "{{org}} を空にする操作 {{runId}} を再開しますか？",
+      "description": "停止した実行がまだ到達していなかったものを、プレビューに示したとおり削除します。開始時に {{org}} が実行するものをもう一度読み込みます。",
+      "button": "空にする操作を再開",
+      "acceptAutomation": "レコードの削除時に {{org}} が実行するものを実行させる"
+    },
+    "undo": {
+      "title": "{{runId}} が {{org}} から削除したものを戻しますか？",
+      "description": "ごみ箱に残っている間、レコードは親から順にごみ箱から戻ります。ごみ箱から完全に消えたものや、あなたに Modify All Data がない状態でほかのユーザーが削除したものは戻りません。",
+      "button": "レコードを戻す",
+      "acceptAutomation": "復元後に {{org}} が実行するものを実行させる",
+      "status": {
+        "success": "空にする操作で削除したものが {{org}} に戻りました",
+        "partial": "空にする操作で削除したものの一部が {{org}} に戻りました",
+        "failure": "{{org}} に何も戻りませんでした",
+        "cancelled": "元に戻す操作を停止しました"
+      },
+      "refused": "元に戻す操作は拒否されました",
+      "stoppedNothingDetail": "何も戻す前に停止しました。",
+      "line": "{{planned}} 件中 {{undeleted}} 件を戻しました。",
+      "alreadyBack": "{{formatted}} 件はすでに戻っていました。",
+      "notInBin": "{{formatted}} 件はもうごみ箱にありません。",
+      "othersDeletion": "{{formatted}} 件はほかのユーザーが削除したもので、Modify All Data がなければ戻せません。",
+      "refusedCount": "{{formatted}} 件が拒否されました。",
+      "notReached": "{{formatted}} 件は未到達です。"
+    },
+    "history": {
+      "title": "{{org}} を空にした履歴",
+      "loading": "監査ログを読み込んでいます…",
+      "none": "このマシンの監査ログには、{{org}} を空にした記録がありません。",
+      "where": "このマシンの監査ログによるものです。コマンドラインやほかのマシンから実行した操作はここに表示されません。",
+      "run": "空にする",
+      "runHard": "空にする (完全削除)",
+      "undo": "元に戻す",
+      "outcome": {
+        "success": "完了",
+        "partial": "一部完了",
+        "failure": "失敗",
+        "cancelled": "停止",
+        "stopped": "開始前に拒否"
+      },
+      "deleted_other": "{{formatted}} 件のレコードを削除",
+      "broughtBack_other": "{{formatted}} 件のレコードを戻しました",
+      "refused": "{{formatted}} 件が拒否"
+    }
   }
 }

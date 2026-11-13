@@ -7588,5 +7588,270 @@
       "grants": "Não foi possível ler o que {{set}} concede: não se sabe o que mais ele libera.",
       "validationRules": "Nem todas as regras de validação puderam ser lidas: não se sabe se os conjuntos liberam outras."
     }
+  },
+  "dataopsEmpty": {
+    "title": "Esvaziar objetos ou a org",
+    "production": "{{org}} é uma org de produção, ou não se distingue de uma. Esvaziar é para sandboxes, scratch orgs e orgs Developer Edition: o SandForge nunca esvazia objetos de uma org de produção, e nada suspende essa recusa.",
+    "scopeReading": "Lendo os objetos de {{org}}…",
+    "previewButton": "Prévia",
+    "list": {
+      "filter": "Filtrar",
+      "noMatch": "Nenhum objeto corresponde ao filtro.",
+      "more": "{{shown}} de {{total}} exibidos: filtre para chegar aos outros."
+    },
+    "objects": {
+      "title": "Esvaziar objetos",
+      "intro": "Exclui todos os registros dos objetos escolhidos, e o que o Salesforce exclui junto com eles. Uma prévia conta tudo primeiro; nada é excluído até você confirmar com o nome da org.",
+      "legend": "Objetos a esvaziar",
+      "picked_one": "{{formatted}} objeto escolhido",
+      "picked_other": "{{formatted}} objetos escolhidos",
+      "notPickable_one": "{{formatted}} objeto não pode ser escolhido, com o motivo",
+      "notPickable_other": "{{formatted}} objetos não podem ser escolhidos, cada um com seu motivo",
+      "staging": "{{org}} é uma sandbox marcada como Staging: o Production Guard pergunta antes de esvaziar seus objetos."
+    },
+    "org": {
+      "title": "Esvaziar a org",
+      "intro": "Exclui todos os registros com que se trabalha, menos o que você deixar de fora. Usuários, permissões e o resto da configuração, Chatter, histórico, compartilhamento e o catálogo de preços padrão nunca são tocados.",
+      "staging": "{{org}} é uma sandbox marcada como Staging: ela contém dados reais, e o SandForge nunca a esvazia inteira. Escolha acima os objetos a esvaziar, ou remova a marcação na página Organizações se ela não contém o trabalho de ninguém.",
+      "optIn": "Esvaziar também, só se marcado",
+      "customSettings": "Configurações personalizadas: configuração, como o endpoint de uma integração ou uma chave que um administrador virou",
+      "files": "Arquivos e anexos: um arquivo compartilhado com um colega também é dele",
+      "managedPackages": "Objetos de pacotes gerenciados: um pacote pode guardar neles sua própria configuração",
+      "exclude": "Objetos a deixar de fora",
+      "excluded_one": "{{formatted}} objeto deixado de fora por você",
+      "excluded_other": "{{formatted}} objetos deixados de fora por você",
+      "emptied_one": "{{formatted}} objeto é esvaziado.",
+      "emptied_other": "{{formatted}} objetos são esvaziados.",
+      "leftOut_one": "{{formatted}} objeto nunca é tocado, com o motivo",
+      "leftOut_other": "{{formatted}} objetos nunca são tocados, cada um com seu motivo"
+    },
+    "reason": {
+      "excludedByUser": "Deixado de fora por você",
+      "notFound": "A org não tem nenhum objeto com este nome",
+      "chatter": "Publicações, comentários e feeds do Chatter",
+      "history": "Histórico: o rastro de alterações que a org guarda",
+      "sharing": "Compartilhamento, que a org mantém sozinha",
+      "changeEvent": "Eventos de alteração",
+      "unsupportedKind": "Big objects, objetos externos e do Data Cloud, versões do Knowledge e eventos de plataforma",
+      "customSetting": "Configurações personalizadas, não pedidas",
+      "files": "Arquivos e anexos, não pedidos",
+      "managedPackage": "Objetos de pacotes gerenciados, não pedidos",
+      "documents": "Documentos da guia Documentos, guardados em pastas como a configuração",
+      "heldWithFiles": "Vai com seu arquivo, nunca sozinho",
+      "setup": "Usuários, permissões e configuração, e os logs e jobs da própria org",
+      "platformCreated": "Registros que só o Salesforce cria",
+      "metadata": "Metadados, servidos pela API de Tooling",
+      "notDeletable": "Você não pode consultar nem excluir seus registros",
+      "notDescribed": "A org não quis descrevê-lo",
+      "noRecycleBin": "Sem lixeira: seus registros sumiriam de vez, fora do alcance do Desfazer",
+      "notForGood": "Um arquivo nunca é excluído de vez"
+    },
+    "options": {
+      "hard": "Excluir de vez (hard delete): nada vai para a lixeira, e Desfazer não é possível",
+      "hardReading": "Lendo se você pode excluir de vez…",
+      "hardPermitted": "Você tem Bulk API Hard Delete: marcado, o que vai junto com os registros também é excluído de vez.",
+      "hardNotPermitted": "Desativado: {{user}} não tem Bulk API Hard Delete, e o Salesforce recusa uma exclusão definitiva sem ela. Um conjunto de permissões que a conceda permite marcar esta opção.",
+      "hardUnread": "Desativado: não foi possível ler se você tem Bulk API Hard Delete ({{reason}})."
+    },
+    "count": {
+      "unread": "não contado",
+      "atMost": "no máximo {{formatted}}",
+      "atLeast": "pelo menos {{formatted}}"
+    },
+    "size": {
+      "records_one": "{{formatted}} registro",
+      "records_other": "{{formatted}} registros",
+      "objects_one": "{{formatted}} objeto",
+      "objects_other": "{{formatted}} objetos",
+      "button": "Excluir {{records}} de {{objects}}",
+      "buttonAtLeast": "Excluir pelo menos {{records}} de {{objects}}"
+    },
+    "automation": {
+      "title": "O que {{org}} executa quando estes registros são excluídos",
+      "loading": "Lendo o que {{org}} executa quando estes registros são excluídos…",
+      "intro": "Quando o esvaziamento exclui estes registros, {{org}} executa:",
+      "none": "Nada do que {{org}} automatiza é executado quando estes registros são excluídos.",
+      "error": "Não foi possível ler o que {{org}} executa quando estes registros são excluídos: {{reason}}",
+      "drafted": "quando o esvaziamento o volta para Rascunho para excluí-lo"
+    },
+    "preview": {
+      "reading": "Contando os registros de {{org}}, e o que vai junto com eles…",
+      "stop": "Parar a prévia",
+      "titleObjects": "O que esvaziar estes objetos de {{org}} excluiria",
+      "titleOrg": "O que esvaziar {{org}} excluiria",
+      "nothing": "{{org}} não contém nada que estes objetos excluiriam.",
+      "summary": "{{records}} de {{objects}} vão para a lixeira.",
+      "summaryHard": "{{records}} de {{objects}} são excluídos de vez.",
+      "readAt": "Contado às {{at}}: registros criados depois ficam como estão.",
+      "uncounted": "A org não quis contar estes, e seus registros não estão na soma: {{objects}}.",
+      "hard": "Excluído de vez: o Salesforce não traz de volta nada do que uma exclusão definitiva leva, incluindo o que vai junto. Desfazer não será possível.",
+      "stopped": "A prévia foi parada antes de todas as contagens: gere a prévia de novo para esvaziar.",
+      "stale": "As opções mudaram desde esta prévia: gere a prévia de novo antes de esvaziar.",
+      "openRun": "O último esvaziamento de {{org}} ({{runId}}, iniciado em {{at}}) parou no meio. Retome-o, ou desfaça-o, antes de começar outro: assim seu Desfazer ainda alcança a org como ela estava.",
+      "resume": "Retomá-lo…",
+      "undoOpen": "Desfazê-lo…",
+      "passes": "Cada objeto, na ordem em que a execução o exclui",
+      "col": {
+        "object": "Objeto",
+        "records": "Registros excluídos",
+        "sent": "Enviados pela própria passagem",
+        "how": "Como"
+      },
+      "how": {
+        "calls_one": "{{formatted}} chamada",
+        "calls_other": "{{formatted}} chamadas",
+        "jobs_one": "{{formatted}} job da Bulk API",
+        "jobs_other": "{{formatted}} jobs da Bulk API",
+        "notSent": "Não enviado: um arquivo nunca é excluído de vez"
+      },
+      "archived": "dos quais {{records}} arquivados",
+      "kept": "{{records}} mantidos: o catálogo de preços padrão",
+      "along": "Registros de outros objetos que vão junto com eles",
+      "alongLine": "{{records}} {{object}}, por {{via}}",
+      "likelyTitle": "O que a org recusaria, e o que a execução faz a respeito",
+      "likely": {
+        "activatedOrder": "{{records}} {{object}} além de Rascunho: voltados para Rascunho primeiro, pois um pedido ativado recusa sua exclusão e a da sua conta",
+        "standardPriceBook": "{{records}} {{object}} no catálogo de preços padrão: nunca excluídos",
+        "directContactRelation": "{{records}} {{object}} diretos: excluídos com o seu contato, nunca sozinhos",
+        "personAccountContact": "{{records}} {{object}} de contas pessoais: excluídos com a sua conta, nunca sozinhos"
+      },
+      "blockersTitle": "O que bloqueia o esvaziamento",
+      "blocker": "{{records}} {{object}}, não esvaziados, apontam para estes registros por {{field}} → {{parent}}, que recusa a exclusão: escolha também {{object}}, ou deixe {{parent}} de fora.",
+      "beforeParentTitle": "Registros que saem antes do registro que apontam, como o Salesforce exige",
+      "beforeParentRestricted": "{{object}} antes de {{parent}}: {{field}} recusa a exclusão de um registro que aponta",
+      "beforeParentPrices": "{{object}}: os preços personalizados antes dos padrão ({{field}})",
+      "undoLostTitle": "O que o Desfazer não traria de volta",
+      "undoLost": "{{records}} {{object}}: saíram antes de {{parent}}, o Desfazer não pode trazê-los de volta depois que os dois saíram",
+      "acceptNoUndo": "Esvaziar mesmo assim: estes registros continuam perdidos depois do Desfazer",
+      "cost": {
+        "title": "O que isso custa a {{org}}",
+        "requests": "Cerca de {{estimate}} requisições de API, {{remaining}} de {{max}} restantes hoje.",
+        "requestsUnread": "Cerca de {{estimate}} requisições de API; não foi possível ler o que resta hoje a {{org}} ({{reason}}).",
+        "batches": "{{estimate}} lotes da Bulk API, {{remaining}} de {{max}} restantes hoje.",
+        "batchesUnread": "{{estimate}} lotes da Bulk API; não foi possível ler o que resta hoje a {{org}} ({{reason}}).",
+        "time": "Cerca de {{time}}.",
+        "bin": "{{records}} vão para a lixeira.",
+        "binNone": "Nada vai para a lixeira.",
+        "binPast": "Isso passa dos {{capacity}} registros que o Salesforce documenta para a lixeira de {{org}}: além disso, a lixeira empurra para fora seus registros mais antigos, entre eles os que colegas excluíram."
+      },
+      "access": {
+        "title": "Você não tem View All Data e Modify All Data: os registros destes objetos que você não vê não são contados nem excluídos, mas os que um registro excluído leva junto são, vistos ou não.",
+        "why": {
+          "noViewAll": "você não tem View All nem Modify All nele",
+          "noModifyAll": "você tem View All nele, não Modify All",
+          "activities": "o Salesforce não tem View All para atividades",
+          "catalog": "o Salesforce não tem View All para produtos e catálogos de preços",
+          "files": "nada prova que você vê cada arquivo",
+          "setting": "nada prova que você vê cada linha de uma configuração personalizada",
+          "parent": "nada prova que você vê cada registro do qual ele depende",
+          "unread": "suas permissões não puderam ser lidas"
+        }
+      },
+      "peopleUnread": "Não foi possível ler quem alterou registros na última hora para: {{objects}}.",
+      "leftOut_one": "{{formatted}} objeto deixado de fora, com o motivo",
+      "leftOut_other": "{{formatted}} objetos deixados de fora, cada um com seu motivo",
+      "checkpointLead": "Primeiro um ponto de verificação, como esta prévia o lê:",
+      "holding": "O que impede o esvaziamento agora",
+      "again": "Gerar a prévia de novo"
+    },
+    "confirm": {
+      "title": "Esvaziar {{org}}?",
+      "description": "{{records}} de {{objects}} vão para a lixeira. O Desfazer os traz de volta enquanto a lixeira os guarda.",
+      "descriptionHard": "{{records}} de {{objects}} são excluídos de vez.",
+      "noUndo": "Desfazer não será possível: o Salesforce não traz de volta nada do que uma exclusão definitiva leva.",
+      "automation": "À medida que os registros saem, {{org}} executa o que a prévia listou.",
+      "muted": "O que o silenciamento cala fica quieto durante a execução, e depois é devolvido.",
+      "blockers": "{{records}} de objetos não esvaziados apontam para registros que ele exclui, por uma pesquisa que recusa a exclusão: os registros para os quais apontam serão recusados.",
+      "checkpoint": "Primeiro é tirado um ponto de verificação do que a execução exclui."
+    },
+    "run": {
+      "title": "Esvaziando {{org}}",
+      "undoTitle": "Trazendo de volta o que o esvaziamento excluiu de {{org}}",
+      "starting": "Iniciando…",
+      "progress": "Esvaziamento em andamento",
+      "undoProgress": "Desfazer em andamento",
+      "stop": "Parar o esvaziamento",
+      "stopUndo": "Parar o desfazer",
+      "stopping": "Parando antes da próxima chamada ou job para {{org}}: um job da Bulk API que {{org}} já tem termina primeiro…"
+    },
+    "result": {
+      "status": {
+        "success": "{{org}} esvaziada",
+        "partial": "{{org}} esvaziada em parte",
+        "failure": "Nada de {{org}} foi esvaziado",
+        "cancelled": "O esvaziamento de {{org}} foi parado"
+      },
+      "refused": "O esvaziamento de {{org}} foi recusado",
+      "stoppedNothing": "O esvaziamento de {{org}} foi parado",
+      "stoppedNothingDetail": "Ele foi parado antes de excluir qualquer coisa.",
+      "totals": "{{deleted}} excluídos, {{gone}} já tinham saído antes da sua vez (levados junto, ou excluídos por alguém), {{refused}} recusados, {{notReached}} não alcançados.",
+      "totalsHard": "{{deleted}} excluídos de vez, {{gone}} já tinham saído antes da sua vez (levados junto, ou excluídos por alguém), {{refused}} recusados, {{notReached}} não alcançados.",
+      "resumed": "Ele retomou o esvaziamento que tinha parado no meio.",
+      "hardRefused": "O Salesforce recusou a exclusão definitiva antes de um registro ser enviado: {{reason}}",
+      "perObject": "O que ele fez com cada objeto",
+      "col": {
+        "deleted": "Excluídos",
+        "gone": "Saíram antes",
+        "refused": "Recusados",
+        "notReached": "Não alcançados"
+      },
+      "madeSince_one": "{{formatted}} registro criado desde a prévia fica como está",
+      "madeSince_other": "{{formatted}} registros criados desde a prévia ficam como estão",
+      "removedRuns_one": "O diário do esvaziamento anterior da org foi descartado: o Desfazer alcança só este.",
+      "removedRuns_other": "Os diários dos esvaziamentos anteriores da org foram descartados: o Desfazer alcança só este.",
+      "undo": "Desfazer…",
+      "undoWhile": "Traz {{runId}} de volta da lixeira enquanto ela guarda os registros.",
+      "noUndoHard": "Desfazer não é possível: este esvaziamento excluiu de vez.",
+      "noUndoNothing": "Nada foi excluído: não há nada a desfazer.",
+      "previewAgain": "Gerar a prévia de novo",
+      "done": "Concluído"
+    },
+    "resume": {
+      "title": "Retomar o esvaziamento {{runId}} de {{org}}?",
+      "description": "Ele exclui o que a execução parada ainda não tinha alcançado, como sua prévia mostrou, e lê de novo, ao começar, o que {{org}} executa.",
+      "button": "Retomar o esvaziamento",
+      "acceptAutomation": "Deixar executar o que {{org}} executa quando os registros são excluídos"
+    },
+    "undo": {
+      "title": "Trazer de volta o que {{runId}} excluiu de {{org}}?",
+      "description": "Os registros voltam da lixeira, os pais primeiro, enquanto ela os guarda. O que foi expurgado da lixeira, ou excluído por outro usuário sem que você tenha Modify All Data, não volta.",
+      "button": "Trazer os registros de volta",
+      "acceptAutomation": "Deixar executar o que {{org}} executa após recuperar registros",
+      "status": {
+        "success": "O que o esvaziamento excluiu está de volta em {{org}}",
+        "partial": "Parte do que o esvaziamento excluiu está de volta em {{org}}",
+        "failure": "Nada voltou para {{org}}",
+        "cancelled": "O desfazer foi parado"
+      },
+      "refused": "O desfazer foi recusado",
+      "stoppedNothingDetail": "Ele foi parado antes de trazer qualquer coisa de volta.",
+      "line": "{{undeleted}} de {{planned}} trazidos de volta.",
+      "alreadyBack": "{{formatted}} já tinham voltado.",
+      "notInBin": "{{formatted}} não estão mais na lixeira.",
+      "othersDeletion": "{{formatted}} excluídos por outro usuário, o que só o Modify All Data traz de volta.",
+      "refusedCount": "{{formatted}} recusados.",
+      "notReached": "{{formatted}} não alcançados."
+    },
+    "history": {
+      "title": "Esvaziamentos de {{org}}",
+      "loading": "Lendo o registro de auditoria…",
+      "none": "O registro de auditoria desta máquina não contém nenhum esvaziamento de {{org}}.",
+      "where": "Do registro de auditoria desta máquina: um esvaziamento feito pela linha de comando ou por outra máquina não é listado aqui.",
+      "run": "Esvaziamento",
+      "runHard": "Esvaziamento, de vez",
+      "undo": "Desfazer",
+      "outcome": {
+        "success": "concluído",
+        "partial": "concluído em parte",
+        "failure": "falhou",
+        "cancelled": "parado",
+        "stopped": "recusado antes de começar"
+      },
+      "deleted_one": "{{formatted}} registro excluído",
+      "deleted_other": "{{formatted}} registros excluídos",
+      "broughtBack_one": "{{formatted}} registro trazido de volta",
+      "broughtBack_other": "{{formatted}} registros trazidos de volta",
+      "refused": "{{formatted}} recusados"
+    }
   }
 }

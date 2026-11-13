@@ -7588,5 +7588,270 @@
       "grants": "No se pudo leer lo que concede {{set}}: no se sabe qué más levanta.",
       "validationRules": "No se pudieron leer todas las reglas de validación: no se sabe si los conjuntos levantan más."
     }
+  },
+  "dataopsEmpty": {
+    "title": "Vaciar objetos o la org",
+    "production": "{{org}} es una org de producción, o no se distingue de una. Vaciar es para sandboxes, scratch orgs y orgs Developer Edition: SandForge nunca vacía objetos de una org de producción, y nada levanta este rechazo.",
+    "scopeReading": "Leyendo los objetos de {{org}}…",
+    "previewButton": "Vista previa",
+    "list": {
+      "filter": "Filtrar",
+      "noMatch": "Ningún objeto coincide con el filtro.",
+      "more": "{{shown}} de {{total}} mostrados: filtre para llegar a los demás."
+    },
+    "objects": {
+      "title": "Vaciar objetos",
+      "intro": "Elimina todos los registros de los objetos que elija, y lo que Salesforce elimina junto con ellos. Una vista previa lo cuenta todo primero; no se elimina nada hasta que confirme con el nombre de la org.",
+      "legend": "Objetos que vaciar",
+      "picked_one": "{{formatted}} objeto elegido",
+      "picked_other": "{{formatted}} objetos elegidos",
+      "notPickable_one": "{{formatted}} objeto no se puede elegir, con el motivo",
+      "notPickable_other": "{{formatted}} objetos no se pueden elegir, cada uno con su motivo",
+      "staging": "{{org}} es un sandbox marcado como Staging: Production Guard pregunta antes de vaciar sus objetos."
+    },
+    "org": {
+      "title": "Vaciar la org",
+      "intro": "Elimina todos los registros con los que se trabaja, menos lo que deje fuera. Los usuarios, los permisos y el resto de la configuración, Chatter, el historial, el uso compartido y la lista de precios estándar nunca se tocan.",
+      "staging": "{{org}} es un sandbox marcado como Staging: contiene datos reales, y SandForge nunca lo vacía entero. Elija arriba los objetos que vaciar, o quite la marca en la página Organizaciones si no contiene el trabajo de nadie.",
+      "optIn": "Vaciar también, solo si se marca",
+      "customSettings": "Configuraciones personalizadas: configuración, como el punto de conexión de una integración o un interruptor que un administrador cambió",
+      "files": "Archivos y adjuntos: un archivo compartido con un colega también es suyo",
+      "managedPackages": "Objetos de paquetes gestionados: un paquete puede guardar en ellos su propia configuración",
+      "exclude": "Objetos que dejar fuera",
+      "excluded_one": "{{formatted}} objeto dejado fuera por usted",
+      "excluded_other": "{{formatted}} objetos dejados fuera por usted",
+      "emptied_one": "Se vacía {{formatted}} objeto.",
+      "emptied_other": "Se vacían {{formatted}} objetos.",
+      "leftOut_one": "{{formatted}} objeto nunca se toca, con el motivo",
+      "leftOut_other": "{{formatted}} objetos nunca se tocan, cada uno con su motivo"
+    },
+    "reason": {
+      "excludedByUser": "Dejado fuera por usted",
+      "notFound": "La org no tiene ningún objeto con este nombre",
+      "chatter": "Publicaciones, comentarios y feeds de Chatter",
+      "history": "Historial: el rastro de cambios que guarda la org",
+      "sharing": "Uso compartido, que la org lleva por sí misma",
+      "changeEvent": "Eventos de cambio",
+      "unsupportedKind": "Big objects, objetos externos y de Data Cloud, versiones de Knowledge y eventos de plataforma",
+      "customSetting": "Configuraciones personalizadas, no pedidas",
+      "files": "Archivos y adjuntos, no pedidos",
+      "managedPackage": "Objetos de paquetes gestionados, no pedidos",
+      "documents": "Documentos de la pestaña Documentos, guardados en carpetas como la configuración",
+      "heldWithFiles": "Va con su archivo, nunca por sí solo",
+      "setup": "Usuarios, permisos y configuración, y los logs y jobs propios de la org",
+      "platformCreated": "Registros que solo Salesforce crea",
+      "metadata": "Metadatos, que sirve la API de Tooling",
+      "notDeletable": "No puede consultar ni eliminar sus registros",
+      "notDescribed": "La org no quiso describirlo",
+      "noRecycleBin": "Sin papelera: sus registros desaparecerían para siempre, fuera del alcance de Deshacer",
+      "notForGood": "Un archivo nunca se elimina para siempre"
+    },
+    "options": {
+      "hard": "Eliminar para siempre (hard delete): nada va a la papelera, y Deshacer no es posible",
+      "hardReading": "Leyendo si puede eliminar para siempre…",
+      "hardPermitted": "Tiene Bulk API Hard Delete: marcado, lo que va con los registros también se elimina para siempre.",
+      "hardNotPermitted": "Desactivado: {{user}} no tiene Bulk API Hard Delete, y Salesforce rechaza una eliminación definitiva sin él. Un conjunto de permisos que lo conceda permite marcar esta casilla.",
+      "hardUnread": "Desactivado: no se pudo leer si tiene Bulk API Hard Delete ({{reason}})."
+    },
+    "count": {
+      "unread": "sin contar",
+      "atMost": "como mucho {{formatted}}",
+      "atLeast": "al menos {{formatted}}"
+    },
+    "size": {
+      "records_one": "{{formatted}} registro",
+      "records_other": "{{formatted}} registros",
+      "objects_one": "{{formatted}} objeto",
+      "objects_other": "{{formatted}} objetos",
+      "button": "Eliminar {{records}} de {{objects}}",
+      "buttonAtLeast": "Eliminar al menos {{records}} de {{objects}}"
+    },
+    "automation": {
+      "title": "Lo que {{org}} ejecuta cuando se eliminan estos registros",
+      "loading": "Leyendo lo que {{org}} ejecuta cuando se eliminan estos registros…",
+      "intro": "Cuando el vaciado elimina estos registros, {{org}} ejecuta:",
+      "none": "Nada de lo que {{org}} automatiza se ejecuta cuando se eliminan estos registros.",
+      "error": "No se pudo leer lo que {{org}} ejecuta cuando se eliminan estos registros: {{reason}}",
+      "drafted": "cuando el vaciado lo devuelve a Borrador para eliminarlo"
+    },
+    "preview": {
+      "reading": "Contando los registros de {{org}}, y lo que va con ellos…",
+      "stop": "Detener la vista previa",
+      "titleObjects": "Lo que vaciar estos objetos de {{org}} eliminaría",
+      "titleOrg": "Lo que vaciar {{org}} eliminaría",
+      "nothing": "{{org}} no contiene nada que estos objetos eliminarían.",
+      "summary": "{{records}} de {{objects}} van a la papelera.",
+      "summaryHard": "{{records}} de {{objects}} se eliminan para siempre.",
+      "readAt": "Contado a las {{at}}: los registros creados después quedan como están.",
+      "uncounted": "La org no quiso contar estos, y sus registros no están en la suma: {{objects}}.",
+      "hard": "Eliminado para siempre: Salesforce no recupera nada de lo que se lleva una eliminación definitiva, incluido lo que va con ello. Deshacer no será posible.",
+      "stopped": "La vista previa se detuvo antes de tener todos los recuentos: vuelva a generarla para vaciar.",
+      "stale": "Las opciones cambiaron desde esta vista previa: vuelva a generarla antes de vaciar.",
+      "openRun": "El último vaciado de {{org}} ({{runId}}, iniciado el {{at}}) se detuvo a medias. Reanúdelo, o deshágalo, antes de que empiece otro: así su Deshacer aún alcanza la org tal como estaba.",
+      "resume": "Reanudarlo…",
+      "undoOpen": "Deshacerlo…",
+      "passes": "Cada objeto, en el orden en que la ejecución lo elimina",
+      "col": {
+        "object": "Objeto",
+        "records": "Registros eliminados",
+        "sent": "Enviados por su propia pasada",
+        "how": "Cómo"
+      },
+      "how": {
+        "calls_one": "{{formatted}} llamada",
+        "calls_other": "{{formatted}} llamadas",
+        "jobs_one": "{{formatted}} trabajo de Bulk API",
+        "jobs_other": "{{formatted}} trabajos de Bulk API",
+        "notSent": "No enviado: un archivo nunca se elimina para siempre"
+      },
+      "archived": "de ellos {{records}} archivados",
+      "kept": "{{records}} conservados: la lista de precios estándar",
+      "along": "Registros de otros objetos que van con ellos",
+      "alongLine": "{{records}} {{object}}, por {{via}}",
+      "likelyTitle": "Lo que la org rechazaría, y lo que la ejecución hace al respecto",
+      "likely": {
+        "activatedOrder": "{{records}} {{object}} más allá de Borrador: devueltos primero a Borrador, ya que un pedido activado rechaza su eliminación y la de su cuenta",
+        "standardPriceBook": "{{records}} {{object}} en la lista de precios estándar: nunca se eliminan",
+        "directContactRelation": "{{records}} {{object}} directos: eliminados con su contacto, nunca por sí solos",
+        "personAccountContact": "{{records}} {{object}} de cuentas personales: eliminados con su cuenta, nunca por sí solos"
+      },
+      "blockersTitle": "Lo que bloquea el vaciado",
+      "blocker": "{{records}} {{object}}, no vaciados, nombran estos registros por {{field}} → {{parent}}, que rechaza la eliminación: elija también {{object}}, o deje fuera {{parent}}.",
+      "beforeParentTitle": "Registros que se van antes del registro que nombran, como exige Salesforce",
+      "beforeParentRestricted": "{{object}} antes de {{parent}}: {{field}} rechaza la eliminación de un registro que nombra",
+      "beforeParentPrices": "{{object}}: los precios personalizados antes de los estándar ({{field}})",
+      "undoLostTitle": "Lo que Deshacer no recuperaría",
+      "undoLost": "{{records}} {{object}}: idos antes de {{parent}}, Deshacer no puede recuperarlos una vez idos ambos",
+      "acceptNoUndo": "Vaciar de todos modos: estos registros siguen perdidos después de Deshacer",
+      "cost": {
+        "title": "Lo que le cuesta a {{org}}",
+        "requests": "Unas {{estimate}} solicitudes de API, quedan {{remaining}} de {{max}} hoy.",
+        "requestsUnread": "Unas {{estimate}} solicitudes de API; no se pudo leer lo que le queda hoy a {{org}} ({{reason}}).",
+        "batches": "{{estimate}} lotes de Bulk API, quedan {{remaining}} de {{max}} hoy.",
+        "batchesUnread": "{{estimate}} lotes de Bulk API; no se pudo leer lo que le queda hoy a {{org}} ({{reason}}).",
+        "time": "Unos {{time}}.",
+        "bin": "{{records}} van a la papelera.",
+        "binNone": "Nada va a la papelera.",
+        "binPast": "Supera los {{capacity}} registros que Salesforce documenta para la papelera de {{org}}: más allá, la papelera expulsa sus registros más antiguos, entre ellos los que eliminaron sus colegas."
+      },
+      "access": {
+        "title": "No tiene View All Data y Modify All Data: los registros de estos objetos que no ve no se cuentan ni se eliminan, pero sí los que se lleva un registro eliminado, los vea o no.",
+        "why": {
+          "noViewAll": "no tiene View All ni Modify All sobre él",
+          "noModifyAll": "tiene View All sobre él, no Modify All",
+          "activities": "Salesforce no tiene View All para las actividades",
+          "catalog": "Salesforce no tiene View All para productos y listas de precios",
+          "files": "nada prueba que vea cada archivo",
+          "setting": "nada prueba que vea cada fila de una configuración personalizada",
+          "parent": "nada prueba que vea cada registro del que depende",
+          "unread": "no se pudieron leer sus permisos"
+        }
+      },
+      "peopleUnread": "No se pudo leer quién cambió registros en la última hora para: {{objects}}.",
+      "leftOut_one": "{{formatted}} objeto dejado fuera, con el motivo",
+      "leftOut_other": "{{formatted}} objetos dejados fuera, cada uno con su motivo",
+      "checkpointLead": "Primero un punto de control, tal como lo lee esta vista previa:",
+      "holding": "Lo que impide el vaciado ahora",
+      "again": "Volver a generar la vista previa"
+    },
+    "confirm": {
+      "title": "¿Vaciar {{org}}?",
+      "description": "{{records}} de {{objects}} van a la papelera. Deshacer los recupera mientras la papelera los conserva.",
+      "descriptionHard": "{{records}} de {{objects}} se eliminan para siempre.",
+      "noUndo": "Deshacer no será posible: Salesforce no recupera nada de lo que se lleva una eliminación definitiva.",
+      "automation": "A medida que se van los registros, {{org}} ejecuta lo que listó la vista previa.",
+      "muted": "Lo que el silencio acalla queda callado durante la ejecución, y luego se devuelve.",
+      "blockers": "{{records}} de objetos no vaciados nombran registros que elimina, por una búsqueda que rechaza la eliminación: los registros que nombran serán rechazados.",
+      "checkpoint": "Primero se toma un punto de control de lo que la ejecución elimina."
+    },
+    "run": {
+      "title": "Vaciando {{org}}",
+      "undoTitle": "Recuperando lo que el vaciado eliminó de {{org}}",
+      "starting": "Iniciando…",
+      "progress": "Vaciado en curso",
+      "undoProgress": "Deshacer en curso",
+      "stop": "Detener el vaciado",
+      "stopUndo": "Detener el deshacer",
+      "stopping": "Deteniéndose antes de la siguiente llamada o trabajo a {{org}}: un trabajo de Bulk API que {{org}} ya tiene termina primero…"
+    },
+    "result": {
+      "status": {
+        "success": "{{org}} vaciada",
+        "partial": "{{org}} vaciada en parte",
+        "failure": "No se vació nada de {{org}}",
+        "cancelled": "Se detuvo el vaciado de {{org}}"
+      },
+      "refused": "Se rechazó el vaciado de {{org}}",
+      "stoppedNothing": "Se detuvo el vaciado de {{org}}",
+      "stoppedNothingDetail": "Se detuvo antes de eliminar nada.",
+      "totals": "{{deleted}} eliminados, {{gone}} ya idos antes de su turno (llevados con otro, o eliminados por alguien), {{refused}} rechazados, {{notReached}} no alcanzados.",
+      "totalsHard": "{{deleted}} eliminados para siempre, {{gone}} ya idos antes de su turno (llevados con otro, o eliminados por alguien), {{refused}} rechazados, {{notReached}} no alcanzados.",
+      "resumed": "Retomó el vaciado que se había detenido a medias.",
+      "hardRefused": "Salesforce rechazó la eliminación definitiva antes de enviar un registro: {{reason}}",
+      "perObject": "Lo que hizo con cada objeto",
+      "col": {
+        "deleted": "Eliminados",
+        "gone": "Idos antes",
+        "refused": "Rechazados",
+        "notReached": "No alcanzados"
+      },
+      "madeSince_one": "{{formatted}} registro creado desde la vista previa queda como está",
+      "madeSince_other": "{{formatted}} registros creados desde la vista previa quedan como están",
+      "removedRuns_one": "Se descartó el diario del vaciado anterior de la org: Deshacer alcanza solo este.",
+      "removedRuns_other": "Se descartaron los diarios de los vaciados anteriores de la org: Deshacer alcanza solo este.",
+      "undo": "Deshacer…",
+      "undoWhile": "Recupera {{runId}} de la papelera mientras conserva los registros.",
+      "noUndoHard": "Deshacer no es posible: este vaciado eliminó para siempre.",
+      "noUndoNothing": "No se eliminó nada: no hay nada que deshacer.",
+      "previewAgain": "Volver a generar la vista previa",
+      "done": "Listo"
+    },
+    "resume": {
+      "title": "¿Reanudar el vaciado {{runId}} de {{org}}?",
+      "description": "Elimina lo que la ejecución detenida aún no había alcanzado, tal como mostró su vista previa, y vuelve a leer al empezar lo que {{org}} ejecuta.",
+      "button": "Reanudar el vaciado",
+      "acceptAutomation": "Dejar que se ejecute lo que {{org}} ejecuta cuando se eliminan los registros"
+    },
+    "undo": {
+      "title": "¿Recuperar lo que {{runId}} eliminó de {{org}}?",
+      "description": "Los registros vuelven de la papelera, los padres primero, mientras los conserva. Lo que se purgó de la papelera, o lo eliminó otro usuario sin que usted tenga Modify All Data, no vuelve.",
+      "button": "Recuperar los registros",
+      "acceptAutomation": "Dejar que se ejecute lo que {{org}} ejecuta tras recuperar registros",
+      "status": {
+        "success": "Lo que el vaciado eliminó está de vuelta en {{org}}",
+        "partial": "Parte de lo que el vaciado eliminó está de vuelta en {{org}}",
+        "failure": "Nada volvió a {{org}}",
+        "cancelled": "Se detuvo el deshacer"
+      },
+      "refused": "Se rechazó el deshacer",
+      "stoppedNothingDetail": "Se detuvo antes de recuperar nada.",
+      "line": "{{undeleted}} de {{planned}} recuperados.",
+      "alreadyBack": "{{formatted}} ya habían vuelto.",
+      "notInBin": "{{formatted}} ya no están en la papelera.",
+      "othersDeletion": "{{formatted}} eliminados por otro usuario, lo que solo Modify All Data recupera.",
+      "refusedCount": "{{formatted}} rechazados.",
+      "notReached": "{{formatted}} no alcanzados."
+    },
+    "history": {
+      "title": "Vaciados de {{org}}",
+      "loading": "Leyendo el registro de auditoría…",
+      "none": "El registro de auditoría de este equipo no contiene ningún vaciado de {{org}}.",
+      "where": "Según el registro de auditoría de este equipo: un vaciado lanzado desde la línea de comandos o desde otro equipo no aparece aquí.",
+      "run": "Vaciado",
+      "runHard": "Vaciado, para siempre",
+      "undo": "Deshacer",
+      "outcome": {
+        "success": "hecho",
+        "partial": "hecho en parte",
+        "failure": "fallido",
+        "cancelled": "detenido",
+        "stopped": "rechazado antes de empezar"
+      },
+      "deleted_one": "{{formatted}} registro eliminado",
+      "deleted_other": "{{formatted}} registros eliminados",
+      "broughtBack_one": "{{formatted}} registro recuperado",
+      "broughtBack_other": "{{formatted}} registros recuperados",
+      "refused": "{{formatted}} rechazados"
+    }
   }
 }
