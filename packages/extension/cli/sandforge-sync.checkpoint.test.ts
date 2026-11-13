@@ -471,8 +471,9 @@ describe('sandforge-sync --checkpoint-first', () => {
     const printed = JSON.parse(out.join('')) as { simulation: SyncSimulationResult };
     // The run's call, the read back and the checkpoint's 68; and what the
     // command sent the target before its gate — its limits, read once —, and
-    // who a run writes as, which the dry run does not ask.
-    expect(printed.simulation.writeCheck?.apiRequests?.estimate).toBe(70 + 1 + 2);
+    // who a run writes as, which the dry run does not ask; past the gate,
+    // what the target refused of the run's rows sent again, a call a pass.
+    expect(printed.simulation.writeCheck?.apiRequests?.estimate).toBe(70 + 1 + 2 + 2);
   });
 
   it('names the checkpoint in the run’s file, which outlives the run', async () => {
@@ -542,8 +543,9 @@ describe('sandforge-sync --checkpoint-first', () => {
     expect(printed.checkpoint).toEqual(ESTIMATE);
     expect(printed.simulation.checkpoint).toEqual(ESTIMATE);
     // One call of the run's two accounts, and the checkpoint's 68; its
-    // limits, read once, and who a run writes as.
-    expect(printed.simulation.writeCheck?.apiRequests?.estimate).toBe(69 + 1 + 2);
+    // limits, read once, and who a run writes as; what the target refused of
+    // them sent again, a call a pass.
+    expect(printed.simulation.writeCheck?.apiRequests?.estimate).toBe(69 + 1 + 2 + 2);
     expect(printed.simulation.writeCheck?.verdict).toBe('asks');
   });
 

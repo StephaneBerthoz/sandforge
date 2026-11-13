@@ -18,6 +18,8 @@ import {
   syncRunWrites,
   syncWriteGate,
   syncWritePlan,
+  wholeTargetCount,
+  wholeTargetReadRequests,
   type SyncCountedWrite,
   type SyncWriteMeasures,
 } from './SyncRunGate.js';
@@ -59,6 +61,13 @@ const QUIET: ForgeTargetAutomation = { ...WELCOME_FLOW, objects: [] };
  * automation, which says it sent 4.
  */
 const GATE_READS = 2 + 3 + QUIET.requests;
+
+/**
+ * The rows the target refuses of an object the run inserts, updates or
+ * upserts, sent again, as the gate counts them: a call a pass, two passes
+ * (`DataSync.retryRefused`), each call of an update or an upsert read first.
+ */
+const SENT_AGAIN = 2;
 
 /** What a gate says of the emails of an org that withholds them: read, and no accord needed. */
 const WITHHELD = { accepted: false, deliverability: 'withheld' } as const;
@@ -166,7 +175,7 @@ describe('measureSyncWrite', () => {
     });
     expect(check.apiRequests).toEqual({
       verdict: 'fits',
-      estimate: 1 + GATE_READS,
+      estimate: 1 + SENT_AGAIN + GATE_READS,
       remaining: 4_998_432,
       max: 5_000_000,
     });
@@ -433,18 +442,19 @@ describe('the API requests of a run, priced as its writer sends them', () => {
     // 201 contacts went as one job of thirteen calls, and what the
     // standard rule refused in it went again in two REST calls: counted
     // two, a REST call per 200 rows.
+    // Beside them, the rows the target refused sent again, a call a pass.
     const contacts = [{ objectApiName: 'Contact', operation: 'insert' as const, rows: 201 }];
     expect(await estimateOf(contacts, { readAutomation: async () => ruledBy('Contact') })).toBe(
-      13 + 2,
+      13 + 2 + SENT_AGAIN,
     );
     // No rule watches them: the job alone.
-    expect(await estimateOf(contacts)).toBe(13);
+    expect(await estimateOf(contacts)).toBe(13 + SENT_AGAIN);
     // The rules not read: every row may go again.
     expect(
       await estimateOf(contacts, {
         readAutomation: async () => Promise.reject(new Error('INSUFFICIENT_ACCESS')),
       }),
-    ).toBe(13 + 2);
+    ).toBe(13 + 2 + SENT_AGAIN);
   });
 
   it('sends nothing of a delete again, and prices each object by its own batch size under the threshold', async () => {
@@ -468,8 +478,8 @@ describe('the API requests of a run, priced as its writer sends them', () => {
 
   it("prices by the threshold the run's writer is given: set to 500, 300 records go by REST", async () => {
     const accounts = [{ objectApiName: 'Account', operation: 'insert' as const, rows: 300 }];
-    expect(await estimateOf(accounts, { bulkThreshold: 500 })).toBe(2);
-    expect(await estimateOf(accounts)).toBe(3 + 7 + 3);
+    expect(await estimateOf(accounts, { bulkThreshold: 500 })).toBe(2 + SENT_AGAIN);
+    expect(await estimateOf(accounts)).toBe(3 + 7 + 3 + SENT_AGAIN);
   });
 });
 
@@ -479,19 +489,22 @@ describe('what a run sends its target from its gate on, beside its writes', () =
   it('prices, before each call that writes over records, the reads of what it writes over, by its key', () => {
     // 600 accounts updated by id: one Bulk API job, read in four statements
     // of 181 before it; the rows a duplicate rule may have refused in it sent
-    // again in three calls of 200, each read in two; once more without the
-    // stamps; and whether the run's user reads encrypted fields.
+    // again in three calls of 200, each read in two; the rows the target
+    // refused sent again, a call a pass, each read first; once more without
+    // the stamps; and whether the run's user reads encrypted fields.
     const updated = [
       { objectApiName: 'Account', operation: 'update' as const, rows: 600, overwriteKey: ID },
     ];
-    expect(syncRequestsPastTheGate({ objects: updated }, {})).toBe(4 + 3 * 2 + 1 + 1);
-    // No rule watches them: the job's reads alone.
+    expect(syncRequestsPastTheGate({ objects: updated }, {})).toBe(
+      4 + 3 * 2 + SENT_AGAIN * 2 + 1 + 1,
+    );
+    // No rule watches them: the job's reads alone, and what is sent again.
     expect(
       syncRequestsPastTheGate(
         { objects: updated },
         { duplicateRules: new Map([['Account', false]]) },
       ),
-    ).toBe(4 + 1 + 1);
+    ).toBe(4 + SENT_AGAIN * 2 + 1 + 1);
     // An upsert by an external id of 80 characters: 47 a statement.
     expect(
       syncRequestsPastTheGate(
@@ -507,8 +520,9 @@ describe('what a run sends its target from its gate on, beside its writes', () =
         },
         {},
       ),
-    ).toBe(3 + 1 + 1);
-    // An insert and a delete write over nothing.
+    ).toBe(3 + SENT_AGAIN * 2 + 1 + 1);
+    // An insert and a delete write over nothing; the insert sends again
+    // what the target refused, the delete nothing.
     expect(
       syncRequestsPastTheGate(
         {
@@ -519,7 +533,7 @@ describe('what a run sends its target from its gate on, beside its writes', () =
         },
         {},
       ),
-    ).toBe(0);
+    ).toBe(SENT_AGAIN);
   });
 
   it('prices the roles the platform wrote with the opportunities created with a contact: read, then given the rows’ fields', () => {
@@ -535,23 +549,116 @@ describe('what a run sends its target from its gate on, beside its writes', () =
     // 300 roles at most, 50 the gate linked already: read 200 opportunities
     // a statement, updated in two calls of 200 and 100, each read first as
     // any update — two statements, then one —, once more without the stamps,
-    // and whether encrypted fields read in clear.
-    expect(syncRequestsPastTheGate({ objects, rolesLinked: 50 }, {})).toBe(2 + 2 + (2 + 1 + 1) + 1);
+    // and whether encrypted fields read in clear; and of the opportunities
+    // and the roles inserted, what the target refused sent again.
+    expect(syncRequestsPastTheGate({ objects, rolesLinked: 50 }, {})).toBe(
+      2 + 2 + (2 + 1 + 1) + 1 + 2 * SENT_AGAIN,
+    );
   });
 
   it('prices a describe of each object whose record types it reads again, once the mute assigns a permission set', async () => {
     const typed = { ...counted([{ objectApiName: 'Contact', operation: 'insert', rows: 150 }]) };
     const again = { ...typed, describedAgain: 2 };
-    expect(syncRequestsPastTheGate(again, { leaseAssigns: true })).toBe(2);
-    expect(syncRequestsPastTheGate(again, { leaseAssigns: false })).toBe(0);
+    expect(syncRequestsPastTheGate(again, { leaseAssigns: true })).toBe(2 + SENT_AGAIN);
+    expect(syncRequestsPastTheGate(again, { leaseAssigns: false })).toBe(SENT_AGAIN);
 
     const plan = {
       assign: [{ permissionSet: 'PS_Bypass', label: 'Bypass', permissions: ['Contact_Bypass'] }],
     };
     const leased = await measureSyncWrite(again, measures({ mutePlan: () => plan }));
     const unleased = await measureSyncWrite(again, measures());
-    expect(leased.api.parts?.run).toBe(1 + GATE_READS + 2);
-    expect(unleased.api.estimate).toBe(1 + GATE_READS);
+    expect(leased.api.parts?.run).toBe(1 + SENT_AGAIN + GATE_READS + 2);
+    expect(unleased.api.estimate).toBe(1 + SENT_AGAIN + GATE_READS);
+  });
+});
+
+describe('of a run both ways, the whole read of the target it compares with', () => {
+  /** An update, an upsert, an insert and a delete, one object each. */
+  const write = counted([
+    { objectApiName: 'Account', operation: 'update', rows: 10 },
+    { objectApiName: 'Contact', operation: 'upsert', rows: 5 },
+    { objectApiName: 'Lead', operation: 'insert', rows: 3 },
+    { objectApiName: 'Case', operation: 'delete', rows: 2 },
+  ]);
+
+  it('prices the read of an object at its describe and its pages, 1,000 a page, one at least, as far as the read’s bound', () => {
+    expect(wholeTargetReadRequests(0)).toBe(1 + 1);
+    expect(wholeTargetReadRequests(1_000)).toBe(1 + 1);
+    expect(wholeTargetReadRequests(2_500)).toBe(1 + 3);
+    // The read stops at 50,000 records.
+    expect(wholeTargetReadRequests(1_000_000)).toBe(1 + 50);
+  });
+
+  it('counts the target of each object it updates or upserts, once, and prices the counts and the reads', async () => {
+    const held: Record<string, number> = { Account: 2_500, Contact: 0 };
+    const countTarget = vi.fn(async (name: string) => held[name] ?? 0);
+
+    const one = await measureSyncWrite(write, measures());
+    const both = await measureSyncWrite(write, measures({ countTarget }));
+
+    expect(countTarget.mock.calls.map(([name]) => name)).toEqual(['Account', 'Contact']);
+    // A count each, then the accounts' describe and three pages, the
+    // contacts' describe and a page.
+    expect(both.api.estimate).toBe(one.api.estimate + 2 + (1 + 3) + (1 + 1));
+
+    // On the command line, the counts are among the requests it sent before
+    // its gate, as counted: priced once.
+    const oneSent = await measureSyncWrite(write, measures({ sentBefore: () => 20 }));
+    const bothSent = await measureSyncWrite(write, measures({ sentBefore: () => 22, countTarget }));
+    expect(bothSent.api.estimate).toBe(oneSent.api.estimate + 2 + (1 + 3) + (1 + 1));
+  });
+
+  it('prices the read at its bound when the target would not count it, and counts nothing of a run that writes nothing', async () => {
+    const refused = vi.fn(async () => Promise.reject(new Error('INVALID_TYPE')));
+    const accounts = counted([{ objectApiName: 'Account', operation: 'update', rows: 10 }]);
+    const one = await measureSyncWrite(accounts, measures());
+    const both = await measureSyncWrite(accounts, measures({ countTarget: refused }));
+    expect(both.api.estimate).toBe(one.api.estimate + 1 + (1 + 50));
+
+    const countTarget = vi.fn(async () => 10);
+    await measureSyncWrite(
+      counted([{ objectApiName: 'Account', operation: 'update', rows: 0 }]),
+      measures({ countTarget }),
+    );
+    expect(countTarget).not.toHaveBeenCalled();
+  });
+
+  it('counts an object whose rows it holds back all the same: the run reads them, and the target with them', async () => {
+    const countTarget = vi.fn(async (_name: string) => 10);
+    await measureSyncWrite(
+      {
+        ...counted([
+          { objectApiName: 'Account', operation: 'insert', rows: 4 },
+          { objectApiName: 'Contact', operation: 'update', rows: 0 },
+        ]),
+        heldBack: [{ objectApiName: 'Contact', rows: 6, parent: 'Account', field: 'AccountId' }],
+      },
+      measures({ countTarget }),
+    );
+    expect(countTarget.mock.calls.map(([name]) => name)).toEqual(['Contact']);
+  });
+
+  it('asks the count of a run both ways under each object’s filter, and of no run one way', async () => {
+    const objects = [
+      { objectApiName: 'Account', where: "Industry = 'Energy'" },
+      { objectApiName: 'Contact' },
+    ];
+    const statements: string[] = [];
+    const count = async (soql: string) => {
+      statements.push(soql);
+      return 7;
+    };
+    expect(wholeTargetCount({ direction: 'source_to_target', objects } as never, count)).toBe(
+      undefined,
+    );
+    const both = wholeTargetCount({ direction: 'bidirectional', objects } as never, count);
+    expect(await both?.('Account')).toBe(7);
+    expect(await both?.('Contact')).toBe(7);
+    expect(statements).toEqual([
+      "SELECT COUNT() FROM Account WHERE Industry = 'Energy'",
+      'SELECT COUNT() FROM Contact',
+    ]);
+    await expect(both?.('Account; DELETE')).rejects.toThrow();
   });
 });
 
@@ -563,9 +670,10 @@ describe('what a run reads of the target, priced beside its writes', () => {
     // its removal (the API's root, then the identity URL), the gate's read
     // of the limits, its read of the daily requests alone, its read of the
     // day's emails; and the four requests the read of the automation said.
-    // Its call alone was priced.
+    // Its call alone was priced. Past the gate, what the target refused of
+    // them sent again.
     const { api } = await measureSyncWrite(contacts, measures());
-    expect(api.estimate).toBe(1 + 2 + 3 + 4);
+    expect(api.estimate).toBe(1 + SENT_AGAIN + 2 + 3 + 4);
     expect(api).not.toHaveProperty('parts');
 
     // A read that failed whole, which said nothing of what it sent: priced
@@ -574,7 +682,9 @@ describe('what a run reads of the target, priced beside its writes', () => {
       contacts,
       measures({ readAutomation: async () => Promise.reject(new Error('timed out')) }),
     );
-    expect(failed.api.parts).toMatchObject({ run: 1 + 2 + 3 + AUTOMATION_READ_MOST });
+    expect(failed.api.parts).toMatchObject({
+      run: 1 + SENT_AGAIN + 2 + 3 + AUTOMATION_READ_MOST,
+    });
   });
 
   it('prices, on the command line, every request it sent so far in their place, the read of the deliverability apart', async () => {
@@ -591,8 +701,8 @@ describe('what a run reads of the target, priced beside its writes', () => {
       counted([{ objectApiName: 'Contact', operation: 'insert', rows: 5 }]),
       senders,
     );
-    expect(api.parts).toEqual({ run: 1 + (31 - 2), deliverability: 2 });
-    expect(api.estimate).toBe(1 + 31);
+    expect(api.parts).toEqual({ run: 1 + SENT_AGAIN + (31 - 2), deliverability: 2 });
+    expect(api.estimate).toBe(1 + SENT_AGAIN + 31);
   });
 
   it('prices the lease of the mute the run holds in a part of its own: who the run writes as, three reads, each set assigned and taken back', async () => {
@@ -600,7 +710,7 @@ describe('what a run reads of the target, priced beside its writes', () => {
       assign: [{ permissionSet: 'PS_Bypass', label: 'Bypass', permissions: ['Contact_Bypass'] }],
     };
     const { api } = await measureSyncWrite(contacts, measures({ mutePlan: () => plan }));
-    expect(api.parts).toEqual({ run: 1 + 2 + 3 + 4, mute: 2 + 3 + 2 });
+    expect(api.parts).toEqual({ run: 1 + SENT_AGAIN + 2 + 3 + 4, mute: 2 + 3 + 2 });
     // A mute that assigns nothing asks the org nothing.
     const none = await measureSyncWrite(contacts, measures({ mutePlan: () => ({ assign: [] }) }));
     expect(none.api).not.toHaveProperty('parts');
@@ -979,14 +1089,15 @@ describe('gateSyncWrite', () => {
     );
 
     // 1,000 contacts in one Bulk API job of sixteen calls, no rule watching
-    // them; before it, what they write over read in twenty statements of
-    // fifty, as a call that may write more than a hundred fields reads it,
+    // them, and what the target refused of them sent again; before each,
+    // what they write over read — before the job in twenty statements of
+    // fifty, as a call that may write more than a hundred fields reads it —,
     // one sent again without the stamps, and whether the run's user reads
     // encrypted fields; and the run's reads of the target.
     expect(measured.check).toMatchObject({
       apiRequests: {
         verdict: 'exceeds',
-        estimate: 16 + (20 + 1 + 1) + GATE_READS,
+        estimate: 16 + SENT_AGAIN + (20 + SENT_AGAIN + 1 + 1) + GATE_READS,
         remaining: 4,
         max: 15_000,
       },
@@ -1017,9 +1128,10 @@ describe('gateSyncWrite', () => {
 
     await gateSyncWrite(measured, { policy: 'ask', org: 'TRAP', orgTier: 'development', confirm });
 
-    // 3,000 contacts in one job of twenty-two calls, and the run's reads.
+    // 3,000 contacts in one job of twenty-two calls, what the target refused
+    // of them sent again, and the run's reads.
     expect(confirm.mock.calls[0][0]).toMatchObject({
-      apiRequests: { estimate: 22 + GATE_READS, remaining: 1_000, max: 15_000 },
+      apiRequests: { estimate: 22 + SENT_AGAIN + GATE_READS, remaining: 1_000, max: 15_000 },
     });
   });
 

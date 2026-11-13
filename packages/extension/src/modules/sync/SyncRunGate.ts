@@ -28,6 +28,7 @@ import type {
   RunCheckpointEstimate,
   RunCheckpointTaken,
   StillRunning,
+  SyncConfig,
   SyncOperation,
   SyncUnwritableReason,
   SyncWriteCheck,
@@ -82,7 +83,16 @@ import {
 import { emailsRefusalWords, runEmailsSaidOf, type RunEmailsSaid } from '../forge/runEmailsSaid.js';
 import { duplicateRulesOf } from '../seed/seedDuplicateRules.js';
 import { importRequestsEstimate, importRunReads } from '../seed/seedStorage.js';
-import { ID_KEY_CHARACTERS, overwriteReadsOf, type OverwriteKeyShape } from './syncOverwrites.js';
+import {
+  ID_KEY_CHARACTERS,
+  overwriteReadsOf,
+  textKeyCharacters,
+  type OverwriteKeyShape,
+} from './syncOverwrites.js';
+import { SNAPSHOT_PAGE_ROWS } from '../checkpoint/rewindEstimate.js';
+import { FORGE_QUERY_MAX_RECORDS } from '../forge/queryAllPages.js';
+import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import { sourceReadWhere } from './SyncDelta.js';
 import type { SyncHeldBackObject } from './syncHeldBack.js';
 import {
   heldPlanOf,
@@ -260,8 +270,45 @@ const ROLE_READS_PER_STATEMENT = 200;
 /** What an update or an upsert of an object whose key is unknown names its records by, at most. */
 const UNKNOWN_KEY: Record<'update' | 'upsert', OverwriteKeyShape> = {
   update: { characters: ID_KEY_CHARACTERS, wide: true },
-  upsert: { characters: 257, wide: true },
+  upsert: { characters: textKeyCharacters(), wide: true },
 };
+
+/**
+ * The passes a write makes of the rows the target refused for a lookup or
+ * for fields a rule named, each sent again without them, once for each kind
+ * of refusal, at most twice (`DataSync.retryRefused`).
+ */
+const SENT_AGAIN_PASSES = 2;
+
+/**
+ * The records of each call of the passes that send refused rows again, as
+ * the gate counts them: one call a pass of one row, the least a pass sends
+ * once a row is refused. How many the target will refuse is not known
+ * before the write: a run whose refusals fill more than a call a pass sends
+ * more, and one the target refuses nothing of sends none.
+ */
+const SENT_AGAIN_FLOOR: readonly number[] = Array.from({ length: SENT_AGAIN_PASSES }, () => 1);
+
+/**
+ * Requests the read of an object a bidirectional run reads whole of the
+ * target sends beside its pages: its describe, for the fields it names
+ * (`queryTarget`).
+ */
+const WHOLE_READ_DESCRIBE = 1;
+
+/**
+ * The requests of the read of an object a bidirectional run updates or
+ * upserts, which it reads whole from the target before it writes it, to
+ * compare (`queryTarget`): its describe, then its pages, at least one, of
+ * the `held` records the target holds under its filter, as far as the read's
+ * bound ({@link FORGE_QUERY_MAX_RECORDS}). The read names every field the
+ * describe lists, and the org answered a read of 49 columns of contacts
+ * 1,000 a page where 2,000 were asked ({@link SNAPSHOT_PAGE_ROWS}).
+ */
+export function wholeTargetReadRequests(held: number): number {
+  const rows = Math.min(Math.max(0, held), FORGE_QUERY_MAX_RECORDS);
+  return WHOLE_READ_DESCRIBE + Math.max(1, Math.ceil(rows / SNAPSHOT_PAGE_ROWS));
+}
 
 /** The records of each call of `rows`, `size` at a time. */
 function callsOf(rows: number, size: number): number[] {
@@ -297,10 +344,18 @@ function writeCallsOf(
 
 /**
  * The API requests a run sends its target from its gate on beside its writes
- * and the read-backs of the record types given, at most:
+ * and the read-backs of the record types given, at most but where said:
+ * - of a bidirectional run, the read of each object it updates or upserts,
+ *   whole, from the target ({@link wholeTargetReadRequests}), of the records
+ *   the gate counted there (`targetHeld`);
  * - before each call of an update or an upsert, the keeper's reads of what it
- *   writes over (`overwriteReadsOf`), and once a run whether its user reads
- *   encrypted fields in clear;
+ *   writes over (`overwriteReadsOf`), each key at its length escaped
+ *   (`textKeyCharacters`), and once a run whether its user reads encrypted
+ *   fields in clear;
+ * - of each object it inserts, updates or upserts, the rows the target
+ *   refused for a lookup or for fields a rule named, sent again, each call
+ *   of an update or an upsert read first: counted at their floor, a call a
+ *   pass ({@link SENT_AGAIN_FLOOR}), which more refusals exceed;
  * - of the contact roles it creates with opportunities it creates with a
  *   contact, the roles the platform wrote with them, read 200 opportunities a
  *   statement, and updated with the fields the run's rows hold, calls of the
@@ -309,11 +364,13 @@ function writeCallsOf(
  *   object whose record types the run reads again (`describedAgain`).
  *
  * Counted nowhere, they were sent past the price the run was held to: a
- * run updating 600 accounts priced at its three calls sent four reads more.
- * A key whose literal holds quotes or backslashes, escaped, takes more
- * characters than its field's length: such keys fill more statements.
+ * run updating 600 accounts priced at its three calls sent four reads more;
+ * a bidirectional run read from the target the whole of each object it
+ * updated, and the rows a run sent again once refused were priced at nothing.
  *
  * @param path.leaseAssigns - Whether the run's mute assigns a permission set.
+ * @param path.targetHeld - Of a bidirectional run, the records the target
+ *   holds of each object it reads whole there, as counted at the gate.
  */
 export function syncRequestsPastTheGate(
   counted: Pick<SyncCountedWrite, 'objects' | 'describedAgain' | 'rolesLinked'>,
@@ -321,17 +378,20 @@ export function syncRequestsPastTheGate(
     bulkThreshold?: number;
     duplicateRules?: ReadonlyMap<string, boolean>;
     leaseAssigns?: boolean;
+    targetHeld?: ReadonlyMap<string, number>;
   },
 ): number {
   let requests = 0;
   let overwritten = false;
+  for (const held of path.targetHeld?.values() ?? []) requests += wholeTargetReadRequests(held);
   for (const object of counted.objects) {
-    if (object.rows <= 0 || (object.operation !== 'update' && object.operation !== 'upsert')) {
-      continue;
-    }
+    if (object.rows <= 0 || object.operation === 'delete') continue;
+    // The rows refused sent again, a call a pass at the least.
+    requests += SENT_AGAIN_FLOOR.length;
+    if (object.operation !== 'update' && object.operation !== 'upsert') continue;
     overwritten = true;
     requests += overwriteReadsOf(
-      writeCallsOf(object, path),
+      [...writeCallsOf(object, path), ...SENT_AGAIN_FLOOR],
       object.overwriteKey ?? UNKNOWN_KEY[object.operation],
     );
   }
@@ -396,6 +456,14 @@ export interface SyncWriteMeasures {
   bulkThreshold?: number;
   /** The checkpoint the run takes of what it writes before its first write; absent when not asked. */
   checkpointFirst?: SyncCheckpointFirst;
+  /**
+   * Of a bidirectional run, the records the target holds of an object under
+   * the object's filter, one `SELECT COUNT()` each ({@link wholeTargetCount}):
+   * the run reads each object it updates or upserts whole from the target
+   * before it writes it, to compare, and its requests are priced by them
+   * ({@link wholeTargetReadRequests}). Absent for a run in one direction.
+   */
+  countTarget?: (objectApiName: string) => Promise<number>;
   /**
    * The mute the run holds the lease of while it writes, as planned once
    * the gate read the target's automation (`mutingSyncWriteGate`): the
@@ -511,6 +579,54 @@ function readOnce(read: SyncWriteMeasures['readAutomation']): SyncWriteMeasures[
 }
 
 /**
+ * The count a bidirectional run's gate asks the target of each object it
+ * reads whole there ({@link SyncWriteMeasures.countTarget}): `SELECT COUNT()`
+ * under the object's filter, the one the read goes by (`queryTarget`), the
+ * object found by its name in `config`. Undefined for a run in one
+ * direction, which reads no object whole from the target.
+ *
+ * @param count - Runs a `SELECT COUNT()` against the target, and answers its total.
+ */
+export function wholeTargetCount(
+  config: Pick<SyncConfig, 'direction' | 'objects'>,
+  count: (soql: string) => Promise<number>,
+): SyncWriteMeasures['countTarget'] {
+  if (config.direction !== 'bidirectional') return undefined;
+  return async (objectApiName) => {
+    const object = config.objects.find((one) => one.objectApiName === objectApiName);
+    const where = sourceReadWhere(object?.where, undefined);
+    return count(
+      `SELECT COUNT() FROM ${assertSoqlIdentifier(objectApiName)}${where ? ` WHERE ${where}` : ''}`,
+    );
+  };
+}
+
+/**
+ * Of the objects a bidirectional run updates or upserts, the records the
+ * target holds of each, counted once: those it writes rows of, and those
+ * whose rows it holds back, read all the same. A count the target refuses
+ * is taken at the read's bound, the most it reads.
+ */
+async function targetHeldOf(
+  counted: Pick<SyncCountedWrite, 'objects' | 'heldBack'>,
+  count: (objectApiName: string) => Promise<number>,
+): Promise<Map<string, number>> {
+  const heldBack = new Set(
+    (counted.heldBack ?? [])
+      .filter(({ rows }) => rows > 0)
+      .map(({ objectApiName }) => objectApiName),
+  );
+  const held = new Map<string, number>();
+  for (const { objectApiName, operation, rows } of counted.objects) {
+    if (!writesOver(operation) || held.has(objectApiName)) continue;
+    if (rows <= 0 && !heldBack.has(objectApiName)) continue;
+    const n = await count(objectApiName).catch(() => FORGE_QUERY_MAX_RECORDS);
+    held.set(objectApiName, Number.isFinite(n) && n >= 0 ? n : FORGE_QUERY_MAX_RECORDS);
+  }
+  return held;
+}
+
+/**
  * The records a run writes, measured: the records it creates against the
  * storage the target has left, and the emails its automation sends for them
  * against what it has left today. Nothing is read of the target for a run
@@ -604,14 +720,21 @@ export async function measureSyncWrite(
       run: 'sync',
     });
   }
+  // Of a bidirectional run, what the target holds of each object it reads
+  // whole there, counted under its filter before the command line's count
+  // is read, which then holds these counts too.
+  const targetHeld =
+    total > 0 && measures.countTarget
+      ? await targetHeldOf(counted, measures.countTarget)
+      : undefined;
   // The checkpoint's reads, the lease of the mute, the read-backs of the
   // record types given and the read of the deliverability are the target's,
   // and are counted beside the run's own. Its own are its writes and what it
   // reads of the target besides: the limits from the gate on, who it writes
-  // as, and the read of the automation just made — or, on the command line,
-  // every request sent so far, as counted. Its writes alone were counted: a
-  // run's gate priced none of the five reads of who it writes as and of the
-  // limits, nor the read of the automation.
+  // as, the read of the automation just made and the counts of the target —
+  // or, on the command line, every request sent so far, as counted. Its
+  // writes alone were counted: a run's gate priced none of the five reads of
+  // who it writes as and of the limits, nor the read of the automation.
   const deliverability = deliverabilityPartOf(runEmails?.ofRun);
   const sentBefore = measures.sentBefore?.();
   const reads =
@@ -619,10 +742,12 @@ export async function measureSyncWrite(
       ? 0
       : sentBefore !== undefined
         ? Math.max(0, sentBefore - (deliverability.deliverability ?? 0))
-        : importRunReads(0, read !== undefined ? automationReadRequests(read) : 0);
-  // And what it sends from its gate on beside its writes: the reads of what
-  // it writes over, of the roles the platform wrote, and the describes read
-  // again under the mute's lease. The command line's count stops at the gate.
+        : importRunReads(0, read !== undefined ? automationReadRequests(read) : 0) +
+          (targetHeld?.size ?? 0);
+  // And what it sends from its gate on beside its writes: the whole reads of
+  // the target, the reads of what it writes over, the rows refused sent
+  // again, the roles the platform wrote, and the describes read again under
+  // the mute's lease. The command line's count stops at the gate.
   const duplicateRules = read !== undefined ? duplicateRulesOf(read) : undefined;
   const pastTheGate =
     total === 0
@@ -631,6 +756,7 @@ export async function measureSyncWrite(
           bulkThreshold: measures.bulkThreshold,
           duplicateRules,
           leaseAssigns: (measures.mutePlan?.()?.assign.length ?? 0) > 0,
+          ...(targetHeld ? { targetHeld } : {}),
         });
   const api: ApiBudgetCheck = apiBudgetCheckOf(
     {

@@ -6,6 +6,9 @@
  * each call through its own `request`, as jsforce sends each.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Connection } from 'jsforce';
 import type { ForgeTargetAutomation } from '@sandforge/shared';
 
@@ -86,16 +89,60 @@ const DESCRIBED = {
   fields: [field('Id', 'id', { createable: false, updateable: false }), field('Name', 'string')],
 };
 
+/** A lookup of the accounts at a contact the target does not hold. */
+const KEY_CONTACT = 'Key_Contact__c';
+
+/** What the target is, beside its room to spare. */
+interface TargetShape {
+  /**
+   * The accounts' first write refused whole, every row for its lookup at a
+   * contact the target does not hold, as Salesforce refuses one: the run
+   * sends them again without it.
+   */
+  refusesFirst?: boolean;
+  /** The accounts the target holds, which a whole read of them takes 1,000 a page, as the org answered. */
+  held?: number;
+}
+
 /**
  * A source of 150 accounts and a sandbox target with room to spare, whose
  * every call — a query, a describe, who the session is, a write of up to 200
  * records, its limits — goes through its connection's `request`, looked up
  * at each call as jsforce's methods call the connection's own, and is listed
- * in `targetRequests` as the target took it.
+ * in `targetRequests` as the target took it; each statement it was asked,
+ * in `targetStatements`.
  */
-function orgs(): { targetRequests: string[] } {
+function orgs(shape: TargetShape = {}): { targetRequests: string[]; targetStatements: string[] } {
   const targetRequests: string[] = [];
+  const targetStatements: string[] = [];
   const page = (records: unknown[]) => ({ records, totalSize: records.length, done: true });
+  const described = shape.refusesFirst
+    ? {
+        ...DESCRIBED,
+        fields: [
+          ...DESCRIBED.fields,
+          field(KEY_CONTACT, 'reference', { referenceTo: ['Contact'] }),
+        ],
+      }
+    : DESCRIBED;
+  const sourceAccounts = shape.refusesFirst
+    ? ACCOUNTS.map((account, i) => ({
+        ...account,
+        [KEY_CONTACT]: `003${String(i + 1).padStart(12, '0')}AAA`,
+      }))
+    : ACCOUNTS;
+  const held = Array.from({ length: shape.held ?? 0 }, (_, i) => ({
+    Id: `001${String(i + 5_000).padStart(12, '0')}AAA`,
+    Name: `Held ${i + 1}`,
+  }));
+  /** A page of the whole read of the target's accounts, from `from`. */
+  const heldPage = (from: number) => ({
+    records: held.slice(from, from + 1_000),
+    totalSize: held.length,
+    done: from + 1_000 >= held.length,
+    ...(from + 1_000 < held.length ? { nextRecordsUrl: `/query/next-${from + 1_000}` } : {}),
+  });
+  let creates = 0;
   const conn = (side: 'source' | 'target') => {
     const self: Record<string, unknown> = { version: '66.0' };
     const send = (url: string): Promise<unknown> =>
@@ -116,26 +163,48 @@ function orgs(): { targetRequests: string[] } {
     };
     self.query = async (soql: string) => {
       await send('/query');
+      if (side === 'target') targetStatements.push(soql);
       if (soql.includes('FROM Organization')) {
         return page([{ Id: '00D000000000002AAA', IsSandbox: true }]);
       }
       if (/COUNT\(\)/.test(soql)) {
-        return { records: [], totalSize: side === 'source' ? ACCOUNTS.length : 0, done: true };
+        return {
+          records: [],
+          totalSize: side === 'source' ? ACCOUNTS.length : held.length,
+          done: true,
+        };
       }
-      if (soql.includes('FROM Account')) return page(side === 'source' ? ACCOUNTS : []);
+      if (soql.includes('FROM Account')) {
+        if (side === 'source') return page(sourceAccounts);
+        // Read whole, page by page; by the ids the keeper names, none.
+        return / WHERE Id IN /.test(soql) ? page([]) : heldPage(0);
+      }
       return page([]);
     };
-    self.queryMore = async () => {
+    self.queryMore = async (url: string) => {
       await send('/query/next');
-      return page([]);
+      const from = /next-(\d+)$/.exec(url);
+      return from ? heldPage(Number(from[1])) : page([]);
     };
     self.sobject = () => ({
       describe: async () => {
         await send('/sobjects/Account/describe');
-        return DESCRIBED;
+        return described;
       },
       create: async (records: unknown[]) => {
         await send('/composite/sobjects');
+        if (shape.refusesFirst && creates++ === 0) {
+          return records.map(() => ({
+            success: false,
+            errors: [
+              {
+                statusCode: 'INVALID_CROSS_REFERENCE_KEY',
+                message: 'invalid cross reference id',
+                fields: [KEY_CONTACT],
+              },
+            ],
+          }));
+        }
         return records.map((_, i) => ({
           id: `001${String(i + 900).padStart(12, '0')}AAA`,
           success: true,
@@ -149,7 +218,7 @@ function orgs(): { targetRequests: string[] } {
     });
     self.describe = async () => {
       await send('/sobjects/Account/describe');
-      return DESCRIBED;
+      return described;
     };
     self.identity = async () => {
       await send('/');
@@ -173,7 +242,7 @@ function orgs(): { targetRequests: string[] } {
   vi.mocked(makeConn).mockImplementation(
     (session) => (session.alias === 'SRC' ? source : target) as unknown as Connection,
   );
-  return { targetRequests };
+  return { targetRequests, targetStatements };
 }
 
 /** Thrown where the command would exit: a test reads the code. */
@@ -244,6 +313,87 @@ describe('sandforge-sync --json, its API requests', () => {
     );
     expect(ran.apiRequests.sent).toBe(real.targetRequests.length);
     expect(ran.apiRequests.estimate).toBeGreaterThanOrEqual(ran.apiRequests.sent);
+  });
+
+  it('prices the rows the target refused sent again, a call a pass: never fewer than it sends', async () => {
+    const real = orgs({ refusesFirst: true });
+    const ran = await summaryOf(argv('--json'));
+
+    // Its write, refused whole, then sent again without the lookup.
+    expect(real.targetRequests.filter((url) => url === '/composite/sobjects')).toHaveLength(2);
+    expect(ran.apiRequests.sent).toBe(real.targetRequests.length);
+    expect(ran.apiRequests.estimate).toBeGreaterThanOrEqual(ran.apiRequests.sent);
+  });
+
+  describe('of a configuration that runs both ways', () => {
+    let dir: string;
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'sandforge-sync-both-ways-'));
+    });
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    /** A saved configuration updating the accounts under a filter, both ways. */
+    const bothWays = (): string[] => {
+      const file = join(dir, 'config.json');
+      writeFileSync(
+        file,
+        JSON.stringify({
+          id: 'cfg-both-ways',
+          name: 'Accounts both ways',
+          description: '',
+          sourceOrgId: '00D000000000001AAA',
+          targetOrgId: '00D000000000002AAA',
+          direction: 'bidirectional',
+          mode: 'full',
+          objects: [
+            {
+              objectApiName: 'Account',
+              operation: 'update',
+              where: "Name LIKE 'Account%'",
+              fieldMappings: [],
+              transformRules: [],
+              excludedFields: [],
+              addOnFields: [],
+              insertOrder: 0,
+            },
+          ],
+          conflictStrategy: 'source_wins',
+          enableRollback: false,
+        }),
+      );
+      return [
+        'node',
+        'sandforge-sync.ts',
+        '--config-file',
+        file,
+        '--store',
+        join(dir, 'store'),
+        '--source',
+        'SRC',
+        '--target',
+        'TGT',
+      ];
+    };
+
+    it('prices the whole read of the target it compares with, counted under the filter at its gate: never fewer than it sends', async () => {
+      const real = orgs({ held: 12_000 });
+      out.length = 0;
+      await main([...bothWays(), '--json']);
+      const ran = JSON.parse(out.join('')) as {
+        apiRequests: { estimate?: number; sent: number };
+      };
+
+      // Counted at the gate under the object's filter, then read whole: its
+      // describe and twelve pages of 1,000, thirteen requests priced nowhere.
+      expect(real.targetStatements).toContain(
+        "SELECT COUNT() FROM Account WHERE Name LIKE 'Account%'",
+      );
+      expect(real.targetRequests.filter((url) => url === '/query/next')).toHaveLength(11);
+      expect(ran.apiRequests.sent).toBe(real.targetRequests.length);
+      expect(ran.apiRequests.estimate).toBeGreaterThanOrEqual(ran.apiRequests.sent);
+    });
   });
 
   it('says what it sent when its gate never priced the run', () => {

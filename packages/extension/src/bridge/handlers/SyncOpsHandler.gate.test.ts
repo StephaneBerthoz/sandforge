@@ -148,7 +148,8 @@ const fakeId = (prefix: string, n: number): string => `${prefix}${String(n).padS
  * The source's contacts, and a target with `remainingMB` of data storage and
  * `emails` single emails left, which delivers the emails of its automation
  * when `level` says all, and none of them otherwise. `deliverabilityAsked`
- * counts the requests of the reads of its deliverability.
+ * counts the requests of the reads of its deliverability; `targetStatements`
+ * lists each statement the target was asked.
  */
 function mockOrgs(
   contacts: number,
@@ -157,6 +158,7 @@ function mockOrgs(
   level: DeliverabilityLevel = 'withheld',
 ) {
   const deliverabilityAsked: string[] = [];
+  const targetStatements: string[] = [];
   const rows = Array.from({ length: contacts }, (_, n) => ({
     attributes: { type: 'Contact' },
     Id: fakeId('003', n + 1),
@@ -169,6 +171,7 @@ function mockOrgs(
     async (orgId: string) =>
       ({
         query: vi.fn(async (soql: string) => {
+          if (orgId === 'tgt-org') targetStatements.push(soql);
           if (soql.startsWith('SELECT COUNT()')) {
             return { done: true, totalSize: soql.includes('IsPersonAccount') ? 0 : rows.length };
           }
@@ -198,7 +201,7 @@ function mockOrgs(
         limitInfo: undefined,
       }) as never,
   );
-  return { create, deliverabilityAsked };
+  return { create, deliverabilityAsked, targetStatements };
 }
 
 function insertOf(objectApiName: string, insertOrder: number): SyncObjectConfig {
@@ -373,6 +376,53 @@ describe('a Sync run held to what the target has left, before its first write', 
       cycles: [],
     });
     expect(answer.payload).not.toHaveProperty('encrypted');
+  });
+
+  describe('of a configuration that runs both ways', () => {
+    /** The contacts updated under a filter, one way or both. */
+    const updated = (direction: SyncConfig['direction']): SyncConfig => ({
+      ...config([
+        { ...insertOf('Contact', 0), operation: 'update', where: "LastName LIKE 'Doe%'" },
+      ]),
+      direction,
+    });
+    /** What a simulation of it priced its API requests at. */
+    const estimateOf = async (direction: SyncConfig['direction'], id: string) => {
+      await send(handler, 'sync:simulate', id, { config: updated(direction) });
+      const answer = posted(deps, 'sync:simulate:response').find((m) => m.correlationId === id);
+      return (answer?.payload.writeCheck as { apiRequests?: { estimate: number } } | undefined)
+        ?.apiRequests?.estimate;
+    };
+
+    it('counts what the target holds of the object it updates under its filter, and prices its whole read', async () => {
+      const { targetStatements } = mockOrgs(30);
+
+      const oneWay = await estimateOf('source_to_target', 'sim-one-way');
+      expect(targetStatements.filter((soql) => soql.startsWith('SELECT COUNT()'))).toEqual([]);
+      const bothWays = await estimateOf('bidirectional', 'sim-both-ways');
+
+      expect(targetStatements).toContain("SELECT COUNT() FROM Contact WHERE LastName LIKE 'Doe%'");
+      // The count, then the read the run compares with: its describe and a page.
+      expect(oneWay).toEqual(expect.any(Number));
+      expect(bothWays).toBe((oneWay ?? 0) + 1 + 1 + 1);
+    });
+
+    it('prices a sandbox’s read page by page, and a production org’s as far as the cap its read keeps to', async () => {
+      mockOrgs(3_000);
+      const oneWay = await estimateOf('source_to_target', 'sim-one-way');
+      // 500 at most from a production org: one page.
+      expect(await estimateOf('bidirectional', 'sim-production')).toBe((oneWay ?? 0) + 1 + 1 + 1);
+
+      vi.mocked(deps.orgManager.getOrg).mockImplementation(
+        (orgId: string) =>
+          ({ orgType: 'Sandbox', alias: orgId === 'tgt-org' ? 'TRAP' : 'SOURCE' }) as never,
+      );
+      const sandboxOneWay = await estimateOf('source_to_target', 'sim-sandbox-one-way');
+      // 3,000 a sandbox reads whole: three pages of 1,000.
+      expect(await estimateOf('bidirectional', 'sim-sandbox')).toBe(
+        (sandboxOneWay ?? 0) + 1 + 1 + 3,
+      );
+    });
   });
 
   describe('of contacts holding an encrypted field the source user reads masked', () => {

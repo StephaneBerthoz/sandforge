@@ -170,6 +170,7 @@ import {
   mutingSyncWriteGate,
   syncRunWrites,
   syncWriteGate,
+  wholeTargetCount,
   type SyncCheckpointFirst,
   type SyncGatePolicy,
   type SyncWriteGate,
@@ -577,6 +578,15 @@ export class SyncOpsHandler implements DomainHandler {
     const reader = this.targetAutomation;
     const guard = this.deps.infraServices?.productionGuard;
     const emailsAnswer = syncEmailsAnswerOf(policy);
+    // Of a bidirectional run, what the target holds of each object it reads
+    // whole there, counted under the cap the read of a production org keeps to.
+    const tier = resolveOrgTier(target?.orgType === 'Sandbox' || target?.orgType === 'Scratch');
+    const countTarget = wholeTargetCount(config, async (soql) => {
+      const { totalSize } = await targetConn.query(soql);
+      return tier === 'production'
+        ? Math.min(totalSize, getQueryLimits(tier).defaultQueryLimit)
+        : totalSize;
+    });
     return syncWriteGate(
       {
         readStorage: () =>
@@ -614,6 +624,7 @@ export class SyncOpsHandler implements DomainHandler {
         bulkThreshold: robustnessConfigOf(this.deps).bulk.threshold,
         ...(checkpointFirst ? { checkpointFirst } : {}),
         ...(mutePlan ? { mutePlan } : {}),
+        ...(countTarget ? { countTarget } : {}),
       },
       {
         policy,

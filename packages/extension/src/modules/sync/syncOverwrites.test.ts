@@ -425,6 +425,33 @@ describe('overwriteReadsOf', () => {
     expect(overwriteReadsOf([200], { characters: 82, wide: false })).toBe(sentKeyed + 1);
     expect(overwriteReadsOf([], { characters: 82, wide: false })).toBe(0);
   });
+
+  it('prices a text key at its length escaped: keys of quotes and backslashes fill more statements', async () => {
+    // 200 keys of 80 characters, 77 of them quotes and backslashes, each
+    // escaped into two: 24 a statement, where 47 keys of 80 letters fit.
+    const keyed = Array.from({ length: 200 }, (_, i) => ({
+      Ext__c: `${String(i).padStart(3, '0')}${"'\\".repeat(38)}'`,
+      Name: `After ${i}`,
+    }));
+    expect(keyed[0].Ext__c).toHaveLength(80);
+    const sent = await sentFor(keyed, 'upsert', 'Ext__c');
+    expect(sent).toBe(9);
+    // As the gate prices them, from the target's describe of the key.
+    const key = overwriteKeyOf('Ext__c', {
+      creatable: new Set(['Name']),
+      fields: [
+        {
+          name: 'Ext__c',
+          type: 'string',
+          length: 80,
+          queryable: true,
+          createable: true,
+          isReference: false,
+        },
+      ],
+    });
+    expect(overwriteReadsOf([200], key)).toBeGreaterThanOrEqual(sent);
+  });
 });
 
 describe('overwriteKeyOf', () => {
@@ -444,16 +471,18 @@ describe('overwriteKeyOf', () => {
     ],
   });
 
-  it('names records by id, by the figures of a number, or by the characters a text key holds', () => {
+  it('names records by id, by the figures of a number, or by the characters a text key holds escaped', () => {
     expect(overwriteKeyOf('Id', described(10))).toEqual({ characters: 20, wide: false });
-    expect(overwriteKeyOf('ext__c', described(10))).toEqual({ characters: 42, wide: false });
+    // Forty characters, each of which may be a quote or a backslash the
+    // statement escapes into two, between quotes.
+    expect(overwriteKeyOf('ext__c', described(10))).toEqual({ characters: 82, wide: false });
     expect(overwriteKeyOf('Number__c', described(10))).toEqual({ characters: 12, wide: false });
   });
 
   it('takes a call that may write more than a hundred columns for a wide one, and the longest key when not described', () => {
     expect(overwriteKeyOf('Id', described(97)).wide).toBe(true);
     expect(overwriteKeyOf('Id', described(96)).wide).toBe(false);
-    expect(overwriteKeyOf('Ext__c', undefined)).toEqual({ characters: 257, wide: true });
+    expect(overwriteKeyOf('Ext__c', undefined)).toEqual({ characters: 512, wide: true });
   });
 });
 

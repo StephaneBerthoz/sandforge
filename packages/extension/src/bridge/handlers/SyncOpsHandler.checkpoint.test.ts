@@ -771,9 +771,10 @@ describe('a Sync run that takes a checkpoint first, from the page', () => {
     // The run's write and the read-back of the record types given, the take's
     // 68, and the two of the read of whether the target delivers the email
     // its welcome flow sends; and the run's reads of the target: who it
-    // writes as, its limits, and the read of its automation's one.
+    // writes as, its limits, and the read of its automation's one; past its
+    // gate, what the target refused of its rows sent again, a call a pass.
     expect(check.apiRequests?.estimate).toBe(
-      1 + 1 + ESTIMATE.estimate.apiRequests + 2 + (2 + 3 + 1),
+      1 + 1 + ESTIMATE.estimate.apiRequests + 2 + (2 + 3 + 1) + 2,
     );
     expect(checkpoints.take).not.toHaveBeenCalled();
     expect(asked.questions).toEqual([]);

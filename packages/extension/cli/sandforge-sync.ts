@@ -230,6 +230,7 @@ import {
   syncRunWrites,
   takeSyncCheckpoint,
   unwritableRefusal,
+  wholeTargetCount,
   type SyncGateAnswer,
   type SyncGateStop,
   type SyncWriteGate,
@@ -2126,6 +2127,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   /** What became of it once the run ended: kept, or deleted for a run that wrote nothing. */
   let checkpointInfo: RunCheckpointInfo | undefined;
 
+  // Of a bidirectional configuration, what the target holds of each object
+  // the run reads whole there, counted as the panel counts it.
+  const countTarget = wholeTargetCount(
+    config,
+    async (soql) => (await targetConn.query(soql)).totalSize,
+  );
   // Held, before its first write, to what the target has left of its data
   // storage and of its daily emails, as a clone is: refused past either, with
   // nothing written. Sync wrote until the target refused its records one by
@@ -2157,6 +2164,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // checkpoint's scope and the limits it read, who the run writes as —
     // which a dry run, keeping no file, does not read, and says it would.
     sentBefore: () => requestsSent() + (args.dryRun ? RUN_USER_REQUESTS : 0),
+    ...(countTarget ? { countTarget } : {}),
     ...(checkpoints
       ? {
           checkpointFirst: {

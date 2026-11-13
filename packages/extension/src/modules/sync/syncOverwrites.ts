@@ -258,13 +258,27 @@ export const ID_KEY_CHARACTERS = 20;
 const TEXT_KEY_LENGTH = 255;
 
 /**
+ * The most characters a text key of `length` characters takes in the `IN`
+ * list of a statement: each of them may be a quote or a backslash, which the
+ * statement escapes into two (`literalOf`), and the two quotes around it.
+ * Nothing at the gate reads a key's value: it counts the records before
+ * anything is read, a simulation's as a run's.
+ */
+export function textKeyCharacters(length: number = TEXT_KEY_LENGTH): number {
+  return 2 * Math.max(0, length) + 2;
+}
+
+/**
  * What the keeper names an object's records by as a write keyed on
  * `keyField` sends them, from the target's describe of it: an id; a number,
  * by its digits, a sign and a point; any other key by the characters its
- * field holds, between quotes. A call may write every field the user may
- * write, besides the id, the key and the two stamps: past
- * {@link WIDE_COLUMNS} columns, a statement names fewer records. Without a
- * describe, a key of 255 characters, and a wide call.
+ * field holds escaped, between quotes ({@link textKeyCharacters}). Counted
+ * at its length alone, a key of quotes or backslashes filled more
+ * statements than counted: 200 keys of 80 such characters were read in nine,
+ * counted six. A call may write every field the user may write, besides the
+ * id, the key and the two stamps: past {@link WIDE_COLUMNS} columns, a
+ * statement names fewer records. Without a describe, a key of 255
+ * characters, and a wide call.
  */
 export function overwriteKeyOf(
   keyField: string,
@@ -276,7 +290,7 @@ export function overwriteKeyOf(
   if (field && ['double', 'int', 'long', 'currency', 'percent'].includes(field.type ?? '')) {
     return { characters: (field.precision ?? field.digits ?? 18) + 2, wide };
   }
-  return { characters: (field?.length ?? TEXT_KEY_LENGTH) + 2, wide };
+  return { characters: textKeyCharacters(field?.length ?? TEXT_KEY_LENGTH), wide };
 }
 
 /**
