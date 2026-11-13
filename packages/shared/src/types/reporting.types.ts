@@ -1,6 +1,11 @@
 import type { AuditMutedAutomation } from '../utils/automation-mute.js';
 import type { UUID, ISODateString } from './common.types.js';
-import type { ForgeGapDecisionKind, ForgeVerificationVerdict } from './forge.types.js';
+import type {
+  ForgeGapDecisionKind,
+  ForgeSampleDraw,
+  ForgeVerificationVerdict,
+  WholeOrgSampleLimit,
+} from './forge.types.js';
 
 /** Report type */
 export type ReportType =
@@ -278,15 +283,22 @@ export interface AuditBeforeRun {
 /**
  * What the audit trail keeps of a fit to the target's storage: the module,
  * the share applied or the caps, the bound asked, and the records kept of
- * those the source held. Counts, never ids.
+ * those the source held. Counts, never ids. Of Forge's, a sample of the
+ * whole org: its seed, its draw and the bound that held it besides.
  */
 export interface AuditFit {
-  module: 'seed' | 'autopilot';
+  module: 'seed' | 'autopilot' | 'forge';
   /** The share kept, 0 < share ≤ 1; absent when caps alone fitted it. */
   share?: number;
   /** Whether per-object caps were applied. */
   capped?: true;
   withinMB?: number;
+  /** Of a sample of the whole org, the seed its roots were drawn by. */
+  seed?: number;
+  /** Of a sample of the whole org, how its roots were drawn. */
+  draw?: ForgeSampleDraw;
+  /** Of a sample of the whole org, the first bound that held it. */
+  limitedBy?: WholeOrgSampleLimit;
   /** Records the fitted run set out to write, and those the unfitted one would have. */
   kept: number;
   inSource: number;

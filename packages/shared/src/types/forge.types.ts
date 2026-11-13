@@ -56,7 +56,8 @@ export interface ForgeConfig {
    * How input records are specified. `org` — the whole source org — goes with
    * the `all` depth and with no other, and leaves `recordId`, `soqlQuery`,
    * `templateId`, `aiPrompt` and `customDepth` unset (`wholeOrgConfigIssue`);
-   * `maxNodes` has nothing to cap there and is ignored.
+   * `maxNodes` has nothing to cap there and is ignored. `sample` goes with
+   * it alone.
    */
   inputMode: ForgeInputMode;
   /** Salesforce record ID when inputMode is 'record' */
@@ -197,6 +198,67 @@ export interface ForgeConfig {
    * rows are exactly the ones the gap is about (`skip_rows`).
    */
   skippedRows?: ForgeSkippedRows[];
+  /**
+   * Copy a sample of the whole org that fits the target, rather than every
+   * record: roots drawn from each object, with their children and the
+   * records they name, none left without a record it cannot be written
+   * without. Set on a clone of the whole org alone (`wholeOrgConfigIssue`);
+   * absent, the clone copies every record, as it did before. Never set
+   * unasked: a sample changes what the target holds of the source.
+   */
+  sample?: ForgeSampleOptions;
+}
+
+/**
+ * How a sample of the whole org draws its roots: `uniform`, spread over each
+ * object by a seeded hash of the ids, which reads every root's id; `recent`,
+ * the last ids first, which reads only those it keeps: the records made last,
+ * as far as an org's ids follow the order its records were made in.
+ */
+export type ForgeSampleDraw = 'uniform' | 'recent';
+
+/**
+ * What a sample does with a record outside it that an optional lookup of a
+ * record it keeps names: copies it, without its children (`all`), or leaves
+ * the lookup empty (`required`). A lookup the record cannot be written
+ * without always has its record copied.
+ */
+export type ForgeSampleParents = 'all' | 'required';
+
+/**
+ * The options of a sample of the whole org (`ForgeConfig.sample`), each the
+ * command line's `--fit-*` flag of the same sense. One left out takes its
+ * default (`FORGE_SAMPLE_DEFAULTS`).
+ */
+export interface ForgeSampleOptions {
+  /** The most MB of the target's data storage the sample may take, beside what the target has left (`--fit-within`). */
+  withinMB?: number;
+  /** The most records the sample may hold (`--max-total`): the command line's bound; the panel sets none. */
+  maxTotal?: number;
+  /** The seed the roots are drawn by (`--fit-seed`): the same seed draws the same ids. */
+  seed?: number;
+  /** How the roots are drawn (`--fit-draw`). */
+  draw?: ForgeSampleDraw;
+  /** What an optional lookup to a record outside the sample becomes (`--fit-parents`). */
+  parents?: ForgeSampleParents;
+  /**
+   * The most children of a record the sample takes through each relation
+   * other than a master-detail one, the newest, or `all` (`--fit-children`).
+   * A master-detail record always comes with every detail.
+   */
+  children?: number | 'all';
+  /** Objects copied whole beside those the sample copies whole of itself (`--fit-whole`). */
+  whole?: string[];
+  /** Roots kept of each object that has any, whatever the share (`--fit-floor`). */
+  floor?: number;
+  /**
+   * The plan of a dry run whose ids the run writes rather than draw its own
+   * (`--fit-plan`), by the path its dry run printed: refused when it was
+   * drawn of another org or setup, or no longer holds what it held. The
+   * command line's alone; never read by a resume, which reads the plan its
+   * journal names.
+   */
+  plan?: string;
 }
 
 /** See `ForgeConfig.skippedRows`. */
@@ -819,6 +881,8 @@ export interface ForgeWholeOrgDryRun {
       withoutParent?: Array<{ objectApiName: string; rows: number }>;
       /** Rows left aside: a lookup they may not leave empty names a record the source does not hold. */
       noParentInSource?: Array<{ objectApiName: string; rows: number }>;
+      /** Rows left aside: a lookup they may not leave empty names a record outside its object's filter. */
+      outsideFilter?: Array<{ objectApiName: string; rows: number }>;
       /** Rows linked to the target's own record of the same standing, never written: the standard price book. */
       linkedToTarget?: Array<{ objectApiName: string; rows: number }>;
       /** Prices in a currency the target lacks, left out for the source's own price in the currency written. */
@@ -829,6 +893,244 @@ export interface ForgeWholeOrgDryRun {
   personalAsIs: Array<{ objectApiName: string; fields: string[] }>;
   /** Every refusal the run would meet, in the order it meets them; none when it would go through. */
   wouldBeRefused: ForgeWholeOrgRefusal[];
+  /**
+   * Of a sample (`ForgeConfig.sample`), what it drew and how, said before the
+   * rest: the counts above are then the plan's. Absent when every record is
+   * copied.
+   */
+  sample?: WholeOrgSample;
+}
+
+/**
+ * The first bound that held a sample of the whole org, past which the next
+ * share would not fit: the target's data storage, the MB asked
+ * (`--fit-within`), the records asked (`--max-total`), the target's daily
+ * API requests or Bulk API batches, the source's daily API requests; `whole`
+ * when the whole org fits, and copying every record is the better run.
+ */
+export type WholeOrgSampleLimit =
+  'storage' | 'within' | 'maxTotal' | 'targetRequests' | 'bulkBatches' | 'sourceRequests' | 'whole';
+
+/**
+ * What a sample of the whole org may take, and what it is drawn from: "3.6 MB
+ * the sample may take (80 % of 5 MB left, 0.5 MB off for rounding, 0.1 MB for
+ * flows)".
+ */
+export interface WholeOrgSampleBudget {
+  /** The bytes the sample's records may take: the least of the bounds below, the room of the target's automation taken off. */
+  bytes: number;
+  /**
+   * What the target's `/limits` say it has left and holds, in MB, the share
+   * of what is left past `roundingMB` the sample may take, and the MB kept
+   * for that rounding: absent together when the target would not say, the
+   * sample then held to `withinMB` or `maxTotal` alone.
+   */
+  remainingMB?: number;
+  maxMB?: number;
+  share?: number;
+  roundingMB?: number;
+  /** The MB kept for what the target's automation that still runs creates under the sample's records; absent when none is. */
+  automationMB?: number;
+  /** The MB asked (`ForgeSampleOptions.withinMB`); absent when none was. */
+  withinMB?: number;
+  /** The records asked (`ForgeSampleOptions.maxTotal`); absent when none was. */
+  maxTotal?: number;
+  /** What held it; before the sample is drawn, which bound gives `bytes`. */
+  limitedBy: WholeOrgSampleLimit;
+}
+
+/**
+ * Why a sample copies an object whole, every record of it, and draws none of
+ * it: reference data matched by name, never written; the price catalog, when
+ * it fits a quarter of the budget and the records per object; a small parent,
+ * an object of few records that drawn objects name and that needs none of
+ * theirs to be written; or `asked` (`ForgeSampleOptions.whole`).
+ * Whole, an object carries no draw down: a lookup to it would let every
+ * record naming it in.
+ */
+export type WholeOrgSampleWholeReason = 'referenceData' | 'catalog' | 'smallParent' | 'asked';
+
+/** An object a sample copies whole, and why. */
+export interface WholeOrgSampleWhole {
+  objectApiName: string;
+  why: WholeOrgSampleWholeReason;
+}
+
+/**
+ * Why a sample leaves a record out that its draw reached, never sent: a
+ * lookup it cannot be written without names a record the source does not
+ * hold (`noParentInSource`), one outside its object's filter
+ * (`outsideFilter`), one of an object the run leaves out (`excludedObject`),
+ * or one so left out itself (`withoutParent`); or its own record type is
+ * closed to the user the run writes as (`heldBack`), or one the target has
+ * none of (`recordTypeNotInTarget`) — the words a run's gate says them in.
+ */
+export type WholeOrgSampleDropReason =
+  | 'noParentInSource'
+  | 'outsideFilter'
+  | 'excludedObject'
+  | 'withoutParent'
+  | 'heldBack'
+  | 'recordTypeNotInTarget';
+
+/**
+ * What a sample keeps of one object, of what the source holds, and how each
+ * record came in: drawn as a root, reached under a record above it, copied
+ * as a record a kept one names, or with the whole object.
+ */
+export interface WholeOrgSampleObject {
+  objectApiName: string;
+  /** The records the source holds, as the plan counted them. */
+  sourceRows: number;
+  /** The records the sample keeps: `roots` + `below` + `asParents`, or all of them for an object copied whole. */
+  kept: number;
+  roots: number;
+  below: number;
+  asParents: number;
+  /** Set on an object copied whole; why, in `WholeOrgSample.whole`. */
+  whole?: true;
+  /**
+   * The children the cap on each relation left out (`children`), by the
+   * lookup of this object that names their parent. Absent when none was.
+   */
+  childrenCut?: Array<{ field: string; rows: number }>;
+}
+
+/**
+ * What a sample of the whole org drew, how, and what it left out: what the
+ * dry run says before anything is written, and the command line's
+ * `wholeOrg.sample`. Counts and names; the ids are in the plan, on disk, but
+ * for the roots set aside.
+ */
+export interface WholeOrgSample {
+  /** The options it was drawn with, each as applied: an option left out, at its default. */
+  seed: number;
+  draw: ForgeSampleDraw;
+  floor: number;
+  parents: ForgeSampleParents;
+  children: number | 'all';
+  /** The share of each object's roots the sample keeps, 0 to 1. */
+  share: number;
+  budget: WholeOrgSampleBudget;
+  /** The records it keeps in all, and the data storage they take. */
+  rows: number;
+  storageBytes: number;
+  /** Per object it keeps a record of, the most first. */
+  objects: WholeOrgSampleObject[];
+  /** The objects copied whole, and why. */
+  whole: WholeOrgSampleWhole[];
+  /**
+   * The roots set aside: each would have brought in more than a tenth of
+   * the budget, by the relation that swells it — the child object and its
+   * lookup. Named by id, the one id the report holds, so that it can be
+   * left out or looked at.
+   */
+  heavyRoots: Array<{
+    objectApiName: string;
+    id: string;
+    rows: number;
+    relation: { objectApiName: string; field: string };
+  }>;
+  /** Records the draw reached and left out, per object and why. */
+  dropped: Array<{ objectApiName: string; rows: number; reason: WholeOrgSampleDropReason }>;
+  /** Lookups of the records kept that are written empty, per object and field. */
+  leftEmpty: Array<{ objectApiName: string; field: string; rows: number }>;
+  /**
+   * The objects of the run whose source holds records of which the sample
+   * keeps none: said apart, never as empty.
+   */
+  noRecordDrawn: Array<{ objectApiName: string; sourceRows: number }>;
+  /** The requests drawing the plan sent the source. */
+  planRequests: { source: number };
+  /**
+   * The plan on disk: its path, the SHA-256 of its ids, when it was drawn,
+   * and whether by this run or by a dry run it takes up — the panel's last
+   * Simulate, or the command line's `--fit-plan`. `drawnAgain` says why a run
+   * drew its own when a plan was at hand: the simulation's was more than a
+   * day old, set up otherwise, or the plan of the run it retries was gone.
+   */
+  plan: {
+    path: string;
+    sha256: string;
+    drawnAt: string;
+    drawnBy: 'run' | 'dryRun';
+    drawnAgain?: 'tooOld' | 'setUpOtherwise' | 'planGone';
+  };
+}
+
+/** What a run of a sample wrote of one object, beside what its plan kept. */
+export interface WholeOrgSampleWritten extends WholeOrgSampleObject {
+  /** Records of the plan written, or linked to a record the target held. */
+  written: number;
+  /** Records of the plan the source no longer held when the run read them: not written, and no failure. */
+  goneSinceTheSample: number;
+  /**
+   * Records of the plan held back as the run read them: a record they
+   * cannot be written without had changed since the plan. Failures: never
+   * sent without it.
+   */
+  changedSinceTheSample: number;
+}
+
+/**
+ * What a run of a sample of the whole org did, as its result and its entry in
+ * the history keep it: how the sample was drawn, the plan by its SHA-256, and
+ * per object what was written of it. No id: the plan's go with its journal.
+ */
+export interface WholeOrgSampleResult {
+  seed: number;
+  draw: ForgeSampleDraw;
+  share: number;
+  sha256: string;
+  drawnAt: string;
+  objects: WholeOrgSampleWritten[];
+}
+
+/**
+ * What Review reads of the target before a sample is simulated: what every
+ * record would take against what the target has left — "about 412 MB for
+ * 4.5 MB left", and the offer of a sample past it —, what a sample may take
+ * with the options asked, the objects it copies whole of itself, and about
+ * what drawing it reads of the source.
+ */
+export interface ForgeSampleBudget {
+  /** Every record of the whole org, by discovery's counts and the documented sizes, against the target's data storage. */
+  wholeOrg: ForgeWholeOrgStorageCheck;
+  /**
+   * What a sample may take with the options asked, or their defaults when
+   * every record is: absent when the target would not say its storage and no
+   * bound was asked, which no sample can be drawn against.
+   */
+  budget?: WholeOrgSampleBudget;
+  /** The objects the sample copies whole of itself, and why; those asked besides are the config's. */
+  whole: WholeOrgSampleWhole[];
+  /**
+   * About the requests drawing the plan reads of the source with the draw
+   * asked, by discovery's counts, against what the source has left today,
+   * and the seconds it takes: past a tenth of the day, the draw `recent` or a
+   * filter is offered.
+   */
+  planReads: { source: ForgeWholeOrgAllowanceCheck; seconds: number };
+}
+
+/**
+ * Where the drawing of a sample stands, before the run's gate: counting each
+ * object's roots, reading their ids (`drawing`), closing the sample over the
+ * records they reach and name (`closing`), cutting it to the budget
+ * (`fitting`), keeping the plan on disk (`saving`).
+ */
+export interface ForgeSamplingProgress {
+  step: 'counting' | 'drawing' | 'closing' | 'fitting' | 'saving';
+  /** The object it is on, where the step goes object by object. */
+  objectApiName?: string;
+  /** Of a step that goes object by object, the objects done, of how many. */
+  done?: number;
+  total?: number;
+  /** The records the plan has read so far. */
+  rows: number;
+  /** The requests it has sent the source so far, and about how many it was priced at. */
+  requests: number;
+  pricedAt?: number;
 }
 
 /** Sample of a record that failed insertion, with the platform errors. */
@@ -1936,6 +2238,13 @@ export interface ForgeExecutionResult {
    * when the run muted nothing, or every such job had ended.
    */
   bulkJobsPastMute?: ForgeBulkJobPastMute[];
+  /**
+   * Of a run of a sample of the whole org (`ForgeConfig.sample`), how it was
+   * drawn and what it wrote of each object of the plan: its `success` says
+   * every record of the plan was written or linked to. Absent from every
+   * other run.
+   */
+  sample?: WholeOrgSampleResult;
   /**
    * Of a clone of the whole org as its entry in the history keeps it, how
    * many objects it left out for each reason: the entry's graph keeps its

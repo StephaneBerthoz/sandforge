@@ -2,7 +2,12 @@ import * as z from 'zod';
 import { anonymizationMethodSchema } from './autopilot.schema.js';
 import { FILE_COPY_CEILING_MB } from '../constants/file-copy.js';
 import { forgeGapParts } from '../utils/forge-gaps.js';
-import type { ForgeConfig, ForgeLeftOutReason } from '../types/forge.types.js';
+import type {
+  ForgeConfig,
+  ForgeFileCopyOption,
+  ForgeLeftOutReason,
+  ForgeSampleOptions,
+} from '../types/forge.types.js';
 
 // ─── Enum Schemas ────────────────────────────────────────────────────────────
 
@@ -79,6 +84,54 @@ const SF_FIELD_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
  * package's namespace (15) and `__` for a package's — `ns__Retail`.
  */
 const SF_RECORD_TYPE_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,96}$/;
+
+/** Zod schema for ForgeSampleDraw */
+export const forgeSampleDrawSchema = z.enum(['uniform', 'recent']);
+
+/** Zod schema for ForgeSampleParents */
+export const forgeSampleParentsSchema = z.enum(['all', 'required']);
+
+/**
+ * What an option of a sample left out comes to: the roots drawn by seed 1,
+ * spread over each object; the records an optional lookup names copied; a
+ * hundred children of a record per relation; one root of each object kept
+ * whatever the share, as Autopilot keeps one.
+ */
+export const FORGE_SAMPLE_DEFAULTS = {
+  seed: 1,
+  draw: 'uniform',
+  parents: 'all',
+  children: 100,
+  floor: 1,
+} as const satisfies Required<
+  Pick<ForgeSampleOptions, 'seed' | 'draw' | 'parents' | 'children' | 'floor'>
+>;
+
+/**
+ * Zod schema for ForgeSampleOptions. Strict: an option it does not name is
+ * refused rather than dropped, as a mistyped bound read as none would let
+ * the sample take more than was asked. Bounded as the rest of a config is,
+ * so that a forged payload asks no list or number past what any org holds;
+ * the records a plan holds at once are bounded where it is drawn.
+ */
+export const forgeSampleOptionsSchema = z.strictObject({
+  withinMB: z.number().positive().max(1_000_000).optional(),
+  maxTotal: z.number().int().min(1).optional(),
+  seed: z.number().int().min(0).optional(),
+  draw: forgeSampleDrawSchema.optional(),
+  parents: forgeSampleParentsSchema.optional(),
+  children: z.union([z.literal('all'), z.number().int().min(1).max(1_000_000)]).optional(),
+  whole: z
+    .array(z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'))
+    .max(500)
+    .optional(),
+  floor: z.number().int().min(0).max(10_000).optional(),
+  plan: z.string().min(1).max(4_096).optional(),
+});
+
+/** Why a config walked from a root is refused with a sample. */
+const SAMPLE_OF_THE_WHOLE_ORG_ALONE =
+  "A sample is drawn from a clone of the whole org alone (inputMode 'org', depth 'all'): sample must be left out";
 
 /**
  * Base ForgeConfig schema (no cross-field refine). Kept as a plain ZodObject
@@ -252,17 +305,22 @@ export const forgeConfigSchema = z.object({
     )
     .max(500)
     .optional(),
+  // Parsing drops what the schema does not name: without it, a resumed run
+  // read its journal's config as one that copies every record.
+  sample: forgeSampleOptionsSchema.optional(),
 });
 
 /**
  * A run's config walked from a root — a record, a query, a template or an AI
  * draft — never the clone of a whole org: what a template holds, and what
  * the Forge panel's messages carry. A config of the `org` mode or the `all`
- * depth is refused at its parse, as any mode or depth they never held.
+ * depth is refused at its parse, as any mode or depth they never held, and
+ * so is a sample, drawn from the whole org alone.
  */
 export const forgeWalkConfigSchema = forgeConfigSchema.extend({
   inputMode: forgeInputModeSchema.exclude(['org']),
   depth: forgeDepthSchema,
+  sample: z.never({ error: SAMPLE_OF_THE_WHOLE_ORG_ALONE }).optional(),
 });
 
 /**
@@ -277,16 +335,29 @@ export const forgeWalkConfigSchema = forgeConfigSchema.extend({
  * schema because the messages the extension receives are parsed by the
  * plain one, whose `.omit()` the template schema needs, and the extension
  * asks this of them itself.
+ *
+ * A sample (`sample`) is drawn from the whole org alone: a walk reads all it
+ * reaches, and its config would say a sample its run never draws. Nor can a
+ * sample copy whole an object the run leaves out: one of the two choices
+ * would be dropped unsaid.
  */
 export function wholeOrgConfigIssue(
   c: Pick<
     ForgeConfig,
-    'inputMode' | 'depth' | 'recordId' | 'soqlQuery' | 'templateId' | 'aiPrompt' | 'customDepth'
+    | 'inputMode'
+    | 'depth'
+    | 'recordId'
+    | 'soqlQuery'
+    | 'templateId'
+    | 'aiPrompt'
+    | 'customDepth'
+    | 'sample'
+    | 'excludedObjects'
   >,
 ): string | undefined {
   const org = c.inputMode === 'org';
   const all = c.depth === 'all';
-  if (!org && !all) return undefined;
+  if (!org && !all) return c.sample === undefined ? undefined : SAMPLE_OF_THE_WHOLE_ORG_ALONE;
   if (!all) return "A clone of the whole org (inputMode 'org') takes the depth 'all' and no other";
   if (!org) {
     return `The depth 'all' clones the whole org and goes with inputMode 'org' only, not '${c.inputMode}'`;
@@ -294,8 +365,28 @@ export function wholeOrgConfigIssue(
   const given = (
     ['recordId', 'soqlQuery', 'templateId', 'aiPrompt', 'customDepth'] as const
   ).filter((field) => c[field] !== undefined);
-  if (given.length === 0) return undefined;
-  return `A clone of the whole org starts from no record, query, template or AI draft and walks no depth: ${given.join(', ')} must be left out`;
+  if (given.length > 0) {
+    return `A clone of the whole org starts from no record, query, template or AI draft and walks no depth: ${given.join(', ')} must be left out`;
+  }
+  const excluded = new Set(c.excludedObjects ?? []);
+  const both = (c.sample?.whole ?? []).filter((name) => excluded.has(name));
+  if (both.length === 0) return undefined;
+  return `The sample copies whole an object the run leaves out: ${both.join(', ')}. Take each out of one list or the other`;
+}
+
+/**
+ * Why a sample of the whole org is refused with the files of its records:
+ * which files a sample would copy, and what they would take of the target's
+ * file storage, is not drawn yet. Asked on the run's options, not its config,
+ * which never holds the files: the panel sends them beside it, the command
+ * line reads `--files`.
+ */
+export function wholeOrgSampleFilesIssue(
+  c: Pick<ForgeConfig, 'sample'>,
+  files: ForgeFileCopyOption | undefined,
+): string | undefined {
+  if (c.sample === undefined || files === undefined) return undefined;
+  return 'A sample of the whole org copies no files yet: copy every record to take them, or leave the files out';
 }
 
 /**
@@ -303,10 +394,11 @@ export function wholeOrgConfigIssue(
  * contract via `.superRefine`. Without this, a payload like
  * `{inputMode:'soql', recordId:'…'}` passes validation, then crashes
  * downstream in `resolveRootObject` with a generic message. A clone of the
- * whole org is held to {@link wholeOrgConfigIssue}, and refused in its words.
+ * whole org, and any config with a sample, is held to
+ * {@link wholeOrgConfigIssue}, and refused in its words.
  */
 export const forgeConfigSchemaStrict = forgeConfigSchema.superRefine((c, ctx) => {
-  if (c.inputMode === 'org' || c.depth === 'all') {
+  if (c.inputMode === 'org' || c.depth === 'all' || c.sample !== undefined) {
     const issue = wholeOrgConfigIssue(c);
     if (issue !== undefined) ctx.addIssue({ code: 'custom', message: issue, path: ['inputMode'] });
     return;

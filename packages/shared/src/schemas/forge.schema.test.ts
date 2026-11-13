@@ -1,9 +1,19 @@
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import type * as z from 'zod';
 
-import type { ForgeLeftOutReason } from '../types/forge.types.js';
+import type {
+  ForgeLeftOutReason,
+  ForgeSampleDraw,
+  ForgeSampleOptions,
+  ForgeSampleParents,
+} from '../types/forge.types.js';
 import {
   FORGE_LEFT_OUT_MAX,
+  FORGE_SAMPLE_DEFAULTS,
+  forgeSampleDrawSchema,
+  forgeSampleOptionsSchema,
+  forgeSampleParentsSchema,
+  wholeOrgSampleFilesIssue,
   forgeConfigSchemaStrict,
   forgeLeftOutReasonSchema,
   forgeRunDepthSchema,
@@ -224,6 +234,157 @@ describe('forgeWalkConfigSchema', () => {
     expect(refusals({ ...createValidForgeConfig(), depth: 'deep' })).toEqual([
       'depth: Invalid option: expected one of "direct"|"full"|"custom"',
     ]);
+  });
+});
+
+describe('a sample of the whole org', () => {
+  const WHOLE_ORG = {
+    ...createValidForgeConfig(),
+    inputMode: 'org',
+    depth: 'all',
+    recordId: undefined,
+  };
+
+  /** Every option a sample takes, each set away from its default. */
+  const EVERY_OPTION: ForgeSampleOptions = {
+    withinMB: 3.5,
+    maxTotal: 20_000,
+    seed: 7,
+    draw: 'recent',
+    parents: 'required',
+    children: 'all',
+    whole: ['Region__c'],
+    floor: 0,
+    plan: '/home/someone/plans/forge-samples/abc/manifest.json',
+  };
+
+  /** The messages the strict schema refuses `config` with, path and all. */
+  function refusals(config: Record<string, unknown>): string[] {
+    const parsed = forgeConfigSchemaStrict.safeParse(config);
+    return parsed.success
+      ? []
+      : parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+  }
+
+  it('is taken with the org mode and the depth all, every option kept through the parse', () => {
+    expect(refusals({ ...WHOLE_ORG, sample: EVERY_OPTION })).toEqual([]);
+    // The plain schema is the one a run's journal and the panel's messages are
+    // read with: an option it did not name would be dropped there, and a
+    // resumed run would draw another sample than the one it was writing.
+    expect(forgeConfigSchema.parse({ ...WHOLE_ORG, sample: EVERY_OPTION }).sample).toEqual(
+      EVERY_OPTION,
+    );
+  });
+
+  it('is taken with no option at all, each then at the default the design sets', () => {
+    expect(refusals({ ...WHOLE_ORG, sample: {} })).toEqual([]);
+    expect(FORGE_SAMPLE_DEFAULTS).toEqual({
+      seed: 1,
+      draw: 'uniform',
+      parents: 'all',
+      children: 100,
+      floor: 1,
+    });
+  });
+
+  it('is refused on a run walked from a root, in its words, wherever the rule is asked', () => {
+    const message =
+      "A sample is drawn from a clone of the whole org alone (inputMode 'org', depth 'all'): sample must be left out";
+    expect(refusals({ ...createValidForgeConfig(), sample: {} })).toEqual([
+      `inputMode: ${message}`,
+    ]);
+    expect(wholeOrgConfigIssue({ inputMode: 'soql', depth: 'full', sample: {} })).toBe(message);
+    // The depth all from a root is refused for that first: one refusal, not two.
+    expect(refusals({ ...createValidForgeConfig(), depth: 'all', sample: {} })).toEqual([
+      "inputMode: The depth 'all' clones the whole org and goes with inputMode 'org' only, not 'record'",
+    ]);
+  });
+
+  it('is refused by a template, which never clones the whole org', () => {
+    const message =
+      "A sample is drawn from a clone of the whole org alone (inputMode 'org', depth 'all'): sample must be left out";
+    const walk = forgeWalkConfigSchema.safeParse({ ...createValidForgeConfig(), sample: {} });
+    expect(walk.error?.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`)).toEqual([
+      `sample: ${message}`,
+    ]);
+    const template = createValidForgeTemplate();
+    const parsed = forgeTemplateSchema.safeParse({
+      ...template,
+      config: { ...(template.config as Record<string, unknown>), sample: { seed: 2 } },
+    });
+    expect(parsed.error?.issues.map((issue) => issue.path.join('.'))).toEqual(['config.sample']);
+  });
+
+  it('refuses an object the run leaves out and the sample copies whole, naming each', () => {
+    expect(
+      refusals({
+        ...WHOLE_ORG,
+        excludedObjects: ['Region__c', 'Case', 'Lead'],
+        sample: { whole: ['Lead', 'Region__c', 'Product2'] },
+      }),
+    ).toEqual([
+      'inputMode: The sample copies whole an object the run leaves out: Lead, Region__c. Take each out of one list or the other',
+    ]);
+    expect(
+      refusals({ ...WHOLE_ORG, excludedObjects: ['Case'], sample: { whole: ['Product2'] } }),
+    ).toEqual([]);
+  });
+
+  it('refuses an option it does not name rather than drop it', () => {
+    // Dropped, a mistyped bound would leave the sample held to none.
+    expect(refusals({ ...WHOLE_ORG, sample: { withinMb: 5 } })).toEqual([
+      'sample: Unrecognized key: "withinMb"',
+    ]);
+  });
+
+  it('refuses a draw, a parents rule or a bound the design does not offer, each in its own words', () => {
+    expect(
+      refusals({
+        ...WHOLE_ORG,
+        sample: {
+          draw: 'oldest',
+          parents: 'none',
+          children: 0,
+          floor: -1,
+          seed: 1.5,
+          withinMB: 0,
+          maxTotal: 0,
+          whole: ['Account; DELETE'],
+          plan: '',
+        },
+      }),
+    ).toEqual([
+      'sample.withinMB: Too small: expected number to be >0',
+      'sample.maxTotal: Too small: expected number to be >=1',
+      'sample.seed: Invalid input: expected int, received number',
+      'sample.draw: Invalid option: expected one of "uniform"|"recent"',
+      'sample.parents: Invalid option: expected one of "all"|"required"',
+      'sample.children: Too small: expected number to be >=1',
+      'sample.whole.0: Invalid SObject API name',
+      'sample.floor: Too small: expected number to be >=0',
+      'sample.plan: Too small: expected string to have >=1 characters',
+    ]);
+    expect(refusals({ ...WHOLE_ORG, sample: { children: 'some' } })).toEqual([
+      'sample.children: Invalid input',
+    ]);
+  });
+
+  it('is typed as the contract says', () => {
+    expectTypeOf<z.infer<typeof forgeSampleOptionsSchema>>().toEqualTypeOf<ForgeSampleOptions>();
+    expectTypeOf<z.infer<typeof forgeSampleDrawSchema>>().toEqualTypeOf<ForgeSampleDraw>();
+    expectTypeOf<z.infer<typeof forgeSampleParentsSchema>>().toEqualTypeOf<ForgeSampleParents>();
+  });
+
+  it('copies no file: the files asked with a sample are refused, in their words', () => {
+    const message =
+      'A sample of the whole org copies no files yet: copy every record to take them, or leave the files out';
+    expect(
+      wholeOrgSampleFilesIssue({ sample: {} }, { maxFileSizeMB: 10, acceptedAsIs: false }),
+    ).toBe(message);
+    expect(wholeOrgSampleFilesIssue({ sample: {} }, undefined)).toBeUndefined();
+    expect(
+      wholeOrgSampleFilesIssue({}, { maxFileSizeMB: 10, acceptedAsIs: false }),
+    ).toBeUndefined();
   });
 });
 

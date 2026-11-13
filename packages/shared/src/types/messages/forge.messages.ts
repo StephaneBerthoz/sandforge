@@ -10,6 +10,8 @@ import type {
   ForgeRehearsalProgress,
   ForgeRemovalPlan,
   ForgeRunVerification,
+  ForgeSampleBudget,
+  ForgeSamplingProgress,
   ForgeSweepListing,
   ForgeTargetAutomation,
   ForgeTargetGaps,
@@ -49,7 +51,8 @@ export interface ForgeExecuteRequest extends BaseMessage {
     anonymizationRules?: Partial<Record<ForgeAnonymizationCategory, AnonymizationMethod>>;
     /**
      * Copy the files attached to the records the run clones, as Review set it.
-     * Absent, the run copies no file.
+     * Absent, the run copies no file. Refused with a sample of the whole org
+     * (`config.sample`, `wholeOrgSampleFilesIssue`).
      */
     files?: ForgeFileCopyOption;
     /**
@@ -381,6 +384,23 @@ export interface ForgeTargetRecordsRequest extends BaseMessage {
   payload: { targetOrgId: string; objectApiNames: string[] };
 }
 
+/**
+ * `forge:sample-budget:request`. WebView -> Extension. Before a sample of the
+ * whole org is simulated, what Review says of it (`ForgeSampleBudget`): what
+ * every record would take of the target against what it has left, what a
+ * sample may take with the options of `config.sample` — their defaults when
+ * the config copies every record —, the objects it copies whole of itself,
+ * and about what drawing it reads of the source. Reads the target's
+ * `/limits` and the source's; nothing is drawn, nothing written.
+ *
+ * `muteAutomation` as Review holds it: what the mute keeps quiet creates no
+ * record the budget keeps room for.
+ */
+export interface ForgeSampleBudgetRequest extends BaseMessage {
+  type: 'forge:sample-budget:request';
+  payload: { graph: ForgeGraph; config: ForgeConfig; muteAutomation?: boolean };
+}
+
 // ─── Forge responses & events (Extension -> WebView) ────────────────────────
 
 /** `forge:preview:response`. Extension -> WebView. Record preview for the wizard. */
@@ -456,7 +476,11 @@ export interface ForgeAbortErrorMessage extends BaseMessage {
 /**
  * `forge:execute:response`. Extension -> WebView. Final execution result; of
  * the dry run of a clone of the whole org, what it says at the gate it
- * stopped at besides (`wholeOrgDryRun`).
+ * stopped at besides (`wholeOrgDryRun`), and of a sample, what it drew and
+ * where it keeps the plan (`wholeOrgDryRun.sample`). The run Execute starts
+ * next takes that plan up of itself while it is set up the same and less
+ * than a day old, and its result says whether it did
+ * (`WholeOrgSample.plan`, `result.sample`).
  */
 export interface ForgeExecuteResponse extends BaseMessage {
   type: 'forge:execute:response';
@@ -795,4 +819,33 @@ export interface ForgeTargetRecordsResponse extends BaseMessage {
 export interface ForgeTargetRecordsErrorMessage extends BaseMessage {
   type: 'forge:target-records:error';
   payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `forge:sample-budget:response`. Extension -> WebView. What Review says of a
+ * sample before it is simulated, for the target the request named: a page
+ * whose target changed meanwhile drops it.
+ */
+export interface ForgeSampleBudgetResponse extends BaseMessage {
+  type: 'forge:sample-budget:response';
+  payload: { targetOrgId: string; budget: ForgeSampleBudget };
+}
+
+/** `forge:sample-budget:error`. Extension -> WebView (emitted via sendHandlerError). */
+export interface ForgeSampleBudgetErrorMessage extends BaseMessage {
+  type: 'forge:sample-budget:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `forge:sampling:progress`. Extension -> WebView. Of a run or a simulation
+ * of a sample of the whole org, where the drawing of its plan stands, before
+ * its gate (`ForgeSamplingProgress`): the plan reads the source for minutes,
+ * and no object is written meanwhile. Throttled as `forge:progress` is; its
+ * correlation id is the `forge:execute` request's. Done once the run's first
+ * `forge:progress` or its answer comes.
+ */
+export interface ForgeSamplingProgressMessage extends BaseMessage {
+  type: 'forge:sampling:progress';
+  payload: ForgeSamplingProgress;
 }

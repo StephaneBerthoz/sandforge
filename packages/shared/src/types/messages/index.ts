@@ -394,6 +394,7 @@ import type {
   ForgeGapsRequest,
   ForgeUsersRequest,
   ForgeTargetRecordsRequest,
+  ForgeSampleBudgetRequest,
   ForgePreviewResponse,
   ForgePreviewErrorMessage,
   ForgeDiscoverResponse,
@@ -438,6 +439,9 @@ import type {
   ForgeUsersErrorMessage,
   ForgeTargetRecordsResponse,
   ForgeTargetRecordsErrorMessage,
+  ForgeSampleBudgetResponse,
+  ForgeSampleBudgetErrorMessage,
+  ForgeSamplingProgressMessage,
 } from './forge.messages.js';
 import type {
   AIChatRequest,
@@ -809,6 +813,7 @@ export type WebViewToExtensionMessage =
   | ForgeGapsRequest
   | ForgeUsersRequest
   | ForgeTargetRecordsRequest
+  | ForgeSampleBudgetRequest
   // AI
   | AIChatRequest
   | AIChatCancelRequest
@@ -1116,6 +1121,9 @@ export type ExtensionToWebViewMessage =
   | ForgeUsersErrorMessage
   | ForgeTargetRecordsResponse
   | ForgeTargetRecordsErrorMessage
+  | ForgeSampleBudgetResponse
+  | ForgeSampleBudgetErrorMessage
+  | ForgeSamplingProgressMessage
   // AI
   | AIChatResponse
   | AIConversationCreatedResponse

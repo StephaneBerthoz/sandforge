@@ -457,6 +457,8 @@ const AutomationMessages = [
   msg('forge:users:request'),
   // What the target already holds of the objects a clone of the whole org copies.
   msg('forge:target-records:request'),
+  // What a sample of the whole org may take of the target, before it is simulated.
+  msg('forge:sample-budget:request'),
   // Forge responses / progress events / error channels (Extension -> WebView).
   msg('forge:preview:response'),
   msg('forge:preview:error'),
@@ -503,6 +505,10 @@ const AutomationMessages = [
   msg('forge:users:error'),
   msg('forge:target-records:response'),
   msg('forge:target-records:error'),
+  msg('forge:sample-budget:response'),
+  msg('forge:sample-budget:error'),
+  // Where the drawing of a sample's plan stands, before the run's gate.
+  msg('forge:sampling:progress'),
 ] as const;
 export const AutomationMessageSchema = z.discriminatedUnion('type', AutomationMessages);
 
