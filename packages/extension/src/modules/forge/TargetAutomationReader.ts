@@ -101,6 +101,7 @@ import {
 import type { Connection } from 'jsforce';
 import * as z from 'zod';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { networkFailureOf } from '../../core/common/isNetworkError.js';
 import { recordCreatesOf } from './flowRecordCreates.js';
 import { queryAllPages, type PagedQuerySource } from './queryAllPages.js';
 import { resolveStageConfig } from './stages/ForgeStageConfig.js';
@@ -1579,6 +1580,25 @@ export function permissionKey(namespace: string, name: string): string {
   return (namespace ? `${namespace}__${name}` : name).toLowerCase();
 }
 
+/**
+ * A part the read could not read, and why: in the org's words, or, where the
+ * org could not be reached at all, in the network's word for it alone. The
+ * failed request's own words name its URL, the org's host among it, and every
+ * module said them twice, as automation it could not read: "The Process
+ * Builder processes of … could not be read (request to https://… failed,
+ * reason: getaddrinfo EAI_AGAIN …)… Add --accept-automation to undo all the
+ * same", where a minute later the same undo read them and went.
+ */
+export function unreadPartOf(
+  part: ForgeTargetAutomationUnread['part'],
+  err: unknown,
+): ForgeTargetAutomationUnread {
+  const unreachable = networkFailureOf(err);
+  return unreachable === undefined
+    ? { part, reason: extractErrorMessage(err) }
+    : { part, reason: `the org could not be reached (${unreachable})`, unreachable };
+}
+
 /** Each task run, `limit` at a time at most, their answers in the order of the tasks. */
 export async function inFlight<T>(
   tasks: ReadonlyArray<() => Promise<T>>,
@@ -1725,7 +1745,7 @@ export class TargetAutomationReader {
           return answer.records;
         } catch (err: unknown) {
           requests++;
-          unread.push({ part, reason: extractErrorMessage(err) });
+          unread.push(unreadPartOf(part, err));
           return [];
         }
       };
@@ -1961,9 +1981,9 @@ export class TargetAutomationReader {
         REQUESTS_IN_FLIGHT,
       );
     }
-    if (refusal !== undefined) unread.push({ part: 'conditions', reason: refusal });
+    if (refusal !== undefined) unread.push(unreadPartOf('conditions', refusal));
     if (definitionRefusal !== undefined) {
-      unread.push({ part: 'definitions', reason: definitionRefusal });
+      unread.push(unreadPartOf('definitions', definitionRefusal));
     }
     // A version the org named in no form an id takes cannot be read either.
     for (const read of [...flows, ...candidates, ...rules]) {

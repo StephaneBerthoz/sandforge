@@ -7923,6 +7923,7 @@
       "likelyTitle": "Was die Org verweigern würde, und was der Lauf dagegen tut",
       "likely": {
         "activatedOrder": "{{records}} {{object}} über Entwurf hinaus: zuerst auf Entwurf zurückgesetzt, da ein aktivierter Auftrag sein Löschen und das seines Accounts verweigert",
+        "activatedOrderLeft": "{{records}} {{object}} über Entwurf hinaus, unverändert gelassen: was blockiert, hält zu viele Datensätze, um die darunter zu unterscheiden, daher wird keiner auf Entwurf zurückgesetzt, und das Löschen dessen, woran jeder hängt, wird verweigert",
         "standardPriceBook": "{{records}} {{object}} im Standardpreisbuch: nie gelöscht",
         "directContactRelation": "{{records}} direkte {{object}}: mit ihrem Kontakt gelöscht, nie allein",
         "personAccountContact": "{{records}} {{object}} von Personenaccounts: bleiben, da jeder nur mit seinem Account gelöscht wird"

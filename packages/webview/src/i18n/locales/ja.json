@@ -7382,6 +7382,7 @@
       "likelyTitle": "組織が拒否しそうなものと、実行の対処",
       "likely": {
         "activatedOrder": "ドラフト以外の {{object}} {{records}} 件: 有効化された注文は自身と取引先の削除を拒否するため、先にドラフトに戻します",
+        "activatedOrderLeft": "ドラフト以外の {{object}} {{records}} 件はそのままにします: ブロックするものが保持するレコードが多すぎて、その下にあるものを区別できないため、ドラフトに戻すものはなく、それぞれが属するレコードの削除は拒否されます",
         "standardPriceBook": "標準価格表の {{object}} {{records}} 件: 決して削除しません",
         "directContactRelation": "直接の {{object}} {{records}} 件: 単独ではなく取引先責任者と一緒に削除します",
         "personAccountContact": "個人取引先の {{object}} {{records}} 件: 取引先と一緒にしか削除されないため、残ります"

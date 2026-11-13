@@ -165,6 +165,12 @@ export class EmptyFixtureOrg implements EmptyPreviewOrg {
     return this.counted(soql, true);
   }
 
+  async readIds(soql: string, all: boolean): Promise<{ totalSize: number; ids: string[] }> {
+    this.sent.push({ soql, all });
+    const rows = this.matching(this.withSubqueriesRead(soql, all), all);
+    return { totalSize: rows.length, ids: rows.map((row) => String(row.Id)) };
+  }
+
   private fieldsOf(object: FixtureObject): FixtureField[] {
     return [
       { name: 'Id' },

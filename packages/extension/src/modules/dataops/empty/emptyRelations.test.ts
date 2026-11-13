@@ -13,6 +13,7 @@ import {
   countedWithArchived,
   deletedRowsOf,
   emptyDescribeSchema,
+  hangsFromCondition,
   keptRowsOf,
   MOST_ROUTES,
   namesDeletedCondition,
@@ -314,6 +315,64 @@ describe('the conditions of a count', () => {
         describes,
       ),
     ).toEqual({ soql: "Who.Type = 'Contact'", exact: false });
+  });
+
+  it('leaves out what names, by its last lookup, a record that stays — or where a lookup to several objects stops it, one that hangs from such a record —, and says it may count more where those records were too many to name', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+    const kept = (ids: Record<string, readonly string[] | 'unnamed'>) => (name: string) =>
+      ids[name];
+    const line = [
+      { object: 'QuoteLineItem', field: 'QuoteId', parent: 'Quote' },
+      { object: 'Quote', field: 'OpportunityId', parent: 'Opportunity' },
+      { object: 'Opportunity', field: 'AccountId', parent: 'Account' },
+    ];
+    const task = [
+      { object: 'Task', field: 'WhoId', parent: 'Contact' },
+      { object: 'Contact', field: 'AccountId', parent: 'Account' },
+    ];
+
+    expect(stepsCondition(line, describes, deletedRowsOf, kept({ Account: ['A1', 'A2'] }))).toEqual(
+      {
+        soql: "Quote.Opportunity.AccountId != null AND Quote.Opportunity.AccountId NOT IN ('A1', 'A2')",
+        exact: true,
+      },
+    );
+    expect(stepsCondition(line, describes, deletedRowsOf, kept({ Account: 'unnamed' }))).toEqual({
+      soql: 'Quote.Opportunity.AccountId != null',
+      exact: false,
+    });
+    expect(stepsCondition(task, describes, deletedRowsOf, kept({ Contact: ['C1'] }))).toEqual({
+      soql: "Who.Type = 'Contact' AND WhoId NOT IN ('C1')",
+      exact: false,
+    });
+  });
+
+  it('reads which records hang from given ones up a route, where it reads to its last lookup', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+
+    expect(
+      hangsFromCondition(
+        [
+          { object: 'Quote', field: 'OpportunityId', parent: 'Opportunity' },
+          { object: 'Opportunity', field: 'AccountId', parent: 'Account' },
+        ],
+        describes,
+        ['A1'],
+      ),
+    ).toBe("Opportunity.AccountId IN ('A1')");
+    // Past a lookup to several objects, no statement reads which.
+    expect(
+      hangsFromCondition(
+        [
+          { object: 'Task', field: 'WhatId', parent: 'Opportunity' },
+          { object: 'Opportunity', field: 'AccountId', parent: 'Account' },
+        ],
+        describes,
+        ['A1'],
+      ),
+    ).toBeUndefined();
   });
 
   it('reads a lookup to the price book as one to a price book it deletes, there to be read: the standard one is kept', async () => {

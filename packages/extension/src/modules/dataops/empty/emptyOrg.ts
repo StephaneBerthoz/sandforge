@@ -158,6 +158,13 @@ export function emptyOrgOf(conn: Connection, orgId: string, context: string): Em
     describe: (objectApiName) => conn.describe(objectApiName),
     count: async (soql) => (await conn.query(soql)).totalSize,
     countAll: async (soql) => (await conn.query(soql, { scanAll: true })).totalSize,
+    readIds: async (soql, all) => {
+      const answer = await conn.query<Record<string, unknown>>(soql, { scanAll: all });
+      return {
+        totalSize: answer.totalSize,
+        ids: answer.records.flatMap((row) => (typeof row.Id === 'string' ? [row.Id] : [])),
+      };
+    },
     query: async (soql, options) =>
       page(await conn.query<Record<string, unknown>>(soql, { scanAll: options?.scanAll === true })),
     queryMore: async (nextRecordsUrl) =>

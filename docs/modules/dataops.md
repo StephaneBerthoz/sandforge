@@ -523,8 +523,13 @@ The dry run comes first, and says:
   each lookup to an object emptied, then by longer paths, a few per object:
   a count whose paths were not all read says at least, and through which
   objects they went;
+- what blocks a delete — a case under an account, an entitlement, an
+  opportunity closed won —: it stays, and so do the records it keeps and
+  everything that hangs from those, which is neither counted among what goes
+  nor said beyond Undo;
 - what will likely be refused, or what the run does first so that it is not:
-  an activated order is set back to Draft before any delete, the standard
+  an activated order is set back to Draft before any delete — never one under
+  a record what blocks keeps, which stays as it is —, the standard
   price book is kept, a direct relation of a contact to its account goes with
   its contact, and a person account's contact with its account, never sent
   on its own;
@@ -738,7 +743,9 @@ stands for. On the command line, `sandforge-dataops anonymize`, its
 before they ask or write, and write nothing without `--accept-automation` when
 something fires or could not be read (`AUTOMATION_NOT_ACCEPTED`), nor without
 `--accept-emails` when the org delivers what still runs sends
-(`EMAILS_NOT_ACCEPTED`); `--mute-automation` keeps quiet what the org's own
+(`EMAILS_NOT_ACCEPTED`); an org the network did not reach as its automation
+was read refuses whatever is accepted, to be tried again
+(`ORG_TEMPORARILY_UNREACHABLE`); `--mute-automation` keeps quiet what the org's own
 bypasses keep quiet, under a lease, as every other module's runs do (see
 [Muting the target's automation for a run](../faq.md#muting-the-targets-automation-for-a-run)),
 and is refused on a production org (`MUTE_PRODUCTION`), where no refusal

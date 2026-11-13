@@ -27,8 +27,11 @@
  * account's: the delete core sets the passes' own back to Draft before its
  * first delete (P8). Those going along with an emptied object — the orders of
  * the accounts emptied — are set back here, read by the path the preview
- * read them by, and given their status back once the passes are through if
- * they stayed.
+ * read them by, which leaves out those under a record what blocks keeps: a
+ * run never changes a record that stays. One whose parent the org refused
+ * all the same — what blocks it came after the preview — is given its status
+ * back once the passes are through, as every removal gives it, and named by
+ * its id with the status it had, whether the org took it back or not.
  *
  * **Resume.** A run stopped part way is taken up on its journal: a pass whose
  * ids were read reads them from its spool, less those the journal names
@@ -64,6 +67,7 @@ import { deletePass, type PassObject, type PassRecords } from '../../../core/rem
 import type { DeleteOutcome, DeletionOrg } from '../../../core/removal/deleteRecords.js';
 import {
   backToDraft,
+  namedDraftNote,
   putBackStatuses,
   type Drafted,
 } from '../../../core/removal/recordsToDraft.js';
@@ -408,8 +412,11 @@ export async function emptyPasses(deps: EmptyRunDeps): Promise<EmptyRunOutcome> 
     },
   }).finally(async () => {
     await writes;
+    // Set back to Draft as going along, a record that stayed — what it hangs
+    // from refused all the same — is named by its id, and the status it had.
     await putBackStatuses(org.deletion, draftedAlong, {
-      note: (_objectApiName, reason) => notes.push(reason),
+      note: (objectApiName, reason, _failed, record) =>
+        notes.push(namedDraftNote(objectApiName, reason, record, draftedAlong)),
     });
   });
 

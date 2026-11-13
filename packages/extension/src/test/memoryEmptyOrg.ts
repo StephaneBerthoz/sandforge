@@ -221,6 +221,12 @@ export class MemoryEmptyOrg implements EmptyOrg {
     return this.fixture.countAll(soql);
   }
 
+  async readIds(soql: string, all: boolean): Promise<{ totalSize: number; ids: string[] }> {
+    this.requests++;
+    this.sync();
+    return this.fixture.readIds(soql, all);
+  }
+
   async query(soql: string, options?: { scanAll?: boolean }): Promise<EmptyQueryPage> {
     this.requests++;
     return this.memory.query(soql, options);

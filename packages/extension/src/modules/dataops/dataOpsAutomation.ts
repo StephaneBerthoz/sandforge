@@ -20,7 +20,9 @@
  * modules refuse: what fires, unless accepted (`AUTOMATION_NOT_ACCEPTED`);
  * past the day's emails, whatever is accepted (`EMAILS_EXCEEDED`); emails the
  * org delivers, unless accepted on their own (`EMAILS_NOT_ACCEPTED`), which
- * the acceptance of the automation never stands for.
+ * the acceptance of the automation never stands for; an org not reached at
+ * all as its automation is read, whatever is accepted
+ * (`ORG_TEMPORARILY_UNREACHABLE`), to be tried again.
  */
 
 import type {
@@ -43,6 +45,8 @@ import {
   removalStepsWrites,
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { networkFailureOf, unreachableOf } from '../../core/common/isNetworkError.js';
+import type { OrgConnectionErrorCode } from '../../core/connection/OrgConnectionError.js';
 import { duplicateRulesOn } from './maskingDuplicates.js';
 import {
   automationUnreadOf,
@@ -84,6 +88,13 @@ export const AUTOMATION_NOT_ACCEPTED = 'AUTOMATION_NOT_ACCEPTED';
 
 /** The code an act is refused under past the emails the org has left today: nothing lifts it. */
 export const EMAILS_EXCEEDED = 'EMAILS_EXCEEDED';
+
+/**
+ * The code an act is refused under when the org could not be reached as what
+ * it runs was read: the connection's own, which no flag lifts, as the next
+ * call would meet the same network.
+ */
+export const ORG_UNREACHABLE: OrgConnectionErrorCode = 'ORG_TEMPORARILY_UNREACHABLE';
 
 /**
  * What each step of an act writes, as a removal's steps are written: a
@@ -682,14 +693,27 @@ export async function readDataOpsAct(input: DataOpsActInput): Promise<DataOpsAct
   const read: ForgeTargetAutomation | { unread: string } =
     names.length === 0
       ? NOTHING_READ
-      : await input.org
-          .readAutomation(names)
-          .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
+      : await input.org.readAutomation(names).catch((err: unknown) => {
+          // Not reached, in the network's word alone, as the reader says it.
+          const network = networkFailureOf(err);
+          return {
+            unread:
+              network === undefined
+                ? extractErrorMessage(err)
+                : `the org could not be reached (${network})`,
+          };
+        });
   const known = typeof read.unread === 'string' ? undefined : (read as ForgeTargetAutomation);
+  // An org not reached at all — a name the network could not resolve, a
+  // connection reset —: nothing of what it runs is known, and nothing more is
+  // asked of it. Refused alone, under the connection's code, to be tried
+  // again: no accord stands for a network, which the next call would meet.
+  const unreachable = unreachableOf(read);
+  const words = ACT_WORDS[act];
 
   const refusals: DataOpsAutomationRefusal[] = [];
   let mute: RunMute | undefined;
-  if (accord.muteAutomation === true) {
+  if (accord.muteAutomation === true && unreachable === undefined) {
     try {
       mute = await muteForRun(input.org.muteOrg, read, { ...input.muteLeases, writes });
     } catch (err: unknown) {
@@ -730,7 +754,7 @@ export async function readDataOpsAct(input: DataOpsActInput): Promise<DataOpsAct
   let uncounted: string | undefined;
   /** What the mute does for them, once they are past what the org has left. */
   let emailsMute: DataOpsEmailsMute | undefined;
-  if (running) {
+  if (running && unreachable === undefined) {
     const sends = written.some((each) =>
       emailsPerWriteOf(running, each.write).some((s) => s.objectApiName === each.objectApiName),
     );
@@ -766,7 +790,10 @@ export async function readDataOpsAct(input: DataOpsActInput): Promise<DataOpsAct
     read,
     ...(mute?.plan ? { plan: mute.plan } : {}),
     writes,
-    readDeliverability: input.org.readDeliverability,
+    readDeliverability:
+      unreachable === undefined
+        ? input.org.readDeliverability
+        : async () => ({ reading: { unread: `${target} could not be reached` }, requests: 0 }),
     accepted: accord.acceptEmails === true,
     target,
     run: DELIVERABILITY_RUNS[act],
@@ -775,6 +802,14 @@ export async function readDataOpsAct(input: DataOpsActInput): Promise<DataOpsAct
   });
   if (runEmails.gate.line !== undefined) lines.push(`  ${runEmails.gate.line}`);
   if (runEmails.gate.stop) refusals.push({ ...runEmails.gate.stop });
+  if (unreachable !== undefined) {
+    refusals.splice(0, refusals.length, {
+      code: ORG_UNREACHABLE,
+      message:
+        `${target} could not be reached as what it runs was read (${unreachable}), so ` +
+        `${words.the} was not started. ${words.nothing} Check the network, then try again.`,
+    });
+  }
 
   const answer: DataOpsAutomationAnswer = {
     act,

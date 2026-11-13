@@ -43,7 +43,10 @@ export function dataOpsAutomationHelp(written: string, dryRun?: string): string 
                          processes or workflow rules as the records are
                          ${written}, or could not say what it runs:
                          AUTOMATION_NOT_ACCEPTED, exit 1, nothing written,
-                         without it. What fires is said first, object by object
+                         without it. What fires is said first, object by object.
+                         An org the network did not reach as what it runs was
+                         read refuses whatever is accepted:
+                         ORG_TEMPORARILY_UNREACHABLE, exit 1, to be tried again
   --accept-emails        write although the org delivers every email of what
                          still runs as the records are ${written}, or would
                          not say whether it does: EMAILS_NOT_ACCEPTED, exit 1,

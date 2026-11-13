@@ -125,7 +125,11 @@ export interface DataOpsEmptyAlong {
 
 /** What the org will likely refuse, or what the run does first so that it does not. */
 export type DataOpsEmptyLikelyRefusalCode =
-  'activatedOrder' | 'standardPriceBook' | 'directContactRelation' | 'personAccountContact';
+  | 'activatedOrder'
+  | 'activatedOrderLeft'
+  | 'standardPriceBook'
+  | 'directContactRelation'
+  | 'personAccountContact';
 
 /** A likely refusal, counted. */
 export interface DataOpsEmptyLikelyRefusal {

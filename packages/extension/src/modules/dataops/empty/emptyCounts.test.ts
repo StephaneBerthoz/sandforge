@@ -4,8 +4,9 @@ import {
   EmptyFixtureOrg,
   assetsOrg,
   salesOrg,
+  type SalesOrgOptions,
 } from '../../../test/emptyFixtureOrg';
-import { countEmpty, type Counted, type EmptyCounts } from './emptyCounts';
+import { countEmpty, KEPT_NAMED, type Counted, type EmptyCounts } from './emptyCounts';
 import { emptyOrderOf } from './emptyOrder';
 import { affectedBy, emptyDescribeSchema, relationsOf, type EmptyDescribe } from './emptyRelations';
 
@@ -63,6 +64,15 @@ function passOf(counts: EmptyCounts, name: string): EmptyCounts['objects'][numbe
 /** A count's number, for the assertions that read only it. */
 function n(counted: Counted | undefined): number | undefined {
   return counted?.records;
+}
+
+/**
+ * The sales org without its cases, which keep the two accounts and the
+ * contacts they name, and so everything that hangs from those: what goes
+ * along with an account is then read whole.
+ */
+function noCases(options: SalesOrgOptions = {}): EmptyFixtureOrg {
+  return salesOrg({ ...options, emptyObjects: [...(options.emptyObjects ?? []), 'Case'] });
 }
 
 describe('countEmpty, the whole org', () => {
@@ -176,17 +186,19 @@ describe('countEmpty, the whole org', () => {
     ]);
   });
 
-  it('names no id in any statement: every count reads a whole table, a subquery included', async () => {
+  it('names no id in any statement but those of the records what blocks keeps: every count reads a whole table, a subquery included', async () => {
     const org = salesOrg();
-    await counted(org, WORKED);
+    const counts = await counted(org, WORKED);
 
     const ids = org.ids();
+    const kept = new Set([...counts.kept.values()].flatMap((each) => [...each]));
     const literals = org.sent.flatMap(({ soql }) =>
       (soql.match(/'[^']*'/g) ?? []).map((quoted) => quoted.slice(1, -1)),
     );
     expect(org.sent.length).toBeGreaterThan(0);
-    expect(org.sent.filter(({ soql }) => /\bIN\s*\((?!SELECT )/i.test(soql))).toEqual([]);
-    expect(literals.filter((literal) => ids.has(literal))).toEqual([]);
+    // The portal user's contact, whose delete its user refuses.
+    expect(counts.kept.get('Contact')).toEqual(['CP']);
+    expect(literals.filter((literal) => ids.has(literal) && !kept.has(literal))).toEqual([]);
   });
 
   it('counts tasks and events through queryAll, the deleted ones left out by the statement', async () => {
@@ -204,7 +216,7 @@ describe('countEmpty, the whole org', () => {
 
 describe('countEmpty, objects picked', () => {
   it('counts, for an account alone, what goes along with it by object and by lookup', async () => {
-    const counts = await counted(salesOrg(), ['Account']);
+    const counts = await counted(noCases(), ['Account']);
 
     expect(
       Object.fromEntries(counts.along.map((object) => [object.objectApiName, n(object.records)])),
@@ -230,7 +242,7 @@ describe('countEmpty, objects picked', () => {
   });
 
   it('says a count through a lookup to several objects may count more than goes', async () => {
-    const counts = await counted(salesOrg(), ['Account']);
+    const counts = await counted(noCases(), ['Account']);
     const task = counts.along.find((object) => object.objectApiName === 'Task');
 
     expect(task?.records).toEqual({ records: 3, atMost: true });
@@ -258,15 +270,68 @@ describe('countEmpty, objects picked', () => {
   });
 
   it('sets back to Draft the activated orders that go along with their account', async () => {
-    const counts = await counted(salesOrg(), ['Account']);
+    const counts = await counted(noCases(), ['Account']);
 
     expect(counts.refusals).toEqual([
       { code: 'activatedOrder', objectApiName: 'Order', records: { records: 1 } },
     ]);
   });
 
+  it('counts nothing that hangs from an account what blocks keeps as going along — its contacts, opportunities and their lines, orders, quotes, tasks and events stay with it — and sets none of its orders back to Draft', async () => {
+    const org = salesOrg();
+    const counts = await counted(org, ['Account']);
+    const sent = org.sent.map(({ soql }) => soql);
+
+    // A case keeps each of the first two accounts, as a case kept the account
+    // of a clone on a scratch org: of what an account takes along, only the
+    // person account's contact and its relation to it go.
+    expect(counts.kept.get('Account')).toEqual(['A1', 'A2']);
+    expect(passOf(counts, 'Account').blocked).toEqual({ records: 2 });
+    expect(
+      Object.fromEntries(counts.along.map((object) => [object.objectApiName, n(object.records)])),
+    ).toEqual({ AccountContactRelation: 1, Contact: 1 });
+    // Its activated order stays with it: none is set back to Draft.
+    expect(counts.refusals).toEqual([]);
+    expect(sent).toContain(
+      "SELECT COUNT() FROM Order WHERE (AccountId != null AND AccountId NOT IN ('A1', 'A2')) AND (StatusCode != 'Draft')",
+    );
+    // A task read by the type of its contact leaves out those of the
+    // contacts that stay with their account.
+    expect(sent).toContain("SELECT Id FROM Contact WHERE AccountId IN ('A1', 'A2')");
+    expect(
+      sent.some((soql) =>
+        soql.includes("(Who.Type = 'Contact' AND WhoId NOT IN ('C1', 'C2', 'C3', 'CP'))"),
+      ),
+    ).toBe(true);
+  });
+
+  it('says what hangs from more kept records than a count names may count more than goes, and sets back to Draft none of the orders going along, which it cannot tell apart', async () => {
+    const many = Array.from({ length: KEPT_NAMED + 1 }, (_, at) => `AK${at}`);
+    const org = noCases({
+      extraRows: {
+        Account: many.map((Id) => ({ Id })),
+        Case: many.map((AccountId, at) => ({ Id: `CSK${at}`, AccountId })),
+      },
+    });
+    const counts = await counted(org, ['Account']);
+
+    expect(counts.kept.get('Account')).toBe('unnamed');
+    expect(passOf(counts, 'Account').blocked).toEqual({ records: KEPT_NAMED + 1 });
+    expect(counts.along.find((object) => object.objectApiName === 'Contact')?.records).toEqual({
+      records: 5,
+      atMost: true,
+    });
+    expect(counts.refusals).toEqual([
+      {
+        code: 'activatedOrderLeft',
+        objectApiName: 'Order',
+        records: { records: 1, atMost: true },
+      },
+    ]);
+  });
+
   it('names an opportunity under no account that keeps a price book emptied with the accounts, and counts the ones that go with their account as lost to an undo', async () => {
-    const counts = await counted(salesOrg(), ['Account', 'Pricebook2']);
+    const counts = await counted(noCases(), ['Account', 'Pricebook2']);
 
     expect(counts.blockers).toContainEqual({
       objectApiName: 'Opportunity',
@@ -325,16 +390,15 @@ describe('countEmpty, objects picked', () => {
         keeps: { records: 1 },
       },
     ]);
-    // Past two lookups, those two keep the same contact are not read: the
-    // sum may count one twice.
-    expect(passOf(counts, 'Contact').blocked).toEqual({ records: 4, atMost: true });
+    // Named by their ids, the contacts three lookups keep are counted once each.
+    expect(passOf(counts, 'Contact').blocked).toEqual({ records: 4 });
   });
 });
 
 describe('countEmpty, a person account’s contact', () => {
   it('never sends one by the pass of the contacts, which reads them out, and counts it with its account when the account goes', async () => {
     const contactsAlone = await counted(salesOrg(), ['Contact']);
-    const withAccounts = await counted(salesOrg(), ['Account', 'Contact']);
+    const withAccounts = await counted(noCases(), ['Account', 'Contact']);
 
     // Five business contacts; the person account's stays, said so.
     expect(passOf(contactsAlone, 'Contact')).toMatchObject({
@@ -355,7 +419,10 @@ describe('countEmpty, a person account’s contact', () => {
       salesOrg({
         extraRows: {
           Case: [{ Id: 'CS-PERSON', ContactId: 'PC1' }],
-          OpportunityContactRole: [{ Id: 'OCR-PERSON', OpportunityId: 'O2', ContactId: 'PC1' }],
+          OpportunityContactRole: [
+            { Id: 'OCR-PERSON', OpportunityId: 'O2', ContactId: 'PC1' },
+            { Id: 'OCR-C3', OpportunityId: 'O2', ContactId: 'C3' },
+          ],
         },
       });
     const contactsAlone = await counted(org(), ['Contact']);
@@ -369,6 +436,8 @@ describe('countEmpty, a person account’s contact', () => {
       records: { records: 2 },
       keeps: { records: 2 },
     });
+    // The role of a contact no case names goes; that of the first contact
+    // stays with it, kept by its case, and the person's with its account.
     expect(
       contactsAlone.along.find((along) => along.objectApiName === 'OpportunityContactRole'),
     ).toMatchObject({ records: { records: 1 } });
@@ -383,8 +452,8 @@ describe('countEmpty, a person account’s contact', () => {
   });
 
   it('names the tasks and events a contact’s or an account’s delete takes along, read by the type of what their lookup names', async () => {
-    const contacts = await counted(salesOrg(), ['Contact']);
-    const accounts = await counted(salesOrg(), ['Account']);
+    const contacts = await counted(noCases(), ['Contact']);
+    const accounts = await counted(noCases(), ['Account']);
     const along = (counts: EmptyCounts, name: string): number | undefined =>
       n(counts.along.find((object) => object.objectApiName === name)?.records);
 
@@ -528,8 +597,10 @@ describe('countEmpty, an account’s closed won opportunities', () => {
   });
 
   it('says beyond Undo, at least, the opportunities closed won emptied with their account: refused at first, the account goes once its opportunities went alone', async () => {
-    const counts = await counted(wonOrg(), ['Account', 'Opportunity']);
-    const recycledForGood = await counted(wonOrg(), ['Account', 'Opportunity'], { undo: false });
+    const won = (): EmptyFixtureOrg =>
+      noCases({ extraRows: { Opportunity: [{ Id: 'O-WON', AccountId: 'A1', IsWon: true }] } });
+    const counts = await counted(won(), ['Account', 'Opportunity']);
+    const recycledForGood = await counted(won(), ['Account', 'Opportunity'], { undo: false });
 
     expect(counts.undoLost).toContainEqual({
       objectApiName: 'Opportunity',
@@ -552,20 +623,20 @@ describe('countEmpty, an account’s closed won opportunities', () => {
     expect(along.blockers.map((blocker) => blocker.objectApiName)).not.toContain('Opportunity');
   });
 
-  it('counts an opportunity closed won among what blocks, never among what goes along: it stays, said apart', async () => {
-    const counts = await counted(wonOrg(), ['Account']);
-    const without = await counted(salesOrg(), ['Account']);
+  it('counts an opportunity closed won among what blocks, never among what goes along: it stays, said apart, and so does every opportunity of its account', async () => {
+    const counts = await counted(
+      noCases({ extraRows: { Opportunity: [{ Id: 'O-WON', AccountId: 'A1', IsWon: true }] } }),
+      ['Account'],
+    );
     const opportunities = counts.along.find((along) => along.objectApiName === 'Opportunity');
 
-    // The two under an account that go, as without it; the one closed won stays.
+    // The one under the second account goes; the one closed won stays, and
+    // keeps its account, and the open one beside it with it.
     expect(opportunities).toMatchObject({
-      records: { records: 2 },
-      via: [{ field: 'AccountId', parent: 'Account', records: { records: 2 } }],
+      records: { records: 1 },
+      via: [{ field: 'AccountId', parent: 'Account', records: { records: 1 } }],
       blocking: { records: 1 },
     });
-    expect(opportunities?.records).toEqual(
-      without.along.find((along) => along.objectApiName === 'Opportunity')?.records,
-    );
   });
 
   it('counts the accounts what blocks keeps, each once, though a case and an opportunity closed won both keep one', async () => {
@@ -627,7 +698,7 @@ describe('countEmpty, what no undo brings back, together', () => {
   });
 
   it('counts an opportunity closed won lost before its account and before its price book once, at least', async () => {
-    const org = salesOrg({
+    const org = noCases({
       extraRows: {
         Opportunity: [{ Id: 'O-WON', AccountId: 'A1', IsWon: true, Pricebook2Id: 'PBC' }],
       },

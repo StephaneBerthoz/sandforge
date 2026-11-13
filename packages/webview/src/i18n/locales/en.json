@@ -7923,6 +7923,7 @@
       "likelyTitle": "What the org would refuse, and what the run does about it",
       "likely": {
         "activatedOrder": "{{records}} {{object}} past Draft: set back to Draft first, as an activated order refuses its delete and its account's",
+        "activatedOrderLeft": "{{records}} {{object}} past Draft, left as they are: what blocks keeps too many records to tell those under them apart, so none is set back to Draft, and what each hangs from is refused",
         "standardPriceBook": "{{records}} {{object}} in the standard price book: never deleted",
         "directContactRelation": "{{records}} direct {{object}}: deleted with their contact, never on their own",
         "personAccountContact": "{{records}} {{object}} of person accounts: left, as each goes only with its account"

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isNetworkError } from './isNetworkError.js';
+import { isNetworkError, networkFailureOf } from './isNetworkError.js';
 import { TimeoutError } from '../engine/TimeoutManager.js';
 
 describe('isNetworkError', () => {
@@ -54,5 +54,32 @@ describe('isNetworkError', () => {
     expect(isNetworkError(null)).toBe(false);
     expect(isNetworkError('some random failure')).toBe(false);
     expect(isNetworkError(new Error('Operation blocked by Production Guard'))).toBe(false);
+  });
+});
+
+describe('networkFailureOf', () => {
+  it('names the network’s word for an org not reached, from the error or its message alone, never the URL or the host it names', () => {
+    const dns =
+      'request to https://example-org.my.salesforce.com/services/data/v62.0/query?q=SELECT ' +
+      'failed, reason: getaddrinfo EAI_AGAIN example-org.my.salesforce.com';
+    expect(networkFailureOf(new Error(dns))).toBe('EAI_AGAIN');
+    expect(networkFailureOf(dns)).toBe('EAI_AGAIN');
+    expect(networkFailureOf(Object.assign(new Error('boom'), { code: 'ECONNRESET' }))).toBe(
+      'ECONNRESET',
+    );
+    expect(networkFailureOf(new Error('getaddrinfo ENOTFOUND example.invalid'))).toBe('ENOTFOUND');
+    expect(networkFailureOf(new Error('connect ETIMEDOUT 10.0.0.1:443'))).toBe('ETIMEDOUT');
+    expect(networkFailureOf(new Error('request to https://x failed, reason: socket hang up'))).toBe(
+      'socket hang up',
+    );
+  });
+
+  it('names nothing when the org answered, refusing or not', () => {
+    expect(networkFailureOf(new Error('INVALID_SESSION_ID: Session expired or invalid'))).toBe(
+      undefined,
+    );
+    expect(
+      networkFailureOf("INVALID_TYPE: sObject type 'FlowDefinitionView' is not supported."),
+    ).toBe(undefined);
   });
 });

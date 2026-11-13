@@ -127,8 +127,29 @@ export interface PutBackHooks {
    * Say something of an object's records on its result.
    *
    * @param failed - Whether a record of it was left in Draft.
+   * @param record - The record it is said of, when it is said of one.
    */
-  note: (objectApiName: string, reason: string, failed: boolean) => void;
+  note: (objectApiName: string, reason: string, failed: boolean, record?: Drafted) => void;
+}
+
+/**
+ * `reason`, said of `record` by its id, or, said of an object's records as a
+ * whole, followed by the id and the status before of each of `drafted` of
+ * that object: a record a run left in Draft is never left unnamed.
+ */
+export function namedDraftNote(
+  objectApiName: string,
+  reason: string,
+  record: Drafted | undefined,
+  drafted: readonly Drafted[],
+): string {
+  if (record) return `${objectApiName} ${record.id}: ${reason}`;
+  const each = drafted
+    .filter((one) => one.objectApiName === objectApiName)
+    .map((one) => `${one.id} (${one.status})`);
+  return each.length > 0
+    ? `${objectApiName}: ${reason} Set to Draft, with the status each had: ${each.join(', ')}.`
+    : `${objectApiName}: ${reason}`;
 }
 
 /**
@@ -185,6 +206,7 @@ export async function putBackStatuses(
             objectApiName,
             `Status set to ${draft} for the delete, then back to ${status}.`,
             false,
+            batch[index],
           );
           return;
         }
@@ -194,6 +216,7 @@ export async function putBackStatuses(
           objectApiName,
           `Status set to ${draft} for the delete, and left there: the org refused ${status} back — ${reason}`,
           true,
+          batch[index],
         );
       });
     }

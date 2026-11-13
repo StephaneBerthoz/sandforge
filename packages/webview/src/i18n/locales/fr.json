@@ -7923,6 +7923,7 @@
       "likelyTitle": "Ce que l'org refuserait, et ce que le run fait pour l'éviter",
       "likely": {
         "activatedOrder": "{{records}} {{object}} au-delà de Brouillon : remis en Brouillon d'abord, car une commande activée refuse sa suppression et celle de son compte",
+        "activatedOrderLeft": "{{records}} {{object}} au-delà de Brouillon, laissés tels quels : ce qui bloque garde trop d'enregistrements pour distinguer ceux qui en dépendent, aucun n'est donc remis en Brouillon, et ce dont chacun dépend est refusé",
         "standardPriceBook": "{{records}} {{object}} dans le catalogue standard : jamais supprimés",
         "directContactRelation": "{{records}} {{object}} directs : supprimés avec leur contact, jamais seuls",
         "personAccountContact": "{{records}} {{object}} de comptes personnels : laissés, car chacun ne part qu'avec son compte"

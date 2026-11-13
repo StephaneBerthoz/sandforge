@@ -377,6 +377,35 @@ export interface Condition {
   exact: boolean;
 }
 
+/**
+ * Of an emptied object, the records what blocks keeps — an account a case
+ * names —, as a count reads around them: their ids, when few enough to name
+ * in a statement, or `'unnamed'` when they are more, and a count through them
+ * then says it may count more than goes. Its delete refused, such a record
+ * stays, and so does everything that hangs from it.
+ */
+export type KeptRecords = readonly string[] | 'unnamed';
+
+/**
+ * `condition`, read up to the lookup `lookup` of a record of an emptied
+ * object, less what names a record of it that `keeps` says stays: the lookup
+ * named apart from their ids. A semi-join (`NOT IN (SELECT …)`) would read
+ * them without ids, but the org takes no path of lookups on its left and
+ * none of it beside an OR, and a route of two lookups or more — an order
+ * product, through its order, to an account — needs both.
+ */
+function withoutKept(
+  condition: Condition,
+  lookup: string,
+  keeps: KeptRecords | undefined,
+): Condition {
+  if (keeps === undefined) return condition;
+  if (keeps === 'unnamed') return { ...condition, exact: false };
+  if (keeps.length === 0) return condition;
+  const listed = keeps.map((id) => `'${id}'`).join(', ');
+  return { soql: `${condition.soql} AND ${lookup} NOT IN (${listed})`, exact: condition.exact };
+}
+
 /** A field of `objectApiName` as described, when it is. */
 function fieldOf(
   describes: ReadonlyMap<string, EmptyDescribe>,
@@ -413,44 +442,83 @@ function fieldOf(
  * @param deletedRows - The rows of an object the emptying deletes, as a
  *   condition, nothing when it deletes all: {@link deletedRowsOf} unless the
  *   emptying says more — a person account's contact stays with its account.
+ * @param kept - Of the object a lookup names where the path ends — the
+ *   emptied one at its top, or the one going along where it stops short —,
+ *   the records that stay ({@link KeptRecords}): what names one of them by
+ *   that lookup is left out, as it stays with them.
  */
 export function stepsCondition(
   steps: readonly RouteStep[],
   describes: ReadonlyMap<string, EmptyDescribe>,
   deletedRows: (objectApiName: string) => string | undefined = deletedRowsOf,
+  kept: (objectApiName: string) => KeptRecords | undefined = () => undefined,
 ): Condition | undefined {
   const path: string[] = [];
+  /** The path ending at `lookup`, which names a record of `parent`: filled, and naming none that stays. */
+  const endsAt = (soql: string, exact: boolean, lookup: string, parent: string): Condition =>
+    withoutKept({ soql, exact }, lookup, kept(parent));
   for (const [at, step] of steps.entries()) {
     if (!describes.has(step.object)) {
-      return { soql: `${[...path, step.field].join('.')} != null`, exact: false };
+      const lookup = [...path, step.field].join('.');
+      return endsAt(`${lookup} != null`, false, lookup, step.parent);
     }
     const field = fieldOf(describes, step.object, step.field);
     if (!field) {
       if (at === 0) return undefined;
       const previous = steps[at - 1];
-      return { soql: `${[...path.slice(0, -1), previous.field].join('.')} != null`, exact: false };
+      const lookup = [...path.slice(0, -1), previous.field].join('.');
+      return endsAt(`${lookup} != null`, false, lookup, previous.parent);
     }
     const polymorphic =
       (field.referenceTo?.length ?? 0) > 1 || field.polymorphicForeignKey === true;
     const relationship = field.relationshipName ?? undefined;
     const last = at === steps.length - 1;
     const through = relationship ? [...path, relationship].join('.') : undefined;
+    const lookup = [...path, field.name].join('.');
     if (polymorphic) {
-      if (!through) return { soql: `${[...path, field.name].join('.')} != null`, exact: false };
-      return { soql: `${through}.Type = '${step.parent}'`, exact: last };
+      if (!through) return endsAt(`${lookup} != null`, false, lookup, step.parent);
+      return endsAt(`${through}.Type = '${step.parent}'`, last, lookup, step.parent);
     }
     if (last) {
       const deleted = deletedRows(step.parent);
       if (deleted === undefined && !READ_PRESENT.has(step.parent.toLowerCase()))
-        return { soql: `${[...path, field.name].join('.')} != null`, exact: true };
-      if (!through) return { soql: `${[...path, field.name].join('.')} != null`, exact: false };
+        return endsAt(`${lookup} != null`, true, lookup, step.parent);
+      if (!through) return endsAt(`${lookup} != null`, false, lookup, step.parent);
       const rows = deleted !== undefined ? ` AND ${through}.${deleted}` : '';
-      return { soql: `${through}.Id != null${rows}`, exact: true };
+      return endsAt(`${through}.Id != null${rows}`, true, lookup, step.parent);
     }
     if (!relationship || at + 1 >= MOST_ROUTE_STEPS) {
-      return { soql: `${[...path, field.name].join('.')} != null`, exact: false };
+      return endsAt(`${lookup} != null`, false, lookup, step.parent);
     }
     path.push(relationship);
+  }
+  return undefined;
+}
+
+/**
+ * The condition that a record of `steps[0].object` hangs, up `steps`, from
+ * one of `ids`, records of the object at the top: its last lookup naming one
+ * of them. Nothing when the path stops short of that lookup — through one
+ * that may point at several objects, past five levels, through a field the
+ * user cannot see —: no statement then reads which records hang from them.
+ */
+export function hangsFromCondition(
+  steps: readonly RouteStep[],
+  describes: ReadonlyMap<string, EmptyDescribe>,
+  ids: readonly string[],
+): string | undefined {
+  const path: string[] = [];
+  for (const [at, step] of steps.entries()) {
+    const field = describes.has(step.object)
+      ? fieldOf(describes, step.object, step.field)
+      : undefined;
+    if (!field) return undefined;
+    const lookup = [...path, field.name].join('.');
+    if (at === steps.length - 1) return `${lookup} IN (${ids.map((id) => `'${id}'`).join(', ')})`;
+    const polymorphic =
+      (field.referenceTo?.length ?? 0) > 1 || field.polymorphicForeignKey === true;
+    if (polymorphic || !field.relationshipName || at + 1 >= MOST_ROUTE_STEPS) return undefined;
+    path.push(field.relationshipName);
   }
   return undefined;
 }
@@ -465,9 +533,10 @@ export function anyRouteCondition(
   routes: readonly Route[],
   describes: ReadonlyMap<string, EmptyDescribe>,
   deletedRows: (objectApiName: string) => string | undefined = deletedRowsOf,
+  kept?: (objectApiName: string) => KeptRecords | undefined,
 ): Condition | undefined {
   const read = routes
-    .map((route) => stepsCondition(route.steps, describes, deletedRows))
+    .map((route) => stepsCondition(route.steps, describes, deletedRows, kept))
     .filter((condition): condition is Condition => condition !== undefined);
   if (read.length === 0) return undefined;
   if (read.length === 1) return read[0];
@@ -490,13 +559,14 @@ export function namesDeletedCondition(
   affected: Affected,
   describes: ReadonlyMap<string, EmptyDescribe>,
   deletedRows: (objectApiName: string) => string | undefined = deletedRowsOf,
+  kept?: (objectApiName: string) => KeptRecords | undefined,
 ): Condition | undefined {
   const first: RouteStep = { object: child, field, parent };
-  if (affected.emptied.has(parent)) return stepsCondition([first], describes, deletedRows);
+  if (affected.emptied.has(parent)) return stepsCondition([first], describes, deletedRows, kept);
   const routes = (affected.routes.get(parent) ?? []).map((route) => ({
     object: child,
     steps: [first, ...route.steps],
     emptied: route.emptied,
   }));
-  return anyRouteCondition(routes, describes, deletedRows);
+  return anyRouteCondition(routes, describes, deletedRows, kept);
 }

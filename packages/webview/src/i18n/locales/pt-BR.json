@@ -7923,6 +7923,7 @@
       "likelyTitle": "O que a org recusaria, e o que a execução faz a respeito",
       "likely": {
         "activatedOrder": "{{records}} {{object}} além de Rascunho: voltados para Rascunho primeiro, pois um pedido ativado recusa sua exclusão e a da sua conta",
+        "activatedOrderLeft": "{{records}} {{object}} além de Rascunho, deixados como estão: o que bloqueia mantém registros demais para distinguir os que dependem deles, então nenhum volta para Rascunho, e a exclusão daquilo de que cada um depende é recusada",
         "standardPriceBook": "{{records}} {{object}} no catálogo de preços padrão: nunca excluídos",
         "directContactRelation": "{{records}} {{object}} diretos: excluídos com o seu contato, nunca sozinhos",
         "personAccountContact": "{{records}} {{object}} de contas pessoais: ficam, pois cada um só sai com a sua conta"

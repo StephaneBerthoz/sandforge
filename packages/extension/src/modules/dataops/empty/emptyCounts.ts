@@ -21,9 +21,14 @@
  *   so blocks them, named with its count, and so does an object going along
  *   by those of its records that stay — an opportunity under no account
  *   naming a price book emptied with the accounts. What blocks stays, and so
- *   does what it keeps: a record going along that blocks is not counted
- *   among what goes, and the records of an emptied object it names by that
- *   lookup are counted apart (`blocked`), read by a subquery of the blocker;
+ *   does what it keeps, and everything that hangs from that: a record going
+ *   along that blocks is not counted among what goes, the records of an
+ *   emptied object it names by that lookup are counted apart (`blocked`),
+ *   read by a subquery of the blocker, and every count after them reads
+ *   around them by their ids. Counted as going, the contacts, opportunities,
+ *   orders and tasks of an account a case kept made a dry run say 28 records
+ *   where the run could delete 10, and an order of that account was to be
+ *   set back to Draft, by a run that would leave it in the org;
  * - a direct relation of a contact to its account goes only with the
  *   contact: emptying the relations alone leaves the direct ones;
  * - an opportunity closed won refuses its account's delete, which its
@@ -58,12 +63,14 @@ import {
   carriersOf,
   countedWithArchived,
   deletedRowsOf,
+  hangsFromCondition,
   keptRowsOf,
   namesDeletedCondition,
   stepsCondition,
   type Affected,
   type Condition,
   type EmptyDescribe,
+  type KeptRecords,
   type Relation,
   type Route,
   type RouteStep,
@@ -75,6 +82,11 @@ export interface EmptyCountOrg {
   count(soql: string): Promise<number>;
   /** The same through `queryAll`, which reads archived activities, and the recycle bin unless told not to. */
   countAll(soql: string): Promise<number>;
+  /**
+   * What `SELECT Id …` reads, through `queryAll` when `all` says so: how many
+   * records in all, and the ids of the first page the org answers.
+   */
+  readIds(soql: string, all: boolean): Promise<{ totalSize: number; ids: string[] }>;
 }
 
 /**
@@ -82,6 +94,18 @@ export interface EmptyCountOrg {
  * (`countRelated`), each answering in a fraction of a second.
  */
 const COUNTS_AT_ONCE = 4;
+
+/**
+ * The records an emptied object's blockers keep, or that hang from them, that
+ * a count names by their ids, at most: half the ids a read by id names in a
+ * statement (`readRecordsById`), as a statement may name them twice — a
+ * contact's role through its contact and through its opportunity. Past it, a
+ * count through them says it may count more than goes.
+ */
+export const KEPT_NAMED = 100;
+
+/** An id a statement names: letters and digits, as the org gives them. */
+const SAFE_ID = /^[A-Za-z0-9]+$/;
 
 /** A number the org gave, or why it gave none. */
 export interface Counted {
@@ -157,6 +181,12 @@ export interface EmptyAlongCount {
 export type EmptyRefusalCode =
   /** Orders past Draft, which the run sets back to Draft before any delete. */
   | 'activatedOrder'
+  /**
+   * Orders past Draft going along with records some of which stay, too many
+   * to tell apart: the run leaves them as they are, and the delete of what
+   * they hang from is refused.
+   */
+  | 'activatedOrderLeft'
   /** The standard price book, which the emptying keeps. */
   | 'standardPriceBook'
   /** Direct relations of contacts to their accounts, which go only with their contacts. */
@@ -224,6 +254,12 @@ export interface EmptyCounts {
    * for 16 records.
    */
   undoLostRecords: Counted;
+  /**
+   * Of each emptied object, the records what blocks keeps, and of each object
+   * going along where a path stops short of its top, those that hang from
+   * them: what the counts read around (`KeptRecords`).
+   */
+  kept: ReadonlyMap<string, KeptRecords>;
   /** The statements the org was sent: what the preview cost it. */
   statements: number;
   /** Set when it was stopped before every count was in: what is missing says it. */
@@ -241,10 +277,11 @@ export interface EmptyCountInput {
 /** The answer of a count not sent because it was stopped first. */
 const STOPPED = 'stopped before the org was asked';
 
-/** A count statement of `objectApiName` under every condition of `conditions`. */
+/** A count statement of `objectApiName` under every condition of `conditions`, or a read of `select`. */
 function statementOf(
   objectApiName: string,
   conditions: readonly string[],
+  select = 'COUNT()',
 ): { soql: string; all: boolean } {
   const all = countedWithArchived(objectApiName);
   const where = [...conditions, ...(all ? ['IsDeleted = false'] : [])];
@@ -252,7 +289,7 @@ function statementOf(
     where.length === 0
       ? ''
       : ` WHERE ${where.map((condition) => (where.length > 1 ? `(${condition})` : condition)).join(' AND ')}`;
-  return { soql: `SELECT COUNT() FROM ${assertSoqlIdentifier(objectApiName)}${tail}`, all };
+  return { soql: `SELECT ${select} FROM ${assertSoqlIdentifier(objectApiName)}${tail}`, all };
 }
 
 /** The statements of one round, each counted once whatever asks for it. */
@@ -301,6 +338,58 @@ class Round {
 
   answer(key: string): Counted {
     return this.answers.get(key) ?? { unread: STOPPED };
+  }
+}
+
+/** What a read of ids answered: how many records, and their ids when the page held them all. */
+interface IdsRead {
+  counted: Counted;
+  ids?: string[];
+}
+
+/** Reads of the ids of records, each sent once, as a round sends its counts. */
+class IdReads {
+  private readonly statements = new Map<string, boolean>();
+  private readonly answers = new Map<string, IdsRead>();
+
+  /** Ask for the ids of the records of `objectApiName` under every condition: its key. */
+  ask(objectApiName: string, conditions: readonly string[]): string {
+    const statement = statementOf(objectApiName, conditions, 'Id');
+    this.statements.set(statement.soql, statement.all);
+    return statement.soql;
+  }
+
+  get size(): number {
+    return this.statements.size;
+  }
+
+  async run(org: EmptyCountOrg, stopped: () => boolean): Promise<boolean> {
+    let cut = false;
+    await inPool(
+      [...this.statements].map(([soql, all]) => async () => {
+        if (stopped()) {
+          cut = true;
+          this.answers.set(soql, { counted: { unread: STOPPED } });
+          return;
+        }
+        try {
+          const read = await org.readIds(soql, all);
+          const ids = read.ids.filter((id) => SAFE_ID.test(id));
+          this.answers.set(soql, {
+            counted: { records: read.totalSize },
+            ...(ids.length === read.totalSize ? { ids } : {}),
+          });
+        } catch (error) {
+          this.answers.set(soql, { counted: { unread: extractErrorMessage(error) } });
+        }
+      }),
+      COUNTS_AT_ONCE,
+    );
+    return cut;
+  }
+
+  answer(key: string): IdsRead {
+    return this.answers.get(key) ?? { counted: { unread: STOPPED } };
   }
 }
 
@@ -357,6 +446,45 @@ function short(counted: Counted): Counted {
 /** `counted`, said to hold at most what it counts. */
 function overcounted(counted: Counted): Counted {
   return counted.records === undefined ? counted : { ...counted, atMost: true };
+}
+
+/** What an entry asked in `round` counts, its bounds said. */
+function countIn(
+  round: Round,
+  entry: {
+    objectApiName: string;
+    key?: string;
+    going?: string;
+    more?: true;
+    under?: true;
+    over?: true;
+  },
+): Counted {
+  const counted = entry.key ? round.answer(entry.key) : unreadable(entry.objectApiName);
+  let records = entry.going ? less(counted, round.answer(entry.going)) : counted;
+  const some = (records.records ?? 0) > 0;
+  if (entry.more && some) records = { ...records, atLeast: true };
+  if (entry.under && some) records = short(records);
+  if (entry.over && some) records = overcounted(records);
+  return records;
+}
+
+/**
+ * Whether the run can tell, of the records going along by `routes`, those
+ * that hang from a record that stays: no object on the way keeps records too
+ * many to name. Those past Draft it cannot tell apart, it leaves as they are
+ * — set back to Draft, one under an account a case keeps would stay in the
+ * org so — and the delete of what they hang from is refused.
+ */
+export function draftedAlongOf(
+  routes: readonly Route[],
+  kept: ReadonlyMap<string, KeptRecords>,
+): boolean {
+  return routes.every(
+    (route) =>
+      kept.get(route.emptied) !== 'unnamed' &&
+      route.steps.every((step) => kept.get(step.parent) !== 'unnamed'),
+  );
 }
 
 /**
@@ -456,15 +584,24 @@ export async function countEmpty(
     const rows = deletedRowOf(name);
     return rows === undefined ? [] : [rows];
   };
+  /**
+   * Of each emptied object, the records what blocks keeps, and of each one
+   * going along where a path stops short of its top, those that hang from
+   * them: read once what blocks is counted, and read around by every count
+   * after it. Empty until then: what blocks is counted whole.
+   */
+  const kept = new Map<string, KeptRecords>();
+  let keptOf = (name: string): KeptRecords | undefined => kept.get(name);
+  const keptRead = (name: string): KeptRecords | undefined => keptOf(name);
   // What hangs from a record by a route, read up to the rows the emptying
   // deletes: a case naming a person account's contact names one that stays,
   // and blocked nothing.
   const steps = (route: readonly RouteStep[]): Condition | undefined =>
-    stepsCondition(route, describes, deletedRowOf);
+    stepsCondition(route, describes, deletedRowOf, keptRead);
   const anyRoute = (routes: readonly Route[]): Condition | undefined =>
-    anyRouteCondition(routes, describes, deletedRowOf);
+    anyRouteCondition(routes, describes, deletedRowOf, keptRead);
   const namesDeleted = (child: string, field: string, parent: string): Condition | undefined =>
-    namesDeletedCondition(child, field, parent, affected, describes, deletedRowOf);
+    namesDeletedCondition(child, field, parent, affected, describes, deletedRowOf, keptRead);
 
   // The first round: each emptied object's own records.
   const first = new Round();
@@ -478,49 +615,6 @@ export async function countEmpty(
     [...carriersOf(name, affected)].some((carrier) => mayHold(own.get(carrier)));
   const routesFrom = (routes: readonly Route[]): Route[] =>
     routes.filter((route) => mayHold(own.get(route.emptied)));
-
-  const second = new Round();
-  const asked = {
-    archived: new Map<string, string>(),
-    kept: new Map<string, string>(),
-    goneBefore: new Map<string, { key?: string; unreadable: boolean }>(),
-    along: new Map<string, { total?: string; via: Array<{ route: Route; key?: string }> }>(),
-    refusals: [] as Array<{
-      code: EmptyRefusalCode;
-      objectApiName: string;
-      key?: string;
-      under?: true;
-    }>,
-    blockers: [] as Array<{
-      objectApiName: string;
-      field: string;
-      parent: string;
-      key?: string;
-      /** Those of them that go along, to take off: they go before they could block. */
-      going?: string;
-      /** Set when they are counted among what goes along too, by a route up `field`. */
-      along?: true;
-      /** Set when their count may be over: some routes of what goes along were not read. */
-      over?: true;
-      /**
-       * Where `parent` is emptied, the condition of a statement of the child
-       * alone that reads which of `parent`'s records they name: empty when
-       * every record of it naming one does.
-       */
-      naming?: string;
-    }>,
-    undoLost: [] as Array<
-      Omit<EmptyUndoLost, 'records'> & {
-        key?: string;
-        /** The conditions of `key`'s statement: what a count of the object's losses together reads. */
-        conditions?: Array<string | Condition>;
-        /** Set when more records than it counts go so: there are at least that many. */
-        more?: true;
-        /** Set when it may count less: some routes of what goes along were not read. */
-        under?: true;
-      }
-    >,
-  };
   /**
    * Whether `name` goes along by routes some of which were not read: a count
    * through its routes may count less. An emptied object's own records are
@@ -529,100 +623,28 @@ export async function countEmpty(
   const isCut = (name: string): boolean =>
     !affected.emptied.has(name) && affected.routesCut.has(name);
 
-  for (const pass of order.passes) {
-    const name = pass.objectApiName;
-    if (!mayHold(own.get(name))) continue;
-    const rows = deletedRows(name);
-    if (countedWithArchived(name))
-      asked.archived.set(name, second.ask(name, [...rows, 'IsArchived = true']));
-    const kept = keptRowsOf(name);
-    if (kept !== undefined) asked.kept.set(name, second.ask(name, [kept]));
-    const before = routesFrom(pass.goneBefore);
-    if (before.length > 0) {
-      const condition = anyRoute(before);
-      asked.goneBefore.set(
-        name,
-        condition
-          ? { key: second.ask(name, [...rows, condition]), unreadable: false }
-          : { unreadable: true },
-      );
-    }
-    const after = options.undo ? routesFrom(pass.sentBeforeTheirParent) : [];
-    for (const route of after) {
-      const condition = steps(route.steps);
-      const step = route.steps[0];
-      const conditions = condition ? [...rows, condition] : undefined;
-      asked.undoLost.push({
-        objectApiName: name,
-        field: step.field,
-        parent: step.parent,
-        reason: 'unordered',
-        ...(conditions ? { key: second.ask(name, conditions), conditions } : {}),
-      });
-    }
-  }
-
-  for (const name of affected.along) {
-    const routes = routesFrom(affected.routes.get(name) ?? []);
-    if (routes.length === 0) continue;
-    const via = routes.map((route) => {
-      const condition = steps(route.steps);
-      return { route, ...(condition ? { key: second.ask(name, [condition]) } : {}) };
-    });
-    const total = routes.length > 1 ? anyRoute(routes) : undefined;
-    asked.along.set(name, {
-      ...(total ? { total: second.ask(name, [total]) } : via[0].key ? { total: via[0].key } : {}),
-      via,
-    });
-  }
-
-  const placeOf = (name: string): number =>
-    order.passes.findIndex((pass) => pass.objectApiName === name);
-  for (const pair of options.undo ? order.beforeParent : []) {
-    if (pair.reason === 'customPrices') {
-      // A custom price goes with its book, whose pass comes before its
-      // product's, and its lookup restricts the product's delete: seen live
-      // twice, it did not come back with its book once its product had gone
-      // after it, where the product's standard prices came back with it,
-      // their ids the same. Nothing is lost where the product goes first.
-      if (!mayGo(PRICE_BOOK) || !mayGo(pair.parent)) continue;
-      if (placeOf(PRICE_BOOK) > placeOf(pair.parent)) continue;
-      const withBook = namesDeleted(pair.objectApiName, 'Pricebook2Id', PRICE_BOOK);
-      const names = namesDeleted(pair.objectApiName, pair.field, pair.parent);
-      const conditions = withBook && names ? [withBook, names] : undefined;
-      asked.undoLost.push({
-        objectApiName: pair.objectApiName,
-        field: pair.field,
-        parent: pair.parent,
-        reason: 'restricted',
-        ...(conditions ? { key: second.ask(pair.objectApiName, conditions), conditions } : {}),
-        ...(isCut(PRICE_BOOK) || isCut(pair.parent) ? { under: true as const } : {}),
-      });
-      continue;
-    }
-    if (!mayGo(pair.objectApiName) || !mayGo(pair.parent)) continue;
-    const names = namesDeleted(pair.objectApiName, pair.field, pair.parent);
-    const conditions: Condition[] = [];
-    if (!affected.emptied.has(pair.objectApiName)) {
-      const goes = anyRoute(routesFrom(affected.routes.get(pair.objectApiName) ?? []));
-      if (goes) conditions.push(goes);
-    }
-    const under = isCut(pair.objectApiName) || isCut(pair.parent);
-    asked.undoLost.push({
-      objectApiName: pair.objectApiName,
-      field: pair.field,
-      parent: pair.parent,
-      reason: 'restricted',
-      ...(names
-        ? {
-            key: second.ask(pair.objectApiName, [...conditions, names]),
-            conditions: [...conditions, names],
-          }
-        : {}),
-      ...(under ? { under: true as const } : {}),
-    });
-  }
-
+  // The second round: what blocks. A record it keeps stays, and so does what
+  // hangs from it — the contacts of an account a case names, their roles on
+  // opportunities, its orders —, so it is counted before anything else.
+  const second = new Round();
+  const blockersAsked = [] as Array<{
+    objectApiName: string;
+    field: string;
+    parent: string;
+    key?: string;
+    /** Those of them that go along, to take off: they go before they could block. */
+    going?: string;
+    /** Set when they are counted among what goes along too, by a route up `field`. */
+    along?: true;
+    /** Set when their count may be over: some routes of what goes along were not read. */
+    over?: true;
+    /**
+     * Where `parent` is emptied, the condition of a statement of the child
+     * alone that reads which of `parent`'s records they name: empty when
+     * every record of it naming one does.
+     */
+    naming?: string;
+  }>;
   // An object going along blocks by the records of it that stay: those
   // naming a deleted record, less those that go along themselves.
   for (const { parent, child, field, kind } of relations) {
@@ -632,7 +654,7 @@ export async function countEmpty(
     const goes = affected.routes.has(child)
       ? anyRoute(routesFrom(affected.routes.get(child) ?? []))
       : undefined;
-    asked.blockers.push({
+    blockersAsked.push({
       objectApiName: child,
       field,
       parent,
@@ -648,98 +670,303 @@ export async function countEmpty(
       ...(affected.emptied.has(parent) && !affected.routes.has(child) ? { naming: '' } : {}),
     });
   }
-
   // A lookup whose parent the org refuses to delete while some of its records
   // live, though the parent's describe says its delete takes them along: an
   // opportunity closed won, "some opportunities of this account were closed
-  // won" (`REFUSING_CASCADES`). Going along, those block their account. Of an
-  // object emptied too, they go by its own pass once their account was
-  // refused, with the account's other records of it, alone: no undo brings
-  // them back once the rounds of tries have taken the account.
+  // won" (`REFUSING_CASCADES`). Going along, those block their account.
   for (const { child, field, parent, rows } of REFUSING_CASCADES) {
     if (rows === undefined || !mayGo(parent)) continue;
+    if (affected.emptied.has(child) || !affected.routes.has(child)) continue;
     const holds = describes.get(child)?.fields.some((each) => each.name === rows.field) === true;
     const names = holds ? namesDeleted(child, field, parent) : undefined;
     if (!names) continue;
     const refusing = `${rows.field} = ${String(rows.value)}`;
-    if (affected.emptied.has(child)) {
-      if (!options.undo || !mayHold(own.get(child))) continue;
-      asked.undoLost.push({
+    // Counted among what goes along too, by its route up this lookup: they
+    // do not go, and are taken off it.
+    blockersAsked.push({
+      objectApiName: child,
+      field,
+      parent,
+      key: second.ask(child, [refusing, names]),
+      along: true,
+      ...(affected.emptied.has(parent) ? { naming: refusing } : {}),
+    });
+  }
+  cut = (await second.run(org, stopped)) || cut;
+
+  // The third round: the records of an emptied object that what blocks keeps
+  // — an account whose opportunity was closed won, refused to the admin all
+  // the same —, by their ids: what hangs from them is read around them.
+  const third = new IdReads();
+  const keepsKeys = new Map<number, string>();
+  const naming = new Map<string, string[]>();
+  blockersAsked.forEach((blocker, at) => {
+    if (blocker.naming === undefined || blocker.key === undefined) return;
+    if ((countIn(second, blocker).records ?? 0) === 0) return;
+    const inner =
+      `Id IN (SELECT ${assertSoqlIdentifier(blocker.field)} FROM ` +
+      `${assertSoqlIdentifier(blocker.objectApiName)}` +
+      `${blocker.naming !== '' ? ` WHERE ${blocker.naming}` : ''})`;
+    keepsKeys.set(at, third.ask(blocker.parent, [...deletedRows(blocker.parent), inner]));
+    naming.set(blocker.parent, [...(naming.get(blocker.parent) ?? []), inner]);
+  });
+  cut = (await third.run(org, stopped)) || cut;
+  for (const parent of naming.keys()) {
+    const reads = [...keepsKeys]
+      .filter(([at]) => blockersAsked[at].parent === parent)
+      .map(([, key]) => third.answer(key));
+    if (reads.every((read) => read.counted.records === 0)) continue;
+    const ids = new Set(reads.flatMap((read) => read.ids ?? []));
+    kept.set(
+      parent,
+      reads.every((read) => read.ids !== undefined) && ids.size <= KEPT_NAMED
+        ? [...ids]
+        : 'unnamed',
+    );
+  }
+
+  /**
+   * Ask in `round` every count but what blocks: see the module's comment.
+   * Asked twice when records are kept: first to learn which objects going
+   * along its paths stop short at, with nothing sent.
+   */
+  const askRest = (round: Round) => {
+    const rest = {
+      archived: new Map<string, string>(),
+      kept: new Map<string, string>(),
+      goneBefore: new Map<string, { key?: string; unreadable: boolean }>(),
+      along: new Map<string, { total?: string; via: Array<{ route: Route; key?: string }> }>(),
+      refusals: [] as Array<{
+        code: EmptyRefusalCode;
+        objectApiName: string;
+        key?: string;
+        under?: true;
+      }>,
+      undoLost: [] as Array<
+        Omit<EmptyUndoLost, 'records'> & {
+          key?: string;
+          /** The conditions of `key`'s statement: what a count of the object's losses together reads. */
+          conditions?: Array<string | Condition>;
+          /** Set when more records than it counts go so: there are at least that many. */
+          more?: true;
+          /** Set when it may count less: some routes of what goes along were not read. */
+          under?: true;
+        }
+      >,
+    };
+
+    for (const pass of order.passes) {
+      const name = pass.objectApiName;
+      if (!mayHold(own.get(name))) continue;
+      const rows = deletedRows(name);
+      if (countedWithArchived(name))
+        rest.archived.set(name, round.ask(name, [...rows, 'IsArchived = true']));
+      const keptRows = keptRowsOf(name);
+      if (keptRows !== undefined) rest.kept.set(name, round.ask(name, [keptRows]));
+      const before = routesFrom(pass.goneBefore);
+      if (before.length > 0) {
+        const condition = anyRoute(before);
+        rest.goneBefore.set(
+          name,
+          condition
+            ? { key: round.ask(name, [...rows, condition]), unreadable: false }
+            : { unreadable: true },
+        );
+      }
+      const after = options.undo ? routesFrom(pass.sentBeforeTheirParent) : [];
+      for (const route of after) {
+        const condition = steps(route.steps);
+        const step = route.steps[0];
+        const conditions = condition ? [...rows, condition] : undefined;
+        rest.undoLost.push({
+          objectApiName: name,
+          field: step.field,
+          parent: step.parent,
+          reason: 'unordered',
+          ...(conditions ? { key: round.ask(name, conditions), conditions } : {}),
+        });
+      }
+    }
+
+    for (const name of affected.along) {
+      const routes = routesFrom(affected.routes.get(name) ?? []);
+      if (routes.length === 0) continue;
+      const via = routes.map((route) => {
+        const condition = steps(route.steps);
+        return { route, ...(condition ? { key: round.ask(name, [condition]) } : {}) };
+      });
+      const total = routes.length > 1 ? anyRoute(routes) : undefined;
+      rest.along.set(name, {
+        ...(total ? { total: round.ask(name, [total]) } : via[0].key ? { total: via[0].key } : {}),
+        via,
+      });
+    }
+
+    const placeOf = (name: string): number =>
+      order.passes.findIndex((pass) => pass.objectApiName === name);
+    for (const pair of options.undo ? order.beforeParent : []) {
+      if (pair.reason === 'customPrices') {
+        // A custom price goes with its book, whose pass comes before its
+        // product's, and its lookup restricts the product's delete: seen live
+        // twice, it did not come back with its book once its product had gone
+        // after it, where the product's standard prices came back with it,
+        // their ids the same. Nothing is lost where the product goes first.
+        if (!mayGo(PRICE_BOOK) || !mayGo(pair.parent)) continue;
+        if (placeOf(PRICE_BOOK) > placeOf(pair.parent)) continue;
+        const withBook = namesDeleted(pair.objectApiName, 'Pricebook2Id', PRICE_BOOK);
+        const names = namesDeleted(pair.objectApiName, pair.field, pair.parent);
+        const conditions = withBook && names ? [withBook, names] : undefined;
+        rest.undoLost.push({
+          objectApiName: pair.objectApiName,
+          field: pair.field,
+          parent: pair.parent,
+          reason: 'restricted',
+          ...(conditions ? { key: round.ask(pair.objectApiName, conditions), conditions } : {}),
+          ...(isCut(PRICE_BOOK) || isCut(pair.parent) ? { under: true as const } : {}),
+        });
+        continue;
+      }
+      if (!mayGo(pair.objectApiName) || !mayGo(pair.parent)) continue;
+      const names = namesDeleted(pair.objectApiName, pair.field, pair.parent);
+      const conditions: Condition[] = [];
+      if (!affected.emptied.has(pair.objectApiName)) {
+        const goes = anyRoute(routesFrom(affected.routes.get(pair.objectApiName) ?? []));
+        if (goes) conditions.push(goes);
+      }
+      const under = isCut(pair.objectApiName) || isCut(pair.parent);
+      rest.undoLost.push({
+        objectApiName: pair.objectApiName,
+        field: pair.field,
+        parent: pair.parent,
+        reason: 'restricted',
+        ...(names
+          ? {
+              key: round.ask(pair.objectApiName, [...conditions, names]),
+              conditions: [...conditions, names],
+            }
+          : {}),
+        ...(under ? { under: true as const } : {}),
+      });
+    }
+
+    // Of an object emptied too, the records that refuse their parent's delete
+    // go by its own pass once their parent was refused, with the parent's
+    // other records of it, alone: no undo brings them back once the rounds of
+    // tries have taken the parent (`REFUSING_CASCADES`).
+    for (const { child, field, parent, rows } of REFUSING_CASCADES) {
+      if (rows === undefined || !mayGo(parent) || !affected.emptied.has(child)) continue;
+      const holds = describes.get(child)?.fields.some((each) => each.name === rows.field) === true;
+      const names = holds ? namesDeleted(child, field, parent) : undefined;
+      if (!names || !options.undo || !mayHold(own.get(child))) continue;
+      const refusing = `${rows.field} = ${String(rows.value)}`;
+      rest.undoLost.push({
         objectApiName: child,
         field,
         parent,
         reason: 'restricted',
-        key: second.ask(child, [refusing, names]),
+        key: round.ask(child, [refusing, names]),
         conditions: [refusing, names],
         more: true,
       });
-    } else if (affected.routes.has(child)) {
-      // Counted among what goes along too, by its route up this lookup: they
-      // do not go, and are taken off it.
-      asked.blockers.push({
-        objectApiName: child,
-        field,
-        parent,
-        key: second.ask(child, [refusing, names]),
-        along: true,
-        ...(affected.emptied.has(parent) ? { naming: refusing } : {}),
+    }
+
+    const refusal = (
+      code: EmptyRefusalCode,
+      objectApiName: string,
+      conditions: Array<string | Condition>,
+      under = false,
+    ): void => {
+      rest.refusals.push({
+        code,
+        objectApiName,
+        key: round.ask(objectApiName, conditions),
+        ...(under ? { under: true as const } : {}),
       });
+    };
+    for (const name of order.toDraft) {
+      if (!mayGo(name)) continue;
+      const pastDraft = "StatusCode != 'Draft'";
+      if (affected.emptied.has(name)) {
+        refusal('activatedOrder', name, [pastDraft]);
+        continue;
+      }
+      const routes = routesFrom(affected.routes.get(name) ?? []);
+      const goes = anyRoute(routes);
+      refusal(
+        // Records too many to name stay at the top of a route: which of the
+        // records going along hang from them, no statement reads, and the run
+        // sets none back to Draft (`draftedAlongOf`).
+        draftedAlongOf(routes, kept) ? 'activatedOrder' : 'activatedOrderLeft',
+        name,
+        goes ? [goes, pastDraft] : [{ soql: pastDraft, exact: false }],
+        goes !== undefined && isCut(name),
+      );
     }
-  }
-
-  const refusal = (
-    code: EmptyRefusalCode,
-    objectApiName: string,
-    conditions: Array<string | Condition>,
-    under = false,
-  ): void => {
-    asked.refusals.push({
-      code,
-      objectApiName,
-      key: second.ask(objectApiName, conditions),
-      ...(under ? { under: true as const } : {}),
-    });
+    for (const [name, key] of rest.kept)
+      rest.refusals.push({ code: 'standardPriceBook', objectApiName: name, key });
+    if (
+      affected.emptied.has(ACCOUNT_CONTACT_RELATION) &&
+      mayHold(own.get(ACCOUNT_CONTACT_RELATION))
+    ) {
+      // Those whose contact goes along go with it: which they are, no count
+      // of the relation alone says.
+      if (!affected.emptied.has(CONTACT)) {
+        refusal('directContactRelation', ACCOUNT_CONTACT_RELATION, [
+          { soql: 'IsDirect = true', exact: !affected.routes.has(CONTACT) },
+        ]);
+      }
+    }
+    const contact = describes.get(CONTACT);
+    if (
+      affected.emptied.has(CONTACT) &&
+      !affected.emptied.has(ACCOUNT) &&
+      mayHold(own.get(CONTACT)) &&
+      contact?.fields.some((field) => field.name === PERSON_ACCOUNT_FLAG) === true
+    ) {
+      refusal('personAccountContact', CONTACT, [`${PERSON_ACCOUNT_FLAG} = true`]);
+    }
+    return rest;
   };
-  for (const name of order.toDraft) {
-    if (!mayGo(name)) continue;
-    const pastDraft = "StatusCode != 'Draft'";
-    if (affected.emptied.has(name)) {
-      refusal('activatedOrder', name, [pastDraft]);
-      continue;
+
+  // The fourth round, once records are kept: of each object going along where
+  // a path stops short of its top — a task's contact, read by its type —,
+  // those that hang from a record that stays, which stay with it.
+  const fourth = new IdReads();
+  const hanging = new Map<string, string>();
+  if (kept.size > 0) {
+    const stops = new Set<string>();
+    keptOf = (name) => {
+      if (!affected.emptied.has(name)) stops.add(name);
+      return kept.get(name);
+    };
+    askRest(new Round());
+    keptOf = (name) => kept.get(name);
+    for (const name of [...stops].sort()) {
+      const routes = routesFrom(affected.routes.get(name) ?? []);
+      const keeping = routes.filter((route) => kept.has(route.emptied));
+      if (keeping.length === 0) continue;
+      const ids = kept.get(keeping[0].emptied);
+      const condition =
+        routes.length === 1 && Array.isArray(ids)
+          ? hangsFromCondition(routes[0].steps, describes, ids as readonly string[])
+          : undefined;
+      if (condition === undefined) kept.set(name, 'unnamed');
+      else hanging.set(name, fourth.ask(name, [condition]));
     }
-    const goes = anyRoute(routesFrom(affected.routes.get(name) ?? []));
-    refusal(
-      'activatedOrder',
-      name,
-      goes ? [goes, pastDraft] : [{ soql: pastDraft, exact: false }],
-      goes !== undefined && isCut(name),
-    );
-  }
-  for (const [name, key] of asked.kept)
-    asked.refusals.push({ code: 'standardPriceBook', objectApiName: name, key });
-  if (
-    affected.emptied.has(ACCOUNT_CONTACT_RELATION) &&
-    mayHold(own.get(ACCOUNT_CONTACT_RELATION))
-  ) {
-    // Those whose contact goes along go with it: which they are, no count
-    // of the relation alone says.
-    if (!affected.emptied.has(CONTACT)) {
-      refusal('directContactRelation', ACCOUNT_CONTACT_RELATION, [
-        { soql: 'IsDirect = true', exact: !affected.routes.has(CONTACT) },
-      ]);
+    cut = (await fourth.run(org, stopped)) || cut;
+    for (const [name, key] of hanging) {
+      const read = fourth.answer(key);
+      kept.set(
+        name,
+        read.ids !== undefined && read.ids.length <= KEPT_NAMED ? read.ids : 'unnamed',
+      );
     }
-  }
-  const contact = describes.get(CONTACT);
-  if (
-    affected.emptied.has(CONTACT) &&
-    !affected.emptied.has(ACCOUNT) &&
-    mayHold(own.get(CONTACT)) &&
-    contact?.fields.some((field) => field.name === PERSON_ACCOUNT_FLAG) === true
-  ) {
-    refusal('personAccountContact', CONTACT, [`${PERSON_ACCOUNT_FLAG} = true`]);
   }
 
-  cut = (await second.run(org, stopped)) || cut;
+  // The fifth round: everything else, read around what stays.
+  const fifth = new Round();
+  const asked = askRest(fifth);
+  cut = (await fifth.run(org, stopped)) || cut;
 
   /** What an asked entry counts, its bounds said. */
   const countOf = (entry: {
@@ -749,40 +976,19 @@ export async function countEmpty(
     more?: true;
     under?: true;
     over?: true;
-  }): Counted => {
-    const counted = entry.key ? second.answer(entry.key) : unreadable(entry.objectApiName);
-    let records = entry.going ? less(counted, second.answer(entry.going)) : counted;
-    const some = (records.records ?? 0) > 0;
-    if (entry.more && some) records = { ...records, atLeast: true };
-    if (entry.under && some) records = short(records);
-    if (entry.over && some) records = overcounted(records);
-    return records;
-  };
+  }): Counted => countIn(fifth, entry);
 
-  // The third round, on what the second found: the records of an emptied
-  // object that what blocks keeps — an account whose opportunity was closed
-  // won, refused to the admin all the same —, and what no undo brings back of
+  // The last round, on what the others found: the records two lookups both
+  // keep, where they were too many to name, and what no undo brings back of
   // an object counted under two lookups, each record once.
-  const third = new Round();
-  const keepsKeys = new Map<number, string>();
-  const naming = new Map<string, string[]>();
-  asked.blockers.forEach((blocker, at) => {
-    if (blocker.naming === undefined || blocker.key === undefined) return;
-    if ((countOf(blocker).records ?? 0) === 0) return;
-    const inner =
-      `Id IN (SELECT ${assertSoqlIdentifier(blocker.field)} FROM ` +
-      `${assertSoqlIdentifier(blocker.objectApiName)}` +
-      `${blocker.naming !== '' ? ` WHERE ${blocker.naming}` : ''})`;
-    keepsKeys.set(at, third.ask(blocker.parent, [...deletedRows(blocker.parent), inner]));
-    naming.set(blocker.parent, [...(naming.get(blocker.parent) ?? []), inner]);
-  });
+  const sixth = new Round();
   // Two lookups may keep the same record — an account under a closed won
   // opportunity and an entitlement —: those both keep are read too. Salesforce
   // documents two subqueries at most in a statement, never joined by OR.
   const bothKeys = new Map<string, string>();
   for (const [parent, inners] of naming) {
-    if (inners.length === 2) {
-      bothKeys.set(parent, third.ask(parent, [...deletedRows(parent), ...inners]));
+    if (inners.length === 2 && kept.get(parent) === 'unnamed') {
+      bothKeys.set(parent, sixth.ask(parent, [...deletedRows(parent), ...inners]));
     }
   }
   const lostKeys = new Map<string, string>();
@@ -795,39 +1001,58 @@ export async function countEmpty(
     if (holding.length < 2) continue;
     const groups = holding.map((entry) => entry.conditions);
     if (groups.some((group) => group === undefined)) continue;
-    lostKeys.set(name, third.ask(name, [anyGroup(groups as Array<Array<string | Condition>>)]));
+    lostKeys.set(name, sixth.ask(name, [anyGroup(groups as Array<Array<string | Condition>>)]));
   }
-  cut = (await third.run(org, stopped)) || cut;
+  cut = (await sixth.run(org, stopped)) || cut;
 
-  const blockers: EmptyBlocker[] = asked.blockers
+  const blockers: EmptyBlocker[] = blockersAsked
     .map((blocker, at) => {
-      const kept = keepsKeys.get(at);
+      const keeps = keepsKeys.get(at);
       return {
         objectApiName: blocker.objectApiName,
         field: blocker.field,
         parent: blocker.parent,
-        records: countOf(blocker),
-        ...(kept !== undefined ? { keeps: third.answer(kept) } : {}),
+        records: countIn(second, blocker),
+        ...(keeps !== undefined ? { keeps: third.answer(keeps).counted } : {}),
       };
     })
     .filter((entry) => !none(entry.records));
   /**
-   * Of `name`'s records, those what blocks keeps, each once: two lookups'
-   * less those both keep; past two, their sum, which may count one twice.
+   * Of `name`'s records, those what blocks keeps, each once: by their ids
+   * where they were named; else two lookups' less those both keep, and past
+   * two, their sum, which may count one twice.
    */
   const blockedOf = (name: string): Counted | undefined => {
     const keeps = blockers.flatMap((blocker) =>
       blocker.parent === name && blocker.keeps !== undefined ? [blocker.keeps] : [],
     );
     if (keeps.length === 0) return undefined;
+    const ids = kept.get(name);
+    if (Array.isArray(ids)) return { records: ids.length };
     const sum = sumOf(keeps);
     const both = bothKeys.get(name);
-    if (both !== undefined) return minus(sum, third.answer(both));
+    if (both !== undefined) return minus(sum, sixth.answer(both));
     return keeps.length > 1 && (sum.records ?? 0) > 0 ? overcounted(sum) : sum;
   };
-  /** The blockers counted among what goes along by a route up their lookup. */
-  const blockingAlong = blockers.filter((blocker) =>
-    asked.blockers.some(
+  /**
+   * The blockers counted among what goes along by a route up their lookup,
+   * and not read around already: the records of a parent named as kept
+   * leave out what hangs from them, those blockers among it.
+   */
+  const blockingAlong = blockers.filter(
+    (blocker) =>
+      !Array.isArray(kept.get(blocker.parent)) &&
+      blockersAsked.some(
+        (each) =>
+          each.along === true &&
+          each.objectApiName === blocker.objectApiName &&
+          each.field === blocker.field &&
+          each.parent === blocker.parent,
+      ),
+  );
+  /** The blockers counted among what goes along, whether read around or taken off. */
+  const blockingAlongAll = blockers.filter((blocker) =>
+    blockersAsked.some(
       (each) =>
         each.along === true &&
         each.objectApiName === blocker.objectApiName &&
@@ -857,18 +1082,18 @@ export async function countEmpty(
         : gone.unreadable || gone.key === undefined
           ? unreadable(name)
           : affected.routesCut.has(name)
-            ? overcounted(less(records, second.answer(gone.key)))
-            : less(records, second.answer(gone.key));
+            ? overcounted(less(records, fifth.answer(gone.key)))
+            : less(records, fifth.answer(gone.key));
     const archived = asked.archived.get(name);
-    const kept = asked.kept.get(name);
+    const keptRows = asked.kept.get(name);
     const blocked = blockedOf(name);
     return {
       objectApiName: name,
       ...(rows !== undefined ? { rows } : {}),
       records,
       sent,
-      ...(archived ? { archived: second.answer(archived) } : {}),
-      ...(kept ? { kept: second.answer(kept) } : {}),
+      ...(archived ? { archived: fifth.answer(archived) } : {}),
+      ...(keptRows ? { kept: fifth.answer(keptRows) } : {}),
       ...(blocked && !none(blocked) ? { blocked } : {}),
     };
   });
@@ -888,20 +1113,23 @@ export async function countEmpty(
     : [];
   const along = [...asked.along]
     .map(([name, { total, via }]): EmptyAlongCount => {
-      const reached = total ? second.answer(total) : unreadable(name);
+      const reached = total ? fifth.answer(total) : unreadable(name);
       const notRead = affected.routesCut.get(name);
       // Those that block their parent's delete do not go: taken off what
-      // goes, and off the route up the lookup they block by.
+      // goes, and off the route up the lookup they block by, unless what
+      // hangs from the records they keep was read around already.
       const blocking = blockingAlong.filter((blocker) => blocker.objectApiName === name);
+      const said = blockingAlongAll.filter((blocker) => blocker.objectApiName === name);
       const staying =
         blocking.length > 0 ? sumOf(blocking.map((blocker) => blocker.records)) : undefined;
+      const stays = said.length > 0 ? sumOf(said.map((blocker) => blocker.records)) : undefined;
       const goes = staying ? minus(reached, staying) : reached;
       return {
         objectApiName: name,
         records: notRead ? short(goes) : goes,
         via: via
           .map(({ route, key }) => {
-            const counted = key ? second.answer(key) : unreadable(name);
+            const counted = key ? fifth.answer(key) : unreadable(name);
             const step = route.steps[0];
             const blocks = blocking.filter(
               (blocker) => blocker.field === step.field && blocker.parent === step.parent,
@@ -917,7 +1145,7 @@ export async function countEmpty(
             };
           })
           .filter((route) => !none(route.records)),
-        ...(staying && !none(staying) ? { blocking: staying } : {}),
+        ...(stays && !none(stays) ? { blocking: stays } : {}),
         ...(notRead ? { routesNotRead: [...notRead] } : {}),
       };
     })
@@ -955,7 +1183,7 @@ export async function countEmpty(
         const sum = sumOf(entries.map((entry) => entry.records));
         return entries.length > 1 && (sum.records ?? 0) > 0 ? overcounted(sum) : sum;
       }
-      let counted = third.answer(together);
+      let counted = sixth.answer(together);
       if (
         entries.some((entry) => entry.reason !== 'notRestorable' && entry.records.atLeast) &&
         (counted.records ?? 0) > 0
@@ -977,7 +1205,8 @@ export async function countEmpty(
     blockers,
     undoLost,
     undoLostRecords,
-    statements: first.size + second.size + third.size,
+    kept,
+    statements: first.size + second.size + third.size + fourth.size + fifth.size + sixth.size,
     ...(cut ? { stopped: true as const } : {}),
   };
 }

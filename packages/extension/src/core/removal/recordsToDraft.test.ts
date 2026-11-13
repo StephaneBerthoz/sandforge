@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg.js';
-import { backToDraft, putBackStatuses, setBackToDraftOf } from './recordsToDraft.js';
+import {
+  backToDraft,
+  namedDraftNote,
+  putBackStatuses,
+  setBackToDraftOf,
+} from './recordsToDraft.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -106,10 +111,24 @@ describe('putBackStatuses', () => {
     );
     org.refuseUpdate.set(ORDERS[1], { statusCode: 'UNABLE_TO_LOCK_ROW', message: 'locked' });
     const notes: Array<[string, string, boolean]> = [];
+    const named: string[] = [];
 
     await putBackStatuses(org, drafted, {
-      note: (objectApiName, reason, failed) => void notes.push([objectApiName, reason, failed]),
+      note: (objectApiName, reason, failed, record) => {
+        notes.push([objectApiName, reason, failed]);
+        named.push(namedDraftNote(objectApiName, reason, record, drafted));
+      },
     });
+
+    // Each record said by its id, the status it had in the words.
+    expect(named).toEqual([
+      `Order ${ORDERS[0]}: Status set to Draft for the delete, then back to Activated.`,
+      `Order ${ORDERS[1]}: Status set to Draft for the delete, and left there: the org refused Activated back — UNABLE_TO_LOCK_ROW: locked`,
+    ]);
+    // Said of the object as a whole — its records not read back —, each set to Draft is named.
+    expect(namedDraftNote('Order', 'Not read back.', undefined, drafted.slice(0, 2))).toBe(
+      `Order: Not read back. Set to Draft, with the status each had: ${ORDERS[0]} (Activated), ${ORDERS[1]} (Activated).`,
+    );
 
     expect(org.all('Order').map((row) => row.Status)).toEqual(['Activated', 'Draft', 'Draft']);
     expect(notes).toEqual([

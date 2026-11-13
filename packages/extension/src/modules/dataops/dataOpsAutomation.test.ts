@@ -4,6 +4,7 @@ import type { ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
 import {
   AUTOMATION_NOT_ACCEPTED,
   EMAILS_EXCEEDED,
+  ORG_UNREACHABLE,
   dataOpsAutomationLines,
   dataOpsAutomationRefusal,
   dataOpsSaid,
@@ -306,6 +307,51 @@ describe('readDataOpsAct', () => {
     );
     expect(dataOpsStop(read.answer)?.code).toBe(AUTOMATION_NOT_ACCEPTED);
     expect(dataOpsStop(read.answer)?.message).toContain('Add --accept-emails to mask all the same');
+  });
+
+  it('refuses an act whose org could not be reached as its automation was read, under the connection’s code, whatever is accepted, naming neither the request nor the host, and offers no flag to go on', async () => {
+    // As an undo of an emptying met it: the processes' read failed on the
+    // network, which the reader says by its word alone.
+    const unreachable: ForgeTargetAutomation = {
+      ...automationOf({ Contact: {} }),
+      unread: [
+        {
+          part: 'processes',
+          reason: 'the org could not be reached (EAI_AGAIN)',
+          unreachable: 'EAI_AGAIN',
+        },
+      ],
+    };
+    const thrown = new Error(
+      'request to https://example-org.my.salesforce.com/services/data/v62.0/query failed, ' +
+        'reason: getaddrinfo EAI_AGAIN example-org.my.salesforce.com',
+    );
+    for (const automation of [unreachable, thrown]) {
+      for (const accord of [{}, { acceptAutomation: true, acceptEmails: true }]) {
+        const org = orgOf(automation);
+        const read = await readDataOpsAct({
+          act: 'emptyUndo',
+          target: 'TGT',
+          objects: contacts,
+          org,
+          accord,
+          mayMute: true,
+        });
+
+        expect(read.answer.refusals).toEqual([
+          {
+            code: ORG_UNREACHABLE,
+            message:
+              'TGT could not be reached as what it runs was read (EAI_AGAIN), so the undo was ' +
+              'not started. Nothing was written. Check the network, then try again.',
+          },
+        ]);
+        expect(ORG_UNREACHABLE).toBe('ORG_TEMPORARILY_UNREACHABLE');
+        expect(JSON.stringify(read.answer)).not.toMatch(/https:|salesforce\.com/);
+        // Nothing more is asked of an org the network does not reach.
+        expect(org.deliverabilityReads()).toBe(0);
+      }
+    }
   });
 
   it('says one email of a limit in the singular', async () => {

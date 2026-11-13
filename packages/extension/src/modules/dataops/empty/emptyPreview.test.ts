@@ -4,12 +4,12 @@ import { previewEmpty, type EmptyPreviewInput } from './emptyPreview';
 
 const TOOLING = ['ApexClass'];
 
-/** The dry run of `request` on a fresh sales org, and the org, for what it was sent. */
+/** The dry run of `request` on a fresh sales org, or on `org`, and the org, for what it was sent. */
 async function preview(
   request: EmptyPreviewInput['request'],
   extra: Partial<EmptyPreviewInput> = {},
+  org: ReturnType<typeof salesOrg> = salesOrg(),
 ): Promise<{ result: Awaited<ReturnType<typeof previewEmpty>>; org: ReturnType<typeof salesOrg> }> {
-  const org = salesOrg();
   const result = await previewEmpty(
     { global: org.global(), tooling: TOOLING, request, deleteMode: 'recycle', ...extra },
     org,
@@ -61,10 +61,17 @@ describe('previewEmpty, the whole org', () => {
     ]);
   });
 
-  it('reads the org and writes nothing: every statement it sends is a count', async () => {
+  it('reads the org and writes nothing: every statement it sends is a count, or reads the ids of what blocks keeps', async () => {
     const { org } = await preview({ mode: 'org' });
 
-    expect(org.sent.every(({ soql }) => soql.startsWith('SELECT COUNT() FROM '))).toBe(true);
+    expect(
+      org.sent.every(
+        ({ soql }) => soql.startsWith('SELECT COUNT() FROM ') || soql.startsWith('SELECT Id FROM '),
+      ),
+    ).toBe(true);
+    expect(org.sent.map(({ soql }) => soql)).toContain(
+      'SELECT Id FROM Contact WHERE Id IN (SELECT ContactId FROM User)',
+    );
   });
 
   it('prices the passes against the org’s day and puts every deleted record in the recycle bin', async () => {
@@ -106,7 +113,12 @@ describe('previewEmpty, deleting for good', () => {
 
 describe('previewEmpty, objects picked', () => {
   it('describes what goes along as far as it goes, round after round, and counts it', async () => {
-    const { result, org } = await preview({ mode: 'objects', objects: ['Account'] });
+    // No case keeps an account: everything under them goes.
+    const { result, org } = await preview(
+      { mode: 'objects', objects: ['Account'] },
+      {},
+      salesOrg({ emptyObjects: ['Case'] }),
+    );
 
     expect(org.described).toEqual(
       expect.arrayContaining(['Contact', 'Opportunity', 'Quote', 'QuoteLineItem']),
@@ -120,7 +132,7 @@ describe('previewEmpty, objects picked', () => {
     expect(result.affected).toContain('Account');
   });
 
-  it('names the cases whose lookups keep the account, and the activated orders set back to Draft first', async () => {
+  it('names the cases whose lookups keep the account, and sets back to Draft none of the orders of an account they keep', async () => {
     const { result } = await preview({ mode: 'objects', objects: ['Account'] });
 
     expect(result.blockers.map((blocker) => `${blocker.objectApiName}.${blocker.field}`)).toEqual([
@@ -128,15 +140,22 @@ describe('previewEmpty, objects picked', () => {
       'Case.ContactId',
       'User.ContactId',
     ]);
-    expect(result.refusals).toEqual([
-      { code: 'activatedOrder', objectApiName: 'Order', records: { records: 1 } },
-    ]);
+    // The activated order is the first account's, which its case keeps: it stays as it is.
+    expect(result.refusals).toEqual([]);
   });
 
-  it('says how the run reads the activated orders going along, to set them back to Draft before the accounts go', async () => {
+  it('says how the run reads the activated orders going along, to set them back to Draft before the accounts go, those of an account what blocks keeps left out', async () => {
     const { result } = await preview({ mode: 'objects', objects: ['Account'] });
+    const noCase = await preview(
+      { mode: 'objects', objects: ['Account'] },
+      {},
+      salesOrg({ emptyObjects: ['Case'] }),
+    );
 
     expect(result.toDraftAlong).toEqual([
+      { objectApiName: 'Order', condition: "AccountId != null AND AccountId NOT IN ('A1', 'A2')" },
+    ]);
+    expect(noCase.result.toDraftAlong).toEqual([
       { objectApiName: 'Order', condition: 'AccountId != null' },
     ]);
   });
@@ -150,10 +169,9 @@ describe('previewEmpty, objects picked', () => {
   it('counts the records of the account and what goes with it in the act’s size', async () => {
     const { result } = await preview({ mode: 'objects', objects: ['Account'] });
 
-    // 4 accounts, less the 2 their cases keep; along: 6 relations, 1 asset,
-    // 1 member, 5 contacts, 1 contract, 1 event, 2 opportunities, 1 role, 2
-    // products, 2 orders, 1 order product, 1 quote, 1 line, 3 tasks.
-    expect(result.total).toEqual({ records: 30, objects: 15, uncounted: [] });
+    // 4 accounts, less the 2 their cases keep, with everything under them;
+    // along: the person account's contact and its relation to it.
+    expect(result.total).toEqual({ records: 4, objects: 3, uncounted: [] });
   });
 });
 

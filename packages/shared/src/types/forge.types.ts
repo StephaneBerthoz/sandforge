@@ -2678,6 +2678,12 @@ export interface ForgeTargetAutomationUnread {
     | 'permissionSets';
   /** The org's answer, or what kept the read from it. */
   reason: string;
+  /**
+   * Set when the org could not be reached at all, as the network names it
+   * (`EAI_AGAIN`): `reason` then says so without the request's URL, and an
+   * act refuses to be tried again rather than asks to go on without it.
+   */
+  unreachable?: string;
 }
 
 /**

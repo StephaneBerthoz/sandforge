@@ -309,6 +309,69 @@ describe('a run, and its undo', () => {
     expect(org.live('Order')).toEqual([]);
   });
 
+  it('never sets back to Draft the activated order of an account a case keeps: the account, the order and everything under them stay as they were', async () => {
+    // The first account, which holds the activated order, kept by a case, as a
+    // clone's case kept its account on a scratch org; a third account, with
+    // nothing under it, is what the run can delete.
+    const specs = emptySalesSpecs().map((spec) => {
+      if (spec.name === 'Case') {
+        const rows = [...(spec.rows ?? []), { Id: fakeId('500', 2), AccountId: SALES.account1 }];
+        return { ...spec, rows };
+      }
+      if (spec.name === 'Account') {
+        return { ...spec, rows: [...(spec.rows ?? []), { Id: fakeId('001', 3), Name: 'Third' }] };
+      }
+      return spec;
+    });
+    const org = new MemoryEmptyOrg(specs);
+    const context = contextOf(org);
+    const kept = await previewed(context, { mode: 'objects', objects: ['Account'] });
+
+    expect(kept.preview.refusals).toEqual([]);
+    expect(kept.preview.along).toEqual([]);
+    expect(kept.preview.total.records).toBe(1);
+    const answer = await runEmptyAct(context, { confirmed: kept, accord: {} });
+
+    expect(answer.ran && answer.result.status).toBe('partial');
+    expect(org.live('Account')).toEqual([SALES.account1, SALES.account2]);
+    expect(org.live('Order')).toContain(SALES.activatedOrder);
+    expect(
+      org.memory.updates.flatMap((update) =>
+        update.records.filter((record) => record.Id === SALES.activatedOrder),
+      ),
+    ).toEqual([]);
+  });
+
+  it('gives its status back to an activated order set back to Draft whose account was refused after the preview, and names it by its id with the status it had', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const context = contextOf(org);
+    const kept = await previewed(context, { mode: 'objects', objects: ['Account', 'Case'] });
+    // A case on the first account, made after the run read the org and
+    // before its first delete: the org refuses that account.
+    let added = false;
+    org.beforeDelete = () => {
+      if (added) return;
+      added = true;
+      org.addNow('Case', { Id: fakeId('500', 9), AccountId: SALES.account1 });
+    };
+    const answer = await runEmptyAct(context, { confirmed: kept, accord: {}, acceptNoUndo: true });
+
+    expect(answer.ran).toBe(true);
+    if (!answer.ran) return;
+    expect(org.live('Account')).toEqual([SALES.account1]);
+    expect(
+      org.memory.updates.flatMap((update) =>
+        update.records.filter((record) => record.Id === SALES.activatedOrder),
+      ),
+    ).toEqual([
+      { Id: SALES.activatedOrder, Status: 'Draft' },
+      { Id: SALES.activatedOrder, Status: 'Activated' },
+    ]);
+    expect(answer.result.notes).toContain(
+      `Order ${SALES.activatedOrder}: Status set to Draft for the delete, then back to Activated.`,
+    );
+  });
+
   it('leaves what was made after the preview read the org, and says how many', async () => {
     const org = new MemoryEmptyOrg(emptySalesSpecs());
     const context = contextOf(org);
@@ -395,6 +458,36 @@ describe('a run, and its undo', () => {
     expect(!undone.ran && undone.refusal.code).toBe('AUTOMATION_NOT_ACCEPTED');
     expect(!undone.ran && undone.refusal.message).toContain('as this undo brings back its records');
     expect(!undone.ran && undone.refusal.message).not.toMatch(/restore|backup/);
+  });
+
+  it('refuses an undo whose org the network did not reach as its automation was read, under the connection’s code, and asks no accord for automation or emails', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const kept = await previewed(contextOf(org), { mode: 'objects', objects: ['Contact'] });
+    const run = await runEmptyAct(contextOf(org), { confirmed: kept, accord: {} });
+    if (!run.ran) throw new Error(run.refusal.message);
+    const offline = (objects: readonly string[]): ForgeTargetAutomation => ({
+      ...NOTHING_FIRES(objects),
+      unread: [
+        {
+          part: 'processes',
+          reason: 'the org could not be reached (EAI_AGAIN)',
+          unreachable: 'EAI_AGAIN',
+        },
+      ],
+    });
+
+    const undone = await undoEmptyAct(contextOf(org, { automation: quietOrg(offline) }), {
+      runId: run.result.runId,
+      accord: {},
+    });
+
+    expect(undone.ran).toBe(false);
+    if (undone.ran) return;
+    expect(undone.refusal.code).toBe('ORG_TEMPORARILY_UNREACHABLE');
+    expect(undone.refusal.message).toContain('Check the network, then try again.');
+    expect(undone.refusal.message).not.toContain('--accept');
+    expect(undone.alsoRefused ?? []).toEqual([]);
+    expect(org.live('Contact')).not.toContain(SALES.contactAlone);
   });
 
   it('names what does not come back: what was emptied from the recycle bin', async () => {

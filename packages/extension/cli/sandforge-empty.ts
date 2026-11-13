@@ -461,6 +461,9 @@ const LEFT_OUT_WORDS: Readonly<Record<DataOpsEmptyLeftOutReason, string>> = {
 const LIKELY_WORDS: Readonly<Record<DataOpsEmptyLikelyRefusalCode, string>> = {
   activatedOrder:
     'activated order(s): set back to Draft first, as Salesforce deletes none activated',
+  activatedOrderLeft:
+    'activated order(s) left as they are: what blocks keeps too many records to tell those ' +
+    'under them apart, so none is set back to Draft, and what each hangs from is refused',
   standardPriceBook: 'the standard price book: kept, never deleted',
   directContactRelation: 'direct relation(s) of a contact to its account: they go with the contact',
   personAccountContact: 'person account contact(s): left, as each goes only with its account',

@@ -7923,6 +7923,7 @@
       "likelyTitle": "Lo que la org rechazaría, y lo que la ejecución hace al respecto",
       "likely": {
         "activatedOrder": "{{records}} {{object}} más allá de Borrador: devueltos primero a Borrador, ya que un pedido activado rechaza su eliminación y la de su cuenta",
+        "activatedOrderLeft": "{{records}} {{object}} más allá de Borrador, dejados como están: lo que bloquea conserva demasiados registros para distinguir los que dependen de ellos, así que ninguno vuelve a Borrador, y se rechaza la eliminación de aquello de lo que depende cada uno",
         "standardPriceBook": "{{records}} {{object}} en la lista de precios estándar: nunca se eliminan",
         "directContactRelation": "{{records}} {{object}} directos: eliminados con su contacto, nunca por sí solos",
         "personAccountContact": "{{records}} {{object}} de cuentas personales: se quedan, ya que cada uno solo se va con su cuenta"

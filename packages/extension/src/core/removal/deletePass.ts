@@ -32,7 +32,7 @@ import {
   type DeletesEnd,
   type DeletionOrg,
 } from './deleteRecords.js';
-import { backToDraft, putBackStatuses, type Drafted } from './recordsToDraft.js';
+import { backToDraft, namedDraftNote, putBackStatuses, type Drafted } from './recordsToDraft.js';
 
 /** Reasons kept per object: an org repeats the same few. */
 const REASON_LIMIT = 5;
@@ -256,7 +256,12 @@ export async function deletePass(
   };
   const end = async (cancelled: boolean, hardRefused?: string): Promise<DeletePassOutcome> => {
     await putBackStatuses(org, drafted, {
-      note: (objectApiName, reason) => ledgerOf(objectApiName).note(reason),
+      // A record left in Draft is named by its id; one given its status back
+      // is said once of its object.
+      note: (objectApiName, reason, failed, record) =>
+        ledgerOf(objectApiName).note(
+          failed ? namedDraftNote(objectApiName, reason, record, drafted) : reason,
+        ),
     });
     const objects = ledgers.map((ledger) => ledger.result(splitting, cancelled));
     if (cancelled) {

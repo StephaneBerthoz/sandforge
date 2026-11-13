@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { unreachableOf } from '../../core/common/isNetworkError.js';
 import type {
   ForgeGraph,
   ForgeGraphEdge,
@@ -1263,6 +1264,42 @@ describe('TargetAutomationReader', () => {
       { part: 'triggers', reason: "INVALID_TYPE: sObject type 'ApexTrigger' is not supported." },
     ]);
     expect(automation.objects[0].flows.map((f) => f.apiName)).toEqual(['Case_Flow']);
+  });
+
+  it('says a part read while the org could not be reached by the network’s word alone, never by the request’s URL and host, and flags it', async () => {
+    // jsforce's words when the name of the org's host did not resolve, as an
+    // undo met them (the host masked).
+    const dns = Object.assign(
+      new Error(
+        'request to https://example-org.my.salesforce.com/services/data/v62.0/query?q=SELECT%20ApiName' +
+          ' failed, reason: getaddrinfo EAI_AGAIN example-org.my.salesforce.com',
+      ),
+      { code: 'EAI_AGAIN' },
+    );
+    const target = fakeTarget({
+      triggers: [triggerRow('Case', 'CaseTrigger', ['UsageAfterInsert'])],
+      refuse: { processes: dns, flows: refusal('INSUFFICIENT_ACCESS', 'no access') },
+    });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+    expect(automation.unread).toEqual([
+      { part: 'flows', reason: 'INSUFFICIENT_ACCESS: no access' },
+      {
+        part: 'processes',
+        reason: 'the org could not be reached (EAI_AGAIN)',
+        unreachable: 'EAI_AGAIN',
+      },
+    ]);
+    expect(unreachableOf(automation)).toBe('EAI_AGAIN');
+    expect(unreachableOf({ unread: 'socket hang up' })).toBe('socket hang up');
+    expect(unreachableOf({ unread: 'INVALID_SESSION_ID: Session expired or invalid' })).toBe(
+      undefined,
+    );
+    const refused: ForgeTargetAutomation['unread'] = [
+      { part: 'flows', reason: 'INSUFFICIENT_ACCESS: no access' },
+    ];
+    expect(unreachableOf({ unread: refused })).toBe(undefined);
   });
 
   it('says each new part the target refuses, and reads the others all the same', async () => {

@@ -55,3 +55,36 @@ export function isNetworkError(err: unknown): boolean {
   }
   return /\btimed out\b/i.test(message);
 }
+
+/**
+ * The network's word for why the org could not be reached — `EAI_AGAIN`,
+ * `ENOTFOUND`, `socket hang up`… — when `err` (an error or its message) says
+ * it could not ({@link isNetworkError}); nothing when the org answered. Its
+ * message is never the word: a failed request's names its URL, the org's host
+ * among it, twice ("request to https://… failed, reason: getaddrinfo
+ * EAI_AGAIN …").
+ */
+export function networkFailureOf(err: unknown): string | undefined {
+  const { code } = (typeof err === 'object' && err !== null ? err : {}) as { code?: unknown };
+  if (typeof code === 'string' && NETWORK_ERROR_CODES.includes(code)) return code;
+  const message = extractErrorMessage(err);
+  const named = NETWORK_ERROR_CODES.find((each) => message.includes(each));
+  if (named !== undefined) return named;
+  if (/socket hang up/i.test(message)) return 'socket hang up';
+  if (!isNetworkError(err)) return undefined;
+  return /\btimed out\b/i.test(message) ? 'timed out' : 'no connection';
+}
+
+/**
+ * Of a read of what an org runs — its parts, each flagged `unreachable` where
+ * the network did not reach the org (`unreadPartOf`), or why the whole read
+ * failed —, the network's word for it: nothing of what the org runs is then
+ * known, no accord stands for it, and an act refuses to be tried again.
+ * Nothing when the org answered, a part it refused included.
+ */
+export function unreachableOf(read: {
+  unread: string | ReadonlyArray<{ unreachable?: string }>;
+}): string | undefined {
+  if (typeof read.unread === 'string') return networkFailureOf(read.unread);
+  return read.unread.find((part) => part.unreachable !== undefined)?.unreachable;
+}

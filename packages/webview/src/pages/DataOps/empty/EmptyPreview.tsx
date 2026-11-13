@@ -76,6 +76,7 @@ export const UNDO_LOST_KEYS: Readonly<Record<DataOpsEmptyUndoLost['reason'], str
 /** What the org will likely refuse, or what the run does first so that it does not. */
 const LIKELY_KEYS: Readonly<Record<DataOpsEmptyLikelyRefusalCode, string>> = {
   activatedOrder: 'dataopsEmpty.preview.likely.activatedOrder',
+  activatedOrderLeft: 'dataopsEmpty.preview.likely.activatedOrderLeft',
   standardPriceBook: 'dataopsEmpty.preview.likely.standardPriceBook',
   directContactRelation: 'dataopsEmpty.preview.likely.directContactRelation',
   personAccountContact: 'dataopsEmpty.preview.likely.personAccountContact',

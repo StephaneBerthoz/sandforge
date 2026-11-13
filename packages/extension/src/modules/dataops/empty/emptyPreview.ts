@@ -21,7 +21,13 @@ import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js
 import type { DeleteMode } from '../../../core/removal/deleteRecords.js';
 import { setBackToDraftOf } from '../../../core/removal/recordsToDraft.js';
 import { inPool } from '../RecordRemoval.js';
-import { countEmpty, type Counted, type EmptyCountOrg, type EmptyCounts } from './emptyCounts.js';
+import {
+  countEmpty,
+  draftedAlongOf,
+  type Counted,
+  type EmptyCountOrg,
+  type EmptyCounts,
+} from './emptyCounts.js';
 import { deletedForGood, EMPTY_FIXED_READS, emptyCostOf, type EmptyCost } from './emptyCost.js';
 import { emptyOrderOf, type BeforeParent, type OrderConstraint } from './emptyOrder.js';
 import {
@@ -243,10 +249,17 @@ export async function previewEmpty(
   const activated = counts.refusals
     .filter((refusal) => refusal.code === 'activatedOrder')
     .reduce((sum, refusal) => sum + (numberOf(refusal.records) ?? 0), 0);
+  // Read around the records what blocks keeps: an order under an account a
+  // case keeps stays, and no run sets a record that stays back to Draft.
+  // Where they are too many to name, none is set back.
   const toDraftAlong = order.toDraft
     .filter((name) => !affected.emptied.has(name))
     .map((objectApiName) => {
-      const condition = anyRouteCondition(affected.routes.get(objectApiName) ?? [], describes);
+      const routes = affected.routes.get(objectApiName) ?? [];
+      if (!draftedAlongOf(routes, counts.kept)) return { objectApiName };
+      const condition = anyRouteCondition(routes, describes, undefined, (name) =>
+        counts.kept.get(name),
+      );
       return { objectApiName, ...(condition ? { condition: condition.soql } : {}) };
     });
   // A read of the org as this one: its fixed reads, a describe each, a count
