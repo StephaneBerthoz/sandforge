@@ -122,6 +122,56 @@ describe('duplicateSetsOf', () => {
     expect(changed?.modified).toBe(Date.parse(soonAfter));
   });
 
+  it('reads a set the platform made after the run’s last write, modified by no one since, unchanged since the run; one modified since, by its date', async () => {
+    // Run for real: the run saved its contacts by REST at 14:50:46–47 and
+    // was killed, its part ending at 14:50:48; the Automated Process made
+    // their set at 14:50:53, its last modifier, and no one touched it since.
+    // Read by its own date, the removal kept it, empty, as changed since.
+    const end = Date.parse('2026-11-13T14:50:48.000Z');
+    const made = '2026-11-13T14:50:53.000+0000';
+    const ofThisRun = { ...run, start: Date.parse('2026-11-13T14:49:42.000Z'), end };
+    const org = orgOf(
+      [
+        set(1, { CreatedDate: made, LastModifiedDate: made, LastModifiedById: AUTOMATED }),
+        // The same, modified again after it was made: a change since the run.
+        set(2, {
+          CreatedDate: made,
+          LastModifiedDate: '2026-11-13T14:50:58.000+0000',
+          LastModifiedById: AUTOMATED,
+        }),
+        // Made alike, reporting a record that is not the run's too: not taken.
+        set(3, { CreatedDate: made, LastModifiedDate: made, LastModifiedById: AUTOMATED }),
+      ],
+      [
+        item(1, 1, id('003', 1)),
+        item(2, 1, id('003', 2)),
+        item(3, 2, id('003', 1)),
+        item(4, 3, id('003', 2)),
+        item(5, 3, id('003', 9)),
+      ],
+    );
+
+    const sets = await duplicateSetsOf(org, ofThisRun);
+
+    expect(sets).toEqual([
+      { id: id('0GK', 1), modified: end },
+      { id: id('0GK', 2), modified: Date.parse('2026-11-13T14:50:58.000Z') },
+    ]);
+  });
+
+  it('reads by its own date a set made past the minute after the run’s end, modified by no one since', async () => {
+    const end = Date.parse('2026-11-13T14:50:48.000Z');
+    const late = '2026-11-13T14:51:49.000+0000';
+    const org = orgOf(
+      [set(1, { CreatedDate: late, LastModifiedDate: late, LastModifiedById: AUTOMATED })],
+      [item(1, 1, id('003', 1))],
+    );
+
+    expect((await duplicateSetsOf(org, { ...run, end })).map((s) => s.modified)).toEqual([
+      Date.parse(late),
+    ]);
+  });
+
   it('tells none when the org will not read its sets, or a read fills its limit', async () => {
     expect(await duplicateSetsOf(orgOf([set(1)], [], /DuplicateRecordSet/), run)).toEqual([]);
     const many = Array.from({ length: 2_000 }, (_, n) => set(n + 1));

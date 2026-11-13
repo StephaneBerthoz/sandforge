@@ -1121,6 +1121,57 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it('names the Bulk API job a resumed run left open, what it processed and when to resume again, and says the other rows as before', () => {
+    // Run for real: the resume found the job the run had opened `Open`,
+    // nothing processed, and was told the target held records it could not
+    // tell from the rows. It held none.
+    const lines = runQuestionDetail({
+      ...write,
+      mayBeInTarget: [
+        { objectApiName: 'Case', rows: 2522 },
+        { objectApiName: 'Contact', rows: 1 },
+      ],
+      jobsUnderway: [
+        {
+          objectApiName: 'Case',
+          jobId: '750000000000001AAA',
+          rows: 2522,
+          state: 'Open',
+          processed: 0,
+          minutesLeft: 47,
+        },
+      ],
+    }).split('\n');
+
+    expect(lines.slice(-3)).toEqual([
+      '2522 Case records went in Bulk API job 750000000000001AAA, which DEV holds open with 0 of its rows processed: the run stopped before it closed it, and closed, it would still write them. Resume again in about 47 minutes: the job is then aborted if it is still open, and the records written. Execute writes them now all the same, and each may then be there twice.',
+      '1 Contact records may already be in DEV: the insert call that sent them was under way when the run stopped, and DEV holds records the resume cannot tell from them. Execute writes them all the same, and each may then be there twice.',
+      'The records have been read, and nothing has been written yet.',
+    ]);
+    expect(lines.join('\n')).not.toContain('Case records may already be in DEV');
+  });
+
+  it('says a job the org is still writing, and to resume again once it has ended', () => {
+    const lines = runQuestionDetail({
+      ...write,
+      mayBeInTarget: [{ objectApiName: 'Case', rows: 2520 }],
+      jobsUnderway: [
+        {
+          objectApiName: 'Case',
+          jobId: '750000000000001AAA',
+          rows: 2520,
+          state: 'InProgress',
+          processed: 800,
+        },
+      ],
+    }).split('\n');
+
+    expect(lines.slice(-2)).toEqual([
+      '2520 Case records went in Bulk API job 750000000000001AAA, which DEV is still writing (InProgress, 800 of its rows processed). Resume again once it has ended, in a minute or two: the resume then reads what the job wrote. Execute writes them now all the same, and each may then be there twice.',
+      'The records have been read, and nothing has been written yet.',
+    ]);
+  });
+
   it('says which objects stop at Records per object with more left in the source, and how to clone the rest', () => {
     const lines = runQuestionDetail({
       ...write,

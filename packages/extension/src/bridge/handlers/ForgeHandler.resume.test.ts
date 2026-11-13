@@ -941,5 +941,80 @@ describe('a run taken up where it stopped', () => {
       ]);
       expect(refusal('wv-resume')).toMatchObject({ code: 'WRITE_DECLINED' });
     });
+
+    it('names in its question the Bulk API job the closed window left open, what it processed and the minutes left of its hour', async () => {
+      // The first window opened a job for the contact and closed before it
+      // closed the job: the org holds it `Open`, nothing processed.
+      const JOB = '750000000000001AAA';
+      const opened = Date.now() - 13 * 60_000;
+      const first = windowRunning(async (_graph, _config, options) => {
+        const store = options?.stream?.store;
+        store?.beginPart(new Date());
+        const fields = fingerprintFields([SENT]);
+        const callId = store?.sent('Contact', fields, [
+          { sourceId: CONTACT, fingerprint: rowFingerprint(SENT, fields) },
+        ]);
+        store?.jobOpened(callId ?? '', JOB);
+        return new Promise<ForgeExecutionResult>(() => {});
+      });
+      void send(first.handler, 'wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+      await vi.waitFor(() => expect(first.execute).toHaveBeenCalled());
+      const [entry] = await history(windowRunning(async () => DONE).handler);
+      const job = {
+        check: vi.fn(async () => ({
+          state: 'Open',
+          numberRecordsProcessed: 0,
+          createdDate: new Date(opened).toISOString(),
+        })),
+        getSuccessfulResults: vi.fn(async () => []),
+        getAllResults: vi.fn(async () => ({})),
+        abort: vi.fn(async () => undefined),
+      };
+      vi.mocked(getJsforceConnection).mockImplementation(
+        async () =>
+          ({
+            query: vi.fn(async () => ({ records: [], done: true, totalSize: 0 })),
+            queryMore: vi.fn(),
+            identity: vi.fn(async () => ({ user_id: USER })),
+            request: vi.fn(async () => ({ DataStorageMB: { Max: 200, Remaining: 150 } })),
+            bulk2: { job: vi.fn(() => job) },
+          }) as never,
+      );
+      const questions: unknown[] = [];
+      deps.infraServices = {
+        productionGuard: new ProductionGuard({
+          requestRunConfirmation: async (question) => {
+            questions.push(question);
+            return false;
+          },
+        }),
+      } as unknown as HandlerDeps['infraServices'];
+      const { handler } = windowRunning(throughTheGate);
+
+      await send(handler, 'wv-resume', 'forge:resume-run', { forgeId: entry.forgeId });
+
+      // Within its hour: never aborted, and named with what the org says of it.
+      expect(job.abort).not.toHaveBeenCalled();
+      expect(questions).toEqual([
+        expect.objectContaining({
+          stage: 'write',
+          mayBeInTarget: [{ objectApiName: 'Contact', rows: 1 }],
+          jobsUnderway: [
+            {
+              objectApiName: 'Contact',
+              jobId: JOB,
+              rows: 1,
+              state: 'Open',
+              processed: 0,
+              minutesLeft: expect.any(Number),
+            },
+          ],
+        }),
+      ]);
+      const [asked] = questions as Array<{ jobsUnderway: Array<{ minutesLeft: number }> }>;
+      expect(asked.jobsUnderway[0].minutesLeft).toBeGreaterThanOrEqual(46);
+      expect(asked.jobsUnderway[0].minutesLeft).toBeLessThanOrEqual(47);
+      expect(refusal('wv-resume')).toMatchObject({ code: 'WRITE_DECLINED' });
+    });
   });
 });

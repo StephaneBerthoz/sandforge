@@ -316,6 +316,22 @@ export interface WriteConfirmation {
    */
   mayBeInTarget?: Array<{ objectApiName: string; rows: number }>;
   /**
+   * Of those rows, the ones that went in a Bulk API job the org has not
+   * ended: the job by its id, its state and the rows it processed, as the org
+   * says them, and, for a job still open, about how many minutes are left
+   * before a resume aborts it. Said apart from the rest: run for real, a
+   * resume found such a job open, nothing processed, and was told the target
+   * held records it could not tell from the rows. Absent when none.
+   */
+  jobsUnderway?: Array<{
+    objectApiName: string;
+    jobId: string;
+    rows: number;
+    state?: string;
+    processed?: number;
+    minutesLeft?: number;
+  }>;
+  /**
    * The objects whose rows stop at Records per object with more left in the
    * source, and that cap: the rows past it are not cloned. Absent when none.
    */

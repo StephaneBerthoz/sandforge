@@ -301,6 +301,7 @@ import {
   inFlightLines,
   inFlightTargetOf,
   unnamedUncertainRows,
+  type InFlightJobUnderway,
   type InFlightObjectRows,
   type InFlightReconciliation,
 } from '../../modules/forge/ForgeInFlight.js';
@@ -1177,6 +1178,27 @@ function heldByOtherPartsOf(
     const held = holders.filter((object) => takes.includes(object));
     return held.length > 0 ? [{ forgeId: part.forgeId, objects: held }] : [];
   });
+}
+
+/**
+ * The Bulk API jobs a resume found the org had not ended, as its question
+ * says them (`WriteConfirmation.jobsUnderway`): each job, its state and what it
+ * processed, and, for one still open, the minutes left of its hour of grace,
+ * rounded up, as the reconciliation read them.
+ */
+function jobsUnderwayOf(
+  jobs: readonly InFlightJobUnderway[],
+): NonNullable<WriteConfirmation['jobsUnderway']> {
+  return jobs.map((job) => ({
+    objectApiName: job.objectApiName,
+    jobId: job.jobId,
+    rows: job.rows,
+    ...(job.state !== undefined ? { state: job.state } : {}),
+    ...(job.processed !== undefined ? { processed: job.processed } : {}),
+    ...(job.graceLeftMs !== undefined
+      ? { minutesLeft: Math.max(1, Math.ceil(job.graceLeftMs / 60_000)) }
+      : {}),
+  }));
 }
 
 /** The rows of a run a call may have written before its answer was lost. */
@@ -2641,6 +2663,8 @@ export class ForgeHandler implements DomainHandler {
     let runUserId: string | undefined;
     /** Of a resume, the rows of the calls under way when its run stopped that the target may hold. */
     let mayBeInTarget: InFlightObjectRows[] | undefined;
+    /** Of those, the rows of the Bulk API jobs the org has not ended, with each job: see `jobsUnderwayOf`. */
+    let jobsUnderway: InFlightJobUnderway[] | undefined;
     /**
      * Let the journal's file go, once. Closed as the executor settles and
      * again as the run ends, a file on disk refused the second close (EBADF)
@@ -3023,6 +3047,7 @@ export class ForgeHandler implements DomainHandler {
                 logger.info(`Forge resume: ${line.trim()}`);
               }
               mayBeInTarget = reconciled.uncertain;
+              jobsUnderway = reconciled.underway;
               // The rows found are the part's that sent them: its entry
               // takes them in, and a removal of it takes them back.
               const resumed = this.loadHistory().find((e) => e.forgeId === resume.forgeId);
@@ -3099,6 +3124,7 @@ export class ForgeHandler implements DomainHandler {
         // it from, or the one a simulation planned.
         mute: muteLeaseRequests(mute?.plan ?? simulatedMute),
         mayBeInTarget,
+        ...(jobsUnderway && jobsUnderway.length > 0 ? { jobsUnderway } : {}),
         ...(dryRun ? {} : { simulated: this.simulations.of(volumeCase) }),
         updatedAfterInsert: [...updatedNames],
         ...(wholeOrg
@@ -4448,6 +4474,12 @@ export class ForgeHandler implements DomainHandler {
      * only once the user says so, each may then be there twice.
      */
     mayBeInTarget?: readonly InFlightObjectRows[];
+    /**
+     * Of those rows, the ones of a Bulk API job the org has not ended, with
+     * the job as the org says it (`InFlightReconciliation.underway`): the
+     * question names the job and when to resume again.
+     */
+    jobsUnderway?: readonly InFlightJobUnderway[];
     /** What the last simulation of the run's case counted to write, when this window ran one. */
     simulated?: SimulatedWrite;
     /** Told, on a simulation, what it would write, measured as the run's rows are. */
@@ -4808,6 +4840,9 @@ export class ForgeHandler implements DomainHandler {
         ...rolesMayBeOf(plan),
         ...(uncertain.length > 0
           ? { mayBeInTarget: uncertain.map(({ objectApiName, rows }) => ({ objectApiName, rows })) }
+          : {}),
+        ...(uncertain.length > 0 && run.jobsUnderway && run.jobsUnderway.length > 0
+          ? { jobsUnderway: jobsUnderwayOf(run.jobsUnderway) }
           : {}),
         ...(boundary.capped ? { capped: boundary.capped } : {}),
         ...(simulated ? { simulated } : {}),

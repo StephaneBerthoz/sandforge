@@ -178,14 +178,28 @@ export async function duplicateSetsRead(
  * reports a record of the run into it, up to a moment after the run's last
  * write, which is no change since the run. Read by its date alone, a set
  * reported into after the run's last save read as changed since, and stayed.
+ *
+ * Nor is a set the platform made a moment after the run's last write and no
+ * one modified since — its last date its creation, within
+ * {@link MADE_WITHIN_MS} of the run's end — whose items name records, all of
+ * the run's: its date is its making, for the run. Run for real, a clone
+ * killed two seconds after it saved its contacts by REST had the Automated
+ * Process make their set six seconds after the save, its last modifier; read
+ * by its own date, the removal kept it, empty, as changed since the run.
+ *
  * One someone else modified, or the run's user later, holds its own date.
  */
 export function modifiedOf(
-  set: Pick<DuplicateSetRead, 'modified' | 'modifiedBy'>,
+  set: Pick<DuplicateSetRead, 'created' | 'modified' | 'modifiedBy' | 'names'>,
   run: Pick<DuplicateSetsRun, 'end' | 'user'>,
 ): number {
   const by = set.modifiedBy !== undefined ? recordKey(set.modifiedBy) : '';
-  return by === recordKey(run.user) && set.modified <= run.end + MADE_WITHIN_MS
-    ? Math.min(set.modified, run.end)
-    : set.modified;
+  if (by === recordKey(run.user) && set.modified <= run.end + MADE_WITHIN_MS) {
+    return Math.min(set.modified, run.end);
+  }
+  // The sets read hold no item naming a record that is not the run's
+  // (`duplicateSetsRead`): naming some, it names the run's alone.
+  const madeForTheRun =
+    set.names.length > 0 && set.modified === set.created && set.created <= run.end + MADE_WITHIN_MS;
+  return madeForTheRun ? Math.min(set.modified, run.end) : set.modified;
 }

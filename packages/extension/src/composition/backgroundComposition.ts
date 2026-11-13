@@ -1390,8 +1390,21 @@ function writeQuestion(question: WriteConfirmation): string[] {
   );
   if (wholeOrg) lines.push(...wholeOrgLines(question, wholeOrg));
   // The rows of a call the run resumed had under way when it stopped, which
-  // the target may hold already: written only on the user's word.
-  for (const { objectApiName, rows } of question.mayBeInTarget ?? []) {
+  // the target may hold already: written only on the user's word. Those of a
+  // Bulk API job the org has not ended are said with the job, and when to
+  // resume again: run for real, a resume found the job open, nothing
+  // processed, and was told the target held records it could not tell from
+  // the rows.
+  const ofJobs = new Map<string, number>();
+  for (const job of question.jobsUnderway ?? []) {
+    const said = jobUnderwayLine(job, question.org);
+    if (said === undefined) continue;
+    lines.push(said);
+    ofJobs.set(job.objectApiName, (ofJobs.get(job.objectApiName) ?? 0) + job.rows);
+  }
+  for (const { objectApiName, rows: all } of question.mayBeInTarget ?? []) {
+    const rows = all - (ofJobs.get(objectApiName) ?? 0);
+    if (rows <= 0) continue;
     lines.push(
       vscode.l10n.t(
         '{0} {1} records may already be in {2}: the insert call that sent them was under way when the run stopped, and {2} holds records the resume cannot tell from them. Execute writes them all the same, and each may then be there twice.',
@@ -1418,6 +1431,43 @@ function writeQuestion(question: WriteConfirmation): string[] {
       : vscode.l10n.t('The records have been read, and nothing has been written yet.'),
   );
   return lines;
+}
+
+/**
+ * What the question of a resume says of a Bulk API job the run had under way
+ * that the org has not ended: the job, its state and what it processed, and
+ * when to resume again — once its hour of grace is out, for one still open,
+ * which a resume then aborts and writes the records of; once it has ended,
+ * for one the org is writing. Undefined when the org did not say its state
+ * and what it processed, or how long a job still open has left: the rows are
+ * then said as any rows the target may hold.
+ */
+function jobUnderwayLine(
+  job: NonNullable<WriteConfirmation['jobsUnderway']>[number],
+  org: string,
+): string | undefined {
+  if (job.state === undefined || job.processed === undefined) return undefined;
+  if (job.state === 'Open') {
+    if (job.minutesLeft === undefined) return undefined;
+    return vscode.l10n.t(
+      '{0} {1} records went in Bulk API job {2}, which {3} holds open with {4} of its rows processed: the run stopped before it closed it, and closed, it would still write them. Resume again in about {5} minutes: the job is then aborted if it is still open, and the records written. Execute writes them now all the same, and each may then be there twice.',
+      job.rows,
+      job.objectApiName,
+      job.jobId,
+      org,
+      job.processed,
+      job.minutesLeft,
+    );
+  }
+  return vscode.l10n.t(
+    '{0} {1} records went in Bulk API job {2}, which {3} is still writing ({4}, {5} of its rows processed). Resume again once it has ended, in a minute or two: the resume then reads what the job wrote. Execute writes them now all the same, and each may then be there twice.',
+    job.rows,
+    job.objectApiName,
+    job.jobId,
+    org,
+    job.state,
+    job.processed,
+  );
 }
 
 /**

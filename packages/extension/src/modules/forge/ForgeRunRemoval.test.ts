@@ -4421,6 +4421,67 @@ describe('removeRunRecords — the duplicate record sets the target’s rules ma
     expect(org.deletes).toEqual([]);
   });
 
+  it('takes the set the platform made seconds after a cut run’s last write, modified by no one since, and keeps one modified since', async () => {
+    // Run for real: the run saved its two contacts by REST at 14:50:46–47
+    // and was killed, its part ending at 14:50:48; the Automated Process
+    // made their set at 14:50:53, its last modifier. Read by its own date,
+    // the removal kept it, empty (`keptChanged 1`).
+    const org = new FakeOrg();
+    org.relationships.set('Account', ACCOUNT_CHILDREN);
+    org.relationships.set('DuplicateRecordSet', [
+      { childSObject: 'DuplicateRecordItem', field: 'DuplicateRecordSetId', cascadeDelete: true },
+    ]);
+    org.relationships.set('Contact', [
+      { childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true },
+    ]);
+    org.notWorked.add('DuplicateRecordItem');
+    const saved = (at: string) => ({ CreatedDate: at, LastModifiedDate: at });
+    org.add('Account', runRow(id('001', 1), saved('2026-11-13T14:50:45.000+0000')));
+    org.add(
+      'Contact',
+      runRow(id('003', 1), { AccountId: id('001', 1), ...saved('2026-11-13T14:50:46.000+0000') }),
+      runRow(id('003', 2), { AccountId: id('001', 1), ...saved('2026-11-13T14:50:47.000+0000') }),
+    );
+    const made = '2026-11-13T14:50:53.000+0000';
+    org.add(
+      'DuplicateRecordSet',
+      { Id: SET, CreatedById: AUTOMATED, LastModifiedById: AUTOMATED, ...saved(made) },
+      // Made alike, then modified again: a change since the run, kept.
+      {
+        Id: SHARED_SET,
+        CreatedById: AUTOMATED,
+        LastModifiedById: AUTOMATED,
+        CreatedDate: made,
+        LastModifiedDate: '2026-11-13T14:50:58.000+0000',
+      },
+    );
+    org.add(
+      'DuplicateRecordItem',
+      { Id: id('0GL', 1), DuplicateRecordSetId: SET, RecordId: id('003', 1) },
+      { Id: id('0GL', 2), DuplicateRecordSetId: SET, RecordId: id('003', 2) },
+      { Id: id('0GL', 3), DuplicateRecordSetId: SHARED_SET, RecordId: id('003', 2) },
+    );
+    const plan = [
+      { objectApiName: 'Contact', ids: [id('003', 2), id('003', 1)] },
+      { objectApiName: 'Account', ids: [id('001', 1)] },
+    ];
+
+    const outcome = await removeRunRecords(org, plan, {
+      runStartedAt: new Date('2026-11-13T14:49:42.000Z'),
+      runEndedAt: new Date('2026-11-13T14:50:48.000Z'),
+      includeChanged: false,
+      runUserId: RUN_USER,
+    });
+
+    expect(org.has('DuplicateRecordSet', SET)).toBe(false);
+    expect(org.has('DuplicateRecordSet', SHARED_SET)).toBe(true);
+    expect(outcome.objects.find((o) => o.objectApiName === 'DuplicateRecordSet')).toMatchObject({
+      planned: 2,
+      deleted: 1,
+      keptChanged: 1,
+    });
+  });
+
   it('looks for none without the run’s user, nor in a rewind’s removal', async () => {
     const { org, plan } = withSets();
     const rewound = withSets().org;
