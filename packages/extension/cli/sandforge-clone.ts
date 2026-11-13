@@ -6878,8 +6878,20 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // against its own span, the last first.
   const wholeRun = inParts && !('refusal' in inParts) && !ofTheRun ? inParts : undefined;
   const byParts = wholeRun ? journalPartsOf(wholeRun, plan) : undefined;
+  // Asked to take what changed since the run, a removal reads again the sets
+  // the target's duplicate rules made of the run's records, whatever is left
+  // of them: an earlier removal may have kept one as changed since the run,
+  // which no plan names. Live, a set kept so stayed in the org, empty, and
+  // the second removal, with --include-changed, said nothing was left.
+  const setsAgain = args.includeChanged && summary.result.runUserId !== undefined;
   // A sweep, or its listing, still has the run's window to look in.
-  if (plan.length === 0 && leftByOtherParts.length === 0 && !args.sweep && !args.sweepList) {
+  if (
+    plan.length === 0 &&
+    leftByOtherParts.length === 0 &&
+    !args.sweep &&
+    !args.sweepList &&
+    !setsAgain
+  ) {
     say('nothing left of the run to remove');
     output('success', []);
     return;
@@ -6965,10 +6977,18 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const interrupt = (): void => stop.abort();
   // The removal is said first; what the target runs as its records go is
   // asked about once the sweep has read what it takes, below.
-  /** Whether the removal takes records of the run: this part's, or what another's left. */
-  const takesRecords = plan.length > 0 || leftByOtherParts.length > 0;
-  if (takesRecords) {
+  /**
+   * Whether the removal takes records of the run: this part's, what another's
+   * left, or the sets its records went in, read again (`setsAgain`).
+   */
+  const takesRecords = plan.length > 0 || leftByOtherParts.length > 0 || setsAgain;
+  if (plan.length > 0 || leftByOtherParts.length > 0) {
     sayThePlan();
+  } else if (setsAgain) {
+    say(
+      "nothing left of the run's own records to remove: the duplicate record sets the target's " +
+        'rules made of them are read again, and taken changed since the run',
+    );
   } else {
     say('nothing left of the run to remove');
   }
@@ -7167,12 +7187,14 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       ),
     ];
     // The sets the target's duplicate rules made of the run's records among
-    // them, which the removal takes when the run kept its user.
+    // them, which the removal takes when the run kept its user; read again,
+    // with none of the run's own records left, they are all it takes.
     const removed = [
       ...new Set([
         ...objectsRemovedOf(runObjects, otherPartObjectsOf(ofTheRun), {
           userKept: runUserId !== undefined,
         }),
+        ...(runObjects.length === 0 && setsAgain ? [DUPLICATE_SET_OBJECT] : []),
         ...swept,
       ]),
     ];
@@ -7270,7 +7292,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     const laterParts =
       runParts && firstPart !== undefined ? laterPartsOf(runParts.parts, firstPart) : [];
     try {
-      if (plan.length > 0) {
+      if (plan.length > 0 || setsAgain) {
         const firstPlan = first ? first.plan : plan;
         removal = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove'), firstPlan, {
           ...((first && machineSpanOf(first.part)) ?? runSpan),
@@ -7679,8 +7701,12 @@ async function previewRemoval(
         'of that part left, read against that part, once these are gone',
     );
   }
+  // Asked to take what changed since the run, the preview reads again the
+  // sets the target's duplicate rules made of the run's records, as the
+  // removal does (`setsAgain`).
+  const setsAgain = args.includeChanged && summary.result.runUserId !== undefined;
   // A sweep still has the run's window to look in.
-  if (plan.length === 0 && leftByOtherParts.length === 0 && !args.sweep) {
+  if (plan.length === 0 && leftByOtherParts.length === 0 && !args.sweep && !setsAgain) {
     notes.push('nothing left of the run to remove');
     answer({ planned: 0, objects: [], userNames: {} }, []);
     return;
@@ -7751,6 +7777,7 @@ async function previewRemoval(
       ...objectsRemovedOf(runObjects, otherPartObjectsOf(ofTheRun), {
         userKept: summary.result.runUserId !== undefined,
       }),
+      ...(runObjects.length === 0 && setsAgain ? [DUPLICATE_SET_OBJECT] : []),
       ...swept,
     ]),
   ];
@@ -7769,10 +7796,16 @@ async function previewRemoval(
     refusals.push({ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop });
   }
   // Nothing of the run left, the sweep goes alone.
-  if (plan.length === 0 && leftByOtherParts.length === 0) {
+  if (plan.length === 0 && leftByOtherParts.length === 0 && !setsAgain) {
     notes.push('nothing left of the run to remove');
     answer({ planned: 0, objects: [], userNames: {} }, refusals, org.id);
     return;
+  }
+  if (plan.length === 0 && leftByOtherParts.length === 0) {
+    notes.push(
+      "nothing left of the run's own records to remove: the duplicate record sets the target's " +
+        'rules made of them are read again, and taken changed since the run',
+    );
   }
 
   // Ctrl-C stops the reads before the next one; nothing is said of a preview

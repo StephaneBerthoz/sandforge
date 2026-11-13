@@ -45,6 +45,9 @@ const DUPLICATE_ITEM_OBJECT = 'DuplicateRecordItem';
  */
 const READ_LIMIT = 2_000;
 
+/** What a date the org writes to the second leaves of that second. */
+const REST_OF_THE_SECOND_MS = 999;
+
 /** A Salesforce id, as a query takes one. */
 const SF_ID_RE = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
 
@@ -84,6 +87,11 @@ export interface DuplicateSetRead {
   modifiedBy?: string;
   /** The records its items still name, by their first fifteen characters. */
   names: string[];
+  /**
+   * When the latest of its items was made, by the org's clock: the platform
+   * restamps a set as it reports a record into it. Absent when it holds none.
+   */
+  itemsMade?: number;
 }
 
 /**
@@ -132,10 +140,12 @@ export async function duplicateSetsRead(
   const others = new Set<string>();
   /** By the key of each set, the records its items name. */
   const names = new Map<string, string[]>();
+  /** By the key of each set, when its latest item was made. */
+  const itemsMade = new Map<string, number>();
   try {
     for (const list of idLists(ids)) {
       const answer = await org.query(
-        `SELECT Id, RecordId, DuplicateRecordSetId FROM ${DUPLICATE_ITEM_OBJECT} ` +
+        `SELECT Id, RecordId, DuplicateRecordSetId, CreatedDate FROM ${DUPLICATE_ITEM_OBJECT} ` +
           `WHERE DuplicateRecordSetId IN (${list}) LIMIT ${READ_LIMIT}`,
       );
       if (answer.records.length >= READ_LIMIT) return [];
@@ -144,6 +154,10 @@ export async function duplicateSetsRead(
         const set = row.DuplicateRecordSetId;
         const named = row.RecordId;
         if (typeof set !== 'string') continue;
+        const made = epochOf(row.CreatedDate);
+        if (Number.isFinite(made) && !(made <= (itemsMade.get(recordKey(set)) ?? Number.NaN))) {
+          itemsMade.set(recordKey(set), made);
+        }
         if (typeof named !== 'string' || !run.has(recordKey(named))) others.add(recordKey(set));
         else names.set(recordKey(set), [...(names.get(recordKey(set)) ?? []), recordKey(named)]);
       }
@@ -166,6 +180,9 @@ export async function duplicateSetsRead(
               ? { modifiedBy: row.LastModifiedById }
               : {}),
             names: names.get(recordKey(row.Id)) ?? [],
+            ...(itemsMade.has(recordKey(row.Id))
+              ? { itemsMade: itemsMade.get(recordKey(row.Id)) }
+              : {}),
           },
         ]
       : [],
@@ -180,17 +197,21 @@ export async function duplicateSetsRead(
  * reported into after the run's last save read as changed since, and stayed.
  *
  * Nor is a set the platform made a moment after the run's last write and no
- * one modified since — its last date its creation, within
- * {@link MADE_WITHIN_MS} of the run's end — whose items name records, all of
- * the run's: its date is its making, for the run. Run for real, a clone
- * killed two seconds after it saved its contacts by REST had the Automated
- * Process make their set six seconds after the save, its last modifier; read
- * by its own date, the removal kept it, empty, as changed since the run.
+ * one modified since but to report records into it — made, and last
+ * modified, within {@link MADE_WITHIN_MS} of the run's end, its last date its
+ * creation or no later than the second its latest item was made — whose
+ * items name records, all of the run's: its dates are its making, for the
+ * run. Run for real, a clone killed two seconds after it saved its contacts
+ * by REST had the Automated Process make their set six seconds after the
+ * save, its last modifier; read by its own date, the removal kept it, empty,
+ * as changed since the run. Another made its set in the second the run
+ * ended and its items the next: kept the same, while only the first was
+ * read so.
  *
  * One someone else modified, or the run's user later, holds its own date.
  */
 export function modifiedOf(
-  set: Pick<DuplicateSetRead, 'created' | 'modified' | 'modifiedBy' | 'names'>,
+  set: Pick<DuplicateSetRead, 'created' | 'modified' | 'modifiedBy' | 'names' | 'itemsMade'>,
   run: Pick<DuplicateSetsRun, 'end' | 'user'>,
 ): number {
   const by = set.modifiedBy !== undefined ? recordKey(set.modifiedBy) : '';
@@ -199,7 +220,12 @@ export function modifiedOf(
   }
   // The sets read hold no item naming a record that is not the run's
   // (`duplicateSetsRead`): naming some, it names the run's alone.
+  const within = run.end + MADE_WITHIN_MS;
   const madeForTheRun =
-    set.names.length > 0 && set.modified === set.created && set.created <= run.end + MADE_WITHIN_MS;
+    set.names.length > 0 &&
+    set.created <= within &&
+    set.modified <= within &&
+    (set.modified === set.created ||
+      set.modified <= (set.itemsMade ?? Number.NaN) + REST_OF_THE_SECOND_MS);
   return madeForTheRun ? Math.min(set.modified, run.end) : set.modified;
 }

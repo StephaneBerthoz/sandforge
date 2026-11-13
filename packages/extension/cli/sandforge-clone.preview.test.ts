@@ -26,6 +26,7 @@ import {
   main,
   parseRemoveArgs,
   removalsPath,
+  runKey,
   type CloneRemovalPreview,
 } from './sandforge-clone.js';
 
@@ -274,6 +275,60 @@ describe('sandforge-clone --remove --preview', () => {
     const answer = JSON.parse(stdout) as { preview: CloneRemovalPreview; includeChanged: boolean };
     expect(answer.includeChanged).toBe(true);
     expect(answer.preview.objects[0]).toMatchObject({ toDelete: 2, keptChanged: 0 });
+  });
+
+  it('reads again with --include-changed the duplicate record set an earlier removal kept, the run’s own records all gone', async () => {
+    // Live, a set the target's Contact rule made of the run's contacts was
+    // kept by the first removal as changed since the run, and left empty;
+    // the second, with --include-changed, said nothing was left.
+    const RUN_USER = fakeId('005', 3);
+    const kept = summary();
+    (kept['result'] as Record<string, unknown>)['runUserId'] = RUN_USER;
+    writeFileSync(file, JSON.stringify(kept));
+    const created = [
+      { objectApiName: 'Contact', ids: TGT_CONTACTS },
+      { objectApiName: 'Account', ids: [TGT_ACCOUNT] },
+    ];
+    writeFileSync(
+      removalsPath(file),
+      JSON.stringify({
+        tool: 'sandforge-clone',
+        version: 1,
+        run: runKey(created),
+        removalStamps: {},
+        removalSpans: [],
+        removalLeft: [],
+      }),
+    );
+    for (const { objectApiName, ids } of created) {
+      for (const id of ids) org.trash(objectApiName, id, RUN_USER);
+    }
+    // Made as the run wrote, emptied and restamped by the first removal.
+    const SET = fakeId('0GK', 1);
+    org.add(
+      'DuplicateRecordSet',
+      { Id: SET, LastModifiedById: RUN_USER },
+      orgStamp(Date.now() - 10 * 60_000 - 20_000),
+    );
+    org.touch('DuplicateRecordSet', SET, orgStamp(Date.now() - 60_000));
+
+    await main(argv('--remove', file, '--target', 'TGT', '--preview', '--json'));
+    expect(JSON.parse(stdout)).toMatchObject({ preview: { planned: 0, objects: [] } });
+
+    stdout = '';
+    await main(
+      argv('--remove', file, '--target', 'TGT', '--preview', '--include-changed', '--json'),
+    );
+
+    const answer = JSON.parse(stdout) as { preview: CloneRemovalPreview; notes: string[] };
+    expect(answer.notes).toContain(
+      "nothing left of the run's own records to remove: the duplicate record sets the target's " +
+        'rules made of them are read again, and taken changed since the run',
+    );
+    expect(answer.preview.objects).toEqual([
+      expect.objectContaining({ objectApiName: 'DuplicateRecordSet', planned: 1, toDelete: 1 }),
+    ]);
+    expect(org.all('DuplicateRecordSet')).toHaveLength(1);
   });
 
   it('says the records gone already, the recycle bin’s among them', async () => {

@@ -4471,6 +4471,71 @@ describe('removeRunRecords — the duplicate record sets the target’s rules ma
     expect(org.deletes).toEqual([]);
   });
 
+  it('takes the set the platform made in the second a cut run ended and filled the next, modified by no one since', async () => {
+    // Run for real: the run's contacts and its end at 20:00:37; the
+    // Automated Process made their set at 20:00:37, and its two items at
+    // 20:00:38, which restamped it. Read by its own date, the removal kept it
+    // (`keptChanged 1`), and it stayed, empty.
+    const org = new FakeOrg();
+    org.relationships.set('Account', ACCOUNT_CHILDREN);
+    org.relationships.set('DuplicateRecordSet', [
+      { childSObject: 'DuplicateRecordItem', field: 'DuplicateRecordSetId', cascadeDelete: true },
+    ]);
+    org.relationships.set('Contact', [
+      { childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true },
+    ]);
+    org.notWorked.add('DuplicateRecordItem');
+    const at = (time: string) => `2026-11-13T${time}.000+0000`;
+    const saved = { CreatedDate: at('20:00:37'), LastModifiedDate: at('20:00:37') };
+    org.add('Account', runRow(id('001', 1), saved));
+    org.add(
+      'Contact',
+      runRow(id('003', 1), { AccountId: id('001', 1), ...saved }),
+      runRow(id('003', 2), { AccountId: id('001', 1), ...saved }),
+    );
+    org.add('DuplicateRecordSet', {
+      Id: SET,
+      CreatedById: AUTOMATED,
+      LastModifiedById: AUTOMATED,
+      CreatedDate: at('20:00:37'),
+      LastModifiedDate: at('20:00:38'),
+    });
+    org.add(
+      'DuplicateRecordItem',
+      {
+        Id: id('0GL', 1),
+        DuplicateRecordSetId: SET,
+        RecordId: id('003', 1),
+        CreatedDate: at('20:00:38'),
+      },
+      {
+        Id: id('0GL', 2),
+        DuplicateRecordSetId: SET,
+        RecordId: id('003', 2),
+        CreatedDate: at('20:00:38'),
+      },
+    );
+    const plan = [
+      { objectApiName: 'Contact', ids: [id('003', 2), id('003', 1)] },
+      { objectApiName: 'Account', ids: [id('001', 1)] },
+    ];
+
+    const outcome = await removeRunRecords(org, plan, {
+      runStartedAt: new Date('2026-11-13T19:59:40.000Z'),
+      runEndedAt: new Date('2026-11-13T20:00:37.000Z'),
+      includeChanged: false,
+      runUserId: RUN_USER,
+    });
+
+    expect(org.has('DuplicateRecordSet', SET)).toBe(false);
+    expect(outcome.objects.find((o) => o.objectApiName === 'DuplicateRecordSet')).toMatchObject({
+      planned: 1,
+      deleted: 1,
+      keptChanged: 0,
+    });
+    expect(removalStatus(outcome.objects, outcome.cancelled)).toBe('success');
+  });
+
   it('takes the set the platform made seconds after a cut run’s last write, modified by no one since, and keeps one modified since', async () => {
     // Run for real: the run saved its two contacts by REST at 14:50:46–47
     // and was killed, its part ending at 14:50:48; the Automated Process

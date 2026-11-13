@@ -1414,6 +1414,57 @@ describe('sandforge-clone --remove', () => {
       expect(removeRunRecords).not.toHaveBeenCalled();
     });
 
+    it('reads again with --include-changed the duplicate record sets of a run whose records are all gone, and takes one an earlier removal kept', async () => {
+      // Run for real: the first removal kept the set the target's Contact
+      // rule made of the run's contacts as changed since the run, and the
+      // second, with --include-changed, said nothing was left: the set
+      // stayed in the org, empty.
+      const path = file(runSummary({}, { runUserId: '005000000000003AAA' }));
+      file(
+        {
+          tool: 'sandforge-clone',
+          version: 1,
+          run: runKey(PLAN),
+          removalStamps: {},
+          removalSpans: [FIRST_SPAN],
+          removalLeft: [],
+        },
+        'clone-summary.removals.json',
+      );
+      vi.mocked(removeRunRecords).mockImplementation(
+        removalAnswering({
+          ...TOOK_ALL,
+          objects: [objectResult('DuplicateRecordSet', 1)],
+        }),
+      );
+
+      expect(
+        await run(['--remove', path, '--target', 'TGT', '--include-changed', '--json']),
+      ).toBeUndefined();
+
+      expect(stderr).toContain(
+        "nothing left of the run's own records to remove: the duplicate record sets the " +
+          "target's rules made of them are read again, and taken changed since the run",
+      );
+      const [, handed, options] = vi.mocked(removeRunRecords).mock.calls[0] ?? [];
+      expect(handed).toEqual([]);
+      expect(options).toMatchObject({ includeChanged: true, runUserId: '005000000000003AAA' });
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        result: {
+          status: 'success',
+          objects: [expect.objectContaining({ objectApiName: 'DuplicateRecordSet', deleted: 1 })],
+        },
+      });
+
+      // Without --include-changed, nothing is read: a set kept as changed stays kept.
+      vi.mocked(removeRunRecords).mockClear();
+      vi.mocked(loadOrg).mockClear();
+      stdout.length = 0;
+      expect(await run(['--remove', path, '--target', 'TGT', '--json'])).toBeUndefined();
+      expect(removeRunRecords).not.toHaveBeenCalled();
+      expect(loadOrg).not.toHaveBeenCalled();
+    });
+
     it('reads nothing from the removals file of another run, and replaces it', async () => {
       // Another run's summary saved under the same name since: what its
       // removals wrote is no doing of this run's.

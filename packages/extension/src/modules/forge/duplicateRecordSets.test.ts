@@ -159,6 +159,36 @@ describe('duplicateSetsOf', () => {
     ]);
   });
 
+  it('reads a set made in the second the run ended and last modified as its items were made the next unchanged since the run; one modified past its items, by its date', async () => {
+    // Run for real: the run's contacts and its end at 20:00:37; the
+    // Automated Process made their set at 20:00:37 and its two items at
+    // 20:00:38. Read by its own date, the removal kept it, empty.
+    const end = Date.parse('2026-11-13T20:00:37.000Z');
+    const at = (time: string) => `2026-11-13T${time}.000+0000`;
+    const byTheOrg = { CreatedDate: at('20:00:37'), LastModifiedById: AUTOMATED };
+    const org = orgOf(
+      [
+        set(1, { ...byTheOrg, LastModifiedDate: at('20:00:38') }),
+        // Modified again after its items were made: a change since the run.
+        set(2, { ...byTheOrg, LastModifiedDate: at('20:00:41') }),
+      ],
+      [
+        { ...item(1, 1, id('003', 1)), CreatedDate: at('20:00:38') },
+        { ...item(2, 1, id('003', 2)), CreatedDate: at('20:00:38') },
+        { ...item(3, 2, id('003', 1)), CreatedDate: at('20:00:38') },
+      ],
+    );
+
+    const sets = await duplicateSetsOf(org, { ...run, end });
+
+    expect(sets).toEqual([
+      { id: id('0GK', 1), modified: end },
+      { id: id('0GK', 2), modified: Date.parse(at('20:00:41')) },
+    ]);
+    // Its items are read with when they were made.
+    expect(org.asked[1]).toContain('SELECT Id, RecordId, DuplicateRecordSetId, CreatedDate FROM');
+  });
+
   it('reads by its own date a set made past the minute after the run’s end, modified by no one since', async () => {
     const end = Date.parse('2026-11-13T14:50:48.000Z');
     const late = '2026-11-13T14:51:49.000+0000';
