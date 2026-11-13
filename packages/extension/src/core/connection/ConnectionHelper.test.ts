@@ -302,6 +302,32 @@ describe('ConnectionHelper', () => {
       expect((err as Error).message).not.toContain('Reconnect it');
     });
 
+    it('says a scratch org past its date is gone when Salesforce answers HTTP 420, not an auth error', async () => {
+      // What an expired scratch org answered on 2026-11-13: an HTML page under
+      // HTTP 420, which is no authentication error, and the user read only that.
+      const org = {
+        ...makeOrg(),
+        orgType: 'Scratch' as const,
+        metadata: { ...makeOrg().metadata, expirationDate: '2020-01-31' },
+      };
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(makeCreds());
+      mockIdentity.mockRejectedValueOnce(
+        new Error('HTTP response contains html content.\nHTTP status code: 420.'),
+      );
+
+      const err = await getJsforceConnection('org-1', orgRegistry, orgManager).catch(
+        (e: unknown) => e,
+      );
+
+      expect((err as OrgConnectionError).code).toBe('SCRATCH_ORG_EXPIRED');
+      expect((err as Error).message).toMatch(
+        /The scratch org "test-org" expired on 2020-01-31: .*no reconnect brings it back/,
+      );
+      expect(orgManager.updateStatus).toHaveBeenCalledWith('org-1', 'expired');
+      expect(mockCliInvoker).not.toHaveBeenCalled();
+    });
+
     it('never takes the placeholder sf org display prints for a token', async () => {
       const org = makeOrg();
       const creds = makeCreds();

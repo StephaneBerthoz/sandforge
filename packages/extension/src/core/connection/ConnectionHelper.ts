@@ -576,6 +576,20 @@ export async function getJsforceConnection(
 
     circuitBreaker.recordFailure();
     const message = extractErrorMessage(err);
+    // A scratch org that expired while the editor was open: Salesforce answers
+    // its stored token with HTTP 420 and an HTML page (2026-11-13), not an
+    // authentication error, and the user read only "html content".
+    const expiredOn = expiredScratchDate(org, new Date().toISOString().slice(0, 10));
+    if (expiredOn !== undefined) {
+      orgManager.updateStatus(orgId, 'expired');
+      throw new OrgConnectionError(
+        'SCRATCH_ORG_EXPIRED',
+        orgId,
+        `The scratch org "${org.alias}" expired on ${expiredOn}: Salesforce deletes a scratch ` +
+          'org when it expires, and no reconnect brings it back. Create a new one and import ' +
+          `it. (cause: ${message})`,
+      );
+    }
     throw new Error(`Connection failed for "${org.alias}": ${message}`);
   } finally {
     // Always release the half-open permit, on every success/failure/refresh

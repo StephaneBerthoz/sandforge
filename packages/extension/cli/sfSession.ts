@@ -16,6 +16,7 @@
 
 import { execFileSync } from 'node:child_process';
 import jsforce from 'jsforce';
+import { expiredScratchDate } from '@sandforge/shared';
 import type { Connection } from 'jsforce';
 import {
   isUsableAccessToken,
@@ -75,8 +76,35 @@ export async function loadOrg(
     shell: process.platform === 'win32',
   });
   const parsed = JSON.parse(json) as {
-    result?: { instanceUrl?: string; username?: string; devHubId?: unknown };
+    result?: {
+      instanceUrl?: string;
+      username?: string;
+      devHubId?: unknown;
+      status?: unknown;
+      expirationDate?: unknown;
+    };
   };
+  // A scratch org past its expiration date is gone: Salesforce deletes it. Its
+  // stored token still reads as one, and the first call came back HTTP 420
+  // with an HTML page on an expired one (2026-11-13), the display saying
+  // "Deleted". No sign-in brings it back, so the message names what does.
+  const shown = parsed.result;
+  if (typeof shown?.devHubId === 'string' && shown.devHubId !== '') {
+    const expiredOn =
+      typeof shown.expirationDate === 'string'
+        ? expiredScratchDate(
+            { orgType: 'Scratch', metadata: { expirationDate: shown.expirationDate } },
+            new Date().toISOString().slice(0, 10),
+          )
+        : undefined;
+    if (expiredOn !== undefined || shown.status === 'Deleted') {
+      throw new Error(
+        `The scratch org '${alias}' ${expiredOn !== undefined ? `expired on ${expiredOn}` : 'is deleted'}: ` +
+          'Salesforce deletes a scratch org when it expires, and no sign-in brings it back. ' +
+          'Create a new one ("sf org create scratch") and give its alias.',
+      );
+    }
+  }
   if (!parsed.result?.instanceUrl) {
     throw new Error(`sf org display did not return a usable session for alias '${alias}'.`);
   }

@@ -119,6 +119,49 @@ describe('loadOrg', () => {
     expect(await loadOrg('SCRATCH', readToken)).not.toHaveProperty('scratch');
   });
 
+  it('says a scratch org past its date is gone, before reading a token no sign-in can renew', async () => {
+    // What `sf org display` showed of an expired scratch org on 2026-11-13.
+    const shown = (result: Record<string, unknown>) =>
+      mockExecFileSync.mockImplementation((() =>
+        JSON.stringify({
+          result: {
+            instanceUrl: 'https://example.my.salesforce.com',
+            username: 'user@example.com',
+            devHubId: '00Dxx0000000001EAA',
+            ...result,
+          },
+        })) as unknown as typeof execFileSync);
+    const readToken = vi.fn().mockResolvedValue({ accessToken: LIVE_TOKEN });
+
+    shown({ status: 'Deleted', expirationDate: '2020-01-31' });
+    await expect(loadOrg('OLD-SCRATCH', readToken)).rejects.toThrow(
+      /The scratch org 'OLD-SCRATCH' expired on 2020-01-31: .*no sign-in brings it back.*sf org create scratch/,
+    );
+    shown({ status: 'Deleted' });
+    await expect(loadOrg('OLD-SCRATCH', readToken)).rejects.toThrow(
+      /The scratch org 'OLD-SCRATCH' is deleted/,
+    );
+    expect(readToken).not.toHaveBeenCalled();
+
+    shown({ status: 'Active', expirationDate: '2999-01-31' });
+    expect((await loadOrg('NEW-SCRATCH', readToken)).scratch).toBe(true);
+  });
+
+  it('never reads an org that is no scratch org as expired, whatever date it shows', async () => {
+    mockExecFileSync.mockImplementation((() =>
+      JSON.stringify({
+        result: {
+          instanceUrl: 'https://example.my.salesforce.com',
+          username: 'user@example.com',
+          expirationDate: '2020-01-31',
+          status: 'Active',
+        },
+      })) as unknown as typeof execFileSync);
+    const readToken = vi.fn().mockResolvedValue({ accessToken: LIVE_TOKEN });
+
+    expect((await loadOrg('TRIAL', readToken)).accessToken).toBe(LIVE_TOKEN);
+  });
+
   it('refuses an alias a shell could read as a command, before running anything', async () => {
     await expect(loadOrg('dev & calc', vi.fn())).rejects.toThrow(/Invalid SF org alias/);
     expect(mockExecFileSync).not.toHaveBeenCalled();
