@@ -220,6 +220,12 @@ for (const refusal of [
     host: 'The file storage the target has left could not be read (Request timed out), so the files could not be checked against it. Nothing was written.',
     says: 'The run was refused before it wrote anything: the target org would not say what file storage it has left, so the files to copy could not be weighed against it. Turn the copy of files off on Review, or run it again once the org answers.',
   },
+  {
+    code: 'FILE_STORAGE_EXCEEDED',
+    host: 'The files to copy take 12.5 MB and the target has 3 MB of file storage left. Lower the largest file copied, or leave the files out. Nothing was written.',
+    storage: { estimateMB: 12.5, remainingMB: 3, kind: 'files' },
+    says: 'The run was refused before it wrote anything: the files it copies take about 12.5 MB of file storage, and the target org has 3 MB left. Leave the files out on Review, or free file storage in the target org.',
+  },
 ]) {
   test(`files its copier refused (${refusal.code}) come back to Review, said in its words, and pass axe`, async ({
     page,
@@ -228,7 +234,10 @@ for (const refusal of [
     // screen in the host's English, with no hint, away from the copy of files.
     const { run } = await startRun(page, 'Light Modern');
 
-    await stopAtTheGate(page, run, refusal.host, { code: refusal.code });
+    await stopAtTheGate(page, run, refusal.host, {
+      code: refusal.code,
+      ...('storage' in refusal ? { storage: refusal.storage } : {}),
+    });
 
     await expect(page.getByTestId('forge-review')).toBeVisible();
     await expect(page.getByTestId('forge-run-gate-reason')).toHaveText(refusal.says);

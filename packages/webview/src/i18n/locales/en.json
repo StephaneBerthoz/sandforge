@@ -4760,7 +4760,7 @@
       "gapsFound": "Gaps found against the target: {{gaps}}",
       "wouldInsert": "Would be inserted",
       "caption": "Checks every record here, sends nothing.",
-      "wholeOrg": "For a clone of the whole org, Simulate stops at the gate: it reads no row past the counts and writes nothing, and says what the run would write, take of both orgs and leave out. Rehearse is not offered: a rehearsal holds every row it prepares."
+      "wholeOrg": "For a clone of the whole org, Simulate stops at the gate: past the counts, it reads only what they cannot tell — the ids of the records the run would hold back or leave aside and of the contact roles the platform writes itself, and the size of the emails and files — and writes nothing, and says what the run would write, take of both orgs and leave out. Rehearse is not offered: a rehearsal holds every row it prepares."
     },
     "gaps": {
       "notRead": "Nothing has been read yet. Simulate the run, or rehearse it, to find what the target would refuse or change in its rows.",
@@ -4984,7 +4984,7 @@
     "graphViewSlow_other": "A clone of the whole org or a graph past 150 objects can hold the panel still for a while once drawn, and a run redraws it at each step: the table lists its {{formatted}} objects at once.",
     "wholeOrgDryRun": {
       "title": "Dry run of the whole org",
-      "stopped": "It stopped at the run’s write gate once the source was counted: no row was read past the counts, and nothing was written to either org.",
+      "stopped": "It stopped at the run’s write gate once the source was counted: past the counts, only the ids of the records the run would hold back or leave aside and of the contact roles the platform writes itself were read, with the size of the emails and files, and nothing was written to either org.",
       "records_one": "{{formatted}} record to write into {{target}}, of {{objects}} objects, in about {{duration}}.",
       "records_other": "{{formatted}} records to write into {{target}}, of {{objects}} objects, in about {{duration}}.",
       "refused_one": "The run would be refused, for {{count}} reason:",

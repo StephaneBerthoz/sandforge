@@ -73,6 +73,13 @@ export interface RefusedRun {
    */
   dryRun?: boolean;
   elapsedMs: number;
+  /**
+   * The API requests the command sent each org before it was refused, and
+   * what its gate priced the run at once priced, as the summary of a run that
+   * went says them: a refusal past the requests left named no figure a
+   * pipeline could read.
+   */
+  apiRequests?: Record<string, unknown>;
 }
 
 /**
@@ -94,6 +101,7 @@ export function refusedSummary(
       dryRun: run.dryRun === true,
       refused,
       ...(also.length > 0 ? { alsoRefused: also } : {}),
+      ...(run.apiRequests !== undefined ? { apiRequests: run.apiRequests } : {}),
       elapsedMs,
     },
     null,

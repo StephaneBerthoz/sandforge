@@ -284,6 +284,36 @@ describe('ForgePage — Back, then Discover again', () => {
     expect(useForgeStore.getState().graph).toEqual(SECOND_GRAPH);
   });
 
+  it('comes back from the discovery of the whole org under the ALL chip, between the same orgs', async () => {
+    // The chip lived in the input screen's own state, and went with it: Back
+    // showed the record tab under Direct, the target no longer picked.
+    renderPage();
+    fireEvent.click(screen.getByTestId('forge-depth-all'));
+    fireEvent.click(screen.getByTestId('forge-target-org'));
+    fireEvent.click(screen.getByTestId('forge-target-org-option-org-target'));
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+    const [sent] = posted('forge:discover');
+    expect(sent.payload).toMatchObject({ config: { inputMode: 'org', depth: 'all' } });
+    host('forge:discover:response', { graph: FIRST_GRAPH }, sent.id);
+    expect(await objectsShown()).toBe('1');
+
+    fireEvent.click(screen.getByTestId('forge-back-btn'));
+    await screen.findByTestId('forge-input');
+
+    expect(screen.getByTestId('forge-depth-all').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByTestId('forge-depth-direct').getAttribute('aria-checked')).toBe('false');
+    // Discovered again as it was: the whole org, between the same two orgs.
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+    expect(posted('forge:discover')[1].payload).toMatchObject({
+      config: {
+        inputMode: 'org',
+        depth: 'all',
+        sourceOrgId: 'org-source',
+        targetOrgId: 'org-target',
+      },
+    });
+  });
+
   it('stops the second discovery on Back, and takes nothing it answers after', async () => {
     await firstDiscoveryThenBack();
     const second = discover();

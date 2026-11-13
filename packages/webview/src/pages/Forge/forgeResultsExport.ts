@@ -69,13 +69,20 @@ export interface ObjectResultRow {
 const LEFT_EMPTY_WORDS = 'Lookups the second pass left empty';
 
 /**
+ * The words the copied report and the results file give the parents fetched
+ * outside the clone that it could not copy.
+ */
+const PARENTS_NOT_COPIED_WORDS = 'Parents fetched outside the clone, not copied';
+
+/**
  * The per-object results as a CSV file: the rows the results table lists,
  * each status by its code as the copied report gives it, with what the run
  * created, linked and counted as failed of each object. Then, when its second
  * pass left lookups empty, a row of their own in the copied report's words:
  * how many of those it tried, and the codes it was refused with. Their records
  * are in the target and the run counts them failed nowhere, so the row leaves
- * the Failed column empty.
+ * the Failed column empty. So, when Auto-fetch parents fetched some it could
+ * not copy, do they: the rows that needed them fail under their own object.
  */
 export function objectResultsCsv(
   rows: readonly ObjectResultRow[],
@@ -92,6 +99,7 @@ export function objectResultsCsv(
     failed.set(report.objectApiName, (failed.get(report.objectApiName) ?? 0) + report.failedCount);
   }
   const leftEmpty = lookupsLeftEmptyOf(result?.errors ?? []);
+  const notCopied = passCountsOf(result?.errors ?? [], isOrphanParents);
   return csv([
     ['Object', 'Records read', 'Status', 'Created', 'Linked', 'Failed', 'Errors'],
     ...rows.map((row) => [
@@ -121,6 +129,19 @@ export function objectResultsCsv(
             leftEmptyCell(leftEmpty),
           ],
         ]),
+    ...(notCopied.failed === 0
+      ? []
+      : [
+          [
+            PARENTS_NOT_COPIED_WORDS,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            passCell(notCopied, 'not copied'),
+          ],
+        ]),
   ]);
 }
 
@@ -130,9 +151,18 @@ export function objectResultsCsv(
  * many it left empty.
  */
 function leftEmptyCell({ leftEmpty, attempted, codes }: LookupsLeftEmpty): string {
+  return passCell({ failed: leftEmpty, attempted, codes }, 'left empty');
+}
+
+/**
+ * The Errors cell of a pass's row: "2 of 5 left empty", "2 of 2 not copied",
+ * with the codes its samples open with. A pass that counts no attempt says
+ * only how many it failed.
+ */
+function passCell({ failed, attempted, codes }: PassCounts, what: string): string {
   const named = codes.length > 0 ? `: ${codes.join(', ')}` : '';
   const ofTried = attempted > 0 ? ` of ${String(attempted)}` : '';
-  return `${String(leftEmpty)}${ofTried} left empty${named}`;
+  return `${String(failed)}${ofTried} ${what}${named}`;
 }
 
 /**
@@ -198,16 +228,8 @@ export function isPassReport(report: ForgeExecutionError): boolean {
  * its reports: none when it copied every one it fetched, or fetched none.
  */
 export function parentsNotCopiedOf(reports: readonly ForgeExecutionError[]): number {
-  let parents = 0;
-  for (const report of failuresOf(reports).filter(isOrphanParents)) parents += report.failedCount;
-  return parents;
+  return passCountsOf(reports, isOrphanParents).failed;
 }
-
-/**
- * The words the copied report gives the parents fetched outside the clone
- * that it could not copy.
- */
-const PARENTS_NOT_COPIED_WORDS = 'Parents fetched outside the clone, not copied';
 
 /** What the second pass left empty, across its reports. */
 export interface LookupsLeftEmpty {
@@ -229,15 +251,34 @@ export interface LookupsLeftEmpty {
 export function lookupsLeftEmptyOf(
   reports: readonly ForgeExecutionError[],
 ): LookupsLeftEmpty | undefined {
-  let leftEmpty = 0;
+  const { failed, attempted, codes } = passCountsOf(reports, isSecondPass);
+  return failed > 0 ? { leftEmpty: failed, attempted, codes } : undefined;
+}
+
+/** What the reports of a pass count, added up across them. */
+interface PassCounts {
+  /** What it failed: lookups left empty, parents not copied. */
+  failed: number;
+  /** What it tried. */
+  attempted: number;
+  /** The codes its samples open with, each once, in the order first seen. */
+  codes: string[];
+}
+
+/** What the failing reports of the pass `isPass` tells count, added up, with their codes. */
+function passCountsOf(
+  reports: readonly ForgeExecutionError[],
+  isPass: (report: ForgeExecutionError) => boolean,
+): PassCounts {
+  let failed = 0;
   let attempted = 0;
   const codes = new Set<string>();
-  for (const report of failuresOf(reports).filter(isSecondPass)) {
-    leftEmpty += report.failedCount;
+  for (const report of failuresOf(reports).filter(isPass)) {
+    failed += report.failedCount;
     attempted += report.attemptedCount;
     for (const { code } of codesInSamples(report)) codes.add(code);
   }
-  return leftEmpty > 0 ? { leftEmpty, attempted, codes: [...codes] } : undefined;
+  return { failed, attempted, codes: [...codes] };
 }
 
 /** The longest a cell of the copied report runs before it is cut. */

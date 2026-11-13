@@ -141,6 +141,21 @@ describe('refusedSummary', () => {
     expect(summary['alsoRefused']).toEqual([EMAILS]);
   });
 
+  it('gives the API requests sent before the refusal when the command counted them', () => {
+    const apiRequests = { target: { estimate: 4, sent: 2 }, source: { sent: 0 } };
+
+    const summary = JSON.parse(
+      refusedSummary(
+        { tool: 'sandforge-clone', source: 'SRC', target: 'TGT', elapsedMs: 5, apiRequests },
+        EMAILS,
+      ),
+    ) as Record<string, unknown>;
+
+    expect(summary['apiRequests']).toEqual(apiRequests);
+    // Said where a run's summary says it, before the time it took.
+    expect(Object.keys(summary).slice(-2)).toEqual(['apiRequests', 'elapsedMs']);
+  });
+
   it('ends on a new line, as a summary a shell redirects', () => {
     expect(refusedSummary({ tool: 't', target: 'T', elapsedMs: 0 }, EMAILS).endsWith('}\n')).toBe(
       true,

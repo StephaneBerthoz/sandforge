@@ -757,25 +757,44 @@ describe('ForgeHandler stops and discoveries, with two panels', () => {
       });
     }
 
-    it('makes no stop of the gate of a refusal of files the gate has no code for', async () => {
-      // Files that do not fit in the target: the gate's own stop for them is
-      // STORAGE_EXCEEDED with the megabytes it read, which this one does not carry.
+    it('takes files that do not fit in the target back to Review with what they take and what is left, in megabytes', async () => {
+      // Told the page as a run that failed, the refusal was said in English
+      // on the execution screen, with no number the panel could word.
       const run = send(panelA, 'wv-run-exceeded', 'forge:execute', {
         graph: graphOf('Account'),
         config: CONFIG,
       });
       await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(1));
 
+      const message =
+        'The files to copy take 12.5 MB and the target has 3 MB of file storage left. Lower ' +
+        'the largest file copied, or leave the files out. Nothing was written.';
       stopRun(
-        new ForgeFilesRefusedError(
-          'The files take 12 MB and the target has 3 MB left. Nothing was written.',
-          'FILE_STORAGE_EXCEEDED',
-        ),
+        new ForgeFilesRefusedError(message, 'FILE_STORAGE_EXCEEDED', {
+          neededBytes: 12.5 * 1_048_576,
+          remainingBytes: 3 * 1_048_576,
+        }),
       );
       await run;
 
       const [refused] = taken(panelA, 'forge:execute:error');
-      expect(refused?.payload).not.toHaveProperty('gate');
+      expect(refused?.payload).toMatchObject({
+        code: 'FILE_STORAGE_EXCEEDED',
+        message,
+        gate: {
+          code: 'FILE_STORAGE_EXCEEDED',
+          storage: { estimateMB: 12.5, remainingMB: 3, kind: 'files' },
+        },
+      });
+      expect(refused?.payload).not.toHaveProperty('result');
+      // Under the code the command line records it with.
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          action: 'forge_execute',
+          outcome: 'stopped',
+          details: expect.objectContaining({ code: 'FILE_STORAGE_EXCEEDED' }),
+        }),
+      ]);
     });
   });
 

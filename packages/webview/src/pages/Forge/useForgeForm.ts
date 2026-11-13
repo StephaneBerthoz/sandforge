@@ -21,7 +21,13 @@ import { useSendMessage } from '../../hooks/useMessageBus';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { sendDiscovery } from './directRun';
-import { carriedChoices, carriedNarrowing, withCarried, withoutNarrowing } from './forgeRunConfig';
+import {
+  carriedChoices,
+  carriedNarrowing,
+  clonesWholeOrg,
+  withCarried,
+  withoutNarrowing,
+} from './forgeRunConfig';
 import type { CarriedNarrowing, CarriedRunChoices } from './forgeRunConfig';
 import { useRecordPreview } from './useRecordPreview';
 import type { RecordPreviewState } from './useRecordPreview';
@@ -264,6 +270,21 @@ export interface ForgeFormState {
 }
 
 /**
+ * The clone of the whole org the store's run is, for the form to come back
+ * to: its orgs, and the run whose options it puts back. None for any other
+ * run, nor when the store holds none.
+ */
+function wholeOrgOfTheRun(): (ForgeWholeOrgAgain & { run: ForgeConfig }) | null {
+  const run = useForgeStore.getState().config;
+  if (!run || !clonesWholeOrg(run)) return null;
+  return {
+    sourceOrgId: run.sourceOrgId || undefined,
+    targetOrgId: run.targetOrgId || undefined,
+    run,
+  };
+}
+
+/**
  * Hook holding all local form state for the Forge input form, along with
  * the derived flags and the discover/quick-start/reuse actions. Composes
  * `useRecordPreview` for the record preview lifecycle.
@@ -403,10 +424,19 @@ export function useForgeForm(): ForgeFormState {
    * the store once, and kept for the form's life: the source the panel has
    * selected is taken just before, on every pass of the effects, and the
    * second pass React makes in development gave the run's source back to it.
+   *
+   * Or come back to the clone of the whole org the store's run is — back from
+   * its discovery or its Review, or Forge again from its results: the ALL
+   * chip and its orgs, and its options as they were left, Anonymize PII
+   * unticked included, which stays as it was left once ALL came. The chip was
+   * the form's own state, gone with the input screen: Back from the discovery
+   * of the whole org showed the record tab under Direct, as the record id of
+   * a run from a record comes back from the store (see
+   * `adoptHandedOverRecord`).
    */
-  const wholeOrgAgain = useRef<ForgeWholeOrgAgain | null>(null);
+  const wholeOrgAgain = useRef<(ForgeWholeOrgAgain & { run?: ForgeConfig }) | null>(null);
   const adoptWholeOrgAgain = useLatestRef(() => {
-    wholeOrgAgain.current ??= useForgeStore.getState().takeWholeOrgAgain();
+    wholeOrgAgain.current ??= useForgeStore.getState().takeWholeOrgAgain() ?? wholeOrgOfTheRun();
     const again = wholeOrgAgain.current;
     if (!again) return;
     const held = (id: string | undefined): id is string =>
@@ -415,9 +445,13 @@ export function useForgeForm(): ForgeFormState {
     const source = held(again.sourceOrgId)
       ? again.sourceOrgId
       : sourceOrgId || (selectedOrgId ?? '');
-    setDepthState('all');
     if (held(again.sourceOrgId)) setSourceOrgIdState(again.sourceOrgId);
     if (held(again.targetOrgId)) setTargetOrgId(again.targetOrgId);
+    if (again.run) {
+      applyRunOptions(again.run);
+      return;
+    }
+    setDepthState('all');
     anonymizeFor('all', source);
   });
   useEffect(() => {

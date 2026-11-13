@@ -31,6 +31,9 @@ const STOP_KEYS: Record<ForgeRunGateCode, string> = {
   READ_BOUND_EXCEEDED: 'forgeRun.gate.readBoundExceeded',
   FILES_UNREAD: 'forgeRun.gate.filesUnread',
   FILE_STORAGE_UNREAD: 'forgeRun.gate.fileStorageUnread',
+  // Of a run that clones no whole org, said as a clone of the whole org's
+  // refusal for its files: what they take, and what the target has left.
+  FILE_STORAGE_EXCEEDED: 'forgeRun.gate.storageExceededFiles',
 };
 
 /** A stop the user chose, at one of the run's questions, rather than one the extension made. */

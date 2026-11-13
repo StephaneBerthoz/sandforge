@@ -105,6 +105,67 @@ describe('useForgeForm, a clone of the whole org asked for again', () => {
     expect(result.current.anonymize).toBe(false);
   });
 
+  it('opens on ALL as it comes back to the clone of the whole org the store holds, its choices kept', () => {
+    // Back from the discovery of the whole org, the form opened under Direct:
+    // the chip was its own state, gone with the input screen.
+    useForgeStore.getState().setConfig({
+      inputMode: 'org',
+      depth: 'all',
+      sourceOrgId: SANDBOX.id,
+      targetOrgId: PANEL_ORG.id,
+      anonymizePII: true,
+      skipEmpty: false,
+      batchSize: 'auto',
+    });
+
+    const { result } = renderHook(() => useForgeForm(), { wrapper: StrictMode });
+
+    expect(result.current.depth).toBe('all');
+    expect(result.current.wholeOrg).toBe(true);
+    expect(result.current.sourceOrgId).toBe(SANDBOX.id);
+    expect(result.current.targetOrgId).toBe(PANEL_ORG.id);
+    // Ticked for a source that holds no real people's data: kept so.
+    expect(result.current.anonymize).toBe(true);
+  });
+
+  it('keeps Anonymize PII as it was left for a production source, unticked once ALL came', () => {
+    // Ticked as ALL was picked with that source, then unticked: the box stays
+    // as it is left, and the store's run is the form as it was left.
+    useForgeStore.getState().setConfig({
+      inputMode: 'org',
+      depth: 'all',
+      sourceOrgId: PRODUCTION.id,
+      targetOrgId: SANDBOX.id,
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+    });
+
+    const { result } = renderHook(() => useForgeForm());
+
+    expect(result.current.depth).toBe('all');
+    expect(result.current.sourceOrgId).toBe(PRODUCTION.id);
+    expect(result.current.anonymize).toBe(false);
+  });
+
+  it('opens on a new run’s depth when the run the store holds clones no whole org', () => {
+    useForgeStore.getState().setConfig({
+      inputMode: 'record',
+      recordId: '001000000000001AAA',
+      depth: 'direct',
+      sourceOrgId: SANDBOX.id,
+      targetOrgId: PANEL_ORG.id,
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+    });
+
+    const { result } = renderHook(() => useForgeForm());
+
+    expect(result.current.depth).toBe('direct');
+    expect(result.current.wholeOrg).toBe(false);
+  });
+
   it('opens on a new run’s depth once the form has taken it', () => {
     useForgeStore
       .getState()

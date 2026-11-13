@@ -1151,6 +1151,15 @@ export interface WholeOrgMeasures {
    * links per 200 files.
    */
   sourceReads?: number;
+  /**
+   * The requests it sent the source before its gate to tell the rows it
+   * holds back one by one — an anti-join per lookup its rows may not leave
+   * empty, the rows of a record type closed to the user it writes as, and
+   * the rows under those it holds back, read by id —, which its dry run
+   * sends too. Priced unless the command line priced what it sent before the
+   * gate (`sourceSentBefore`), which counts them. Absent, none.
+   */
+  heldReads?: number;
   /** The objects it writes by REST whatever their number besides those always written so: see {@link ForgeBulkWrites}. */
   restOnly?: ReadonlySet<string>;
   /**
@@ -1193,7 +1202,9 @@ export interface WholeOrgCost {
  *   ({@link WHOLE_ORG_SOURCE_READS_PER_OBJECT}); the counts, the describes
  *   and the measure of the emails' text were taken before the gate, and are
  *   priced as the command line counted them when it says (`sourceSentBefore`),
- *   for the price to be of the whole run;
+ *   for the price to be of the whole run; when it does not, what the gate
+ *   read to tell the rows held back one by one ({@link WholeOrgMeasures.heldReads}),
+ *   which its dry run reads too and a dry run priced at none;
  * - of the target's day, a Bulk API batch per {@link ROWS_PER_BULK_BATCH}
  *   records of each job its writes and its second pass send;
  * - of the time, its writes and updates one after another: a job its wait
@@ -1233,7 +1244,9 @@ export function wholeOrgCostOf(input: {
           fileCount +
           Math.ceil(fileCount / FILES_PER_LINK_QUERY)) +
       WHOLE_ORG_SOURCE_READS_PER_OBJECT * objects.filter(({ rows }) => rows > 0).length +
-      Math.max(0, input.sourceSentBefore ?? 0),
+      (input.sourceSentBefore === undefined
+        ? Math.max(0, input.measures.heldReads ?? 0)
+        : Math.max(0, input.sourceSentBefore)),
     bulkBatches: sent.reduce(
       (sum, { jobs }) =>
         sum + jobs.reduce((batches, job) => batches + Math.ceil(job / ROWS_PER_BULK_BATCH), 0),
@@ -3320,21 +3333,54 @@ export function isForgeRunGateError(error: unknown): error is ForgeRunGateError 
 }
 
 /**
+ * Why a run that clones no whole org is refused when the files its file
+ * copier would copy take more file storage than the target has left, as the
+ * command line names it.
+ */
+const FILE_STORAGE_EXCEEDED = 'FILE_STORAGE_EXCEEDED';
+
+/**
  * The refusal of the file copier of a run that clones no whole org, as the
  * gate's stop of the same code: the files of the records it read could not
- * all be looked up ({@link FILES_UNREAD}), or the target would not say what
- * file storage it has left ({@link FILE_STORAGE_UNREAD}). Raised before the
- * first write, as a clone of the whole org's gate raises them, and recorded
- * stopped under its code, as the command line records it. Told the page as a
- * run that failed, it was said in English with no hint, on the execution
- * screen, away from the Review where the copy of files is turned off. Read by
- * its name, as a gate stop is. Nothing for any other error.
+ * all be looked up ({@link FILES_UNREAD}), the target would not say what
+ * file storage it has left ({@link FILE_STORAGE_UNREAD}), or they take more
+ * of it than is left (`FILE_STORAGE_EXCEEDED`), with the megabytes of both
+ * (`storage`, `kind: 'files'`) as a clone of the whole org's refusal for its
+ * files gives them. Raised before the first write, as a clone of the whole
+ * org's gate raises them, and recorded stopped under its code, as the command
+ * line records it. Told the page as a run that failed, it was said in English
+ * with no hint, on the execution screen, away from the Review where the copy
+ * of files is turned off. Read by its name, as a gate stop is. Nothing for
+ * any other error, nor for files past the storage that do not say by how much.
  */
 export function filesRefusalStop(error: unknown): ForgeRunGateError | undefined {
   if (!(error instanceof Error) || error.name !== 'ForgeFilesRefusedError') return undefined;
-  const { code } = error as { code?: unknown };
-  if (code !== FILES_UNREAD && code !== FILE_STORAGE_UNREAD) return undefined;
-  return new ForgeRunGateError(code, error.message);
+  const { code, storage } = error as {
+    code?: unknown;
+    storage?: { neededBytes?: unknown; remainingBytes?: unknown };
+  };
+  if (code === FILES_UNREAD || code === FILE_STORAGE_UNREAD) {
+    return new ForgeRunGateError(code, error.message);
+  }
+  const needed = storage?.neededBytes;
+  const remaining = storage?.remainingBytes;
+  if (
+    code !== FILE_STORAGE_EXCEEDED ||
+    typeof needed !== 'number' ||
+    typeof remaining !== 'number' ||
+    !Number.isFinite(needed) ||
+    !Number.isFinite(remaining)
+  ) {
+    return undefined;
+  }
+  const remainingMB = remaining / BYTES_PER_MB;
+  return new ForgeRunGateError(FILE_STORAGE_EXCEEDED, error.message, {
+    // Rounded up, as the gate says what a run takes, and said past what is
+    // left however close the two are.
+    estimateMB: Number(formatMBPast(needed / BYTES_PER_MB, remainingMB).over),
+    remainingMB,
+    kind: 'files',
+  });
 }
 
 /** Why the rows cannot be written for the storage they take, or nothing when they can. */

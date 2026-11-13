@@ -766,8 +766,10 @@ export interface ForgeWholeOrgRefusal extends Pick<
 
 /**
  * What the dry run of a clone of the whole org says, stopped at its write
- * gate once the source is counted: no row read past the counts, nothing
- * written, no journal kept. Its answer carries it beside the result
+ * gate once the source is counted: past the counts, only the ids of the
+ * records its run would hold back or leave aside and of the contact roles
+ * the platform writes itself read, and the size of the emails and files;
+ * nothing written, no journal kept. Its answer carries it beside the result
  * (`forge:execute:response`).
  */
 export interface ForgeWholeOrgDryRun {

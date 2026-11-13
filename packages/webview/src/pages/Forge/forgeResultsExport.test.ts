@@ -224,6 +224,41 @@ describe('the per-object results as a file', () => {
     ]);
   });
 
+  it('gives the parents Auto-fetch could not copy a row of their own, in the copied report’s words', () => {
+    // The file had no line for them, where the copied report counts them: the
+    // rows that needed them fail under their own object, and the run counts
+    // the parents failed nowhere, so they stay out of the Failed column.
+    const lines = objectResultsCsv(
+      [
+        { objectApiName: 'Account', records: 2, status: 'error', errors: [] },
+        { objectApiName: 'Contact', records: 1, status: 'error', errors: [] },
+      ],
+      {
+        idRemapByObject: [],
+        errors: [...TRAP_REFUSALS, SECOND_PASS_REPORT, ORPHAN_PARENTS_REPORT, ...RUN_NOTES],
+      },
+    ).split('\n');
+
+    expect(lines).toEqual([
+      '"Object","Records read","Status","Created","Linked","Failed","Errors"',
+      '"Account","2","error","0","0","2","2 failed at insert: REQUIRED_FIELD_MISSING"',
+      '"Contact","1","error","0","0","1","1 failed at insert: FIELD_CUSTOM_VALIDATION_EXCEPTION"',
+      '"Lookups the second pass left empty","","","","","","1 of 4 left empty"',
+      '"Parents fetched outside the clone, not copied","","","","","","2 of 2 not copied: REQUIRED_FIELD_MISSING"',
+    ]);
+  });
+
+  it('gives no row to the parents of a run that copied every one it fetched', () => {
+    const lines = objectResultsCsv([], {
+      idRemapByObject: [],
+      errors: [{ ...ORPHAN_PARENTS_REPORT, failedCount: 0, samples: [] }],
+    }).split('\n');
+
+    expect(lines).toEqual([
+      '"Object","Records read","Status","Created","Linked","Failed","Errors"',
+    ]);
+  });
+
   it('names the codes the second pass was refused with on its row', () => {
     const lines = objectResultsCsv([], {
       idRemapByObject: [],

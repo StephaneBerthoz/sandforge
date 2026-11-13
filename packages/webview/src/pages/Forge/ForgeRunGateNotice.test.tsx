@@ -231,6 +231,28 @@ describe('ForgeRunGateNotice', () => {
       }
     });
 
+    it('says what the files take and what the target has left, in the panel’s language', async () => {
+      // Said as the file copier's English sentence on the execution screen,
+      // with neither the panel's language nor its way of writing a number.
+      act(() =>
+        useForgeRunGateStore.getState().setStop({
+          code: 'FILE_STORAGE_EXCEEDED',
+          storage: { estimateMB: 12.5, remainingMB: 3, kind: 'files' },
+        }),
+      );
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await act(() => i18n.changeLanguage('fr'));
+      try {
+        render(<ForgeRunGateNotice />);
+        expect(screen.getByTestId('forge-run-gate-notice').getAttribute('role')).toBe('alert');
+        expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
+          "Le clonage a été refusé avant d'écrire quoi que ce soit : les fichiers qu'il copie occupent environ 12,5 Mo de stockage de fichiers, et il reste 3 Mo à l'org cible. Excluez les fichiers dans la revue ou libérez du stockage de fichiers dans l'org cible.",
+        );
+      } finally {
+        await act(() => i18n.changeLanguage('en'));
+      }
+    });
+
     it('says the target would not tell its file storage, as for a clone of the whole org', () => {
       act(() => useForgeRunGateStore.getState().setStop({ code: 'FILE_STORAGE_UNREAD' }));
       render(<ForgeRunGateNotice />);

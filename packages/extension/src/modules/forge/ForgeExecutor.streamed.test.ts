@@ -3094,6 +3094,31 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
       );
     });
 
+    it('prices the reads its gate sent for them, and a read by id per lookup and page as the run writes', async () => {
+      // The gate priced neither: the reads that told those rows apart, sent
+      // before it, nor the read by id the run makes as it writes an object
+      // whose rows name a record it did not write.
+      const { schema, graph } = orphans();
+      const run = await cloneTold(schema, graph);
+
+      const statements = [...run.queries, ...run.reads.map(({ soql }) => soql)];
+      // An anti-join per lookup the rows may not leave empty, and a read by
+      // id of the rows under those it left aside.
+      expect(
+        statements.filter((soql) => / NOT IN \(SELECT Id FROM | Policy__c IN \(/.test(soql)),
+      ).toEqual([
+        'SELECT Id FROM Policy__c WHERE Region__c != null AND Region__c NOT IN (SELECT Id FROM Region__c)',
+        'SELECT Id FROM Invoice__c WHERE Policy__c != null AND Policy__c NOT IN (SELECT Id FROM Policy__c)',
+        `SELECT Id FROM Invoice__c WHERE Policy__c IN ('${policy(3)}', '${policy(4)}', '${policy(5)}')`,
+      ]);
+      expect(run.boundaries[0]?.wholeOrg).toMatchObject({
+        heldReads: 3,
+        // A page of each of the three objects, and of the policies and the
+        // invoices a read by id of the record each lookup names.
+        sourceReads: 3 + 2,
+      });
+    });
+
     it('finds them as it writes when no gate counted them, reading by id whether the source holds the record named', async () => {
       const { schema, graph } = orphans();
       const run = await cloneTold(schema, graph, {}, false);

@@ -403,6 +403,22 @@ describe('ForgeExecutor, copying the files of the records it clones', () => {
     expect(deps.insertFile).not.toHaveBeenCalled();
   });
 
+  it('says in its refusal what the files take and what the target has left, for the panel to word', async () => {
+    // Said in a sentence alone, the refusal reached the page in English, with
+    // no number it could put in the panel's language.
+    const { deps } = fakeOrgs(-2);
+
+    const run = new ForgeExecutor(deps).execute(GRAPH, 'src', 'tgt', () => undefined, {
+      ...SCOPED,
+      files: FILES,
+    });
+
+    await expect(run).rejects.toMatchObject({
+      code: 'FILE_STORAGE_EXCEEDED',
+      storage: { neededBytes: 7, remainingBytes: -2 * 1_048_576 },
+    });
+  });
+
   describe('when the files of its records could not be looked up', () => {
     const TIMEOUT = 'QUERY_TIMEOUT: Your query request was running for too long.';
 

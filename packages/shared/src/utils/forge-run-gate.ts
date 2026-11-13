@@ -42,6 +42,10 @@ import * as z from 'zod';
  *   look up all the files of the records it read.
  * - `FILE_STORAGE_UNREAD`: the same, the target not saying what file storage
  *   it has left.
+ * - `FILE_STORAGE_EXCEEDED`: of a run that clones no whole org, the files its
+ *   file copier would copy take more file storage than the target has left,
+ *   as the stop's `storage` says, `kind: 'files'`. A clone of the whole org
+ *   is refused so at its gate under `STORAGE_EXCEEDED`.
  */
 /**
  * The rows of one object past which a run reading it with no cap asks first
@@ -70,6 +74,7 @@ export const FORGE_RUN_GATE_CODES = [
   'READ_BOUND_EXCEEDED',
   'FILES_UNREAD',
   'FILE_STORAGE_UNREAD',
+  'FILE_STORAGE_EXCEEDED',
 ] as const;
 
 /** A way a Forge run stops at its gate. */
@@ -79,10 +84,10 @@ export type ForgeRunGateCode = (typeof FORGE_RUN_GATE_CODES)[number];
 export interface ForgeRunGateStop {
   code: ForgeRunGateCode;
   /**
-   * For a run refused for its storage: what its rows take, and what the
-   * target had left, in MB. What is left can be below zero: an org over its
-   * allocation says so. `kind` says which storage: the data storage when it
-   * is absent, as every refusal before files were weighed was.
+   * For a run refused for its storage: what its rows or its files take, and
+   * what the target had left, in MB. What is left can be below zero: an org
+   * over its allocation says so. `kind` says which storage: the data storage
+   * when it is absent, as every refusal before files were weighed was.
    */
   storage?: { estimateMB: number; remainingMB: number; kind?: 'data' | 'files' };
   /**

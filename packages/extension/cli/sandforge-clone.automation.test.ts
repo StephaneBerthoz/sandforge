@@ -1015,10 +1015,52 @@ describe('sandforge-clone target automation', () => {
             'The run would write 2 records, more than --max-total 1: narrow the clone (--max, ' +
             '--exclude-object, --filter), or raise --max-total. Nothing was written.',
         },
+        // What it had sent each org, beside what its gate priced, as the
+        // summary of a run that went says them: a refusal said none.
+        apiRequests: {
+          target: {
+            estimate: 4,
+            verdict: 'unread',
+            unread: 'the limits the org answered list no DailyApiRequests',
+            sent: 2,
+          },
+          source: { sent: 0 },
+        },
         elapsedMs: expect.any(Number) as number,
       });
       expect(stderr.trimEnd().split('\n').at(-1)).toMatch(/^refused \(MAX_TOTAL_EXCEEDED\): /);
       expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('prices what it sent the target before its gate, so that its --json never says fewer requests than it sent', async () => {
+      // Priced at its writes alone, a clone said about 2 requests of a run
+      // whose reads of the target's automation had sent more before them;
+      // a clone of the whole org and a seed priced what they had sent.
+      for (const dryRun of [true, false]) {
+        withOrgs(
+          fakeOrg({
+            limits: { ...STORAGE, DailyApiRequests: { Max: 15_000, Remaining: 14_000 } },
+          }),
+        );
+        stdout = '';
+
+        expect(
+          await run(
+            argv(
+              '--skip-preflight',
+              '--json',
+              '--accept-automation',
+              ...(dryRun ? ['--dry-run'] : []),
+            ),
+          ),
+        ).toBeUndefined();
+
+        const { apiRequests } = JSON.parse(stdout) as {
+          apiRequests: { target: { estimate: number; sent: number } };
+        };
+        expect(apiRequests.target.sent).toBeGreaterThan(2);
+        expect(apiRequests.target.estimate).toBeGreaterThanOrEqual(apiRequests.target.sent);
+      }
     });
 
     it('refuses records the target has no data storage left for, before it writes anything', async () => {
@@ -1993,8 +2035,10 @@ describe('sandforge-clone target automation', () => {
 
       expect(await run(argv('--skip-preflight', '--checkpoint-first'))).toBe(1);
 
+      // Its two writes, the checkpoint's 68, and the 2 requests the command
+      // had sent the target before its gate, priced as sent.
       expect(stderr).toBe(
-        'refused (API_BUDGET_EXCEEDED): The run takes about 70 API requests (68 of them for the ' +
+        'refused (API_BUDGET_EXCEEDED): The run takes about 72 API requests (68 of them for the ' +
           'checkpoint taken first), and ' +
           'TGT has 50 of its 15000 daily requests left: it would stop part way through, its ' +
           'records refused with REQUEST_LIMIT_EXCEEDED. Run it once the org has requests to ' +
@@ -2023,11 +2067,14 @@ describe('sandforge-clone target automation', () => {
 
       expect(await run(argv('--skip-preflight'))).toBe(1);
 
+      // Its two writes, and the 2 requests the command had sent the target
+      // before its gate: priced at its writes alone, a clone said fewer
+      // requests than its summary's `sent`.
       expect(printed).toContain(
-        '  API requests: about 2, of the 1 TGT has left of its 15000 a day: more than it has left',
+        '  API requests: about 4, of the 1 TGT has left of its 15000 a day: more than it has left',
       );
       expect(stderr).toBe(
-        'refused (API_BUDGET_EXCEEDED): The run takes about 2 API requests, and TGT has 1 of ' +
+        'refused (API_BUDGET_EXCEEDED): The run takes about 4 API requests, and TGT has 1 of ' +
           'its 15000 daily requests left: it ' +
           'would stop part way through, its records refused with REQUEST_LIMIT_EXCEEDED. Run it ' +
           'once the org has requests to spare — the limit is counted over the last 24 hours — or ' +

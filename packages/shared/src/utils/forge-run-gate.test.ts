@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FORGE_RUN_GATE_CODES, forgeRunGateStopOf, isForgeRunGateCode } from './forge-run-gate.js';
 
 describe('forge run gate stops', () => {
-  it('names the eleven ways a run stops at its gate', () => {
+  it('names the twelve ways a run stops at its gate', () => {
     expect(FORGE_RUN_GATE_CODES).toEqual([
       'PRODUCTION_TARGET',
       'AUTOMATION_DECLINED',
@@ -15,7 +15,24 @@ describe('forge run gate stops', () => {
       'READ_BOUND_EXCEEDED',
       'FILES_UNREAD',
       'FILE_STORAGE_UNREAD',
+      'FILE_STORAGE_EXCEEDED',
     ]);
+  });
+
+  // The file copier of a run that clones no whole org refuses files past the
+  // target's file storage under a code of its own, which the command line
+  // names: read as a stop, with the megabytes, the page says it in the
+  // user's language where it said the host's English on a failed run.
+  it('reads files past the file storage left as a stop, with what they take and what is left', () => {
+    expect(
+      forgeRunGateStopOf({
+        code: 'FILE_STORAGE_EXCEEDED',
+        storage: { estimateMB: 12.5, remainingMB: -2, kind: 'files' },
+      }),
+    ).toEqual({
+      code: 'FILE_STORAGE_EXCEEDED',
+      storage: { estimateMB: 12.5, remainingMB: -2, kind: 'files' },
+    });
   });
 
   // A clone of the whole org asked for its files is refused at its gate when

@@ -4760,7 +4760,7 @@
       "gapsFound": "Diferenças encontradas com o destino: {{gaps}}",
       "wouldInsert": "Seriam inseridos",
       "caption": "Verifica aqui cada registro, não envia nada.",
-      "wholeOrg": "Para um clone da org inteira, Simular para no controle: não lê nenhuma linha além das contagens e não grava nada, e diz o que a execução gravaria, tomaria das duas orgs e deixaria de fora. O ensaio não é oferecido: um ensaio mantém na memória cada linha que prepara."
+      "wholeOrg": "Para um clone da org inteira, Simular para no controle: além das contagens, só lê o que elas não dizem — os Ids dos registros que a execução reteria ou deixaria de lado e dos papéis de contato que a plataforma grava sozinha, e o tamanho dos e-mails e dos arquivos — e não grava nada, e diz o que a execução gravaria, tomaria das duas orgs e deixaria de fora. O ensaio não é oferecido: um ensaio mantém na memória cada linha que prepara."
     },
     "gaps": {
       "notRead": "Nada foi lido ainda. Simule a execução, ou ensaie-a, para descobrir o que o destino recusaria ou mudaria nas linhas dela.",
@@ -4984,7 +4984,7 @@
     "graphViewSlow_other": "Desenhado como grafo, um clone da org inteira ou um grafo de mais de 150 objetos pode travar o painel por um tempo, e uma execução o redesenha a cada etapa: a tabela lista seus {{formatted}} objetos na hora.",
     "wholeOrgDryRun": {
       "title": "Simulação da org inteira",
-      "stopped": "Ela parou no controle de gravação da execução depois de contar a origem: nenhuma linha foi lida além das contagens, e nada foi gravado em nenhuma das duas orgs.",
+      "stopped": "Ela parou no controle de gravação da execução depois de contar a origem: além das contagens, só foram lidos os Ids dos registros que a execução reteria ou deixaria de lado e dos papéis de contato que a plataforma grava sozinha, com o tamanho dos e-mails e dos arquivos, e nada foi gravado em nenhuma das duas orgs.",
       "records_one": "{{formatted}} registro a gravar em {{target}}, de {{objects}} objetos, em cerca de {{duration}}.",
       "records_other": "{{formatted}} registros a gravar em {{target}}, de {{objects}} objetos, em cerca de {{duration}}.",
       "refused_one": "A execução seria recusada, por {{count}} motivo:",

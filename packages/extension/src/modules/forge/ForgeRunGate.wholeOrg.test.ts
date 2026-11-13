@@ -210,6 +210,18 @@ describe('what a clone of the whole org takes beside the target’s requests', (
     ).toBe(9 + SOURCE_READS + 246);
   });
 
+  it('counts what its gate read to tell the rows it holds back one by one, once', () => {
+    // An anti-join per lookup its rows may not leave empty, and the rows
+    // under those it holds back read by id: sent before the gate, by its dry
+    // run too, and priced at none.
+    const held = { ...measures, sourceReads: 9, heldReads: 7 };
+    expect(wholeOrgCostOf({ plan, measures: held }).sourceRequests).toBe(9 + SOURCE_READS + 7);
+    // The command line counts them among what it sent before the gate.
+    expect(wholeOrgCostOf({ plan, measures: held, sourceSentBefore: 246 }).sourceRequests).toBe(
+      9 + SOURCE_READS + 246,
+    );
+  });
+
   it('counts a Bulk API batch per job, its second pass’s included, and names what goes by REST', () => {
     expect(wholeOrgCostOf({ plan, measures })).toMatchObject({
       objects: [

@@ -1542,7 +1542,10 @@ describe('ForgeReview', () => {
       expect(simulate.disabled).toBe(false);
       expect(simulate.getAttribute('aria-describedby')).toContain('forge-all-simulation');
       expect(screen.getByTestId('forge-all-simulation').textContent).toContain(
-        'Simulate stops at the gate',
+        'Simulate stops at the gate: past the counts, it reads only what they cannot tell — ' +
+          'the ids of the records the run would hold back or leave aside and of the contact ' +
+          'roles the platform writes itself, and the size of the emails and files — and writes ' +
+          'nothing',
       );
     });
 

@@ -3291,7 +3291,8 @@ export class ForgeHandler implements DomainHandler {
       // Stopped at its gate — refused, or cancelled at one of its questions —
       // before the first record was written: no failure, whatever the reads
       // had met, and nothing for the history to keep. So are the files the
-      // file copier could not look up or weigh, under the gate's own codes.
+      // file copier could not look up or weigh, or found past the file
+      // storage left, under the gate's own codes.
       const gate = isForgeRunGateError(error) ? error : filesRefusalStop(error);
       // A mute refused stops the run before its first write, as a gate does:
       // at the write gate, with nothing written that its partial would say.
@@ -4418,8 +4419,9 @@ export class ForgeHandler implements DomainHandler {
       }
       // The dry run of a clone of the whole org stops here, once counted:
       // what it would insert of each object, what it takes of both orgs and
-      // every refusal its run would meet, read from their limits alone — no
-      // row is read past the counts, nothing asked or written.
+      // every refusal its run would meet, read from their limits alone — past
+      // the counts, only what they cannot tell is read, nothing asked or
+      // written.
       if (boundary.dryRun && whole && measures) {
         const simulated = wholeOrgWritePlanOf(boundary.objects, measures);
         run.onSimulated?.(simulated);

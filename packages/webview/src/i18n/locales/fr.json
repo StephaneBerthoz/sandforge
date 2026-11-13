@@ -4760,7 +4760,7 @@
       "gapsFound": "Écarts trouvés avec la cible : {{gaps}}",
       "wouldInsert": "Seraient insérés",
       "caption": "Vérifie ici chaque enregistrement, n'envoie rien.",
-      "wholeOrg": "Pour un clonage de toute l'org, Simuler s'arrête au contrôle : il ne lit aucune ligne au-delà des décomptes et n'écrit rien, et dit ce que le clonage écrirait, ce qu'il prendrait aux deux orgs et ce qu'il écarterait. La répétition n'est pas proposée : elle garde en mémoire chaque ligne qu'elle prépare."
+      "wholeOrg": "Pour un clonage de toute l'org, Simuler s'arrête au contrôle : au-delà des décomptes, il ne lit que ce qu'ils ne disent pas — les ID des enregistrements que le clonage retiendrait ou laisserait de côté et des rôles de contact que la plateforme écrit elle-même, et la taille des e-mails et des fichiers — et n'écrit rien, et dit ce que le clonage écrirait, ce qu'il prendrait aux deux orgs et ce qu'il écarterait. La répétition n'est pas proposée : elle garde en mémoire chaque ligne qu'elle prépare."
     },
     "gaps": {
       "notRead": "Rien n'a encore été lu. Simulez l'exécution, ou faites-en un essai à blanc, pour trouver ce que la cible refuserait ou changerait dans ses lignes.",
@@ -4984,7 +4984,7 @@
     "graphViewSlow_other": "Dessiné, un clonage de toute l'org ou un graphe de plus de 150 objets peut figer le panneau un moment, et un clonage le redessine à chaque étape : le tableau liste aussitôt ses {{formatted}} objets.",
     "wholeOrgDryRun": {
       "title": "Simulation de toute l'org",
-      "stopped": "Elle s'est arrêtée au contrôle d'écriture du clonage une fois la source comptée : aucune ligne n'a été lue au-delà des décomptes, et rien n'a été écrit dans aucune des deux orgs.",
+      "stopped": "Elle s'est arrêtée au contrôle d'écriture du clonage une fois la source comptée : au-delà des décomptes, seuls les ID des enregistrements que le clonage retiendrait ou laisserait de côté et des rôles de contact que la plateforme écrit elle-même ont été lus, avec la taille des e-mails et des fichiers, et rien n'a été écrit dans aucune des deux orgs.",
       "records_one": "{{formatted}} enregistrement à écrire dans {{target}}, de {{objects}} objets, en {{duration}} environ.",
       "records_other": "{{formatted}} enregistrements à écrire dans {{target}}, de {{objects}} objets, en {{duration}} environ.",
       "refused_one": "Le clonage serait refusé, pour {{count}} motif :",

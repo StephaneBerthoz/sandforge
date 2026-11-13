@@ -4760,7 +4760,7 @@
       "gapsFound": "Diferencias encontradas con el destino: {{gaps}}",
       "wouldInsert": "Se insertarían",
       "caption": "Comprueba aquí cada registro, no envía nada.",
-      "wholeOrg": "Para un clon de toda la org, Simular se detiene en el control: no lee ninguna fila más allá de los recuentos y no escribe nada, y dice lo que la ejecución escribiría, tomaría de ambas orgs y dejaría fuera. No se ofrece el ensayo: un ensayo mantiene en memoria cada fila que prepara."
+      "wholeOrg": "Para un clon de toda la org, Simular se detiene en el control: más allá de los recuentos, solo lee lo que estos no dicen —los Id de los registros que la ejecución retendría o dejaría de lado y de los roles de contacto que la plataforma escribe por sí misma, y el tamaño de los correos y los archivos— y no escribe nada, y dice lo que la ejecución escribiría, tomaría de ambas orgs y dejaría fuera. No se ofrece el ensayo: un ensayo mantiene en memoria cada fila que prepara."
     },
     "gaps": {
       "notRead": "Todavía no se ha leído nada. Simule la ejecución, o ensáyela, para saber qué rechazaría o cambiaría el destino en sus filas.",
@@ -4984,7 +4984,7 @@
     "graphViewSlow_other": "Dibujado como grafo, un clon de la org entera o un grafo de más de 150 objetos puede bloquear el panel un rato, y una ejecución lo vuelve a dibujar en cada paso: la tabla lista sus {{formatted}} objetos al instante.",
     "wholeOrgDryRun": {
       "title": "Simulación de toda la org",
-      "stopped": "Se detuvo en el control de escritura de la ejecución una vez contado el origen: no se leyó ninguna fila más allá de los recuentos y no se escribió nada en ninguna de las dos orgs.",
+      "stopped": "Se detuvo en el control de escritura de la ejecución una vez contado el origen: más allá de los recuentos, solo se leyeron los Id de los registros que la ejecución retendría o dejaría de lado y de los roles de contacto que la plataforma escribe por sí misma, además del tamaño de los correos y los archivos, y no se escribió nada en ninguna de las dos orgs.",
       "records_one": "{{formatted}} registro que escribir en {{target}}, de {{objects}} objetos, en unos {{duration}}.",
       "records_other": "{{formatted}} registros que escribir en {{target}}, de {{objects}} objetos, en unos {{duration}}.",
       "refused_one": "La ejecución se rechazaría, por {{count}} motivo:",

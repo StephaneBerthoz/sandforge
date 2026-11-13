@@ -17,9 +17,10 @@ function renderDry(over: Parameters<typeof wholeOrgDryRun>[0] = {}): void {
 }
 
 /*
- * The dry run of a clone of the whole org stops at its gate, reading no row
- * and writing nothing: what it says there is all the page has to decide on a
- * run that can write millions of records into an org.
+ * The dry run of a clone of the whole org stops at its gate, reading past the
+ * counts only what they cannot tell and writing nothing: what it says there
+ * is all the page has to decide on a run that can write millions of records
+ * into an org.
  */
 describe('ForgeWholeOrgDryRunResult', () => {
   it('says it stopped at the gate, and what the run would write and how long it would take', () => {
@@ -27,7 +28,13 @@ describe('ForgeWholeOrgDryRunResult', () => {
 
     const panel = screen.getByTestId('forge-whole-org-dry-run');
     expect(panel.textContent).toContain('Dry run of the whole org');
-    expect(panel.textContent).toContain('no row was read past the counts');
+    // It said no row was read past the counts, where it reads the ids of the
+    // records the run would hold back or leave aside, and more.
+    expect(panel.textContent).toContain(
+      'past the counts, only the ids of the records the run would hold back or leave aside ' +
+        'and of the contact roles the platform writes itself were read, with the size of the ' +
+        'emails and files, and nothing was written to either org.',
+    );
     expect(screen.getByTestId('forge-whole-org-dry-run-records').textContent).toBe(
       '9,400 records to write into uat, of 4 objects, in about 1h 6min.',
     );

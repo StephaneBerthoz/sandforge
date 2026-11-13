@@ -939,12 +939,16 @@ export interface WholeOrgBoundary extends WholeOrgMeasures {
   files?: { count: number; bytes: number; overCeiling: number } | { unmeasured: true };
   /**
    * The requests the run's reads of the source take still, past those made
-   * before the gate (the counts, the describes, the text of the emails): a
-   * page per 2 000 rows of each object it reads, the emails on a case read
-   * again once their tasks are written, and, of a run that copies files, a
-   * page per 2 000 files of each kind, a read of the links of each 200
-   * Salesforce Files, and a read of each file's content. At least: an object
-   * too wide for one statement is read a statement per group of columns.
+   * before the gate (the counts, the describes, the text of the emails, the
+   * rows it holds back one by one: `heldReads`): a page per 2 000 rows of
+   * each object it reads, a read by id per page of an object and lookup its
+   * rows may not leave empty of whether the source holds the record named
+   * (`rowsHeldInTheWholeOrg`), the emails on a case read again once their
+   * tasks are written, and, of a run that copies files, a page per 2 000
+   * files of each kind, a read of the links of each 200 Salesforce Files,
+   * and a read of each file's content. At least: an object too wide for one
+   * statement is read a statement per group of columns, and a page naming
+   * more than 200 records the run did not write a read more per 200.
    */
   sourceReads: number;
   /**
@@ -2949,6 +2953,34 @@ function samplesOfParentsNotWritten(
  * what its write holds back one by one (`heldAtTheGate`).
  */
 const HELD_AT_THE_GATE_MOST = 50_000;
+
+/** What the gate of a clone of the whole org read of the rows its write holds back one by one. */
+interface HeldAtTheGateReads {
+  /** The requests those reads sent, a page per 2 000 ids of each. */
+  requests: number;
+  /** Per object, the lookups its rows may not leave empty, at an object written before it. */
+  lookups: Map<string, number>;
+}
+
+/**
+ * The reads by id a clone of the whole org makes as it writes, of whether the
+ * source holds the record a lookup its rows may not leave empty names, when
+ * the run did not write it (`rowsHeldInTheWholeOrg`): one per page of each
+ * object and such lookup, a page naming more than 200 such records a read
+ * more per 200, which no count can tell before the run.
+ */
+function idReadsAsItWrites(
+  written: ReadonlyArray<{ node: ForgeGraphNode; read: number }>,
+  lookups: ReadonlyMap<string, number> | undefined,
+): number {
+  if (!lookups || lookups.size === 0) return 0;
+  return written.reduce(
+    (sum, { node, read }) =>
+      sum +
+      (read > 0 ? (lookups.get(node.objectApiName) ?? 0) * Math.ceil(read / ROWS_PER_PAGE) : 0),
+    0,
+  );
+}
 
 /**
  * What `heldInTheOrg` holds of an id the source does not hold: rows naming it
@@ -6441,9 +6473,9 @@ export class ForgeExecutor {
         'Forge execution was aborted by user request. Remaining objects were not processed.',
       );
     }
-    if (everything) await this.heldAtTheGate(state, runOrder, objects);
+    const held = everything ? await this.heldAtTheGate(state, runOrder, objects) : undefined;
     const wholeOrg = everything
-      ? await this.measureTheWholeOrg(state, objects, readWhole, written)
+      ? await this.measureTheWholeOrg(state, objects, readWhole, written, held)
       : undefined;
     if (this.isAborted) {
       throw new ForgeAbortedError(
@@ -6485,6 +6517,12 @@ export class ForgeExecutor {
    * are counted in, said too many rather than too few. A read the source
    * refuses counts nothing out: the run finds those rows as it writes. The
    * rows told are held back by the run as told here.
+   *
+   * @returns What its gate prices of these reads: the requests they sent, a
+   *   page per 2 000 ids of each, and per object the lookups its rows may
+   *   not leave empty, which the run reads by id as it writes each page
+   *   (`rowsHeldInTheWholeOrg`), past the most ids it reads too. Unpriced,
+   *   a dry run said fewer requests of the source than its run sent.
    */
   private async heldAtTheGate(
     state: ExecutionState,
@@ -6494,7 +6532,7 @@ export class ForgeExecutor {
       counted: ForgeCountedObject;
       leftOut?: ForgeRowsLeftOut;
     }>,
-  ): Promise<void> {
+  ): Promise<HeldAtTheGateReads> {
     const { config } = state;
     const written = runOrder.filter(
       (node) =>
@@ -6515,14 +6553,21 @@ export class ForgeExecutor {
       told.set(object, ids);
       left--;
     };
+    const reads: HeldAtTheGateReads = { requests: 0, lookups: new Map() };
+    /** The ids `idsUnder` reads, its pages counted among the gate's requests. */
+    const idsUnder = async (object: string, condition: string): Promise<string[] | undefined> => {
+      const ids = await this.idsUnder(state, object, condition);
+      reads.requests += Math.max(1, Math.ceil((ids?.length ?? 0) / ROWS_PER_PAGE));
+      return ids;
+    };
     for (const node of written) {
-      if (this.isAborted || left <= 0) break;
+      if (this.isAborted) break;
       const object = node.objectApiName;
-      if (this.streamsNode(node, state)) {
+      if (left > 0 && this.streamsNode(node, state)) {
         const types = await this.recordTypesOfTable(state, node);
         if (types && types.closed.length > 0 && this.typesHeldRowByRow(state, types)) {
           const list = types.closedInSource.map((type) => `'${type}'`).join(', ');
-          const ids = list ? await this.idsUnder(state, object, `RecordTypeId IN (${list})`) : [];
+          const ids = list ? await idsUnder(object, `RecordTypeId IN (${list})`) : [];
           for (const id of ids ?? []) tell(object, id, 'held');
           ofTypes.set(object, told.get(object)?.size ?? 0);
         }
@@ -6544,9 +6589,11 @@ export class ForgeExecutor {
         ) {
           continue;
         }
+        reads.lookups.set(object, (reads.lookups.get(object) ?? 0) + 1);
+        // Past the most ids it reads, the run finds the rest as it writes.
+        if (left <= 0) continue;
         const field = assertSoqlIdentifier(f.name);
-        const orphans = await this.idsUnder(
-          state,
+        const orphans = await idsUnder(
           object,
           `${field} != null AND ${field} NOT IN (SELECT Id FROM ${assertSoqlIdentifier(parent)})`,
         );
@@ -6570,7 +6617,7 @@ export class ForgeExecutor {
         ] as const) {
           for (const list of idLists(ids)) {
             if (left <= 0) break;
-            for (const id of (await this.idsUnder(state, object, `${field} IN (${list})`)) ?? []) {
+            for (const id of (await idsUnder(object, `${field} IN (${list})`)) ?? []) {
               tell(object, id, why);
             }
           }
@@ -6601,6 +6648,7 @@ export class ForgeExecutor {
     for (const ids of told.values()) {
       for (const [id, why] of ids) state.heldInTheOrg.set(id, why);
     }
+    return reads;
   }
 
   /**
@@ -6648,12 +6696,15 @@ export class ForgeExecutor {
    * @param objects - What the gate is shown of each object, as counted.
    * @param readWhole - The nodes the run reads whole, and their rows.
    * @param written - The nodes it writes: what it reads of each, and whether whole.
+   * @param held - What its reads of the rows it holds back one by one sent,
+   *   and the lookups the run reads by id as it writes (`heldAtTheGate`).
    */
   private async measureTheWholeOrg(
     state: ExecutionState,
     objects: ReadonlyArray<{ objectApiName: string; counted?: ForgeCountedObject }>,
     readWhole: ReadonlyArray<{ objectApiName: string; rows: number }>,
     written: ReadonlyArray<{ node: ForgeGraphNode; read: number; whole: boolean }>,
+    held?: HeldAtTheGateReads,
   ): Promise<WholeOrgBoundary> {
     const { config } = state;
     const bound = config.stream?.wholeReadBound;
@@ -6683,7 +6734,10 @@ export class ForgeExecutor {
       ...(restOnly ? { restOnly } : {}),
       ...(emailTextBytes !== undefined ? { emailTextBytes } : {}),
       ...(config.files ? { files: files ?? { unmeasured: true as const } } : {}),
-      sourceReads: await this.sourceReadsOf(state, written, readWhole, files),
+      sourceReads:
+        (await this.sourceReadsOf(state, written, readWhole, files)) +
+        idReadsAsItWrites(written, held?.lookups),
+      ...(held && held.requests > 0 ? { heldReads: held.requests } : {}),
       ...(over.length > 0 ? { readWholeOver: over } : {}),
       ...(blanked > 0 ? { contactPointsBlanked: blanked } : {}),
     };
@@ -9665,12 +9719,16 @@ export class ForgeExecutor {
     // there was none to copy.
     if (unread) state.files.lookupFailure = unread;
 
-    const shortfall =
-      remaining === undefined ? null : storageShortfall(bytesOf(selection.files), remaining);
-    if (shortfall && !config.dryRun) {
+    const needed = bytesOf(selection.files);
+    const shortfall = remaining === undefined ? null : storageShortfall(needed, remaining);
+    if (shortfall && remaining !== undefined && !config.dryRun) {
       throw new ForgeFilesRefusedError(
         `${shortfall} Nothing was written.`,
         'FILE_STORAGE_EXCEEDED',
+        {
+          neededBytes: needed,
+          remainingBytes: remaining,
+        },
       );
     }
     if (shortfall) state.errors.push(filesRunError(shortfall));

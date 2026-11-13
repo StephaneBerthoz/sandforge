@@ -68,11 +68,16 @@ export type FilesRefusalCode =
 /**
  * Raised when a run asked to copy files may not go ahead, with why
  * ({@link FilesRefusalCode}). Raised before anything is written.
+ *
+ * Files that do not fit (`FILE_STORAGE_EXCEEDED`) carry what they take and
+ * what the target has left, in bytes: the panel says them in its own
+ * language, where a sentence alone reached it in English.
  */
 export class ForgeFilesRefusedError extends Error {
   constructor(
     message: string,
     readonly code: FilesRefusalCode,
+    readonly storage?: { neededBytes: number; remainingBytes: number },
   ) {
     super(message);
     this.name = 'ForgeFilesRefusedError';

@@ -8764,6 +8764,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
               target: args.target,
               dryRun: args.dryRun,
               elapsedMs: elapsedSince(t0),
+              apiRequests: cloneApiRequestsJson(
+                { target: sentOf(args.target), source: sentOf(args.source) },
+                {},
+              ),
             },
             refused,
           ),
@@ -9064,6 +9068,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
             target: args.target,
             dryRun: args.dryRun,
             elapsedMs: elapsedSince(t0),
+            apiRequests: cloneApiRequestsJson(
+              { target: sentOf(args.target), source: sentOf(args.source) },
+              {},
+              discoveryRequests,
+            ),
           },
           nothing,
         ),
@@ -9295,11 +9304,27 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   let mute: RunMute | undefined;
   /** Why a dry run's mute would be refused, said with the rest of its refusals. */
   let muteRefused: RunRefusal | undefined;
+  /** What the gate priced the run at, of each org it prices: what the summary's `apiRequests` says beside what was sent. */
+  let pricedAtTheGate: { target?: ApiBudgetCheck; source?: ApiBudgetCheck } = {};
+  /**
+   * The summary's API requests: of each org, what the gate priced the run at
+   * against what it had left, once priced, and `sent`, every request the
+   * command sent it, counted as it sent them; and, of a clone of the whole
+   * org, what its discovery sent each.
+   */
+  const apiRequestsDocument = () => ({
+    apiRequests: cloneApiRequestsJson(
+      { target: sentOf(args.target), source: sentOf(args.source) },
+      pricedAtTheGate,
+      wholeOrg ? discoveryRequests : undefined,
+    ),
+  });
   /**
    * End a run refused before its first write as Sync ends one: each refusal's
    * line names its code, and with --json the summary on stdout carries them,
-   * where a CI job reads `.refused.code`. Refused past --max-total, its
-   * storage or a mute, a clone said a sentence on stderr and left stdout empty.
+   * where a CI job reads `.refused.code`, with the API requests sent so far
+   * (`apiRequests`). Refused past --max-total, its storage or a mute, a clone
+   * said a sentence on stderr and left stdout empty.
    */
   const endRefused = (refused: RunRefusal, also: readonly RunRefusal[] = []): never => {
     for (const refusal of [refused, ...also]) process.stderr.write(`${refusedLine(refusal)}\n`);
@@ -9312,6 +9337,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
             target: args.target,
             dryRun: args.dryRun,
             elapsedMs: elapsedSince(t0),
+            ...apiRequestsDocument(),
           },
           refused,
           also,
@@ -9828,21 +9854,6 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // a call for a limit, from the requests the gate read of the target; none
   // read, the run keeps its own 2 000.
   let allowedAtTheGate: Pick<ForgeWriteGateAnswer, 'splitAllowance'> = {};
-  /** What the gate priced the run at, of each org it prices: what the summary's `apiRequests` says beside what was sent. */
-  let pricedAtTheGate: { target?: ApiBudgetCheck; source?: ApiBudgetCheck } = {};
-  /**
-   * The summary's API requests: of each org, what the gate priced the run at
-   * against what it had left, once priced, and `sent`, every request the
-   * command sent it, counted as it sent them; and, of a clone of the whole
-   * org, what its discovery sent each.
-   */
-  const apiRequestsDocument = () => ({
-    apiRequests: cloneApiRequestsJson(
-      { target: sentOf(args.target), source: sentOf(args.source) },
-      pricedAtTheGate,
-      wholeOrg ? discoveryRequests : undefined,
-    ),
-  });
   /**
    * What the gate of a clone of the whole org said: of a dry run, what it
    * would write and take of both orgs and what it leaves out (`dry`); of
@@ -9896,8 +9907,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
    * batches in one budget (`forgeWriteBudgetOf`); and the command line's own:
    * --max-total and the emails its flows send. Its dry run reads the same
    * limits (`wholeOrgDryRunOf`) and stops here, nothing of the source read
-   * past its counts. A run let through is asked, whatever its volume, what
-   * the panel's question says (`wholeOrgConfirmationOf`).
+   * past its counts but what they cannot tell. A run let through is asked,
+   * whatever its volume, what the panel's question says
+   * (`wholeOrgConfirmationOf`).
    */
   const wholeOrgGate = async (boundary: ForgeWriteBoundary): Promise<void> => {
     const measures = boundary.wholeOrg;
@@ -10161,6 +10173,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         checkpointFailed = beforeRunFailedWords(err).replace(/ Nothing was written\.$/, '');
       }
     }
+    // Priced with what the command sent the target before this gate, as
+    // counted, as a clone of the whole org and a seed are: the price of the
+    // writes alone was under what its summary's `sent` then said.
     const gate = forgeWriteBudgetOf({
       plan,
       updatedAfterInsert: [...updatedNames],
@@ -10168,6 +10183,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       ...(checkpointPlanned ? { checkpoint: checkpointPlanned.estimate } : {}),
       mute: muteLeaseRequests(mute?.plan),
       ...deliverabilityPartOf(emails?.ofRun),
+      sentBefore: sentBeforeTheGate().target,
       budget,
       target: args.target,
     });
@@ -10677,8 +10693,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     }
   } catch (err: unknown) {
     // The dry run of the whole org stops at its gate, nothing of the source
-    // read past its counts: what it said there is its summary, and a real run
-    // it says would be refused ends it as a refusal does, exit 1.
+    // read past its counts but what they cannot tell: what it said there is
+    // its summary, and a real run it says would be refused ends it as a
+    // refusal does, exit 1.
     if (err instanceof WholeOrgDryRunStop) {
       const document = wholeOrgDryRunDocument(err.dryRun);
       if (args.json) process.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
