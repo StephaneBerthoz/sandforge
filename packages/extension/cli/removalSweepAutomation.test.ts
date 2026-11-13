@@ -326,8 +326,14 @@ describe.each(COMMANDS)('$name --remove --sweep', ({ name, main, summary }) => {
     expect(org.ids('Asset')).toEqual([ASSET]);
     expect(org.ids('Case')).toEqual([CASE]);
     // Read once, on what both delete: the sweep's own read of what the run's
-    // objects fire comes before it, and tells nothing of the asset.
-    expect(steps.at(-1)).toBe('read Account Asset Case');
+    // objects fire comes before it, and tells nothing of the asset. The clone
+    // kept its user: its removal takes the sets the target's duplicate rules
+    // made of its records, read with the rest.
+    expect(steps.at(-1)).toBe(
+      name === 'sandforge-clone'
+        ? 'read Account Asset Case DuplicateRecordSet'
+        : 'read Account Asset Case',
+    );
   });
 
   it('names the set that keeps it quiet, which --mute-automation assigns, and no command with the user’s name', async () => {

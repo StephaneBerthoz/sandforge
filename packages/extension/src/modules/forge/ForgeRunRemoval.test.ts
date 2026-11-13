@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ForgeRunObjectRecords, ForgeUndoObjectResult } from '@sandforge/shared';
 
 import {
+  objectsRemovedOf,
   removeRunRecords,
   setBackToDraftOf,
   takenAlong,
@@ -3677,6 +3678,21 @@ describe('takenAlong', () => {
   });
 });
 
+describe('objectsRemovedOf', () => {
+  it('adds the duplicate record sets a removal takes when the run kept its user, and none otherwise', () => {
+    // Taken by the removal (`duplicateSetsOf`), the sets were read for
+    // nothing the target runs as they go.
+    expect(objectsRemovedOf(['Account', 'Contact'], [], { userKept: true })).toEqual([
+      'Account',
+      'Contact',
+      'DuplicateRecordSet',
+    ]);
+    expect(objectsRemovedOf(['Account', 'Contact'])).toEqual(['Account', 'Contact']);
+    // Nothing of the run left to remove, no set goes either.
+    expect(objectsRemovedOf([], [], { userKept: true })).toEqual([]);
+  });
+});
+
 describe('setBackToDraftOf', () => {
   it('names the objects whose records past Draft a removal sets back to Draft, and not a contract, deleted as it stands', () => {
     expect(setBackToDraftOf(['Account', 'Order', 'Contract', 'OrderItem'])).toEqual(['Order']);
@@ -3865,6 +3881,36 @@ describe('removeRunRecords — what the target automation made under the run rec
     });
     expect(outcome.objects[0].heldByAutomation).toBeUndefined();
     expect(outcome.objects[0].automationHolders).toBeUndefined();
+  });
+
+  it('counts none for a record held by what the automation made, when a colleague made a record under that within the minute and the run kept no user: it stays, named', async () => {
+    // With no user kept, what was made under one of the run's records
+    // within the minute is the automation's whoever made it, until that
+    // record says who wrote it: the note a colleague made by hand under the
+    // automation's task passed for more of its work, and the account was
+    // said held by the automation alone, which --sweep would take.
+    const org = accountWithTask(madeJustAfter);
+    org.relationships.set('Task', [
+      { childSObject: 'Task_Note__c', field: 'Task__c', cascadeDelete: true },
+    ]);
+    org.add('Task_Note__c', {
+      Id: id('a0N', 1),
+      Task__c: TASK,
+      ...madeJustAfter,
+      CreatedById: COLLEAGUE,
+      LastModifiedById: COLLEAGUE,
+    });
+
+    const outcome = await removeRunRecords(org, PLAN, options());
+
+    expect(outcome.objects[0]).toMatchObject({
+      deleted: 0,
+      keptDependents: 1,
+      heldBy: ['Task', 'Task_Note__c'],
+    });
+    expect(outcome.objects[0].heldByAutomation).toBeUndefined();
+    expect(outcome.objects[0].automationHolders).toBeUndefined();
+    expect(org.has('Task_Note__c', id('a0N', 1))).toBe(true);
   });
 
   it('still counts held by the automation what only more of the automation’s work hangs from', async () => {
@@ -4196,6 +4242,59 @@ describe('removeRunRecords — what came with the run under its records, and wha
       cameAlong: { count: 1, objects: ['OpportunityContactRole'] },
     });
     expect(org.has('OpportunityContactRole', ROLE)).toBe(false);
+  });
+
+  it('names neither the duplicate rule’s report on a record of the run nor a person account’s own contact among what came along, and both still go', async () => {
+    // Each is the record's own other half, which the org deletes with it:
+    // named, a removal said that a contact and a report "came along" with
+    // every person account and every account a rule matched.
+    const org = new FakeOrg();
+    org.relationships.set('Account', [
+      ...ACCOUNT_CHILDREN,
+      { childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true },
+    ]);
+    org.fields.set('Account', ['Id', 'Name', 'IsPersonAccount']);
+    org.add(
+      'Account',
+      runRow(ACCOUNT, { IsPersonAccount: false }),
+      runRow(id('001', 2), { IsPersonAccount: true }),
+    );
+    org.add(
+      'Contact',
+      {
+        Id: id('003', 1),
+        AccountId: id('001', 2),
+        IsPersonAccount: true,
+        CreatedDate: DURING_RUN,
+        LastModifiedDate: DURING_RUN,
+      },
+      // Made as the run wrote, under the business account: this one is named.
+      { ...runRow(CAME, { AccountId: ACCOUNT }), IsPersonAccount: false },
+    );
+    const aSecondAfter = new Date(Date.parse(RUN_ENDED) + 1_000).toISOString();
+    org.add('DuplicateRecordItem', {
+      Id: id('0GL', 1),
+      RecordId: ACCOUNT,
+      DuplicateRecordSetId: id('0GK', 1),
+      CreatedDate: aSecondAfter,
+      LastModifiedDate: aSecondAfter,
+    });
+
+    const outcome = await removeRunRecords(
+      org,
+      [{ objectApiName: 'Account', ids: [ACCOUNT, id('001', 2)] }],
+      options(),
+    );
+
+    expect(outcome.objects[0]).toMatchObject({
+      objectApiName: 'Account',
+      deleted: 2,
+      keptDependents: 0,
+      cameAlong: { count: 1, objects: ['Contact'] },
+    });
+    expect(org.has('Contact', id('003', 1))).toBe(false);
+    expect(org.has('Contact', CAME)).toBe(false);
+    expect(org.has('DuplicateRecordItem', id('0GL', 1))).toBe(false);
   });
 
   it('reads nothing further down once what goes along was read and accepted before, as a rewind’s plan does', async () => {

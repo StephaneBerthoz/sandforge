@@ -21,6 +21,12 @@ vi.mock('./prompt.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./prompt.js')>();
   return { ...actual, confirm: vi.fn() };
 });
+// The removal is the real one; a test may have it take the records of an org
+// in miniature, told what the run wrote.
+vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/modules/forge/ForgeRunRemoval.js')>();
+  return { ...actual, removalOrg: vi.fn(actual.removalOrg) };
+});
 
 import { execFileSync } from 'node:child_process';
 import { loadOrg, makeConn } from './sfSession.js';
@@ -48,6 +54,8 @@ import { UNATTRIBUTED_TAG } from '../src/modules/forge/ForgeRunStore.js';
 import { LostBulkJobs } from '../src/modules/forge/lostBulkJobs.js';
 import { BulkJobLostError } from '../src/modules/forge/forgeBulkWrite.js';
 import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
+import { removalOrg, type RemovalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
+import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -982,6 +990,86 @@ describe('sandforge-clone --depth all, a clone of the whole org', () => {
           'Ticket__c:Ticket 2',
         ].sort(),
       );
+    });
+
+    it('keeps the user it wrote as in its journal and its summary, and the removal of its journal takes the duplicate record sets the target made of its records', async () => {
+      // Live (GC22 D1), the command line kept the user nowhere: the removal
+      // of its journal, which reads the sets only when it knows that user,
+      // left the two the target's Lead and Contact rules made, empty.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-11-13T09:07:00.000Z'));
+      try {
+        withFakeOrgs();
+        expect(await run(argv('--json', '--yes'))).toBeUndefined();
+        const document = JSON.parse(stdout.join('')) as {
+          journal: string;
+          result: {
+            runUserId?: string;
+            remapTable: Record<string, string>;
+            createdByObject: Array<{ objectApiName: string; sourceIds: string[] }>;
+          };
+        };
+        expect(document.result.runUserId).toBe(RUN_USER);
+
+        // The target as the run left it: its records, and the set the
+        // org's Automated Process user made of two of its contacts, with an
+        // item naming each.
+        const AUTOMATED = '005000000000003AAA';
+        const SET = '0GK000000000001AAA';
+        const org = new MemoryRemovalOrg({
+          Contact: [
+            { childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true },
+          ],
+        });
+        const contacts: string[] = [];
+        for (const { objectApiName, sourceIds } of document.result.createdByObject) {
+          for (const sourceId of sourceIds) {
+            const id = document.result.remapTable[sourceId];
+            org.add(objectApiName, { Id: id, CreatedById: RUN_USER, LastModifiedById: RUN_USER });
+            if (objectApiName === 'Contact') contacts.push(id);
+          }
+        }
+        const made = { CreatedById: AUTOMATED, LastModifiedById: AUTOMATED };
+        org.add('DuplicateRecordSet', { Id: SET, ...made });
+        contacts.slice(0, 2).forEach((recordId, n) =>
+          org.add('DuplicateRecordItem', {
+            Id: `0GL00000000000${n + 1}AAA`,
+            RecordId: recordId,
+            DuplicateRecordSetId: SET,
+            ...made,
+          }),
+        );
+        vi.mocked(removalOrg).mockReturnValue(org as unknown as RemovalOrg);
+        stdout = [];
+
+        expect(
+          await run([
+            'node',
+            'sandforge-clone.ts',
+            '--remove',
+            document.journal,
+            '--target',
+            'TGT',
+            '--json',
+          ]),
+        ).toBeUndefined();
+
+        expect(org.all('DuplicateRecordSet')).toEqual([]);
+        expect(org.all('Contact')).toEqual([]);
+        expect(JSON.parse(stdout.join(''))).toMatchObject({
+          result: {
+            status: 'success',
+            objects: expect.arrayContaining([
+              expect.objectContaining({ objectApiName: 'DuplicateRecordSet', deleted: 1 }),
+            ]),
+          },
+        });
+        const [head] = readFileSync(document.journal, 'utf8').split('\n');
+        expect(JSON.parse(head)).toMatchObject({ run: { runUserId: RUN_USER } });
+      } finally {
+        vi.mocked(removalOrg).mockReset();
+        vi.useRealTimers();
+      }
     });
 
     it('is refused at its gate before its question, with --yes too, for what the target has not left, naming each refusal', async () => {

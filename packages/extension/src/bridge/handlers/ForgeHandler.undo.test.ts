@@ -2158,6 +2158,21 @@ describe('forge:undo-automation', () => {
     ]);
   });
 
+  it('reads what fires on the duplicate record sets the target’s rules made of the run’s records when the run kept its user, as its removal takes them', async () => {
+    const entry = (store.get<ForgeExecutionResult[]>('forge:history') ?? [])[0];
+    store.set('forge:history', [{ ...entry, runUserId: id('005', 7) }], 'forge');
+
+    await handler.handle(buildMsg('forge:undo-automation:request', { forgeId: 'forge-1' }));
+    store.set('forge:history', [entry], 'forge');
+    await handler.handle(buildMsg('forge:undo-automation:request', { forgeId: 'forge-1' }));
+
+    expect(reader.read.mock.calls.map(([, objects]) => [...objects].sort())).toEqual([
+      ['Account', 'Contact', 'DuplicateRecordSet', 'Order'],
+      // No user kept, its removal takes no set.
+      ['Account', 'Contact', 'Order'],
+    ]);
+  });
+
   it('refuses what is no API name among what a sweep deletes, and reads nothing', async () => {
     await handler.handle(
       buildMsg('forge:undo-automation:request', {

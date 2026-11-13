@@ -961,6 +961,20 @@ describe('a sweep asked with a removal', () => {
       expect(permissions.assignments()).toEqual([]);
     });
 
+    it('plans it on the duplicate record sets of the run’s records too when the run kept its user, as the removal takes them', async () => {
+      store.set('forge:history', [runEntry({ runUserId: USER })], 'forge');
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', muteAutomation: true }));
+
+      expect(errors()).toEqual([]);
+      expect([...(reader.read.mock.calls.at(-1)?.[1] ?? [])].sort()).toEqual([
+        'Account',
+        'Case',
+        'Contact',
+        'DuplicateRecordSet',
+      ]);
+    });
+
     describe('of a user who may not delete the cases', () => {
       /** What the org was told by the time the question was put. */
       let seenAsked: string[][];

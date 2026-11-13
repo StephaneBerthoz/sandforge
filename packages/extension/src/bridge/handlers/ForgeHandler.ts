@@ -178,6 +178,7 @@ import {
   objectsUpdatedAfterInsert,
   overEmailOf,
   forgeWriteBudgetOf,
+  automationReadRequests,
   pricesForLinesOf,
   rolesMayBeOf,
   unreadEmailOf,
@@ -942,6 +943,9 @@ const AUTOMATION_REUSE_MS = 10 * 60_000;
 /** The reads of the target's automation kept for the runs Execute starts. */
 const AUTOMATION_READS_KEPT = 8;
 
+/** The discoveries whose requests are kept for the runs of their graphs. */
+const DISCOVERIES_KEPT = 8;
+
 /**
  * What the target runs on the objects a run writes, read before it — Review's
  * read reused, or its own — or why it could not be read.
@@ -1421,6 +1425,19 @@ function automationKey(targetOrgId: string, graph: Pick<ForgeGraph, 'nodes' | 'e
   return JSON.stringify([targetOrgId, nodes, edges]);
 }
 
+/**
+ * What tells the graph one discovery answered from another's, for a run of it
+ * to price what that discovery sent (`discoverySent`): both orgs, and the
+ * objects it found, whichever of them Review then leaves out.
+ */
+function discoveryKey(
+  orgs: Pick<ForgeConfig, 'sourceOrgId' | 'targetOrgId'>,
+  graph: Pick<ForgeGraph, 'nodes'>,
+): string {
+  const objects = (graph.nodes ?? []).map((node) => node.objectApiName).sort();
+  return JSON.stringify([orgs.sourceOrgId, orgs.targetOrgId, objects]);
+}
+
 /** What the target runs, without the objects the user left out. */
 function withoutObjects(
   automation: ForgeTargetAutomation,
@@ -1598,6 +1615,15 @@ export class ForgeHandler implements DomainHandler {
    * kept for it: a question about it was declined (`readAutomationAgain`).
    */
   private readonly automationReadAgain = new Set<string>();
+
+  /**
+   * What each discovery sent the two orgs, by the graph it answered
+   * (`discoveryKey`), for the write gate of a run of that graph to price it
+   * with the run's writes, as the command line prices what it sent before
+   * its gate: the graph the page sends back to be run keeps none of it
+   * (`forgeGraphSchema`). A graph the session's cache served sent nothing.
+   */
+  private readonly discoverySent = new Map<string, { source: number; target: number }>();
 
   /**
    * The tracker the Monitor's Live Operations panel lists, where a removal
@@ -2125,6 +2151,13 @@ export class ForgeHandler implements DomainHandler {
         return;
       }
       const discoveryRequests = discoveryRequestsOf(sent, config);
+      const discovered = discoveryKey(config, graph);
+      this.discoverySent.delete(discovered);
+      if (discoveryRequests) this.discoverySent.set(discovered, discoveryRequests);
+      for (const oldest of this.discoverySent.keys()) {
+        if (this.discoverySent.size <= DISCOVERIES_KEPT) break;
+        this.discoverySent.delete(oldest);
+      }
       const response = buildResponse(this.deps, msg, 'forge:discover:response', {
         graph: discoveryRequests ? { ...graph, discoveryRequests } : graph,
       });
@@ -2679,6 +2712,8 @@ export class ForgeHandler implements DomainHandler {
     let emailsPerInsert: ForgeEmailsPerInsert[] = [];
     /** What the target runs, read before the run, or why it could not be: the gate says what of it sends unread. */
     let targetAutomation: TargetAutomationRead | undefined;
+    /** What that read sent the target, Review's own when the run took it (`automationReadRequests`). */
+    let automationSent = 0;
     /** Of a simulation, what it would write, kept for the run of its case that follows once it ends. */
     let simulatedPlan: WritePlan | undefined;
     /** The mute the run asked for, held while it writes; undefined when it asked none, or nothing can be muted. */
@@ -2794,6 +2829,7 @@ export class ForgeHandler implements DomainHandler {
         write === 'insert' || (write === 'update' && updatedNames.has(objectApiName));
       if (!dryRun) {
         const read = await this.automationBeforeTheRun(config.targetOrgId, graph);
+        automationSent = automationReadRequests('automation' in read ? read.automation : read);
         // Asked to mute, the run plans it from what it read, and its gate asks
         // only for what still runs: the bypasses it is to hold count as held.
         // Refused on a production org or for a user who cannot assign, it
@@ -3050,6 +3086,13 @@ export class ForgeHandler implements DomainHandler {
         emailsPerInsert,
         ...(targetAutomation !== undefined ? { automation: targetAutomation } : {}),
         ...deliverabilityPartOf(emails?.ofRun),
+        // What was sent the target to prepare the run, which the run's own
+        // count leaves out: the discovery of its graph and the read of its
+        // automation, priced as the command line prices what it sent before
+        // its gate. Priced without them, a run of a graph whose discovery
+        // read the target was let through on its writes alone.
+        sentBefore:
+          automationSent + (this.discoverySent.get(discoveryKey(config, graph))?.target ?? 0),
         // The lease its mute holds while it writes, from the plan the run took
         // it from, or the one a simulation planned.
         mute: muteLeaseRequests(mute?.plan ?? simulatedMute),
@@ -3947,16 +3990,21 @@ export class ForgeHandler implements DomainHandler {
    * past Draft back to Draft first, and as its sweep deletes those of `swept`,
    * none of which it sets back: as the removal's question reads it. Of a run
    * cut and taken up, `otherParts` are the objects its other parts left: the
-   * opportunity whose quote this part synced may be among them.
+   * opportunity whose quote this part synced may be among them. Of a run that
+   * kept its user (`userKept`), the sets its duplicate rules made of the
+   * run's records, which the removal takes.
    */
   private async removalMute(
     targetOrgId: string,
     objects: readonly string[],
     swept: readonly string[],
     otherParts: readonly string[] = [],
+    userKept = false,
   ): Promise<RunMute> {
     const reader = this.targetAutomation;
-    const removed = [...new Set([...objectsRemovedOf(objects, otherParts), ...swept])];
+    const removed = [
+      ...new Set([...objectsRemovedOf(objects, otherParts, { userKept }), ...swept]),
+    ];
     const read: ForgeTargetAutomation | { unread: string } = reader
       ? await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
           .withTimeout('forge:undo-automation', () => reader.read(targetOrgId, removed))
@@ -4409,6 +4457,11 @@ export class ForgeHandler implements DomainHandler {
     deliverability?: number;
     /** What the lease of the mute the run holds while it writes sends (`muteLeaseRequests`). */
     mute?: number;
+    /**
+     * What was sent the target before the gate to prepare the run, which the
+     * run's own count leaves out: priced with its writes (`forgeRequestPartsOf`).
+     */
+    sentBefore?: number;
     /** Of a clone of the whole org, what it brings its gate besides; absent for any other run. */
     wholeOrg?: WholeOrgRun;
     onConfirmed: () => void;
@@ -4464,6 +4517,10 @@ export class ForgeHandler implements DomainHandler {
           ...(boundary.readBack !== undefined ? { readBack: boundary.readBack } : {}),
           ...(run.mute !== undefined ? { mute: run.mute } : {}),
           ...(run.deliverability !== undefined ? { deliverability: run.deliverability } : {}),
+          // What was sent the target before, as its run's gate prices it.
+          ...(run.sentBefore !== undefined
+            ? { sentBefore: () => ({ target: run.sentBefore ?? 0 }) }
+            : {}),
           target: { org: run.org, limits: this.limitsTransportOf(run.targetOrgId, run.lookup) },
           source: {
             org: whole.source,
@@ -4585,6 +4642,7 @@ export class ForgeHandler implements DomainHandler {
         ...(estimate ? { checkpoint: estimate } : {}),
         ...(run.mute !== undefined ? { mute: run.mute } : {}),
         ...(run.deliverability !== undefined ? { deliverability: run.deliverability } : {}),
+        ...(run.sentBefore !== undefined ? { sentBefore: run.sentBefore } : {}),
         budget,
         target: run.org,
         ...(whole && measures
@@ -6449,6 +6507,9 @@ export class ForgeHandler implements DomainHandler {
               objectsIn(plan),
               sweptObjects,
               parts?.parts.flatMap((part) => part.objects) ?? [],
+              // Nothing of the run left, the removal takes no set: the sets
+              // a sweep that goes alone takes are among what it names.
+              entry.runUserId !== undefined && total > 0,
             )
           : undefined;
       // The lease, taken right before the first delete, once every question
@@ -7964,10 +8025,15 @@ export class ForgeHandler implements DomainHandler {
       // back to Draft: the page names its objects, as the list it shows reads
       // them. So do the copies the platform made of the run's lines on an
       // object the run never wrote, which the removal takes with its own —
-      // of a run cut and taken up, under the opportunity of another part.
+      // of a run cut and taken up, under the opportunity of another part —,
+      // and the sets the target's duplicate rules made of the run's records,
+      // which it takes when the run kept its user.
       const otherParts = await this.otherPartObjectsOf(parsed.forgeId, targetOrgId);
       const read = [
-        ...new Set([...objectsRemovedOf(objects, otherParts), ...(parsed.sweptObjects ?? [])]),
+        ...new Set([
+          ...objectsRemovedOf(objects, otherParts, { userKept: entry.runUserId !== undefined }),
+          ...(parsed.sweptObjects ?? []),
+        ]),
       ];
       const automation = await new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout(
         'forge:undo-automation',

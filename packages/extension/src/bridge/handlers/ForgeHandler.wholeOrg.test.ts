@@ -32,6 +32,7 @@ import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
 import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import { LostBulkJobs } from '../../modules/forge/lostBulkJobs.js';
 import { muteOrgOf } from '../../modules/forge/AutomationMuteLease.js';
+import { discoveryRequestSent } from '../../modules/forge/discoveryRequests.js';
 import type { BeforeRunCheckpoints } from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import type { RunConfirmation, WriteConfirmation } from '../../core/precheck/ProductionGuard.js';
@@ -909,6 +910,39 @@ describe('forge:execute of the whole org', () => {
       // Told neither, its estimate stood under what the run's gate holds it to.
       expect(dry.targetRequests.parts).toMatchObject({ readBack: 3, deliverability: 2 });
       expect(calls).toEqual(['limits tgt-org', 'limits src-org']);
+    });
+
+    it('prices too what the discovery of the org sent the target, as its run’s gate does, and the source as without it', async () => {
+      const dryRunOf = async (sent?: { source: number; target: number }) => {
+        vi.mocked(deps.broker.postToWebview).mockClear();
+        const orchestrator = orchestratorHanding();
+        vi.spyOn(orchestrator, 'discover').mockImplementation(async () => {
+          if (sent) {
+            discoveryRequestSent('src-org', sent.source);
+            discoveryRequestSent('tgt-org', sent.target);
+          }
+          return wholeOrgGraph();
+        });
+        Object.assign(deps.broker, { replyToRequester: vi.fn() });
+        use(orchestrator);
+        await handler.handle(
+          inboundRequest({
+            id: 'wv-discover',
+            type: 'forge:discover',
+            timestamp: Date.now(),
+            payload: { config: WHOLE_ORG },
+          } as BaseMessage),
+        );
+        await simulate();
+        const [response] = posted('forge:execute:response');
+        return response.payload.wholeOrgDryRun as WholeOrgDryRun;
+      };
+
+      const alone = await dryRunOf();
+      const discovered = await dryRunOf({ source: 60, target: 40 });
+
+      expect(discovered.targetRequests.estimate).toBe(alone.targetRequests.estimate + 40);
+      expect(discovered.sourceRequests.estimate).toBe(alone.sourceRequests.estimate);
     });
 
     it('ends as a failure when its run would be refused, naming every refusal', async () => {

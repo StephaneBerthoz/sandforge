@@ -983,6 +983,93 @@ describe('sandforge-clone --remove', () => {
       expect(removeRunRecords).not.toHaveBeenCalled();
     });
 
+    describe('on the duplicate record sets the target’s rules made of the run’s records', () => {
+      const RUN_USER = '005000000000007AAA';
+
+      beforeEach(() => {
+        targetFlows = [
+          {
+            ApiName: 'Duplicate_Set_Gone',
+            Label: 'Duplicate set gone',
+            TriggerType: 'RecordBeforeDelete',
+            RecordTriggerType: 'Delete',
+            TriggerObjectOrEvent: { QualifiedApiName: 'DuplicateRecordSet' },
+            ActiveVersionId: '301000000000009AAA',
+          },
+        ];
+      });
+
+      it('says what fires on them when the run kept its user, as its removal takes them, and deletes nothing without --accept-automation', async () => {
+        const summaryPath = file(runSummary({}, { runUserId: RUN_USER }));
+
+        expect(await run(['--remove', summaryPath, '--target', 'TGT'])).toBe(1);
+
+        expect(printed).toContain('  DuplicateRecordSet: before delete: flow "Duplicate set gone"');
+        expect(stderr.join('')).toContain(
+          'TGT runs automation on the records this removal deletes: DuplicateRecordSet: flow ' +
+            '"Duplicate set gone" (before delete).',
+        );
+        expect(removeRunRecords).not.toHaveBeenCalled();
+      });
+
+      it('says it in the preview of that removal too, deleting nothing', async () => {
+        vi.mocked(removeRunRecords).mockResolvedValue({
+          objects: [],
+          cancelled: false,
+          gone: [],
+          stamps: {},
+          left: noneLeft,
+          preview: { objects: [], userNames: {} },
+        });
+        const summaryPath = file(runSummary({}, { runUserId: RUN_USER }));
+
+        expect(
+          await run(['--remove', summaryPath, '--target', 'TGT', '--preview', '--json']),
+        ).toBeUndefined();
+
+        const answer = JSON.parse(stdout.join('')) as { refusals: string[] };
+        expect(answer.refusals).toEqual([
+          expect.stringContaining(
+            'TGT runs automation on the records this removal deletes: DuplicateRecordSet: flow ' +
+              '"Duplicate set gone" (before delete).',
+          ),
+        ]);
+      });
+
+      it('hands its preview the user the run wrote as, as the removal is handed it, so it counts the sets the removal would take', async () => {
+        // Live (GC22 D2), the preview said 129 records where the removal,
+        // told the user, would have taken the two sets beside them.
+        vi.mocked(removeRunRecords).mockResolvedValue({
+          objects: [],
+          cancelled: false,
+          gone: [],
+          stamps: {},
+          left: noneLeft,
+          preview: { objects: [], userNames: {} },
+        });
+        targetFlows = [];
+        const summaryPath = file(runSummary({}, { runUserId: RUN_USER }));
+
+        expect(
+          await run(['--remove', summaryPath, '--target', 'TGT', '--preview', '--json']),
+        ).toBeUndefined();
+
+        expect(vi.mocked(removeRunRecords).mock.calls[0]?.[2]).toMatchObject({
+          previewOnly: true,
+          runUserId: RUN_USER,
+        });
+      });
+
+      it('reads nothing of them for a run that kept no user, whose removal takes none', async () => {
+        const summaryPath = file(runSummary());
+
+        expect(await run(['--remove', summaryPath, '--target', 'TGT'])).toBeUndefined();
+
+        expect(printed.join('\n')).not.toContain('DuplicateRecordSet');
+        expect(removeRunRecords).toHaveBeenCalledTimes(1);
+      });
+    });
+
     it('removes all the same with --accept-automation, having said what fires', async () => {
       firing();
       const summaryPath = file(runSummary());

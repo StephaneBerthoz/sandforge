@@ -2282,17 +2282,31 @@ async function settleTakenAlong(
  * the target runs as records go is read on these, the question asked and the
  * mute planned from it: read on the run's objects alone, a clone without
  * quote lines in its plan had its removal delete the copies the platform made
- * of its line items, the flow on quote lines never read.
+ * of its line items, the flow on quote lines never read. So are the sets the
+ * target's duplicate rules made of the run's records, which a removal takes
+ * when the run kept the user it wrote as (`duplicateSetsOf`): read without
+ * them, what the target runs as a set is deleted was neither read nor asked
+ * about.
  *
  * @param otherParts - The objects the run's other parts created records of,
  *   for the removal of one part of a run cut and taken up: the opportunity
  *   whose quote the part synced may be another part's.
+ * @param run.userKept - Whether the run kept the user it wrote as
+ *   (`ForgeExecutionResult.runUserId`): only then does its removal take the
+ *   sets.
  */
 export function objectsRemovedOf(
   objects: readonly string[],
   otherParts: readonly string[] = [],
+  run: { userKept?: boolean } = {},
 ): string[] {
-  return [...new Set([...objects, ...quoteSyncCopyObjectsOf(objects, otherParts)])];
+  return [
+    ...new Set([
+      ...objects,
+      ...quoteSyncCopyObjectsOf(objects, otherParts),
+      ...(run.userKept === true && objects.length > 0 ? [DUPLICATE_SET_OBJECT] : []),
+    ]),
+  ];
 }
 
 /**
@@ -3118,6 +3132,12 @@ interface HeldVerdict {
   /** Of `held`, the keys of those held by something other than what the automation likely made. */
   otherwise: Set<string>;
   /**
+   * The records that stay under those read and may be what the target's
+   * automation made for the run, as their own rows tell: read below what the
+   * automation made, for who made each (`automationHeldBelow`).
+   */
+  mayBeAutomation: AutomationHolder[];
+  /**
    * Of `held`, by key, those held by nothing but records the target's
    * automation likely made for the run — created as its user, under the
    * record, within a sweep's `made` of it — with those records' objects.
@@ -3147,7 +3167,8 @@ interface HeldVerdict {
    * along with it, as far down as what goes along was read: each by its key,
    * with its object. Not the run's, another part's, what a sweep takes, nor
    * what the removal is told goes with its parent: those are named where
-   * they are counted.
+   * they are counted. Nor what the platform adds to a record of the run, or
+   * a person account's own contact: that record's own, it goes unnamed.
    */
   cameAlong: Map<string, Map<string, string>>;
   /** Relationships the org deletes along that could not be read by the record, by child object. */
@@ -3310,6 +3331,7 @@ class DependentsCheck {
       held: new Set(),
       holders: new Set(),
       otherwise: new Set(),
+      mayBeAutomation: [],
       byAutomation: new Map(),
       automationAfter: new Set(),
       automationAlong: new Set(),
@@ -3372,7 +3394,7 @@ class DependentsCheck {
     // Read a few at a time, and settled in the order they were asked: the
     // objects holding records are named in the same order however the reads
     // came back.
-    const mayBeAutomation: AutomationHolder[] = [];
+    const mayBeAutomation = verdict.mayBeAutomation;
     /** By object, what goes along with a candidate that is not the run's: see `heldBelow`. */
     const goingAlong = new Map<string, GoingAlong[]>();
     for (const { relationship, holding, unchecked, automation, along, goes: going } of await inPool(
@@ -3502,7 +3524,12 @@ class DependentsCheck {
    * record (`sweptHeldCheck`), and the candidate stays with it. Said held by
    * the automation, the removal would answer that `--sweep` takes it, which
    * the sweep then keeps. What else the automation made under it holds
-   * nothing here: a sweep takes that too.
+   * nothing here: a sweep takes that too. What someone other than the one
+   * who made the record made under it holds it, though: with no user the run
+   * kept, what stays under a record of the run within the minute passes for
+   * the automation's whoever made it (`mayBeAutomation`), and a colleague's
+   * note made by hand under the automation's task passed for more of its
+   * work. In doubt, it stays, and is named.
    */
   private async automationHeldBelow(
     holders: readonly AutomationHolder[],
@@ -3516,7 +3543,11 @@ class DependentsCheck {
     for (const [objectApiName, held] of byObject) {
       const under = await this.heldAmong(objectApiName, [...new Set(held.map((h) => h.id))], 1);
       for (const holder of held) {
-        if (!under.otherwise.has(recordKey(holder.id))) continue;
+        const key = recordKey(holder.id);
+        const byAnother = under.mayBeAutomation.some(
+          (below) => recordKey(below.parent) === key && below.creator !== holder.creator,
+        );
+        if (!under.otherwise.has(key) && !byAnother) continue;
         this.hold(verdict, recordKey(holder.parent));
         under.holders.forEach((name) => verdict.holders.add(name));
       }
@@ -3721,7 +3752,16 @@ class DependentsCheck {
         if (!this.stays(row, child, relationship.restricted, relationship.personContacts, asked)) {
           if (asked.onlyIncluded) along.push({ parent: recordKey(parent), key: recordKey(row.Id) });
           if (child !== FILE_LINK && this.goesAlongUnread(row)) {
+            // What the platform adds to a record of the run on its own — a
+            // duplicate rule's report on it (`PLATFORM_ADDED`) —, and a person
+            // account's own contact, are that record's own: read below as the
+            // rest, never named as what came along with it. Named, a removal
+            // said a contact came along with every person account it took.
+            const half =
+              PLATFORM_ADDED[child]?.cameWithRun(row, this.context.runRecords) === true ||
+              (relationship.personContacts === true && row[PERSON_ACCOUNT_FLAG] === true);
             const came =
+              !half &&
               !asked.onlyIncluded &&
               asked.byRemoval !== true &&
               this.context.goesWithParent?.(row, this.context.runEnd) !== true;

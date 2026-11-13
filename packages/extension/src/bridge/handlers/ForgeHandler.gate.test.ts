@@ -33,6 +33,7 @@ import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { muteOrgOf } from '../../modules/forge/AutomationMuteLease.js';
+import { discoveryRequestSent } from '../../modules/forge/discoveryRequests.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -2184,6 +2185,92 @@ describe('forge:execute, the gate before the first write', () => {
       expect(questions.map((q) => q.stage)).toEqual(['write']);
       expect(executorDeps.insertRecords).toHaveBeenCalled();
       expect(posted('forge:execute:response')).toHaveLength(1);
+    });
+  });
+
+  describe('the requests sent the target before it', () => {
+    /*
+     * The command line prices with the run's writes what it sent the target
+     * before its gate, discovery and the read of the target's automation
+     * among it; the panel priced the writes alone. An account and a contact
+     * take two calls, and the target's automation is read in three.
+     */
+
+    /** The target's limits, `remaining` of its daily requests left. */
+    const leaving = (remaining: number) => ({
+      DataStorageMB: { Max: 200, Remaining: 150 },
+      DailyApiRequests: { Max: 15_000, Remaining: remaining },
+    });
+
+    /** An orchestrator whose discovery of `found` sends each org as told, and whose run hands an account and a contact to the gate. */
+    function discovering(found: ForgeGraph, sent: { source: number; target: number }) {
+      const orchestrator = orchestratorHanding(boundaryOf(1));
+      Object.assign(orchestrator, {
+        discover: vi.fn(async () => {
+          discoveryRequestSent('src-org', sent.source);
+          discoveryRequestSent('tgt-org', sent.target);
+          return found;
+        }),
+      });
+      Object.assign(deps.broker, { replyToRequester: vi.fn() });
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+      return orchestrator;
+    }
+
+    function discover(): Promise<boolean> {
+      return handler.handle(
+        inboundRequest({
+          id: 'wv-discover',
+          type: 'forge:discover',
+          timestamp: Date.now(),
+          payload: { config: CONFIG },
+        } as BaseMessage),
+      );
+    }
+
+    /** The message the run was refused with for its requests, if it was. */
+    const refusal = (): string | undefined => {
+      const [error] = posted('forge:execute:error');
+      return error?.payload.code === 'API_BUDGET_EXCEEDED'
+        ? String(error.payload.message)
+        : undefined;
+    };
+
+    it('prices with the writes what the read of the target’s automation sent it', async () => {
+      limits = leaving(4);
+      handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(1)), {
+        targetAutomation: readerOf(QUIET),
+      });
+
+      await execute();
+
+      expect(refusal()).toContain('The run takes about 5 API requests');
+      expect(calls).not.toContain('written');
+    });
+
+    it('prices too what the discovery of the graph it runs sent the target, never what it sent the source', async () => {
+      limits = leaving(8);
+      discovering(graphOf(), { source: 6, target: 4 });
+
+      await discover();
+      await execute();
+
+      expect(refusal()).toContain('The run takes about 9 API requests');
+      expect(calls).not.toContain('written');
+    });
+
+    it('prices no discovery of another graph', async () => {
+      limits = leaving(8);
+      discovering(
+        { ...graphOf(), nodes: [...graphOf().nodes, node('Case', 1)] },
+        { source: 6, target: 4 },
+      );
+
+      await discover();
+      await execute();
+
+      expect(refusal()).toBeUndefined();
+      expect(calls).toContain('written');
     });
   });
 

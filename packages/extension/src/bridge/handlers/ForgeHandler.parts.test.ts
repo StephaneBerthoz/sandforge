@@ -597,7 +597,10 @@ describe('forge:undo of a run cut and taken up: its parts, removed from the pane
     await handler.handle(buildMsg('forge:undo-automation:request', { forgeId: 'run-resumed' }));
     const resumed = await remove('run-resumed', at('10:05:00'));
 
+    // With the sets the target's duplicate rules made of the run's records,
+    // which the removal of a run that kept its user takes.
     expect([...(reader.read.mock.calls[0]?.[1] ?? [])].sort()).toEqual([
+      'DuplicateRecordSet',
       'OpportunityLineItem',
       'Quote',
       'QuoteLineItem',

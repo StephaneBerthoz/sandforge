@@ -265,6 +265,7 @@ import {
   compositeReader,
 } from '../src/modules/checkpoint/compositeQueries.js';
 import { nodeSyncRunCreations, type SyncRunKept } from '../src/modules/sync/SyncRunCreations.js';
+import { readRunUser } from '../src/modules/sync/runUser.js';
 import { SEED_RUNS_DIR } from '../src/modules/seed/SeedRunCreations.js';
 import { ABORTED_BEFORE_START, recordWriteRun } from '../src/modules/audit/auditTrail.js';
 import type { AuditDeps, WriteRun } from '../src/modules/audit/auditTrail.js';
@@ -7079,8 +7080,15 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         ),
       ),
     ];
+    // The sets the target's duplicate rules made of the run's records among
+    // them, which the removal takes when the run kept its user.
     const removed = [
-      ...new Set([...objectsRemovedOf(runObjects, otherPartObjectsOf(ofTheRun)), ...swept]),
+      ...new Set([
+        ...objectsRemovedOf(runObjects, otherPartObjectsOf(ofTheRun), {
+          userKept: runUserId !== undefined,
+        }),
+        ...swept,
+      ]),
     ];
     const drafted = setBackToDraftOf(runObjects);
     const read = await targetAutomationReader(conn).read(args.target, removed);
@@ -7653,7 +7661,12 @@ async function previewRemoval(
   ];
   const swept = sweepListing ? sweepTakenObjects(sweepListing, args) : [];
   const removed = [
-    ...new Set([...objectsRemovedOf(runObjects, otherPartObjectsOf(ofTheRun)), ...swept]),
+    ...new Set([
+      ...objectsRemovedOf(runObjects, otherPartObjectsOf(ofTheRun), {
+        userKept: summary.result.runUserId !== undefined,
+      }),
+      ...swept,
+    ]),
   ];
   const drafted = setBackToDraftOf(runObjects);
   const automation = await targetAutomationReader(conn).read(args.target, removed);
@@ -7727,6 +7740,10 @@ async function previewRemoval(
           : {}),
         ...(laterParts.length > 0 ? { laterParts } : {}),
         ...(alongside.length > 0 ? { otherParts: alongside.map((other) => other.alongside) } : {}),
+        // The user the run wrote as, as the removal is given it: what it
+        // takes beside the run's records — the sets the target's duplicate
+        // rules made of them — is said as the removal would take it.
+        ...(summary.result.runUserId ? { runUserId: summary.result.runUserId } : {}),
         includeChanged: args.includeChanged,
         previewOnly: true,
         signal: stop.signal,
@@ -7743,6 +7760,7 @@ async function previewRemoval(
             ? { removalStamps: earlier.removalStamps, removalSpans: earlier.removalSpans }
             : {}),
           ...(later.length > 0 ? { laterParts: later } : {}),
+          ...(summary.result.runUserId ? { runUserId: summary.result.runUserId } : {}),
           otherPartRecords: takenByPart.flatMap((taken) =>
             taken.part === part.part ? [] : taken.plan,
           ),
@@ -10275,6 +10293,18 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     }
   };
 
+  // The user the run writes as, read from the target's identity as the run
+  // begins and kept in its journal's head and its summary's result, as the
+  // panel keeps it: the run's removal takes the duplicate record sets the
+  // target's rules made of its records only when it knows that user, and its
+  // sweep holds what the target's automation made to it. Live, kept nowhere,
+  // the removal of a clone's journal left two such sets behind, empty. Bounded:
+  // a target that does not say leaves the run to go on without it. A dry run
+  // writes nothing to remove.
+  const runUserId =
+    args.dryRun || args.rehearse
+      ? undefined
+      : await readRunUser(() => targetConn.identity(), 'sandforge-clone');
   say(
     `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.tables ? ', WHOLE TABLES' : ''}${wholeOrg ? ', WHOLE ORG' : ''}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.applyAssignmentRules ? ', ASSIGNMENT-RULES' : ''}${args.files ? ', FILES' : ''}${args.pageSize !== undefined ? `, READ IN PAGES OF ${args.pageSize}` : ''})`,
   );
@@ -10367,6 +10397,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     result: {
       ...(ended ? { status: ended } : {}),
       ...jsonResult(counted, args.readCeiling),
+      // The user it wrote as: what its removal and its sweep hold the
+      // target's work for the run to.
+      ...(runUserId ? { runUserId } : {}),
     },
     // Of a dry run, what its gate counted, and what a real run would be refused for.
     ...(args.dryRun && dryRunWritePlan !== undefined ? { writePlan: dryRunWritePlan } : {}),
@@ -10484,20 +10517,26 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     } else {
       journalId = `sandforge-clone-${new Date(t0).toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
       journalPath = journals.pathOf(journalId);
-      await journals.begin(journalId, targetOrgId, new Date(), {
-        sourceOrgId: args.source,
-        fingerprint,
-        targetSalesforceOrgId: targetOrgId,
-        ...(args.record ? { recordId: args.record } : {}),
-        // Kept for the run to be muted again when it is taken up.
-        ...(args.muteAutomation ? { muteAutomation: true as const } : {}),
-        // And to copy its files again, --resume given without --files.
-        ...(args.files ? { files: args.files } : {}),
-        // The command's own choices are in the fingerprint: `cliRunSetup`. A
-        // clone of whole tables keeps the config it ran with, its filters and
-        // the objects it left out, which the summary of its journal names.
-        startedWith: { graph, config: runConfig },
-      });
+      await journals.begin(
+        journalId,
+        targetOrgId,
+        new Date(),
+        {
+          sourceOrgId: args.source,
+          fingerprint,
+          targetSalesforceOrgId: targetOrgId,
+          ...(args.record ? { recordId: args.record } : {}),
+          // Kept for the run to be muted again when it is taken up.
+          ...(args.muteAutomation ? { muteAutomation: true as const } : {}),
+          // And to copy its files again, --resume given without --files.
+          ...(args.files ? { files: args.files } : {}),
+          // The command's own choices are in the fingerprint: `cliRunSetup`. A
+          // clone of whole tables keeps the config it ran with, its filters and
+          // the objects it left out, which the summary of its journal names.
+          startedWith: { graph, config: runConfig },
+        },
+        runUserId,
+      );
     }
     journalStore = journals.openAt(journalPath);
     // An environment never takes a run up: stopped, its next apply takes the

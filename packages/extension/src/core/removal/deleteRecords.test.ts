@@ -213,6 +213,35 @@ describe('bulkDeleteJob', () => {
 
     expect(opened).toEqual(['delete', 'hardDelete']);
   });
+
+  it('holds a job of a connection made for deletes to the states of an ingest job: one the org still holds open after its close is no job that deleted nothing', async () => {
+    // jsforce's handle, as jsforce 3 shapes it: its `check` answers the org's
+    // JSON. Taken for the executor's by a cast, a job still open after its
+    // close read as one that processed nothing, and its records went to REST
+    // while the org could still delete them by the job.
+    const connection = {
+      bulk2: {
+        createJob: () => ({
+          id: '750000000000001AAA',
+          open: async () => ({ id: '750000000000001AAA', state: 'Open' }),
+          uploadData: async () => {},
+          close: async () => {},
+          abort: async () => {},
+          check: async () => ({ id: '750000000000001AAA', state: 'Open' }),
+          getAllResults: async () => ({
+            successfulResults: [],
+            failedResults: [],
+            unprocessedRecords: [],
+          }),
+        }),
+      },
+    };
+    const org = deletionOrg(connection as unknown as Connection, 'test');
+
+    await expect(org.bulkDestroy?.('Account', [fakeId('001', 1)])).rejects.toThrow(
+      'Bulk API job 750000000000001AAA is still open after its close was sent',
+    );
+  });
 });
 
 describe('deleteRounds', () => {

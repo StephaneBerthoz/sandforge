@@ -1075,8 +1075,10 @@ export const WHOLE_ORG_SOURCE_READS_PER_OBJECT = 3;
  *   writer sends them, jobs and REST ({@link forgeWritesOf}), and what it
  *   reads of the target as it writes each object
  *   ({@link WHOLE_ORG_TARGET_READS_PER_OBJECT}); a call per file it copies
- *   (`files`); and, from the command line, what the command sent the target
- *   before the gate, as counted (`sentBefore`);
+ *   (`files`); and what was sent the target before the gate (`sentBefore`):
+ *   from the command line, all it sent, as counted; from the panel, what the
+ *   discovery of the run's graph and the read of the target's automation
+ *   sent;
  * - `checkpoint`: the take of the checkpoint it takes first, as its scope
  *   estimates it;
  * - `mute`: the lease of the mute it holds while it writes, from its take
@@ -1107,7 +1109,9 @@ export function forgeRequestPartsOf(input: {
    * The requests the command line sent the target before the gate priced
    * the run, counted as they went (`countRequests`), the read of the
    * deliverability apart: priced as sent, so that the price is of the whole
-   * run, as the summary's `sent` counts it. Absent, none.
+   * run, as the summary's `sent` counts it. The panel tells what the
+   * discovery of the run's graph and the read of the target's automation
+   * sent, which the run's own count leaves out. Absent, none.
    */
   sentBefore?: number;
 }): RunRequestParts {
@@ -1551,7 +1555,7 @@ export interface ForgeWriteBudgetInput {
   checkpoint?: RunCheckpointEstimate;
   mute?: number;
   deliverability?: number;
-  /** What the command line sent the target before the gate, as counted: see {@link forgeRequestPartsOf}. */
+  /** What was sent the target before the gate: see {@link forgeRequestPartsOf}. */
   sentBefore?: number;
   budget: ApiBudget | { unread: string } | undefined;
   target: string;
@@ -1892,7 +1896,9 @@ export const DELIVERABILITY_READ_MOST = 2;
  *   still runs sends one.
  * @param input.sentBefore - What the command line has sent each org, as
  *   counted, the read of the deliverability apart: read once the dry run has
- *   read the limits, and priced as sent.
+ *   read the limits, and priced as sent. The panel tells the target's alone,
+ *   what the discovery of the org sent it; the source is then priced as
+ *   without it.
  */
 export async function wholeOrgDryRunOf(input: {
   objects: ForgeWriteBoundary['objects'];
@@ -1904,7 +1910,7 @@ export async function wholeOrgDryRunOf(input: {
   readBack?: number;
   mute?: number;
   deliverability?: number;
-  sentBefore?: () => { target: number; source: number };
+  sentBefore?: () => { target: number; source?: number };
   target: { org: string; limits: LimitsTransport };
   source: { org: string; limits: LimitsTransport };
 }): Promise<WholeOrgDryRun> {
@@ -1936,7 +1942,7 @@ export async function wholeOrgDryRunOf(input: {
       bulkBatches: 'unread' in limits ? limits : limits.dailyBulkApiBatches,
       sourceBudget,
       source: input.source.org,
-      ...(sent ? { sourceSentBefore: sent.source } : {}),
+      ...(sent?.source !== undefined ? { sourceSentBefore: sent.source } : {}),
     },
   });
   const wouldBeRefused = [

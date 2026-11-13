@@ -39,6 +39,7 @@ import { standardPriceIds, type SoqlQuery } from '../common/platformRecords.js';
 import { BulkApiExecutor, type BulkApiConnection } from '../engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../engine/BulkApiManager.js';
 import { BULK_RESULT_READS } from '../engine/bulkJobCost.js';
+import { jsforceBulk } from '../engine/jsforceBulk.js';
 import { describedObjectSchema } from '../../modules/dataops/DataQualityScanner.js';
 import {
   orgSession,
@@ -291,13 +292,15 @@ export async function bulkDeleteJob(
 /**
  * The org a delete works on, over a jsforce connection: the session the
  * cleanup work uses, its recycle bin, and its Bulk API 2.0 for jobs that
- * delete to the bin and for jobs that delete for good.
+ * delete to the bin and for jobs that delete for good, each state the org
+ * says of a job held to an ingest job's (`jsforceBulk`): a job still open
+ * after its close is not one that deleted nothing.
  *
  * @param conn - The org's connection.
  * @param context - Names the work in the API-usage warnings.
  */
 export function deletionOrg(conn: Connection, context: string): DeletionOrg {
-  const bulk = conn as unknown as BulkApiConnection;
+  const bulk = jsforceBulk(conn);
   return {
     ...orgSession(conn, context),
     queryDeleted: async (soql) => {
