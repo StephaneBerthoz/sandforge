@@ -133,15 +133,17 @@ describe('sandforge-clone flag validation', () => {
     expect(stderr).not.toBe('');
   });
 
-  it('refuses --depth all, the clone of a whole org, as it refuses any word it does not take', async () => {
+  it('refuses --depth all given a record, which a clone of the whole org starts from none of, before any org is loaded', async () => {
     expect(await run(argv('--depth', 'all'))).toBe(2);
-    const refusedAll = stderr;
-    stderr = '';
-    expect(await run(argv('--depth', 'deep'))).toBe(2);
 
     expect(mockExecFileSync).not.toHaveBeenCalled();
-    expect(refusedAll).toBe(stderr);
-    expect(refusedAll).toBe(
+    expect(stderr).toBe(
+      '--depth all clones the whole org, and does not go with --record: it starts from no record.\n',
+    );
+    // A word no depth is stays refused as the schema of a walk refuses it.
+    stderr = '';
+    expect(await run(argv('--depth', 'deep'))).toBe(2);
+    expect(stderr).toBe(
       'Invalid --depth: Invalid option: expected one of "direct"|"full"|"custom"\n',
     );
   });

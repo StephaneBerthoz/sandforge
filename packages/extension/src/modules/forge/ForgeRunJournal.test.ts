@@ -251,6 +251,39 @@ describe("a run's journal", () => {
     expect(read?.created).toEqual([{ objectApiName: 'Account', ids: [NEW_ACCOUNT_A] }]);
   });
 
+  it('reads the records a Bulk API job of the parts read wrote that no row was matched to, never one a mapping names', async () => {
+    const { deps } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await journal.begin('jobs', 'tgt-org', STARTED, RESUME);
+    const first = journal.open('jobs');
+    first.beginPart(STARTED);
+    first.setMapping('created', ACCOUNT_A, NEW_ACCOUNT_A, 'Account');
+    // A job's record no row was matched to, and one a mapping names.
+    first.createdUnattributed('Account', ['001000000000901AAA', NEW_ACCOUNT_A]);
+    first.close();
+    await journal.stop('jobs', 'cancelled', 'forge-first');
+    await journal.resumingAt(journal.pathOf('jobs'));
+    const store = journal.openAt(journal.pathOf('jobs'));
+    store.beginPart(STARTED);
+    store.createdUnattributed('Contact', ['003000000000902AAA']);
+    store.close();
+    const file = journal.pathOf('jobs');
+
+    expect((await journal.readAt(file, 'all'))?.unattributed).toEqual([
+      { objectApiName: 'Account', ids: ['001000000000901AAA'] },
+      { objectApiName: 'Contact', ids: ['003000000000902AAA'] },
+    ]);
+    expect((await journal.readAt(file, 0))?.unattributed).toEqual([
+      { objectApiName: 'Account', ids: ['001000000000901AAA'] },
+    ]);
+    expect((await journal.readAt(file))?.unattributed).toEqual([
+      { objectApiName: 'Contact', ids: ['003000000000902AAA'] },
+    ]);
+    // A journal no job wrote to says none.
+    await runThatWrote(journal, 'rest', RESUME);
+    expect(await journal.readAt(journal.pathOf('rest'))).not.toHaveProperty('unattributed');
+  });
+
   it('reads every part of a journal, or one of them, by its file', async () => {
     const { deps } = memoryDisk();
     const journal = new ForgeRunJournal(deps);

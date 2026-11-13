@@ -24,7 +24,7 @@ import {
   type InFlightReconciliation,
   type InFlightTarget,
 } from './ForgeInFlight.js';
-import { HashedKeys, JournalPart } from './journalRecords.js';
+import { HashedKeys, JournalPart, unattributedOf } from './journalRecords.js';
 
 /** What dating a run from its journal reads of the org it wrote to: see `ForgeRunJournal.writtenBetween`. */
 export type JournalDatesTarget = Pick<Connection, 'query'>;
@@ -332,6 +332,14 @@ export interface ForgeRunJournalRead {
     createdByObject: Array<{ objectApiName: string; sourceIds: string[] }>;
     linked: string[];
   };
+  /**
+   * The records a Bulk API job of the parts read wrote that no row was
+   * matched to (`createdUnattributed`), by target id, per object: the run's
+   * all the same, though no source id maps to them, which a removal read from
+   * `remap` takes with the rest of their object. A record a mapping of the
+   * parts names is left out. Absent when there is none.
+   */
+  unattributed?: ForgeRemovalPlan['objects'];
 }
 
 /** A journal id as it goes into a file name: letters, digits, `_` and `-`. */
@@ -1137,11 +1145,16 @@ export class ForgeRunJournal {
     let partStartedAt: string | undefined;
     /** The last part's records, by source id: the latest word on each. */
     let table = new Map<string, { targetId: string; object: string; created: boolean }>();
+    /** The records a job wrote that no row was matched to, by object, of the parts read. */
+    let unattributed = new Map<string, Set<string>>();
     const newPart = (): void => {
       parts++;
       endBefore = lastEnd;
       lastEnd = undefined;
-      if (which === 'last') table = new Map();
+      if (which === 'last') {
+        table = new Map();
+        unattributed = new Map();
+      }
     };
     /** Whether the part under way is one whose records are read. */
     const reading = (): boolean => typeof which !== 'number' || parts - 1 === which;
@@ -1160,6 +1173,14 @@ export class ForgeRunJournal {
         continue;
       }
       if (Array.isArray(value)) {
+        const unmatched = unattributedOf(line);
+        if (unmatched) {
+          if (!reading()) continue;
+          const ids = unattributed.get(unmatched.object) ?? new Set<string>();
+          for (const id of unmatched.ids) ids.add(id);
+          unattributed.set(unmatched.object, ids);
+          continue;
+        }
         const [tag, sourceId, targetId, object] = value as unknown[];
         if (tag !== 'c' && tag !== 'e' && tag !== 'u') continue;
         if (!reading()) continue;
@@ -1216,6 +1237,15 @@ export class ForgeRunJournal {
       objectApiName,
       sourceIds,
     }));
+    // A record a reconciliation matched to its row afterwards, or one the run
+    // links to, is the mapping's to say: never taken twice, nor a linked one.
+    const mapped = new Set([...table.values()].map(({ targetId }) => targetId.slice(0, 15)));
+    const unmatched = [...unattributed]
+      .map(([objectApiName, ids]) => ({
+        objectApiName,
+        ids: [...ids].filter((id) => !mapped.has(id.slice(0, 15))),
+      }))
+      .filter(({ ids }) => ids.length > 0);
     return {
       journalId: head.journalId,
       targetOrgId: head.targetOrgId,
@@ -1233,6 +1263,7 @@ export class ForgeRunJournal {
         idRemapCreated: createdByObject,
       }),
       remap: { table: idRemapTable, createdByObject, linked },
+      ...(unmatched.length > 0 ? { unattributed: unmatched } : {}),
     };
   }
 }

@@ -77,6 +77,7 @@ import {
 import { fileConfigStore } from './fileConfigStore.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { elapsedSince } from './elapsedSince.js';
+import { confirm } from './prompt.js';
 import { runExitCode } from './exitCodes.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 
@@ -84,15 +85,18 @@ import type {
   EmailSender,
   ForgeAdminChangeGroup,
   ForgeAutomationWrite,
+  ForgeBulkJobPastMute,
   ForgeConfig,
   ForgeConfigInput,
   ForgeContactPointKind,
   ForgeContactPointsReport,
   ForgeDecisionApplied,
+  ForgeDepth,
   ForgeFieldRefusal,
   ForgeFilesReport,
   ForgeGap,
   ForgeGraph,
+  ForgeLeftOutReason,
   ForgePlan,
   ForgeRemovalFilesLeft,
   ForgeRemovalLeftCount,
@@ -142,11 +146,29 @@ import {
   holdsAPlace,
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import type {
+  DiscoveryPhase,
   GraphDiscoveryDeps,
   ObjectDescribe,
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
 import { forgeExecuteOptions } from '../src/modules/forge/ForgeOrchestrator.js';
+import type { GlobalObject } from '../src/modules/checkpoint/checkpointScope.js';
+import {
+  WholeOrgDryRunStop,
+  carriedOf,
+  pricedOfTheDryRun,
+  wholeOrgConfirmationOf,
+  type WholeOrgCarried,
+  type WholeOrgPriced,
+} from '../src/modules/forge/wholeOrgRun.js';
+import type {
+  WholeOrgAllowance,
+  WholeOrgConfirmation,
+} from '../src/core/precheck/ProductionGuard.js';
+import { BulkJobLostError, forgeBulkWrite } from '../src/modules/forge/forgeBulkWrite.js';
+import { LostBulkJobs, type LostBulkJob } from '../src/modules/forge/lostBulkJobs.js';
+import { jsforceBulk } from '../src/core/engine/jsforceBulk.js';
+import { objectsUnderDuplicateRules } from '../src/modules/seed/seedDuplicateRules.js';
 import { ForgeAbortedError, ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
 import { ownerMapRefusalOf } from '../src/modules/forge/ownerMapRefusal.js';
 import { ForgeStops } from '../src/modules/forge/ForgeStops.js';
@@ -303,9 +325,19 @@ import {
   apiBudgetRefusal,
   API_BUDGET_EXCEEDED,
   CHECKPOINT_REFUSED,
+  formatMB,
+  readBoundStopOf,
+  wholeOrgDryRunOf,
+  wholeOrgFilesOf,
+  wholeOrgLeftOutOf,
+  wholeOrgWritePlanOf,
   type ApiBudget,
   type ApiBudgetCheck,
   type DataStorage,
+  type ForgeGateStop,
+  type StorageCheck,
+  type WholeOrgDryRun,
+  type WholeOrgFilesCheck,
   type WritePlan,
 } from '../src/modules/forge/ForgeRunGate.js';
 import { writtenWithWords } from '../src/core/common/platformRecords.js';
@@ -418,12 +450,29 @@ export interface CliArgs {
   tables: TableArg[] | undefined;
   source: string;
   target: string;
-  depth: 'direct' | 'full' | 'custom';
+  /**
+   * How far discovery walks from the record or the first table, or `all`:
+   * the whole org, every object the target can take, from no record and no
+   * table (`--depth all`).
+   */
+  depth: ForgeDepth;
   customDepth: number;
   /** Discovery node cap; undefined leaves the service default in place. */
   maxNodes: number | undefined;
   maxRecordsPerObject: number | undefined;
   anonymize: boolean;
+  /**
+   * Whether `--anonymize` or `--no-anonymize` said it. A clone of the whole
+   * org that neither says anonymizes when its source is a production org, as
+   * its Organization record says it once read.
+   */
+  anonymizeGiven: boolean;
+  /**
+   * Write without the question a clone of the whole org asks before its
+   * first write (`--yes`). Without it and with no terminal to answer, the
+   * clone is refused at its gate, nothing written.
+   */
+  yes: boolean;
   /**
    * Write email addresses and phone numbers as the source holds them
    * (`--keep-contact-points`). Off, every row has them neutralized first.
@@ -552,6 +601,8 @@ Usage:
     --object <ApiName> [--where <condition>] [--object <ApiName> [--where <condition>]]... \\
     --source <alias> --target <alias> [options]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
+    --depth all --source <alias> --target <alias> [--dry-run] [--yes] [options]
+  pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation]
       [--mute-automation] [--leave-undeletable] [--json]
       [--preview] [--sweep | --sweep-list] [--sweep-late] [--sweep-untied] [--audit <file>]
@@ -641,8 +692,47 @@ Clone whole tables, in place of --record:
                          --template, the template's choices go with the
                          tables, its record or query aside.
 
+Clone the whole org, in place of --record:
+  --depth all            every object of the source the target can take, from
+                         no record and no table, each read a page at a time in
+                         the order of its ids and written ten thousand records
+                         at a time: as a Bulk API job from 2000 of them, by REST
+                         under that and for an object no job writes (an active
+                         duplicate rule watches it, the Bulk API refuses it).
+                         What it leaves out is said with why: setup, metadata,
+                         what only the platform writes, what the target cannot
+                         take, an empty table. Past 1950 objects or 20000 pairs
+                         of related objects, discovery refuses it, never cuts it.
+                         Its dry run stops at the write gate once the source is
+                         counted, and reads no row: per object the records it
+                         would insert and how many go in jobs, the API requests
+                         of both orgs, the Bulk API batches, the data and file
+                         storage, what it leaves out and why, the personal
+                         fields it copies as they are, and each refusal a real
+                         run would meet, exit 1 when there is one (with --json,
+                         under wholeOrg and wouldBeRefused).
+                         A real run asks before its first write, naming the
+                         records and objects, the requests and batches, the
+                         objects of managed packages (the mute reaches none of
+                         what they run), the phone numbers it writes empty and
+                         the personal fields it copies as they are: --yes writes
+                         without the question; with no terminal to answer it,
+                         the run is refused (CONFIRMATION_UNAVAILABLE). It keeps
+                         its journal, which --resume takes it up from and
+                         --remove takes it back from, and exits 3 when the
+                         target refused part of it. --max-total holds it as any
+                         run: give it what the dry run counted. --exclude-object
+                         leaves an object out, --filter narrows one; --files,
+                         off unless given, copies the org's files. Not with
+                         --record, --object, --where, --template, --custom-depth,
+                         --max-nodes, --max, --expand-orphans, --rehearse or
+                         --upsert.
+  --no-anonymize         with --depth all, copy the personal data as the source
+                         holds it, a production org's too
+  --yes                  with --depth all, write without the question
+
 Options:
-  --depth <mode>         direct | full | custom    (default: custom)
+  --depth <mode>         direct | full | custom | all    (default: custom)
   --custom-depth <n>     traversal depth when --depth is custom (default: 5)
   --max <n>              max records cloned per object          (default: unlimited)
   --list-objects         print the objects discovery reached, then stop
@@ -664,6 +754,8 @@ Options:
                          is reached through it; discovery reads four times
                          the cap in objects at most.
   --anonymize            anonymize PII fields                   (default: off)
+                         With --depth all, on unless --no-anonymize when the
+                         source's Organization record says a production org.
   --keep-contact-points  write emails and phone numbers as read (default: off)
                          Off, every record is written with its email addresses
                          under .invalid and its phone numbers in a fictional
@@ -947,7 +1039,10 @@ Remove what a run created:
                          --include-changed, and the sweep then ends partial,
                          exit 3; a change made before the run's last write
                          reads as unchanged. Runs alone when an earlier
-                         --remove took every record of the run
+                         --remove took every record of the run. Of a clone of
+                         the whole org, the removal says the sweep is off
+                         unless given: the run's window spans hours, and a
+                         sweep looks at 300 objects at most
                                                                 (default: off)
   --sweep-late           with --sweep, take too what it lists as made late;
                          with --sweep-list, say what it would take
@@ -1045,10 +1140,14 @@ Exit codes:
      refused or could not be taken (CHECKPOINT_REFUSED); the run would write
      more than --max-total records, more than the target's data storage
      has left or more emails than it has left today, or would take more API
-     requests than it has left today (nothing is written or deleted then)
+     requests than it has left today (nothing is written or deleted then);
+     a clone of the whole org nobody answered the question of
+     (CONFIRMATION_UNAVAILABLE) or that was declined (WRITE_DECLINED), or
+     whose dry run says a real run would be refused
   2  a bad command line, or a summary --remove cannot take a run back from, or
      a file beside it that is not what a removal kept there
-  3  the run was partial and --fail-on-partial was given; the removal left
+  3  the run was partial and --fail-on-partial was given, or was a clone of
+     the whole org; the removal left
      records of the run in the org: kept, or refused, or found neither in the
      org nor in its recycle bin, as the user it ran as sees them; or the sweep
      was refused, or did not take all it was asked to (a --sweep-untied
@@ -1317,29 +1416,127 @@ export function tablesExecuteOptions(
  * from. Exported so it can be tested.
  */
 export function cloneInputOf(
-  args: Pick<CliArgs, 'record' | 'tables'>,
+  args: Pick<CliArgs, 'record' | 'tables'> & Partial<Pick<CliArgs, 'depth'>>,
 ): Pick<ForgeConfig, 'inputMode' | 'recordId' | 'soqlQuery'> {
+  if (args.depth === 'all') return { inputMode: 'org' };
   return args.tables
     ? { inputMode: 'soql', soqlQuery: tablesQueryOf(args.tables) }
     : { inputMode: 'record', recordId: args.record };
 }
 
-/** The run's first line names what it clones: its record, or each table under its condition. */
-export function cloneInputLine(args: Pick<CliArgs, 'record' | 'tables'>): string {
+/** The run's first line names what it clones: its record, each table under its condition, or the whole org. */
+export function cloneInputLine(
+  args: Pick<CliArgs, 'record' | 'tables'> & Partial<Pick<CliArgs, 'depth'>>,
+): string {
+  if (args.depth === 'all') return 'the whole org';
   if (!args.tables) return `record=${args.record ?? ''}`;
   return `tables=${args.tables
     .map((table) => (table.where ? `${table.objectApiName} (${table.where})` : table.objectApiName))
     .join(', ')}`;
 }
 
-/** What a run's lines and summary call what it cloned: its record, or the tables it read. */
+/** The most objects a run's line names by name: a clone of the whole org copies hundreds. */
+const SUBJECT_OBJECTS_NAMED = 12;
+
+/**
+ * What a run's lines and summary call what it cloned: its record, or the
+ * tables it read — the first of them by name, and how many more, past
+ * {@link SUBJECT_OBJECTS_NAMED} — or the whole org.
+ */
 export function cloneSubjectOf(run: {
   record?: string;
   objects?: ReadonlyArray<{ objectApiName: string }>;
+  wholeOrg?: true;
 }): string {
   if (run.record) return run.record;
   const objects = (run.objects ?? []).map((object) => object.objectApiName);
-  return objects.length > 0 ? objects.join(', ') : 'the run';
+  const named =
+    objects.length <= SUBJECT_OBJECTS_NAMED
+      ? objects.join(', ')
+      : `${objects.slice(0, SUBJECT_OBJECTS_NAMED).join(', ')} and ` +
+        `${objects.length - SUBJECT_OBJECTS_NAMED} more object(s)`;
+  if (run.wholeOrg) return objects.length > 0 ? `the whole org (${named})` : 'the whole org';
+  return objects.length > 0 ? named : 'the run';
+}
+
+/**
+ * The Forge config of a clone of the whole org (`--depth all`), as the
+ * panel's run of the whole org sends one: no record, no query, no depth to
+ * walk, and every choice of the command line in the fields the run reads
+ * them from. Exported so it can be tested.
+ */
+export function wholeOrgRunConfig(args: CliArgs): ForgeConfig {
+  return {
+    inputMode: 'org',
+    depth: 'all',
+    sourceOrgId: args.source,
+    targetOrgId: args.target,
+    anonymizePII: args.anonymize,
+    skipEmpty: true,
+    batchSize: 'auto',
+    ...(Object.keys(args.fieldExclusions).length > 0
+      ? { fieldExclusions: args.fieldExclusions }
+      : {}),
+    ...(args.excludedObjects.length > 0 ? { excludedObjects: args.excludedObjects } : {}),
+    ...(Object.keys(args.ownerMappings).length > 0 ? { ownerMappings: args.ownerMappings } : {}),
+    ...(Object.keys(args.objectSoqlFilters).length > 0
+      ? { objectSoqlFilters: args.objectSoqlFilters }
+      : {}),
+    ...(Object.keys(args.fieldMappings).length > 0 ? { fieldMappings: args.fieldMappings } : {}),
+    ...(args.keepContactPoints ? { keepContactPoints: true } : {}),
+    ...(args.applyAssignmentRules ? { applyAssignmentRules: true } : {}),
+    ...(args.dryRun ? { dryRun: true } : {}),
+    ...args.decisions,
+  };
+}
+
+/**
+ * What the executor is asked to do by a clone of the whole org: what the
+ * panel's orchestrator asks of it for the same config (`forgeExecuteOptions`)
+ * — every node read page by page and written ten thousand rows at a time as
+ * Bulk API jobs, no cap on any object — the objects it reads whole held to
+ * `--max-records-per-object`. The journal and the gate are added as for any
+ * run. Exported so it can be tested.
+ */
+export function wholeOrgOptions(
+  args: CliArgs,
+  config: ForgeConfig,
+  graph: ForgeGraph,
+  recordTypeMappings: RecordTypeMapping[],
+  personalFieldsOf: (fields: PIIFieldInfo[]) => string[],
+): ExecuteOptions {
+  const options =
+    forgeExecuteOptions(
+      graph,
+      config,
+      {
+        recordTypeMappings,
+        anonymizationRules: args.anonymizationRules,
+        ...(args.files ? { files: args.files } : {}),
+        stream: {
+          wholeReadBound: args.readCeiling,
+          ...(args.pageSize !== undefined ? { pageSize: args.pageSize } : {}),
+        },
+      },
+      personalFieldsOf,
+    ) ?? {};
+  return options;
+}
+
+/**
+ * The graph of a clone of the whole org with the objects the command line
+ * leaves out (`--exclude-object`) out of it, each said left out by the user
+ * as the page says an object unchecked on Review: what its dry run lists among
+ * what it leaves, beside what discovery left. Exported so it can be tested.
+ */
+export function wholeOrgGraphOf(graph: ForgeGraph, excluded: ReadonlySet<string>): ForgeGraph {
+  if (excluded.size === 0) return graph;
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) =>
+      excluded.has(node.objectApiName) ? { ...node, included: false, leftOutByUser: true } : node,
+    ),
+  };
 }
 
 /** The largest file read as a run's choices: a template with every decision a graph holds stays well under it. */
@@ -1413,6 +1610,9 @@ const CLONE_FLAGS: CommandFlags = {
     '--write-uncertain',
     '--files',
     '--files-as-is',
+    // A clone of the whole org's own, refused with any other depth below.
+    '--no-anonymize',
+    '--yes',
     ...CHECKPOINT_FIRST_FLAGS.switches,
     // A removal's, refused with its own words below.
     '--include-changed',
@@ -1444,6 +1644,54 @@ const CLONE_FLAGS: CommandFlags = {
     ...CHECKPOINT_FIRST_FLAGS.values,
   ],
 };
+
+/**
+ * Why a flag does not go with a clone of the whole org (`--depth all`), by
+ * flag: what walks from a root, cuts a table, or holds every row.
+ */
+const NOT_WITH_THE_WHOLE_ORG: ReadonlyArray<readonly [string, string]> = [
+  ['--record', 'it starts from no record'],
+  ['--object', 'it starts from no table: --exclude-object leaves one out'],
+  ['--where', 'it starts from no table: --filter narrows an object'],
+  [
+    '--template',
+    'a template holds the choices of a walk from its record or query: give them with --config',
+  ],
+  ['--custom-depth', 'it walks no depth'],
+  ['--max-nodes', 'it takes every object it can, and is refused past 1950 rather than cut'],
+  ['--max', 'it copies every row of what it takes: --filter narrows an object'],
+  ['--expand-orphans', 'every parent it reaches is in the org it copies'],
+  ['--rehearse', 'a rehearsal holds every row it prepares'],
+  ['--upsert', 'its writes go as Bulk API jobs that insert'],
+];
+
+/**
+ * Exit 2 on a flag that does not go with the depth the line gives: one of a
+ * walk from a root with `--depth all`, said each in its words, and one only a
+ * clone of the whole org reads (`--yes`, `--no-anonymize`) with any other.
+ */
+function wholeOrgArgs(has: (flag: string) => boolean, wholeOrg: boolean): void {
+  if (!wholeOrg) {
+    const only = ['--yes', '--no-anonymize'].filter((flag) => has(flag));
+    if (only.length === 0) return;
+    process.stderr.write(
+      `${only.join(' and ')} ${only.length === 1 ? 'goes' : 'go'} with --depth all: no other ` +
+        'clone asks before it writes, and none anonymizes unless --anonymize is given.\n',
+    );
+    process.exit(2);
+  }
+  const refused = NOT_WITH_THE_WHOLE_ORG.filter(([flag]) => has(flag));
+  if (has('--anonymize') && has('--no-anonymize')) {
+    refused.push(['--anonymize', 'it is given --no-anonymize too: give one of them']);
+  }
+  if (refused.length === 0) return;
+  for (const [flag, why] of refused) {
+    process.stderr.write(
+      `--depth all clones the whole org, and does not go with ${flag}: ${why}.\n`,
+    );
+  }
+  process.exit(2);
+}
 
 /** The command line read and checked; exits on `--help` or a bad flag. Exported so it can be tested. */
 export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): CliArgs {
@@ -1496,6 +1744,10 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     choices = read.file;
   }
   const template = choices?.kind === 'template' ? choices.template : undefined;
+  // The whole org instead of a record or tables: what goes with a walk from
+  // a root is refused before anything else is read, each flag in its words.
+  const wholeOrg = get('--depth') === 'all';
+  wholeOrgArgs(has, wholeOrg);
   /** What the file decides, leaves out, filters and maps: the template's config, or the config. */
   const fileChoices: Partial<ForgeConfigInput> =
     choices?.kind === 'template' ? { ...choices.template.config } : (choices?.config ?? {});
@@ -1542,10 +1794,10 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     );
     process.exit(2);
   }
-  const record = tables ? undefined : (get('--record') ?? templateRecord);
+  const record = tables || wholeOrg ? undefined : (get('--record') ?? templateRecord);
   const source = get('--source');
   const target = get('--target');
-  if ((!record && !tables) || !source || !target) {
+  if ((!record && !tables && !wholeOrg) || !source || !target) {
     process.stderr.write('Missing required flag. Run with --help for usage.\n');
     process.exit(2);
   }
@@ -1772,12 +2024,17 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
   // The schema the wizard's ForgeConfig goes through, run on the same fields.
   // Without it `--depth deep` was cast into the union, and a malformed record
   // ID or object name was only refused after both orgs had been authenticated.
-  // The command line walks from a record or from tables: its depths are a
-  // walk's, and `all`, the clone of a whole org, is refused as any other word.
-  const checked = forgeConfigSchemaStrict.safeExtend({ depth: forgeDepthSchema }).safeParse({
-    ...(tables
-      ? { inputMode: 'soql', soqlQuery: tablesQueryOf(tables) }
-      : { inputMode: 'record', recordId: record }),
+  // A walk from a record or from tables takes a walk's depths; `all`, the
+  // clone of a whole org, goes with the `org` input and nothing of a walk.
+  const schema = wholeOrg
+    ? forgeConfigSchemaStrict
+    : forgeConfigSchemaStrict.safeExtend({ depth: forgeDepthSchema });
+  const checked = schema.safeParse({
+    ...(wholeOrg
+      ? { inputMode: 'org' }
+      : tables
+        ? { inputMode: 'soql', soqlQuery: tablesQueryOf(tables) }
+        : { inputMode: 'record', recordId: record }),
     depth: depthRaw,
     customDepth: depthRaw === 'custom' ? customDepth : undefined,
     sourceOrgId: source,
@@ -1816,6 +2073,8 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     maxNodes,
     maxRecordsPerObject,
     anonymize,
+    anonymizeGiven: has('--anonymize') || has('--no-anonymize'),
+    yes: has('--yes'),
     keepContactPoints: checked.data.keepContactPoints === true,
     dryRun: has('--dry-run'),
     listObjects: has('--list-objects'),
@@ -1963,7 +2222,10 @@ export function cliRunSetup(args: CliArgs, targetOrgId: string): Record<string, 
     anonymizationRules: args.anonymizationRules,
     anonymizeFields: args.anonymizeFields ?? null,
     files: args.files ?? null,
-    readCeiling: args.readCeiling,
+    // Of a clone of the whole org, the bound of what it reads whole, which
+    // changes nothing it writes — past it the run is refused, not cut — and
+    // which a run taken up may raise, as the panel's taking up allows.
+    readCeiling: args.depth === 'all' ? null : args.readCeiling,
   };
 }
 
@@ -3226,6 +3488,256 @@ export function graphLine(
   );
 }
 
+/** Why a clone of the whole org leaves an object of the source out, as its lines say it. */
+const LEFT_OUT_WORDS: Readonly<Record<ForgeLeftOutReason, string>> = {
+  missingInTarget: 'missing in the target',
+  notQueryable: 'not queryable',
+  empty: 'empty',
+  unreadable: 'unreadable',
+  notWritable: 'not writable in the target',
+  setup: 'setup',
+  platformCreated: 'written by the platform alone',
+  metadata: 'metadata',
+  chatter: 'Chatter',
+  history: 'history',
+  sharing: 'sharing',
+  changeEvent: 'change events',
+  unsupportedKind: 'of a kind no clone writes',
+  customSetting: 'custom settings',
+  files: 'files, copied with --files',
+  excludedByUser: 'left out by --exclude-object',
+  notDescribed: 'not described',
+};
+
+/**
+ * What discovery of the whole org found, in one line: the objects the run
+ * copies, those it leaves out by reason, the lookups between them and the
+ * plan's waves. No cap is said, none applying. Exported so it can be tested.
+ */
+export function wholeOrgGraphLine(
+  graph: ForgeGraph,
+  plan: Pick<ForgePlan, 'waves' | 'cycleResolutions'>,
+  source: string,
+): string {
+  const included = graph.nodes.filter((node) => node.included).length;
+  const { objects, counts } = wholeOrgLeftOutOf(graph);
+  const why = counts.map(({ reason, count }) => `${count} ${LEFT_OUT_WORDS[reason]}`).join(', ');
+  return (
+    `graph: the whole of ${source}, ${included} object(s) to copy, ${objects.length} left out` +
+    `${why ? ` (${why})` : ''}; ${graph.edges.length} lookups; ` +
+    `${plan.waves.length} waves, ${plan.cycleResolutions.length} cycles`
+  );
+}
+
+/** What discovery of the whole org says as each of its phases begins. */
+const WHOLE_ORG_PHASE_WORDS: Partial<Record<DiscoveryPhase, (total?: number) => string>> = {
+  listing: () => 'discovery: listing the objects of both orgs…',
+  counting: (total) => `discovery: counting the records of ${total ?? 'each'} object(s)…`,
+  describing: (total) => `discovery: describing the ${total ?? ''} object(s) that hold records…`,
+};
+
+/**
+ * Discover the whole org, saying each phase as it begins — both orgs'
+ * objects listed, the records of each counted, those that hold any described
+ * — and ending the command, exit 1, on a graph discovery refuses: past what
+ * one run writes, or an org that would not list its objects, in its words.
+ * Its counts take minutes on a large org: said nothing, the command read as
+ * hung.
+ */
+async function discoverTheWholeOrg(
+  discovery: GraphDiscoveryService,
+  config: ForgeConfig,
+  say: (line: string) => void,
+): Promise<ForgeGraph> {
+  let phase: DiscoveryPhase | undefined;
+  try {
+    return await discovery.discover(config, {
+      onProgress: (event) => {
+        if (event.phase === phase) return;
+        phase = event.phase;
+        const words = WHOLE_ORG_PHASE_WORDS[event.phase];
+        if (words) say(words(event.total));
+      },
+    });
+  } catch (err: unknown) {
+    process.stderr.write(`The whole org could not be discovered: ${extractErrorMessage(err)}\n`);
+    process.exit(1);
+  }
+}
+
+/** An allowance of an org, as the gate of a clone of the whole org says it: see {@link wholeOrgGateLines}. */
+function allowanceLine(what: string, allowance: WholeOrgAllowance, org: string): string {
+  const { estimate, remaining, max } = allowance;
+  if (remaining === undefined || max === undefined) {
+    return (
+      `  ${what} of ${org}: about ${estimate}; what it has left today could not be read` +
+      (allowance.unread ? ` (${allowance.unread})` : '')
+    );
+  }
+  return (
+    `  ${what} of ${org}: about ${estimate}, of the ${remaining} it has left of its ${max} a day` +
+    (allowance.near ? ': it would leave less than a tenth of them' : '')
+  );
+}
+
+/** The objects a line names by name, past which it says how many more. */
+const WHOLE_ORG_NAMED = 10;
+
+/** Some of `names`, and how many more. */
+function namedSome(names: readonly string[]): string {
+  const more = names.length - WHOLE_ORG_NAMED;
+  return more > 0
+    ? `${names.slice(0, WHOLE_ORG_NAMED).join(', ')} and ${more} more`
+    : names.join(', ');
+}
+
+/**
+ * What the gate of a clone of the whole org says beside its records and their
+ * storage (`writePlanLines`), on its dry run as before a run's question, from
+ * what its question holds (`WholeOrgConfirmation`, the panel's own): the Bulk
+ * API jobs it sends, the API requests of both orgs and the Bulk API batches
+ * of the target against what each has left today, how long its writes take,
+ * the files and the file storage, what it leaves of the source and why, what
+ * narrows it, the personal fields it copies as they are, the objects of
+ * managed packages whose automation no mute reaches, and the phone numbers it
+ * writes empty. Exported so it can be tested.
+ *
+ * @param leftOut - How many objects of the source it leaves out for each reason.
+ */
+export function wholeOrgGateLines(
+  question: WholeOrgConfirmation,
+  leftOut: ReadonlyArray<{ reason: ForgeLeftOutReason; count: number }>,
+  target: string,
+): string[] {
+  const { source, bulk } = question;
+  const lines = [
+    `  writes: ${bulk?.jobs ?? 0} Bulk API job(s) of ${bulk?.jobRows ?? 0} record(s), ` +
+      `${bulk?.restRows ?? 0} record(s) by REST, ${question.restObjects.length} object(s) by ` +
+      `REST alone; about ${Math.max(1, Math.round(question.durationSeconds / 60))} minute(s) ` +
+      'one after another',
+    allowanceLine('API requests', question.targetApi, target),
+    ...(bulk?.batches ? [allowanceLine('Bulk API batches', bulk.batches, target)] : []),
+    allowanceLine('API requests', question.sourceApi, source),
+  ];
+  const files = question.fileStorage;
+  if (files) {
+    lines.push(
+      `  files: ${files.files} file(s), about ${formatMB(files.estimateMB)} MB of file storage, ` +
+        `of the ${files.remainingMB} MB ${target} has left of ${files.maxMB} MB` +
+        (files.overCeiling > 0
+          ? `; ${files.overCeiling} past the largest file copied, left out`
+          : ''),
+    );
+  }
+  const why = leftOut.map(({ reason, count }) => `${count} ${LEFT_OUT_WORDS[reason]}`).join(', ');
+  lines.push(`  left out of ${source}: ${question.leftOut} object(s)${why ? `: ${why}` : ''}`);
+  const { carried } = question;
+  const narrowed: Array<[string, string[]]> = carried
+    ? [
+        ['read through a filter', carried.filters],
+        ['left out by name', carried.excluded],
+        ['with rows held back by a decision', carried.heldBack],
+        ['copied without some of their fields', carried.fieldsLeftOut],
+      ]
+    : [];
+  for (const [how, objects] of narrowed) {
+    if (objects.length > 0) lines.push(`  ${how}: ${namedSome(objects)}`);
+  }
+  const personal = question.personalAsIs ?? [];
+  const fields = personal.reduce((sum, { fields: names }) => sum + names.length, 0);
+  lines.push(
+    fields > 0
+      ? `  personal data: ${fields} field(s) of ${personal.length} object(s) copied as ` +
+          `${source} holds them: ` +
+          namedSome(
+            personal.map(
+              ({ objectApiName, fields: names }) => `${objectApiName} (${names.join(', ')})`,
+            ),
+          )
+      : '  personal data: no personal field copied as it is',
+  );
+  const managed = question.managedPackages ?? [];
+  if (managed.length > 0) {
+    lines.push(
+      `  managed packages: ${managed.length} object(s) written, whose triggers and flows no ` +
+        `mute reaches: ${namedSome(managed)}`,
+    );
+  }
+  if (question.contactPointsBlanked !== undefined) {
+    lines.push(
+      `  phone numbers: up to ${question.contactPointsBlanked} past the fictional range go in empty`,
+    );
+  }
+  return lines;
+}
+
+/**
+ * What a clone of the whole org is about to do, in the words of its question
+ * and of its refusal when no one is there to answer it: its records and
+ * objects, its jobs, the requests of both orgs, the objects of managed
+ * packages, the phone numbers written empty and the personal fields copied
+ * as they are. Exported so it can be tested.
+ */
+export function wholeOrgQuestionWords(
+  question: WholeOrgConfirmation,
+  plan: Pick<WritePlan, 'totalRows' | 'objects'>,
+  target: string,
+): string {
+  const { source, bulk } = question;
+  const objects = plan.objects.filter(({ rows }) => rows > 0).length;
+  const managed = question.managedPackages ?? [];
+  const personal = question.personalAsIs ?? [];
+  const fields = personal.reduce((sum, { fields: names }) => sum + names.length, 0);
+  const parts = [
+    `${plan.totalRows} record(s) of ${objects} object(s) of ${source} into ${target}, ` +
+      `${bulk?.jobs ?? 0} Bulk API job(s) among them`,
+    `about ${question.targetApi.estimate} of ${target}'s API requests` +
+      (bulk?.batches ? ` and ${bulk.batches.estimate} of its Bulk API batches` : '') +
+      ` and ${question.sourceApi.estimate} of ${source}'s`,
+    ...(managed.length > 0
+      ? [
+          `${managed.length} object(s) of managed packages, whose triggers and flows no mute ` +
+            `reaches (${namedSome(managed)})`,
+        ]
+      : []),
+    ...(question.contactPointsBlanked !== undefined
+      ? [`up to ${question.contactPointsBlanked} phone number(s) written empty`]
+      : []),
+    fields > 0
+      ? `${fields} personal field(s) of ${personal.length} object(s) copied as they are`
+      : 'no personal field copied as it is',
+  ];
+  return parts.join('; ');
+}
+
+/**
+ * A refusal of the write gate of a clone of the whole org in the command
+ * line's words: the gate names the page and its setting, which the command
+ * takes as its flags. Exported so it can be tested.
+ */
+export function wholeOrgRefusalWords(message: string): string {
+  return message
+    .replaceAll('turn the copy of files off on Review', 'leave out --files')
+    .replaceAll('leave the object out on Review', 'leave it out with --exclude-object')
+    .replaceAll(
+      'the sandforge.forge.maxRecordsPerObject setting lets a run hold at once: raise the setting',
+      '--max-records-per-object lets a run hold at once: raise it',
+    );
+}
+
+/**
+ * Why a clone of the whole org may not write past `--max-total`: the line's
+ * own words, which name no `--max`, a cap no whole org takes. Exported so it
+ * can be tested.
+ */
+export function wholeOrgMaxTotalRefusal(rows: number, max: number): string {
+  return (
+    `The clone of the whole org would write ${rows} records, more than the ${max} ` +
+    '--max-total holds it to: give --max-total the count its dry run says, or leave objects ' +
+    'out (--exclude-object) or narrow them (--filter).'
+  );
+}
+
 /**
  * The objects of a graph, each counted once: those the run reads, the empty
  * tables discovery left out (`leftOutAsEmptyTable`), those whose describe or
@@ -3922,8 +4434,12 @@ const runSummarySchema = z.object({
         where: z.string().max(512).optional(),
       }),
     )
-    .max(500)
+    // As many as a graph holds nodes: a clone of the whole org read back from
+    // its journal names every object it copied.
+    .max(2_000)
     .optional(),
+  // A clone of the whole org: its removal says the sweep is off unless asked.
+  wholeOrg: z.literal(true).optional(),
   dryRun: z.literal(false),
   // Below none in a summary a clone wrote across a clock the machine set
   // back (`elapsedSince`): read as a run that took none, never refused.
@@ -3945,6 +4461,17 @@ const runSummarySchema = z.object({
       }),
     ),
     withTheirRecordSourceIds: z.array(summaryIdSchema).optional(),
+    // The records a Bulk API job of the run wrote that no row was matched to,
+    // by target id, as its journal keeps them: the run's, which its removal
+    // takes with the rest of their object.
+    unattributed: z
+      .array(
+        z.object({
+          objectApiName: z.string().regex(API_NAME_RE, 'not an API name'),
+          ids: z.array(summaryIdSchema),
+        }),
+      )
+      .optional(),
     writtenBetween: z.object({ first: summaryDateSchema, last: summaryDateSchema }).optional(),
     mayHaveBeenWritten: z
       .array(
@@ -4017,6 +4544,7 @@ export async function runSummaryOfFile(
         existingSourceIds: kept.remap.linked,
         updatedSourceIds: [],
         createdByObject: kept.remap.createdByObject,
+        ...(kept.unattributed ? { unattributed: kept.unattributed } : {}),
       },
     },
   };
@@ -4036,9 +4564,11 @@ async function runSummaryOfJournal(
   const elapsed = Date.parse(recordedAt) - Date.parse(read.startedAt);
   const startedWith = read.resume?.startedWith;
   const record = read.resume?.recordId ?? startedWith?.config.recordId;
-  // A clone of whole tables names the tables its graph took, each under its filter.
+  // A clone of whole tables names the tables its graph took, each under its
+  // filter; a clone of the whole org, the objects it copied.
+  const wholeOrg = !record && startedWith?.config.inputMode === 'org';
   const objects =
-    !record && startedWith?.config.inputMode === 'soql'
+    !record && startedWith && (startedWith.config.inputMode === 'soql' || wholeOrg)
       ? startedWith.graph.nodes
           .filter((node) => node.included)
           .map(({ objectApiName }) => {
@@ -4054,6 +4584,7 @@ async function runSummaryOfJournal(
     targetOrgId: read.targetOrgId,
     record: record ?? (objects ? undefined : ''),
     ...(objects ? { objects } : {}),
+    ...(wholeOrg ? { wholeOrg: true } : {}),
     dryRun: false,
     elapsedMs: Number.isFinite(elapsed) && elapsed > 0 ? elapsed : 0,
     finishedAt: recordedAt,
@@ -4063,6 +4594,7 @@ async function runSummaryOfJournal(
       existingSourceIds: read.remap.linked,
       updatedSourceIds: [],
       createdByObject: read.remap.createdByObject,
+      ...(read.unattributed ? { unattributed: read.unattributed } : {}),
     },
   });
   if (!parsed.success) {
@@ -4130,11 +4662,38 @@ export function parseRunSummary(text: string): { summary: RunSummary } | { refus
  */
 export function removalPlan(summary: RunSummary): ForgeRunObjectRecords[] {
   const { result } = summary;
-  return forgeRunCreatedRecords({
+  const plan = forgeRunCreatedRecords({
     idRemapTable: result.remapTable,
     idRemapExisting: [...result.existingSourceIds, ...result.updatedSourceIds],
     idRemapCreated: result.createdByObject,
   });
+  return withUnattributed(plan, result.unattributed);
+}
+
+/**
+ * A removal's plan with the records a Bulk API job of the run wrote that no
+ * row was matched to, each with the rest of its object, after them; an
+ * object only such records were written of goes first, with the last
+ * written. Left out, a clone of the whole org removed from the command line
+ * left them in the target, though its journal named them.
+ */
+function withUnattributed(
+  plan: ForgeRunObjectRecords[],
+  unattributed: RunSummary['result']['unattributed'],
+): ForgeRunObjectRecords[] {
+  if (!unattributed || unattributed.length === 0) return plan;
+  const planned = new Set(plan.flatMap(({ ids }) => ids.map((id) => id.slice(0, 15))));
+  const merged = plan.map((object) => ({ ...object, ids: [...object.ids] }));
+  const first: ForgeRunObjectRecords[] = [];
+  for (const { objectApiName, ids } of unattributed) {
+    const more = ids.filter((id) => !planned.has(id.slice(0, 15)));
+    for (const id of more) planned.add(id.slice(0, 15));
+    if (more.length === 0) continue;
+    const own = merged.find((object) => object.objectApiName === objectApiName);
+    if (own) own.ids.push(...more);
+    else first.push({ objectApiName, ids: more });
+  }
+  return [...first, ...merged];
 }
 
 /**
@@ -6041,6 +6600,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               ...(removedEarlier > 0 ? { removedEarlier } : {}),
               ...(sweep ? { sweep } : {}),
               ...(sweepListing ? { sweepListing } : {}),
+              // Of a clone of the whole org removed without its sweep, as
+              // the panel's removal says it: what the target's automation
+              // made during the run stays.
+              ...(wholeOrgSweepLine(summary, args) !== undefined
+                ? { wholeOrgNotSwept: true as const }
+                : {}),
               ...(mutedAutomation ? { mutedAutomation } : {}),
               ...(keptForParts.length > 0 ? { heldByOtherParts: keptForParts } : {}),
             },
@@ -6116,6 +6681,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const earlier = earlierOfTheRun(ownEarlier, ofTheRun?.earlier);
 
   say(`sandforge-clone --remove  ${args.summaryPath}  from ${args.target}`);
+  const sweepOff = wholeOrgSweepLine(summary, args);
+  if (sweepOff !== undefined) say(sweepOff);
   // What earlier removals took is not planned again, as the panel plans only
   // what a run's history entry says is left (`forgeRemovalPlanLeft`).
   const ownPlan = forgeRemovalPlanLeft({
@@ -7627,6 +8194,27 @@ export interface CloneRoot {
   named: string;
 }
 
+/**
+ * What the removal of a clone of the whole org says of its sweep when none is
+ * asked: it is off. The run's window spans the hours it wrote in, and a
+ * sweep looks at {@link SWEEP_LOOK_BOUND} objects at most, of the hundreds
+ * such a run writes: what the target's automation made for it is listed or
+ * taken only on asking, never by default. Nothing for any other run, or once
+ * a sweep, or its listing, is asked. Exported so it can be tested.
+ */
+export function wholeOrgSweepLine(
+  summary: Pick<RunSummary, 'wholeOrg'>,
+  args: Pick<RemoveArgs, 'sweep' | 'sweepList'>,
+): string | undefined {
+  if (summary.wholeOrg !== true || args.sweep || args.sweepList) return undefined;
+  return (
+    `the sweep is off for a clone of the whole org: its window spans the hours the run wrote ` +
+    `in, and a sweep looks at ${SWEEP_LOOK_BOUND} objects at most; ` +
+    `${sweepOptionWords('--sweep-list')} lists what the target's automation made for it, and ` +
+    `${sweepOptionWords('--sweep')} takes it`
+  );
+}
+
 /** The code of a clone refused for an object to start from that no user can create. */
 export const ROOT_NEVER_CREATED = 'ROOT_NEVER_CREATED';
 
@@ -7759,6 +8347,117 @@ function createFactsDepsOf(
   };
 }
 
+/** The connection the command holds to an org, by its alias. */
+function connOf(conns: ReadonlyMap<string, Connection>, orgId: string): Connection {
+  const c = conns.get(orgId);
+  if (!c) throw new Error(`No connection for ${orgId}`);
+  return c;
+}
+
+/**
+ * The objects a Bulk API job does not write while the run applies the
+ * target's assignment rules: a job names no assignment rule, where a REST
+ * write asks for them (`forgeWriteHeaders`). As the panel's run leaves them.
+ */
+const ASSIGNED_BY_RULES: ReadonlySet<string> = new Set(['Lead', 'Case']);
+
+/**
+ * How a clone of the whole org sends a large object as Bulk API jobs, as the
+ * panel's composition does: each job through `forgeBulkWrite`, on the run's
+ * own job limiter, its calls counted with the connection's; the objects an
+ * active duplicate rule of the target watches read once, which no job can
+ * waive. A job closed and not read back — the org may be writing it still —
+ * is noted for the wait before the mute is given back, and counted as a
+ * write, which keeps the checkpoint taken first. Exported so it can be tested.
+ *
+ * @param wrote - Told when the target took a write of a job.
+ */
+export function wholeOrgWriteDeps(
+  conns: ReadonlyMap<string, Connection>,
+  args: Pick<CliArgs, 'dryRun' | 'applyAssignmentRules'>,
+  lostJobs: LostBulkJobs | undefined,
+  wrote: () => void,
+): Pick<ForgeExecutorDeps, 'bulkWriteRecords' | 'duplicateRuleObjects'> {
+  return {
+    bulkWriteRecords: async (orgId, objectName, operation, records, options) => {
+      // A dry run sends no job: the executor never asks one of it.
+      if (args.dryRun) throw new Error('A dry run sends no Bulk API job.');
+      if (args.applyAssignmentRules && ASSIGNED_BY_RULES.has(objectName)) {
+        return {
+          answers: [],
+          rows: [],
+          unmatchedIds: [],
+          untouched: {
+            reason: "the run applies the target's assignment rules, which a job cannot",
+            unsupported: true,
+          },
+          requests: 0,
+        };
+      }
+      try {
+        const answer = await forgeBulkWrite(
+          jsforceBulk(connOf(conns, orgId)),
+          options.bulkManager,
+          objectName,
+          operation,
+          records,
+          {
+            ...(options.externalIdField ? { externalIdField: options.externalIdField } : {}),
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.onOpened ? { onOpened: options.onOpened } : {}),
+          },
+        );
+        if (answer.unmatchedIds.length > 0 || answer.answers.some((a) => a.success)) wrote();
+        return answer;
+      } catch (err: unknown) {
+        // Closed and not read back: every row of it may be in the target.
+        if (err instanceof BulkJobLostError) {
+          wrote();
+          lostJobs?.note({
+            orgId,
+            objectApiName: objectName,
+            ...(err.jobId ? { jobId: err.jobId } : {}),
+          });
+        }
+        throw err;
+      }
+    },
+    duplicateRuleObjects: async (orgId) => objectsUnderDuplicateRules(connOf(conns, orgId)),
+  };
+}
+
+/**
+ * Wait for the Bulk API jobs a clone of the whole org closed and could not
+ * read back to end, before its mute is given back: the org goes on writing
+ * such a job whatever became of the call that sent it, and given back
+ * first, the mute let its rows go in with every flow and trigger it was
+ * asked to keep quiet. Bounded (`LOST_JOBS_WAIT_MS`); the jobs still running
+ * past it are said, and handed back. Exported so it can be tested.
+ */
+export async function lostJobsBeforeTheMute(
+  lostJobs: Pick<LostBulkJobs, 'since' | 'stillRunning'> | undefined,
+  target: string,
+  say: (line: string) => void,
+): Promise<LostBulkJob[]> {
+  const lost = lostJobs?.since(0, target) ?? [];
+  if (!lostJobs || lost.length === 0) return [];
+  say(
+    `waiting for ${lost.length} Bulk API job(s) the run could not read back to end, ` +
+      'before the mute is given back…',
+  );
+  const still = await lostJobs.stillRunning(lost);
+  if (still.length > 0) {
+    const named = still
+      .map((job) => `${job.objectApiName}${job.jobId ? ` (${job.jobId})` : ''}`)
+      .join(', ');
+    say(
+      `warning: ${still.length} Bulk API job(s) were still running as the mute was given ` +
+        `back: ${named}; their records may have gone in with the target's automation on`,
+    );
+  }
+  return still;
+}
+
 /** A query on the Tooling API of one of the command's orgs, every page of it. */
 async function toolingAnswerOf(
   conns: ReadonlyMap<string, Connection>,
@@ -7813,7 +8512,9 @@ class CheckpointTakeInterrupted extends Error {
 /** One clone from the given command line: see {@link main}. */
 async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<void> {
   const t0 = Date.now();
-  const args = parseArgs(argv);
+  let args = parseArgs(argv);
+  /** A clone of the whole org (`--depth all`): no record, no table, every object the target can take. */
+  const wholeOrg = args.depth === 'all';
   // In --json mode stdout carries the summary alone, for a parser to read: a
   // CI job that saved it to a file read the progress lines in front of the
   // JSON, and failed on them. What the run says on the way goes to stderr.
@@ -7891,6 +8592,31 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       process.exit(1);
     }
   }
+  // A clone of the whole org copies a production org's personal data
+  // anonymized unless told otherwise: the source is typed for it, from its
+  // Organization record, as the target is. A copy of a whole production
+  // otherwise landed with every name, address and number it holds.
+  if (wholeOrg) {
+    const typed = await typeOrg(conns.get(args.source)!);
+    const production = productionRefusal(args.source, typed, 'clone') !== undefined;
+    if (production && !args.anonymizeGiven) {
+      args = { ...args, anonymize: true };
+      if (args.files && !args.files.acceptedAsIs) {
+        process.stderr.write(
+          `--files: ${args.source} is a production org, whose personal data a clone of the ` +
+            'whole org anonymizes unless --no-anonymize is given, and the content of a file ' +
+            'cannot be anonymized: add --files-as-is to accept that files are copied as they ' +
+            'are, give --no-anonymize, or leave out --files.\n',
+        );
+        process.exit(2);
+      }
+    }
+    say(
+      args.anonymize
+        ? `anonymize: on${production && !args.anonymizeGiven ? `, ${args.source} being a production org (--no-anonymize copies its personal data as it is)` : ''}`
+        : `anonymize: off, the personal data copied as ${args.source} holds it`,
+    );
+  }
   // An owner mapping to a user the target holds inactive, or holds no user
   // of, is refused here, before discovery reads the source and before the
   // target's automation is read. Refused only once the executor had the run,
@@ -7956,8 +8682,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     batchSize: 'auto',
     // A table is counted under its filter, as the panel's discovery of a query
     // counts the object after FROM: a count of the whole table would say an
-    // empty filter's table held rows.
-    ...(args.tables && Object.keys(args.objectSoqlFilters).length > 0
+    // empty filter's table held rows. A whole org counts each object so too.
+    ...((args.tables || wholeOrg) && Object.keys(args.objectSoqlFilters).length > 0
       ? { objectSoqlFilters: args.objectSoqlFilters }
       : {}),
   };
@@ -7972,16 +8698,16 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     return c.sobject(name).describe();
   });
   /** The source's global describe, read once by org. */
-  const globalDescribes = new Map<
-    string,
-    Promise<Array<{ name: string; keyPrefix: string | null }>>
-  >();
+  const globalDescribes = new Map<string, Promise<GlobalObject[]>>();
   const discoveryDeps: GraphDiscoveryDeps = {
     describeObject: async (orgId, name) => adaptDescribe(await describe(orgId, name)),
-    queryCount: async (orgId, soql) => {
+    // A count asked to take every row — a whole org's tasks and events —
+    // goes through the org's `queryAll`, as the panel's does: through
+    // `query`, it left out every activity the org archived.
+    queryCount: async (orgId, soql, _signal, options) => {
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
-      const r = await c.query(soql);
+      const r = await c.query(soql, options?.all ? { scanAll: true } : undefined);
       return r.totalSize;
     },
     // As the extension's discovery reads them: no label, and a text field
@@ -7994,13 +8720,49 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       if (!listed) {
         const c = conns.get(orgId);
         if (!c) throw new Error(`No connection for ${orgId}`);
-        listed = c
-          .describeGlobal()
-          .then((r) => r.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null })));
+        // A walk reads the names and the key prefixes alone; a whole org
+        // settles its objects by what the user may do with each, as the
+        // panel's describe gives it.
+        listed = c.describeGlobal().then((r) =>
+          r.sobjects.map((s): GlobalObject =>
+            wholeOrg
+              ? {
+                  name: s.name,
+                  keyPrefix: s.keyPrefix ?? null,
+                  queryable: s.queryable,
+                  createable: s.createable,
+                  updateable: s.updateable,
+                  deletable: s.deletable,
+                  customSetting: s.customSetting,
+                  layoutable: s.layoutable,
+                }
+              : { name: s.name, keyPrefix: s.keyPrefix ?? null },
+          ),
+        );
         globalDescribes.set(orgId, listed);
       }
       return listed;
     },
+    // What a whole org reads beside: the names the target's Tooling API
+    // serves (metadata, never copied), the source's own figure of each
+    // object's records, kept for one it could not count in time, and who may
+    // be given Create in the target.
+    ...(wholeOrg
+      ? {
+          toolingObjects: async (orgId: string) => {
+            const c = conns.get(orgId);
+            if (!c) throw new Error(`No connection for ${orgId}`);
+            return (await c.tooling.describeGlobal()).sobjects.map((sobject) => sobject.name);
+          },
+          recordCounts: async (orgId: string) => {
+            const c = conns.get(orgId);
+            if (!c) throw new Error(`No connection for ${orgId}`);
+            return c.request<unknown>(`/services/data/v${c.version}/limits/recordCount`);
+          },
+          createFacts: async (orgId: string) =>
+            (await readCreateFacts(createFactsDepsOf(conns, describe, described), orgId)).facts,
+        }
+      : {}),
   };
 
   // An object no user can create is none to start a clone from: refused with
@@ -8040,11 +8802,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
 
   say('discovery…');
   const discovery = new GraphDiscoveryService(discoveryDeps);
-  const discovered = await discovery.discover(
-    config,
-    args.maxNodes === undefined ? undefined : { maxNodes: args.maxNodes },
-  );
-  const root = discovered.nodes[0]?.objectApiName;
+  const discovered = wholeOrg
+    ? await discoverTheWholeOrg(discovery, config, say)
+    : await discovery.discover(
+        config,
+        args.maxNodes === undefined ? undefined : { maxNodes: args.maxNodes },
+      );
+  const root = wholeOrg ? undefined : discovered.nodes[0]?.objectApiName;
   if (root !== undefined && args.excludedObjects.includes(root)) {
     // An environment gives no flag: the template its file names left the
     // object out, and its reader was told of a flag never given.
@@ -8074,17 +8838,28 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     process.exit(2);
   }
   // The config the run goes with: a clone of whole tables leaves out every
-  // object discovery reached that the command line does not name.
-  const runConfig = args.tables ? tablesRunConfig(args, discovered) : config;
+  // object discovery reached that the command line does not name; a clone of
+  // the whole org, what --exclude-object names.
+  const runConfig = args.tables
+    ? tablesRunConfig(args, discovered)
+    : wholeOrg
+      ? wholeOrgRunConfig(args)
+      : config;
   const objectsLeftOut = runConfig.excludedObjects ?? args.excludedObjects;
   // Listed as excluded and out of the plan; the run leaves them out as well,
   // and those discovery never reached, which it would otherwise add.
-  const graph = withTemplateFields(
-    withObjectsLeftOut(discovered, new Set(objectsLeftOut)),
-    args.anonymizeFields,
-  );
+  const graph = wholeOrg
+    ? wholeOrgGraphOf(discovered, new Set(objectsLeftOut))
+    : withTemplateFields(
+        withObjectsLeftOut(discovered, new Set(objectsLeftOut)),
+        args.anonymizeFields,
+      );
   const plan = new ForgePlanGenerator().generate(graph);
-  say(graphLine(graph, plan, args.maxNodes ?? DEFAULT_MAX_NODES));
+  say(
+    wholeOrg
+      ? wholeOrgGraphLine(graph, plan, args.source)
+      : graphLine(graph, plan, args.maxNodes ?? DEFAULT_MAX_NODES),
+  );
 
   if (args.listObjects) {
     // The question a user asks when an object they expected is missing from a
@@ -8116,9 +8891,15 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
             action: 'list-objects',
             source: args.source,
             target: args.target,
-            ...(args.tables ? { tables: args.tables } : { record: args.record }),
+            ...(args.tables
+              ? { tables: args.tables }
+              : wholeOrg
+                ? { wholeOrg: true }
+                : { record: args.record }),
             graph: graphJson(graph, plan),
             objects: listed,
+            // Of the whole org, what discovery left out of the source, each with why.
+            ...(wholeOrg ? { leftOut: wholeOrgLeftOutOf(graph) } : {}),
             elapsedMs: elapsedSince(t0),
           },
           null,
@@ -8505,7 +9286,22 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     if (outcomes.some((outcome) => outcome.success)) wroteToTarget = true;
     return outcomes;
   };
+  /**
+   * Of a clone of the whole org, the Bulk API jobs it closed and could not
+   * read back, the org writing them perhaps still: each read again by its id
+   * before the mute is given back (`jobsEnded`).
+   */
+  const lostJobs = wholeOrg
+    ? new LostBulkJobs(
+        async (orgId, jobId) =>
+          (await jsforceBulk(connOf(conns, orgId)).bulk2.job('ingest', { id: jobId }).check())
+            .state,
+      )
+    : undefined;
   const executorDeps: ForgeExecutorDeps = {
+    // A clone of the whole org writes a large object as Bulk API jobs; any
+    // other run writes by REST alone, as it always did.
+    ...(wholeOrg ? wholeOrgWriteDeps(conns, args, lostJobs, () => (wroteToTarget = true)) : {}),
     queryRecords: async (orgId, soql, onTruncated) => {
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
@@ -8869,7 +9665,253 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // a call for a limit, from the requests the gate read of the target; none
   // read, the run keeps its own 2 000.
   let allowedAtTheGate: Pick<ForgeWriteGateAnswer, 'splitAllowance'> = {};
+  /**
+   * What the gate of a clone of the whole org said: of a dry run, what it
+   * would write and take of both orgs and what it leaves out (`dry`); of
+   * both, what its question names (`question`, the panel's own). Given with
+   * --json under `wholeOrg`.
+   */
+  let wholeOrgSaid: { dry?: WholeOrgDryRun; question: WholeOrgConfirmation } | undefined;
+  /**
+   * Of a clone of the whole org, the checkpoint first's scope, read at the
+   * gate as for any run before its requests are counted with the run's.
+   * Returns why it could not be scoped, in the command's words, if it could not.
+   */
+  const scopeCheckpointFirst = async (
+    boundary: ForgeWriteBoundary,
+    plan: WritePlan,
+  ): Promise<string | undefined> => {
+    if (!checkpoints || plan.totalRows === 0) return undefined;
+    const writing = new Set(plan.objects.map(({ objectApiName }) => objectApiName));
+    const ask: CommandCheckpointAsk = {
+      written: boundary.objects
+        .map(({ objectApiName }) => objectApiName)
+        .filter((name) => writing.has(name)),
+      running: { firing: stillRunningOf(gated, undefined, runWrites).firing },
+    };
+    try {
+      checkpointPlanned = { ask, estimate: await checkpoints.scope(ask) };
+      return undefined;
+    } catch (err: unknown) {
+      return beforeRunFailedWords(err).replace(/ Nothing was written\.$/, '');
+    }
+  };
+  const unreadOf = (err: unknown): { unread: string } => ({ unread: extractErrorMessage(err) });
+  /**
+   * The gate of a clone of the whole org, in the order the panel's runs it:
+   * what it reads whole past the bound refuses it before any limit is read;
+   * then its records, emails by their text, against the target's data
+   * storage; its files against the file storage of the same answer, refused
+   * past it and when either org could not say (`FILES_UNREAD`,
+   * `FILE_STORAGE_UNREAD`); then the source's daily requests, priced with the
+   * target's — its writes as Bulk API jobs — and the target's Bulk API
+   * batches in one budget (`forgeWriteBudgetOf`); and the command line's own:
+   * --max-total and the emails its flows send. Its dry run reads the same
+   * limits (`wholeOrgDryRunOf`) and stops here, nothing of the source read
+   * past its counts. A run let through is asked, whatever its volume, what
+   * the panel's question says (`wholeOrgConfirmationOf`).
+   */
+  const wholeOrgGate = async (boundary: ForgeWriteBoundary): Promise<void> => {
+    const measures = boundary.wholeOrg;
+    if (!measures) {
+      throw new Error(
+        'A clone of the whole org reached its write gate without what it measured of both ' +
+          'orgs, which its gate weighs it on. Nothing was written.',
+      );
+    }
+    const overBound = readBoundStopOf(measures.readWholeOver);
+    if (overBound && !boundary.dryRun) {
+      throw ForgeRunGateError.of({
+        ...overBound,
+        message: wholeOrgRefusalWords(overBound.message),
+      });
+    }
+    const plan = wholeOrgWritePlanOf(boundary.objects, measures);
+    const checkpointFailed = await scopeCheckpointFirst(boundary, plan);
+    const updatedAfterInsert = [...updatedNames];
+    let dry: WholeOrgDryRun | undefined;
+    let priced: WholeOrgPriced;
+    let storageCheck: StorageCheck;
+    let files: WholeOrgFilesCheck | undefined;
+    let stops: ForgeGateStop[];
+    if (boundary.dryRun) {
+      dry = await wholeOrgDryRunOf({
+        objects: boundary.objects,
+        measures,
+        graph,
+        anonymizePII: args.anonymize,
+        updatedAfterInsert,
+        ...(checkpointPlanned ? { checkpoint: checkpointPlanned.estimate } : {}),
+        target: { org: args.target, limits: targetConn },
+        source: { org: args.source, limits: connOf(conns, args.source) },
+      });
+      priced = pricedOfTheDryRun(dry);
+      storageCheck = dry.storage;
+      files = dry.files;
+      stops = dry.wouldBeRefused;
+    } else {
+      const limits: DataStorage | { unread: string } =
+        await readDataStorage(targetConn).catch(unreadOf);
+      const budget: ApiBudget | { unread: string } | undefined =
+        'unread' in limits
+          ? await readApiBudget(targetConn).catch(unreadOf)
+          : limits.dailyApiRequests;
+      storageCheck = storageCheckOf(plan, limits);
+      const overStorage = storageRefusal(storageCheck, args.target);
+      const filesOf = wholeOrgFilesOf(measures.files, limits, args.target);
+      files = filesOf.files;
+      const sourceBudget = await readApiBudget(connOf(conns, args.source)).catch(unreadOf);
+      const requests = forgeWriteBudgetOf({
+        plan,
+        updatedAfterInsert,
+        ...(boundary.readBack !== undefined ? { readBack: boundary.readBack } : {}),
+        ...(checkpointPlanned ? { checkpoint: checkpointPlanned.estimate } : {}),
+        ...deliverabilityPartOf(emails?.ofRun),
+        budget,
+        target: args.target,
+        wholeOrg: {
+          measures,
+          bulkBatches: 'unread' in limits ? limits : limits.dailyBulkApiBatches,
+          sourceBudget,
+          source: args.source,
+        },
+      });
+      priced = { api: requests.api, wholeOrg: requests.wholeOrg };
+      stops = [
+        ...(overStorage !== undefined && storageCheck.verdict === 'exceeds'
+          ? [
+              {
+                code: 'STORAGE_EXCEEDED' as const,
+                message: `${overStorage} Nothing was written.`,
+                storage: {
+                  estimateMB: Number(formatMB(storageCheck.estimateMB)),
+                  remainingMB: storageCheck.remainingMB,
+                },
+              },
+            ]
+          : []),
+        ...(filesOf.stop ? [filesOf.stop] : []),
+        ...(requests.stop ? [requests.stop] : []),
+        ...(requests.alsoRefused ?? []),
+      ];
+    }
+    const question = wholeOrgConfirmationOf({
+      run: {
+        source: args.source,
+        graph,
+        anonymizePII: args.anonymize,
+        ...carriedOfTheLine(),
+      },
+      measures,
+      plan,
+      budget: priced,
+      ...(files ? { files } : {}),
+    });
+    wholeOrgSaid = { ...(dry ? { dry } : {}), question };
+    say('');
+    for (const line of writePlanLines(plan, storageCheck, args.target)) say(line);
+    for (const line of wholeOrgGateLines(question, wholeOrgLeftOutOf(graph).counts, args.target)) {
+      say(line);
+    }
+    if (checkpointPlanned) {
+      for (const line of checkpointEstimateLines(checkpointPlanned.estimate)) say(line);
+    }
+    // The emails the target's flows send as the records go in, as for any run.
+    const sending = emailsPerInsertOf(gated);
+    let overEmails: string | undefined;
+    if (sending.length > 0) {
+      const limits = await readEmailLimits(targetConn).catch(unreadOf);
+      const checks = countedEmailChecksOf(plan, sending, limits);
+      for (const line of emailCheckLines(checks, args.target)) say(line);
+      overEmails = emailRefusal(checks, args.target);
+    }
+    const emailsUncounted = emailsUncountedOf(gated, insertsOf(plan));
+    if (emailsUncounted !== undefined) {
+      say(`  emails: not counted, ${emailsUncounted} could not be read`);
+    }
+    const unsaid = (message: string): string =>
+      wholeOrgRefusalWords(message).replace(/ Nothing was written\.$/, '');
+    // In the order the run meets them, each under the code a real run refused
+    // for it alone is refused with.
+    const refusals: Array<RunRefusal & { stop?: ForgeGateStop }> = [
+      ...(plan.totalRows > args.maxTotal
+        ? [
+            {
+              code: 'MAX_TOTAL_EXCEEDED',
+              message: wholeOrgMaxTotalRefusal(plan.totalRows, args.maxTotal),
+            },
+          ]
+        : []),
+      ...(checkpointFailed !== undefined
+        ? [{ code: CHECKPOINT_REFUSED, message: checkpointFailed }]
+        : []),
+      ...stops.map((stop) => ({
+        code: stop.code,
+        message:
+          stop.code === CHECKPOINT_REFUSED && stop.refusal !== undefined
+            ? checkpointRefusedWords(stop.refusal)
+            : unsaid(stop.message),
+        stop,
+      })),
+      ...(overEmails !== undefined ? [{ code: 'EMAILS_EXCEEDED', message: overEmails }] : []),
+    ];
+    if (dry) {
+      for (const { code, message } of refusals) say(`  ${wouldBeRefusedLine({ code, message })}`);
+      dryRunRefusals.push(...refusals.map(({ code, message }) => ({ code, message })));
+      throw new WholeOrgDryRunStop(dry);
+    }
+    const words = (message: string): string => `${message} Nothing was written.`;
+    const [first, ...also] = refusals;
+    if (first) {
+      alsoRefusedAtGate = also.map(({ code, message }) => ({ code, message: words(message) }));
+      // The stop's own detail kept: the storage and which, the allowance and
+      // the org, the objects read whole.
+      throw first.stop
+        ? ForgeRunGateError.of({ ...first.stop, message: words(first.message) })
+        : new ForgeRunGateError(first.code as ForgeRunGateErrorCode, words(first.message));
+    }
+    allowedAtTheGate = splitAllowanceAnswerOf(priced.api);
+    await askTheWholeOrg(question, plan);
+  };
+  /**
+   * What the command line set that narrows a clone of the whole org, as its
+   * question says it (`carriedOf`): its filters, the objects it leaves out by
+   * name, the rows its decisions hold back, the fields it leaves out.
+   */
+  const carriedOfTheLine = (): { carried?: WholeOrgCarried } => {
+    const carried = carriedOf(runConfig);
+    return carried ? { carried } : {};
+  };
+  /**
+   * Ask before a clone of the whole org writes, whatever its volume, naming
+   * what it is about to do: answered by --yes, or on the terminal; with none
+   * to answer it, refused (`CONFIRMATION_UNAVAILABLE`), and declined
+   * (`WRITE_DECLINED`), nothing written either way.
+   */
+  const askTheWholeOrg = async (question: WholeOrgConfirmation, plan: WritePlan): Promise<void> => {
+    const what = wholeOrgQuestionWords(question, plan, args.target);
+    if (args.yes) {
+      say(`  --yes: written without the question: ${what}`);
+      runAudit().confirm('volume');
+      return;
+    }
+    if (process.stdin.isTTY !== true) {
+      throw new ForgeRunGateError(
+        'CONFIRMATION_UNAVAILABLE',
+        `A clone of the whole org asks before it writes ${what}, and no terminal is there to ` +
+          'answer: give --yes to write it. Nothing was written.',
+      );
+    }
+    if (!(await confirm(`Write ${what}?`))) {
+      throw new ForgeRunGateError(
+        'WRITE_DECLINED',
+        'The clone of the whole org was declined at its question. Nothing was written.',
+      );
+    }
+    runAudit().confirm('volume');
+  };
   const beforeWrite = async (boundary: ForgeWriteBoundary): Promise<void> => {
+    if (wholeOrg) return wholeOrgGate(boundary);
     const plan = writePlanOf(boundary.objects);
     let storage: DataStorage | { unread: string };
     try {
@@ -9005,7 +10047,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   };
 
   say(
-    `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.tables ? ', WHOLE TABLES' : ''}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.applyAssignmentRules ? ', ASSIGNMENT-RULES' : ''}${args.files ? ', FILES' : ''}${args.pageSize !== undefined ? `, READ IN PAGES OF ${args.pageSize}` : ''})`,
+    `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.tables ? ', WHOLE TABLES' : ''}${wholeOrg ? ', WHOLE ORG' : ''}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.applyAssignmentRules ? ', ASSIGNMENT-RULES' : ''}${args.files ? ', FILES' : ''}${args.pageSize !== undefined ? `, READ IN PAGES OF ${args.pageSize}` : ''})`,
   );
   // The record types were read for the run, before the executor had it: the
   // extension counts them among its calls. A summary that counts none is left
@@ -9036,8 +10078,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // The org the run wrote to, by its own id: a removal goes to that org and
     // to no other, whatever alias names it by then.
     ...(targetOrgId ? { targetOrgId } : {}),
-    // The record it cloned from, or the tables it read, each under its condition.
-    ...(args.tables ? { objects: args.tables } : { record: args.record }),
+    // The record it cloned from, or the tables it read, each under its
+    // condition, or the whole org.
+    ...(args.tables
+      ? { objects: args.tables }
+      : wholeOrg
+        ? { wholeOrg: true as const }
+        : { record: args.record }),
     dryRun: args.dryRun,
     upsert: args.upsert,
     expandOrphans: args.expandOrphans,
@@ -9103,8 +10150,62 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // past the bound, and what --resume takes the run up from.
     ...(journalPath && journalStore ? { journal: journalPath } : {}),
     ...(journalPart() !== undefined ? { part: journalPart() } : {}),
+    // Of a clone of the whole org, the Bulk API jobs the org was still writing
+    // as the mute was given back: their records may have gone in unmuted.
+    ...(bulkJobsPastMute.length > 0 ? { bulkJobsPastMute } : {}),
     ...state,
   });
+
+  /**
+   * The summary --json prints of the dry run of a clone of the whole org,
+   * stopped at its gate: what the target runs and holds against the rows, as
+   * any dry run says it, and under `wholeOrg` what the run would write and
+   * take — per object the records it would insert and how many go in Bulk
+   * API jobs, the API requests of both orgs, the Bulk API batches, the data
+   * and file storage, how long it writes, what it leaves of the source and
+   * why, the personal fields it copies as they are, the objects of managed
+   * packages and the phone numbers it writes empty — and what a real run
+   * would be refused for.
+   */
+  const wholeOrgDryRunDocument = (dry: WholeOrgDryRun) => {
+    const question = wholeOrgSaid?.question;
+    return {
+      tool: 'sandforge-clone',
+      version: 1,
+      source: args.source,
+      target: args.target,
+      dryRun: true,
+      anonymize: args.anonymize,
+      files: args.files !== undefined,
+      graph: graphJson(graph, plan),
+      targetAutomation: emails?.ofRun.read
+        ? { ...targetAutomation, deliverability: emails.ofRun.read.reading }
+        : targetAutomation,
+      ...dryRunMuteOf(mute),
+      removalRisks,
+      targetGaps: gapsWithAnswers(targetGaps, gapDecisions),
+      wholeOrg: {
+        wouldInsert: dry.wouldInsert,
+        totalRows: dry.totalRows,
+        requests: { target: dry.targetRequests, source: dry.sourceRequests },
+        ...(dry.bulkBatches ? { bulkBatches: dry.bulkBatches } : {}),
+        storage: dry.storage,
+        ...(dry.files ? { files: dry.files } : {}),
+        durationSeconds: dry.durationSeconds,
+        leftOut: dry.leftOut,
+        personalAsIs: dry.personalAsIs,
+        // As the panel's question names them (`WholeOrgConfirmation`).
+        managedPackages: question?.managedPackages ?? [],
+        ...(question?.contactPointsBlanked !== undefined
+          ? { contactPointsBlanked: question.contactPointsBlanked }
+          : {}),
+        ...(question?.carried ? { carried: question.carried } : {}),
+      },
+      ...checkpointDocument(),
+      ...wouldBeRefusedJson(dryRunRefusals),
+      elapsedMs: elapsedSince(t0),
+    };
+  };
 
   /** The checkpoint the run took before its first write, once taken. */
   let checkpointTaken: RunCheckpointTaken | undefined;
@@ -9235,6 +10336,25 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // record types the target gave; it is given back again as the run ends,
   // written, failed, stopped or thrown alike, before anything is said of it.
   let held: HeldMute | undefined;
+  /**
+   * Of a clone of the whole org, the Bulk API jobs it lost that the org was
+   * still writing when the mute was given back: said, and given with --json
+   * under `bulkJobsPastMute`, their rows perhaps written with the automation on.
+   */
+  let bulkJobsPastMute: ForgeBulkJobPastMute[] = [];
+  let lostJobsWaited: Promise<void> | undefined;
+  /**
+   * Wait, once, for the jobs the run lost to end before the mute is given
+   * back: a job the org goes on writing after the bypass is gone writes its
+   * rows with every flow and trigger the mute was asked to keep quiet.
+   */
+  const jobsEnded = (): Promise<void> =>
+    (lostJobsWaited ??= lostJobsBeforeTheMute(lostJobs, args.target, say).then((still) => {
+      bulkJobsPastMute = still.map(({ objectApiName, jobId }) => ({
+        objectApiName,
+        ...(jobId ? { jobId } : {}),
+      }));
+    }));
   const leaseAtTheGate = async (
     boundary: ForgeWriteBoundary,
   ): Promise<ForgeWriteGateAnswer | undefined> => {
@@ -9279,7 +10399,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     if (relit) throw new ForgeRunGateError(relit.code, relit.message);
     return {
       ...allowedAtTheGate,
-      lease: { assigned: lease.outcome.assigned.length, giveBack: () => lease.release() },
+      lease: {
+        assigned: lease.outcome.assigned.length,
+        giveBack: async () => {
+          await jobsEnded();
+          return lease.release();
+        },
+      },
     };
   };
   try {
@@ -9296,14 +10422,19 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         withTheJournal(
           {
             // A clone of whole tables goes as the panel's run of a query goes:
-            // each table read and written page by page.
-            ...(args.tables
-              ? tablesExecuteOptions(args, runConfig, graph, recordTypeMappings, (fields) =>
+            // each table read and written page by page; a clone of the whole
+            // org as the panel's run of the whole org.
+            ...(wholeOrg
+              ? wholeOrgOptions(args, runConfig, graph, recordTypeMappings, (fields) =>
                   discovery.personalFields(fields),
                 )
-              : executeOptions(args, graph, recordTypeMappings, (fields) =>
-                  discovery.personalFields(fields),
-                )),
+              : args.tables
+                ? tablesExecuteOptions(args, runConfig, graph, recordTypeMappings, (fields) =>
+                    discovery.personalFields(fields),
+                  )
+                : executeOptions(args, graph, recordTypeMappings, (fields) =>
+                    discovery.personalFields(fields),
+                  )),
             beforeWrite: leaseAtTheGate,
           },
           journalStore,
@@ -9311,6 +10442,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       )
       .finally(async () => {
         if (held) {
+          await jobsEnded();
           mutedAutomation = await held.release();
           for (const line of muteLines(mutedAutomation, args.target)) say(line);
         }
@@ -9325,6 +10457,16 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       );
     }
   } catch (err: unknown) {
+    // The dry run of the whole org stops at its gate, nothing of the source
+    // read past its counts: what it said there is its summary, and a real run
+    // it says would be refused ends it as a refusal does, exit 1.
+    if (err instanceof WholeOrgDryRunStop) {
+      const document = wholeOrgDryRunDocument(err.dryRun);
+      if (args.json) process.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
+      else console.log(`\ndone in ${document.elapsedMs}ms`);
+      if (dryRunRefusals.length > 0) process.exit(1);
+      return;
+    }
     // Ctrl-C while the checkpoint was taken first: nothing of it was kept,
     // and nothing written, recorded stopped before it started.
     if (err instanceof CheckpointTakeInterrupted) {
@@ -9488,8 +10630,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     process.exit(1);
   }
   // Of the run, as Sync's and Seed's: 1 when it produced only failures, 0 when
-  // it did part of its work, unless --fail-on-partial, which makes it 3.
-  const code = runExitCode(status, args.failOnPartial);
+  // it did part of its work, unless --fail-on-partial, which makes it 3. A
+  // clone of the whole org the target refused part of ends 3 unasked: a copy
+  // of an org that left records out is no copy of it.
+  const code = runExitCode(status, args.failOnPartial || wholeOrg);
   if (code !== 0) process.exit(code);
 }
 
