@@ -237,8 +237,9 @@ deploy key that pushes the release commit and its tag, which CI then runs on.
    that script writes plus the lockfile, tags, validates and packages.
 3. The GitHub Release is drafted with the VSIX attached before the
    Marketplace publish, and undrafted once the Marketplace serves the new
-   version. A publish that fails leaves the draft and the tag in place:
-   re-run the workflow with `publish_only` to retry it without a bump.
+   version, which opens its announcement in Discussions. A publish that
+   fails leaves the draft and the tag in place: re-run the workflow with
+   `publish_only` to retry it without a bump.
 4. Locally, `pnpm package` builds the same VSIX with `@vscode/vsce`
    (`--no-dependencies`, output `sandforge.vsix`) and
    `SKIP_BUILD_CHECKS=1 bash scripts/pre-publish-check.sh` runs the

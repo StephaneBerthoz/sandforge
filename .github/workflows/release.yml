@@ -51,6 +51,8 @@ jobs:
       # API call; without this scope it answers 404 and the gate below could
       # not tell a red commit from an unknown one.
       actions: read
+      # Undrafting the release starts its announcement in Discussions.
+      discussions: write
 
     # Every action below is pinned to a commit: this job can push to the
     # repository, and pnpm/action-setup provides the binary that runs the
@@ -277,7 +279,9 @@ jobs:
           echo "::error::the Marketplace never served v$NEW_VERSION — the GitHub Release stays a draft"
           exit 1
 
+      # Publishing the draft also opens its discussion under Announcements,
+      # with the release notes as its text, so a release announces itself.
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release edit "v$NEW_VERSION" --draft=false
+        run: gh release edit "v$NEW_VERSION" --draft=false --discussion-category Announcements
