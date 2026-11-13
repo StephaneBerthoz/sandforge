@@ -5,6 +5,41 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.78.0] - 2026-11-13
+
+Forge clones a whole org, DataOps Cleanup empties objects or a whole org, and runs get past inactive owners and Salesforce limits.
+
+### Added
+
+- **Forge**: the ALL depth clones the whole org, by Bulk API jobs for large objects; Simulate says what it would write and be refused for.
+- **Forge**: Review names what a whole-org clone leaves out and the personal fields copied as is, and offers to empty the target first.
+- **DataOps**: Cleanup empties the objects you pick or the whole org: a dry run first, then the recycle bin with Undo, or a delete for good.
+- **Seed, Sync, Forge**: the API requests a run really sent are given beside what its gate priced, and Review says what discovery cost.
+- **Command line and MCP**: `--depth all`, `sandforge-empty`, `apiRequests.sent`; tools `empty_preview`, `empty_run`, `empty_undo`.
+
+### Changed
+
+- **Forge, command line**: an `--owner-map` to a user inactive or missing in the target is refused first (`OWNER_MAP_INACTIVE`, `OWNER_MAP_UNKNOWN`).
+- **Sync, Seed, command line**: a run file names its target by org Id under `targetOrgId`; read `targetAlias` for the alias.
+- **Automation**: a Rewind step of an org with no alias is confirmed with its name or Organization Id, no longer with its username.
+- **Frozen Dataset**: a load or reload past the API requests the target has left today is refused before it writes; its preview says so.
+- **DataOps, command line**: an org the network did not reach as its automation was read refuses under `ORG_TEMPORARILY_UNREACHABLE`.
+
+### Fixed
+
+- **Forge**: a record whose owner is inactive in the target goes in under your user; a parent written in part no longer skips its children.
+- **Forge, Checkpoints**: a call a trigger refuses for a Salesforce limit, or a record the org could not lock, is sent again, not failed.
+- **Forge**: results, CSV and copied report list what the run failed with the target's codes, and a resumed run keeps copying files.
+- **Removals**: a removal names what went along with the run's records, keeps what someone added under them, takes duplicate record sets.
+- **Frozen Dataset**: a reload refuses before its purge would take a record someone added under one that came with a load.
+- **Forge, Sync, Frozen Dataset**: the contact role Salesforce writes with an opportunity is found when its save spans two seconds.
+- **Checkpoints**: a refused rewind or undo names every refusal at once, and a rewind deletes an entitlement before its account.
+- **Seed, Sync, Forge**: the API requests a run is priced at count its reads, its Bulk API jobs, its resends and an automation mute.
+- **Every page**: an org with no alias is named by its name or Id, never by your username, in confirmations and the audit trail too.
+- **Every page**: with reduced motion asked by the system, no transition runs, not even for one frame.
+- **Forge**: Review no longer jumps as it opens, and why a run stopped before writing shows in view, in your language.
+- **Command line, every page**: a scratch org past its expiration date is said to be gone, with how to replace it, not an HTML page.
+
 ## [1.77.0] - 2026-11-09
 
 A Frozen reload no longer deletes what someone made under a load, runs link only the platform's contact role, and gates count what a run writes.
