@@ -458,6 +458,16 @@ export interface RunRemovalOptions {
    */
   endedByItsWrites?: boolean;
   /**
+   * When a Bulk API job the run closed ended, as the org dated it
+   * (`jobEndedLine`): the run ends no earlier, and the rest of that second,
+   * however it is otherwise dated. The job writes on after its sender
+   * stopped, and the platform makes records under what it writes as it does.
+   * Ended with its last write, a part cut once its job had closed ended with
+   * the job's last batch, live: the feed items the platform made a second
+   * later under those 120 cases read as added since the run, and kept them.
+   */
+  writtenUntil?: Date;
+  /**
    * What earlier removals of the run wrote to records they left in the org,
    * by record id: the `LastModifiedDate` the org left on each. A record last
    * modified no later than that was not changed since the run.
@@ -746,7 +756,12 @@ export interface RunPartAlongside {
   /** Its span, as {@link RunRemovalOptions} takes a run's. */
   span: Pick<
     RunRemovalOptions,
-    'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt' | 'endedByItsWrites'
+    | 'runStartedAt'
+    | 'runEndedAt'
+    | 'runDurationMs'
+    | 'runRecordedAt'
+    | 'endedByItsWrites'
+    | 'writtenUntil'
   >;
   /** What its earlier removals stamped: see {@link RunRemovalOptions.removalStamps}. */
   removalStamps?: Readonly<Record<string, string>>;
@@ -2928,9 +2943,32 @@ function lastWriteOf(snapshots: readonly ObjectSnapshot[], from: number, to: num
  * runs from the first record's `CreatedDate` for as long as the run took:
  * late rather than early, as the run's first write came after it started.
  *
+ * However it is dated, a run that closed a Bulk API job ends no earlier than
+ * the job, as the org dated its end (`writtenUntil`), and the rest of that
+ * second: see {@link RunRemovalOptions.writtenUntil}.
+ *
  * @param orgAheadMs - How far the org's clock runs ahead of this machine's.
  */
 function runSpan(
+  options: Pick<
+    RunRemovalOptions,
+    | 'runStartedAt'
+    | 'runEndedAt'
+    | 'runDurationMs'
+    | 'runRecordedAt'
+    | 'endedByItsWrites'
+    | 'writtenUntil'
+  >,
+  snapshots: Iterable<ObjectSnapshot>,
+  orgAheadMs: number,
+): { start: number; end: number } {
+  const span = spanOfItsDates(options, snapshots, orgAheadMs);
+  const until = (options.writtenUntil?.getTime() ?? Number.NaN) + REST_OF_THE_SECOND_MS;
+  return Number.isFinite(span.end) && until > span.end ? { ...span, end: until } : span;
+}
+
+/** {@link runSpan}, as the dates the run was given, or its records and its record, tell it. */
+function spanOfItsDates(
   options: Pick<
     RunRemovalOptions,
     'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt' | 'endedByItsWrites'

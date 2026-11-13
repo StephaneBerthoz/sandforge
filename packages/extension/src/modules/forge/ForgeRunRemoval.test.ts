@@ -3501,6 +3501,56 @@ describe('removeRunRecords', () => {
         expect(org.has('Task', id('00T', 1))).toBe(false);
       });
 
+      it('ends no earlier than the Bulk API job the part closed, as the org dated its end: the feed items made a second after its last batch go with their cases', async () => {
+        // Run for real: a clone was killed as its job of cases closed; the job
+        // wrote its last batch at 17:38:44 and ended at 17:38:47, and the
+        // platform made a feed item under each of those cases at 17:38:45, as
+        // the run's user. The part's journal ends with the job's end, read
+        // back since, on the machine's clock (17:38:46.933). Ended with its
+        // last write, the removal kept the 120 cases of that batch for them.
+        const org = new FakeOrg();
+        org.relationships.set('Case', [
+          { childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true },
+        ]);
+        const dated = (time: string) => `2026-11-13T${time}.000+0000`;
+        const cases = [
+          ['17:38:34', 1],
+          ['17:38:42', 2],
+          ['17:38:44', 3],
+          ['17:38:44', 4],
+        ] as const;
+        for (const [time, n] of cases) {
+          org.add('Case', {
+            Id: id('500', n),
+            CreatedDate: dated(time),
+            LastModifiedDate: dated(time),
+            CreatedById: USER,
+          });
+          org.add('FeedItem', {
+            Id: id('0D5', n),
+            ParentId: id('500', n),
+            CreatedDate: dated(time === '17:38:44' ? '17:38:45' : time),
+            LastModifiedDate: dated(time === '17:38:44' ? '17:38:45' : time),
+            CreatedById: USER,
+          });
+        }
+        const plan = [{ objectApiName: 'Case', ids: cases.map(([, n]) => id('500', n)) }];
+        const span = {
+          runRecordedAt: new Date('2026-11-13T17:38:46.933Z'),
+          runDurationMs: 2 * 60_000 + 11_653,
+          endedByItsWrites: true,
+          includeChanged: false,
+        };
+
+        const outcome = await removeRunRecords(org, plan, {
+          ...span,
+          writtenUntil: new Date('2026-11-13T17:38:47.000Z'),
+        });
+
+        expect(outcome.objects[0]).toMatchObject({ deleted: 4, keptChanged: 0, keptDependents: 0 });
+        expect(org.has('FeedItem', id('0D5', 3))).toBe(false);
+      });
+
       it('unasked, a run dated by when it was recorded keeps its ten seconds of leeway', async () => {
         const { org, plan } = accountAndContact();
         taskAt(org, 13);

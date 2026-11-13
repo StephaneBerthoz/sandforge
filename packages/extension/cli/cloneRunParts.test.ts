@@ -97,8 +97,20 @@ describe('the parts of a run cut and taken up, read from its journal', () => {
 
     const [cut] = await runPartsOf(path, nodeRunJournal(dir));
 
-    expect(cut).toMatchObject({ part: 0, startedAt: at('16:05:15'), endedAt: at('16:07:31') });
-    expect(machineSpanOf(cut)).toMatchObject({ runRecordedAt: new Date(at('16:07:31')) });
+    expect(cut).toMatchObject({
+      part: 0,
+      startedAt: at('16:05:15'),
+      endedAt: at('16:07:31'),
+      jobEndedAt: '2026-11-13T16:07:33.000Z',
+    });
+    // Ended with its last write, it ends no earlier than the job as the org
+    // dated it: the platform makes records under the job's last batch after it.
+    expect(machineSpanOf(cut)).toEqual({
+      runRecordedAt: new Date(at('16:07:31')),
+      runDurationMs: 136_000,
+      endedByItsWrites: true,
+      writtenUntil: new Date('2026-11-13T16:07:33.000Z'),
+    });
   });
 
   it('reads no parts of a journal that is not there, or not a run', async () => {

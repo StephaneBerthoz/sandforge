@@ -946,6 +946,52 @@ describe('sandforge-clone --remove', () => {
       });
     });
 
+    it('says a job the run left open within its hour may still write, and no row of it as one that stays', async () => {
+      // Run for real: killed as its job of cases opened, nothing processed;
+      // the removal said the journal named none of the 2 522 rows that may be
+      // in the target, and that they stayed. Nothing of them was there.
+      const JOB = '750000000000002AAA';
+      const cases = [SRC('500', 1), SRC('500', 2)];
+      const disk = memoryRunFile(
+        `${JSON.stringify({ run: { journalId: 'j', targetOrgId: TARGET_ORG, startedAt: '2026-11-13T17:54:27.000Z' } })}\n`,
+      );
+      const store = ForgeRunStore.open(disk);
+      store.beginPart(new Date('2026-11-13T17:54:27.000Z'));
+      store.setMapping('created', ACCOUNT, TGT('001', 1), 'Account');
+      const callId = insertCallsIn(store).sending(
+        'Case',
+        cases.map((sourceId, i) => ({ sourceId, payload: { Subject: `Case ${i + 1}` } })),
+        undefined,
+        true,
+      );
+      store.jobOpened(callId ?? '', JOB);
+      store.flush();
+      const journal = file(disk.text(), 'killed-as-its-job-opened.ndjson');
+      const job = {
+        check: vi.fn(async () => ({
+          state: 'Open',
+          numberRecordsProcessed: 0,
+          createdDate: new Date(Date.now() - 2 * 60_000).toISOString(),
+        })),
+        getSuccessfulResults: vi.fn(async () => []),
+        getAllResults: vi.fn(async () => ({})),
+        abort: vi.fn(async () => undefined),
+      };
+      vi.mocked(makeConn).mockReturnValue({
+        ...targetConn,
+        bulk2: { job: vi.fn(() => job) },
+      } as unknown as Connection);
+
+      expect(await run(['--remove', journal, '--target', 'TGT'])).toBeUndefined();
+
+      expect(job.abort).not.toHaveBeenCalled();
+      expect(printed.join('\n')).toContain(
+        `  Case: Bulk API job ${JOB} is Open, 0 row(s) processed: the run stopped before it ` +
+          'closed it, and closed, it would still write them; a removal from ',
+      );
+      expect(printed.join('\n')).not.toContain('the journal names none of the');
+    });
+
     it('says there is nothing to remove of a run that created nothing, without contacting the org', async () => {
       const path = file(runSummary({}, { createdByObject: [] }));
 

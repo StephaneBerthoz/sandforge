@@ -46,12 +46,18 @@ export interface RunPart {
   startedAt?: string;
   /** When it ended, or its last line, on that clock. */
   endedAt?: string;
+  /**
+   * When the last Bulk API job it closed ended, as the org dated it, read
+   * back since (`jobEndedLine`): it wrote until then.
+   */
+  jobEndedAt?: string;
 }
 
 /** What the lines of a journal say of each part, beside its records: see {@link RunPart}. */
 interface PartLines {
   startedAt?: string;
   endedAt?: string;
+  jobEndedAt?: string;
   wrote: string[];
 }
 
@@ -100,6 +106,12 @@ async function partLinesOf(path: string): Promise<PartLines[]> {
     const jobEnded = jobEndedTimesOf(line);
     if (jobEnded) {
       later(current, jobEnded.at);
+      if (
+        current.jobEndedAt === undefined ||
+        Date.parse(jobEnded.orgAt) > Date.parse(current.jobEndedAt)
+      ) {
+        current.jobEndedAt = jobEnded.orgAt;
+      }
       continue;
     }
     if (!line.startsWith('["x"') && !line.startsWith('["p"') && !line.startsWith('["g"')) continue;
@@ -146,6 +158,7 @@ export async function runPartsOf(path: string, journals: ForgeRunJournal): Promi
       wrote: said.wrote,
       ...(said.startedAt ? { startedAt: said.startedAt } : {}),
       ...(said.endedAt ? { endedAt: said.endedAt } : {}),
+      ...(said.jobEndedAt ? { jobEndedAt: said.jobEndedAt } : {}),
     });
   }
   return parts;
@@ -160,15 +173,22 @@ export async function runPartsOf(path: string, journals: ForgeRunJournal): Promi
  * dated it (`endedByItsWrites`), read in what it reads of them: ten seconds
  * of leeway after the end its lines say took a contact role made by hand
  * eight seconds after a cut part ended for the run's.
+ *
+ * A part whose Bulk API job ended after it stopped ends no earlier than the
+ * job, as the org dated it (`writtenUntil`): ended with its last write, the
+ * job's last batch, the feed items the platform made a second later under
+ * those 120 cases read as added since the run, live, and kept them.
  */
 export function machineSpanOf(part: RunPart): RunPartAlongside['span'] | undefined {
   const ended = Date.parse(part.endedAt ?? '');
   if (!Number.isFinite(ended)) return undefined;
   const began = Date.parse(part.startedAt ?? '');
+  const jobEnded = Date.parse(part.jobEndedAt ?? '');
   return {
     runRecordedAt: new Date(ended),
     runDurationMs: Number.isFinite(began) && began <= ended ? ended - began : 0,
     endedByItsWrites: true,
+    ...(Number.isFinite(jobEnded) ? { writtenUntil: new Date(jobEnded) } : {}),
   };
 }
 

@@ -6656,8 +6656,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     for (const line of inFlightLines(reconciled, args.target, 'removal')) say(line);
     // What a job that ended wrote is in the journal, whichever row each
     // record is: removed with the run's. Live, the line said the journal
-    // named none of 2 522 rows whose 2 520 records it named.
-    const unnamed = unnamedUncertainRows(reconciled);
+    // named none of 2 522 rows whose 2 520 records it named. A job the org
+    // has not ended is said on its own line, with what it may still write:
+    // live, the line said the rows of a job open, nothing processed, stayed.
+    const underway = (reconciled.underway ?? []).reduce((sum, { rows }) => sum + rows, 0);
+    const unnamed = unnamedUncertainRows(reconciled) - underway;
     if (unnamed > 0) {
       say(
         `  the journal names none of the ${unnamed} row(s) that may be in ${args.target}: they ` +
