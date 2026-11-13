@@ -1,8 +1,9 @@
 #!/usr/bin/env tsx
 /**
- * sandforge-mcp — Seed, Forge's clone of a record, the removal of a run,
- * Checkpoints and the environments of a `sandforge.yaml` as tools an AI agent
- * calls, over the Model Context Protocol on stdio.
+ * sandforge-mcp — Seed, Forge's clone of a record, the removal of a run, the
+ * emptying of objects or of a whole org, Checkpoints and the environments of
+ * a `sandforge.yaml` as tools an AI agent calls, over the Model Context
+ * Protocol on stdio.
  *
  * Each tool runs the command-line script of this folder that does the same
  * thing, with `--json`, in a process of its own, and answers with what the
@@ -101,8 +102,9 @@ const SERVER_INFO = {
 
 /** What the model is told of the server as a whole, beside each tool's own description. */
 export const INSTRUCTIONS =
-  "SandForge's Seed, Forge's clone of a record, the removal of a run, Checkpoints and the " +
-  'environments of a sandforge.yaml, run from a checkout of its repository. Every org is named ' +
+  "SandForge's Seed, Forge's clone of a record, the removal of a run, the emptying of objects " +
+  'or of a whole org, Checkpoints and the environments of a sandforge.yaml, run from a ' +
+  'checkout of its repository. Every org is named ' +
   'by its sf CLI alias, as `sf alias list` shows them. A tool that writes to an org takes ' +
   'confirm, the alias of that org exactly: give it only once the person using you has agreed ' +
   'to that write, after a dry run, a preview or a plan has said what it would do. The ' +
@@ -118,6 +120,7 @@ export type Script =
   | 'sandforge-clone'
   | 'sandforge-sync'
   | 'sandforge-checkpoint'
+  | 'sandforge-empty'
   | 'sandforge-env';
 
 export type { CommandRun };
@@ -414,6 +417,130 @@ const rewindObjects = () =>
       'Limit the rewind to these objects of the checkpoint, by API name (default: every ' +
         'object). What they depend on is never added: the answer names it.',
     );
+/** The run of an emptying: its id, as its journal names it. */
+const EMPTY_RUN = /^em-\d{8}-\d{6}-[a-z0-9]{4}$/;
+
+/** What an emptying empties: the objects named, or every object people work in, and how. */
+const emptyScope = {
+  objects: z
+    .array(z.string().regex(API_NAME, 'an object API name'))
+    .min(1)
+    .max(500)
+    .optional()
+    .describe('Empty these objects, by API name: every record of each. Not with wholeOrg.'),
+  wholeOrg: z
+    .literal(true)
+    .optional()
+    .describe(
+      'Empty every object people work in, less users, setup, Chatter, history, sharing and the ' +
+        'standard price book. Not with objects.',
+    ),
+  excluded: z
+    .array(z.string().regex(API_NAME, 'an object API name'))
+    .min(1)
+    .max(500)
+    .optional()
+    .describe('With wholeOrg: objects to leave out, by API name.'),
+  customSettings: acceptance('With wholeOrg: empty the custom settings too.'),
+  files: acceptance('With wholeOrg: empty the files and attachments too.'),
+  managedPackages: acceptance('With wholeOrg: empty the objects of managed packages too.'),
+  hardDelete: acceptance(
+    'Delete for good, with what goes along: nothing goes to the recycle bin and no undo brings ' +
+      'anything back. Needs the Bulk API Hard Delete permission of the user. Only once the ' +
+      'person using you has accepted that nothing can be brought back.',
+  ),
+  checkpointFirst: acceptance(
+    'Take a checkpoint of the objects emptied before the first delete, to rewind to.',
+  ),
+  acceptAutomation: acceptance(
+    'Empty although the org runs flows, Apex triggers, processes or workflow rules as the ' +
+      'records are deleted, or would not say what it runs.',
+  ),
+  acceptEmails: acceptance(
+    'Empty although the org delivers every email what still runs as the records go sends, or ' +
+      'would not say whether it does. acceptAutomation never stands for it. Only once the person ' +
+      'using you has accepted that these emails go out.',
+  ),
+  muteAutomation: muteActFor('the emptying'),
+  acceptNoUndo: acceptance(
+    'Empty although some records go before a record they name, as Salesforce requires, so ' +
+      'that Undo cannot bring them back once both have gone.',
+  ),
+};
+
+/** One of objects, wholeOrg and resume: what an emptying acts on. */
+function oneScope(args: { objects?: unknown; wholeOrg?: unknown; resume?: unknown }): boolean {
+  const given = [args.objects, args.wholeOrg, args.resume].filter((each) => each !== undefined);
+  return given.length === 1;
+}
+
+/** An emptying's scope and options, as its script's line takes them. */
+function emptyScopeLine(args: {
+  objects?: string[] | undefined;
+  wholeOrg?: true | undefined;
+  excluded?: string[] | undefined;
+  customSettings?: boolean | undefined;
+  files?: boolean | undefined;
+  managedPackages?: boolean | undefined;
+  hardDelete?: boolean | undefined;
+  checkpointFirst?: boolean | undefined;
+  acceptNoUndo?: boolean | undefined;
+}): string[] {
+  return [
+    ...(args.objects !== undefined ? ['--objects', args.objects.join(',')] : []),
+    ...(args.wholeOrg === true ? ['--org'] : []),
+    ...(args.excluded ?? []).flatMap((name) => ['--exclude-object', name]),
+    ...(args.customSettings === true ? ['--custom-settings'] : []),
+    ...(args.files === true ? ['--files'] : []),
+    ...(args.managedPackages === true ? ['--managed-packages'] : []),
+    ...(args.hardDelete === true ? ['--hard-delete'] : []),
+    ...(args.checkpointFirst === true ? ['--checkpoint-first'] : []),
+    ...(args.acceptNoUndo === true ? ['--accept-no-undo'] : []),
+  ];
+}
+
+/** The acceptances of an emptying or its undo, as its script's line takes them. */
+function emptyAccordLine(args: {
+  acceptAutomation?: boolean | undefined;
+  acceptEmails?: boolean | undefined;
+  muteAutomation?: boolean | undefined;
+}): string[] {
+  return [
+    ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+    ...(args.acceptEmails === true ? ['--accept-emails'] : []),
+    ...(args.muteAutomation === true ? ['--mute-automation'] : []),
+  ];
+}
+
+/** The flags an emptying's lines, or its undo's, name, and the parameters each stands for. */
+const EMPTY_UNDO_FLAGS: Readonly<Record<string, string>> = {
+  '--accept-automation': 'acceptAutomation',
+  '--accept-emails': 'acceptEmails',
+  '--mute-automation': 'muteAutomation',
+};
+const EMPTY_FLAGS: Readonly<Record<string, string>> = {
+  ...EMPTY_UNDO_FLAGS,
+  '--accept-no-undo': 'acceptNoUndo',
+};
+
+/** What stands for the flags of an emptying's lines that take a run. */
+const EMPTY_RUN_NAMED: Readonly<Record<string, string>> = {
+  '--undo': 'is empty_undo, with the run the line names: it brings back what that run deleted.',
+  '--resume': "is empty_run's resume, with the run the line names: it takes that run up.",
+};
+
+/** The undo an emptying offers, as the call that brings its records back. */
+function emptyUndoHint(answer: unknown): string[] {
+  if (typeof answer !== 'object' || answer === null) return [];
+  const { result } = answer as { result?: { runId?: unknown; undo?: { offered?: unknown } } };
+  return typeof result?.runId === 'string' && result.runId !== '' && result.undo?.offered === true
+    ? [
+        `empty_undo with run "${result.runId}" brings back what it deleted while the recycle bin ` +
+          'holds it, as long as no other emptying of the org follows.',
+      ]
+    : [];
+}
+
 const envFile = () =>
   z
     .string()
@@ -1022,6 +1149,124 @@ export const TOOLS: readonly ServedTool[] = [
     run: (args) => ({
       script: 'sandforge-checkpoint',
       args: ['delete', '--org', args.org, '--checkpoint', args.checkpoint, '--yes', '--json'],
+    }),
+  }),
+  tool({
+    name: 'empty_preview',
+    title: 'Preview an emptying',
+    description:
+      'What emptying objects of org, or every object people work in there, would do: per ' +
+      'object the records it deletes and what the org deletes along with them, in the order it ' +
+      'takes them; what will likely refuse, what blocks, what no undo would bring back, what it ' +
+      'leaves out and why; the API requests, Bulk API batches and time against what the org has ' +
+      'left today, and the recycle bin; what the user is not proven to see; what the org runs as ' +
+      'the records go, and its emails; and every refusal a run with the same parameters would ' +
+      'meet now. Reads the org, deletes nothing.',
+    readOnly: true,
+    args: z
+      .strictObject({ org: alias('The org: its sf CLI alias.'), ...emptyScope })
+      .refine(oneScope, { message: 'give objects or wholeOrg, one of them' }),
+    flags: EMPTY_FLAGS,
+    named: EMPTY_RUN_NAMED,
+    run: (args) => ({
+      script: 'sandforge-empty',
+      args: [
+        '--target',
+        args.org,
+        ...emptyScopeLine(args),
+        ...emptyAccordLine(args),
+        '--dry-run',
+        '--json',
+      ],
+    }),
+  }),
+  tool({
+    name: 'empty_run',
+    title: 'Empty objects or an org',
+    description:
+      'Delete every record of the objects named of org, or of every object people work in ' +
+      'there, with what the org deletes along with them: to the recycle bin, which ' +
+      'empty_undo brings them back from, or for good with hardDelete. It reads the org as ' +
+      'empty_preview does, says it all first in its answer, and deletes only when nothing ' +
+      "refuses it. Given resume, the run id of the org's last emptying stopped part way, it " +
+      'takes that run up instead. Needs confirm, the alias of org: empty_preview first. ' +
+      'Refused without acceptAutomation when the org runs automation as the records go, ' +
+      'without acceptEmails when the org delivers every email what still runs sends, or would ' +
+      'not say whether it does, without acceptNoUndo when Undo could not bring back some ' +
+      'records, while someone else changed records of these objects in the last hour, past ' +
+      "the day's API requests or Bulk API batches, and on a production org, always.",
+    readOnly: false,
+    destructive: true,
+    args: z
+      .strictObject({
+        org: alias('The org: its sf CLI alias.'),
+        confirm: confirmOf('org').optional(),
+        ...emptyScope,
+        resume: z
+          .string()
+          .regex(EMPTY_RUN, 'the run id of an emptying, em-...')
+          .optional()
+          .describe(
+            "Take up the org's last emptying stopped part way, by its run id, in place of " +
+              'objects or wholeOrg: on what its journal confirmed.',
+          ),
+      })
+      .refine(oneScope, { message: 'give objects, wholeOrg or resume, one of them' }),
+    writesTo: (args) => args.org,
+    writes:
+      'deletes every record of the objects named, or of every object people work in, with ' +
+      'what the org deletes along with them',
+    readFirst: 'empty_preview says what it would delete and meet, deleting nothing',
+    flags: EMPTY_FLAGS,
+    named: EMPTY_RUN_NAMED,
+    after: (_args, answer) => emptyUndoHint(answer),
+    run: (args) => ({
+      script: 'sandforge-empty',
+      args: [
+        '--target',
+        args.org,
+        ...(args.resume !== undefined ? ['--resume', args.resume] : emptyScopeLine(args)),
+        ...emptyAccordLine(args),
+        '--yes',
+        '--json',
+      ],
+    }),
+  }),
+  tool({
+    name: 'empty_undo',
+    title: 'Undo an emptying',
+    description:
+      "Bring back from the recycle bin what org's last emptying deleted, parents first, while " +
+      'the bin holds them; the answer names what could not come back and why. Refused for a ' +
+      'run that deleted for good. Needs confirm, the alias of org. acceptAutomation, ' +
+      'acceptEmails and muteAutomation as for empty_run.',
+    readOnly: false,
+    destructive: true,
+    args: z.strictObject({
+      org: alias('The org: its sf CLI alias.'),
+      run: z
+        .string()
+        .regex(EMPTY_RUN, 'the run id of an emptying, em-...')
+        .describe("The org's last emptying, by the run id its answer gave."),
+      confirm: confirmOf('org').optional(),
+      acceptAutomation: acceptance(
+        'Undo although the org runs flows, Apex triggers, processes or workflow rules as ' +
+          'records are brought back, or would not say what it runs.',
+      ),
+      acceptEmails: acceptance(
+        'Undo although the org delivers every email what still runs as records come back ' +
+          'sends, or would not say whether it does. Only once the person using you has accepted ' +
+          'that these emails go out.',
+      ),
+      muteAutomation: muteActFor('the undo'),
+    }),
+    writesTo: (args) => args.org,
+    writes: "brings back from the recycle bin what the org's last emptying deleted",
+    readFirst: "empty_run's answer names the run and whether its undo is offered",
+    flags: EMPTY_UNDO_FLAGS,
+    run: (args) => ({
+      script: 'sandforge-empty',
+      args: ['--target', args.org, '--undo', args.run, ...emptyAccordLine(args), '--yes', '--json'],
     }),
   }),
   tool({
@@ -1690,8 +1935,9 @@ export function claimStdout(stdout: Writable, stderr: Writable): (line: string) 
   };
 }
 
-const HELP = `sandforge-mcp — Seed, Forge's clone of a record, the removal of a run, Checkpoints and the
-environments of a sandforge.yaml, as tools for an AI agent, over the Model Context Protocol on stdio.
+const HELP = `sandforge-mcp — Seed, Forge's clone of a record, the removal of a run, the emptying of
+objects or of a whole org, Checkpoints and the environments of a sandforge.yaml, as tools for an AI
+agent, over the Model Context Protocol on stdio.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-mcp.ts

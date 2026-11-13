@@ -49,7 +49,7 @@ import { CompareHandler } from './handlers/CompareHandler.js';
 import { DataOpsHandler } from './handlers/DataOpsHandler.js';
 import { DataOpsComplianceHandler } from './handlers/DataOpsComplianceHandler.js';
 import { DataOpsCleanupHandler } from './handlers/DataOpsCleanupHandler.js';
-import { DataOpsEmptyHandler } from './handlers/DataOpsEmptyHandler.js';
+import { DataOpsEmptyHandler, type EmptyStores } from './handlers/DataOpsEmptyHandler.js';
 import { AutomationHandler } from './handlers/AutomationHandler.js';
 import type { PipelineTriggerWiring } from './handlers/AutomationHandler.js';
 import type { TriggerClaims } from '../modules/automation/TriggerClaims.js';
@@ -666,6 +666,14 @@ export class ExtensionHandlers {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Where emptyings keep their journals and take an org's lock: a command
+   * line's own stores, so that its runs and the panel's share them.
+   */
+  setEmptyStores(stores: EmptyStores): void {
+    this.emptyHandler.setStores(stores);
   }
 
   /**

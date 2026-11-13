@@ -108,6 +108,7 @@ describe('the scripts a runner starts', () => {
     'sandforge-checkpoint': true,
     'sandforge-frozen': true,
     'sandforge-dataops': true,
+    'sandforge-empty': true,
     'sandforge-env': true,
   };
 

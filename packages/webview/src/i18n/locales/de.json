@@ -3716,6 +3716,7 @@
       "step2": "Wählen Sie unter Vorlage auswählen eine Vorlage; ihre Karte listet jedes Feld auf, das sie maskiert.",
       "step3": "Klicken Sie auf Vorschau: Die ersten Datensätze zeigen Original neben Maskiert, und nichts wird geschrieben.",
       "step4": "Klicken Sie auf Anwenden, lassen Sie das Kästchen Die Werte vorher aufbewahren angehakt, geben Sie den Namen der Org ein und klicken Sie auf Bestätigen.",
+      "step5": "Um Objekte oder die ganze Org zu leeren, öffnen Sie Bereinigung: Die Vorschau zeigt vor jedem Löschen, was verschwindet.",
       "tip": "Sofern Sie Die Werte vorher aufbewahren nicht deaktivieren, sichert Anwenden die Werte, die es maskiert: Klicken Sie auf In „Wiederherstellen“ öffnen und dann auf Wiederherstellen, um sie zurückzuschreiben."
     },
     "monitor": {

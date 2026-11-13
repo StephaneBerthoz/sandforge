@@ -372,7 +372,7 @@ describe('sandforge-mcp: the checkpoint tools on the memory org', () => {
     const refused = await h.call('checkpoint_rewind', { org: 'DEV-SB', checkpoint: 'Before UAT' });
     const preview = await h.call('checkpoint_preview', { org: 'DEV-SB', checkpoint: 'Before UAT' });
 
-    expect((listed.result as { tools: unknown[] }).tools).toHaveLength(13);
+    expect((listed.result as { tools: unknown[] }).tools).toHaveLength(16);
     expect(taken).toMatchObject({ isError: false, structuredContent: { exitCode: 0 } });
     expect(refused).toMatchObject({
       isError: true,

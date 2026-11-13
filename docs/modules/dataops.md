@@ -11,6 +11,7 @@ records, and clean up the records nobody needs, from a single tabbed page.
 2. Pick a template in Select a template; its card lists each field it masks.
 3. Click Preview: the first records show Original beside Masked, and nothing is written.
 4. Click Apply, leave Keep the values first ticked, type the org's name, then click Confirm.
+5. To empty objects or the whole org, open Cleanup: its preview says what goes before any delete.
 
 **Tip:** Unless you untick Keep the values first, Apply backs up the values it masks: Open in Restore, then Restore, puts them back.
 
@@ -472,6 +473,131 @@ the oldest first); run it again for the rest. The records are read again when
 the delete runs, so a record modified since the scan is no longer stale and is
 left alone. There is no scheduled cleanup, no archive, and no delete by a query
 of your own.
+
+### Empty objects and Empty the org
+
+Two sections of **Cleanup** delete every record of whole objects, where the
+recommendations above delete the records a scan found. Both read the org
+first and say everything before a button to delete exists; both send the
+records to the recycle bin unless asked to delete them for good, keep a
+journal on this machine, and offer **Undo**.
+
+#### Empty objects
+
+Pick objects among the org's: every record of each goes, with what the org
+deletes along with them (an account's contacts and opportunities, a contact's
+tasks), counted per object. A record of an object you did not pick whose
+lookup refuses the delete of its parent is named as blocking, with its object,
+field and count.
+
+#### Empty the org
+
+Every object people work in, read by the rule a checkpoint and a clone of the
+whole org read it by, less what is never touched: users, profiles, permissions
+and the rest of setup, Chatter, field history, sharing, change events, big,
+external and Data Cloud objects, Knowledge versions, platform events, the
+records only Salesforce creates, and the standard price book, kept whatever is
+asked. Custom settings, files and attachments, and the objects of managed
+packages are emptied only when asked; objects can be left out by name. Every
+object left out is listed with why. A sandbox marked **Staging** is refused
+the whole org: pick its objects instead, which Production Guard asks about.
+
+#### Before anything is deleted
+
+The dry run comes first, and says:
+
+- per object, in the order the run takes them, the records it deletes, and
+  per object the records the org deletes along with them;
+- what will likely be refused, or what the run does first so that it is not:
+  an activated order is set back to Draft before any delete, the standard
+  price book is kept, a direct relation of a contact to its account goes with
+  its contact, and a person account's contact with its account;
+- what no undo would bring back: records Salesforce requires to go before a
+  record they name, such as an opportunity before the price book its lookup
+  restricts. The run is refused until that is accepted;
+- the API requests and Bulk API batches it takes against what the org has
+  left today, about how long it runs, and how many records it sends to the
+  recycle bin, against what the bin is documented to hold;
+- for a user without View All Data and Modify All Data, each object they are
+  not proven to see whole: its records they cannot see are neither counted
+  nor deleted, though those a deleted parent takes along go too;
+- what the org runs as the records go, its emails, and what a mute would keep
+  quiet, as every DataOps act reads them.
+
+A run is refused before its first delete, every refusal said at once:
+
+- a production org, by its registration or by what the org says it is, with
+  no setting, override or flag that lifts it;
+- another act of this machine writing to the org or holding its lock — a
+  checkpoint's take, a rewind, an undo, another emptying;
+- the org's last emptying stopped part way: resume it or undo it first;
+- someone other than you changed records of these objects in the last hour;
+- more API requests or Bulk API batches than the org has left today;
+- what fires, or its emails, not accepted, or the mute refused;
+- a checkpoint asked first that cannot be taken, past 500,000 records or the
+  disk's room among them;
+- the org changed since the preview beyond what it showed: an object it did
+  not show, more records going along, more that no undo would bring back, or
+  a user who now sees less. Records of the objects emptied made since the
+  preview are left, and counted.
+
+Then Production Guard is asked, a delete or a delete for good, and the run
+holds the org's lock to its end. Each object goes by REST calls of 200 under
+10,000 records, by Bulk API 2.0 jobs of at most 50,000 from there. A parent
+goes before its children wherever they go along with it, so that **Undo**
+brings the whole tree back; children go first only where Salesforce requires
+it, and each such pair is kept in the journal. A delete Salesforce refuses for
+a record still hanging from it is sent again in later rounds. The run is
+listed in Live Operations, whose **Cancel** stops it before its next call or
+job, and recorded in the audit trail as a cleanup delete, its details saying
+an emptying.
+
+#### Delete for good
+
+Asked to delete for good, nothing goes to the recycle bin and no undo brings
+anything back: what goes along goes for good too. It needs the user's **Bulk
+API Hard Delete** permission, off by default, for administrators too: the dry run reads it, and without it the run is refused before
+anything is deleted. A delete for good always goes by Bulk API job, which the
+org refuses as it is opened without the permission.
+
+#### Undo, and a run stopped part way
+
+**Undo** brings back from the recycle bin what the org's last emptying
+deleted, parents first, while the bin holds them, and names what could not
+come back: records emptied from the bin since, and records only Modify All
+Data brings back. It reaches the org's last emptying alone: once a run ends,
+the journals of the org's earlier ones go. It is refused for a run that
+deleted for good.
+
+A run stopped part way — cancelled, failed, its process gone — is open: the
+org's next emptying is refused until it is taken up, which deletes what is
+left of what its preview confirmed, or undone. The journals are kept in
+`empty/` under the folder `SANDFORGE_JOURNAL_DIR` names (`~/.sandforge` by
+default), where the panel and the command line both read them.
+
+#### From the command line
+
+`sandforge-empty` runs the same handler, with the same guards, journals and
+lock ([every flag](../../ci-examples/README.md)):
+
+```sh
+pnpm exec tsx packages/extension/cli/sandforge-empty.ts --target DEV --objects Case,Contact --dry-run
+pnpm exec tsx packages/extension/cli/sandforge-empty.ts --target DEV --org --exclude-object Lead --yes
+pnpm exec tsx packages/extension/cli/sandforge-empty.ts --target DEV --undo <run> --yes
+```
+
+It asks no question: without `--dry-run` or `--yes` it is refused, exit `1`,
+before any org is reached. With `--yes` it reads the org as its dry run does,
+says it all, and empties only when nothing refuses it. `--hard-delete` deletes
+for good, `--accept-no-undo` accepts what no undo would bring back, and
+`--checkpoint-first` takes a checkpoint first; `--accept-automation`,
+`--accept-emails` and `--mute-automation` are every DataOps script's. Exit
+`0` done, `1` refused before anything was deleted, `2` a bad command line, `3`
+records the org refused, `130`, `143` or `129` stopped by a signal, the journal
+kept: `--resume <run> --yes` takes the run up. The command line never sees a
+sandbox marked Staging in the extension: its registration of an org is the
+org's own, made afresh at each run. The MCP server's `empty_preview`,
+`empty_run` and `empty_undo` run it ([MCP](../mcp.md)).
 
 ### Data Quality
 

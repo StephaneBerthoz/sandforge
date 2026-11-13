@@ -62,6 +62,7 @@ export const MODULE_HOW_TO = {
       'howTo.dataops.step2',
       'howTo.dataops.step3',
       'howTo.dataops.step4',
+      'howTo.dataops.step5',
     ],
     tip: 'howTo.dataops.tip',
   },

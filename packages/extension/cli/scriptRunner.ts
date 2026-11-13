@@ -25,6 +25,7 @@ export type RunnableScript =
   | 'sandforge-checkpoint'
   | 'sandforge-frozen'
   | 'sandforge-dataops'
+  | 'sandforge-empty'
   | 'sandforge-env';
 
 /** What one run of a script came to. */

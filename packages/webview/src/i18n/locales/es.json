@@ -3716,6 +3716,7 @@
       "step2": "Elija una plantilla en Seleccionar una plantilla; su tarjeta muestra cada campo que enmascara.",
       "step3": "Haga clic en Vista previa: los primeros registros muestran Original junto a Enmascarado, sin escribir nada.",
       "step4": "Haga clic en Aplicar, deje marcada la casilla Conservar primero los valores, escriba el nombre de la org y haga clic en Confirmar.",
+      "step5": "Para vaciar objetos o toda la org, abra Limpieza: su vista previa dice lo que se va antes de borrar nada.",
       "tip": "Salvo que desmarque Conservar primero los valores, Aplicar respalda los valores que enmascara: haga clic en Abrir en Restaurar y luego en Restaurar para devolverlos."
     },
     "monitor": {

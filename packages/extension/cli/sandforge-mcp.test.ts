@@ -279,7 +279,7 @@ describe('sandforge-mcp: the protocol', () => {
 });
 
 describe('sandforge-mcp: the tools', () => {
-  it('lists the thirteen tools in one order every time, the reads read-only and what deletes or writes over destructive', async () => {
+  it('lists the sixteen tools in one order every time, the reads read-only and what deletes or writes over destructive', async () => {
     const c = client();
     await c.initialized();
 
@@ -302,12 +302,21 @@ describe('sandforge-mcp: the tools', () => {
       'checkpoint_rewind',
       'checkpoint_undo',
       'checkpoint_delete',
+      'empty_preview',
+      'empty_run',
+      'empty_undo',
       'env_plan',
       'env_apply',
       'env_destroy',
     ]);
     const hints = Object.fromEntries(tools.map((t) => [t.name, t.annotations]));
-    for (const name of ['seed_templates', 'checkpoint_list', 'checkpoint_preview', 'env_plan']) {
+    for (const name of [
+      'seed_templates',
+      'checkpoint_list',
+      'checkpoint_preview',
+      'empty_preview',
+      'env_plan',
+    ]) {
       expect(hints[name], name).toMatchObject({ readOnlyHint: true });
       expect(hints[name]?.destructiveHint, name).toBeUndefined();
     }
@@ -316,6 +325,8 @@ describe('sandforge-mcp: the tools', () => {
       'checkpoint_rewind',
       'checkpoint_undo',
       'checkpoint_delete',
+      'empty_run',
+      'empty_undo',
       // An apply takes back the runs a replace or a resource the file dropped held.
       'env_apply',
       'env_destroy',
@@ -391,6 +402,8 @@ describe('sandforge-mcp: confirm', () => {
     { tool: 'checkpoint_rewind', org: 'DEV', args: { org: 'DEV', checkpoint: 'baseline' } },
     { tool: 'checkpoint_undo', org: 'DEV', args: { org: 'DEV', checkpoint: 'baseline' } },
     { tool: 'checkpoint_delete', org: 'DEV', args: { org: 'DEV', checkpoint: 'baseline' } },
+    { tool: 'empty_run', org: 'DEV', args: { org: 'DEV', objects: ['Contact'] } },
+    { tool: 'empty_undo', org: 'DEV', args: { org: 'DEV', run: 'em-20261113-101500-ab12' } },
     { tool: 'env_apply', org: 'SB', args: { file: 'sandforge.yaml', org: 'SB' } },
     {
       tool: 'env_destroy',
@@ -1375,6 +1388,168 @@ describe("sandforge-mcp: a script's answer", () => {
   }, 120_000);
 });
 
+describe('sandforge-mcp: emptying objects or an org', () => {
+  it('runs the dry run with no confirm, the objects named or the whole org with its options, and the acceptances it would be run with', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('empty_preview', { org: 'DEV', objects: ['Contact', 'Case'] });
+    await c.call('empty_preview', {
+      org: 'DEV',
+      wholeOrg: true,
+      excluded: ['Lead'],
+      files: true,
+      hardDelete: true,
+      acceptNoUndo: true,
+      acceptAutomation: true,
+    });
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-empty',
+        args: ['--target', 'DEV', '--objects', 'Contact,Case', '--dry-run', '--json'],
+      },
+      {
+        script: 'sandforge-empty',
+        args: [
+          '--target',
+          'DEV',
+          '--org',
+          '--exclude-object',
+          'Lead',
+          '--files',
+          '--hard-delete',
+          '--accept-no-undo',
+          '--accept-automation',
+          '--dry-run',
+          '--json',
+        ],
+      },
+    ]);
+    await c.close();
+  });
+
+  it('runs a confirmed emptying, its resume and its undo with --yes, and refuses each without confirm', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    for (const [tool, args] of [
+      ['empty_run', { org: 'DEV', objects: ['Contact'] }],
+      ['empty_run', { org: 'DEV', resume: 'em-20261113-101500-ab12' }],
+      ['empty_undo', { org: 'DEV', run: 'em-20261113-101500-ab12' }],
+    ] as const) {
+      const refused = await c.call(tool, args);
+      expect(refused.structuredContent, tool).toMatchObject({ refusal: { code: 'CONFIRM' } });
+    }
+    expect(ran).toEqual([]);
+
+    await c.call('empty_run', {
+      org: 'DEV',
+      objects: ['Contact'],
+      checkpointFirst: true,
+      muteAutomation: true,
+      confirm: 'DEV',
+    });
+    await c.call('empty_run', { org: 'DEV', resume: 'em-20261113-101500-ab12', confirm: 'DEV' });
+    await c.call('empty_undo', {
+      org: 'DEV',
+      run: 'em-20261113-101500-ab12',
+      acceptEmails: true,
+      confirm: 'DEV',
+    });
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-empty',
+        args: [
+          '--target',
+          'DEV',
+          '--objects',
+          'Contact',
+          '--checkpoint-first',
+          '--mute-automation',
+          '--yes',
+          '--json',
+        ],
+      },
+      {
+        script: 'sandforge-empty',
+        args: ['--target', 'DEV', '--resume', 'em-20261113-101500-ab12', '--yes', '--json'],
+      },
+      {
+        script: 'sandforge-empty',
+        args: [
+          '--target',
+          'DEV',
+          '--undo',
+          'em-20261113-101500-ab12',
+          '--accept-emails',
+          '--yes',
+          '--json',
+        ],
+      },
+    ]);
+    await c.close();
+  });
+
+  it('refuses, before any script runs, both objects and the whole org, neither, and a run that is no emptying’s', async () => {
+    const { ran, run } = scripts();
+    const c = client(run);
+    await c.initialized();
+
+    for (const [tool, args] of [
+      ['empty_preview', { org: 'DEV' }],
+      ['empty_preview', { org: 'DEV', objects: ['Contact'], wholeOrg: true }],
+      [
+        'empty_run',
+        { org: 'DEV', objects: ['Contact'], resume: 'em-20261113-101500-ab12', confirm: 'DEV' },
+      ],
+      ['empty_undo', { org: 'DEV', run: 'latest', confirm: 'DEV' }],
+      ['empty_preview', { org: 'DEV', objects: ['Contact,Case'] }],
+    ] as const) {
+      const result = await c.call(tool, args);
+      expect(result.isError, JSON.stringify(args)).toBe(true);
+    }
+    expect(ran).toEqual([]);
+    await c.close();
+  });
+
+  it('names the parameter a flag of its lines stands for, and the undo a run offers', async () => {
+    const { run } = scripts(() => ({
+      code: 0,
+      stdout: JSON.stringify({
+        result: { runId: 'em-20261113-101500-ab12', status: 'success', undo: { offered: true } },
+      }),
+      stderr:
+        'sandforge-empty --target DEV --undo em-20261113-101500-ab12 --yes brings them back\n',
+    }));
+    const c = client(run);
+    await c.initialized();
+
+    const ran = await c.call('empty_run', { org: 'DEV', objects: ['Contact'], confirm: 'DEV' });
+    expect(textOf(ran)).toContain('--undo, named above, is empty_undo');
+    expect(textOf(ran)).toContain(
+      'empty_undo with run "em-20261113-101500-ab12" brings back what it deleted',
+    );
+
+    const { run: refusing } = scripts(() => ({
+      code: 1,
+      stdout: JSON.stringify({ refused: { code: 'NO_UNDO' } }),
+      stderr: 'refused (NO_UNDO): … (--accept-no-undo accepts it)\n',
+    }));
+    const d = client(refusing);
+    await d.initialized();
+    const refused = await d.call('empty_preview', { org: 'DEV', objects: ['Account', 'Case'] });
+    expect(refused.isError).toBe(true);
+    expect(textOf(refused)).toContain("--accept-no-undo, named above, is this tool's acceptNoUndo");
+    expect(textOf(refused)).not.toContain('empty_undo with run');
+    await c.close();
+    await d.close();
+  });
+});
+
 describe('sandforge-mcp: the environment tools', () => {
   const dirs: string[] = [];
   afterEach(() => {
@@ -1655,7 +1830,7 @@ describe('sandforge-mcp over the pipes of a process of its own', () => {
     expect(lines).toHaveLength(4);
     for (const line of lines) expect(JSON.parse(line)).toMatchObject({ jsonrpc: '2.0' });
     // Its own lines, and the script's, on stderr.
-    expect(stderr).toContain('sandforge-mcp: 13 tools on stdio');
+    expect(stderr).toContain('sandforge-mcp: 16 tools on stdio');
     expect(stderr).toContain('No checkpoint is kept in');
   }, 60_000);
 });

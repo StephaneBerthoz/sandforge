@@ -3716,6 +3716,7 @@
       "step2": "Escolha um modelo em Selecionar um modelo; o cartão do modelo lista cada campo que ele mascara.",
       "step3": "Clique em Pré-visualizar: os primeiros registros mostram Original ao lado de Mascarado, sem gravar nada.",
       "step4": "Clique em Aplicar, deixe marcada a caixa Guardar os valores antes, digite o nome da org e clique em Confirmar.",
+      "step5": "Para esvaziar objetos ou a org inteira, abra Limpeza: a prévia diz o que sai antes de qualquer exclusão.",
       "tip": "A menos que você desmarque Guardar os valores antes, Aplicar faz backup dos valores que mascara: clique em Abrir em Restaurar e depois em Restaurar para devolvê-los."
     },
     "monitor": {

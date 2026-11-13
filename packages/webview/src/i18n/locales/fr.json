@@ -3716,6 +3716,7 @@
       "step2": "Choisissez un modèle dans Sélectionner un modèle ; sa carte liste chaque champ qu'il masque.",
       "step3": "Cliquez sur Aperçu : les premiers enregistrements affichent Original à côté de Masqué, et rien n'est écrit.",
       "step4": "Cliquez sur Appliquer, laissez cochée la case Conserver d'abord les valeurs, saisissez le nom de l'org, puis cliquez sur Confirmer.",
+      "step5": "Pour vider des objets ou toute l'org, ouvrez Nettoyage : son aperçu dit ce qui part avant toute suppression.",
       "tip": "Sauf si vous décochez Conserver d'abord les valeurs, Appliquer sauvegarde les valeurs qu'il masque : Ouvrir dans Restaurer, puis Restaurer, les remet en place."
     },
     "monitor": {
