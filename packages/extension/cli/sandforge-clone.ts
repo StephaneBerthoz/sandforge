@@ -391,6 +391,7 @@ import {
   inFlightLines,
   inFlightTargetOf,
   uncertainRows,
+  unnamedUncertainRows,
   type InFlightReconciliation,
 } from '../src/modules/forge/ForgeInFlight.js';
 import { forgeRunFingerprint, sameRunSetup } from '../src/modules/forge/runFingerprint.js';
@@ -2131,22 +2132,84 @@ function writeUncertainArg(args: readonly string[]): boolean {
 
 /**
  * Why a resume stops before it writes, when the target may already hold rows
- * of a call the run had under way: how many, of which objects, and the two
- * ways on. Exported so it can be tested.
+ * of a call the run had under way: how many, of which objects, why for each
+ * — a Bulk API job the org has not ended, named with its state and what it
+ * processed, and when to run the resume again; rows the journal cannot tell
+ * apart; records the resume cannot tell from them, or an object it could not
+ * read — and the ways on. Run for real, a resume a few minutes after its run
+ * was killed found the job the run had opened `Open`, 0 rows processed, and
+ * said the target held records it could not tell from the rows, which it did
+ * not: waiting out the hour was all it took. Exported so it can be tested.
  */
 export function uncertainRefusal(reconciled: InFlightReconciliation, target: string): string {
   const rows = uncertainRows(reconciled);
+  const sum = (list: ReadonlyArray<{ rows: number }> | undefined): number =>
+    (list ?? []).reduce((total, entry) => total + entry.rows, 0);
   const objects = reconciled.uncertain
     .map(({ objectApiName, rows: count }) => `${count} ${objectApiName}`)
     .join(', ');
-  return (
-    `${rows} row(s) may already be in ${target} (${objects}): the insert call that sent them was ` +
-    `under way when the run stopped, its answer never kept, and ${target} holds records the ` +
-    'resume cannot tell from them, or could not be read. Nothing was written. Look at the ' +
-    `records of those objects the run's user created in ${target} as the run stopped; run the ` +
-    'same --resume with --write-uncertain to write those rows all the same (one already there ' +
-    'is then there twice), or --remove the run.'
-  );
+  const underway = reconciled.underway ?? [];
+  const untold = sum(reconciled.untold);
+  const changed = sum(reconciled.ofEndedJobs) - untold;
+  const rest = rows - sum(underway) - untold - changed;
+  const said = [
+    `${rows} row(s) may already be in ${target} (${objects}), sent by insert calls the run had ` +
+      'under way when it stopped, their answer never kept.',
+  ];
+  for (const job of underway) {
+    const head =
+      `${job.rows} of them went in Bulk API job ${job.jobId} (${job.objectApiName}), which ` +
+      `${target} holds ${job.state ?? 'not ended'}` +
+      (job.processed !== undefined ? `, ${job.processed} row(s) processed` : '');
+    said.push(
+      job.state === 'Open'
+        ? `${head}: the run stopped before it closed it, and closed, it would still write them.`
+        : `${head}: ${target} writes it to its end whatever became of the run.`,
+    );
+  }
+  if (untold > 0) {
+    said.push(
+      `${untold} of them went in a Bulk API job that wrote records the journal cannot tell ` +
+        'apart, several rows under one fingerprint: none of those records is linked to a row, ' +
+        'and each is kept as written by the run, for --remove to take back.',
+    );
+  }
+  if (changed > 0) {
+    said.push(
+      `${changed} of them went in a Bulk API job that wrote records whose values are not what ` +
+        'the run sent: none is taken for one of them, and each is kept as written by the run.',
+    );
+  }
+  if (rest > 0) {
+    said.push(
+      `${rest} of them went in calls whose records ${target} holds and the resume cannot tell ` +
+        'from them, or could not read.',
+    );
+  }
+  said.push('Nothing was written.');
+  for (const job of underway) {
+    said.push(
+      job.state === 'Open'
+        ? `Run the same --resume again ${
+            job.openUntil !== undefined
+              ? `from ${job.openUntil}` +
+                (job.graceLeftMs !== undefined
+                  ? `, in about ${Math.max(1, Math.ceil(job.graceLeftMs / 60_000))} minute(s)`
+                  : '')
+              : 'an hour after the job was opened'
+          }: it aborts job ${job.jobId} if it is open still, then writes its rows.`
+        : `Run the same --resume again once job ${job.jobId} has ended: it reads what the job ` +
+            'wrote, row by row.',
+    );
+  }
+  if (untold + changed + rest > 0) {
+    said.push(
+      `Look at the records of those objects the run's user created in ${target} as the run ` +
+        'stopped; run the same --resume with --write-uncertain to write those rows all the same ' +
+        '(one already there is then there twice), or --remove the run.',
+    );
+  }
+  return said.join(' ');
 }
 
 /**
@@ -3608,19 +3671,34 @@ function namedSome(names: readonly string[]): string {
  * managed packages whose automation no mute reaches, and the phone numbers it
  * writes empty. Exported so it can be tested.
  *
+ * The jobs are said with the objects they write, from the counts: what rows
+ * carry is read only as the run writes, and two rows of a job carrying the
+ * same values go by REST instead, its results unable to tell them apart. Run
+ * for real, the line said one job of 2 522 records and named no object; the
+ * job carried 2 520 cases, and two went by REST.
+ *
  * @param leftOut - How many objects of the source it leaves out for each reason.
+ * @param writes - Per object it writes, the jobs and the records they carry
+ *   (`WholeOrgBoundary.writes`); absent, the jobs are said in all.
  */
 export function wholeOrgGateLines(
   question: WholeOrgConfirmation,
   leftOut: ReadonlyArray<{ reason: ForgeLeftOutReason; count: number }>,
   target: string,
+  writes: ReadonlyArray<{ objectApiName: string; jobs: number; jobRows: number }> = [],
 ): string[] {
   const { source, bulk } = question;
+  const byJob = writes.filter(({ jobs }) => jobs > 0);
+  const jobsOf =
+    byJob.length > 0
+      ? ` (${namedSome(byJob.map((write) => `${write.objectApiName}: ${write.jobs} of ${write.jobRows}`))}; ` +
+        'rows of a job carrying the same values go by REST instead)'
+      : '';
   const lines = [
-    `  writes: ${bulk?.jobs ?? 0} Bulk API job(s) of ${bulk?.jobRows ?? 0} record(s), ` +
-      `${bulk?.restRows ?? 0} record(s) by REST, ${question.restObjects.length} object(s) by ` +
-      `REST alone; about ${Math.max(1, Math.round(question.durationSeconds / 60))} minute(s) ` +
-      'one after another',
+    `  writes: ${bulk?.jobs ?? 0} Bulk API job(s) of ${bulk?.jobRows ?? 0} record(s) at most` +
+      `${jobsOf}, ${bulk?.restRows ?? 0} record(s) by REST, ${question.restObjects.length} ` +
+      `object(s) by REST alone; about ` +
+      `${Math.max(1, Math.round(question.durationSeconds / 60))} minute(s) one after another`,
     allowanceLine('API requests', question.targetApi, target),
     ...(bulk?.batches ? [allowanceLine('Bulk API batches', bulk.batches, target)] : []),
     allowanceLine('API requests', question.sourceApi, source),
@@ -6576,10 +6654,15 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       inFlightTargetOf(conn),
     );
     for (const line of inFlightLines(reconciled, args.target, 'removal')) say(line);
-    if (uncertainRows(reconciled) > 0) {
+    // What a job that ended wrote is in the journal, whichever row each
+    // record is: removed with the run's. Live, the line said the journal
+    // named none of 2 522 rows whose 2 520 records it named.
+    const unnamed = unnamedUncertainRows(reconciled);
+    if (unnamed > 0) {
       say(
-        `  the journal names none of the rows that may be in ${args.target}: they stay, and ` +
-          `${sweepOptionWords('--sweep-list')} shows what the run's user created in the run's window`,
+        `  the journal names none of the ${unnamed} row(s) that may be in ${args.target}: they ` +
+          `stay, and ${sweepOptionWords('--sweep-list')} shows what the run's user created in ` +
+          "the run's window",
       );
     }
     read = await runSummaryOfFile(
@@ -10043,7 +10126,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     wholeOrgSaid = { ...(dry ? { dry } : {}), question };
     say('');
     for (const line of writePlanLines(plan, storageCheck, args.target)) say(line);
-    for (const line of wholeOrgGateLines(question, wholeOrgLeftOutOf(graph).counts, args.target)) {
+    for (const line of wholeOrgGateLines(
+      question,
+      wholeOrgLeftOutOf(graph).counts,
+      args.target,
+      measures.writes,
+    )) {
       say(line);
     }
     if (checkpointPlanned) {

@@ -112,8 +112,16 @@ export interface IngestJobResultsReading extends IngestJobReading {
 export type JobResultsRead =
   /** It ended — complete, failed, or aborted once it ran: what the org says of it, and its results. */
   | { state: 'ended'; info: IngestJobInfo; results: JsforceIngestJobResults }
-  /** The org is still processing it, or its sender may still be uploading it. */
-  | { state: 'running' }
+  /**
+   * The org is still processing it, or its sender may still be uploading it:
+   * what the org says of it, and, for a job still open within its hour of
+   * grace, when that hour ends on the org's clock (`openUntil`) and how long
+   * it has left on this machine's (`graceLeftMs`) — once past, a read of the
+   * job still open aborts it. Run for real, a resume a few minutes after its
+   * run was killed found the job it had opened `Open`, 0 rows processed, and
+   * said only that the target held records it could not tell from the rows.
+   */
+  | { state: 'running'; info?: IngestJobInfo; openUntil?: string; graceLeftMs?: number }
   /** It was never closed, and wrote nothing: aborted now. */
   | { state: 'never-closed' }
   /** The org could not be asked, no longer holds the job, or answered no state of one. */
@@ -166,8 +174,14 @@ export async function readJobResults(
       // Opened lately: its window may be uploading it still. Read again later.
       const opened = Date.parse(info.createdDate ?? '');
       const grace = options.openGraceMs ?? OPEN_JOB_GRACE_MS;
-      if (Number.isFinite(opened) && now() - opened < grace) {
-        return { state: 'running' };
+      const left = grace - (now() - opened);
+      if (Number.isFinite(opened) && left > 0) {
+        return {
+          state: 'running',
+          info,
+          openUntil: new Date(opened + grace).toISOString(),
+          graceLeftMs: left,
+        };
       }
       // Never closed: the org never processes it, and nothing closes it now.
       const refused = await job.abort().then(
@@ -193,7 +207,9 @@ export async function readJobResults(
         return { state: 'never-closed' };
       }
     }
-    if (info.state === 'UploadComplete' || info.state === 'InProgress') return { state: 'running' };
+    if (info.state === 'UploadComplete' || info.state === 'InProgress') {
+      return { state: 'running', info };
+    }
     // Ended — complete, failed, or aborted once it ran: what it wrote is in
     // its successful results all the same.
     if (options.successfulOnly) {

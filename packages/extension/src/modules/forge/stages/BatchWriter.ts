@@ -415,12 +415,14 @@ export interface RowSent {
 export interface InsertCallJournal {
   /**
    * Keep the call about to go, its rows in the order sent; says its id. An
-   * upsert names the external id it matches the rows by.
+   * upsert names the external id it matches the rows by. A call sent as a
+   * Bulk API job (`asJob`) keeps too what its results find each row by.
    */
   sending(
     objectApiName: string,
     rows: readonly RowSent[],
     upsertField?: string,
+    asJob?: boolean,
   ): string | undefined;
   /** Keep that the call's answer is counted, once what it created is registered. */
   answered(callId: string): void;
@@ -1533,6 +1535,7 @@ export class BatchWriter {
           owes: owedBy(row),
         })),
         write.upsertField,
+        true,
       );
       let answer: BulkWriteAnswer;
       try {

@@ -70,6 +70,8 @@ export async function readJobCreated(
 ): Promise<JobCreatedRead> {
   // Its successful results alone: every record it wrote is there.
   const read = await readJobResults(conn, jobId, { now, successfulOnly: true });
+  // Running, it is read again at the next listing: what the org said of it is not kept.
+  if (read.state === 'running') return { state: 'running' };
   if (read.state !== 'ended') return read;
   const created = (read.results.successfulResults ?? []).flatMap((row) => {
     const id = row['sf__Id'];

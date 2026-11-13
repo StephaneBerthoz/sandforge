@@ -17,6 +17,7 @@ import { createInterface } from 'node:readline';
 import type { ForgeRunObjectRecords } from '@sandforge/shared';
 import type { ForgeRunJournal } from '../src/modules/forge/ForgeRunJournal.js';
 import type { RunLaterPart, RunPartAlongside } from '../src/modules/forge/ForgeRunRemoval.js';
+import { jobEndedTimesOf } from '../src/modules/forge/ForgeRunStore.js';
 
 // Read by the panel's removals of a run's parts as by these: kept with them.
 export {
@@ -56,9 +57,11 @@ interface PartLines {
 
 /**
  * Read, line by line, the parts of the journal at `path`: when each began and
- * ended, and what its second pass wrote to (`["p", id, field]`, a lookup
- * filled in; `["g", object, id]`, a status given). A line that does not read
- * is passed over, as the journal's own reader passes it.
+ * ended — its end, its last call, or the end of a Bulk API job it had under
+ * way, read back since (`jobEndedLine`) — and what its second pass wrote to
+ * (`["p", id, field]`, a lookup filled in; `["g", object, id]`, a status
+ * given). A line that does not read is passed over, as the journal's own
+ * reader passes it.
  */
 async function partLinesOf(path: string): Promise<PartLines[]> {
   const parts: PartLines[] = [];
@@ -88,6 +91,15 @@ async function partLinesOf(path: string): Promise<PartLines[]> {
       } catch {
         // The last line of a run killed as it wrote: the others stand.
       }
+      continue;
+    }
+    // A Bulk API job the part closed went on to its end after it stopped:
+    // read back since, the part ends no earlier than the job, on this
+    // machine's clock. Ended at its last line, a removal kept as changed
+    // since the run the 2 520 cases such a job wrote, live.
+    const jobEnded = jobEndedTimesOf(line);
+    if (jobEnded) {
+      later(current, jobEnded.at);
       continue;
     }
     if (!line.startsWith('["x"') && !line.startsWith('["p"') && !line.startsWith('["g"')) continue;

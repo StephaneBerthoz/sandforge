@@ -29,6 +29,7 @@ import {
   removalPlanLines,
   resumedJournalPath,
   runSummaryOfFile,
+  uncertainRefusal,
   withTheJournal,
 } from './sandforge-clone';
 import { ForgeRunStore, memoryRunFile } from '../src/modules/forge/ForgeRunStore.js';
@@ -1019,6 +1020,103 @@ describe('sandforge-clone --summary', () => {
 
         expect(await run(argv('--resume', journal, '--write-uncertain'))).toBeUndefined();
         expect(orgs.TGT.written).toEqual(['Account', 'Contact', 'Contact']);
+      });
+
+      it('names the Bulk API job the run left open, its state, what it processed and when to take it up again, and no record the target holds', () => {
+        // Run for real: a resume a few minutes after its run was killed found
+        // the job the run had opened `Open`, 0 rows processed, and said the
+        // target held records it could not tell from the rows. It held none.
+        const JOB = '750000000000001AAA';
+
+        const said = uncertainRefusal(
+          {
+            calls: 1,
+            found: [],
+            notFound: [],
+            uncertain: [{ objectApiName: 'Case', rows: 2522 }],
+            unread: [],
+            underway: [
+              {
+                objectApiName: 'Case',
+                jobId: JOB,
+                rows: 2522,
+                state: 'Open',
+                processed: 0,
+                openUntil: '2026-11-13T15:49:00.000Z',
+                graceLeftMs: 46 * 60_000 + 10_000,
+              },
+            ],
+          },
+          'TGT',
+        );
+
+        expect(said).toBe(
+          '2522 row(s) may already be in TGT (2522 Case), sent by insert calls the run had under ' +
+            'way when it stopped, their answer never kept. 2522 of them went in Bulk API job ' +
+            `${JOB} (Case), which TGT holds Open, 0 row(s) processed: the run stopped before it ` +
+            'closed it, and closed, it would still write them. Nothing was written. Run the same ' +
+            '--resume again from 2026-11-13T15:49:00.000Z, in about 47 minute(s): it aborts job ' +
+            `${JOB} if it is open still, then writes its rows.`,
+        );
+        expect(said).not.toContain('cannot tell');
+        expect(said).not.toContain('--write-uncertain');
+      });
+
+      it('says a job the org is still writing, and to take the run up once it has ended', () => {
+        const said = uncertainRefusal(
+          {
+            calls: 1,
+            found: [],
+            notFound: [],
+            uncertain: [{ objectApiName: 'Case', rows: 2522 }],
+            unread: [],
+            underway: [
+              {
+                objectApiName: 'Case',
+                jobId: '750000000000001AAA',
+                rows: 2522,
+                state: 'InProgress',
+                processed: 800,
+              },
+            ],
+          },
+          'TGT',
+        );
+
+        expect(said).toContain('which TGT holds InProgress, 800 row(s) processed');
+        expect(said).toContain(
+          'Run the same --resume again once job 750000000000001AAA has ended: it reads what the ' +
+            'job wrote, row by row.',
+        );
+      });
+
+      it('says rows the journal cannot tell apart apart from rows the target may hold, and the ways on for those', () => {
+        const said = uncertainRefusal(
+          {
+            calls: 2,
+            found: [],
+            notFound: [],
+            uncertain: [
+              { objectApiName: 'Case', rows: 2522 },
+              { objectApiName: 'Contact', rows: 1 },
+            ],
+            unread: [],
+            untold: [{ objectApiName: 'Case', rows: 2522 }],
+            ofEndedJobs: [{ objectApiName: 'Case', rows: 2522 }],
+          },
+          'TGT',
+        );
+
+        expect(said).toContain(
+          '2522 of them went in a Bulk API job that wrote records the journal cannot tell apart, ' +
+            'several rows under one fingerprint: none of those records is linked to a row, and ' +
+            'each is kept as written by the run, for --remove to take back.',
+        );
+        expect(said).toContain(
+          '1 of them went in calls whose records TGT holds and the resume cannot tell from them, ' +
+            'or could not read.',
+        );
+        expect(said).toContain('--write-uncertain');
       });
 
       it('takes --write-uncertain with --resume alone', () => {

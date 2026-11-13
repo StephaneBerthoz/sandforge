@@ -147,6 +147,27 @@ export function ambiguousRows(csv: BulkCsv): ReadonlySet<number> {
 }
 
 /**
+ * The key a row of an insert job is found by in the job's results, whatever
+ * the order or the case of its columns: each field it carries a value in,
+ * named without case, with that value in the form the platform echoes it in
+ * (`canonical`), sorted. A field with no value, or a null, adds nothing.
+ * Two rows of one job have the same key exactly when {@link ambiguousRows}
+ * takes them for twins, and a result row, read field by field, has the key
+ * of the row it echoes: a run that kept each row's key can lay a job's
+ * results on its rows without the CSV it sent.
+ *
+ * @param cells - Each field and its cell, of a row sent or of a result row.
+ */
+export function cellsKey(cells: Iterable<readonly [field: string, cell: string]>): string {
+  const pairs: string[] = [];
+  for (const [field, cell] of cells) {
+    const value = canonicalCell(cell);
+    if (value !== '') pairs.push(`${field.toLowerCase()}\u0001${value}`);
+  }
+  return pairs.sort().join('\u0002');
+}
+
+/**
  * A result row's cells under the uploaded columns. A job's results echo every
  * column it was sent, beside its own `sf__` ones.
  */

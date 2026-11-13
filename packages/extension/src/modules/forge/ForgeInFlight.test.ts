@@ -11,9 +11,12 @@ import {
   reconcileInFlight,
   rowFingerprint,
   uncertainRows,
+  unnamedUncertainRows,
   type InFlightTarget,
 } from './ForgeInFlight.js';
 import { ForgeRunStore, memoryRunFile } from './ForgeRunStore.js';
+import { insertCallsIn } from './ForgeExecutor.js';
+import { buildBulkCsv } from '../../core/engine/bulkCsv.js';
 import type { JobResultsRead } from '../../core/engine/ingestJobRead.js';
 import type { JsforceIngestJobResults } from '../../core/engine/BulkApiExecutor.js';
 import type { Connection } from 'jsforce';
@@ -838,6 +841,185 @@ describe('reconciling a call sent as a Bulk API job', () => {
 
     expect(org.readJob).not.toHaveBeenCalled();
     expect(outcome.found).toEqual([{ objectApiName: 'Contact', rows: 1 }]);
+  });
+});
+
+describe('a clone of the whole org killed once its Bulk API job of cases was closed', () => {
+  // The sequence of a real run between two scratch orgs: 2 522 cases went in
+  // one call, 22 of the source's own and 2 500 a seed wrote; two of them carry
+  // the same values and were kept out of the job, to go by REST; the process
+  // was killed as the org said the job `UploadComplete`, and the job went on
+  // to `JobComplete`, 2 520 processed, 30 seconds after the kill. The three
+  // fields every case fills hold the same value on all of them.
+  const JOB = '750000000000002AAA';
+  const SEEDED = 2500;
+  const ROWS = 2522;
+  const caseSource = (n: number): string => idOf('500S', n);
+  const caseTarget = (n: number): string => idOf('500T', n);
+  /** The case `n` as the call sends it: seeded, one of the source's own, or one of the two alike. */
+  function caseRow(n: number): Record<string, unknown> {
+    const common = { CurrencyIsoCode: 'USD', IsEscalated: false, Status: 'New' };
+    if (n <= SEEDED) {
+      return {
+        ...common,
+        Origin: 'Web',
+        SuppliedName: `Seeded ${n}`,
+        SuppliedEmail: `seeded${n}@example.com.invalid`,
+      };
+    }
+    if (n <= ROWS - 2) return { ...common, Subject: `Case ${n}`, AccountId: idOf('001T', n) };
+    return { ...common, Subject: 'Same', Description: 'Same', Origin: 'Phone' };
+  }
+  const numbers = Array.from({ length: ROWS }, (_, i) => i + 1);
+  const twins = new Set([ROWS - 1, ROWS]);
+  const JOB_END = '2026-11-13T16:07:33.000+0000';
+
+  /** The journal of the run, as the run kept the call through the journal of its executor. */
+  function killedJournal(asJob: boolean): string {
+    const disk = memoryRunFile(HEAD);
+    const store = ForgeRunStore.open(disk);
+    store.beginPart(new Date(SENT_AT));
+    const callId = insertCallsIn(store).sending(
+      'Case',
+      numbers.map((n) => ({ sourceId: caseSource(n), payload: caseRow(n) })),
+      undefined,
+      asJob,
+    );
+    if (callId === undefined) throw new Error('no call kept');
+    store.jobOpened(callId, JOB);
+    store.flush();
+    return disk.text();
+  }
+
+  /**
+   * What the job's results say: a row for each case it wrote, out of the
+   * order sent, every column of the job's CSV echoed, an empty cell where a
+   * row carried no value, a checkbox as the org writes it back.
+   */
+  function jobResults(): JsforceIngestJobResults {
+    const sent = numbers.filter((n) => !twins.has(n));
+    const csv = buildBulkCsv('insert', sent.map(caseRow));
+    const successfulResults = sent.map((n, i) => ({
+      sf__Id: caseTarget(n),
+      sf__Created: 'true',
+      ...Object.fromEntries(
+        csv.columns.map((column, c) => [
+          column,
+          column === 'IsEscalated' ? csv.rows[i][c].toUpperCase() : csv.rows[i][c],
+        ]),
+      ),
+    }));
+    return {
+      successfulResults: successfulResults.reverse(),
+      failedResults: [],
+      unprocessedRecords: [],
+    };
+  }
+
+  const ended = (): JobResultsRead => ({
+    state: 'ended',
+    info: { state: 'JobComplete', numberRecordsProcessed: 2520, systemModstamp: JOB_END },
+    results: jobResults(),
+  });
+
+  it('links each case the job wrote to its row by what the row was sent with, writes the two alike again, and closes the call', async () => {
+    const text = killedJournal(true);
+    const file = memoryRunFile(text);
+    const org = { ...targetHolding([]), readJob: vi.fn(async () => ended()) };
+
+    const outcome = await reconcileInFlight(file, org);
+
+    expect(org.queries).toEqual([]);
+    expect(outcome.found).toEqual([{ objectApiName: 'Case', rows: 2520 }]);
+    // Kept out of the job, the two alike were written by nothing: the resume writes them.
+    expect(outcome.notFound).toEqual([{ objectApiName: 'Case', rows: 2 }]);
+    expect(uncertainRows(outcome)).toBe(0);
+    const lines = added(text, file.text());
+    const found = lines.filter(([tag]) => tag === 'c');
+    expect(found).toHaveLength(2520);
+    // Each row to the record the org gave it, never another's.
+    for (const [, from, to] of found) {
+      expect(String(to)).toBe(caseTarget(Number(String(from).slice(4, 15))));
+    }
+    expect(lines.filter(([tag]) => tag === 'n')).toEqual([]);
+    expect(lines.at(-1)).toEqual(['a', '0.1']);
+    // When the job ended, as the org dated it: the part ends no earlier.
+    expect(lines).toContainEqual(['d', '0.1', JOB, '2026-11-13T16:07:33.000Z', expect.any(String)]);
+    expect((await reconcileInFlight(file, org)).calls).toBe(0);
+  });
+
+  it('links none of the rows of a journal that kept no key of them, their one fingerprint shared by all, and says so', async () => {
+    // The journal 1.78.0 kept: the fingerprint alone, over the three fields
+    // every case fills, the same on all of them.
+    const text = killedJournal(false);
+    const sentLine = text.split('\n').find((line) => line.startsWith('["x"')) ?? '[]';
+    const rows = (JSON.parse(sentLine) as unknown[][])[5] as unknown[][];
+    expect(rows[0]).toHaveLength(2);
+    const file = memoryRunFile(text);
+    const org = { ...targetHolding([]), readJob: vi.fn(async () => ended()) };
+
+    const outcome = await reconcileInFlight(file, org);
+
+    expect(outcome.found).toEqual([]);
+    expect(uncertainRows(outcome)).toBe(2522);
+    expect(outcome.untold).toEqual([{ objectApiName: 'Case', rows: 2522 }]);
+    expect(outcome.ofEndedJobs).toEqual([{ objectApiName: 'Case', rows: 2522 }]);
+    expect(outcome.unattributed).toEqual([{ objectApiName: 'Case', rows: 2520 }]);
+    const lines = added(text, file.text());
+    // Never a record taken for a row: every one of them the run's, under no row.
+    expect(lines.filter(([tag]) => tag === 'c')).toEqual([]);
+    const unattributedIds = lines
+      .filter(([tag]) => tag === 'n')
+      .flatMap(([, , ids]) => ids as string[]);
+    expect(unattributedIds.sort()).toEqual(
+      numbers
+        .filter((n) => !twins.has(n))
+        .map(caseTarget)
+        .sort(),
+    );
+    expect(lines.filter(([tag]) => tag === 'a')).toEqual([]);
+    expect(inFlightLines(outcome, 'TGT')).toContain(
+      '  Case: 2522 row(s) the journal cannot tell apart, several under one fingerprint, under ' +
+        'which the Bulk API job wrote records: none of those records is linked to a row',
+    );
+    // A removal takes them back: the journal names them all.
+    expect(unnamedUncertainRows(outcome)).toBe(0);
+  });
+
+  it('says the job still open within its hour, with its id, its state, what it processed and when its hour ends', async () => {
+    const text = killedJournal(true);
+    const file = memoryRunFile(text);
+    const org = {
+      ...targetHolding([]),
+      readJob: vi.fn(async (): Promise<JobResultsRead> => ({
+        state: 'running',
+        info: { state: 'Open', numberRecordsProcessed: 0 },
+        openUntil: '2026-11-13T15:49:00.000Z',
+        graceLeftMs: 46 * 60_000 + 10_000,
+      })),
+    };
+
+    const outcome = await reconcileInFlight(file, org);
+
+    expect(uncertainRows(outcome)).toBe(2522);
+    expect(outcome.underway).toEqual([
+      {
+        objectApiName: 'Case',
+        jobId: JOB,
+        rows: 2522,
+        state: 'Open',
+        processed: 0,
+        openUntil: '2026-11-13T15:49:00.000Z',
+        graceLeftMs: 46 * 60_000 + 10_000,
+      },
+    ]);
+    expect(file.text()).toBe(text);
+    expect(inFlightLines(outcome, 'TGT')).toContain(
+      `  Case: Bulk API job ${JOB} is Open, 0 row(s) processed: the run stopped before it ` +
+        'closed it, and closed, it would still write them; a resume from ' +
+        '2026-11-13T15:49:00.000Z, in about 47 minute(s), aborts it if it is open still, then ' +
+        'writes its rows',
+    );
   });
 });
 

@@ -79,6 +79,28 @@ describe('the parts of a run cut and taken up, read from its journal', () => {
     ]);
   });
 
+  it('ends a part killed once its Bulk API job was closed no earlier than the job, read back since', async () => {
+    // Killed as the org said the job closed; the job wrote its cases for 30
+    // seconds more, and the resume kept when it ended, on the org's clock
+    // and on this machine's, before its own part began.
+    const path = journal([
+      { run: { journalId: 'run', targetOrgId: '00D000000000002AAA', startedAt: at('16:05:15') } },
+      { part: { n: 0, startedAt: at('16:05:15') } },
+      ['c', id('001', 1), id('001', 901), 'Account'],
+      ['x', '0.6', 'Case', at('16:07:00'), ['Status'], [[id('500', 1), 'f', '', 'k']], []],
+      ['j', '0.6', '750000000000001AAA'],
+      ['d', '0.6', '750000000000001AAA', '2026-11-13T16:07:33.000Z', at('16:07:31')],
+      ['c', id('500', 1), id('500', 901), 'Case', 'found-owed'],
+      ['a', '0.6'],
+      { part: { n: 1, startedAt: at('16:20:00') } },
+    ]);
+
+    const [cut] = await runPartsOf(path, nodeRunJournal(dir));
+
+    expect(cut).toMatchObject({ part: 0, startedAt: at('16:05:15'), endedAt: at('16:07:31') });
+    expect(machineSpanOf(cut)).toMatchObject({ runRecordedAt: new Date(at('16:07:31')) });
+  });
+
   it('reads no parts of a journal that is not there, or not a run', async () => {
     expect(await runPartsOf(join(dir, 'none.ndjson'), nodeRunJournal(dir))).toEqual([]);
     expect(await runPartsOf(journal([{ not: 'a run' }]), nodeRunJournal(dir))).toEqual([]);

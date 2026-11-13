@@ -20,6 +20,7 @@ import type { Connection } from 'jsforce';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import {
   ForgeRunStore,
+  jobEndedTimesOf,
   journalLines,
   nodeRunFile,
   WITH_THEIR_RECORD_TAG,
@@ -543,6 +544,13 @@ export class ForgeRunJournal {
     lastUpdated?: { objectApiName: string; id: string };
     /** The latest time a line of the journal holds, on the clock of the machine that wrote it. */
     lastAt?: string;
+    /**
+     * When the last Bulk API job of the run that wrote after its sender had
+     * stopped ended, as the org dated it (`jobEndedLine`); of the part `part`,
+     * when asked of one, `jobEndedInPart`.
+     */
+    jobEnded?: string;
+    jobEndedInPart?: string;
   } {
     const file = this.deps.openRunFile(filePath);
     try {
@@ -556,6 +564,8 @@ export class ForgeRunJournal {
       /** The last record the second pass filled a lookup of, told by its id alone. */
       let lastFilled: string | undefined;
       let lastAt = Number.NEGATIVE_INFINITY;
+      let jobEnded = Number.NEGATIVE_INFINITY;
+      let jobEndedInPart = Number.NEGATIVE_INFINITY;
       /** Each object the journal created records of, by the key prefix of their ids. */
       const objectOfPrefix = new Map<string, string>();
       for (const line of journalLines(file)) {
@@ -563,9 +573,19 @@ export class ForgeRunJournal {
         const sentAt = line.text.startsWith('["x"')
           ? /^\["x","[^"]*","[^"]*","([^"]+)"/.exec(line.text)?.[1]
           : undefined;
-        for (const time of [at, sentAt]) {
+        // A job that ended after its sender stopped: by the org, and on this machine's clock.
+        const ended = jobEndedTimesOf(line.text);
+        for (const time of [at, sentAt, ended?.at]) {
           const epoch = time === undefined ? Number.NaN : Date.parse(time);
           if (Number.isFinite(epoch)) lastAt = Math.max(lastAt, epoch);
+        }
+        if (ended) {
+          const epoch = Date.parse(ended.orgAt);
+          if (Number.isFinite(epoch)) {
+            jobEnded = Math.max(jobEnded, epoch);
+            if (current === part) jobEndedInPart = Math.max(jobEndedInPart, epoch);
+          }
+          continue;
         }
         if (line.text.startsWith('{"part":')) current++;
         if (
@@ -610,6 +630,10 @@ export class ForgeRunJournal {
         ...(lastCreatedInPart ? { lastCreatedInPart } : {}),
         ...(lastUpdated ? { lastUpdated } : {}),
         ...(Number.isFinite(lastAt) ? { lastAt: new Date(lastAt).toISOString() } : {}),
+        ...(Number.isFinite(jobEnded) ? { jobEnded: new Date(jobEnded).toISOString() } : {}),
+        ...(Number.isFinite(jobEndedInPart)
+          ? { jobEndedInPart: new Date(jobEndedInPart).toISOString() }
+          : {}),
       };
     } finally {
       file.close();
@@ -638,6 +662,9 @@ export class ForgeRunJournal {
    * A verification counts the records the run's user created in the span
    * against what the part wrote: it asks for the part's own (`scope` of
    * `'part'`), from the first record the part created to the last.
+   *
+   * A Bulk API job the run had closed when it stopped, read back since, ends
+   * it no earlier than the job, as the org dated the job's end.
    */
   writtenBetween(
     journalId: string,
@@ -699,6 +726,13 @@ export class ForgeRunJournal {
         to = updated;
       }
     }
+    // A Bulk API job the run closed went on to its end after the run had
+    // stopped, its records dated as it wrote them: the run's writes end with
+    // the job, as the org dated its end (`jobEndedLine`). Ended at its last
+    // line, a removal kept as changed since the run the 2 520 cases such a
+    // job wrote, live.
+    const jobEnded = Date.parse((scope === 'part' ? bounds.jobEndedInPart : bounds.jobEnded) ?? '');
+    if (Number.isFinite(jobEnded) && jobEnded > to) to = jobEnded;
     return { first: new Date(from).toISOString(), last: new Date(to).toISOString() };
   }
 

@@ -300,7 +300,7 @@ import type { ForgeRunStore } from '../../modules/forge/ForgeRunStore.js';
 import {
   inFlightLines,
   inFlightTargetOf,
-  uncertainRows,
+  unnamedUncertainRows,
   type InFlightObjectRows,
   type InFlightReconciliation,
 } from '../../modules/forge/ForgeInFlight.js';
@@ -1190,8 +1190,10 @@ function unreachableOf(entry: Pick<ForgeExecutionResult, 'mayHaveBeenWritten'>):
  * target (`reconcileInFlight`): those the target may hold, and those the
  * run's own count names that no call looked for sent — an upsert, which a
  * journal kept before upsert calls were does not hold. A call that threw before its answer stays open in
- * the journal: found since, its rows are the run's, and removed. Without a
- * reconciliation, the run's own count.
+ * the journal: found since, its rows are the run's, and removed. The rows of
+ * a Bulk API job that ended are not among them: every record it wrote is in
+ * the journal, whichever row each is, and removed (`unnamedUncertainRows`).
+ * Without a reconciliation, the run's own count.
  */
 function unreachableAfter(
   mayHaveBeenWritten: ForgeExecutionResult['mayHaveBeenWritten'],
@@ -1203,7 +1205,7 @@ function unreachableAfter(
     (sum, { sourceIds }) => sum + sourceIds.filter((id) => !looked.has(id)).length,
     0,
   );
-  return uncertainRows(reconciled) + notLooked;
+  return unnamedUncertainRows(reconciled) + notLooked;
 }
 
 /**
@@ -5172,7 +5174,7 @@ export class ForgeHandler implements DomainHandler {
         ...kept,
         unreachable:
           reconciled && reconciled.calls > 0
-            ? uncertainRows(reconciled)
+            ? unnamedUncertainRows(reconciled)
             : (kept.mayHaveBeenWritten ?? 0),
         // A plan names no row a call may have written: what it can say is the calls.
         ...(lookedFor.callsNotLookedFor

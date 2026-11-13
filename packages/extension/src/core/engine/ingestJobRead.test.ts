@@ -104,10 +104,13 @@ describe('readJobResults', () => {
     expect(getAllResults).not.toHaveBeenCalled();
   });
 
-  it('says a job the org still processes is running, and reads none of its results', async () => {
+  it('says a job the org still processes is running, with what the org says of it, and reads none of its results', async () => {
     for (const state of ['UploadComplete', 'InProgress']) {
-      const { conn, getAllResults } = orgWithJob({ state, numberRecordsProcessed: 0 });
-      expect(await readJobResults(conn, JOB)).toEqual({ state: 'running' });
+      const { conn, getAllResults } = orgWithJob({ state, numberRecordsProcessed: 800 });
+      expect(await readJobResults(conn, JOB)).toEqual({
+        state: 'running',
+        info: { state, numberRecordsProcessed: 800 },
+      });
       expect(getAllResults).not.toHaveBeenCalled();
     }
   });
@@ -122,9 +125,21 @@ describe('readJobResults', () => {
 
   it('aborts a job left open past the hour its window may take to upload it, and says it never closed', async () => {
     const now = Date.parse('2026-10-22T12:00:00.000Z');
-    const opened = orgWithJob({ state: 'Open', createdDate: '2026-10-22T11:58:00.000+0000' });
+    const opened = orgWithJob({
+      state: 'Open',
+      numberRecordsProcessed: 0,
+      createdDate: '2026-10-22T11:58:00.000+0000',
+    });
+    // Said with what the org says of it, and when its hour of grace ends.
     expect(await readJobResults(opened.conn, JOB, { now: () => now })).toEqual({
       state: 'running',
+      info: {
+        state: 'Open',
+        numberRecordsProcessed: 0,
+        createdDate: '2026-10-22T11:58:00.000+0000',
+      },
+      openUntil: '2026-10-22T12:58:00.000Z',
+      graceLeftMs: 58 * 60_000,
     });
     expect(opened.abort).not.toHaveBeenCalled();
 
@@ -162,7 +177,10 @@ describe('readJobResults', () => {
     const { conn, abort, getAllResults } = orgWithJob([{ state: 'Open' }, { state: 'InProgress' }]);
     abort.mockRejectedValueOnce(new Error('INVALIDJOBSTATE: job is not open'));
 
-    expect(await readJobResults(conn, JOB, { openGraceMs: 0 })).toEqual({ state: 'running' });
+    expect(await readJobResults(conn, JOB, { openGraceMs: 0 })).toEqual({
+      state: 'running',
+      info: { state: 'InProgress' },
+    });
     expect(getAllResults).not.toHaveBeenCalled();
   });
 

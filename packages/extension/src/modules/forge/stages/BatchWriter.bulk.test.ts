@@ -392,6 +392,21 @@ describe('BatchWriter — writes sent as Bulk API jobs', () => {
     ]);
   });
 
+  it('keeps a job as one, for the journal to keep what its results find each row by, and a REST call as none', async () => {
+    const bulkWriteRecords = vi.fn<BulkFn>().mockImplementation(async (...a) => allWritten(a[3]));
+    const sending = vi.fn<InsertCallJournal['sending']>().mockReturnValue('call-1');
+
+    const writer = new BatchWriter(makeDeps(bulkWriteRecords));
+    await writer.writeNode(makeInput(rows(2_000), { calls: { sending, answered: vi.fn() } }));
+    await writer.writeNode(makeInput(rows(150), { calls: { sending, answered: vi.fn() } }));
+
+    // A job of 2 000 rows, then a call of 150 by REST.
+    expect(sending.mock.calls.map((call) => [call[1].length, call[3]])).toEqual([
+      [2_000, true],
+      [150, undefined],
+    ]);
+  });
+
   it('sends the rows of one parent together, their records kept aligned with them', async () => {
     const fields: FieldInfo[] = [
       ...FIELDS,

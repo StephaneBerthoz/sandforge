@@ -184,6 +184,8 @@ export const SENT_TAG = 'x';
 export const ANSWERED_TAG = 'a';
 /** The tag of a line that names the Bulk API job a call went as: see `ForgeRunStore.jobOpened`. */
 export const JOB_TAG = 'j';
+/** The tag of a line that says when such a job ended: see {@link jobEndedLine}. */
+export const JOB_ENDED_TAG = 'd';
 /**
  * The tag of a line that names records a Bulk API job wrote that no row was
  * matched to: see `ForgeRunStore.createdUnattributed`. Not `u`, which an
@@ -221,6 +223,41 @@ export interface OwedAtInsert {
   sourceRefId: string;
   /** Set when only an insert sets it: the second pass says it is left empty. */
   insertOnly?: true;
+}
+
+/**
+ * The line that says when the Bulk API job the call `callId` went as ended,
+ * as the org dated it (`orgAt`) and on this machine's clock (`at`): written
+ * by a reconciliation that read the job back once its sender had stopped
+ * (`reconcileInFlight`). Such a job writes its rows after the journal's last
+ * line, and a removal reads a record of the run modified after the run's end
+ * as changed since it: live, a removal kept all 2 520 cases a job wrote after
+ * its run was killed (`keptChanged`), and the 20 accounts they hung from. The
+ * part that sent the call ends no earlier than this (`writeBoundsAt`, and the
+ * command line's parts).
+ */
+export function jobEndedLine(callId: string, jobId: string, orgAt: string, at: string): string {
+  return JSON.stringify([JOB_ENDED_TAG, callId, jobId, orgAt, at]);
+}
+
+/**
+ * When a line written by {@link jobEndedLine} says its job ended, as the org
+ * dated it and on this machine's clock; nothing for any other line, or one
+ * whose dates do not read.
+ */
+export function jobEndedTimesOf(text: string): { orgAt: string; at: string } | undefined {
+  if (!text.startsWith(`["${JOB_ENDED_TAG}"`)) return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(value)) return undefined;
+  const [, , , orgAt, at] = value as unknown[];
+  if (typeof orgAt !== 'string' || !Number.isFinite(Date.parse(orgAt))) return undefined;
+  if (typeof at !== 'string' || !Number.isFinite(Date.parse(at))) return undefined;
+  return { orgAt, at };
 }
 
 /**
@@ -965,6 +1002,15 @@ export class ForgeRunStore {
    * may have created a record or written over one, and only the records it
    * created are the run's. They were never kept, and a removal of a run whose
    * upsert was under way counted its rows as written nowhere it could reach.
+   *
+   * An insert call sent as a Bulk API job keeps, per row, the key the job's
+   * results find it by (`jobKey`, `ForgeInFlight.jobRowKeys`): every value it
+   * carries, hashed as the fingerprint is, after an empty external id. Its
+   * fingerprint alone holds the fields every row of the call fills, and on a
+   * real target those of 2 522 cases were three fields of the same value on
+   * every row: one fingerprint for all of them, and a run killed once its job
+   * was closed could not be taken up, its 2 520 cases written by the job
+   * matched to no row.
    */
   sent(
     objectApiName: string,
@@ -975,6 +1021,8 @@ export class ForgeRunStore {
       owes?: readonly OwedAtInsert[];
       /** The fingerprint of the row's external id value, for an upsert call. */
       externalKey?: string;
+      /** For an insert call sent as a Bulk API job, the key its results find the row by. */
+      jobKey?: string;
     }>,
     at: Date = new Date(),
     upsertField?: string,
@@ -988,10 +1036,12 @@ export class ForgeRunStore {
         objectApiName,
         at.toISOString(),
         fields,
-        rows.map(({ sourceId, fingerprint, externalKey }) =>
+        rows.map(({ sourceId, fingerprint, externalKey, jobKey }) =>
           upsertField !== undefined && externalKey !== undefined
             ? [sourceId, fingerprint, externalKey]
-            : [sourceId, fingerprint],
+            : jobKey !== undefined
+              ? [sourceId, fingerprint, '', jobKey]
+              : [sourceId, fingerprint],
         ),
         rows.flatMap(({ owes }, row) =>
           (owes ?? []).map(({ field, sourceRefId, insertOnly }) => [

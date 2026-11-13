@@ -17,6 +17,11 @@ import type {
   BulkJobCheckResult,
   JsforceIngestJobResults,
 } from '../../core/engine/BulkApiExecutor.js';
+import { insertCallsIn } from './ForgeExecutor.js';
+import { reconcileInFlight } from './ForgeInFlight.js';
+import { ForgeRunJournal } from './ForgeRunJournal.js';
+import { ForgeRunStore, memoryRunFile } from './ForgeRunStore.js';
+import { JournalPart } from './journalRecords.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -796,5 +801,136 @@ describe('bulkDeleteJob', () => {
       requests: 2,
     });
     expect(opened[0]).toMatchObject({ operation: 'delete', aborted: true });
+  });
+});
+
+describe('the records a Bulk API job wrote once its run was killed', () => {
+  // Run for real between two scratch orgs: a clone of the whole org was
+  // killed as the org said its job of cases closed, at 16:07:03; the job went
+  // on to its end at 16:07:33, its 2 520 cases created by then. Its journal
+  // ended with the job's line, so the removal of the run, dated by its last
+  // record, read them all as changed since the run (`keptChanged 2520`), and
+  // kept the 20 accounts 20 of them hung from (`keptDependents 20`).
+  const KILLED = '2026-11-13T16:07:03.000Z';
+  const JOB = '750000000000003AAA';
+  const JOB_END = '2026-11-13T16:07:33.000+0000';
+  const CASES = 60;
+  const ACCOUNTS = 20;
+  const sourceAccount = (n: number): string => fakeId('001', 500 + n);
+  const account = (n: number): string => fakeId('001', n);
+  const sourceCase = (n: number): string => fakeId('500', 5000 + n);
+  const caseOf = (n: number): string => fakeId('500', n);
+  /** The case `n` as the call sent it: the first twenty under an account. */
+  const caseRow = (n: number): Record<string, unknown> => ({
+    Status: 'New',
+    Subject: `Case ${n}`,
+    ...(n <= ACCOUNTS ? { AccountId: account(n) } : {}),
+  });
+
+  /**
+   * The run's journal, as a run killed once its job of cases was closed left
+   * it, then read back by a resume once the job had ended.
+   */
+  async function journalReadBack(file: ReturnType<typeof memoryRunFile>): Promise<void> {
+    const store = ForgeRunStore.open(file);
+    store.beginPart(new Date('2026-11-13T16:05:15.000Z'));
+    for (let n = 1; n <= ACCOUNTS; n++) {
+      store.setMapping('created', sourceAccount(n), account(n), 'Account');
+    }
+    const numbers = Array.from({ length: CASES }, (_, i) => i + 1);
+    const callId = insertCallsIn(store).sending(
+      'Case',
+      numbers.map((n) => ({ sourceId: sourceCase(n), payload: caseRow(n) })),
+      undefined,
+      true,
+    );
+    store.jobOpened(callId ?? '', JOB);
+    store.flush();
+    await reconcileInFlight(
+      file,
+      {
+        queryPages: async function* () {},
+        userId: async () => USER,
+        readJob: async () => ({
+          state: 'ended',
+          info: { state: 'JobComplete', numberRecordsProcessed: CASES, systemModstamp: JOB_END },
+          results: {
+            successfulResults: numbers.map((n) => ({
+              sf__Id: caseOf(n),
+              sf__Created: 'true',
+              Status: 'New',
+              Subject: `Case ${n}`,
+              AccountId: n <= ACCOUNTS ? account(n) : '',
+            })),
+          },
+        }),
+      },
+      () => new Date(KILLED),
+    );
+  }
+
+  /** The target once the job wrote: the run's accounts, and the cases its job created after the kill. */
+  function targetAfterTheJob(): JobOrg {
+    const org = new JobOrg();
+    org.children.set('Account', [
+      { childSObject: 'Case', field: 'AccountId', cascadeDelete: false, restrictedDelete: true },
+    ]);
+    const before = '2026-11-13T16:05:40.000+0000';
+    for (let n = 1; n <= ACCOUNTS; n++) {
+      org.add('Account', { Id: account(n), CreatedDate: before, LastModifiedDate: before });
+    }
+    for (let n = 1; n <= CASES; n++) {
+      // Created as the job processed them, from the kill to the job's end.
+      const at = new Date(Date.parse(KILLED) + (n % 29) * 1000).toISOString();
+      org.add('Case', {
+        Id: caseOf(n),
+        CreatedDate: at,
+        LastModifiedDate: at,
+        AccountId: n <= ACCOUNTS ? account(n) : null,
+      });
+    }
+    return org;
+  }
+
+  it('dates the run to the end of its job, and removes what the job wrote with the rest, keeping none of it as changed since', async () => {
+    const file = memoryRunFile(
+      `${JSON.stringify({ run: { journalId: 'j', targetOrgId: 'org', startedAt: '2026-11-13T16:05:15.000Z' } })}\n`,
+    );
+    await journalReadBack(file);
+    const org = targetAfterTheJob();
+    const journal = new ForgeRunJournal({
+      storagePath: '/storage',
+      appendFile: async () => {},
+      readLines: async function* () {},
+      mkdir: async () => {},
+      rm: async () => {},
+      listFiles: async () => [],
+      openRunFile: () => file,
+    });
+    const span = await journal.writtenBetweenAt('/storage/j.ndjson', {
+      query: (async (soql: string) => {
+        const [, object, id] = /FROM (\w+) WHERE Id = '(\w+)'$/.exec(soql) ?? [];
+        const at = org.rows.get(object ?? '')?.get((id ?? '').slice(0, 15))?.CreatedDate;
+        return { totalSize: at ? 1 : 0, done: true, records: at ? [{ CreatedDate: at }] : [] };
+      }) as never,
+    });
+    expect(span).toEqual({ first: '2026-11-13T16:05:40.000Z', last: '2026-11-13T16:07:33.000Z' });
+    const records = JournalPart.read(file, 0)?.runRecords();
+    if (!records) throw new Error('no part');
+
+    const outcome = await removeRunRecords(org, records, {
+      runStartedAt: new Date(span?.first ?? ''),
+      runEndedAt: new Date(span?.last ?? ''),
+      includeChanged: false,
+    });
+
+    const of = (object: string) => outcome.objects.find((o) => o.objectApiName === object);
+    expect(of('Case')).toMatchObject({ planned: CASES, deleted: CASES, keptChanged: 0 });
+    expect(of('Account')).toMatchObject({
+      planned: ACCOUNTS,
+      deleted: ACCOUNTS,
+      keptDependents: 0,
+    });
+    expect(org.count('Case') + org.count('Account')).toBe(0);
   });
 });

@@ -44,6 +44,7 @@ import {
   parseRunSummary,
   removalPlan,
   runSummaryOfFile,
+  wholeOrgGateLines,
   wholeOrgGraphLine,
   wholeOrgRefusalWords,
   wholeOrgRunConfig,
@@ -1263,6 +1264,36 @@ describe('sandforge-clone --depth all, a clone of the whole org', () => {
         rmSync(dir, { recursive: true, force: true });
       }
     });
+  });
+});
+
+describe('what the gate of a clone of the whole org says of its writes', () => {
+  it('names the objects its Bulk API jobs write, says the records they carry at most, and that rows alike go by REST', () => {
+    // Run for real, the line said one job of 2 522 records and no object: the
+    // job carried 2 520 cases, the two alike went by REST.
+    const [writes] = wholeOrgGateLines(
+      {
+        source: 'SRC',
+        leftOut: 0,
+        targetApi: { estimate: 269 },
+        sourceApi: { estimate: 389 },
+        bulk: { jobs: 1, jobRows: 2522, restRows: 107 },
+        durationSeconds: 60,
+        restObjects: ['Account'],
+      },
+      [],
+      'TGT',
+      [
+        { objectApiName: 'Case', jobs: 1, jobRows: 2522 },
+        { objectApiName: 'Account', jobs: 0, jobRows: 0 },
+      ],
+    );
+
+    expect(writes).toBe(
+      '  writes: 1 Bulk API job(s) of 2522 record(s) at most (Case: 1 of 2522; rows of a job ' +
+        'carrying the same values go by REST instead), 107 record(s) by REST, 1 object(s) by ' +
+        'REST alone; about 1 minute(s) one after another',
+    );
   });
 });
 

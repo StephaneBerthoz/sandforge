@@ -2,7 +2,15 @@ import { Writable } from 'node:stream';
 import jsforce from 'jsforce';
 import type { Connection } from 'jsforce';
 import { describe, expect, it } from 'vitest';
-import { BULK_NULL_CELL, ambiguousRows, buildBulkCsv, resultCells, rowKey } from './bulkCsv.js';
+import { canonicalRecordId } from '../common/existingRecordMatch.js';
+import {
+  BULK_NULL_CELL,
+  ambiguousRows,
+  buildBulkCsv,
+  cellsKey,
+  resultCells,
+  rowKey,
+} from './bulkCsv.js';
 
 /** The rows a Frozen load writes: every empty value left out, so their fields differ. */
 const PROBE_ROWS: Record<string, unknown>[] = [
@@ -232,6 +240,58 @@ describe('ambiguousRows', () => {
       'Key__c',
     );
     expect(ambiguousRows(upsert).size).toBe(0);
+  });
+});
+
+describe('cellsKey', () => {
+  /** The key of each row of `csv`, as a run keeps it. */
+  const keysOf = (csv: ReturnType<typeof buildBulkCsv>): string[] =>
+    csv.rows.map((cells) => cellsKey(csv.columns.map((column, i) => [column, cells[i]] as const)));
+
+  it('gives two rows of a job the same key exactly when the job takes them for twins', () => {
+    const csv = buildBulkCsv('insert', [
+      { LastName: 'Doe', Amount__c: 3 },
+      { LastName: 'Roe', Amount__c: 3 },
+      { LastName: 'Doe', Amount__c: '3.0' },
+      { LastName: 'Doe', Amount__c: 3, Email: null },
+      { LastName: 'Doe', Email: 'doe@example.com' },
+    ]);
+    const keys = keysOf(csv);
+
+    const shared = keys.flatMap((key, i) =>
+      keys.indexOf(key) !== keys.lastIndexOf(key) ? [i] : [],
+    );
+    expect(shared).toEqual([...ambiguousRows(csv)].sort());
+    expect(shared).toEqual([0, 2, 3]);
+  });
+
+  it('gives a result row the key of the row it echoes, whatever the order and the case of its columns', () => {
+    const account = '001Dx00000AbCdE';
+    const csv = buildBulkCsv('insert', [
+      { LastName: 'Doe', Amount__c: 3, Closed__c: true, Email: null, AccountId: account },
+    ]);
+    // As a job's results echo it: its own columns first, another order, a
+    // number, a checkbox, an id and a null as the platform writes them back.
+    const echoed: Array<[string, string]> = [
+      ['accountid', canonicalRecordId(account) ?? ''],
+      ['Email', ''],
+      ['Closed__c', 'TRUE'],
+      ['Amount__c', '3.0'],
+      ['LastName', 'Doe'],
+    ];
+
+    expect(cellsKey(echoed)).toBe(keysOf(csv)[0]);
+  });
+
+  it('tells two rows apart by any value one of them carries and the other does not', () => {
+    const [first, second] = keysOf(
+      buildBulkCsv('insert', [
+        { LastName: 'Doe', Status: 'New' },
+        { LastName: 'Doe', Status: 'New', Subject: 'Late' },
+      ]),
+    );
+
+    expect(first).not.toBe(second);
   });
 });
 

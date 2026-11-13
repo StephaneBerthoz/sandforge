@@ -283,7 +283,7 @@ import { keepPartialSummary } from './interruptedRun.js';
 import { maskedEncryptedFields, viewsEncryptedDataOnce } from '../sync/encryptedFields.js';
 import { checkpointKey, type ForgeRunStore, type StoredOwedLookup } from './ForgeRunStore.js';
 import { JOURNAL_LAST_WRITE_SLACK_MS } from './ForgeRunJournal.js';
-import { externalIdKey, fingerprintFields, rowFingerprint } from './ForgeInFlight.js';
+import { externalIdKey, fingerprintFields, jobRowKeys, rowFingerprint } from './ForgeInFlight.js';
 import { uniqueValueKey, type FieldBounds } from './describeBounds.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import {
@@ -4388,17 +4388,20 @@ function smallerCallsReports(state: ExecutionState): ExecutionObjectError[] {
  * no one. An upsert call is kept with the external id it matches by, and
  * each row with the fingerprint of that id's value (`externalIdKey`). The
  * parents an expansion copies (`OrphanExpander`) and the files (`copyFiles`)
- * are kept here too. Exported so that the stages' tests keep their calls as a
- * run does.
+ * are kept here too. An insert sent as a Bulk API job keeps, per row, what the
+ * job's results find it by (`jobRowKeys`). Exported so that the stages' tests
+ * keep their calls as a run does.
  */
 export function insertCallsIn(store: ForgeRunStore): InsertCallJournal {
   return {
-    sending: (objectApiName, rows, upsertField) => {
-      const fields = fingerprintFields(rows.map(({ payload }) => payload));
+    sending: (objectApiName, rows, upsertField, asJob) => {
+      const payloads = rows.map(({ payload }) => payload);
+      const fields = fingerprintFields(payloads);
+      const jobKeys = asJob === true && upsertField === undefined ? jobRowKeys(payloads) : [];
       return store.sent(
         objectApiName,
         fields,
-        rows.flatMap(({ sourceId, payload, owes }) =>
+        rows.flatMap(({ sourceId, payload, owes }, i) =>
           sourceId === undefined
             ? []
             : [
@@ -4410,6 +4413,7 @@ export function insertCallsIn(store: ForgeRunStore): InsertCallJournal {
                   ...(upsertField !== undefined
                     ? { externalKey: externalIdKey(payload, upsertField) }
                     : {}),
+                  ...(jobKeys[i] !== undefined ? { jobKey: jobKeys[i] } : {}),
                 },
               ],
         ),

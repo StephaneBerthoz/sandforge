@@ -292,7 +292,8 @@ the target held before the run, which stays, or wrote nothing. Rows sent by
 upsert in a journal kept before upsert calls were are not looked for, and the
 result says how many of the records it cannot reach they are. Such a run is dated, for its removal and its
 **Verify**, by when the target created the first and the last records its
-journal names, not by when it began. Resume is refused, writing nothing, when the org the run wrote to was
+journal names, not by when it began — or, later, by when a Bulk API job it had
+closed as it stopped ended, as the org dated it: the job wrote after the run. Resume is refused, writing nothing, when the org the run wrote to was
 refreshed or replaced since, or is no longer registered; when the clone on
 the page, or `sandforge.forge.maxRecordsPerObject`, changed since it stopped;
 and when its records were removed, or it was resumed already. Each part is a

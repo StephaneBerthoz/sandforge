@@ -54,6 +54,8 @@ import {
   type SweepParts,
 } from '../src/modules/forge/ForgeRunSweep.js';
 import { fingerprintFields, rowFingerprint } from '../src/modules/forge/ForgeInFlight.js';
+import { insertCallsIn } from '../src/modules/forge/ForgeExecutor.js';
+import { ForgeRunStore, memoryRunFile } from '../src/modules/forge/ForgeRunStore.js';
 import { refusedSummary } from './runRefused.js';
 import { MuteRefusedError, muteForRun } from '../src/modules/forge/AutomationMuteLease.js';
 import { nodeRunJournal } from '../src/modules/forge/ForgeRunJournal.js';
@@ -863,6 +865,85 @@ describe('sandforge-clone --remove', () => {
         { objectApiName: 'Contact', ids: [TGT('003', 1)] },
         { objectApiName: 'Account', ids: [TGT('001', 1)] },
       ]);
+    });
+
+    it('reads back the Bulk API job a run killed once it was closed had under way, and dates the run to the end of the job', async () => {
+      // Run for real: the run was killed as the org said its job of cases
+      // closed; the job went on to its end 30 seconds later. Its removal
+      // planned the cases, kept them all as changed since the run, and said
+      // the journal named none of them.
+      const JOB = '750000000000001AAA';
+      const cases = [SRC('500', 1), SRC('500', 2)];
+      const payloads = cases.map((_, i) => ({ Status: 'New', Subject: `Case ${i + 1}` }));
+      const disk = memoryRunFile(
+        `${JSON.stringify({ run: { journalId: 'j', targetOrgId: TARGET_ORG, startedAt: '2026-11-13T16:05:15.000Z' } })}\n`,
+      );
+      const store = ForgeRunStore.open(disk);
+      store.beginPart(new Date('2026-11-13T16:05:15.000Z'));
+      store.setMapping('created', ACCOUNT, TGT('001', 1), 'Account');
+      const callId = insertCallsIn(store).sending(
+        'Case',
+        cases.map((sourceId, i) => ({ sourceId, payload: payloads[i] })),
+        undefined,
+        true,
+      );
+      store.jobOpened(callId ?? '', JOB);
+      store.flush();
+      const journal = file(disk.text(), 'killed-with-its-job.ndjson');
+      const created: Record<string, string> = {
+        [TGT('001', 1)]: '2026-11-13T16:05:40.000+0000',
+        [TGT('500', 1)]: '2026-11-13T16:07:04.000+0000',
+        [TGT('500', 2)]: '2026-11-13T16:07:31.000+0000',
+      };
+      const job = {
+        check: vi.fn(async () => ({
+          state: 'JobComplete',
+          numberRecordsProcessed: 2,
+          systemModstamp: '2026-11-13T16:07:33.000+0000',
+        })),
+        getSuccessfulResults: vi.fn(async () => []),
+        // Out of the order sent, as a job's results come.
+        getAllResults: vi.fn(async () => ({
+          successfulResults: [
+            { sf__Id: TGT('500', 2), sf__Created: 'true', Status: 'New', Subject: 'Case 2' },
+            { sf__Id: TGT('500', 1), sf__Created: 'true', Status: 'New', Subject: 'Case 1' },
+          ],
+          failedResults: [],
+          unprocessedRecords: [],
+        })),
+        abort: vi.fn(async () => undefined),
+      };
+      const conn = {
+        ...targetConn,
+        query: vi.fn(async (soql: string) => {
+          const dated = /^SELECT CreatedDate FROM \w+ WHERE Id = '(\w+)'$/.exec(soql);
+          if (dated) {
+            const at = created[dated[1]];
+            return page(at ? [{ CreatedDate: at }] : []);
+          }
+          return targetConn.query(soql);
+        }),
+        bulk2: { job: vi.fn(() => job) },
+      } as unknown as Connection;
+      vi.mocked(makeConn).mockReturnValue(conn);
+
+      expect(await run(['--remove', journal, '--target', 'TGT'])).toBeUndefined();
+
+      expect(job.getAllResults).toHaveBeenCalledTimes(1);
+      expect(printed).toContain(
+        '  found in TGT, kept as written by the run and removed with its records: 2 Case',
+      );
+      expect(printed.join('\n')).not.toContain('the journal names none of the');
+      expect(vi.mocked(removeRunRecords).mock.calls[0][1]).toEqual([
+        { objectApiName: 'Case', ids: expect.arrayContaining([TGT('500', 1), TGT('500', 2)]) },
+        { objectApiName: 'Account', ids: [TGT('001', 1)] },
+      ]);
+      // Dated to the end of the job, as the org dated it: what it wrote after
+      // the run's last line is no change since the run.
+      expect(removalOptions()).toMatchObject({
+        runStartedAt: new Date('2026-11-13T16:05:40.000Z'),
+        runEndedAt: new Date('2026-11-13T16:07:33.000Z'),
+      });
     });
 
     it('says there is nothing to remove of a run that created nothing, without contacting the org', async () => {
