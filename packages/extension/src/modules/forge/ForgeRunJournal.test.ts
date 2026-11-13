@@ -116,6 +116,45 @@ describe("a run's journal", () => {
     expect(left[0]?.lastEnd).toBeUndefined();
   });
 
+  it('offers with them the records a Bulk API job of the run wrote that no row was matched to, as the command line removes them', async () => {
+    const { deps } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await runThatWrote(journal, 'run-1');
+    const store = journal.open('run-1');
+    // One with the run's accounts, one of an object no row of the run wrote,
+    // and one a mapping names, which the plan holds once.
+    store.createdUnattributed('Account', ['001000000000901AAA']);
+    store.createdUnattributed('Ticket__c', ['a02000000000901AAA', NEW_ACCOUNT_A]);
+    store.close();
+
+    const [left] = await journal.leftOver();
+    if (!left) throw new Error('the journal was not left over');
+
+    // Left out, a removal of the run from the list of runs left them in the target.
+    expect(ForgeRunJournal.planOf(left)?.objects).toEqual([
+      { objectApiName: 'Ticket__c', ids: ['a02000000000901AAA'] },
+      { objectApiName: 'Contact', ids: [NEW_CONTACT_A] },
+      { objectApiName: 'Account', ids: [NEW_ACCOUNT_B, NEW_ACCOUNT_A, '001000000000901AAA'] },
+    ]);
+  });
+
+  it('offers a run that wrote only records no row was matched to', async () => {
+    const { deps } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await journal.begin('jobs-only', 'tgt-org', STARTED);
+    const store = journal.open('jobs-only');
+    store.beginPart(STARTED);
+    store.createdUnattributed('Ticket__c', ['a02000000000901AAA']);
+    store.close();
+
+    const [left] = await journal.leftOver();
+    if (!left) throw new Error('the journal was not left over');
+
+    expect(ForgeRunJournal.planOf(left)?.objects).toEqual([
+      { objectApiName: 'Ticket__c', ids: ['a02000000000901AAA'] },
+    ]);
+  });
+
   it('reads a journal whose checkpoints name a pass as one whose checkpoints do not, and resumes each read where it stood', async () => {
     const { deps } = memoryDisk();
     const journal = new ForgeRunJournal(deps);

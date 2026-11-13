@@ -226,7 +226,7 @@ import {
   inactiveOwnersOf,
   writesInactiveOwnersOnce,
 } from './stages/TargetHolds.js';
-import { ownerMapRefusalOf } from './ownerMapRefusal.js';
+import { NOTHING_WRITTEN, ownerMapRefusalOf } from './ownerMapRefusal.js';
 import {
   PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_OBJECT,
@@ -284,7 +284,7 @@ import { maskedEncryptedFields, viewsEncryptedDataOnce } from '../sync/encrypted
 import { checkpointKey, type ForgeRunStore, type StoredOwedLookup } from './ForgeRunStore.js';
 import { JOURNAL_LAST_WRITE_SLACK_MS } from './ForgeRunJournal.js';
 import { externalIdKey, fingerprintFields, rowFingerprint } from './ForgeInFlight.js';
-import type { FieldBounds } from './describeBounds.js';
+import { uniqueValueKey, type FieldBounds } from './describeBounds.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import {
   FORGE_BULK_JOB_ROWS,
@@ -4606,9 +4606,12 @@ export class ForgeExecutor {
     // as a run's: the target refuses every record that user would own, and
     // the run will not give them to the user it writes as instead of the one
     // chosen. The command line and the panel ask it first, before their own
-    // reads of the target; asked again here, it holds whoever calls.
-    const ownersRefused = await ownerMapRefusalOf(resolved.ownerMappings, (soql) =>
-      this.deps.queryRecords(targetOrgId, soql),
+    // reads of the target; asked again here, it holds whoever calls, and says
+    // only what is true by now: discovery and the caller have read.
+    const ownersRefused = await ownerMapRefusalOf(
+      resolved.ownerMappings,
+      (soql) => this.deps.queryRecords(targetOrgId, soql),
+      NOTHING_WRITTEN,
     );
     if (ownersRefused) throw ownersRefused;
     // The record types the user decided to write as others, in ids, over the
@@ -13703,11 +13706,13 @@ export class ForgeExecutor {
    * writes: the value as the write sends it is the value read, the field
    * written under its own name, neither renamed, excluded, read masked,
    * anonymized, neutralized as a contact point, cut by a decision nor only a
-   * person account's; and it equals one the target holds, case and all. A
-   * value that differs only in case, which a field that ignores case refuses
-   * as well, stays counted, as does every row of a field the target would not
-   * answer of: the run then writes no more than the gate said. An external id
-   * an upsert matches by is no collision.
+   * person account's; and it equals one the target holds as the target
+   * compares them, as the simulation compares them (`uniqueValueKey`): in
+   * any case where the target's describe says the field ignores case, as
+   * written where it tells case apart or does not say. Every row of a field
+   * the target would not answer of stays counted: the run then writes no
+   * more than the gate said. An external id an upsert matches by is no
+   * collision.
    */
   private async withoutWhatTheTargetHoldsByValue(
     state: ExecutionState,
@@ -13765,17 +13770,18 @@ export class ForgeExecutor {
       );
       /** Of the rows, those linked, each under the first field that links it. */
       const linked = new Map<Record<string, unknown>, string>();
-      for (const { name } of sentAsRead) {
-        const values = [
-          ...new Set(
-            rows.flatMap((row) => {
-              const value = row[name];
-              return typeof value === 'string' && value !== '' && !CONTROL_CHARACTER.test(value)
-                ? [value]
-                : [];
-            }),
-          ),
-        ];
+      for (const field of sentAsRead) {
+        const { name } = field;
+        // By the value as the target compares it, as the simulation asks it
+        // (`uniqueValueKey`): asked as the first row holding it wrote it.
+        const byKey = new Map<string, string>();
+        for (const row of rows) {
+          const value = row[name];
+          if (typeof value !== 'string' || value === '' || CONTROL_CHARACTER.test(value)) continue;
+          const key = uniqueValueKey(field, value);
+          if (!byKey.has(key)) byKey.set(key, value);
+        }
+        const values = [...byKey.values()];
         if (values.length === 0) continue;
         const held = new Set<string>();
         try {
@@ -13788,7 +13794,7 @@ export class ForgeExecutor {
             );
             for (const row of found) {
               const value = row[name];
-              if (typeof value === 'string') held.add(value);
+              if (typeof value === 'string') held.add(uniqueValueKey(field, value));
             }
           }
         } catch {
@@ -13796,7 +13802,11 @@ export class ForgeExecutor {
         }
         for (const row of rows) {
           const value = row[name];
-          if (typeof value === 'string' && held.has(value) && !linked.has(row)) {
+          if (
+            typeof value === 'string' &&
+            held.has(uniqueValueKey(field, value)) &&
+            !linked.has(row)
+          ) {
             linked.set(row, name);
           }
         }
@@ -15112,13 +15122,13 @@ export class ForgeExecutor {
         !(state.config.upsertMode === 'auto' && f.externalId === true),
     );
     for (const field of unique) {
-      // By the value as the target compares it, case aside: asked as the
-      // first row holding it wrote it.
+      // By the value as the target compares it (`uniqueValueKey`): asked as
+      // the first row holding it wrote it.
       const rowsByValue = new Map<string, { value: string; rows: number }>();
       for (const payload of payloads) {
         const value = payload[field.name];
         if (typeof value !== 'string' || value === '' || CONTROL_CHARACTER.test(value)) continue;
-        const key = value.toLowerCase();
+        const key = uniqueValueKey(field, value);
         const known = rowsByValue.get(key);
         if (known) known.rows++;
         else rowsByValue.set(key, { value, rows: 1 });
@@ -15136,7 +15146,7 @@ export class ForgeExecutor {
           );
           for (const row of found) {
             const value = row[field.name];
-            if (typeof value === 'string') held.add(value.toLowerCase());
+            if (typeof value === 'string') held.add(uniqueValueKey(field, value));
           }
         }
       } catch {
@@ -15154,7 +15164,11 @@ export class ForgeExecutor {
       }
       for (const payload of payloads) {
         const value = payload[field.name];
-        if (typeof value === 'string' && held.has(value.toLowerCase()) && !linked.has(payload)) {
+        if (
+          typeof value === 'string' &&
+          held.has(uniqueValueKey(field, value)) &&
+          !linked.has(payload)
+        ) {
           linked.set(payload, field.name);
         }
       }

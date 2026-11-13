@@ -115,8 +115,13 @@ export type EnvRunPreview =
   | { n: number; nothing: true }
   | { n: number; failed: string };
 
-/** A resource's dry run, through its own script, or why it did not answer. */
-export type EnvDryRun = { answer: EnvDryRunAnswer } | { failed: string };
+/**
+ * A resource's dry run, through its own script, or why it did not answer:
+ * with `refused`, its script refused it, as it would refuse the real run,
+ * and said why under its code.
+ */
+export type EnvDryRun =
+  { answer: EnvDryRunAnswer } | { failed: string; refused?: { code: string; message: string } };
 
 /** What the target has left today, read once from its `/limits`. */
 export interface EnvBudget {
@@ -902,6 +907,12 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
     }
     let dryNotes: string[] = [];
     if (dry !== undefined && 'failed' in dry) {
+      // Refused by its script, as the real run would be: said in its words,
+      // under its code, as what a dry run says a real run would meet.
+      if (dry.refused !== undefined && refusal === undefined) {
+        refusal = `its own dry run says a real run would be refused: ${dry.refused.message}`;
+        codes = [dry.refused.code];
+      }
       refusal ??= `its dry run did not answer: ${dry.failed}`;
     } else if (dry !== undefined) {
       const counted = countOf(input.resolved, draft.resource, dry.answer, deps !== undefined);

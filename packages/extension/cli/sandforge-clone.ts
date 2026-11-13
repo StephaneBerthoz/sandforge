@@ -379,6 +379,7 @@ import {
   ForgeRunJournal,
   SUMMARY_IDS_BOUND,
   nodeRunJournal,
+  withUnattributed,
 } from '../src/modules/forge/ForgeRunJournal.js';
 import type { ForgeRunPartEnd } from '../src/modules/forge/ForgeRunJournal.js';
 import type { ForgeRunStore } from '../src/modules/forge/ForgeRunStore.js';
@@ -4671,32 +4672,6 @@ export function removalPlan(summary: RunSummary): ForgeRunObjectRecords[] {
 }
 
 /**
- * A removal's plan with the records a Bulk API job of the run wrote that no
- * row was matched to, each with the rest of its object, after them; an
- * object only such records were written of goes first, with the last
- * written. Left out, a clone of the whole org removed from the command line
- * left them in the target, though its journal named them.
- */
-function withUnattributed(
-  plan: ForgeRunObjectRecords[],
-  unattributed: RunSummary['result']['unattributed'],
-): ForgeRunObjectRecords[] {
-  if (!unattributed || unattributed.length === 0) return plan;
-  const planned = new Set(plan.flatMap(({ ids }) => ids.map((id) => id.slice(0, 15))));
-  const merged = plan.map((object) => ({ ...object, ids: [...object.ids] }));
-  const first: ForgeRunObjectRecords[] = [];
-  for (const { objectApiName, ids } of unattributed) {
-    const more = ids.filter((id) => !planned.has(id.slice(0, 15)));
-    for (const id of more) planned.add(id.slice(0, 15));
-    if (more.length === 0) continue;
-    const own = merged.find((object) => object.objectApiName === objectApiName);
-    if (own) own.ids.push(...more);
-    else first.push({ objectApiName, ids: more });
-  }
-  return [...first, ...merged];
-}
-
-/**
  * What a removal is about to take, said before it deletes anything: the run
  * and the org, the records per object, and what stays — the records the target
  * already held, and, without `--include-changed`, those changed since the run.
@@ -8509,6 +8484,18 @@ class CheckpointTakeInterrupted extends Error {
   }
 }
 
+/**
+ * Thrown from the write gate when Ctrl-C came while the question of a clone
+ * of the whole org waited on the terminal: nothing written, and the clone
+ * ends as one stopped before it started.
+ */
+class QuestionInterrupted extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'QuestionInterrupted';
+  }
+}
+
 /** One clone from the given command line: see {@link main}. */
 async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<void> {
   const t0 = Date.now();
@@ -8521,6 +8508,18 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   const say = (line: string): void => (args.json ? console.error(line) : console.log(line));
   say(`sandforge-clone  ${args.source} -> ${args.target}  ${cloneInputLine(args)}`);
   for (const line of choicesLines(args)) say(line);
+  // A run taken up copies the files it was begun copying, --resume given
+  // without --files: its journal keeps them, as it keeps its mute. Lost, the
+  // records the part taken up wrote went without their files; given again
+  // otherwise than the run began, the resume is refused as set up otherwise.
+  if (args.resume && args.files === undefined) {
+    const journals = nodeRunJournal(journalDirOf());
+    const head = await journals.headAt(resumedJournalPath(args.resume, journals));
+    if (head?.resume?.files) {
+      args = { ...args, files: head.resume.files };
+      say('files: copied as the run taken up was begun, with --files');
+    }
+  }
 
   const sourceOrg = await loadOrg(args.source);
   const targetOrg = await loadOrg(args.target);
@@ -8638,6 +8637,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
               tool: 'sandforge-clone',
               source: args.source,
               target: args.target,
+              dryRun: args.dryRun,
               elapsedMs: elapsedSince(t0),
             },
             refused,
@@ -9148,6 +9148,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
             tool: 'sandforge-clone',
             source: args.source,
             target: args.target,
+            dryRun: args.dryRun,
             elapsedMs: elapsedSince(t0),
           },
           refused,
@@ -9902,7 +9903,15 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
           'answer: give --yes to write it. Nothing was written.',
       );
     }
-    if (!(await confirm(`Write ${what}?`))) {
+    const yes = await confirm(`Write ${what}?`, undefined, runController.signal);
+    // A Ctrl-C while the question waits stops the run there, as one that came
+    // before the executor had it: no answer, nothing written.
+    if (runController.signal.aborted) {
+      throw new QuestionInterrupted(
+        'interrupted at its question: the clone stopped before it wrote anything',
+      );
+    }
+    if (!yes) {
       throw new ForgeRunGateError(
         'WRITE_DECLINED',
         'The clone of the whole org was declined at its question. Nothing was written.',
@@ -10258,6 +10267,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         ...(args.record ? { recordId: args.record } : {}),
         // Kept for the run to be muted again when it is taken up.
         ...(args.muteAutomation ? { muteAutomation: true as const } : {}),
+        // And to copy its files again, --resume given without --files.
+        ...(args.files ? { files: args.files } : {}),
         // The command's own choices are in the fingerprint: `cliRunSetup`. A
         // clone of whole tables keeps the config it ran with, its filters and
         // the objects it left out, which the summary of its journal names.
@@ -10467,9 +10478,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       if (dryRunRefusals.length > 0) process.exit(1);
       return;
     }
-    // Ctrl-C while the checkpoint was taken first: nothing of it was kept,
+    // Ctrl-C while the checkpoint was taken first, or while the question of
+    // a clone of the whole org waited on its answer: nothing of it was kept,
     // and nothing written, recorded stopped before it started.
-    if (err instanceof CheckpointTakeInterrupted) {
+    if (err instanceof CheckpointTakeInterrupted || err instanceof QuestionInterrupted) {
       recordClone({
         outcome: 'stopped',
         code: ABORTED_BEFORE_START,

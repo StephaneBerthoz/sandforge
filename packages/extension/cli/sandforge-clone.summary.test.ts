@@ -862,6 +862,42 @@ describe('sandforge-clone --summary', () => {
       expect(printed.some((line) => line.startsWith('  mute: '))).toBe(true);
     });
 
+    it('takes a run that copies files up copying them, though --resume is given without --files', async () => {
+      const once = vi.spyOn(process, 'once');
+      let stopOnAccount = true;
+      withOrgs(
+        fakeOrg([], (name) => {
+          if (name !== 'Account' || !stopOnAccount) return;
+          (once.mock.calls.find(([event]) => event === 'SIGINT')?.[1] as () => void)();
+        }),
+      );
+      const first = join(dir, 'first.json');
+      expect(await run(argv('--summary', first, '--files', '--max-file-size', '5'))).toBe(130);
+      const journal = String(documentOf(first).journal);
+      const journals = nodeRunJournal(String(process.env['SANDFORGE_JOURNAL_DIR']));
+      expect((await journals.headAt(journal))?.resume?.files).toEqual({
+        maxFileSizeMB: 5,
+        acceptedAsIs: false,
+      });
+
+      stopOnAccount = false;
+      // Given otherwise than the run began, the resume is refused.
+      expect(await run(argv('--resume', journal, '--files', '--max-file-size', '9'))).toBe(2);
+      expect(stderr).toContain('The clone is set up otherwise than the run to take up');
+      expect(orgs.TGT.written).toEqual(['Account']);
+
+      printed.length = 0;
+      const second = join(dir, 'second.json');
+      // Refused as set up otherwise, the run could only be taken up by
+      // giving --files again; the journal now says it.
+      expect(await run(argv('--summary', second, '--resume', journal))).toBeUndefined();
+
+      expect(printed).toContain('files: copied as the run taken up was begun, with --files');
+      expect(printed.some((line) => line.includes('REAL, FILES)'))).toBe(true);
+      expect(documentOf(second).files).toBe(true);
+      expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+    });
+
     it('takes up by its run id a run whose process was killed, its journal left with no end', async () => {
       withOrgs();
       const path = join(dir, 'clone-summary.json');

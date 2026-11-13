@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
@@ -729,6 +737,8 @@ describe('sandforge-clone --depth all, a clone of the whole org', () => {
         expect(await run(argv('--json'))).toBe(1);
         expect(vi.mocked(confirm)).toHaveBeenCalledWith(
           expect.stringMatching(/^Write 11 record\(s\) of 4 object\(s\) of SRC into TGT/),
+          undefined,
+          expect.any(AbortSignal),
         );
         expect(JSON.parse(stdout.join('')).refused.code).toBe('WRITE_DECLINED');
         expect(orgs.TGT.creates).toEqual([]);
@@ -743,6 +753,40 @@ describe('sandforge-clone --depth all, a clone of the whole org', () => {
         if (tty) Object.defineProperty(process.stdin, 'isTTY', tty);
         else delete (process.stdin as { isTTY?: boolean }).isTTY;
       }
+    });
+
+    it('stops at a Ctrl-C while its question waits on the terminal: nothing written, no journal left, the exit of a signal', async () => {
+      const orgs = withFakeOrgs();
+      const runs = join(String(process.env['SANDFORGE_JOURNAL_DIR']), 'forge-runs');
+      const journals = (): string[] => (existsSync(runs) ? readdirSync(runs).sort() : []);
+      const journalsBefore = journals();
+      const tty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      // Ctrl-C on a terminal waiting for the answer: no answer ever comes,
+      // unless the question is told the run stopped. A terminal closed, it
+      // would read as a no.
+      vi.mocked(confirm).mockImplementationOnce(
+        (_question, _streams, signal?: AbortSignal) =>
+          new Promise<boolean>((resolve) => {
+            signal?.addEventListener('abort', () => resolve(false));
+            process.emit('SIGINT', 'SIGINT');
+            setTimeout(() => resolve(false), 200);
+          }),
+      );
+      try {
+        expect(await run(argv('--json'))).toBe(130);
+      } finally {
+        if (tty) Object.defineProperty(process.stdin, 'isTTY', tty);
+        else delete (process.stdin as { isTTY?: boolean }).isTTY;
+      }
+
+      // Waiting on the answer, the clone said it stopped and went on waiting;
+      // a second Ctrl-C killed it, its journal left without an end.
+      expect(stderr.join('')).toContain('the clone stopped before it wrote anything');
+      expect(stderr.join('')).not.toContain('WRITE_DECLINED');
+      expect(orgs.TGT.creates).toEqual([]);
+      expect(stdout.join('')).toBe('');
+      expect(journals()).toEqual(journalsBefore);
     });
 
     it('writes the whole org with --yes, keeps its journal, and leaves a summary its removal reads as the whole org', async () => {

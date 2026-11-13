@@ -25,6 +25,8 @@ import type { WholeOrgDryRun } from '../../modules/forge/ForgeRunGate.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { ForgeRehearser } from '../../modules/forge/rehearsal/ForgeRehearser.js';
 import { ForgeRunJournal } from '../../modules/forge/ForgeRunJournal.js';
+import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
+import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import { LostBulkJobs } from '../../modules/forge/lostBulkJobs.js';
 import { muteOrgOf } from '../../modules/forge/AutomationMuteLease.js';
 import type { BeforeRunCheckpoints } from '../../modules/checkpoint/beforeRunCheckpoint.js';
@@ -507,6 +509,99 @@ describe('forge:execute of the whole org', () => {
       // Its journal: what it maps, owes and where it stopped live on disk.
       expect(options?.stream?.store).toBeDefined();
       expect(disk.files.size).toBeGreaterThan(0);
+    });
+
+    it('tells Production Guard every record of what it copies, whatever cap a config carried over', async () => {
+      const guard = deps.infraServices?.productionGuard;
+      if (!guard) throw new Error('no guard');
+      const check = vi.spyOn(guard, 'check');
+      use(orchestratorHanding());
+
+      await execute({ config: { ...WHOLE_ORG, maxRecordsPerObject: 100 } });
+
+      // Capped, the guard was told 330 records of a run that copies 12 830.
+      expect(check).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: 'insert', recordCount: 12_830 }),
+      );
+    });
+
+    it('is taken up where it stopped, as a whole org, its files copied again', async () => {
+      const FILES = { maxFileSizeMB: 25, acceptedAsIs: true };
+      const ACCOUNT = '001000000000001AAA';
+      let stopsAfterTheAccount = true;
+      let resumedAt: unknown;
+      let linkedEarlier: boolean | undefined;
+      const executor = {
+        execute: vi.fn(
+          async (
+            _graph: ForgeGraph,
+            _source: string,
+            _target: string,
+            _onProgress: unknown,
+            options?: ExecuteOptions,
+          ): Promise<ExecutionSummary> => {
+            handed.push(options);
+            const store = options?.stream?.store;
+            const answer = await options?.beforeWrite?.({ ...boundaryOf(), dryRun: false });
+            if (answer && answer.lease) await answer.lease.giveBack();
+            if (!stopsAfterTheAccount) {
+              // The part taken up holds what the first wrote, an earlier
+              // part's, and where its read of the accounts stood.
+              resumedAt = store?.checkpoints().get('Account');
+              store?.beginPart(new Date());
+              linkedEarlier = store?.mapping(ACCOUNT)?.earlier;
+              calls.push('written');
+              return summary();
+            }
+            store?.beginPart(new Date());
+            store?.setMapping('created', ACCOUNT, '001000000000901AAA', 'Account');
+            store?.checkpoint('Account', { lastId: ACCOUNT, read: 1 });
+            const error = new ForgeAbortedError('Forge execution was aborted by user request.');
+            keepPartialSummary(error, summary({ successCount: 1, remapCount: 1 }));
+            throw error;
+          },
+        ),
+        abort: vi.fn(),
+        pause: vi.fn(),
+        resume: vi.fn(),
+      };
+      use(
+        new ForgeOrchestrator({
+          discoveryService: {
+            personalFields: () => [],
+          } as unknown as ForgeOrchestratorDeps['discoveryService'],
+          executor: executor as unknown as ForgeOrchestratorDeps['executor'],
+        }),
+      );
+      await execute({ files: FILES });
+      const stopped = posted('forge:execute:error')[0]?.payload.result as ForgeExecutionResult;
+      expect(stopped).toMatchObject({ cancelled: true, resumable: true });
+      stopsAfterTheAccount = false;
+
+      await handler.handle(
+        inboundRequest({
+          id: 'wv-resume',
+          type: 'forge:resume-run',
+          timestamp: Date.now(),
+          payload: { forgeId: stopped.forgeId },
+        } as BaseMessage),
+      );
+
+      expect(executor.execute).toHaveBeenCalledTimes(2);
+      const resumed = handed[1];
+      expect(resumed).toMatchObject({
+        writeApi: 'auto',
+        stream: { everything: true, writeWindow: 10_000 },
+        files: { maxFileBytes: 25 * MB, acceptedAsIs: true },
+      });
+      expect(resumedAt).toEqual({ lastId: ACCOUNT, read: 1 });
+      expect(linkedEarlier).toBe(true);
+      // Asked again, as every run of the whole org is.
+      expect(writeQuestions()).toHaveLength(2);
+      const answer = posted('forge:execute:response').find((m) => m.correlationId === 'wv-resume');
+      expect(answer?.payload.result).toMatchObject({ retryOf: stopped.forgeId, resumed: true });
+      const [entry] = store.get<ForgeExecutionResult[]>('forge:history') ?? [];
+      expect(entry.graph.withoutEdges).toBe(true);
     });
 
     it('keeps in the history its nodes without their relations, and what it left out counted', async () => {

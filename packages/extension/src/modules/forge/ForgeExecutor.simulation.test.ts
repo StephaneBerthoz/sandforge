@@ -560,6 +560,75 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
       }
     });
 
+    /**
+     * A target holding the code `taken`, the field described as telling case
+     * apart or not (`caseSensitive`, absent when the describe does not say),
+     * answering a statement of codes as an org compares them: in any case for
+     * a unique field that ignores case, as written for one that tells case
+     * apart. The row holds `TAKEN`.
+     */
+    function holdingInAnotherCase(caseSensitive: boolean | undefined) {
+      const orgs = fakeOrgs();
+      const fields = TARGET_ORDER_FIELDS.map((f) =>
+        f.name === 'Code__c' && caseSensitive !== undefined ? { ...f, caseSensitive } : f,
+      );
+      const describe = orgs.deps.describeFields.getMockImplementation();
+      orgs.deps.describeFields.mockImplementation(async (org, object) =>
+        org === 'tgt' && object === 'Order__c' ? fields : ((await describe?.(org, object)) ?? []),
+      );
+      const answer = orgs.deps.queryRecords.getMockImplementation();
+      orgs.deps.queryRecords.mockImplementation(async (org, soql) => {
+        if (org !== 'tgt' || !soql.startsWith('SELECT Code__c FROM Order__c WHERE Code__c IN (')) {
+          return (await answer?.(org, soql)) ?? [];
+        }
+        const asked = [...soql.matchAll(/'([^']*)'/g)].map(([, value]) => value ?? '');
+        const held = asked.some((value) =>
+          caseSensitive === true ? value === 'taken' : value.toLowerCase() === 'taken',
+        );
+        return held ? [{ Code__c: 'taken' }] : [];
+      });
+      return orgs;
+    }
+
+    it('links a value the target holds in another case where its describe says the field ignores case, the gate and the simulation alike', async () => {
+      const gate = gates();
+
+      const { summary } = await run(holdingInAnotherCase(false).deps, {
+        ...OPTIONS,
+        dryRun: true,
+        decisions: REGION_GIVEN,
+        beforeWrite: gate.of('dry run'),
+      });
+
+      // The target refuses `TAKEN` as a duplicate of `taken`, and the run links it.
+      expect(summary).toMatchObject({ wouldInsertCount: 3, linkedCount: 1 });
+      expect(gate.shown.get('dry run')?.totalRows).toBe(summary.wouldInsertCount);
+      expect(gate.shown.get('dry run')?.leftOut?.linkedByValue).toEqual([
+        { objectApiName: 'Order__c', rows: 1, fields: ['Code__c'] },
+      ]);
+    });
+
+    it('counts it written where the field tells case apart, or its describe does not say, the gate and the simulation alike', async () => {
+      // Compared in lower case by the simulation and as written by the gate,
+      // a dry run said 3 to insert and 1 linked under a gate of 4.
+      for (const caseSensitive of [true, undefined]) {
+        const gate = gates();
+
+        const { summary } = await run(holdingInAnotherCase(caseSensitive).deps, {
+          ...OPTIONS,
+          dryRun: true,
+          decisions: REGION_GIVEN,
+          beforeWrite: gate.of('dry run'),
+        });
+
+        expect(summary).toMatchObject({ wouldInsertCount: 4, linkedCount: 0 });
+        expect(gate.shown.get('dry run')?.totalRows).toBe(4);
+        expect(
+          gapOf(summary, forgeGapId('unique_value_collision', 'Order__c', 'Code__c')),
+        ).toBeUndefined();
+      }
+    });
+
     it('counts a value the target holds in another case, and every row when the target will not say what it holds', async () => {
       const otherCase = fakeOrgs();
       const answer = otherCase.deps.queryRecords.getMockImplementation();

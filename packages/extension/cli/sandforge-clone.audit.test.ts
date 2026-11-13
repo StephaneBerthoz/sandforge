@@ -526,6 +526,38 @@ describe('sandforge-clone --audit', () => {
     ]);
   });
 
+  it('says only that nothing was written of a user the target holds inactive by the time the executor asks again', async () => {
+    const SOURCE_OWNER = '005000000000001AAA';
+    const USER = '005000000000002AAA';
+    const users = { [USER]: { Name: 'Current Admin', IsActive: true } };
+    const { asked } = withUsers(users);
+    const target = orgs.TGT.conn as unknown as { query: (soql: string) => Promise<unknown> };
+    const answer = target.query.bind(target);
+    // Deactivated in the target once the command line asked, before the executor does.
+    target.query = async (soql: string) => {
+      const answered = await answer(soql);
+      if (soql.startsWith('SELECT Id, Name, IsActive FROM User ')) users[USER].IsActive = false;
+      return answered;
+    };
+
+    expect(
+      await run(argv('--audit', auditPath, '--json', '--owner-map', `${SOURCE_OWNER}=${USER}`)),
+    ).toBe(1);
+
+    // By then discovery read the source and the target's automation was read.
+    expect(
+      asked.filter((soql) => soql.includes(' FROM FlowDefinitionView ')).length,
+    ).toBeGreaterThan(0);
+    expect(orgs.TGT.written).toEqual([]);
+    const { refused } = JSON.parse(stdout) as { refused: { code: string; message: string } };
+    expect(refused.code).toBe('OWNER_MAP_INACTIVE');
+    expect(refused.message).toContain(
+      `Current Admin (${USER}), given the records of ${SOURCE_OWNER}`,
+    );
+    expect(refused.message).not.toContain('Nothing was read');
+    expect(refused.message.endsWith(' Nothing was written.')).toBe(true);
+  });
+
   it('refuses an --owner-map to a user the target holds no user of before anything is read, naming the id under its own code', async () => {
     const SOURCE_OWNER = '005000000000001AAA';
     const ACTIVE_USER = '005000000000003AAA';
@@ -559,6 +591,7 @@ describe('sandforge-clone --audit', () => {
           '--audit',
           auditPath,
           '--dry-run',
+          '--json',
           '--owner-map',
           '005000000000001AAA=005000000000004AAA',
         ),
@@ -567,6 +600,12 @@ describe('sandforge-clone --audit', () => {
 
     expect(sourceRead).toEqual([]);
     expect(stderr).toContain('refused (OWNER_MAP_UNKNOWN): ');
+    // Said a real run's, it read as one a removal could take back.
+    expect(JSON.parse(stdout)).toMatchObject({
+      tool: 'sandforge-clone',
+      dryRun: true,
+      refused: { code: 'OWNER_MAP_UNKNOWN' },
+    });
     expect(existsSync(auditPath)).toBe(false);
   });
 

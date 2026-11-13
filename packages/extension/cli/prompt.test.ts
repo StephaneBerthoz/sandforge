@@ -54,6 +54,30 @@ describe('a question on the terminal', () => {
     await expect(asking).resolves.toBe(false);
   });
 
+  it('answers no once the command is stopped while it waits, and lets the terminal go', async () => {
+    const { io, input, asked } = streams(true);
+    const stop = new AbortController();
+
+    const asking = confirm('Write 11 records?', io, stop.signal);
+    stop.abort();
+
+    // A Ctrl-C on a terminal in its usual mode types no line: the question
+    // waited on an answer that never came.
+    await expect(asking).resolves.toBe(false);
+    expect(asked()).toBe('Write 11 records? [y/N] \n');
+    expect(input.listenerCount('data')).toBe(0);
+    expect(input.listenerCount('end')).toBe(0);
+  });
+
+  it('asks nothing of a command stopped before its question', async () => {
+    const { io, asked } = streams(true);
+    const stop = new AbortController();
+    stop.abort();
+
+    await expect(confirm('Write 11 records?', io, stop.signal)).resolves.toBe(false);
+    expect(asked()).toBe('');
+  });
+
   it('hands back the word typed, and nothing when the terminal closes', async () => {
     const one = streams(true);
     const asking = typed('Type TGT to delete them:', one.io);

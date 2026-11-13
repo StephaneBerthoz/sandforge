@@ -28,8 +28,16 @@ export const NO_TERMINAL_EXIT = 2;
 /** The command's own terminal. */
 const terminal = (): PromptStreams => ({ input: process.stdin, output: process.stderr });
 
-/** The line typed in answer, or undefined when the input closed first. */
-function answerOf(question: string, streams: PromptStreams): Promise<string | undefined> {
+/**
+ * The line typed in answer, or undefined when the input closed first, or
+ * when `stopped` aborted: a Ctrl-C that stops the command while it waits on
+ * the answer, which a terminal in its usual mode never types as a line.
+ */
+function answerOf(
+  question: string,
+  streams: PromptStreams,
+  stopped?: AbortSignal,
+): Promise<string | undefined> {
   const { input, output } = streams;
   if (input.isTTY !== true) {
     output.write(
@@ -37,25 +45,42 @@ function answerOf(question: string, streams: PromptStreams): Promise<string | un
     );
     process.exit(NO_TERMINAL_EXIT);
   }
+  if (stopped?.aborted === true) return Promise.resolve(undefined);
   output.write(`${question} `);
   return new Promise((resolve) => {
     const settle = (answer: string | undefined): void => {
       input.off('data', onData);
       input.off('end', onEnd);
+      stopped?.removeEventListener('abort', onStop);
       input.pause();
       resolve(answer);
     };
     const onData = (chunk: Buffer | string): void => settle(String(chunk).trim());
     const onEnd = (): void => settle(undefined);
+    const onStop = (): void => {
+      output.write('\n');
+      settle(undefined);
+    };
     input.on('data', onData);
     input.on('end', onEnd);
+    stopped?.addEventListener('abort', onStop, { once: true });
     input.resume();
   });
 }
 
-/** Ask a yes-or-no question; anything but y or yes, and a closed terminal, is no. */
-export async function confirm(question: string, streams = terminal()): Promise<boolean> {
-  const answer = await answerOf(`${question} [y/N]`, streams);
+/**
+ * Ask a yes-or-no question; anything but y or yes, and a closed terminal, is
+ * no. So is a stop `stopped` says while it waits: the caller, which stopped,
+ * tells that from a no. Without it, a Ctrl-C left the question waiting on an
+ * answer, the command said it stopped and did not, and a second Ctrl-C killed
+ * it with its journal left open.
+ */
+export async function confirm(
+  question: string,
+  streams = terminal(),
+  stopped?: AbortSignal,
+): Promise<boolean> {
+  const answer = await answerOf(`${question} [y/N]`, streams, stopped);
   return answer !== undefined && /^y(es)?$/i.test(answer);
 }
 

@@ -509,7 +509,7 @@ describe('ForgeExecutor, an owner mapping to a user the target holds inactive', 
         `records of ${MAPPED_FROM}. The target refuses a record owned by an inactive user, and ` +
         'the run will not give it to the user it writes as instead of the one chosen. Give ' +
         'those records to an active user under Owners (Review → Controls, or --owner-map on ' +
-        'the command line), or reactivate the user in the target. Nothing was read or written.',
+        'the command line), or reactivate the user in the target. Nothing was written.',
     );
     expect(fake.read).toEqual([]);
     expect(fake.deps.describeFields).not.toHaveBeenCalled();

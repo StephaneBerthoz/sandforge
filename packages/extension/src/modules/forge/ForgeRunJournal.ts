@@ -6,10 +6,12 @@ import * as z from 'zod';
 import {
   forgeAnonymizationRulesSchema,
   forgeConfigSchema,
+  forgeFileCopyOptionSchema,
   forgeGraphSchema,
   forgeRunCreatedRecords,
   runCheckpointNoteCodeFields,
   type ForgeRemovalPlan,
+  type ForgeRunObjectRecords,
   type ForgeWrittenBetween,
   type IdMapRow,
   type RunCheckpointTaken,
@@ -138,6 +140,14 @@ const resumeSchema = z.object({
    * muted run resumed from the history or from Monitor ran unmuted.
    */
   muteAutomation: z.literal(true).optional(),
+  /**
+   * The files the run was asked to copy, as Review or `--files` set them: a
+   * part that takes it up copies them as the run began to, whatever page or
+   * command takes it up. Not kept, a run resumed from the history, from
+   * Monitor or by `--resume` without `--files` lost its copy of files: the
+   * records the resumed part wrote went without theirs.
+   */
+  files: forgeFileCopyOptionSchema.optional(),
 });
 
 /**
@@ -340,6 +350,34 @@ export interface ForgeRunJournalRead {
    * parts names is left out. Absent when there is none.
    */
   unattributed?: ForgeRemovalPlan['objects'];
+}
+
+/**
+ * A removal's plan with the records a Bulk API job of the run wrote that no
+ * row was matched to, each with the rest of its object, after them; an
+ * object only such records were written of goes first, with the last
+ * written. Left out, a clone of the whole org removed from the command line
+ * left them in the target, though its journal named them; and so did the
+ * removal the panel offers of a run it kept from a journal whose setup no
+ * longer reads (`planOf`).
+ */
+export function withUnattributed(
+  plan: readonly ForgeRunObjectRecords[],
+  unattributed: readonly ForgeRunObjectRecords[] | undefined,
+): ForgeRunObjectRecords[] {
+  const merged = plan.map((object) => ({ ...object, ids: [...object.ids] }));
+  if (!unattributed || unattributed.length === 0) return merged;
+  const planned = new Set(plan.flatMap(({ ids }) => ids.map((id) => id.slice(0, 15))));
+  const first: ForgeRunObjectRecords[] = [];
+  for (const { objectApiName, ids } of unattributed) {
+    const more = ids.filter((id) => !planned.has(id.slice(0, 15)));
+    for (const id of more) planned.add(id.slice(0, 15));
+    if (more.length === 0) continue;
+    const own = merged.find((object) => object.objectApiName === objectApiName);
+    if (own) own.ids.push(...more);
+    else first.push({ objectApiName, ids: more });
+  }
+  return [...first, ...merged];
 }
 
 /** A journal id as it goes into a file name: letters, digits, `_` and `-`. */
@@ -1110,21 +1148,24 @@ export class ForgeRunJournal {
 
   /**
    * The removal plan of what the last part of a journal's run created, as
-   * a run stopped part way: see `leftOver`. Undefined when it created
-   * nothing.
+   * a run stopped part way: see `leftOver`. The records a Bulk API job of
+   * it wrote that no row was matched to go with the rest of their object
+   * (`withUnattributed`), as the command line removes them. Undefined when
+   * it created nothing.
    */
   static planOf(
     read: ForgeRunJournalRead,
     forgeId: string = read.journalId,
   ): ForgeRemovalPlan | undefined {
-    if (read.created.length === 0) return undefined;
+    const objects = withUnattributed(read.created, read.unattributed);
+    if (objects.length === 0) return undefined;
     return {
       forgeId,
       targetOrgId: read.targetOrgId,
       timestamp: read.startedAt,
       duration: 0,
       status: 'partial',
-      objects: read.created,
+      objects,
       linked: 0,
     };
   }

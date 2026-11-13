@@ -67,6 +67,11 @@ export interface RefusedRun {
   /** The org it reads from, for a run that has one. */
   source?: string;
   target: string;
+  /**
+   * A dry run refused as the run it rehearses would be: said `dryRun: false`,
+   * its summary read as a real run's, which wrote nothing.
+   */
+  dryRun?: boolean;
   elapsedMs: number;
 }
 
@@ -86,7 +91,7 @@ export function refusedSummary(
       tool,
       ...(source !== undefined ? { source } : {}),
       target,
-      dryRun: false,
+      dryRun: run.dryRun === true,
       refused,
       ...(also.length > 0 ? { alsoRefused: also } : {}),
       elapsedMs,
@@ -133,6 +138,23 @@ export function refusalOfSummary(raw: unknown, tool: string): RunRefusal | undef
     .object({
       tool: z.literal(tool),
       dryRun: z.literal(false),
+      refused: z.object({ code: z.string().min(1), message: z.string() }),
+      result: z.never().optional(),
+    })
+    .safeParse(raw);
+  return parsed.success ? parsed.data.refused : undefined;
+}
+
+/**
+ * The refusal the answer of a dry run `tool` refused names: `refusedSummary`'s
+ * of a dry run, which says what a real run would be refused for under its
+ * code. One that holds a `result` is a dry run's that went.
+ */
+export function refusalOfDryRun(raw: unknown, tool: string): RunRefusal | undefined {
+  const parsed = z
+    .object({
+      tool: z.literal(tool),
+      dryRun: z.literal(true),
       refused: z.object({ code: z.string().min(1), message: z.string() }),
       result: z.never().optional(),
     })

@@ -118,6 +118,7 @@ import {
 } from './env/envKinds.js';
 import { createdByResource, drawnOf, type EnvDrawn } from './env/envReferences.js';
 import { StepAnswerError } from './env/kinds/common.js';
+import { refusalOfDryRun } from './runRefused.js';
 import { readForgeSource, type EnvSourceRead } from './env/kinds/forge.js';
 import { frozenSasOf, readFrozenDataset, type EnvDatasetRead } from './env/kinds/frozen.js';
 import { maskStoreOf } from './env/kinds/mask.js';
@@ -821,6 +822,18 @@ export async function readBudget(conn: Pick<Connection, 'request'>): Promise<Env
   };
 }
 
+/** The refusal a dry run's `--json` answer names, when its script refused it; nothing otherwise. */
+function refusalOfAnswer(
+  stdout: string,
+  script: string,
+): { code: string; message: string } | undefined {
+  try {
+    return refusalOfDryRun(JSON.parse(stdout), script);
+  } catch {
+    return undefined;
+  }
+}
+
 /** The last line a script said on stderr: what a refusal before its first write is. */
 function lastLine(stderr: string): string {
   return (
@@ -1317,7 +1330,13 @@ async function dryRun(
         dryRuns[resource.name] = { answer: readDryRunOf(resource.kind, ran.stdout) };
       } catch (err: unknown) {
         if (!(err instanceof StepAnswerError)) throw err;
-        dryRuns[resource.name] = { failed: `exit ${ran.code}: ${lastLine(ran.stderr)}` };
+        // Refused by its script before it counted anything, as the real run
+        // would be: read under its code, never taken for no answer.
+        const refused = refusalOfAnswer(ran.stdout, line.script);
+        dryRuns[resource.name] = {
+          failed: `exit ${ran.code}: ${lastLine(ran.stderr)}`,
+          ...(refused ? { refused } : {}),
+        };
       }
     }
   } finally {

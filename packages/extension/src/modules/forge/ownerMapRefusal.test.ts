@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ForgeRunGateError, OWNER_MAP_INACTIVE, OWNER_MAP_UNKNOWN } from './ForgeRunGate.js';
 import {
+  NOTHING_WRITTEN,
   ownerMapInactiveRefusal,
   ownerMapRefusalOf,
   ownerMapUnknownRefusal,
@@ -66,6 +67,19 @@ describe('ownerMapRefusalOf', () => {
     );
     expect(refused?.message.match(/Nothing was read or written\./g)).toHaveLength(1);
     expect(refused?.message.endsWith('Nothing was read or written.')).toBe(true);
+  });
+
+  it('ends on what its caller says is true by then, once each, both users named', async () => {
+    const refused = await ownerMapRefusalOf(
+      { [SOURCE_OWNER]: UNKNOWN, [OTHER_SOURCE]: INACTIVE },
+      target(),
+      NOTHING_WRITTEN,
+    );
+
+    expect(refused?.message).not.toContain('Nothing was read');
+    expect(refused?.message.match(/Nothing was written\./g)).toHaveLength(1);
+    expect(refused?.message.endsWith(` ${NOTHING_WRITTEN}`)).toBe(true);
+    expect(refused?.message).toContain(`holds inactive: Former Admin (${INACTIVE})`);
   });
 
   it('refuses nothing of a mapping to an active user, nor to a queue, which no statement of users holds', async () => {

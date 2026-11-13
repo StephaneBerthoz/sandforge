@@ -33,6 +33,7 @@ vi.mock('../src/modules/forge/RunVerifier.js', async (original) => ({
 }));
 
 import type { CommandRunner } from './scriptRunner.js';
+import { refusedLine, refusedSummary } from './runRefused.js';
 import { makeConn } from './sfSession.js';
 import { EnvWorld } from './testing/envWorld.js';
 import { openEnvStore } from './env/envState.js';
@@ -932,6 +933,41 @@ describe('what a forge resource’s clone says, relayed by the environment', () 
 });
 
 describe('the codes of a refused plan', () => {
+  it('reads the answer of a dry run its clone refused: the resource blocked in the clone’s words, under its code', async () => {
+    const refused = {
+      code: 'OWNER_MAP_INACTIVE',
+      message:
+        'Owners given to users the target holds inactive: 005000000000002AAA, given the records ' +
+        'of 005000000000001AAA. Nothing was read or written.',
+    };
+    // The clone refuses its dry run before it reads anything, its summary
+    // saying so under its code: read as no answer, the plan said "its dry
+    // run did not answer" and gave no code.
+    const runner: CommandRunner = async (script, args, signal) =>
+      args.includes('--dry-run')
+        ? {
+            code: 1,
+            stdout: refusedSummary(
+              { tool: script, source: 'SRC', target: 'TGT', dryRun: true, elapsedMs: 1 },
+              refused,
+            ),
+            stderr: `${refusedLine(refused)}\n`,
+          }
+        : world.runner(script, args, signal);
+
+    const ran = await run(['plan', '--org', 'TGT', '--json', '--accept-no-state'], { runner });
+
+    const planned = envPlanSchema.parse(ran.answer);
+    expect(planned.actions[0]).toMatchObject({
+      resource: 'cloned',
+      action: 'blocked',
+      refusal: `its own dry run says a real run would be refused: ${refused.message}`,
+      refusalCodes: ['OWNER_MAP_INACTIVE'],
+    });
+    expect(planned.refusalCodes).toEqual(['OWNER_MAP_INACTIVE']);
+    expect(marked('Account')).toEqual([]);
+  });
+
   it('gives a plan the codes of what refuses it beside its words, per resource and in all, as a destroy and an apply give theirs', async () => {
     // Live, a plan whose clone its maxTotal refused said its refusal in words
     // alone, the code on the clone's line: a pipeline read the codes of a

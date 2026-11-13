@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  refusalOfDryRun,
   refusalOfSummary,
   refusedLine,
   refusedRemovalSummary,
@@ -115,6 +116,19 @@ describe('refusedSummary', () => {
     });
   });
 
+  it('says a dry run refused as a dry run, which a removal of its summary reads as one', () => {
+    const summary = JSON.parse(
+      refusedSummary(
+        { tool: 'sandforge-clone', source: 'SRC', target: 'TGT', dryRun: true, elapsedMs: 3 },
+        EMAILS,
+      ),
+    ) as Record<string, unknown>;
+
+    // Said a real run's, it read as one a removal or a verification could take.
+    expect(summary).toMatchObject({ dryRun: true, refused: EMAILS });
+    expect(refusalOfSummary(summary, 'sandforge-clone')).toBeUndefined();
+  });
+
   it('leaves out the source of a run that reads none, and names what else refused it', () => {
     const automation = { code: 'AUTOMATION_NOT_ACCEPTED', message: 'What fires.' };
 
@@ -149,6 +163,24 @@ describe('refusalOfSummary', () => {
     // A run that wrote never reads as one that wrote nothing, whatever else it names.
     expect(
       refusalOfSummary({ ...summary, result: { successCount: 3 } }, 'sandforge-clone'),
+    ).toBeUndefined();
+  });
+});
+
+describe('refusalOfDryRun', () => {
+  const dry = JSON.parse(
+    refusedSummary({ tool: 'sandforge-clone', target: 'TGT', dryRun: true, elapsedMs: 2 }, EMAILS),
+  ) as Record<string, unknown>;
+
+  it('reads the refusal a refused dry run answers with', () => {
+    expect(refusalOfDryRun(dry, 'sandforge-clone')).toEqual(EMAILS);
+  });
+
+  it('reads none of a real run’s, of another command’s, nor of a dry run that went', () => {
+    expect(refusalOfDryRun({ ...dry, dryRun: false }, 'sandforge-clone')).toBeUndefined();
+    expect(refusalOfDryRun(dry, 'sandforge-seed')).toBeUndefined();
+    expect(
+      refusalOfDryRun({ ...dry, result: { wouldInsertCount: 3 } }, 'sandforge-clone'),
     ).toBeUndefined();
   });
 });

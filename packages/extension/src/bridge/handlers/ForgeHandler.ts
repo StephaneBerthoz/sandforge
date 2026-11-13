@@ -2972,6 +2972,8 @@ export class ForgeHandler implements DomainHandler {
                 ...this.resumeHeadOf(graph, config, anonymizationRules, readCeiling),
                 // Kept for the run to be muted again when it is taken up.
                 ...(muteAutomation === true ? { muteAutomation: true as const } : {}),
+                // And to copy its files again: the history's Resume sends none.
+                ...(files ? { files } : {}),
               },
               runUserId,
             );
@@ -5708,6 +5710,9 @@ export class ForgeHandler implements DomainHandler {
         ...(parsed.muteAutomation === true || head.muteAutomation === true
           ? { muteAutomation: true }
           : {}),
+        // A run begun copying files copies them as it goes on: taken up
+        // without them, the records its resumed part wrote had none.
+        ...(head.files ? { files: head.files } : {}),
       },
     });
   }

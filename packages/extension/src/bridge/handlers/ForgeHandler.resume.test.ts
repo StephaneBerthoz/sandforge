@@ -415,6 +415,25 @@ describe('a run taken up where it stopped', () => {
     });
   });
 
+  it('takes a run that copies files up copying them, from the history or Monitor, which send no choice of files', async () => {
+    const FILES = { maxFileSizeMB: 5, acceptedAsIs: false };
+    const first = windowRunning(cancelledAfterOne);
+    await send(first.handler, 'wv-execute', 'forge:execute', {
+      graph: GRAPH,
+      config: CONFIG,
+      files: FILES,
+    });
+    expect(first.execute.mock.calls[0]?.[2]).toMatchObject({ files: FILES });
+    const stopped = posted('forge:execute:error')[0]?.payload.result as ForgeExecutionResult;
+    const { handler, execute } = windowRunning(async () => DONE);
+
+    await send(handler, 'wv-resume', 'forge:resume-run', { forgeId: stopped.forgeId });
+
+    // Taken up without them, the records it went on to write had no file.
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0]?.[2]).toMatchObject({ files: FILES });
+  });
+
   it('takes it up from its results page too, when the page holds the run as it was set up', async () => {
     const { stopped } = await cancelledRun();
     const { handler, execute } = windowRunning(async () => DONE);

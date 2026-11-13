@@ -18,6 +18,7 @@ export interface DescribedFieldBounds {
   scale?: number | null;
   digits?: number | null;
   unique?: boolean | null;
+  caseSensitive?: boolean | null;
   calculated?: boolean | null;
   filteredLookupInfo?: unknown;
   controllerName?: string | null;
@@ -38,6 +39,13 @@ export interface FieldBounds {
   digits?: number;
   /** The target refuses a value another of its records holds. */
   unique?: true;
+  /**
+   * Of a unique field, whether the target tells values apart by case, as its
+   * describe says: `ABC` and `abc` are two values of a field that does, one
+   * value of a field that does not, which refuses the second as a duplicate.
+   * Absent when the describe does not say. See {@link uniqueValueKey}.
+   */
+  caseSensitive?: boolean;
   /** A formula or a roll-up: no write sets it. */
   calculated?: true;
   /** A lookup filter checks the record it names. */
@@ -100,6 +108,9 @@ export function fieldBoundsOf(
     ...(precision !== undefined && scale !== undefined ? { scale } : {}),
     ...(digits !== undefined ? { digits } : {}),
     ...(field.unique === true ? { unique: true as const } : {}),
+    ...(field.unique === true && typeof field.caseSensitive === 'boolean'
+      ? { caseSensitive: field.caseSensitive }
+      : {}),
     ...(field.calculated === true ? { calculated: true as const } : {}),
     ...(field.filteredLookupInfo ? { filteredLookup: true as const } : {}),
     ...(Object.keys(validFor).length > 0 ? { validFor } : {}),
@@ -107,6 +118,20 @@ export function fieldBoundsOf(
       ? { controllingValues: entries.map((entry) => entry.value) }
       : {}),
   };
+}
+
+/**
+ * A value of a unique field as the target compares it, for the simulation
+ * and the write gate to tell alike which rows hold a value the target holds:
+ * in lower case where the describe says the field ignores case, as written
+ * where it says the field tells case apart, and as written where it says
+ * neither — the more careful, a row then counted to be written, never fewer
+ * than the run writes. The simulation compared in lower case and the gate as
+ * written: of a value held in another case, a dry run said 1 linked under a
+ * gate that counted it written.
+ */
+export function uniqueValueKey(field: Pick<FieldBounds, 'caseSensitive'>, value: string): string {
+  return field.caseSensitive === false ? value.toLowerCase() : value;
 }
 
 /**
