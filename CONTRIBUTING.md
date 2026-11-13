@@ -55,21 +55,39 @@ A **pre-commit hook** (`scripts/git-hooks/pre-commit`, auto-installed via
 
 Bypass with `--no-verify` only if you really have to (don't).
 
-## Branching
+## Branching and pull requests
 
-- Fork or branch off `master`.
-- Branch name should describe the work: `fix/sync-conflict-merge`,
-  `feat/forge-cycle-cap`.
-- PRs require green CI: `.github/workflows/ci.yml` runs typecheck, test
-  and build on ubuntu/macos/windows, then lint, the repository gates,
-  coverage and Playwright E2E on ubuntu; a second job packages the VSIX
-  and runs `scripts/pre-publish-check.sh` on it, and a third scans the
-  history for secrets. The branch ruleset decides which of these a merge
-  waits for; a red one also stops a release, which requires a green
-  `ci.yml` run. Format Check and Knip run from their own
-  workflows. All of them run Node 24, which is what `engines` promises and
-  what development uses; the repository ran its gates on 22 until 1.25.3
-  for no reason anyone had written down.
+Contributors are not given push access to this repository: changes come in
+from a fork.
+
+1. Fork the repository, then branch off `master` in your fork. The branch name
+   should describe the work: `fix/sync-conflict-merge`, `feat/forge-cycle-cap`.
+2. Open a pull request against `master`. The code owner
+   (`.github/CODEOWNERS`) is asked for a review automatically.
+3. CI does not start on its own. GitHub holds the workflow runs of a pull
+   request from a fork until the maintainer approves them, on every pull
+   request, not only your first one. Workflows shown as awaiting approval have
+   not failed, and there is nothing to do on your side. Those runs get a
+   read-only token and none of the repository's secrets, so nothing in them
+   reaches a Salesforce org or the Marketplace.
+4. A merge waits for the required checks (validate on Ubuntu, the Prettier
+   check and the three E2E shards) and for an approval from the code owner
+   given after your last push. A new push dismisses an earlier approval, so a
+   pull request that changes after review is reviewed again.
+5. The maintainer merges. Once a commit is on `master` it stays there: force
+   pushes to `master` and its deletion are refused for everyone, the
+   maintainer included. A merged mistake is undone by a new pull request that
+   reverts it, never by rewriting history.
+
+What CI runs: `.github/workflows/ci.yml` runs typecheck, test and build on
+ubuntu/macos/windows, then lint, the repository gates, coverage and Playwright
+E2E on ubuntu; a second job packages the VSIX and runs
+`scripts/pre-publish-check.sh` on it, and a third scans the history for
+secrets. The branch ruleset decides which of these a merge waits for; a red one
+also stops a release, which requires a green `ci.yml` run. Format Check and
+Knip run from their own workflows. All of them run Node 24, which is what
+`engines` promises and what development uses; the repository ran its gates on
+22 until 1.25.3 for no reason anyone had written down.
 
 ## Tests
 
@@ -231,7 +249,10 @@ CI ran on.
    marketplace readiness gates against it — the same pair CI runs on
    every pull request.
 
-Maintainers handle versioning (SemVer).
+Maintainers handle versioning (SemVer). Only they can create, move or delete a
+version tag (`v*`), and a published release is immutable: GitHub refuses any
+change to its tag or its VSIX, which is why the VSIX is attached while the
+release is still a draft.
 
 ## Where to start
 
