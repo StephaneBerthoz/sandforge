@@ -54,6 +54,7 @@ import {
   type MutePlan,
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import type { RunRequestParts } from './ForgeRunGate.js';
 import {
   isProductionTarget,
   typeTarget,
@@ -1296,6 +1297,48 @@ export async function acquireMute(
       return released;
     },
   };
+}
+
+/**
+ * The calls jsforce's `identity` sends a connection that has not asked it
+ * before: the API's root, for the identity URL, then that URL.
+ */
+const LEASE_IDENTITY_CALLS = 2;
+
+/**
+ * The reads a lease sends whatever it assigns ({@link acquireMute}): the
+ * permission sets to assign, by name, and what the user holds of them,
+ * before the sets are assigned and once more after.
+ */
+const LEASE_READS = 3;
+
+/**
+ * The API requests a run's lease sends its target from its take to its
+ * release, at most: who the run writes as ({@link LEASE_IDENTITY_CALLS}),
+ * the reads of the sets and of what the user holds of them
+ * ({@link LEASE_READS}), and each set of the plan assigned, then taken back
+ * as the run ends. Nothing for a plan that assigns nothing, whose lease asks
+ * the org nothing. A lease another run left past its end, released as this
+ * one is taken, is not counted: no plan says it.
+ *
+ * Counted nowhere, the lease of a mute that assigns one set sends seven
+ * requests no gate held the run to, two of them writes to the target.
+ */
+export function muteLeaseRequests(plan: Pick<MutePlan, 'assign'> | undefined): number {
+  const sets = plan?.assign.length ?? 0;
+  return sets === 0 ? 0 : LEASE_IDENTITY_CALLS + LEASE_READS + 2 * sets;
+}
+
+/**
+ * The `mute` part of a run's API requests: what the lease of the mute it
+ * holds while it writes sends ({@link muteLeaseRequests}). Absent for a run
+ * that does not mute, or whose mute assigns nothing.
+ */
+export function mutePartOf(
+  plan: Pick<MutePlan, 'assign'> | undefined,
+): Pick<RunRequestParts, 'mute'> {
+  const requests = muteLeaseRequests(plan);
+  return requests > 0 ? { mute: requests } : {};
 }
 
 // ─── What a run does with it ─────────────────────────────────────────────────

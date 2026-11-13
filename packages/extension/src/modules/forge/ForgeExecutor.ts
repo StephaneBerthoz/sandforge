@@ -5828,7 +5828,10 @@ export class ForgeExecutor {
       ),
     );
     const reads = may.filter(Boolean).length;
-    return reads > 0 && !state.recordTypeRows.has(state.targetOrgId) ? reads + 1 : reads;
+    // A dry run reads the names to say what the target would give, where its
+    // run reads them once its writes are through: counted as the run's.
+    const named = state.recordTypeRows.has(state.targetOrgId) && !state.config.dryRun;
+    return reads > 0 && !named ? reads + 1 : reads;
   }
 
   /**
@@ -6253,7 +6256,9 @@ export class ForgeExecutor {
       );
     }
     const perObject = capOnEachObject(config);
-    const readBack = config.dryRun ? 0 : await this.readBackRequests(state, objects);
+    // Counted for the dry run of a clone of the whole org too, which its gate
+    // prices as the run's: it said fewer requests than the run then took.
+    const readBack = config.dryRun && !everything ? 0 : await this.readBackRequests(state, objects);
     const answer = await beforeWrite({
       objects,
       ...(perObject !== undefined && pastTheCap.length > 0

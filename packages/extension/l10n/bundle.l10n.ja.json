@@ -188,6 +188,7 @@
   "Not in the checkpoint: {0} — {1}": "チェックポイントに含まれないもの: {0} — {1}",
   "What an Apex trigger, or automation that could not be read, creates as the run writes is not known: a rewind leaves those records as they are.": "実行の書き込み中に、Apex トリガーや読み取れなかった自動化が作成するものは分かりません。巻き戻してもそれらのレコードはそのまま残ります。",
   "{0} of them are for the checkpoint taken first.": "そのうち {0} 件は最初に作成するチェックポイントの分です。",
+  "{0} of them assign and take back the permission sets that mute the automation of the target.": "そのうち {0} 件は、ターゲットの自動化をミュートする権限セットの割り当てと取り消しの分です。",
   "{0} of them read back the record type the target gave the records created without one.": "そのうち {0} 件は、レコードタイプなしで作成されたレコードにターゲットが付与したレコードタイプを読み返します。",
   "{0} of them read whether the target delivers its emails.": "そのうち {0} 件は、ターゲットがメールを配信するかどうかを読み取ります。",
   "{0} of them fit the run to the storage.": "そのうち {0} 件は、実行をストレージに合わせます。",

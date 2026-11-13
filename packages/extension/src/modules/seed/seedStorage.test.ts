@@ -406,6 +406,13 @@ describe('importRunReads', () => {
     expect(importRunReads(4)).toBe(3 + 2 + 4);
     expect(importRunReads(-1)).toBe(3 + 2);
   });
+
+  it('counts the read of the target’s automation each sends just before its gate, as that read says it sent it', () => {
+    // A CSV import's read of the five lists its object's automation is in.
+    expect(importRunReads(0, 5)).toBe(3 + 2 + 5);
+    expect(importRunReads(2, 5)).toBe(3 + 2 + 2 + 5);
+    expect(importRunReads(0, -1)).toBe(3 + 2);
+  });
 });
 
 describe('cloneRequestsEstimate', () => {
@@ -449,6 +456,10 @@ describe('cloneRequestsEstimate', () => {
       { objectApiName: 'Contact', rows: 2 },
     ];
     expect(cloneRequestsEstimate(two, path)).toBe(1 + 1 + (3 + 2 + 2));
+    // And the read of the target's automation just before its gate.
+    expect(cloneRequestsEstimate(two, { ...path, automationRead: 6 })).toBe(
+      1 + 1 + (3 + 2 + 2) + 6,
+    );
   });
 });
 
@@ -489,6 +500,14 @@ describe('seedRunReads', () => {
     // limits. A run that typed the org has its reads among those it sent.
     expect(seedRunReads({ objects: [object('Contact')] }, { sentBefore: 7 })).toBe(4 + LIMITS + 7);
     expect(seedRunReads({ objects: [object('Contact')] }, { sentBefore: -3 })).toBe(4 + LIMITS);
+  });
+
+  it("counts the panel's read of the target's automation just before its gate, as the read says it sent it", () => {
+    // The five queries the command line counted for the same seed, which
+    // the panel, where nothing counts what a run sends, priced nowhere.
+    expect(seedRunReads({ objects: [object('Contact')] }, { automationRead: 5 })).toBe(
+      4 + LIMITS + 5,
+    );
   });
 
   it("counts the user's Marketing User box for a campaign, the parents a relation reads, and the standard price book", () => {

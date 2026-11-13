@@ -1256,6 +1256,23 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       expect(without).not.toContain('Not in the checkpoint');
     });
 
+    it('says the requests the lease of the mute takes, beside the checkpoint’s and before the read-backs', () => {
+      const muted = runQuestionDetail({
+        ...asked,
+        apiRequests: {
+          ...asked.apiRequests!,
+          parts: { run: 1_321, checkpoint: 68, mute: 9, readBack: 2 },
+        },
+      }).split('\n');
+
+      expect(muted.slice(muted.indexOf('68 of them are for the checkpoint taken first.'))).toEqual([
+        '68 of them are for the checkpoint taken first.',
+        '9 of them assign and take back the permission sets that mute the automation of the target.',
+        '2 of them read back the record type the target gave the records created without one.',
+        'The records have been read, and nothing has been written yet.',
+      ]);
+    });
+
     it("says it in the question's language, the engine's reasons as they are", () => {
       l10nBundle.current = JSON.parse(
         readFileSync(join(__dirname, '..', '..', 'l10n', 'bundle.l10n.fr.json'), 'utf8'),

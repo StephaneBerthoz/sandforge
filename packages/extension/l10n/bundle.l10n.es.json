@@ -188,6 +188,7 @@
   "Not in the checkpoint: {0} — {1}": "Fuera del punto de control: {0} — {1}",
   "What an Apex trigger, or automation that could not be read, creates as the run writes is not known: a rewind leaves those records as they are.": "No se sabe lo que crea, mientras la ejecución escribe, un desencadenador de Apex o una automatización que no se pudo leer: un retroceso deja esos registros como están.",
   "{0} of them are for the checkpoint taken first.": "{0} de ellas son para el punto de control tomado primero.",
+  "{0} of them assign and take back the permission sets that mute the automation of the target.": "{0} de ellas asignan y retiran los conjuntos de permisos que silencian la automatización del destino.",
   "{0} of them read back the record type the target gave the records created without one.": "{0} de ellas releen el tipo de registro que el destino dio a los registros creados sin tipo.",
   "{0} of them read whether the target delivers its emails.": "{0} de ellas leen si el destino entrega sus correos electrónicos.",
   "{0} of them fit the run to the storage.": "{0} de ellas ajustan la ejecución al almacenamiento.",

@@ -770,8 +770,11 @@ describe('a Sync run that takes a checkpoint first, from the page', () => {
     const check = answer.payload.writeCheck as { apiRequests?: { estimate: number } };
     // The run's write and the read-back of the record types given, the take's
     // 68, and the two of the read of whether the target delivers the email
-    // its welcome flow sends.
-    expect(check.apiRequests?.estimate).toBe(1 + 1 + ESTIMATE.estimate.apiRequests + 2);
+    // its welcome flow sends; and the run's reads of the target: who it
+    // writes as, its limits, and the read of its automation's one.
+    expect(check.apiRequests?.estimate).toBe(
+      1 + 1 + ESTIMATE.estimate.apiRequests + 2 + (2 + 3 + 1),
+    );
     expect(checkpoints.take).not.toHaveBeenCalled();
     expect(asked.questions).toEqual([]);
   });

@@ -195,6 +195,7 @@ import {
   muteForRun,
   muteLines,
   muteOrgOf,
+  mutePartOf,
   type HeldMute,
   type RunMute,
 } from '../src/modules/forge/AutomationMuteLease.js';
@@ -2280,6 +2281,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     mayMute: args.muteAutomation !== true && relayTakes('--mute-automation'),
   });
   const deliverabilityRequests = deliverabilityPartOf(emails.ofRun);
+  // Beside the seed's own, the read of the deliverability and the lease of
+  // its mute, from its take to its release: a dry run's mute is planned as a
+  // run's, and priced as the run would hold it.
+  const besideTheRun = { ...deliverabilityRequests, ...mutePartOf(mute?.plan) };
 
   // The data storage the records take against what the target has left,
   // before the first write, as the panel holds a seed: a dry run says what a
@@ -2308,7 +2313,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     personObjects,
     args.target,
     checkpointPlanned?.estimate,
-    deliverabilityRequests,
+    besideTheRun,
     writePath,
   );
   /** The fit asked, or the one a refusal for the storage or the requests proposes. */
@@ -2365,7 +2370,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           personObjects,
           args.target,
           checkpointPlanned?.estimate,
-          deliverabilityRequests,
+          besideTheRun,
           writePath,
         );
       }

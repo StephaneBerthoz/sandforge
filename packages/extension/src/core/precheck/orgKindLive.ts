@@ -87,10 +87,12 @@ function isBulkJobCall(request: Parameters<Connection['request']>[0] | undefined
  * records none. Both are counted at the transport, by their endpoint, once
  * per call sent; a job's call sent through `request` is counted there alone,
  * never twice. A connection with no transport of its own, as a test's
- * stand-in has, counts its `request` alone.
+ * stand-in has, counts its `request` alone; one with no `request` either
+ * sends nothing through it, and counts nothing.
  */
 export function countRequests(conn: Connection): () => number {
   let sent = 0;
+  if (typeof (conn as Partial<Connection>).request !== 'function') return () => sent;
   const transport: Connection['_transport'] | undefined = conn._transport;
   const send = conn.request.bind(conn) as Connection['request'];
   conn.request = <R>(...args: Parameters<Connection['request']>) => {

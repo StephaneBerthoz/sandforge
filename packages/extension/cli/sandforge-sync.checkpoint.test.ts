@@ -244,13 +244,21 @@ function orgs(
     }),
     describe: async () => DESCRIBED,
     tooling: { query: async () => page([]), queryMore: async () => page([]) },
-    identity: whoIsAsked,
-    request: async () =>
-      limits ?? {
-        DataStorageMB: { Max: 200, Remaining: 150 },
-        DailyApiRequests: { Max: 15_000, Remaining: 14_000 },
-        SingleEmail: { Max: 15, Remaining: 15 },
-      },
+    // Who the session is, asked as jsforce asks it of a connection that has
+    // not before: the API's root, then the identity URL, each a request.
+    async identity(this: { request: (url: string) => Promise<unknown> }) {
+      await this.request('/');
+      await this.request('/id');
+      return whoIsAsked();
+    },
+    request: async (request: string | { url: string }) =>
+      request === '/' || request === '/id'
+        ? {}
+        : (limits ?? {
+            DataStorageMB: { Max: 200, Remaining: 150 },
+            DailyApiRequests: { Max: 15_000, Remaining: 14_000 },
+            SingleEmail: { Max: 15, Remaining: 15 },
+          }),
   });
   const source = conn('source');
   const target = conn('target');
@@ -461,8 +469,10 @@ describe('sandforge-sync --checkpoint-first', () => {
     await exitOf(argv('--checkpoint-first', '--dry-run', '--json'));
 
     const printed = JSON.parse(out.join('')) as { simulation: SyncSimulationResult };
-    // The run's call, the read back and the checkpoint's 68.
-    expect(printed.simulation.writeCheck?.apiRequests?.estimate).toBe(70);
+    // The run's call, the read back and the checkpoint's 68; and what the
+    // command sent the target before its gate — its limits, read once —, and
+    // who a run writes as, which the dry run does not ask.
+    expect(printed.simulation.writeCheck?.apiRequests?.estimate).toBe(70 + 1 + 2);
   });
 
   it('names the checkpoint in the run’s file, which outlives the run', async () => {
@@ -531,8 +541,9 @@ describe('sandforge-sync --checkpoint-first', () => {
     };
     expect(printed.checkpoint).toEqual(ESTIMATE);
     expect(printed.simulation.checkpoint).toEqual(ESTIMATE);
-    // One call of the run's two accounts, and the checkpoint's 68.
-    expect(printed.simulation.writeCheck?.apiRequests?.estimate).toBe(69);
+    // One call of the run's two accounts, and the checkpoint's 68; its
+    // limits, read once, and who a run writes as.
+    expect(printed.simulation.writeCheck?.apiRequests?.estimate).toBe(69 + 1 + 2);
     expect(printed.simulation.writeCheck?.verdict).toBe('asks');
   });
 

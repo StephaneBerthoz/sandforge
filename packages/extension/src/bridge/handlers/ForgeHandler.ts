@@ -80,6 +80,7 @@ import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js'
 import {
   isMuteRefusedError,
   muteForRun,
+  muteLeaseRequests,
   muteOrgOf,
   type HeldMute,
   type MuteOrg,
@@ -2688,6 +2689,8 @@ export class ForgeHandler implements DomainHandler {
      * those the checkpoint taken first holds. Nothing, when it could not be read.
      */
     let running: Pick<StillRunning<unknown>, 'firing'> = { firing: [] };
+    /** The mute a simulation planned, nothing assigned: what its gate prices the lease of. */
+    let simulatedMute: RunMute['plan'];
     /** The checkpoint the run took before its first write, once taken. */
     let checkpointTaken: RunCheckpointTaken | undefined;
     /** Of a simulation asked for one, what the checkpoint would hold and cost. */
@@ -2874,11 +2877,13 @@ export class ForgeHandler implements DomainHandler {
           if (readAnswer === 'confirmed') audit.confirm('volume');
           guardDecision = strongerDecision(guardDecision, readAnswer);
         }
-      } else if (checkpointFirst !== undefined) {
+      } else if (checkpointFirst !== undefined || (wholeOrg && muteAutomation === true)) {
         // A simulation asked for the checkpoint first says what it would hold
         // and cost: what still runs is read for it, and the mute planned when
         // it is asked too — nothing assigned. A plan that cannot be made
-        // leaves what the read says runs.
+        // leaves what the read says runs. The dry run of a clone of the whole
+        // org asked to mute plans it too: its gate prices the lease its run
+        // would hold.
         const read = await this.automationBeforeTheRun(config.targetOrgId, graph);
         if ('automation' in read) {
           const mutePlan =
@@ -2897,6 +2902,7 @@ export class ForgeHandler implements DomainHandler {
                 )
               : undefined;
           running = stillRunningOf(read.automation, mutePlan, writes);
+          simulatedMute = mutePlan;
         }
       }
       if (runController.signal.aborted) {
@@ -3023,6 +3029,9 @@ export class ForgeHandler implements DomainHandler {
         emailsPerInsert,
         ...(targetAutomation !== undefined ? { automation: targetAutomation } : {}),
         ...deliverabilityPartOf(emails?.ofRun),
+        // The lease its mute holds while it writes, from the plan the run took
+        // it from, or the one a simulation planned.
+        mute: muteLeaseRequests(mute?.plan ?? simulatedMute),
         mayBeInTarget,
         ...(dryRun ? {} : { simulated: this.simulations.of(volumeCase) }),
         updatedAfterInsert: [...updatedNames],
@@ -4374,6 +4383,8 @@ export class ForgeHandler implements DomainHandler {
     checkpoint?: WriteGateCheckpoint;
     /** What the read of whether the target delivers its emails sent: counted with the run's. */
     deliverability?: number;
+    /** What the lease of the mute the run holds while it writes sends (`muteLeaseRequests`). */
+    mute?: number;
     /** Of a clone of the whole org, what it brings its gate besides; absent for any other run. */
     wholeOrg?: WholeOrgRun;
     onConfirmed: () => void;
@@ -4425,6 +4436,9 @@ export class ForgeHandler implements DomainHandler {
           anonymizePII: whole.anonymizePII,
           ...(run.updatedAfterInsert ? { updatedAfterInsert: run.updatedAfterInsert } : {}),
           ...(checkpoint ? { checkpoint } : {}),
+          ...(boundary.readBack !== undefined ? { readBack: boundary.readBack } : {}),
+          ...(run.mute !== undefined ? { mute: run.mute } : {}),
+          ...(run.deliverability !== undefined ? { deliverability: run.deliverability } : {}),
           target: { org: run.org, limits: this.limitsTransportOf(run.targetOrgId, run.lookup) },
           source: {
             org: whole.source,
@@ -4544,6 +4558,7 @@ export class ForgeHandler implements DomainHandler {
         ...(run.updatedAfterInsert ? { updatedAfterInsert: run.updatedAfterInsert } : {}),
         ...(boundary.readBack !== undefined ? { readBack: boundary.readBack } : {}),
         ...(estimate ? { checkpoint: estimate } : {}),
+        ...(run.mute !== undefined ? { mute: run.mute } : {}),
         ...(run.deliverability !== undefined ? { deliverability: run.deliverability } : {}),
         budget,
         target: run.org,

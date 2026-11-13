@@ -89,11 +89,8 @@ import {
   type PutBackKept,
 } from '../../modules/dataops/backupRetention.js';
 import { withRestoreAudit, type BackupReader } from '../../modules/sync/SyncRunRestore.js';
-import {
-  answerJobsInFlight,
-  jobAnsweredLines,
-  type IngestJobReading,
-} from '../../modules/sync/inFlightJob.js';
+import { answerJobsInFlight, jobAnsweredLines } from '../../modules/sync/inFlightJob.js';
+import { jsforceBulk } from '../../core/engine/jsforceBulk.js';
 import { THIS_HOST, writtenElsewhere, type RunWriterHost } from '../../modules/sync/runWriter.js';
 import { duplicateSetsOfRemoval, seedSweepInput } from '../../modules/seed/seedRunSweep.js';
 import {
@@ -504,7 +501,7 @@ export class SyncRemovalHandler implements DomainHandler {
             this.deps.orgManager,
           );
           const org = removalOrg(conn, context);
-          return answerJobsInFlight(store, run, conn as unknown as IngestJobReading, () =>
+          return answerJobsInFlight(store, run, jsforceBulk(conn), () =>
             org.serverTime(),
           );
         },

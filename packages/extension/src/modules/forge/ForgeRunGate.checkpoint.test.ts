@@ -102,6 +102,23 @@ describe('the parts of a Forge run’s API requests at its write gate', () => {
     expect(forgeRequestPartsOf({ plan, deliverability: 0 })).toEqual({ run: 3 });
   });
 
+  it('counts the lease of the mute the run holds, a part of its own named after the checkpoint’s, and nothing for none', () => {
+    expect(forgeRequestPartsOf({ plan, mute: 7 })).toEqual({ run: 3, mute: 7 });
+    expect(forgeRequestPartsOf({ plan, mute: 0 })).toEqual({ run: 3 });
+    const stop = forgeWriteBudgetOf({
+      plan,
+      checkpoint: estimateOf(68),
+      mute: 7,
+      readBack: 2,
+      budget: { max: 500, remaining: 4 },
+      target: 'TGT',
+    });
+    expect(stop.api).toMatchObject({ verdict: 'exceeds', estimate: 3 + 68 + 7 + 2 });
+    expect(stop.stop?.message).toContain(
+      "68 of them for the checkpoint taken first, 7 to assign and take back the permission sets that mute the target's automation, 2 to read back the record types the target gave",
+    );
+  });
+
   it('refuses a run the read of its deliverability takes past what the target has left, naming the part', () => {
     const stop = forgeWriteBudgetOf({
       plan,

@@ -38,6 +38,7 @@ vi.mock('../../modules/seed/CsvValidator.js', () => ({
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import { AUTOMATION_READ_MOST } from '../../modules/forge/TargetAutomationReader.js';
 import { WriteCancelledError } from '../../modules/sync/WriteCancelledError.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
@@ -242,9 +243,33 @@ describe('SeedCsvHandler', () => {
       // rows in one job, about 441 seconds at 60 rows a second read every
       // five, its results read three ways: 96 calls. Counted 15, as three
       // jobs of five calls. Then what the run reads as it writes: the limits
-      // its gate reads, who it writes as.
+      // its gate reads, who it writes as; and the read of the target's
+      // automation just before, which says it sent one.
       expect(String((error.payload as { message?: string }).message)).toContain(
-        `The run takes about ${96 + 5} API requests`,
+        `The run takes about ${96 + 5 + 1} API requests`,
+      );
+    });
+
+    it('counts the read of the target’s automation it sent just before its gate, the most a read sends when it said nothing', async () => {
+      // Its time ran out: the read said nothing of what it sent, which may
+      // all have reached the org. Every row may go again by REST, the rules
+      // not read.
+      handler.setTargetAutomation({
+        read: async () => Promise.reject(new Error('the org did not answer within 60 s')),
+      });
+      mockGetConn.mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Name', type: 'string' }] }),
+        request: vi.fn(async () => ({ DailyApiRequests: { Max: 15_000, Remaining: 2 } })),
+        limitInfo: undefined,
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      const records = Array.from({ length: 25_000 }, (_, i) => ({ name: `Acme ${i}` }));
+
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload({ records })));
+
+      expect(writer.insert).not.toHaveBeenCalled();
+      const [error] = posted(deps, 'seed:csv:error');
+      expect(String((error.payload as { message?: string }).message)).toContain(
+        `The run takes about ${96 + 125 + 5 + AUTOMATION_READ_MOST} API requests`,
       );
     });
 
@@ -277,7 +302,7 @@ describe('SeedCsvHandler', () => {
       expect(writer.insert).not.toHaveBeenCalled();
       const [error] = posted(deps, 'seed:csv:error');
       expect(String((error.payload as { message?: string }).message)).toContain(
-        `The run takes about ${96 + 125 + 5} API requests`,
+        `The run takes about ${96 + 125 + 5 + 1} API requests`,
       );
     });
 

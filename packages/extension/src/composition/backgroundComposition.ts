@@ -746,9 +746,17 @@ function limitsLines(question: WriteConfirmation): string[] {
         api.max,
       ),
     );
-    const { checkpoint = 0, readBack = 0, deliverability = 0, fit = 0 } = api.parts ?? {};
+    const { checkpoint = 0, mute = 0, readBack = 0, deliverability = 0, fit = 0 } = api.parts ?? {};
     if (checkpoint > 0) {
       lines.push(vscode.l10n.t('{0} of them are for the checkpoint taken first.', checkpoint));
+    }
+    if (mute > 0) {
+      lines.push(
+        vscode.l10n.t(
+          '{0} of them assign and take back the permission sets that mute the automation of the target.',
+          mute,
+        ),
+      );
     }
     if (readBack > 0) {
       lines.push(

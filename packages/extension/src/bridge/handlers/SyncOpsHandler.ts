@@ -561,6 +561,8 @@ export class SyncOpsHandler implements DomainHandler {
    * @param checkpointFirst - The checkpoint the run takes of what it writes
    *   before its first write, when asked: counted in its requests and asked
    *   about at its gate, taken once the question is answered.
+   * @param mutePlan - The mute the run holds the lease of while it writes,
+   *   once planned: the lease's requests counted with the run's.
    */
   private writeGateFor(
     config: SyncConfig,
@@ -568,6 +570,7 @@ export class SyncOpsHandler implements DomainHandler {
     policy: SyncGatePolicy,
     readAutomation?: SyncWriteMeasures['readAutomation'],
     checkpointFirst?: SyncCheckpointFirst,
+    mutePlan?: SyncWriteMeasures['mutePlan'],
   ): SyncWriteGate {
     const target = this.deps.orgManager.getOrg(config.targetOrgId);
     const reader = this.targetAutomation;
@@ -609,6 +612,7 @@ export class SyncOpsHandler implements DomainHandler {
         // The threshold the run's writer sends a job past, its requests priced by it.
         bulkThreshold: robustnessConfigOf(this.deps).bulk.threshold,
         ...(checkpointFirst ? { checkpointFirst } : {}),
+        ...(mutePlan ? { mutePlan } : {}),
       },
       {
         policy,
@@ -2714,7 +2718,8 @@ export class SyncOpsHandler implements DomainHandler {
               reader.read(config.targetOrgId, objects),
             );
           muting = mutingSyncWriteGate(
-            (read) => this.writeGateFor(config, targetConn, policy, read, checkpoint?.gate),
+            (read, mutePlan) =>
+              this.writeGateFor(config, targetConn, policy, read, checkpoint?.gate, mutePlan),
             readAutomation,
             (read) =>
               muteForRun(async () => muteOrgOf(targetConn), read, {

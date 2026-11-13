@@ -6,6 +6,7 @@ import {
   ForgeRunGateError,
   apiBudgetCheckOf,
   apiBudgetRefusal,
+  automationReadRequests,
   deliverabilityAfterLeaseStop,
   deliverabilityGate,
   deliverabilityPartOf,
@@ -13,6 +14,12 @@ import {
   type DeliverabilityGateInput,
   type DeliverabilityRun,
 } from './ForgeRunGate.js';
+import {
+  AUTOMATION_READ_MOST,
+  CONDITION_REQUESTS_BOUND,
+  DEFINITION_REQUESTS_BOUND,
+} from './TargetAutomationReader.js';
+import { FORMULA_REQUESTS_BOUND } from './TargetGapReader.js';
 
 const WELCOME_RULE: EmailSender = {
   objectApiName: 'Contact',
@@ -260,6 +267,33 @@ describe('the deliverability part of a run’s API requests', () => {
     expect(check.estimate).toBe(6);
     expect(apiBudgetRefusal(check, 'TGT')).toContain(
       'about 6 API requests (2 of them to read whether the target delivers its emails)',
+    );
+  });
+});
+
+describe('the requests a read of the target’s automation sent', () => {
+  it('are what the read says it sent, and the most a read sends when it failed whole and said nothing', () => {
+    const read = {
+      objectsRead: ['Contact'],
+      objects: [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 5,
+    };
+    expect(automationReadRequests(read)).toBe(5);
+    expect(automationReadRequests({ unread: 'the org did not answer within 60 s' })).toBe(
+      AUTOMATION_READ_MOST,
+    );
+  });
+
+  it('take as the most a read sends its six lists, its bounds of conditions and definitions, and what a set it would assign lifts', () => {
+    // The lists, the composites of the start conditions and definitions,
+    // the user's custom permissions, the six reads of the sets that grant
+    // a bypass, the list of the validation rules they lift and their
+    // formulas within the gap reader's bound.
+    expect(AUTOMATION_READ_MOST).toBe(
+      6 + CONDITION_REQUESTS_BOUND + DEFINITION_REQUESTS_BOUND + 1 + 6 + 1 + FORMULA_REQUESTS_BOUND,
     );
   });
 });

@@ -21,7 +21,10 @@ import type {
   ForgeWriteBoundary,
   WholeOrgBoundary,
 } from '../../modules/forge/ForgeExecutor.js';
-import type { WholeOrgDryRun } from '../../modules/forge/ForgeRunGate.js';
+import {
+  WHOLE_ORG_SOURCE_READS_PER_OBJECT,
+  type WholeOrgDryRun,
+} from '../../modules/forge/ForgeRunGate.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { ForgeRehearser } from '../../modules/forge/rehearsal/ForgeRehearser.js';
 import { ForgeRunJournal } from '../../modules/forge/ForgeRunJournal.js';
@@ -454,7 +457,13 @@ describe('forge:execute of the whole org', () => {
         source: 'SRC',
         leftOut: 2,
         targetApi: { remaining: 90_000, max: 100_000 },
-        sourceApi: { estimate: 12, remaining: 80_000, max: 100_000 },
+        // The 12 reads the run counted, and what it reads besides of each of
+        // the four objects.
+        sourceApi: {
+          estimate: 12 + 4 * WHOLE_ORG_SOURCE_READS_PER_OBJECT,
+          remaining: 80_000,
+          max: 100_000,
+        },
         bulk: {
           jobs: 2,
           jobRows: 12_000,
@@ -862,6 +871,18 @@ describe('forge:execute of the whole org', () => {
       expect(disk.files.size).toBe(0);
       expect(runs()).toEqual([]);
       expect(store.get('forge:history') ?? []).toEqual([]);
+    });
+
+    it('prices the target’s requests as its run’s gate does: the read-backs its counts say, and the read of the deliverability it did not make, at the most', async () => {
+      use(orchestratorHanding({ ...boundaryOf(), readBack: 3 }));
+
+      await simulate();
+
+      const [response] = posted('forge:execute:response');
+      const dry = response.payload.wholeOrgDryRun as WholeOrgDryRun;
+      // Told neither, its estimate stood under what the run's gate holds it to.
+      expect(dry.targetRequests.parts).toMatchObject({ readBack: 3, deliverability: 2 });
+      expect(calls).toEqual(['limits tgt-org', 'limits src-org']);
     });
 
     it('ends as a failure when its run would be refused, naming every refusal', async () => {

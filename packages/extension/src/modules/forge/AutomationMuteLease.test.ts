@@ -26,13 +26,16 @@ import {
   isMuteRefusedError,
   muteForRun,
   muteJournalFileOf,
+  muteLeaseRequests,
   muteLines,
   muteOrgOf,
+  mutePartOf,
   mutedOfError,
   planMute,
   prepareMute,
   whileMuted,
   type MuteLeaseOptions,
+  type MuteOrg,
   type MutePrepared,
   type MuteRefusedError,
 } from './AutomationMuteLease.js';
@@ -335,6 +338,66 @@ describe('acquiring a lease', () => {
     const mute = await prepared(org, asProcess(100));
     await expect(mute.acquire('run-1')).rejects.toThrow('holds no permission set PS_BypassVR');
     expect(org.writes).toEqual([]);
+  });
+});
+
+/**
+ * `org`, each of its requests to the target counted: one a query, an insert
+ * or a delete, and two for who the connection is, as jsforce asks it of a
+ * connection that has not asked it before — the API's root, then the
+ * identity URL.
+ */
+function countedOf(org: MuteOrg): { org: MuteOrg; sent: () => number } {
+  let sent = 0;
+  const one =
+    <A extends unknown[], R>(call: (...args: A) => Promise<R>, requests = 1) =>
+    (...args: A): Promise<R> => {
+      sent += requests;
+      return call(...args);
+    };
+  return {
+    org: {
+      typeOrg: one(org.typeOrg),
+      query: one(org.query),
+      identity: one(org.identity, 2),
+      createAssignment: one(org.createAssignment),
+      deleteAssignment: one(org.deleteAssignment),
+    },
+    sent: () => sent,
+  };
+}
+
+describe('what a lease sends the target', () => {
+  it('sends, from its take to its release, the requests its plan is priced at: who the run writes as, three reads, each set assigned and taken back', async () => {
+    const counted = countedOf(muteOrgOf(orgWith().connection));
+    const mute = await prepareMute(counted.org, automation, asProcess(100));
+    if ('refused' in mute) throw new Error(mute.refused.message);
+    const before = counted.sent();
+
+    const held = await mute.acquire('run-1');
+    await held.release();
+
+    expect(counted.sent() - before).toBe(muteLeaseRequests(mute.plan));
+    expect(muteLeaseRequests(mute.plan)).toBe(2 + 3 + 2 * 2);
+    expect(mutePartOf(mute.plan)).toEqual({ mute: 9 });
+  });
+
+  it('sends fewer for a set the user holds already, and nothing for a plan that assigns nothing', async () => {
+    const memory = orgWith();
+    memory.assign(SET_VR);
+    const counted = countedOf(muteOrgOf(memory.connection));
+    const mute = await prepareMute(counted.org, automation, asProcess(100));
+    if ('refused' in mute) throw new Error(mute.refused.message);
+    const before = counted.sent();
+
+    await (await mute.acquire('run-1')).release();
+
+    // One set assigned and taken back, the other held: priced as two.
+    expect(counted.sent() - before).toBe(2 + 3 + 2);
+    expect(counted.sent() - before).toBeLessThanOrEqual(muteLeaseRequests(mute.plan));
+    expect(muteLeaseRequests({ assign: [] })).toBe(0);
+    expect(muteLeaseRequests(undefined)).toBe(0);
+    expect(mutePartOf({ assign: [] })).toEqual({});
   });
 });
 

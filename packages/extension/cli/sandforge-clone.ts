@@ -368,6 +368,7 @@ import {
   dryRunMuteOf,
   isMuteRefusedError,
   muteForRun,
+  muteLeaseRequests,
   muteLines,
   muteOrgOf,
   planMute,
@@ -3619,6 +3620,12 @@ export function wholeOrgGateLines(
     allowanceLine('API requests', question.targetApi, target),
     ...(bulk?.batches ? [allowanceLine('Bulk API batches', bulk.batches, target)] : []),
     allowanceLine('API requests', question.sourceApi, source),
+    ...(question.discovery
+      ? [
+          `  of them, sent already by discovery: ${question.discovery.target} of ${target}'s ` +
+            `and ${question.discovery.source} of ${source}'s`,
+        ]
+      : []),
   ];
   const files = question.fileStorage;
   if (files) {
@@ -3670,6 +3677,49 @@ export function wholeOrgGateLines(
     );
   }
   return lines;
+}
+
+/**
+ * What discovery sent each org, as the command says it once discovery is
+ * through. Exported so it can be tested.
+ */
+export function discoveryRequestsLine(
+  sent: { source: number; target: number },
+  source: string,
+  target: string,
+): string {
+  return (
+    `discovery: ${sent.source} API request(s) sent to ${source} and ${sent.target} to ` +
+    `${target}, before any row is read`
+  );
+}
+
+/**
+ * What a clone's `--json` summary says of its API requests, a dry run's and
+ * a run's alike, of each org: what its gate priced the run at against what
+ * the org had left (`estimate`, `verdict`, `remaining`, `max`), once priced,
+ * and `sent`, every request the command sent it, through each connection to
+ * it, counted as it sent them; and, of a clone of the whole org, what its
+ * discovery sent each (`discovery`), counted among `sent`. The summary said
+ * nothing of them, and the only way to hold the price to what a run took was
+ * each org's `/limits`, which count every client of the org. Exported so it
+ * can be tested.
+ */
+export function cloneApiRequestsJson(
+  sent: { target: number; source: number },
+  priced: { target?: ApiBudgetCheck; source?: ApiBudgetCheck },
+  discovery?: { source: number; target: number },
+): Record<string, unknown> {
+  const of = (check: ApiBudgetCheck | undefined, count: number) => {
+    if (!check) return { sent: count };
+    const { parts, ...said } = check;
+    return { ...said, ...(parts ? { parts } : {}), sent: count };
+  };
+  return {
+    target: of(priced.target, sent.target),
+    source: of(priced.source, sent.source),
+    ...(discovery ? { discovery } : {}),
+  };
 }
 
 /**
@@ -8549,6 +8599,16 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   const conns = new Map<string, Connection>();
   conns.set(args.source, makeConn(sourceOrg));
   conns.set(args.target, makeConn(targetOrg));
+  // Every request the command sends each org, from its first read to its
+  // last write, the checkpoint's connection's among the target's: what the
+  // summary's `apiRequests` says each was sent, beside what the gate priced,
+  // as a seed's says it. The org's own `/limits` count every client of it,
+  // read a minute or two late.
+  const sentTo = new Map<string, Array<() => number>>(
+    [...conns].map(([org, conn]) => [org, [countRequests(conn)]]),
+  );
+  const sentOf = (org: string): number =>
+    (sentTo.get(org) ?? []).reduce((sum, sent) => sum + sent(), 0);
   // Typed before discovery reads a row, so a production target is refused
   // before the run has cost anything. A dry run and a listing only read.
   let targetOrgId: string | undefined;
@@ -8660,7 +8720,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         request: args.checkpointFirst,
         session: targetOrg,
         org: checkpointOrgOf(targetOrg, typedTarget ?? (await typeOrg(conns.get(args.target)!))),
-        connect: makeConn,
+        connect: (org) => {
+          const own = makeConn(org);
+          sentTo.get(args.target)?.push(countRequests(own));
+          return own;
+        },
         journalDir: journalDirOf(),
         say,
       })
@@ -8802,12 +8866,21 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
 
   say('discovery…');
   const discovery = new GraphDiscoveryService(discoveryDeps);
+  const beforeDiscovery = { source: sentOf(args.source), target: sentOf(args.target) };
   const discovered = wholeOrg
     ? await discoverTheWholeOrg(discovery, config, say)
     : await discovery.discover(
         config,
         args.maxNodes === undefined ? undefined : { maxNodes: args.maxNodes },
       );
+  // What discovery cost each org, said: of a whole org it lists every object,
+  // counts each and describes those that hold records, and a dry run on a
+  // scratch org sent the source 246 requests that nothing named.
+  const discoveryRequests = {
+    source: sentOf(args.source) - beforeDiscovery.source,
+    target: sentOf(args.target) - beforeDiscovery.target,
+  };
+  if (wholeOrg) say(discoveryRequestsLine(discoveryRequests, args.source, args.target));
   const root = wholeOrg ? undefined : discovered.nodes[0]?.objectApiName;
   if (root !== undefined && args.excludedObjects.includes(root)) {
     // An environment gives no flag: the template its file names left the
@@ -9666,6 +9739,21 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // a call for a limit, from the requests the gate read of the target; none
   // read, the run keeps its own 2 000.
   let allowedAtTheGate: Pick<ForgeWriteGateAnswer, 'splitAllowance'> = {};
+  /** What the gate priced the run at, of each org it prices: what the summary's `apiRequests` says beside what was sent. */
+  let pricedAtTheGate: { target?: ApiBudgetCheck; source?: ApiBudgetCheck } = {};
+  /**
+   * The summary's API requests: of each org, what the gate priced the run at
+   * against what it had left, once priced, and `sent`, every request the
+   * command sent it, counted as it sent them; and, of a clone of the whole
+   * org, what its discovery sent each.
+   */
+  const apiRequestsDocument = () => ({
+    apiRequests: cloneApiRequestsJson(
+      { target: sentOf(args.target), source: sentOf(args.source) },
+      pricedAtTheGate,
+      wholeOrg ? discoveryRequests : undefined,
+    ),
+  });
   /**
    * What the gate of a clone of the whole org said: of a dry run, what it
    * would write and take of both orgs and what it leaves out (`dry`); of
@@ -9698,6 +9786,16 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     }
   };
   const unreadOf = (err: unknown): { unread: string } => ({ unread: extractErrorMessage(err) });
+  /**
+   * What the command has sent each org by the time its gate prices the run,
+   * as counted, the read of the deliverability apart, its own part: what the
+   * price counts as sent, discovery's among it, for the price to be of the
+   * whole run as its summary's `sent` counts it.
+   */
+  const sentBeforeTheGate = (): { target: number; source: number } => ({
+    target: Math.max(0, sentOf(args.target) - (emails?.ofRun.read?.requests ?? 0)),
+    source: sentOf(args.source),
+  });
   /**
    * The gate of a clone of the whole org, in the order the panel's runs it:
    * what it reads whole past the bound refuses it before any limit is read;
@@ -9736,6 +9834,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     let files: WholeOrgFilesCheck | undefined;
     let stops: ForgeGateStop[];
     if (boundary.dryRun) {
+      // Priced as its run's gate prices it: the read-backs its counts say,
+      // the lease of its mute, and the read of the deliverability this dry
+      // run made, none when nothing that still runs sends an email.
       dry = await wholeOrgDryRunOf({
         objects: boundary.objects,
         measures,
@@ -9743,6 +9844,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         anonymizePII: args.anonymize,
         updatedAfterInsert,
         ...(checkpointPlanned ? { checkpoint: checkpointPlanned.estimate } : {}),
+        ...(boundary.readBack !== undefined ? { readBack: boundary.readBack } : {}),
+        mute: muteLeaseRequests(mute?.plan),
+        deliverability: emails?.ofRun.read?.requests ?? 0,
+        sentBefore: sentBeforeTheGate,
         target: { org: args.target, limits: targetConn },
         source: { org: args.source, limits: connOf(conns, args.source) },
       });
@@ -9762,12 +9867,15 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       const filesOf = wholeOrgFilesOf(measures.files, limits, args.target);
       files = filesOf.files;
       const sourceBudget = await readApiBudget(connOf(conns, args.source)).catch(unreadOf);
+      const sent = sentBeforeTheGate();
       const requests = forgeWriteBudgetOf({
         plan,
         updatedAfterInsert,
         ...(boundary.readBack !== undefined ? { readBack: boundary.readBack } : {}),
         ...(checkpointPlanned ? { checkpoint: checkpointPlanned.estimate } : {}),
+        mute: muteLeaseRequests(mute?.plan),
         ...deliverabilityPartOf(emails?.ofRun),
+        sentBefore: sent.target,
         budget,
         target: args.target,
         wholeOrg: {
@@ -9775,6 +9883,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
           bulkBatches: 'unread' in limits ? limits : limits.dailyBulkApiBatches,
           sourceBudget,
           source: args.source,
+          sourceSentBefore: sent.source,
         },
       });
       priced = { api: requests.api, wholeOrg: requests.wholeOrg };
@@ -9796,18 +9905,22 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         ...(requests.alsoRefused ?? []),
       ];
     }
-    const question = wholeOrgConfirmationOf({
-      run: {
-        source: args.source,
-        graph,
-        anonymizePII: args.anonymize,
-        ...carriedOfTheLine(),
-      },
-      measures,
-      plan,
-      budget: priced,
-      ...(files ? { files } : {}),
-    });
+    const question: WholeOrgConfirmation = {
+      ...wholeOrgConfirmationOf({
+        run: {
+          source: args.source,
+          graph,
+          anonymizePII: args.anonymize,
+          ...carriedOfTheLine(),
+        },
+        measures,
+        plan,
+        budget: priced,
+        ...(files ? { files } : {}),
+      }),
+      discovery: discoveryRequests,
+    };
+    pricedAtTheGate = { target: priced.api, source: priced.wholeOrg.source };
     wholeOrgSaid = { ...(dry ? { dry } : {}), question };
     say('');
     for (const line of writePlanLines(plan, storageCheck, args.target)) say(line);
@@ -9964,11 +10077,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       updatedAfterInsert: [...updatedNames],
       ...(boundary.readBack !== undefined ? { readBack: boundary.readBack } : {}),
       ...(checkpointPlanned ? { checkpoint: checkpointPlanned.estimate } : {}),
+      mute: muteLeaseRequests(mute?.plan),
       ...deliverabilityPartOf(emails?.ofRun),
       budget,
       target: args.target,
     });
     allowedAtTheGate = splitAllowanceAnswerOf(gate.api);
+    pricedAtTheGate = { target: gate.api };
     say(apiRequestsLine(gate.api, args.target));
     if (checkpointPlanned) {
       for (const line of checkpointEstimateLines(checkpointPlanned.estimate)) say(line);
@@ -10127,6 +10242,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // ran, what they lifted beside, and whether they were taken back. Of a
     // dry run, what a real one would do, and the plan it is made from.
     ...(mutedAutomation ? { mutedAutomation } : args.dryRun ? dryRunMuteOf(mute) : {}),
+    // Its API requests: what the gate priced, and what each org was sent.
+    ...apiRequestsDocument(),
     // What may refuse a removal of the run's records, per object: the flows
     // before a delete, the Apex triggers on one, the records that lock past
     // Draft.
@@ -10211,6 +10328,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         ...(question?.carried ? { carried: question.carried } : {}),
       },
       ...checkpointDocument(),
+      // Its API requests: what the gate priced, and what each org was sent.
+      ...apiRequestsDocument(),
       ...wouldBeRefusedJson(dryRunRefusals),
       elapsedMs: elapsedSince(t0),
     };

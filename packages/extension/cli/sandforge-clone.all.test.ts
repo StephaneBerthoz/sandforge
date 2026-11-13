@@ -27,9 +27,11 @@ import { loadOrg, makeConn } from './sfSession.js';
 import { confirm } from './prompt.js';
 import {
   cliRunSetup,
+  cloneApiRequestsJson,
   cloneInputLine,
   cloneInputOf,
   cloneSubjectOf,
+  discoveryRequestsLine,
   lostJobsBeforeTheMute,
   main,
   parseArgs,
@@ -634,6 +636,43 @@ describe('sandforge-clone --depth all, a clone of the whole org', () => {
       );
     });
 
+    it('says in its --json what each org was sent, discovery’s among it, beside what its gate priced, never under it', async () => {
+      const orgs = withFakeOrgs();
+      // Each request either org took through its connection, as the org counts it.
+      const taken = { SRC: 0, TGT: 0 };
+      for (const alias of ['SRC', 'TGT'] as const) {
+        const conn = orgs[alias].conn as unknown as {
+          request: (...args: unknown[]) => Promise<unknown>;
+        };
+        const answer = conn.request.bind(conn);
+        conn.request = async (...args: unknown[]) => {
+          taken[alias]++;
+          return answer(...args);
+        };
+      }
+
+      expect(await run(argv('--dry-run', '--json'))).toBeUndefined();
+
+      const summary = JSON.parse(stdout.join('')) as {
+        apiRequests: {
+          target: { estimate: number; sent: number };
+          source: { estimate: number; sent: number };
+          discovery: { source: number; target: number };
+        };
+      };
+      expect(summary.apiRequests.target.sent).toBe(taken.TGT);
+      expect(summary.apiRequests.source.sent).toBe(taken.SRC);
+      // Discovery read the source's record counts, in one request; nothing of
+      // the target went through its connection's request.
+      expect(summary.apiRequests.discovery).toEqual({ source: 1, target: 0 });
+      // Priced with what was sent before its gate, as sent.
+      expect(summary.apiRequests.target.estimate).toBeGreaterThanOrEqual(taken.TGT);
+      expect(summary.apiRequests.source.estimate).toBeGreaterThanOrEqual(taken.SRC);
+      const said = stderr.join('');
+      expect(said).toContain(discoveryRequestsLine({ source: 1, target: 0 }, 'SRC', 'TGT'));
+      expect(said).toContain("of them, sent already by discovery: 0 of TGT's and 1 of SRC's");
+    });
+
     it('counts an object of two thousand records or more as a Bulk API job, and the batches it takes', async () => {
       withFakeOrgs({ source: { rows: sourceRows(2_500) } });
 
@@ -1080,5 +1119,48 @@ describe('sandforge-clone --depth all, a clone of the whole org', () => {
         rmSync(dir, { recursive: true, force: true });
       }
     });
+  });
+});
+
+describe('what a clone says of its API requests', () => {
+  it('gives each org what its gate priced and what it was sent, and what discovery sent of a whole org', () => {
+    expect(
+      cloneApiRequestsJson(
+        { target: 220, source: 314 },
+        {
+          target: {
+            verdict: 'fits',
+            estimate: 236,
+            remaining: 4_000,
+            max: 5_000,
+            parts: { run: 172, checkpoint: 64 },
+          },
+          source: { verdict: 'fits', estimate: 330, remaining: 4_500, max: 5_000 },
+        },
+        { source: 246, target: 4 },
+      ),
+    ).toEqual({
+      target: {
+        verdict: 'fits',
+        estimate: 236,
+        remaining: 4_000,
+        max: 5_000,
+        parts: { run: 172, checkpoint: 64 },
+        sent: 220,
+      },
+      source: { verdict: 'fits', estimate: 330, remaining: 4_500, max: 5_000, sent: 314 },
+      discovery: { source: 246, target: 4 },
+    });
+    // A run its gate never priced says what it sent alone.
+    expect(cloneApiRequestsJson({ target: 3, source: 9 }, {})).toEqual({
+      target: { sent: 3 },
+      source: { sent: 9 },
+    });
+  });
+
+  it('says what discovery sent each org before any row is read', () => {
+    expect(discoveryRequestsLine({ source: 246, target: 4 }, 'SRC', 'TGT')).toBe(
+      'discovery: 246 API request(s) sent to SRC and 4 to TGT, before any row is read',
+    );
   });
 });

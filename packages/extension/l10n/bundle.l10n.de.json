@@ -188,6 +188,7 @@
   "Not in the checkpoint: {0} — {1}": "Nicht im Prüfpunkt: {0} — {1}",
   "What an Apex trigger, or automation that could not be read, creates as the run writes is not known: a rewind leaves those records as they are.": "Was ein Apex-Trigger oder eine nicht lesbare Automatisierung anlegt, während der Lauf schreibt, ist nicht bekannt: Ein Zurücksetzen lässt diese Datensätze, wie sie sind.",
   "{0} of them are for the checkpoint taken first.": "{0} davon sind für den zuerst erstellten Prüfpunkt.",
+  "{0} of them assign and take back the permission sets that mute the automation of the target.": "{0} davon weisen die Berechtigungssätze zu, die die Automatisierung des Ziels stummschalten, und nehmen sie wieder zurück.",
   "{0} of them read back the record type the target gave the records created without one.": "{0} davon lesen den Datensatztyp zurück, den das Ziel den ohne Typ angelegten Datensätzen gab.",
   "{0} of them read whether the target delivers its emails.": "{0} davon lesen, ob das Ziel seine E-Mails zustellt.",
   "{0} of them fit the run to the storage.": "{0} davon passen den Lauf an den Speicher an.",

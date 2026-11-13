@@ -32,6 +32,7 @@ import {
   isMuteRefusedError,
   muteForRun,
   muteOrgOf,
+  mutePartOf,
   type MuteLeaseOptions,
   type RunMute,
 } from '../../modules/forge/AutomationMuteLease.js';
@@ -133,6 +134,7 @@ import {
 } from '../../modules/seed/seedFit.js';
 import {
   API_BUDGET_EXCEEDED,
+  automationReadRequests,
   CHECKPOINT_REFUSED,
   confirmationApiOf,
   confirmationStorageOf,
@@ -1823,11 +1825,13 @@ export class SeedOpsHandler implements DomainHandler {
     // Its requests priced as its insert sends them: an object a duplicate
     // rule watches through REST, as the automation read above found the
     // rules, each partition of a run the setting partitions on its own, and
-    // a job past the threshold the run's insert is given.
+    // a job past the threshold the run's insert is given; that read itself,
+    // as it says what it sent; and the lease of its mute.
     const writePath: SeedWritePath = {
       duplicateRules: duplicateRulesOf(read),
       partition: seedPartitionOf(readGrappeConfig(this.deps.services), kinds.template),
       bulkThreshold: robustnessConfigOf(this.deps).bulk.threshold,
+      automationRead: automationReadRequests(read),
     };
     const storage = await seedStorageGate(
       conn,
@@ -1835,7 +1839,7 @@ export class SeedOpsHandler implements DomainHandler {
       kinds.personObjects,
       org?.alias ?? payload.orgId,
       checkpoint?.planned,
-      deliverabilityPartOf(emailsOfRun.ofRun),
+      { ...deliverabilityPartOf(emailsOfRun.ofRun), ...mutePartOf(mute?.plan) },
       writePath,
     );
     if (storage.check.verdict === 'unread') {

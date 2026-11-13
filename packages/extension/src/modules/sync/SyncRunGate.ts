@@ -24,6 +24,7 @@ import type {
   ForgeEmailLimit,
   ForgeTargetAutomation,
   MutedAutomation,
+  MutePlan,
   RunCheckpointEstimate,
   RunCheckpointTaken,
   StillRunning,
@@ -38,6 +39,7 @@ import type { ForgeWriteGateAnswer } from '../forge/ForgeExecutor.js';
 import type { RUN_CANCELLED } from '../forge/forgeAudit.js';
 import {
   isMuteRefusedError,
+  mutePartOf,
   type HeldMute,
   type MuteRefusalCode,
   type RunMute,
@@ -53,6 +55,7 @@ import {
   CHECKPOINT_REFUSED,
   apiBudgetCheckOf,
   apiBudgetRefusal,
+  automationReadRequests,
   checkpointPartOf,
   checkpointScopeStop,
   confirmationApiOf,
@@ -78,7 +81,7 @@ import {
 } from '../forge/ForgeRunGate.js';
 import { emailsRefusalWords, runEmailsSaidOf, type RunEmailsSaid } from '../forge/runEmailsSaid.js';
 import { duplicateRulesOf } from '../seed/seedDuplicateRules.js';
-import { importRequestsEstimate } from '../seed/seedStorage.js';
+import { importRequestsEstimate, importRunReads } from '../seed/seedStorage.js';
 import type { SyncHeldBackObject } from './syncHeldBack.js';
 import {
   heldPlanOf,
@@ -263,6 +266,23 @@ export interface SyncWriteMeasures {
   bulkThreshold?: number;
   /** The checkpoint the run takes of what it writes before its first write; absent when not asked. */
   checkpointFirst?: SyncCheckpointFirst;
+  /**
+   * The mute the run holds the lease of while it writes, as planned once
+   * the gate read the target's automation (`mutingSyncWriteGate`): the
+   * `mute` part of its requests (`mutePartOf`). Absent for a run that does
+   * not mute.
+   */
+  mutePlan?: () => Pick<MutePlan, 'assign'> | undefined;
+  /**
+   * The requests the command line has sent its target so far, through each
+   * connection to it, counted as they went (`countRequests`): read as the
+   * gate prices the run, once it has read the automation, scoped the
+   * checkpoint and read the limits, they stand for those reads, for what
+   * typed, described and counted the target before, and for who the run
+   * writes as, in place of the reads the gate counts where nothing counts
+   * them (`importRunReads`). The read of the deliverability is its own part.
+   */
+  sentBefore?: () => number;
 }
 
 /**
@@ -454,20 +474,35 @@ export async function measureSyncWrite(
       run: 'sync',
     });
   }
-  // The checkpoint's reads, the read-backs of the record types given and the
-  // read of the deliverability are the target's, and are counted beside the
-  // run's own.
+  // The checkpoint's reads, the lease of the mute, the read-backs of the
+  // record types given and the read of the deliverability are the target's,
+  // and are counted beside the run's own. Its own are its writes and what it
+  // reads of the target besides: the limits from the gate on, who it writes
+  // as, and the read of the automation just made — or, on the command line,
+  // every request sent so far, as counted. Its writes alone were counted: a
+  // run's gate priced none of the five reads of who it writes as and of the
+  // limits, nor the read of the automation.
+  const deliverability = deliverabilityPartOf(runEmails?.ofRun);
+  const sentBefore = measures.sentBefore?.();
+  const reads =
+    total === 0
+      ? 0
+      : sentBefore !== undefined
+        ? Math.max(0, sentBefore - (deliverability.deliverability ?? 0))
+        : importRunReads(0, read !== undefined ? automationReadRequests(read) : 0);
   const api: ApiBudgetCheck = apiBudgetCheckOf(
     {
-      run: syncRequestsEstimate(counted.objects, {
-        bulkThreshold: measures.bulkThreshold,
-        duplicateRules: read !== undefined ? duplicateRulesOf(read) : undefined,
-      }),
+      run:
+        syncRequestsEstimate(counted.objects, {
+          bulkThreshold: measures.bulkThreshold,
+          duplicateRules: read !== undefined ? duplicateRulesOf(read) : undefined,
+        }) + reads,
       ...checkpointPartOf(checkpoint),
+      ...mutePartOf(measures.mutePlan?.()),
       ...(counted.readBack !== undefined && counted.readBack > 0
         ? { readBack: counted.readBack }
         : {}),
-      ...deliverabilityPartOf(runEmails?.ofRun),
+      ...deliverability,
     },
     budget,
   );
@@ -968,13 +1003,17 @@ export interface MutingSyncWriteGate {
  * that does not hold a set it was to assign may leave running a sender no
  * one was asked about: the run stops the same way.
  *
- * @param build - The run's gate, over the reader of the target's automation it is given.
+ * @param build - The run's gate, over the reader of the target's automation it is given,
+ *   and the mute's plan once planned, which its requests count the lease of.
  * @param plan - The mute of a run writing the objects read; throws `MuteRefusedError` when refused.
  * @param emails.target - The org, as the refusal for the emails names it.
  * @param emails.liftedBy - What lifts that refusal where the run runs, where it is no flag.
  */
 export function mutingSyncWriteGate(
-  build: (readAutomation: SyncWriteMeasures['readAutomation']) => SyncWriteGate,
+  build: (
+    readAutomation: SyncWriteMeasures['readAutomation'],
+    mutePlan: NonNullable<SyncWriteMeasures['mutePlan']>,
+  ) => SyncWriteGate,
   readAutomation: SyncWriteMeasures['readAutomation'],
   plan: (read: RunEmailsInput['read']) => Promise<RunMute>,
   runId: string,
@@ -985,13 +1024,16 @@ export function mutingSyncWriteGate(
   let muted: MutedAutomation | undefined;
   /** What the target runs on the objects the run writes, before the mute holds it. */
   let automation: RunEmailsInput['read'] | undefined;
-  const gate = build(async (objects) => {
-    const view = mute?.automation;
-    if (view && objects.every((name) => view.objectsRead.includes(name))) {
-      return automationOn(view, objects);
-    }
-    return readAutomation(objects);
-  });
+  const gate = build(
+    async (objects) => {
+      const view = mute?.automation;
+      if (view && objects.every((name) => view.objectsRead.includes(name))) {
+        return automationOn(view, objects);
+      }
+      return readAutomation(objects);
+    },
+    () => mute?.plan,
+  );
   const refusedBy = (err: unknown): SyncGateAnswer => {
     if (!isMuteRefusedError(err)) throw err;
     return { go: false, code: err.code, message: err.message };

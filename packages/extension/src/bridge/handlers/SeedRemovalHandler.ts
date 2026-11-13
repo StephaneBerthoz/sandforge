@@ -65,11 +65,8 @@ import {
   type SyncRunKept,
 } from '../../modules/sync/SyncRunCreations.js';
 import { removeSyncRun } from '../../modules/sync/SyncRunRemoval.js';
-import {
-  answerJobsInFlight,
-  jobAnsweredLines,
-  type IngestJobReading,
-} from '../../modules/sync/inFlightJob.js';
+import { answerJobsInFlight, jobAnsweredLines } from '../../modules/sync/inFlightJob.js';
+import { jsforceBulk } from '../../core/engine/jsforceBulk.js';
 import { THIS_HOST, writtenElsewhere, type RunWriterHost } from '../../modules/sync/runWriter.js';
 import type { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
 import { duplicateSetsOfRemoval, seedSweepInput } from '../../modules/seed/seedRunSweep.js';
@@ -396,7 +393,7 @@ export class SeedRemovalHandler implements DomainHandler {
             this.deps.orgManager,
           );
           const org = removalOrg(conn, context);
-          return answerJobsInFlight(store, run, conn as unknown as IngestJobReading, () =>
+          return answerJobsInFlight(store, run, jsforceBulk(conn), () =>
             org.serverTime(),
           );
         },

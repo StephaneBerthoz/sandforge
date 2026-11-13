@@ -33,7 +33,7 @@ import {
   RECORDS_PER_CALL,
   workedObjects,
 } from '../dataops/RecordRemoval.js';
-import type { BulkApiConnection } from '../../core/engine/BulkApiExecutor.js';
+import { jsforceBulk } from '../../core/engine/jsforceBulk.js';
 import {
   BULK_DELETE_JOB_RECORDS,
   bulkDeleteJob,
@@ -404,7 +404,7 @@ export function removalOrg(conn: Connection, context: string): RemovalOrg {
       return { records: answer.records };
     },
     bulkDestroy: (objectApiName, ids, signal) =>
-      bulkDeleteJob(conn as unknown as BulkApiConnection, objectApiName, ids, signal),
+      bulkDeleteJob(jsforceBulk(conn), objectApiName, ids, signal),
   };
 }
 

@@ -18,6 +18,8 @@ import {
   wholeOrgLeftOutOf,
   wholeOrgWritePlanOf,
   writePlanOf,
+  WHOLE_ORG_SOURCE_READS_PER_OBJECT,
+  WHOLE_ORG_TARGET_READS_PER_OBJECT,
   type LimitsTransport,
   type WholeOrgGraph,
   type WholeOrgMeasures,
@@ -69,6 +71,10 @@ const JOB_5K = 3 + 7 + 3;
 const CASES = JOB_10K + JOB_10K + JOB_5K;
 // 3,000 tasks and 600 accounts by REST: fifteen calls and three.
 const REST = 15 + 3;
+/** What the run reads of the target as it writes the three objects, past their writes. */
+const TARGET_READS = 3 * WHOLE_ORG_TARGET_READS_PER_OBJECT;
+/** What it reads of the source as it reads the three objects, past their pages. */
+const SOURCE_READS = 3 * WHOLE_ORG_SOURCE_READS_PER_OBJECT;
 
 /** The target's `/limits`, as an org answers them. */
 function limitsAnswer(over: Partial<Record<string, { Max: number; Remaining: number }>> = {}) {
@@ -159,7 +165,8 @@ describe('how Forge’s writer sends an object through the Bulk API, as its gate
 
 describe('the run part of a clone that writes through the Bulk API', () => {
   it('prices each job by the calls Forge’s writer sends over its whole time, the rest by REST calls of 200', () => {
-    expect(forgeRequestPartsOf({ plan, bulk: {} })).toEqual({ run: CASES + REST });
+    // And what it reads of the target as it writes each object.
+    expect(forgeRequestPartsOf({ plan, bulk: {} })).toEqual({ run: CASES + REST + TARGET_READS });
     // Every row by REST, as a clone of records writes them: 125, 15 and 3.
     expect(forgeRequestPartsOf({ plan })).toEqual({ run: 125 + 15 + 3 });
   });
@@ -167,7 +174,9 @@ describe('the run part of a clone that writes through the Bulk API', () => {
   it('prices a job at the pace a seed of 12,000 cases saved its records at, not at the pace of deletes', () => {
     const tenThousand = writePlanOf([counted('Case', 10_000)]);
 
-    expect(forgeRequestPartsOf({ plan: tenThousand, bulk: {} })).toEqual({ run: JOB_10K });
+    expect(forgeRequestPartsOf({ plan: tenThousand, bulk: {} })).toEqual({
+      run: JOB_10K + WHOLE_ORG_TARGET_READS_PER_OBJECT,
+    });
     // At the pace of deletes, 37 seconds: four waits, five reads, eleven calls.
     expect(
       bulkJobRequests({ stateReads: bulkJobStateReads(10_000, FORGE_BULK_POLL_SCHEDULE) }),
@@ -177,7 +186,7 @@ describe('the run part of a clone that writes through the Bulk API', () => {
   it('counts the second pass’s updates as jobs too, and a call per file copied', () => {
     expect(
       forgeRequestPartsOf({ plan, bulk: {}, updatedAfterInsert: ['Case', 'Account'], files: 40 }),
-    ).toEqual({ run: CASES + REST + CASES + 3 + 40 });
+    ).toEqual({ run: CASES + REST + CASES + 3 + 40 + TARGET_READS });
   });
 });
 
@@ -185,12 +194,20 @@ describe('what a clone of the whole org takes beside the target’s requests', (
   const measures: WholeOrgMeasures = { files: { count: 450, bytes: 300 * MB } };
 
   it('counts the source’s requests still to come: a page per 2,000 rows, a read per file, a query of links per 200 files', () => {
-    // 13 pages of cases, 2 of tasks, 1 of accounts; 450 files, 3 queries of their links.
-    expect(wholeOrgCostOf({ plan, measures }).sourceRequests).toBe(13 + 2 + 1 + 450 + 3);
-    // What the executor counted of its own reads stands for the gate's.
-    expect(wholeOrgCostOf({ plan, measures: { ...measures, sourceReads: 9 } }).sourceRequests).toBe(
-      9,
+    // 13 pages of cases, 2 of tasks, 1 of accounts; 450 files, 3 queries of
+    // their links; and what it reads of the source besides, each object.
+    expect(wholeOrgCostOf({ plan, measures }).sourceRequests).toBe(
+      13 + 2 + 1 + 450 + 3 + SOURCE_READS,
     );
+    // What the executor counted of its own reads stands for the gate's pages.
+    expect(wholeOrgCostOf({ plan, measures: { ...measures, sourceReads: 9 } }).sourceRequests).toBe(
+      9 + SOURCE_READS,
+    );
+    // From the command line, what it sent the source before the gate, as counted.
+    expect(
+      wholeOrgCostOf({ plan, measures: { ...measures, sourceReads: 9 }, sourceSentBefore: 246 })
+        .sourceRequests,
+    ).toBe(9 + SOURCE_READS + 246);
   });
 
   it('counts a Bulk API batch per job, its second pass’s included, and names what goes by REST', () => {
@@ -235,8 +252,8 @@ describe('the write budget of a clone of the whole org, one part of the model of
 
     expect(budget.stop).toBeUndefined();
     expect(budget.asks).toBe(true);
-    expect(budget.api).toMatchObject({ verdict: 'fits', estimate: CASES + REST });
-    expect(budget.wholeOrg.source).toMatchObject({ verdict: 'fits', estimate: 16 });
+    expect(budget.api).toMatchObject({ verdict: 'fits', estimate: CASES + REST + TARGET_READS });
+    expect(budget.wholeOrg.source).toMatchObject({ verdict: 'fits', estimate: 16 + SOURCE_READS });
     expect(budget.wholeOrg.bulkBatches).toMatchObject({ verdict: 'fits', estimate: 3 });
   });
 
@@ -245,13 +262,67 @@ describe('the write budget of a clone of the whole org, one part of the model of
 
     expect(budget.stop).toMatchObject({
       code: API_BUDGET_EXCEEDED,
-      api: { kind: 'requests', org: 'target', estimate: CASES + REST, remaining: 50 },
+      api: {
+        kind: 'requests',
+        org: 'target',
+        estimate: CASES + REST + TARGET_READS,
+        remaining: 50,
+      },
     });
-    expect(budget.stop?.message).toMatch(/^The run takes about 63 API requests, and TGT-SB has 50/);
+    expect(budget.stop?.message).toMatch(/^The run takes about 75 API requests, and TGT-SB has 50/);
     expect(ForgeRunGateError.of(defined(budget.stop)).stop).toEqual({
       code: API_BUDGET_EXCEEDED,
-      api: { kind: 'requests', org: 'target', estimate: 63, remaining: 50 },
+      api: { kind: 'requests', org: 'target', estimate: 75, remaining: 50 },
     });
+  });
+
+  it('prices a clone counted live at no fewer requests than it then sent either org', () => {
+    // Asked live on a scratch org: 157 records of 19 objects by REST, a
+    // checkpoint first of 64 requests. The target took about 220 requests in
+    // all, 73 of them before the gate; the source about 314, 246 before it,
+    // and its pages were priced 21. Priced its writes and pages alone, the
+    // run said 87 and 21.
+    const rowsOf: Array<[string, number]> = [
+      ['PricebookEntry', 47],
+      ['Account', 24],
+      ['Case', 22],
+      ['Contact', 22],
+      ['WorkBadgeDefinition', 12],
+      ['Lead', 4],
+      ['OpportunityLineItem', 4],
+      ['OrderItem', 4],
+      ['Product2', 3],
+      ['CaseComment', 2],
+      ['Order', 2],
+      ['Task', 2],
+      ['QuoteLineItem', 2],
+      ['Quote', 1],
+      ['Event', 2],
+      ['Entitlement', 1],
+      ['Pricebook2', 1],
+      ['ContentWorkspace', 1],
+      ['FieldServiceMobileSettings', 1],
+    ];
+    const live = writePlanOf(rowsOf.map(([name, rows]) => counted(name, rows)));
+    expect(live.totalRows).toBe(157);
+
+    const budget = forgeWriteBudgetOf({
+      plan: live,
+      checkpoint: estimateOf(64),
+      sentBefore: 73,
+      budget: { max: 5_000_000, remaining: 4_980_000 },
+      target: 'TGT-SB',
+      wholeOrg: {
+        measures: { sourceReads: 21 },
+        bulkBatches: { max: 15_000, remaining: 14_977 },
+        sourceBudget: { max: 5_000_000, remaining: 4_995_000 },
+        source: 'SRC',
+        sourceSentBefore: 246,
+      },
+    });
+
+    expect(budget.api.estimate).toBeGreaterThanOrEqual(220);
+    expect(budget.wholeOrg.source.estimate).toBeGreaterThanOrEqual(314);
   });
 
   it('refuses its jobs past the Bulk API batches the target has left today', () => {
@@ -279,10 +350,10 @@ describe('the write budget of a clone of the whole org, one part of the model of
 
     expect(budget.stop).toMatchObject({
       code: API_BUDGET_EXCEEDED,
-      api: { kind: 'requests', org: 'source', estimate: 16, remaining: 15 },
+      api: { kind: 'requests', org: 'source', estimate: 16 + SOURCE_READS, remaining: 15 },
     });
     expect(budget.stop?.message).toMatch(
-      /^The run reads the source records in about 16 API requests, and SRC has 15 of its 15000/,
+      /^The run reads the source records in about 25 API requests, and SRC has 15 of its 15000/,
     );
   });
 
@@ -306,9 +377,14 @@ describe('the write budget of a clone of the whole org, one part of the model of
       reason: 'TOO_MANY_RECORDS',
     });
     // The checkpoint's requests counted among the target's, then each other refusal in turn.
-    expect(budget.api).toMatchObject({ estimate: CASES + REST + 400 });
+    expect(budget.api).toMatchObject({ estimate: CASES + REST + TARGET_READS + 400 });
     expect(budget.alsoRefused?.map((refused) => refused.api)).toEqual([
-      { kind: 'requests', org: 'target', estimate: CASES + REST + 400, remaining: 100 },
+      {
+        kind: 'requests',
+        org: 'target',
+        estimate: CASES + REST + TARGET_READS + 400,
+        remaining: 100,
+      },
       { kind: 'bulkBatches', org: 'target', estimate: 3, remaining: 0 },
     ]);
   });
@@ -622,15 +698,20 @@ describe('the dry run of a clone of the whole org, stopped at its gate', () => {
     ]);
     expect(dry.totalRows).toBe(29_800);
     // The tasks in 15 REST calls, the emails in 6, the accounts in 4 with the 2
-    // the write links by their value, and the files a call each.
+    // the write links by their value, the files a call each, and what it
+    // reads of the target as it writes the four objects; and the read of
+    // whether the target delivers its emails, which this dry run did not
+    // make, at the most a run's sends.
+    const targetReads = 4 * WHOLE_ORG_TARGET_READS_PER_OBJECT;
     expect(dry.targetRequests).toMatchObject({
       verdict: 'fits',
-      estimate: CASES + 15 + 6 + 4 + 450,
+      estimate: CASES + 15 + 6 + 4 + 450 + targetReads + 2,
       remaining: 4_900_000,
+      parts: { run: CASES + 15 + 6 + 4 + 450 + targetReads, deliverability: 2 },
     });
     expect(dry.sourceRequests).toMatchObject({
       verdict: 'fits',
-      estimate: 13 + 2 + 1 + 1 + 450 + 3,
+      estimate: 13 + 2 + 1 + 1 + 450 + 3 + 4 * WHOLE_ORG_SOURCE_READS_PER_OBJECT,
     });
     expect(dry.bulkBatches).toMatchObject({ verdict: 'fits', estimate: 3, remaining: 14_990 });
     expect(dry.storage).toMatchObject({ verdict: 'fits', remainingMB: 900 });
@@ -653,6 +734,86 @@ describe('the dry run of a clone of the whole org, stopped at its gate', () => {
       2 * (24 + 10_000 / 60) + (24 + 5_000 / 60) + (3_000 + 1_200 + 600) * 0.01,
     );
     expect(dry.wouldBeRefused).toEqual([]);
+  });
+
+  it('prices the target’s requests as its run’s gate prices them: the read-backs, the lease of the mute and the read of the deliverability, never fewer', async () => {
+    const budget = { max: 5_000_000, remaining: 4_900_000 };
+    const runGate = (beside: { readBack?: number; mute?: number; deliverability?: number }) =>
+      forgeWriteBudgetOf({
+        plan: wholeOrgWritePlanOf(objects, measures),
+        ...beside,
+        budget,
+        target: 'TGT-SB',
+        wholeOrg: { measures, bulkBatches: undefined, sourceBudget: undefined, source: 'SRC' },
+      }).api;
+    const dryOf = (beside: { readBack?: number; mute?: number; deliverability?: number }) =>
+      wholeOrgDryRunOf({
+        objects,
+        measures,
+        graph,
+        anonymizePII: true,
+        ...beside,
+        target: { org: 'TGT-SB', limits: readOnlyOrg(limitsAnswer()) },
+        source: { org: 'SRC', limits: readOnlyOrg({ DailyApiRequests: { Max: 9, Remaining: 9 } }) },
+      });
+
+    // Three read-backs of the record types given, a mute of one set — its
+    // identity, three reads, the set assigned and taken back — and the
+    // Apex of the deliverability, as the run's gate is told them.
+    const told = { readBack: 3, mute: 7, deliverability: 1 };
+    const dry = await dryOf(told);
+    expect(dry.targetRequests).toMatchObject({
+      estimate: runGate(told).estimate,
+      parts: { readBack: 3, mute: 7, deliverability: 1 },
+    });
+    // Nothing that still runs sends an email: no read, as the run.
+    expect((await dryOf({ ...told, deliverability: 0 })).targetRequests.estimate).toBe(
+      runGate({ ...told, deliverability: 0 }).estimate,
+    );
+    // The deliverability not read, the most its read sends: above the run's
+    // whatever that read sent.
+    const unread = (await dryOf({ readBack: 3, mute: 7 })).targetRequests;
+    expect(unread).toMatchObject({ parts: { deliverability: 2 } });
+    for (const deliverability of [0, 1, 2]) {
+      expect(unread.estimate).toBeGreaterThanOrEqual(
+        runGate({ readBack: 3, mute: 7, deliverability }).estimate,
+      );
+    }
+  });
+
+  it('prices, from the command line, what it sent each org before its gate as sent, read once it has read the limits', async () => {
+    const target = readOnlyOrg(limitsAnswer());
+    const source = readOnlyOrg({ DailyApiRequests: { Max: 5_000_000, Remaining: 4_000_000 } });
+    const read: Array<{ target: number; source: number }> = [];
+    const priced = await wholeOrgDryRunOf({
+      objects,
+      measures,
+      graph,
+      anonymizePII: true,
+      deliverability: 0,
+      // Discovery's 246 of the source and the target's reads before the
+      // gate, then the limits each dry run read.
+      sentBefore: () => {
+        const sent = { target: 73 + target.calls.length, source: 246 + source.calls.length };
+        read.push(sent);
+        return sent;
+      },
+      target: { org: 'TGT-SB', limits: target },
+      source: { org: 'SRC', limits: source },
+    });
+    const unpriced = await wholeOrgDryRunOf({
+      objects,
+      measures,
+      graph,
+      anonymizePII: true,
+      deliverability: 0,
+      target: { org: 'TGT-SB', limits: readOnlyOrg(limitsAnswer()) },
+      source: { org: 'SRC', limits: readOnlyOrg({ DailyApiRequests: { Max: 9, Remaining: 9 } }) },
+    });
+
+    expect(read).toEqual([{ target: 74, source: 247 }]);
+    expect(priced.targetRequests.estimate).toBe(unpriced.targetRequests.estimate + 74);
+    expect(priced.sourceRequests.estimate).toBe(unpriced.sourceRequests.estimate + 247);
   });
 
   it('names every refusal the run would meet, in the order it meets them', async () => {
@@ -708,7 +869,12 @@ describe('the dry run of a clone of the whole org, stopped at its gate', () => {
       {
         code: API_BUDGET_EXCEEDED,
         storage: undefined,
-        api: { kind: 'requests', org: 'source', estimate: 470, remaining: 30 },
+        api: {
+          kind: 'requests',
+          org: 'source',
+          estimate: 470 + 4 * WHOLE_ORG_SOURCE_READS_PER_OBJECT,
+          remaining: 30,
+        },
       },
     ]);
     expect(dry.wouldBeRefused[1]?.message).toMatch(/data storage.*Nothing was written\.$/);

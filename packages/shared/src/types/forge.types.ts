@@ -711,11 +711,12 @@ export interface ForgeBulkJobPastMute {
 /**
  * The parts of the target's API requests a clone of the whole org takes, as
  * its dry run says them apart: its own writes, the checkpoint taken first,
- * the read-backs, the deliverability read and the fit.
+ * the lease of the mute, the read-backs, the deliverability read and the fit.
  */
 export interface ForgeWholeOrgRequestParts {
   run: number;
   checkpoint?: number;
+  mute?: number;
   readBack?: number;
   deliverability?: number;
   fit?: number;

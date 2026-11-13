@@ -117,6 +117,13 @@ export interface SeedWritePath {
    * scoped a checkpoint. Priced as sent, whatever the records; absent, none.
    */
   sentBefore?: number;
+  /**
+   * The requests the panel's read of the target's automation sent just
+   * before its gate (`automationReadRequests`), where nothing counts what a
+   * run sends as it goes: the connections are the window's, shared by every
+   * page. The command line's is among what it sent ({@link sentBefore}).
+   */
+  automationRead?: number;
 }
 
 /** Whether `rules` say a duplicate rule watches `objectApiName`, whatever its case; nothing when they do not say. */
@@ -206,7 +213,8 @@ export function seedRequestsEstimate(
  * a query of 200 of those named by id; the standard price book, for a seed
  * that points at it; from the command line, what the target is
  * ({@link SeedWritePath.typedFirst}); the target's limits, from the gate on;
- * and what the command line sent before its gate ({@link SeedWritePath.sentBefore}).
+ * what the command line sent before its gate ({@link SeedWritePath.sentBefore});
+ * and the panel's read of the target's automation ({@link SeedWritePath.automationRead}).
  *
  * Asked live, a seed of 600 contacts under the standard duplicate rule took
  * six requests more than its dry run, and was counted four, the three calls
@@ -220,7 +228,7 @@ export function seedRequestsEstimate(
  */
 export function seedRunReads(
   template: Pick<SeedTemplate, 'objects' | 'relations'>,
-  path: Pick<SeedWritePath, 'typedFirst' | 'sentBefore'> = {},
+  path: Pick<SeedWritePath, 'typedFirst' | 'sentBefore' | 'automationRead'> = {},
 ): number {
   const names = new Set(template.objects.map((object) => object.objectApiName));
   const pricebook = template.objects.some((object) =>
@@ -241,7 +249,8 @@ export function seedRunReads(
     (pricebook ? STANDARD_PRICEBOOK_READ : 0) +
     (path.typedFirst ? ORG_TYPE_READS : 0) +
     LIMITS_READS +
-    Math.max(0, path.sentBefore ?? 0)
+    Math.max(0, path.sentBefore ?? 0) +
+    Math.max(0, path.automationRead ?? 0)
   );
 }
 
@@ -300,16 +309,19 @@ export function importRequestsEstimate(
  * What the CSV import and the clone from an org send their target besides
  * their records, from their gate on, at most: its limits, which the gate
  * reads ({@link LIMITS_READS}); who the run writes as, for its removal's
- * sweep (`keepRunUser`), the API's root then the identity URL; and, for the
- * clone, each object's describe, read again as it writes (`describes`).
+ * sweep (`keepRunUser`), the API's root then the identity URL; for the
+ * clone, each object's describe, read again as it writes (`describes`); and
+ * the read of the target's automation each sends just before its gate
+ * (`automation`, `automationReadRequests`).
  *
  * A seed's price counted who it writes as and the describes it reads as it
  * writes; the two that write through the import's writer priced their
  * records alone, and neither the gate's read nor who the run writes as was
- * counted anywhere.
+ * counted anywhere. Sync writes through the same writer, and reads the
+ * same of its target from its gate on.
  */
-export function importRunReads(describes = 0): number {
-  return LIMITS_READS + IDENTITY_CALLS + Math.max(0, describes);
+export function importRunReads(describes = 0, automation = 0): number {
+  return LIMITS_READS + IDENTITY_CALLS + Math.max(0, describes) + Math.max(0, automation);
 }
 
 /**
@@ -327,7 +339,11 @@ export function importRunReads(describes = 0): number {
  */
 export function cloneRequestsEstimate(
   objects: ReadonlyArray<{ objectApiName: string; rows: number }>,
-  path: Parameters<typeof importRequestsEstimate>[1] & { secondPass?: ReadonlySet<string> },
+  path: Parameters<typeof importRequestsEstimate>[1] & {
+    secondPass?: ReadonlySet<string>;
+    /** What the read of the target's automation sent just before the gate (`automationReadRequests`). */
+    automationRead?: number;
+  },
 ): number {
   const rows = (name: string): number =>
     objects.find((object) => object.objectApiName === name)?.rows ?? 0;
@@ -342,7 +358,7 @@ export function cloneRequestsEstimate(
         importRequestsEstimate([{ objectApiName: 'OpportunityContactRole', rows: roles }], path)
       : 0) +
     runRequestsEstimate(secondPass) +
-    importRunReads(objects.length)
+    importRunReads(objects.length, path.automationRead)
   );
 }
 
@@ -430,8 +446,9 @@ export const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
  * @param target - The org, as the refusal names it.
  * @param checkpoint - What the checkpoint the seed takes first would hold and
  *   cost, as the port of the checkpoints scoped it; absent when not asked.
- * @param deliverability - The requests its read of whether the target
- *   delivers its emails sent (`deliverabilityPartOf`), counted with the seed's.
+ * @param beside - The requests its read of whether the target delivers its
+ *   emails sent (`deliverabilityPartOf`), and those the lease of its mute
+ *   sends (`mutePartOf`), counted with the seed's.
  * @param path - How its records reach the target, as its requests are
  *   priced: the duplicate rules read with the target's automation, the
  *   partitions of the run, its Bulk API threshold, whether it types the org
@@ -443,7 +460,7 @@ export async function seedStorageGate(
   personObjects: readonly string[],
   target: string,
   checkpoint?: RunCheckpointEstimate,
-  deliverability: Pick<RunRequestParts, 'deliverability'> = {},
+  beside: Pick<RunRequestParts, 'deliverability' | 'mute'> = {},
   path: SeedWritePath = {},
 ): Promise<SeedStorageGate> {
   const plan = { storageBytes: seedStorageBytes(template, personObjects) };
@@ -467,7 +484,7 @@ export async function seedStorageGate(
     {
       run: seedRequestsEstimate(template, path),
       ...checkpointPartOf(checkpoint),
-      ...deliverability,
+      ...beside,
     },
     budget,
   );
@@ -509,6 +526,7 @@ export function seedFitBudgetOf(
   const parts: Partial<RunRequestParts> = api.parts ?? {};
   const others = {
     checkpoint: parts.checkpoint ?? 0,
+    mute: parts.mute ?? 0,
     readBack: parts.readBack ?? 0,
     deliverability: parts.deliverability ?? 0,
     fit: parts.fit ?? 0,

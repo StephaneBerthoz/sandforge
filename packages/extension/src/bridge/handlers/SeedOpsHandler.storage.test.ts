@@ -269,7 +269,8 @@ describe('SeedOpsHandler — storage and locale', () => {
       // 10,000, 10,000 and 5,000 and the query of the rules: 122, where the
       // REST calls a rule would make them take 125; the object list, the
       // describe of Contact, who the run writes as and the limits from its
-      // gate on, read as it writes. The read of whether the org delivers the
+      // gate on, read as it writes, and the five queries of the read of its
+      // automation just before. The read of whether the org delivers the
       // contacts' emails besides.
       orgWithRules(['Account']);
       const template = contactsOf(25_000);
@@ -281,24 +282,26 @@ describe('SeedOpsHandler — storage and locale', () => {
         seedRequestsEstimate(template, { duplicateRules: new Map([['Contact', false]]) }),
       ).toBe(46 + 46 + 29 + 1 + (1 + 1 + 2 + 3));
       expect(refusal()).toContain(
-        'The run takes about 130 API requests (1 of them to read whether the target delivers its emails)',
+        'The run takes about 135 API requests (1 of them to read whether the target delivers its emails)',
       );
     });
 
     it('prices contacts a duplicate rule watches as the REST calls the insert sends them in', async () => {
       // 600 contacts in three calls and the query of the rules, where a job
-      // would take fourteen; the seven reads of the run as it writes, and the
-      // read of the deliverability besides.
+      // would take fourteen; the seven reads of the run as it writes, the
+      // five of the read of its automation, and the read of the
+      // deliverability besides.
       orgWithRules(['Contact']);
 
       await execute(contactsOf(600));
 
-      expect(refusal()).toContain('The run takes about 12 API requests (1 of them');
+      expect(refusal()).toContain('The run takes about 17 API requests (1 of them');
     });
 
     it('prices each partition of a seed the setting partitions as its own job', async () => {
       // Partitions turned on, past 10,000 records, of 5,000 each: five jobs
-      // of twenty-nine calls, where slices of 10,000 make three of 121.
+      // of twenty-nine calls, where slices of 10,000 make three of 121; the
+      // run's reads, the read of its automation's five among them.
       const settings = deps.services as unknown as {
         getSandforgeSetting: ReturnType<typeof vi.fn>;
       };
@@ -309,7 +312,7 @@ describe('SeedOpsHandler — storage and locale', () => {
 
       await execute(contactsOf(25_000));
 
-      expect(refusal()).toContain('The run takes about 154 API requests (1 of them');
+      expect(refusal()).toContain('The run takes about 159 API requests (1 of them');
     });
   });
 

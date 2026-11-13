@@ -19,6 +19,12 @@ import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 /** How long, in milliseconds, a target is given to say who the session is. */
 export const RUN_USER_TIMEOUT_MS = 15_000;
 
+/**
+ * The requests that read sends a connection that has not asked it before
+ * (jsforce's `identity`): the API's root, for the identity URL, then that URL.
+ */
+export const RUN_USER_REQUESTS = 2;
+
 const SF_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
 
 /** How a run asks its target who it writes as: `conn.identity()`. */

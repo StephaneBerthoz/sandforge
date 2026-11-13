@@ -515,6 +515,22 @@ describe('SeedOpsHandler — a seed on the emails of what still runs', () => {
     );
   });
 
+  it('counts the lease of its mute with the seed’s requests, named in the refusal, and assigns nothing', async () => {
+    const org = developerEdition();
+    requestsLeft = 3;
+
+    await execute({ muteAutomation: true });
+
+    const [error] = posted('seed:error');
+    expect(error?.payload).toMatchObject({ code: 'API_BUDGET_EXCEEDED' });
+    // One set to assign: who the run writes as, three reads, the set
+    // assigned and taken back.
+    expect(String(error?.payload.message)).toContain(
+      "7 of them to assign and take back the permission sets that mute the target's automation",
+    );
+    expect(org.writes).toEqual([]);
+  });
+
   it('runs no Apex in a production org: what it sends is asked about', async () => {
     developerEdition();
     orgType = 'Production';

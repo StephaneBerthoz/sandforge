@@ -3,13 +3,10 @@ import { recordWriteHeaders, SF_LIMITS } from '@sandforge/shared';
 import type { RetryConfig } from '../../core/engine/RetryStrategy.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import type { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
-import type {
-  BulkApiConnection,
-  BulkApiExecutorDeps,
-  BulkOperation,
-} from '../../core/engine/BulkApiExecutor.js';
+import type { BulkApiExecutorDeps, BulkOperation } from '../../core/engine/BulkApiExecutor.js';
 import type { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
+import { jsforceBulk } from '../../core/engine/jsforceBulk.js';
 import {
   bulkSaveErrorDetail,
   duplicateRuleMatchIds,
@@ -479,7 +476,7 @@ export class BulkDataWriter {
     const chunkedExecutor = new ChunkedBulkExecutor({ signal: this.deps.signal });
     calls?.sending(objectName, operation, records.length);
     const bulkDeps: BulkApiExecutorDeps = {
-      connection: this.deps.connection as unknown as BulkApiConnection,
+      connection: jsforceBulk(this.deps.connection),
       bulkManager: this.deps.bulkManager,
       onProgress: (processed, total) => {
         this.deps.onProgress(processed, total, `Streaming ${operation} ${objectName}`);
@@ -536,7 +533,7 @@ export class BulkDataWriter {
     if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName);
 
     const bulkDeps: BulkApiExecutorDeps = {
-      connection: this.deps.connection as unknown as BulkApiConnection,
+      connection: jsforceBulk(this.deps.connection),
       bulkManager: this.deps.bulkManager,
       onProgress: (processed, total) => {
         this.deps.onProgress(processed, total, `Bulk ${operation} ${objectName}`);

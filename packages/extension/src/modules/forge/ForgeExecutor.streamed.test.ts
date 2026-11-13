@@ -8,7 +8,7 @@ import { PersonaRegistry } from '../autopilot/SmartAnonymizer.js';
 import { ForgeAnonymizer } from './ForgeAnonymizer.js';
 import { ForgeAbortedError, ForgeExecutor, WHOLE_ORG_WINDOW } from './ForgeExecutor.js';
 import { ForgeRunStore, memoryRunFile, type RunFile } from './ForgeRunStore.js';
-import { wholeOrgCostOf, writePlanOf } from './ForgeRunGate.js';
+import { WHOLE_ORG_SOURCE_READS_PER_OBJECT, wholeOrgCostOf, writePlanOf } from './ForgeRunGate.js';
 import { reconcileInFlight, type InFlightTarget } from './ForgeInFlight.js';
 import { partialSummaryOf } from './interruptedRun.js';
 import { finishedRunStatus } from './runResult.js';
@@ -3065,6 +3065,35 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
       );
     });
 
+    it('tells the gate of its dry run the read-backs of the record types its run sends, as the run’s gate is told them', async () => {
+      // The target gives its accounts and its cases a record type of their
+      // own: a record written without one is read back, one request an
+      // object, and the names of the types once.
+      const typed = {
+        recordTypes: { Account: [recordType(1, true)], Case: [recordType(2, true)] },
+      };
+      const told = async (dryRun: boolean): Promise<ForgeWriteBoundary[]> => {
+        const { schema, graph } = activities();
+        const gates: ForgeWriteBoundary[] = [];
+        await cloneOver(
+          schema,
+          graph,
+          { beforeWrite: async (boundary) => void gates.push(boundary), dryRun },
+          typed,
+        );
+        return gates;
+      };
+
+      const [run] = await told(false);
+      const [dry] = await told(true);
+
+      expect(run?.readBack).toBe(3);
+      // Told none, the dry run priced fewer requests than the run's gate.
+      // It reads the names itself, to say what the target would give: the
+      // run's read of them is counted all the same.
+      expect(dry?.readBack).toBe(run?.readBack);
+    });
+
     it('keeps where the emails on a case stand apart from where the email node does, in the journal', async () => {
       const { schema, graph } = activities();
       const store = ForgeRunStore.open(memoryRunFile());
@@ -3991,11 +4020,10 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
       ]);
 
       // The gate prices the same jobs from what the run told it, and counts
-      // the reads the run said it still sends.
-      const cost = wholeOrgCostOf({
-        plan: writePlanOf(auto?.objects ?? []),
-        measures: auto?.wholeOrg ?? {},
-      });
+      // the reads the run said it still sends, and what it reads besides of
+      // each object it writes.
+      const written = writePlanOf(auto?.objects ?? []);
+      const cost = wholeOrgCostOf({ plan: written, measures: auto?.wholeOrg ?? {} });
       expect(
         Object.fromEntries(cost.objects.map(({ objectApiName, jobs }) => [objectApiName, jobs])),
       ).toEqual(
@@ -4003,7 +4031,10 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
           (auto?.wholeOrg?.writes ?? []).map(({ objectApiName, jobs }) => [objectApiName, jobs]),
         ),
       );
-      expect(cost.sourceRequests).toBe(auto?.wholeOrg?.sourceReads);
+      expect(cost.sourceRequests).toBe(
+        (auto?.wholeOrg?.sourceReads ?? 0) +
+          WHOLE_ORG_SOURCE_READS_PER_OBJECT * written.objects.filter(({ rows }) => rows > 0).length,
+      );
 
       // The target says no rule watches the account: it goes in jobs too,
       // its last window of 2 345 one as well.

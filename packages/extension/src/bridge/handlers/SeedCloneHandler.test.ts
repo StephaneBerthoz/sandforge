@@ -2435,13 +2435,14 @@ describe('SeedCloneHandler', () => {
         // The writer sends 400 contacts as one Bulk API job: opened, sent,
         // closed, its state read eight times, its results three ways. Counted
         // as two REST calls. Then what the run reads as it writes: the limits
-        // its gate reads, who it writes as, the contact's describe.
+        // its gate reads, who it writes as, the contact's describe; and the
+        // read of the target's automation just before, which says it sent 4.
         expect(posted(deps, 'operation:failed')).toEqual([
           expect.objectContaining({
             payload: expect.objectContaining({
               code: 'API_BUDGET_EXCEEDED',
               error: expect.stringContaining(
-                `The run takes about ${14 + 6} API requests, and my-dev-org has 1 of its 15000 daily requests left`,
+                `The run takes about ${14 + 6 + 4} API requests, and my-dev-org has 1 of its 15000 daily requests left`,
               ),
             }),
           }),
@@ -2457,11 +2458,12 @@ describe('SeedCloneHandler', () => {
         );
 
         // The job's fourteen calls, and the two that send its 400 rows again
-        // should the rule refuse them all; the run's reads as it writes.
+        // should the rule refuse them all; the run's reads as it writes, and
+        // the read of the automation's four.
         expect(posted(deps, 'operation:failed')).toEqual([
           expect.objectContaining({
             payload: expect.objectContaining({
-              error: expect.stringContaining(`The run takes about ${14 + 2 + 6} API requests`),
+              error: expect.stringContaining(`The run takes about ${14 + 2 + 6 + 4} API requests`),
             }),
           }),
         ]);
@@ -2471,7 +2473,7 @@ describe('SeedCloneHandler', () => {
         // 400 contacts whose ReportsToId names another contact: written
         // without it, then given it in two updates of 200. Counted the job
         // alone, the clone said 13 where it sends 15; the run's reads as it
-        // writes besides.
+        // writes, and the read of the automation's four, besides.
         oneRequestLeft([]);
         linker.lookupsFilledAfter.mockReturnValue([
           {
@@ -2491,7 +2493,7 @@ describe('SeedCloneHandler', () => {
         expect(posted(deps, 'operation:failed')).toEqual([
           expect.objectContaining({
             payload: expect.objectContaining({
-              error: expect.stringContaining(`The run takes about ${14 + 2 + 6} API requests`),
+              error: expect.stringContaining(`The run takes about ${14 + 2 + 6 + 4} API requests`),
             }),
           }),
         ]);

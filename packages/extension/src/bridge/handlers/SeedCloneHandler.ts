@@ -87,6 +87,7 @@ import { RUN_CANCELLED, contactPointsAudit } from '../../modules/forge/forgeAudi
 import {
   apiBudgetCheckOf,
   apiBudgetRefusal,
+  automationReadRequests,
   checkpointPartOf,
   checkpointScopeStop,
   confirmationApiOf,
@@ -1070,7 +1071,8 @@ export class SeedCloneHandler implements DomainHandler {
       // the Bulk API threshold one job an object, and what a duplicate rule
       // refused in it again by REST, as the automation read above found the
       // rules; then the roles of contacts the platform wrote, given their
-      // fields, and the second pass the preview's order leaves.
+      // fields, the second pass the preview's order leaves, and that read
+      // itself, as it says what it sent: none when the clone sends nothing.
       const api = apiBudgetCheckOf(
         {
           run: cloneRequestsEstimate(
@@ -1080,6 +1082,7 @@ export class SeedCloneHandler implements DomainHandler {
               perCall: this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200),
               duplicateRules: duplicateRulesOf(automationRead),
               ...(previewed ? { secondPass: previewed.secondPass } : {}),
+              automationRead: sentNames.length > 0 ? automationReadRequests(automationRead) : 0,
             },
           ),
           ...checkpointPartOf(checkpoint?.planned),

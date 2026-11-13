@@ -344,7 +344,8 @@ export interface WriteConfirmation {
    * The API requests the run takes, when it would leave the org under a
    * tenth of its daily requests, every part together, and the parts beside
    * the run's own when it has any (`RunRequestParts`: the checkpoint first,
-   * the read-backs, the deliverability read, the fit). Absent otherwise, and
+   * the mute's lease, the read-backs, the deliverability read, the fit).
+   * Absent otherwise, and
    * from a clone of the whole org, whose own part says them near or not
    * (`WholeOrgConfirmation.targetApi`).
    */
@@ -355,6 +356,7 @@ export interface WriteConfirmation {
     parts?: {
       run: number;
       checkpoint?: number;
+      mute?: number;
       readBack?: number;
       deliverability?: number;
       fit?: number;
@@ -450,6 +452,12 @@ export interface WholeOrgConfirmation {
   targetApi: WholeOrgAllowance;
   /** The API requests its reads of the source still take. */
   sourceApi: WholeOrgAllowance;
+  /**
+   * The API requests its discovery sent each org, as the command line counted
+   * them: the objects listed, counted and described before anything else.
+   * Absent where nothing counted them.
+   */
+  discovery?: { source: number; target: number };
   /**
    * The Bulk API 2.0 jobs it sends, the records they carry and the records it
    * sends by REST calls of 200, as its counts say; and the target's daily

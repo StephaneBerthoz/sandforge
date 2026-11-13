@@ -109,7 +109,8 @@ import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
 import { duplicateSetsOfRemoval, seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepParts } from '../src/modules/forge/ForgeRunSweep.js';
 import { withSweepFinds } from '../src/bridge/handlers/removalSweep.js';
-import { keepRunUser } from '../src/modules/sync/runUser.js';
+import { keepRunUser, RUN_USER_REQUESTS } from '../src/modules/sync/runUser.js';
+import { countRequests } from '../src/core/precheck/orgKindLive.js';
 import {
   earlierRunsOf,
   nodeSyncRunCreations,
@@ -1079,6 +1080,23 @@ const UNWRITABLE_WORDS: Readonly<
 };
 
 /**
+ * What a sync's `--json` summary says of its API requests, a dry run's, a
+ * refused run's and a run's alike: what its gate priced the run at against
+ * what the target had left (`estimate`, `verdict`, `remaining`, `max`), once
+ * the gate measured it; and `sent`, every request the command sent the
+ * target, through each connection to it, counted as it sent them. The
+ * summary said nothing of them, and the only way to hold the price to what
+ * a run took was the org's `/limits`, which count every client of the org.
+ * Exported so it can be tested.
+ */
+export function syncApiRequestsJson(
+  priced: SyncWriteCheck['apiRequests'] | undefined,
+  sent: number,
+): Record<string, unknown> {
+  return { ...(priced ?? {}), sent };
+}
+
+/**
  * What the command says of the records a run writes, before its first write
  * or in a simulation: how many per object, the records an earlier run copied
  * left as they are, the data storage they take, and the emails the target's
@@ -1896,6 +1914,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const sourceConn = makeConn(await loadOrg(args.source));
   const targetSession = await loadOrg(args.target);
   const targetConn = makeConn(targetSession);
+  // Every request the command sends the target, from its first read to its
+  // last write, through each connection it opens to it — the run's and the
+  // checkpoint's —, for the summary to say beside what the gate priced, as
+  // a seed's says it: the only other count, the org's `/limits`, is the
+  // whole org's, read a minute or two late. The source's are its own.
+  const requestCounts = [countRequests(targetConn)];
+  const requestsSent = (): number => requestCounts.reduce((sum, sent) => sum + sent(), 0);
 
   // One describe of the target per object, kept for the run.
   const targetFieldsByObject = new Map<string, TargetWriteFields>();
@@ -1974,7 +1999,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         request: args.checkpointFirst,
         session: targetSession,
         org: checkpointOrgOf(targetSession, typed ?? (await typeTarget(targetConn))),
-        connect: makeConn,
+        connect: (org) => {
+          const own = makeConn(org);
+          requestCounts.push(countRequests(own));
+          return own;
+        },
         journalDir: journalDirOf(),
         say,
         own: { runId },
@@ -2123,6 +2152,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       mayMute: !args.muteAutomation,
     },
     confirmAboveRecords: DEFAULT_CONFIRM_ABOVE_RECORDS,
+    // What the command sent the target by the time its gate prices the run,
+    // as counted: what typed, described and counted it, the automation, the
+    // checkpoint's scope and the limits it read, who the run writes as —
+    // which a dry run, keeping no file, does not read, and says it would.
+    sentBefore: () => requestsSent() + (args.dryRun ? RUN_USER_REQUESTS : 0),
     ...(checkpoints
       ? {
           checkpointFirst: {
@@ -2186,9 +2220,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     const said = inTheCommandsWords({ go: false, ...stop });
     return said.go ? stop : { code: said.code, message: said.message };
   };
-  const gateOver = (readAutomation: SyncWriteMeasures['readAutomation']): SyncWriteGate => ({
+  const gateOver = (
+    readAutomation: SyncWriteMeasures['readAutomation'],
+    mutePlan?: SyncWriteMeasures['mutePlan'],
+  ): SyncWriteGate => ({
     measure: async (counted) => {
-      const measured = await measureSyncWrite(counted, { ...measures, readAutomation });
+      const measured = await measureSyncWrite(counted, {
+        ...measures,
+        readAutomation,
+        ...(mutePlan ? { mutePlan } : {}),
+      });
       checkpointFailed = measured.checkpointFailed;
       emailsRefused = measured.runEmails?.gate.stop;
       // Asked as a real run's hold asks it, every reason it would be refused for.
@@ -2202,7 +2243,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       return measured.check;
     },
     hold: async (counted) => {
-      const measured = await measureSyncWrite(counted, { ...measures, readAutomation });
+      const measured = await measureSyncWrite(counted, {
+        ...measures,
+        readAutomation,
+        ...(mutePlan ? { mutePlan } : {}),
+      });
       gateCheck = measured.check;
       log('');
       for (const line of writeCheckLines(measured.check, args.target)) log(line);
@@ -2255,6 +2300,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // the checkpoint it says holds what a real run's would, and what the mute
   // keeps quiet creates nothing there.
   let dryRunMute: Promise<{ planned?: RunMute; refused?: RunRefusal }> | undefined;
+  /** That mute once planned: what its gate prices the lease of a real run at. */
+  let dryRunPlanned: RunMute | undefined;
   const planDryRunMute = (): Promise<{ planned?: RunMute; refused?: RunRefusal }> =>
     (dryRunMute ??= (async () => {
       const objects = config.objects.map((object) => object.objectApiName);
@@ -2266,6 +2313,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           writes: syncRunWrites,
         });
         for (const line of muteLines(planned.muted, args.target)) log(line);
+        dryRunPlanned = planned;
         return { planned };
       } catch (err: unknown) {
         if (!isMuteRefusedError(err)) throw err;
@@ -2281,7 +2329,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   };
   const heldGate: SyncWriteGate =
     muting?.gate ??
-    gateOver(args.dryRun && args.muteAutomation ? readingTheDryRunMute : measures.readAutomation);
+    (args.dryRun && args.muteAutomation
+      ? gateOver(readingTheDryRunMute, () => dryRunPlanned?.plan)
+      : gateOver(measures.readAutomation));
   // The run's file named as its gate lets it write, never before.
   const writeGate: SyncWriteGate = {
     measure: (counted) => heldGate.measure(counted),
@@ -2486,7 +2536,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     const elapsed = Date.now() - t0;
     if (args.json) {
       process.stdout.write(
-        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...dryRunMuteOf(planned), ...(checkpointPlanned ? { checkpoint: checkpointPlanned } : {}), ...wouldBeRefusedJson(wouldBeRefused), elapsedMs: elapsed }, null, 2)}\n`,
+        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...dryRunMuteOf(planned), ...(checkpointPlanned ? { checkpoint: checkpointPlanned } : {}), apiRequests: syncApiRequestsJson(simulation.writeCheck?.apiRequests, requestsSent()), ...wouldBeRefusedJson(wouldBeRefused), elapsedMs: elapsed }, null, 2)}\n`,
       );
       return;
     }
@@ -2581,6 +2631,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             ...(also.length > 0 ? { alsoRefused: also } : {}),
             ...(gateCheck ? { writeCheck: gateCheck } : {}),
             ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}),
+            apiRequests: syncApiRequestsJson(gateCheck?.apiRequests, requestsSent()),
             elapsedMs: Date.now() - t0,
           },
           null,
@@ -2635,6 +2686,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // The checkpoint it took of what it writes before its first write
           // (--checkpoint-first): kept, or deleted once it wrote nothing.
           ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}),
+          // Its requests: what its gate priced, and what it sent.
+          apiRequests: syncApiRequestsJson(gateCheck?.apiRequests, requestsSent()),
           created: {
             runId: kept.runId,
             ...(lastWrittenAt ? { lastWrittenAt } : {}),

@@ -230,6 +230,19 @@ export const CONDITION_REQUESTS_BOUND = 60;
 export const DEFINITION_REQUESTS_BOUND = 20;
 
 /**
+ * The most requests one read sends, of a page of each of its lists: the six
+ * lists — flows, triggers, processes, workflow rules, assignment rules,
+ * duplicate rules —, the start conditions and the definitions within their
+ * bounds ({@link CONDITION_REQUESTS_BOUND}, {@link DEFINITION_REQUESTS_BOUND}),
+ * the custom permissions the user holds, the six reads of the permission sets
+ * that grant a bypass the user lacks, and the validation rules such a set
+ * lifts: their list, and their formulas within the gap reader's bound of
+ * twenty requests (`FORMULA_REQUESTS_BOUND`).
+ */
+export const AUTOMATION_READ_MOST =
+  6 + CONDITION_REQUESTS_BOUND + DEFINITION_REQUESTS_BOUND + 1 + 6 + 1 + 20;
+
+/**
  * Requests in flight at a time. Review compares the two orgs' metadata at the
  * same moment, two describes at a time: four more keep the target under the
  * six requests a Forge pass keeps in flight against an org

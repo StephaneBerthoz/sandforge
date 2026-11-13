@@ -28,6 +28,7 @@ import {
   API_BUDGET_EXCEEDED,
   apiBudgetCheckOf,
   apiBudgetRefusal,
+  automationReadRequests,
   checkpointPartOf,
   checkpointScopeStop,
   confirmationApiOf,
@@ -590,7 +591,8 @@ export class SeedCsvHandler implements DomainHandler {
       // threshold one job, and every row again by REST when a duplicate rule
       // watches the object, or may — the writer sends what a rule refused in
       // the job again so —, as the automation read above found the rules;
-      // and what the run reads of the org as it writes them.
+      // what the run reads of the org as it writes them; and that read
+      // itself, as it says what it sent.
       const api = apiBudgetCheckOf(
         {
           run:
@@ -601,7 +603,7 @@ export class SeedCsvHandler implements DomainHandler {
                 perCall: this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200),
                 duplicateRules: duplicateRulesOf(read),
               },
-            ) + importRunReads(),
+            ) + importRunReads(0, automationReadRequests(read)),
           ...checkpointPartOf(checkpoint?.planned),
           ...deliverabilityPartOf(emailsOfRun.ofRun),
         },

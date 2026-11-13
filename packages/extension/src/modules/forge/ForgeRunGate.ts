@@ -97,7 +97,7 @@ import {
 } from './ForgeBatchStrategy.js';
 import { RUN_CANCELLED } from './forgeAudit.js';
 import { ordersTheWrite } from './stages/ScopeResolver.js';
-import { objectsTheRunWrites } from './TargetAutomationReader.js';
+import { AUTOMATION_READ_MOST, objectsTheRunWrites } from './TargetAutomationReader.js';
 
 /** The volume past which the extension asks before a run writes (`sandforge.safety.confirmAboveRecords`). */
 export const DEFAULT_CONFIRM_ABOVE_RECORDS = 2_000;
@@ -656,6 +656,8 @@ export function runRequestsEstimate(
  * - `run`: its own reads and writes ({@link runRequestsEstimate});
  * - `checkpoint`: the checkpoint it takes first of what it writes, as the
  *   take estimates it (`Checkpoint first`);
+ * - `mute`: the lease of the mute of the target's automation it holds while
+ *   it writes, from its take to its release (`muteLeaseRequests`);
  * - `readBack`: the reads of the record type the target gave the records it
  *   created without one, one an object;
  * - `deliverability`: the read of whether the target delivers its emails,
@@ -669,17 +671,19 @@ export function runRequestsEstimate(
 export interface RunRequestParts {
   run: number;
   checkpoint?: number;
+  mute?: number;
   readBack?: number;
   deliverability?: number;
   fit?: number;
 }
 
 /** The parts of a run's requests beside its own, in the order a refusal names them. */
-const OTHER_PARTS = ['checkpoint', 'readBack', 'deliverability', 'fit'] as const;
+const OTHER_PARTS = ['checkpoint', 'mute', 'readBack', 'deliverability', 'fit'] as const;
 
 /** What each part beside the run's own is for, as a refusal says it. */
 const PART_WORDS: Readonly<Record<(typeof OTHER_PARTS)[number], string>> = {
   checkpoint: 'for the checkpoint taken first',
+  mute: "to assign and take back the permission sets that mute the target's automation",
   readBack: 'to read back the record types the target gave',
   deliverability: 'to read whether the target delivers its emails',
   fit: 'to fit the run to the storage',
@@ -978,6 +982,31 @@ function forgeWriteRequests(objectApiName: string, rows: number, bulk: ForgeBulk
 }
 
 /**
+ * The requests a clone of the whole org sends the target as it writes an
+ * object, besides the writes themselves, as its gate prices them: what it
+ * reads of the target for each object it writes — the records the target
+ * holds by a value, the prices and record types it matches, a describe read
+ * again —, which no count says.
+ *
+ * Asked live (13/11), a clone of 157 records of 19 objects, all by REST,
+ * sent the target about 147 requests past what its dry run had, where its
+ * gate priced 87, the checkpoint first's 64 among them: some 60 the price
+ * left out, about three an object written. Four are taken.
+ */
+export const WHOLE_ORG_TARGET_READS_PER_OBJECT = 4;
+
+/**
+ * The requests a clone of the whole org sends the source as it reads an
+ * object, besides its pages, as its gate prices them: the parents and the
+ * rows its lookups name read again, the prices and record types it matches.
+ *
+ * Asked live (13/11), the same clone sent the source about 68 requests past
+ * what its dry run had, where its gate priced 21, a page an object: some 47
+ * left out, about two and a half an object. Three are taken.
+ */
+export const WHOLE_ORG_SOURCE_READS_PER_OBJECT = 3;
+
+/**
  * The parts of the API requests a Forge run takes of its target once its
  * write gate lets the rows through:
  *
@@ -985,10 +1014,15 @@ function forgeWriteRequests(objectApiName: string, rows: number, bulk: ForgeBulk
  *   going through sObject collections, and as many again for the objects its
  *   second pass updates (`objectsUpdatedAfterInsert`), at most; for a run
  *   that writes through the Bulk API (`bulk`), an object's rows as its
- *   writer sends them, jobs and REST ({@link forgeWritesOf}); and a call per
- *   file it copies (`files`);
+ *   writer sends them, jobs and REST ({@link forgeWritesOf}), and what it
+ *   reads of the target as it writes each object
+ *   ({@link WHOLE_ORG_TARGET_READS_PER_OBJECT}); a call per file it copies
+ *   (`files`); and, from the command line, what the command sent the target
+ *   before the gate, as counted (`sentBefore`);
  * - `checkpoint`: the take of the checkpoint it takes first, as its scope
  *   estimates it;
+ * - `mute`: the lease of the mute it holds while it writes, from its take
+ *   to its release (`muteLeaseRequests`);
  * - `readBack`: the reads of the record types the target gave the records
  *   created without one (`ForgeWriteBoundary.readBack`), at most;
  * - `deliverability`: what the read of whether the target delivers its emails
@@ -1003,12 +1037,21 @@ export function forgeRequestPartsOf(input: {
   updatedAfterInsert?: readonly string[];
   readBack?: number;
   checkpoint?: Pick<RunCheckpointEstimate, 'estimate'>;
+  /** What the lease of the mute it holds while it writes sends (`muteLeaseRequests`). */
+  mute?: number;
   /** What the read of whether the target delivers its emails sent (`deliverabilityPartOf`). */
   deliverability?: number;
   /** How the run sends its writes when it writes through the Bulk API; absent, every one by REST. */
   bulk?: ForgeBulkWrites;
   /** The files the run copies, a call each. */
   files?: number;
+  /**
+   * The requests the command line sent the target before the gate priced
+   * the run, counted as they went (`countRequests`), the read of the
+   * deliverability apart: priced as sent, so that the price is of the whole
+   * run, as the summary's `sent` counts it. Absent, none.
+   */
+  sentBefore?: number;
 }): RunRequestParts {
   const updated = new Set(input.updatedAfterInsert ?? []);
   // The rows a write links by a value the target holds create nothing, and
@@ -1033,6 +1076,9 @@ export function forgeRequestPartsOf(input: {
     .map(({ objectApiName, rows }) => ({ objectApiName, rows }));
   const { bulk } = input;
   const files = input.files !== undefined && input.files > 0 ? input.files : 0;
+  const reads = bulk
+    ? WHOLE_ORG_TARGET_READS_PER_OBJECT * writes.filter(({ rows }) => rows > 0).length
+    : 0;
   return {
     run:
       (bulk
@@ -1041,8 +1087,12 @@ export function forgeRequestPartsOf(input: {
               calls + forgeWriteRequests(objectApiName, rows, bulk),
             0,
           )
-        : runRequestsEstimate([...writes, ...updates])) + files,
+        : runRequestsEstimate([...writes, ...updates])) +
+      files +
+      reads +
+      Math.max(0, input.sentBefore ?? 0),
     ...checkpointPartOf(input.checkpoint),
+    ...(input.mute !== undefined && input.mute > 0 ? { mute: input.mute } : {}),
     ...(input.readBack !== undefined && input.readBack > 0 ? { readBack: input.readBack } : {}),
     ...(input.deliverability !== undefined && input.deliverability > 0
       ? { deliverability: input.deliverability }
@@ -1097,7 +1147,10 @@ const FILES_PER_LINK_QUERY = 200;
 export interface WholeOrgCost {
   /** Per object it writes, its rows and the Bulk API jobs they go in, none when they go by REST; the most first. */
   objects: Array<{ objectApiName: string; rows: number; jobs: number }>;
-  /** The API requests its reads take of the source, those still to come. */
+  /**
+   * The API requests its reads take of the source: those still to come, and
+   * those the command line sent before the gate, when it says them.
+   */
   sourceRequests: number;
   /** The Bulk API batches its jobs take of the target's day, its second pass's among them. */
   bulkBatches: number;
@@ -1110,10 +1163,12 @@ export interface WholeOrgCost {
 /**
  * What a clone of the whole org is about to take besides the target's
  * requests, from the rows its gate counted and what it measured:
- * - of the source, the requests its reads still send ({@link WholeOrgMeasures.sourceReads}):
- *   the counts, the describes and the measure of the emails' text were taken
- *   before the gate, and what the source says it has left, read at the gate,
- *   has them out already;
+ * - of the source, the requests its reads still send ({@link WholeOrgMeasures.sourceReads}),
+ *   and what it reads of the source besides its pages, per object
+ *   ({@link WHOLE_ORG_SOURCE_READS_PER_OBJECT}); the counts, the describes
+ *   and the measure of the emails' text were taken before the gate, and are
+ *   priced as the command line counted them when it says (`sourceSentBefore`),
+ *   for the price to be of the whole run;
  * - of the target's day, a Bulk API batch per {@link ROWS_PER_BULK_BATCH}
  *   records of each job its writes and its second pass send;
  * - of the time, its writes and updates one after another: a job its wait
@@ -1125,6 +1180,8 @@ export function wholeOrgCostOf(input: {
   /** The objects whose rows the run writes a second time. */
   updatedAfterInsert?: readonly string[];
   measures: WholeOrgMeasures;
+  /** What the command line sent the source before the gate, as counted (`countRequests`). */
+  sourceSentBefore?: number;
 }): WholeOrgCost {
   const bulk: ForgeBulkWrites = {
     ...(input.measures.restOnly ? { restOnly: input.measures.restOnly } : {}),
@@ -1146,10 +1203,12 @@ export function wholeOrgCostOf(input: {
       jobs: writes.jobs.length,
     })),
     sourceRequests:
-      input.measures.sourceReads ??
-      objects.reduce((sum, { rows }) => sum + Math.ceil(Math.max(0, rows) / ROWS_PER_READ), 0) +
-        fileCount +
-        Math.ceil(fileCount / FILES_PER_LINK_QUERY),
+      (input.measures.sourceReads ??
+        objects.reduce((sum, { rows }) => sum + Math.ceil(Math.max(0, rows) / ROWS_PER_READ), 0) +
+          fileCount +
+          Math.ceil(fileCount / FILES_PER_LINK_QUERY)) +
+      WHOLE_ORG_SOURCE_READS_PER_OBJECT * objects.filter(({ rows }) => rows > 0).length +
+      Math.max(0, input.sourceSentBefore ?? 0),
     bulkBatches: sent.reduce(
       (sum, { jobs }) =>
         sum + jobs.reduce((batches, job) => batches + Math.ceil(job / ROWS_PER_BULK_BATCH), 0),
@@ -1409,6 +1468,8 @@ export interface WholeOrgBudgetInput {
   sourceBudget: ApiBudget | { unread: string } | undefined;
   /** The source, as a refusal names it. */
   source: string;
+  /** What the command line sent the source before the gate, as counted (`countRequests`). */
+  sourceSentBefore?: number;
 }
 
 /** What Forge's write gate prices a run's requests from: see {@link forgeWriteBudgetOf}. */
@@ -1417,7 +1478,10 @@ export interface ForgeWriteBudgetInput {
   updatedAfterInsert?: readonly string[];
   readBack?: number;
   checkpoint?: RunCheckpointEstimate;
+  mute?: number;
   deliverability?: number;
+  /** What the command line sent the target before the gate, as counted: see {@link forgeRequestPartsOf}. */
+  sentBefore?: number;
   budget: ApiBudget | { unread: string } | undefined;
   target: string;
   wholeOrg?: WholeOrgBudgetInput;
@@ -1491,7 +1555,11 @@ export function forgeWriteBudgetOf(input: ForgeWriteBudgetInput): ForgeWriteBudg
   }
   let wholeOrg: ForgeWriteBudget['wholeOrg'];
   if (whole) {
-    const cost = wholeOrgCostOf({ ...input, measures: whole.measures });
+    const cost = wholeOrgCostOf({
+      ...input,
+      measures: whole.measures,
+      ...(whole.sourceSentBefore !== undefined ? { sourceSentBefore: whole.sourceSentBefore } : {}),
+    });
     const batches =
       cost.bulkBatches > 0
         ? apiBudgetCheckOf(cost.bulkBatches, whole.bulkBatches ?? { unread: BULK_BATCHES_NOT_TOLD })
@@ -1709,6 +1777,13 @@ export interface WholeOrgDryRun {
 }
 
 /**
+ * The most requests a read of whether the target delivers its emails sends
+ * (`readEmailDeliverability`): the line of Apex, and the user's Send Email
+ * when the org refused it.
+ */
+export const DELIVERABILITY_READ_MOST = 2;
+
+/**
  * The dry run of a clone of the whole org: stopped at the write gate once
  * the source is counted, it says what the run would write of each object,
  * what it would take of both orgs, what it leaves out and why, the personal
@@ -1723,11 +1798,30 @@ export interface WholeOrgDryRun {
  * checkpoint first, the target's requests, its Bulk API batches and the
  * source's requests ({@link forgeWriteBudgetOf}).
  *
+ * The target's requests are priced as its run's gate prices them, part by
+ * part: the read-backs of the record types the target gives the records
+ * created without one, which its counts say as a run's do, the lease of the
+ * mute when it is asked, and the read of whether the target delivers its
+ * emails — what that read sent, when the dry run read it, and otherwise the
+ * most it sends ({@link DELIVERABILITY_READ_MOST}), as a run that finds
+ * something left to send an email reads it. Priced without either, the dry
+ * run said fewer requests than its run's gate then held the run to.
+ *
  * @param input.objects - What the run's counts hand its gate, as a run's
  *   (`ForgeWriteBoundary.objects`).
  * @param input.updatedAfterInsert - The objects whose rows its second pass
  *   updates.
  * @param input.checkpoint - The checkpoint first's scope, when it is asked.
+ * @param input.readBack - The reads of the record types the target gave,
+ *   as the run's counts say them (`ForgeWriteBoundary.readBack`).
+ * @param input.mute - What the lease of the mute a run asked to mute holds
+ *   sends (`muteLeaseRequests`).
+ * @param input.deliverability - What the read of whether the target
+ *   delivers its emails sent, when the dry run read it; 0 when nothing that
+ *   still runs sends one.
+ * @param input.sentBefore - What the command line has sent each org, as
+ *   counted, the read of the deliverability apart: read once the dry run has
+ *   read the limits, and priced as sent.
  */
 export async function wholeOrgDryRunOf(input: {
   objects: ForgeWriteBoundary['objects'];
@@ -1736,6 +1830,10 @@ export async function wholeOrgDryRunOf(input: {
   anonymizePII: boolean;
   updatedAfterInsert?: readonly string[];
   checkpoint?: RunCheckpointEstimate;
+  readBack?: number;
+  mute?: number;
+  deliverability?: number;
+  sentBefore?: () => { target: number; source: number };
   target: { org: string; limits: LimitsTransport };
   source: { org: string; limits: LimitsTransport };
 }): Promise<WholeOrgDryRun> {
@@ -1751,10 +1849,15 @@ export async function wholeOrgDryRunOf(input: {
   const storage = storageCheckOf(plan, limits);
   const overStorage = storageRefusal(storage, input.target.org);
   const files = wholeOrgFilesOf(input.measures.files, limits, input.target.org);
+  const sent = input.sentBefore?.();
   const requests = forgeWriteBudgetOf({
     plan,
     ...(input.updatedAfterInsert ? { updatedAfterInsert: input.updatedAfterInsert } : {}),
+    ...(input.readBack !== undefined ? { readBack: input.readBack } : {}),
     ...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
+    ...(input.mute !== undefined ? { mute: input.mute } : {}),
+    deliverability: input.deliverability ?? DELIVERABILITY_READ_MOST,
+    ...(sent ? { sentBefore: sent.target } : {}),
     budget,
     target: input.target.org,
     wholeOrg: {
@@ -1762,6 +1865,7 @@ export async function wholeOrgDryRunOf(input: {
       bulkBatches: 'unread' in limits ? limits : limits.dailyBulkApiBatches,
       sourceBudget,
       source: input.source.org,
+      ...(sent ? { sourceSentBefore: sent.source } : {}),
     },
   });
   const wouldBeRefused = [
@@ -2410,6 +2514,24 @@ export function sendersUnreadOf(
       : []),
   ].filter((reason): reason is string => reason !== undefined);
   return said.length > 0 ? said.join('; ') : undefined;
+}
+
+/**
+ * The requests a read of the target's automation sent its target, as the
+ * read says them (`ForgeTargetAutomation.requests`); for a read that failed
+ * whole — its time ran out, or it threw before it answered —, the most a
+ * read sends (`AUTOMATION_READ_MOST`): what it sent was not told, and
+ * may all have reached the org.
+ *
+ * Read just before a run's gate, as the panel's Seed, CSV import and clone
+ * from an org read it, they were priced nowhere: on the command line, where
+ * every request is counted as it goes, a seed of 600 contacts sent five for
+ * that read.
+ */
+export function automationReadRequests(read: ForgeTargetAutomation | { unread: string }): number {
+  return 'requests' in read && typeof read.requests === 'number'
+    ? Math.max(0, read.requests)
+    : AUTOMATION_READ_MOST;
 }
 
 /**

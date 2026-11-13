@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { DATA_STORAGE_NOT_TOLD, type ForgeTargetAutomation } from '@sandforge/shared';
 import type { WriteConfirmation } from '../../core/precheck/ProductionGuard.js';
 import { API_BUDGET_EXCEEDED, readApiBudget, readDataStorage } from '../forge/ForgeRunGate.js';
+import { AUTOMATION_READ_MOST } from '../forge/TargetAutomationReader.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -49,6 +50,13 @@ const WELCOME_FLOW: ForgeTargetAutomation = {
 };
 
 const QUIET: ForgeTargetAutomation = { ...WELCOME_FLOW, objects: [] };
+
+/**
+ * What a run reads of the target from its gate on, beside its writes, in its
+ * own part: who it writes as (2), the limits (3), and the read of its
+ * automation, which says it sent 4.
+ */
+const GATE_READS = 2 + 3 + QUIET.requests;
 
 /** What a gate says of the emails of an org that withholds them: read, and no accord needed. */
 const WITHHELD = { accepted: false, deliverability: 'withheld' } as const;
@@ -156,7 +164,7 @@ describe('measureSyncWrite', () => {
     });
     expect(check.apiRequests).toEqual({
       verdict: 'fits',
-      estimate: 1,
+      estimate: 1 + GATE_READS,
       remaining: 4_998_432,
       max: 5_000_000,
     });
@@ -409,9 +417,13 @@ describe('the API requests of a run, priced as its writer sends them', () => {
     objects: SyncCountedWrite['objects'],
     overrides: Partial<SyncWriteMeasures> = {},
   ): Promise<number> => {
-    // The run's own part: an automation that could not be read has its
-    // deliverability read besides.
-    const { api } = await measureSyncWrite(counted(objects), measures(overrides));
+    // The run's own part, its writes alone: an automation that could not be
+    // read has its deliverability read besides, and a command line that has
+    // sent the target nothing before its gate prices no read beside them.
+    const { api } = await measureSyncWrite(
+      counted(objects),
+      measures({ sentBefore: () => 0, ...overrides }),
+    );
     return api.parts?.run ?? api.estimate;
   };
 
@@ -451,6 +463,58 @@ describe('the API requests of a run, priced as its writer sends them', () => {
     const accounts = [{ objectApiName: 'Account', operation: 'insert' as const, rows: 300 }];
     expect(await estimateOf(accounts, { bulkThreshold: 500 })).toBe(2);
     expect(await estimateOf(accounts)).toBe(3 + 7 + 3);
+  });
+});
+
+describe('what a run reads of the target, priced beside its writes', () => {
+  const contacts = counted([{ objectApiName: 'Contact', operation: 'insert', rows: 150 }]);
+
+  it('prices who the run writes as, the limits from its gate on and the read of its automation, as that read says it sent them', async () => {
+    // One REST call of 150 contacts; who the run writes as for the sweep of
+    // its removal (the API's root, then the identity URL), the gate's read
+    // of the limits, its read of the daily requests alone, its read of the
+    // day's emails; and the four requests the read of the automation said.
+    // Its call alone was priced.
+    const { api } = await measureSyncWrite(contacts, measures());
+    expect(api.estimate).toBe(1 + 2 + 3 + 4);
+    expect(api).not.toHaveProperty('parts');
+
+    // A read that failed whole, which said nothing of what it sent: priced
+    // at the most a read sends.
+    const failed = await measureSyncWrite(
+      contacts,
+      measures({ readAutomation: async () => Promise.reject(new Error('timed out')) }),
+    );
+    expect(failed.api.parts).toMatchObject({ run: 1 + 2 + 3 + AUTOMATION_READ_MOST });
+  });
+
+  it('prices, on the command line, every request it sent so far in their place, the read of the deliverability apart', async () => {
+    // Sent so far: what typed the org, described and counted, the read of
+    // the automation, the limits, who it writes as — 31 —, the two of the
+    // deliverability among them, which keep their own part.
+    const senders = measures({
+      readAutomation: async () => WELCOME_FLOW,
+      readDeliverability: async () => ({ reading: { level: 'all' }, requests: 2 }),
+      emails: { target: 'TRAP', accepted: true },
+      sentBefore: () => 31,
+    });
+    const { api } = await measureSyncWrite(
+      counted([{ objectApiName: 'Contact', operation: 'insert', rows: 5 }]),
+      senders,
+    );
+    expect(api.parts).toEqual({ run: 1 + (31 - 2), deliverability: 2 });
+    expect(api.estimate).toBe(1 + 31);
+  });
+
+  it('prices the lease of the mute the run holds in a part of its own: who the run writes as, three reads, each set assigned and taken back', async () => {
+    const plan = {
+      assign: [{ permissionSet: 'PS_Bypass', label: 'Bypass', permissions: ['Contact_Bypass'] }],
+    };
+    const { api } = await measureSyncWrite(contacts, measures({ mutePlan: () => plan }));
+    expect(api.parts).toEqual({ run: 1 + 2 + 3 + 4, mute: 2 + 3 + 2 });
+    // A mute that assigns nothing asks the org nothing.
+    const none = await measureSyncWrite(contacts, measures({ mutePlan: () => ({ assign: [] }) }));
+    expect(none.api).not.toHaveProperty('parts');
   });
 });
 
@@ -825,9 +889,10 @@ describe('gateSyncWrite', () => {
       }),
     );
 
-    // 1,000 contacts in one Bulk API job of sixteen calls, no rule watching them.
+    // 1,000 contacts in one Bulk API job of sixteen calls, no rule watching
+    // them, and the run's reads of the target.
     expect(measured.check).toMatchObject({
-      apiRequests: { verdict: 'exceeds', estimate: 16, remaining: 4, max: 15_000 },
+      apiRequests: { verdict: 'exceeds', estimate: 16 + GATE_READS, remaining: 4, max: 15_000 },
       verdict: 'refused',
     });
     for (const policy of ['ask', 'unattended', 'refuse'] as const) {
@@ -855,9 +920,9 @@ describe('gateSyncWrite', () => {
 
     await gateSyncWrite(measured, { policy: 'ask', org: 'TRAP', orgTier: 'development', confirm });
 
-    // 3,000 contacts in one job of twenty-two calls.
+    // 3,000 contacts in one job of twenty-two calls, and the run's reads.
     expect(confirm.mock.calls[0][0]).toMatchObject({
-      apiRequests: { estimate: 22, remaining: 1_000, max: 15_000 },
+      apiRequests: { estimate: 22 + GATE_READS, remaining: 1_000, max: 15_000 },
     });
   });
 
@@ -961,6 +1026,38 @@ describe('mutingSyncWriteGate', () => {
     expect(muted).toMatchObject({ state: 'muted', assigned: ['PS_Bypass'], released: true });
     expect(org.assignments()).toEqual([]);
     done();
+  });
+
+  it('hands its gate the mute it planned, whose lease the run’s requests count', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sync-mute-'));
+    const org = memoryPermissionOrg({ sets: [{ id: SET, name: 'PS_Bypass' }] });
+    const planned: Array<SyncWriteMeasures['mutePlan']> = [];
+    const muting = mutingSyncWriteGate(
+      (read, mutePlan) => {
+        planned.push(mutePlan);
+        return syncWriteGate(measures({ readAutomation: read, mutePlan }), {
+          policy: 'refuse',
+          org: 'TRAP',
+          orgTier: 'development',
+        });
+      },
+      async () => BYPASSED,
+      (read) =>
+        muteForRun(async () => muteOrgOf(org.connection), read, {
+          dir,
+          renewEveryMs: 0,
+          writes: syncRunWrites,
+        }),
+      'run-1',
+      { target: 'TRAP' },
+    );
+    // Not planned yet: no lease to price.
+    expect(planned[0]?.()).toBeUndefined();
+
+    expect((await muting.gate.hold(write)).answer).toMatchObject({ go: true });
+    expect(planned[0]?.()?.assign.map((a) => a.permissionSet)).toEqual(['PS_Bypass']);
+    await muting.release();
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it('stops the run at its gate when the mute is refused, nothing assigned', async () => {
