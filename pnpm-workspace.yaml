@@ -70,10 +70,10 @@ overrides:
   # vsce's publishing client both use, and typed-rest-client 2.x pins it to
   # 6.15.1 exactly, so no parent range can lift it. 6.16.0 closes
   # GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx and GHSA-q8mj-m7cp-5q26, 6.16.1
-  # GHSA-6pq8-jhm2-2vcw, and both keep the 6.x API. Held at 6.16.1 exactly:
-  # on 2026-10-30 every later 6.x (6.16.2, 6.17.0, 6.17.1) was under four days
-  # old; widen to '>=6.16.1 <7' once they have aged.
-  'qs@>=2.2.5 <6.16.1': '6.16.1'
+  # GHSA-6pq8-jhm2-2vcw, and both keep the 6.x API. Held at 6.16.1 exactly
+  # while every later 6.x was under four days old (2026-10-30); widened once
+  # they had aged (6.17.1, 2026-10-28).
+  'qs@>=2.2.5 <6.16.1': '>=6.16.1 <7'
   # Shipped: zod validates the extension's inputs, and the Anthropic SDK it
   # vendors takes it as a peer. Below 4.6.6, GHSA-mrhx-c7xc-m3w5 (high) lets
   # an oversized constrained collection exhaust memory while it is validated.
@@ -101,11 +101,13 @@ overrides:
   # Dev only, through ajv in Stryker. 3.1.9 closes the four URI parsing
   # advisories (Dependabot #82-#85) and keeps the 3.x API.
   'fast-uri@<3.1.9': '>=3.1.9 <4'
-  # Not overridden, on purpose: @azure/msal-node (Dependabot #90) arrives only
-  # through @azure/identity in vsce, whose latest release (4.14.0) still asks for
-  # msal-node ^6, and the fix exists only in 7.1.0. The advisory concerns the
-  # authorization code flow, which publishing never takes: vsce signs in with a
-  # personal access token. Dev only, not in the VSIX.
+  # Dev only, not in the VSIX: @azure/msal-node (Dependabot #90) arrives only
+  # through @azure/identity in vsce, and its fix exists only in 7.1.0, which
+  # @azure/identity takes from 4.14.1 (^7.1.0). vsce 4 asks for ^4.13.2, so
+  # the lift stays in its range. The advisory concerns the authorization code
+  # flow, which publishing never takes: vsce signs in with a personal access
+  # token.
+  '@azure/identity@>=4.0.0 <4.14.1': '>=4.14.1 <5'
   # Dev only: postcss, css-tree, magicast and @tailwindcss/node read source maps
   # at build time, and esbuild bundles none of them. 1.2.2 closes
   # GHSA-68fv-2mgg-jv7q (event-loop denial of service through indexed
