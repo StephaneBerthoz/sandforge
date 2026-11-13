@@ -5,6 +5,16 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.78.1] - 2026-11-13
+
+A whole-org clone cut once its Bulk API job closed resumes without writing a record twice, and its removal takes what the job wrote.
+
+### Fixed
+
+- **Forge**: a whole-org clone killed once its Bulk API job closed resumes, each record the job wrote linked to its row, none written twice.
+- **Forge**: removing such a run takes what its job wrote after the kill, and the feed items Salesforce made under its last batch.
+- **Forge**: a resume held back by a Bulk API job still open names the job, its state and when to try again, in the panel too.
+
 ## [1.78.0] - 2026-11-13
 
 Forge clones a whole org, DataOps Cleanup empties objects or a whole org, and runs get past inactive owners and Salesforce limits.
