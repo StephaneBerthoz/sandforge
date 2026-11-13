@@ -2400,8 +2400,21 @@ const SHIPPED_ROOTS = [
   { root: WEBVIEW_ROOT, minFiles: 250 },
 ];
 
-/** The three packages that premise covers. A fourth would be inlined the same way, and read by nothing here. */
-const WORKSPACE_PACKAGES = ['@sandforge/shared', '@sandforge/webview', 'sandforge'];
+/**
+ * The packages that premise covers. Another would be inlined the same way, and
+ * read by nothing here. `@sandforge/cli` holds no source: it is the manifest
+ * and the README of the npm package that bundles `packages/extension/cli/`,
+ * which nothing shipped imports, and the scan holds it to that.
+ */
+const WORKSPACE_PACKAGES = [
+  '@sandforge/cli',
+  '@sandforge/shared',
+  '@sandforge/webview',
+  'sandforge',
+];
+
+/** All `packages/cli` holds, but what its build writes and what pnpm links. */
+const NPM_PACKAGE_FILES = ['README.md', 'package.json'];
 
 /**
  * Where a tool definition can sit as data rather than as code: beside the
@@ -2989,8 +3002,16 @@ function assertScanReadsShippedCode(scan) {
   assert.deepEqual(
     workspacePackages,
     WORKSPACE_PACKAGES,
-    'the workspace no longer holds the three packages this scan is scoped to — a new one is ' +
+    'the workspace no longer holds the packages this scan is scoped to — a new one is ' +
       'inlined into dist/extension.js and read by nothing here; add its sources to SHIPPED_ROOTS',
+  );
+  assert.deepEqual(
+    readdirSync(join(packagesDir, 'cli'))
+      .filter((name) => name !== 'dist' && name !== 'node_modules')
+      .sort(),
+    NPM_PACKAGE_FILES,
+    'packages/cli holds more than the manifest and README of the npm package: a source there ' +
+      'could be inlined into dist/extension.js and read by nothing here',
   );
 
   // Coverage is judged by what shipped code loads, at any depth: every relative

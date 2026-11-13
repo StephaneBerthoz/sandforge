@@ -25,7 +25,7 @@ fi
 echo "Bumping to: $NEW_VERSION"
 
 # Update all package.json files
-for PKG in package.json packages/shared/package.json packages/extension/package.json packages/webview/package.json; do
+for PKG in package.json packages/shared/package.json packages/extension/package.json packages/webview/package.json packages/cli/package.json; do
   node -e "
     const fs = require('fs');
     const pkg = JSON.parse(fs.readFileSync('$PKG', 'utf8'));

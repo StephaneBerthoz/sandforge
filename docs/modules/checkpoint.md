@@ -219,7 +219,7 @@ On disk, the take says before it runs about what it will take: the file that lis
 
 ## From the command line
 
-`sandforge-checkpoint` takes, lists, previews, rewinds, undoes, deletes, exports and imports checkpoints without the editor, over the same store, from a checkout of this repository (`pnpm install` and `pnpm build:shared` first):
+`sandforge-checkpoint` takes, lists, previews, rewinds, undoes, deletes, exports and imports checkpoints without the editor, over the same store, from the `sandforge` npm package (`npx sandforge checkpoint …`) or from a checkout of this repository (`pnpm install` and `pnpm build:shared` first):
 
 | Command   | What it does                                                                                                                                                                                                                                                  |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

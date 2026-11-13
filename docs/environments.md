@@ -8,6 +8,8 @@ This version applies **seed resources** -- records Seed generates, from a built-
 
 ## Run it
 
+Without a checkout, the `sandforge` npm package runs it with Node.js 20.19 or later, from your project's folder, each org logged in to the Salesforce CLI (`sf`): `npx sandforge env plan --org pool-1`. Installed with `npm install -g sandforge`, it is the command `sandforge-env`, the name the sessions below give it.
+
 From the root of a checkout of this repository, once `pnpm install` and `pnpm build:shared` have run, with each org logged in to the Salesforce CLI (`sf`), which holds its credentials:
 
 ```bash

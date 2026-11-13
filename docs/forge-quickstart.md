@@ -149,7 +149,7 @@ You type the org's name to go on, and Production Guard refuses a production org.
 
 When you're scripting (CI, batch sandbox refresh), skip the wizard.
 
-Forge's command line is two TypeScript scripts in this repository, `sandforge-clone` and `sandforge-cleanup`, not a published package: there is no `sandforge` command to install. Run them from the root of a checkout, after installing its dependencies and building the shared package they import:
+Forge's command line is two TypeScript scripts in this repository, `sandforge-clone` and `sandforge-cleanup`. The `sandforge` npm package runs them with Node.js 20.19 or later and no checkout: `npx sandforge clone --help`, `npx sandforge cleanup --help`, and each command below with `npx sandforge clone` or `npx sandforge cleanup` in place of `pnpm exec tsx packages/extension/cli/sandforge-clone.ts` or `sandforge-cleanup.ts`. From a checkout, run them from its root, after installing its dependencies and building the shared package they import:
 
 ```bash
 git clone https://github.com/StephaneBerthoz/sandforge.git

@@ -1,0 +1,145 @@
+name: npm package
+
+# The `sandforge` npm package: the command-line scripts, bundled, for
+# `npx sandforge <command>` and `npx -y sandforge mcp` without a checkout.
+#
+# A release tag publishes it at the tag's version, by npm trusted publishing:
+# the run proves who it is to npm with the OIDC token GitHub issues it for this
+# workflow, and no npm credential exists, in the repository or its settings.
+# npm attaches the provenance of the build to the version. Dispatched by hand,
+# it builds and checks the package on every Node it supports, and publishes
+# only when asked to.
+#
+# On npmjs.com the package names this repository, this file (npm-publish.yml)
+# and the environment `npm` as its trusted publisher; the environment is where
+# a maintainer approves each publish.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to npm once every check has passed (otherwise build and check only)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # The package runs on the Node of whoever types `npx sandforge`, often older
+  # than the repository's: each leg builds it on the repository's Node, which
+  # pnpm 11 needs, then runs the checks of what was built on its own.
+  bin:
+    name: bin (Node ${{ matrix.bin-node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor of the package's engines (NODE_FLOOR in
+        # scripts/npm-package.mjs, which its gate holds this list to), the Node
+        # the Salesforce CLI asks for, and the repository's.
+        bin-node: ['20.19', '22', '24']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the package
+        run: node scripts/npm-package.mjs build
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.bin-node }}
+
+      - name: Check the package on this Node
+        run: node scripts/npm-package.mjs check packages/cli/dist
+
+  publish:
+    needs: bin
+    if: ${{ github.event_name == 'push' || inputs.publish }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm
+    permissions:
+      contents: read
+      # The OIDC token npm exchanges for the right to publish this package.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # A tag pushed on a commit whose version is another would publish that
+      # other version under the tag's name.
+      - name: The tag is the version of the package
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          VERSION=$(node -p "require('./packages/cli/package.json').version")
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, package at $VERSION: refusing to publish"
+            exit 1
+          fi
+
+      # Trusted publishing arrived in npm 11.5.1; an older npm would ask for a
+      # token this workflow does not have, and fail later and less clearly.
+      - name: npm publishes by trusted publishing
+        run: |
+          NPM_VERSION=$(npm --version)
+          node -e '
+            const [major, minor, patch] = process.argv[1].split(".").map(Number);
+            process.exit(major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1))) ? 0 : 1);
+          ' "$NPM_VERSION" || {
+            echo "::error::npm $NPM_VERSION is older than 11.5.1, the first to publish by trusted publishing"
+            exit 1
+          }
+
+      - name: Build the package
+        run: node scripts/npm-package.mjs build
+
+      - name: Check the package
+        run: node scripts/npm-package.mjs check packages/cli/dist
+
+      # The client names live outside the repository and are not here: this
+      # reads the tracked tree for real org identifiers. The names are checked
+      # where the release is prepared, by pre-publish-check.sh and by the
+      # package check run on that machine.
+      - name: Check the tracked tree for org identifiers
+        run: node scripts/check-confidential.mjs
+
+      # npm versions are immutable: a version already there (published by hand,
+      # or by an earlier run of this workflow) is left as it is.
+      - name: Publish to npm
+        run: |
+          VERSION=$(node -p "require('./packages/cli/dist/package.json').version")
+          if npm view "sandforge@$VERSION" version > /dev/null 2>&1; then
+            echo "::notice::sandforge $VERSION is already on npm: nothing to publish"
+            exit 0
+          fi
+          npm publish packages/cli/dist --provenance --access public

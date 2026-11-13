@@ -2,17 +2,23 @@
 
 `sandforge-mcp` gives an AI agent sixteen tools over the Model Context Protocol: Seed's templates and runs, Forge's clone of a record, the removal of a Seed, Forge or Sync run, Checkpoints -- take, list, preview, rewind, undo, delete --, the emptying of objects or of a whole org -- preview, run, undo -- and the [environments](environments.md) a `sandforge.yaml` declares -- plan, apply, destroy. "Fill this scratch org to test the Case flow", "clone the records of this bug", "take back the last run", "rewind the org to before the tests", "empty the cases of this sandbox", "put in this sandbox the data the repository declares": each is one call, and each call runs the [command-line script](../ci-examples/README.md) of this repository that does the same, with its `--json`, so every guard of that script holds.
 
-It is a script of this repository, run from a checkout, as the command-line scripts are: it is not in the VSIX. **The extension itself gives the model no tool**: nothing it ships hands the model of its AI Assistant a tool or acts on a tool call, which [`product-claims.test.mjs`](product-claims.test.mjs) holds against everything the extension ships (its test "anchor: nothing shipped gives the model tools or acts on a tool call"), and `scripts/mcp-server-not-shipped.test.mjs` checks that the files vsce packages into the VSIX hold none of `cli/`.
+It is a script of this repository, as the command-line scripts are, published with them as the `sandforge` npm package and run from a checkout as well: it is not in the VSIX. **The extension itself gives the model no tool**: nothing it ships hands the model of its AI Assistant a tool or acts on a tool call, which [`product-claims.test.mjs`](product-claims.test.mjs) holds against everything the extension ships (its test "anchor: nothing shipped gives the model tools or acts on a tool call"), and `scripts/mcp-server-not-shipped.test.mjs` checks that the files vsce packages into the VSIX hold none of `cli/`.
 
 ## Add it to Claude Code
 
-From the repository root of a checkout, once `pnpm install` and `pnpm build:shared` have run:
+From the `sandforge` npm package, with Node.js 20.19 or later and no checkout:
+
+```sh
+claude mcp add sandforge -- npx -y sandforge mcp
+```
+
+Or from the repository root of a checkout, once `pnpm install` and `pnpm build:shared` have run:
 
 ```sh
 claude mcp add sandforge -- pnpm exec tsx packages/extension/cli/sandforge-mcp.ts
 ```
 
-The scope is the checkout's own (`local`, Claude Code's default), and the server starts in it. It reaches the orgs as the scripts do, through the `sf` CLI: each tool names an org by its alias, as `sf alias list` shows them. With `-e SANDFORGE_JOURNAL_DIR=<dir>` before the `--`, the scripts keep their run files, journals and checkpoints in `<dir>` rather than in `~/.sandforge`, as each script's `--help` says. Any other client that starts an MCP server on stdio runs the same command, from the same folder.
+The scope is the folder's own, where `claude mcp add` ran (`local`, Claude Code's default), and the server starts in it. It reaches the orgs as the scripts do, through the `sf` CLI: each tool names an org by its alias, as `sf alias list` shows them. With `-e SANDFORGE_JOURNAL_DIR=<dir>` before the `--`, the scripts keep their run files, journals and checkpoints in `<dir>` rather than in `~/.sandforge`, as each script's `--help` says. Any other client that starts an MCP server on stdio runs the same command, from the same folder.
 
 ## The tools
 

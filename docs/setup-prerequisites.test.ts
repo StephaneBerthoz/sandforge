@@ -28,7 +28,7 @@ const GETTING_STARTED = read('docs/getting-started.md');
 
 /** Each `sandforge-cleanup.ts` call in the guide, with its continued lines. */
 const cleanupCalls = (source: string): string[] =>
-  [...source.matchAll(/sandforge-cleanup\.ts(?:[^\n]*\\\n)*[^\n]*/g)].map(([call]) => call);
+  [...source.matchAll(/cli\/sandforge-cleanup\.ts(?:[^\n]*\\\n)*[^\n]*/g)].map(([call]) => call);
 
 describe('docs/forge-quickstart.md', () => {
   it('lists the checkout steps the command-line scripts need', () => {

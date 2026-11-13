@@ -113,7 +113,7 @@ With an org that holds real records -- a UAT or partial-copy sandbox -- and one 
 5. Click **Review & Execute**, then **Simulate** to see what the run would write and what the target would refuse, without writing anything (see [First Steps, Safely](#first-steps-safely))
 6. Click **Execute Forge** — records land in your sandbox with their IDs remapped as they are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it
 
-See the [Forge Quickstart](forge-quickstart.md) for the full walkthrough. It also covers the command-line clone and cleanup: two TypeScript scripts, not an installed command, run with `pnpm exec tsx` from a checkout of this repository once `pnpm install` and `pnpm build:shared` have run. The eight other scripts -- Seed from a template, Sync, Autopilot, backups, masking, Frozen Dataset, Compare and Monitor -- are listed in [Command line & CI](../ci-examples/README.md).
+See the [Forge Quickstart](forge-quickstart.md) for the full walkthrough. It also covers the command-line clone and cleanup: two TypeScript scripts, run with `npx sandforge clone` and `npx sandforge cleanup` from the `sandforge` npm package, or with `pnpm exec tsx` from a checkout of this repository once `pnpm install` and `pnpm build:shared` have run. The eight other scripts -- Seed from a template, Sync, Autopilot, backups, masking, Frozen Dataset, Compare and Monitor -- are listed in [Command line & CI](../ci-examples/README.md).
 
 ---
 

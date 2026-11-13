@@ -155,7 +155,7 @@ jobs:
         if: ${{ !inputs.publish_only }}
         run: |
           git add package.json packages/shared/package.json packages/extension/package.json \
-            packages/webview/package.json README.md packages/extension/README.md pnpm-lock.yaml
+            packages/webview/package.json packages/cli/package.json README.md packages/extension/README.md pnpm-lock.yaml
           UNEXPECTED=$(git status --porcelain | grep -v '^[MA] ' || true)
           if [ -n "$UNEXPECTED" ]; then
             echo "::error::the tree holds changes the version bump did not make — refusing to commit them"

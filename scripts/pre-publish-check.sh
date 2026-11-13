@@ -27,9 +27,10 @@ ROOT_VER=$(node -p "require('./package.json').version")
 SHARED_VER=$(node -p "require('./packages/shared/package.json').version")
 EXT_VER=$(node -p "require('./packages/extension/package.json').version")
 WEB_VER=$(node -p "require('./packages/webview/package.json').version")
+CLI_VER=$(node -p "require('./packages/cli/package.json').version")
 
-if [[ "$ROOT_VER" != "$SHARED_VER" || "$ROOT_VER" != "$EXT_VER" || "$ROOT_VER" != "$WEB_VER" ]]; then
-  echo "FAIL: Version mismatch — root=$ROOT_VER shared=$SHARED_VER ext=$EXT_VER web=$WEB_VER"
+if [[ "$ROOT_VER" != "$SHARED_VER" || "$ROOT_VER" != "$EXT_VER" || "$ROOT_VER" != "$WEB_VER" || "$ROOT_VER" != "$CLI_VER" ]]; then
+  echo "FAIL: Version mismatch — root=$ROOT_VER shared=$SHARED_VER ext=$EXT_VER web=$WEB_VER cli=$CLI_VER"
   ERRORS=$((ERRORS + 1))
 else
   echo "PASS: Version consistent ($ROOT_VER)"

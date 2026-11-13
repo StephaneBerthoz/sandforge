@@ -1,0 +1,7 @@
+{
+  "name": "@sandforge/cli",
+  "version": "1.78.1",
+  "private": true,
+  "description": "The sandforge npm package: the command-line scripts of packages/extension/cli, bundled by scripts/npm-package.mjs into dist/ and published from there",
+  "license": "MIT"
+}
