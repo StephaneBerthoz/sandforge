@@ -48,6 +48,10 @@
  *   with it, in the org's words (`DELETE_FAILED`): the order must be a draft
  *   first (seen live, an account of a clone a rewind deleted). So is the
  *   activated order itself, in words of its own (P8).
+ * - An account an entitlement names is refused its delete (`DELETE_FAILED`,
+ *   "associated with the following entitlements"), though the account's
+ *   describe flags the lookup as one its delete takes along: seen live, an
+ *   emptying of a scratch org, 13/11.
  * - An update that points a lookup at a record in the recycle bin is refused,
  *   `ENTITY_IS_DELETED` "entity is deleted", the record left as it was: a
  *   contact's account, a contact's `ReportsToId` and an account's parent,
@@ -1079,6 +1083,17 @@ export class MemoryRemovalOrg implements RemovalOrg {
       return PERSON_CONTACT_REFUSAL;
     }
     const taken = this.cascadeOf(objectApiName, id);
+    // An account holding an entitlement is refused, whatever its describe
+    // says of the lookup, which it flags as taking the entitlement along.
+    const entitled = taken.find((held) => held.objectApiName === 'Entitlement');
+    if (entitled && objectApiName === 'Account') {
+      return {
+        statusCode: 'DELETE_FAILED',
+        message:
+          `Your attempt to delete ${id} could not be completed because it is associated ` +
+          `with the following entitlements.: ${String(entitled.row.Id)}`,
+      };
+    }
     const active = taken.find(
       (held) => held.objectApiName === 'Order' && held.row.Status === 'Activated',
     );

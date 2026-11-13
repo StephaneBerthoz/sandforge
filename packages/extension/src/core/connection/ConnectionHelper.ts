@@ -8,6 +8,7 @@ import { ConnectionPool } from './ConnectionPool';
 import { CircuitBreaker } from './CircuitBreaker';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
 import { isAuthError } from '../common/isAuthError.js';
+import { connectionCheck } from './connectionChecks.js';
 import { OrgConnectionError } from './OrgConnectionError.js';
 import { sfChildEnv } from './sfEnvironment.js';
 import { expiredScratchDate } from '@sandforge/shared';
@@ -475,10 +476,8 @@ export async function getJsforceConnection(
   const start = Date.now();
   const identityTimeoutMessage = `identity check did not answer within ${IDENTITY_TIMEOUT_MS / 1000} s`;
   try {
-    const identity = await withDeadline(
-      conn.identity(),
-      IDENTITY_TIMEOUT_MS,
-      identityTimeoutMessage,
+    const identity = await connectionCheck(conn, () =>
+      withDeadline(conn.identity(), IDENTITY_TIMEOUT_MS, identityTimeoutMessage),
     );
     const latency = Date.now() - start;
     circuitBreaker.recordSuccess();
@@ -523,10 +522,8 @@ export async function getJsforceConnection(
           accessToken: fresh.accessToken,
           version: apiVersion,
         });
-        const refreshedIdentity = await withDeadline(
-          refreshedConn.identity(),
-          IDENTITY_TIMEOUT_MS,
-          identityTimeoutMessage,
+        const refreshedIdentity = await connectionCheck(refreshedConn, () =>
+          withDeadline(refreshedConn.identity(), IDENTITY_TIMEOUT_MS, identityTimeoutMessage),
         );
 
         // Persist only AFTER the new credentials have been validated — a CLI

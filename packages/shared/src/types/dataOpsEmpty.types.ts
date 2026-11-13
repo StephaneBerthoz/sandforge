@@ -197,8 +197,19 @@ export type DataOpsEmptyBudgetCheck =
 export interface DataOpsEmptyCost {
   /** From the dry run to the last delete: the dry run's read of the org, the run's own, its passes. */
   apiRequests: number;
-  /** Those requests apart: one read of the org, how many reads it holds, the passes', and a margin. */
-  requests?: { reads: number; readings: 1 | 2; passes: number; margin: number };
+  /**
+   * Those requests apart: one read of the org, how many reads it holds, the
+   * passes', a margin, connecting the org and checking each read's
+   * connection, and the lease of the run's mute when it mutes.
+   */
+  requests?: {
+    reads: number;
+    readings: 1 | 2;
+    passes: number;
+    margin: number;
+    connecting?: number;
+    mute?: number;
+  };
   seconds: number;
   bulkBatches: number;
   passes: DataOpsEmptyPassDeletes[];

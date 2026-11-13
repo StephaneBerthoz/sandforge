@@ -26,8 +26,12 @@
  * dry run did not show: both are in the estimate, which says what the
  * emptying sends from its dry run to its last delete. Counted on the deletes
  * alone, it said 25 requests where a dry run took 153 and its run about 170.
- * What cannot be known before — what the org's automation does in answer, a
- * mute's deploys — is not counted, and the estimate is about.
+ * Beside them, before each read, the check of the connection it reads
+ * through and, once, the org's connect by a command line, which no read
+ * counts ({@link CONNECTING_REQUESTS}); and the lease of a mute the run holds
+ * while it deletes, its permission sets assigned and taken back
+ * (`muteLeaseRequests`). What cannot be known before — what the org's
+ * automation does in answer — is not counted, and the estimate is about.
  *
  * Deleted for good (`hard`), every object goes by a job, however few its
  * records: no REST call deletes for good. That costs more requests and more
@@ -174,7 +178,16 @@ export interface EmptyCost {
    * apart; how many such reads the estimate holds; what the passes send; and
    * the margin for what the org's answers make vary ({@link MARGIN_SHARE}).
    */
-  requests: { reads: number; readings: 1 | 2; passes: number; margin: number };
+  requests: {
+    reads: number;
+    readings: 1 | 2;
+    passes: number;
+    margin: number;
+    /** Connecting the org and checking the connection of each read ({@link CONNECTING_REQUESTS}). */
+    connecting?: number;
+    /** The lease of the mute the run holds while it deletes: absent when it mutes nothing. */
+    mute?: number;
+  };
   /** Seconds of the run, about: its read of the org and its passes. */
   seconds: number;
   /** The Bulk API batches its jobs take. */
@@ -268,18 +281,41 @@ function refusedCost(records: number): Cost {
  */
 const MARGIN_SHARE = 0.05;
 
-/** `cost`'s requests and seconds with `reads` for one read of the org, `readings` times. */
+/**
+ * Requests no read of the org counts, sent before it: the identity call that
+ * checks the connection each read goes through — the API's version root,
+ * then the identity URL — and, once, the org's connect by a command line,
+ * that identity and its Organization record (`connectionChecks.ts`). The
+ * panel, connected long before and its connection checked once in five
+ * minutes, sends fewer: they are a margin there.
+ */
+export const CONNECTING_REQUESTS = { check: 2, connect: 3 } as const;
+
+/**
+ * `cost`'s requests and seconds with `reads` for one read of the org,
+ * `readings` times, each after its connection's check, and the org's connect
+ * once; and `mute`, what the lease of the run's mute sends.
+ */
 function withReads(
   passes: Cost,
   reads: number,
   readings: 1 | 2,
+  mute = 0,
 ): Pick<EmptyCost, 'apiRequests' | 'seconds' | 'requests'> {
-  const counted = readings * reads + passes.apiRequests;
+  const connecting = readings * CONNECTING_REQUESTS.check + CONNECTING_REQUESTS.connect;
+  const counted = readings * reads + connecting + passes.apiRequests + mute;
   const margin = Math.ceil(counted * MARGIN_SHARE);
   return {
     apiRequests: counted + margin,
     seconds: reads * SECONDS_PER_SMALL_CALL + passes.seconds,
-    requests: { reads, readings, passes: passes.apiRequests, margin },
+    requests: {
+      reads,
+      readings,
+      passes: passes.apiRequests,
+      margin,
+      connecting,
+      ...(mute > 0 ? { mute } : {}),
+    },
   };
 }
 
@@ -335,14 +371,20 @@ export function emptyCostOf(input: EmptyCostInput): EmptyCost {
  * read sent, as counted once it was through — held `readings` times: a dry
  * run's estimate holds its own read and its run's, a run's gate its own
  * alone, the dry run's being spent. Against what the org had left as the
- * read began, which the limits the estimate was read with say.
+ * read began, which the limits the estimate was read with say. `mute`, what
+ * the lease of the mute the run holds sends (`muteLeaseRequests`).
  */
-export function pricedWithReads(cost: EmptyCost, reads: number, readings: 1 | 2): EmptyCost {
+export function pricedWithReads(
+  cost: EmptyCost,
+  reads: number,
+  readings: 1 | 2,
+  mute = 0,
+): EmptyCost {
   const passes = {
     apiRequests: cost.requests.passes,
     seconds: cost.seconds - cost.requests.reads * SECONDS_PER_SMALL_CALL,
   };
-  const total = withReads(passes, Math.max(0, reads), readings);
+  const total = withReads(passes, Math.max(0, reads), readings, Math.max(0, mute));
   const budget =
     cost.api.verdict === 'unread'
       ? { unread: cost.api.unread }

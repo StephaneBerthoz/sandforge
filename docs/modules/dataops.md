@@ -489,7 +489,8 @@ deletes along with them (an account's contacts and opportunities, a contact's
 tasks), counted per object. A record of an object you did not pick whose
 lookup refuses the delete of its parent is named as blocking, with its object,
 field and count: an account's entitlements among them, which the org refuses
-the account's delete for though its describe says they go along.
+the account's delete for though its describe says they go along, and its
+opportunities closed won, which keep it as long as they live.
 
 #### Empty the org
 
@@ -507,7 +508,9 @@ opportunity's product, a contact's role) are emptied only when asked; what
 those last hold under a record emptied goes along with it all the same, and
 comes back with it. Objects can be left out by name. Every object left out is
 listed with why. A sandbox marked **Staging** is refused the whole org: pick
-its objects instead, which Production Guard asks about.
+its objects instead, which Production Guard asks about. The command line,
+which cannot see the mark, refuses the whole of any Partial Copy or Full
+sandbox instead ([below](#from-the-command-line)).
 
 #### Before anything is deleted
 
@@ -609,14 +612,21 @@ for good, `--accept-no-undo` accepts what no undo would bring back,
 `--unrestorable` empties with the org the objects Salesforce does not bring
 back from the recycle bin, and `--checkpoint-first` takes a checkpoint first.
 With `--json`, `apiRequests` gives `estimate`, what the dry run priced, and
-`sent`, every request the dry run and the run sent the org, counted as sent;
+`sent`, every request the command sent the org — connecting it, its dry run
+and its run, a mute's permission sets among them — counted as sent;
 `--accept-automation`,
 `--accept-emails` and `--mute-automation` are every DataOps script's. Exit
 `0` done, `1` refused before anything was deleted, `2` a bad command line, `3`
 records the org refused, `130`, `143` or `129` stopped by a signal, the journal
 kept: `--resume <run> --yes` takes the run up. The command line never sees a
 sandbox marked Staging in the extension: its registration of an org is the
-org's own, made afresh at each run. The MCP server's `empty_preview`,
+org's own, made afresh at each run. So it refuses the whole of a Partial Copy
+or Full sandbox, read from its data storage — past the 1 GB of a Developer
+Pro sandbox — `--org` and a `--resume` of such a run alike (`COPY_SANDBOX`,
+exit `1`, nothing read): empty it whole from DataOps Cleanup, which knows the
+mark, or pick its objects with `--objects`, which Production Guard asks
+about. A Developer or Developer Pro sandbox and a scratch org are emptied
+whole as before, and `--undo` is never refused for it. The MCP server's `empty_preview`,
 `empty_run` and `empty_undo` run it ([MCP](../mcp.md)).
 
 ### Data Quality

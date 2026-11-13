@@ -16,6 +16,7 @@ import {
   restoreAllowList,
   restrictParentsOf,
   rowToWriteBack,
+  withRefusedParents,
   type CheckpointDescribe,
   type CheckpointField,
 } from './checkpointFields';
@@ -362,6 +363,49 @@ describe('restrictParentsOf', () => {
       [],
     );
     expect(restrictParentsOf(described('Case', []), [account])).toEqual([]);
+  });
+
+  it('names an entitlement’s account, flagged both ways, as one that restricts and never as one that takes it along: the org refused the account while the entitlement lived', () => {
+    const accountOfEntitlements = described('Account', [], {
+      childRelationships: [
+        {
+          childSObject: 'Entitlement',
+          field: 'AccountId',
+          cascadeDelete: true,
+          restrictedDelete: true,
+        },
+        { childSObject: 'Order', field: 'AccountId', cascadeDelete: true, restrictedDelete: true },
+      ],
+    });
+    const entitlement = described('Entitlement', [writable('AccountId', 'reference')]);
+    const order = described('Order', [writable('AccountId', 'reference')]);
+
+    expect(restrictParentsOf(entitlement, [accountOfEntitlements])).toEqual(['AccountId']);
+    expect(cascadeParentsOf(entitlement, [accountOfEntitlements])).toEqual([]);
+    // An order flagged the same way goes along once back to Draft.
+    expect(cascadeParentsOf(order, [accountOfEntitlements])).toEqual(['AccountId']);
+    expect(restrictParentsOf(order, [accountOfEntitlements])).toEqual([]);
+  });
+});
+
+describe('withRefusedParents', () => {
+  it('reads an entitlement’s account a checkpoint taken before held among the parents that take it along as one that restricts, and leaves every other object as it was', () => {
+    const held = {
+      objectApiName: 'Entitlement',
+      cascadeParents: ['AccountId', 'ServiceContractId'],
+      restrictParents: ['AssetId'],
+    };
+    const order = { objectApiName: 'Order', cascadeParents: ['AccountId'] };
+
+    expect(withRefusedParents(held)).toEqual({
+      objectApiName: 'Entitlement',
+      cascadeParents: ['ServiceContractId'],
+      restrictParents: ['AccountId', 'AssetId'],
+    });
+    expect(
+      withRefusedParents({ objectApiName: 'Entitlement', cascadeParents: ['AccountId'] }),
+    ).toEqual({ objectApiName: 'Entitlement', cascadeParents: [], restrictParents: ['AccountId'] });
+    expect(withRefusedParents(order)).toBe(order);
   });
 });
 

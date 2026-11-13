@@ -312,6 +312,36 @@ describe('countEmpty, a person account’s contact', () => {
     });
   });
 
+  it('counts no record named through a person account’s contact as blocking or going along when its account stays: that contact stays too', async () => {
+    const org = (): EmptyFixtureOrg =>
+      salesOrg({
+        extraRows: {
+          Case: [{ Id: 'CS-PERSON', ContactId: 'PC1' }],
+          OpportunityContactRole: [{ Id: 'OCR-PERSON', OpportunityId: 'O2', ContactId: 'PC1' }],
+        },
+      });
+    const contactsAlone = await counted(org(), ['Contact']);
+    const withAccounts = await counted(org(), ['Account', 'Contact']);
+
+    // The two cases of business contacts, as before the person's was added.
+    expect(contactsAlone.blockers).toContainEqual({
+      objectApiName: 'Case',
+      field: 'ContactId',
+      parent: 'Contact',
+      records: { records: 2 },
+    });
+    expect(
+      contactsAlone.along.find((along) => along.objectApiName === 'OpportunityContactRole'),
+    ).toMatchObject({ records: { records: 1 } });
+    // The person account's contact goes with its account, and what names it blocks then.
+    expect(withAccounts.blockers).toContainEqual({
+      objectApiName: 'Case',
+      field: 'ContactId',
+      parent: 'Contact',
+      records: { records: 3 },
+    });
+  });
+
   it('reads every contact in an org with no person accounts', async () => {
     const org = salesOrg({ emptyObjects: ['Account'] });
     const counts = await counted(org, ['Contact']);
@@ -427,6 +457,48 @@ describe('countEmpty, an account’s entitlements', () => {
   });
 });
 
+describe('countEmpty, an account’s closed won opportunities', () => {
+  /** The sales org, the first account holding an opportunity closed won beside its open one. */
+  const wonOrg = (): EmptyFixtureOrg =>
+    salesOrg({ extraRows: { Opportunity: [{ Id: 'O-WON', AccountId: 'A1', IsWon: true }] } });
+
+  it('names an opportunity closed won as blocking its account emptied without the opportunities, where it was counted along and nothing said ("some opportunities of this account were closed won")', async () => {
+    const counts = await counted(wonOrg(), ['Account']);
+
+    expect(counts.blockers).toContainEqual({
+      objectApiName: 'Opportunity',
+      field: 'AccountId',
+      parent: 'Account',
+      records: { records: 1 },
+    });
+  });
+
+  it('says beyond Undo, at least, the opportunities closed won emptied with their account: refused at first, the account goes once its opportunities went alone', async () => {
+    const counts = await counted(wonOrg(), ['Account', 'Opportunity']);
+    const recycledForGood = await counted(wonOrg(), ['Account', 'Opportunity'], { undo: false });
+
+    expect(counts.undoLost).toContainEqual({
+      objectApiName: 'Opportunity',
+      field: 'AccountId',
+      parent: 'Account',
+      reason: 'restricted',
+      records: { records: 1, atLeast: true },
+    });
+    expect(counts.blockers.map((blocker) => blocker.objectApiName)).not.toContain('Opportunity');
+    expect(recycledForGood.undoLost).toEqual([]);
+  });
+
+  it('says nothing of an account none of whose opportunities is closed won', async () => {
+    const counts = await counted(salesOrg(), ['Account', 'Opportunity']);
+    const along = await counted(salesOrg(), ['Account']);
+
+    expect(
+      counts.undoLost.map((lost) => `${lost.objectApiName}.${lost.field ?? ''}`),
+    ).not.toContain('Opportunity.AccountId');
+    expect(along.blockers.map((blocker) => blocker.objectApiName)).not.toContain('Opportunity');
+  });
+});
+
 /**
  * Price books, products and prices as a scratch org held them: the standard
  * book and a custom one, two products, a standard and a custom price of each,
@@ -498,6 +570,36 @@ describe('countEmpty, prices', () => {
         ],
       },
     ]);
+  });
+
+  it('counts the prices of the products it deletes, not those whose product the org no longer holds, and has the pass of the prices send those', async () => {
+    const products = await countedIn(priceOrg(), ['Product2'], PRICES);
+    const withPrices = await countedIn(priceOrg(), ['Product2', 'PricebookEntry'], PRICES);
+
+    expect(products.along).toEqual([
+      {
+        objectApiName: 'PricebookEntry',
+        records: { records: 4 },
+        via: [
+          {
+            field: 'Product2Id',
+            parent: 'Product2',
+            emptied: 'Product2',
+            records: { records: 4 },
+          },
+        ],
+      },
+    ]);
+    // The 34 no product holds are the prices' own pass to send, beyond Undo.
+    expect(passOf(withPrices, 'PricebookEntry')).toMatchObject({
+      records: { records: 38 },
+      sent: { records: 34 },
+    });
+    expect(withPrices.undoLost).toContainEqual({
+      objectApiName: 'PricebookEntry',
+      reason: 'notRestorable',
+      records: { records: 34 },
+    });
   });
 
   it('says the standard prices of the products emptied beyond Undo, not the custom ones that come back with their book', async () => {

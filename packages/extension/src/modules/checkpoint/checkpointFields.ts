@@ -28,6 +28,7 @@
  */
 
 import * as z from 'zod';
+import type { CheckpointObject } from '@sandforge/shared';
 import { CrudFlsGuard } from '../../core/metadata/CrudFlsGuard.js';
 import type { ObjectDescribe } from '../../core/metadata/describeTypes.js';
 import {
@@ -38,6 +39,7 @@ import {
   isPersonAccountRow,
   leftOutForAccountKind,
 } from '../../core/common/platformRecords.js';
+import { alwaysRefused } from '../../core/removal/refusingCascades.js';
 import { ENCRYPTED_FIELD_TYPE } from '../sync/encryptedFields.js';
 import { FILE_OBJECT } from './checkpointScope.js';
 
@@ -318,7 +320,10 @@ export async function captureProjection(
  *
  * A record of such a field comes back from the recycle bin with its parent,
  * and goes with it. Only the fields `child`'s own describe lists are named:
- * one field-level security hides from the user cannot be read.
+ * one field-level security hides from the user cannot be read. Nor is one
+ * whose parent the org refuses to delete while the record lives, whatever
+ * the describe says (`REFUSING_CASCADES`, `always`): an entitlement's
+ * account, which {@link restrictParentsOf} names.
  *
  * @param describes - The objects described with it: a parent not among them
  *   names nothing.
@@ -334,6 +339,7 @@ export function cascadeParentsOf(
     for (const relationship of parent.childRelationships ?? []) {
       if (relationship.cascadeDelete !== true) continue;
       if (relationship.childSObject.toLowerCase() !== childName) continue;
+      if (alwaysRefused(child.name, relationship.field, parent.name)) continue;
       const field = own.get(relationship.field.toLowerCase());
       if (field) fields.add(field.name);
     }
@@ -350,6 +356,12 @@ export function cascadeParentsOf(
  * for good, which Undo cannot change. Only the fields `child`'s own describe
  * lists are named, as {@link cascadeParentsOf} names its own.
  *
+ * So is a field the org refuses its parent's delete for whatever the
+ * describe says, which flags it as taking the record along
+ * (`REFUSING_CASCADES`, `always`): an entitlement's account, refused live
+ * ("associated with the following entitlements") where an emptying's dry
+ * run had said the entitlement went along.
+ *
  * @param describes - The objects described with it: a parent not among them
  *   names nothing.
  */
@@ -362,13 +374,39 @@ export function restrictParentsOf(
   const fields = new Set<string>();
   for (const parent of describes) {
     for (const relationship of parent.childRelationships ?? []) {
-      if (relationship.restrictedDelete !== true || relationship.cascadeDelete === true) continue;
+      const restricts =
+        (relationship.restrictedDelete === true && relationship.cascadeDelete !== true) ||
+        alwaysRefused(child.name, relationship.field, parent.name);
+      if (!restricts) continue;
       if (relationship.childSObject.toLowerCase() !== childName) continue;
       const field = own.get(relationship.field.toLowerCase());
       if (field) fields.add(field.name);
     }
   }
   return [...fields].sort();
+}
+
+/**
+ * `object` as a checkpoint holds it, its parents read as the org deletes
+ * them: a field whose parent the org refuses to delete while the record
+ * lives, whatever the describe says (`REFUSING_CASCADES`, `always`), is one
+ * that restricts, never one that takes the record along. A checkpoint taken
+ * before that was known holds an entitlement's account among the latter: a
+ * rewind reading it so would leave the entitlement to go with its account,
+ * and the org refuses the account's delete while it lives.
+ */
+export function withRefusedParents<
+  T extends Pick<CheckpointObject, 'objectApiName' | 'cascadeParents' | 'restrictParents'>,
+>(object: T): T {
+  const refused = object.cascadeParents.filter((field) =>
+    alwaysRefused(object.objectApiName, field),
+  );
+  if (refused.length === 0) return object;
+  return {
+    ...object,
+    cascadeParents: object.cascadeParents.filter((field) => !refused.includes(field)),
+    restrictParents: [...new Set([...(object.restrictParents ?? []), ...refused])].sort(),
+  };
 }
 
 /** What a checkpoint records of one object before reading it. */

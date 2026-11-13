@@ -44,6 +44,7 @@ import { OrgManager } from '../src/core/connection/OrgManager.js';
 import { OrgRegistry } from '../src/core/connection/OrgRegistry.js';
 import { AuthProvider } from '../src/core/connection/AuthProvider.js';
 import type { OrgIdentity } from '../src/core/connection/AuthProvider.js';
+import { connectionCheckRequests } from '../src/core/connection/connectionChecks.js';
 import { SfdxBridge } from '../src/core/connection/SfdxBridge.js';
 import { CompareOrchestrator } from '../src/modules/compare/CompareOrchestrator.js';
 import { PipelineOrchestrator } from '../src/modules/automation/PipelineOrchestrator.js';
@@ -96,6 +97,12 @@ export interface PanelRequest {
 export interface PanelHost {
   /** Register an org the way connecting it in the extension does. */
   connect(alias: string): Promise<SalesforceOrg>;
+  /**
+   * The requests connecting the org and checking the connections the
+   * handlers opened have sent since the host was stood up: none is an act's
+   * own, and the org counts each against its day (`connectionChecks.ts`).
+   */
+  connectingRequests?(): number;
   /** Send one request and wait for what would answer it. */
   request(request: PanelRequest): Promise<PanelAnswer>;
   /** Every message the host posted to the panel, in order. */
@@ -252,6 +259,7 @@ function headlessServices(
 export function createPanelHost(options: PanelHostOptions): PanelHost {
   const { log } = options;
   const waitMs = options.waitMs ?? 5 * 60_000;
+  const checkedBefore = connectionCheckRequests();
 
   // What `createCoreComposition` builds, with the two VS Code backends
   // replaced: a file for the memento, memory for SecretStorage.
@@ -341,6 +349,8 @@ export function createPanelHost(options: PanelHostOptions): PanelHost {
       });
       return org;
     },
+
+    connectingRequests: () => connectionCheckRequests() - checkedBefore,
 
     request(request: PanelRequest): Promise<PanelAnswer> {
       const send = inbound;

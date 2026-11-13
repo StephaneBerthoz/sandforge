@@ -65,7 +65,7 @@ import { limitSplitting, splitAllowanceAnswerOf } from '../../../core/common/gov
 import type { Connection } from 'jsforce';
 import type { DeleteMode } from '../../../core/removal/deleteRecords.js';
 import type { MuteLeaseOptions, HeldMute } from '../../forge/AutomationMuteLease.js';
-import { muteLines } from '../../forge/AutomationMuteLease.js';
+import { muteLeaseRequests, muteLines } from '../../forge/AutomationMuteLease.js';
 import type { ApiBudget } from '../../forge/ForgeRunGate.js';
 import type { BeforeRunAsk, BeforeRunCheckpoints } from '../../checkpoint/beforeRunCheckpoint.js';
 import {
@@ -584,7 +584,7 @@ export async function previewEmptyAct(
   // again before its first delete, and the estimate holds both.
   const requestsSent =
     context.requestsSent !== undefined ? context.requestsSent() - sentBefore : undefined;
-  const read = pricedRead(firstRead, requestsSent, 2);
+  const read = pricedRead(firstRead, requestsSent, 2, muteLeaseRequests(answer.mute?.plan));
   const kept: EmptyKeptPreview = {
     previewId: newPreviewId(context.now?.() ?? new Date()),
     readAt: read.readAt,
@@ -625,13 +625,18 @@ export async function previewEmptyAct(
  * `read` with its estimate priced on the requests its read took, as counted
  * (`pricedWithReads`), else as its describes and counts add up; holding
  * `readings` reads of the org: a dry run's own and its run's, or a run's
- * alone.
+ * alone; and `mute`, what the lease of its mute sends.
  */
-function pricedRead(read: OrgRead, sent: number | undefined, readings: 1 | 2): OrgRead {
+function pricedRead(
+  read: OrgRead,
+  sent: number | undefined,
+  readings: 1 | 2,
+  mute: number,
+): OrgRead {
   const reads = sent ?? read.preview.cost.requests.reads;
   return {
     ...read,
-    preview: { ...read.preview, cost: pricedWithReads(read.preview.cost, reads, readings) },
+    preview: { ...read.preview, cost: pricedWithReads(read.preview.cost, reads, readings, mute) },
   };
 }
 
@@ -910,6 +915,7 @@ export async function runEmptyAct(
       read,
       context.requestsSent !== undefined ? context.requestsSent() - sentBefore : undefined,
       1,
+      muteLeaseRequests(answer.mute?.plan),
     );
     refusals.push(
       ...(await gateRefusals(context, organizationId, read, {

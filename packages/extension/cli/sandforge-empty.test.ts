@@ -63,6 +63,8 @@ interface Harness {
   connected: string[];
   /** The requests the command sent the handler, in order. */
   sent: PanelRequest[];
+  /** The data storage a sandbox's `/limits` give, in MB: what a test changes between runs. */
+  storage: { mb: number };
   run: (...args: string[]) => Promise<{ code: number; stdout: string; stderr: string }>;
 }
 
@@ -87,6 +89,13 @@ function harness(
     automation?: (objects: readonly string[]) => ForgeTargetAutomation;
     /** What a request becomes on its way to the handler. */
     sending?: (request: PanelRequest) => PanelRequest;
+    /** The requests connecting the org sent it, as the host counts them. */
+    connecting?: number;
+    /**
+     * The org connects as a sandbox, whose `/limits` give this data storage:
+     * a scratch org's 500 MB, a Partial Copy's 5,120.
+     */
+    sandboxStorageMB?: number;
   } = {},
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-empty-cli-'));
@@ -95,7 +104,17 @@ function harness(
   const org = options.org ?? new MemoryEmptyOrg(emptySalesSpecs());
   const connected: string[] = [];
   const sent: PanelRequest[] = [];
-  vi.mocked(getJsforceConnection).mockResolvedValue({} as never);
+  const storage = { mb: options.sandboxStorageMB ?? 0 };
+  vi.mocked(getJsforceConnection).mockResolvedValue(
+    (options.sandboxStorageMB === undefined
+      ? {}
+      : {
+          request: async (request: { url: string }) =>
+            request.url === '/limits'
+              ? { DataStorageMB: { Max: storage.mb, Remaining: storage.mb } }
+              : {},
+        }) as never,
+  );
 
   // The product's host, but for its `connect` and the org its handler reaches.
   const createHost = (hostOptions: PanelHostOptions): PanelHost => {
@@ -119,6 +138,7 @@ function harness(
       get posted() {
         return host.posted;
       },
+      connectingRequests: () => (host.connectingRequests?.() ?? 0) + (options.connecting ?? 0),
       request: (request) => {
         const sending = options.sending?.(request) ?? request;
         sent.push(sending);
@@ -138,8 +158,11 @@ function harness(
           displayName: 'Tester',
           orgId: EMPTY_ORG_ID,
           orgName: 'Example',
-          orgType: options.registeredProduction ? 'Enterprise Edition' : 'Developer Edition',
-          isSandbox: false,
+          orgType:
+            options.registeredProduction || options.sandboxStorageMB !== undefined
+              ? 'Enterprise Edition'
+              : 'Developer Edition',
+          isSandbox: options.sandboxStorageMB !== undefined,
         });
         if (!wiring) throw new Error('The host built no handlers.');
         await wiring.orgRegistry.saveOrg(registered, {
@@ -189,7 +212,7 @@ function harness(
     return { code, stdout, stderr };
   };
 
-  return { org, dir, journalRoot, connected, sent, run };
+  return { org, dir, journalRoot, connected, sent, run, storage };
 }
 
 /**
@@ -385,6 +408,22 @@ describe('sandforge-empty: the dry run', () => {
     expect(answer.apiRequests.estimate).toBeGreaterThan(2 * answer.apiRequests.sent);
   });
 
+  it('counts in what it sent the requests that connected the org and checked its connections, beside the dry run’s and the run’s', async () => {
+    const dry = harness({ connecting: 5 });
+    const run = harness({ org: withEmptyObjects(), connecting: 5 });
+
+    const dryRun = JSON.parse(
+      (await dry.run('--target', 'DEV', '--org', '--dry-run', '--json')).stdout,
+    ) as { apiRequests: { estimate: number; sent: number } };
+    const ran = JSON.parse(
+      (await run.run('--target', 'DEV', '--org', '--yes', '--accept-no-undo', '--json')).stdout,
+    ) as { apiRequests: { estimate: number; sent: number } };
+
+    expect(dryRun.apiRequests.sent).toBe(dry.org.requestsSent() + 5);
+    expect(ran.apiRequests.sent).toBe(run.org.requestsSent() + 5);
+    expect(ran.apiRequests.sent).toBeLessThanOrEqual(ran.apiRequests.estimate);
+  });
+
   it('lists the objects that hold records, and how many hold none, the JSON keeping every one', async () => {
     const h = harness({ org: withEmptyObjects() });
 
@@ -442,6 +481,55 @@ describe('sandforge-empty: production', () => {
     expect(code).toBe(1);
     expect(JSON.parse(stdout)).toMatchObject({ refused: { code: 'PRODUCTION' } });
     expect(h.org.sent).toEqual([]);
+  });
+});
+
+describe('sandforge-empty: a Partial Copy or Full sandbox', () => {
+  it('refuses the whole org of a sandbox whose data storage says it copies production, exit 1, before anything is read: the panel knows whether it is marked Staging', async () => {
+    const h = harness({ sandboxStorageMB: 5_120 });
+
+    const { code, stdout, stderr } = await h.run('--target', 'UAT', '--org', '--dry-run', '--json');
+
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout)).toMatchObject({ refused: { code: 'COPY_SANDBOX' } });
+    expect(stderr).toContain('UAT is a Partial Copy or Full sandbox');
+    expect(stderr).toContain('DataOps Cleanup in the panel');
+    expect(h.sent).toEqual([]);
+    expect(h.org.sent).toEqual([]);
+  });
+
+  it('lets objects picked there be emptied, Production Guard asked, and the whole of a scratch org', async () => {
+    const copy = harness({ sandboxStorageMB: 5_120 });
+    const scratch = harness({ sandboxStorageMB: 500 });
+
+    const picked = await copy.run('--target', 'UAT', '--objects', 'Contact', '--dry-run', '--json');
+    const whole = await scratch.run('--target', 'DEV', '--org', '--dry-run', '--json');
+
+    expect(JSON.parse(picked.stdout)).not.toHaveProperty('refused');
+    expect(copy.sent.map((request) => request.type)).toEqual(['dataops:empty:preview']);
+    expect(JSON.parse(whole.stdout)).not.toHaveProperty('refused');
+    expect(scratch.sent.map((request) => request.type)).toEqual(['dataops:empty:preview']);
+  });
+
+  it('refuses to take up a whole org’s run there, exit 1, and still undoes it: an undo deletes nothing', async () => {
+    const h = harness({ org: withEmptyObjects(), sandboxStorageMB: 500 });
+    h.org.beforeDelete = (_via, objectApiName) => {
+      if (objectApiName === 'Contact') {
+        h.org.beforeDelete = undefined;
+        process.emit('SIGINT');
+      }
+    };
+    const stopped = await h.run('--target', 'DEV', '--org', '--yes', '--accept-no-undo', '--json');
+    const { result } = JSON.parse(stopped.stdout) as { result: DataOpsEmptyRunResult };
+    expect(result.status).toBe('cancelled');
+    h.storage.mb = 5_120;
+
+    const resumed = await h.run('--target', 'DEV', '--resume', result.runId, '--yes', '--json');
+    const undone = await h.run('--target', 'DEV', '--undo', result.runId, '--yes', '--json');
+
+    expect(resumed.code).toBe(1);
+    expect(JSON.parse(resumed.stdout)).toMatchObject({ refused: { code: 'COPY_SANDBOX' } });
+    expect(JSON.parse(undone.stdout)).not.toHaveProperty('refused');
   });
 });
 

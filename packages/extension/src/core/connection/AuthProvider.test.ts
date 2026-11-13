@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AuthProvider } from './AuthProvider';
 import type { AuthCredentials, AuthResult } from './AuthProvider';
 import type { SfdxBridge, SfdxImportResult } from './SfdxBridge';
+import { connectionCheckRequests } from './connectionChecks';
 import { OrgSafetyTier } from '@sandforge/shared';
 
 vi.mock('jsforce', () => {
@@ -292,6 +293,34 @@ describe('AuthProvider', () => {
       expect(result.orgId).toBe('00D1');
       expect(result.orgName).toBe('Test Org');
       expect(result.isSandbox).toBe(false);
+    });
+
+    it('counts what checking the connection sends with the connection checks: the org counts them against its day', async () => {
+      const { __MockConnection } = jsforceModule as unknown as {
+        __MockConnection: { mockImplementationOnce: (impl: () => unknown) => void };
+      };
+      __MockConnection.mockImplementationOnce(function () {
+        const conn = {
+          request: vi.fn(async (_url: string) => ({})),
+          identity: async () => {
+            await conn.request('/services/data/v62.0');
+            await conn.request('/id/x');
+            return { user_id: 'user-001', username: 'admin@test.com', display_name: 'Admin' };
+          },
+          query: async () => {
+            await conn.request('/query');
+            return {
+              records: [{ Id: '00D1', Name: 'Org', OrganizationType: 'Developer Edition' }],
+            };
+          },
+        };
+        return conn;
+      });
+      const before = connectionCheckRequests();
+
+      await provider.validateConnection('token-1', 'https://test.sf.com');
+
+      expect(connectionCheckRequests() - before).toBe(3);
     });
   });
 

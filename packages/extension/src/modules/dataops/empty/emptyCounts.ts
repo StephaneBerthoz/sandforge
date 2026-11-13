@@ -23,6 +23,12 @@
  *   naming a price book emptied with the accounts;
  * - a direct relation of a contact to its account goes only with the
  *   contact: emptying the relations alone leaves the direct ones;
+ * - an opportunity closed won refuses its account's delete, which its
+ *   describe says takes it along ("some opportunities of this account were
+ *   closed won"): going along, it blocks its account; emptied too, it goes
+ *   by its own pass once its account was refused, with the account's other
+ *   opportunities, beyond any undo, and they are counted lost — at least
+ *   those closed won;
  * - a person account's contact goes only with its account: sent alone, in a
  *   job of contacts, the org refused each, "INVALID_PERSON_ACCOUNT_OPERATION:
  *   cannot reference person contact". The pass of the contacts never sends
@@ -41,6 +47,7 @@ import {
   ACCOUNT_CONTACT_RELATION,
   CONTACT,
 } from '../../../core/common/platformRecords.js';
+import { REFUSING_CASCADES } from '../../../core/removal/refusingCascades.js';
 import { PERSON_ACCOUNT_FLAG } from '../../checkpoint/checkpointFields.js';
 import type { EmptyOrder } from './emptyOrder.js';
 import {
@@ -56,6 +63,7 @@ import {
   type EmptyDescribe,
   type Relation,
   type Route,
+  type RouteStep,
 } from './emptyRelations.js';
 
 /** What a count of an emptying needs from the org. */
@@ -351,15 +359,30 @@ export async function countEmpty(
   const personAccounts =
     describes.get(CONTACT)?.fields.some((field) => field.name === PERSON_ACCOUNT_FLAG) === true;
   /**
-   * The rows of `name` its emptying deletes, every pass together: those its
-   * pass sends, and a person account's contact too when its account goes.
+   * The rows of `name` its emptying deletes, every pass together, as a
+   * condition: those its pass sends, and a person account's contact too when
+   * its account goes. Nothing when it deletes every row.
    */
-  const deletedRows = (name: string): string[] => {
+  const deletedRowOf = (name: string): string | undefined => {
     const rows = passRowsOf(name, personAccounts);
-    if (rows === undefined) return [];
-    if (name.toLowerCase() === CONTACT.toLowerCase() && affected.emptied.has(ACCOUNT)) return [];
-    return [rows];
+    if (name.toLowerCase() === CONTACT.toLowerCase() && affected.emptied.has(ACCOUNT)) {
+      return undefined;
+    }
+    return rows;
   };
+  const deletedRows = (name: string): string[] => {
+    const rows = deletedRowOf(name);
+    return rows === undefined ? [] : [rows];
+  };
+  // What hangs from a record by a route, read up to the rows the emptying
+  // deletes: a case naming a person account's contact names one that stays,
+  // and blocked nothing.
+  const steps = (route: readonly RouteStep[]): Condition | undefined =>
+    stepsCondition(route, describes, deletedRowOf);
+  const anyRoute = (routes: readonly Route[]): Condition | undefined =>
+    anyRouteCondition(routes, describes, deletedRowOf);
+  const namesDeleted = (child: string, field: string, parent: string): Condition | undefined =>
+    namesDeletedCondition(child, field, parent, affected, describes, deletedRowOf);
 
   // The first round: each emptied object's own records.
   const first = new Round();
@@ -389,7 +412,13 @@ export async function countEmpty(
       /** Those of them that go along, to take off: they go before they could block. */
       going?: string;
     }>,
-    undoLost: [] as Array<Omit<EmptyUndoLost, 'records'> & { key?: string }>,
+    undoLost: [] as Array<
+      Omit<EmptyUndoLost, 'records'> & {
+        key?: string;
+        /** Set when more records than it counts go so: there are at least that many. */
+        more?: true;
+      }
+    >,
   };
 
   for (const pass of order.passes) {
@@ -402,7 +431,7 @@ export async function countEmpty(
     if (kept !== undefined) asked.kept.set(name, second.ask(name, [kept]));
     const before = routesFrom(pass.goneBefore);
     if (before.length > 0) {
-      const condition = anyRouteCondition(before, describes);
+      const condition = anyRoute(before);
       asked.goneBefore.set(
         name,
         condition
@@ -412,7 +441,7 @@ export async function countEmpty(
     }
     const after = options.undo ? routesFrom(pass.sentBeforeTheirParent) : [];
     for (const route of after) {
-      const condition = stepsCondition(route.steps, describes);
+      const condition = steps(route.steps);
       const step = route.steps[0];
       asked.undoLost.push({
         objectApiName: name,
@@ -428,10 +457,10 @@ export async function countEmpty(
     const routes = routesFrom(affected.routes.get(name) ?? []);
     if (routes.length === 0) continue;
     const via = routes.map((route) => {
-      const condition = stepsCondition(route.steps, describes);
+      const condition = steps(route.steps);
       return { route, ...(condition ? { key: second.ask(name, [condition]) } : {}) };
     });
-    const total = routes.length > 1 ? anyRouteCondition(routes, describes) : undefined;
+    const total = routes.length > 1 ? anyRoute(routes) : undefined;
     asked.along.set(name, {
       ...(total ? { total: second.ask(name, [total]) } : via[0].key ? { total: via[0].key } : {}),
       via,
@@ -444,19 +473,10 @@ export async function countEmpty(
     // product's standard prices, counted below.
     if (pair.reason === 'customPrices') continue;
     if (!mayGo(pair.objectApiName) || !mayGo(pair.parent)) continue;
-    const names = namesDeletedCondition(
-      pair.objectApiName,
-      pair.field,
-      pair.parent,
-      affected,
-      describes,
-    );
+    const names = namesDeleted(pair.objectApiName, pair.field, pair.parent);
     const conditions: Condition[] = [];
     if (!affected.emptied.has(pair.objectApiName)) {
-      const goes = anyRouteCondition(
-        routesFrom(affected.routes.get(pair.objectApiName) ?? []),
-        describes,
-      );
+      const goes = anyRoute(routesFrom(affected.routes.get(pair.objectApiName) ?? []));
       if (goes) conditions.push(goes);
     }
     asked.undoLost.push({
@@ -475,7 +495,7 @@ export async function countEmpty(
   const deleted = (name: string): boolean =>
     affected.emptied.has(name) || affected.routes.has(name);
   if (options.undo && deleted(PRICE) && deleted(PRODUCT) && mayGo(PRODUCT)) {
-    const withProduct = namesDeletedCondition(PRICE, 'Product2Id', PRODUCT, affected, describes);
+    const withProduct = namesDeleted(PRICE, 'Product2Id', PRODUCT);
     const standard = standardPriceCondition(describes);
     asked.undoLost.push({
       objectApiName: PRICE,
@@ -491,9 +511,9 @@ export async function countEmpty(
   for (const { parent, child, field, kind } of relations) {
     if (kind !== 'restricted' || child === parent) continue;
     if (affected.emptied.has(child) || !mayGo(parent)) continue;
-    const names = namesDeletedCondition(child, field, parent, affected, describes);
+    const names = namesDeleted(child, field, parent);
     const goes = affected.routes.has(child)
-      ? anyRouteCondition(routesFrom(affected.routes.get(child) ?? []), describes)
+      ? anyRoute(routesFrom(affected.routes.get(child) ?? []))
       : undefined;
     asked.blockers.push({
       objectApiName: child,
@@ -502,6 +522,39 @@ export async function countEmpty(
       ...(names ? { key: second.ask(child, [names]) } : {}),
       ...(names && goes ? { going: second.ask(child, [goes, names]) } : {}),
     });
+  }
+
+  // A lookup whose parent the org refuses to delete while some of its records
+  // live, though the parent's describe says its delete takes them along: an
+  // opportunity closed won, "some opportunities of this account were closed
+  // won" (`REFUSING_CASCADES`). Going along, those block their account. Of an
+  // object emptied too, they go by its own pass once their account was
+  // refused, with the account's other records of it, alone: no undo brings
+  // them back once the rounds of tries have taken the account.
+  for (const { child, field, parent, rows } of REFUSING_CASCADES) {
+    if (rows === undefined || !mayGo(parent)) continue;
+    const holds = describes.get(child)?.fields.some((each) => each.name === rows.field) === true;
+    const names = holds ? namesDeleted(child, field, parent) : undefined;
+    if (!names) continue;
+    const refusing = `${rows.field} = ${String(rows.value)}`;
+    if (affected.emptied.has(child)) {
+      if (!options.undo || !mayHold(own.get(child))) continue;
+      asked.undoLost.push({
+        objectApiName: child,
+        field,
+        parent,
+        reason: 'restricted',
+        key: second.ask(child, [refusing, names]),
+        more: true,
+      });
+    } else if (affected.routes.has(child)) {
+      asked.blockers.push({
+        objectApiName: child,
+        field,
+        parent,
+        key: second.ask(child, [refusing, names]),
+      });
+    }
   }
 
   const refusal = (
@@ -518,7 +571,7 @@ export async function countEmpty(
       refusal('activatedOrder', name, [pastDraft]);
       continue;
     }
-    const goes = anyRouteCondition(routesFrom(affected.routes.get(name) ?? []), describes);
+    const goes = anyRoute(routesFrom(affected.routes.get(name) ?? []));
     refusal('activatedOrder', name, goes ? [goes, pastDraft] : [{ soql: pastDraft, exact: false }]);
   }
   for (const [name, key] of asked.kept)
@@ -605,13 +658,18 @@ export async function countEmpty(
         .filter((route) => !none(route.records)),
     }))
     .filter((object) => !none(object.records));
-  const answered = <T extends { key?: string; going?: string; objectApiName: string }>(
+  const answered = <T extends { key?: string; going?: string; more?: true; objectApiName: string }>(
     entries: readonly T[],
-  ): Array<Omit<T, 'key' | 'going'> & { records: Counted }> =>
+  ): Array<Omit<T, 'key' | 'going' | 'more'> & { records: Counted }> =>
     entries
-      .map(({ key, going, ...rest }) => {
-        const records = key ? second.answer(key) : unreadable(rest.objectApiName);
-        return { ...rest, records: going ? less(records, second.answer(going)) : records };
+      .map(({ key, going, more, ...rest }) => {
+        const counted = key ? second.answer(key) : unreadable(rest.objectApiName);
+        const records = going ? less(counted, second.answer(going)) : counted;
+        return {
+          ...rest,
+          records:
+            more && (records.records ?? 0) > 0 ? { ...records, atLeast: true as const } : records,
+        };
       })
       .filter((entry) => !none(entry.records));
   return {

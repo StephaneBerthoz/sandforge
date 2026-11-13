@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import jsforce from 'jsforce';
 import type { Connection } from 'jsforce';
 
+import { muteOrgOf } from '../../forge/AutomationMuteLease.js';
 import { emptyOrgOf } from './emptyOrg.js';
 
 vi.mock('../../../logger.js', () => ({
@@ -95,4 +97,38 @@ describe('emptyOrgOf', () => {
 
     expect(org.requestsSent?.()).toBe(2);
   });
+
+  it('counts the lease of a mute with the run’s requests: its identity, its reads and each permission set assigned and taken back go through the run’s own connection', async () => {
+    const conn = new jsforce.Connection({
+      instanceUrl: 'https://example.my.salesforce.com',
+      accessToken: 'live-session-token',
+      version: '66.0',
+    });
+    const asked: string[] = [];
+    conn.request = (async (request: string | { url: string; method?: string }) => {
+      const url = typeof request === 'string' ? request : request.url;
+      asked.push(url);
+      if (url.endsWith('/v66.0')) return { identity: 'https://example.my.salesforce.com/id/x' };
+      if (url.includes('/id/')) return { user_id: USER, organization_id: ORG };
+      if (url.includes('/query')) return { totalSize: 0, done: true, records: [] };
+      return { id: ASSIGNMENT, success: true, errors: [] };
+    }) as unknown as Connection['request'];
+    const org = emptyOrgOf(conn, 'org-1', 'test');
+    // The mute's org, as the handler builds it: on the connection the run reads through.
+    const mute = muteOrgOf(conn);
+
+    await mute.identity();
+    await mute.query("SELECT Id FROM PermissionSet WHERE Name = 'Bypass'");
+    await mute.createAssignment({ AssigneeId: USER, PermissionSetId: SET });
+    await mute.deleteAssignment(ASSIGNMENT);
+
+    // The identity reads the API's version root, then the identity URL.
+    expect(asked).toHaveLength(5);
+    expect(org.requestsSent?.()).toBe(5);
+  });
 });
+
+const USER = '005000000000001AAA';
+const ORG = '00D000000000001AAA';
+const SET = '0PS000000000001AAA';
+const ASSIGNMENT = '0Pa000000000001AAA';

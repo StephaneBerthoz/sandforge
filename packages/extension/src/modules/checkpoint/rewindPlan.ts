@@ -49,7 +49,8 @@
  *   too: one the removal would not take along with its parent — made while
  *   the checkpoint was taken, brought back since — and one whose lookup
  *   restricts that record's delete, which the org refuses while it lives (a
- *   case's account, live). Each such record is said beside that record
+ *   case's account, live; an entitlement's, whatever the describe says,
+ *   `withRefusedParents`). Each such record is said beside that record
  *   (`beforeParent`), for the journal;
  * - in a checkpoint of picked objects, a record that records outside the
  *   checkpoint created since hang from, unless their deletion was accepted:
@@ -162,6 +163,7 @@ import {
 import { setBackToDraftOf, type RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
 import { orgDateTime } from '../sync/SyncDelta.js';
 import type { SyncRestoreInput } from '../sync/SyncRunRestore.js';
+import { withRefusedParents } from './checkpointFields.js';
 import { OrgReadStopped, type OrgRow } from './compositeQueries.js';
 import {
   fileLinkChangedLineSchema,
@@ -1103,7 +1105,11 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     if (signal?.aborted) throw new OrgReadStopped();
   };
 
-  const objects = [...checkpoint.objects].sort((a, b) => a.readOrder - b.readOrder);
+  // Its parents read as the org deletes them, whenever the checkpoint was
+  // taken: an entitlement goes before its account, never along with it.
+  const objects = [...checkpoint.objects]
+    .map(withRefusedParents)
+    .sort((a, b) => a.readOrder - b.readOrder);
   const order = new Map(objects.map(({ objectApiName }, at) => [objectApiName, at]));
   const counts = new Map(
     objects.map(({ objectApiName }) => [objectApiName, emptyCounts(objectApiName)]),

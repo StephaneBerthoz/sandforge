@@ -10,6 +10,7 @@ import {
   resetConnectionValidation,
 } from './ConnectionHelper';
 import { OrgConnectionError } from './OrgConnectionError';
+import { connectionCheckRequests } from './connectionChecks';
 import type { OrgRegistry } from './OrgRegistry';
 import type { OrgManager } from './OrgManager';
 import type { SalesforceOrg, ConnectionConfig } from '@sandforge/shared';
@@ -938,6 +939,35 @@ describe('ConnectionHelper', () => {
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
         'ORG_TEMPORARILY_UNREACHABLE: ',
       );
+    });
+  });
+
+  describe('requests of a connection check', () => {
+    it('counts what the identity check of a new connection sends, and nothing for a pooled one served without it', async () => {
+      const jsforce = (await import('jsforce')).default;
+      // A connection whose identity call reads the version root, then the
+      // identity URL, each a request, as jsforce's does.
+      vi.mocked(jsforce.Connection).mockImplementationOnce(function () {
+        const conn = {
+          request: vi.fn(async (_url: string) => ({
+            identity: 'https://test.salesforce.com/id/x',
+          })),
+          identity: async () => {
+            await conn.request('/services/data/v62.0');
+            await conn.request('https://test.salesforce.com/id/x?format=json');
+            return { user_id: 'u1', organization_id: '00D1' };
+          },
+        };
+        return conn;
+      } as never);
+      const before = connectionCheckRequests();
+      const orgRegistry = createMockOrgRegistry(makeCreds());
+      const orgManager = createMockOrgManager(makeOrg());
+
+      await getJsforceConnection('org-1', orgRegistry, orgManager);
+      await getJsforceConnection('org-1', orgRegistry, orgManager);
+
+      expect(connectionCheckRequests() - before).toBe(2);
     });
   });
 

@@ -459,6 +459,7 @@ export function salesOrg(options: SalesOrgOptions = {}): EmptyFixtureOrg {
         lookup('AccountId', 'Account', 'Account'),
         lookup('Pricebook2Id', 'Pricebook2', 'Pricebook2'),
         lookup('ContactId', 'Contact', 'Contact'),
+        { name: 'IsWon' },
       ],
       children: [
         { childSObject: 'OpportunityLineItem', field: 'OpportunityId', cascadeDelete: true },

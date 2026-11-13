@@ -942,6 +942,71 @@ describe('a rewind’s plan: what Undo couldn’t bring back (B3, A14)', () => {
   });
 });
 
+describe('a rewind’s plan: an entitlement’s account', () => {
+  /**
+   * An entitlement as a checkpoint taken before its account was known to
+   * refuse its delete held it: among the parents that take it along, as the
+   * account's describe flags the lookup both ways.
+   */
+  const ENTITLEMENT: Held = {
+    objectApiName: 'Entitlement',
+    fields: [...STAMPS, 'Name', 'AccountId'],
+    cascadeParents: ['AccountId'],
+  };
+  const ACCOUNT_ENTITLEMENTS: MemoryChild = {
+    childSObject: 'Entitlement',
+    field: 'AccountId',
+    cascadeDelete: true,
+    restrictedDelete: true,
+  };
+  const entitlementId = (n: number): string => idOf('550', n);
+
+  it('sends an entitlement made since before its account, said beside it, once that Undo couldn’t bring it back was accepted, and leaves it otherwise: left to go along, the account was refused (DELETE_FAILED, live)', async () => {
+    const parent = accountId(1);
+    const entitlement = entitlementId(1);
+    const world = await take({
+      objects: [ENTITLEMENT, ACCOUNT],
+      children: { Account: [ACCOUNT_ENTITLEMENTS] },
+    });
+    world.at(SINCE, (org) => {
+      org.add('Account', { Id: parent, Name: 'Made since' });
+      org.add('Entitlement', { Id: entitlement, Name: 'Made since', AccountId: parent });
+    });
+    const fresh = await world.diff(PV1, TR);
+
+    const refused = await world.plan({ freshDir: fresh.dir });
+    const accepted = await world.plan({ freshDir: fresh.dir, acceptNoUndo: true });
+
+    expect(refused.left).toEqual([
+      {
+        objectApiName: 'Entitlement',
+        reason: 'beforeParentNotAccepted',
+        count: 1,
+        ids: [entitlement],
+      },
+    ]);
+    expect(await idsOf(accepted.deletes)).toEqual({
+      Entitlement: [entitlement],
+      Account: [parent],
+    });
+    expect(accepted.objects).toEqual([
+      counts('Entitlement', { deleted: 1, undoCannot: 1 }),
+      counts('Account', { deleted: 1 }),
+    ]);
+    expect(await linesOf(accepted.beforeParent[0].file)).toEqual([
+      { Id: entitlement, parents: [parent] },
+    ]);
+
+    const outcome = await world.remove(accepted);
+
+    expect(outcome.objects.map(({ objectApiName, deleted }) => [objectApiName, deleted])).toEqual([
+      ['Entitlement', 1],
+      ['Account', 1],
+    ]);
+    expect(world.live('Account', parent)).toBe(false);
+  });
+});
+
 describe('a rewind’s plan: records outside a checkpoint of picked objects (M8, A13)', () => {
   it('keeps and names a record created since that records outside the checkpoint hang from, unless their deletion was accepted or the checkpoint holds everything', async () => {
     const parent = accountId(1);

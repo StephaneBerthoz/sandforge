@@ -51,7 +51,13 @@ import type {
   SalesforceOrg,
 } from '@sandforge/shared';
 import { createPanelHost } from './panelHost.js';
-import type { PanelAnswer, PanelHost, PanelHostOptions, PostedMessage } from './panelHost.js';
+import type {
+  PanelAnswer,
+  PanelHost,
+  PanelHostOptions,
+  PanelHostWiring,
+  PostedMessage,
+} from './panelHost.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, endWith } from './exitCodes.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
@@ -65,12 +71,15 @@ import {
 import { refusedLine, wouldBeRefusedLine } from './runRefused.js';
 import { holdOutputWhole } from './wholeOutput.js';
 import type { InfraServices } from '../src/bridge/handlers/HandlerTypes.js';
+import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
+import { countRequests } from '../src/core/precheck/orgKindLive.js';
 import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
 import { AuditTrailStore } from '../src/modules/audit/auditTrail.js';
 import {
   defaultCheckpointStoreRoot,
   openCheckpointStore,
 } from '../src/modules/checkpoint/OrgCheckpointStore.js';
+import { copySandboxRefusal } from '../src/modules/dataops/empty/emptyCopySandbox.js';
 import {
   defaultEmptyRoot,
   EmptyJournalStore,
@@ -100,7 +109,8 @@ Required:
   --org                  empty every object people work in, as checkpoints
                          read them: never users, profiles, setup, Chatter,
                          history, sharing, the org's flows, settings and
-                         definitions, or the standard price book
+                         definitions, or the standard price book. Refused on
+                         a Partial Copy or Full sandbox (COPY_SANDBOX, below)
   --dry-run              read the org and say everything a run would do and
                          meet, deleting nothing; exit 1 when a run would be
                          refused, its refusals listed
@@ -175,7 +185,12 @@ org has left today; the automation, emails and mute, as every DataOps act asks
 them; a checkpoint refused; and the org changed since the dry run beyond what
 it showed. A sandbox marked Staging in the extension, whose whole the panel
 never empties, is not known here: the command registers the org afresh, from
-what it says it is.
+what it says it is. So the whole of a Partial Copy or Full sandbox, read from
+its data storage — past the 1 GB of a Developer Pro sandbox — is refused,
+--org and a --resume of such a run alike (COPY_SANDBOX), before anything is
+read: empty it whole from DataOps Cleanup in the panel, which knows the mark,
+or pick its objects with --objects, which Production Guard asks about. A
+scratch org and a Developer or Developer Pro sandbox are emptied whole.
 
 Journals are kept in empty/ under the folder SANDFORGE_JOURNAL_DIR names
 (~/.sandforge by default), shared with the panel. Undo reaches the org's last
@@ -436,12 +451,13 @@ export type EmptyPreviewAnswer = DataOpsEmptyPreviewKept & {
 /**
  * What `--json` says of the API requests: `estimate`, what the dry run priced
  * the emptying at, its own reads and its run's together; and `sent`, every
- * request the emptying's dry run and run sent the org, counted as they were
- * sent, through each connection they read and delete through. The org's
- * `/limits`, the only other count, are the whole org's and read a minute or
- * two late: a dry run took 153 where the estimate said 25. Neither holds the
- * two reads that register the org as the command connects, nor a checkpoint
- * taken first, which says its own. Exported so it can be tested.
+ * request the command sent the org, counted as they were sent: connecting it
+ * and checking the connections it read through (`connectingRequests`), then
+ * its dry run's and its run's, through each connection they read and delete
+ * through, the lease of a mute among them. The org's `/limits`, the only
+ * other count, are the whole org's and read a minute or two late: a dry run
+ * took 153 where the estimate said 25. Neither holds a checkpoint taken
+ * first, which says its own. Exported so it can be tested.
  */
 export function apiRequestsJson(
   estimate: number | undefined,
@@ -859,6 +875,25 @@ async function stoppable(
   }
 }
 
+/**
+ * Whether the line empties a whole org: `--org`, or `--resume` of a run whose
+ * journal says it was one. A journal it cannot read is the handler's to
+ * answer for.
+ */
+async function emptiesWholeOrg(
+  args: EmptyArgs,
+  journals: EmptyJournalStore,
+  org: SalesforceOrg,
+): Promise<boolean> {
+  if (args.act === 'empty') return args.request.mode === 'org';
+  if (args.act !== 'resume') return false;
+  try {
+    return (await journals.open(org.orgId, args.runId)).head.mode === 'org';
+  } catch {
+    return false;
+  }
+}
+
 /** Run the command; exported so it can be run on the memory org. */
 export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {}): Promise<void> {
   const args = parseArgs(argv);
@@ -877,6 +912,7 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
   const hostDir = mkdtempSync(join(tmpdir(), 'sandforge-empty-'));
   const registry = new BackgroundOperationRegistry();
   let hostConfig: ReturnType<typeof fileConfigStore> | undefined;
+  let hostWiring: Pick<PanelHostWiring, 'orgRegistry' | 'orgManager'> | undefined;
   let lastStep: string | undefined;
   try {
     const opened = openCheckpointStore({
@@ -901,6 +937,7 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
       },
       compose: (wiring) => {
         hostConfig = wiring.configStore;
+        hostWiring = wiring;
         // The checkpoint taken first, and what else writes to the org, read
         // from the panel's store; the journals and the lock, the panel's.
         wiring.handlers.setCheckpointStore(store);
@@ -926,6 +963,11 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
       },
     });
 
+    // Connecting the org, checking the connections the handler opens and
+    // reading what kind of sandbox it is: sent the org all the same, and
+    // counted with what the acts sent.
+    let kindRead: () => number = () => 0;
+    const connecting = (): number => (host.connectingRequests?.() ?? 0) + kindRead();
     let org: SalesforceOrg;
     try {
       org = await host.connect(args.target);
@@ -936,6 +978,24 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
       });
     }
     const accord = { ...args.accord };
+
+    // The whole of a Partial Copy or Full sandbox is the panel's to empty,
+    // which knows whether it is marked Staging: refused here before anything
+    // is read, a whole org's run taken up as well.
+    if (await emptiesWholeOrg(args, journals, org)) {
+      const wiring = hostWiring;
+      const refusal = await copySandboxRefusal({
+        target: args.target,
+        orgType: org.orgType,
+        limits: async () => {
+          if (!wiring) throw new Error('the host built no registry');
+          const conn = await getJsforceConnection(org.id, wiring.orgRegistry, wiring.orgManager);
+          kindRead = countRequests(conn);
+          return conn.request({ method: 'GET', url: '/limits' });
+        },
+      });
+      if (refusal) throw new Stop(refusal);
+    }
 
     if (args.act !== 'empty') {
       const undoing = args.act === 'undo';
@@ -968,7 +1028,7 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
         answerJson({
           runId: args.runId,
           result,
-          ...apiRequestsJson(undefined, result.requestsSent),
+          ...apiRequestsJson(undefined, connecting(), result.requestsSent),
         });
         endWith(emptyExitCode(result.status, sent.stoppedBy));
       } else {
@@ -977,7 +1037,7 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
         answerJson({
           runId: args.runId,
           result,
-          ...apiRequestsJson(undefined, result.requestsSent),
+          ...apiRequestsJson(undefined, connecting(), result.requestsSent),
         });
         endWith(emptyExitCode(result.status, sent.stoppedBy));
       }
@@ -1020,7 +1080,7 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
       if (refusals.length === 0) say('  a real run would not be refused');
       answerJson({
         ...summary,
-        ...apiRequestsJson(estimate, preview.requestsSent),
+        ...apiRequestsJson(estimate, connecting(), preview.requestsSent),
         ...(refusals.length > 0
           ? {
               wouldBeRefused: refusals.map((each) => each.message),
@@ -1037,7 +1097,7 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
       for (const each of also) process.stderr.write(`${refusedLine(each)}\n`);
       answerJson({
         ...summary,
-        ...apiRequestsJson(estimate, preview.requestsSent),
+        ...apiRequestsJson(estimate, connecting(), preview.requestsSent),
         refused: first,
         ...(also.length > 0 ? { alsoRefused: also } : {}),
       });
@@ -1070,7 +1130,7 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
     if (result.runId !== '') say(`journal: ${journals.root}`);
     answerJson({
       ...summary,
-      ...apiRequestsJson(estimate, preview.requestsSent, result.requestsSent),
+      ...apiRequestsJson(estimate, connecting(), preview.requestsSent, result.requestsSent),
       result,
     });
     endWith(emptyExitCode(result.status, sent.stoppedBy));

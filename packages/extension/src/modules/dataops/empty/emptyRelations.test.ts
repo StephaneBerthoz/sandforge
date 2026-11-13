@@ -10,13 +10,11 @@ import {
   keptRowsOf,
   MOST_ROUTES,
   namesDeletedCondition,
-  REFUSING_CASCADES,
   relationKindOf,
   relationsOf,
   stepsCondition,
   type EmptyDescribe,
 } from './emptyRelations';
-import { setBackToDraftOf } from '../../../core/removal/recordsToDraft';
 
 /** The describes `org` gives of `names`, those it refuses left out. */
 async function describesOf(
@@ -89,17 +87,6 @@ describe('relationKindOf', () => {
         'Product2',
       ),
     ).toBe('cascade');
-  });
-
-  it('meets every refusal of its table a way of its own: what is refused whatever goes first, an order past Draft is set back to Draft', () => {
-    expect(
-      REFUSING_CASCADES.filter((entry) => entry.refused === 'always').map((entry) => entry.child),
-    ).toEqual(['Entitlement']);
-    const drafted = REFUSING_CASCADES.filter((entry) => entry.refused === 'pastDraft').map(
-      (entry) => entry.child,
-    );
-    expect(drafted).toEqual(['Order']);
-    expect(setBackToDraftOf(drafted)).toEqual(drafted);
   });
 });
 
@@ -300,6 +287,25 @@ describe('the conditions of a count', () => {
         describes,
       ),
     ).toEqual({ soql: 'Pricebook2.Id != null AND Pricebook2.IsStandard = false', exact: true });
+  });
+
+  it('reads a lookup to a product with its product there, as the book’s, every row of it deleted; and a lookup to a contact with the rows an emptying says it deletes', async () => {
+    const org = salesOrg();
+    const describes = await describesOf(org, SALES);
+
+    expect(
+      stepsCondition(
+        [{ object: 'PricebookEntry', field: 'Product2Id', parent: 'Product2' }],
+        describes,
+      ),
+    ).toEqual({ soql: 'Product2.Id != null', exact: true });
+    const contact = [{ object: 'Case', field: 'ContactId', parent: 'Contact' }];
+    expect(stepsCondition(contact, describes)).toEqual({ soql: 'ContactId != null', exact: true });
+    expect(
+      stepsCondition(contact, describes, (name) =>
+        name === 'Contact' ? 'IsPersonAccount = false' : undefined,
+      ),
+    ).toEqual({ soql: 'Contact.Id != null AND Contact.IsPersonAccount = false', exact: true });
   });
 
   it('counts the prices under the book it deletes, not those whose book the org no longer holds, nor an opportunity under no book', async () => {

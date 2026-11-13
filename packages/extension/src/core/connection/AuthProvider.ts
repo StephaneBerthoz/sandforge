@@ -2,6 +2,7 @@ import type { AuthMethod, ConnectionConfig } from '@sandforge/shared';
 import { DEFAULT_SOQL_LIMITS } from '@sandforge/shared';
 import type { SfdxBridge } from './SfdxBridge';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
+import { connectionCheck } from './connectionChecks.js';
 import { withDeadline } from './ConnectionHelper.js';
 
 /**
@@ -105,16 +106,18 @@ export class AuthProvider {
     // Lazy boundary — see jsforceEntry.ts.
     const { jsforce } = await import('./jsforceEntry.js');
     const conn = new jsforce.Connection({ accessToken, instanceUrl });
-    const identity = await conn.identity();
-
-    const orgResult = await conn.query<{
-      Id: string;
-      Name: string;
-      OrganizationType: string;
-      IsSandbox: boolean;
-    }>(
-      `SELECT Id, Name, OrganizationType, IsSandbox FROM Organization LIMIT ${DEFAULT_SOQL_LIMITS.singleRecord}`,
-    );
+    // Counted with the connection checks: the org counts them against its day.
+    const { identity, orgResult } = await connectionCheck(conn, async () => ({
+      identity: await conn.identity(),
+      orgResult: await conn.query<{
+        Id: string;
+        Name: string;
+        OrganizationType: string;
+        IsSandbox: boolean;
+      }>(
+        `SELECT Id, Name, OrganizationType, IsSandbox FROM Organization LIMIT ${DEFAULT_SOQL_LIMITS.singleRecord}`,
+      ),
+    }));
 
     const orgRecord = orgResult.records[0];
     return {

@@ -72,13 +72,20 @@ describe('emptyCostOf', () => {
       reads: 40,
     });
 
-    // 40 reads twice; Account: 1 page, 1 count, 1 call; Contact: 6 pages, 1
+    // 40 reads twice, each after its connection's check (2), the org's
+    // connect once (3); Account: 1 page, 1 count, 1 call; Contact: 6 pages, 1
     // count, one job of 12,000 — opened, sent, closed, its state read 9
     // times over its 40 seconds, its results read 3 ways. Then 5% for what
     // the org's answers make vary, rounded up.
-    const counted = 2 * 40 + (1 + 1 + 1) + (6 + 1 + 15);
+    const counted = 2 * 40 + (2 * 2 + 3) + (1 + 1 + 1) + (6 + 1 + 15);
     expect(cost.apiRequests).toBe(counted + Math.ceil(counted * 0.05));
-    expect(cost.requests).toEqual({ reads: 40, readings: 2, passes: 3 + 22, margin: 6 });
+    expect(cost.requests).toEqual({
+      reads: 40,
+      readings: 2,
+      passes: 3 + 22,
+      margin: 6,
+      connecting: 7,
+    });
     // The run's time: its own read of the org, and its passes.
     expect(cost.seconds).toBeCloseTo(40 * 0.35 + (1 + 0.35 + 0.86) + (6 + 0.35 + 40), 5);
     expect(cost.bulkBatches).toBe(2);
@@ -236,7 +243,7 @@ describe('pricedWithReads', () => {
 
   it('prices a dry run on the reads it sent as counted, its own and its run’s', () => {
     const priced = pricedWithReads(cost, 153, 2);
-    const counted = 2 * 153 + cost.requests.passes;
+    const counted = 2 * 153 + 7 + cost.requests.passes;
 
     expect(priced.apiRequests).toBe(counted + Math.ceil(counted * 0.05));
     expect(priced.requests).toEqual({
@@ -244,6 +251,7 @@ describe('pricedWithReads', () => {
       readings: 2,
       passes: cost.requests.passes,
       margin: Math.ceil(counted * 0.05),
+      connecting: 7,
     });
     expect(priced.api).toMatchObject({ verdict: 'fits', estimate: priced.apiRequests });
     expect(priced.seconds - cost.seconds).toBeCloseTo((153 - 30) * 0.35, 5);
@@ -257,8 +265,19 @@ describe('pricedWithReads', () => {
       1,
     );
 
-    expect(run.requests).toMatchObject({ reads: 153, readings: 1 });
+    expect(run.requests).toMatchObject({ reads: 153, readings: 1, connecting: 2 + 3 });
     expect(run.apiRequests).toBeLessThan(pricedWithReads(cost, 153, 2).apiRequests - 140);
     expect(tight.api.verdict).toBe('exceeds');
+  });
+
+  it('counts the lease of the mute the run holds while it deletes, beside its reads and passes: the requests it sends were counted as sent, and the estimate said less', () => {
+    const muted = pricedWithReads(cost, 153, 2, 9);
+    const quiet = pricedWithReads(cost, 153, 2);
+    const counted = 2 * 153 + 7 + cost.requests.passes + 9;
+
+    expect(muted.apiRequests).toBe(counted + Math.ceil(counted * 0.05));
+    expect(muted.apiRequests - quiet.apiRequests).toBeGreaterThanOrEqual(9);
+    expect(muted.requests.mute).toBe(9);
+    expect(quiet.requests).not.toHaveProperty('mute');
   });
 });

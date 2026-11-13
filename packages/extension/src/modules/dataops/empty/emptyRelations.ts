@@ -14,7 +14,8 @@
  * them along, as the removal and the checkpoint read it (`ForgeRunRemoval`,
  * `restrictParentsOf`), save where the org was seen to refuse the parent's
  * delete whatever the records are: an entitlement's account
- * ({@link REFUSING_CASCADES}). Seen on real describes:
+ * (`REFUSING_CASCADES`, which the checkpoint reads too). Seen on real
+ * describes:
  *
  * - an account takes its contacts, opportunities, orders, contracts, assets,
  *   activities, notes and attachments along, and refuses its delete while a
@@ -43,6 +44,7 @@
  */
 
 import * as z from 'zod';
+import { alwaysRefused } from '../../../core/removal/refusingCascades.js';
 import { ARCHIVED_ACTIVITIES } from '../../../core/removal/tableIds.js';
 import {
   checkpointDescribeSchema,
@@ -99,6 +101,17 @@ export function deletedRowsOf(objectApiName: string): string | undefined {
 }
 
 /**
+ * The parents a lookup was seen to name though the org holds no such record:
+ * a price's book — of the 38 prices of a scratch org, 34 named a book it
+ * could not read — and, read the same way, the product those prices name. A
+ * lookup to one of these is read with its parent there (`Product2.Id !=
+ * null`), never filled alone: filled alone, it counted the 34 as going with
+ * the book an emptying deleted, and would count a price whose product is
+ * gone as going with the products emptied.
+ */
+const READ_PRESENT: ReadonlySet<string> = new Set(['pricebook2', 'product2']);
+
+/**
  * How a lookup ties its records to the record it names when that one is
  * deleted: they go along, the delete is refused while they live, or the
  * lookup is emptied.
@@ -116,64 +129,9 @@ export interface Relation {
 }
 
 /**
- * How the org meets the delete of a parent its describe says takes the
- * records along, where it refuses it while some of them live.
- *
- * - `always`: whatever the records are. The records go before their parent,
- *   as those of a lookup that refuses the delete do, and no undo brings them
- *   back once their parent has gone too (F41);
- * - `pastDraft`: while a record is past Draft. The run sets it back to Draft
- *   before its first delete, and it then goes along (P8, `setBackToDraftOf`);
- * - `closedWon`: while an opportunity is closed won, for a user the org does
- *   not let delete those. The account's delete is refused, the pass of the
- *   opportunities sends them, and the rounds of tries take the account.
- */
-export type RefusedWhile = 'always' | 'pastDraft' | 'closedWon';
-
-/**
- * The lookups whose describe says the parent's delete takes the records
- * along — `cascadeDelete`, `restrictedDelete` beside it — where the org was
- * seen to refuse that delete while one lives, in one table:
- *
- * - an entitlement's account: "Your attempt to delete … could not be
- *   completed because it is associated with the following entitlements"
- *   (`DELETE_FAILED`), on the emptying of a scratch org whose account held
- *   one, its dry run having said the entitlement went along;
- * - an order's account, while the order is activated: "associated with the
- *   following active orders";
- * - an opportunity's account, while it holds a closed won one: "some
- *   opportunities of this account were closed won", in a removal of a clone.
- *
- * A price's product, flagged the same way, takes its standard prices along
- * (seen live): it is no entry here.
- */
-export const REFUSING_CASCADES: ReadonlyArray<{
-  child: string;
-  field: string;
-  parent: string;
-  refused: RefusedWhile;
-}> = [
-  { child: 'Entitlement', field: 'AccountId', parent: 'Account', refused: 'always' },
-  { child: 'Order', field: 'AccountId', parent: 'Account', refused: 'pastDraft' },
-  { child: 'Opportunity', field: 'AccountId', parent: 'Account', refused: 'closedWon' },
-];
-
-/** Whether the org refuses `parent`'s delete while any record of `child` names it through `field`. */
-function alwaysRefused(parent: string, child: string, field: string): boolean {
-  const [p, c, f] = [parent, child, field].map((name) => name.toLowerCase());
-  return REFUSING_CASCADES.some(
-    (entry) =>
-      entry.refused === 'always' &&
-      entry.parent.toLowerCase() === p &&
-      entry.child.toLowerCase() === c &&
-      entry.field.toLowerCase() === f,
-  );
-}
-
-/**
  * How `relationship` ties its records to the parent's: see the module's
  * comment. Given the parent, a lookup the org refuses its delete for whatever
- * the describe says ({@link REFUSING_CASCADES}, `always`) is read as one that
+ * the describe says (`REFUSING_CASCADES`, `always`) is read as one that
  * refuses it.
  */
 export function relationKindOf(
@@ -189,7 +147,7 @@ export function relationKindOf(
     parent !== undefined &&
     relationship.childSObject !== undefined &&
     relationship.field !== undefined &&
-    alwaysRefused(parent, relationship.childSObject, relationship.field)
+    alwaysRefused(relationship.childSObject, relationship.field, parent)
   ) {
     return 'restricted';
   }
@@ -390,11 +348,18 @@ function fieldOf(
  * `Pricebook2.IsStandard = false` true of a record whose price book is not
  * there at all — no lookup filled, or one naming a book gone — and counted 36
  * prices under the book an emptying deleted, where 2 hung from it (34 named
- * none it could read, `Pricebook2.Id = null`).
+ * none it could read, `Pricebook2.Id = null`). So is a lookup to a parent
+ * whose records were seen named by records it no longer holds
+ * ({@link READ_PRESENT}): a price's product, `Product2.Id != null`.
+ *
+ * @param deletedRows - The rows of an object the emptying deletes, as a
+ *   condition, nothing when it deletes all: {@link deletedRowsOf} unless the
+ *   emptying says more — a person account's contact stays with its account.
  */
 export function stepsCondition(
   steps: readonly RouteStep[],
   describes: ReadonlyMap<string, EmptyDescribe>,
+  deletedRows: (objectApiName: string) => string | undefined = deletedRowsOf,
 ): Condition | undefined {
   const path: string[] = [];
   for (const [at, step] of steps.entries()) {
@@ -416,12 +381,13 @@ export function stepsCondition(
       if (!through) return { soql: `${[...path, field.name].join('.')} != null`, exact: false };
       return { soql: `${through}.Type = '${step.parent}'`, exact: last };
     }
-    const deleted = deletedRowsOf(step.parent);
     if (last) {
-      if (deleted === undefined)
+      const deleted = deletedRows(step.parent);
+      if (deleted === undefined && !READ_PRESENT.has(step.parent.toLowerCase()))
         return { soql: `${[...path, field.name].join('.')} != null`, exact: true };
       if (!through) return { soql: `${[...path, field.name].join('.')} != null`, exact: false };
-      return { soql: `${through}.Id != null AND ${through}.${deleted}`, exact: true };
+      const rows = deleted !== undefined ? ` AND ${through}.${deleted}` : '';
+      return { soql: `${through}.Id != null${rows}`, exact: true };
     }
     if (!relationship || at + 1 >= MOST_ROUTE_STEPS) {
       return { soql: `${[...path, field.name].join('.')} != null`, exact: false };
@@ -438,9 +404,10 @@ export function stepsCondition(
 export function anyRouteCondition(
   routes: readonly Route[],
   describes: ReadonlyMap<string, EmptyDescribe>,
+  deletedRows: (objectApiName: string) => string | undefined = deletedRowsOf,
 ): Condition | undefined {
   const conditions = routes
-    .map((route) => stepsCondition(route.steps, describes))
+    .map((route) => stepsCondition(route.steps, describes, deletedRows))
     .filter((condition): condition is Condition => condition !== undefined);
   if (conditions.length === 0) return undefined;
   if (conditions.length === 1) return conditions[0];
@@ -462,13 +429,14 @@ export function namesDeletedCondition(
   parent: string,
   affected: Affected,
   describes: ReadonlyMap<string, EmptyDescribe>,
+  deletedRows: (objectApiName: string) => string | undefined = deletedRowsOf,
 ): Condition | undefined {
   const first: RouteStep = { object: child, field, parent };
-  if (affected.emptied.has(parent)) return stepsCondition([first], describes);
+  if (affected.emptied.has(parent)) return stepsCondition([first], describes, deletedRows);
   const routes = (affected.routes.get(parent) ?? []).map((route) => ({
     object: child,
     steps: [first, ...route.steps],
     emptied: route.emptied,
   }));
-  return anyRouteCondition(routes, describes);
+  return anyRouteCondition(routes, describes, deletedRows);
 }
