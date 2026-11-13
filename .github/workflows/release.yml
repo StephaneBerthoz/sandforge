@@ -33,6 +33,10 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # The environment is what keeps the Marketplace token and the deploy key
+    # out of reach of anything but this job: it deploys from master only, and
+    # every run waits for the maintainer to approve it before its first step.
+    environment: release
     # The worst case, which is the one that has to fit: everything before the
     # publish measured 6.2 minutes on a real release run (8 allowed), three
     # publish attempts of at most 5 minutes and 15 s plus a 30 s pause each
@@ -53,10 +57,16 @@ jobs:
     # Marketplace publish with VSCE_PAT in its environment. A tag can be moved
     # by whoever controls the action; a commit cannot.
     steps:
+      # The release commit and its tag are pushed with the environment's deploy
+      # key. The master and release-tags rulesets let deploy keys through, and
+      # GITHUB_TOKEN would be refused by both: a commit pushed to master must
+      # have passed the required checks, and only the maintainer creates v*
+      # tags. Force pushes and the deletion of master stay refused to the key,
+      # as to everyone.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
       # Fail fast before doing any work: the Marketplace token must exist,
       # otherwise the run would bump, tag and build for 10 minutes only to die
@@ -94,9 +104,8 @@ jobs:
       # already rejected would bump, tag, push and publish it all the same, so
       # the conclusion of the run that did test this commit is read before the
       # first thing is written. Only ci.yml is read, not the format workflow.
-      # The release commit is pushed with GITHUB_TOKEN, which starts no CI run,
-      # so a later dispatch from that commit is refused with 'none': dispatch
-      # from a commit CI ran on.
+      # The release commit is pushed with the deploy key, so CI runs on it like
+      # on any other push to master.
       - name: Require a green CI run for this commit
         if: ${{ !inputs.publish_only }}
         env:

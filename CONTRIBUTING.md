@@ -224,9 +224,10 @@ the PR description so reviewers focus there.
 
 Releases are cut from `master`, from a commit whose CI run is green —
 `.github/workflows/release.yml` reads that conclusion and stops before the
-bump if it is anything else. It reads `ci.yml` only, and the release commit
-the workflow pushes starts no CI run of its own, so dispatch from a commit
-CI ran on.
+bump if it is anything else. It reads `ci.yml` only. The job runs in the
+`release` environment: it deploys from `master` only, each run waits for the
+maintainer's approval, and the environment holds the Marketplace token and the
+deploy key that pushes the release commit and its tag, which CI then runs on.
 
 1. Update `changelog.md` (root), in semver-descending order, then run
    `pnpm sync:readme` to copy it to `packages/extension/CHANGELOG.md`; the
@@ -238,11 +239,6 @@ CI ran on.
    Marketplace publish, and undrafted once the Marketplace serves the new
    version. A publish that fails leaves the draft and the tag in place:
    re-run the workflow with `publish_only` to retry it without a bump.
-   Until GitHub Actions is a bypass actor on the `master` ruleset, a
-   dispatch cannot get this far: the ruleset requires status checks on
-   every commit pushed to `master`, the release commit is new and has
-   none, so the workflow's push of it is rejected before anything is
-   published.
 4. Locally, `pnpm package` builds the same VSIX with `@vscode/vsce`
    (`--no-dependencies`, output `sandforge.vsix`) and
    `SKIP_BUILD_CHECKS=1 bash scripts/pre-publish-check.sh` runs the
