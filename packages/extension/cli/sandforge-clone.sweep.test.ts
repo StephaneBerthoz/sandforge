@@ -1088,6 +1088,63 @@ describe('sweepLines', () => {
         'as the removal deleted those: the org took them along) of 1',
     );
   });
+
+  it('says apart what it deleted once the removal was through that hung from a record of the run the org did not take along', () => {
+    // Said "once the records of the run that point at them were gone", a
+    // contact role still under the run's contact, which the removal kept,
+    // read as if the contact had pointed at it and gone.
+    const sweep = (afterRemovalUnder: number) => ({
+      status: 'success' as const,
+      objects: [
+        {
+          objectApiName: 'OpportunityContactRole',
+          found: 2,
+          deleted: 2,
+          alreadyGone: 0,
+          keptChanged: 0,
+          refused: 0,
+          reasons: [],
+          afterRemoval: 2,
+          afterRemovalUnder,
+        },
+      ],
+      unread: [],
+      handWork: [],
+    });
+
+    expect(sweepLines(sweep(2))).toContain(
+      '  OpportunityContactRole: 2 deleted (2 once the removal was through: the org had not taken ' +
+        'them along with the records of the run they hung from) of 2',
+    );
+    expect(sweepLines(sweep(1))).toContain(
+      '  OpportunityContactRole: 2 deleted (1 once the records of the run that point at them were ' +
+        'gone; 1 once the removal was through: the org had not taken them along with the records ' +
+        'of the run they hung from) of 2',
+    );
+  });
+
+  it('says what it kept for records that stay under them, and which', () => {
+    expect(
+      sweepLines({
+        status: 'partial',
+        objects: [
+          {
+            objectApiName: 'Asset',
+            found: 2,
+            deleted: 1,
+            alreadyGone: 0,
+            keptChanged: 0,
+            refused: 0,
+            reasons: [],
+            keptDependents: 1,
+            heldBy: ['FeedItem'],
+          },
+        ],
+        unread: [],
+        handWork: [],
+      }),
+    ).toContain('  Asset: 1 deleted, 1 kept for records that stay (FeedItem) of 2');
+  });
 });
 
 /** One object's removal, every record deleted unless said otherwise. */

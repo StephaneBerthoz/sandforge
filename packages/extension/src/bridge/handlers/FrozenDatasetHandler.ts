@@ -2737,7 +2737,10 @@ export class FrozenDatasetHandler implements DomainHandler {
     // A reload takes the loads before it back whole, or does not start:
     // nothing purged, nothing inserted. Refused so, it is recorded as a load
     // a check of its own stopped before it started.
-    const notReplaced = await this.replaceRefusal(parsed, config);
+    const replaced = await this.replaceRefusal(parsed, config);
+    const notReplaced = replaced && 'error' in replaced ? replaced : undefined;
+    /** What the purge takes along that came with the loads' records: said with it. */
+    const purgeTakesAlong = replaced && 'cameAlong' in replaced ? replaced.cameAlong : undefined;
     if (notReplaced) {
       if (notReplaced.code === REPLACE_LEAVES_RECORDS) {
         recordWriteRun(this.deps, {
@@ -3189,9 +3192,20 @@ export class FrozenDatasetHandler implements DomainHandler {
       };
       this.recordLastRun(lastRun);
 
+      const info = toLoadReportInfo(report);
+      // Said only of an object the purge did delete records of: one it never
+      // reached took nothing along.
+      const tookAlong = Object.fromEntries(
+        Object.entries(purgeTakesAlong ?? {}).filter(
+          ([objectApiName]) => (info.purge.deleted[objectApiName] ?? 0) > 0,
+        ),
+      );
       const response = buildResponse(this.deps, msg, 'frozen:load:response', {
         report: {
-          ...toLoadReportInfo(report),
+          ...info,
+          ...(Object.keys(tookAlong).length > 0
+            ? { purge: { ...info.purge, cameAlong: tookAlong } }
+            : {}),
           status,
           ...(verification ? { verification } : {}),
           ...(mutedAutomation ? { mutedAutomation } : {}),
@@ -3632,7 +3646,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     if (!parsed) return;
     const config = this.requireConfig(msg, 'frozen:load:preview:error');
     if (!config) return;
-    const notReplaced = await this.replaceRefusal(parsed, config, parsed.goneFirst);
+    const replaced = await this.replaceRefusal(parsed, config, parsed.goneFirst);
+    const notReplaced = replaced && 'error' in replaced ? replaced : undefined;
     if (notReplaced) {
       sendHandlerError(
         this.deps,
@@ -4480,20 +4495,31 @@ export class FrozenDatasetHandler implements DomainHandler {
    * automation likely made for a load holds nothing when the reload sweeps
    * it, as the sweep takes it first.
    *
+   * What the purge's deletes take along that the loads did not write, come
+   * with their records as they wrote — a contact a trigger made with an
+   * account of a load —, is read by the same preview, and said back per
+   * object purged (`cameAlong`): the purge took it along unsaid.
+   *
    * @param goneFirst - Asked of a preview alone: the records taken back
    *   before the reload runs, which hold nothing then — what an environment's
    *   apply takes back before it reloads. A reload that runs reads what is
    *   still there.
    * @returns The refusal, under {@link REPLACE_LEAVES_RECORDS}; or the failure
-   *   of the reads that would tell, which refuses the request too.
+   *   of the reads that would tell, which refuses the request too; else what
+   *   the purge takes along that came with the loads' records, when it takes any.
    */
   private async replaceRefusal(
     request: { targetOrgId: string; reload?: boolean; pilot?: boolean; sweep?: boolean },
     config: FrozenProjectConfig,
     goneFirst: readonly string[] = [],
-  ): Promise<{ error: unknown; code: string; retryable: boolean } | undefined> {
+  ): Promise<
+    | { error: unknown; code: string; retryable: boolean }
+    | { cameAlong: NonNullable<FrozenLoadReportInfo['purge']['cameAlong']> }
+    | undefined
+  > {
     if (request.reload !== true || request.pilot === true) return undefined;
     let refusal: string | undefined;
+    const cameAlong: NonNullable<FrozenLoadReportInfo['purge']['cameAlong']> = {};
     try {
       const guard = new SasPathGuard();
       const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
@@ -4533,6 +4559,14 @@ export class FrozenDatasetHandler implements DomainHandler {
           if (!outcome.preview)
             throw new Error('The removal preview stopped before it was through.');
           previews.push(outcome.preview);
+          for (const { objectApiName, cameAlong: came } of outcome.preview.objects) {
+            if (!came) continue;
+            const was = cameAlong[objectApiName];
+            cameAlong[objectApiName] = {
+              count: (was?.count ?? 0) + came.count,
+              objects: [...new Set([...(was?.objects ?? []), ...came.objects])],
+            };
+          }
         }
         const left = leftByRemovalOf(previews, request.sweep === true);
         if (left.length > 0) {
@@ -4550,9 +4584,10 @@ export class FrozenDatasetHandler implements DomainHandler {
     } catch (err: unknown) {
       return { error: err, code: this.errorCodeFor(err, 'LOAD_ERROR'), retryable: true };
     }
-    return refusal === undefined
-      ? undefined
-      : { error: new Error(refusal), code: REPLACE_LEAVES_RECORDS, retryable: false };
+    if (refusal !== undefined) {
+      return { error: new Error(refusal), code: REPLACE_LEAVES_RECORDS, retryable: false };
+    }
+    return Object.keys(cameAlong).length > 0 ? { cameAlong } : undefined;
   }
 
   /** Answer a `frozen:remove` that removes nothing, on its error channel. */

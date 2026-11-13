@@ -5289,6 +5289,7 @@
         "deactivated": "無効化",
         "leftUnrecorded": "そのまま残したレコード — 作成内容を記録するようになる前のロードがリンクした可能性があります: {{objects}}",
         "keptByThePlatform": "保持 — プラットフォームはこれらのレコードを削除しません。以前のロードが作成し、今回のロードが再び見つけなかったものです: {{objects}}",
+        "cameAlong": "削除したものと一緒に削除 — ロードが書き込んだものではなく、書き込み中にそのレコードと一緒に作成されたもの: {{objects}}",
         "failedReasons": "レコードを削除・無効化できなかった理由"
       },
       "unresolved": {
@@ -5576,6 +5577,7 @@
       "staysOtherMachines": "別のマシンや CI が同じ期間に書き込んだもの: 一掃はそれらの実行を確認できません。",
       "resultAfterRemoval_other": "うち {{formatted}} 件は、それを指す実行のレコードがなくなった後に削除",
       "resultWithRemoval_other": "うち {{formatted}} 件は、ぶら下がっていた実行のレコードを削除が消した際に一緒に削除",
+      "resultAfterRemovalUnder_other": "うち {{formatted}} 件は、削除の完了後に削除。ぶら下がっていた実行のレコードと一緒に組織が削除しなかったため",
       "resultSuccessLeft": "一掃が対象としたものは {{org}} からなくなりました。残したものは下記のとおり残っています。",
       "leftLate_other": "遅れて作成された {{formatted}} 件のレコードが残っています ({{objects}})。",
       "leftUntied_other": "実行と結び付かない {{formatted}} 件のレコードが残っています ({{objects}})。",
@@ -5674,6 +5676,7 @@
     "resultCancelled": "途中で停止しました。それまでに行った内容を一覧に示します。残りは {{org}} にあります。",
     "resultChanged_other": "{{formatted}} 件は実行後に変更されたため残しました",
     "resultTookAlong_other": "この実行のものではない、実行後に追加または変更されたレコード {{formatted}} 件も一緒に削除しました: {{objects}}",
+    "resultCameAlong_other": "この実行が書き込んでいない、書き込み中にそのレコードと一緒に作成されたレコード {{formatted}} 件も一緒に削除しました: {{objects}}",
     "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、この実行が作成したものではないため {{org}} に残ります: {{names}}",
     "resultDeleted_other": "{{formatted}} 件削除",
     "resultGone_other": "{{formatted}} 件は既に存在しません",
@@ -5712,6 +5715,7 @@
       "resultSweepLeft": "このロードが作成したレコードは {{org}} に残っていませんが、一掃は指示されたものをすべて取り戻せませんでした。詳細は下記のとおりです。",
       "resultChanged_other": "{{formatted}} 件はロード後に変更されたため残しました",
       "resultTookAlong_other": "このロードのものではない、ロード後に追加または変更されたレコード {{formatted}} 件も一緒に削除しました: {{objects}}",
+      "resultCameAlong_other": "このロードが書き込んでいない、書き込み中にそのレコードと一緒に作成されたレコード {{formatted}} 件も一緒に削除しました: {{objects}}",
       "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、このロードが作成したものではないため {{org}} に残ります: {{names}}",
       "heldByAutomation_other": "この読み込みの {{formatted}} 件のレコードは、読み込み中にその下に実行ユーザーとして作成されたレコードのために残しました。おそらくターゲットの自動化によるものです: {{objects}}。",
       "heldByAutomationAfter_other": "この読み込みの {{formatted}} 件のレコードは、読み込みの最後の書き込みの後、1 分以内にその下に実行ユーザーとして作成されたレコードのために残しました。ターゲットの自動化によるものか、手作業によるものです: {{objects}}。",
@@ -5725,6 +5729,7 @@
       "resultFailure": "チェックポイント後に追加されたレコードは {{org}} から 1 件も削除されませんでした。",
       "resultChanged_other": "{{formatted}} 件は巻き戻し中に他のユーザーが変更したため残しました",
       "resultTookAlong_other": "巻き戻しのものではない、巻き戻し中に他のユーザーが追加または変更したレコード {{formatted}} 件も一緒に削除しました: {{objects}}",
+      "resultCameAlong_other": "巻き戻しが書き込んでいない、書き込み中にそのレコードと一緒に作成されたレコード {{formatted}} 件も一緒に削除しました: {{objects}}",
       "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、チェックポイントがファイルを対象にしないため {{org}} に残ります: {{names}}",
       "resultFilesLeftHeld_other": "これらに添付されていたファイル {{formatted}} 件は {{org}} に残ります。チェックポイントが保持しているか、チェックポイント外のレコードにも添付されているためです: {{names}}"
     },
@@ -5734,6 +5739,7 @@
       "resultFailure": "巻き戻しで復元または再作成したレコードは 1 件も {{org}} のごみ箱に入りませんでした。",
       "resultChanged_other": "{{formatted}} 件は巻き戻し後に変更されたため残しました",
       "resultTookAlong_other": "巻き戻しのものではない、巻き戻し後に追加または変更されたレコード {{formatted}} 件も一緒に削除しました: {{objects}}",
+      "resultCameAlong_other": "巻き戻しが書き込んでいない、書き込み中にそのレコードと一緒に作成されたレコード {{formatted}} 件も一緒に削除しました: {{objects}}",
       "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、巻き戻しで復元したものではないため {{org}} に残ります: {{names}}"
     },
     "confirmRemove_other": "{{formatted}} 件のレコードを削除",
@@ -5742,6 +5748,7 @@
     "confirmRemoveFilesSweep_other": "{{formatted}} 件のレコードとファイル、一掃の対象を削除",
     "confirmSweep": "一掃の対象を削除",
     "resultPlatformCopies_other": "{{formatted}} 件は、実行が同期した見積とその商談の間でプラットフォームがコピーしたもの",
+    "resultDuplicateSets_other": "{{formatted}} 件は、ターゲットの重複ルールが実行のレコードから作成したもの",
     "removeQuoteCopies": "実行が同期した見積とその商談の間でプラットフォームがコピーした行も削除します。削除の開始時に読み取り、結果では別に数えます。",
     "heldByAutomation_other": "この実行の {{formatted}} 件のレコードは、実行中にその下に実行ユーザーとして作成されたレコードのために残しました。おそらくターゲットの自動化によるものです: {{objects}}。",
     "heldByAutomationAfter_other": "この実行の {{formatted}} 件のレコードは、実行の最後の書き込みの後、1 分以内にその下に実行ユーザーとして作成されたレコードのために残しました。ターゲットの自動化によるものか、手作業によるものです: {{objects}}。",

@@ -1973,6 +1973,94 @@ describe('CheckpointHandler — the rewind and its undo', () => {
     expect(stateOf(h.org)).toEqual(before);
   });
 
+  it('judges every gate after a refused mute as its plan would leave what runs, as the command line’s dry run does, and names them all at once: the rewind’s and the undo’s', async () => {
+    // A refused mute ended the list: given what lifts it, the rewind met
+    // next the flow no bypass keeps quiet, which its dry run had named.
+    const h = harness();
+    const quietable = {
+      apiName: 'Account_quiet',
+      label: 'Account quiet',
+      timing: 'afterSave' as const,
+      startsOn: 'update' as const,
+      condition: 'read' as const,
+      permissions: [{ name: 'Skip_Flows', bypass: true, held: false }],
+    };
+    const loud = {
+      apiName: 'Account_loud',
+      label: 'Account loud',
+      timing: 'afterSave' as const,
+      startsOn: 'update' as const,
+      condition: 'read' as const,
+      permissions: [],
+    };
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [{ objectApiName: 'Account', flows: [quietable, loud], triggers: [] }],
+          bypassGrants: [
+            {
+              permission: 'Skip_Flows',
+              permissionSets: [{ name: 'Flows_Bypass', label: 'Flows bypass', grants: 1 }],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation),
+    });
+    const checkpointId = await taken(h);
+    changedSince(h);
+    const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+    const before = stateOf(h.org);
+
+    // The harness's user may not assign permission sets: the mute is refused.
+    await h.send('wv-rewind-1', 'checkpoint:rewind', {
+      ...rewindOf(checkpointId, previewId),
+      muteAutomation: true,
+    });
+
+    const said = answerOf(h, 'wv-rewind-1').payload as {
+      code: string;
+      message: string;
+      alsoRefused?: Array<{ code: string; message: string }>;
+    };
+    expect(said.code).toBe('MUTE');
+    expect(said.alsoRefused?.map(({ code }) => code)).toEqual(['AUTOMATION']);
+    // What the plan keeps quiet is not counted; what no bypass keeps quiet is.
+    expect(said.alsoRefused?.[0]?.message).toMatch(
+      /^DEV-SB: 1 flow\(s\), trigger\(s\) or rule\(s\) of Account run/,
+    );
+    expect(stateOf(h.org)).toEqual(before);
+
+    // The undo's gate, the same way.
+    h.org.ticking = true;
+    await h.send('wv-rewind-2', 'checkpoint:rewind', {
+      ...rewindOf(checkpointId, previewId),
+      acceptAutomation: true,
+    });
+    const { rewindId } = resultOf(h, 'wv-rewind-2', 'checkpoint:rewind:response');
+    h.org.ticking = false;
+    clock = T0 + 240_000;
+    const rewound = stateOf(h.org);
+
+    await h.send('wv-undo-1', 'checkpoint:undo', {
+      checkpointId,
+      rewindId,
+      acceptAutomation: false,
+      muteAutomation: true,
+    });
+
+    const undoSaid = answerOf(h, 'wv-undo-1').payload as typeof said;
+    expect(undoSaid.code).toBe('MUTE');
+    expect(undoSaid.alsoRefused?.map(({ code }) => code)).toEqual(['AUTOMATION']);
+    expect(undoSaid.alsoRefused?.[0]?.message).toMatch(
+      /^DEV-SB: 1 flow\(s\), trigger\(s\) or rule\(s\) of Account run/,
+    );
+    expect(stateOf(h.org)).toEqual(rewound);
+  });
+
   it('names to the page every refusal an undo’s gate meets in one message, in its words, saying once that nothing was written', async () => {
     // Refused on the page for its automation alone, an undo whose box was
     // ticked was refused next for its emails.

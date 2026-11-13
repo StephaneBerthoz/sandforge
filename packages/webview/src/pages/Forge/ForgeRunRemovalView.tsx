@@ -103,6 +103,17 @@ const TOOK_ALONG_KEYS: Record<RemovalSubject, string> = {
   rewindUndo: 'runRemoval.rewindUndo.resultTookAlong',
 };
 
+/**
+ * What a removal took along that came with what it took back without being
+ * written by it: made by the platform or the target's automation as it wrote.
+ */
+const CAME_ALONG_KEYS: Record<RemovalSubject, string> = {
+  run: 'runRemoval.resultCameAlong',
+  load: 'runRemoval.load.resultCameAlong',
+  rewind: 'runRemoval.rewind.resultCameAlong',
+  rewindUndo: 'runRemoval.rewindUndo.resultCameAlong',
+};
+
 /** What the files a removal leaves in the org are said not to have come with. */
 const FILES_LEFT_KEYS: Record<RemovalSubject, string> = {
   run: 'runRemoval.resultFilesLeft',
@@ -226,7 +237,13 @@ function outcomeParts(
   // A plan of 2 quote lines ended in 4 deleted, and nothing said where the
   // other 2 came from.
   if ((object.platformCopies ?? 0) > 0) {
-    parts.push(counted(t, 'runRemoval.resultPlatformCopies', object.platformCopies ?? 0));
+    // Or the sets the target's duplicate rules made of the run's records,
+    // which stayed empty once those had gone.
+    const copiesKey =
+      object.objectApiName === 'DuplicateRecordSet'
+        ? 'runRemoval.resultDuplicateSets'
+        : 'runRemoval.resultPlatformCopies';
+    parts.push(counted(t, copiesKey, object.platformCopies ?? 0));
   }
   // Not found, and not in the recycle bin: never said gone.
   if ((object.notVisible ?? 0) > 0) {
@@ -721,6 +738,18 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
               >
                 {counted(t, TOOK_ALONG_KEYS[subject], object.tookAlong.count, {
                   objects: object.tookAlong.objects.join(', '),
+                })}
+              </p>
+            )}
+            {/* Gone with them unsaid too, the contact a trigger made with an
+                account of a load: it came with the load, unchanged since. */}
+            {object.cameAlong && object.cameAlong.count > 0 && (
+              <p
+                data-testid={`forge-removal-came-along-${object.objectApiName}`}
+                className="ml-3 mt-0.5 wrap-break-word"
+              >
+                {counted(t, CAME_ALONG_KEYS[subject], object.cameAlong.count, {
+                  objects: object.cameAlong.objects.join(', '),
                 })}
               </p>
             )}

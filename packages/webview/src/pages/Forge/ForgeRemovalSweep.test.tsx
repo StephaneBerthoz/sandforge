@@ -853,6 +853,40 @@ describe('ForgeRunSweepResult', () => {
     );
   });
 
+  it('says apart what it deleted once the removal was through that still hung from a record of the run, and what it kept for records that stay', () => {
+    // Said "once the records of the run that point at it were gone", a
+    // contact role under a contact the removal kept read as if the contact
+    // had pointed at it.
+    render(
+      <ForgeRunSweepResult
+        result={{
+          ...RESULT,
+          objects: [
+            {
+              objectApiName: 'OpportunityContactRole',
+              found: 3,
+              deleted: 2,
+              alreadyGone: 0,
+              keptChanged: 0,
+              refused: 0,
+              reasons: [],
+              afterRemoval: 2,
+              afterRemovalUnder: 1,
+              keptDependents: 1,
+              heldBy: ['CampaignMember'],
+            },
+          ],
+        }}
+        org="DEV-SANDBOX"
+      />,
+    );
+    expect(screen.getByTestId('forge-sweep-result-OpportunityContactRole').textContent).toBe(
+      'OpportunityContactRole: 2 deleted · 1 of them once the records of the run that point at it ' +
+        'were gone · 1 of them once the removal was through: the org had not taken it along with ' +
+        'the record of the run it hung from · 1 kept, records of CampaignMember that stay depend on it',
+    );
+  });
+
   it('says a refused sweep deleted nothing, and why', () => {
     render(
       <ForgeRunSweepResult

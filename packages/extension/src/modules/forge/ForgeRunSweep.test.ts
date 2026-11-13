@@ -6,6 +6,7 @@ import { sweepOrgOf } from '../../bridge/handlers/removalSweep.js';
 import { tiedTargetOrg } from '../../test/tiedTargetOrg.js';
 import { compositeReader, type CompositeQueryConnection } from '../checkpoint/compositeQueries.js';
 import { writePathOrderDefects, type WritePathStep } from '../checkpoint/beforeRunCheckpoint.js';
+import { removeRunRecords } from './ForgeRunRemoval.js';
 import {
   HAND_WORK_OBJECTS,
   NEVER_SWEPT,
@@ -1023,6 +1024,8 @@ class TiedOrg implements CountingOrg {
     return {
       sobjects: [...this.rows.keys()].map((name) => ({
         name,
+        // Every object a real org lists is labelled.
+        label: name,
         queryable: true,
         deletable: true,
         createable: true,
@@ -1996,5 +1999,134 @@ describe('what a sweep takes', () => {
     await sweepRunRecords(org, onlyOver, NO_SPANS);
     expect(deletedIds(org)).toEqual([id('00T', 9)]);
     expect(org.ids('Contact')).toContain(updated);
+  });
+});
+
+describe('what a sweep keeps for what someone hung under what it takes', () => {
+  /** A colleague's post on the asset the case's flow cloned, long after the run. */
+  function postedOnAsset(org: TiedOrg): string {
+    const post = id('0D5', 8);
+    org.shape('Asset', {
+      children: [
+        { childSObject: 'Case', field: 'AssetId', restrictedDelete: true },
+        { childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true },
+      ],
+    });
+    org.add(
+      'FeedItem',
+      recWith(post, 'A colleague’s post', COLLEAGUE, LONG_AFTER, { ParentId: id('02i', 1) }),
+    );
+    return post;
+  }
+
+  /** A colleague's reply, long after the run, under the case's post. */
+  function repliedOnCase(org: TiedOrg): string {
+    const reply = id('0D7', 8);
+    org.add(
+      'FeedComment',
+      recWith(reply, 'A colleague’s reply', COLLEAGUE, LONG_AFTER, { FeedItemId: id('0D5', 1) }),
+    );
+    return reply;
+  }
+
+  it('keeps what it takes when a record someone added since hangs from it, and never sends it', async () => {
+    // The asset waits for the case that names it; deleted then, it would
+    // take the colleague's post along in cascade, unread and unsaid.
+    const org = tiedOrg();
+    const post = postedOnAsset(org);
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+
+    await parts.first();
+    expect([...parts.automationMade]).not.toContain(id('02i', 1));
+    await org.destroy('Case', [CASE]);
+    await parts.afterRemoval();
+
+    expect(org.ids('Asset')).toEqual([id('02i', 1)]);
+    expect(org.ids('FeedItem')).toContain(post);
+    expect(deletedIds(org)).not.toContain(id('02i', 1));
+    const result = parts.result();
+    expect(result.objects.find((o) => o.objectApiName === 'Asset')).toMatchObject({
+      found: 1,
+      deleted: 0,
+      keptDependents: 1,
+      heldBy: ['FeedItem'],
+    });
+    expect(result.status).toBe('partial');
+  });
+
+  it('does not let what goes with a record of the run go along when something added since hangs from it', async () => {
+    // The case's post goes with the case; a colleague's reply under it since
+    // would go with them both.
+    const org = tiedOrg();
+    repliedOnCase(org);
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+
+    await parts.first();
+
+    expect([...parts.automationMade]).not.toContain(id('0D5', 1));
+    await parts.afterRemoval();
+    expect(org.ids('FeedItem')).toContain(id('0D5', 1));
+    expect(parts.result().objects.find((o) => o.objectApiName === 'FeedItem')).toMatchObject({
+      deleted: 0,
+      keptDependents: 1,
+      heldBy: ['FeedComment'],
+    });
+  });
+
+  it('counts apart what it deletes once the removal is through that still hangs from a record of the run, which the org did not take along', async () => {
+    // The removal kept the case: what the sweep left to go with it is still
+    // there, and goes then; nothing of the run ever pointed at it.
+    const org = tiedOrg();
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+
+    await parts.first();
+    await parts.afterRemoval();
+
+    const result = parts.result();
+    expect(result.objects.find((o) => o.objectApiName === 'FeedItem')).toMatchObject({
+      deleted: 1,
+      afterRemoval: 1,
+      afterRemovalUnder: 1,
+    });
+    // What waited for the case to stop naming it is refused while it stays.
+    expect(result.objects.find((o) => o.objectApiName === 'Asset')).toMatchObject({
+      deleted: 0,
+      refused: 1,
+    });
+    expect(result.objects.find((o) => o.objectApiName === 'Asset')).not.toHaveProperty(
+      'afterRemovalUnder',
+    );
+  });
+
+  it('holds back the record of the run it hangs from in the removal it is granted with, the colleague’s reply left in the org', async () => {
+    const org = tiedOrg();
+    const reply = repliedOnCase(org);
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+
+    const outcome = await removeRunRecords(
+      org,
+      [
+        { objectApiName: 'Case', ids: [CASE] },
+        { objectApiName: 'Contact', ids: [CONTACT] },
+        { objectApiName: 'Account', ids: [ACCOUNT] },
+      ],
+      {
+        runStartedAt: new Date(FIRST_WRITE),
+        runEndedAt: new Date(LAST_WRITE),
+        runUserId: RUN_USER,
+        includeChanged: false,
+        sweep: (splitting) => parts.first(splitting),
+        automationMade: parts.automationMade,
+        afterRemoval: (splitting) => parts.afterRemoval(splitting),
+      },
+    );
+
+    expect(org.ids('FeedComment')).toContain(reply);
+    expect(org.ids('Case')).toEqual([CASE]);
+    expect(outcome.objects.find((o) => o.objectApiName === 'Case')).toMatchObject({
+      deleted: 0,
+      keptDependents: 1,
+      heldBy: ['FeedItem', 'FeedComment'],
+    });
   });
 });

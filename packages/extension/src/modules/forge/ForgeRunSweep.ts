@@ -82,6 +82,7 @@ import {
   deleteLimitNotes,
   deleteSplittingOnLimits,
   removalOrder,
+  sweptHeldCheck,
   takenAlong,
   type DeleteOutcome,
   type RecordKeys,
@@ -1682,6 +1683,66 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
     unread: [],
     handWork: [],
   };
+  /** Of what it takes, by id, the objects of the records that stay under each: kept. */
+  const heldUnder = new Map<string, readonly string[]>();
+  /** Per object, why what hangs from its records could not be read: every one kept. */
+  const heldUnread = new Map<string, string>();
+
+  /**
+   * Read below what the sweep takes, as a removal reads what goes along with
+   * the run's records, children first, so that one kept holds what it hangs
+   * from in turn (`sweptHeldCheck`): one a record that stays hangs from is
+   * kept, never sent, and holds back the record of the run it hangs from.
+   * What it keeps changed since stays, and is not read. Unread, what the
+   * sweep took went with what a person had hung under it since: a contact
+   * the target's automation made with an account of the run, let go along
+   * with the account, took along the campaign member someone added to it.
+   */
+  const readHeldUnder = async (
+    findings: SweepFindings,
+    rows: ReadonlyMap<string, readonly SweepRow[]>,
+  ): Promise<void> => {
+    const lastWrite = findings.lastWrite ?? Number.NaN;
+    const taken = new Set<string>();
+    const sent = new Map<string, string[]>();
+    for (const [objectApiName, all] of rows) {
+      const ids = all
+        .filter(
+          (row) => options.includeChanged || !changedSince(row, lastWrite, options.removalSpans),
+        )
+        .map((row) => row.id);
+      for (const id of ids) taken.add(id);
+      sent.set(objectApiName, ids);
+    }
+    if (taken.size === 0 || !findings.window) return;
+    const created = new Set(input.created.flatMap(({ ids }) => ids.map(recordKey)));
+    const describing = findings.ordering ?? org;
+    const check = sweptHeldCheck(describing, {
+      runStart: findings.window.from,
+      runEnd: lastWrite,
+      runRecords: { has: (key) => created.has(key) },
+      taken,
+      removalSpans: options.removalSpans,
+      includeChanged: options.includeChanged,
+      ...(input.runUserId ? { runUserId: input.runUserId } : {}),
+    });
+    const order = await removalOrder(
+      describing,
+      [...rows.keys()].map((objectApiName) => ({ objectApiName })),
+    );
+    for (const { objectApiName } of order) {
+      const ids = sent.get(objectApiName) ?? [];
+      if (ids.length === 0) continue;
+      if (stopped()) return;
+      const verdict = await check(objectApiName, ids);
+      if (verdict.reason !== undefined) heldUnread.set(objectApiName, verdict.reason);
+      for (const id of ids) {
+        if (!verdict.held.has(recordKey(id))) continue;
+        taken.delete(id);
+        heldUnder.set(id, verdict.holders);
+      }
+    }
+  };
 
   /**
    * Count a record found gone at its delete, and apart, one the sweep left to
@@ -1715,11 +1776,16 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       else goneAlready(sweep, id);
     });
   };
-  /** Delete `ids` of one object, a call at a time; false when a stop came first. */
+  /**
+   * Delete `ids` of one object, a call at a time; false when a stop came
+   * first. Sent once the run's records are deleted (`after`), what goes is
+   * counted so: records that records of the run pointed at (`pointedAt`), or
+   * records that hung from one of them and were still there (`under`).
+   */
   const send = async (
     sweep: ObjectSweep,
     ids: readonly string[],
-    after = false,
+    after?: 'pointedAt' | 'under',
   ): Promise<boolean> => {
     for (let at = 0; at < ids.length; at += RECORDS_PER_CALL) {
       if (stopped()) return false;
@@ -1732,8 +1798,11 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
         settle: (sent, outcomes) => settle(sweep, sent, [...outcomes]),
       });
       if (after && sweep.result.deleted > before) {
-        sweep.result.afterRemoval =
-          (sweep.result.afterRemoval ?? 0) + sweep.result.deleted - before;
+        const more = sweep.result.deleted - before;
+        sweep.result.afterRemoval = (sweep.result.afterRemoval ?? 0) + more;
+        if (after === 'under') {
+          sweep.result.afterRemovalUnder = (sweep.result.afterRemovalUnder ?? 0) + more;
+        }
       }
       if (cut) return false;
     }
@@ -1835,6 +1904,13 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
           .map(([objectApiName, all]) => [objectApiName, all.filter(taken)] as const)
           .filter(([, all]) => all.length > 0),
       );
+      // Read with the rest, before the question: once asked, the sweep reads
+      // nothing more before its first delete.
+      await readHeldUnder(findings, taking);
+      if (stopped()) {
+        state = 'cancelled';
+        return;
+      }
       if (options.approve && taking.size > 0) {
         const answer = await options.approve(listing);
         if (answer !== undefined) {
@@ -1903,6 +1979,14 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
             sweep.result.keptChanged++;
             continue;
           }
+          // Kept for what stays under it: never sent, nor let go along with
+          // the run's record it hangs from, which then holds that record.
+          const holders = heldUnder.get(row.id);
+          if (holders) {
+            sweep.result.keptDependents = (sweep.result.keptDependents ?? 0) + 1;
+            sweep.result.heldBy = [...new Set([...(sweep.result.heldBy ?? []), ...holders])];
+            continue;
+          }
           automationMade.add(row.id);
           if (row.turn === 'before') before.push(row.id);
           else sweep.later.push(row.id);
@@ -1926,7 +2010,14 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       const before = deleted();
       for (const sweep of sweeps) {
         const ids = sweep.later.splice(0);
-        if (!(await send(sweep, ids, true))) {
+        // What hung from a record of the run and is still there: the org did
+        // not take it along, the record it hung from left in the org. Counted
+        // with what waited for the run's records to stop naming it, it was
+        // said to have gone "once the records of the run that point at them
+        // were gone".
+        const under = ids.filter((id) => sweep.along.has(id));
+        const pointedAt = ids.filter((id) => !sweep.along.has(id));
+        if (!(await send(sweep, pointedAt, 'pointedAt')) || !(await send(sweep, under, 'under'))) {
           state = 'cancelled';
           return deleted() > before;
         }
@@ -1978,8 +2069,12 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       }
       const objects = sweeps.map(({ result, refused, lockResent }) => {
         result.refused = refused.size;
+        const unread = heldUnread.get(result.objectApiName);
         result.reasons = [
           ...new Set([
+            ...(unread !== undefined && (result.keptDependents ?? 0) > 0
+              ? [`What hangs from them could not be read, and they were kept: ${unread}`]
+              : []),
             ...deleteLimitNotes(result.objectApiName, splitting),
             // Sent again after a wait, a record the org could not lock was
             // said only once it was refused for good.
@@ -2035,7 +2130,11 @@ function sweepStatus(
 ): ForgeUndoStatus {
   if (cancelled) return 'cancelled';
   const left =
-    waiting || classLeft || objects.some((object) => object.keptChanged + object.refused > 0);
+    waiting ||
+    classLeft ||
+    objects.some(
+      (object) => object.keptChanged + (object.keptDependents ?? 0) + object.refused > 0,
+    );
   if (!left) return 'success';
   return objects.some((object) => object.deleted > 0) ? 'partial' : 'failure';
 }

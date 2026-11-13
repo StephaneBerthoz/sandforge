@@ -276,6 +276,46 @@ describe('what a sweep of a load is asked, and what the removal says', () => {
     ]);
   });
 
+  it('says what a removal took along that came with the load’s records, beside what was added since', () => {
+    // Live (GC15 C2), the contact a trigger made with an account of the load
+    // went with the account: "Contact: 4 deleted of 4" counted the load's
+    // four, and the line under the account named only the member added since.
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        result: {
+          status: 'success',
+          includeChanged: true,
+          objects: [
+            {
+              objectApiName: 'Account',
+              planned: 2,
+              deleted: 2,
+              alreadyGone: 0,
+              keptChanged: 0,
+              keptDependents: 0,
+              refused: 0,
+              heldBy: [],
+              unchecked: [],
+              reasons: [],
+              tookAlong: { count: 1, objects: ['CampaignMember'] },
+              cameAlong: { count: 1, objects: ['Contact'] },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'removal: SUCCESS',
+      '  Account: 2 deleted of 2',
+      "      took along 1 record(s) that were not the load's, added or changed since it: " +
+        'CampaignMember',
+      '      took along 1 record(s) the load did not write that came with its records, made as ' +
+        'it wrote: Contact',
+    ]);
+  });
+
   it('names the platform’s copies beside their object, and what the automation likely made that kept records', () => {
     const lines = messageLines({
       type: 'frozen:remove:response',

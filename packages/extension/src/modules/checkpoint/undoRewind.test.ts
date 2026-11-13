@@ -150,9 +150,12 @@ function stateOf(org: MemoryRestoreOrg): OrgState {
 }
 
 /** The org before the rewind: see the module's comment. */
-function orgBeforeTheRewind(facts: Partial<MemoryOrgFacts> = {}): MemoryRestoreOrg {
+function orgBeforeTheRewind(
+  facts: Partial<MemoryOrgFacts> = {},
+  children: Record<string, MemoryChild[]> = CHILDREN,
+): MemoryRestoreOrg {
   vi.setSystemTime(LONG_AGO);
-  const org = new MemoryRestoreOrg(CHILDREN, { now: () => Date.now(), facts });
+  const org = new MemoryRestoreOrg(children, { now: () => Date.now(), facts });
   org.add('Account', { Id: A1, Name: 'A1 at the checkpoint' });
   org.add('Account', { Id: A2, Name: 'A2 at the checkpoint' });
   org.add('Contact', { Id: C2, LastName: 'C2', AccountId: A2 });
@@ -262,6 +265,11 @@ async function rewindPass(
     undeleted?: () => void;
     /** The fields the checkpoint compares, by object: each of the snapshot's unless told. */
     fields?: Record<string, string[]>;
+    /**
+     * Name C2 beside A2, the parent it comes back with, as a rewind's journal
+     * names what its undo sends back to the bin with its parent.
+     */
+    parentNamed?: true;
   } = {},
 ): Promise<boolean> {
   const { signal } = options;
@@ -293,7 +301,7 @@ async function rewindPass(
         // The removal read its records: the rewind writes some seconds after
         // it read the org.
         vi.setSystemTime(Date.now() + 20_000);
-        await journal.withParent('Contact', [C2]);
+        await journal.withParent('Contact', [C2], options.parentNamed ? [A2] : undefined);
         undeleted = await undeleteRunDeletions({
           org,
           plan: bringBack,
@@ -642,6 +650,46 @@ describe('undoRewind, on the memory org', () => {
     expect(org.all('Contact').map((row) => row.Id)).not.toContain(answered);
   });
 
+  it('keeps what came back with a record the rewind brought back once someone hung a record under it since, and the record it came back with: read below, as a removal reads what came with its records', async () => {
+    // A contact's campaign members go with it, as an account's contacts do.
+    const member = id('00v', 1);
+    const org = orgBeforeTheRewind(
+      {},
+      {
+        ...CHILDREN,
+        Contact: [
+          ...CHILDREN.Contact,
+          { childSObject: 'CampaignMember', field: 'ContactId', cascadeDelete: true },
+        ],
+      },
+    );
+    const folder = await checkpointFolder();
+    vi.setSystemTime(TR);
+    expect(await rewindPass(folder, org, { parentNamed: true })).toBe(true);
+    const rewindId = onlyRewindOf(folder);
+    // C2 came back with A2, and goes back to the bin with it; a colleague
+    // adds it to a campaign since.
+    const plans = await undoPlansOf(folder, rewindId, READ_ORDER);
+    expect(plans.goesWithParent.count).toBe(1);
+    await plans.dispose();
+    vi.setSystemTime(TR + 5 * 60_000);
+    org.add('CampaignMember', { Id: member, ContactId: C2, CreatedById: COLLEAGUE });
+
+    vi.setSystemTime(TR + 10 * 60_000);
+    const outcome = await undo(folder, rewindId, org);
+
+    // Sent back to the bin, A2 took C2 along, and the member with it, unsaid.
+    expect(org.all('CampaignMember').map((row) => row.Id)).toEqual([member]);
+    expect(org.all('Contact').map((row) => row.Id)).toContain(C2);
+    expect(org.all('Account').map((row) => row.Id)).toContain(A2);
+    expect(outcome.deleted.find((object) => object.objectApiName === 'Account')).toMatchObject({
+      deleted: 0,
+      keptDependents: 1,
+      heldBy: ['Contact', 'CampaignMember'],
+    });
+    expect(outcome.status).toBe('partial');
+  });
+
   it('gives back a record whose lookup its undelete put back on a field the checkpoint does not compare: the org dated it anew as the undo’s user, the undo’s doing and no change since the rewind (F35)', async () => {
     // R renamed since, and made to report to NC: the rewind gives its name
     // back and leaves the lookup it does not compare; NC's delete clears it.
@@ -750,6 +798,57 @@ describe('undoRewind, on the memory org', () => {
       estimate.apiRequests - actFixed.apiRequests,
     );
     expect(estimate.records).toBe(2 + 2 + 3);
+  });
+
+  it('sends exactly what its estimate counts when what came back with a record goes back to the bin with it, read below as it goes', async () => {
+    // A contact's campaign members go with it: the undo reads them under the
+    // contact that came back with the account it sends back to the bin.
+    const children = {
+      ...CHILDREN,
+      Contact: [
+        ...CHILDREN.Contact,
+        { childSObject: 'CampaignMember', field: 'ContactId', cascadeDelete: true },
+      ],
+    };
+    const org = orgBeforeTheRewind({}, children);
+    const folder = await checkpointFolder();
+    vi.setSystemTime(TR);
+    expect(await rewindPass(folder, org, { parentNamed: true })).toBe(true);
+    const rewindId = onlyRewindOf(folder);
+    const relationships = new Map(
+      await Promise.all(
+        ['Account', 'Contact'].map(
+          async (name) => [name, relationshipsOf(await org.describe(name))] as const,
+        ),
+      ),
+    );
+    const plans = await undoPlansOf(folder, rewindId, READ_ORDER);
+    const estimate = undoEstimate({
+      objects: OBJECTS,
+      rewound: rewoundObjects(plans),
+      along: plans.goesWithParent.objects,
+      automationRequests: 0,
+      relationships,
+    });
+    const without = undoEstimate({
+      objects: OBJECTS,
+      rewound: rewoundObjects(plans),
+      automationRequests: 0,
+      relationships,
+    });
+    await plans.dispose();
+    const actFixed = undoEstimate({ objects: OBJECTS, rewound: [], automationRequests: 0 });
+    const sentBefore = org.requests + org.soapCalls;
+
+    vi.setSystemTime(TR + 10 * 60_000);
+    const outcome = await undo(folder, rewindId, org);
+
+    expect(outcome.status).toBe('success');
+    expect(org.requests + org.soapCalls - sentBefore).toBe(
+      estimate.apiRequests - actFixed.apiRequests,
+    );
+    // The contact's describe, and its members read under it.
+    expect(estimate.apiRequests - without.apiRequests).toBe(2);
   });
 
   it('sends no removal for a rewind that brought nothing back, and gives back 2,000 records a call, as its estimate counts', async () => {

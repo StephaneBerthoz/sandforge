@@ -2436,6 +2436,37 @@ describe('sandforge-clone removal lines', () => {
       "      took along 1 record(s) that were not the run's, added or changed since it: Contact",
     ]);
   });
+
+  it('says the duplicate record sets the target’s rules made of the run’s records as theirs, not as copied lines', () => {
+    expect(
+      removalLines('success', [
+        objectResult('DuplicateRecordSet', 2, { platformCopies: 2 }),
+        objectResult('QuoteLineItem', 4, { platformCopies: 2 }),
+      ]),
+    ).toEqual([
+      'removal: SUCCESS',
+      "  DuplicateRecordSet: 2 deleted of 2 (2 the target's duplicate rules made of the run's records)",
+      '  QuoteLineItem: 4 deleted of 4 (2 the run wrote, and 2 the platform copied between the ' +
+        'quote the run synced and its opportunity)',
+    ]);
+  });
+
+  it('says what a removal took along that came with the run’s records without the run writing it', () => {
+    // Live (GC15 C1), the contact role the platform made with an opportunity
+    // of the run went with the run's contact, and no line named it.
+    expect(
+      removalLines('success', [
+        objectResult('Contact', 1, {
+          cameAlong: { count: 1, objects: ['OpportunityContactRole'] },
+        }),
+      ]),
+    ).toEqual([
+      'removal: SUCCESS',
+      '  Contact: 1 deleted of 1',
+      '      took along 1 record(s) the run did not write that came with its records, made as ' +
+        'it wrote: OpportunityContactRole',
+    ]);
+  });
 });
 
 describe('sandforge-clone removal of a run a call may have written to', () => {

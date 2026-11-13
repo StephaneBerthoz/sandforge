@@ -290,6 +290,29 @@ describe("a run's journal", () => {
     expect(read?.created).toEqual([{ objectApiName: 'Account', ids: [NEW_ACCOUNT_A] }]);
   });
 
+  it('says which of the records linked to the platform wrote with one the run created, as its parts marked them', async () => {
+    // Read as linked to alone, the contacts the platform wrote with a whole-
+    // org clone's person accounts were said to stay: "10 record(s) the target
+    // already held, which the run linked to or wrote over, stay".
+    const { deps } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await journal.begin('persons', 'tgt-org', STARTED);
+    const store = journal.open('persons');
+    store.beginPart(STARTED);
+    store.setMapping('created', ACCOUNT_A, NEW_ACCOUNT_A, 'Account');
+    store.setMapping('existing', CONTACT_A, NEW_CONTACT_A, 'Contact');
+    store.setMapping('existing', ACCOUNT_B, NEW_ACCOUNT_B, 'Account');
+    store.withTheirRecord(CONTACT_A);
+    store.close();
+
+    const read = await journal.read('persons');
+    expect(read?.remap.linked).toEqual([CONTACT_A, ACCOUNT_B]);
+    expect(read?.remap.withTheirRecord).toEqual([CONTACT_A]);
+    // A journal that marked none says none.
+    await runThatWrote(journal, 'plain');
+    expect((await journal.read('plain'))?.remap).not.toHaveProperty('withTheirRecord');
+  });
+
   it('reads the records a Bulk API job of the parts read wrote that no row was matched to, never one a mapping names', async () => {
     const { deps } = memoryDisk();
     const journal = new ForgeRunJournal(deps);

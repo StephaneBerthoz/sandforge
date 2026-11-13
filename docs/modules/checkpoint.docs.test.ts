@@ -948,15 +948,24 @@ describe('docs/modules/checkpoint.md', () => {
       'if (removing(recordKey(id)) && cameBack(parent) && removing(parent)) along.add(id);',
     );
     expect(source(`${MODULE_DIR}/undoRewind.ts`)).toContain(
-      '...(along.count > 0 ? { goesWithParent } : {}),',
+      '...(along.count > 0 ? { goesWithParent, goesWithParentReadBelow: true as const } : {}),',
     );
     expect(source('packages/extension/src/modules/forge/ForgeRunRemoval.ts')).toContain(
       'if (this.context.goesWithParent?.(row, runEnd) === true) return false;',
+    );
+    // What came back with it is read below: one a record added since hangs
+    // from stays, and its parent with it.
+    expect(source('packages/extension/src/modules/forge/ForgeRunRemoval.ts')).toContain(
+      '(this.context.goesWithParentReadBelow === true || goesWithParent?.(row, runEnd) !== true)',
     );
 
     expect(section(DOC, '## Undo')).toContain(
       'what came back with a record, a contact with its account or a product with its ' +
         'opportunity, goes with that record, never on its own',
+    );
+    expect(section(DOC, '## Undo')).toContain(
+      'one under which someone has hung a record since stays, read below as a removal reads ' +
+        'what goes along, and so does the record it came back with',
     );
   });
 

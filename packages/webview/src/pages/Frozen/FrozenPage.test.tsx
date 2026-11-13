@@ -1130,6 +1130,41 @@ describe('FrozenPage', () => {
     );
   });
 
+  it('says what a reload’s purge took along that the loads did not write, under the object it deleted', () => {
+    // Live (GC15 C2), the contact a trigger made with an account of a load
+    // went with the account the purge deleted, and nothing named it.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: true },
+        startedAt: '2026-10-16T11:00:00Z',
+        durationMs: 1_000,
+        alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: {
+          deleted: { Account: 2 },
+          deactivated: {},
+          failures: [],
+          cameAlong: { Account: { count: 1, objects: ['Contact'] } },
+        },
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+
+    expect(screen.getByTestId('frozen-report-purge-came-along').textContent).toBe(
+      'Taken along with what it deleted — not written by the loads, made with their records as they wrote: Account: 1 (Contact)',
+    );
+  });
+
   it('says what the sweep asked with a reload took and left, per load it replaced', () => {
     // Purged alone, the loads replaced left the tasks a flow had opened on
     // each contact: the report said nothing of them.

@@ -950,7 +950,9 @@ async function undoFrom(
       ...(stamps ? { removalStamps: stamps } : {}),
       ...(spansBefore.length > 0 ? { removalSpans: spansBefore } : {}),
       includeChanged: false,
-      ...(along.count > 0 ? { goesWithParent } : {}),
+      // Read below as the removal reads what came with its records: what
+      // someone hung under them since does not go with them.
+      ...(along.count > 0 ? { goesWithParent, goesWithParentReadBelow: true as const } : {}),
       ...(plans.bringBack.count > 0 || plans.giveBack.count > 0 ? { sweep } : {}),
       ...(input.onUndeletable ? { onUndeletable: input.onUndeletable } : {}),
       ...(signal ? { signal } : {}),

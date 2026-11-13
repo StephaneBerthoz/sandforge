@@ -710,6 +710,14 @@ export interface FrozenLoadReportInfo {
      * hours. Absent when none was.
      */
     keptByThePlatform?: Record<string, number>;
+    /**
+     * Per object purged, what the target takes along with the records the
+     * purge deletes that the loads did not write, come with them as they
+     * wrote — a contact a trigger made with an account of a load —, as read
+     * before the purge: how many, and their objects by API name. Absent when
+     * none goes so.
+     */
+    cameAlong?: Record<string, { count: number; objects: string[] }>;
   };
   /**
    * Records the dataset carries and the load left out, by object: the

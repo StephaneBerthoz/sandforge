@@ -1028,6 +1028,37 @@ export function removalCost(
 }
 
 /**
+ * What a removal reads below what goes with its parents when it is asked to
+ * (`RunRemovalOptions.goesWithParentReadBelow`) — an undo sends back to the
+ * recycle bin what came back with the records it removes: per object, its
+ * describe, unless the removal described it for its own records, and the
+ * reads of what depends on its records, each relationship asked once
+ * whether anything points through it past one batch, then read per batch.
+ * What goes along a level further down is read too, uncounted: what came
+ * with it is not known before.
+ *
+ * @param described - The objects the removal reads records of: described already.
+ */
+export function readBelowCost(
+  along: ReadonlyArray<{ objectApiName: string; count: number }>,
+  relationships: ReadonlyMap<string, ObjectRelationships> | undefined,
+  described: ReadonlySet<string>,
+): Cost {
+  return sum(
+    ...along
+      .filter(({ count }) => count > 0)
+      .map(({ objectApiName, count }) => {
+        const { dependents } = relationshipsFor(relationships, objectApiName);
+        const anyPointing = count > RECORDS_PER_CALL ? dependents : 0;
+        return sum(
+          calls(described.has(objectApiName) ? 0 : 1, SECONDS_PER_DESCRIBE_CALL),
+          calls(anyPointing + dependents * batches(count), SECONDS_PER_DEPENDENTS_READ),
+        );
+      }),
+  );
+}
+
+/**
  * What a removal sends to set an object's records past Draft back to Draft
  * before it deletes them, the one way the platform deletes an order
  * (`backToDraft`): the org's statuses read once, which tell the Draft one;
@@ -2005,6 +2036,12 @@ export interface UndoEstimateInput {
   automationRequests: number;
   /** As {@link RewindEstimateInput.relationships}. */
   relationships?: ReadonlyMap<string, ObjectRelationships>;
+  /**
+   * What goes back to the recycle bin with its parent, per object
+   * (`SpooledUndoPlans.goesWithParent`): read below as it goes
+   * ({@link readBelowCost}). Absent, nothing is.
+   */
+  along?: ReadonlyArray<{ objectApiName: string; count: number }>;
 }
 
 /**
@@ -2037,6 +2074,10 @@ export function undoEstimate(
   }
   const brings = input.rewound.some((object) => object.deleted > 0);
   const gives = input.rewound.some((object) => object.givenBack > 0);
+  /** The objects the undo's removal reads records of. */
+  const removed = new Set(
+    input.rewound.filter((object) => object.broughtBack > 0).map((object) => object.objectApiName),
+  );
   const restamped =
     brings && gives
       ? sum(
@@ -2055,6 +2096,8 @@ export function undoEstimate(
         dependents: relationshipsFor(input.relationships, object.objectApiName).dependents,
       })),
     ),
+    // Read only by a removal that runs: one that has records of its own.
+    removed.size > 0 ? readBelowCost(input.along ?? [], input.relationships, removed) : NOTHING,
     // Saying back no stamps — an undo taken up again plans only what the one
     // before left — it reads neither the clock nor its user.
     undeleteCost(input.rewound.map((object) => object.deleted)),

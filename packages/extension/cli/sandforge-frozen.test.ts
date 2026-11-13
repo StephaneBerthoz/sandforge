@@ -2015,6 +2015,35 @@ describe('messageLines', () => {
     ]);
   });
 
+  it('says what a reload’s purge took along that the loads did not write, under the object it deleted', () => {
+    // Live (GC15 C2), the contact a trigger made with an account of a load
+    // went with the account, and nothing named it.
+    const lines = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          durationMs: 5,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: {
+            deleted: { Contact: 4, Account: 2 },
+            failures: [],
+            cameAlong: { Account: { count: 1, objects: ['Contact'] } },
+          },
+        },
+      },
+    });
+
+    expect(lines.slice(-2)).toEqual([
+      'purge of earlier loads: 6 deleted, 0 deactivated, 0 failed',
+      '  Account: took along 1 record(s) the loads did not write that came with their records, ' +
+        'made as they wrote: Contact',
+    ]);
+  });
+
   it('counts what a reload deactivated beside what it deleted, and a purge that only deactivated', () => {
     // What the target lets no one delete, the purge deactivates: counted as
     // deleted only, a purge that took nothing else printed no line at all.

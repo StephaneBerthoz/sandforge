@@ -607,6 +607,9 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   // Never sent to be deleted, the platform deleting none of them: refused,
   // they ended every reload with errors.
   const keptByThePlatform = Object.entries(loadReport?.purge.keptByThePlatform ?? {});
+  // What the purge's deletes took along that the loads did not write: a
+  // contact a trigger made with an account of a load went with it unsaid.
+  const purgeCameAlong = Object.entries(loadReport?.purge.cameAlong ?? {});
 
   // The links the load owed after its inserts and did not make, and what
   // each cost: a lookup left empty on a record it wrote — or nothing more
@@ -1590,6 +1593,21 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                       {t('frozen.report.purge.leftUnrecorded', {
                         objects: leftUnrecorded
                           .map(([objectApiName, records]) => `${objectApiName} (${records})`)
+                          .join(', '),
+                      })}
+                    </p>
+                  )}
+                  {purgeCameAlong.length > 0 && (
+                    <p
+                      className="text-[11px] text-text-secondary"
+                      data-testid="frozen-report-purge-came-along"
+                    >
+                      {t('frozen.report.purge.cameAlong', {
+                        objects: purgeCameAlong
+                          .map(
+                            ([objectApiName, came]) =>
+                              `${objectApiName}: ${came.count} (${came.objects.join(', ')})`,
+                          )
                           .join(', '),
                       })}
                     </p>

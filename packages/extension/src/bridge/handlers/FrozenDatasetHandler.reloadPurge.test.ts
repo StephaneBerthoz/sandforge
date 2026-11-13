@@ -378,6 +378,8 @@ describe('a reload, whose purge deletes what the loads before it created', () =>
     expect(errors()).toEqual([]);
     expect(loaderLoad).toHaveBeenCalledTimes(1);
     expect(tied.ids('Contact')).toEqual([]);
+    // Said with the purge: live (GC15 C2), it went with the account unnamed.
+    expect(report()?.purge.cameAlong).toEqual({ Account: { count: 1, objects: ['Contact'] } });
   });
 
   describe('of a load one of whose accounts holds a contact that came with it, to which someone added a campaign member since', () => {

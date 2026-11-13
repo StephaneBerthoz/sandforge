@@ -18,7 +18,13 @@ import {
 } from '@sandforge/shared';
 import type { Connection } from 'jsforce';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
-import { ForgeRunStore, journalLines, nodeRunFile, type RunFile } from './ForgeRunStore.js';
+import {
+  ForgeRunStore,
+  journalLines,
+  nodeRunFile,
+  WITH_THEIR_RECORD_TAG,
+  type RunFile,
+} from './ForgeRunStore.js';
 import type { RunRecords } from './ForgeRunRemoval.js';
 import {
   callsInFlight,
@@ -341,6 +347,13 @@ export interface ForgeRunJournalRead {
     table: Record<string, string>;
     createdByObject: Array<{ objectApiName: string; sourceIds: string[] }>;
     linked: string[];
+    /**
+     * Of `linked`, those the platform wrote with a record the run created,
+     * which go with it — a person account's contact, an email's task — as the
+     * parts read marked them (`ForgeRunStore.withTheirRecord`): what a run's
+     * summary lists under `withTheirRecordSourceIds`. Absent when none was.
+     */
+    withTheirRecord?: string[];
   };
   /**
    * The records a Bulk API job of the parts read wrote that no row was
@@ -1188,6 +1201,8 @@ export class ForgeRunJournal {
     let table = new Map<string, { targetId: string; object: string; created: boolean }>();
     /** The records a job wrote that no row was matched to, by object, of the parts read. */
     let unattributed = new Map<string, Set<string>>();
+    /** The source ids the parts read marked written with a record of the run. */
+    let withTheirRecord = new Set<string>();
     const newPart = (): void => {
       parts++;
       endBefore = lastEnd;
@@ -1195,6 +1210,7 @@ export class ForgeRunJournal {
       if (which === 'last') {
         table = new Map();
         unattributed = new Map();
+        withTheirRecord = new Set();
       }
     };
     /** Whether the part under way is one whose records are read. */
@@ -1223,6 +1239,16 @@ export class ForgeRunJournal {
           continue;
         }
         const [tag, sourceId, targetId, object] = value as unknown[];
+        // Read as linked to, a person account's contact the platform wrote
+        // with the run's account was said to stay: a removal of the journal
+        // said "10 record(s) the target already held … stay" of contacts that
+        // went with their accounts.
+        if (tag === WITH_THEIR_RECORD_TAG) {
+          if (reading() && idSchema.safeParse(sourceId).success) {
+            withTheirRecord.add(String(sourceId));
+          }
+          continue;
+        }
         if (tag !== 'c' && tag !== 'e' && tag !== 'u') continue;
         if (!reading()) continue;
         if (!idSchema.safeParse(sourceId).success || !idSchema.safeParse(targetId).success)
@@ -1303,7 +1329,14 @@ export class ForgeRunJournal {
         idRemapExisting: linked,
         idRemapCreated: createdByObject,
       }),
-      remap: { table: idRemapTable, createdByObject, linked },
+      remap: {
+        table: idRemapTable,
+        createdByObject,
+        linked,
+        ...(linked.some((sourceId) => withTheirRecord.has(sourceId))
+          ? { withTheirRecord: linked.filter((sourceId) => withTheirRecord.has(sourceId)) }
+          : {}),
+      },
       ...(unmatched.length > 0 ? { unattributed: unmatched } : {}),
     };
   }

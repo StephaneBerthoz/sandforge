@@ -525,12 +525,15 @@ export async function undoCheckpoint(
       count.add(automation.requests);
     }
     // Asked to mute, the undo plans it from what it read, and its gate asks
-    // only for what still runs; refused, it writes nothing.
+    // only for what still runs; refused, it writes nothing, and the gates
+    // after it judge what runs as the mute's plan would leave it, as a
+    // rewind's do (`muteOfSteps`).
     const read = automation;
     const muting = objects.length > 0 ? await muteOfSteps(deps.mute, automation, steps) : {};
-    if ('refusal' in muting) return { undone: false, refusal: muting.refusal };
+    const muteRefused = 'refusal' in muting ? muting : undefined;
+    const runMute = 'refusal' in muting ? undefined : muting.mute;
     if (muting.automation) automation = muting.automation;
-    const plan = muting.mute?.plan;
+    const plan = muteRefused ? muteRefused.plan : runMute?.plan;
     const acceptEmails = request.acceptEmails === true;
     // Whether the org delivers the emails of what still runs once the mute's
     // plan holds, read only when something may send one, as the user it
@@ -555,7 +558,7 @@ export async function undoCheckpoint(
     // Every refusal of its gate, in order, each read from what is read
     // already: refused for its automation alone, an undo was refused for its
     // emails only once their automation was accepted.
-    const refusals: CheckpointRefusal[] = [];
+    const refusals: CheckpointRefusal[] = muteRefused ? [muteRefused.refusal] : [];
     if (
       automation &&
       !request.acceptAutomation &&
@@ -568,6 +571,7 @@ export async function undoCheckpoint(
     const cost = undoEstimate({
       objects: checkpoint.objects,
       rewound,
+      along,
       automationRequests: 0,
     });
     // The read of the deliverability named apart from the undo's own requests.
@@ -610,7 +614,7 @@ export async function undoCheckpoint(
     let undone: UndoRewindOutcome | { relit: CheckpointRefusal };
     try {
       undone = await heldWhile<UndoRewindOutcome | { relit: CheckpointRefusal }>(
-        muting.mute,
+        runMute,
         `undo ${checkpoint.checkpointId} ${rewindId}`,
         (held) => {
           // The lease read back against its plan: a set it does not hold

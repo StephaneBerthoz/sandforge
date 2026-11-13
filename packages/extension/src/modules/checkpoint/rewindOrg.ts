@@ -197,6 +197,7 @@ import {
   removalStepsWrites,
   type ForgeAutomationWrite,
   type MutedAutomation,
+  type MutePlan,
   type CheckpointRefusal,
   type CheckpointRefusalCode,
   type ForgeRemovalSpan,
@@ -231,7 +232,12 @@ import {
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
-import { isMuteRefusedError, type HeldMute, type RunMute } from '../forge/AutomationMuteLease.js';
+import {
+  isMuteRefusedError,
+  planMute,
+  type HeldMute,
+  type RunMute,
+} from '../forge/AutomationMuteLease.js';
 import { deliverabilityPartOf, type DeliverabilityGate } from '../forge/ForgeRunGate.js';
 import { readEmailDeliverability } from '../forge/targetDeliverability.js';
 import { readColumnsApart } from '../../core/common/wideRead.js';
@@ -760,14 +766,17 @@ export type MuteOfWrites = (
 /**
  * Plan the mute of the writes of `steps`, when one was asked: the read the
  * gate is to take, and the mute to hold; a refusal, said as the act's own,
- * nothing assigned.
+ * nothing assigned, with the read and the plan the gates after it judge: what
+ * runs as the mute's plan, read from the automation alone, would leave it, as
+ * the command line's dry run judges it (`planMute`).
  */
 export async function muteOfSteps(
   mute: MuteOfWrites | undefined,
   automation: ForgeTargetAutomation | undefined,
   steps: ForgeRemovalSteps,
 ): Promise<
-  { automation?: ForgeTargetAutomation; mute?: RunMute } | { refusal: CheckpointRefusal }
+  | { automation?: ForgeTargetAutomation; mute?: RunMute }
+  | { refusal: CheckpointRefusal; automation: ForgeTargetAutomation; plan: MutePlan }
 > {
   if (!mute || !automation) return automation ? { automation } : {};
   try {
@@ -775,7 +784,12 @@ export async function muteOfSteps(
     return { automation: planned.automation ?? automation, mute: planned };
   } catch (err: unknown) {
     if (!isMuteRefusedError(err)) throw err;
-    return { refusal: { code: 'MUTE', message: `${err.message} ${NOTHING_WRITTEN}` } };
+    const judged = planMute(automation, removalStepsWrites(steps));
+    return {
+      refusal: { code: 'MUTE', message: `${err.message} ${NOTHING_WRITTEN}` },
+      automation: judged.automation,
+      plan: judged.plan,
+    };
   }
 }
 
@@ -2096,19 +2110,18 @@ class Rewind {
       this.count.add(automation.requests);
     }
     // Asked to mute, the rewind plans it from what it read, and its gate asks
-    // only for what still runs; refused, it writes nothing, and its refusal
-    // ends the list, as an undo's does: what still runs, which the gates
-    // after it judge, is then not known.
+    // only for what still runs; refused, it writes nothing, and the gates
+    // after it judge what runs as the mute's plan would leave it, as the
+    // command line's dry run judges it. Ending the list there, a rewind given
+    // what lifts the mute's refusal would meet next what the gates after it
+    // refuse, which its dry run names beside it.
     const read = automation;
     const muting = writing ? await muteOfSteps(this.deps.mute, automation, steps) : {};
-    if ('refusal' in muting) {
-      const [refused, ...also] = refusals;
-      return refused
-        ? refusedFor(refused, [...also, muting.refusal])
-        : refusedFor(muting.refusal, []);
-    }
+    const muteRefused = 'refusal' in muting ? muting : undefined;
+    const runMute = 'refusal' in muting ? undefined : muting.mute;
+    if (muteRefused) refusals.push(muteRefused.refusal);
     if (muting.automation) automation = muting.automation;
-    const plan = muting.mute?.plan;
+    const plan = muteRefused ? muteRefused.plan : runMute?.plan;
     const acceptEmails = this.request.acceptEmails === true;
     // Whether the org delivers the emails of what still runs once the mute's
     // plan holds, read only when something may send one: as the user it
@@ -2199,7 +2212,7 @@ class Rewind {
     let muted: MutedAutomation | undefined;
     try {
       const outcome = await heldWhile(
-        muting.mute,
+        runMute,
         `rewind ${checkpoint.checkpointId} ${tr}`,
         (held) => {
           // The lease read back against its plan: a set it does not hold

@@ -176,6 +176,23 @@ class FakeOrg implements RemovalOrg {
         .map((row) => ({ Id: row.Id }));
       return { totalSize: records.length, records };
     }
+    // The sets a user's duplicate rules made in a window, as a removal asks them.
+    const sets =
+      /^SELECT (.+) FROM DuplicateRecordSet WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+) LIMIT \d+$/.exec(
+        soql,
+      );
+    if (sets) {
+      const [, columns, by, from, to] = sets;
+      const records = (this.rows.get('DuplicateRecordSet') ?? [])
+        .filter(
+          (row) =>
+            row.CreatedById === by &&
+            Date.parse(String(row.CreatedDate)) >= Date.parse(from) &&
+            Date.parse(String(row.CreatedDate)) <= Date.parse(to),
+        )
+        .map((row) => Object.fromEntries(columns.split(', ').map((c) => [c, row[c]])));
+      return { totalSize: records.length, records };
+    }
     const match = /^SELECT (.+) FROM (\w+) WHERE (\w+) IN \((.*)\)(?: LIMIT \d+)?$/.exec(soql);
     if (!match) throw new Error(`unexpected query: ${soql}`);
     const [, columns, object, field, list] = match;
@@ -3785,6 +3802,45 @@ describe('removeRunRecords — what the target automation made under the run rec
     }
   });
 
+  it('counts none for a record held by what the automation made, when something added since hangs from that in turn: a sweep keeps it', async () => {
+    // Said held by the automation, the removal answered that --sweep took
+    // what held the account; the sweep, finding a colleague's note under the
+    // task, kept it, and the account stayed for it again.
+    const org = accountWithTask(madeJustAfter);
+    org.relationships.set('Task', [
+      { childSObject: 'Task_Note__c', field: 'Task__c', cascadeDelete: true },
+    ]);
+    org.add('Task_Note__c', {
+      Id: id('a0N', 1),
+      Task__c: TASK,
+      CreatedById: COLLEAGUE,
+      CreatedDate: LONG_AFTER_RUN,
+      LastModifiedDate: LONG_AFTER_RUN,
+    });
+
+    const outcome = await removeRunRecords(org, PLAN, options());
+
+    expect(outcome.objects[0]).toMatchObject({
+      deleted: 0,
+      keptDependents: 1,
+      heldBy: ['Task', 'Task_Note__c'],
+    });
+    expect(outcome.objects[0].heldByAutomation).toBeUndefined();
+    expect(org.has('Task_Note__c', id('a0N', 1))).toBe(true);
+  });
+
+  it('still counts held by the automation what only more of the automation’s work hangs from', async () => {
+    const org = accountWithTask(madeJustAfter);
+    org.relationships.set('Task', [
+      { childSObject: 'Task_Note__c', field: 'Task__c', cascadeDelete: true },
+    ]);
+    org.add('Task_Note__c', { Id: id('a0N', 1), Task__c: TASK, ...madeJustAfter });
+
+    const outcome = await removeRunRecords(org, PLAN, options());
+
+    expect(outcome.objects[0]).toMatchObject({ keptDependents: 1, heldByAutomation: 1 });
+  });
+
   it('counts none for a record held by anything else as well', async () => {
     const org = accountWithTask(madeJustAfter);
     org.relationships.set('Account', [
@@ -3982,6 +4038,126 @@ describe('removeRunRecords — what came with the run under its records, and wha
     );
 
     expect(outcome.objects[1]).toMatchObject({ deleted: 1, keptDependents: 0 });
+    // Named where it is counted: the other load's own removal.
+    expect(outcome.objects[1]).not.toHaveProperty('cameAlong');
+  });
+
+  it('reads below what it is told goes with its parent when asked, as the undo of a rewind asks, and keeps the parent for what was added since', async () => {
+    // The undo sends back to the bin what the rewind brought back, and what
+    // came back with it goes along: a member added since under such a
+    // contact went with it, unread.
+    const { org, plan } = withMember(ADDED_SINCE);
+
+    const outcome = await removeRunRecords(
+      org,
+      plan,
+      options({ goesWithParent: (row) => row.Id === CAME, goesWithParentReadBelow: true }),
+    );
+
+    expect(outcome.objects[1]).toMatchObject({
+      objectApiName: 'Account',
+      deleted: 0,
+      keptDependents: 1,
+      heldBy: ['Contact', 'CampaignMember'],
+    });
+    expect(org.has('CampaignMember', MEMBER)).toBe(true);
+  });
+
+  it('names what came with the run that the org took along with a record it deleted, down to what came with that', async () => {
+    // Live, the contact the target's automation made with an account of a
+    // load went with the account unnamed: "Contact: 4 deleted of 4" counted
+    // the load's four, and nothing said a fifth had gone.
+    const { org, plan } = withMember({ CreatedDate: DURING_RUN, LastModifiedDate: DURING_RUN });
+
+    const outcome = await removeRunRecords(org, plan, options());
+
+    expect(outcome.objects[0]).toMatchObject({ objectApiName: 'Contact', deleted: 2 });
+    expect(outcome.objects[0]).not.toHaveProperty('cameAlong');
+    expect(outcome.objects[1]).toMatchObject({
+      objectApiName: 'Account',
+      deleted: 1,
+      cameAlong: { count: 2, objects: ['Contact', 'CampaignMember'] },
+    });
+    expect(outcome.objects[1]).not.toHaveProperty('tookAlong');
+  });
+
+  it('names apart, changes included, what came with the run and what was added since, both taken along', async () => {
+    const { org, plan } = withMember(ADDED_SINCE);
+
+    const outcome = await removeRunRecords(org, plan, options({ includeChanged: true }));
+
+    expect(outcome.objects[1]).toMatchObject({
+      objectApiName: 'Account',
+      deleted: 1,
+      tookAlong: { count: 1, objects: ['CampaignMember'] },
+      cameAlong: { count: 1, objects: ['Contact'] },
+    });
+  });
+
+  it('names none of what the removal itself made under a record it deleted, nor what it kept', async () => {
+    // Created as the removal's user once it was under way: its own doing.
+    const { org, plan } = accountWithContacts();
+    org.add('Task', {
+      Id: id('00T', 1),
+      WhatId: ACCOUNT,
+      CreatedById: USER,
+      CreatedDate: '2099-01-01T00:00:00.000+0000',
+      LastModifiedDate: '2099-01-01T00:00:00.000+0000',
+    });
+    const kept = withMember(ADDED_SINCE);
+
+    const outcome = await removeRunRecords(org, plan, options());
+    const held = await removeRunRecords(kept.org, kept.plan, options());
+
+    expect(outcome.objects[1]).toMatchObject({ objectApiName: 'Account', deleted: 1 });
+    expect(outcome.objects[1]).not.toHaveProperty('cameAlong');
+    expect(held.objects[1]).toMatchObject({ objectApiName: 'Account', keptDependents: 1 });
+    expect(held.objects[1]).not.toHaveProperty('cameAlong');
+  });
+
+  it('names the contact role the platform made with an opportunity, which a later part linked to, gone with the part’s contact', async () => {
+    // Live (GC15 C1), a resume linked the role the platform wrote with the
+    // cut part's opportunity; the cut part's removal deleted its contact,
+    // the org took the role along, and neither part's removal named it.
+    const CONTACT = id('003', 1);
+    const ROLE = id('00K', 1);
+    const org = new FakeOrg();
+    org.relationships.set('Contact', [
+      { childSObject: 'OpportunityContactRole', field: 'ContactId', cascadeDelete: true },
+    ]);
+    org.add('Contact', runRow(CONTACT));
+    org.add('OpportunityContactRole', {
+      Id: ROLE,
+      ContactId: CONTACT,
+      CreatedById: USER,
+      CreatedDate: DURING_RUN,
+      // The resume gave it the source's fields as it linked it.
+      LastModifiedDate: '2026-09-20T10:20:00.000+0000',
+    });
+
+    const outcome = await removeRunRecords(
+      org,
+      [{ objectApiName: 'Contact', ids: [CONTACT] }],
+      options({
+        laterParts: [
+          {
+            span: {
+              runStartedAt: new Date('2026-09-20T10:15:00.000Z'),
+              runEndedAt: new Date('2026-09-20T10:25:00.000Z'),
+            },
+            linked: [ROLE],
+          },
+        ],
+      }),
+    );
+
+    expect(outcome.objects[0]).toMatchObject({
+      objectApiName: 'Contact',
+      deleted: 1,
+      keptDependents: 0,
+      cameAlong: { count: 1, objects: ['OpportunityContactRole'] },
+    });
+    expect(org.has('OpportunityContactRole', ROLE)).toBe(false);
   });
 
   it('reads nothing further down once what goes along was read and accepted before, as a rewind’s plan does', async () => {
@@ -4030,6 +4206,89 @@ describe('removeRunRecords — what came with the run under its records, and wha
       keptDependents: 1,
       heldBy: ['Contact', 'CampaignMember', 'Detail__c', 'Subdetail__c'],
     });
+  });
+});
+
+describe('removeRunRecords — the duplicate record sets the target’s rules made of the run’s records', () => {
+  const RUN_USER = id('005', 3);
+  /** The rule's report of the run's two contacts, made as it wrote them. */
+  const SET = id('0GK', 1);
+  /** A set the target already held, into which a contact of the run was reported. */
+  const HELD_SET = id('0GK', 2);
+  /** A set of the run's user in the window, one item of which reports a colleague's contact. */
+  const SHARED_SET = id('0GK', 3);
+
+  function withSets(): { org: FakeOrg; plan: ForgeRunObjectRecords[] } {
+    const { org, plan } = accountWithContacts();
+    org.relationships.set('DuplicateRecordSet', [
+      { childSObject: 'DuplicateRecordItem', field: 'DuplicateRecordSetId', cascadeDelete: true },
+    ]);
+    org.relationships.set('Contact', [
+      { childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true },
+    ]);
+    org.notWorked.add('DuplicateRecordItem');
+    const made = { CreatedById: RUN_USER, LastModifiedById: RUN_USER };
+    org.add(
+      'DuplicateRecordSet',
+      { Id: SET, CreatedDate: DURING_RUN, LastModifiedDate: DURING_RUN, ...made },
+      { Id: HELD_SET, CreatedDate: BEFORE_RUN, LastModifiedDate: DURING_RUN, ...made },
+      { Id: SHARED_SET, CreatedDate: DURING_RUN, LastModifiedDate: DURING_RUN, ...made },
+    );
+    org.add(
+      'DuplicateRecordItem',
+      { Id: id('0GL', 1), DuplicateRecordSetId: SET, RecordId: id('003', 1) },
+      { Id: id('0GL', 2), DuplicateRecordSetId: SET, RecordId: id('003', 2) },
+      { Id: id('0GL', 3), DuplicateRecordSetId: HELD_SET, RecordId: id('003', 1) },
+      { Id: id('0GL', 4), DuplicateRecordSetId: SHARED_SET, RecordId: id('003', 2) },
+      { Id: id('0GL', 5), DuplicateRecordSetId: SHARED_SET, RecordId: id('003', 9) },
+    );
+    return { org, plan };
+  }
+
+  it('takes the sets the run’s user made as it wrote whose every item reports a record of the run, and says them apart', async () => {
+    // Live, a clone of the whole org left the two sets the target's Lead and
+    // Contact rules had made of its records, empty: 427 sets before, 433 after.
+    const { org, plan } = withSets();
+
+    const outcome = await removeRunRecords(org, plan, options({ runUserId: RUN_USER }));
+
+    expect(org.has('DuplicateRecordSet', SET)).toBe(false);
+    expect(org.has('DuplicateRecordSet', HELD_SET)).toBe(true);
+    expect(org.has('DuplicateRecordSet', SHARED_SET)).toBe(true);
+    expect(outcome.objects.find((o) => o.objectApiName === 'DuplicateRecordSet')).toMatchObject({
+      planned: 1,
+      deleted: 1,
+      platformCopies: 1,
+    });
+    expect(removalStatus(outcome.objects, outcome.cancelled)).toBe('success');
+  });
+
+  it('counts them in a preview, deleting nothing', async () => {
+    const { org, plan } = withSets();
+
+    const outcome = await removeRunRecords(
+      org,
+      plan,
+      options({ runUserId: RUN_USER, previewOnly: true }),
+    );
+
+    expect(
+      outcome.preview?.objects.find((o) => o.objectApiName === 'DuplicateRecordSet'),
+    ).toMatchObject({ planned: 1, toDelete: 1, platformCopies: 1 });
+    expect(org.deletes).toEqual([]);
+  });
+
+  it('looks for none without the run’s user, nor in a rewind’s removal', async () => {
+    const { org, plan } = withSets();
+    const rewound = withSets().org;
+
+    await removeRunRecords(org, plan, options());
+    await removeRunRecords(rewound, plan, options({ runUserId: RUN_USER, alongAccepted: true }));
+
+    for (const asked of [org, rewound]) {
+      expect(asked.queries.filter((soql) => soql.includes('FROM DuplicateRecordSet '))).toEqual([]);
+      expect(asked.has('DuplicateRecordSet', SET)).toBe(true);
+    }
   });
 });
 

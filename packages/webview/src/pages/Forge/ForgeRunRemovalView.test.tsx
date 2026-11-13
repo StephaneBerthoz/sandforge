@@ -751,6 +751,29 @@ describe('ForgeRunRemovalResult of the lines the platform copied', () => {
     );
   });
 
+  it('names the duplicate record sets the target’s rules made of the run’s records as theirs', () => {
+    // Live (GC17 D5), two such sets stayed, empty, once the run was taken back.
+    render(
+      <ForgeRunRemovalResult
+        result={result({
+          objects: [
+            outcome({
+              objectApiName: 'DuplicateRecordSet',
+              planned: 2,
+              deleted: 2,
+              platformCopies: 2,
+            }),
+          ],
+        })}
+        org="DEV-SANDBOX"
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-result-DuplicateRecordSet').textContent).toBe(
+      "DuplicateRecordSet: 2 deleted · 2 the target's duplicate rules made of the run's records",
+    );
+  });
+
   it('says nothing of copies when there were none', () => {
     render(
       <ForgeRunRemovalResult
@@ -854,6 +877,53 @@ describe('ForgeRunRemovalResult of a Frozen load', () => {
     expect(screen.getByTestId('forge-removal-took-along-Account').textContent).toBe(
       "Also took along 2 records that were not the run's, added or changed since it: Contact, Task",
     );
+  });
+
+  it('says what a removal took along that came with the records it took back, written by none of them', () => {
+    // Live (GC15 C2), the contact a trigger made with an account of the load
+    // went with the account, and only the member added to it since was named.
+    const { rerender } = render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        subject="load"
+        result={result({
+          objects: [
+            outcome({
+              objectApiName: 'Account',
+              deleted: 2,
+              tookAlong: { count: 1, objects: ['CampaignMember'] },
+              cameAlong: { count: 1, objects: ['Contact'] },
+            }),
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-came-along-Account').textContent).toBe(
+      'Also took along 1 record the load did not write that came with its records, made as it wrote: Contact',
+    );
+    expect(screen.getByTestId('forge-removal-took-along-Account').textContent).toContain(
+      'CampaignMember',
+    );
+
+    rerender(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({
+          objects: [
+            outcome({
+              objectApiName: 'Contact',
+              deleted: 1,
+              cameAlong: { count: 2, objects: ['OpportunityContactRole'] },
+            }),
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByTestId('forge-removal-came-along-Contact').textContent).toBe(
+      'Also took along 2 records the run did not write that came with its records, made as it wrote: OpportunityContactRole',
+    );
+    expect(screen.queryByTestId('forge-removal-took-along-Contact')).toBeNull();
   });
 });
 

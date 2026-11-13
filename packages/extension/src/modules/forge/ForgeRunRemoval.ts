@@ -64,6 +64,7 @@ import {
   type QuoteSyncRun,
 } from './quoteSyncCopies.js';
 import { MADE_WITHIN_MS, TIE_LEAD_MS } from './sweepTies.js';
+import { DUPLICATE_SET_OBJECT, duplicateSetsOf } from './duplicateRecordSets.js';
 
 // The deletes themselves are the removal core's, shared with whatever else
 // deletes records: what the removal's callers have always read from here.
@@ -584,6 +585,18 @@ export interface RunRemovalOptions {
    */
   goesWithParent?: (row: Readonly<Record<string, unknown>>, runEnd: number) => boolean;
   /**
+   * With {@link goesWithParent}: what it names is read in turn for what hangs
+   * from it, by the run's dates, as what came with the run is — it goes
+   * whatever its own dates, but what someone hung under it since does not.
+   * The undo of a rewind names so what came back with the records it sends
+   * back to the recycle bin, which no other removal reads below: a record
+   * added since under one of them went with it, unsaid. Absent, what it
+   * names goes as it is, unread further down: a Frozen reload names so the
+   * records of the other loads it replaces, whose own removal reads them by
+   * their own load's dates.
+   */
+  goesWithParentReadBelow?: true;
+  /**
    * Set when what goes along with the plan's records was read before the
    * removal, as far down as it hangs, and taken along once accepted: a
    * rewind's plan reads every record of its checkpoint's objects that hangs
@@ -694,6 +707,13 @@ export interface RemovalPreviewObject {
    * (`ForgeUndoObjectResult.heldByAutomation`). Absent when none.
    */
   heldByAutomation?: number;
+  /**
+   * Read when the preview was asked what hangs from the records: what the
+   * org would take along with the records it would send that the run did not
+   * write, come with them as it wrote (`ForgeUndoObjectResult.cameAlong`).
+   * Absent when none would go so.
+   */
+  cameAlong?: { count: number; objects: string[] };
   /** Why records stay, or could not be told, in the org's words where it gave them. */
   reasons: string[];
 }
@@ -1127,6 +1147,12 @@ class ObjectRemoval {
    */
   readonly tookAlong = new Map<string, string>();
   /**
+   * The records the run did not write that came with its records and that
+   * the org took along with the ones deleted: each by its key, with its
+   * object. See {@link ForgeUndoObjectResult.cameAlong}.
+   */
+  readonly cameAlong = new Map<string, string>();
+  /**
    * What is said of the calls a limit of the target's automation refused,
    * once the object's turn is over (`deleteLimitNotes`): placed before the
    * org's refusals.
@@ -1276,6 +1302,12 @@ class ObjectRemoval {
       this.result.tookAlong = {
         count: this.tookAlong.size,
         objects: [...new Set(this.tookAlong.values())],
+      };
+    }
+    if (this.cameAlong.size > 0) {
+      this.result.cameAlong = {
+        count: this.cameAlong.size,
+        objects: [...new Set(this.cameAlong.values())],
       };
     }
     return this.result;
@@ -1511,6 +1543,24 @@ export async function removeRunRecords(
     undeletable: undeletableNames,
     snapshots,
   });
+  // The sets the target's duplicate rules made of the run's records, read
+  // with the copies and taken as they are: left, they stayed empty. Told only
+  // by the run's user, and never by a rewind, whose plan reads what it deletes.
+  if (options.runUserId && options.alongAccepted !== true) {
+    const sets = await duplicateSetsOf(session, {
+      has: (key) => records.has(key),
+      start: runStart,
+      end: runEnd,
+      user: options.runUserId,
+    });
+    if (
+      sets.length > 0 &&
+      !records.objects.some((object) => object.objectApiName === DUPLICATE_SET_OBJECT) &&
+      (await deletable(session, DUPLICATE_SET_OBJECT))
+    ) {
+      copies.push({ objectApiName: DUPLICATE_SET_OBJECT, copies: sets });
+    }
+  }
   if (copies.length > 0) {
     records = await withCopies(records, copies, snapshots, objectOfPrefix);
     for (const { objectApiName, copies: of } of copies) copiesCount.set(objectApiName, of.length);
@@ -1579,6 +1629,7 @@ export async function removeRunRecords(
                 includeChanged: options.includeChanged,
                 previewing: true,
                 ...(options.goesWithParent ? { goesWithParent: options.goesWithParent } : {}),
+                ...(options.goesWithParentReadBelow ? { goesWithParentReadBelow: true } : {}),
                 ...(options.alongAccepted ? { alongAccepted: options.alongAccepted } : {}),
                 ...(options.runUserId ? { runUser: recordKey(options.runUserId) } : {}),
                 ...(options.laterParts
@@ -1633,6 +1684,7 @@ export async function removeRunRecords(
     })),
     includeChanged: options.includeChanged,
     ...(options.goesWithParent ? { goesWithParent: options.goesWithParent } : {}),
+    ...(options.goesWithParentReadBelow ? { goesWithParentReadBelow: true } : {}),
     ...(options.alongAccepted ? { alongAccepted: options.alongAccepted } : {}),
     ...(options.alongToDraft ? { alongToDraft: options.alongToDraft } : {}),
     ...(options.runUserId ? { runUser: recordKey(options.runUserId) } : {}),
@@ -2103,6 +2155,16 @@ async function previewOf(
         const byAutomation = kept.filter((id) => verdict.byAutomation.has(recordKey(id)));
         if (byAutomation.length > 0) object.heldByAutomation = byAutomation.length;
       }
+      const came = new Map<string, string>();
+      for (const id of sent) {
+        if (verdict.held.has(recordKey(id))) continue;
+        for (const [taken, under] of verdict.cameAlong.get(recordKey(id)) ?? []) {
+          came.set(taken, under);
+        }
+      }
+      if (came.size > 0) {
+        object.cameAlong = { count: came.size, objects: [...new Set(came.values())] };
+      }
       if (verdict.reason !== undefined) object.reasons.push(verdict.reason);
       if (verdict.unchecked.size > 0) {
         object.reasons.push(
@@ -2523,6 +2585,9 @@ async function removeCandidates(
         for (const [taken, object] of verdict.along.get(key) ?? []) {
           removal.tookAlong.set(taken, object);
         }
+        for (const [taken, object] of verdict.cameAlong.get(key) ?? []) {
+          removal.cameAlong.set(taken, object);
+        }
       } else removal.result.alreadyGone++;
     });
     hooks.onSent?.(sent);
@@ -2906,6 +2971,8 @@ interface DependentsContext {
   includeChanged: boolean;
   /** As {@link RunRemovalOptions.goesWithParent}. */
   goesWithParent?: (row: Readonly<Record<string, unknown>>, runEnd: number) => boolean;
+  /** As {@link RunRemovalOptions.goesWithParentReadBelow}. */
+  goesWithParentReadBelow?: true;
   /** As {@link RunRemovalOptions.alongAccepted}. */
   alongAccepted?: true;
   /** As {@link RunRemovalOptions.alongToDraft}. */
@@ -2962,6 +3029,85 @@ function keysAsAsked(ids: ReadonlySet<string>): Pick<ReadonlySet<string>, 'has'>
   };
 }
 
+/** What a sweep reads below the records it takes against: see {@link sweptHeldCheck}. */
+export interface SweptReading {
+  /** The run's first write, less a sweep's lead, on the org's clock, epoch milliseconds. */
+  runStart: number;
+  /** The run's last write, on the org's clock, epoch milliseconds: what came later stays. */
+  runEnd: number;
+  /**
+   * The records the run created, by key: the run's own, which its removal
+   * takes. Not what it linked to or matched, which were the target's before
+   * it, and stay.
+   */
+  runRecords: RecordKeys;
+  /**
+   * The ids of what the sweep takes, as they stand: one among them hanging
+   * from another goes with it. One held is let go of before its parent is
+   * read, children first.
+   */
+  taken: ReadonlySet<string>;
+  /** As {@link RunRemovalOptions.removalSpans}. */
+  removalSpans?: readonly ForgeRemovalSpan[];
+  /** As {@link RunRemovalOptions.includeChanged}. */
+  includeChanged: boolean;
+  /** The user the run wrote as, by Salesforce id. */
+  runUserId?: string;
+}
+
+/**
+ * The check a sweep reads below the records it is about to take with, as a
+ * removal reads what goes along with the run's (`DependentsCheck.heldBelow`):
+ * of `ids`, records of one object, those a record that stays hangs from —
+ * made by hand since, older and moved under one, changed since unless the
+ * request includes it, or one the sweep does not take — with the objects of
+ * what holds them; read down as far as a removal reads. Each describe and
+ * the dates each object keeps are read once per check.
+ *
+ * What a sweep takes went in cascade with what it hung from: a contact the
+ * target's automation made under an account of the run went with the
+ * account, the sweep having let it go along, and a campaign member someone
+ * added to that contact since went with it, unread. A record of another
+ * part of the run under one, written after this part, stays: deleting what it
+ * hangs from would take it along with the part removed.
+ */
+export function sweptHeldCheck(
+  org: RemovalOrg,
+  reading: SweptReading,
+): (
+  objectApiName: string,
+  ids: readonly string[],
+) => Promise<{ held: Set<string>; holders: string[]; reason?: string }> {
+  const check = new DependentsCheck(org, {
+    runRecords: reading.runRecords,
+    reached: { has: () => false },
+    stays: () => false,
+    runStart: reading.runStart,
+    runEnd: reading.runEnd,
+    // Before the removal: nothing yet is a removal's doing but an earlier one's.
+    removalStart: Number.POSITIVE_INFINITY,
+    removalUser: undefined,
+    earlierRemovals: (reading.removalSpans ?? []).map((span) => ({
+      start: epochOf(span.first),
+      end: epochOf(span.last),
+      user: recordKey(span.userId),
+    })),
+    includeChanged: reading.includeChanged,
+    automationMade: keysAsAsked(reading.taken),
+    ...(reading.runUserId ? { runUser: recordKey(reading.runUserId) } : {}),
+  });
+  return async (objectApiName, ids) => {
+    // Read as what goes along with a record of the run is read: for what
+    // stays under it alone.
+    const verdict = await check.heldAmong(objectApiName, ids, 1);
+    return {
+      held: verdict.held,
+      holders: [...verdict.holders],
+      ...(verdict.reason !== undefined ? { reason: verdict.reason } : {}),
+    };
+  };
+}
+
 /** What {@link DependentsCheck.heldAmong} found for some records of one object. */
 interface HeldVerdict {
   /** Keys of the records that records staying in the org depend on. */
@@ -2993,6 +3139,16 @@ interface HeldVerdict {
    * added or changed since the run: each by its key, with its object.
    */
   along: Map<string, Map<string, string>>;
+  /**
+   * By the key of a record about to go, the records the run did not write
+   * that came with its records — made by the platform or the target's
+   * automation as it wrote, and unchanged since — that the org would take
+   * along with it, as far down as what goes along was read: each by its key,
+   * with its object. Not the run's, another part's, what a sweep takes, nor
+   * what the removal is told goes with its parent: those are named where
+   * they are counted.
+   */
+  cameAlong: Map<string, Map<string, string>>;
   /** Relationships the org deletes along that could not be read by the record, by child object. */
   unchecked: Set<string>;
   /** Why the object's relationships could not be read at all; every record is then held. */
@@ -3025,6 +3181,8 @@ const PERSON_ACCOUNT_FLAG = 'IsPersonAccount';
 interface AutomationHolder {
   /** The record of the run it holds, by its id. */
   parent: string;
+  /** Its own id: what stays under it is read too (`automationHeldBelow`). */
+  id: string;
   /** Its object. */
   object: string;
   /** When it was created, by the org's clock. */
@@ -3037,6 +3195,33 @@ interface AutomationHolder {
    * restricts that record's delete, and a sweep deletes it first.
    */
   along: boolean;
+}
+
+/** What {@link DependentsCheck.stays} says of why a record goes, when asked. */
+interface StaysAsked {
+  /** It goes only as the request includes what was added or changed since the run. */
+  onlyIncluded: boolean;
+  /** It goes as what a removal of the run made while it went. */
+  byRemoval?: true;
+}
+
+/**
+ * A record that goes along with one about to go and is not the run's, read
+ * for what stays under it in turn ({@link DependentsCheck.heldBelow}).
+ */
+interface GoingAlong {
+  /** The key of the record it goes with. */
+  parent: string;
+  /** Its id. */
+  id: string;
+  /**
+   * Whether it came with the run's records — made as the run wrote, by the
+   * platform or the target's automation, and unchanged since — rather than
+   * with the removal itself, as the request includes what was added or
+   * changed since the run, or as the removal is told it goes with its parent:
+   * named apart once it went ({@link HeldVerdict.cameAlong}).
+   */
+  came: boolean;
 }
 
 /** A file attached to a record: its document's key, and its title or its id. */
@@ -3128,6 +3313,7 @@ class DependentsCheck {
       automationAfter: new Set(),
       automationAlong: new Set(),
       along: new Map(),
+      cameAlong: new Map(),
       unchecked: new Set(),
     };
     if (candidates.length === 0) return verdict;
@@ -3187,7 +3373,7 @@ class DependentsCheck {
     // came back.
     const mayBeAutomation: AutomationHolder[] = [];
     /** By object, what goes along with a candidate that is not the run's: see `heldBelow`. */
-    const goingAlong = new Map<string, Array<{ parent: string; id: string }>>();
+    const goingAlong = new Map<string, GoingAlong[]>();
     for (const { relationship, holding, unchecked, automation, along, goes: going } of await inPool(
       reads,
       DEPENDENT_READS_AT_ONCE,
@@ -3222,6 +3408,11 @@ class DependentsCheck {
     if (objectApiName === SELLING_MODEL_OPTION_OBJECT) {
       await this.sellingModelOptionsHeld(candidates, verdict);
     }
+    // A rewind's plan read below what it deletes already, and its estimate
+    // prices the reads its removal sends: see `alongAccepted`.
+    if (this.context.alongAccepted !== true) {
+      await this.automationHeldBelow(mayBeAutomation, verdict);
+    }
     const byAutomation = await this.byAutomationOnly(
       objectApiName,
       mayBeAutomation,
@@ -3248,7 +3439,8 @@ class DependentsCheck {
    * read, what goes along is kept. Held so, a candidate is named for the
    * objects of both: the one going along, and the one that stays under it.
    * What the request takes along a level down only as it includes what was
-   * added or changed since the run is named with the candidate's own.
+   * added or changed since the run is named with the candidate's own, and so
+   * is what came with the run's records, at any level read (`cameAlong`).
    *
    * Read one level down only, a contact the target's automation made under
    * an account a load wrote went with the account, as it came with the load,
@@ -3257,30 +3449,77 @@ class DependentsCheck {
    * hand under the account, went through for this one and said success.
    */
   private async heldBelow(
-    goingAlong: ReadonlyMap<string, ReadonlyArray<{ parent: string; id: string }>>,
+    goingAlong: ReadonlyMap<string, readonly GoingAlong[]>,
     verdict: HeldVerdict,
     below: number,
   ): Promise<void> {
+    /** Add `taken`, of `object`, to what goes along with `parent` in `named`. */
+    const named = (
+      by: Map<string, Map<string, string>>,
+      parent: string,
+      taken: string,
+      object: string,
+    ): void => {
+      const goes = by.get(parent) ?? new Map<string, string>();
+      goes.set(taken, object);
+      by.set(parent, goes);
+    };
     for (const [objectApiName, going] of goingAlong) {
       const ids = [...new Set(going.map((record) => record.id))];
       const under =
         below + 1 < CASCADE_LEVELS_READ
           ? await this.heldAmong(objectApiName, ids, below + 1)
           : undefined;
-      for (const { parent, id } of going) {
+      for (const { parent, id, came } of going) {
         const key = recordKey(id);
         if (!under || under.held.has(key)) {
           this.hold(verdict, parent);
           verdict.holders.add(objectApiName);
           under?.holders.forEach((holder) => verdict.holders.add(holder));
+          continue;
         }
-        for (const [taken, object] of under?.along.get(key) ?? []) {
-          const goes = verdict.along.get(parent) ?? new Map<string, string>();
-          goes.set(taken, object);
-          verdict.along.set(parent, goes);
+        // Gone along, unsaid: a contact the target's automation made with an
+        // account of a load went with the account, and the removal said
+        // "Contact: 4 deleted of 4", the load's own four.
+        if (came) named(verdict.cameAlong, parent, key, objectApiName);
+        for (const [taken, object] of under.along.get(key) ?? []) {
+          named(verdict.along, parent, taken, object);
+        }
+        for (const [taken, object] of under.cameAlong.get(key) ?? []) {
+          named(verdict.cameAlong, parent, taken, object);
         }
       }
       under?.unchecked.forEach((name) => verdict.unchecked.add(name));
+    }
+  }
+
+  /**
+   * Hold, as any record that stays holds them, the candidates under which a
+   * record the target's automation likely made holds in turn a record that
+   * stays — added by hand since, older and moved under it, changed since —
+   * read as what goes along is read (`heldBelow`): a sweep keeps such a
+   * record (`sweptHeldCheck`), and the candidate stays with it. Said held by
+   * the automation, the removal would answer that `--sweep` takes it, which
+   * the sweep then keeps. What else the automation made under it holds
+   * nothing here: a sweep takes that too.
+   */
+  private async automationHeldBelow(
+    holders: readonly AutomationHolder[],
+    verdict: HeldVerdict,
+  ): Promise<void> {
+    const byObject = new Map<string, AutomationHolder[]>();
+    for (const holder of holders) {
+      if (verdict.otherwise.has(recordKey(holder.parent))) continue;
+      byObject.set(holder.object, [...(byObject.get(holder.object) ?? []), holder]);
+    }
+    for (const [objectApiName, held] of byObject) {
+      const under = await this.heldAmong(objectApiName, [...new Set(held.map((h) => h.id))], 1);
+      for (const holder of held) {
+        if (!under.otherwise.has(recordKey(holder.id))) continue;
+        this.hold(verdict, recordKey(holder.parent));
+        under.holders.forEach((name) => verdict.holders.add(name));
+      }
+      under.unchecked.forEach((name) => verdict.unchecked.add(name));
     }
   }
 
@@ -3419,7 +3658,7 @@ class DependentsCheck {
     holding: Set<string>;
     automation: AutomationHolder[];
     along: Array<{ parent: string; key: string }>;
-    goes: Array<{ parent: string; id: string }>;
+    goes: GoingAlong[];
     unchecked: boolean;
   }> {
     const child = assertSoqlIdentifier(relationship.childSObject);
@@ -3466,7 +3705,7 @@ class DependentsCheck {
       const holding = new Set<string>();
       const automation: AutomationHolder[] = [];
       const along: Array<{ parent: string; key: string }> = [];
-      const goes: Array<{ parent: string; id: string }> = [];
+      const goes: GoingAlong[] = [];
       /** Of `automation`, by its own id, what holds through a restricted lookup. */
       const restrictedBy = new Map<string, AutomationHolder>();
       for (const record of answer.records) {
@@ -3477,17 +3716,27 @@ class DependentsCheck {
         if (child === FILE_LINK && field === 'LinkedEntityId') this.noteFile(row);
         // Locked under this very record, the row stays because the record does.
         if (this.lockedUnder.get(recordKey(row.Id)) === recordKey(parent)) continue;
-        const asked = { onlyIncluded: false };
+        const asked: StaysAsked = { onlyIncluded: false };
         if (!this.stays(row, child, relationship.restricted, relationship.personContacts, asked)) {
           if (asked.onlyIncluded) along.push({ parent: recordKey(parent), key: recordKey(row.Id) });
           if (child !== FILE_LINK && this.goesAlongUnread(row)) {
-            goes.push({ parent: recordKey(parent), id: row.Id });
+            const came =
+              !asked.onlyIncluded &&
+              asked.byRemoval !== true &&
+              this.context.goesWithParent?.(row, this.context.runEnd) !== true;
+            goes.push({ parent: recordKey(parent), id: row.Id, came });
           }
           continue;
         }
         const made = this.mayBeAutomation(row);
         if (made) {
-          const holder = { parent, object: child, along: !relationship.restricted, ...made };
+          const holder = {
+            parent,
+            id: row.Id,
+            object: child,
+            along: !relationship.restricted,
+            ...made,
+          };
           automation.push(holder);
           if (relationship.restricted) restrictedBy.set(row.Id, holder);
         } else holding.add(recordKey(parent));
@@ -3514,9 +3763,11 @@ class DependentsCheck {
   /**
    * Whether a record that goes along with one about to be deleted has what
    * hangs from it still to read: not the run's, nor another part's, whose
-   * own removal reads them; nor what a granted sweep takes, nor what the
-   * removal is told goes with its parent, which go as they are; nor any of
-   * it once what goes along was read and accepted before (`alongAccepted`).
+   * own removal reads them; nor what a granted sweep takes, which the sweep
+   * read below before it took it; nor what the removal is told goes with
+   * its parent, which goes as it is, unless it is asked to read below it
+   * (`goesWithParentReadBelow`); nor any of it once what goes along was read
+   * and accepted before (`alongAccepted`).
    */
   private goesAlongUnread(row: Record<string, unknown>): boolean {
     const key = recordKey(row.Id as string);
@@ -3526,7 +3777,7 @@ class DependentsCheck {
       !runRecords.has(key) &&
       otherPartRecords?.has(key) !== true &&
       automationMade?.has(key) !== true &&
-      goesWithParent?.(row, runEnd) !== true
+      (this.context.goesWithParentReadBelow === true || goesWithParent?.(row, runEnd) !== true)
     );
   }
 
@@ -3941,14 +4192,15 @@ class DependentsCheck {
    *   account in an org with person accounts.
    * @param asked - Set `onlyIncluded` when the record goes only because the
    *   request includes what was added or changed since the run: someone's,
-   *   not the run's, taken along all the same.
+   *   not the run's, taken along all the same; and `byRemoval` when it goes
+   *   as what a removal of the run made.
    */
   private stays(
     row: Record<string, unknown>,
     object: string,
     restricted = false,
     personContacts = false,
-    asked?: { onlyIncluded: boolean },
+    asked?: StaysAsked,
   ): boolean {
     const key = recordKey(row.Id as string);
     const {
@@ -4007,7 +4259,10 @@ class DependentsCheck {
         earlierRemovals.some(
           (earlier) => user === earlier.user && at >= earlier.start && at <= earlier.end,
         ));
-    if (asRemoval(creator, created)) return false;
+    if (asRemoval(creator, created)) {
+      if (asked) asked.byRemoval = true;
+      return false;
+    }
     if (modified <= runEnd) return false;
     // Created while the run went and last modified by a removal of it, as
     // its user, while that removal went: the org's answer to what the

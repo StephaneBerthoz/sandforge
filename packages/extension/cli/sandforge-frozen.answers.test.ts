@@ -161,9 +161,14 @@ const removeAnswer = z
             .object({ count, objects: z.array(name) })
             .strict()
             .optional(),
+          cameAlong: z
+            .object({ count, objects: z.array(name) })
+            .strict()
+            .optional(),
         })
         .strict(),
     ),
+    includeChanged: z.boolean(),
   })
   .strict();
 const previewAnswer = z
@@ -187,6 +192,7 @@ const previewAnswer = z
         })
         .strict(),
     ),
+    includeChanged: z.boolean(),
     refusals: z.array(name).optional(),
     ended: z.literal(true).optional(),
   })
@@ -600,6 +606,47 @@ describe('the --json answer of each step, as an environment reads it', () => {
       deleted: 2,
       tookAlong: { count: 1, objects: ['Contact'] },
     });
+    // What was asked, at the root: GC13 and GC15 read it from nowhere.
+    expect(read.includeChanged).toBe(true);
+  });
+
+  it('gives a removal what it took along that came with the load’s records, and whether changes were asked, at its root', async () => {
+    const answer = await frozenAnswer(
+      'remove',
+      [
+        {
+          type: 'frozen:remove:response',
+          payload: {
+            result: {
+              status: 'success',
+              includeChanged: false,
+              finishedAt: 'x',
+              objects: [
+                {
+                  objectApiName: 'Account',
+                  planned: 2,
+                  deleted: 2,
+                  alreadyGone: 0,
+                  keptChanged: 0,
+                  keptDependents: 0,
+                  refused: 0,
+                  heldBy: [],
+                  unchecked: [],
+                  reasons: [],
+                  cameAlong: { count: 1, objects: ['Contact'] },
+                },
+              ],
+            },
+          },
+        },
+      ],
+      context(),
+    );
+
+    const read = removeAnswer.parse(answer);
+    expect(read.objects[0]).toMatchObject({ cameAlong: { count: 1, objects: ['Contact'] } });
+    expect(read.objects[0]).not.toHaveProperty('tookAlong');
+    expect(read.includeChanged).toBe(false);
   });
 });
 

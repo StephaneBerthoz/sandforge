@@ -26,6 +26,7 @@ import {
   parseArgs,
   parseRunSummary,
   removalPlan,
+  removalPlanLines,
   resumedJournalPath,
   runSummaryOfFile,
   withTheJournal,
@@ -1189,6 +1190,81 @@ describe('sandforge-clone --summary', () => {
       ]);
       // A summary that says its window keeps it.
       expect(await datedFromItsJournal(conn, dated)).toBe(dated);
+    });
+
+    it('says of what the platform wrote with the run’s records that it goes with them, and keeps the user the run wrote as', async () => {
+      // Live (GC17 D7), a removal of a whole-org clone's journal said "10
+      // record(s) the target already held, which the run linked to or wrote
+      // over, stay" of the contacts the platform wrote with its person
+      // accounts, which went with them.
+      const journalDir = mkdtempSync(join(tmpdir(), 'sandforge-clone-persons-'));
+      try {
+        const journals = nodeRunJournal(journalDir);
+        await journals.begin(
+          'persons',
+          '00D000000000001AAA',
+          new Date('2026-10-20T10:00:00.000Z'),
+          undefined,
+          '005000000000001AAA',
+        );
+        const store = journals.open('persons');
+        store.beginPart(new Date('2026-10-20T10:00:00.000Z'));
+        store.setMapping('created', '001000000000001AAA', '001000000000901AAA', 'Account');
+        store.setMapping('existing', '003000000000001AAA', '003000000000901AAA', 'Contact');
+        store.withTheirRecord('003000000000001AAA');
+        store.close();
+        const file = journals.pathOf('persons');
+
+        const read = await runSummaryOfFile(file, readFileSync(file, 'utf8'), 'TGT', journals);
+        if (!('summary' in read)) throw new Error(read.refusal);
+
+        expect(read.summary.result.withTheirRecordSourceIds).toEqual(['003000000000001AAA']);
+        expect(read.summary.result.runUserId).toBe('005000000000001AAA');
+        expect(
+          removalPlanLines(read.summary, removalPlan(read.summary), {
+            target: 'TGT',
+            includeChanged: false,
+          }),
+        ).toContain(
+          '0 record(s) the target already held, which the run linked to or wrote over, stay',
+        );
+      } finally {
+        rmSync(journalDir, { recursive: true, force: true });
+      }
+    });
+
+    it('dates it from the recycle bin once a removal took every record it names', async () => {
+      // Live (GC17 D8), `--sweep-list` of the journal once the run was removed
+      // said "The target did not date this run's writes" and exited 3.
+      withOrgs();
+      const path = join(dir, 'clone-summary.json');
+      expect(await run(argv('--summary', path))).toBeUndefined();
+      const journal = String(documentOf(path).journal);
+      const read = await runSummaryOfFile(journal, readFileSync(journal, 'utf8'), 'TGT');
+      if (!('summary' in read)) throw new Error('no summary');
+      const created: Record<string, string> = {
+        '001000000000900AAA': '2026-10-20T10:00:01.000+0000',
+        '003000000000900AAA': '2026-10-20T10:04:30.000+0000',
+      };
+      const asked: Array<{ soql: string; scanAll: boolean }> = [];
+      const conn = {
+        query: async (soql: string, options?: { scanAll?: boolean }) => {
+          asked.push({ soql, scanAll: options?.scanAll === true });
+          const id = /Id = '(\w+)'/.exec(soql)?.[1] ?? '';
+          // Deleted: only a read of the recycle bin finds them.
+          const records = options?.scanAll ? [{ CreatedDate: created[id] }] : [];
+          return { totalSize: records.length, done: true, records };
+        },
+      } as unknown as Connection;
+
+      const dated = await datedFromItsJournal(conn, read.summary);
+
+      expect(dated.result.writtenBetween).toEqual({
+        first: '2026-10-20T10:00:01.000Z',
+        last: '2026-10-20T10:04:30.000Z',
+      });
+      // The org first: the recycle bin only once it dates nothing.
+      expect(asked.map(({ scanAll }) => scanAll)).toEqual([false, false, true, true]);
     });
   });
 });

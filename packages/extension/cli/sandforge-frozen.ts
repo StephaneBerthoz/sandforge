@@ -1462,6 +1462,7 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
           failures: Array<{ objectApiName: string; errors: string[] }>;
           leftUnrecorded?: Record<string, number>;
           keptByThePlatform?: Record<string, number>;
+          cameAlong?: Record<string, { count: number; objects: string[] }>;
         };
         leftToThePlatform?: Array<{ objectApiName: string; note: string }>;
         untypedFeedItems?: Array<{ objectApiName: string; note: string }>;
@@ -1591,6 +1592,14 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
         for (const f of r.purge.failures.slice(0, 5)) {
           lines.push(`  ${f.objectApiName}: ${f.errors[0] ?? '?'}`);
         }
+      }
+      // What the purge's deletes took along that the loads did not write:
+      // a contact a trigger made with an account of a load went with it unsaid.
+      for (const [objectApiName, came] of Object.entries(r.purge.cameAlong ?? {})) {
+        lines.push(
+          `  ${objectApiName}: took along ${came.count} record(s) the loads did not write that ` +
+            `came with their records, made as they wrote: ${came.objects.join(', ')}`,
+        );
       }
       // A load recorded before loads kept what they created cannot say which
       // of its records it linked: what it may have linked stays, and is named.
@@ -1850,6 +1859,7 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
           reasons: string[];
           filesLeft?: { count: number; names: string[] };
           tookAlong?: { count: number; objects: string[] };
+          cameAlong?: { count: number; objects: string[] };
         }>;
         keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
       };
@@ -1872,7 +1882,8 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
             ]),
         ...r.objects.flatMap((o) => [
           `  ${o.objectApiName}: ${removalCounts(o) || 'nothing'} of ${o.planned}${platformCopiesWords(o)}`,
-          // What went with them that the load never wrote: made by hand since.
+          // What went with them that the load never wrote: made by hand since,
+          // or with its records, by the target's automation as it wrote.
           ...tookAlongLines(o, 'load'),
           ...o.reasons.map((reason) => `      ${reason}`),
           ...(o.filesLeft && o.filesLeft.count > 0 ? [`      ${filesLeftLine(o.filesLeft)}`] : []),
@@ -2007,9 +2018,15 @@ export interface FrozenAnswer {
   mapping?: string;
   /**
    * Per object, what the step counted; for a removal, with what it took
-   * along that the load never wrote (`tookAlong`), where it took any.
+   * along that the load never wrote, where it took any: added or changed
+   * since (`tookAlong`), or come with its records (`cameAlong`).
    */
   objects?: Array<Record<string, string | number | { count: number; objects: string[] }>>;
+  /**
+   * Of a removal and its preview: whether the records changed since the load,
+   * and what was added under them since, went too (`--include-changed`).
+   */
+  includeChanged?: boolean;
   /** Verify's verdict, and the one a load chains after it. */
   verdict?: FrozenAnswerVerdict;
   /** How a load or a removal ended: a load's `partial` once the verification it chains did not pass. */
@@ -2206,9 +2223,15 @@ export async function frozenAnswer(
           // What went along that the load never wrote: said in the panel's
           // answer alone, a script reading these counts did not see it.
           ...(o.tookAlong ? { tookAlong: o.tookAlong } : {}),
+          ...(o.cameAlong ? { cameAlong: o.cameAlong } : {}),
         }));
+        // What the removal was asked, beside what it did: a script told
+        // `tookAlong` per object could not tell from the root whether the
+        // records changed since were asked for.
+        answer.includeChanged = result.includeChanged;
       } else if (preview) {
         answer.preview = true;
+        answer.includeChanged = preview.includeChanged;
         answer.objects = preview.objects.map((o) => ({
           objectApiName: o.objectApiName,
           planned: o.planned,

@@ -90,12 +90,19 @@ describe('muteOfSteps', () => {
     ]);
   });
 
-  it('refuses the rewind, said as its own refusal, when the mute is refused', async () => {
+  it('refuses the rewind, said as its own refusal, when the mute is refused, with what runs as its plan would leave it for the gates after it', async () => {
+    // As the command line's dry run judges them: what the plan's sets keep
+    // quiet is not counted, what still runs is.
     const { mute, org } = muteOf({ sandbox: false, edition: 'Enterprise Edition' });
     const planned = await muteOfSteps(mute, AUTOMATION, STEPS);
-    expect(planned).toEqual({
+    expect(planned).toMatchObject({
       refusal: { code: 'MUTE', message: expect.stringContaining('production org') },
+      plan: { assign: [expect.objectContaining({ permissionSet: 'PS_Case' })] },
     });
+    if (!('refusal' in planned)) throw new Error('the mute was not refused');
+    expect(firedOnRemovalStepsOf(planned.automation, STEPS).map((f) => f.name)).toEqual([
+      'CaseTrigger',
+    ]);
     expect(org.writes).toEqual([]);
   });
 

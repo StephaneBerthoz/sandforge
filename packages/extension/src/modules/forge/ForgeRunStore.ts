@@ -195,7 +195,7 @@ export const UNATTRIBUTED_TAG = 'n';
  * platform wrote with a record the run created, and deletes with it: see
  * `ForgeRunStore.withTheirRecord`.
  */
-const WITH_THEIR_RECORD_TAG = 't';
+export const WITH_THEIR_RECORD_TAG = 't';
 /**
  * What ends the line of a record a call under way when the run stopped had
  * created, found in the target since, whose call never said what its rows

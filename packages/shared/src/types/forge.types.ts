@@ -1010,6 +1010,15 @@ export interface ForgeUndoObjectResult {
    */
   tookAlong?: { count: number; objects: string[] };
   /**
+   * Records the run did not write that came with its records — made by the
+   * platform or the target's automation as it wrote, unchanged since — and
+   * that the org deleted along with the ones counted in `deleted`: the
+   * contact a trigger made with an account of the run, the contact role the
+   * platform made with its opportunity. How many, and their objects by API
+   * name. Absent when none went so.
+   */
+  cameAlong?: { count: number; objects: string[] };
+  /**
    * Of `planned`, the records the platform copied as the run wrote — the
    * quote lines of a quote the run synced with its opportunity — that the
    * run's id map does not hold: part of the run, in its plan and named
@@ -1295,10 +1304,18 @@ export interface ForgeSweepObjectResult {
   /**
    * Of `deleted`, those deleted once the run's own records were: records a
    * record of the run points at through a lookup the org restricts the
-   * delete by (`Case.AssetId`), which go only once it is gone. Absent when
-   * none waited.
+   * delete by (`Case.AssetId`), which go only once it is gone; and those
+   * counted in `afterRemovalUnder`. Absent when none waited.
    */
   afterRemoval?: number;
+  /**
+   * Of `afterRemoval`, those that hung from a record of the run through a
+   * relationship the org deletes along, which the sweep left to go with it,
+   * still in the org once the removal was through: the org had not taken
+   * them along — the record of the run kept, or refused — and the sweep
+   * deleted them then. Absent when none.
+   */
+  afterRemovalUnder?: number;
   /**
    * Of `alreadyGone`, those that hung from a record of the run through a
    * relationship the org deletes along, which the sweep left to go with it:
@@ -1306,6 +1323,14 @@ export interface ForgeSweepObjectResult {
    * Absent when none went so.
    */
   withRemoval?: number;
+  /**
+   * Of `found`, records kept, never sent: records that stay in the org hang
+   * from them — added by hand since, or that the sweep does not take — and
+   * the org would delete those along with them. Absent when none was.
+   */
+  keptDependents?: number;
+  /** The objects of the records that hold them, by API name. Absent with `keptDependents`. */
+  heldBy?: string[];
 }
 
 /** What a sweep of a removal did, before the run's own records went. */

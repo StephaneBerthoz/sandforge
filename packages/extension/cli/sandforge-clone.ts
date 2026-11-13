@@ -234,6 +234,7 @@ import {
   type RunRemovalOutcome,
   type UndeletableObject,
 } from '../src/modules/forge/ForgeRunRemoval.js';
+import { DUPLICATE_SET_OBJECT } from '../src/modules/forge/duplicateRecordSets.js';
 import {
   removalAuditObjects,
   removalAuditOutcome,
@@ -4595,6 +4596,9 @@ export async function runSummaryOfFile(
         existingSourceIds: kept.remap.linked,
         updatedSourceIds: [],
         createdByObject: kept.remap.createdByObject,
+        ...(kept.remap.withTheirRecord
+          ? { withTheirRecordSourceIds: kept.remap.withTheirRecord }
+          : {}),
         ...(kept.unattributed ? { unattributed: kept.unattributed } : {}),
       },
     },
@@ -4645,6 +4649,14 @@ async function runSummaryOfJournal(
       existingSourceIds: read.remap.linked,
       updatedSourceIds: [],
       createdByObject: read.remap.createdByObject,
+      // What the platform wrote with the run's records goes with them, as a
+      // summary says it: said to stay, it was ten person accounts' contacts.
+      ...(read.remap.withTheirRecord
+        ? { withTheirRecordSourceIds: read.remap.withTheirRecord }
+        : {}),
+      // The user it wrote as, which the journal keeps: what the target made
+      // for the run is told by it, as from a summary.
+      ...(read.runUserId ? { runUserId: read.runUserId } : {}),
       ...(read.unattributed ? { unattributed: read.unattributed } : {}),
     },
   });
@@ -4794,14 +4806,27 @@ export function quoteCopiesLines(plan: readonly ForgeRunObjectRecords[]): string
  * Of an object's records, those the platform copied as the run wrote — the
  * lines of a quote the run synced with its opportunity, which the id map does
  * not hold —, said beside its counts: a plan of 2 quote lines once ended in
- * 4 deleted of 4, and nothing said where the other 2 came from. Empty when
- * there were none. Exported so it can be tested.
+ * 4 deleted of 4, and nothing said where the other 2 came from. Of the
+ * duplicate record sets the target's duplicate rules made of the run's
+ * records, which the run never wrote, said so. Empty when there were none.
+ * Exported so it can be tested.
  */
-export function platformCopiesWords(object: { planned: number; platformCopies?: number }): string {
+export function platformCopiesWords(object: {
+  objectApiName?: string;
+  planned: number;
+  platformCopies?: number;
+}): string {
   const copies = object.platformCopies ?? 0;
   if (copies <= 0) return '';
+  const wrote = object.planned - copies;
+  if (object.objectApiName === DUPLICATE_SET_OBJECT) {
+    return (
+      ` (${wrote > 0 ? `${wrote} the run wrote, and ` : ''}${copies} the target's duplicate ` +
+      "rules made of the run's records)"
+    );
+  }
   return (
-    ` (${object.planned - copies} the run wrote, and ${copies} the platform copied between the ` +
+    ` (${wrote} the run wrote, and ${copies} the platform copied between the ` +
     'quote the run synced and its opportunity)'
   );
 }
@@ -4812,19 +4837,32 @@ export function platformCopiesWords(object: { planned: number; platformCopies?: 
  * ones the removal deleted, as a removal including changes asks. Taken unsaid,
  * a contact made by hand under an account of a Frozen load went with the
  * account, and the removal said "Contact: 4 deleted of 4", the load's four.
- * Empty when it took none. Exported so it can be tested.
+ * So is what came with the run's records that it did not write, made by the
+ * platform or the target's automation as it wrote: the contact a trigger
+ * made with an account of a load, unsaid, went with the account the same
+ * way. Empty when it took none. Exported so it can be tested.
  *
  * @param of - What the removal takes back, as the command calls it.
  */
 export function tookAlongLines(
-  object: Pick<ForgeUndoObjectResult, 'tookAlong'>,
+  object: Pick<ForgeUndoObjectResult, 'tookAlong' | 'cameAlong'>,
   of: 'run' | 'load' = 'run',
 ): string[] {
   const taken = object.tookAlong;
-  if (!taken || taken.count <= 0) return [];
+  const came = object.cameAlong;
   return [
-    `      took along ${taken.count} record(s) that were not the ${of}'s, added or changed ` +
-      `since it: ${taken.objects.join(', ')}`,
+    ...(taken && taken.count > 0
+      ? [
+          `      took along ${taken.count} record(s) that were not the ${of}'s, added or changed ` +
+            `since it: ${taken.objects.join(', ')}`,
+        ]
+      : []),
+    ...(came && came.count > 0
+      ? [
+          `      took along ${came.count} record(s) the ${of} did not write that came with its ` +
+            `records, made as it wrote: ${came.objects.join(', ')}`,
+        ]
+      : []),
   ];
 }
 
@@ -5448,24 +5486,35 @@ function sweepLeftLines(left: readonly ForgeSweepLeftClass[]): string[] {
 
 /**
  * What a sweep did: how it ended, per object what became of the records it
- * found — deleted, already gone, and of those, what went with the run's
- * records it left to go along with them, kept as changed since the run,
- * refused with the org's words — what it found and left, by class, what it
- * could not look at, and why it was refused when it was. Exported so it can
- * be tested.
+ * found — deleted, and of those, what waited for the run's records; already
+ * gone, and of those, what went with the run's records it left to go along
+ * with them; kept as changed since the run, or for records that stay under
+ * them; refused with the org's words — what it found and left, by class, what
+ * it could not look at, and why it was refused when it was. Exported so it
+ * can be tested.
  */
 export function sweepLines(result: ForgeSweepResult): string[] {
   return [
     `sweep: ${result.status.toUpperCase()}`,
     ...result.objects.flatMap((object) => {
       const after = object.afterRemoval ?? 0;
+      // Of those, what hung from a record of the run the org did not take
+      // along: no record of the run pointed at them.
+      const under = Math.min(object.afterRemovalUnder ?? 0, after);
       const along = object.withRemoval ?? 0;
+      const afterWords = [
+        after - under > 0
+          ? `${after - under} once the records of the run that point at them were gone`
+          : '',
+        under > 0
+          ? `${under} once the removal was through: the org had not taken them along with the ` +
+            'records of the run they hung from'
+          : '',
+      ].filter(Boolean);
       const counts = [
         object.deleted > 0
           ? `${object.deleted} deleted` +
-            (after > 0
-              ? ` (${after} once the records of the run that point at them were gone)`
-              : '')
+            (afterWords.length > 0 ? ` (${afterWords.join('; ')})` : '')
           : '',
         object.alreadyGone > 0
           ? `${object.alreadyGone} already gone` +
@@ -5475,6 +5524,10 @@ export function sweepLines(result: ForgeSweepResult): string[] {
               : '')
           : '',
         object.keptChanged > 0 ? `${object.keptChanged} kept, changed since the run` : '',
+        (object.keptDependents ?? 0) > 0
+          ? `${object.keptDependents} kept for records that stay` +
+            ((object.heldBy ?? []).length > 0 ? ` (${(object.heldBy ?? []).join(', ')})` : '')
+          : '',
         object.refused > 0 ? `${object.refused} refused` : '',
       ]
         .filter(Boolean)
@@ -7752,9 +7805,10 @@ async function previewRemoval(
  * second pass filled in or a status given back, as that record was last
  * modified, no later than the journal's last line allows. Built from the
  * journal, a summary said no window, and `--remove <journal> --sweep` was
- * refused for want of one. A summary that says its window, or whose journal
- * names no record the target still holds, is left as it is. Exported so it
- * can be tested.
+ * refused for want of one. Read from the recycle bin when the org holds none
+ * of them live. A summary that says its window, or whose journal names no
+ * record the target holds, live or in its recycle bin, is left as it is.
+ * Exported so it can be tested.
  */
 export async function datedFromItsJournal(
   conn: Pick<Connection, 'query'>,
@@ -7763,7 +7817,16 @@ export async function datedFromItsJournal(
 ): Promise<RunSummary> {
   if (summary.result.writtenBetween || summary.journal === undefined) return summary;
   if (!existsSync(summary.journal)) return summary;
-  const writtenBetween = await journals.writtenBetweenAt(summary.journal, conn);
+  // A run whose records a removal took is dated from the recycle bin, which
+  // still holds them, as a sweep after its removal is made: dated from the
+  // org alone, `--sweep-list` of the journal once the run was removed was
+  // refused, "The target did not date this run's writes" (exit 3).
+  const inTheBin: Pick<Connection, 'query'> = {
+    query: ((soql: string) => conn.query(soql, { scanAll: true })) as Connection['query'],
+  };
+  const writtenBetween =
+    (await journals.writtenBetweenAt(summary.journal, conn)) ??
+    (await journals.writtenBetweenAt(summary.journal, inTheBin));
   if (!writtenBetween) return summary;
   return { ...summary, result: { ...summary.result, writtenBetween } };
 }
