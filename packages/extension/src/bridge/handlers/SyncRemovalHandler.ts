@@ -501,9 +501,7 @@ export class SyncRemovalHandler implements DomainHandler {
             this.deps.orgManager,
           );
           const org = removalOrg(conn, context);
-          return answerJobsInFlight(store, run, jsforceBulk(conn), () =>
-            org.serverTime(),
-          );
+          return answerJobsInFlight(store, run, jsforceBulk(conn), () => org.serverTime());
         },
       );
       for (const line of jobAnsweredLines(context, answered)) this.deps.log(line);

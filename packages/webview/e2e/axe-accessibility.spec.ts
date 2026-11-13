@@ -7018,7 +7018,9 @@ for (const theme of SCANNED_THEMES) {
       }) => {
         // "Mit Demodaten füllen: <alias>" truncated to one line, and
         // "Eingefrorenes Dataset", 134 pixels, read "Eingefrorenes Dat…".
-        const alias = 'test-abcdefghijklmnop@example.com';
+        // A long alias of its own: one shaped like a username is never
+        // shown, the org being named by its name or Id instead.
+        const alias = 'test-abcdefghijklmnop-scratch-org';
         await openPanel(bridge, page, 'sidepanel', theme);
         await bridge.respondToNext(
           'i18n:locale',
