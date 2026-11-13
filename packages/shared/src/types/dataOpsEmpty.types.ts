@@ -132,9 +132,9 @@ export interface DataOpsEmptyBlocker {
 /**
  * Records no undo would bring back: those that leave before a record they
  * name, once it has gone too (`restricted`, or `unordered` where a constraint
- * gave way); a product's standard prices, which go with it and do not come
- * back with it (`standardPrices`); and what the pass of an object whose
- * records no undelete brings back on their own sends (`notRestorable`).
+ * gave way) — a custom price gone with its book before its product among
+ * them; and what the pass of an object whose records no undelete brings back
+ * on their own sends (`notRestorable`).
  */
 export interface DataOpsEmptyUndoLost {
   objectApiName: string;
@@ -142,7 +142,7 @@ export interface DataOpsEmptyUndoLost {
   field?: string;
   /** The object of that record; absent for `notRestorable`. */
   parent?: string;
-  reason: 'restricted' | 'unordered' | 'standardPrices' | 'notRestorable';
+  reason: 'restricted' | 'unordered' | 'notRestorable';
   records: DataOpsEmptyCounted;
 }
 

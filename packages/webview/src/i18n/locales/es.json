@@ -7893,7 +7893,7 @@
         "activatedOrder": "{{records}} {{object}} más allá de Borrador: devueltos primero a Borrador, ya que un pedido activado rechaza su eliminación y la de su cuenta",
         "standardPriceBook": "{{records}} {{object}} en la lista de precios estándar: nunca se eliminan",
         "directContactRelation": "{{records}} {{object}} directos: eliminados con su contacto, nunca por sí solos",
-        "personAccountContact": "{{records}} {{object}} de cuentas personales: eliminados con su cuenta, nunca por sí solos"
+        "personAccountContact": "{{records}} {{object}} de cuentas personales: se quedan, ya que cada uno solo se va con su cuenta"
       },
       "blockersTitle": "Lo que bloquea el vaciado",
       "blocker": "{{records}} {{object}}, no vaciados, nombran estos registros por {{field}} → {{parent}}, que rechaza la eliminación: elija también {{object}}, o deje fuera {{parent}}.",
@@ -7902,7 +7902,6 @@
       "beforeParentPrices": "{{object}}: los precios personalizados antes de los estándar ({{field}})",
       "undoLostTitle": "Lo que Deshacer no recuperaría",
       "undoLost": "{{records}} {{object}}: idos antes de {{parent}}, Deshacer no puede recuperarlos una vez idos ambos",
-      "undoLostStandardPrices": "{{records}} {{object}}: precios estándar que se van con {{parent}}, que Salesforce no recuperó con él",
       "undoLostNotRestorable": "{{records}} {{object}}: enviados solos, que Salesforce no recupera de la papelera",
       "acceptNoUndo": "Vaciar de todos modos: estos registros siguen perdidos después de Deshacer",
       "cost": {

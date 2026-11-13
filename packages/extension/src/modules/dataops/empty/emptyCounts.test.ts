@@ -125,7 +125,7 @@ describe('countEmpty, the whole org', () => {
     });
   });
 
-  it('counts what no undo would bring back: cases before their accounts and contacts, what names a custom price book or a product before it goes, the standard prices that go with their products', async () => {
+  it('counts what no undo would bring back: cases before their accounts and contacts, what names a custom price book or a product before it goes, the custom prices that go with their book before their product', async () => {
     const counts = await counted(salesOrg(), WORKED);
 
     expect(
@@ -146,9 +146,10 @@ describe('countEmpty, the whole org', () => {
       ['OrderItem.Product2Id → Product2 (restricted)', 1],
       ['QuoteLineItem.Product2Id → Product2 (restricted)', 1],
       ['Asset.Product2Id → Product2 (restricted)', 1],
-      // The custom price goes with its book and came back with it; the two
-      // standard ones went with their products and did not.
-      ['PricebookEntry.Product2Id → Product2 (standardPrices)', 2],
+      // The custom price goes with its book, before its product, and did not
+      // come back with its book; the two standard ones went with their
+      // products and came back with them.
+      ['PricebookEntry.Product2Id → Product2 (restricted)', 1],
     ]);
   });
 
@@ -340,6 +341,17 @@ describe('countEmpty, a person account’s contact', () => {
       parent: 'Contact',
       records: { records: 3 },
     });
+  });
+
+  it('names the tasks and events a contact’s or an account’s delete takes along, read by the type of what their lookup names', async () => {
+    const contacts = await counted(salesOrg(), ['Contact']);
+    const accounts = await counted(salesOrg(), ['Account']);
+    const along = (counts: EmptyCounts, name: string): number | undefined =>
+      n(counts.along.find((object) => object.objectApiName === name)?.records);
+
+    expect(along(contacts, 'Task')).toBe(1);
+    expect(along(accounts, 'Task')).toBeGreaterThan(0);
+    expect(along(accounts, 'Event')).toBe(1);
   });
 
   it('reads every contact in an org with no person accounts', async () => {
@@ -602,18 +614,22 @@ describe('countEmpty, prices', () => {
     });
   });
 
-  it('says the standard prices of the products emptied beyond Undo, not the custom ones that come back with their book', async () => {
+  it('says beyond Undo the custom prices that go with their book before their product, not the standard ones, which came back with their product (seen live twice), nor those of a book emptied alone', async () => {
     const counts = await countedIn(priceOrg(), ['Pricebook2', 'Product2'], PRICES);
+    const bookAlone = await countedIn(priceOrg(), ['Pricebook2'], PRICES);
 
+    expect(counts.objects.map((pass) => pass.objectApiName)).toEqual(['Pricebook2', 'Product2']);
     expect(counts.undoLost).toEqual([
       {
         objectApiName: 'PricebookEntry',
         field: 'Product2Id',
         parent: 'Product2',
-        reason: 'standardPrices',
+        reason: 'restricted',
         records: { records: 2 },
       },
     ]);
+    // Seen live: with the products staying, the custom prices came back with their book.
+    expect(bookAlone.undoLost).toEqual([]);
   });
 
   it('says beyond Undo what the pass of the prices sends itself, those no book held among them', async () => {

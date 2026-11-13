@@ -7893,7 +7893,7 @@
         "activatedOrder": "{{records}} {{object}} au-delà de Brouillon : remis en Brouillon d'abord, car une commande activée refuse sa suppression et celle de son compte",
         "standardPriceBook": "{{records}} {{object}} dans le catalogue standard : jamais supprimés",
         "directContactRelation": "{{records}} {{object}} directs : supprimés avec leur contact, jamais seuls",
-        "personAccountContact": "{{records}} {{object}} de comptes personnels : supprimés avec leur compte, jamais seuls"
+        "personAccountContact": "{{records}} {{object}} de comptes personnels : laissés, car chacun ne part qu'avec son compte"
       },
       "blockersTitle": "Ce qui bloque le vidage",
       "blocker": "{{records}} {{object}}, non vidés, désignent ces enregistrements par {{field}} → {{parent}}, qui refuse la suppression : choisissez aussi {{object}}, ou laissez {{parent}} de côté.",
@@ -7902,7 +7902,6 @@
       "beforeParentPrices": "{{object}} : les prix personnalisés avant les prix standard ({{field}})",
       "undoLostTitle": "Ce qu'Annuler ne rendrait pas",
       "undoLost": "{{records}} {{object}} : partis avant {{parent}}, Annuler ne peut plus les rendre une fois les deux partis",
-      "undoLostStandardPrices": "{{records}} {{object}} : prix standard qui partent avec {{parent}}, que Salesforce n'a pas restaurés avec lui",
       "undoLostNotRestorable": "{{records}} {{object}} : envoyés seuls, que Salesforce ne restaure pas depuis la corbeille",
       "acceptNoUndo": "Vider quand même : ces enregistrements restent perdus après Annuler",
       "cost": {

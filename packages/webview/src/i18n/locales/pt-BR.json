@@ -7893,7 +7893,7 @@
         "activatedOrder": "{{records}} {{object}} além de Rascunho: voltados para Rascunho primeiro, pois um pedido ativado recusa sua exclusão e a da sua conta",
         "standardPriceBook": "{{records}} {{object}} no catálogo de preços padrão: nunca excluídos",
         "directContactRelation": "{{records}} {{object}} diretos: excluídos com o seu contato, nunca sozinhos",
-        "personAccountContact": "{{records}} {{object}} de contas pessoais: excluídos com a sua conta, nunca sozinhos"
+        "personAccountContact": "{{records}} {{object}} de contas pessoais: ficam, pois cada um só sai com a sua conta"
       },
       "blockersTitle": "O que bloqueia o esvaziamento",
       "blocker": "{{records}} {{object}}, não esvaziados, apontam para estes registros por {{field}} → {{parent}}, que recusa a exclusão: escolha também {{object}}, ou deixe {{parent}} de fora.",
@@ -7902,7 +7902,6 @@
       "beforeParentPrices": "{{object}}: os preços personalizados antes dos padrão ({{field}})",
       "undoLostTitle": "O que o Desfazer não traria de volta",
       "undoLost": "{{records}} {{object}}: saíram antes de {{parent}}, o Desfazer não pode trazê-los de volta depois que os dois saíram",
-      "undoLostStandardPrices": "{{records}} {{object}}: preços padrão que vão com {{parent}}, que o Salesforce não trouxe de volta com ele",
       "undoLostNotRestorable": "{{records}} {{object}}: enviados sozinhos, que o Salesforce não traz de volta da lixeira",
       "acceptNoUndo": "Esvaziar mesmo assim: estes registros continuam perdidos depois do Desfazer",
       "cost": {

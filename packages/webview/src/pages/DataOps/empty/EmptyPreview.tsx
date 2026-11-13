@@ -70,7 +70,6 @@ export const LEFT_OUT_KEYS: Readonly<Record<DataOpsEmptyLeftOut['reason'], strin
 const UNDO_LOST_KEYS: Readonly<Record<DataOpsEmptyUndoLost['reason'], string>> = {
   restricted: 'dataopsEmpty.preview.undoLost',
   unordered: 'dataopsEmpty.preview.undoLost',
-  standardPrices: 'dataopsEmpty.preview.undoLostStandardPrices',
   notRestorable: 'dataopsEmpty.preview.undoLostNotRestorable',
 };
 

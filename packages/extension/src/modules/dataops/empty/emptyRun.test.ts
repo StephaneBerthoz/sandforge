@@ -84,6 +84,37 @@ describe('emptyPasses', () => {
     ]);
   });
 
+  it('counts its progress against what each pass read, never past it, where the preview said a pass sent fewer', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const journal = await journalOf(
+      org,
+      [
+        { objectApiName: 'Case', records: 1 },
+        { objectApiName: 'Account', records: 2 },
+        // Said to send nothing of its own: it reads the contact under no account.
+        { objectApiName: 'Contact', records: 3, sent: 0 },
+      ],
+      'recycle',
+      [{ objectApiName: 'Order', condition: 'AccountId != null' }],
+    );
+    const steps: string[] = [];
+
+    await emptyPasses({
+      org: { deletion: org, ids: org },
+      journal,
+      resumed: false,
+      onProgress: ({ step }) => steps.push(step),
+    });
+
+    const counts = steps.map((step) => {
+      const read = /: ([\d,]+) of about ([\d,]+) settled$/.exec(step);
+      if (!read) throw new Error(`Not a step: ${step}`);
+      return [read[1], read[2]].map((n) => Number(n.replace(/,/g, '')));
+    });
+    for (const [done, of] of counts) expect(done).toBeLessThanOrEqual(of);
+    expect(steps.at(-1)).toBe('Contact: 4 of about 4 settled');
+  });
+
   it('leaves an account its activated order refuses, when the orders going along are not set back to Draft', async () => {
     const org = new MemoryEmptyOrg(emptySalesSpecs());
     const journal = await journalOf(org, [

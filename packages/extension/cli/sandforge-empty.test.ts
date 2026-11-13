@@ -12,7 +12,15 @@ import type {
 import { fileConfigStore } from './fileConfigStore.js';
 import { createPanelHost, orgFromIdentity } from './panelHost.js';
 import type { PanelHost, PanelHostOptions, PanelHostWiring, PanelRequest } from './panelHost.js';
-import { emptyExitCode, main, parseArgs, refusalWords, runIdOf } from './sandforge-empty.js';
+import {
+  emptyExitCode,
+  main,
+  parseArgs,
+  previewLines,
+  refusalWords,
+  runIdOf,
+  type EmptyPreviewAnswer,
+} from './sandforge-empty.js';
 import type { DataOpsEmptyHandler } from '../src/bridge/handlers/DataOpsEmptyHandler.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { AuditTrailStore } from '../src/modules/audit/auditTrail.js';
@@ -481,6 +489,37 @@ describe('sandforge-empty: production', () => {
     expect(code).toBe(1);
     expect(JSON.parse(stdout)).toMatchObject({ refused: { code: 'PRODUCTION' } });
     expect(h.org.sent).toEqual([]);
+  });
+});
+
+describe('sandforge-empty: a person account’s contacts', () => {
+  it('says they stay when the accounts are not emptied, each going only with its account, never that they go with it', async () => {
+    const h = harness();
+    const { stdout } = await h.run(
+      '--target',
+      'DEV',
+      '--objects',
+      'Contact',
+      '--dry-run',
+      '--json',
+    );
+    const answer = JSON.parse(stdout) as EmptyPreviewAnswer;
+
+    const lines = previewLines('DEV', {
+      ...answer,
+      refusals: [],
+      preview: {
+        ...answer.preview,
+        refusals: [
+          { code: 'personAccountContact', objectApiName: 'Contact', records: { records: 5 } },
+        ],
+      },
+    });
+
+    expect(lines).toContain(
+      '  Contact: 5 — person account contact(s): left, as each goes only with its account',
+    );
+    expect(lines.join('\n')).not.toContain('they go with their account');
   });
 });
 

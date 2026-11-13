@@ -23,12 +23,16 @@
  *   before the record it names cannot come back once that record has gone
  *   too, alone (a case before its account) or with its own parent (an
  *   opportunity with its account, before its price book: seen live, it did
- *   not come back with its account). A refusing lookup between records one
- *   delete takes together — an order and the contact it bills, both under
- *   one account — orders nothing: putting the order first would send every
- *   order alone, beyond any undo, for the few that bill another account's
- *   contact, which the org refuses and the run's rounds of tries take once
- *   that account has gone.
+ *   not come back with its account; a custom price with its book, before its
+ *   product: seen live twice, it did not come back with its book, where the
+ *   product's standard prices came back with it). Whether a product sent
+ *   first would take its custom prices along, and bring them back, is not
+ *   known: the order the org was seen to take stays. A refusing lookup
+ *   between records one delete takes together — an order and the contact it
+ *   bills, both under one account — orders nothing: putting the order first
+ *   would send every order alone, beyond any undo, for the few that bill
+ *   another account's contact, which the org refuses and the run's rounds of
+ *   tries take once that account has gone.
  * - **Any other lookup** orders its records before the record it names, as a
  *   removal deletes them: the org would otherwise empty the lookup of every
  *   record it keeps for a moment before deleting it.

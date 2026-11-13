@@ -7893,7 +7893,7 @@
         "activatedOrder": "{{records}} {{object}} über Entwurf hinaus: zuerst auf Entwurf zurückgesetzt, da ein aktivierter Auftrag sein Löschen und das seines Accounts verweigert",
         "standardPriceBook": "{{records}} {{object}} im Standardpreisbuch: nie gelöscht",
         "directContactRelation": "{{records}} direkte {{object}}: mit ihrem Kontakt gelöscht, nie allein",
-        "personAccountContact": "{{records}} {{object}} von Personenaccounts: mit ihrem Account gelöscht, nie allein"
+        "personAccountContact": "{{records}} {{object}} von Personenaccounts: bleiben, da jeder nur mit seinem Account gelöscht wird"
       },
       "blockersTitle": "Was das Leeren blockiert",
       "blocker": "{{records}} {{object}}, nicht geleert, verweisen über {{field}} → {{parent}} auf diese Datensätze, was das Löschen verweigert: Wählen Sie auch {{object}}, oder lassen Sie {{parent}} aus.",
@@ -7902,7 +7902,6 @@
       "beforeParentPrices": "{{object}}: benutzerdefinierte Preise vor den Standardpreisen ({{field}})",
       "undoLostTitle": "Was Rückgängig nicht zurückholen würde",
       "undoLost": "{{records}} {{object}}: vor {{parent}} gegangen, Rückgängig kann sie nicht zurückholen, sobald beide weg sind",
-      "undoLostStandardPrices": "{{records}} {{object}}: Standardpreise, die mit {{parent}} gehen und die Salesforce nicht mit ihm zurückgeholt hat",
       "undoLostNotRestorable": "{{records}} {{object}}: einzeln gesendet, Salesforce holt sie nicht aus dem Papierkorb zurück",
       "acceptNoUndo": "Trotzdem leeren: Diese Datensätze bleiben nach Rückgängig weg",
       "cost": {

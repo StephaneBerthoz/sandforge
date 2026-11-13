@@ -170,9 +170,6 @@ export interface EmptyBlocker {
  *   requires, and once it has gone too, no undelete brings them back (F41);
  * - `unordered`: so too, where objects point at each other and a constraint
  *   gave way;
- * - `standardPrices`: the standard prices of a product emptied, which go
- *   with it and did not come back with it (seen live: "no longer in the
- *   recycle bin"), where the prices of a custom book came back with theirs;
  * - `notRestorable`: those the pass of an object whose records no undelete
  *   brings back on their own sends (`undeletable: false`), the 34 prices no
  *   book held among them.
@@ -183,7 +180,7 @@ export interface EmptyUndoLost {
   field?: string;
   /** The object of that record; absent for `notRestorable`. */
   parent?: string;
-  reason: 'restricted' | 'unordered' | 'standardPrices' | 'notRestorable';
+  reason: 'restricted' | 'unordered' | 'notRestorable';
   records: Counted;
 }
 
@@ -304,23 +301,8 @@ function unreadable(objectApiName: string): Counted {
   return { unread: `${objectApiName}: the lookup its records go by is hidden from the user` };
 }
 
-/** The price, which goes with its product and with its price book. */
-const PRICE = 'PricebookEntry';
-/** The product whose standard prices go with it. */
-const PRODUCT = 'Product2';
-
-/**
- * The condition that a price is in the standard price book, read through the
- * price's lookup to its book: nothing when the price's describe does not
- * list it.
- */
-function standardPriceCondition(describes: ReadonlyMap<string, EmptyDescribe>): string | undefined {
-  const book = describes
-    .get(PRICE)
-    ?.fields.find((field) => field.name.toLowerCase() === 'pricebook2id')?.relationshipName;
-  const kept = keptRowsOf('Pricebook2');
-  return book && kept ? `${book}.${kept}` : undefined;
-}
+/** The price book whose custom prices go with it, before their product. */
+const PRICE_BOOK = 'Pricebook2';
 
 /**
  * `lost` with one entry per pair — the same records said lost twice, under
@@ -467,11 +449,28 @@ export async function countEmpty(
     });
   }
 
+  const placeOf = (name: string): number =>
+    order.passes.findIndex((pass) => pass.objectApiName === name);
   for (const pair of options.undo ? order.beforeParent : []) {
-    // A custom price goes with its book, before its product, and came back
-    // with it: the 36 counted lost of the product came back but for the
-    // product's standard prices, counted below.
-    if (pair.reason === 'customPrices') continue;
+    if (pair.reason === 'customPrices') {
+      // A custom price goes with its book, whose pass comes before its
+      // product's, and its lookup restricts the product's delete: seen live
+      // twice, it did not come back with its book once its product had gone
+      // after it, where the product's standard prices came back with it,
+      // their ids the same. Nothing is lost where the product goes first.
+      if (!mayGo(PRICE_BOOK) || !mayGo(pair.parent)) continue;
+      if (placeOf(PRICE_BOOK) > placeOf(pair.parent)) continue;
+      const withBook = namesDeleted(pair.objectApiName, 'Pricebook2Id', PRICE_BOOK);
+      const names = namesDeleted(pair.objectApiName, pair.field, pair.parent);
+      asked.undoLost.push({
+        objectApiName: pair.objectApiName,
+        field: pair.field,
+        parent: pair.parent,
+        reason: 'restricted',
+        ...(withBook && names ? { key: second.ask(pair.objectApiName, [withBook, names]) } : {}),
+      });
+      continue;
+    }
     if (!mayGo(pair.objectApiName) || !mayGo(pair.parent)) continue;
     const names = namesDeleted(pair.objectApiName, pair.field, pair.parent);
     const conditions: Condition[] = [];
@@ -485,24 +484,6 @@ export async function countEmpty(
       parent: pair.parent,
       reason: 'restricted',
       ...(names ? { key: second.ask(pair.objectApiName, [...conditions, names]) } : {}),
-    });
-  }
-
-  // The standard prices of the products emptied go with them, and did not
-  // come back with them: in the undo of an emptying of the whole org, the
-  // products came back and their two standard prices stayed "no longer in
-  // the recycle bin".
-  const deleted = (name: string): boolean =>
-    affected.emptied.has(name) || affected.routes.has(name);
-  if (options.undo && deleted(PRICE) && deleted(PRODUCT) && mayGo(PRODUCT)) {
-    const withProduct = namesDeleted(PRICE, 'Product2Id', PRODUCT);
-    const standard = standardPriceCondition(describes);
-    asked.undoLost.push({
-      objectApiName: PRICE,
-      field: 'Product2Id',
-      parent: PRODUCT,
-      reason: 'standardPrices',
-      ...(withProduct && standard ? { key: second.ask(PRICE, [standard, withProduct]) } : {}),
     });
   }
 

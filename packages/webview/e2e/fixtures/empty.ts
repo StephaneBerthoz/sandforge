@@ -256,7 +256,7 @@ export function orgPreview(
           objectApiName: 'PricebookEntry',
           field: 'Product2Id',
           parent: 'Product2',
-          reason: 'standardPrices',
+          reason: 'restricted',
           records: { records: 40 },
         },
       ],
@@ -286,8 +286,10 @@ export function orgPreview(
       {
         code: 'NO_UNDO',
         message:
-          '40 record(s) would stay gone after Undo (standard prices with Product2). Accept it ' +
-          'to empty all the same, or leave those objects out. Nothing was deleted.',
+          '40 record(s) would stay gone after Undo (PricebookEntry before Product2): some go ' +
+          'before a record they name, as Salesforce requires, and once both have gone, Undo ' +
+          'cannot bring them back. Accept it to empty all the same, or leave those objects out. ' +
+          'Nothing was deleted.',
       },
     ],
     ...overrides,

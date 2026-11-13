@@ -437,7 +437,7 @@ const LIKELY_WORDS: Readonly<Record<DataOpsEmptyLikelyRefusalCode, string>> = {
     'activated order(s): set back to Draft first, as Salesforce deletes none activated',
   standardPriceBook: 'the standard price book: kept, never deleted',
   directContactRelation: 'direct relation(s) of a contact to its account: they go with the contact',
-  personAccountContact: 'person account contact(s): they go with their account',
+  personAccountContact: 'person account contact(s): left, as each goes only with its account',
 };
 
 /** What a dry run answers, as the page reads it. */
@@ -491,11 +491,6 @@ export function refusalWords(refusal: DataOpsEmptyRefusal): DataOpsEmptyRefusal 
 /** What no undo brings back of one object, and why, as a line says it. */
 function undoLostLine(lost: EmptyPreviewAnswer['preview']['undoLost'][number]): string {
   switch (lost.reason) {
-    case 'standardPrices':
-      return (
-        `${lost.objectApiName} standard prices, going with ${lost.parent ?? 'their product'}: ` +
-        'Salesforce did not bring them back with it'
-      );
     case 'notRestorable':
       return `${lost.objectApiName} sent by its own pass: Salesforce does not bring them back`;
     default:

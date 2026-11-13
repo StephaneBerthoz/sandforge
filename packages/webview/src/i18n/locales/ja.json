@@ -7354,7 +7354,7 @@
         "activatedOrder": "ドラフト以外の {{object}} {{records}} 件: 有効化された注文は自身と取引先の削除を拒否するため、先にドラフトに戻します",
         "standardPriceBook": "標準価格表の {{object}} {{records}} 件: 決して削除しません",
         "directContactRelation": "直接の {{object}} {{records}} 件: 単独ではなく取引先責任者と一緒に削除します",
-        "personAccountContact": "個人取引先の {{object}} {{records}} 件: 単独ではなく取引先と一緒に削除します"
+        "personAccountContact": "個人取引先の {{object}} {{records}} 件: 取引先と一緒にしか削除されないため、残ります"
       },
       "blockersTitle": "空にする操作を妨げるもの",
       "blocker": "空にしない {{object}} {{records}} 件が {{field}} → {{parent}} でこれらのレコードを参照しており、この項目が削除を拒否します。{{object}} も選ぶか、{{parent}} を除外してください。",
@@ -7363,7 +7363,6 @@
       "beforeParentPrices": "{{object}}: 標準価格より先にカスタム価格 ({{field}})",
       "undoLostTitle": "元に戻す操作で戻らないもの",
       "undoLost": "{{object}} {{records}} 件: {{parent}} より先に削除され、両方が削除されると元に戻せません",
-      "undoLostStandardPrices": "{{object}} {{records}} 件: {{parent}} と一緒に削除される標準価格で、Salesforce は一緒に復元しませんでした",
       "undoLostNotRestorable": "{{object}} {{records}} 件: 単独で送信され、Salesforce はごみ箱から復元しません",
       "acceptNoUndo": "それでも空にする: これらのレコードは元に戻した後も消えたままです",
       "cost": {

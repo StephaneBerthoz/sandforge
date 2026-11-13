@@ -102,12 +102,12 @@ export function deletedRowsOf(objectApiName: string): string | undefined {
 
 /**
  * The parents a lookup was seen to name though the org holds no such record:
- * a price's book — of the 38 prices of a scratch org, 34 named a book it
- * could not read — and, read the same way, the product those prices name. A
- * lookup to one of these is read with its parent there (`Product2.Id !=
- * null`), never filled alone: filled alone, it counted the 34 as going with
- * the book an emptying deleted, and would count a price whose product is
- * gone as going with the products emptied.
+ * a price's book and its product — of the 38 prices of a scratch org, 34
+ * named neither a book nor a product it could read (`Pricebook2.Id = null`,
+ * `Product2.Id = null`: 34 each). A lookup to one of these is read with its
+ * parent there (`Product2.Id != null`), never filled alone: filled alone, it
+ * counted the 34 as going with the book an emptying deleted, and 38 prices as
+ * going with the products emptied, where 4 did.
  */
 const READ_PRESENT: ReadonlySet<string> = new Set(['pricebook2', 'product2']);
 

@@ -207,10 +207,16 @@ export async function emptyPasses(deps: EmptyRunDeps): Promise<EmptyRunOutcome> 
 
   // What earlier attempts settled, by key: a resume does not send it again.
   const settled = new RecordKeySet();
+  /** Of each object, the records earlier attempts settled. */
+  const settledBefore = new Map<string, number>();
   if (deps.resumed) {
     for await (const line of journal.lines()) {
       if (line.kind !== 'settled') continue;
       for (const id of [...line.deleted, ...line.gone]) settled.add(id);
+      settledBefore.set(
+        line.objectApiName,
+        (settledBefore.get(line.objectApiName) ?? 0) + line.deleted.length + line.gone.length,
+      );
     }
   }
 
@@ -229,6 +235,26 @@ export async function emptyPasses(deps: EmptyRunDeps): Promise<EmptyRunOutcome> 
   const rowsOf = (objectApiName: string): string | undefined =>
     confirmed.get(objectApiName)?.rows ?? deletedRowsOf(objectApiName);
   const reads = new Map<string, Promise<ReadPass | undefined>>();
+  /** Of each pass read, the records it read: what its progress is counted against. */
+  const readCounts = new Map<string, number>();
+  /**
+   * The records this attempt settles, about: those each pass read, less what
+   * earlier attempts settled, or what the preview said a pass not read yet
+   * sends. Counted against the preview's figures alone, a run said "10,214
+   * of about 10,212 settled", the orders an account took along counted on
+   * top.
+   */
+  const toSettle = (): number =>
+    head.passes.reduce(
+      (sum, pass) =>
+        sum +
+        Math.max(
+          0,
+          (readCounts.get(pass.objectApiName) ?? pass.sent ?? pass.records ?? 0) -
+            (settledBefore.get(pass.objectApiName) ?? 0),
+        ),
+      0,
+    );
 
   /** Read the ids of `table` into `dir`, without `since` when the object has no `CreatedDate`. */
   const spool = async (
@@ -267,6 +293,7 @@ export async function emptyPasses(deps: EmptyRunDeps): Promise<EmptyRunOutcome> 
       const dir = journal.idsDirOf(place, objectApiName);
       const before = state.spooled.get(objectApiName);
       if (deps.resumed && before) {
+        readCounts.set(objectApiName, before.count);
         return {
           spool: await IdSpool.open(dir, EMPTYING),
           count: before.count,
@@ -292,6 +319,7 @@ export async function emptyPasses(deps: EmptyRunDeps): Promise<EmptyRunOutcome> 
         return undefined;
       }
       await journal.spooled({ objectApiName, place, count, sinceRead: read.sinceRead });
+      readCounts.set(objectApiName, count);
       return { spool: read.spool, count, sinceRead: read.sinceRead };
     })();
     reads.set(objectApiName, reading);
@@ -371,7 +399,8 @@ export async function emptyPasses(deps: EmptyRunDeps): Promise<EmptyRunOutcome> 
     ...(deps.splitting ? { splitting: deps.splitting } : {}),
     ...(deps.wait ? { wait: deps.wait } : {}),
     onSettled: journalOf,
-    onProgress: (done, of, objectApiName) => {
+    onProgress: (done, _planned, objectApiName) => {
+      const of = Math.max(done, toSettle());
       deps.onProgress?.({
         percentage: of > 0 ? Math.min(99, Math.round((done / of) * 100)) : 99,
         step: `${objectApiName}: ${done.toLocaleString('en-US')} of about ${of.toLocaleString('en-US')} settled`,

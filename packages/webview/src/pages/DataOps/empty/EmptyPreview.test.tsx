@@ -85,7 +85,7 @@ describe('EmptyPreview', () => {
     expect(onBoxChange).toHaveBeenCalledWith('acceptNoUndo', true);
   });
 
-  it('says each loss to Undo by why: before a record named, standard prices with their product, an object Salesforce does not bring back', () => {
+  it('says each loss to Undo by why: before a record named, custom prices before their product, an object Salesforce does not bring back', () => {
     const answer = previewAnswer();
     renderPreview({
       answer: {
@@ -104,7 +104,7 @@ describe('EmptyPreview', () => {
               objectApiName: 'PricebookEntry',
               field: 'Product2Id',
               parent: 'Product2',
-              reason: 'standardPrices',
+              reason: 'restricted',
               records: { records: 2 },
             },
             {
@@ -118,7 +118,7 @@ describe('EmptyPreview', () => {
     });
     const lost = screen.getByTestId('empty-preview-undo-lost');
     expect(lost).toHaveTextContent('1 Entitlement: gone before Account');
-    expect(lost).toHaveTextContent('2 PricebookEntry: standard prices that go with Product2');
+    expect(lost).toHaveTextContent('2 PricebookEntry: gone before Product2');
     expect(lost).toHaveTextContent(
       "34 PricebookEntry: sent on their own, which Salesforce doesn't bring back",
     );

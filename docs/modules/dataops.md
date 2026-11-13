@@ -525,10 +525,10 @@ The dry run comes first, and says:
   on its own;
 - what no undo would bring back: records Salesforce requires to go before a
   record they name, such as an opportunity before the price book its lookup
-  restricts or an entitlement before its account; the standard prices of a
-  product emptied, which did not come back with it; and what an object whose
-  records Salesforce does not bring back sends by its own pass. The run is
-  refused until that is accepted;
+  restricts, an entitlement before its account, or a custom price, which
+  goes with its book before its product when both are emptied; and what an
+  object whose records Salesforce does not bring back sends by its own pass.
+  The run is refused until that is accepted;
 - the API requests and Bulk API batches it takes against what the org has
   left today — the dry run's reads of the org, the run's own read again
   before its first delete, and its deletes — about how long it runs, and how

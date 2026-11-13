@@ -396,8 +396,6 @@ function openRunRefusal(orgName: string, runId: string): DataOpsEmptyRefusal {
 /** What an entry of what no undo brings back is, in a few words. */
 export function undoLostWords(entry: EmptyPreview['undoLost'][number]): string {
   switch (entry.reason) {
-    case 'standardPrices':
-      return `standard prices with ${entry.parent ?? 'their product'}`;
     case 'notRestorable':
       return `${entry.objectApiName}, which Salesforce does not bring back`;
     default:
