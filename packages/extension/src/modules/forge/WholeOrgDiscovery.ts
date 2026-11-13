@@ -162,7 +162,7 @@ function countStatement(
  * asks `stopped()` once its call is back and, when it is, neither keeps the
  * answer nor tells the page of a progress past the failure it was told.
  */
-async function eachInPool<T>(
+export async function eachInPool<T>(
   items: readonly T[],
   work: (item: T, index: number, stopped: () => boolean) => Promise<void>,
 ): Promise<void> {
