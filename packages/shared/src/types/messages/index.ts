@@ -393,6 +393,7 @@ import type {
   ForgeUndoSweepRequest,
   ForgeGapsRequest,
   ForgeUsersRequest,
+  ForgeTargetRecordsRequest,
   ForgePreviewResponse,
   ForgePreviewErrorMessage,
   ForgeDiscoverResponse,
@@ -435,6 +436,8 @@ import type {
   ForgeGapsErrorMessage,
   ForgeUsersResponse,
   ForgeUsersErrorMessage,
+  ForgeTargetRecordsResponse,
+  ForgeTargetRecordsErrorMessage,
 } from './forge.messages.js';
 import type {
   AIChatRequest,
@@ -805,6 +808,7 @@ export type WebViewToExtensionMessage =
   | ForgeUndoSweepRequest
   | ForgeGapsRequest
   | ForgeUsersRequest
+  | ForgeTargetRecordsRequest
   // AI
   | AIChatRequest
   | AIChatCancelRequest
@@ -1110,6 +1114,8 @@ export type ExtensionToWebViewMessage =
   | ForgeGapsErrorMessage
   | ForgeUsersResponse
   | ForgeUsersErrorMessage
+  | ForgeTargetRecordsResponse
+  | ForgeTargetRecordsErrorMessage
   // AI
   | AIChatResponse
   | AIConversationCreatedResponse

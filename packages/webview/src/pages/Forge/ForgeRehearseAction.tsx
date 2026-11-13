@@ -53,6 +53,16 @@ function statusLine(
   return null;
 }
 
+/** Props for {@link ForgeRehearseAction}. */
+export interface ForgeRehearseActionProps {
+  /**
+   * The id of the line that says why the run cannot be rehearsed, when it
+   * cannot: a clone of the whole org, whose rehearsal would hold its rows in
+   * memory. The button is then disabled and described by that line.
+   */
+  unavailableHintId?: string;
+}
+
 /**
  * Review's Rehearse action, beside Simulate: the run as Execute would send it,
  * a sample of its rows created in the target and every write rolled back,
@@ -60,7 +70,7 @@ function statusLine(
  * Code before the first call; the line under the button says where the
  * rehearsal stands, then what it found, and the refusals join the gaps.
  */
-export const ForgeRehearseAction: React.FC = () => {
+export const ForgeRehearseAction: React.FC<ForgeRehearseActionProps> = ({ unavailableHintId }) => {
   const { t } = useTranslation();
   const graph = useForgeStore((s) => s.graph);
   const config = useForgeStore((s) => s.config);
@@ -89,9 +99,13 @@ export const ForgeRehearseAction: React.FC = () => {
           type="button"
           data-testid="rehearse-button"
           onClick={rehearsal.rehearse}
-          disabled={!graph || !config || running}
+          disabled={!graph || !config || running || unavailableHintId !== undefined}
           aria-busy={running}
-          aria-describedby="forge-rehearse-hint forge-rehearse-status"
+          aria-describedby={
+            unavailableHintId
+              ? `forge-rehearse-hint forge-rehearse-status ${unavailableHintId}`
+              : 'forge-rehearse-hint forge-rehearse-status'
+          }
           title={t('forgeRun.rehearsal.hint')}
           className="px-4 py-2 text-sm font-semibold rounded-lg border border-forge text-hue-forge transition-colors hover:bg-forge/10 disabled:opacity-50 disabled:cursor-not-allowed"
         >

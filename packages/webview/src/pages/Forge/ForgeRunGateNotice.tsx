@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useReducedMotion } from 'framer-motion';
 import { ShieldAlert, X } from 'lucide-react';
 import {
@@ -12,6 +13,7 @@ import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { uiLocale } from '../../utils/formatters';
 import { useForgeRunGateStore } from './runGate';
+import { clonesWholeOrg } from './forgeRunConfig';
 
 /**
  * The sentence each stop is said in, unless the run's checkpoint first has
@@ -27,6 +29,8 @@ const STOP_KEYS: Record<ForgeRunGateCode, string> = {
   CHECKPOINT_REFUSED: 'forgeRun.gate.checkpointRefused',
   API_BUDGET_EXCEEDED: 'forgeRun.gate.apiBudgetExceeded',
   READ_BOUND_EXCEEDED: 'forgeRun.gate.readBoundExceeded',
+  FILES_UNREAD: 'forgeRun.gate.filesUnread',
+  FILE_STORAGE_UNREAD: 'forgeRun.gate.fileStorageUnread',
 };
 
 /** A stop the user chose, at one of the run's questions, rather than one the extension made. */
@@ -37,18 +41,58 @@ const CANCELLED: ReadonlySet<ForgeRunGateCode> = new Set([
 ]);
 
 /**
- * The sentence a stop is said in: a checkpoint refused by what refused it,
- * and the day's API requests with the checkpoint among them only when the run
- * was to take one.
+ * The key of the sentence a stop is said in: a checkpoint refused by what
+ * refused it; the day's API requests with the checkpoint among them only
+ * when the run was to take one; and of a clone of the whole org, which
+ * storage, which allowance of which org — its source's requests, its
+ * target's Bulk API batches — refused it, in words that name what it can
+ * leave out rather than a cap it does not have.
  */
-function sentenceOf(stop: ForgeRunGateStop, checkpointAsked: boolean): string {
+function sentenceOf(stop: ForgeRunGateStop, checkpointAsked: boolean, wholeOrg: boolean): string {
   if (stop.code === 'CHECKPOINT_REFUSED' && stop.reason !== undefined) {
     return 'forgeRun.gate.checkpointRefusedFor';
+  }
+  if (stop.code === 'STORAGE_EXCEEDED') {
+    if (stop.storage?.kind === 'files') return 'forgeRun.gate.storageExceededFiles';
+    if (wholeOrg) return 'forgeRun.gate.storageExceededAll';
+  }
+  if (stop.code === 'API_BUDGET_EXCEEDED' && stop.api) {
+    if (stop.api.kind === 'bulkBatches') return 'forgeRun.gate.bulkBatchesExceeded';
+    return stop.api.org === 'source'
+      ? 'forgeRun.gate.apiRequestsExceededSource'
+      : 'forgeRun.gate.apiRequestsExceededTarget';
   }
   if (stop.code === 'API_BUDGET_EXCEEDED' && checkpointAsked) {
     return 'forgeRun.gate.apiBudgetExceededWithCheckpoint';
   }
   return STOP_KEYS[stop.code];
+}
+
+/**
+ * What a stop of a run's gate is said in, in the interface language: the
+ * notice on Review says it of the run that stopped, the dry run of a clone of
+ * the whole org of each refusal its run would meet.
+ *
+ * @param run.checkpointAsked - The run was to take a checkpoint first.
+ * @param run.wholeOrg - The run clones the whole org.
+ */
+export function gateStopSentence(
+  t: TFunction,
+  stop: ForgeRunGateStop,
+  run: { checkpointAsked: boolean; wholeOrg: boolean },
+): string {
+  const locale = uiLocale();
+  return t(sentenceOf(stop, run.checkpointAsked, run.wholeOrg), {
+    estimate: (stop.api?.estimate ?? stop.storage?.estimateMB ?? 0).toLocaleString(locale),
+    remaining: (stop.api?.remaining ?? stop.storage?.remainingMB ?? 0).toLocaleString(locale),
+    // The number the run held, which the settings may have raised.
+    ceiling: (stop.ceiling ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(locale),
+    reason: checkpointRefusalWords(stop.reason, t),
+    // A clone of the whole org refused for an object it reads whole: the
+    // bound it held, and each object past it.
+    bound: (stop.readBound?.bound ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(locale),
+    objects: (stop.readBound?.objects ?? []).map((o) => o.objectApiName).join(', '),
+  });
 }
 
 /**
@@ -79,6 +123,7 @@ export const ForgeRunGateNotice: React.FC = () => {
   const revealed = useForgeRunGateStore((s) => s.revealed);
   const markRevealed = useForgeRunGateStore((s) => s.markRevealed);
   const targetOrgId = useForgeStore((s) => s.config?.targetOrgId);
+  const wholeOrg = useForgeStore((s) => clonesWholeOrg(s.config));
   const noticeRef = useRef<HTMLDivElement>(null);
   const reduceMotion = useReducedMotion();
 
@@ -127,19 +172,7 @@ export const ForgeRunGateNotice: React.FC = () => {
       />
       <div className="flex flex-1 flex-col gap-1">
         <p data-testid="forge-run-gate-reason">
-          {t(sentenceOf(stop, checkpointAsked), {
-            estimate: stop.storage?.estimateMB ?? 0,
-            remaining: stop.storage?.remainingMB ?? 0,
-            // The number the run held, which the settings may have raised.
-            ceiling: (stop.ceiling ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(uiLocale()),
-            reason: checkpointRefusalWords(stop.reason, t),
-            // A clone of the whole org refused for an object it reads whole:
-            // the bound it held, and each object past it.
-            bound: (stop.readBound?.bound ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(
-              uiLocale(),
-            ),
-            objects: (stop.readBound?.objects ?? []).map((o) => o.objectApiName).join(', '),
-          })}
+          {gateStopSentence(t, stop, { checkpointAsked, wholeOrg })}
         </p>
         <RewindBeforeRun
           checkpoint={checkpoint}

@@ -108,6 +108,15 @@ describe('EmptyPanel', () => {
     });
   });
 
+  it('opens with the objects a clone of the whole org asked to empty first picked', () => {
+    render(<EmptyPanel orgId="org-1" orgName="dev" initialObjects={['Contact', 'Account']} />);
+    fireEvent.click(screen.getByTestId('empty-objects-preview'));
+    expect(lastPayload('dataops:empty:preview')).toMatchObject({
+      orgId: 'org-1',
+      request: { mode: 'objects', objects: ['Contact', 'Account'] },
+    });
+  });
+
   it('asks the whole org with what is opted into and left out', () => {
     render(<EmptyPanel orgId="org-1" orgName="dev" />);
     fireEvent.click(screen.getByTestId('empty-org-files'));

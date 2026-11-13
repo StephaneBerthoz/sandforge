@@ -216,6 +216,21 @@ describe('ForgeRehearseAction', () => {
     expect(caption.id).toBe('forge-rehearse-hint');
     expect(caption.className).not.toContain('sr-only');
   });
+
+  // A clone of the whole org: its rehearsal would hold its rows in memory.
+  it('rehearses nothing when told why it cannot, and is described by that line', () => {
+    render(
+      <>
+        <p id="why-not">Not for a clone of the whole org.</p>
+        <ForgeRehearseAction unavailableHintId="why-not" />
+      </>,
+    );
+    const button = screen.getByTestId('rehearse-button') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('aria-describedby')).toBe(
+      'forge-rehearse-hint forge-rehearse-status why-not',
+    );
+  });
 });
 
 describe('ForgeRehearseAction in French and German', () => {

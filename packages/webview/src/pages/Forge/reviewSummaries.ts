@@ -112,6 +112,8 @@ export interface RunSentenceInput {
   /** The two orgs, as the user knows them. */
   source: string;
   target: string;
+  /** The run clones the whole source org (`clonesWholeOrg`). */
+  wholeOrg?: boolean;
 }
 
 /**
@@ -121,10 +123,20 @@ export interface RunSentenceInput {
  */
 export function runSentence(
   t: TFunction,
-  { graph, buckets, config, oneRecord, source, target }: RunSentenceInput,
+  { graph, buckets, config, oneRecord, source, target, wholeOrg = false }: RunSentenceInput,
 ): string {
   const orgs = { source, target };
   const objects = buckets.cloneObjects.length;
+  // The whole org: every record of every object it takes, which a count says
+  // as far as the org gave one.
+  if (wholeOrg) {
+    return t('forgeRun.review.sentence.wholeOrg', {
+      ...orgs,
+      count: buckets.cloneRecords,
+      formatted: buckets.cloneRecords.toLocaleString(uiLocale()),
+      objects: objects.toLocaleString(uiLocale()),
+    });
+  }
   if (buckets.cloneRecordsUnknown) {
     return t('forgeRun.review.sentence.notCounted', { ...orgs, count: objects });
   }

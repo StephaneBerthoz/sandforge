@@ -85,6 +85,7 @@ import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import { CheckpointFirstEstimate } from '../../components/ui/CheckpointFirstOption';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { runCheckpointEstimateOf, takenOrDeleted } from '../../utils/runCheckpoint';
+import { ForgeWholeOrgDryRunResult } from './ForgeWholeOrgDryRun';
 
 /**
  * Whether a failure's samples name a required field left empty: the refusal
@@ -861,6 +862,11 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   /** The org the run wrote to: its config's target, else its history entry's. */
   const targetOrgId = config?.targetOrgId ?? result?.targetOrgId;
   const targetOrgName = useOrgStore((s) => s.orgs.find((o) => o.id === targetOrgId)?.alias);
+  const sourceOrgId = config?.sourceOrgId ?? result?.sourceOrgId;
+  const sourceOrgName = useOrgStore((s) => s.orgs.find((o) => o.id === sourceOrgId)?.alias);
+  /** What the dry run of a clone of the whole org said at its gate, when this is one. */
+  const wholeOrgDryRun = useForgeStore((s) => (simulation ? s.wholeOrgDryRun : null));
+  const checkpointAsked = useForgeStore((s) => s.checkpointFirst);
 
   /** Soft reset: clear result but keep config. */
   const handleForgeAgain = useCallback(() => {
@@ -951,6 +957,16 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             {t('forgeRun.backToReview')}
           </Button>
         </div>
+      )}
+      {/* A clone of the whole org's dry run stops at its gate: what it says
+          there, refusals first, beside the counts below. */}
+      {wholeOrgDryRun && (
+        <ForgeWholeOrgDryRunResult
+          dry={wholeOrgDryRun}
+          source={sourceOrgName ?? sourceOrgId ?? ''}
+          target={targetOrgName ?? targetOrgId ?? ''}
+          checkpointAsked={checkpointAsked}
+        />
       )}
       {/* What the run muted of the target's automation, when Review's box
           asked it to: the sets assigned for it, what they silenced and what

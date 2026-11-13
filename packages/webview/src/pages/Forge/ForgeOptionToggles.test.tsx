@@ -93,4 +93,31 @@ describe('ForgeOptionToggles', () => {
       screen.getByTestId('forge-keep-contact-points-toggle').getAttribute('aria-describedby'),
     ).toBe(contactPoints.id);
   });
+
+  it('greys out Auto-fetch parents for a clone of the whole org, shows it off, and says why beside it', () => {
+    // Ticked before ALL was picked: the run fetches nothing, and the chip says so.
+    renderToggles({ expandOrphanParents: true, expandOrphanParentsDisabled: true });
+
+    const toggle = screen.getByTestId('forge-expand-orphan-parents-toggle') as HTMLInputElement;
+    expect(toggle.disabled).toBe(true);
+    expect(toggle.checked).toBe(false);
+    expect(screen.getByTestId('forge-expand-orphan-parents-box').getAttribute('data-checked')).toBe(
+      'false',
+    );
+    const why = screen.getByTestId('forge-expand-orphan-parents-all');
+    expect(why.textContent).toBe(
+      'ALL copies every table whole, so every parent is already in the run.',
+    );
+    expect(toggle.getAttribute('aria-describedby')).toBe(why.id);
+    expect(toggle.closest('label')?.getAttribute('title')).toBe(why.textContent);
+  });
+
+  it('says nothing of ALL while Auto-fetch parents applies', () => {
+    renderToggles({ expandOrphanParents: true });
+
+    const toggle = screen.getByTestId('forge-expand-orphan-parents-toggle') as HTMLInputElement;
+    expect(toggle.disabled).toBe(false);
+    expect(toggle.checked).toBe(true);
+    expect(screen.queryByTestId('forge-expand-orphan-parents-all')).toBeNull();
+  });
 });

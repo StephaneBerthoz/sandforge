@@ -170,6 +170,8 @@ const makeMockGraph = (): ForgeGraph => ({
 });
 
 let mockGraph = makeMockGraph();
+/** The run's config, as far as the screen reads it: a clone of the whole org or not. */
+let mockConfig: { inputMode: string; depth: string } | null = null;
 
 // The run's progress, log and error are the store's, and this file draws what
 // the store holds: how the store takes them is tested with it, and the two
@@ -180,6 +182,7 @@ vi.mock('../../stores/useForgeStore', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../stores/useForgeStore')>();
   const state = () => ({
     graph: mockGraph,
+    config: mockConfig,
     logs: mockLogs,
     runError: mockRunError,
     runClock: mockRunClock,
@@ -246,7 +249,8 @@ describe('ForgeExecution', () => {
     mockReviewSkipped = false;
     mockSimulation = false;
     mockExecutionRequestId = 'wv-run-1';
-    useForgeViewStore.setState({ setting: 'auto', choice: null });
+    mockConfig = null;
+    useForgeViewStore.setState({ setting: 'auto', choice: null, choiceOnLarge: false });
   });
 
   describe('a simulation', () => {
@@ -322,6 +326,25 @@ describe('ForgeExecution', () => {
       expect(screen.getByTestId('forge-execution-table')).toBeDefined();
       expect(screen.queryByTestId('live-graph')).toBeNull();
       expect(useForgeViewStore.getState().choice).toBe('table');
+    });
+
+    // Each progress event redraws the whole graph: a clone of the whole org's,
+    // drawn because the setting says so, would hold the panel still to its end.
+    it('lists a clone of the whole org whatever the setting says, offering the graph with its warning', () => {
+      useForgeViewStore.getState().adoptSetting('graph');
+      mockConfig = { inputMode: 'org', depth: 'all' };
+      render(<ForgeExecution />);
+
+      expect(screen.getByTestId('forge-execution-table')).toBeDefined();
+      expect(screen.queryByTestId('live-graph')).toBeNull();
+      expect(screen.getByTestId('forge-view-graph-slow').textContent).toContain(
+        `the table lists its ${String(mockGraph.nodes.length)} objects at once`,
+      );
+
+      fireEvent.click(screen.getByTestId('forge-view-graph'));
+      expect(screen.getByTestId('live-graph')).toBeDefined();
+      expect(useForgeViewStore.getState().choiceOnLarge).toBe(true);
+      mockConfig = null;
     });
   });
 

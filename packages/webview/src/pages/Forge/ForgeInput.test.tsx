@@ -4,6 +4,7 @@ import type { BaseMessage } from '@sandforge/shared';
 import i18n from '../../i18n';
 import { useAppStore } from '../../stores/useAppStore';
 import { ForgeInput } from './ForgeInput';
+import { useForgeStore } from '../../stores/useForgeStore';
 import { SOQL_UNSCOPED_RECORD_CAP } from './forgeUtils';
 
 /* ---- Bridge double: what the form posts, and a way to answer it ---- */
@@ -164,6 +165,15 @@ vi.mock('../../stores/useOrgStore', () => ({
           status: 'connected',
           orgType: 'Sandbox',
           safetyTier: 'low',
+        },
+        {
+          id: 'org-prod',
+          alias: 'ProdOrg',
+          username: 'prod@test.com',
+          instanceUrl: 'https://prod.salesforce.com',
+          status: 'connected',
+          orgType: 'Production',
+          safetyTier: 'critical',
         },
       ],
       selectedOrgId: 'org-src',
@@ -544,6 +554,7 @@ describe('ForgeInput', () => {
     expect(screen.getByTestId('forge-depth-direct')).toBeDefined();
     expect(screen.getByTestId('forge-depth-full')).toBeDefined();
     expect(screen.getByTestId('forge-depth-custom')).toBeDefined();
+    expect(screen.getByTestId('forge-depth-all')).toBeDefined();
   });
 
   it('should render source and target org selectors', () => {
@@ -941,6 +952,7 @@ describe('ForgeInput', () => {
     expect(directChip.getAttribute('title')).toBeTruthy();
     const fullChip = screen.getByTestId('forge-depth-full');
     expect(fullChip.getAttribute('title')).toBeTruthy();
+    expect(screen.getByTestId('forge-depth-all').getAttribute('title')).toBeTruthy();
   });
 
   /* ---- Ctrl+Enter submit (SOQL textarea: plain Enter is a newline there) ---- */
@@ -1217,9 +1229,22 @@ describe('ForgeInput', () => {
     const direct = screen.getByTestId('forge-depth-direct');
     const full = screen.getByTestId('forge-depth-full');
     const custom = screen.getByTestId('forge-depth-custom');
+    const all = screen.getByTestId('forge-depth-all');
     expect(direct.getAttribute('aria-checked')).toBe('true');
     expect(full.getAttribute('aria-checked')).toBe('false');
     expect(custom.getAttribute('aria-checked')).toBe('false');
+    expect(all.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('goes from Custom depth to ALL, and from ALL back to Direct only, with ArrowRight', () => {
+    render(<ForgeInput />);
+    fireEvent.click(screen.getByTestId('forge-depth-custom'));
+    fireEvent.keyDown(screen.getByTestId('forge-depth-custom'), { key: 'ArrowRight' });
+    expect(screen.getByTestId('forge-depth-all').getAttribute('aria-checked')).toBe('true');
+
+    fireEvent.keyDown(screen.getByTestId('forge-depth-all'), { key: 'ArrowRight' });
+    expect(screen.getByTestId('forge-depth-direct').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByTestId('forge-depth-all').getAttribute('aria-checked')).toBe('false');
   });
 
   it('should navigate depth chips with ArrowRight key', () => {
@@ -1232,5 +1257,203 @@ describe('ForgeInput', () => {
     const full = screen.getByTestId('forge-depth-full');
     expect(full.getAttribute('aria-checked')).toBe('true');
     expect(direct.getAttribute('aria-checked')).toBe('false');
+  });
+});
+
+/* ---- ALL: a clone of the whole org ---- */
+describe('ForgeInput with ALL picked', () => {
+  /** What the store holds as the form comes back to it, which the form carries. */
+  const storeState = useForgeStore.getState() as { config: Record<string, unknown> | null };
+
+  beforeEach(() => {
+    mockSetConfig.mockClear();
+    mockSetPhase.mockClear();
+    mockPostMessage.mockClear();
+    mockTemplates.list.length = 0;
+  });
+
+  afterEach(() => {
+    storeState.config = null;
+  });
+
+  /** The form with both orgs picked, apart, and ALL picked. */
+  function renderAll(): void {
+    render(<ForgeInput />);
+    selectOrg('forge-target-org', 'org-tgt');
+    fireEvent.click(screen.getByTestId('forge-depth-all'));
+  }
+
+  it('greys out the four tabs, and says on each why ALL starts from none of them', () => {
+    renderAll();
+
+    for (const id of ['forge-tab-record', 'forge-tab-soql', 'forge-tab-template', 'forge-tab-ai']) {
+      const tab = screen.getByTestId(id);
+      expect(tab.hasAttribute('data-disabled'), id).toBe(true);
+      expect(tab.getAttribute('title'), id).toBe(
+        'ALL copies the whole source org, so it starts from no record, query, template or AI draft. Pick another depth to use them.',
+      );
+    }
+  });
+
+  it('says so in place of the input, which is gone', () => {
+    renderAll();
+
+    const note = screen.getByTestId('forge-input-all-note');
+    expect(note.getAttribute('role')).toBe('note');
+    expect(note.textContent).toContain(
+      'ALL copies the whole source org, so it starts from no record',
+    );
+    expect(screen.queryByTestId('forge-input-record')).toBeNull();
+    expect(screen.queryByTestId('forge-input-all-carried')).toBeNull();
+    expect(screen.queryByTestId('forge-clear-carried')).toBeNull();
+  });
+
+  it('greys out Objects and Records per object, each set to all of them, and says why', () => {
+    renderAll();
+
+    const objects = screen.getByTestId('forge-max-nodes') as HTMLSelectElement;
+    expect(objects.disabled).toBe(true);
+    expect(objects.selectedOptions[0].textContent).toBe('Every object');
+    expect(objects.getAttribute('aria-describedby')).toContain('forge-max-nodes-all');
+    expect(screen.getByTestId('forge-max-nodes-all').textContent).toBe(
+      'ALL takes every object the target can create: there is no object cap.',
+    );
+
+    const records = screen.getByTestId('forge-record-limit') as HTMLSelectElement;
+    expect(records.disabled).toBe(true);
+    expect(records.selectedOptions[0].textContent).toBe('Every record');
+    expect(records.getAttribute('aria-describedby')).toContain('forge-record-limit-all');
+    expect(screen.getByTestId('forge-record-limit-all').textContent).toBe(
+      'ALL copies every record of each object: there is no cap per object.',
+    );
+    // Smart announces at most 50,000 rows per object, which ALL reads past.
+    expect(screen.queryByTestId('forge-record-limit-smart-hint')).toBeNull();
+  });
+
+  it('greys out Auto-fetch parents, every parent being in the run already', () => {
+    renderAll();
+
+    const toggle = screen.getByTestId('forge-expand-orphan-parents-toggle') as HTMLInputElement;
+    expect(toggle.disabled).toBe(true);
+    expect(toggle.checked).toBe(false);
+    expect(screen.getByTestId('forge-expand-orphan-parents-all').textContent).toBe(
+      'ALL copies every table whole, so every parent is already in the run.',
+    );
+    // The other choices still apply to the whole org.
+    expect((screen.getByTestId('forge-anonymize-toggle') as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('lets Discover go with the two orgs alone, with no cap, no orphan parent and no file', () => {
+    renderAll();
+
+    expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+    const [discover] = sent<{ config: Record<string, unknown> }>('forge:discover');
+    expect(discover.config).toMatchObject({
+      inputMode: 'org',
+      depth: 'all',
+      expandOrphanParents: false,
+    });
+    expect(discover.config.recordId).toBeUndefined();
+    expect(discover.config.maxNodes).toBeUndefined();
+    expect(discover.config.maxRecordsPerObject).toBeUndefined();
+    expect(discover.config.customDepth).toBeUndefined();
+  });
+
+  // Review lists what a clone of the whole org leaves out and the personal
+  // fields it copies as they are: it is not started without them seen.
+  it('offers no Clone directly, and says why under it', () => {
+    renderAll();
+
+    const direct = screen.getByTestId('forge-clone-directly-btn') as HTMLButtonElement;
+    expect(direct.disabled).toBe(true);
+    expect(screen.getByTestId('forge-clone-directly-hint').textContent).toBe(
+      'A clone of the whole org is not started from here: Discover it, and run it from Review, which lists what it leaves out and the personal fields it copies as they are.',
+    );
+    fireEvent.click(direct);
+    expect(sent('forge:discover')).toEqual([]);
+  });
+
+  it('turns Anonymize PII on when the source is a production org, and leaves it to the user after', () => {
+    render(<ForgeInput />);
+    selectOrg('forge-source-org', 'org-prod');
+    selectOrg('forge-target-org', 'org-tgt');
+    const anonymize = screen.getByTestId('forge-anonymize-toggle') as HTMLInputElement;
+    expect(anonymize.checked).toBe(false);
+
+    fireEvent.click(screen.getByTestId('forge-depth-all'));
+    expect(anonymize.checked).toBe(true);
+    expect(screen.getByTestId('forge-all-real-data').textContent).toContain('ProdOrg');
+
+    fireEvent.click(anonymize);
+    expect(anonymize.checked).toBe(false);
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+    const [discover] = sent<{ config: Record<string, unknown> }>('forge:discover');
+    expect(discover.config.anonymizePII).toBe(false);
+  });
+
+  it('leaves Anonymize PII as it is for a sandbox source', () => {
+    renderAll();
+
+    expect((screen.getByTestId('forge-anonymize-toggle') as HTMLInputElement).checked).toBe(false);
+    expect(screen.queryByTestId('forge-all-real-data')).toBeNull();
+  });
+
+  it('asks for the org it lacks, never for an input', () => {
+    render(<ForgeInput />);
+    fireEvent.click(screen.getByTestId('forge-depth-all'));
+    selectOrg('forge-source-org', 'empty');
+
+    const hint = screen.getByTestId('forge-discover-hint');
+    expect(hint.textContent).toBe('Select a source org');
+    expect(hint.textContent).not.toBe('Enter a record ID or a query, or pick a template');
+  });
+
+  it('draws the card of the whole org in the preview, from which org into which', () => {
+    renderAll();
+
+    expect(screen.getByTestId('forge-all-preview-body').textContent).toBe(
+      'Discovery lists every object of SourceOrg that TargetOrg can create, and counts their records.',
+    );
+  });
+
+  it('lists the choices carried from a past run that still narrow it, and drops them on request', () => {
+    storeState.config = {
+      inputMode: 'record',
+      recordId: '001AB00000ABCDEFGH',
+      depth: 'direct',
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+      sourceOrgId: 'org-src',
+      targetOrgId: 'org-tgt',
+      excludedObjects: ['Task', 'Event'],
+      objectSoqlFilters: { Case: "Status = 'Closed'" },
+    };
+    renderAll();
+
+    const carried = screen.getByTestId('forge-input-all-carried');
+    expect(carried.textContent).toContain(
+      'Choices carried from a template or a past run still narrow this clone of the whole org:',
+    );
+    expect(carried.textContent).toContain('Objects filtered: Case');
+    expect(carried.textContent).toContain('Objects left out: Task, Event');
+
+    fireEvent.click(screen.getByTestId('forge-clear-carried'));
+    expect(screen.queryByTestId('forge-input-all-carried')).toBeNull();
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+    const [discover] = sent<{ config: Record<string, unknown> }>('forge:discover');
+    expect(discover.config.excludedObjects).toBeUndefined();
+    expect(discover.config.objectSoqlFilters).toBeUndefined();
+  });
+
+  it('gives the tabs back once another depth is picked', () => {
+    renderAll();
+    fireEvent.click(screen.getByTestId('forge-depth-direct'));
+
+    expect(screen.getByTestId('forge-tab-record').hasAttribute('data-disabled')).toBe(false);
+    expect(screen.queryByTestId('forge-input-all-note')).toBeNull();
+    expect(screen.getByTestId('forge-input-record')).toBeDefined();
+    expect((screen.getByTestId('forge-max-nodes') as HTMLSelectElement).disabled).toBe(false);
   });
 });

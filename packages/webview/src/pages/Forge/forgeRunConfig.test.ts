@@ -2,11 +2,14 @@ import { describe, it, expect } from 'vitest';
 import type { ForgeConfig, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import {
   carriedChoices,
+  carriedNarrowing,
   clonesOneRecord,
+  clonesWholeOrg,
   configSubject,
   inputModeKeyOf,
   templateFromRun,
   withCarried,
+  withoutNarrowing,
   withoutOrgs,
 } from './forgeRunConfig';
 import type { RunToSave } from './forgeRunConfig';
@@ -81,12 +84,69 @@ describe('configSubject', () => {
 });
 
 describe('inputModeKeyOf', () => {
-  it("names the tab each mode a page starts was run from, and none of the whole org's", () => {
+  it('names the tab each mode a page starts was run from, and a clone of the whole org by what it cloned', () => {
     expect(inputModeKeyOf('record')).toBe('forge.recordTab');
     expect(inputModeKeyOf('soql')).toBe('forge.soqlTab');
     expect(inputModeKeyOf('template')).toBe('forge.templateTab');
     expect(inputModeKeyOf('ai')).toBe('forge.aiTab');
-    expect(inputModeKeyOf('org')).toBeUndefined();
+    expect(inputModeKeyOf('org')).toBe('forge.wholeOrg');
+  });
+});
+
+describe('clonesWholeOrg', () => {
+  it('holds of a run of the whole org, by its input mode or by its depth, and of no other', () => {
+    expect(clonesWholeOrg({ inputMode: 'org', depth: 'all' })).toBe(true);
+    // A pairing the extension refuses still reads as the whole org's.
+    expect(clonesWholeOrg({ inputMode: 'record', depth: 'all' })).toBe(true);
+    expect(clonesWholeOrg({ inputMode: 'soql', depth: 'full' })).toBe(false);
+    expect(clonesWholeOrg(null)).toBe(false);
+    expect(clonesWholeOrg(undefined)).toBe(false);
+  });
+});
+
+describe('carriedNarrowing', () => {
+  it('names, by object, the carried choices that leave part of the source behind', () => {
+    expect(
+      carriedNarrowing({
+        objectSoqlFilters: { Case: "Status = 'Closed'" },
+        excludedObjects: ['Task', 'Event', 'Task'],
+        skippedRows: [
+          { object: 'Contact', gapId: 'g1' },
+          { object: 'Contact', gapId: 'g2' },
+        ],
+        fieldExclusions: { Account: ['Fax'], Lead: [] },
+        ownerMappings: { '005A': '005B' },
+      }),
+    ).toEqual({
+      filtered: ['Case'],
+      excluded: ['Task', 'Event'],
+      heldBack: ['Contact'],
+      fields: ['Account'],
+    });
+  });
+
+  it('is null when what is carried only changes how rows are written', () => {
+    expect(carriedNarrowing({})).toBeNull();
+    expect(
+      carriedNarrowing({
+        ownerMappings: { '005A': '005B' },
+        ignoredGaps: ['g'],
+        fieldExclusions: {},
+      }),
+    ).toBeNull();
+  });
+
+  it('drops those choices, and keeps the others', () => {
+    expect(
+      withoutNarrowing({
+        objectSoqlFilters: { Case: "Status = 'Closed'" },
+        excludedObjects: ['Task'],
+        skippedRows: [{ object: 'Contact', gapId: 'g1' }],
+        fieldExclusions: { Account: ['Fax'] },
+        ownerMappings: { '005A': '005B' },
+        ignoredGaps: ['g'],
+      }),
+    ).toEqual({ ownerMappings: { '005A': '005B' }, ignoredGaps: ['g'] });
   });
 });
 

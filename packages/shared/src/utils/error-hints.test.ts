@@ -158,6 +158,27 @@ const REFUSALS: ReadonlyArray<{
     severity: 'warning',
   },
   {
+    message:
+      'A clone of the whole org is not started by Clone directly: Review lists what it leaves out and the personal fields it copies as they are. Open Review and execute it from there. Nothing was read or written.',
+    code: 'WHOLE_ORG_DIRECT',
+    hint: 'wholeOrgDirect',
+    severity: 'warning',
+  },
+  {
+    message:
+      'A clone of the whole org is not rehearsed: a rehearsal holds every row it prepares. Simulate it, which stops at its gate, and its confirmation lists what it writes. Nothing was read or sent.',
+    code: 'WHOLE_ORG_REHEARSAL',
+    hint: 'wholeOrgRehearsal',
+    severity: 'warning',
+  },
+  {
+    message:
+      'This graph is the one the history keeps of a clone of the whole org, without the relations between its objects, and cannot be run as it is. Discover the org again from the Forge panel. Nothing was read or written.',
+    code: 'GRAPH_WITHOUT_EDGES',
+    hint: 'graphWithoutEdges',
+    severity: 'warning',
+  },
+  {
     message: 'Forge execution was aborted before it started. Nothing was written.',
     code: 'ABORTED_BEFORE_START',
     hint: 'abortedBeforeStart',

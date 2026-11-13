@@ -5,6 +5,8 @@ import { act, renderHook } from '@testing-library/react';
 import {
   FORGE_GRAPH_MAX_OBJECTS,
   FORGE_GRAPH_MIN_PANEL_PX,
+  FORGE_GRAPH_SLOW_OBJECTS,
+  forgeGraphIsLarge,
   forgeObjectsView,
   useForgeObjectsView,
   useForgeViewStore,
@@ -40,13 +42,41 @@ describe('forgeObjectsView', () => {
   });
 });
 
+// Laid out and drawn, 1,950 objects held the panel still at every redraw:
+// neither the setting nor a pick made on a small graph draws a large one.
+describe('a large graph', () => {
+  it('is one past 150 objects, or any clone of the whole org whatever it holds', () => {
+    expect(forgeGraphIsLarge(FORGE_GRAPH_SLOW_OBJECTS)).toBe(false);
+    expect(forgeGraphIsLarge(FORGE_GRAPH_SLOW_OBJECTS + 1)).toBe(true);
+    expect(forgeGraphIsLarge(3, true)).toBe(true);
+  });
+
+  it('is listed whatever the setting says or the graph picked on a smaller one', () => {
+    expect(forgeObjectsView('graph', null, 400, false, true)).toBe('table');
+    expect(forgeObjectsView('auto', 'graph', 400, false, true, false)).toBe('table');
+  });
+
+  it('is drawn once the graph is picked on a large graph', () => {
+    expect(forgeObjectsView('auto', 'graph', 400, false, true, true)).toBe('graph');
+    expect(forgeObjectsView('auto', 'table', 400, false, true, true)).toBe('table');
+  });
+
+  it('keeps the pick made on it for the next large one, and a pick on a small one away from it', () => {
+    useForgeViewStore.setState({ setting: 'auto', choice: null, choiceOnLarge: false });
+    useForgeViewStore.getState().choose('graph', true);
+    expect(useForgeViewStore.getState()).toMatchObject({ choice: 'graph', choiceOnLarge: true });
+    useForgeViewStore.getState().choose('graph');
+    expect(useForgeViewStore.getState()).toMatchObject({ choice: 'graph', choiceOnLarge: false });
+  });
+});
+
 describe('useForgeObjectsView', () => {
   const realMatchMedia = window.matchMedia;
   let matches = false;
   const listeners = new Set<() => void>();
 
   beforeEach(() => {
-    useForgeViewStore.setState({ setting: 'auto', choice: null });
+    useForgeViewStore.setState({ setting: 'auto', choice: null, choiceOnLarge: false });
     matches = false;
     listeners.clear();
     window.matchMedia = ((query: string) => ({
@@ -73,6 +103,12 @@ describe('useForgeObjectsView', () => {
       for (const listener of listeners) listener();
     });
     expect(result.current).toBe('graph');
+  });
+
+  it('lists the graph of a clone of the whole org, however few objects it holds, under the graph setting', () => {
+    useForgeViewStore.setState({ setting: 'graph' });
+    const { result } = renderHook(() => useForgeObjectsView(4, true));
+    expect(result.current).toBe('table');
   });
 
   it('draws the graph where the panel cannot be measured', () => {

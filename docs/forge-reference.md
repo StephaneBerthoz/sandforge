@@ -18,6 +18,32 @@ The [quickstart](forge-quickstart.md) takes you through a first clone in a few s
 - **Emails and phone numbers, neutralized by default**: every record goes in with its email addresses under `.invalid` and its phone numbers replaced by fictional ones, anonymized or not, so that what the target's automation sends to those addresses and numbers reaches no one ([below](#emails-and-phone-numbers)); [whether its emails go out at all](#whether-the-emails-go-out) is read before the run
 - **GDPR / PHI presets**: one-click anonymization for Email, Phone, Address, Birthdate (4 starter presets)
 
+## Copy the whole org (ALL)
+
+**ALL**, the fourth chip under **Depth**, clones the whole source org rather than what a record or a query reaches. It starts from no input: the four tabs are greyed, **Objects** and **Records per object** read _Every object_ and _Every record_, and **Auto-fetch parents** is off, every table being read whole. A past run put back in the form may still carry filters, objects left out, rows held back or fields left out: the form lists them under the greyed tabs, with **Remove these choices**.
+
+Discovery walks no relationship: it lists every object of the source the target can create and counts its records. It leaves out, each with why: what the target lacks, or does not let the user the run writes as create, edit and delete; what the source does not let the user query, refused to count, or could not describe; the objects with no record; setup, users, permissions, logs and jobs; what Salesforce alone creates, such as approvals, Einstein insights and invoices; metadata; big objects, external and Data Cloud objects, Knowledge versions and platform events; feeds, history, sharing objects and change events; custom settings; files and documents, copied with their records when asked. An org past 1,950 objects or 20,000 relations between them is refused, not cut. Its graph is listed rather than drawn ([below](#graph-or-table)).
+
+Its defaults keep a copy of a whole org, often a production's, from going out unseen:
+
+- no **Clone directly**: the run goes from Review, and the extension refuses one started otherwise (`WHOLE_ORG_DIRECT`);
+- no file, unless **Copy the files** is ticked on Review ([below](#copy-the-files-of-the-cloned-records));
+- **Anonymize PII** comes on as ALL is picked with a source that holds real people's data — a production org, or a sandbox marked Staging — and stays as you leave it after that;
+- no **Rehearse** (`WHOLE_ORG_REHEARSAL`): a rehearsal holds every row it prepares.
+
+Review says, before **Execute Forge**:
+
+- the run in a sentence: the source, the records counted and the objects they are in;
+- the personal fields it copies as they are, not anonymized, by object;
+- what the target already holds of the objects it copies, about, from the org's record counts (`/limits/recordCount`, one request). The run adds its records beside them and replaces none: to start from an empty target, **Empty these objects first** opens **DataOps → Cleanup → Empty objects** on the target with them picked, and the org is discovered again once they are emptied;
+- in the **Plan** row, every object it leaves out, grouped by why.
+
+**Simulate** on a clone of the whole org is a dry run that stops at the run's write gate once the source is counted: it reads no row past the counts, keeps no journal, asks nothing and writes nothing. Its results say what it would write of each object, in Bulk API jobs and by REST; the target's API requests and Bulk API batches, and the source's requests, against what each has left today; the data and file storage; how long its writes would take, about; what it leaves out; the personal fields it copies as they are; and every refusal the run would meet, in the order it would meet them, each in the words of its own stop.
+
+The run is always asked before its first write, whatever the volume: its confirmation names its requests, jobs and batches, the objects of managed packages it writes — their own triggers and flows run whatever the mute of the target's automation keeps quiet —, the phone numbers it writes empty past the 10,000 fictional ones, and the personal fields it copies as they are. Its gate refuses it, nothing written, for its records past the data storage left; its files past the file storage left, or files either org would not weigh (`FILES_UNREAD`, `FILE_STORAGE_UNREAD`); the target's daily API requests or Bulk API batches, or the source's requests, past what is left; and an object it reads whole — the price catalog, an object mapped by name — past `sandforge.forge.maxRecordsPerObject` (`READ_BOUND_EXCEEDED`). Review says each refusal in the interface language.
+
+Its journal is kept on disk, and the run does not start without it. Its removal runs without **Sweep first** unless ticked, and says what that leaves in the org. The history keeps its entry without the relations between its objects, which a run cannot be ordered by: run again, it is refused (`GRAPH_WITHOUT_EDGES`), and the org is discovered again. On the command line, `sandforge-clone --depth all` ([below](#the-command-line)).
+
 ## Clone directly
 
 What [**Clone directly**](forge-quickstart.md#clone-directly) skips, and what still guards it.
@@ -45,6 +71,8 @@ The discovery, Review and execution screens show a graph's objects either as a g
 
 - `auto` (the default): the graph up to 25 objects, the table past that, and on a panel narrower than 560 pixels, where the strip the minimap keeps leaves no room for a node;
 - `graph` or `table`: always that view.
+
+A graph past 150 objects, and any clone of the whole org, is listed whatever the setting says: laid out and drawn, hundreds of objects hold the panel still at each redraw. The discovery screen sums it up above its table instead — its objects, its records and what it leaves out, by why — and Review and the execution draw it only once **Graph View** is picked on such a graph, with a word of how slow it is.
 
 On Review, the view is in the **Plan** row, drawn once that row is opened, and **Find an object in the graph** searches the objects by API name: those it matches are ringed on the graph, **Show** brings one into view, and **Leave out this branch** leaves out the object with every object only it reaches — what another way from the top of the graph reaches stays. The branch goes as unticked boxes go, kept in the run's `excludedObjects`, and **Put them back** takes it back at once. The run's root offers no branch: it would be the whole clone.
 

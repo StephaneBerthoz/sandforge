@@ -1267,6 +1267,7 @@ export class ExtensionHandlers {
         'forge:undo-sweep:request',
         'forge:gaps:request',
         'forge:users:request',
+        'forge:target-records:request',
       ],
       this.forgeHandler,
     );

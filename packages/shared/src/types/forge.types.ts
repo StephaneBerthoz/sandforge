@@ -1,4 +1,5 @@
 import type { MutedAutomation } from '../utils/automation-mute.js';
+import type { ForgeRunGateStop } from '../utils/forge-run-gate.js';
 import type { AnonymizationMethod, CurrencyReplaced, RecordTypeGiven } from './common.types.js';
 import type { RunCheckpointEstimate, RunCheckpointInfo } from './checkpoint.types.js';
 
@@ -705,6 +706,102 @@ export interface ForgeBulkJobPastMute {
   objectApiName: string;
   /** The id the org gave the job; absent when its close went before the org told it. */
   jobId?: string;
+}
+
+/**
+ * The parts of the target's API requests a clone of the whole org takes, as
+ * its dry run says them apart: its own writes, the checkpoint taken first,
+ * the read-backs, the deliverability read and the fit.
+ */
+export interface ForgeWholeOrgRequestParts {
+  run: number;
+  checkpoint?: number;
+  readBack?: number;
+  deliverability?: number;
+  fit?: number;
+}
+
+/**
+ * One of an org's allowances of the day as the dry run of a clone of the
+ * whole org weighs it: what the run takes against what is left, `near` when
+ * it would leave less than a tenth, or why what is left could not be read.
+ */
+export type ForgeWholeOrgAllowanceCheck =
+  | {
+      verdict: 'fits' | 'near' | 'exceeds';
+      estimate: number;
+      max: number;
+      remaining: number;
+      parts?: ForgeWholeOrgRequestParts;
+    }
+  | { verdict: 'unread'; estimate: number; unread: string; parts?: ForgeWholeOrgRequestParts };
+
+/** A storage of the target as the dry run of a clone of the whole org weighs it, in MB. */
+export type ForgeWholeOrgStorageCheck =
+  | { verdict: 'fits' | 'near' | 'exceeds'; estimateMB: number; maxMB: number; remainingMB: number }
+  | { verdict: 'unread'; estimateMB: number; unread: string };
+
+/**
+ * A refusal the run of a clone of the whole org would meet at its write gate,
+ * as its dry run names it: the code such a run is refused under, the host's
+ * words, and what a stop of that code carries (`ForgeRunGateStop`). A code
+ * the page has no sentence of its own for is said in the host's words.
+ */
+export interface ForgeWholeOrgRefusal extends Pick<
+  ForgeRunGateStop,
+  'storage' | 'api' | 'readBound'
+> {
+  code: string;
+  message: string;
+  /** For a checkpoint first refused: the take's refusal. */
+  refusal?: { code: string; message: string };
+}
+
+/**
+ * What the dry run of a clone of the whole org says, stopped at its write
+ * gate once the source is counted: no row read past the counts, nothing
+ * written, no journal kept. Its answer carries it beside the result
+ * (`forge:execute:response`).
+ */
+export interface ForgeWholeOrgDryRun {
+  /** Per object, the records the run would insert, the most first, and how many go in Bulk API jobs or by REST. */
+  wouldInsert: Array<{ objectApiName: string; rows: number; jobs: number; byRest: number }>;
+  /** The records in all. */
+  totalRows: number;
+  /** The target's API requests, every part together, against what it has left today. */
+  targetRequests: ForgeWholeOrgAllowanceCheck;
+  /** The requests its reads would still take of the source, against what the source has left today. */
+  sourceRequests: ForgeWholeOrgAllowanceCheck;
+  /** The target's daily Bulk API batches its jobs would take; absent when it would send none. */
+  bulkBatches?: ForgeWholeOrgAllowanceCheck;
+  /** The data storage its records would take, emails by their text, against what the target has left. */
+  storage: ForgeWholeOrgStorageCheck;
+  /**
+   * The files it would copy against the target's file storage: absent when it
+   * copies none, `unmeasured` when the source would neither sum nor list them.
+   */
+  files?: { count: number; check: ForgeWholeOrgStorageCheck } | { unmeasured: true };
+  /** The seconds its writes would take, about. */
+  durationSeconds: number;
+  /**
+   * What it leaves out: the objects of the source, each with why, how many
+   * for each reason, and of the objects it writes, the rows it would not
+   * write.
+   */
+  leftOut: {
+    objects: ForgeLeftOutObject[];
+    counts: ForgeLeftOutCount[];
+    rows?: {
+      writtenBefore: number;
+      heldBack: Array<{ objectApiName: string; rows: number }>;
+      byThePlatform?: Array<{ objectApiName: string; rows: number }>;
+      linkedByValue?: Array<{ objectApiName: string; rows: number; fields: readonly string[] }>;
+    };
+  };
+  /** Per object it writes, the personal fields it would copy as they are. */
+  personalAsIs: Array<{ objectApiName: string; fields: string[] }>;
+  /** Every refusal the run would meet, in the order it meets them; none when it would go through. */
+  wouldBeRefused: ForgeWholeOrgRefusal[];
 }
 
 /** Sample of a record that failed insertion, with the platform errors. */

@@ -188,6 +188,39 @@ describe('ForgeRunRemovalPlan', () => {
 });
 
 describe('ForgeRunRemovalResult', () => {
+  // Its sweep looks at 300 objects at most over a window as long as the run:
+  // off unless asked, and what it would have taken is said to stay.
+  it('says what the removal of a clone of the whole org without its sweep leaves in the org', () => {
+    render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({
+          status: 'success',
+          objects: [outcome({ objectApiName: 'Case', planned: 3, deleted: 3 })],
+          wholeOrgNotSwept: true,
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-whole-org-not-swept').textContent).toBe(
+      'This run cloned the whole org, and its removal ran without Sweep first: what the target’s flows and triggers created during the run’s hours is not among its records, was not looked for, and stays in DEV-SANDBOX.',
+    );
+  });
+
+  it('says nothing of a sweep not asked of any other run', () => {
+    render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({
+          status: 'success',
+          objects: [outcome({ objectApiName: 'Case', planned: 3, deleted: 3 })],
+        })}
+      />,
+    );
+
+    expect(screen.queryByTestId('forge-removal-whole-org-not-swept')).toBeNull();
+  });
+
   describe('a removal its sweep made partial', () => {
     const sweep = {
       status: 'failure' as const,

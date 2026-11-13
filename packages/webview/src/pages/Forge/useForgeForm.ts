@@ -5,7 +5,7 @@ import {
   buildSyntheticForgeGraph,
   getBuiltinTemplateObjects,
 } from '@sandforge/shared';
-import type { ForgeRemovalPlan, ForgeTraversalDepth, SalesforceOrg } from '@sandforge/shared';
+import type { ForgeRemovalPlan, SalesforceOrg } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import type {
@@ -20,8 +20,8 @@ import { useSendMessage } from '../../hooks/useMessageBus';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { sendDiscovery } from './directRun';
-import { carriedChoices, withCarried } from './forgeRunConfig';
-import type { CarriedRunChoices } from './forgeRunConfig';
+import { carriedChoices, carriedNarrowing, withCarried, withoutNarrowing } from './forgeRunConfig';
+import type { CarriedNarrowing, CarriedRunChoices } from './forgeRunConfig';
 import { useRecordPreview } from './useRecordPreview';
 import type { RecordPreviewState } from './useRecordPreview';
 import { useForgeAIPlan } from './useForgeAIPlan';
@@ -36,29 +36,64 @@ import {
   SOQL_UNSCOPED_RECORD_CAP,
 } from './forgeUtils';
 
-/** Depth option values for the chip selector. */
-export const DEPTH_OPTIONS: ForgeTraversalDepth[] = ['direct', 'full', 'custom'];
+/**
+ * Depth option values for the chip selector. ALL comes last: it walks no
+ * relationship at all but takes the whole source org.
+ */
+export const DEPTH_OPTIONS: ForgeDepth[] = ['direct', 'full', 'custom', 'all'];
 
 /** Map depth value to its i18n key. */
-export const DEPTH_KEYS: Record<ForgeTraversalDepth, string> = {
+export const DEPTH_KEYS: Record<ForgeDepth, string> = {
   direct: 'forge.depthDirect',
   full: 'forge.depthFull',
   custom: 'forge.depthCustom',
+  all: 'forge.depthAll',
 };
 
 /** Map depth value to its tooltip i18n key. */
-export const DEPTH_TOOLTIP_KEYS: Record<ForgeTraversalDepth, string> = {
+export const DEPTH_TOOLTIP_KEYS: Record<ForgeDepth, string> = {
   direct: 'forge.depthDirectTooltip',
   full: 'forge.depthFullTooltip',
   custom: 'forge.depthCustomTooltip',
+  all: 'forge.depthAllTooltip',
 };
 
+/** The label of the depth a past run or a template walked, ALL for a clone of the whole org. */
+export function depthKeyOf(depth: ForgeDepth): string {
+  return DEPTH_KEYS[depth];
+}
+
 /**
- * The label of the depth a past run or a template walked: none for `all`, a
- * clone of the whole org, which walks none and no chip of the page offers.
+ * The input modes the form has a tab for. A clone of the whole org (`org`)
+ * has none: it starts from no input, and is asked for by the ALL depth chip,
+ * whatever tab is showing.
  */
-export function depthKeyOf(depth: ForgeDepth): string | undefined {
-  return depth === 'all' ? undefined : DEPTH_KEYS[depth];
+export type ForgeTabMode = Exclude<ForgeInputMode, 'org'>;
+
+/**
+ * Whether an org holds real people's data, as the page knows it: a production
+ * org, or a sandbox marked Staging (a full copy, UAT). A clone of the whole of
+ * such an org anonymizes its personal fields unless the user unticks it.
+ */
+export function holdsRealData(
+  org: Pick<SalesforceOrg, 'orgType' | 'staging'> | undefined,
+): boolean {
+  return org?.orgType === 'Production' || org?.staging === true;
+}
+
+/**
+ * Whether a run the history lists cloned the whole org: by its config, or,
+ * for a run of this session whose result came back without one, by its
+ * graph, which lists the objects it left out only for such a run, and is
+ * kept without its relations only for such a run.
+ */
+function clonedWholeOrg(run: ForgeExecutionResult | undefined): boolean {
+  return (
+    run?.config?.inputMode === 'org' ||
+    run?.config?.depth === 'all' ||
+    run?.graph?.leftOut !== undefined ||
+    run?.graph?.withoutEdges === true
+  );
 }
 
 /**
@@ -100,8 +135,8 @@ export function recordLimitOptionFor(max: number | undefined): string {
 /** Return type for the useForgeForm hook. */
 export interface ForgeFormState {
   /* Input modes */
-  inputMode: ForgeInputMode;
-  setInputMode: (mode: ForgeInputMode) => void;
+  inputMode: ForgeTabMode;
+  setInputMode: (mode: ForgeTabMode) => void;
   recordId: string;
   soqlQuery: string;
   setSoqlQuery: (q: string) => void;
@@ -119,6 +154,16 @@ export interface ForgeFormState {
   setCustomDepth: (n: number) => void;
   depthRefs: MutableRefObject<Partial<Record<ForgeDepth, HTMLButtonElement | null>>>;
   handleDepthKeyDown: (e: KeyboardEvent, currentDepth: ForgeDepth) => void;
+  /**
+   * The ALL chip is picked: the run clones the whole source org, from no
+   * input, with no cap on objects or records, whatever tab is showing.
+   */
+  wholeOrg: boolean;
+  /**
+   * The source holds real people's data (`holdsRealData`): picked with ALL,
+   * Anonymize PII is turned on, and the preview says why.
+   */
+  sourceHoldsRealData: boolean;
 
   /* Orgs */
   orgs: SalesforceOrg[];
@@ -169,6 +214,12 @@ export interface ForgeFormState {
    * screens, and no metadata diff. Gated as Discover is.
    */
   handleCloneDirectly: () => void;
+  /**
+   * Whether Clone directly may start: never for a clone of the whole org,
+   * which is run from Review, where what it leaves out and the personal
+   * fields it copies as they are are listed.
+   */
+  canCloneDirectly: boolean;
   canQuickStartTemplate: boolean;
   builtinTplCandidate: (typeof BUILTIN_FORGE_TEMPLATES)[number] | null;
   handleQuickStartTemplate: () => void;
@@ -200,6 +251,15 @@ export interface ForgeFormState {
   applyHistoryConfig: (config: ForgeRunConfig) => void;
   /** Ask for the history again: a removal marks the entry of the run it removed. */
   refreshHistory: () => void;
+  /**
+   * The carried choices that leave part of the source org behind (filters,
+   * objects left out, rows held back, fields left out), by object, or null
+   * when none is carried: what a clone of the whole org still keeps from a
+   * past run, which its note lists.
+   */
+  carriedNarrowing: CarriedNarrowing | null;
+  /** Drop the choices `carriedNarrowing` lists; the other carried choices stay. */
+  clearCarried: () => void;
 }
 
 /**
@@ -222,11 +282,11 @@ export function useForgeForm(): ForgeFormState {
   const sendMessage = useSendMessage();
 
   /* ---- Local form state ---- */
-  const [inputMode, setInputMode] = useState<ForgeInputMode>('record');
+  const [inputMode, setInputMode] = useState<ForgeTabMode>('record');
   const [recordId, setRecordId] = useState('');
   const [soqlQuery, setSoqlQuery] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState('');
-  const [depth, setDepth] = useState<ForgeDepth>('direct');
+  const [depth, setDepthState] = useState<ForgeDepth>('direct');
   const [customDepth, setCustomDepth] = useState(3);
   /**
    * How many objects discovery may reach, when the default is not enough.
@@ -236,7 +296,7 @@ export function useForgeForm(): ForgeFormState {
    * was nothing here to answer it with.
    */
   const [maxNodes, setMaxNodes] = useState<number | undefined>(undefined);
-  const [sourceOrgId, setSourceOrgId] = useState('');
+  const [sourceOrgId, setSourceOrgIdState] = useState('');
   const [targetOrgId, setTargetOrgId] = useState('');
   const [anonymize, setAnonymize] = useState(false);
   const [skipEmpty, setSkipEmpty] = useState(false);
@@ -271,6 +331,35 @@ export function useForgeForm(): ForgeFormState {
    * acceptance: each run asks for it again.
    */
   const [carriedFiles, setCarriedFiles] = useState<{ maxFileSizeMB: number } | null>(null);
+
+  /*
+   * A clone of the whole of an org that holds real people's data anonymizes
+   * their personal fields unless the user unticks it: set as ALL is picked
+   * with such a source, or such a source is picked under ALL. The user's own
+   * choice stands after that, ticked or not.
+   */
+  const anonymizeFor = useCallback(
+    (nextDepth: ForgeDepth, nextSourceId: string): void => {
+      if (nextDepth === 'all' && holdsRealData(orgs.find((o) => o.id === nextSourceId))) {
+        setAnonymize(true);
+      }
+    },
+    [orgs],
+  );
+  const setDepth = useCallback(
+    (next: ForgeDepth): void => {
+      if (next === 'all' && depth !== 'all') anonymizeFor('all', sourceOrgId);
+      setDepthState(next);
+    },
+    [depth, sourceOrgId, anonymizeFor],
+  );
+  const setSourceOrgId = useCallback(
+    (id: string): void => {
+      if (id !== sourceOrgId) anonymizeFor(depth, id);
+      setSourceOrgIdState(id);
+    },
+    [depth, sourceOrgId, anonymizeFor],
+  );
 
   /* ---- Auto-select source org from global selectedOrgId on mount ---- */
   const adoptGlobalOrg = useLatestRef(() => {
@@ -346,6 +435,9 @@ export function useForgeForm(): ForgeFormState {
   const sourceOrg = useMemo(() => orgs.find((o) => o.id === sourceOrgId), [orgs, sourceOrgId]);
   const targetOrg = useMemo(() => orgs.find((o) => o.id === targetOrgId), [orgs, targetOrgId]);
 
+  /** The ALL chip: a clone of the whole source org, which starts from no input. */
+  const wholeOrg = depth === 'all';
+
   /**
    * The root input a saved user template holds, when it holds one the
    * extension can resolve (a record id or a SOQL query). Templates live in
@@ -373,8 +465,14 @@ export function useForgeForm(): ForgeFormState {
    * clone of an account with 250 cases took 100 of them, in no order, and
    * said "Success". A run from a query reads its other objects from their
    * whole tables, and keeps a cap of 100 (`SMART_SOQL_CAP`).
+   *
+   * A clone of the whole org has none, whatever the select says: it copies
+   * every record of each object. That comes first, because the tab showing
+   * when ALL was picked may be the SOQL one, whose cap of 200 would
+   * otherwise have bounded the copy of the whole org.
    */
   const recordLimitValue = useMemo<number | undefined>(() => {
+    if (depth === 'all') return undefined;
     let base: number | undefined;
     if (recordLimit === 'smart') {
       base = runsSoql ? SMART_SOQL_CAP : undefined;
@@ -392,10 +490,14 @@ export function useForgeForm(): ForgeFormState {
       return Math.min(base ?? SOQL_UNSCOPED_RECORD_CAP, SOQL_UNSCOPED_RECORD_CAP);
     }
     return base;
-  }, [recordLimit, runsSoql]);
+  }, [depth, recordLimit, runsSoql]);
 
-  /** Whether the current input has enough data to proceed. */
+  /**
+   * Whether the current input has enough data to proceed. A clone of the
+   * whole org needs none: what it copies is the source org itself.
+   */
   const hasInput = useCallback((): boolean => {
+    if (depth === 'all') return true;
     switch (inputMode) {
       case 'record':
         return recordId.trim().length > 0;
@@ -418,12 +520,8 @@ export function useForgeForm(): ForgeFormState {
         // A draft is only run once it passed the check against the source org,
         // and only as it reads now: an edit waits for the next check.
         return ai.checked;
-      case 'org':
-        // No tab of the page starts a clone of the whole org: one a past run
-        // or a template brought back is never sent from here.
-        return false;
     }
-  }, [inputMode, recordId, soqlQuery, selectedTemplate, templateInput, ai.checked]);
+  }, [depth, inputMode, recordId, soqlQuery, selectedTemplate, templateInput, ai.checked]);
 
   /*
    * The WHERE clause travels as an object filter, which the extension checks
@@ -461,11 +559,16 @@ export function useForgeForm(): ForgeFormState {
    * is expanded in place of its id; the form's depth, toggles and orgs still
    * win. Builtin templates take the quick-start path (synthetic graph) and
    * never reach here with a resolvable root input.
+   *
+   * A clone of the whole org sends its mode alone: no record id, query, filter
+   * of a query's root nor template, whatever the tab showing holds, since the
+   * extension refuses a whole-org config that names one.
    */
   const runInput = useMemo((): Pick<
     ForgeConfig,
     'inputMode' | 'recordId' | 'soqlQuery' | 'objectSoqlFilters' | 'templateId'
   > => {
+    if (depth === 'all') return { inputMode: 'org' };
     const runSoql =
       inputMode === 'soql'
         ? soqlQuery.trim()
@@ -501,16 +604,16 @@ export function useForgeForm(): ForgeFormState {
       objectSoqlFilters: runSoql ? soqlObjectFilters(runSoql) : undefined,
       templateId: inputMode === 'template' && !templateInput ? selectedTemplate : undefined,
     };
-  }, [inputMode, recordId, soqlQuery, ai.draft, selectedTemplate, templateInput]);
+  }, [depth, inputMode, recordId, soqlQuery, ai.draft, selectedTemplate, templateInput]);
 
   const sameOrgSelected = sourceOrgId.length > 0 && sourceOrgId === targetOrgId;
+  // A query refused on a tab ALL greys out is not sent, and holds nothing back.
   const canDiscover =
     hasInput() &&
     sourceOrgId.length > 0 &&
     targetOrgId.length > 0 &&
     !sameOrgSelected &&
-    !whereClauseRefused &&
-    !objectNameRefused;
+    (wholeOrg || (!whereClauseRefused && !objectNameRefused));
 
   /** Refs to the depth chips so arrow-key nav can move DOM focus. */
   const depthRefs = useRef<Partial<Record<ForgeDepth, HTMLButtonElement | null>>>({});
@@ -552,7 +655,7 @@ export function useForgeForm(): ForgeFormState {
         }
       }
     },
-    [orgs, sourceOrgId, resetPreview],
+    [orgs, sourceOrgId, resetPreview, setSourceOrgId],
   );
 
   /** Swap source and target org selections. */
@@ -560,7 +663,7 @@ export function useForgeForm(): ForgeFormState {
     const tmp = sourceOrgId;
     setSourceOrgId(targetOrgId);
     setTargetOrgId(tmp);
-  }, [sourceOrgId, targetOrgId]);
+  }, [sourceOrgId, targetOrgId, setSourceOrgId]);
 
   /** Put the template's file copy on the run whose config was just set. */
   const takeCarriedFiles = useCallback(() => {
@@ -572,20 +675,25 @@ export function useForgeForm(): ForgeFormState {
    * a Clone directly's: its answer starts the run, with no stop on the
    * discovery and Review screens. Both send the same config, from the same
    * gate: the orgs set and apart, and an input the extension takes.
+   *
+   * A clone of the whole org sends no object cap, no record cap and no custom
+   * depth, and fetches no orphan parent: it reads every table whole, so every
+   * parent is already in the run. It copies no file unless Review's option is
+   * ticked, as every run, and is never a Clone directly's.
    */
   const startDiscovery = useCallback(
     (direct: boolean) => {
-      if (!canDiscover) return;
+      if (!canDiscover || (direct && wholeOrg)) return;
 
       const config: ForgeConfig = withCarried(
         {
           ...runInput,
           depth,
           customDepth: depth === 'custom' ? customDepth : undefined,
-          maxNodes,
+          maxNodes: wholeOrg ? undefined : maxNodes,
           anonymizePII: anonymize,
           skipEmpty,
-          expandOrphanParents,
+          expandOrphanParents: wholeOrg ? false : expandOrphanParents,
           keepContactPoints,
           maxRecordsPerObject: recordLimitValue,
           sourceOrgId,
@@ -598,8 +706,10 @@ export function useForgeForm(): ForgeFormState {
       setConfig(config);
       // Copying the files is a choice of the Review screen, which a Clone
       // directly skips: its run copies none, as it always did, and never waits
-      // on an acceptance no screen is there to give.
-      if (!direct) takeCarriedFiles();
+      // on an acceptance no screen is there to give. A clone of the whole org
+      // copies none either until Review's option is ticked for it: a template
+      // applied before ALL was picked does not tick it for the whole org.
+      if (!direct && !wholeOrg) takeCarriedFiles();
       // By its request: only the answer to this discovery is taken, page or
       // no page, and only a Clone directly's starts the run.
       sendDiscovery(sendMessage, config, direct);
@@ -607,6 +717,7 @@ export function useForgeForm(): ForgeFormState {
     },
     [
       canDiscover,
+      wholeOrg,
       runInput,
       depth,
       customDepth,
@@ -637,8 +748,13 @@ export function useForgeForm(): ForgeFormState {
     if (inputMode !== 'template') return null;
     return BUILTIN_FORGE_TEMPLATES.find((p) => p.id === selectedTemplate) ?? null;
   }, [inputMode, selectedTemplate]);
+  // A starter template clones one record's graph, which a clone of the whole org is not.
   const canQuickStartTemplate =
-    !!builtinTplCandidate && !!sourceOrgId && !!targetOrgId && extractRecordId(recordId) !== null;
+    !wholeOrg &&
+    !!builtinTplCandidate &&
+    !!sourceOrgId &&
+    !!targetOrgId &&
+    extractRecordId(recordId) !== null;
   const handleQuickStartTemplate = useCallback(() => {
     if (!canQuickStartTemplate || !builtinTplCandidate) return;
     const objects = getBuiltinTemplateObjects(builtinTplCandidate.id);
@@ -702,10 +818,17 @@ export function useForgeForm(): ForgeFormState {
    * On the AI tab the run's filter is the draft's WHERE clause, so the draft
    * has to have passed its check here too: this path skips discovery, not
    * the check.
+   *
+   * Never for a clone of the whole org, either way round. Its graph is the
+   * org as discovery found it a run ago, and the one the history keeps has
+   * lost its relations; reused for a clone of one record, it would copy whole
+   * tables. And a graph walked from one record is not the whole org.
    */
   const lastGraph = history[0]?.graph;
   const canReuseLastGraph =
     !!lastGraph &&
+    !wholeOrg &&
+    !clonedWholeOrg(history[0]) &&
     !!sourceOrgId &&
     !!targetOrgId &&
     !whereClauseRefused &&
@@ -770,20 +893,25 @@ export function useForgeForm(): ForgeFormState {
    * The object cap is restored too: it was added after History's re-run, and
    * a re-run of a run discovered with room for 350 objects went out on the
    * default cap of fifty, free to stop where the original run had not.
+   *
+   * A clone of the whole org puts the ALL chip back and leaves the two caps
+   * as they were: it had neither, and the form keeps what the user set for
+   * the next run that has them.
    */
   const applyRunOptions = useCallback((config: ForgeRunConfig): void => {
-    setDepth(config.depth);
+    const all = config.inputMode === 'org' || config.depth === 'all';
+    setDepthState(all ? 'all' : config.depth);
     if (config.depth === 'custom' && config.customDepth != null) {
       setCustomDepth(config.customDepth);
     }
-    setMaxNodes(config.maxNodes);
+    if (!all) setMaxNodes(config.maxNodes);
     setAnonymize(config.anonymizePII);
     setSkipEmpty(config.skipEmpty);
     setExpandOrphanParents(config.expandOrphanParents ?? false);
     // A run or a template that predates the choice neutralized nothing, but
     // its replay is a new run, and goes as every new run does.
     setKeepContactPoints(config.keepContactPoints ?? false);
-    setRecordLimit(recordLimitOptionFor(config.maxRecordsPerObject));
+    if (!all) setRecordLimit(recordLimitOptionFor(config.maxRecordsPerObject));
   }, []);
 
   /**
@@ -815,7 +943,10 @@ export function useForgeForm(): ForgeFormState {
    */
   const applyHistoryConfig = useCallback(
     (config: ForgeRunConfig): void => {
-      const mode: ForgeInputMode = config.inputMode === 'ai' ? 'record' : config.inputMode;
+      // A clone of the whole org has no tab to go back to: the Record tab is
+      // shown, empty, as it is for an AI draft, under the ALL chip.
+      const mode: ForgeTabMode =
+        config.inputMode === 'ai' || config.inputMode === 'org' ? 'record' : config.inputMode;
       setInputMode(mode);
       setRecordId(mode === 'record' ? (config.recordId ?? '') : '');
       setSoqlQuery(mode === 'soql' ? (config.soqlQuery ?? '') : '');
@@ -871,6 +1002,10 @@ export function useForgeForm(): ForgeFormState {
     ],
   );
 
+  /** The carried choices a clone of the whole org still keeps, which its note lists. */
+  const narrowing = useMemo(() => carriedNarrowing(carried), [carried]);
+  const clearCarried = useCallback(() => setCarried((kept) => withoutNarrowing(kept)), []);
+
   return {
     inputMode,
     setInputMode,
@@ -887,6 +1022,8 @@ export function useForgeForm(): ForgeFormState {
     setMaxNodes,
     depthRefs,
     handleDepthKeyDown,
+    wholeOrg,
+    sourceHoldsRealData: holdsRealData(sourceOrg),
     orgs,
     sourceOrgId,
     setSourceOrgId,
@@ -920,6 +1057,7 @@ export function useForgeForm(): ForgeFormState {
     templateSoqlQuery,
     handleDiscover,
     handleCloneDirectly,
+    canCloneDirectly: canDiscover && !wholeOrg,
     canQuickStartTemplate,
     builtinTplCandidate,
     handleQuickStartTemplate,
@@ -932,5 +1070,7 @@ export function useForgeForm(): ForgeFormState {
     historyError: historyQuery.error,
     applyHistoryConfig,
     refreshHistory: historyQuery.refetch,
+    carriedNarrowing: narrowing,
+    clearCarried,
   };
 }

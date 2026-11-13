@@ -169,7 +169,9 @@
       "production": "Org de producción",
       "notChosen": "Sin elegir",
       "notHeld": "Una org que esta máquina ya no tiene"
-    }
+    },
+    "objectCountFormatted_one": "{{formatted}} objeto",
+    "objectCountFormatted_other": "{{formatted}} objetos"
   },
   "status": {
     "apiUsage": "Uso de API"
@@ -3661,7 +3663,7 @@
     "tipLabel": "Consejo:",
     "forge": {
       "step1": "Elija la Org de destino; la Org de origen ya es la org seleccionada en el panel lateral.",
-      "step2": "En la pestaña Registro, pegue un ID de registro o URL de Salesforce y haga clic en Descubrir grafo.",
+      "step2": "Pegue un ID de registro en la pestaña Registro, o elija ALL para copiar toda la org, y haga clic en Descubrir grafo.",
       "step3": "Cuando termine el descubrimiento, haga clic en Revisar y ejecutar.",
       "step4": "Haga clic en Ejecutar Forge y, cuando termine la ejecución, lea la tarjeta Insertados.",
       "tip": "Simular no escribe nada; Ensayar escribe una muestra y la revierte; Eliminar los registros que creó esta ejecución, en Ejecuciones recientes, los borra."
@@ -3990,7 +3992,8 @@
     "piiWarningHint": "Los nombres, las direcciones y otros campos personales se copian tal cual; Anonimizar PII los enmascara.",
     "direct": {
       "action": "Clonar directamente",
-      "hint": "Descubre y clona de una vez, sin la revisión: ninguna discrepancia decidida, sin comparación de metadatos; lo que el destino ejecuta al insertar se le presenta igualmente primero."
+      "hint": "Descubre y clona de una vez, sin la revisión: ninguna discrepancia decidida, sin comparación de metadatos; lo que el destino ejecuta al insertar se le presenta igualmente primero.",
+      "notAll": "Un clon de toda la org no se inicia desde aquí: descúbrala y ejecútelo desde la revisión, que enumera lo que deja fuera y los campos personales que copia tal cual."
     },
     "editTemplate": "Editar",
     "deleteTemplateConfirm": "¿Está seguro de que desea eliminar esta plantilla?",
@@ -4116,7 +4119,53 @@
         "name": "Candidato → Oportunidad",
         "description": "Clona un candidato con su campaña, la cuenta y el contacto resultantes de su conversión y la oportunidad que resulta. Para desarrolladores de Sales Cloud que prueban la conversión de candidatos."
       }
-    }
+    },
+    "wholeOrg": "Toda la org",
+    "allInputDisabled": "ALL copia toda la org de origen, así que no parte de ningún registro, consulta, plantilla ni borrador de IA. Elija otra profundidad para usarlos.",
+    "allCarried": "Opciones heredadas de una plantilla o de una ejecución anterior siguen limitando este clon de toda la org:",
+    "allCarriedFiltered": "Objetos filtrados: {{objects}}",
+    "allCarriedExcluded": "Objetos excluidos: {{objects}}",
+    "allCarriedHeldBack": "Filas retenidas en: {{objects}}",
+    "allCarriedFields": "Campos excluidos en: {{objects}}",
+    "clearCarried": "Quitar estas opciones",
+    "depthAll": "ALL",
+    "allPreviewBody": "El descubrimiento enumera cada objeto de {{source}} que {{target}} puede crear, y cuenta sus registros.",
+    "allPreviewBodyNoTarget": "El descubrimiento enumera cada objeto de {{source}} que la org de destino puede crear, y cuenta sus registros.",
+    "allPreviewNoSource": "Seleccione una org de origen para copiar todos sus datos",
+    "allPreviewPiiOff": "Anonimizar PII está desactivado: cada campo personal de la org de origen se copia tal cual.",
+    "allGraphTooLarge_one": "Su {{formatted}} objeto se lista en lugar de dibujarse, como en todo clon de la org entera y todo grafo de más de 150 objetos: un grafo de cientos de objetos bloquea el panel mientras se dispone. La revisión todavía puede dibujarlo.",
+    "allGraphTooLarge_other": "Sus {{formatted}} objetos se listan en lugar de dibujarse, como en todo clon de la org entera y todo grafo de más de 150 objetos: un grafo de cientos de objetos bloquea el panel mientras se dispone. La revisión todavía puede dibujarlo.",
+    "objectCapAll": "Todos los objetos",
+    "objectCapAllDisabled": "ALL toma cada objeto que el destino puede crear: no hay límite de objetos.",
+    "recordLimitEvery": "Todos los registros",
+    "recordLimitAllDisabled": "ALL copia cada registro de cada objeto: no hay límite por objeto.",
+    "expandOrphanParentsAll": "ALL copia cada tabla entera, así que cada registro principal ya está en la ejecución.",
+    "leftOut": {
+      "missingInTarget": "No existen en la org de destino",
+      "notWritable": "No puede crearlos, editarlos y eliminarlos en la org de destino",
+      "notQueryable": "No puede consultarlos en la org de origen",
+      "unreadable": "Rechazados por la org de origen",
+      "notDescribed": "No se pudo leer su descripción",
+      "empty": "Ningún registro en la org de origen",
+      "setup": "Configuración, usuarios, permisos, registros y trabajos",
+      "metadata": "Metadatos, que se implementan en lugar de copiarse",
+      "unsupportedKind": "Big objects, objetos externos y de Data Cloud, versiones de Knowledge, eventos de plataforma",
+      "chatter": "Noticias de Chatter",
+      "history": "Objetos de historial",
+      "sharing": "Objetos de uso compartido",
+      "changeEvent": "Eventos de cambio",
+      "files": "Archivos y documentos",
+      "noLayout": "sin formato de página",
+      "withTheirRecords": "se copia con los registros a los que está vinculado",
+      "excludedByUser": "Dejados fuera por usted",
+      "platformCreated": "Creados solo por Salesforce, como aprobaciones, insights de Einstein y facturas",
+      "customSetting": "Configuraciones personalizadas: configuración, no se copia salvo que se pida",
+      "feature": "una función que el destino no ha activado lo mantiene cerrado",
+      "parent": "abierto por los registros de los que depende, si acaso"
+    },
+    "depthAllTooltip": "Cada registro de cada objeto que la org de origen deja leer a Forge y que el destino le deja crear",
+    "depthAllHint": "ALL copia toda la org de origen: cada objeto que el destino puede crear, cada registro de cada uno, sin límite. Los objetos que Salesforce no deja crear por API quedan fuera, y la revisión los nombra. Los archivos solo se copian si los marca en la revisión.",
+    "allPreviewRealData": "{{source}} contiene datos de personas reales — una org de producción, o un sandbox marcado como Staging: un clon de toda ella anonimiza sus campos personales, salvo que desmarque Anonimizar PII."
   },
   "forgeRun": {
     "rehearsal": {
@@ -4252,7 +4301,14 @@
       "apiBudgetExceeded": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, y se habría detenido a medio camino. Láncela cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas— o escriba menos registros.",
       "checkpointRefusedFor": "La ejecución se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó. {{reason}} No se escribió nada. Desmarque Primero un punto de control para lanzarla sin él, o corrija lo que lo rechaza.",
       "apiBudgetExceededWithCheckpoint": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, contando el punto de control que debía tomar primero, y se habría detenido a medio camino. Láncela cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas—, escriba menos registros o desmarque Primero un punto de control.",
-      "readBoundExceeded": "La ejecución se rechazó antes de escribir nada: una copia de toda la org lee algunos objetos enteros, y se encontraron más de {{bound}} registros, tantos como el ajuste sandforge.forge.maxRecordsPerObject le deja tener a la vez, en {{objects}}. Aumente el ajuste o excluya estos objetos en la revisión."
+      "readBoundExceeded": "La ejecución se rechazó antes de escribir nada: una copia de toda la org lee algunos objetos enteros, y se encontraron más de {{bound}} registros, tantos como el ajuste sandforge.forge.maxRecordsPerObject le deja tener a la vez, en {{objects}}. Aumente el ajuste o excluya estos objetos en la revisión.",
+      "storageExceededAll": "La ejecución se rechazó antes de escribir nada: los registros de toda la org ocupan unos {{estimate}} MB de almacenamiento de datos, y a la org de destino le quedan {{remaining}} MB. Excluya objetos en la revisión o libere almacenamiento de datos en la org de destino.",
+      "storageExceededFiles": "La ejecución se rechazó antes de escribir nada: los archivos que copia ocupan unos {{estimate}} MB de almacenamiento de archivos, y a la org de destino le quedan {{remaining}} MB. Excluya los archivos en la revisión o libere almacenamiento de archivos en la org de destino.",
+      "apiRequestsExceededTarget": "La ejecución se rechazó antes de escribir nada: necesitaría unas {{estimate}} solicitudes de API de la org de destino, a la que le quedan {{remaining}} hoy. Ejecútela cuando a la org le sobren, o excluya objetos en la revisión.",
+      "apiRequestsExceededSource": "La ejecución se rechazó antes de escribir nada: leer la org de origen necesitaría unas {{estimate}} de sus solicitudes de API, y le quedan {{remaining}} hoy. Ejecútela cuando a la org le sobren, o excluya objetos en la revisión.",
+      "bulkBatchesExceeded": "La ejecución se rechazó antes de escribir nada: sus trabajos de Bulk API necesitarían unos {{estimate}} lotes de la org de destino, a la que le quedan {{remaining}} en las últimas 24 horas. Ejecútela cuando a la org le sobren.",
+      "filesUnread": "La ejecución se rechazó antes de escribir nada: la org de origen no sumó ni enumeró sus archivos, así que no se sabe cuánto almacenamiento de archivos del destino ocupan. Desactive la copia de archivos en la revisión, o vuelva a ejecutarla cuando el origen responda.",
+      "fileStorageUnread": "La ejecución se rechazó antes de escribir nada: la org de destino no indicó cuánto almacenamiento de archivos le queda, así que los archivos que copiar no pudieron compararse con él. Desactive la copia de archivos en la revisión, o vuelva a ejecutarla cuando la org responda."
     },
     "executionTable": {
       "leftOut": "excluido",
@@ -4547,7 +4603,9 @@
         "notCounted_one": "Copiar los registros de {{count}} objeto de {{source}} a {{target}}.",
         "notCounted_other": "Copiar los registros de {{count}} objetos de {{source}} a {{target}}.",
         "oneRecord_one": "Copiar un registro y lo que alcanza en {{count}} objeto, de {{source}} a {{target}}.",
-        "oneRecord_other": "Copiar un registro y lo que alcanza en {{count}} objetos, de {{source}} a {{target}}."
+        "oneRecord_other": "Copiar un registro y lo que alcanza en {{count}} objetos, de {{source}} a {{target}}.",
+        "wholeOrg_one": "Copiar toda la org {{source}} en {{target}}: {{formatted}} registro contado en {{objects}} objetos.",
+        "wholeOrg_other": "Copiar toda la org {{source}} en {{target}}: {{formatted}} registros contados en {{objects}} objetos."
       },
       "left": {
         "none": "No queda nada por decidir.",
@@ -4599,6 +4657,25 @@
           "set_one": "{{count}} ajuste en esta ejecución.",
           "set_other": "{{count}} ajustes en esta ejecución."
         }
+      },
+      "leftOutTitle_one": "Fuera: {{formatted}} objeto de la org de origen",
+      "leftOutTitle_other": "Fuera: {{formatted}} objetos de la org de origen",
+      "leftOutHint": "Los objetos de la org de origen que este clon de toda la org no toma, por motivo: Salesforce no deja crearlos por API, el destino no puede recibirlos o el origen no tiene ninguno.",
+      "wholeOrg": {
+        "personalAsIs_one": "{{formatted}} campo personal, en {{objects}} objetos, llega a {{target}} tal como lo tiene el origen, sin anonimizar. Vuélvalo ficticio en la fila Anonimización.",
+        "personalAsIs_other": "{{formatted}} campos personales, en {{objects}} objetos, llegan a {{target}} tal como los tiene el origen, sin anonimizar. Vuélvalos ficticios en la fila Anonimización.",
+        "personalNone": "Cada campo personal que encontró el descubrimiento se anonimiza.",
+        "personalList": "Los campos, por objeto",
+        "targetHolds_one": "{{target}} ya tiene unos {{formatted}} registro de {{objects}} de estos objetos. La ejecución añade los suyos al lado, no los reemplaza, y un campo único o una regla de duplicados puede rechazar algunos.",
+        "targetHolds_other": "{{target}} ya tiene unos {{formatted}} registros de {{objects}} de estos objetos. La ejecución añade los suyos al lado, no los reemplaza, y un campo único o una regla de duplicados puede rechazar algunos.",
+        "emptyFirst": "Para empezar con un destino vacío, vacíe primero estos objetos en DataOps → Limpieza → Vaciar objetos y luego vuelva a descubrir la org aquí.",
+        "targetHoldsNone": "{{target}} no tiene ningún registro de los objetos que copia la ejecución, según sus recuentos de registros.",
+        "targetHoldsReading": "Leyendo lo que {{target}} ya tiene de estos objetos…",
+        "targetHoldsFailed": "No se pudo leer lo que {{target}} ya tiene de estos objetos: {{message}}",
+        "targetHoldsList": "Los registros que ya están, por objeto",
+        "aboutRecords_one": "unos {{formatted}} registro",
+        "aboutRecords_other": "unos {{formatted}} registros",
+        "emptyFirstAction": "Vaciar primero estos objetos"
       }
     },
     "truncatedRead": "Leído solo en parte: {{objects}}. El origen tiene más filas de las que se clonaron: divida la ejecución con filtros que queden cada uno por debajo del límite para clonar el resto.",
@@ -4672,7 +4749,8 @@
       "done": "Simulación, no se escribió nada. Estas cifras son lo que una ejecución real insertaría, vincularía, retendría y haría fallar; lo que el destino rechazaría o cambiaría en los registros se lista en la revisión.",
       "gapsFound": "Diferencias encontradas con el destino: {{gaps}}",
       "wouldInsert": "Se insertarían",
-      "caption": "Comprueba aquí cada registro, no envía nada."
+      "caption": "Comprueba aquí cada registro, no envía nada.",
+      "wholeOrg": "Para un clon de toda la org, Simular se detiene en el control: no lee ninguna fila más allá de los recuentos y no escribe nada, y dice lo que la ejecución escribiría, tomaría de ambas orgs y dejaría fuera. No se ofrece el ensayo: un ensayo mantiene en memoria cada fila que prepara."
     },
     "gaps": {
       "notRead": "Todavía no se ha leído nada. Simule la ejecución, o ensáyela, para saber qué rechazaría o cambiaría el destino en sus filas.",
@@ -4886,6 +4964,59 @@
     },
     "graph": {
       "title": "Grafo de dependencias"
+    },
+    "discoveryPhase": {
+      "listing": "Listando los objetos de ambas orgs…",
+      "counting": "Contando los registros: {{done}} de {{total}} objetos",
+      "describing": "Describiendo los objetos que tienen registros: {{done}} de {{total}}"
+    },
+    "graphViewSlow_one": "Dibujado como grafo, un clon de la org entera o un grafo de más de 150 objetos puede bloquear el panel un rato, y una ejecución lo vuelve a dibujar en cada paso: la tabla lista su {{formatted}} objeto al instante.",
+    "graphViewSlow_other": "Dibujado como grafo, un clon de la org entera o un grafo de más de 150 objetos puede bloquear el panel un rato, y una ejecución lo vuelve a dibujar en cada paso: la tabla lista sus {{formatted}} objetos al instante.",
+    "wholeOrgDryRun": {
+      "title": "Simulación de toda la org",
+      "stopped": "Se detuvo en el control de escritura de la ejecución una vez contado el origen: no se leyó ninguna fila más allá de los recuentos y no se escribió nada en ninguna de las dos orgs.",
+      "records_one": "{{formatted}} registro que escribir en {{target}}, de {{objects}} objetos, en unos {{duration}}.",
+      "records_other": "{{formatted}} registros que escribir en {{target}}, de {{objects}} objetos, en unos {{duration}}.",
+      "refused_one": "La ejecución se rechazaría, por {{count}} motivo:",
+      "refused_other": "La ejecución se rechazaría, por {{count}} motivos:",
+      "goesThrough": "La ejecución pasaría su control: Ejecutar le pregunta igualmente primero, diciendo lo que escribe y lo que consume.",
+      "allowance": {
+        "fits": "unos {{estimate}}, de {{remaining}} restantes hoy de {{max}}",
+        "near": "unos {{estimate}}, de {{remaining}} restantes hoy de {{max}}: dejaría menos de una décima parte",
+        "exceeds": "unos {{estimate}}, más allá de los {{remaining}} restantes hoy de {{max}}"
+      },
+      "allowanceUnread": "unos {{estimate}}; no se pudo leer lo que queda: {{reason}}",
+      "storage": {
+        "fits": "unos {{estimate}} MB, de {{remaining}} MB restantes de {{max}} MB",
+        "near": "unos {{estimate}} MB, de {{remaining}} MB restantes de {{max}} MB: más del 80 % de lo que queda",
+        "exceeds": "unos {{estimate}} MB, más allá de los {{remaining}} MB restantes de {{max}} MB"
+      },
+      "storageUnread": "unos {{estimate}} MB; no se pudo leer lo que queda: {{reason}}",
+      "targetRequests": "Solicitudes de API de {{org}}, el destino",
+      "sourceRequests": "Solicitudes de API de {{org}}, el origen",
+      "bulkBatches": "Lotes de Bulk API de {{org}}",
+      "dataStorage": "Almacenamiento de datos de {{org}}",
+      "files": "Archivos",
+      "filesNone": "ninguno: la copia de archivos está desactivada",
+      "filesUnmeasured": "sin medir: el origen no los sumó ni los enumeró",
+      "filesCount_one": "{{formatted}} archivo:",
+      "filesCount_other": "{{formatted}} archivos:",
+      "leftOut": "Dejados fuera",
+      "leftOutNone": "nada",
+      "leftOutObjects_one": "{{formatted}} objeto del origen:",
+      "leftOutObjects_other": "{{formatted}} objetos del origen:",
+      "heldBack": "Retenidos",
+      "heldBackRows_one": "{{formatted}} registro de {{objects}}, cuyo tipo de registro está cerrado al usuario con el que escribe la ejecución",
+      "heldBackRows_other": "{{formatted}} registros de {{objects}}, cuyo tipo de registro está cerrado al usuario con el que escribe la ejecución",
+      "personalAsIs": "Campos personales copiados tal cual",
+      "personalNone": "ninguno: todos se anonimizan",
+      "personalFields_one": "{{formatted}} campo, en {{objects}}",
+      "personalFields_other": "{{formatted}} campos, en {{objects}}",
+      "byObject": "Lo que escribiría, por objeto",
+      "object": "Objeto",
+      "recordsColumn": "Registros",
+      "jobsColumn": "Trabajos de Bulk API",
+      "restColumn": "Por REST"
     }
   },
   "autopilot": {
@@ -5994,7 +6125,8 @@
     "heldByAutomationPartlyAfter_other": "{{formatted}} registros de esta ejecución se conservaron por registros creados bajo ellos como su usuario durante la ejecución o, bajo {{after}} de ellos, después de la última escritura de la ejecución, menos de un minuto después de ellos, por la automatización del destino o a mano: {{objects}}.",
     "heldSweepLeft": "El barrido los dejó: su lista dice por qué, y lo que llegó tarde se puede pedir.",
     "takeBackMade": "Recuperar lo que la automatización del destino hizo para esta ejecución y eliminar de nuevo",
-    "takeBackMadeNote": "Esto toma lo vinculado a los registros de esta ejecución. Lo que la automatización modificó en registros que ya estaban se queda: solo un retroceso a un punto de control lo recupera."
+    "takeBackMadeNote": "Esto toma lo vinculado a los registros de esta ejecución. Lo que la automatización modificó en registros que ya estaban se queda: solo un retroceso a un punto de control lo recupera.",
+    "wholeOrgNotSwept": "Esta ejecución clonó toda la org, y su retirada se hizo sin Barrer primero: lo que los Flows y desencadenadores del destino crearon durante las horas de la ejecución no está entre sus registros, no se buscó y se queda en {{org}}."
   },
   "orgAutomation": {
     "assistant": {
@@ -6869,6 +7001,18 @@
     "emailsDelivered": {
       "explanation": "Se rechazó antes de escribir nada: lo que sigue activo de las automatizaciones de la org envía correos, la org los entrega o no dice si lo hace, y no se aceptaron.",
       "action": "No se escribió nada. Vuelva a iniciarlo y marque la casilla que deja a la org enviarlos, o desactive lo que los envía."
+    },
+    "wholeOrgDirect": {
+      "explanation": "Un clon de toda la org no se inicia con Clonar directamente: la revisión enumera lo que deja fuera y los campos personales que copia tal cual, y no se ejecuta sin que se hayan visto. No se leyó ni se escribió nada.",
+      "action": "Descubra la org y luego ejecute el clon desde la revisión."
+    },
+    "wholeOrgRehearsal": {
+      "explanation": "Un clon de toda la org no se ensaya: un ensayo mantiene en memoria cada fila que prepara, lo que ninguna memoria admite para toda una org. No se leyó ni se envió nada.",
+      "action": "Simúlelo en su lugar: su simulación se detiene en su control y dice lo que escribiría, consumiría y dejaría fuera, y Ejecutar pregunta antes de escribir."
+    },
+    "graphWithoutEdges": {
+      "explanation": "Este grafo es el que el historial guarda de un clon de toda la org, sin las relaciones entre sus objetos, con las que una ejecución ordena sus escrituras y enlaza sus búsquedas. No puede ejecutarse tal cual. No se leyó ni se escribió nada.",
+      "action": "Vuelva a descubrir la org desde el panel de Forge, con la profundidad ALL, y ejecútela desde la revisión."
     }
   },
   "moduleSummary": {

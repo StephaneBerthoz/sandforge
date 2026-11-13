@@ -52,6 +52,8 @@ export interface EmptyPanelProps {
   orgId: string;
   /** Its name as the page shows it: the word typed to confirm. */
   orgName: string;
+  /** The objects Empty objects opens with picked: those a clone of the whole org asked to empty first. */
+  initialObjects?: readonly string[];
 }
 
 /** How each section deletes. */
@@ -164,7 +166,7 @@ function useEmptyStop(requestId: string | null): { requested: boolean; stop: () 
  * from here or there; its result offers Undo where Undo is possible, and the
  * org's history says each emptying and undo of the audit trail.
  */
-export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName }) => {
+export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialObjects }) => {
   const { t } = useTranslation();
   const objectsHeadingId = useId();
   const orgHeadingId = useId();
@@ -172,7 +174,7 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName }) => {
   const registeredProduction = !isDevelopmentOrg(org);
   const staging = guardTierOf(org) === 'staging';
 
-  const [picked, setPicked] = useState<string[]>([]);
+  const [picked, setPicked] = useState<string[]>(() => [...(initialObjects ?? [])]);
   const [orgAsked, setOrgAsked] = useState<OrgAsked>({
     customSettings: false,
     files: false,

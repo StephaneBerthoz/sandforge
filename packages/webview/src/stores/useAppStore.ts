@@ -102,6 +102,13 @@ export interface NavigationIntent {
   syncConfig?: { id: string; name: string };
   /** The Settings tab to open on: the tour's "Open AI settings" asks for the AI tab. */
   settingsTab?: 'ai';
+  /**
+   * Open DataOps on Cleanup, its Empty objects section with these objects
+   * picked, for the org `targetOrgId` names and the page has selected: the
+   * Review of a clone of the whole org, whose target already holds records
+   * of the objects it copies.
+   */
+  emptyObjects?: string[];
 }
 
 /** Application-level state for routing, sidebar, and extension readiness */

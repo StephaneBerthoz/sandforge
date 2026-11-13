@@ -17,6 +17,7 @@ import {
   withRecordCap,
 } from '../../utils/forgeRunControls';
 import { soqlRootFilter } from './forgeUtils';
+import { clonesWholeOrg } from './forgeRunConfig';
 import { RECORD_LIMIT_PRESETS } from './useForgeForm';
 import { uiLocale } from '../../utils/formatters';
 
@@ -490,11 +491,20 @@ const FieldRenames: React.FC<
   );
 };
 
-/** The controls of the whole run: the cap on every object's records, and the owners mapped. */
+/**
+ * The controls of the whole run: the cap on every object's records, and the
+ * owners mapped.
+ *
+ * A clone of the whole org offers no cap: ALL copies every record of every
+ * object, and the form greys its own cap for that reason. A cap picked here
+ * would have cut every table of the run to a sample while the run still said
+ * it copied the whole org.
+ */
 const RunControls: React.FC<ControlProps> = ({ config, apply }) => {
   const { t } = useTranslation();
   const id = useId();
   const current = config.maxRecordsPerObject;
+  const capOffered = !clonesWholeOrg(config);
   // The caps the form's own list offers, so that a template saved with one
   // comes back to that list as it was; a cap set otherwise — a query's 200 —
   // is listed as it stands.
@@ -507,30 +517,32 @@ const RunControls: React.FC<ControlProps> = ({ config, apply }) => {
       <h3 id={`${id}-title`} className="font-semibold text-text-primary">
         {t('forgeRun.controls.runTitle')}
       </h3>
-      <div data-testid="controls-cap" className="flex flex-col gap-1">
-        <label htmlFor={`${id}-cap`} className="font-medium text-text-primary">
-          {t('forgeRun.controls.cap.label')}
-        </label>
-        <select
-          id={`${id}-cap`}
-          data-testid="controls-cap-value"
-          value={current !== undefined ? String(current) : ''}
-          onChange={(e) =>
-            apply(
-              withRecordCap(config, e.target.value === '' ? undefined : Number(e.target.value)),
-              'maxRecordsPerObject',
-            )
-          }
-          className={cn(INPUT_CLASS, 'w-48')}
-        >
-          <option value="">{t('forgeRun.controls.cap.none')}</option>
-          {caps.map((cap) => (
-            <option key={cap} value={String(cap)}>
-              {cap.toLocaleString(uiLocale())}
-            </option>
-          ))}
-        </select>
-      </div>
+      {capOffered && (
+        <div data-testid="controls-cap" className="flex flex-col gap-1">
+          <label htmlFor={`${id}-cap`} className="font-medium text-text-primary">
+            {t('forgeRun.controls.cap.label')}
+          </label>
+          <select
+            id={`${id}-cap`}
+            data-testid="controls-cap-value"
+            value={current !== undefined ? String(current) : ''}
+            onChange={(e) =>
+              apply(
+                withRecordCap(config, e.target.value === '' ? undefined : Number(e.target.value)),
+                'maxRecordsPerObject',
+              )
+            }
+            className={cn(INPUT_CLASS, 'w-48')}
+          >
+            <option value="">{t('forgeRun.controls.cap.none')}</option>
+            {caps.map((cap) => (
+              <option key={cap} value={String(cap)}>
+                {cap.toLocaleString(uiLocale())}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <OwnerMappings config={config} apply={apply} idPrefix={id} />
     </section>
   );

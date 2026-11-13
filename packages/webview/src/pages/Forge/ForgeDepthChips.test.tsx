@@ -129,4 +129,62 @@ describe('ForgeDepthChips', () => {
     );
     expect(screen.queryByTestId('forge-depth-custom-hint')).toBeNull();
   });
+
+  describe('ALL', () => {
+    /** The chips with the given depth picked, and the spy that receives a picked depth. */
+    function renderAt(depth: 'direct' | 'all', onDepthChange = vi.fn()) {
+      render(
+        <ForgeDepthChips
+          depth={depth}
+          customDepth={3}
+          onDepthChange={onDepthChange}
+          onCustomDepthChange={vi.fn()}
+          onDepthKeyDown={vi.fn()}
+          depthRefs={{ current: {} }}
+        />,
+      );
+      return onDepthChange;
+    }
+
+    it('comes fourth, after Custom depth, named ALL, and says on hover what it copies', () => {
+      const onDepthChange = renderAt('direct');
+
+      const chips = screen.getAllByRole('radio');
+      expect(chips.map((chip) => chip.getAttribute('data-testid'))).toEqual([
+        'forge-depth-direct',
+        'forge-depth-full',
+        'forge-depth-custom',
+        'forge-depth-all',
+      ]);
+      const all = screen.getByTestId('forge-depth-all');
+      expect(all.textContent).toBe('ALL');
+      expect(all.getAttribute('title')).toBe(
+        'Every record of every object the source org lets Forge read and the target lets it create',
+      );
+      expect(all.getAttribute('aria-checked')).toBe('false');
+      fireEvent.click(all);
+      expect(onDepthChange).toHaveBeenCalledWith('all');
+    });
+
+    it('says under the chips, once picked, what it copies and what it leaves out', () => {
+      renderAt('all');
+
+      const hint = screen.getByTestId('forge-depth-all-hint');
+      expect(hint.textContent).toBe(
+        'ALL copies the whole source org: every object the target can create, every record of each, with no cap. Objects Salesforce does not let an API create are left out, and Review names them. Files are copied only if you tick them on Review.',
+      );
+      const all = screen.getByTestId('forge-depth-all');
+      expect(all.getAttribute('aria-checked')).toBe('true');
+      expect(all.getAttribute('aria-describedby')).toBe(hint.id);
+      // No number to type: ALL walks no relationship.
+      expect(screen.queryByTestId('forge-depth-custom-input')).toBeNull();
+    });
+
+    it('says nothing of it while another depth is picked', () => {
+      renderAt('direct');
+
+      expect(screen.queryByTestId('forge-depth-all-hint')).toBeNull();
+      expect(screen.getByTestId('forge-depth-all').hasAttribute('aria-describedby')).toBe(false);
+    });
+  });
 });

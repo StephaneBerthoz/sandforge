@@ -9,6 +9,7 @@ import type {
   ForgePlan,
   ForgePlanResponse,
   ForgeAnonymizationCategory,
+  ForgeWholeOrgDryRun,
 } from '@sandforge/shared';
 import type {
   AnonymizationMethod,
@@ -425,6 +426,7 @@ const INITIAL_STATE = {
   directDiscoveryError: null as string | null,
   reviewSkipped: false,
   simulation: false,
+  wholeOrgDryRun: null as ForgeWholeOrgDryRun | null,
   retrying: null as ForgeRetryOrigin | null,
 };
 
@@ -746,6 +748,12 @@ export interface ForgeState {
   simulation: boolean;
   /** Mark the run just started as a simulation. */
   markSimulation: () => void;
+  /**
+   * What the dry run of a clone of the whole org on screen said at the gate
+   * it stopped at: what it would write, take and leave out, and every refusal
+   * its run would meet. Null for every other run, and once a run starts.
+   */
+  wholeOrgDryRun: ForgeWholeOrgDryRun | null;
 
   /** Set the forge configuration. */
   setConfig: (config: ForgeConfig) => void;
@@ -801,8 +809,14 @@ export interface ForgeState {
    *
    * @param requestId - The request the answer correlates to.
    * @param result - The run's result, when the answer carries one.
+   * @param wholeOrgDryRun - Of the dry run of a clone of the whole org, what
+   *   it said at its gate.
    */
-  finishRun: (requestId: unknown, result: ForgeExecutionResult | undefined) => void;
+  finishRun: (
+    requestId: unknown,
+    result: ForgeExecutionResult | undefined,
+    wholeOrgDryRun?: ForgeWholeOrgDryRun,
+  ) => void;
   /** Replace the template list with the one the extension keeps. */
   setTemplates: (templates: ForgeTemplate[]) => void;
   /** Add a saved template, or replace the one with the same id. */
@@ -1004,6 +1018,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       apiCallsSoFar: null,
       reviewSkipped: false,
       simulation: false,
+      wholeOrgDryRun: null,
       retrying: null,
       runClock:
         executionRequestId === null
@@ -1196,6 +1211,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
         result: null,
         runClock: null,
         simulation: false,
+        wholeOrgDryRun: null,
         ...(state.graph ? { graph: { ...state.graph, nodes: idleNodes(state.graph.nodes) } } : {}),
         statusesBeyondGraph: {},
       };
@@ -1388,7 +1404,11 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     });
   },
 
-  finishRun(requestId: unknown, result: ForgeExecutionResult | undefined): void {
+  finishRun(
+    requestId: unknown,
+    result: ForgeExecutionResult | undefined,
+    wholeOrgDryRun?: ForgeWholeOrgDryRun,
+  ): void {
     set((state) => {
       if (!ofRunOnScreen(state, requestId)) return state;
       // An answer with no result leaves none on screen: a retry's would
@@ -1405,6 +1425,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
           gaps: { ...state.gaps, simulation: result.gaps ?? [] },
           // Back on Review, the option says what this simulation found.
           checkpointEstimate: runCheckpointEstimateOf(result.checkpoint) ?? null,
+          wholeOrgDryRun: wholeOrgDryRun ?? null,
         };
       }
       return {
@@ -1580,6 +1601,34 @@ function progressUpdate(payload: unknown): ForgeProgressUpdate | null {
 }
 
 /**
+ * What the dry run of a clone of the whole org said at its gate, read as the
+ * untrusted field of a message it is: undefined unless it holds the lists and
+ * totals the page reads it by.
+ */
+function wholeOrgDryRunOf(value: unknown): ForgeWholeOrgDryRun | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const dry = value as Record<string, unknown>;
+  const leftOut = dry.leftOut as Record<string, unknown> | undefined;
+  const read =
+    Array.isArray(dry.wouldInsert) &&
+    Array.isArray(dry.wouldBeRefused) &&
+    Array.isArray(dry.personalAsIs) &&
+    typeof dry.totalRows === 'number' &&
+    typeof dry.durationSeconds === 'number' &&
+    typeof dry.targetRequests === 'object' &&
+    dry.targetRequests !== null &&
+    typeof dry.sourceRequests === 'object' &&
+    dry.sourceRequests !== null &&
+    typeof dry.storage === 'object' &&
+    dry.storage !== null &&
+    typeof leftOut === 'object' &&
+    leftOut !== null &&
+    Array.isArray(leftOut.objects) &&
+    Array.isArray(leftOut.counts);
+  return read ? (value as ForgeWholeOrgDryRun) : undefined;
+}
+
+/**
  * What the extension says of a run — its progress, its answer, its error —
  * taken here rather than by a screen.
  *
@@ -1611,8 +1660,9 @@ function takeRunMessage(event: MessageEvent): void {
   // in its history before it says so: the recent runs are read again.
   useForgeStore.setState((state) => ({ runsEnded: state.runsEnded + 1 }));
   if (data.type === 'forge:execute:response') {
-    const payload = data.payload as { result?: ForgeExecutionResult } | undefined;
-    store.finishRun(data.correlationId, payload?.result);
+    const payload = data.payload as
+      { result?: ForgeExecutionResult; wholeOrgDryRun?: unknown } | undefined;
+    store.finishRun(data.correlationId, payload?.result, wholeOrgDryRunOf(payload?.wholeOrgDryRun));
   } else {
     const payload = (data.payload ?? {}) as {
       message?: unknown;

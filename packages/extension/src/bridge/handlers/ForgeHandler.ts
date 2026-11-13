@@ -20,6 +20,7 @@ import type {
   ForgeRehearsal,
   ForgeRehearsalProgress,
   ForgeWrittenBetween,
+  ForgeWholeOrgDryRun,
   ComplianceFrameworkType,
   GuardDecision,
   MutedAutomation,
@@ -116,6 +117,7 @@ import {
   wholeOrgConfirmationOf,
   type WholeOrgRun,
 } from '../../modules/forge/wholeOrgRun.js';
+import { recordCountsOf } from '../../modules/forge/WholeOrgDiscovery.js';
 import {
   RehearsalCancelledError,
   RehearsalNotRolledBackError,
@@ -588,6 +590,11 @@ const gapsRequestPayloadSchema = z.object({
   config: forgeRunConfigSchema,
 });
 const usersRequestPayloadSchema = z.object({ orgId: orgIdSchema });
+// The objects a clone of the whole org copies, as many as its graph holds.
+const targetRecordsRequestPayloadSchema = z.object({
+  targetOrgId: orgIdSchema,
+  objectApiNames: z.array(z.string().min(1).max(255)).max(5_000),
+});
 
 /**
  * Throttle a function to at most one call per `delayMs`. Subsequent calls
@@ -879,6 +886,7 @@ const FORGE_TYPES = new Set([
   'forge:undo-sweep:request',
   'forge:gaps:request',
   'forge:users:request',
+  'forge:target-records:request',
 ]);
 
 /** Timeout for plan generation in milliseconds. */
@@ -1834,6 +1842,9 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:users:request':
         await this.handleUsersRequest(msg);
+        return true;
+      case 'forge:target-records:request':
+        await this.handleTargetRecordsRequest(msg);
         return true;
       default:
         return false;
@@ -3242,7 +3253,9 @@ export class ForgeHandler implements DomainHandler {
       const response = buildResponse(this.deps, msg, 'forge:execute:response', {
         result,
         operationId,
-        ...(wholeOrgDryRun ? { wholeOrgDryRun } : {}),
+        // Held to the type the page reads it by: a field the gate renames or
+        // retypes fails the build here rather than the page in the panel.
+        ...(wholeOrgDryRun ? { wholeOrgDryRun: wholeOrgDryRun satisfies ForgeWholeOrgDryRun } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.dmlTracker.markCompleted(forgeOpId);
@@ -8020,6 +8033,57 @@ export class ForgeHandler implements DomainHandler {
       sendHandlerError(this.deps, 'forge:users', 'forge:users:error', msg, error, {
         code: 'USERS_ERROR',
       });
+    }
+  }
+
+  /**
+   * What the target already holds of the objects a clone of the whole org
+   * copies, about: the org's own figure of each object's records
+   * (`/limits/recordCount`), read in one request, for Review to say before
+   * the run adds its records to them — and to point at emptying them first.
+   * An object the org gives no figure for, or none above zero, is left out.
+   */
+  private async handleTargetRecordsRequest(msg: InboundRequest): Promise<void> {
+    const parsed = parsePayload(
+      targetRecordsRequestPayloadSchema,
+      msg,
+      'forge:target-records:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    try {
+      const conn = await getJsforceConnection(
+        parsed.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const answer = await new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout(
+        'forge:target-records',
+        () => conn.request<unknown>(`/services/data/v${conn.version}/limits/recordCount`),
+      );
+      const figures = recordCountsOf(answer);
+      if (!figures) throw new Error('The target org answered its record counts in no form known.');
+      const objects = [...new Set(parsed.objectApiNames)]
+        .map((objectApiName) => ({ objectApiName, records: figures.get(objectApiName) ?? 0 }))
+        .filter(({ records }) => records > 0)
+        .sort((a, b) => b.records - a.records || a.objectApiName.localeCompare(b.objectApiName));
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'forge:target-records:response', {
+          targetOrgId: parsed.targetOrgId,
+          objects,
+        }),
+      );
+    } catch (error: unknown) {
+      sendHandlerError(
+        this.deps,
+        'forge:target-records',
+        'forge:target-records:error',
+        msg,
+        error,
+        {
+          code: 'TARGET_RECORDS_ERROR',
+        },
+      );
     }
   }
 }

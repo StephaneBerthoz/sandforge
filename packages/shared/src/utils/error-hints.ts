@@ -877,6 +877,23 @@ const FORGE_REFUSALS: Readonly<Record<string, { keys: HintKeys; severity: ErrorH
     keys: ['errors.ownerMapUnknown.explanation', 'errors.ownerMapUnknown.action'],
     severity: 'warning',
   },
+  // A clone of the whole org refused before it read anything: started by
+  // Clone directly, which skips the Review that lists what it leaves out and
+  // the personal fields it copies as they are; rehearsed, which would hold
+  // every row in memory; or run from the graph its history entry keeps,
+  // without the relations a run orders its writes by.
+  WHOLE_ORG_DIRECT: {
+    keys: ['errors.wholeOrgDirect.explanation', 'errors.wholeOrgDirect.action'],
+    severity: 'warning',
+  },
+  WHOLE_ORG_REHEARSAL: {
+    keys: ['errors.wholeOrgRehearsal.explanation', 'errors.wholeOrgRehearsal.action'],
+    severity: 'warning',
+  },
+  GRAPH_WITHOUT_EDGES: {
+    keys: ['errors.graphWithoutEdges.explanation', 'errors.graphWithoutEdges.action'],
+    severity: 'warning',
+  },
   // Not a failure: the user's own Abort, which came before the run started.
   ABORTED_BEFORE_START: {
     keys: ['errors.abortedBeforeStart.explanation', 'errors.abortedBeforeStart.action'],

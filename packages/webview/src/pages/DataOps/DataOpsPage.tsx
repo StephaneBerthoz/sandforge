@@ -122,7 +122,22 @@ export const DataOpsPage: React.FC = () => {
   );
   const addNotification = useNotificationStore((s) => s.addNotification);
 
-  const [activeTab, setActiveTab] = useState('backup');
+  // Forge's Review of a clone of the whole org opens Cleanup on Empty
+  // objects with the objects the target already holds records of picked,
+  // for the org it selected: that once, and for that org alone.
+  const navigationIntent = useAppStore((s) => s.navigationIntent);
+  const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
+  const [emptyFirst] = useState(() =>
+    navigationIntent?.route === 'dataops' &&
+    navigationIntent.emptyObjects !== undefined &&
+    navigationIntent.targetOrgId === currentOrg?.id
+      ? { orgId: navigationIntent.targetOrgId, objects: navigationIntent.emptyObjects }
+      : null,
+  );
+  useEffect(() => {
+    if (navigationIntent?.route === 'dataops') clearNavigationIntent();
+  }, [navigationIntent, clearNavigationIntent]);
+  const [activeTab, setActiveTab] = useState(emptyFirst ? 'cleanup' : 'backup');
   const [selectedBackupId, setSelectedBackupId] = useState<string>('');
   /** A restore writes every row back rather than the rows that changed since the backup. */
   const [rewriteAll, setRewriteAll] = useState(false);
@@ -826,7 +841,14 @@ export const DataOpsPage: React.FC = () => {
           {activeTab === 'cleanup' && currentOrg && orgName && (
             <div className="flex flex-col gap-6">
               <CleanupPanel key={currentOrg.id} orgId={currentOrg.id} orgName={orgName} />
-              <EmptyPanel key={`empty-${currentOrg.id}`} orgId={currentOrg.id} orgName={orgName} />
+              <EmptyPanel
+                key={`empty-${currentOrg.id}`}
+                orgId={currentOrg.id}
+                orgName={orgName}
+                {...(emptyFirst?.orgId === currentOrg.id
+                  ? { initialObjects: emptyFirst.objects }
+                  : {})}
+              />
             </div>
           )}
 

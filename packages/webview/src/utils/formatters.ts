@@ -9,7 +9,10 @@
  * interface language. The date/currency/relative-time helpers below are
  * webview-only (Intl + i18n shaped for the UI).
  */
-import { formatNumber as formatNumberIn } from '@sandforge/shared';
+import {
+  formatDurationSec as formatDurationSecIn,
+  formatNumber as formatNumberIn,
+} from '@sandforge/shared';
 import { format } from 'date-fns';
 // The i18next singleton, not `../i18n`: that module initialises it for React
 // and the panel imports it once at boot. Reading the instance is all this
@@ -23,6 +26,20 @@ export {
   formatElapsed,
   formatSizeMB,
 } from '@sandforge/shared';
+
+/**
+ * An estimated duration in seconds, to the nearest second: "11s" for 10.6.
+ *
+ * `formatDurationSec` cuts the seconds it does not say and writes what falls
+ * under one in milliseconds, which suits a time measured. An estimate said
+ * "10s" for 10.6 s and "400ms" for a wave of 0.4 s, a precision it never had;
+ * and a plan of two hours said "7200s". Under a second it says "1s", and an
+ * estimate of nothing "0s".
+ */
+export function formatEstimateSec(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0s';
+  return formatDurationSecIn(Math.max(1, Math.round(seconds)));
+}
 
 /** `en` of `en-GB`, lower-cased. */
 function primarySubtag(tag: string): string {

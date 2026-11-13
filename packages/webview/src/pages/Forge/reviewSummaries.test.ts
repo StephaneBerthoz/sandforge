@@ -4,6 +4,7 @@ import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
 import ja from '../../i18n/locales/ja.json';
+import { wholeOrgGraph } from './testing/wholeOrg';
 import {
   anonymizationRowSaid,
   automationRowSaid,
@@ -68,6 +69,22 @@ beforeAll(() => {
 
 afterEach(async () => {
   await i18n.changeLanguage('en');
+});
+
+describe('the run of the whole org in a sentence', () => {
+  it('names the whole source, the records counted and the objects they are in', () => {
+    const graph = wholeOrgGraph();
+    expect(
+      runSentence(i18n.t as TFunction, {
+        graph,
+        buckets: forgeRunBuckets(graph),
+        config: null,
+        oneRecord: false,
+        wholeOrg: true,
+        ...ORGS,
+      }),
+    ).toBe('Copy the whole of DevSandbox into QASandbox: 9,400 records counted in 4 objects.');
+  });
 });
 
 describe('the run in a sentence', () => {

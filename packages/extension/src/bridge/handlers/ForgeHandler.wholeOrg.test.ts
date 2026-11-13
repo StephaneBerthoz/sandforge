@@ -624,7 +624,11 @@ describe('forge:execute of the whole org', () => {
 
       await execute({ files: { maxFileSizeMB: 25, acceptedAsIs: true } });
 
-      expect(String(expectRefused('FILES_UNREAD').message)).toContain('turn the copy of files off');
+      const refused = expectRefused('FILES_UNREAD');
+      expect(String(refused.message)).toContain('turn the copy of files off');
+      // A stop of the gate, as the page reads one: it goes back to Review and
+      // says it in the user's language rather than the host's English.
+      expect(refused.gate).toEqual({ code: 'FILES_UNREAD' });
     });
 
     it('for files whose fit the target would not tell', async () => {
@@ -642,7 +646,7 @@ describe('forge:execute of the whole org', () => {
 
       await execute({ files: { maxFileSizeMB: 25, acceptedAsIs: true } });
 
-      expectRefused('FILE_STORAGE_UNREAD');
+      expect(expectRefused('FILE_STORAGE_UNREAD').gate).toEqual({ code: 'FILE_STORAGE_UNREAD' });
     });
 
     it.each([

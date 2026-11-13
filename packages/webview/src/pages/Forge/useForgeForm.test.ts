@@ -232,11 +232,11 @@ function lastPayload<T>(type: string): T {
 }
 
 describe('depthKeyOf', () => {
-  it("names the depth each chip walks, and none of the whole org's, which walks none", () => {
+  it('names the depth each chip walks, the whole org by its own chip, ALL', () => {
     expect(depthKeyOf('direct')).toBe('forge.depthDirect');
     expect(depthKeyOf('full')).toBe('forge.depthFull');
     expect(depthKeyOf('custom')).toBe('forge.depthCustom');
-    expect(depthKeyOf('all')).toBeUndefined();
+    expect(depthKeyOf('all')).toBe('forge.depthAll');
   });
 });
 
@@ -410,7 +410,7 @@ describe('useForgeForm run history', () => {
     expect(result.current.canDiscover).toBe(false);
   });
 
-  it('never discovers a clone of the whole org a stored run brings back: no tab of the page starts one', () => {
+  it('puts a clone of the whole org a stored run brings back under the ALL chip, which discovers the org alone', () => {
     const { result } = renderHook(() => useForgeForm());
 
     act(() => {
@@ -426,7 +426,14 @@ describe('useForgeForm run history', () => {
       });
     });
 
-    expect(result.current.canDiscover).toBe(false);
+    expect(result.current.depth).toBe('all');
+    expect(result.current.wholeOrg).toBe(true);
+    // No tab starts it: the Record tab is shown, empty, under the chip.
+    expect(result.current.inputMode).toBe('record');
+    expect(result.current.recordId).toBe('');
+    expect(result.current.canDiscover).toBe(true);
+    // Run from Review alone.
+    expect(result.current.canCloneDirectly).toBe(false);
   });
 
   it("does not let the AI mode discover from the SOQL tab's query", () => {
@@ -996,6 +1003,22 @@ describe('applying a saved template', () => {
         maxFileSizeMB: 20,
         acceptedAsIs: false,
       });
+    });
+
+    // A whole org's files go only once Review's option is ticked for it.
+    it('puts no file copy on a clone of the whole org picked after it', () => {
+      const { result } = renderHook(() => useForgeForm());
+      act(() => result.current.setSourceOrgId('org-src'));
+      act(() => result.current.setTargetOrgId('org-tgt'));
+      act(() => {
+        result.current.applyTemplate(DECIDED);
+      });
+      act(() => result.current.setDepth('all'));
+      act(() => result.current.handleDiscover());
+
+      const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+      expect(config).toMatchObject({ inputMode: 'org', depth: 'all' });
+      expect(useForgeStore.getState().fileCopy.enabled).toBe(false);
     });
 
     it('keeps its anonymized fields for the graph its discovery answers with', () => {

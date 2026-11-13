@@ -237,9 +237,16 @@ vi.mock('../../bridge/sendBridgeMessage', async (importOriginal) => ({
 }));
 
 const mockNavigate = vi.fn();
+let mockNavigationIntent: Record<string, unknown> | null = null;
+const mockClearNavigationIntent = vi.fn();
 vi.mock('../../stores/useAppStore', () => ({
   useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ navigate: mockNavigate, currentRoute: 'dataops' }),
+    selector({
+      navigate: mockNavigate,
+      currentRoute: 'dataops',
+      navigationIntent: mockNavigationIntent,
+      clearNavigationIntent: mockClearNavigationIntent,
+    }),
 }));
 
 describe('DataOpsPage', () => {
@@ -636,6 +643,33 @@ describe('DataOpsPage', () => {
     render(<DataOpsPage />);
     fireEvent.click(screen.getByText('Anonymize'));
     expect(screen.getByTestId('anonymize-panel')).toBeDefined();
+  });
+
+  // Forge's Review of a clone of the whole org sends the target here, the
+  // objects it already holds records of to be emptied first.
+  it('opens on Cleanup for the org a whole-org clone asked to empty first, that once', async () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    mockNavigationIntent = { route: 'dataops', targetOrgId: 'org-1', emptyObjects: ['Contact'] };
+    try {
+      render(<DataOpsPage />);
+
+      expect(await screen.findByTestId('cleanup-panel')).toBeDefined();
+      expect(mockClearNavigationIntent).toHaveBeenCalled();
+    } finally {
+      mockNavigationIntent = null;
+    }
+  });
+
+  it('opens on its first tab when the intent names another org than the one selected', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    mockNavigationIntent = { route: 'dataops', targetOrgId: 'org-9', emptyObjects: ['Contact'] };
+    try {
+      render(<DataOpsPage />);
+
+      expect(screen.queryByTestId('cleanup-panel')).toBeNull();
+    } finally {
+      mockNavigationIntent = null;
+    }
   });
 
   it('should open the cleanup scan on the cleanup tab, for the selected org', async () => {

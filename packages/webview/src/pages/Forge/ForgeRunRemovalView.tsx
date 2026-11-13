@@ -601,6 +601,7 @@ export interface ForgeRunRemovalResultProps {
     | 'mutedAutomation'
     | 'heldByOtherParts'
     | 'otherPartsLeft'
+    | 'wholeOrgNotSwept'
   >;
   /** The org it removed from, as the user knows it. */
   org: string;
@@ -797,6 +798,14 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
         </p>
       )}
       {result.sweep && <ForgeRunSweepResult result={result.sweep} org={org} />}
+      {/* Of a clone of the whole org removed without its sweep, as it is
+          unless asked: what the target's automation made in the run's hours
+          was not looked for, and stays. */}
+      {result.wholeOrgNotSwept && (
+        <p data-testid="forge-removal-whole-org-not-swept" className="text-text-secondary">
+          {t('runRemoval.wholeOrgNotSwept', { org })}
+        </p>
+      )}
       {automationKeys && heldByAutomation > 0 && (
         <div data-testid="forge-removal-held-by-automation" className="flex flex-col gap-1">
           <p className="text-status-warning wrap-break-word">

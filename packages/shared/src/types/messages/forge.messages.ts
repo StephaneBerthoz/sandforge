@@ -15,6 +15,7 @@ import type {
   ForgeTargetGaps,
   ForgeTemplate,
   ForgeUndoResult,
+  ForgeWholeOrgDryRun,
 } from '../forge.types.js';
 import type { AnonymizationMethod } from '../common.types.js';
 import type { RunCheckpointRequest } from '../checkpoint.types.js';
@@ -370,6 +371,16 @@ export interface ForgeUsersRequest extends BaseMessage {
   payload: { orgId: string };
 }
 
+/**
+ * `forge:target-records:request`. WebView -> Extension. What the target org
+ * already holds of the objects a clone of the whole org copies, for Review
+ * to say before the run adds to it.
+ */
+export interface ForgeTargetRecordsRequest extends BaseMessage {
+  type: 'forge:target-records:request';
+  payload: { targetOrgId: string; objectApiNames: string[] };
+}
+
 // ─── Forge responses & events (Extension -> WebView) ────────────────────────
 
 /** `forge:preview:response`. Extension -> WebView. Record preview for the wizard. */
@@ -442,10 +453,18 @@ export interface ForgeAbortErrorMessage extends BaseMessage {
   payload: { message: string; code: string; retryable: boolean };
 }
 
-/** `forge:execute:response`. Extension -> WebView. Final execution result. */
+/**
+ * `forge:execute:response`. Extension -> WebView. Final execution result; of
+ * the dry run of a clone of the whole org, what it says at the gate it
+ * stopped at besides (`wholeOrgDryRun`).
+ */
 export interface ForgeExecuteResponse extends BaseMessage {
   type: 'forge:execute:response';
-  payload: { result: ForgeExecutionResult; operationId: string };
+  payload: {
+    result: ForgeExecutionResult;
+    operationId: string;
+    wholeOrgDryRun?: ForgeWholeOrgDryRun;
+  };
 }
 
 /**
@@ -758,5 +777,22 @@ export interface ForgeUsersResponse extends BaseMessage {
 /** `forge:users:error`. Extension -> WebView (emitted via sendHandlerError). */
 export interface ForgeUsersErrorMessage extends BaseMessage {
   type: 'forge:users:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `forge:target-records:response`. Extension -> WebView. Of the objects
+ * asked, those the target holds records of, with about how many: the figures
+ * of the org's record counts (`/limits/recordCount`), which the org updates
+ * on its own schedule. An object the org gives no figure for is left out.
+ */
+export interface ForgeTargetRecordsResponse extends BaseMessage {
+  type: 'forge:target-records:response';
+  payload: { targetOrgId: string; objects: Array<{ objectApiName: string; records: number }> };
+}
+
+/** `forge:target-records:error`. Extension -> WebView (emitted via sendHandlerError). */
+export interface ForgeTargetRecordsErrorMessage extends BaseMessage {
+  type: 'forge:target-records:error';
   payload: { message: string; code: string; retryable: boolean };
 }

@@ -9,7 +9,7 @@ Forge needs two orgs: one that holds the records, and one to fill. With a single
 ## How to
 
 1. Pick the Target Org; the Source Org is already the org selected in the side panel.
-2. On the Record tab, paste a Record ID or Salesforce URL, then click Discover Graph.
+2. Paste a Record ID on the Record tab, or pick ALL to copy the whole org, then click Discover Graph.
 3. When discovery ends, click Review & Execute.
 4. Click Execute Forge, then read the Inserted card once the run ends.
 
@@ -133,6 +133,7 @@ You type the org's name to go on, and Production Guard refuses a production org.
 
 ## Going further
 
+- [Copy the whole org (ALL)](forge-reference.md#copy-the-whole-org-all): the fourth depth chip clones every object the target can create; what it leaves out, its prudent defaults, its dry run that stops at the gate, and its refusals
 - [Graph or table](forge-reference.md#graph-or-table): with `sandforge.forge.graphView` on `auto`, the default, the graph is drawn up to 25 objects and listed in a table past that, or on a panel narrower than 560 pixels
 - [What the target runs as the clone writes](forge-reference.md#what-the-target-runs-as-the-clone-writes): the **Automation** row, and what Review reads of the target's metadata
 - [Emails and phone numbers](forge-reference.md#emails-and-phone-numbers), neutralized unless you keep them, and [whether the emails go out](forge-reference.md#whether-the-emails-go-out)

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import en from '../i18n/locales/en.json';
 import { runElapsedSeconds, settledPercent, useForgeStore } from './useForgeStore';
+import { wholeOrgDryRun } from '../pages/Forge/testing/wholeOrg';
 import type { ForgeGap } from '@sandforge/shared';
 import type {
   ForgeConfig,
@@ -1087,6 +1088,56 @@ describe('useForgeStore', () => {
       expect(getState().result).toEqual(result);
       expect(getState().phase).toBe('results');
       expect(getState().history.map((r) => r.forgeId)).toEqual(['forge-answered']);
+    });
+
+    // The dry run of a clone of the whole org stops at its gate: what it says
+    // there comes beside its result, and the results show it.
+    it('keeps what the dry run of a clone of the whole org said at its gate, until the next run', () => {
+      runOnScreen();
+      const dry = wholeOrgDryRun();
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'host-dry',
+            type: 'forge:execute:response',
+            timestamp: Date.now(),
+            correlationId: 'wv-run-1',
+            payload: {
+              result: createMockResult({ dryRun: true }),
+              operationId: 'forge-execute-1',
+              wholeOrgDryRun: dry,
+            },
+          },
+        }),
+      );
+
+      expect(getState().phase).toBe('results');
+      expect(getState().wholeOrgDryRun).toEqual(dry);
+
+      getState().setExecutionRequestId('wv-run-2');
+      expect(getState().wholeOrgDryRun).toBeNull();
+    });
+
+    it('takes no dry run of the whole org that does not read as one', () => {
+      runOnScreen();
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'host-dry',
+            type: 'forge:execute:response',
+            timestamp: Date.now(),
+            correlationId: 'wv-run-1',
+            payload: {
+              result: createMockResult({ dryRun: true }),
+              operationId: 'forge-execute-1',
+              wholeOrgDryRun: { wouldInsert: 'all of it' },
+            },
+          },
+        }),
+      );
+
+      expect(getState().phase).toBe('results');
+      expect(getState().wholeOrgDryRun).toBeNull();
     });
 
     it('shows the results of a run whose answer carried no result', () => {

@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useForgeStore } from '../../stores/useForgeStore';
+import type { ForgeConfig, ForgeRunGateStop } from '@sandforge/shared';
 import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { useForgeRunGateStore } from './runGate';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
@@ -126,6 +128,87 @@ describe('ForgeRunGateNotice', () => {
     expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
       'The run was refused before it wrote anything: a clone of the whole org reads a few objects whole, and more than 50,000 records, as many as the sandforge.forge.maxRecordsPerObject setting lets it hold at once, were found in PricebookEntry, Product2. Raise the setting, or leave these objects out on Review.',
     );
+  });
+
+  /*
+   * The refusals of a clone of the whole org, said in the user's language:
+   * which storage, which allowance of which org, and files that could not be
+   * weighed. The host words them in English, and the page showed that.
+   */
+  describe('of a clone of the whole org', () => {
+    beforeEach(() => {
+      act(() =>
+        useForgeStore.getState().setConfig({
+          inputMode: 'org',
+          depth: 'all',
+          anonymizePII: true,
+          skipEmpty: false,
+          batchSize: 'auto',
+          sourceOrgId: 'org-src',
+          targetOrgId: 'org-tgt',
+        } as ForgeConfig),
+      );
+    });
+
+    afterEach(() => {
+      act(() => useForgeStore.setState({ config: null }));
+    });
+
+    it.each([
+      [
+        'the files it copies past the file storage left',
+        {
+          code: 'STORAGE_EXCEEDED',
+          storage: { estimateMB: 2_048, remainingMB: 900, kind: 'files' },
+        },
+        'The run was refused before it wrote anything: the files it copies take about 2,048 MB of file storage, and the target org has 900 MB left. Leave the files out on Review, or free file storage in the target org.',
+      ],
+      [
+        'its records past the data storage left',
+        { code: 'STORAGE_EXCEEDED', storage: { estimateMB: 3_500, remainingMB: 1_000 } },
+        'The run was refused before it wrote anything: the records of the whole org take about 3,500 MB of data storage, and the target org has 1,000 MB left. Leave objects out on Review, or free data storage in the target org.',
+      ],
+      [
+        "its reads past the source's requests",
+        {
+          code: 'API_BUDGET_EXCEEDED',
+          api: { kind: 'requests', org: 'source', estimate: 120_000, remaining: 4_000 },
+        },
+        'The run was refused before it wrote anything: reading the source org would take about 120,000 of its API requests, and it has 4,000 left today. Run it once the org has more to spare, or leave objects out on Review.',
+      ],
+      [
+        "its writes past the target's requests",
+        {
+          code: 'API_BUDGET_EXCEEDED',
+          api: { kind: 'requests', org: 'target', estimate: 60_000, remaining: 5_000 },
+        },
+        'The run was refused before it wrote anything: it would take about 60,000 API requests of the target org, which has 5,000 left today. Run it once the org has more to spare, or leave objects out on Review.',
+      ],
+      [
+        "its jobs past the target's Bulk API batches",
+        {
+          code: 'API_BUDGET_EXCEEDED',
+          api: { kind: 'bulkBatches', org: 'target', estimate: 16_000, remaining: 2_000 },
+        },
+        'The run was refused before it wrote anything: its Bulk API jobs would take about 16,000 batches of the target org, which has 2,000 left over the last 24 hours. Run it once the org has more to spare.',
+      ],
+      [
+        'files the source would neither sum nor list',
+        { code: 'FILES_UNREAD' },
+        'The run was refused before it wrote anything: the source org would neither sum nor list its files, so what they take of the target’s file storage is not known. Turn the copy of files off on Review, or run it again once the source answers.',
+      ],
+      [
+        'files whose fit the target would not tell',
+        { code: 'FILE_STORAGE_UNREAD' },
+        'The run was refused before it wrote anything: the target org would not say what file storage it has left, so the files to copy could not be weighed against it. Turn the copy of files off on Review, or run it again once the org answers.',
+      ],
+    ])('alerts that it was refused for %s', (_what, stop, text) => {
+      act(() => useForgeRunGateStore.getState().setStop(stop as ForgeRunGateStop));
+      render(<ForgeRunGateNotice />);
+
+      expect(screen.getByTestId('forge-run-gate-notice').getAttribute('role')).toBe('alert');
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(text);
+    });
   });
 
   it('goes once dismissed', () => {

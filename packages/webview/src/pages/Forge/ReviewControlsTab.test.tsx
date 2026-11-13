@@ -257,6 +257,17 @@ describe('ReviewControlsTab', () => {
     ).toContain('200');
   });
 
+  it('offers no cap on a clone of the whole org, which copies every record', () => {
+    act(() =>
+      useForgeStore
+        .getState()
+        .updateConfig((c) => ({ ...c, inputMode: 'org', depth: 'all', recordId: undefined })),
+    );
+
+    expect(screen.queryByTestId('controls-cap')).toBeNull();
+    expect(screen.getByTestId('controls-owner-target')).toBeTruthy();
+  });
+
   it("gives a source user's records to the target's user picked by name, keeping the ids", () => {
     expect(sentAll('forge:users:request').map((m) => m.payload)).toEqual([{ orgId: 'org-target' }]);
     const target = screen.getByTestId('controls-owner-target');

@@ -455,6 +455,8 @@ const AutomationMessages = [
   msg('forge:gaps:request'),
   // An org's active users, for Review's owner mapping.
   msg('forge:users:request'),
+  // What the target already holds of the objects a clone of the whole org copies.
+  msg('forge:target-records:request'),
   // Forge responses / progress events / error channels (Extension -> WebView).
   msg('forge:preview:response'),
   msg('forge:preview:error'),
@@ -499,6 +501,8 @@ const AutomationMessages = [
   msg('forge:gaps:error'),
   msg('forge:users:response'),
   msg('forge:users:error'),
+  msg('forge:target-records:response'),
+  msg('forge:target-records:error'),
 ] as const;
 export const AutomationMessageSchema = z.discriminatedUnion('type', AutomationMessages);
 

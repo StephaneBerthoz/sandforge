@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FORGE_RUN_GATE_CODES, forgeRunGateStopOf, isForgeRunGateCode } from './forge-run-gate.js';
 
 describe('forge run gate stops', () => {
-  it('names the nine ways a run stops at its gate', () => {
+  it('names the eleven ways a run stops at its gate', () => {
     expect(FORGE_RUN_GATE_CODES).toEqual([
       'PRODUCTION_TARGET',
       'AUTOMATION_DECLINED',
@@ -13,7 +13,19 @@ describe('forge run gate stops', () => {
       'CHECKPOINT_REFUSED',
       'API_BUDGET_EXCEEDED',
       'READ_BOUND_EXCEEDED',
+      'FILES_UNREAD',
+      'FILE_STORAGE_UNREAD',
     ]);
+  });
+
+  // A clone of the whole org asked for its files is refused at its gate when
+  // either org would not say what they take: read as any other stop, the page
+  // says it in the user's language where it said the host's English.
+  it('reads a refusal of the files of a clone of the whole org that could not be weighed', () => {
+    expect(forgeRunGateStopOf({ code: 'FILES_UNREAD' })).toEqual({ code: 'FILES_UNREAD' });
+    expect(forgeRunGateStopOf({ code: 'FILE_STORAGE_UNREAD' })).toEqual({
+      code: 'FILE_STORAGE_UNREAD',
+    });
   });
 
   it('reads which storage a refusal for storage names, the data storage when it says none', () => {

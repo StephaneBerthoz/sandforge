@@ -36,6 +36,11 @@ import * as z from 'zod';
  *   than `sandforge.forge.maxRecordsPerObject` lets a run hold at once.
  *   Refused before anything was written, rather than cut short: the setting
  *   bounds the memory, and nobody declined anything.
+ * - `FILES_UNREAD`: a clone of the whole org asked to copy files, and the
+ *   source would neither sum nor list them: what they take of the target's
+ *   file storage is not known.
+ * - `FILE_STORAGE_UNREAD`: the same, the target not saying what file storage
+ *   it has left.
  */
 /**
  * The rows of one object past which a run reading it with no cap asks first
@@ -62,6 +67,8 @@ export const FORGE_RUN_GATE_CODES = [
   'CHECKPOINT_REFUSED',
   'API_BUDGET_EXCEEDED',
   'READ_BOUND_EXCEEDED',
+  'FILES_UNREAD',
+  'FILE_STORAGE_UNREAD',
 ] as const;
 
 /** A way a Forge run stops at its gate. */

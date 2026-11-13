@@ -158,6 +158,10 @@ With **Forge**, for a record and what hangs on it: paste the record's Id or URL,
 
 Seed's **Clone from Org**, under the template gallery, copies the objects you pick, with an optional SOQL WHERE filter per object, in dependency order, and gives an ID mapping table (source ID to new ID) you can export as CSV. What it created in the target is kept, and taken back from its results or **Earlier seeds**, as a seed is.
 
+### Can Forge copy a whole org?
+
+Yes: pick **ALL** under **Depth** on the Forge page, or `sandforge-clone --depth all`. It copies every object the target can create and every record of each, and leaves out, named with why, what no API creates — setup, users, logs, history, feeds — and what the target lacks. It is run from Review, its files only when ticked, and it anonymizes the personal fields of a production source unless you untick it. **Simulate** stops at its gate and says what it would write and what it would take of both orgs' daily API requests, Bulk API batches and storage. It adds to what the target holds, never replaces it: to start from an empty target, empty its objects first in **DataOps → Cleanup**. See [Copy the whole org](forge-reference.md#copy-the-whole-org-all).
+
 ### Can I clone self-referential objects (e.g., Account.ParentId)?
 
 Yes. SandForge detects self-referential relationships and uses a two-pass insert: the first pass inserts records without self-references, the second pass updates self-referential fields with the remapped IDs. A cycle between objects -- an account pointing at its key contact while the contact points at its account -- is written the same way: the lookup that points at the object written later goes in empty and is filled in by the second pass. Only a cycle of lookups that must be set when the record is created is reported as an error, before anything is written.

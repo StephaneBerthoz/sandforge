@@ -74,7 +74,8 @@ interface MockConfig {
   defaultValues?: ForgeDefaultValue[];
   maxRecordsPerObject?: number;
   objectSoqlFilters?: Record<string, string>;
-  inputMode?: 'record';
+  inputMode?: 'record' | 'org';
+  depth?: 'all';
   recordId?: string;
 }
 
@@ -221,7 +222,7 @@ describe('ForgeReview', () => {
     mockFileCopy = { ...NO_FILES };
     mockMuteAutomation = false;
     mockSetMuteAutomation.mockClear();
-    useForgeViewStore.setState({ setting: 'auto', choice: null });
+    useForgeViewStore.setState({ setting: 'auto', choice: null, choiceOnLarge: false });
     mockGaps = { metadata: [], simulation: [], rehearsal: [] };
   });
 
@@ -1498,5 +1499,80 @@ describe('ForgeReview', () => {
     expect(plan.getAttribute('aria-controls')).toBe('tabpanel-plan');
     fireEvent.click(plan);
     expect(screen.getByRole('region', { name: 'Plan' }).id).toBe('tabpanel-plan');
+  });
+
+  /* ---- A clone of the whole org ---- */
+
+  describe('of a clone of the whole org', () => {
+    beforeEach(() => {
+      mockConfig = { ...defaultConfig, anonymizePII: false, inputMode: 'org', depth: 'all' };
+      mockGraph = {
+        ...defaultGraph,
+        edges: [
+          {
+            sourceObject: 'Contact',
+            targetObject: 'Account',
+            relationshipName: 'AccountId',
+            type: 'lookup',
+          },
+        ],
+        leftOut: [{ objectApiName: 'AccountFeed', reason: 'chatter' }],
+      };
+    });
+
+    it('says before Execute the personal fields it copies as they are, and describes Execute by it', () => {
+      render(<ForgeReview />);
+
+      expect(screen.getByTestId('review-personal-as-is').textContent).toContain(
+        '3 personal fields, on 2 objects',
+      );
+      expect(screen.getByTestId('execute-button').getAttribute('aria-describedby')).toContain(
+        'review-personal-as-is',
+      );
+    });
+
+    // A rehearsal holds every row it prepares; the dry run stops at the gate.
+    it('offers Simulate, not Rehearse, and says why under the two', () => {
+      render(<ForgeReview />);
+
+      const rehearse = screen.getByTestId('rehearse-button') as HTMLButtonElement;
+      expect(rehearse.disabled).toBe(true);
+      expect(rehearse.getAttribute('aria-describedby')).toContain('forge-all-simulation');
+      const simulate = screen.getByTestId('simulate-button') as HTMLButtonElement;
+      expect(simulate.disabled).toBe(false);
+      expect(simulate.getAttribute('aria-describedby')).toContain('forge-all-simulation');
+      expect(screen.getByTestId('forge-all-simulation').textContent).toContain(
+        'Simulate stops at the gate',
+      );
+    });
+
+    it('asks for its automation without the relations of its objects or what it leaves out', () => {
+      render(<ForgeReview />);
+
+      const [, payload] = mockSendBridgeMessage.mock.calls.find(
+        (call) => call[0] === 'forge:automation:request',
+      ) as [string, { graph: ForgeGraph }];
+      expect(payload.graph.edges).toEqual([]);
+      expect(payload.graph).not.toHaveProperty('leftOut');
+      expect(payload.graph.nodes.map((n) => n.objectApiName)).toEqual(['Account', 'Contact']);
+    });
+
+    it('lists its objects in a table whatever the setting says, with a word of how slow the graph is', () => {
+      useForgeViewStore.setState({ setting: 'graph' });
+      render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-plan'));
+
+      expect(screen.queryByTestId('live-graph')).toBeNull();
+      expect(screen.getByTestId('forge-view-graph-slow')).toBeDefined();
+      expect(screen.getByTestId('review-left-out').textContent).toContain(
+        'Left out: 1 object of the source org',
+      );
+    });
+
+    it('says the run as the whole of the source', () => {
+      render(<ForgeReview />);
+
+      expect(screen.getByTestId('review-sentence').textContent).toContain('Copy the whole of');
+    });
   });
 });

@@ -220,6 +220,27 @@ describe('ForgeHistoryPanel', () => {
     expect(onReuseConfig).toHaveBeenCalledWith(SOQL_RUN.config);
   });
 
+  // A clone of the whole org starts from no tab and walks no depth: named
+  // by what it cloned, its line said nothing at all.
+  it('names a clone of the whole org by what it cloned, and its depth ALL', () => {
+    const wholeOrg: ForgeExecutionResult = {
+      ...RECORD_RUN,
+      forgeId: 'forge-all',
+      config: {
+        inputMode: 'org',
+        depth: 'all',
+        anonymizePII: true,
+        skipEmpty: false,
+        batchSize: 'auto',
+      },
+    };
+    render(<ForgeHistoryPanel entries={[wholeOrg]} error={null} onReuseConfig={vi.fn()} />);
+
+    expect(screen.getByTestId('forge-history-entry-forge-all').textContent).toContain(
+      'Whole org · ALL',
+    );
+  });
+
   it('confirms the refill instead of leaving the button silent', () => {
     render(<ForgeHistoryPanel entries={[RECORD_RUN]} error={null} onReuseConfig={vi.fn()} />);
 
