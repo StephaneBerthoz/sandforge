@@ -393,9 +393,19 @@ export interface PIIScanResponse extends BaseMessage {
  * automation is read for it: a masking updates them, a restore of a backup
  * brings back from the recycle bin what was deleted since and writes the
  * backup's values back, a cleanup deletes them. Each fires what the org runs
- * on that write, as a Forge run's inserts fire what it runs on insert.
+ * on that write, as a Forge run's inserts fire what it runs on insert. These
+ * three are those a page asks the read of (`dataops:automation`).
  */
-export type DataOpsAct = 'masking' | 'restore' | 'cleanup';
+export type DataOpsPageAct = 'masking' | 'restore' | 'cleanup';
+
+/**
+ * Every DataOps act whose automation is read: the page's three, and an
+ * emptying (`empty`), which deletes as a cleanup does, and its undo
+ * (`emptyUndo`), which brings records back from the recycle bin and puts no
+ * value back. Each is named by its own words in what it says and refuses: an
+ * emptying was told what "this cleanup" fires, an act nobody asked for.
+ */
+export type DataOpsAct = DataOpsPageAct | 'empty' | 'emptyUndo';
 
 /**
  * What a DataOps write carries of the question put before it, as the panel
@@ -440,7 +450,7 @@ export interface DataOpsAutomationRequest extends BaseMessage {
   type: 'dataops:automation';
   payload: {
     orgId: string;
-    act: DataOpsAct;
+    act: DataOpsPageAct;
     objects: DataOpsAutomationObject[];
     /** A subject erasure's, which writes as a masking or a cleanup and is named so. */
     erasure?: boolean;
@@ -926,6 +936,8 @@ export interface DataOpsEmptyPreviewRequest extends BaseMessage {
     checkpointFirst?: boolean;
     /** Delete records no undo would bring back. */
     acceptNoUndo?: boolean;
+    /** Empty although people other than the user changed records of these objects in the last hour. */
+    acceptPeopleActive?: boolean;
   } & DataOpsWriteAccord &
     DataOpsAskedFrom;
 }
@@ -954,6 +966,12 @@ export interface DataOpsEmptyRunRequest extends BaseMessage {
     /** The run to take up, stopped part way. */
     resumeRunId?: string;
     acceptNoUndo?: boolean;
+    /**
+     * Empty although people other than the user changed records of these
+     * objects in the last hour: those the preview named, or, taking up a run,
+     * whoever did.
+     */
+    acceptPeopleActive?: boolean;
     /** Take a checkpoint of what the run deletes before its first delete. */
     checkpointFirst?: boolean;
   } & DataOpsWriteAccord &

@@ -385,12 +385,14 @@ describe('SmartActionCard confirmation names the org and the outcome', () => {
     expect(card.textContent).not.toContain('org-1');
   });
 
-  it('falls back to the username when the org has no alias', () => {
-    useOrgStore.setState({ orgs: [createOrg({ alias: '' })] });
+  it('names an org with no alias by its Organization Id, never by the username', () => {
+    useOrgStore.setState({ orgs: [createOrg({ alias: '', orgId: '00D000000000001AAA' })] });
 
     renderConfirmation();
 
-    expect(screen.getByTestId('smart-action-card').textContent).toContain('dev@example.com');
+    const text = screen.getByTestId('smart-action-card').textContent;
+    expect(text).toContain('00D000000000001AAA');
+    expect(text).not.toContain('dev@example.com');
   });
 
   it('falls back to the id when the org is not in the store', () => {

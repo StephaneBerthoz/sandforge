@@ -50,6 +50,7 @@ import {
   bypassesToAssign,
   emailsOfLimit,
   readEmailLimits,
+  type DeliverabilityRun,
   type EmailLimit,
   type LimitsTransport,
 } from '../forge/ForgeRunGate.js';
@@ -91,8 +92,9 @@ export const EMAILS_EXCEEDED = 'EMAILS_EXCEEDED';
  * read on these, as they are of a removal.
  */
 export function dataOpsStepsOf(act: DataOpsAct, objects: readonly string[]): ForgeRemovalSteps {
-  if (act === 'cleanup') return { delete: [...objects] };
+  if (act === 'cleanup' || act === 'empty') return { delete: [...objects] };
   if (act === 'restore') return { bringBack: [...objects], giveBack: [...objects] };
+  if (act === 'emptyUndo') return { bringBack: [...objects] };
   return { giveBack: [...objects] };
 }
 
@@ -107,7 +109,7 @@ export function dataOpsWrittenOf(
   act: DataOpsAct,
   objects: readonly DataOpsAutomationObject[],
 ): WrittenRecords[] {
-  const write = act === 'cleanup' ? 'delete' : 'update';
+  const write = act === 'cleanup' || act === 'empty' ? 'delete' : 'update';
   return objects
     .filter((object) => object.records > 0)
     .map((object) => ({ objectApiName: object.objectApiName, write, records: object.records }));
@@ -155,6 +157,36 @@ const ACT_WORDS: Readonly<
     nothing: 'Nothing was deleted.',
     flag: 'to delete all the same',
   },
+  empty: {
+    heading: 'emptying automation: what {org} runs as the emptying deletes the records',
+    the: 'the emptying',
+    this: 'this emptying',
+    writes: 'deletes',
+    verb: 'empty',
+    nothing: 'Nothing was deleted.',
+    flag: 'to empty all the same',
+  },
+  emptyUndo: {
+    heading: 'undo automation: what {org} runs as the undo brings the records back',
+    the: 'the undo',
+    this: 'this undo',
+    writes: 'brings back',
+    verb: 'undo',
+    nothing: 'Nothing was written.',
+    flag: 'to undo all the same',
+  },
+};
+
+/**
+ * The run each act's emails are judged as (`runEmailsOf`): its own, and the
+ * undo of an emptying as an undo.
+ */
+const DELIVERABILITY_RUNS: Readonly<Record<DataOpsAct, DeliverabilityRun>> = {
+  masking: 'masking',
+  restore: 'restore',
+  cleanup: 'cleanup',
+  empty: 'empty',
+  emptyUndo: 'undo',
 };
 
 /**
@@ -206,6 +238,8 @@ const CONFIRMED_ACTS: Readonly<Record<string, string>> = {
   restore: 'restore',
   delete: 'cleanup',
   erase: 'erasure',
+  empty: 'emptying',
+  undo: 'undo',
 };
 
 /** A refusal in the words of a page's confirmation: its list of what fires, and its boxes. */
@@ -213,7 +247,7 @@ function confirmationSaid(message: string): string {
   const box = (flag: string): string => CONFIRMATION_BOXES[flag] ?? `--${flag}`;
   return message
     .replace(
-      /\bAdd --accept-automation to (mask|restore|delete|erase) all the same\b/g,
+      /\bAdd --accept-automation to (mask|restore|delete|erase|empty|undo) all the same\b/g,
       (_, verb: string) =>
         `Confirm the ${CONFIRMED_ACTS[verb] ?? verb} from its confirmation, which lists what ` +
         `fires, to ${verb} all the same`,
@@ -735,7 +769,7 @@ export async function readDataOpsAct(input: DataOpsActInput): Promise<DataOpsAct
     readDeliverability: input.org.readDeliverability,
     accepted: accord.acceptEmails === true,
     target,
-    run: act,
+    run: DELIVERABILITY_RUNS[act],
     keepsAddresses: true,
     mayMute,
   });

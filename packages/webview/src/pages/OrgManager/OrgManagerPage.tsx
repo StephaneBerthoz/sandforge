@@ -19,6 +19,7 @@ import {
   SF_DEVICE_CODE_LIFETIME_MS,
   bannerHintOf,
   parseSalesforceLoginUrl,
+  orgDisplayName,
 } from '@sandforge/shared';
 import type { SalesforceLoginUrlParse } from '@sandforge/shared';
 import { cn } from '../../theme';
@@ -237,7 +238,7 @@ const ConnectedNextStep: React.FC<ConnectedNextStepProps> = ({ justConnectedId, 
   if (!just) return null;
   // The org just connected when it is one to fill; an import's other orgs otherwise.
   const fill = canFill(just) ? just : orgToFill(connected, null);
-  const name = (org: SalesforceOrg): string => org.alias || org.username;
+  const name = (org: SalesforceOrg): string => orgDisplayName(org);
 
   return (
     <section
@@ -704,7 +705,7 @@ export const OrgManagerPage: React.FC = () => {
   // A refusal answers on `org:error` with a code, a browser that did not open
   // answers `status: 'error'`; the host words both in English, for its log.
   const openOutcome = openMutation.data;
-  const openAlias = openingOrg?.alias || openingOrg?.username || '';
+  const openAlias = orgDisplayName(openingOrg, '');
   const openError =
     openMutation.errorCode === 'INVALID_INSTANCE_URL'
       ? t('org.openRefusedUrl', { alias: openAlias })
@@ -1151,7 +1152,7 @@ export const OrgManagerPage: React.FC = () => {
         onConfirm={confirmDisconnect}
         title={t('org.disconnect')}
         description={t('org.disconnectConfirm', {
-          alias: orgPendingDisconnect?.alias || orgPendingDisconnect?.username || '',
+          alias: orgDisplayName(orgPendingDisconnect, ''),
         })}
         confirmText={t('org.disconnect')}
       >

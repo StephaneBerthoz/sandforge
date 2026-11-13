@@ -26,7 +26,12 @@ import type {
 } from './handlers/HandlerTypes.js';
 import { syntheticRequest } from './handlers/HandlerTypes.js';
 import type { UUID } from '@sandforge/shared';
-import { AUDIT_TRAIL_LIMIT, DEFAULT_ROBUSTNESS_CONFIG, guardTierOf } from '@sandforge/shared';
+import {
+  AUDIT_TRAIL_LIMIT,
+  DEFAULT_ROBUSTNESS_CONFIG,
+  guardTierOf,
+  orgDisplayName,
+} from '@sandforge/shared';
 import { BulkApiManager } from '../core/engine/BulkApiManager.js';
 import { getConnectionPool } from '../core/connection/ConnectionHelper.js';
 import { forgetOrgDescribes } from '../core/connection/describeCache.js';
@@ -298,17 +303,18 @@ export class ExtensionHandlers {
     // would hold the run's records half written. A Sync or Seed run is told
     // by its file and the handler writing it; a run whose file names no org,
     // or that keeps none, by its handler: a Forge clone, a Frozen load or its
-    // removal, a DataOps restore, masking run or erasure, an Autopilot run, a
-    // Real-Time session that applies what it receives. A run that takes a
-    // checkpoint before its first write names its own operation, `except`,
-    // which each handler compares with the one it runs: a handler that does
-    // not compare refuses the take on the run's own mark too, as before, so
-    // it errs only on the side of refusing.
+    // removal, a DataOps restore, masking run or erasure, an emptying or its
+    // undo, an Autopilot run, a Real-Time session that applies what it
+    // receives. A run that takes a checkpoint before its first write names
+    // its own operation, `except`, which each handler compares with the one
+    // it runs: a handler that does not compare refuses the take on the run's
+    // own mark too, as before, so it errs only on the side of refusing.
     const orgWriters = (): OrgWriter[] => [
       this.forgeHandler,
       this.frozenHandler,
       this.dataOpsHandler,
       this.complianceHandler,
+      this.emptyHandler,
       this.autopilotHandler,
       this.realtimeHandler,
     ];
@@ -372,7 +378,7 @@ export class ExtensionHandlers {
     this.automationHandler.setStepRunners({
       orgName: (orgId) => {
         const org = deps.orgManager.getOrg(orgId);
-        return org ? org.alias || org.username || org.id : undefined;
+        return org ? orgDisplayName(org, org.id) : undefined;
       },
       newId: () => crypto.randomUUID(),
       backup: (request, signal) => this.dataOpsHandler.backupForPipeline(request, signal),

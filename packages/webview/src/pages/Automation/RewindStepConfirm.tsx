@@ -11,6 +11,7 @@ import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { RewindPreview } from '../Checkpoint/RewindPreview';
 import { formatNumber } from '../../utils/formatters';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** Props of {@link RewindStepConfirm}. */
 export interface RewindStepConfirmProps {
@@ -51,7 +52,7 @@ export const RewindStepConfirm: React.FC<RewindStepConfirmProps> = ({
   const { t } = useTranslation();
   const headingId = useId();
   const [typing, setTyping] = useState(false);
-  const alias = org.alias || org.username;
+  const alias = orgDisplayName(org);
   const maxRecords = typeof step.config['maxRecords'] === 'number' ? step.config['maxRecords'] : 0;
   const words = {
     step: step.name,

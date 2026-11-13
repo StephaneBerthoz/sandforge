@@ -7,7 +7,7 @@ import type {
   SubjectIdentifiers,
   SubjectSearchResult,
 } from '@sandforge/shared';
-import { guardTierOf, SUBJECT_SEARCH_LIMIT } from '@sandforge/shared';
+import { guardTierOf, SUBJECT_SEARCH_LIMIT, orgDisplayName } from '@sandforge/shared';
 
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
@@ -521,7 +521,7 @@ export class DataOpsComplianceHandler implements DomainHandler {
       // sends, and the mute asked for, read before the guard is asked and
       // before anything is written, and refused unless the page's question
       // answered it: an erasure fired the org's flows on them unasked.
-      const target = this.deps.orgManager.getOrg(orgId)?.alias ?? orgId;
+      const target = orgDisplayName(this.deps.orgManager.getOrg(orgId), orgId);
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
       const reader = this.targetAutomation;
       const gated = await readDataOpsAct({

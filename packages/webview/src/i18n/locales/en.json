@@ -239,7 +239,7 @@
     "openFailed": "The browser did not open {{alias}}: {{reason}}",
     "moreMethods": "More methods",
     "cliMissing": "The Salesforce CLI (sf) does not answer on this machine. Import from Salesforce CLI and Log in with your browser run on it.",
-    "aliasOptionalHint": "Optional: without one, the org is named after its username.",
+    "aliasOptionalHint": "Optional: without one, the org is named by its own name, or its Organization Id, never by your username.",
     "connectedNext": {
       "title": "{{alias}} is connected",
       "titleMany_one": "{{count}} org is connected",
@@ -2647,7 +2647,7 @@
       "compareNeedsTypes": "Choose at least one metadata type to compare.",
       "precheckNeedsChecks": "Choose what this Pre-Check reads: API usage, data storage, Apex error logs or failed Apex jobs.",
       "notificationNeedsMessage": "Write the message this notification shows (up to 500 characters).",
-      "paletteNote": "Restore and Delete write to an org and run only from their own pages, where Production Guard asks first. Sync runs a configuration saved on the Sync page; one that writes to an org Production Guard asks about needs an Approval step before it. Seed and Anonymize run a template of their pages, never in a production org, and need an Approval step before them in a sandbox marked Staging. A Rewind step runs once you confirm it with the org's alias, or its username for an org that has none.",
+      "paletteNote": "Restore and Delete write to an org and run only from their own pages, where Production Guard asks first. Sync runs a configuration saved on the Sync page; one that writes to an org Production Guard asks about needs an Approval step before it. Seed and Anonymize run a template of their pages, never in a production org, and need an Approval step before them in a sandbox marked Staging. A Rewind step runs once you confirm it with the org's alias, or, for an org that has none, its name or Organization Id.",
       "pipelineBlocked": "This pipeline cannot run. Remove or fix these steps first:",
       "templateBlocked": "Cannot run as a pipeline. These step types do not run in one: {{types}}.",
       "conditionNeedsEarlierStep": "This Condition tests how the previous step went, and no step comes before it.",
@@ -2679,7 +2679,7 @@
       "rewindNeedsMaxRecords": "Set the most records this step may rewind, all objects together (1 or more).",
       "rewindConfigInvalid": "This Rewind step does not read: check the objects it names.",
       "rewindNotSaved": "Save the pipeline, then confirm this rewind: a confirmation holds for the step as saved.",
-      "rewindNotConfirmed": "Not confirmed: click Preview and confirm…, then type the org's alias, or its username for an org that has none.",
+      "rewindNotConfirmed": "Not confirmed: click Preview and confirm…, then type the org's alias, or, for an org that has none, its name or Organization Id.",
       "rewindChangedSinceConfirmed": "This rewind changed since it was confirmed: confirm it again.",
       "rewindCheckpointMissing": "The checkpoint this step rewinds to is not kept on this machine: take one here and choose it.",
       "rewindCheckpointOtherOrg": "The checkpoint this step rewinds to was taken of another org: choose one of this org.",
@@ -2799,7 +2799,7 @@
     },
     "rewindConfirmedOn": "Confirmed on {{date}}: this step rewinds {{org}} to “{{name}}” on each run, scheduled ones included, at most {{max}} records, reverting or deleting every change anyone made since.",
     "rewindSaveFirst": "Save the pipeline, then confirm this rewind.",
-    "rewindNotConfirmedNote": "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias, or its username for an org that has none.",
+    "rewindNotConfirmedNote": "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias, or, for an org that has none, its name or Organization Id.",
     "rewindConfirm": "Preview and confirm…",
     "rewindRevoke": "Revoke confirmation",
     "rewindGrantRefused": {
@@ -2807,7 +2807,7 @@
       "CONFIG_INVALID": "The step as saved does not read: fix it, save, then confirm again.",
       "ORG_UNKNOWN": "The org this step rewinds is not connected here.",
       "CHECKPOINT_INVALID": "The checkpoint this step rewinds to cannot be rewound to here: choose another.",
-      "TYPED_MISMATCH": "What was typed is not the org's alias, nor its username for an org that has none: nothing was confirmed."
+      "TYPED_MISMATCH": "What was typed is not the org's alias, nor, for an org that has none, its name or Organization Id: nothing was confirmed."
     },
     "rewindConfirmHeading": "Confirm the Rewind step “{{step}}”",
     "rewindConfirmLead": "What a rewind of {{org}} to “{{name}}” would do now. Once confirmed, the step rewinds the org whenever the pipeline runs, by schedule too, at most {{max}} records, with nobody there to read this.",
@@ -2941,6 +2941,7 @@
       "realtime_sync": "Real-time sync",
       "subject_erase": "Subject request erasure",
       "cleanup_delete": "Cleanup delete",
+      "empty_undo": "Emptying undo",
       "pipeline_approval": "Pipeline approval",
       "checkpoint_rewind": "Checkpoint rewind",
       "checkpoint_undo": "Rewind undo",
@@ -3613,7 +3614,7 @@
     "syncContent": "Sync copies objects from one org to another, field by field; the History tab lists each run, and the Schedules tab runs a saved configuration on a schedule.\n- A delta run of a saved configuration reads what changed since its last good run, and can delete in the target what the source deleted.\n- Auto Map pairs fields of the same API name. A transform rule changes one field in every record written; a rule with no field is refused before anything is read or saved. Value mappings come from an imported SFDMU configuration.\n- Neutralize emails and phone numbers is on unless unticked; Copy the files of these records brings their files.\n- Real-Time tab: writes each change the source publishes (Change Data Capture) as it comes; a conflict is settled by the strategy or held on the Conflicts tab.\n- Remove what this run created, on the results or the run's history entry, deletes what it inserted and its files, gives the records it wrote over their values from before, kept for sandforge.backup.maxAgeDays, and brings back what a delta run deleted. Production Guard refuses it on a production org.\n- A Real-Time session is taken back the same way under Earlier sessions, once it has stopped.",
     "compareContent": "Compare metadata between two orgs:\n- Diff Viewer grouped by category and risk level\n- Permission Presence: which profiles and permission sets exist on each side\n- Objects: the objects of both orgs, read live when you open the tab\n- Org Settings Drift: five Organization settings side by side (name, language, locale, time zone, fiscal year start)\n- Deploy from Diff: pick what differs, validate it in the target first, then deploy the validation to a sandbox, a scratch org or a Developer Edition org",
     "dataopsContent": "Data operations on the org picked at the top of the page:\n- Backup: a copy of the objects the anonymization templates mask, or of those the template picked masks, kept on this machine. It is no checkpoint: before a risky run on a sandbox, take a checkpoint.\n- Restore asks first, naming the org and each object of the backup, then puts the backup back into the org it was taken from; unless Write every row of the backup back is ticked, it writes only the rows changed since.\n- Anonymize masks fields in place with a built-in template such as GDPR, CCPA or HIPAA, or one of your own from Create template; unless you untick Keep the values first, it backs up what it masks, so Restore can put it back.\n- Compliance finds the fields holding personal data, then one person's records by email, name or phone, to export, erase or delete after a review and a typed confirmation.\n- Cleanup counts stale records, empty lookups and repeated values, to export or delete after a review and a typed confirmation, 1,000 at a time.\n- Quality counts how often each field is filled, shared key values and stale records, and writes nothing.",
-    "automationContent": "Visual pipeline builder:\n- Under Steps, the page offers the step types a pipeline runs: Sync, Seed, Anonymize, Backup, Checkpoint, Rewind, Compare, Pre-Check, Condition, Delay, Approval and Notification. Sync runs a configuration saved on the Sync page, and one into an org Production Guard asks about needs an Approval step before it. Seed and Anonymize run a template of their pages, never in a production org, behind an Approval step in a sandbox marked Staging, and are never tried again. A Rewind step puts an org back to a checkpoint on this machine, at most the records it is set to, once you confirm it under its preview with the org's alias, or its username for an org that has none. Restore and Delete write to an org and run only from their own pages: a pipeline holding one of them, or a Script, Loop or Parallel step, is refused before it starts\n- A pipeline starts from the Run Pipeline button, at the times a cron expression names while VS Code is open, or when SandForge notices a refresh of a sandbox you choose\n- Execution history: status, total duration and errors of each run, what each of its steps did, and the starts a trigger missed\n- Pipeline templates from the Marketplace",
+    "automationContent": "Visual pipeline builder:\n- Under Steps, the page offers the step types a pipeline runs: Sync, Seed, Anonymize, Backup, Checkpoint, Rewind, Compare, Pre-Check, Condition, Delay, Approval and Notification. Sync runs a configuration saved on the Sync page, and one into an org Production Guard asks about needs an Approval step before it. Seed and Anonymize run a template of their pages, never in a production org, behind an Approval step in a sandbox marked Staging, and are never tried again. A Rewind step puts an org back to a checkpoint on this machine, at most the records it is set to, once you confirm it under its preview with the org's alias, else its name or Organization Id. Restore and Delete write to an org and run only from their own pages: a pipeline holding one of them, or a Script, Loop or Parallel step, is refused before it starts\n- A pipeline starts from the Run Pipeline button, at the times a cron expression names while VS Code is open, or when SandForge notices a refresh of a sandbox you choose\n- Execution history: status, total duration and errors of each run, what each of its steps did, and the starts a trigger missed\n- Pipeline templates from the Marketplace",
     "forgeContent": "Forge copies a record and what it relates to, from the org selected in the side panel into a sandbox, a scratch org or a Developer Edition org; it refuses any other org. IDs are remapped as records are written.\n- Before Execute Forge, on Review: Simulate checks every record here, sends nothing; Rehearse: the target tries a sample, rolled back; costs API calls.\n- Emails and phone numbers are neutralized (.invalid, fictional numbers) unless you tick Keep emails and phone numbers as they are. Anonymize PII masks names, addresses and other personal fields.\n- Save as template, on a run's results, keeps its record or query, depth, options and decisions; the Template tab runs it again, and Import a template reads one from a file.\n- Clone directly, under Discover Graph, runs the discovery then the clone without stopping on the graph or Review; Production Guard judges it as any run.\n- Graph or table: up to 25 objects are drawn as a graph, more as a table, as on a panel under 560 px; Graph View / Table View or the sandforge.forge.graphView setting picks the view.\n- A record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it.",
     "frozenContent": "Frozen Dataset extracts a dataset from a source sandbox once and replays it after every refresh:\n- Extract: root records chosen by coverage matrix, within a volume budget\n- Rules file: Run extraction needs one, at ~/.sandforge-sas/rules.json unless the configuration moves it. Create rules file writes an empty one, which clears every field without a rule; a rule names its field as Object.Field and a generator such as email, firstName, clear or keep (approved), and Rules format lists them all\n- Pseudonymization is deterministic, keyed by SANDFORGE_FROZEN_SALT where it is set, else by the salt kept in VS Code's secret storage, which the first extraction makes if none is kept yet\n- A four-point check must pass before the dataset is written\n- Load: into a sandbox, a scratch org or a Developer Edition org, never into a production org or a sandbox marked Staging, with an optional Pilot on one root record first, and a verification pass after the load",
     "grappeContent": "Grappe splits a large operation into partitions and reports progress as each one completes:\n- Turn it on with the sandforge.grappe.enabled setting\n- A Seed run past the record threshold reports each partition, a Sync past it reports one partition per object, and an Autopilot run reports only its start and its end\n- Partitions run one after another: Grappe does not make a run faster",
@@ -7786,6 +7787,8 @@
       "picked_other": "{{formatted}} objects picked",
       "notPickable_one": "{{formatted}} object cannot be picked, with why",
       "notPickable_other": "{{formatted}} objects cannot be picked, each with why",
+      "preselectedLeftOut_one": "{{formatted}} object asked to be emptied first is left out, with why:",
+      "preselectedLeftOut_other": "{{formatted}} objects asked to be emptied first are left out, each with why:",
       "staging": "{{org}} is a sandbox marked Staging: Production Guard asks before its objects are emptied."
     },
     "org": {
@@ -7832,7 +7835,7 @@
       "hard": "Delete for good (hard delete): nothing goes to the recycle bin, and Undo is not possible",
       "hardReading": "Reading whether you may delete for good…",
       "hardPermitted": "You have Bulk API Hard Delete: ticked, what goes along with the records is deleted for good too.",
-      "hardNotPermitted": "Greyed out: {{user}} doesn't have Bulk API Hard Delete, and Salesforce refuses a hard delete without it. A permission set with it lets you tick this.",
+      "hardNotPermitted": "Greyed out: the user SandForge connects as doesn't have Bulk API Hard Delete, and Salesforce refuses a hard delete without it. A permission set with it lets you tick this.",
       "hardUnread": "Greyed out: whether you have Bulk API Hard Delete could not be read ({{reason}})."
     },
     "count": {
@@ -7931,6 +7934,10 @@
         }
       },
       "peopleUnread": "Who changed records in the last hour could not be read for: {{objects}}.",
+      "peopleTitle": "Changed records of these objects in {{org}} in the hour before the read:",
+      "person": "{{name}}: {{records}}, last changed {{at}}",
+      "peopleAtLeast": "There may be more: a read reached its row limit.",
+      "acceptPeopleActive": "Empty all the same: their changes go with the records. Anyone else at work by then refuses the run.",
       "leftOut_one": "{{formatted}} object left out, with why",
       "leftOut_other": "{{formatted}} objects left out, each with why",
       "checkpointLead": "Checkpoint first, as this preview reads it:",
@@ -7944,6 +7951,7 @@
       "noUndo": "Undo will not be possible: Salesforce brings back nothing a hard delete takes.",
       "automation": "As the records go, {{org}} runs what the preview listed.",
       "muted": "What the mute silences is kept quiet for the run, then given back.",
+      "peopleActive": "What {{people}} changed in the last hour goes too.",
       "blockers": "{{records}} of objects not emptied name records it deletes, by a lookup that refuses the delete: the records they name will be refused.",
       "checkpoint": "A checkpoint of what the run deletes is taken first."
     },
@@ -7993,7 +8001,8 @@
       "title": "Resume the emptying {{runId}} of {{org}}?",
       "description": "It deletes what the stopped run had not reached yet, as its preview showed, and reads what {{org}} runs again as it starts.",
       "button": "Resume the emptying",
-      "acceptAutomation": "Let what {{org}} runs as the records are deleted fire"
+      "acceptAutomation": "Let what {{org}} runs as the records are deleted fire",
+      "acceptPeopleActive": "Take it up even if others changed records of these objects in {{org}} in the last hour: their work goes too"
     },
     "undo": {
       "title": "Bring back what {{runId}} deleted from {{org}}?",

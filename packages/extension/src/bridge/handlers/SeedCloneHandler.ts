@@ -11,7 +11,7 @@ import type {
   RunCheckpointTaken,
   RunDeliverability,
 } from '@sandforge/shared';
-import { recordWriteHeaders, guardTierOf } from '@sandforge/shared';
+import { recordWriteHeaders, guardTierOf, orgDisplayName } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -939,7 +939,7 @@ export class SeedCloneHandler implements DomainHandler {
       // written: Seed's gate, which a clone of a production org's contacts
       // into a Developer Edition went past. The records are those the preview
       // counted. A read that fails is said, and holds nothing back.
-      const targetName = targetOrg?.alias || targetOrg?.username || parsed.targetOrgId;
+      const targetName = orgDisplayName(targetOrg, parsed.targetOrgId);
       const previewed = this.previewedOrgs.get(parsed.previewId ?? '');
       const recordCounts = previewed?.recordCounts;
       /** The records the clone sends, per object, as its preview counted them. */

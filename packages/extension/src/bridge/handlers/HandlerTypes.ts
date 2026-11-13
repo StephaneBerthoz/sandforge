@@ -10,6 +10,7 @@ import {
   DEFAULT_ROBUSTNESS_CONFIG,
   isCataloguedErrorCode,
   translateError,
+  orgDisplayName,
 } from '@sandforge/shared';
 import { extractErrorMessage, extractErrorCode } from '../../core/common/extractErrorMessage.js';
 import { OrgConnectionError } from '../../core/connection/OrgConnectionError.js';
@@ -118,7 +119,7 @@ export function undeletableAsker(
     const ask = deps.infraServices?.confirmRemovalLeavingUndeletable;
     if (!ask) return true;
     const org = deps.orgManager.getOrg(orgId);
-    return ask({ org: org?.alias ?? org?.username ?? orgId, objects });
+    return ask({ org: orgDisplayName(org, orgId), objects });
   };
 }
 

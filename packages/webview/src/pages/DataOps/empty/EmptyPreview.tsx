@@ -283,6 +283,9 @@ export const EmptyPreview: React.FC<EmptyPreviewProps> = ({
   const blockers = preview.blockers.filter((blocker) => holdsRecords(blocker.records));
   const undoLost = preview.undoLost.filter((lost) => holdsRecords(lost.records));
   const unseen = answer.access.kind === 'perObject' ? answer.access.unseen : [];
+  // Who changed records of these objects in the hour before the read, each
+  // with when: what the box that lets their work go names.
+  const people = answer.peopleActive.who ?? [];
   const canEmpty = !stale && !reading && !busy && holding.length === 0 && !nothing;
 
   return (
@@ -683,6 +686,41 @@ export const EmptyPreview: React.FC<EmptyPreviewProps> = ({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      {people.length > 0 && (
+        <div className="flex flex-col gap-1" data-testid="empty-preview-people">
+          <p className="font-medium">{t('dataopsEmpty.preview.peopleTitle', { org })}</p>
+          <ul className="ml-4 list-disc">
+            {people.map((person) => (
+              <li key={person.userId} data-testid={`empty-preview-person-${person.userId}`}>
+                {t('dataopsEmpty.preview.person', {
+                  name: person.name ?? person.userId,
+                  records: recordsWords(t, person.records),
+                  at:
+                    formatStoredDate(
+                      person.lastChangedAt,
+                      dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short' }).format,
+                    ) ?? t('common.dateUnknown'),
+                })}
+              </li>
+            ))}
+          </ul>
+          {answer.peopleActive.atLeast && (
+            <p className="text-text-secondary">{t('dataopsEmpty.preview.peopleAtLeast')}</p>
+          )}
+          {asksBox(answer.refusals, 'acceptPeopleActive') && (
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={boxes.acceptPeopleActive}
+                onChange={(e) => onBoxChange('acceptPeopleActive', e.target.checked)}
+                data-testid="empty-preview-accept-people-active"
+              />
+              <span>{t('dataopsEmpty.preview.acceptPeopleActive')}</span>
+            </label>
+          )}
         </div>
       )}
       {answer.peopleActive.unread && answer.peopleActive.unread.length > 0 && (

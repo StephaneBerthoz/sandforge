@@ -27,6 +27,7 @@ import { typedCount, templateWithCounts } from './templateCounts';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
 import { SeedFitProposalCard, SeedFitResultLine } from './SeedFitProposal';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** Props for the QuickSeedFlow component. */
 export interface QuickSeedFlowProps {
@@ -71,7 +72,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
     0,
   );
   const runOrg = orgs.find((org) => org.id === quickSeed.selectedOrgId);
-  const runOrgName = runOrg ? runOrg.alias || runOrg.username : '';
+  const runOrgName = runOrg ? orgDisplayName(runOrg) : '';
   // What the org runs as the records are created, read once per org and
   // template: a count changed is counted from the same read.
   const automation = useSeedAutomation(

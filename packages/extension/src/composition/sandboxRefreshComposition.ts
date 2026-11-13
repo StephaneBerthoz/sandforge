@@ -5,6 +5,7 @@ import type {
   DetectedSandboxRefresh,
   SandboxRefreshDetector,
 } from '../modules/monitor/SandboxRefreshDetector';
+import { orgDisplayName } from '@sandforge/shared';
 
 /**
  * The notice a refresh is announced with, in the editor's language.
@@ -26,7 +27,7 @@ export function sandboxRefreshNotice(
   orgManager: OrgManager,
   checkpointsKept = 0,
 ): string {
-  const aliasOf = (orgId: string): string => orgManager.getOrg(orgId)?.alias ?? orgId;
+  const aliasOf = (orgId: string): string => orgDisplayName(orgManager.getOrg(orgId), orgId);
   const notice =
     refresh.evidence === 'production'
       ? vscode.l10n.t(

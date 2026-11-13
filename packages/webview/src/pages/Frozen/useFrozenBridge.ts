@@ -17,6 +17,7 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { muteRefusalWords } from '../../utils/muteRefusal';
 import { frozenErrorWords } from './frozenErrorWords';
 import type { FrozenErrorPayload } from './frozenErrorWords';
+import { orgDisplayName } from '@sandforge/shared';
 
 /**
  * Bridge mutation bound to a `frozen:*` request type. Extends
@@ -78,7 +79,11 @@ export function useFrozenMutation<T>(
     // said in the interface language: the host words them in English.
     const translate = (key: string, options?: Record<string, unknown>): string =>
       i18n.t(key, options);
-    const aliasOf = (orgId: string): string => orgs.find((org) => org.id === orgId)?.alias ?? orgId;
+    const aliasOf = (orgId: string): string =>
+      orgDisplayName(
+        orgs.find((org) => org.id === orgId),
+        orgId,
+      );
     const words = i18n.isInitialized
       ? (muteRefusalWords(payload?.code, payload?.message, translate) ??
         frozenErrorWords(payload, translate, aliasOf))

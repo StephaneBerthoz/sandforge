@@ -627,7 +627,7 @@ describe('the Rewind step', () => {
   it('is refused before the run, never confirmed, and confirmed before a change', () => {
     const executor = executorWith(runners());
     expect(executor.check(step('rewind', { ...REWIND, maxRecords: 50 }))).toBe(
-      'Rewind step "Step" has never been confirmed: open it and type the org\'s alias, or its username for an org that has none. No record was written.',
+      'Rewind step "Step" has never been confirmed: open it and type the org\'s alias, or, for an org that has none, its name or Organization Id. No record was written.',
     );
     expect(executor.check(step('rewind', { ...REWIND, maxRecords: 99 }))).toContain(
       'has not been confirmed since it was changed',

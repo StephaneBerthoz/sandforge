@@ -146,6 +146,13 @@ Options:
                          name, as Salesforce requires, so that once both have
                          gone Undo cannot bring them back: NO_UNDO, exit 1,
                          without it
+  --accept-people-active empty although people other than the user changed
+                         records of these objects in the hour before the
+                         read, their work going with it: the dry run says how
+                         many, each by user Id with their last change.
+                         PEOPLE_ACTIVE, exit 1, without it. It covers the
+                         people the dry run named: anyone at work since
+                         refuses the run all the same
   --checkpoint-first     take a checkpoint of the objects emptied before the
                          first delete, to rewind to (sandforge-checkpoint);
                          refused past 500,000 records or the disk's room, and
@@ -167,7 +174,7 @@ Undo and resume:
                          what its journal confirmed: records already gone count
                          as deleted
   Both need --yes, and take --accept-automation, --accept-emails,
-  --mute-automation and --audit.
+  --mute-automation and --audit; --resume takes --accept-people-active too.
 
 Before it deletes, it says per object the records it deletes and what goes
 along, in the order it takes them; what will likely refuse, and what it does
@@ -180,7 +187,8 @@ proven to see; and what the org runs as the records go, and its emails.
 It is refused, exit 1, before anything is deleted, every refusal said: a
 production org; another act of this machine writing to the org; the org's last
 emptying stopped part way (resume or undo it first); someone else changing
-records of these objects in the last hour; more requests or batches than the
+records of these objects in the last hour, unless --accept-people-active
+lets their work go; more requests or batches than the
 org has left today; the automation, emails and mute, as every DataOps act asks
 them; a checkpoint refused; and the org changed since the dry run beyond what
 it showed. A sandbox marked Staging in the extension, whose whole the panel
@@ -218,6 +226,7 @@ const FLAGS: CommandFlags = {
     '--yes',
     '--json',
     '--accept-no-undo',
+    '--accept-people-active',
     '--checkpoint-first',
     ...DATAOPS_AUTOMATION_SWITCHES,
   ],
@@ -247,6 +256,8 @@ interface CommonArgs {
   json: boolean;
   accord: DataOpsWriteAccord;
   audit?: string;
+  /** Empty, or take up a run, although others changed records of these objects in the last hour. */
+  acceptPeopleActive?: true;
 }
 
 /** Refuse a bad line, exit 2, said on stderr. */
@@ -294,7 +305,13 @@ export function parseArgs(argv: readonly string[]): EmptyArgs {
   const json = has('--json');
   const accord = accordOf(args);
   const audit = once('--audit');
-  const common: CommonArgs = { target, json, accord, ...(audit !== undefined ? { audit } : {}) };
+  const common: CommonArgs = {
+    target,
+    json,
+    accord,
+    ...(audit !== undefined ? { audit } : {}),
+    ...(has('--accept-people-active') ? { acceptPeopleActive: true as const } : {}),
+  };
 
   const undo = once('--undo');
   const resume = once('--resume');
@@ -308,6 +325,9 @@ export function parseArgs(argv: readonly string[]): EmptyArgs {
   if (undo !== undefined || resume !== undefined) {
     const flag = undo !== undefined ? '--undo' : '--resume';
     if (undo !== undefined && resume !== undefined) badLine('--undo and --resume go apart.');
+    if (undo !== undefined && has('--accept-people-active')) {
+      badLine('--undo deletes nothing, and does not go with --accept-people-active.');
+    }
     const scoped = [
       ...(objectsValue !== undefined ? ['--objects'] : []),
       ...(orgMode ? ['--org'] : []),
@@ -478,6 +498,7 @@ export function apiRequestsJson(
 /** The flag a refusal's code is lifted by, where the command line has one. */
 const FLAG_OF_CODE: Readonly<Record<string, string>> = {
   NO_UNDO: '--accept-no-undo',
+  PEOPLE_ACTIVE: '--accept-people-active',
 };
 
 /** A refusal in the command line's words: the flag that accepts it named, where one does. */
@@ -671,10 +692,19 @@ function accessLines(answer: EmptyPreviewAnswer): string[] {
     );
   }
   if (answer.peopleActive.people > 0) {
+    // Each by user Id, never by name: the output a person pastes into a
+    // ticket or a channel names no one.
     lines.push(
-      `${count(answer.peopleActive.people)} other person(s) changed records of these objects in ` +
-        'the hour before the read',
+      `${answer.peopleActive.atLeast ? 'at least ' : ''}${count(answer.peopleActive.people)} other ` +
+        'person(s) changed records of these objects in the hour before the read: their work goes ' +
+        'with the emptying, which --accept-people-active accepts',
     );
+    for (const person of answer.peopleActive.who ?? []) {
+      lines.push(
+        `  user ${person.userId}: ${count(person.records)} record(s), the last changed at ` +
+          `${person.lastChangedAt || 'an unread time'}`,
+      );
+    }
   }
   return lines;
 }
@@ -1009,7 +1039,12 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
             type: undoing ? 'dataops:empty:undo' : 'dataops:empty:run',
             payload: undoing
               ? { orgId: org.id, runId: args.runId, ...accord }
-              : { orgId: org.id, resumeRunId: args.runId, ...accord },
+              : {
+                  orgId: org.id,
+                  resumeRunId: args.runId,
+                  ...accord,
+                  ...(args.acceptPeopleActive ? { acceptPeopleActive: true } : {}),
+                },
             timeoutMs: WRITE_TIMEOUT_MS,
           }),
       );
@@ -1047,6 +1082,7 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
         request: args.request,
         deleteMode: args.hard ? 'hard' : 'recycle',
         ...(args.acceptNoUndo ? { acceptNoUndo: true } : {}),
+        ...(args.acceptPeopleActive ? { acceptPeopleActive: true } : {}),
         ...(args.checkpointFirst ? { checkpointFirst: true } : {}),
         ...accord,
       },
@@ -1112,6 +1148,7 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
             orgId: org.id,
             previewId: preview.previewId,
             ...(args.acceptNoUndo ? { acceptNoUndo: true } : {}),
+            ...(args.acceptPeopleActive ? { acceptPeopleActive: true } : {}),
             ...(args.checkpointFirst ? { checkpointFirst: true } : {}),
             ...accord,
           },

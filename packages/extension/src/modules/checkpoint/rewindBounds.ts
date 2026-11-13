@@ -694,7 +694,7 @@ export function notConfirmedRefusal(stepName: string, changedSince: boolean): Ch
     message:
       `Rewind step "${stepName}" has ` +
       (changedSince ? 'not been confirmed since it was changed' : 'never been confirmed') +
-      `: open it and type the org's alias, or its username for an org that has none. ` +
+      `: open it and type the org's alias, or, for an org that has none, its name or Organization Id. ` +
       NOTHING_WRITTEN,
   };
 }

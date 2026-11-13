@@ -17,6 +17,7 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { formatDate, formatFileSize, formatNumber, formatStoredDate } from '../../utils/formatters';
 import { CHECKPOINT_KEEP_DAYS } from './checkpointFacts';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** A checkpoint saved to a file: what `checkpoint:export` answered, with the key it shows once. */
 type CheckpointExported = Extract<CheckpointExportResponse['payload'], { status: 'saved' }>;
@@ -172,9 +173,11 @@ const IMPORT_WARNING_KEYS = [
   'checkpoint.transfer.importDialog.undoStays',
 ] as const;
 
-/** How the person knows an org: its alias, else its username. */
-function orgNameOf(org: Pick<SalesforceOrg, 'alias' | 'username'>): string {
-  return org.alias || org.username;
+/** How the person knows an org: its alias, else its own name, else its Organization Id. */
+function orgNameOf(
+  org: Pick<SalesforceOrg, 'alias' | 'username' | 'orgId' | 'organizationName'>,
+): string {
+  return orgDisplayName(org);
 }
 
 /**

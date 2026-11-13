@@ -27,6 +27,7 @@ import { ScenarioReview } from './ScenarioReview';
 import { ScenarioTestFile } from './ScenarioTestFile';
 import { useScenarioSeed } from './useScenarioSeed';
 import type { ScenarioPicked } from './scenarioPacks';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** Props of a scenario's flow. */
 export interface ScenarioFlowProps {
@@ -76,7 +77,7 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
   );
   const refused = refusedForEmails(automation, records, scenario.muteAutomation);
   const runOrg = orgs.find((org) => org.id === scenario.orgId);
-  const runOrgName = runOrg ? runOrg.alias || runOrg.username : '';
+  const runOrgName = runOrg ? orgDisplayName(runOrg) : '';
   const total = Object.values(records).reduce((sum, count) => sum + count, 0);
 
   // Each phase is drawn in place of the last, and the button that moved on

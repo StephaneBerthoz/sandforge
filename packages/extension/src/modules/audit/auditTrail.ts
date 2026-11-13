@@ -15,7 +15,7 @@ import type {
   LineageOrigin,
   SalesforceOrg,
 } from '@sandforge/shared';
-import { AUDIT_TRAIL_LIMIT } from '@sandforge/shared';
+import { AUDIT_TRAIL_LIMIT, orgDisplayName } from '@sandforge/shared';
 
 import type { ConfigStore } from '../../core/storage/ConfigStore.js';
 import type { Services } from '../../services.js';
@@ -231,10 +231,19 @@ export interface AuditDeps {
   configStore: Pick<ConfigStore, 'get' | 'set'>;
   /**
    * The orgs by id, as the registry holds them: the entry names an org by its
-   * alias and its user by a hash of the username. The window's `OrgManager`;
-   * the command-line clone's own map of the orgs it reached.
+   * alias — else its own name, else its Organization Id, never the username
+   * the registry keeps as the alias of an org that has none — and its user by
+   * a hash of the username. The window's `OrgManager`; the command-line
+   * clone's own map of the orgs it reached.
    */
-  orgManager: { getOrg(orgId: string): Pick<SalesforceOrg, 'alias' | 'username'> | undefined };
+  orgManager: {
+    getOrg(
+      orgId: string,
+    ):
+      | (Pick<SalesforceOrg, 'alias' | 'username'> &
+          Partial<Pick<SalesforceOrg, 'orgId' | 'organizationName'>>)
+      | undefined;
+  };
   log: (msg: string) => void;
   /**
    * The window's settings, for `sandforge.safety.auditLogging`. Absent, the
@@ -274,11 +283,11 @@ export function recordWriteRun(deps: AuditDeps, run: WriteRun, now: Date = new D
 
     const timestamp = now.toISOString();
     const target = deps.orgManager.getOrg(run.orgId);
-    const orgAlias = target?.alias;
+    const orgAlias = target ? orgDisplayName(target) : undefined;
     const userId = auditUserKey(target?.username);
     const sourceOrgId = run.source?.origin === 'org' ? run.source.orgId : undefined;
-    const sourceOrgAlias =
-      sourceOrgId !== undefined ? deps.orgManager.getOrg(sourceOrgId)?.alias : undefined;
+    const sourceOrg = sourceOrgId !== undefined ? deps.orgManager.getOrg(sourceOrgId) : undefined;
+    const sourceOrgAlias = sourceOrg ? orgDisplayName(sourceOrg) : undefined;
     const objects = run.objects ?? [];
 
     new AuditTrailStore(deps.configStore).append({

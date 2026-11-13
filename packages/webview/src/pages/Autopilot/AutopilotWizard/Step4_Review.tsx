@@ -17,6 +17,7 @@ import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { useOrgStore } from '../../../stores/useOrgStore';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import { AutopilotFitSection, type AutopilotFitSectionProps } from './AutopilotFitPanel';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** Step4Review component props. */
 export interface Step4ReviewProps {
@@ -103,7 +104,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   // one screen where the user checks which org is written to.
   const orgs = useOrgStore((s) => s.orgs);
   const targetOrg = orgs.find((o) => o.id === targetOrgId);
-  const targetName = targetOrg?.alias || targetOrg?.username || targetOrgId;
+  const targetName = orgDisplayName(targetOrg, targetOrgId);
   const checkpointFirst = useAutopilotStore((s) => s.checkpointFirst);
   const setCheckpointFirst = useAutopilotStore((s) => s.setCheckpointFirst);
   const runEnd = useAutopilotStore((s) => s.runEnd);

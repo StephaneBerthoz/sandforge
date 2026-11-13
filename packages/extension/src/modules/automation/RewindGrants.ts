@@ -92,7 +92,7 @@ export function grantRefusalWords(stepName: string, refusal: GrantRefusal): stri
   return (
     `Rewind step "${stepName}" has ` +
     (refusal === 'changed' ? 'not been confirmed since it was changed' : 'never been confirmed') +
-    ": open it and type the org's alias, or its username for an org that has none. No record " +
+    ": open it and type the org's alias, or, for an org that has none, its name or Organization Id. No record " +
     'was written.'
   );
 }

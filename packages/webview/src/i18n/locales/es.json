@@ -239,7 +239,7 @@
     "openFailed": "El navegador no abrió {{alias}}: {{reason}}",
     "moreMethods": "Más métodos",
     "cliMissing": "La Salesforce CLI (sf) no responde en este equipo. Importar desde la Salesforce CLI e Iniciar sesión en el navegador funcionan con ella.",
-    "aliasOptionalHint": "Opcional: sin alias, la org toma el nombre de su nombre de usuario.",
+    "aliasOptionalHint": "Opcional: sin alias, la org se nombra por su propio nombre o su ID de organización, nunca por su nombre de usuario.",
     "connectedNext": {
       "title": "{{alias}} está conectada",
       "titleMany_one": "{{count}} org está conectada",
@@ -2647,7 +2647,7 @@
       "compareNeedsTypes": "Elija al menos un tipo de metadatos para comparar.",
       "precheckNeedsChecks": "Elija qué lee esta Pre-verificación: uso de la API, almacenamiento de datos, logs de errores de Apex o jobs de Apex fallidos.",
       "notificationNeedsMessage": "Escriba el mensaje que muestra esta notificación (500 caracteres como máximo).",
-      "paletteNote": "Restauración y Eliminación escriben en una org y solo se ejecutan desde su propia página, donde Production Guard pregunta primero. Sync ejecuta una configuración guardada en la página Sync; si escribe en una org por la que Production Guard pregunta, necesita un paso Aprobación antes. Seed y Anonimización ejecutan una plantilla de su página, nunca en una org de producción, y necesitan un paso Aprobación antes en un sandbox marcado como Staging. Un paso Retroceso se ejecuta una vez que lo confirma con el alias de la org, o su nombre de usuario si no tiene alias.",
+      "paletteNote": "Restauración y Eliminación escriben en una org y solo se ejecutan desde su propia página, donde Production Guard pregunta primero. Sync ejecuta una configuración guardada en la página Sync; si escribe en una org por la que Production Guard pregunta, necesita un paso Aprobación antes. Seed y Anonimización ejecutan una plantilla de su página, nunca en una org de producción, y necesitan un paso Aprobación antes en un sandbox marcado como Staging. Un paso Retroceso se ejecuta una vez que lo confirma con el alias de la org, o, si no tiene alias, su nombre o su ID de organización.",
       "pipelineBlocked": "Este pipeline no puede ejecutarse. Primero quite o corrija estos pasos:",
       "templateBlocked": "No puede ejecutarse como pipeline. Estos tipos de paso no se ejecutan en un pipeline: {{types}}.",
       "conditionNeedsEarlierStep": "Esta Condición evalúa cómo fue el paso anterior, y ningún paso va antes de ella.",
@@ -2679,7 +2679,7 @@
       "rewindNeedsMaxRecords": "Indique el máximo de registros que este paso puede retroceder, todos los objetos juntos (1 o más).",
       "rewindConfigInvalid": "Este paso Retroceso no se puede leer: revise los objetos que nombra.",
       "rewindNotSaved": "Guarde el pipeline y luego confirme este retroceso: una confirmación vale para el paso tal como está guardado.",
-      "rewindNotConfirmed": "Sin confirmar: haga clic en Ver vista previa y confirmar… y luego escriba el alias de la org, o su nombre de usuario si no tiene alias.",
+      "rewindNotConfirmed": "Sin confirmar: haga clic en Ver vista previa y confirmar… y luego escriba el alias de la org, o, si no tiene alias, su nombre o su ID de organización.",
       "rewindChangedSinceConfirmed": "Este retroceso cambió desde que se confirmó: confírmelo de nuevo.",
       "rewindCheckpointMissing": "El punto de control de este paso no se conserva en esta máquina: cree uno aquí y elíjalo.",
       "rewindCheckpointOtherOrg": "El punto de control de este paso se creó de otra org: elija uno de esta org.",
@@ -2799,7 +2799,7 @@
     },
     "rewindConfirmedOn": "Confirmado el {{date}}: este paso hace retroceder {{org}} a «{{name}}» en cada ejecución, incluidas las programadas, como máximo {{max}} registros, revirtiendo o eliminando todo cambio que cualquiera haya hecho desde entonces.",
     "rewindSaveFirst": "Guarde el pipeline y luego confirme este retroceso.",
-    "rewindNotConfirmedNote": "Sin confirmar: el paso no se ejecuta hasta que haga clic en Ver vista previa y confirmar… y escriba el alias de la org, o su nombre de usuario si no tiene alias.",
+    "rewindNotConfirmedNote": "Sin confirmar: el paso no se ejecuta hasta que haga clic en Ver vista previa y confirmar… y escriba el alias de la org, o, si no tiene alias, su nombre o su ID de organización.",
     "rewindConfirm": "Ver vista previa y confirmar…",
     "rewindRevoke": "Revocar la confirmación",
     "rewindGrantRefused": {
@@ -2807,7 +2807,7 @@
       "CONFIG_INVALID": "El paso guardado no se puede leer: corríjalo, guarde y confirme de nuevo.",
       "ORG_UNKNOWN": "La org de este paso no está conectada aquí.",
       "CHECKPOINT_INVALID": "No se puede retroceder aquí al punto de control de este paso: elija otro.",
-      "TYPED_MISMATCH": "Lo escrito no es el alias de la org ni, si no tiene alias, su nombre de usuario: no se confirmó nada."
+      "TYPED_MISMATCH": "Lo escrito no es el alias de la org ni, si no tiene alias, su nombre o su ID de organización: no se confirmó nada."
     },
     "rewindConfirmHeading": "Confirmar el paso Retroceso «{{step}}»",
     "rewindConfirmLead": "Lo que haría ahora un retroceso de {{org}} a «{{name}}». Una vez confirmado, el paso hace retroceder la org cada vez que el pipeline se ejecuta, también de forma programada, como máximo {{max}} registros, sin nadie que lea esto.",
@@ -2941,6 +2941,7 @@
       "realtime_sync": "Sincronización en tiempo real",
       "subject_erase": "Borrado por solicitud de interesado",
       "cleanup_delete": "Eliminación de limpieza",
+      "empty_undo": "Deshacer un vaciado",
       "pipeline_approval": "Aprobación de pipeline",
       "checkpoint_rewind": "Retroceso a un punto de control",
       "checkpoint_undo": "Deshacer un retroceso",
@@ -3613,7 +3614,7 @@
     "syncContent": "Sync copia objetos de una org a otra, campo por campo; la pestaña Historial lista cada ejecución, y la pestaña Programaciones ejecuta una configuración guardada según una programación.\n- Una ejecución delta de una configuración guardada lee lo que cambió desde su última ejecución correcta, y puede eliminar en el destino lo que el origen eliminó.\n- Mapeo automático empareja los campos con el mismo nombre de API. Una regla de transformación cambia un solo campo en cada registro escrito; una regla sin campo se rechaza antes de leer o guardar nada. Los mapeos de valores vienen de una configuración de SFDMU importada.\n- Neutralizar los correos y los números de teléfono está activado salvo que lo desmarque; Copiar los archivos de estos registros trae sus archivos.\n- Pestaña Tiempo real: escribe cada cambio que publica el origen (Change Data Capture) en cuanto llega; un conflicto lo decide la estrategia, o queda retenido en la pestaña Conflictos.\n- Quitar lo que creó esta ejecución, en los resultados o en la entrada del historial de la ejecución, elimina lo que insertó y sus archivos, devuelve a los registros que sobrescribió sus valores de antes, conservados durante sandforge.backup.maxAgeDays, y recupera lo que una ejecución delta eliminó. Production Guard lo rechaza en una org de producción.\n- Una sesión de Tiempo real se quita igual, en Sesiones anteriores, una vez detenida.",
     "compareContent": "Compare metadatos entre dos orgs:\n- Visor de diferencias agrupado por categoría y nivel de riesgo\n- Presencia de permisos: qué perfiles y conjuntos de permisos existen en cada lado\n- Objetos: los objetos de ambas orgs, leídos en vivo al abrir la pestaña\n- Desvío de ajustes de la org: cinco ajustes de Organization lado a lado (nombre, idioma, configuración regional, zona horaria, inicio del año fiscal)\n- Desplegar desde diff: elija lo que difiere, valídelo primero en el destino y luego despliegue la validación en un sandbox, una scratch org o una org Developer Edition",
     "dataopsContent": "Operaciones de datos en la org elegida arriba de la página:\n- Respaldo: una copia de los objetos que enmascaran las plantillas de anonimización, o de los que enmascara la plantilla elegida, guardada en este equipo. No es un punto de control: antes de una ejecución arriesgada en un sandbox, cree un punto de control.\n- Restaurar pregunta antes, nombrando la org y cada objeto del respaldo, y luego devuelve el respaldo a la org de la que se tomó; salvo que esté marcada Volver a escribir cada fila del respaldo, solo escribe las filas que cambiaron desde entonces.\n- Anonimizar enmascara los campos in situ con una plantilla integrada como GDPR, CCPA o HIPAA, o una propia de Crear plantilla; salvo que desmarque Conservar primero los valores, respalda lo que enmascara, para que Restaurar pueda devolverlo.\n- Cumplimiento encuentra los campos con datos personales y luego los registros de una persona por correo, nombre o teléfono, para exportarlos, anonimizarlos o eliminarlos tras una revisión y una confirmación escrita.\n- Limpieza cuenta registros inactivos, búsquedas vacías y valores repetidos, para exportarlos o eliminarlos tras una revisión y una confirmación escrita, 1.000 a la vez.\n- Calidad cuenta con qué frecuencia se rellena cada campo, los valores de clave compartidos y los registros inactivos, y no escribe nada.",
-    "automationContent": "Constructor visual de pipelines:\n- En Pasos, la página ofrece los tipos de pasos que un pipeline ejecuta: Sync, Seed, Anonimización, Respaldo, Punto de control, Retroceso, Comparación, Pre-verificación, Condición, Retraso, Aprobación y Notificación. Sync ejecuta una configuración guardada en la página Sync y, si escribe en una org por la que Production Guard pregunta, necesita un paso Aprobación antes. Seed y Anonimización ejecutan una plantilla de su página, nunca en una org de producción, tras un paso Aprobación en un sandbox marcado como Staging, y nunca se reintentan. Un paso Retroceso devuelve una org a un punto de control conservado en esta máquina, como máximo los registros indicados, una vez que lo confirma bajo su vista previa con el alias de la org, o su nombre de usuario si no tiene alias. Restauración y Eliminación escriben en una org y solo se ejecutan desde su propia página: un pipeline que contenga uno de esos pasos, o un paso Script, Bucle o Paralelo, se rechaza antes de iniciarse\n- Un pipeline se inicia con el botón Ejecutar pipeline, en las horas que indica una expresión cron mientras VS Code está abierto, o cuando SandForge detecta la actualización de un sandbox elegido\n- Historial de ejecución: estado, duración total y errores de cada ejecución, lo que hizo cada uno de sus pasos, y los inicios que un disparador perdió\n- Plantillas de pipeline del Marketplace",
+    "automationContent": "Constructor visual de pipelines:\n- En Pasos, la página ofrece los tipos de pasos que un pipeline ejecuta: Sync, Seed, Anonimización, Respaldo, Punto de control, Retroceso, Comparación, Pre-verificación, Condición, Retraso, Aprobación y Notificación. Sync ejecuta una configuración guardada en la página Sync y, si escribe en una org por la que Production Guard pregunta, necesita un paso Aprobación antes. Seed y Anonimización ejecutan una plantilla de su página, nunca en una org de producción, tras un paso Aprobación en un sandbox marcado como Staging, y nunca se reintentan. Un paso Retroceso devuelve una org a un punto de control conservado en esta máquina, como máximo los registros indicados, una vez que lo confirma bajo su vista previa con el alias de la org, o, si no tiene alias, su nombre o su ID de organización. Restauración y Eliminación escriben en una org y solo se ejecutan desde su propia página: un pipeline que contenga uno de esos pasos, o un paso Script, Bucle o Paralelo, se rechaza antes de iniciarse\n- Un pipeline se inicia con el botón Ejecutar pipeline, en las horas que indica una expresión cron mientras VS Code está abierto, o cuando SandForge detecta la actualización de un sandbox elegido\n- Historial de ejecución: estado, duración total y errores de cada ejecución, lo que hizo cada uno de sus pasos, y los inicios que un disparador perdió\n- Plantillas de pipeline del Marketplace",
     "forgeContent": "Forge copia un registro y lo que se relaciona con él, desde la org seleccionada en el panel lateral a un sandbox, una scratch org o una org Developer Edition; rechaza cualquier otra org. Los ID se reasignan al escribir.\n- Antes de Ejecutar Forge, en la revisión: Simular comprueba aquí cada registro, no envía nada; Ensayar: el destino prueba una muestra, revertida; consume llamadas a la API.\n- Los correos y los números de teléfono se neutralizan (.invalid, números ficticios) salvo que marque Mantener los correos y los números de teléfono tal como están. Anonimizar PII enmascara nombres, direcciones y otros campos personales.\n- Guardar como plantilla, en los resultados de una ejecución, conserva su registro o su consulta, su profundidad, sus opciones y sus decisiones; la pestaña Plantilla la vuelve a ejecutar, e Importar una plantilla lee una desde un archivo.\n- Clonar directamente, bajo Descubrir grafo, ejecuta el descubrimiento y luego la clonación sin detenerse en el grafo ni en la revisión; Production Guard juzga esa ejecución como cualquier otra.\n- Grafo o tabla: hasta 25 objetos se dibujan como grafo, más como tabla, igual que cualquier grafo en un panel de menos de 560 píxeles; Vista de grafo / Vista de tabla, o el ajuste sandforge.forge.graphView, elige la vista.\n- Un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica.",
     "frozenContent": "El Dataset congelado extrae los datos de un sandbox de origen una sola vez y los reproduce idénticos tras cada actualización:\n- Extracción: registros raíz elegidos por matriz de cobertura, dentro de un presupuesto de volumen\n- Archivo de reglas: Ejecutar extracción necesita uno, en ~/.sandforge-sas/rules.json salvo que la configuración lo mueva. Crear archivo de reglas escribe uno vacío, que vacía cada campo sin regla; una regla nombra su campo como Objeto.Campo y un generador como email, firstName, clear o keep (aprobado), y Formato de las reglas los lista todos\n- Seudonimización determinista, con SANDFORGE_FROZEN_SALT donde está definida o, en su defecto, con la sal guardada en el almacenamiento secreto de VS Code, que la primera extracción crea si aún no hay ninguna\n- Un control de cuatro puntos debe superarse antes de escribir el dataset\n- Carga: en un sandbox, una scratch org o una org Developer Edition, nunca en una org de producción ni en un sandbox marcado como Staging, con un Piloto opcional sobre primero un registro raíz, y una verificación después de la carga",
     "grappeContent": "Grappe divide una operación grande en particiones e informa el progreso al completarse cada una:\n- Actívelo con el ajuste sandforge.grappe.enabled\n- Una ejecución de Seed por encima del umbral de registros informa cada partición, una Sync por encima de ese umbral informa una partición por objeto y un plan de Autopilot solo informa su inicio y su fin\n- Las particiones se procesan una tras otra: Grappe no hace más rápida una ejecución",
@@ -7786,6 +7787,8 @@
       "picked_other": "{{formatted}} objetos elegidos",
       "notPickable_one": "{{formatted}} objeto no se puede elegir, con el motivo",
       "notPickable_other": "{{formatted}} objetos no se pueden elegir, cada uno con su motivo",
+      "preselectedLeftOut_one": "{{formatted}} objeto que se pidió vaciar primero queda fuera, con el motivo:",
+      "preselectedLeftOut_other": "{{formatted}} objetos que se pidió vaciar primero quedan fuera, cada uno con su motivo:",
       "staging": "{{org}} es un sandbox marcado como Staging: Production Guard pregunta antes de vaciar sus objetos."
     },
     "org": {
@@ -7832,7 +7835,7 @@
       "hard": "Eliminar para siempre (hard delete): nada va a la papelera, y Deshacer no es posible",
       "hardReading": "Leyendo si puede eliminar para siempre…",
       "hardPermitted": "Tiene Bulk API Hard Delete: marcado, lo que va con los registros también se elimina para siempre.",
-      "hardNotPermitted": "Desactivado: {{user}} no tiene Bulk API Hard Delete, y Salesforce rechaza una eliminación definitiva sin él. Un conjunto de permisos que lo conceda permite marcar esta casilla.",
+      "hardNotPermitted": "Desactivado: el usuario con el que SandForge se conecta no tiene Bulk API Hard Delete, y Salesforce rechaza una eliminación definitiva sin él. Un conjunto de permisos que lo conceda permite marcar esta casilla.",
       "hardUnread": "Desactivado: no se pudo leer si tiene Bulk API Hard Delete ({{reason}})."
     },
     "count": {
@@ -7931,6 +7934,10 @@
         }
       },
       "peopleUnread": "No se pudo leer quién cambió registros en la última hora para: {{objects}}.",
+      "peopleTitle": "Cambiaron registros de estos objetos en {{org}} en la hora anterior a la lectura:",
+      "person": "{{name}}: {{records}}, último cambio el {{at}}",
+      "peopleAtLeast": "Puede haber más: una lectura alcanzó su límite de filas.",
+      "acceptPeopleActive": "Vaciar de todos modos: sus cambios se van con los registros. Cualquier otra persona que trabaje hasta entonces hace que se rechace la ejecución.",
       "leftOut_one": "{{formatted}} objeto dejado fuera, con el motivo",
       "leftOut_other": "{{formatted}} objetos dejados fuera, cada uno con su motivo",
       "checkpointLead": "Primero un punto de control, tal como lo lee esta vista previa:",
@@ -7944,6 +7951,7 @@
       "noUndo": "Deshacer no será posible: Salesforce no recupera nada de lo que se lleva una eliminación definitiva.",
       "automation": "A medida que se van los registros, {{org}} ejecuta lo que listó la vista previa.",
       "muted": "Lo que el silencio acalla queda callado durante la ejecución, y luego se devuelve.",
+      "peopleActive": "Lo que {{people}} cambió en la última hora también se va.",
       "blockers": "{{records}} de objetos no vaciados nombran registros que elimina, por una búsqueda que rechaza la eliminación: los registros que nombran serán rechazados.",
       "checkpoint": "Primero se toma un punto de control de lo que la ejecución elimina."
     },
@@ -7993,7 +8001,8 @@
       "title": "¿Reanudar el vaciado {{runId}} de {{org}}?",
       "description": "Elimina lo que la ejecución detenida aún no había alcanzado, tal como mostró su vista previa, y vuelve a leer al empezar lo que {{org}} ejecuta.",
       "button": "Reanudar el vaciado",
-      "acceptAutomation": "Dejar que se ejecute lo que {{org}} ejecuta cuando se eliminan los registros"
+      "acceptAutomation": "Dejar que se ejecute lo que {{org}} ejecuta cuando se eliminan los registros",
+      "acceptPeopleActive": "Reanudar aunque otros hayan cambiado registros de estos objetos en {{org}} en la última hora: su trabajo también se va"
     },
     "undo": {
       "title": "¿Recuperar lo que {{runId}} eliminó de {{org}}?",

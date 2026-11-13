@@ -20,7 +20,12 @@ import type {
   MaskingDuplicatesWritten,
   MutedAutomation,
 } from '@sandforge/shared';
-import { recordWriteHeaders, sanitizeSoqlObjectName, guardTierOf } from '@sandforge/shared';
+import {
+  recordWriteHeaders,
+  sanitizeSoqlObjectName,
+  guardTierOf,
+  orgDisplayName,
+} from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -1450,7 +1455,7 @@ export class DataOpsHandler implements DomainHandler {
 
   /** The org as the user knows it: its alias, else its id. */
   private orgNameOf(orgId: string): string {
-    return this.deps.orgManager.getOrg(orgId)?.alias ?? orgId;
+    return orgDisplayName(this.deps.orgManager.getOrg(orgId), orgId);
   }
 
   /**
@@ -3323,7 +3328,7 @@ export class DataOpsHandler implements DomainHandler {
       if (backupMeta.organizationId !== undefined) {
         const now = await this.organizationIdOf(conn);
         if (now !== undefined && !sameOrg(backupMeta.organizationId, now)) {
-          const alias = org?.alias ?? payload.orgId;
+          const alias = orgDisplayName(org, payload.orgId);
           const ask = this.deps.infraServices?.confirmRestoreIntoReplacedOrg;
           const restoreAnyway = ask
             ? await ask({ alias, backedUpFrom: backupMeta.organizationId, now })
@@ -4037,7 +4042,7 @@ export class DataOpsHandler implements DomainHandler {
     const tierRefusal = pipelineMaskingTierRefusal(
       writeTier(org),
       request.answer,
-      org.alias || org.username || request.orgId,
+      orgDisplayName(org, request.orgId),
     );
     if (tierRefusal) throw tierRefusal;
     const chosen = pipelineMaskingAsked(request, (id) => this.findTemplate(id) !== undefined);

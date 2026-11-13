@@ -8,7 +8,8 @@ import type {
   GuardDecision,
   MutedAutomation,
 } from '@sandforge/shared';
-import { auditMutedOf, guardTierOf } from '@sandforge/shared';
+import { auditMutedOf, guardTierOf, orgDisplayName } from '@sandforge/shared';
+import { join } from 'node:path';
 import * as z from 'zod';
 import type { Connection } from 'jsforce';
 
@@ -42,6 +43,7 @@ import type { BeforeRunCheckpoints } from '../../modules/checkpoint/beforeRunChe
 import {
   defaultCheckpointStoreRoot,
   openCheckpointStore,
+  PREVIEW_KEEP_MS,
   type OrgLockOutcome,
 } from '../../modules/checkpoint/OrgCheckpointStore.js';
 import { globalObjectSchema } from '../../modules/checkpoint/checkpointScope.js';
@@ -56,16 +58,14 @@ import {
 import { emptyPermissionsOf, guardEmpty } from '../../modules/dataops/empty/emptyGuard.js';
 import { defaultEmptyRoot, EmptyJournalStore } from '../../modules/dataops/empty/emptyJournal.js';
 import { emptyOrgOf, type EmptyOrg } from '../../modules/dataops/empty/emptyOrg.js';
+import { EmptyPreviewStore } from '../../modules/dataops/empty/emptyPreviews.js';
 import { emptyScopeOf } from '../../modules/dataops/empty/emptyScope.js';
 
 /** How long the read of what the org runs may take: Seed's, Forge's and a cleanup's bound. */
 const AUTOMATION_TIMEOUT_MS = 60_000;
 
-/** Previews kept for a run to act on: the last few of the window. */
+/** Previews kept in the window's memory beside the disk: the last few, should the disk refuse one. */
 const PREVIEWS_KEPT = 20;
-
-/** How long a preview is acted on: past it, the run asks for a fresh one. */
-const PREVIEW_KEPT_MS = 60 * 60_000;
 
 /** The module the audit trail, the registry and Live Operations name it by. */
 const MODULE = 'dataops';
@@ -90,6 +90,12 @@ export type EmptyRunWriting = (
 export interface EmptyStores {
   journals: EmptyJournalStore;
   lock: (organizationId: string) => OrgLockOutcome;
+  /**
+   * Where its dry runs are kept on disk for the run that acts on one. Absent,
+   * in the window alone: a command line reads its dry run and runs it in one
+   * process.
+   */
+  previews?: EmptyPreviewStore;
 }
 
 /** A refusal said on the error channel, under its code, every other one beside it. */
@@ -116,7 +122,12 @@ function runAuditObjects(result: DataOpsEmptyRunResult): AuditObjectCounts[] {
     }));
 }
 
-/** The audit trail's counts of an undo: what came back counted as created, as a restore's. */
+/**
+ * The audit trail's counts of an undo, under an action of its own
+ * (`empty_undo`): what came back counted as created, as a rewind's undo
+ * counts it. Under `cleanup_delete`, a delete's action, it read as records
+ * a cleanup created.
+ */
 function undoAuditObjects(result: DataOpsEmptyUndoResult): AuditObjectCounts[] {
   return result.objects
     .filter(
@@ -155,13 +166,16 @@ function auditOutcomeOf(status: DataOpsEmptyRunResult['status']): AuditOutcome {
  * Emptying objects, or the whole org, from DataOps Cleanup: the scope, the
  * dry run, the run, a stop, and the undo (`emptyAct.ts`).
  *
- * The dry run is kept in the window under its id for the run to act on, an
- * hour at most: a run is never sent on a preview the page did not show. A
- * run and an undo are listed in the registry and in Live Operations, whose
- * Cancel — and `dataops:empty:cancel` — stops them before their next call or
- * job, and recorded in the audit trail as `cleanup_delete`, their details
- * saying an emptying (`empty`) and which act. A refusal comes on
- * `dataops:error` under its code, every other one beside it (`alsoRefused`).
+ * The dry run is kept on disk under its id for the run to act on, a day as
+ * a rewind's previews are (`emptyPreviews.ts`): a run is never sent on a
+ * preview the page did not show, and one the page shows is not lost to a
+ * reload of the window. A run and an undo are listed in the registry and in
+ * Live Operations, whose Cancel — and `dataops:empty:cancel` — stops them
+ * before their next call or job, and are told to the checkpoints as writes
+ * to the org (`isWritingTo`). The audit trail records a run as
+ * `cleanup_delete`, its details saying an emptying (`empty`), and an undo
+ * under its own action, `empty_undo`. A refusal comes on `dataops:error`
+ * under its code, every other one beside it (`alsoRefused`).
  */
 export class DataOpsEmptyHandler implements DomainHandler {
   private liveTracker?: LiveOperationTracker;
@@ -171,6 +185,8 @@ export class DataOpsEmptyHandler implements DomainHandler {
   >();
   /** The acts under way, by their operation id: what a cancel stops. */
   private readonly running = new Map<string, AbortController>();
+  /** The acts that write — a run, an undo —, by their operation id, each with its org. */
+  private readonly writing = new Map<string, string>();
   private targetAutomation?: Pick<TargetAutomationReader, 'read'>;
   private muteLeases: MuteLeaseOptions = {};
   private checkpoints?: Pick<BeforeRunCheckpoints, 'scope' | 'take' | 'settle'>;
@@ -216,6 +232,20 @@ export class DataOpsEmptyHandler implements DomainHandler {
   /** The org an emptying reads and deletes through, in place of jsforce's: what a test holds. */
   setOrgOf(orgOf: (conn: Connection, orgId: string) => EmptyOrg): void {
     this.orgOf = orgOf;
+  }
+
+  /**
+   * Whether a run or an undo of an emptying of this window writes to the
+   * registered org now: a checkpoint of it would hold its records half
+   * deleted, and the Checkpoints page names it as it names the other writes
+   * of the org. `except` is the act a checkpoint is taken before — an
+   * emptying's own, asked first —, which alone does not count.
+   */
+  isWritingTo(orgId: string, except?: string): boolean {
+    for (const [operationId, writesTo] of this.writing) {
+      if (writesTo === orgId && operationId !== except) return true;
+    }
+    return false;
   }
 
   async handle(msg: InboundRequest): Promise<boolean> {
@@ -272,6 +302,7 @@ export class DataOpsEmptyHandler implements DomainHandler {
     const store = opened.store;
     this.stores = {
       journals: new EmptyJournalStore(defaultEmptyRoot()),
+      previews: new EmptyPreviewStore(join(defaultEmptyRoot(), 'previews')),
       lock: (organizationId) => store.lock(organizationId, 'empty'),
     };
     return this.stores;
@@ -287,7 +318,10 @@ export class DataOpsEmptyHandler implements DomainHandler {
   ): Promise<EmptyActContext> {
     const registered = this.deps.orgManager.getOrg(orgId);
     const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-    const orgName = registered?.alias || registered?.username || orgId;
+    // Its alias, else its own name, else its Organization Id: never the
+    // username the registry keeps as the alias of an org that has none, which
+    // the page shows and has typed in its confirmations.
+    const orgName = orgDisplayName(registered, orgId);
     const stores = this.ownStores();
     const org = this.orgOf(conn, orgId);
     // The automation's reads go through connections of their own: counted
@@ -422,14 +456,51 @@ export class DataOpsEmptyHandler implements DomainHandler {
     }
   }
 
-  /** Keep `kept` for a run to act on, the oldest let go past {@link PREVIEWS_KEPT}. */
-  private keep(orgId: string, kept: EmptyKeptPreview): void {
+  /** Where the dry runs are kept on disk; none where the window alone keeps them. */
+  private previewStore(): EmptyPreviewStore | undefined {
+    return this.ownStores().previews;
+  }
+
+  /**
+   * Keep `kept` for a run to act on: on disk, and in the window, whose last
+   * few stand in for the disk should it refuse the file.
+   */
+  private async keep(orgId: string, kept: EmptyKeptPreview): Promise<void> {
     this.previews.set(kept.previewId, { orgId, kept, at: Date.now() });
     while (this.previews.size > PREVIEWS_KEPT) {
       const oldest = this.previews.keys().next().value;
       if (oldest === undefined) break;
       this.previews.delete(oldest);
     }
+    try {
+      await this.previewStore()?.keep(orgId, kept);
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] dataops:empty:preview: ${kept.previewId} kept in this window alone (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+  }
+
+  /** The preview `previewId`, of the registered org `orgId`, when it is kept. */
+  private async keptPreview(
+    orgId: string,
+    previewId: string,
+  ): Promise<EmptyKeptPreview | undefined> {
+    // A day, in the window as on disk.
+    const held = this.previews.get(previewId);
+    const kept =
+      held && Date.now() - held.at <= PREVIEW_KEEP_MS
+        ? held
+        : await this.previewStore()?.read(previewId);
+    return kept?.orgId === orgId ? kept.kept : undefined;
+  }
+
+  /** Let the preview `previewId` go: a run acted on it, and none acts on it twice. */
+  private async letGo(previewId: string): Promise<void> {
+    this.previews.delete(previewId);
+    await this.previewStore()
+      ?.remove(previewId)
+      .catch(() => undefined);
   }
 
   /** `dataops:empty:preview`: the dry run, kept for the run. Stoppable by its id. */
@@ -450,12 +521,15 @@ export class DataOpsEmptyHandler implements DomainHandler {
         deleteMode: parsed.deleteMode,
         accord: parsed,
         ...(parsed.acceptNoUndo !== undefined ? { acceptNoUndo: parsed.acceptNoUndo } : {}),
+        ...(parsed.acceptPeopleActive !== undefined
+          ? { acceptPeopleActive: parsed.acceptPeopleActive }
+          : {}),
         ...(parsed.checkpointFirst !== undefined
           ? { checkpointFirst: parsed.checkpointFirst }
           : {}),
       });
       if (!answer.previewed) throw new EmptyRefused(answer.refusal);
-      this.keep(parsed.orgId, answer.kept);
+      await this.keep(parsed.orgId, answer.kept);
       this.respond(msg, 'dataops:empty:preview:response', {
         ...keptForPage(answer.kept),
         automation: answer.automation,
@@ -513,13 +587,14 @@ export class DataOpsEmptyHandler implements DomainHandler {
       outcome: AuditOutcome,
       extra: { result?: T; code?: string; guard?: GuardDecision },
     ) => void,
-    respond: (result: T) => void,
+    respond: (result: T) => void | Promise<void>,
     asked: { fromPage?: boolean },
   ): Promise<void> {
     const operationId = msg.id;
     const registry = this.deps.infraServices?.backgroundRegistry;
     const stop = new AbortController();
     this.running.set(operationId, stop);
+    this.writing.set(operationId, orgId);
     let settle: (err?: unknown) => void = () => {};
     const tracked = new Promise<void>((resolve, reject) => {
       settle = (err) => (err === undefined ? resolve() : reject(err));
@@ -554,7 +629,7 @@ export class DataOpsEmptyHandler implements DomainHandler {
         result,
         ...(answer.guard ? { guard: answer.guard } : {}),
       });
-      respond(result);
+      await respond(result);
       if (result.status === 'cancelled') {
         registry?.abort(operationId);
         sendOperationCompleted(this.deps, operationId, { aborted: true });
@@ -581,6 +656,7 @@ export class DataOpsEmptyHandler implements DomainHandler {
       throw err;
     } finally {
       this.running.delete(operationId);
+      this.writing.delete(operationId);
     }
   }
 
@@ -591,16 +667,15 @@ export class DataOpsEmptyHandler implements DomainHandler {
     try {
       let confirmed: EmptyKeptPreview | undefined;
       if (parsed.previewId !== undefined) {
-        const kept = this.previews.get(parsed.previewId);
-        if (!kept || kept.orgId !== parsed.orgId || Date.now() - kept.at > PREVIEW_KEPT_MS) {
+        confirmed = await this.keptPreview(parsed.orgId, parsed.previewId);
+        if (!confirmed) {
           throw new EmptyRefused({
             code: 'PREVIEW_GONE',
             message:
-              'The preview this emptying was confirmed on is no longer kept in this window: ' +
-              'preview it again, then empty. Nothing was read or deleted.',
+              'The preview this emptying was confirmed on is no longer kept on this machine — a ' +
+              'preview is kept a day: preview it again, then empty. Nothing was read or deleted.',
           });
         }
-        confirmed = kept.kept;
       }
       const details = (
         result?: DataOpsEmptyRunResult,
@@ -631,6 +706,9 @@ export class DataOpsEmptyHandler implements DomainHandler {
             ...(parsed.resumeRunId !== undefined ? { resumeRunId: parsed.resumeRunId } : {}),
             accord: parsed,
             ...(parsed.acceptNoUndo !== undefined ? { acceptNoUndo: parsed.acceptNoUndo } : {}),
+            ...(parsed.acceptPeopleActive !== undefined
+              ? { acceptPeopleActive: parsed.acceptPeopleActive }
+              : {}),
             ...(parsed.checkpointFirst !== undefined
               ? { checkpointFirst: parsed.checkpointFirst }
               : {}),
@@ -653,9 +731,9 @@ export class DataOpsEmptyHandler implements DomainHandler {
               : {}),
             details: details(extra.result),
           }),
-        (result) => {
+        async (result) => {
           // A preview acted on is not acted on twice.
-          if (parsed.previewId !== undefined) this.previews.delete(parsed.previewId);
+          if (parsed.previewId !== undefined) await this.letGo(parsed.previewId);
           this.respond(msg, 'dataops:empty:run:response', { operationId: msg.id, result });
         },
         parsed,
@@ -677,7 +755,7 @@ export class DataOpsEmptyHandler implements DomainHandler {
         (context) => undoEmptyAct(context, { runId: parsed.runId, accord: parsed }),
         (outcome, extra) =>
           recordWriteRun(this.deps, {
-            action: 'cleanup_delete',
+            action: 'empty_undo',
             module: MODULE,
             operationId: msg.id,
             orgId: parsed.orgId,

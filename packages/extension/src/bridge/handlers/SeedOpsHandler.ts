@@ -27,6 +27,7 @@ import {
   type ForgeAutomationWrite,
   type ForgeTargetAutomation,
   type MutedAutomation,
+  orgDisplayName,
 } from '@sandforge/shared';
 import {
   isMuteRefusedError,
@@ -805,7 +806,7 @@ export class SeedOpsHandler implements DomainHandler {
         validated.orgId,
         conn,
         validated.objects,
-        org?.alias || org?.username || validated.orgId,
+        orgDisplayName(org, validated.orgId),
         seedWritesOfObjects(validated.objects, validated.publishes === true),
       );
       if ('error' in read) throw new Error(read.error);
@@ -1176,7 +1177,7 @@ export class SeedOpsHandler implements DomainHandler {
           runId: parsed.runId,
           storagePath: store.storagePath,
           project: await scenarioProjectOf(folders),
-          alias: org.alias || org.username || run.targetOrgId,
+          alias: orgDisplayName(org, run.targetOrgId),
           choice: parsed.choice,
           ...(parsed.overwrite !== undefined ? { overwrite: parsed.overwrite } : {}),
           readCatalog: () => readAgentCatalog(toolingQueryAll(toolingOf(conn))),
@@ -1693,7 +1694,7 @@ export class SeedOpsHandler implements DomainHandler {
     };
 
     const org = this.deps.orgManager.getOrg(payload.orgId);
-    const orgName = org?.alias || org?.username || payload.orgId;
+    const orgName = orgDisplayName(org, payload.orgId);
     const written = kinds.template.objects.map((o) => ({
       objectApiName: o.objectApiName,
       recordCount: o.recordCount,
@@ -1837,7 +1838,7 @@ export class SeedOpsHandler implements DomainHandler {
       conn,
       taken,
       kinds.personObjects,
-      org?.alias ?? payload.orgId,
+      orgDisplayName(org, payload.orgId),
       checkpoint?.planned,
       { ...deliverabilityPartOf(emailsOfRun.ofRun), ...mutePartOf(mute?.plan) },
       writePath,
@@ -1894,7 +1895,7 @@ export class SeedOpsHandler implements DomainHandler {
                   estimateMB: Number(formatMB(check.estimateMB)),
                   remainingMB: check.remainingMB,
                   maxMB: check.maxMB,
-                  org: org?.alias ?? payload.orgId,
+                  org: orgDisplayName(org, payload.orgId),
                 }),
             ...(takeRefusal !== undefined ? { checkpointRefusal: takeRefusal } : {}),
             ...(fit ? { fit } : {}),
@@ -2201,7 +2202,7 @@ export class SeedOpsHandler implements DomainHandler {
     const tierRefusal = pipelineSeedTierRefusal(
       guardTierOf(org),
       request.answer,
-      org.alias || org.username || request.orgId,
+      orgDisplayName(org, request.orgId),
     );
     if (tierRefusal) throw tierRefusal;
     const chosen = pipelineSeedAsked(request.orgId, request.templateId, (id) =>

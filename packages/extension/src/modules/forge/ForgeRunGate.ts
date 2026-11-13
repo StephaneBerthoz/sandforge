@@ -2595,6 +2595,7 @@ export type DeliverabilityRun =
   | 'masking'
   | 'restore'
   | 'cleanup'
+  | 'empty'
   | 'load';
 
 /** How a refusal names each run, and what `--accept-emails` lets it do. */
@@ -2610,6 +2611,7 @@ const DELIVERABILITY_RUN_WORDS: Readonly<
   masking: { run: 'this masking', allTheSame: 'to mask all the same' },
   restore: { run: 'this restore', allTheSame: 'to restore all the same' },
   cleanup: { run: 'this cleanup', allTheSame: 'to delete all the same' },
+  empty: { run: 'this emptying', allTheSame: 'to empty all the same' },
   load: { run: 'this load', allTheSame: 'to load all the same' },
 };
 

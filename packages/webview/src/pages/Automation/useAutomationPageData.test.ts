@@ -1126,13 +1126,20 @@ describe('useAutomationPageData — triggers', () => {
       orgs: [
         { id: 'org-uat', alias: 'uat', username: 'u1', orgType: 'Sandbox' },
         { id: 'org-prod', alias: 'prod', username: 'u2', orgType: 'Production' },
-        { id: 'org-dev', alias: '', username: 'admin@example.test.dev', orgType: 'Sandbox' },
+        {
+          id: 'org-dev',
+          alias: '',
+          username: 'admin@example.test.dev',
+          orgId: '00D000000000003AAA',
+          orgType: 'Sandbox',
+        },
       ] as unknown as SalesforceOrg[],
     });
     const { result } = renderHook(() => useAutomationPageData());
+    // A sandbox with no alias is named by its Organization Id, never its username.
     expect(result.current.sandboxes).toEqual([
       { id: 'org-uat', alias: 'uat' },
-      { id: 'org-dev', alias: 'admin@example.test.dev' },
+      { id: 'org-dev', alias: '00D000000000003AAA' },
     ]);
   });
 });

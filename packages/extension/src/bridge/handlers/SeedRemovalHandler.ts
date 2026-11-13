@@ -10,6 +10,7 @@ import {
   removalStepsWithSweep,
   removalStepsWrites,
   type MutedAutomation,
+  orgDisplayName,
 } from '@sandforge/shared';
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import {
@@ -393,9 +394,7 @@ export class SeedRemovalHandler implements DomainHandler {
             this.deps.orgManager,
           );
           const org = removalOrg(conn, context);
-          return answerJobsInFlight(store, run, jsforceBulk(conn), () =>
-            org.serverTime(),
-          );
+          return answerJobsInFlight(store, run, jsforceBulk(conn), () => org.serverTime());
         },
       );
       for (const line of jobAnsweredLines(context, answered)) this.deps.log(line);
@@ -503,7 +502,7 @@ export class SeedRemovalHandler implements DomainHandler {
               ? 'its instance URL is not a valid URL'
               : 'the record is not one an address can be built for';
         refuse(
-          `Cannot open the record in "${org.alias}": ${why}.`,
+          `Cannot open the record in "${orgDisplayName(org)}": ${why}.`,
           target.reason === 'not-a-record' ? 'NOT_CREATED' : 'INVALID_INSTANCE_URL',
         );
         return;

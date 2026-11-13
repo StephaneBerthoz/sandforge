@@ -7,7 +7,12 @@ import type {
   OrgHealthStatus,
   MonitorOpenApexJobsResponse,
 } from '@sandforge/shared';
-import { MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS, SF_API_VERSION } from '@sandforge/shared';
+import {
+  MONITOR_KEY_LIMITS,
+  DEFAULT_SOQL_LIMITS,
+  SF_API_VERSION,
+  orgDisplayName,
+} from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
 import {
@@ -1255,7 +1260,7 @@ export class MonitorOpsHandler implements DomainHandler {
         'monitor:open-apex-jobs',
         'monitor:error',
         msg,
-        new Error(`Cannot open Apex Jobs for "${org.alias}": ${why}.`),
+        new Error(`Cannot open Apex Jobs for "${orgDisplayName(org)}": ${why}.`),
         { code: 'INVALID_INSTANCE_URL' },
       );
       return;

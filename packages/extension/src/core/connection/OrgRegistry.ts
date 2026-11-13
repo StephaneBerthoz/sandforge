@@ -183,6 +183,10 @@ export class OrgRegistry {
           },
           tags: stored.tags ?? org.tags,
           ...(stored.staging !== undefined ? { staging: stored.staging } : {}),
+          // An import that did not read the org's name keeps the one read before.
+          ...(org.organizationName === undefined && stored.organizationName !== undefined
+            ? { organizationName: stored.organizationName }
+            : {}),
         }
       : org;
     this.configStore.set(key, merged, ORG_CATEGORY);

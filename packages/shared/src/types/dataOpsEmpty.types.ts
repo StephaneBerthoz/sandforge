@@ -393,6 +393,18 @@ export interface DataOpsEmptyUndoResult {
 /** The org's tier, as an emptying reads it: production is refused before anything is. */
 export type DataOpsEmptyTier = Exclude<GuardTier, 'production'>;
 
+/** Someone other than the user who changed records an emptying deletes, in the hour before its read. */
+export interface DataOpsEmptyPersonActive {
+  /** Their user Id, its first fifteen characters. */
+  userId: string;
+  /** Their name (`User.Name`), read for the page alone: a command line names no one. */
+  name?: string;
+  /** The records of theirs the read saw changed. */
+  records: number;
+  /** When they last changed one, on the org's clock. */
+  lastChangedAt: string;
+}
+
 /** What the dry run answers, kept on the extension's side for the run to act on. */
 export interface DataOpsEmptyPreviewKept {
   previewId: string;
@@ -404,8 +416,20 @@ export interface DataOpsEmptyPreviewKept {
   access: DataOpsEmptyAccess;
   /** Whether the user may delete for good, as `UserPermissionAccess` says. */
   hardDelete: { permitted: boolean; unread?: string };
-  /** People other than the user who changed records of these objects in the hour before the read. */
-  peopleActive: { people: number; unread?: string[] };
+  /**
+   * People other than the user who changed records of these objects in the
+   * hour before the read: how many, and who — each by user Id, with the
+   * records of theirs read and when they last changed one, and their name
+   * where the page asked it. A run accepts the work of those named here, and
+   * of no one else.
+   */
+  peopleActive: {
+    people: number;
+    /** A read reached its row limit: there may be more people, and more records, than counted. */
+    atLeast?: true;
+    who?: DataOpsEmptyPersonActive[];
+    unread?: string[];
+  };
   /** What a checkpoint before the run would hold and cost, when it was asked. */
   checkpoint?: RunCheckpointEstimate;
   /** The org's last emptying, when it stopped part way: resume or undo it first. */

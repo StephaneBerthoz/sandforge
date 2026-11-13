@@ -4,6 +4,7 @@ import {
   guardTierOf,
   isDevelopmentOrg,
   type DataOpsEmptyCancelResponse,
+  type DataOpsEmptyLeftOut,
   type DataOpsEmptyMode,
   type DataOpsEmptyRunResponse,
   type DataOpsEmptyScopeRequest,
@@ -77,6 +78,27 @@ interface PreviewAsked {
   /** The options it was asked with, mute aside, by value. */
   key: string;
   payload: Record<string, unknown>;
+}
+
+/**
+ * The objects asked to be emptied first — a clone of the whole org asked it —
+ * that the org's scope does not offer, each with why: what the scope leaves
+ * out says why, and an object it names nowhere is not in the org.
+ */
+export function preselectedLeftOut(
+  asked: readonly string[],
+  candidates: readonly string[],
+  leftOut: readonly DataOpsEmptyLeftOut[],
+): DataOpsEmptyLeftOut[] {
+  const held = new Set(candidates.map((name) => name.toLowerCase()));
+  const why = new Map(leftOut.map((out) => [out.objectApiName.toLowerCase(), out]));
+  const out: DataOpsEmptyLeftOut[] = [];
+  for (const name of asked) {
+    const key = name.toLowerCase();
+    if (held.has(key) || out.some((each) => each.objectApiName.toLowerCase() === key)) continue;
+    out.push(why.get(key) ?? { objectApiName: name, reason: 'notFound' });
+  }
+  return out;
 }
 
 /** A resume or an undo being confirmed, of which run. */
@@ -198,6 +220,7 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
     acceptAutomation: false,
     acceptEmails: false,
     mute: false,
+    acceptPeopleActive: false,
   });
   const [shown, setShown] = useState<Shown>(null);
 
@@ -310,6 +333,8 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
       orgId,
       previewId: answer.previewId,
       ...(boxes.acceptNoUndo ? { acceptNoUndo: true } : {}),
+      // The work of the people the preview named, and of no one else.
+      ...(boxes.acceptPeopleActive ? { acceptPeopleActive: true } : {}),
       ...(how[asked.mode].checkpointFirst ? { checkpointFirst: true } : {}),
       // Confirmed once the preview listed what fires: what fires is accepted,
       // the emails as their box says, the mute as its box says.
@@ -321,7 +346,12 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
   };
 
   const openAct = (act: AskedAct['act'], runId: string): void => {
-    setActBoxes({ acceptAutomation: false, acceptEmails: false, mute: false });
+    setActBoxes({
+      acceptAutomation: false,
+      acceptEmails: false,
+      mute: false,
+      acceptPeopleActive: false,
+    });
     setAskedAct({ act, runId });
   };
   const confirmAct = (): void => {
@@ -337,7 +367,12 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
       undo.mutate({ orgId, runId: askedAct.runId, ...accord });
     } else {
       setShown('run');
-      run.mutate({ orgId, resumeRunId: askedAct.runId, ...accord });
+      run.mutate({
+        orgId,
+        resumeRunId: askedAct.runId,
+        ...accord,
+        ...(actBoxes.acceptPeopleActive ? { acceptPeopleActive: true } : {}),
+      });
     }
     setAskedAct(null);
   };
@@ -360,6 +395,21 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
     () => notPickable(scope.data?.leftOut ?? [], candidates),
     [scope.data, candidates],
   );
+  // Asked to be emptied first, and not to be picked: said left out, with
+  // why, as soon as the scope is read, and never sent in a preview.
+  const preselectedOut = useMemo(
+    () =>
+      scope.data ? preselectedLeftOut(initialObjects ?? [], candidates, scope.data.leftOut) : [],
+    [scope.data, candidates, initialObjects],
+  );
+  useEffect(() => {
+    if (preselectedOut.length === 0) return;
+    const out = new Set(preselectedOut.map((each) => each.objectApiName.toLowerCase()));
+    setPicked((current) => {
+      const kept = current.filter((name) => !out.has(name.toLowerCase()));
+      return kept.length === current.length ? current : kept;
+    });
+  }, [preselectedOut]);
   const excludedSet = new Set(orgAsked.excluded);
   const orgObjects = (scope.data?.objects ?? []).filter((name) => !excludedSet.has(name));
   const orgLeftOut = (scope.data?.leftOut ?? []).filter(
@@ -391,7 +441,7 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
       : hardDelete.unread !== undefined
         ? t('dataopsEmpty.options.hardUnread', { reason: hardDelete.unread })
         : !permitted
-          ? t('dataopsEmpty.options.hardNotPermitted', { user: org?.username ?? orgName })
+          ? t('dataopsEmpty.options.hardNotPermitted')
           : t('dataopsEmpty.options.hardPermitted');
     const reasonId = `${mode === 'objects' ? objectsHeadingId : orgHeadingId}-hard`;
     return (
@@ -497,6 +547,21 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
             }
             testIdPrefix="empty-pick"
           />
+        )}
+        {preselectedOut.length > 0 && (
+          <div
+            role="note"
+            className="text-status-warning"
+            data-testid="empty-objects-preselected-left-out"
+          >
+            <p className="font-medium">
+              {t('dataopsEmpty.objects.preselectedLeftOut', {
+                count: preselectedOut.length,
+                formatted: formatNumber(preselectedOut.length),
+              })}
+            </p>
+            <LeftOutList leftOut={preselectedOut} testId="empty-objects-preselected-left-out" />
+          </div>
         )}
         {blocked.length > 0 && (
           <details data-testid="empty-objects-not-pickable">
@@ -680,6 +745,15 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
             )}
             <li>{t('dataopsEmpty.confirm.automation', { org: orgName })}</li>
             {mute && <li data-testid="empty-confirm-muted">{t('dataopsEmpty.confirm.muted')}</li>}
+            {boxes.acceptPeopleActive && (answer.peopleActive.who ?? []).length > 0 && (
+              <li className="text-status-warning" data-testid="empty-confirm-people-active">
+                {t('dataopsEmpty.confirm.peopleActive', {
+                  people: (answer.peopleActive.who ?? [])
+                    .map((person) => person.name ?? person.userId)
+                    .join(', '),
+                })}
+              </li>
+            )}
             {asked && how[asked.mode].checkpointFirst && (
               <li data-testid="empty-confirm-checkpoint">{t('dataopsEmpty.confirm.checkpoint')}</li>
             )}
@@ -741,6 +815,25 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
           </label>
           {/* The confirmation reads nothing of the org: what a mute silences
               is read as the act starts, and its result says it. */}
+          {askedAct.act === 'resume' && (
+            // Never ticked unasked either: without it, the resume is refused
+            // while others changed records of these objects in the last hour.
+            <label className="mt-2 flex items-start gap-2">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={actBoxes.acceptPeopleActive}
+                onChange={(e) =>
+                  setActBoxes((current) => ({
+                    ...current,
+                    acceptPeopleActive: e.target.checked,
+                  }))
+                }
+                data-testid="empty-act-accept-people-active"
+              />
+              <span>{t('dataopsEmpty.resume.acceptPeopleActive', { org: orgName })}</span>
+            </label>
+          )}
           <AutomationMuteBox
             offer="atStart"
             checked={actBoxes.mute}

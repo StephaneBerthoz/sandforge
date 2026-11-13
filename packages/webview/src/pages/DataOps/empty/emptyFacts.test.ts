@@ -27,17 +27,28 @@ describe('holdingRefusals', () => {
       'NO_UNDO',
     ]);
     expect(
-      holdingRefusals(refusals, { acceptEmails: true, acceptNoUndo: false }).map((r) => r.code),
+      holdingRefusals(refusals, { ...NO_BOXES, acceptEmails: true }).map((r) => r.code),
     ).toEqual(['NO_UNDO']);
-    expect(holdingRefusals(refusals, { acceptEmails: true, acceptNoUndo: true })).toEqual([]);
+    expect(
+      holdingRefusals(refusals, { ...NO_BOXES, acceptEmails: true, acceptNoUndo: true }),
+    ).toEqual([]);
+  });
+
+  it('lifts the people at work only once the box that lets their work go is ticked', () => {
+    const refusals = [refusal('PEOPLE_ACTIVE')];
+    expect(holdingRefusals(refusals, NO_BOXES).map((r) => r.code)).toEqual(['PEOPLE_ACTIVE']);
+    expect(holdingRefusals(refusals, { ...NO_BOXES, acceptPeopleActive: true })).toEqual([]);
+    expect(asksBox(refusals, 'acceptPeopleActive')).toBe(true);
   });
 
   it('holds every other refusal whatever is ticked', () => {
-    const refusals = ['PEOPLE_ACTIVE', 'OPEN_RUN', 'API_BUDGET', 'EMAILS_EXCEEDED', 'MUTE_REFUSED'];
+    const refusals = ['OPEN_RUN', 'API_BUDGET', 'EMAILS_EXCEEDED', 'MUTE_REFUSED', 'RUN_WRITING'];
     expect(
-      holdingRefusals(refusals.map(refusal), { acceptEmails: true, acceptNoUndo: true }).map(
-        (r) => r.code,
-      ),
+      holdingRefusals(refusals.map(refusal), {
+        acceptEmails: true,
+        acceptNoUndo: true,
+        acceptPeopleActive: true,
+      }).map((r) => r.code),
     ).toEqual(refusals);
   });
 
@@ -116,6 +127,19 @@ describe('emptyHistoryOf', () => {
     expect(history.map((entry) => [entry.act, entry.at, entry.records])).toEqual([
       ['undo', '2026-11-12T11:00:00.000Z', 5],
       ['run', '2026-11-12T10:00:00.000Z', 5],
+    ]);
+  });
+
+  it('reads an undo under its own action, and one recorded under cleanup_delete before it had one', () => {
+    const history = emptyHistoryOf([
+      auditEntry('undo', '2026-11-12T11:00:00.000Z'),
+      { ...auditEntry('undo', '2026-11-12T12:00:00.000Z'), action: 'cleanup_delete' },
+      { ...auditEntry('run', '2026-11-12T13:00:00.000Z'), action: 'empty_undo', details: {} },
+    ]);
+    expect(history.map((entry) => [entry.act, entry.at, entry.records])).toEqual([
+      ['undo', '2026-11-12T13:00:00.000Z', 0],
+      ['undo', '2026-11-12T12:00:00.000Z', 5],
+      ['undo', '2026-11-12T11:00:00.000Z', 5],
     ]);
   });
 

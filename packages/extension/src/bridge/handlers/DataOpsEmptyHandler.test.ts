@@ -13,8 +13,9 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import type { OrgLockOutcome } from '../../modules/checkpoint/OrgCheckpointStore.js';
 import { EmptyJournalStore } from '../../modules/dataops/empty/emptyJournal.js';
+import { EmptyPreviewStore } from '../../modules/dataops/empty/emptyPreviews.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
-import { MemoryEmptyOrg, SALES, emptySalesSpecs } from '../../test/memoryEmptyOrg.js';
+import { MemoryEmptyOrg, SALES, emptySalesSpecs, fakeId } from '../../test/memoryEmptyOrg.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
@@ -55,7 +56,11 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function depsOf(orgType = 'Sandbox', guard = new ProductionGuard()): HandlerDeps {
+function depsOf(
+  orgType = 'Sandbox',
+  guard = new ProductionGuard(),
+  registered: Record<string, unknown> = { alias: 'dev', username: 'admin@example.invalid' },
+): HandlerDeps {
   const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
   configStore.initialize();
   let id = 0;
@@ -63,12 +68,7 @@ function depsOf(orgType = 'Sandbox', guard = new ProductionGuard()): HandlerDeps
     log: vi.fn(),
     broker: { postToWebview: vi.fn() },
     orgManager: {
-      getOrg: vi.fn(() => ({
-        id: 'org-1',
-        orgType,
-        alias: 'dev',
-        username: 'admin@example.invalid',
-      })),
+      getOrg: vi.fn(() => ({ id: 'org-1', orgType, ...registered })),
     },
     orgRegistry: {},
     configStore,
@@ -77,11 +77,16 @@ function depsOf(orgType = 'Sandbox', guard = new ProductionGuard()): HandlerDeps
   } as unknown as HandlerDeps;
 }
 
-function handlerOn(org: MemoryEmptyOrg, deps: HandlerDeps): DataOpsEmptyHandler {
+function handlerOn(
+  org: MemoryEmptyOrg,
+  deps: HandlerDeps,
+  previews?: EmptyPreviewStore,
+): DataOpsEmptyHandler {
   const handler = new DataOpsEmptyHandler(deps);
   let held = false;
   handler.setStores({
     journals: new EmptyJournalStore(join(root, 'empty')),
+    ...(previews ? { previews } : {}),
     lock: (organizationId): OrgLockOutcome => {
       if (held) throw new Error('the lock is taken twice');
       held = true;
@@ -249,12 +254,177 @@ describe('DataOpsEmptyHandler', () => {
       answer<{ result: { status: string } }>(deps, 'dataops:empty:undo:response').result.status,
     ).toBe('success');
     expect(org.live('Contact')).toHaveLength(3);
+    // An action of its own: under `cleanup_delete`, a delete's, it read as
+    // three records a cleanup created.
     expect(new AuditTrailStore(deps.configStore).list().entries[0]).toMatchObject({
-      action: 'cleanup_delete',
+      action: 'empty_undo',
       outcome: 'success',
       objects: [{ objectApiName: 'Contact', created: 3 }],
       details: { empty: 'undo', runId: result.runId },
     });
+  });
+
+  it('acts on a preview kept on disk from another window, as after a reload, and on it once', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const previews = new EmptyPreviewStore(join(root, 'previews'));
+    const before = depsOf();
+    await handlerOn(org, before, previews).handle(
+      request('dataops:empty:preview', {
+        orgId: 'org-1',
+        request: CONTACTS,
+        deleteMode: 'recycle',
+      }),
+    );
+    const { previewId } = answer<{ previewId: string }>(before, 'dataops:empty:preview:response');
+
+    // The window reloaded: a new handler, nothing of the preview in its memory.
+    const after = depsOf();
+    const reloaded = handlerOn(org, after, previews);
+    await reloaded.handle(request('dataops:empty:run', { orgId: 'org-1', previewId }, 'run-1'));
+    expect(
+      answer<{ result: DataOpsEmptyRunResult }>(after, 'dataops:empty:run:response').result.status,
+    ).toBe('success');
+    expect(org.live('Contact')).toEqual([]);
+
+    await reloaded.handle(request('dataops:empty:run', { orgId: 'org-1', previewId }, 'run-2'));
+    expect(answer<{ code: string }>(after, 'dataops:error').code).toBe('PREVIEW_GONE');
+  });
+
+  it('acts on no preview past its day, in the window as on disk', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const deps = depsOf();
+    const handler = handlerOn(org, deps);
+    await handler.handle(
+      request('dataops:empty:preview', {
+        orgId: 'org-1',
+        request: CONTACTS,
+        deleteMode: 'recycle',
+      }),
+    );
+    const { previewId } = answer<{ previewId: string }>(deps, 'dataops:empty:preview:response');
+    const now = Date.now();
+    const later = vi.spyOn(Date, 'now').mockReturnValue(now + 24 * 60 * 60_000 + 1_000);
+    try {
+      await handler.handle(request('dataops:empty:run', { orgId: 'org-1', previewId }, 'run-1'));
+    } finally {
+      later.mockRestore();
+    }
+    expect(answer<{ code: string }>(deps, 'dataops:error').code).toBe('PREVIEW_GONE');
+    expect(org.live('Contact')).toHaveLength(3);
+  });
+
+  it('acts on no preview of another registered org', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const previews = new EmptyPreviewStore(join(root, 'previews'));
+    const deps = depsOf();
+    await handlerOn(org, deps, previews).handle(
+      request('dataops:empty:preview', {
+        orgId: 'org-1',
+        request: CONTACTS,
+        deleteMode: 'recycle',
+      }),
+    );
+    const { previewId } = answer<{ previewId: string }>(deps, 'dataops:empty:preview:response');
+    const other = depsOf();
+    await handlerOn(org, other, previews).handle(
+      request('dataops:empty:run', { orgId: 'org-2', previewId }, 'run-1'),
+    );
+    expect(answer<{ code: string }>(other, 'dataops:error').code).toBe('PREVIEW_GONE');
+    expect(org.live('Contact')).toHaveLength(3);
+  });
+
+  it('is a write to the org while a run deletes, its own act left out, and none once it ended', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const deps = depsOf();
+    const handler = handlerOn(org, deps);
+    await handler.handle(
+      request('dataops:empty:preview', {
+        orgId: 'org-1',
+        request: CONTACTS,
+        deleteMode: 'recycle',
+      }),
+    );
+    const { previewId } = answer<{ previewId: string }>(deps, 'dataops:empty:preview:response');
+    // The preview reads: it is no write.
+    expect(handler.isWritingTo('org-1')).toBe(false);
+    const seen: Array<[boolean, boolean, boolean]> = [];
+    org.beforeDelete = () => {
+      seen.push([
+        handler.isWritingTo('org-1'),
+        handler.isWritingTo('org-1', 'run-1'),
+        handler.isWritingTo('org-2'),
+      ]);
+    };
+
+    await handler.handle(request('dataops:empty:run', { orgId: 'org-1', previewId }, 'run-1'));
+
+    expect(seen[0]).toEqual([true, false, false]);
+    expect(handler.isWritingTo('org-1')).toBe(false);
+  });
+
+  it('runs on the work of the people its preview named, ticked on the page', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    org.memory.edit('Contact', SALES.contactAlone, { Title: 'x' }, fakeId('005', 77));
+    const deps = depsOf();
+    const handler = handlerOn(org, deps);
+    await handler.handle(
+      request('dataops:empty:preview', {
+        orgId: 'org-1',
+        request: CONTACTS,
+        deleteMode: 'recycle',
+        fromPage: true,
+      }),
+    );
+    const preview = answer<{
+      previewId: string;
+      refusals: Array<{ code: string; message: string }>;
+      peopleActive: { people: number; who?: Array<{ userId: string }> };
+    }>(deps, 'dataops:empty:preview:response');
+    expect(preview.peopleActive.who?.map((person) => person.userId)).toEqual([
+      fakeId('005', 77).slice(0, 15),
+    ]);
+    expect(preview.refusals.map((refusal) => refusal.code)).toContain('PEOPLE_ACTIVE');
+
+    await handler.handle(
+      request(
+        'dataops:empty:run',
+        {
+          orgId: 'org-1',
+          previewId: preview.previewId,
+          acceptAutomation: true,
+          acceptPeopleActive: true,
+          fromPage: true,
+        },
+        'run-1',
+      ),
+    );
+    expect(
+      answer<{ result: DataOpsEmptyRunResult }>(deps, 'dataops:empty:run:response').result.status,
+    ).toBe('success');
+  });
+
+  it('names an org with no alias of its own by its name, never by the username its alias holds', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const deps = depsOf('Sandbox', new ProductionGuard(), {
+      alias: 'admin@example.invalid',
+      username: 'admin@example.invalid',
+      orgId: '00D000000000001AAA',
+      organizationName: 'Example Sandbox',
+    });
+    await handlerOn(org, deps).handle(
+      request('dataops:empty:preview', {
+        orgId: 'org-1',
+        request: { mode: 'org' },
+        deleteMode: 'recycle',
+        fromPage: true,
+      }),
+    );
+    const preview = answer<{ orgName: string; refusals: Array<{ message: string }> }>(
+      deps,
+      'dataops:empty:preview:response',
+    );
+    expect(preview.orgName).toBe('Example Sandbox');
+    expect(JSON.stringify(preview)).not.toContain('admin@example.invalid');
   });
 
   it('refuses a production org, its Production Guard override set, and never asks the guard', async () => {

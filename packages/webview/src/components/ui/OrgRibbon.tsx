@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDown, ArrowRight, ShieldAlert } from 'lucide-react';
-import { registeredOrgType } from '@sandforge/shared';
+import { registeredOrgType, orgDisplayName } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { OrgTypeBadge } from './OrgBadge';
 import { isNotHeld, type OrgRibbonOrg } from './ribbonOrg';
@@ -55,7 +55,7 @@ const RibbonSide: React.FC<RibbonSideProps> = ({ org, label, target, picker, tes
   const { t, i18n } = useTranslation();
   const notHeld = isNotHeld(org) ? org.notHeld : undefined;
   const known = typeof org === 'object' && !isNotHeld(org) ? org : undefined;
-  const name = known ? known.alias || known.username : typeof org === 'string' ? org : undefined;
+  const name = known ? orgDisplayName(known) : typeof org === 'string' ? org : undefined;
   const production = isProduction(org);
   const statusKey = known ? `common.orgStatus_${known.status}` : '';
   const host = known?.instanceUrl?.replace(/^https?:\/\//, '').replace(/\/$/, '');

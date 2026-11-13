@@ -163,7 +163,7 @@ export function auditEntry(
 ): AuditLogEntry {
   return {
     id: `${act}-${at}`,
-    action: 'cleanup_delete',
+    action: act === 'undo' ? 'empty_undo' : 'cleanup_delete',
     module: 'dataops',
     orgId: 'org-1',
     operationId: `op-${act}`,

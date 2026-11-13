@@ -5,6 +5,7 @@ import {
   backAfterRemoval,
   forgeRemovalPlanCountsLeft,
   forgeRunCountsLeft,
+  orgDisplayName,
 } from '@sandforge/shared';
 import type {
   ForgeConfig,
@@ -188,7 +189,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
   }, [answered, onHistoryChanged]);
 
   const orgLabel = (orgId: string | undefined): string | undefined =>
-    orgs.find((o) => o.id === orgId)?.alias;
+    orgDisplayName(orgs.find((o) => o.id === orgId)) || undefined;
   /** The runs whose records a removal could take now, by `forgeId`. */
   const removable = useMemo(
     () => new Set(entries.filter((e) => forgeRunCountsLeft(e).length > 0).map((e) => e.forgeId)),

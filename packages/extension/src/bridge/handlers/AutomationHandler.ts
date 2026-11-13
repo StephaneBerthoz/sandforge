@@ -16,7 +16,11 @@ import type {
   SyncExecutionResult,
   TriggerType,
 } from '@sandforge/shared';
-import { TRIGGERED_RUN_PREFIX, pipelineRewindStepConfigSchema } from '@sandforge/shared';
+import {
+  TRIGGERED_RUN_PREFIX,
+  pipelineRewindStepConfigSchema,
+  orgDisplayName,
+} from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
@@ -469,7 +473,7 @@ export class AutomationHandler implements DomainHandler {
       org: (orgId) => {
         const org = this.deps.orgManager.getOrg(orgId);
         return org
-          ? { name: org.alias || org.username || org.id, sandbox: org.orgType === 'Sandbox' }
+          ? { name: orgDisplayName(org, org.id), sandbox: org.orgType === 'Sandbox' }
           : undefined;
       },
       start: (pipeline, triggeredBy) => this.startTriggeredRun(pipeline, triggeredBy),
@@ -881,7 +885,7 @@ export class AutomationHandler implements DomainHandler {
       if (!org) return refuse('ORG_UNKNOWN');
       // As the Checkpoints page's confirmation reads it: the alias, or the
       // username of an org that has none, exactly as registered.
-      if (typed !== (org.alias || org.username)) return refuse('TYPED_MISMATCH');
+      if (typed !== orgDisplayName(org)) return refuse('TYPED_MISMATCH');
       const { info, checkpoint } = await this.describeRewindStep(pipelineId, step);
       if (!info.valid) return refuse('CHECKPOINT_INVALID', { why: info.why ?? 'missing' });
       if (!checkpoint?.kept || checkpoint.organizationId === undefined) {
@@ -899,7 +903,7 @@ export class AutomationHandler implements DomainHandler {
       });
       this.deps.log(
         `[INFO] pipeline:rewind-grant: Rewind step ${stepId} of pipeline ${pipelineId} confirmed ` +
-          `for ${org.alias || org.username}, to checkpoint ${config.data.checkpointId}`,
+          `for ${orgDisplayName(org)}, to checkpoint ${config.data.checkpointId}`,
       );
       respond({
         granted: true,

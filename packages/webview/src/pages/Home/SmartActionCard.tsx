@@ -8,7 +8,7 @@ import type {
   SmartActionRecommendation,
   SmartActionType,
 } from '@sandforge/shared';
-import { SAMPLE_DATA_CEILING } from '@sandforge/shared';
+import { SAMPLE_DATA_CEILING, orgDisplayName } from '@sandforge/shared';
 import { Card, CardBody } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Tooltip } from '../../components/ui/Tooltip';
@@ -102,7 +102,7 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
   const orgs = useOrgStore((state) => state.orgs);
   const nameOf = (id: string): string => {
     const org = orgs.find((candidate) => candidate.id === id);
-    return org?.alias || org?.username || id;
+    return orgDisplayName(org, id);
   };
   const targetOrgName = nameOf(targetOrgId);
 

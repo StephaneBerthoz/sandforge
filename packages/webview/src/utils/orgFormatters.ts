@@ -1,5 +1,10 @@
 import type { SalesforceOrg } from '@sandforge/shared';
-import { expiredScratchDate, guardTierOf, registeredOrgType } from '@sandforge/shared';
+import {
+  expiredScratchDate,
+  guardTierOf,
+  registeredOrgType,
+  orgDisplayName,
+} from '@sandforge/shared';
 import type { TFunction } from 'i18next';
 
 /**
@@ -76,5 +81,5 @@ export function orgTypeLabel(org: SalesforceOrg, t: TFunction): string {
  * @param t - The i18n translation function.
  */
 export function orgOptionLabel(org: SalesforceOrg, t: TFunction): string {
-  return `${org.alias || org.username} [${orgTypeLabel(org, t)}]`;
+  return `${orgDisplayName(org)} [${orgTypeLabel(org, t)}]`;
 }

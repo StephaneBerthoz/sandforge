@@ -21,6 +21,7 @@ import { CheckpointFirstOption } from '../../../components/ui/CheckpointFirstOpt
 import { MutedAutomationResult } from '../../../components/ui/MutedAutomationResult';
 import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { useOrgStore } from '../../../stores/useOrgStore';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** Props for the QuickSyncPreviewStep component. */
 export interface QuickSyncPreviewStepProps {
@@ -81,7 +82,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const targetOrg = orgs.find((o) => o.id === targetOrgId);
-  const targetName = targetOrg?.alias || targetOrg?.username || targetOrgId;
+  const targetName = orgDisplayName(targetOrg, targetOrgId);
 
   // During execution
   if (isExecuting) {

@@ -607,6 +607,8 @@ export interface SfdxOrgEntry {
   expirationDate?: string;
   instanceApiVersion?: string;
   orgEdition?: string;
+  /** The org's own name (`Organization.Name`), as the CLI lists it. */
+  name?: string;
 }
 
 /**
@@ -1169,6 +1171,11 @@ export class SfdxBridge {
       id: entry.orgId,
       alias: entry.alias || entry.username,
       username: entry.username,
+      // What names the org when the CLI holds no alias for it, in place of
+      // the username the alias then holds.
+      ...(typeof entry.name === 'string' && entry.name.trim() !== ''
+        ? { organizationName: entry.name.trim() }
+        : {}),
       instanceUrl: entry.instanceUrl,
       orgId: entry.orgId,
       orgType,

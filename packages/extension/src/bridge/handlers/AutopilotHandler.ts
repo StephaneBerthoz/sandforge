@@ -12,7 +12,7 @@ import type {
   AutopilotAnonymizationRule,
   AutopilotStopLeftover,
 } from '@sandforge/shared';
-import { guardTierOf } from '@sandforge/shared';
+import { guardTierOf, orgDisplayName } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
@@ -1173,7 +1173,7 @@ export class AutopilotHandler implements DomainHandler {
     // mute's plan holds: read last before the question, as the user the run
     // writes as, only when something may send one, and never with Apex in a
     // production org. The question's answer is the accord.
-    const orgName = targetOrg?.alias ?? operation.targetOrgId;
+    const orgName = orgDisplayName(targetOrg, operation.targetOrgId);
     const runEmails: RunEmails | undefined = read
       ? await runEmailsOf({
           read,
@@ -1831,7 +1831,7 @@ export class AutopilotHandler implements DomainHandler {
     const { check } = gate;
     const org = this.deps.orgManager.getOrg(targetOrgId);
     const figures = {
-      org: org?.alias ?? targetOrgId,
+      org: orgDisplayName(org, targetOrgId),
       estimateMB: check.estimateMB,
       ...(check.verdict === 'unread' ? {} : { remainingMB: check.remainingMB, maxMB: check.maxMB }),
     };

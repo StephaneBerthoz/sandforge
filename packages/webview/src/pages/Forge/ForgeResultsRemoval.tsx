@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eraser, Trash2 } from 'lucide-react';
-import { forgeRunCountsLeft, forgeRunCreatedSome } from '@sandforge/shared';
+import { forgeRunCountsLeft, forgeRunCreatedSome, orgDisplayName } from '@sandforge/shared';
 import type { ForgeExecutionResult, ForgeUndoResult } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { REMOVAL_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
@@ -57,7 +57,9 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
   onRemoved,
 }) => {
   const { t } = useTranslation();
-  const org = useOrgStore((s) => s.orgs.find((o) => o.id === targetOrgId)?.alias);
+  const org = useOrgStore(
+    (s) => orgDisplayName(s.orgs.find((o) => o.id === targetOrgId)) || undefined,
+  );
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
   const { sweep, setSweep, ticks, setTicks, asked } = useRemovalSweep();

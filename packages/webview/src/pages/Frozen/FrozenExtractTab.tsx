@@ -25,6 +25,7 @@ import { useFrozenMutation } from './useFrozenBridge';
 import { FrozenCoverageNotes } from './FrozenCoverageNotes';
 import { FrozenKeptWithoutARule } from './FrozenKeptWithoutARule';
 import { CONFIGURATION_KEYS_URL, FrozenRulesFileLine } from './FrozenRulesFileLine';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** Draft row for one coverage axis. */
 interface AxisDraft {
@@ -224,7 +225,10 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
    */
   const rulesBlock =
     status?.rules !== undefined && (!status.rules.found || status.rules.invalid !== undefined);
-  const sourceAlias = orgs.find((org) => org.id === selectedOrgId)?.alias ?? selectedOrgId ?? '';
+  const sourceAlias = orgDisplayName(
+    orgs.find((org) => org.id === selectedOrgId),
+    selectedOrgId ?? '',
+  );
   // Past the host's ten minutes: a selection that runs out of time answers
   // with what it kept, and the page waits long enough to hear it.
   const selectMutation = useFrozenMutation<FrozenSelectResponse['payload']>('frozen:select', {

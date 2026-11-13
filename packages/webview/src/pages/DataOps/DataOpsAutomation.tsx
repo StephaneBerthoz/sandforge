@@ -7,7 +7,7 @@ import {
   removalStepsBypassesOf,
   removalStepsWrites,
   type CheckpointEmails,
-  type DataOpsAct,
+  type DataOpsPageAct,
   type DataOpsAutomationAnswer,
   type DataOpsAutomationObject,
 } from '@sandforge/shared';
@@ -63,7 +63,7 @@ export function accordPayloadOf(accord: DataOpsAutomationAccord | undefined): {
 export const ASKED_FROM_PAGE = { fromPage: true } as const;
 
 /** The words of the section, per act, each taking `{{org}}`. */
-const WORDS: Readonly<Record<DataOpsAct, RemovalAutomationWords>> = {
+const WORDS: Readonly<Record<DataOpsPageAct, RemovalAutomationWords>> = {
   masking: {
     title: 'dataops.automation.masking.title',
     loading: 'dataops.automation.loading',
@@ -92,7 +92,7 @@ const WORDS: Readonly<Record<DataOpsAct, RemovalAutomationWords>> = {
  * person's records as a masking does, or deletes them as a cleanup does,
  * and was told "As the cleanup deletes these records", an act nobody asked for.
  */
-const ERASURE_INTRO: Readonly<Partial<Record<DataOpsAct, string>>> = {
+const ERASURE_INTRO: Readonly<Partial<Record<DataOpsPageAct, string>>> = {
   masking: 'dataops.automation.erasure.maskIntro',
   cleanup: 'dataops.automation.erasure.deleteIntro',
 };
@@ -114,7 +114,7 @@ export interface DataOpsAutomationProps {
   orgId: string;
   /** The org written to, as the user knows it. */
   org: string;
-  act: DataOpsAct;
+  act: DataOpsPageAct;
   /** The records of each object the act writes. */
   objects: readonly DataOpsAutomationObject[];
   /** A subject erasure's, which writes as a masking or a cleanup: its words name the erasure. */

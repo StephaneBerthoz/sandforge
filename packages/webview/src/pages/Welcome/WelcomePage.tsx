@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Bot, Flame, ListChecks, Plug, Snowflake, Sprout } from 'lucide-react';
-import { isDevelopmentOrg } from '@sandforge/shared';
+import { isDevelopmentOrg, orgDisplayName } from '@sandforge/shared';
 import { useAppStore } from '../../stores/useAppStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { orgToFill } from '../../utils/orgToFill';
@@ -426,7 +426,7 @@ function WelcomePageView(
                 : start === 'monitor'
                   ? t('onboarding.suggestMonitor')
                   : t('onboarding.suggestSeedFor', {
-                      alias: fillTarget?.alias || fillTarget?.username,
+                      alias: orgDisplayName(fillTarget),
                     })}
             </p>
             <div className="flex flex-wrap gap-3 justify-center mb-4">

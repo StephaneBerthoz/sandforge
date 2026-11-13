@@ -343,6 +343,24 @@ describe('SfdxBridge', () => {
       const results = await bridge.listOrgs();
 
       expect(results[0].org.alias).toBe('admin@prod.com');
+      expect(results[0].org).not.toHaveProperty('organizationName');
+    });
+
+    it("keeps the org's own name the CLI lists, which names an org with no alias in place of its username", async () => {
+      const output = makeSfOrgListOutput([
+        {
+          orgId: '00D1',
+          username: 'admin@prod.com',
+          instanceUrl: 'https://prod.my.salesforce.com',
+          connectedStatus: 'Connected',
+          name: ' Example Workspace ',
+        },
+      ]);
+      mockExec.mockResolvedValueOnce({ stdout: output, stderr: '' } as never);
+
+      const results = await bridge.listOrgs();
+
+      expect(results[0].org.organizationName).toBe('Example Workspace');
     });
 
     it('should extract JSON when stdout has warnings before JSON', async () => {

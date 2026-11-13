@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { MockBridge } from './helpers';
 import { MOCK_ORGS, createMockOrg } from './fixtures';
 import {
+  EARLIER_RUN_ID,
   EMPTY_ORG,
   RUN_ID,
   blockedRunResult,
@@ -10,6 +11,7 @@ import {
   emptyScope,
   objectsPreview,
   orgPreview,
+  peopleAtWork,
   runResult,
   undoResult,
 } from './fixtures/empty';
@@ -218,10 +220,12 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
   }) => {
     await openCleanup(page);
     await expect(page.getByTestId('empty-objects-hard')).toBeDisabled();
+    // Whose, never by a username: the page is screenshotted and pasted.
     await expect(page.getByTestId('empty-objects-hard-why')).toHaveText(
-      `Greyed out: ${EMPTY_ORG.username} doesn't have Bulk API Hard Delete, and Salesforce ` +
-        'refuses a hard delete without it. A permission set with it lets you tick this.',
+      "Greyed out: the user SandForge connects as doesn't have Bulk API Hard Delete, and " +
+        'Salesforce refuses a hard delete without it. A permission set with it lets you tick this.',
     );
+    await expect(page.getByTestId('empty-panel')).not.toContainText(EMPTY_ORG.username);
     await expect(page.getByTestId('empty-org-hard')).toBeDisabled();
   });
 
@@ -410,22 +414,72 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
     await previewObjects(
       page,
       objectsPreview({
-        peopleActive: { people: 2 },
         refusals: [
           {
-            code: 'PEOPLE_ACTIVE',
+            code: 'API_BUDGET',
             message:
-              '2 people other than the user SandForge deletes as changed records of these ' +
-              'objects in DevSandbox in the last hour: emptying them would take their work. ' +
-              'Empty once they have stopped. No record was read or deleted.',
+              'The emptying takes about 640 API requests, and DevSandbox has 120 left today. ' +
+              'Empty fewer objects, or tomorrow. Nothing was deleted.',
           },
         ],
       }),
     );
-    await expect(page.getByTestId('empty-preview-holding-PEOPLE_ACTIVE')).toContainText(
-      '2 people other than the user',
+    await expect(page.getByTestId('empty-preview-holding-API_BUDGET')).toContainText(
+      'has 120 left today',
     );
     await expect(page.getByTestId('empty-preview-empty')).toBeDisabled();
+  });
+
+  test('names each person at work and when, and empties on their work once its box is ticked', async ({
+    page,
+  }) => {
+    await openCleanup(page);
+    await previewObjects(page, peopleAtWork());
+    await expect(page.getByTestId('empty-preview-person-005000000000077')).toContainText(
+      'Ada Example: 4 records, last changed',
+    );
+    await expect(page.getByTestId('empty-preview-person-005000000000078')).toContainText(
+      '005000000000078: 1 record, last changed',
+    );
+    await expect(page.getByTestId('empty-preview-holding-PEOPLE_ACTIVE')).toBeVisible();
+    await expect(page.getByTestId('empty-preview-empty')).toBeDisabled();
+
+    await page.getByTestId('empty-preview-accept-people-active').check();
+    await expect(page.getByTestId('empty-preview-holding')).toHaveCount(0);
+    await page.getByTestId('empty-preview-empty').click();
+    await expect(page.getByTestId('empty-confirm-people-active')).toHaveText(
+      'What Ada Example, 005000000000078 changed in the last hour goes too.',
+    );
+    await page.getByTestId('danger-input').fill(EMPTY_ORG.alias);
+    await page.getByTestId('danger-confirm-btn').click();
+    await expect.poll(async () => (await outgoing(page, 'dataops:empty:run')).length).toBe(1);
+    expect(await lastPayload(page, 'dataops:empty:run')).toMatchObject({
+      previewId: objectsPreview().previewId,
+      acceptPeopleActive: true,
+    });
+  });
+
+  test('takes up the last emptying with the people at work accepted only when ticked', async ({
+    page,
+  }) => {
+    await openCleanup(page);
+    await previewObjects(
+      page,
+      objectsPreview({ openRun: { runId: RUN_ID, startedAt: '2026-11-12T14:05:12.000Z' } }),
+    );
+    await page.getByTestId('empty-preview-resume').click();
+    const box = page.getByTestId('empty-act-accept-people-active');
+    await expect(box).not.toBeChecked();
+    await box.check();
+    await page.getByTestId('danger-input').fill(EMPTY_ORG.alias);
+    await page.getByTestId('danger-confirm-btn').click();
+    await expect.poll(async () => (await outgoing(page, 'dataops:empty:run')).length).toBe(1);
+    expect(await lastPayload(page, 'dataops:empty:run')).toEqual({
+      orgId: EMPTY_ORG.id,
+      resumeRunId: RUN_ID,
+      fromPage: true,
+      acceptPeopleActive: true,
+    });
   });
 
   test('lists the org history from the audit trail, Undo on its last emptying', async ({
@@ -440,6 +494,13 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
       orgId: EMPTY_ORG.id,
       limit: 2000,
     });
+    // An undo is recorded under its own action, and listed as an undo.
+    await expect(page.getByTestId(`empty-history-${emptyAudit()[1].id}`)).toContainText(
+      '12 records brought back',
+    );
+    await expect(page.getByTestId(`empty-history-${emptyAudit()[1].id}`)).toContainText(
+      EARLIER_RUN_ID,
+    );
     await page.getByTestId('empty-history-undo').click();
     await expect(page.getByTestId('danger-title')).toHaveText(
       `Bring back what ${RUN_ID} deleted from ${EMPTY_ORG.alias}?`,

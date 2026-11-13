@@ -189,6 +189,29 @@ describe('recordWriteRun', () => {
     expect(JSON.stringify(recorded)).not.toMatch(/runner|example/i);
   });
 
+  it('names an org whose alias the registry gave its username by its own name, else its Organization Id', () => {
+    const deps = makeDeps();
+    deps.orgManager = {
+      getOrg: (id: string) =>
+        ({
+          id,
+          alias: 'qa.runner@example.test',
+          username: 'qa.runner@example.test',
+          orgId: id === TARGET ? '00D000000000001AAA' : '00D000000000002AAA',
+          ...(id === TARGET ? { organizationName: 'Example Target' } : {}),
+        }) as SalesforceOrg,
+    };
+
+    recordWriteRun(deps, run());
+
+    const [recorded] = new AuditTrailStore(deps.configStore).list().entries;
+    expect(recorded).toMatchObject({
+      orgAlias: 'Example Target',
+      sourceOrgAlias: '00D000000000002AAA',
+    });
+    expect(JSON.stringify(recorded)).not.toMatch(/runner/i);
+  });
+
   it('names no user when the registry holds no username for the org', () => {
     const deps = makeDeps();
 

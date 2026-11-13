@@ -1,7 +1,7 @@
 import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { History } from 'lucide-react';
-import { isDevelopmentOrg } from '@sandforge/shared';
+import { isDevelopmentOrg, orgDisplayName } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
@@ -61,7 +61,7 @@ export const TakeCheckpointNow: React.FC<TakeCheckpointNowProps> = ({
     >
       <History size={14} className="shrink-0 text-hue-indigo" aria-hidden="true" />
       <p id={whyId} className="min-w-0 flex-1 text-text-primary">
-        {t('runResults.checkpointNow.why', { org: org.alias || org.username })}
+        {t('runResults.checkpointNow.why', { org: orgDisplayName(org) })}
       </p>
       <Button
         variant="secondary"

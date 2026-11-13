@@ -176,10 +176,14 @@ describe('AutomationHandler: the confirmation of a Rewind step', () => {
     },
   );
 
-  it('takes the username of an org with no alias, as the Checkpoints page does', async () => {
+  it('takes the Organization Id of an org with no alias, as the Checkpoints page does, never its username', async () => {
     kept[CHECKPOINT_ID] = { ...kept[CHECKPOINT_ID], organizationId: '00D000000000002' } as never;
     await save({ ...REWIND, orgId: 'org-bare' });
-    expect(await grant('bare@example.invalid')).toMatchObject({ granted: true });
+    expect(await grant('bare@example.invalid')).toMatchObject({
+      granted: false,
+      code: 'TYPED_MISMATCH',
+    });
+    expect(await grant('00D000000000002AAA')).toMatchObject({ granted: true });
   });
 
   it('refuses a pipeline not saved, and a step the saved pipeline does not hold', async () => {

@@ -64,15 +64,52 @@ describe('EmptyPreview', () => {
   it('holds the button while a refusal no box lifts stands, and says the refusal', () => {
     renderPreview({
       answer: previewAnswer({
-        refusals: [
-          { code: 'PEOPLE_ACTIVE', message: '2 people changed records in the last hour.' },
-        ],
+        refusals: [{ code: 'API_BUDGET', message: 'dev has 12 API requests left today.' }],
       }),
     });
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      '2 people changed records in the last hour.',
-    );
+    expect(screen.getByRole('alert')).toHaveTextContent('dev has 12 API requests left today.');
     expect(screen.getByTestId('empty-preview-empty')).toBeDisabled();
+  });
+
+  it('names each person at work and when they last changed a record, beside the box that lets their work go', () => {
+    const answer = previewAnswer({
+      peopleActive: {
+        people: 2,
+        atLeast: true,
+        who: [
+          {
+            userId: '005000000000077',
+            name: 'Ada Example',
+            records: 4,
+            lastChangedAt: '2026-11-12T13:40:00.000Z',
+          },
+          { userId: '005000000000078', records: 1, lastChangedAt: '2026-11-12T13:55:00.000Z' },
+        ],
+      },
+      refusals: [{ code: 'PEOPLE_ACTIVE', message: '2 people other than the user…' }],
+    });
+    const { onBoxChange } = renderPreview({ answer });
+
+    expect(screen.getByTestId('empty-preview-people')).toHaveTextContent(
+      'Changed records of these objects in dev in the hour before the read:',
+    );
+    expect(screen.getByTestId('empty-preview-person-005000000000077')).toHaveTextContent(
+      /^Ada Example: 4 records, last changed .*2026/,
+    );
+    // No name read: the user Id stands for it.
+    expect(screen.getByTestId('empty-preview-person-005000000000078')).toHaveTextContent(
+      /^005000000000078: 1 record, last changed/,
+    );
+    expect(screen.getByTestId('empty-preview-people')).toHaveTextContent('There may be more');
+    expect(screen.getByTestId('empty-preview-empty')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('empty-preview-accept-people-active'));
+    expect(onBoxChange).toHaveBeenCalledWith('acceptPeopleActive', true);
+  });
+
+  it('offers no box for the people at work when no refusal names them', () => {
+    renderPreview({ answer: previewAnswer({ peopleActive: { people: 0 } }) });
+    expect(screen.queryByTestId('empty-preview-people')).toBeNull();
+    expect(screen.queryByTestId('empty-preview-accept-people-active')).toBeNull();
   });
 
   it('offers the box that accepts what Undo leaves, and lifts its refusal once ticked', () => {
@@ -130,7 +167,7 @@ describe('EmptyPreview', () => {
       answer: previewAnswer({
         refusals: [{ code: 'NO_UNDO', message: 'Undo cannot bring 4 records back.' }],
       }),
-      boxes: { acceptNoUndo: true, acceptEmails: false },
+      boxes: { acceptNoUndo: true, acceptEmails: false, acceptPeopleActive: false },
     });
     expect(screen.queryByTestId('empty-preview-holding')).toBeNull();
     expect(screen.getByTestId('empty-preview-empty')).toBeEnabled();

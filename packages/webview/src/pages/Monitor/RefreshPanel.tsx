@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCcw } from 'lucide-react';
-import { isSandboxRefreshInProgress } from '@sandforge/shared';
+import { isSandboxRefreshInProgress, orgDisplayName } from '@sandforge/shared';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -87,7 +87,11 @@ const DetectedRefreshes: React.FC<{ refreshes: DetectedRefresh[] }> = ({ refresh
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   if (refreshes.length === 0) return null;
-  const aliasOf = (orgId: string): string => orgs.find((org) => org.id === orgId)?.alias ?? orgId;
+  const aliasOf = (orgId: string): string =>
+    orgDisplayName(
+      orgs.find((org) => org.id === orgId),
+      orgId,
+    );
 
   return (
     <section className="mt-3 pt-3 border-t border-subtle" data-testid="refresh-detected">

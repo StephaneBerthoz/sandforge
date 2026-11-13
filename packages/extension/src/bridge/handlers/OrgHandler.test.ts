@@ -274,6 +274,9 @@ describe('OrgHandler', () => {
         const saved = (deps.orgRegistry.saveOrg as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as
           SalesforceOrg | undefined;
         expect(saved).toMatchObject({ orgType, safetyTier, metadata: { edition } });
+        // No alias typed: the org is named by its own name, never by the
+        // username its alias then holds.
+        expect(saved).toMatchObject({ alias: 'u@example.com', organizationName: 'Acme' });
       },
     );
 
@@ -922,6 +925,13 @@ describe('OrgHandler', () => {
             reason: 'the CLI reports RefreshTokenAuthError',
             why: 'notConnected',
           });
+          // No alias: named by its Organization Id, never by its username.
+          onUnreadable?.({
+            username: 'bare@acme.example',
+            orgId: '00D000000000004AAA',
+            reason: 'the CLI reports RefreshTokenAuthError',
+            why: 'notConnected',
+          });
           return [];
         }),
       } as unknown as HandlerDeps['sfdxBridge'];
@@ -935,7 +945,8 @@ describe('OrgHandler', () => {
         code: 'SFDX_IMPORT_FAILED',
         message:
           'The Salesforce CLI cannot reach these orgs, so they were not imported: acme-old (the ' +
-          'CLI reports RefreshTokenAuthError). Log in to each again with the CLI, or use Log ' +
+          'CLI reports RefreshTokenAuthError); 00D000000000004AAA (the CLI reports ' +
+          'RefreshTokenAuthError). Log in to each again with the CLI, or use Log ' +
           'in with your browser; a scratch org past its date is gone, create a new one.',
       });
     });

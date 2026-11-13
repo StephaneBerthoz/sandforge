@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '../../theme';
 import type { SalesforceOrg } from '@sandforge/shared';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** Props for the OrgDropdown component. */
 export interface OrgDropdownProps {
@@ -103,7 +104,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
   const sortedOrgs = [...orgs].sort((a, b) => {
     if (a.status === 'connected' && b.status !== 'connected') return -1;
     if (a.status !== 'connected' && b.status === 'connected') return 1;
-    return (a.alias || a.username).localeCompare(b.alias || b.username);
+    return orgDisplayName(a).localeCompare(orgDisplayName(b));
   });
 
   /** Close dropdown on click outside. */
@@ -198,7 +199,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
           selectedOrg
             ? t('a11y.orgDropdownValue', {
                 label: ariaLabel,
-                org: selectedOrg.alias || selectedOrg.username,
+                org: orgDisplayName(selectedOrg),
                 status: t(`common.orgStatus_${selectedOrg.status}`),
               })
             : ariaLabel
@@ -214,7 +215,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
       >
         {selectedOrg && <StatusDot status={selectedOrg.status} testId={`${testId}-status`} />}
         <span className="truncate flex-1 text-left">
-          {selectedOrg ? selectedOrg.alias || selectedOrg.username : t('common.selectOrg')}
+          {selectedOrg ? orgDisplayName(selectedOrg) : t('common.selectOrg')}
         </span>
         <ChevronDown
           size={14}
@@ -264,7 +265,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
                 )}
               >
                 <StatusDot status={org.status} />
-                <span className="truncate">{org.alias || org.username}</span>
+                <span className="truncate">{orgDisplayName(org)}</span>
                 <span className="sr-only">{t(`common.orgStatus_${org.status}`)}</span>
                 {note !== undefined && (
                   <span

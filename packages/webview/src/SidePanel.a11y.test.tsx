@@ -338,11 +338,13 @@ describe('SidePanel org switcher', () => {
  * "Eingefrorenes Dataset" read "Eingefrorenes Dat…" in a narrow column.
  */
 describe('SidePanel fill hero and module names', () => {
-  const LONG_ALIAS = 'test-abcdefghijkl@example.com';
+  // An alias of its own: a username, which the CLI gave a scratch org with
+  // none, is never what names the org.
+  const LONG_ALIAS = 'scratch-abcdefghijkl-example-sandbox';
   const org: SalesforceOrg = {
     id: 'org-a',
     alias: LONG_ALIAS,
-    username: LONG_ALIAS,
+    username: 'test-abcdefghijkl@example.com',
     instanceUrl: 'https://test.salesforce.com',
     orgId: '00D000000000001',
     orgType: 'Scratch',

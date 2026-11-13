@@ -10,6 +10,7 @@ import {
   mutePlanOf,
   removalStepsBypassesOf,
   removalStepsWrites,
+  orgDisplayName,
 } from '@sandforge/shared';
 import type {
   CheckpointEmails,
@@ -369,7 +370,7 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
   limitedTo,
 }) => {
   const { t } = useTranslation();
-  const orgName = org.alias || org.username;
+  const orgName = orgDisplayName(org);
   // The box beside what the rewind fires: mute it, through the org's own
   // bypass. Not among the boxes that lift a refusal, which a read again
   // unticks: ticked, it asks something more of the org, which may refuse it,
@@ -575,7 +576,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   limitedTo,
 }) => {
   const { t } = useTranslation();
-  const orgName = org.alias || org.username;
+  const orgName = orgDisplayName(org);
   const {
     diff,
     automation,
@@ -1372,7 +1373,7 @@ const People: React.FC<{ diff: RewindDiff; checkpoint: OrgCheckpoint; org: Sales
   org,
 }) => {
   const { t } = useTranslation();
-  const orgName = org.alias || org.username;
+  const orgName = orgDisplayName(org);
   const changers = lastChangers(diff);
   const active = diff.activeLastHour.map((userId) => diff.userNames[userId] ?? userId);
   const sharedUser = diff.activeLastHour.includes(checkpoint.takenBy.userId);

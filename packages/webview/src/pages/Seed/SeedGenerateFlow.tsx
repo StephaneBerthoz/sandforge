@@ -22,6 +22,7 @@ import { personaName } from './Persona/personaText';
 import { refusedForEmails, useSeedAutomation } from './useSeedAutomation';
 import { objectLabelsOf } from '../../utils/objectLabels';
 import { SeedFitProposalCard, SeedFitResultLine } from './SeedFitProposal';
+import { orgDisplayName } from '@sandforge/shared';
 
 const SEED_STEPS: WizardStep[] = [
   { id: 'select', labelKey: 'seed.stepSelect' },
@@ -146,9 +147,7 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
   const canCancelRun = state.isRunning && !!runOperationId;
 
   const selectedPersona = state.selectedPersona;
-  const wizardOrgName = state.selectedOrg
-    ? state.selectedOrg.alias || state.selectedOrg.username
-    : '';
+  const wizardOrgName = state.selectedOrg ? orgDisplayName(state.selectedOrg) : '';
   // The labels the describes the wizard read gave each object: an object's
   // own describe first, then the org's list of objects.
   const objectLabels = useMemo(

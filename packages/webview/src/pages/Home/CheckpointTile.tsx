@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { History } from 'lucide-react';
-import { isDevelopmentOrg } from '@sandforge/shared';
+import { isDevelopmentOrg, orgDisplayName } from '@sandforge/shared';
 import type {
   CheckpointKeepResponse,
   CheckpointListResponse,
@@ -48,7 +48,7 @@ export const CheckpointTile: React.FC<CheckpointTileProps> = ({ org }) => {
   const listed = listQuery.data?.checkpoints;
   if (!offered || !Array.isArray(listed)) return null;
 
-  const orgName = org.alias || org.username;
+  const orgName = orgDisplayName(org);
   const usable = usableCheckpoints(listed);
   const latest = usable[0];
   const expiring = usable.find(

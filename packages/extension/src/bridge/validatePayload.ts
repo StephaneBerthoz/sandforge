@@ -1168,6 +1168,7 @@ export const dataOpsEmptyPreviewPayloadSchema = z.object({
   deleteMode: z.enum(['recycle', 'hard']),
   checkpointFirst: z.boolean().optional(),
   acceptNoUndo: z.boolean().optional(),
+  acceptPeopleActive: z.boolean().optional(),
   ...dataOpsWriteAccordShape,
   ...dataOpsAskedFromShape,
 });
@@ -1182,6 +1183,7 @@ export const dataOpsEmptyRunPayloadSchema = z
       .regex(/^em-\d{8}-\d{6}-[a-z0-9]{4}$/)
       .optional(),
     acceptNoUndo: z.boolean().optional(),
+    acceptPeopleActive: z.boolean().optional(),
     checkpointFirst: z.boolean().optional(),
     ...dataOpsWriteAccordShape,
     ...dataOpsAskedFromShape,

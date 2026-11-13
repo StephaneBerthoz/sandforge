@@ -55,6 +55,7 @@ import {
   guardTierOf,
   stillRunningOf,
   wholeOrgConfigIssue,
+  orgDisplayName,
 } from '@sandforge/shared';
 import * as z from 'zod';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -2371,7 +2372,7 @@ export class ForgeHandler implements DomainHandler {
     const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
     const orgTier = guardTierOf(targetOrg);
     /** The target as the user knows it: its alias, or its id when the registry has none. */
-    const targetName = targetOrg?.alias ?? config.targetOrgId;
+    const targetName = orgDisplayName(targetOrg, config.targetOrgId);
     // A clone writes to sandboxes, scratch orgs and Developer Edition orgs
     // only, as the command-line clone does: the panel wrote to production
     // behind a modal that `sandforge.safety.requireProdConfirmation` turned
@@ -2769,8 +2770,8 @@ export class ForgeHandler implements DomainHandler {
       // Which orgs, by the aliases the user knows them by: the line said only
       // that a run started, and a log read afterwards could not say where.
       logger.info('Forge execute started', {
-        source: this.deps.orgManager.getOrg(config.sourceOrgId)?.alias ?? 'unknown org',
-        target: this.deps.orgManager.getOrg(config.targetOrgId)?.alias ?? 'unknown org',
+        source: orgDisplayName(this.deps.orgManager.getOrg(config.sourceOrgId), 'unknown org'),
+        target: orgDisplayName(this.deps.orgManager.getOrg(config.targetOrgId), 'unknown org'),
       });
       // What the target runs as the run inserts its records, put to the user
       // before anything is read: Review's read of this graph while it stands,
@@ -2886,7 +2887,10 @@ export class ForgeHandler implements DomainHandler {
             {
               org: targetName,
               orgTier,
-              source: this.deps.orgManager.getOrg(config.sourceOrgId)?.alias ?? config.sourceOrgId,
+              source: orgDisplayName(
+                this.deps.orgManager.getOrg(config.sourceOrgId),
+                config.sourceOrgId,
+              ),
             },
             aboveCeiling,
             readCeiling,
@@ -3055,8 +3059,10 @@ export class ForgeHandler implements DomainHandler {
         ...(wholeOrg
           ? {
               wholeOrg: {
-                source:
-                  this.deps.orgManager.getOrg(config.sourceOrgId)?.alias ?? config.sourceOrgId,
+                source: orgDisplayName(
+                  this.deps.orgManager.getOrg(config.sourceOrgId),
+                  config.sourceOrgId,
+                ),
                 sourceOrgId: config.sourceOrgId,
                 graph,
                 anonymizePII: config.anonymizePII,
@@ -5389,7 +5395,7 @@ export class ForgeHandler implements DomainHandler {
       // says so of its records in its turn.
       return {};
     }
-    const org = this.deps.orgManager.getOrg(run.targetOrgId)?.alias ?? run.targetOrgId;
+    const org = orgDisplayName(this.deps.orgManager.getOrg(run.targetOrgId), run.targetOrgId);
     try {
       const conn = await getJsforceConnection(
         run.targetOrgId,
@@ -5690,7 +5696,7 @@ export class ForgeHandler implements DomainHandler {
     ) {
       refuse(
         RESUME_TARGET_CHANGED,
-        `${target.alias || targetOrgId} is no longer the org this run wrote to — refreshed or replaced since: what the run wrote is not there.`,
+        `${orgDisplayName(target, targetOrgId)} is no longer the org this run wrote to — refreshed or replaced since: what the run wrote is not there.`,
         targetOrgId,
       );
       return;
@@ -5923,7 +5929,7 @@ export class ForgeHandler implements DomainHandler {
             ? 'its instance URL is not a valid URL'
             : 'the record is not one an address can be built for';
       refuse(
-        `Cannot open the record in "${org.alias}": ${why}.`,
+        `Cannot open the record in "${orgDisplayName(org)}": ${why}.`,
         target.reason === 'not-a-record' ? 'NOT_CREATED' : 'INVALID_INSTANCE_URL',
       );
       return;
@@ -7576,7 +7582,7 @@ export class ForgeHandler implements DomainHandler {
     }
     const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
     const orgTier = guardTierOf(targetOrg);
-    const targetName = targetOrg?.alias ?? config.targetOrgId;
+    const targetName = orgDisplayName(targetOrg, config.targetOrgId);
     // Rolled back or not, the records go through the target's automation: a
     // platform event it publishes at once, a callout it makes, are not taken
     // back. A production org is never rehearsed against.
@@ -7898,7 +7904,7 @@ export class ForgeHandler implements DomainHandler {
           ? Promise.resolve(NO_APEX_IN_PRODUCTION)
           : this.readDeliverability(targetOrgId),
       accepted: false,
-      target: org?.alias ?? targetOrgId,
+      target: orgDisplayName(org, targetOrgId),
       run: 'clone',
     });
     return ofRun.read

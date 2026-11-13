@@ -310,16 +310,18 @@ describe('ExtensionHandlers', () => {
         frozenHandler: { isWritingTo: (orgId: string, except?: string) => boolean };
         dataOpsHandler: { isWritingTo: (orgId: string, except?: string) => boolean };
         complianceHandler: { isWritingTo: (orgId: string, except?: string) => boolean };
+        emptyHandler: { isWritingTo: (orgId: string, except?: string) => boolean };
         autopilotHandler: { isWritingTo: (orgId: string, except?: string) => boolean };
         realtimeHandler: { isWritingTo: (orgId: string, except?: string) => boolean };
       };
 
-    it('refuses a take of an org a Frozen load, a DataOps restore, masking run or erasure, an Autopilot run or a Real-Time session of this window writes to, as each handler says', () => {
+    it('refuses a take of an org a Frozen load, a DataOps restore, masking run or erasure, an emptying or its undo, an Autopilot run or a Real-Time session of this window writes to, as each handler says', () => {
       const all = inner();
       const writers = [
         all.frozenHandler,
         all.dataOpsHandler,
         all.complianceHandler,
+        all.emptyHandler,
         all.autopilotHandler,
         all.realtimeHandler,
       ];
@@ -342,6 +344,7 @@ describe('ExtensionHandlers', () => {
         all.frozenHandler,
         all.dataOpsHandler,
         all.complianceHandler,
+        all.emptyHandler,
         all.autopilotHandler,
         all.realtimeHandler,
       ];

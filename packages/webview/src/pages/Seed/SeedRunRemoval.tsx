@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Square, Trash2 } from 'lucide-react';
-import { backAfterRemoval } from '@sandforge/shared';
+import { backAfterRemoval, orgDisplayName } from '@sandforge/shared';
 import type {
   ForgeSweepListing,
   RewoundMark,
@@ -213,7 +213,10 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
   }
   if (!kept) return null;
 
-  const org = orgs.find((o) => o.id === kept.targetOrgId)?.alias ?? kept.targetOrgId;
+  const org = orgDisplayName(
+    orgs.find((o) => o.id === kept.targetOrgId),
+    kept.targetOrgId,
+  );
   const removedOn = kept.removed
     ? (formatStoredDate(kept.removed.removedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'))
     : undefined;

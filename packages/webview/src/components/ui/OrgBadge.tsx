@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SalesforceOrg } from '@sandforge/shared';
-import { guardTierOf, registeredOrgType } from '@sandforge/shared';
+import { guardTierOf, registeredOrgType, orgDisplayName } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { orgTypeLabel } from '../../utils/orgFormatters';
 
@@ -113,7 +113,7 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({ org, className }) => {
         className="font-semibold text-(--sf-text-primary) truncate"
         data-testid="org-badge-alias"
       >
-        {org.alias || org.username}
+        {orgDisplayName(org)}
       </span>
 
       {/* Org type badge: the label the side panel and the pickers give it. */}

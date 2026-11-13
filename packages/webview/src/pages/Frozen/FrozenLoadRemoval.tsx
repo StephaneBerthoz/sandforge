@@ -17,6 +17,7 @@ import {
   removalStepsBypassesOf,
   removalStepsWrites,
   sweepTakenObjects,
+  orgDisplayName,
 } from '@sandforge/shared';
 import { formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -615,7 +616,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
 
   if (!records) return null;
 
-  const org = orgs.find((o) => o.id === records.orgId)?.alias;
+  const org = orgDisplayName(orgs.find((o) => o.id === records.orgId)) || undefined;
   const date = formatStoredDate(records.loadedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown');
   const created = records.created.reduce((sum, object) => sum + object.count, 0);
   const rewound = report
@@ -813,10 +814,11 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
           {removal.error && (
             <ErrorBanner
               message={
-                frozenErrorWords(
-                  { code: removal.errorCode ?? undefined },
-                  t,
-                  (id) => orgs.find((o) => o.id === id)?.alias ?? id,
+                frozenErrorWords({ code: removal.errorCode ?? undefined }, t, (id) =>
+                  orgDisplayName(
+                    orgs.find((o) => o.id === id),
+                    id,
+                  ),
                 ) ?? removal.error
               }
               code={removal.errorCode}

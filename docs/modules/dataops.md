@@ -547,7 +547,11 @@ A run is refused before its first delete, every refusal said at once:
 - another act of this machine writing to the org or holding its lock — a
   checkpoint's take, a rewind, an undo, another emptying;
 - the org's last emptying stopped part way: resume it or undo it first;
-- someone other than you changed records of these objects in the last hour;
+- someone other than you changed records of these objects in the last hour,
+  unless their work is accepted to go: the preview names each of them and
+  when they last changed a record, beside the box that accepts it, and the run
+  takes the work of those it named alone — anyone else at work by then
+  refuses it;
 - more API requests or Bulk API batches than the org has left today;
 - what fires, or its emails, not accepted, or the mute refused;
 - a checkpoint asked first that cannot be taken, past 500,000 records or the
@@ -566,7 +570,9 @@ it, and each such pair is kept in the journal. A delete Salesforce refuses for
 a record still hanging from it is sent again in later rounds. The run is
 listed in Live Operations, whose **Cancel** stops it before its next call or
 job, and recorded in the audit trail as a cleanup delete, its details saying
-an emptying.
+an emptying; its undo is recorded as an emptying undo. The preview the run
+acts on is kept a day on this machine, as a rewind's is: a window reloaded
+meanwhile still empties as it showed.
 
 #### Delete for good
 
@@ -609,6 +615,8 @@ It asks no question: without `--dry-run` or `--yes` it is refused, exit `1`,
 before any org is reached. With `--yes` it reads the org as its dry run does,
 says it all, and empties only when nothing refuses it. `--hard-delete` deletes
 for good, `--accept-no-undo` accepts what no undo would bring back,
+`--accept-people-active` lets go the work of the people the dry run counts
+at work in the last hour, each by user Id with their last change,
 `--unrestorable` empties with the org the objects Salesforce does not bring
 back from the recycle bin, and `--checkpoint-first` takes a checkpoint first.
 With `--json`, `apiRequests` gives `estimate`, what the dry run priced, and

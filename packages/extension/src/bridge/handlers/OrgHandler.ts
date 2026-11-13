@@ -3,6 +3,7 @@ import {
   SF_CLI_INSTALL_URL,
   SF_CLI_MISSING_MESSAGE,
   SF_LIMITS,
+  orgDisplayName,
   orgRegistrationOf,
   orgTypeOf,
   parseSalesforceLoginUrl,
@@ -344,8 +345,10 @@ export class OrgHandler implements DomainHandler {
           `${org.alias ?? org.username}: ${org.reason}`,
       );
     }
+    // What the user reads names an org by its alias, else its Organization
+    // Id: never the username, which the log above alone keeps.
     const named = (orgs: readonly SfdxUnreadableOrg[]): string =>
-      orgs.map((org) => `${org.alias ?? org.username} (${org.reason})`).join('; ');
+      orgs.map((org) => `${orgDisplayName(org)} (${org.reason})`).join('; ');
     const noToken = unreadable.filter((org) => org.why !== 'notConnected');
     const notConnected = unreadable.filter((org) => org.why === 'notConnected');
     return [
@@ -511,6 +514,9 @@ export class OrgHandler implements DomainHandler {
         id: identity.orgId,
         alias: payload.alias ?? payload.username ?? identity.username,
         username: identity.username,
+        // What names the org when it has no alias of its own, in place of
+        // the username the alias then holds.
+        ...(identity.orgName ? { organizationName: identity.orgName } : {}),
         instanceUrl: authResult.instanceUrl,
         orgId: identity.orgId,
         orgType,
@@ -551,12 +557,7 @@ export class OrgHandler implements DomainHandler {
       this.deps.broker.postToWebview(statusMsg);
       this.deps.log(`[TX] ${statusMsg.type} id=${statusMsg.id}`);
 
-      sendNotification(
-        this.deps,
-        'success',
-        'Connected',
-        `${org.alias} connected (${identity.orgName}).`,
-      );
+      sendNotification(this.deps, 'success', 'Connected', `${orgDisplayName(org)} connected.`);
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] org:username-password: ${message}`);
@@ -789,7 +790,7 @@ export class OrgHandler implements DomainHandler {
     // A sandbox signed into again after a refresh keeps its entry, as an
     // SFDX import of it does.
     const [savedId] = await this.saveImported([imported]);
-    sendNotification(this.deps, 'success', via, `${imported.org.alias} connected.`);
+    sendNotification(this.deps, 'success', via, `${orgDisplayName(imported.org)} connected.`);
     this.ackConnect(msg, savedId ?? imported.org.id);
   }
 
@@ -938,7 +939,7 @@ export class OrgHandler implements DomainHandler {
         'org:open-in-browser',
         'org:error',
         msg,
-        new Error(`Cannot open "${org.alias}": ${why}.`),
+        new Error(`Cannot open "${orgDisplayName(org)}": ${why}.`),
         { code: 'INVALID_INSTANCE_URL', retryable: false },
       );
       return;

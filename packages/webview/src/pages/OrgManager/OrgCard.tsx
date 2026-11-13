@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SalesforceOrg } from '@sandforge/shared';
+import { orgDisplayName, type SalesforceOrg } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from '../../theme/orgStyles';
 import { orgTypeLabel, scratchExpiredOn } from '../../utils/orgFormatters';
@@ -98,7 +98,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
           aria-pressed={selected}
           data-testid={`org-select-${org.id}`}
         >
-          {org.alias}
+          {orgDisplayName(org)}
         </button>
         <div className="flex items-center gap-1.5 shrink-0">
           <span

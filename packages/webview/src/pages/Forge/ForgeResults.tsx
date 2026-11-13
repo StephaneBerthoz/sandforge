@@ -30,7 +30,13 @@ import type {
   ForgeOpenRecordResponse,
   ForgeResumeRunRequest,
 } from '@sandforge/shared';
-import { idMapCsv, idMapRows, leftOutAsEmptyTable, objectsBeyondTheGraph } from '@sandforge/shared';
+import {
+  idMapCsv,
+  idMapRows,
+  leftOutAsEmptyTable,
+  objectsBeyondTheGraph,
+  orgDisplayName,
+} from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { translateError } from '@sandforge/shared';
@@ -876,9 +882,13 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   );
   /** The org the run wrote to: its config's target, else its history entry's. */
   const targetOrgId = config?.targetOrgId ?? result?.targetOrgId;
-  const targetOrgName = useOrgStore((s) => s.orgs.find((o) => o.id === targetOrgId)?.alias);
+  const targetOrgName = useOrgStore(
+    (s) => orgDisplayName(s.orgs.find((o) => o.id === targetOrgId)) || undefined,
+  );
   const sourceOrgId = config?.sourceOrgId ?? result?.sourceOrgId;
-  const sourceOrgName = useOrgStore((s) => s.orgs.find((o) => o.id === sourceOrgId)?.alias);
+  const sourceOrgName = useOrgStore(
+    (s) => orgDisplayName(s.orgs.find((o) => o.id === sourceOrgId)) || undefined,
+  );
   /** What the dry run of a clone of the whole org said at its gate, when this is one. */
   const wholeOrgDryRun = useForgeStore((s) => (simulation ? s.wholeOrgDryRun : null));
   const checkpointAsked = useForgeStore((s) => s.checkpointFirst);

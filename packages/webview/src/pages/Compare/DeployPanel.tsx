@@ -1,6 +1,11 @@
 import React, { useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { DEPLOY_MAX_TESTS, DEPLOY_WAIT_MINUTES, guardTierOf } from '@sandforge/shared';
+import {
+  DEPLOY_MAX_TESTS,
+  DEPLOY_WAIT_MINUTES,
+  guardTierOf,
+  orgDisplayName,
+} from '@sandforge/shared';
 import type {
   CompareReport,
   CompareResult,
@@ -70,7 +75,7 @@ export interface DeployPanelProps {
 
 /** An org as the page names it. */
 function orgLabel(org: SalesforceOrg | undefined, fallback: string): string {
-  return org?.alias || org?.username || fallback;
+  return orgDisplayName(org, fallback);
 }
 
 /**

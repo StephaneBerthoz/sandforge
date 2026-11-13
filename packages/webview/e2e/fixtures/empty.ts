@@ -24,10 +24,13 @@ export const EMPTY_ORG = DEV_SANDBOX;
 /** A run's id, as the journal makes them. */
 export const RUN_ID = 'em-20261112-140512-a1b2';
 
+/** An earlier run of the org, undone since. */
+export const EARLIER_RUN_ID = 'em-20261111-090012-c3d4';
+
 /** What fires as the records go: nothing, nothing sends. */
 export function nothingFires(objects: string[]): DataOpsAutomationAnswer {
   return {
-    act: 'cleanup',
+    act: 'empty',
     objects: objects.map((objectApiName) => ({ objectApiName, records: 1 })),
     steps: { delete: objects },
     automation: {
@@ -202,6 +205,39 @@ const WHOLE_ORG_ALONG = [
   'QuoteLineItem',
   'WorkOrderLineItem',
 ];
+
+/**
+ * The preview of Account and Contact while two people other than the user
+ * changed records of them in the hour before: each by Id, with when, the
+ * page's read naming the one the org gave a name for; refused until their
+ * work is accepted, as the page's voice words it.
+ */
+export function peopleAtWork(): DataOpsEmptyPreviewResponse['payload'] {
+  return objectsPreview({
+    peopleActive: {
+      people: 2,
+      who: [
+        {
+          userId: '005000000000077',
+          name: 'Ada Example',
+          records: 4,
+          lastChangedAt: '2026-11-12T13:40:00.000+0000',
+        },
+        { userId: '005000000000078', records: 1, lastChangedAt: '2026-11-12T13:55:00.000+0000' },
+      ],
+    },
+    refusals: [
+      {
+        code: 'PEOPLE_ACTIVE',
+        message:
+          '2 people other than the user SandForge deletes as changed records of these objects ' +
+          'in DevSandbox in the last hour, the last at 2026-11-12T13:55:00.000+0000: emptying ' +
+          'them would take their work. Empty once they have stopped, or tick the box that lets ' +
+          'their work go, to empty all the same. Nothing was deleted.',
+      },
+    ],
+  });
+}
 
 /**
  * The preview of emptying the whole org: 48,213 records of 37 objects, Task
@@ -418,6 +454,19 @@ export function emptyAudit(): AuditLogEntry[] {
         gone: 0,
       },
       timestamp: '2026-11-12T14:07:40.000Z',
+    },
+    // An earlier emptying's undo, under its own action.
+    {
+      id: 'a3f1c2d4-0000-4000-8000-000000000002',
+      action: 'empty_undo',
+      module: 'dataops',
+      orgId: EMPTY_ORG.id,
+      orgAlias: EMPTY_ORG.alias,
+      operationId: 'undo-earlier',
+      outcome: 'success',
+      objects: [{ objectApiName: 'Lead', created: 12, updated: 0, deleted: 0, failed: 0 }],
+      details: { empty: 'undo', runId: EARLIER_RUN_ID },
+      timestamp: '2026-11-11T09:30:00.000Z',
     },
   ];
 }

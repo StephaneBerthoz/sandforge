@@ -9,7 +9,7 @@ import type {
   ComplianceFrameworkType,
   ExecutionPlan,
 } from '@sandforge/shared';
-import { AUTOPILOT_COUNTS_PER_REQUEST } from '@sandforge/shared';
+import { AUTOPILOT_COUNTS_PER_REQUEST, orgDisplayName } from '@sandforge/shared';
 import { SeedWizard } from '../../Seed/SeedWizard';
 import type { WizardStep } from '../../Seed/SeedWizard';
 import { useOrgStore } from '../../../stores/useOrgStore';
@@ -519,7 +519,7 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
             mute={{
               checked: muteAutomation,
               onChange: (mute) => useAutopilotStore.getState().setMuteAutomation(mute),
-              org: targetOrg?.alias || targetOrg?.username || (targetOrgId ?? ''),
+              org: orgDisplayName(targetOrg, targetOrgId ?? ''),
             }}
             planning={planMutation.loading}
             isExecuting={isExecuting}

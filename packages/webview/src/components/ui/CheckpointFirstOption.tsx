@@ -7,6 +7,7 @@ import {
   isDevelopmentOrg,
   type RunCheckpointEstimate,
   type RunCheckpointObjectNote,
+  orgDisplayName,
 } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { cn } from '../../theme';
@@ -196,7 +197,7 @@ export const CheckpointFirstOption: React.FC<CheckpointFirstOptionProps> = ({
     if (!offered && checked) onChange(false);
   }, [offered, checked, onChange]);
   if (org === undefined) return null;
-  const name = org.alias || org.username;
+  const name = orgDisplayName(org);
   /** One paragraph of the details, with its test id, or without for the copy that describes the box. */
   const line = (part: string, text: string, ids = true): React.ReactNode => (
     <p data-testid={ids ? `${testId}-${part}` : undefined} className="text-text-secondary">

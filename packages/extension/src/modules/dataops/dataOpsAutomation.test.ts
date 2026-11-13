@@ -152,6 +152,37 @@ describe('what the command line says of what fires', () => {
     ]);
   });
 
+  it('calls an emptying an emptying and its undo an undo, never "this cleanup" nor a restore', () => {
+    const fires = automationOf({ Case: { flows: [flow('Guard Delete', 'delete')] } });
+    expect(dataOpsStepsOf('empty', ['Case'])).toEqual({ delete: ['Case'] });
+    expect(dataOpsStepsOf('emptyUndo', ['Case'])).toEqual({ bringBack: ['Case'] });
+    expect(
+      dataOpsAutomationLines(fires, 'TGT', 'empty', dataOpsStepsOf('empty', ['Case'])),
+    ).toEqual([
+      'emptying automation: what TGT runs as the emptying deletes the records',
+      '  Case: after delete: flow "Guard Delete"',
+    ]);
+    expect(
+      dataOpsAutomationLines(
+        automationOf({ Case: {} }),
+        'TGT',
+        'emptyUndo',
+        dataOpsStepsOf('emptyUndo', ['Case']),
+      )[0],
+    ).toBe('undo automation: what TGT runs as the undo brings the records back');
+    const refusal = dataOpsAutomationRefusal(fires, 'TGT', {
+      act: 'empty',
+      steps: dataOpsStepsOf('empty', ['Case']),
+      mayMute: false,
+    });
+    expect(refusal).toContain('TGT runs automation as this emptying deletes its records');
+    expect(refusal).toContain('Add --accept-automation to empty all the same');
+    expect(refusal).not.toContain('cleanup');
+    expect(dataOpsSaid(refusal ?? '', 'page')).toContain(
+      'Confirm the emptying from its confirmation, which lists what fires, to empty all the same',
+    );
+  });
+
   it('names the duplicate rules of what a masking writes over, before it asks, and none for a delete', () => {
     // As the trap org reads: nothing fires on Contact, its standard rule is active.
     const automation: ForgeTargetAutomation = {
@@ -552,6 +583,22 @@ describe('readDataOpsAct', () => {
       'EMAILS_NOT_ACCEPTED',
     ]);
     expect(org.deliverabilityReads()).toBe(1);
+  });
+
+  it('says "this emptying" in the refusal of the emails an emptying makes the org deliver', async () => {
+    const org = orgOf(new Error('INSUFFICIENT_ACCESS'));
+    const read = await readDataOpsAct({
+      act: 'empty',
+      target: 'TGT',
+      objects: [{ objectApiName: 'Case', records: 2 }],
+      org,
+      accord: {},
+      mayMute: false,
+    });
+    const emails = read.answer.refusals.find((r) => r.code === 'EMAILS_NOT_ACCEPTED');
+    expect(emails?.message).toContain('this emptying');
+    expect(emails?.message).toContain('to empty all the same');
+    expect(read.answer.refusals.map((r) => r.message).join(' ')).not.toContain('cleanup');
   });
 
   it('offers the mute in no refusal on a production org, where it is refused: what fires, its emails, past the day', async () => {

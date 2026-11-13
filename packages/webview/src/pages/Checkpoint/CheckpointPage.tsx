@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { History } from 'lucide-react';
-import { isDevelopmentOrg } from '@sandforge/shared';
+import { isDevelopmentOrg, orgDisplayName } from '@sandforge/shared';
 import type {
   CheckpointDeleteResponse,
   CheckpointExportResponse,
@@ -218,7 +218,7 @@ interface OrgCheckpointsProps {
 const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
-  const orgName = org.alias || org.username;
+  const orgName = orgDisplayName(org);
   const listHeadingRef = useRef<HTMLHeadingElement>(null);
   const [taking, setTaking] = useState(arrival !== null && 'take' in arrival);
   // The checkpoint whose preview is open, and the one whose Rewind… takes

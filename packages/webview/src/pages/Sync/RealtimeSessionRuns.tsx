@@ -6,6 +6,7 @@ import { useCDCLiveStore, type CDCConnectionStatus } from '../../stores/useCDCLi
 import { useOrgStore } from '../../stores/useOrgStore';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { SyncRunRemoval } from './SyncRunRemoval';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** The states of a session that is still writing, or trying to. */
 const WRITING: ReadonlySet<CDCConnectionStatus> = new Set(['connecting', 'syncing', 'paused']);
@@ -40,7 +41,11 @@ export const RealtimeSessionRuns: React.FC = () => {
 
   const runs = listed.data?.runs ?? [];
   if (runs.length === 0) return null;
-  const nameOf = (orgId: string): string => orgs.find((o) => o.id === orgId)?.alias ?? orgId;
+  const nameOf = (orgId: string): string =>
+    orgDisplayName(
+      orgs.find((o) => o.id === orgId),
+      orgId,
+    );
   const dateOf = (at: string): string =>
     formatStoredDate(at, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown');
   return (

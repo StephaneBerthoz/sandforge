@@ -41,9 +41,9 @@ describe('OrgBadge', () => {
     expect(screen.getByTestId('org-badge-alias').textContent).toBe('my-sandbox');
   });
 
-  it('names an org with no alias by its username', () => {
-    render(<OrgBadge org={org({ alias: '' })} />);
-    expect(screen.getByTestId('org-badge-alias').textContent).toBe('admin@example.test');
+  it('names an org with no alias by its Organization Id, never by its username', () => {
+    render(<OrgBadge org={org({ alias: '', orgId: '00D000000000001AAA' })} />);
+    expect(screen.getByTestId('org-badge-alias').textContent).toBe('00D000000000001AAA');
   });
 
   it('writes the type the side panel and the pickers write, not an English abbreviation', () => {

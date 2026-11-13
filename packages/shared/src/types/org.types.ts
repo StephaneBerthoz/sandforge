@@ -65,6 +65,13 @@ export interface SalesforceOrg {
    * sandbox is a development org.
    */
   staging?: boolean;
+  /**
+   * The org's own name (`Organization.Name`), as SandForge read it when it
+   * connected or imported the org; absent when it did not. What names an org
+   * that has no alias of its own, in place of the username the registry
+   * keeps as its alias then (`orgDisplayName`).
+   */
+  organizationName?: string;
 }
 
 /** Connection configuration for authentication */

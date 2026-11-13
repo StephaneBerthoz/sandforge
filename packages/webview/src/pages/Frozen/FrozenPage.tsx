@@ -14,6 +14,7 @@ import { useFrozenPushChannels } from './useFrozenBridge';
 import { FrozenExtractTab } from './FrozenExtractTab';
 import { FrozenLoadTab } from './FrozenLoadTab';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
+import { orgDisplayName } from '@sandforge/shared';
 
 /**
  * Frozen Reference Dataset page — extract a pseudonymized reference dataset
@@ -90,7 +91,7 @@ export const FrozenPage: React.FC = () => {
         undefined,
       );
   const verifiedOrg = targetOrgId || lastVerify?.orgId;
-  const targetAlias = orgs.find((org) => org.id === verifiedOrg)?.alias;
+  const targetAlias = orgDisplayName(orgs.find((org) => org.id === verifiedOrg)) || undefined;
 
   /*
    * The salt keys every pseudonym an extraction writes. A load replays the

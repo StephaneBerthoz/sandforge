@@ -17,7 +17,8 @@
  *   (`OPEN_RUN`), so that its Undo always reaches the org as it was before it;
  * - for good, a user without Bulk API Hard Delete;
  * - someone other than the user changed records of these objects in the last
- *   hour (`PEOPLE_ACTIVE`), as a rewind held to it refuses;
+ *   hour (`PEOPLE_ACTIVE`), as a rewind held to it refuses — unless their
+ *   work is accepted to go, which covers the people the preview named alone;
  * - records no undo would bring back, not accepted (`NO_UNDO`), as a rewind
  *   asks it;
  * - more requests, or Bulk API batches, than the org has left today;
@@ -89,9 +90,11 @@ import {
   emptyPermissionsOf,
   guardEmpty,
   hardDeleteRefusal,
+  namedPeople,
   peopleActiveIn,
   peopleActiveRefusal,
   type EmptyPermissions,
+  type PeopleActive,
 } from './emptyGuard.js';
 import {
   EmptyJournalDamaged,
@@ -170,6 +173,8 @@ export interface EmptyPreviewAsk {
   deleteMode: DeleteMode;
   accord: DataOpsWriteAccord;
   acceptNoUndo?: boolean;
+  /** Say what a run accepting the work of the people at work would meet: theirs is no refusal. */
+  acceptPeopleActive?: boolean;
   /** Price the checkpoint a run would take first. */
   checkpointFirst?: boolean;
 }
@@ -201,6 +206,12 @@ export interface EmptyRunAsk {
   resumeRunId?: string;
   accord: DataOpsWriteAccord;
   acceptNoUndo?: boolean;
+  /**
+   * Empty although people other than the user changed records of these
+   * objects in the last hour: those the preview confirmed named — someone it
+   * did not name refuses the run all the same —, or, taking up a run, whoever.
+   */
+  acceptPeopleActive?: boolean;
   checkpointFirst?: boolean;
 }
 
@@ -562,7 +573,7 @@ export async function previewEmptyAct(
   if (!guard.allowed) return { previewed: false, refusal: guard.refusal };
   const firstRead = await readTheOrg(context, ask.request, ask.deleteMode);
   const answer = await readDataOpsAct({
-    act: 'cleanup',
+    act: 'empty',
     target: orgName,
     org: context.automation,
     accord: ask.accord,
@@ -596,16 +607,14 @@ export async function previewEmptyAct(
       permitted: read.permissions.hardDelete,
       ...(read.permissions.unread !== undefined ? { unread: read.permissions.unread } : {}),
     },
-    peopleActive: {
-      people: read.people.people.length,
-      ...(read.people.unread.length > 0 ? { unread: read.people.unread } : {}),
-    },
+    peopleActive: keptPeople(read.people),
     ...(checkpoint ? { checkpoint } : {}),
     ...(open ? { openRun: { runId: open.runId, startedAt: open.startedAt } } : {}),
   };
   const refusals = await gateRefusals(context, guard.org.id, read, {
     deleteMode: ask.deleteMode,
     acceptNoUndo: ask.acceptNoUndo === true,
+    ...(ask.acceptPeopleActive === true ? { peopleAccepted: true as const } : {}),
     automation: answer.answer,
     ...(checkpoint ? { checkpoint } : {}),
     ...(open ? { open: open.runId } : {}),
@@ -707,13 +716,31 @@ async function readTheOrg(
   });
   const userId = await org.userId();
   const since = new Date(Date.parse(readAt) - ACTIVE_WINDOW_MS).toISOString();
-  const people = await peopleActiveIn(
+  const active = await peopleActiveIn(
     org,
     going,
     [userId, ...(await automatedProcessOf(org))],
     since,
   );
+  // Named for the page alone, beside the box that lets their work go: a
+  // command line's output names no one.
+  const people = context.voice === 'page' ? await namedPeople(org, active) : active;
   return { readAt, preview, permissions, access, people };
+}
+
+/** The people at work, as a preview keeps them for the page and for the run that acts on it. */
+function keptPeople(people: PeopleActive): EmptyKeptPreview['peopleActive'] {
+  return {
+    people: people.people.length,
+    ...(people.atLeast ? { atLeast: true as const } : {}),
+    ...(people.who.length > 0 ? { who: people.who.map((person) => ({ ...person })) } : {}),
+    ...(people.unread.length > 0 ? { unread: people.unread } : {}),
+  };
+}
+
+/** How a refusal of people at work says what lifts it: the page's box, or the command line's flag. */
+function peopleVoiceOf(context: Pick<EmptyActContext, 'voice'>): 'page' | 'flags' {
+  return context.voice === 'page' ? 'page' : 'flags';
 }
 
 /** Every refusal a run with `read` would meet before its first delete, in their order. */
@@ -724,6 +751,8 @@ async function gateRefusals(
   options: {
     deleteMode: DeleteMode;
     acceptNoUndo: boolean;
+    /** Whose work at the org is accepted to go: the people a preview named, or whoever. */
+    peopleAccepted?: true | readonly string[];
     automation: DataOpsAutomationAnswer;
     checkpoint?: RunCheckpointEstimate;
     open?: string;
@@ -742,7 +771,10 @@ async function gateRefusals(
   if (options.deleteMode === 'hard' && !read.permissions.hardDelete) {
     refusals.push(hardDeleteRefusal(read.permissions));
   }
-  const people = peopleActiveRefusal(context.orgName, read.people);
+  const people = peopleActiveRefusal(context.orgName, read.people, {
+    ...(options.peopleAccepted !== undefined ? { accepted: options.peopleAccepted } : {}),
+    voice: peopleVoiceOf(context),
+  });
   if (people) refusals.push(people);
   const noUndo = options.acceptNoUndo ? undefined : noUndoRefusal(read.preview);
   if (noUndo) refusals.push(noUndo);
@@ -885,7 +917,7 @@ export async function runEmptyAct(
       return { ran: true, result: nothingToDelete(now()) };
     }
     answer = await readDataOpsAct({
-      act: 'cleanup',
+      act: 'empty',
       target: orgName,
       org: context.automation,
       accord: ask.accord,
@@ -919,6 +951,10 @@ export async function runEmptyAct(
       ...(await gateRefusals(context, organizationId, read, {
         deleteMode,
         acceptNoUndo: ask.acceptNoUndo === true,
+        // The people its preview named, and no one else.
+        ...(ask.acceptPeopleActive === true
+          ? { peopleAccepted: (confirmed.peopleActive.who ?? []).map((person) => person.userId) }
+          : {}),
         automation: answer.answer,
         ...(checkpoint ? { checkpoint } : {}),
         ...(open ? { open: open.runId } : {}),
@@ -943,7 +979,10 @@ export async function runEmptyAct(
       [userId, ...(await automatedProcessOf(org))],
       new Date(Date.parse(at) - ACTIVE_WINDOW_MS).toISOString(),
     );
-    const busy = peopleActiveRefusal(orgName, people);
+    const busy = peopleActiveRefusal(orgName, people, {
+      ...(ask.acceptPeopleActive === true ? { accepted: true as const } : {}),
+      voice: peopleVoiceOf(context),
+    });
     if (busy) refusals.push(busy);
     const sends = head.passes
       .map((pass) => ({
@@ -952,7 +991,7 @@ export async function runEmptyAct(
       }))
       .filter((pass) => pass.records > 0);
     answer = await readDataOpsAct({
-      act: 'cleanup',
+      act: 'empty',
       target: orgName,
       objects: sends,
       org: context.automation,
@@ -1228,7 +1267,7 @@ export async function undoEmptyAct(
     records: pass.records ?? 0,
   }));
   const answer = await readDataOpsAct({
-    act: 'restore',
+    act: 'emptyUndo',
     target: orgName,
     objects,
     org: context.automation,

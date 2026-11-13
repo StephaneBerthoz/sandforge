@@ -39,6 +39,7 @@ import {
   pipelineRewindStepConfigSchema,
   removalStepsWrites,
   rewindGrantDigest,
+  orgDisplayName,
 } from '@sandforge/shared';
 import type {
   CheckpointFileDialogs,
@@ -263,7 +264,8 @@ export interface WindowWriters {
   /**
    * Whether a run of this window that names no org in a file writes to the
    * registered org: a Forge clone, a Frozen load or its removal, a DataOps
-   * restore, masking run or erasure, an Autopilot run, a Real-Time session.
+   * restore, masking run or erasure, an emptying or its undo, an Autopilot
+   * run, a Real-Time session.
    * `except` is the operation of a run a checkpoint is taken before: its own
    * mark, and only its own, does not count.
    */
@@ -612,9 +614,11 @@ function heldObjectsOf(
   return [...new Set(asked.flatMap((name) => byName.get(name.toLowerCase()) ?? []))];
 }
 
-/** How the user knows an org: its alias, else its username. */
-function nameOf(org: Pick<SalesforceOrg, 'alias' | 'username'>): string {
-  return org.alias || org.username;
+/** How the user knows an org: its alias, else its own name, else its Organization Id. */
+function nameOf(
+  org: Pick<SalesforceOrg, 'alias' | 'username' | 'orgId' | 'organizationName'>,
+): string {
+  return orgDisplayName(org);
 }
 
 /**
@@ -2266,7 +2270,7 @@ export class CheckpointHandler implements DomainHandler {
     checkpoint: OrgCheckpoint,
     act: 'preview' | 'rewind' | 'undo' | 'export',
   ): void {
-    const kept = checkpoint.org.alias ?? checkpoint.org.username;
+    const kept = orgDisplayName(checkpoint.org);
     if (checkpoint.status !== 'ready') {
       throw new Refused(
         checkpoint.status === 'taking' ? 'TAKING' : 'FAILED',
@@ -2295,7 +2299,7 @@ export class CheckpointHandler implements DomainHandler {
   private connectedOrgOf(checkpoint: OrgCheckpoint, then: string): SalesforceOrg {
     const org = this.orgOfCheckpoint(checkpoint);
     if (!org) {
-      const kept = checkpoint.org.alias ?? checkpoint.org.username;
+      const kept = orgDisplayName(checkpoint.org);
       throw new Refused(
         'ORG_NOT_FOUND',
         `${kept} is not connected in SandForge: connect it to ${then}.`,

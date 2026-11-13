@@ -18,10 +18,12 @@ function rewindableCheckpoint() {
 import { VSCODE_DEFAULT_STYLES } from './fixtures/vscode-default-styles';
 import {
   EMPTY_ORG,
+  RUN_ID,
   emptyAudit,
   emptyScope,
   objectsPreview,
   orgPreview,
+  peopleAtWork,
   runResult,
 } from './fixtures/empty';
 import { sendExtensionMessage } from './mocks/vscode-api';
@@ -8815,6 +8817,30 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(page, results, '[data-testid="empty-preview"]'),
         'axe measured no text of the preview',
       ).toBeGreaterThan(10);
+    });
+
+    test('DataOps emptying preview with people at work: each named with when, the box that lets their work go, the resume that asks it', async ({
+      page,
+    }) => {
+      await openEmptying(bridge, page, theme);
+      await answerEmptyPreview(page, 'objects', {
+        ...peopleAtWork(),
+        openRun: { runId: RUN_ID, startedAt: '2026-11-12T14:05:12.000Z' },
+      });
+      await page.getByTestId('empty-preview-accept-people-active').check();
+      await toMiddle(page, 'empty-preview-people');
+
+      const people = await checkAccessibility(page);
+      expectNoViolations(people);
+      expect(
+        await contrastMeasuredIn(page, people, '[data-testid="empty-preview-people"]'),
+        'axe measured no text of the people at work',
+      ).toBeGreaterThan(2);
+
+      await page.getByTestId('empty-preview-resume').click();
+      await page.getByTestId('empty-act-accept-people-active').waitFor({ timeout: 5000 });
+      const resume = await checkAccessibility(page);
+      expectNoViolations(resume);
     });
 
     test('DataOps emptying preview of the whole org: what Undo leaves with its box, a recycle bin past its size, the refusal it holds', async ({

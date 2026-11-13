@@ -1,5 +1,5 @@
 import type { CsvValidationResult, RunCheckpointInfo, RunCheckpointTaken } from '@sandforge/shared';
-import { guardTierOf } from '@sandforge/shared';
+import { guardTierOf, orgDisplayName } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -485,7 +485,7 @@ export class SeedCsvHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      const targetName = targetOrg?.alias || targetOrg?.username || parsed.orgId;
+      const targetName = orgDisplayName(targetOrg, parsed.orgId);
       /** Refuse the import before it is announced, nothing written, under its code. */
       const refuse = (code: string, message: string, checkpointRefusal?: string): void => {
         const beside: Record<string, string> =
@@ -615,10 +615,7 @@ export class SeedCsvHandler implements DomainHandler {
             `could not be read (${api.unread})`,
         );
       }
-      const overBudget = apiBudgetRefusal(
-        api,
-        targetOrg?.alias || targetOrg?.username || parsed.orgId,
-      );
+      const overBudget = apiBudgetRefusal(api, orgDisplayName(targetOrg, parsed.orgId));
       if (overBudget) {
         recordWriteRun(this.deps, {
           ...run,

@@ -1,7 +1,12 @@
 import React, { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SyncConflictStrategy, MappingType, FieldMapping } from '@sandforge/shared';
-import { FILE_COPY_CEILING_MB, SYNC_FILES_MAX_RUN_MB, freeSyncConfigName } from '@sandforge/shared';
+import {
+  FILE_COPY_CEILING_MB,
+  SYNC_FILES_MAX_RUN_MB,
+  freeSyncConfigName,
+  orgDisplayName,
+} from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -401,8 +406,8 @@ export const SyncPage: React.FC = () => {
   // The name proposed for a saved configuration is the pair it runs between,
   // numbered from (2) when another saved configuration has it; it is data,
   // not a label to translate. A name typed over it is kept.
-  const targetOrgName = targetOrg?.alias || targetOrg?.username || targetOrgId;
-  const pairName = `${sourceOrg?.alias || sourceOrg?.username || sourceOrgId} → ${targetOrgName}`;
+  const targetOrgName = orgDisplayName(targetOrg, targetOrgId);
+  const pairName = `${orgDisplayName(sourceOrg, sourceOrgId)} → ${targetOrgName}`;
   const configName =
     configNameDraft ?? freeSyncConfigName(savedConfigs, pairName, saveReuseId ?? undefined);
   const configNameUsable = configName.trim() !== '';

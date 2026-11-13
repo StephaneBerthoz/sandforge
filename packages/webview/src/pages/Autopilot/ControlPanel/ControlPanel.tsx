@@ -21,6 +21,7 @@ import { RewoundMark } from '../../../components/ui/RewoundMark';
 import { useRewoundMarks } from '../../../hooks/useRewoundMarks';
 import { useOrgStore } from '../../../stores/useOrgStore';
 import { AutopilotFitResultLine } from '../AutopilotWizard/AutopilotFitPanel';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** Tab identifiers for the control panel. */
 type ControlTab = 'stats' | 'node' | 'anonymization' | 'compliance';
@@ -308,7 +309,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <div className="px-4 py-2 border-b border-(--sf-border)">
           <AutopilotFitResultLine
             report={fitted}
-            org={target?.alias || target?.username || (targetOrgId ?? '')}
+            org={orgDisplayName(target, targetOrgId ?? '')}
             {...(cutSinceFit !== undefined ? { cutSinceFit } : {})}
             testId="control-fit"
           />
@@ -319,7 +320,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <div className="px-4 py-2 border-b border-(--sf-border)">
           <MutedAutomationResult
             muted={mutedAutomation}
-            org={target?.alias || target?.username || (targetOrgId ?? '')}
+            org={orgDisplayName(target, targetOrgId ?? '')}
             testId="control-muted"
           />
         </div>

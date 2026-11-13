@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { X, Check, Pencil, Trash2, Download, Upload } from 'lucide-react';
-import { BUILTIN_FORGE_TEMPLATES } from '@sandforge/shared';
+import { BUILTIN_FORGE_TEMPLATES, orgDisplayName } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { cn } from '../../theme';
 import type { ForgeTemplate } from '../../stores/useForgeStore';
@@ -36,7 +36,7 @@ interface AppliedTemplate {
 
 /** The name an org is shown under. */
 function orgLabel(org: SalesforceOrg): string {
-  return org.alias || org.username;
+  return orgDisplayName(org);
 }
 
 /** Why a template file was refused, as the tab says it. */

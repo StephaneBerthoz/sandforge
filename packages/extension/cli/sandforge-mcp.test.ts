@@ -1494,6 +1494,48 @@ describe('sandforge-mcp: emptying objects or an org', () => {
     await c.close();
   });
 
+  it('passes the acceptance of the people at work to a dry run, a run and a resume, and never to an undo', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('empty_preview', { org: 'DEV', objects: ['Contact'], acceptPeopleActive: true });
+    await c.call('empty_run', {
+      org: 'DEV',
+      objects: ['Contact'],
+      acceptPeopleActive: true,
+      confirm: 'DEV',
+    });
+    await c.call('empty_run', {
+      org: 'DEV',
+      resume: 'em-20261113-101500-ab12',
+      acceptPeopleActive: true,
+      confirm: 'DEV',
+    });
+    const undo = await c.call('empty_undo', {
+      org: 'DEV',
+      run: 'em-20261113-101500-ab12',
+      acceptPeopleActive: true,
+      confirm: 'DEV',
+    });
+
+    expect(ran.map((each) => each.args)).toEqual([
+      ['--target', 'DEV', '--objects', 'Contact', '--accept-people-active', '--dry-run', '--json'],
+      ['--target', 'DEV', '--objects', 'Contact', '--accept-people-active', '--yes', '--json'],
+      [
+        '--target',
+        'DEV',
+        '--resume',
+        'em-20261113-101500-ab12',
+        '--accept-people-active',
+        '--yes',
+        '--json',
+      ],
+    ]);
+    expect(undo.isError).toBe(true);
+    await c.close();
+  });
+
   it('refuses, before any script runs, both objects and the whole org, neither, and a run that is no emptying’s', async () => {
     const { ran, run } = scripts();
     const c = client(run);

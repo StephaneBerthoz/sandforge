@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { OrgStatus } from '@sandforge/shared';
+import { orgDisplayName, type OrgStatus } from '@sandforge/shared';
 import * as fs from 'fs/promises';
 import { readFileSync } from 'fs';
 import { MessageBroker } from './bridge/MessageBroker';
@@ -239,7 +239,12 @@ export function activate(context: vscode.ExtensionContext): void {
   const { performanceTracker, productionGuard, offlineManager, piiDetector, backgroundRegistry } =
     createBackgroundComposition({
       configStore,
-      orgNameOf: (orgId) => orgManager.getOrg(orgId)?.alias,
+      // The name Production Guard's confirmation gives the org: never the
+      // username the alias of an org that has none holds.
+      orgNameOf: (orgId) => {
+        const org = orgManager.getOrg(orgId);
+        return org ? orgDisplayName(org) : undefined;
+      },
     });
   // Enable connectivity probing so the offline queue can drain on reconnect.
   // The probe only ticks while an operation is queued or the network is down.
@@ -315,7 +320,7 @@ export function activate(context: vscode.ExtensionContext): void {
     (kind: 'Sync' | 'Seed') =>
     (run: SyncRunKept): void => {
       const records = createdCount(run);
-      const org = orgManager.getOrg(run.targetOrgId)?.alias ?? run.targetOrgId;
+      const org = orgDisplayName(orgManager.getOrg(run.targetOrgId), run.targetOrgId);
       const message = vscode.l10n.t(
         'SandForge: the record of a {0} run started {1} in {2}, whose {3} created record(s) are still in that org, was dropped to keep the runs kept on this machine within their bound. Delete those records with sandforge-cleanup, or from the org.',
         kind,

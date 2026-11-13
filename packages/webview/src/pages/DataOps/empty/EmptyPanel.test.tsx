@@ -86,12 +86,14 @@ describe('EmptyPanel', () => {
     expect(screen.getByTestId('empty-production-refusal')).toBeInTheDocument();
   });
 
-  it('greys the delete for good out without the permission, and says whose', () => {
+  it('greys the delete for good out without the permission, and says whose, never by a username', () => {
     render(<EmptyPanel orgId="org-1" orgName="dev" />);
     expect(screen.getByTestId('empty-objects-hard')).toBeDisabled();
-    expect(screen.getByTestId('empty-objects-hard-why')).toHaveTextContent(
-      "admin@dev.invalid doesn't have Bulk API Hard Delete",
+    const why = screen.getByTestId('empty-objects-hard-why');
+    expect(why).toHaveTextContent(
+      "the user SandForge connects as doesn't have Bulk API Hard Delete",
     );
+    expect(why).not.toHaveTextContent('admin@dev.invalid');
   });
 
   it('asks a delete for good of the objects picked only once it is permitted and ticked', () => {
@@ -114,6 +116,92 @@ describe('EmptyPanel', () => {
     expect(lastPayload('dataops:empty:preview')).toMatchObject({
       orgId: 'org-1',
       request: { mode: 'objects', objects: ['Contact', 'Account'] },
+    });
+  });
+
+  it('says left out, with why, the objects asked to be emptied first that cannot be picked, and never asks them', () => {
+    render(
+      <EmptyPanel
+        orgId="org-1"
+        orgName="dev"
+        initialObjects={['Contact', 'AccountFeed', 'Nowhere__c']}
+      />,
+    );
+    const note = screen.getByTestId('empty-objects-preselected-left-out');
+    expect(note).toHaveTextContent('2 objects asked to be emptied first are left out');
+    expect(screen.getByTestId('empty-objects-preselected-left-out-chatter')).toHaveTextContent(
+      'AccountFeed',
+    );
+    expect(screen.getByTestId('empty-objects-preselected-left-out-notFound')).toHaveTextContent(
+      'Nowhere__c',
+    );
+    expect(screen.getByTestId('empty-pick-ticked')).toHaveTextContent('1 object picked: Contact');
+
+    fireEvent.click(screen.getByTestId('empty-objects-preview'));
+    expect(lastPayload('dataops:empty:preview')).toMatchObject({
+      request: { mode: 'objects', objects: ['Contact'] },
+    });
+  });
+
+  it('says nothing left out when every object asked first may be picked', () => {
+    render(<EmptyPanel orgId="org-1" orgName="dev" initialObjects={['contact', 'Account']} />);
+    expect(screen.queryByTestId('empty-objects-preselected-left-out')).toBeNull();
+  });
+
+  it('runs on the work of the people the preview named once their box is ticked, and says whose in the confirmation', () => {
+    const { rerender } = render(<EmptyPanel orgId="org-1" orgName="dev" />);
+    fireEvent.click(screen.getByTestId('empty-pick-option-Account'));
+    fireEvent.click(screen.getByTestId('empty-objects-preview'));
+    hooks['dataops:empty:preview'] = {
+      ...idle(),
+      data: previewAnswer({
+        peopleActive: {
+          people: 1,
+          who: [
+            {
+              userId: '005000000000077',
+              name: 'Ada Example',
+              records: 4,
+              lastChangedAt: '2026-11-12T13:40:00.000Z',
+            },
+          ],
+        },
+        refusals: [{ code: 'PEOPLE_ACTIVE', message: '1 person other than the user…' }],
+      }),
+    };
+    rerender(<EmptyPanel orgId="org-1" orgName="dev" />);
+    expect(screen.getByTestId('empty-preview-empty')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('empty-preview-accept-people-active'));
+    fireEvent.click(screen.getByTestId('empty-preview-empty'));
+    expect(screen.getByTestId('empty-confirm-people-active')).toHaveTextContent(
+      'What Ada Example changed in the last hour goes too.',
+    );
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(lastPayload('dataops:empty:run')).toMatchObject({ acceptPeopleActive: true });
+  });
+
+  it('takes up the last emptying with the work of the people at work accepted only when ticked', () => {
+    const { rerender } = render(<EmptyPanel orgId="org-1" orgName="dev" />);
+    fireEvent.click(screen.getByTestId('empty-pick-option-Account'));
+    fireEvent.click(screen.getByTestId('empty-objects-preview'));
+    hooks['dataops:empty:preview'] = {
+      ...idle(),
+      data: previewAnswer({ openRun: { runId: RUN_ID, startedAt: '2026-11-12T14:05:12.000Z' } }),
+    };
+    rerender(<EmptyPanel orgId="org-1" orgName="dev" />);
+
+    fireEvent.click(screen.getByTestId('empty-preview-resume'));
+    expect(screen.getByTestId('empty-act-accept-people-active')).not.toBeChecked();
+    fireEvent.click(screen.getByTestId('empty-act-accept-people-active'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(lastPayload('dataops:empty:run')).toEqual({
+      orgId: 'org-1',
+      resumeRunId: RUN_ID,
+      fromPage: true,
+      acceptPeopleActive: true,
     });
   });
 

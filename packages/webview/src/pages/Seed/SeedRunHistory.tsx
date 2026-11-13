@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { backAfterRemoval, type SeedRunRemovalInfo } from '@sandforge/shared';
+import { backAfterRemoval, type SeedRunRemovalInfo, orgDisplayName } from '@sandforge/shared';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
@@ -89,7 +89,10 @@ export const SeedRunHistory: React.FC = () => {
           <p className="text-[11px] text-text-secondary">{t('seed.removal.historyNote')}</p>
           <ul className="flex flex-col gap-2">
             {runs.map((run) => {
-              const org = orgs.find((o) => o.id === run.targetOrgId)?.alias ?? run.targetOrgId;
+              const org = orgDisplayName(
+                orgs.find((o) => o.id === run.targetOrgId),
+                run.targetOrgId,
+              );
               const date =
                 formatStoredDate(run.endedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown');
               const shown = open === run.runId;

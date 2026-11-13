@@ -44,6 +44,7 @@ import {
   refusedBeforeScope,
   roughSeconds,
 } from './checkpointFacts';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** What `checkpoint:scope` answers. */
 type ScopeAnswer = CheckpointScopeResponse['payload'];
@@ -122,7 +123,7 @@ export interface TakeCheckpointProps {
  */
 export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, onTaken }) => {
   const { t } = useTranslation();
-  const orgName = org.alias || org.username;
+  const orgName = orgDisplayName(org);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const headingId = useId();
 
@@ -1078,7 +1079,7 @@ const TakeResult: React.FC<{ checkpoint: OrgCheckpoint; onDone: () => void }> = 
           {(files.readByIds?.length ?? 0) > 0 &&
             ` ${t('checkpoint.take.filesReadByIds', {
               objects: listWords(files.readByIds ?? [], t),
-              org: checkpoint.org.alias ?? checkpoint.org.username,
+              org: orgDisplayName(checkpoint.org),
             })}`}
         </p>
       )}

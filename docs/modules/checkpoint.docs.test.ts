@@ -297,7 +297,15 @@ describe('docs/modules/checkpoint.md', () => {
       EXTENSION_HANDLERS,
     )?.[1];
     const handlers = [...(asked ?? '').matchAll(/this\.(\w+)Handler,/g)].map((m) => m[1]);
-    expect(handlers).toEqual(['forge', 'frozen', 'dataOps', 'compliance', 'autopilot', 'realtime']);
+    expect(handlers).toEqual([
+      'forge',
+      'frozen',
+      'dataOps',
+      'compliance',
+      'empty',
+      'autopilot',
+      'realtime',
+    ]);
     for (const text of [CLI, PANEL_HOST]) {
       expect(text).not.toMatch(/setSyncRunCreations|setSeedRunCreations|setRunFiles/);
     }
@@ -306,7 +314,8 @@ describe('docs/modules/checkpoint.md', () => {
     expect(DOC).toContain('the runs the panel sees writing to the org are not seen here');
     expect(DOC).toContain(
       'In the panel, a run of the window writing to the org -- a Forge clone, a Frozen load or ' +
-        'its removal, a DataOps restore, masking run or erasure, an Autopilot run, a Real-Time ' +
+        'its removal, a DataOps restore, masking run or erasure, an emptying or its undo, an ' +
+        'Autopilot run, a Real-Time ' +
         'session that applies what it receives -- and a Sync or Seed run',
     );
   });

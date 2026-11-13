@@ -16,7 +16,7 @@ import type {
   MutedAutomation,
   RunCheckpointInfo,
 } from '@sandforge/shared';
-import { sweepTakenObjects, translateError } from '@sandforge/shared';
+import { sweepTakenObjects, translateError, orgDisplayName } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useFrozenStore } from '../../stores/useFrozenStore';
 import { Button } from '../../components/ui/Button';
@@ -355,7 +355,10 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const loadedIntoTarget =
     status?.lastLoads.some((load) => load.orgId === effectiveTarget) === true;
   const noLoadIntoTarget = status !== null && effectiveTarget !== '' && !loadedIntoTarget;
-  const targetName = orgs.find((o) => o.id === effectiveTarget)?.alias ?? effectiveTarget;
+  const targetName = orgDisplayName(
+    orgs.find((o) => o.id === effectiveTarget),
+    effectiveTarget,
+  );
   const targetRecords = status?.loadRecords?.find((load) => load.orgId === effectiveTarget);
 
   // A reload refused for the records it would leave is said on the card of
@@ -513,7 +516,12 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const plan = previewMutation.data?.plan;
   const planMasks = maybeMasks(plan?.removals);
   const reportMasks = maybeMasks(loadReport?.alignment.removals);
-  const planOrg = plan ? (orgs.find((o) => o.id === plan.orgId)?.alias ?? plan.orgId) : '';
+  const planOrg = plan
+    ? orgDisplayName(
+        orgs.find((o) => o.id === plan.orgId),
+        plan.orgId,
+      )
+    : '';
   const planColumns = plan
     ? [
         { key: 'objectApiName', header: t('frozen.control.object'), sortable: true },
@@ -1449,7 +1457,10 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               {/* What the load muted of the target's automation, when its box was ticked. */}
               <MutedAutomationResult
                 muted={loadReport.mutedAutomation}
-                org={orgs.find((o) => o.id === loadReport.orgId)?.alias ?? loadReport.orgId}
+                org={orgDisplayName(
+                  orgs.find((o) => o.id === loadReport.orgId),
+                  loadReport.orgId,
+                )}
                 testId="frozen-load-report-muted"
               />
               <RewindBeforeRun

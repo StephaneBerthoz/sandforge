@@ -471,6 +471,12 @@ const emptyScope = {
     'Empty although some records go before a record they name, as Salesforce requires, so ' +
       'that Undo cannot bring them back once both have gone.',
   ),
+  acceptPeopleActive: acceptance(
+    'Empty although people other than the user changed records of these objects in the hour ' +
+      "before the read, their work going with it: empty_preview says how many and each one's " +
+      'last change. It covers those the preview named, and taking up a run, whoever. Only once ' +
+      'the person using you has accepted that their work goes.',
+  ),
 };
 
 /** One of objects, wholeOrg and resume: what an emptying acts on. */
@@ -528,6 +534,7 @@ const EMPTY_UNDO_FLAGS: Readonly<Record<string, string>> = {
 const EMPTY_FLAGS: Readonly<Record<string, string>> = {
   ...EMPTY_UNDO_FLAGS,
   '--accept-no-undo': 'acceptNoUndo',
+  '--accept-people-active': 'acceptPeopleActive',
 };
 
 /** What stands for the flags of an emptying's lines that take a run. */
@@ -1182,6 +1189,7 @@ export const TOOLS: readonly ServedTool[] = [
         args.org,
         ...emptyScopeLine(args),
         ...emptyAccordLine(args),
+        ...(args.acceptPeopleActive === true ? ['--accept-people-active'] : []),
         '--dry-run',
         '--json',
       ],
@@ -1200,8 +1208,9 @@ export const TOOLS: readonly ServedTool[] = [
       'Refused without acceptAutomation when the org runs automation as the records go, ' +
       'without acceptEmails when the org delivers every email what still runs sends, or would ' +
       'not say whether it does, without acceptNoUndo when Undo could not bring back some ' +
-      'records, while someone else changed records of these objects in the last hour, past ' +
-      "the day's API requests or Bulk API batches, and on a production org, always.",
+      'records, without acceptPeopleActive while someone else changed records of these objects ' +
+      "in the last hour, past the day's API requests or Bulk API batches, and on a production " +
+      'org, always.',
     readOnly: false,
     destructive: true,
     args: z
@@ -1234,6 +1243,7 @@ export const TOOLS: readonly ServedTool[] = [
         args.org,
         ...(args.resume !== undefined ? ['--resume', args.resume] : emptyScopeLine(args)),
         ...emptyAccordLine(args),
+        ...(args.acceptPeopleActive === true ? ['--accept-people-active'] : []),
         '--yes',
         '--json',
       ],

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
-import { isDevelopmentOrg } from '@sandforge/shared';
+import { isDevelopmentOrg, orgDisplayName } from '@sandforge/shared';
 import type {
   BackupDeleteResult,
   BackupExportResult,
@@ -107,7 +107,7 @@ export const DataOpsPage: React.FC = () => {
   // The org the user actually picked — the same reactive selector MonitorPage
   // and the rest of the product read.
   const currentOrg = useOrgStore(selectSelectedOrg);
-  const orgName = currentOrg ? currentOrg.alias || currentOrg.username : undefined;
+  const orgName = currentOrg ? orgDisplayName(currentOrg) : undefined;
   const selectOrgLocal = useOrgStore((s) => s.selectOrg);
   // The org picked here is the org picked everywhere, as Checkpoints' own
   // picker does: the status bar, the sidebar and the other panels follow it.

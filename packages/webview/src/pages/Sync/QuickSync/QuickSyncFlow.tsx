@@ -11,6 +11,7 @@ import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { useFocusOnChange } from '../../../hooks/useFocusOnChange';
 import { useLatestRef } from '../../../hooks/useLatestRef';
 import { useOrgStore } from '../../../stores/useOrgStore';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** Props for the QuickSyncFlow component. */
 export interface QuickSyncFlowProps {
@@ -51,7 +52,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({
   }, [pairChanged, state.sourceOrgId, state.targetOrgId]);
   /** The target, as the box that mutes its automation names it. */
   const target = useOrgStore((s) => s.orgs.find((o) => o.id === state.targetOrgId));
-  const targetOrgName = target?.alias || target?.username || state.targetOrgId;
+  const targetOrgName = orgDisplayName(target, state.targetOrgId);
 
   const steps = [
     { id: 'orgs' as const, label: t('quickSync.orgs') },

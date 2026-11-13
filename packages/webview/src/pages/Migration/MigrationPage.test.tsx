@@ -528,7 +528,14 @@ describe('MigrationPage — saving the import and opening it in Sync', () => {
     useOrgStore.setState({
       orgs: [
         { id: 'org-a', alias: 'devA', username: 'a@e.com', orgType: 'Sandbox', tags: [] },
-        { id: 'org-p', alias: '', username: 'p@e.com', orgType: 'Production', tags: [] },
+        {
+          id: 'org-p',
+          alias: '',
+          username: 'p@e.com',
+          orgId: '00D000000000002AAA',
+          orgType: 'Production',
+          tags: [],
+        },
       ] as never,
     });
     render(<MigrationPage />);
@@ -539,7 +546,8 @@ describe('MigrationPage — saving the import and opening it in Sync', () => {
       expect(options.map((option) => option.textContent)).toEqual([
         'Select an org',
         'devA [SANDBOX]',
-        'p@e.com [PROD]',
+        // No alias: its Organization Id, never its username.
+        '00D000000000002AAA [PROD]',
       ]);
       expect(select.value).toBe('');
       expect(options[0].disabled).toBe(true);

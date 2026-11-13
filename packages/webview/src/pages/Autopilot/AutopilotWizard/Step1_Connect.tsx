@@ -1,7 +1,7 @@
 import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SalesforceOrg } from '@sandforge/shared';
-import { OrgSafetyTier } from '@sandforge/shared';
+import { OrgSafetyTier, orgDisplayName } from '@sandforge/shared';
 import { cn } from '../../../theme';
 import { SeedInsteadHint } from '../../../components/ui/SeedInsteadHint';
 
@@ -96,7 +96,7 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
               />
               <div className="flex flex-col min-w-0">
                 <span className="text-sm font-medium text-text-primary truncate">
-                  {org.alias || org.username}
+                  {orgDisplayName(org)}
                 </span>
                 <span className="sr-only">
                   {t('a11y.orgStatus', { status: t(`common.orgStatus_${org.status}`) })}

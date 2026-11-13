@@ -28,6 +28,7 @@ import {
   isPipelineStepType,
   isRetiredPipelineStepType,
   isTriggeredRun,
+  orgDisplayName,
 } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -797,7 +798,7 @@ export function useAutomationPageData(): AutomationPageData {
     () =>
       orgs
         .filter((org) => org.orgType === 'Sandbox')
-        .map((org) => ({ id: org.id, alias: org.alias || org.username })),
+        .map((org) => ({ id: org.id, alias: orgDisplayName(org) })),
     [orgs],
   );
   const declaredVariables = useMemo(

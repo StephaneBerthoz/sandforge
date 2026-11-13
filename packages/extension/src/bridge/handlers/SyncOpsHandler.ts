@@ -30,6 +30,7 @@ import {
   guardTierOf,
   recordWriteHeaders,
   syncConfigNameRefused,
+  orgDisplayName,
 } from '@sandforge/shared';
 import type { OrgTypeAndEdition } from '@sandforge/shared';
 import type {
@@ -604,7 +605,7 @@ export class SyncOpsHandler implements DomainHandler {
             ? Promise.resolve(NO_APEX_IN_PRODUCTION)
             : readEmailDeliverability(targetConn),
         emails: {
-          target: target?.alias ?? config.targetOrgId,
+          target: orgDisplayName(target, config.targetOrgId),
           accepted: emailsAnswer.emailsAccepted === true,
           keepsAddresses: config.keepContactPoints === true,
         },
@@ -616,7 +617,7 @@ export class SyncOpsHandler implements DomainHandler {
       },
       {
         policy,
-        org: target?.alias ?? config.targetOrgId,
+        org: orgDisplayName(target, config.targetOrgId),
         orgTier: guardTierOf(target),
         ...(guard ? { confirm: (question: WriteConfirmation) => guard.confirmRun(question) } : {}),
         emailsLiftedBy: emailsAnswer.emailsLiftedBy,
@@ -2728,7 +2729,10 @@ export class SyncOpsHandler implements DomainHandler {
               }),
             operationId,
             {
-              target: this.deps.orgManager.getOrg(config.targetOrgId)?.alias ?? config.targetOrgId,
+              target: orgDisplayName(
+                this.deps.orgManager.getOrg(config.targetOrgId),
+                config.targetOrgId,
+              ),
               liftedBy: syncEmailsAnswerOf(policy).emailsLiftedBy,
             },
           );

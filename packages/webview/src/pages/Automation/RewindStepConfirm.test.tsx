@@ -325,21 +325,30 @@ describe('RewindStepConfirm', () => {
       code: 'TYPED_MISMATCH',
     });
     expect(screen.getByTestId('rewind-grant-refused').textContent).toBe(
-      "What was typed is not the org's alias, nor its username for an org that has none: nothing was confirmed.",
+      "What was typed is not the org's alias, nor, for an org that has none, its name or Organization Id: nothing was confirmed.",
     );
   });
 
-  it('says to type the username of an org that has no alias, as the confirmation asks it, in every language', () => {
-    // The confirmation asks for the alias, or the username of an org without
-    // one; these said the alias alone.
-    for (const catalogue of [en, fr, de, es, ptBR, ja]) {
+  it('says to type the name or Organization Id of an org that has no alias, never its username, in every language', () => {
+    // The confirmation asks for the alias, else the org's own name, else its
+    // Organization Id: it asked for the username, which a screenshot carries.
+    const organizationId = [
+      [en, 'organization id'],
+      [fr, "id d'organisation"],
+      [de, 'organisations-id'],
+      [es, 'id de organización'],
+      [ptBR, 'id da organização'],
+      [ja, '組織 id'],
+    ] as const;
+    for (const [catalogue, term] of organizationId) {
       const username = catalogue.org.username.toLocaleLowerCase();
       for (const said of [
         catalogue.automation.runnability.rewindNotConfirmed,
         catalogue.automation.rewindNotConfirmedNote,
         catalogue.automation.rewindGrantRefused.TYPED_MISMATCH,
       ]) {
-        expect(said.toLocaleLowerCase()).toContain(username);
+        expect(said.toLocaleLowerCase()).toContain(term);
+        expect(said.toLocaleLowerCase()).not.toContain(username);
       }
     }
   });
@@ -495,7 +504,7 @@ describe('StepConfigPanel, a Rewind step', () => {
     renderPanel({ steps: [], blocker: 'rewindNotConfirmed', onPreview: vi.fn() });
     expect(screen.getByTestId('rewind-confirm').textContent).toBe('Preview and confirm…');
     expect(screen.getByTestId('rewind-confirmation-status').textContent).toBe(
-      "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias, or its username for an org that has none.",
+      "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias, or, for an org that has none, its name or Organization Id.",
     );
   });
 

@@ -26,6 +26,7 @@ import { orgToFill } from '../../utils/orgToFill';
 import { useOrgHealthSummary } from './useOrgHealthSummary';
 import { SmartActionCard } from './SmartActionCard';
 import { CheckpointTile } from './CheckpointTile';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** Payload from org:list bridge query. */
 interface OrgListPayload {
@@ -95,7 +96,7 @@ export const HomePage: React.FC = () => {
     : orgsLoading
       ? 'loading'
       : 'connect';
-  const nameOf = (org: SalesforceOrg): string => org.alias || org.username;
+  const nameOf = (org: SalesforceOrg): string => orgDisplayName(org);
 
   /** Last 5 recent operations for the tile. */
   const recentOpsSlice = useMemo(() => recentOps.slice(0, 5), [recentOps]);

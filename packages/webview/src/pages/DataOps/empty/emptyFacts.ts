@@ -14,28 +14,34 @@ import type {
  */
 
 /** The boxes of a preview that lift a refusal it names, once ticked. */
-export type EmptyBox = 'acceptNoUndo' | 'acceptEmails';
+export type EmptyBox = 'acceptNoUndo' | 'acceptEmails' | 'acceptPeopleActive';
 
 /** Which boxes are ticked. */
 export type EmptyBoxes = Readonly<Record<EmptyBox, boolean>>;
 
 /** Nothing ticked: where every preview starts. */
-export const NO_BOXES: EmptyBoxes = { acceptNoUndo: false, acceptEmails: false };
+export const NO_BOXES: EmptyBoxes = {
+  acceptNoUndo: false,
+  acceptEmails: false,
+  acceptPeopleActive: false,
+};
 
 /**
  * What lifts each refusal a preview may name that the page can lift: what
  * fires, which the preview lists and the confirmation accepts by being
  * answered after it (`confirm`); the emails an org delivers, by their box;
- * the records no undo brings back, by theirs. Any other refusal — a run of
- * this machine writing to the org, the last emptying left open, people at
- * work, too few requests or Bulk API batches left today, more emails than
- * the org has left, a mute or a checkpoint refused, a delete for good without
- * its permission — holds the emptying whatever is ticked.
+ * the records no undo brings back, by theirs; the work of the people at work
+ * in the org, by the box that names each of them. Any other refusal — a run
+ * of this machine writing to the org, the last emptying left open, too few
+ * requests or Bulk API batches left today, more emails than the org has
+ * left, a mute or a checkpoint refused, a delete for good without its
+ * permission — holds the emptying whatever is ticked.
  */
 export const LIFTED_BY: Readonly<Record<string, EmptyBox | 'confirm'>> = {
   AUTOMATION_NOT_ACCEPTED: 'confirm',
   EMAILS_NOT_ACCEPTED: 'acceptEmails',
   NO_UNDO: 'acceptNoUndo',
+  PEOPLE_ACTIVE: 'acceptPeopleActive',
 };
 
 /** The refusals that still hold the emptying, with `boxes` ticked. */
@@ -136,22 +142,28 @@ export interface EmptyHistoryEntry {
   code?: string;
 }
 
-/** The detail an emptying's audit entry carries, or undefined for any other entry. */
+/**
+ * Which act of an emptying an audit entry records, or undefined for any other
+ * entry: an undo under its own action, `empty_undo`; a run under
+ * `cleanup_delete`, its details saying an emptying (`empty`). An undo was
+ * recorded under `cleanup_delete` too before it had its action, its details
+ * saying so: those entries are read as they were written.
+ */
 function actOf(entry: AuditLogEntry): EmptyAct | undefined {
+  if (entry.action === 'empty_undo') return 'undo';
+  if (entry.action !== 'cleanup_delete') return undefined;
   const act = entry.details.empty;
   return act === 'run' || act === 'undo' ? act : undefined;
 }
 
 /**
- * The org's emptyings and undos the audit trail holds, the latest first:
- * the entries of `cleanup_delete` whose details say an emptying (`empty`),
- * among those of DataOps. A run counts what it deleted, an undo what it
+ * The org's emptyings and undos the audit trail holds, the latest first,
+ * among the entries of DataOps. A run counts what it deleted, an undo what it
  * brought back (`created`).
  */
 export function emptyHistoryOf(entries: readonly AuditLogEntry[]): EmptyHistoryEntry[] {
   const history: EmptyHistoryEntry[] = [];
   for (const entry of entries) {
-    if (entry.action !== 'cleanup_delete') continue;
     const act = actOf(entry);
     if (act === undefined) continue;
     const details = entry.details;

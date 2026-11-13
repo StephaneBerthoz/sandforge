@@ -29,6 +29,7 @@ import { ForgeDepthChips } from './ForgeDepthChips';
 import { ForgeOptionToggles } from './ForgeOptionToggles';
 import { soqlRootFilter, starterTemplateKeys } from './forgeUtils';
 import { extractRecordId } from '../../utils/recordId';
+import { orgDisplayName } from '@sandforge/shared';
 
 /** A starter template's name in the panel's language, as its Template tab says it. */
 function starterName(
@@ -799,8 +800,8 @@ export const ForgeInput: React.FC = () => {
           anonymize={form.anonymize}
           onClosePreview={form.closePreview}
           wholeOrg={form.wholeOrg}
-          sourceAlias={form.sourceOrg ? form.sourceOrg.alias || form.sourceOrg.username : ''}
-          targetAlias={form.targetOrg ? form.targetOrg.alias || form.targetOrg.username : ''}
+          sourceAlias={form.sourceOrg ? orgDisplayName(form.sourceOrg) : ''}
+          targetAlias={form.targetOrg ? orgDisplayName(form.targetOrg) : ''}
           sourceHoldsRealData={form.sourceHoldsRealData}
         />
       </div>

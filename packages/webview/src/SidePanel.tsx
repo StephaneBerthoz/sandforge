@@ -48,7 +48,7 @@ import { useOrgStore } from './stores/useOrgStore';
 import { useFavoritesStore } from './stores/useFavoritesStore';
 import { getPersistedItem, setPersistedItem } from './utils/webviewStorage';
 import { orgToFill } from './utils/orgToFill';
-import { isDevelopmentOrg } from '@sandforge/shared';
+import { isDevelopmentOrg, orgDisplayName } from '@sandforge/shared';
 import type { OrgListResponse, OrgPageAction } from '@sandforge/shared';
 
 /**
@@ -495,8 +495,8 @@ export const SidePanel: React.FC = () => {
       const aConn = a.status === 'connected' ? 0 : 1;
       const bConn = b.status === 'connected' ? 0 : 1;
       if (aConn !== bConn) return aConn - bConn;
-      const aName = (a.alias || a.username).toLowerCase();
-      const bName = (b.alias || b.username).toLowerCase();
+      const aName = orgDisplayName(a).toLowerCase();
+      const bName = orgDisplayName(b).toLowerCase();
       return aName.localeCompare(bName);
     });
   }, [orgs]);
@@ -688,7 +688,7 @@ export const SidePanel: React.FC = () => {
   const fillTarget = connectedCount === 1 ? orgToFill(connectedOrgs, selectedOrgId) : undefined;
   const hero: 'none' | 'seed' | 'forge' =
     !orgsLoaded || noOrgYet ? 'none' : fillTarget ? 'seed' : 'forge';
-  const fillAlias = fillTarget ? fillTarget.alias || fillTarget.username : '';
+  const fillAlias = fillTarget ? orgDisplayName(fillTarget) : '';
   const advancedItems = grappeEnabled ? [...ADVANCED_MODULES, GRAPPE_ITEM] : ADVANCED_MODULES;
 
   return (
@@ -739,7 +739,7 @@ export const SidePanel: React.FC = () => {
           <div className="flex-1 min-w-0">
             <span className="text-xs font-semibold truncate block">
               {selectedOrg
-                ? selectedOrg.alias || selectedOrg.username
+                ? orgDisplayName(selectedOrg)
                 : !orgsLoaded
                   ? t('sidePanel.loadingOrgs', 'Loading orgs…')
                   : connectedCount > 0
@@ -814,7 +814,7 @@ export const SidePanel: React.FC = () => {
                           )}
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium truncate">{org.alias || org.username}</div>
+                          <div className="font-medium truncate">{orgDisplayName(org)}</div>
                           <span className="sr-only">{t(`sidePanel.orgStatus.${org.status}`)}</span>
                           <div className="text-[10px] text-text-secondary truncate">
                             {org.username}
@@ -1162,10 +1162,7 @@ export const SidePanel: React.FC = () => {
                   describedBy={line ? LAST_CHECKPOINT_LINE_ID : undefined}
                 />
                 {line && selectedOrg && (
-                  <LastCheckpointLine
-                    orgName={selectedOrg.alias || selectedOrg.username}
-                    checkpoint={line}
-                  />
+                  <LastCheckpointLine orgName={orgDisplayName(selectedOrg)} checkpoint={line} />
                 )}
               </React.Fragment>
             );

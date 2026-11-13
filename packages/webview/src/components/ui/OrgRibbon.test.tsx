@@ -47,9 +47,15 @@ describe('OrgRibbon', () => {
     expect(target.getByTestId('org-ribbon-target-name').textContent).toBe('QASandbox');
   });
 
-  it('names an org by its username when it has no alias, never by the id the store keys it on', () => {
-    render(<OrgRibbon source={org({ alias: '' })} target={QA} />);
-    expect(screen.getByTestId('org-ribbon-source-name').textContent).toBe('dev@example.com');
+  it('names an org with no alias by its own name, never by its username nor the id the store keys it on', () => {
+    render(
+      <OrgRibbon
+        source={org({ alias: 'dev@example.com', organizationName: 'Example Workspace' })}
+        target={QA}
+      />,
+    );
+    expect(screen.getByTestId('org-ribbon-source-name').textContent).toBe('Example Workspace');
+    expect(screen.getByTestId('org-ribbon').textContent).not.toContain('dev@example.com');
     expect(screen.getByTestId('org-ribbon').textContent).not.toContain('org-1');
   });
 

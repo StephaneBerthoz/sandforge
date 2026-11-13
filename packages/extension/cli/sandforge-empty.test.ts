@@ -285,6 +285,10 @@ describe('sandforge-empty: the line', () => {
     [['--undo', 'em-20261113-101500-ab12', '--objects', 'Contact', '--yes'], 'does not go with'],
     [['--org', '--dry-run', '--audit', 'trail.json'], 'a dry run adds no entry'],
     [['--org', '--dry-run=true'], 'takes no value'],
+    [
+      ['--undo', 'em-20261113-101500-ab12', '--accept-people-active', '--yes'],
+      'does not go with --accept-people-active',
+    ],
   ])('refuses, exit 2, the bad line %j', async (line, said) => {
     const h = harness();
 
@@ -333,7 +337,10 @@ describe('sandforge-empty: the line', () => {
     expect(refusalWords({ code: 'NO_UNDO', message: 'Accept it.' }).message).toBe(
       'Accept it. (--accept-no-undo accepts it)',
     );
-    expect(refusalWords({ code: 'PEOPLE_ACTIVE', message: 'Wait.' }).message).toBe('Wait.');
+    expect(refusalWords({ code: 'PEOPLE_ACTIVE', message: 'Wait.' }).message).toBe(
+      'Wait. (--accept-people-active accepts it)',
+    );
+    expect(refusalWords({ code: 'OPEN_RUN', message: 'Resume it.' }).message).toBe('Resume it.');
   });
 
   it('ends a run 0 done, 3 partial, 1 failed, and with the stop’s code when one stopped it', () => {
@@ -671,6 +678,42 @@ describe('sandforge-empty: a run', () => {
     expect(refused.stderr).toContain('(--accept-no-undo accepts it)');
     expect(h.org.sent).toEqual([]);
     expect(h.sent.map((request) => request.type)).toEqual(['dataops:empty:preview']);
+  });
+
+  it('refuses, exit 1, an org others changed in the last hour until --accept-people-active, each by Id, never by name', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    org.memory.add(
+      'User',
+      { Id: fakeId('005', 77), Name: 'Ada Example' },
+      '2026-01-01T00:00:00.000Z',
+    );
+    org.memory.edit('Contact', SALES.contactAlone, { Title: 'x' }, fakeId('005', 77));
+    const h = harness({ org });
+
+    const dry = await h.run('--target', 'DEV', '--objects', 'Contact', '--dry-run', '--json');
+    expect(dry.code).toBe(1);
+    expect(JSON.parse(dry.stdout)).toMatchObject({
+      wouldBeRefusedCodes: ['PEOPLE_ACTIVE'],
+      peopleActive: { people: 1, who: [{ userId: fakeId('005', 77).slice(0, 15), records: 1 }] },
+    });
+    expect(dry.stderr).toContain(
+      `user ${fakeId('005', 77).slice(0, 15)}: 1 record(s), the last changed at`,
+    );
+    expect(dry.stdout + dry.stderr).not.toContain('Ada Example');
+    expect(org.sent).toEqual([]);
+
+    const ran = await h.run(
+      '--target',
+      'DEV',
+      '--objects',
+      'Contact',
+      '--accept-people-active',
+      '--yes',
+      '--json',
+    );
+    expect(ran.code).toBe(0);
+    expect(JSON.parse(ran.stdout)).toMatchObject({ result: { status: 'success' } });
+    expect(org.live('Contact')).toEqual([]);
   });
 
   it('refuses, exit 1, a delete for good the user has no Bulk API Hard Delete for, and sends nothing', async () => {

@@ -45,6 +45,7 @@ import {
   removalStepsWithSweep,
   removalStepsWrites,
   stillRunningOf,
+  orgDisplayName,
 } from '@sandforge/shared';
 import { ProductionGuard, withGivenAnswer } from '../../core/precheck/ProductionGuard.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
@@ -2071,7 +2072,7 @@ export class FrozenDatasetHandler implements DomainHandler {
   /** An org as the command line names it in a refusal: its alias, else its user, else its id. */
   private orgNameOf(orgId: string): string {
     const org = this.deps.orgManager.getOrg(orgId);
-    return org?.alias || org?.username || orgId;
+    return orgDisplayName(org, orgId);
   }
 
   /** Load the saved config or emit the actionable CONFIG_MISSING error. */

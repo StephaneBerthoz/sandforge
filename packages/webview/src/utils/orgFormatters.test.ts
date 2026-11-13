@@ -147,9 +147,18 @@ describe('orgOptionLabel', () => {
     }
   });
 
-  it('falls back to the username when the org has no alias', () => {
-    expect(orgOptionLabel(org({ alias: '', orgType: 'Production' }), instance.t)).toBe(
-      'admin@example.test [PROD]',
-    );
+  it('names an org with no alias by its own name, else its Organization Id, never by the username', () => {
+    expect(
+      orgOptionLabel(
+        org({ alias: '', orgType: 'Production', organizationName: 'Example Workspace' }),
+        instance.t,
+      ),
+    ).toBe('Example Workspace [PROD]');
+    expect(
+      orgOptionLabel(
+        org({ alias: 'admin@example.test', orgType: 'Production', orgId: '00D000000000001AAA' }),
+        instance.t,
+      ),
+    ).toBe('00D000000000001AAA [PROD]');
   });
 });

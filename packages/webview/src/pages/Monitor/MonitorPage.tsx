@@ -56,7 +56,7 @@ import type {
   ExecutionAbortResponse,
   SyncRunControlAnswer,
 } from '@sandforge/shared';
-import { bannerHintOf, registeredOrgType } from '@sandforge/shared';
+import { bannerHintOf, registeredOrgType, orgDisplayName } from '@sandforge/shared';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /* Re-export so existing importers (`JobsTable`, `useMonitorPageData`) keep working. */
@@ -105,9 +105,7 @@ const OrgSelectCard: React.FC<{ org: SalesforceOrg; onSelect: (id: string) => vo
         )}
       />
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-text-primary truncate">
-          {org.alias || org.username}
-        </div>
+        <div className="text-sm font-medium text-text-primary truncate">{orgDisplayName(org)}</div>
         <div className="text-xs text-text-secondary truncate">{org.instanceUrl}</div>
       </div>
       <span
@@ -391,7 +389,7 @@ export const MonitorPage: React.FC = () => {
             none until the read answered, and the focus a page change hands
             its heading waited on the main landmark meanwhile. */}
         <h1 tabIndex={-1} className="text-base font-semibold text-text-primary truncate">
-          {currentOrg ? currentOrg.alias || currentOrg.username : t('nav.monitor')}
+          {currentOrg ? orgDisplayName(currentOrg) : t('nav.monitor')}
         </h1>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {Array.from({ length: 5 }, (_, i) => (
@@ -419,7 +417,7 @@ export const MonitorPage: React.FC = () => {
               <span className="h-2.5 w-2.5 rounded-full bg-status-success shrink-0 animate-pulse" />
               {/* The org under observation is what this dashboard is about, so it carries the page's only h1. */}
               <h1 tabIndex={-1} className="text-base font-semibold text-text-primary truncate">
-                {currentOrg.alias || currentOrg.username}
+                {orgDisplayName(currentOrg)}
               </h1>
               <span
                 className={cn(

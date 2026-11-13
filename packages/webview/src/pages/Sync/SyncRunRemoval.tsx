@@ -19,6 +19,7 @@ import {
   removalStepsBypassesOf,
   removalStepsWrites,
   sweepTakenObjects,
+  orgDisplayName,
 } from '@sandforge/shared';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -480,7 +481,10 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId, r
   }
   if (!kept) return null;
 
-  const org = orgs.find((o) => o.id === kept.targetOrgId)?.alias ?? kept.targetOrgId;
+  const org = orgDisplayName(
+    orgs.find((o) => o.id === kept.targetOrgId),
+    kept.targetOrgId,
+  );
   const removedOn = kept.removed
     ? (formatStoredDate(kept.removed.removedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'))
     : undefined;

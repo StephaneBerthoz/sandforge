@@ -359,6 +359,32 @@ describe('a run, and its undo', () => {
     expect(!again.ran && again.refusal.code).toBe('UNDO_UNAVAILABLE');
   });
 
+  it('calls its undo an undo that brings records back, never a restore of a backup', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const kept = await previewed(contextOf(org), { mode: 'objects', objects: ['Contact'] });
+    const run = await runEmptyAct(contextOf(org), { confirmed: kept, accord: {} });
+    if (!run.ran) throw new Error(run.refusal.message);
+    const fires = (objects: readonly string[]): ForgeTargetAutomation => ({
+      ...NOTHING_FIRES(objects),
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [],
+          triggers: [{ name: 'ContactTrigger', events: ['afterUndelete'] as never }],
+        },
+      ],
+    });
+
+    const undone = await undoEmptyAct(contextOf(org, { automation: quietOrg(fires) }), {
+      runId: run.result.runId,
+      accord: {},
+    });
+
+    expect(!undone.ran && undone.refusal.code).toBe('AUTOMATION_NOT_ACCEPTED');
+    expect(!undone.ran && undone.refusal.message).toContain('as this undo brings back its records');
+    expect(!undone.ran && undone.refusal.message).not.toMatch(/restore|backup/);
+  });
+
   it('names what does not come back: what was emptied from the recycle bin', async () => {
     const org = new MemoryEmptyOrg(emptySalesSpecs());
     const context = contextOf(org);
@@ -808,6 +834,78 @@ describe('the guards before the first delete', () => {
     expect(busy.sent).toEqual([]);
   });
 
+  it('lets the work of the people its preview named go once accepted, each said with when', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const context = contextOf(org);
+    org.memory.edit('Contact', SALES.contactAlone, { Title: 'x' }, fakeId('005', 77));
+    const kept = await previewed(context, { mode: 'objects', objects: ['Contact'] });
+    expect(kept.peopleActive.people).toBe(1);
+    expect(kept.peopleActive.who).toEqual([
+      { userId: fakeId('005', 77).slice(0, 15), records: 1, lastChangedAt: expect.any(String) },
+    ]);
+    // A command line names no one: the names are read for the page alone.
+    expect(kept.peopleActive.who?.[0]?.name).toBeUndefined();
+
+    const refused = await runEmptyAct(context, { confirmed: kept, accord: {} });
+    expect(!refused.ran && refused.refusal.code).toBe('PEOPLE_ACTIVE');
+    expect(!refused.ran && refused.refusal.message).toContain('--accept-people-active');
+
+    const accepted = await runEmptyAct(context, {
+      confirmed: kept,
+      accord: {},
+      acceptPeopleActive: true,
+    });
+    expect(accepted.ran && accepted.result.status).toBe('success');
+  });
+
+  it('refuses, accepted all the same, someone at work its preview did not name', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    const context = contextOf(org);
+    org.memory.edit('Contact', SALES.contactAlone, { Title: 'x' }, fakeId('005', 77));
+    const kept = await previewed(context, { mode: 'objects', objects: ['Contact'] });
+    org.advance(1_000);
+    org.memory.edit('Contact', SALES.contactAlone, { Title: 'y' }, fakeId('005', 78));
+
+    const answer = await runEmptyAct(context, {
+      confirmed: kept,
+      accord: {},
+      acceptPeopleActive: true,
+    });
+
+    expect(!answer.ran && answer.refusal.code).toBe('PEOPLE_ACTIVE');
+    expect(!answer.ran && answer.refusal.message).toMatch(/^1 person the preview did not name/);
+    expect(org.sent).toEqual([]);
+  });
+
+  it('says no refusal for the people in a dry run asked with the acceptance, and names them for the page', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    org.memory.add(
+      'User',
+      { Id: fakeId('005', 77), Name: 'Ada Example' },
+      '2026-01-01T00:00:00.000Z',
+    );
+    org.memory.edit('Contact', SALES.contactAlone, { Title: 'x' }, fakeId('005', 77));
+    const asked = {
+      request: { mode: 'objects' as const, objects: ['Contact'] },
+      deleteMode: 'recycle' as const,
+    };
+
+    const flags = await previewEmptyAct(contextOf(org), {
+      ...asked,
+      accord: {},
+      acceptPeopleActive: true,
+    });
+    expect(flags.previewed && flags.refusals.map((refusal) => refusal.code)).toEqual([]);
+
+    const page = await previewEmptyAct(contextOf(org, { voice: 'page' }), { ...asked, accord: {} });
+    expect(page.previewed && page.kept.peopleActive.who?.[0]?.name).toBe('Ada Example');
+    const refusal = page.previewed
+      ? page.refusals.find((r) => r.code === 'PEOPLE_ACTIVE')
+      : undefined;
+    expect(refusal?.message).toContain('tick the box that lets their work go');
+    expect(refusal?.message).not.toContain('Ada Example');
+  });
+
   it('refuses records no undo would bring back until it is accepted', async () => {
     const org = new MemoryEmptyOrg(emptySalesSpecs());
     const context = contextOf(org);
@@ -852,6 +950,13 @@ describe('the guards before the first delete', () => {
     const codes = [answer.refusal.code, ...(answer.alsoRefused ?? []).map((r) => r.code)];
     expect(codes).toContain('NO_UNDO');
     expect(codes).toContain('AUTOMATION_NOT_ACCEPTED');
+    // Named as the act it is: an emptying, never "this cleanup".
+    const fired = [answer.refusal, ...(answer.alsoRefused ?? [])].find(
+      (r) => r.code === 'AUTOMATION_NOT_ACCEPTED',
+    );
+    expect(fired?.message).toContain('as this emptying deletes its records');
+    expect(fired?.message).toContain('to empty all the same');
+    expect(fired?.message).not.toContain('cleanup');
     expect(org.sent).toEqual([]);
   });
 

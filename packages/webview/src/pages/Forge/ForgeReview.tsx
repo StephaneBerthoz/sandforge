@@ -6,7 +6,13 @@ import type {
   ForgeGraph,
   ForgeTargetAutomation,
 } from '@sandforge/shared';
-import { blindedBy, emailSendersOf, firedOnInsert, stillRunningOf } from '@sandforge/shared';
+import {
+  blindedBy,
+  emailSendersOf,
+  firedOnInsert,
+  stillRunningOf,
+  orgDisplayName,
+} from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import type { MetadataDiffEntry } from '../../stores/useForgeStore';
@@ -297,7 +303,7 @@ export const ForgeReview: React.FC = () => {
   const setMuteAutomation = useForgeStore((s) => s.setMuteAutomation);
   const muteOffer = useMemo(() => forgeRunMuteOffer(automation, leftOut), [automation, leftOut]);
   /** The target org, as the mute's box and the line of its emails name it. */
-  const muteOrg = targetOrg?.alias ?? config?.targetOrgId ?? '';
+  const muteOrg = orgDisplayName(targetOrg, config?.targetOrgId);
   useEffect(() => {
     if (automation && muteAutomation && !muteOffered(muteOffer)) setMuteAutomation(false);
   }, [automation, muteAutomation, muteOffer, setMuteAutomation]);
@@ -435,8 +441,8 @@ export const ForgeReview: React.FC = () => {
 
   const buckets = useMemo(() => (graph ? forgeRunBuckets(graph) : null), [graph]);
   const oneRecord = clonesOneRecord(config);
-  const sourceName = sourceOrg?.alias || sourceOrg?.username || config?.sourceOrgId || '';
-  const targetName = targetOrg?.alias || targetOrg?.username || config?.targetOrgId || '';
+  const sourceName = orgDisplayName(sourceOrg, config?.sourceOrgId);
+  const targetName = orgDisplayName(targetOrg, config?.targetOrgId);
 
   const gaps = useForgeStore((s) => s.gaps);
   const gapReads = useForgeStore((s) => s.gapReads);

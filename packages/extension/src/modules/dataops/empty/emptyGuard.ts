@@ -30,13 +30,20 @@
  * work of the morning included. As a rewind reads it (`activeLastHour`),
  * someone other than the user it deletes as and the org's Automated Process
  * who changed a record of the objects it deletes in the hour before is at
- * work there now.
+ * work there now. The emptying is refused then, unless their work is
+ * accepted to go: a sandbox an integration writes to all day long could
+ * otherwise never be emptied. What is accepted is said first — each person
+ * and their last change on the page, beside its box; how many and the last
+ * change in a dry run of the command line, before `--accept-people-active` —
+ * and a run takes the work of the people its preview named, and of no one
+ * else.
  */
 
 import type { Connection } from 'jsforce';
 import {
   guardTierOf,
   isDevelopmentOrg,
+  type DataOpsEmptyPersonActive,
   type DataOpsEmptyRefusal,
   type DataOpsEmptyTier,
   type OrgTypeAndEdition,
@@ -52,6 +59,9 @@ import type { EmptyMode } from './emptyScope.js';
 
 /** What a refusal before anything was read says. */
 export const NOTHING_READ = 'No record was read or deleted.';
+
+/** What a refusal once the org was read says. */
+const NOTHING_DELETED = 'Nothing was deleted.';
 
 /** What the guard is asked. */
 export interface EmptyGuardRequest {
@@ -227,6 +237,8 @@ export interface PeopleActive {
   people: string[];
   /** Set when a read reached its row limit: there may be more people than counted. */
   atLeast?: true;
+  /** Each of them, in the order of {@link people}: the records of theirs read, and their last change. */
+  who: DataOpsEmptyPersonActive[];
   /** The objects whose read the org refused, each with its words. */
   unread: string[];
 }
@@ -240,9 +252,10 @@ export interface PeopleActiveOrg {
  * The people other than `own` — the user the emptying deletes as and the
  * org's Automated Process — who changed a record of `objects` since `since`
  * (an ISO date-time on the org's clock): one read per object, its last
- * modifier alone, two thousand rows at most. An object the org will not read
- * so is named, and counts no one: its read never passes for one that found
- * nobody.
+ * modifier and when, two thousand rows at most. An object the org will not
+ * read so is named, and counts no one: its read never passes for one that
+ * found nobody. `LastModifiedDate` is the column the statement already
+ * filters on: an object that answers it gives it.
  */
 export async function peopleActiveIn(
   org: PeopleActiveOrg,
@@ -255,44 +268,141 @@ export async function peopleActiveIn(
     ownKeys.length > 0
       ? ` AND LastModifiedById NOT IN (${ownKeys.map((key) => `'${key}'`).join(', ')})`
       : '';
-  const people = new Set<string>();
+  const who = new Map<string, DataOpsEmptyPersonActive>();
   const unread: string[] = [];
   let atLeast = false;
   for (const objectApiName of objects) {
     const object = assertSoqlIdentifier(objectApiName);
     try {
       const answer = await org.query(
-        `SELECT LastModifiedById FROM ${object} WHERE LastModifiedDate >= ${since}${notOwn} ` +
-          `LIMIT ${ACTIVE_ROWS}`,
+        `SELECT LastModifiedById, LastModifiedDate FROM ${object} WHERE LastModifiedDate >= ` +
+          `${since}${notOwn} LIMIT ${ACTIVE_ROWS}`,
       );
       if (answer.records.length >= ACTIVE_ROWS) atLeast = true;
       for (const row of answer.records) {
-        const by = (row as { LastModifiedById?: unknown }).LastModifiedById;
-        if (typeof by === 'string' && USER_ID.test(by)) people.add(by.slice(0, 15));
+        const { LastModifiedById: by, LastModifiedDate: at } = row as {
+          LastModifiedById?: unknown;
+          LastModifiedDate?: unknown;
+        };
+        if (typeof by !== 'string' || !USER_ID.test(by)) continue;
+        const key = by.slice(0, 15);
+        const when = typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? at : '';
+        const known = who.get(key);
+        if (!known) {
+          who.set(key, { userId: key, records: 1, lastChangedAt: when });
+          continue;
+        }
+        known.records += 1;
+        if (
+          when !== '' &&
+          (known.lastChangedAt === '' || Date.parse(when) > Date.parse(known.lastChangedAt))
+        ) {
+          known.lastChangedAt = when;
+        }
       }
     } catch (err: unknown) {
       unread.push(`${objectApiName}: ${extractErrorMessage(err)}`);
     }
   }
-  return { people: [...people].sort(), ...(atLeast ? { atLeast: true as const } : {}), unread };
+  const people = [...who.keys()].sort();
+  return {
+    people,
+    ...(atLeast ? { atLeast: true as const } : {}),
+    who: people.map((key) => who.get(key) as DataOpsEmptyPersonActive),
+    unread,
+  };
 }
 
+/** People named at most, in one read of their names. */
+const NAMED_AT_MOST = 200;
+
 /**
- * The refusal of an emptying while people are at work: nothing lifts it but
- * time. Named by how many they are, never by who: the audit trail keeps it.
+ * `active` with its people's names (`User.Name`), for the page, which shows
+ * whose work its acceptance lets go: one read. A read the org refuses names
+ * no one, and the page shows their Ids.
+ */
+export async function namedPeople(
+  org: PeopleActiveOrg,
+  active: PeopleActive,
+): Promise<PeopleActive> {
+  const ids = active.who.map((person) => person.userId).slice(0, NAMED_AT_MOST);
+  if (ids.length === 0) return active;
+  let records: unknown[];
+  try {
+    records = (
+      await org.query(
+        `SELECT Id, Name FROM User WHERE Id IN (${ids.map((id) => `'${id}'`).join(', ')})`,
+      )
+    ).records;
+  } catch {
+    return active;
+  }
+  const names = new Map<string, string>();
+  for (const row of records) {
+    const { Id: id, Name: name } = row as { Id?: unknown; Name?: unknown };
+    if (typeof id === 'string' && typeof name === 'string' && name.trim() !== '') {
+      names.set(id.slice(0, 15), name.trim());
+    }
+  }
+  return {
+    ...active,
+    who: active.who.map((person) => {
+      const name = names.get(person.userId);
+      return name !== undefined ? { ...person, name } : person;
+    }),
+  };
+}
+
+/** When the last of `who` changed a record, on the org's clock; undefined when none was dated. */
+export function lastChangeOf(who: readonly DataOpsEmptyPersonActive[]): string | undefined {
+  let last: string | undefined;
+  for (const person of who) {
+    if (person.lastChangedAt === '') continue;
+    if (last === undefined || Date.parse(person.lastChangedAt) > Date.parse(last)) {
+      last = person.lastChangedAt;
+    }
+  }
+  return last;
+}
+
+/** Whose words a refusal of people at work names what lifts it in. */
+export type PeopleActiveVoice = 'flags' | 'page';
+
+/**
+ * The refusal of an emptying while people are at work, unless their work is
+ * accepted to go. `accepted` is the people an acceptance covers — those the
+ * preview the run acts on named, by their key — or `true`, whoever is at work:
+ * a dry run asked with the acceptance, or the resume of a run, which has no
+ * preview. Someone the acceptance does not cover refuses the run all the
+ * same: it never takes the work of a person nobody was shown.
+ *
+ * Named by how many they are and when the last of them changed a record,
+ * never by who: the command line's output and the audit trail keep the
+ * refusal. The preview names them for the page, beside its box.
  */
 export function peopleActiveRefusal(
   orgName: string,
-  active: Pick<PeopleActive, 'people' | 'atLeast'>,
+  active: Pick<PeopleActive, 'people' | 'atLeast' | 'who'>,
+  options: { accepted?: true | readonly string[]; voice?: PeopleActiveVoice } = {},
 ): DataOpsEmptyRefusal | undefined {
-  if (active.people.length === 0) return undefined;
-  const count = active.people.length;
+  if (options.accepted === true) return undefined;
+  const covered = new Set((options.accepted ?? []).map((id) => id.slice(0, 15)));
+  const others = active.people.filter((key) => !covered.has(key));
+  if (others.length === 0) return undefined;
+  const count = others.length;
   const people = `${active.atLeast ? 'At least ' : ''}${count} ${count === 1 ? 'person' : 'people'}`;
+  const last = lastChangeOf(active.who.filter((person) => others.includes(person.userId)));
+  const unnamed = covered.size > 0 ? ' the preview did not name' : '';
+  const lift =
+    options.voice === 'page'
+      ? 'or tick the box that lets their work go, to empty all the same'
+      : 'or add --accept-people-active to empty all the same';
   return {
     code: 'PEOPLE_ACTIVE',
     message:
-      `${people} other than the user SandForge deletes as changed records of these objects in ` +
-      `${orgName} in the last hour: emptying them would take their work. Empty once they have ` +
-      `stopped. ${NOTHING_READ}`,
+      `${people}${unnamed} other than the user SandForge deletes as changed records of these ` +
+      `objects in ${orgName} in the last hour${last !== undefined ? `, the last at ${last}` : ''}: ` +
+      `emptying them would take their work. Empty once they have stopped, ${lift}. ` +
+      NOTHING_DELETED,
   };
 }

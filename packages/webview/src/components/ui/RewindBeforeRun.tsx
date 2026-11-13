@@ -1,7 +1,7 @@
 import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { History } from 'lucide-react';
-import { isDevelopmentOrg, type RunCheckpointInfo } from '@sandforge/shared';
+import { isDevelopmentOrg, type RunCheckpointInfo, orgDisplayName } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
@@ -131,7 +131,7 @@ export const RewindBeforeRun: React.FC<RewindBeforeRunProps> = ({
     );
   }
 
-  const name = org?.alias || org?.username || orgId || '';
+  const name = orgDisplayName(org, orgId);
   const dated = (iso: string): string =>
     formatStoredDate(iso, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown');
   const list = (names: readonly string[]): string => namedObjects(names, t);

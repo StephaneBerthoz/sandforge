@@ -22,6 +22,7 @@ import {
   mutePlanOf,
   removalRisksOf,
   stillRunningOf,
+  orgDisplayName,
 } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import { useForgeStore } from '../../stores/useForgeStore';
@@ -288,7 +289,7 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
         automation={automation}
         leftOut={leftOut}
         plan={mute?.checked && mute.offer && mute.offer !== 'atStart' ? mute.offer : undefined}
-        org={mute?.org || target?.alias}
+        org={mute?.org || (target ? orgDisplayName(target) : undefined)}
       />
       {toAssign.length > 0 && (
         <div

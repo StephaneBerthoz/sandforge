@@ -1,5 +1,5 @@
 import type { CleanupRecommendation, MutedAutomation, RemovalPlanObject } from '@sandforge/shared';
-import { CLEANUP_ACTION_LIMIT, guardTierOf } from '@sandforge/shared';
+import { CLEANUP_ACTION_LIMIT, guardTierOf, orgDisplayName } from '@sandforge/shared';
 
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
@@ -297,7 +297,7 @@ export class DataOpsCleanupHandler implements DomainHandler {
       // along with them, whose automation the platform does not run (see
       // `erasureWrittenOf`).
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-      const target = this.deps.orgManager.getOrg(orgId)?.alias ?? orgId;
+      const target = orgDisplayName(this.deps.orgManager.getOrg(orgId), orgId);
       const reader = this.targetAutomation;
       // In the page's words when the page asked: it has no flags.
       const voice = dataOpsVoiceOf(parsed);

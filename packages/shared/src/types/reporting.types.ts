@@ -47,6 +47,7 @@ export type AuditAction =
   | 'realtime_sync'
   | 'subject_erase'
   | 'cleanup_delete'
+  | 'empty_undo'
   | 'checkpoint_take'
   | 'checkpoint_rewind'
   | 'checkpoint_undo'
@@ -205,7 +206,11 @@ export interface AuditLogEntry {
   module: string;
   /** The org the run wrote to. */
   orgId?: string;
-  /** Its alias when the entry was written: an alias can be renamed, the id cannot. */
+  /**
+   * How it was named when the entry was written — its alias, else its own
+   * name, else its Organization Id, never a username (`orgDisplayName`): an
+   * alias can be renamed, the id cannot.
+   */
   orgAlias?: string;
   /** The org the records were read from, when they came from one. */
   sourceOrgId?: string;

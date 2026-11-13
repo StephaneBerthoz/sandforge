@@ -2,6 +2,7 @@ import i18n from 'i18next';
 import { useAppStore } from '../stores/useAppStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
 import { useOrgStore } from '../stores/useOrgStore';
+import { orgDisplayName } from '@sandforge/shared';
 
 /**
  * Offer Reconnect where a run met an expired session: a toast naming the org,
@@ -21,7 +22,7 @@ export function offerReconnect(payload: Record<string, unknown> | undefined): vo
   const orgId = payload?.orgId;
   if (typeof orgId !== 'string' || orgId === '') return;
   const org = useOrgStore.getState().orgs.find((candidate) => candidate.id === orgId);
-  const name = org ? org.alias || org.username : orgId;
+  const name = org ? orgDisplayName(org) : orgId;
   useNotificationStore.getState().addNotification({
     level: 'warning',
     title: i18n.t('bridge.sessionExpired.title'),

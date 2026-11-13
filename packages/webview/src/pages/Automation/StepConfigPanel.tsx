@@ -20,6 +20,7 @@ import {
   APPROVAL_MAX_TIMEOUT_MINUTES,
   CHECKPOINT_STEP_DEFAULT_KEEP_DAYS,
   CHECKPOINT_STEP_MAX_KEEP_DAYS,
+  orgDisplayName,
 } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -781,7 +782,7 @@ const RewindFields: React.FC<RewindFieldsProps> = ({ step, config, orgs, rewind,
         formatStoredDate(info.granted.at, (d) =>
           dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short' }).format(d),
         ) ?? t('common.dateUnknown'),
-      org: org ? org.alias || org.username : orgId,
+      org: org ? orgDisplayName(org) : orgId,
       name: checkpoint?.name ?? chosen,
       max: formatNumber(maxRecords ?? 0),
     });
