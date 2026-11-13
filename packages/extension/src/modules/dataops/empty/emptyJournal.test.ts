@@ -1,6 +1,6 @@
 import { appendFileSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -52,12 +52,18 @@ describe('the journal of an emptying', () => {
     expect(isEmptyRunId(first)).toBe(true);
     expect(first < second).toBe(true);
     expect(isEmptyRunId('../etc')).toBe(false);
-    expect(defaultEmptyRoot({ SANDFORGE_JOURNAL_DIR: '/data/sf' })).toBe('/data/sf/empty');
+    // Resolved as the platform does: on Windows the folder takes the drive's letter.
+    expect(defaultEmptyRoot({ SANDFORGE_JOURNAL_DIR: '/data/sf' })).toBe(
+      join(resolve('/data/sf'), 'empty'),
+    );
   });
 
   it('is its owner’s alone to read', async () => {
     const journal = await begun(new EmptyJournalStore(root));
-    expect(statSync(join(journal.dir, JOURNAL_FILE)).mode & 0o777).toBe(0o600);
+    // Windows keeps no POSIX mode: the file is under the user's own profile there.
+    if (process.platform !== 'win32') {
+      expect(statSync(join(journal.dir, JOURNAL_FILE)).mode & 0o777).toBe(0o600);
+    }
   });
 
   it('is open from its first attempt until one ends through, and closed by its undo', async () => {

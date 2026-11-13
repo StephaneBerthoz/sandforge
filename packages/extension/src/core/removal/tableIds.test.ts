@@ -220,6 +220,8 @@ describe('spoolTableIds', () => {
 
     await spoolTableIds(org, dir, [{ objectApiName: 'Contact' }]);
 
+    // Windows keeps no POSIX mode: the spool is under the user's own profile there.
+    if (process.platform === 'win32') return;
     expect((await stat(dir)).mode & 0o077).toBe(0);
     for (const name of await readdir(dir)) {
       expect((await stat(join(dir, name))).mode & 0o077).toBe(0);
