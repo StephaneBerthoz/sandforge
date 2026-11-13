@@ -97,6 +97,7 @@ import {
   runFileOf,
 } from './sandforge-sync.js';
 import { loadOrg, makeConn } from './sfSession.js';
+import { countRequests } from '../src/core/precheck/orgKindLive.js';
 import { isProductionTarget, refuseProductionTarget, typeTarget } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { ownOptionWords, relayTakes, relayedBy } from './relayWords.js';
@@ -1764,6 +1765,7 @@ export function dryRunGatesJson(
   template: Pick<SeedTemplate, 'objects'>,
   personObjects: readonly string[],
   gate: Awaited<ReturnType<typeof seedStorageGate>>,
+  sent?: number,
 ): { storage: Record<string, unknown>; apiRequests: Record<string, unknown> } {
   return {
     storage: {
@@ -1771,10 +1773,27 @@ export function dryRunGatesJson(
       ...gate.check,
       ...(gate.refusedFor === 'storage' ? { refusal: gate.refusal } : {}),
     },
-    apiRequests: {
-      ...gate.api,
-      ...(gate.refusedFor === 'apiRequests' ? { refusal: gate.refusal } : {}),
-    },
+    apiRequests: apiRequestsJson(gate, sent),
+  };
+}
+
+/**
+ * What a seed's `--json` summary says of its API requests, a dry run's and a
+ * run's alike: what the gate priced the run at (`estimate`), against what the
+ * target had left, with the refusal a real run would meet; and `sent`, every
+ * request the command sent the target, counted as it sent them. A run's
+ * summary said nothing of them, and the only way to hold the price to what a
+ * run took was the org's `/limits`, which count every client of the org.
+ * Exported so it can be tested.
+ */
+export function apiRequestsJson(
+  gate: Pick<Awaited<ReturnType<typeof seedStorageGate>>, 'api' | 'refusal' | 'refusedFor'>,
+  sent?: number,
+): Record<string, unknown> {
+  return {
+    ...gate.api,
+    ...(sent !== undefined ? { sent } : {}),
+    ...(gate.refusedFor === 'apiRequests' ? { refusal: gate.refusal } : {}),
   };
 }
 
@@ -1939,6 +1958,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log(`seed: ${seed}  (--seed ${seed} draws the same again)`);
   const session = await loadOrg(args.target);
   const conn = makeConn(session);
+  // Every request the command sends the target, from its first read to its
+  // last write, through each connection it opens — the run's and the
+  // checkpoint's —, for the summary to say beside what the gate priced: the
+  // only other count, the org's `/limits`, is the whole org's, read a minute
+  // or two late.
+  const requestCounts = [countRequests(conn)];
+  const requestsSent = (): number => requestCounts.reduce((sum, sent) => sum + sent(), 0);
   // Refused before anything is read on a production org, or one that will
   // not say what it is: the seed went from the session to its writes, and
   // its own --remove refuses such an org, so what it wrote there stayed. A
@@ -2198,7 +2224,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         request: args.checkpointFirst,
         session,
         org: checkpointOrgOf(session, typedTarget ?? (await typeTarget(conn))),
-        connect: makeConn,
+        connect: (org) => {
+          const own = makeConn(org);
+          requestCounts.push(countRequests(own));
+          return own;
+        },
         journalDir: journalDirOf(),
         say: log,
         own: { runId },
@@ -2258,13 +2288,19 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // What it counts: an optional object the org does not take is skipped by the run.
   let taken = await templateTheOrgTakes(template, objectAccess);
   // Its requests priced as the insert sends them: an object a duplicate rule
-  // watches through REST, as the read of the automation found the rules; and
-  // the reads of what the target is, which a real run sends before it writes
-  // and a dry run says it would.
-  const writePath: SeedWritePath = {
+  // watches through REST, as the read of the automation found the rules;
+  // and what the command sent the target before its gate, as counted: what
+  // typed it, described the objects, read the automation and scoped a
+  // checkpoint — the read of the deliverability apart, its own part. A dry
+  // run, which does not type the org, says the reads a real run would.
+  // Priced nowhere, they left a seed of 600 contacts priced ten requests for
+  // the sixteen it sent.
+  const sentSoFar = (): number => requestsSent() - (deliverabilityRequests.deliverability ?? 0);
+  let writePath: SeedWritePath = {
     duplicateRules: duplicateRulesOf(read),
     bulkThreshold: DEFAULT_ROBUSTNESS_CONFIG.bulk.threshold,
-    typedFirst: true,
+    typedFirst: args.dryRun,
+    sentBefore: sentSoFar(),
   };
   let storage = await seedStorageGate(
     conn,
@@ -2321,6 +2357,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         // refuses the seed again. Caps that fit are counts fitted too.
         template = fittedTemplate(template, fitted.proposal);
         taken = fittedTemplate(taken, fitted.proposal);
+        // What the first gate read is sent by now, and priced as sent.
+        writePath = { ...writePath, sentBefore: sentSoFar() };
         storage = await seedStorageGate(
           conn,
           taken,
@@ -2783,7 +2821,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // runs: an environment holds several seeds to one day's storage
           // and requests, which each seed alone fits. Of what the gates counted:
           // an optional object the org takes no record of is no storage of it.
-          ...(args.dryRun ? dryRunGatesJson(taken, personObjects, storage) : {}),
+          // A run's, its requests: what its gate priced and what it sent.
+          ...(args.dryRun
+            ? dryRunGatesJson(taken, personObjects, storage, requestsSent())
+            : { apiRequests: apiRequestsJson(storage, requestsSent()) }),
           // The fit the run seeded, or, a dry run past the storage or the
           // requests, the counts --fit share would seed: the counts to write
           // in an environment's file, which is never fitted for it.

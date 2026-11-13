@@ -193,7 +193,7 @@ state: none on this machine
            not applied to this org yet; it draws its parents from the records claims creates in this apply, which nobody knows before it runs: counted at most as the file gives it
            Contact.AccountId draws its parents from the Account records claims creates first
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 8, 14000 left; not counted: the requests of the run of claims, which its script does not estimate, what followers draws from the records claims writes first
+API requests: about 11, 14000 left; not counted: the requests of the run of claims, which its script does not estimate, what followers draws from the records claims writes first
 data storage: about 0.02 MB, 5 MB left
 warning: this machine keeps no state of claims-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
 ```
@@ -215,7 +215,7 @@ state: none on this machine
            not applied to this org yet; it draws its parents from the records claims creates in this apply, which nobody knows before it runs: counted at most as the file gives it
            Contact.AccountId draws its parents from the Account records claims creates first
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 8, 14000 left; not counted: the requests of the run of claims, which its script does not estimate, what followers draws from the records claims writes first
+API requests: about 11, 14000 left; not counted: the requests of the run of claims, which its script does not estimate, what followers draws from the records claims writes first
 data storage: about 0.02 MB, 5 MB left
 warning: this machine keeps no state of claims-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
 claims: run 1 (create)
@@ -296,7 +296,7 @@ state: kept on this machine, serial 4
            replaced: the resources it depends on run again, with new records: claims; it draws its parents from the records claims creates in this apply, which nobody knows before it runs: counted at most as the file gives it
            Contact.AccountId draws its parents from the Account records claims creates first
 totals: 0 to create, 2 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 8, 14000 left; not counted: the removal of the runs of claims, the requests of the run of claims, which its script does not estimate, the removal of the runs of followers, what followers draws from the records claims writes first
+API requests: about 11, 14000 left; not counted: the removal of the runs of claims, the requests of the run of claims, which its script does not estimate, the removal of the runs of followers, what followers draws from the records claims writes first
 data storage: about 0.02 MB, 5 MB left
 followers: taking back run 1
 claims: run 2 (replace)
@@ -339,7 +339,7 @@ state: kept on this machine, serial 12
            replaced: what it writes changed in the file since it was applied
            Contact.AccountId draws its parents from the 3 Account record(s) claims created
 totals: 0 to create, 1 to replace, 0 to delete, 1 kept, 0 drifted, 0 blocked
-API requests: about 8, 14000 left; not counted: the removal of the runs of followers
+API requests: about 11, 14000 left; not counted: the removal of the runs of followers
 data storage: about 0.01 MB, 5 MB left
 ```
 
@@ -567,7 +567,7 @@ state: none on this machine
   create   contacts  Contact at most 6 to write
            not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 15, 14000 left; not counted: what contacts draws from the records accounts writes first
+API requests: about 21, 14000 left; not counted: what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
 warning: this machine keeps no state of case-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
 ```
@@ -600,7 +600,7 @@ state: none on this machine
   create   contacts  Contact at most 6 to write
            not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 15, 14000 left; not counted: what contacts draws from the records accounts writes first
+API requests: about 21, 14000 left; not counted: what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
 warning: this machine keeps no state of case-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
 accounts: run 1 (create)
@@ -716,7 +716,7 @@ state: kept on this machine, serial 4
   replace  contacts  Contact at most 6 to write, 5 in the org, 1 gone
            replaced: the resources it depends on run again, with new records: accounts; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 0 to create, 2 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 15, 14000 left; not counted: the removal of the runs of accounts, the removal of the runs of contacts, what contacts draws from the records accounts writes first
+API requests: about 21, 14000 left; not counted: the removal of the runs of accounts, the removal of the runs of contacts, what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
 contacts: taking back run 1
 accounts: taking back run 1
@@ -829,7 +829,7 @@ state: none on this machine
   create   contacts  Contact at most 6 to write
            not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 31, 14000 left; not counted: what contacts draws from the records accounts writes first
+API requests: about 37, 14000 left; not counted: what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
 checkpoint once applied: 'baseline', about 9 records, 16 API requests, 4 s, 0.01 MB on this machine
 warning: this machine keeps no state of case-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
@@ -935,7 +935,7 @@ state: none on this machine
   create   contacts  Contact at most 6 to write
            not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 31, 14000 left; not counted: what contacts draws from the records accounts writes first
+API requests: about 37, 14000 left; not counted: what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
 checkpoint before the first write: 'case-flow before', about 0 records, 16 API requests, 4 s, 0.01 MB on this machine
 warning: this machine keeps no state of case-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
@@ -990,7 +990,7 @@ state: none on this machine
   create   contacts  Contact at most 6 to write
            not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 15, 14000 left; not counted: what contacts draws from the records accounts writes first
+API requests: about 21, 14000 left; not counted: what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
 warning: this machine keeps no state of case-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
 plan kept in /home/dev/case-flow.plan.json, for apply --plan until 2026-10-26T09:01:00.000Z
@@ -1013,7 +1013,7 @@ state: none on this machine
   create   contacts  Contact at most 6 to write
            not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 15, 14000 left; not counted: what contacts draws from the records accounts writes first
+API requests: about 21, 14000 left; not counted: what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
 warning: this machine keeps no state of case-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
 the plan kept in /home/dev/case-flow.plan.json at 2026-10-25T09:01:00.000Z holds: the org, its state, the file and every count are as it planned them
@@ -1332,7 +1332,7 @@ state: none on this machine
   create   contacts  Contact at most 6 to write
            not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 15, 14000 left; not counted: what contacts draws from the records accounts writes first
+API requests: about 21, 14000 left; not counted: what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
 an apply now would be refused: This machine keeps no state of case-flow on my-de: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice. On a Developer Edition org that lives on, apply asks --accept-no-state to go ahead: restore the journal directory of the apply before it, or give the flag. Nothing was written.
 
@@ -1425,7 +1425,7 @@ state: kept on this machine, serial 1
   replace  contacts  Contact at most 6 to write, 6 in the org
            replaced: its state was recovered from its run files, which do not say what it was applied from; the resources it depends on run again, with new records: accounts; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 0 to create, 2 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 15, 14000 left; not counted: the removal of the runs of accounts, the removal of the runs of contacts, what contacts draws from the records accounts writes first
+API requests: about 21, 14000 left; not counted: the removal of the runs of accounts, the removal of the runs of contacts, what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
 ```
 

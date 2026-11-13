@@ -473,6 +473,39 @@ describe('sandforge-seed --checkpoint-first', () => {
     expect(stderr.join('')).not.toContain('checkpoint before the run:');
   });
 
+  it('counts in what it sent the target the requests its checkpoint sends through a connection of its own', async () => {
+    fakeOrg();
+    // The run's connection, then the checkpoint's: two connections, as two
+    // calls of `makeConn` make them.
+    const run = makeConn({} as never);
+    const answered = vi.fn(async () => ({}));
+    const own = { request: answered };
+    vi.mocked(makeConn)
+      .mockReturnValueOnce(run)
+      .mockReturnValueOnce(own as unknown as Connection);
+    const { port } = checkpointsOf();
+    // The scope reads the org through the connection the run hands it, as
+    // the port of the checkpoints does: two reads of its own.
+    vi.mocked(commandCheckpoints).mockImplementation((input) => ({
+      ...port,
+      scope: async (ask) => {
+        const conn = input.connect(input.session);
+        await conn.request({ method: 'GET', url: '/limits' });
+        await conn.request({ method: 'GET', url: '/query' });
+        return port.scope(ask);
+      },
+    }));
+
+    await main(argv(2, '--checkpoint-first', '--dry-run', '--json'));
+
+    expect(answered).toHaveBeenCalledTimes(2);
+    const printed = JSON.parse(stdout.join('')) as { apiRequests: { sent: number } };
+    // The run's own connection sends its reads of the limits through its
+    // `request`, the one call this stand-in sends so; the checkpoint's two
+    // beside them.
+    expect(printed.apiRequests.sent).toBe(steps.filter((s) => s === 'limits read').length + 2);
+  });
+
   it("refuses a seed past the target's daily API requests once the checkpoint's are counted, before the take", async () => {
     fakeOrg(200, 40);
     const { port } = checkpointsOf();

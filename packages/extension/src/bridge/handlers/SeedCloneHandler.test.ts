@@ -2433,14 +2433,15 @@ describe('SeedCloneHandler', () => {
         expect(writer.insert).not.toHaveBeenCalled();
         expect(posted(deps, 'operation:started')).toEqual([]);
         // The writer sends 400 contacts as one Bulk API job: opened, sent,
-        // closed, its state read seven times, its results three ways. Counted
-        // as two REST calls.
+        // closed, its state read eight times, its results three ways. Counted
+        // as two REST calls. Then what the run reads as it writes: the limits
+        // its gate reads, who it writes as, the contact's describe.
         expect(posted(deps, 'operation:failed')).toEqual([
           expect.objectContaining({
             payload: expect.objectContaining({
               code: 'API_BUDGET_EXCEEDED',
               error: expect.stringContaining(
-                'The run takes about 13 API requests, and my-dev-org has 1 of its 15000 daily requests left',
+                `The run takes about ${14 + 6} API requests, and my-dev-org has 1 of its 15000 daily requests left`,
               ),
             }),
           }),
@@ -2455,12 +2456,12 @@ describe('SeedCloneHandler', () => {
           buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
         );
 
-        // The job's thirteen calls, and the two that send its 400 rows again
-        // should the rule refuse them all.
+        // The job's fourteen calls, and the two that send its 400 rows again
+        // should the rule refuse them all; the run's reads as it writes.
         expect(posted(deps, 'operation:failed')).toEqual([
           expect.objectContaining({
             payload: expect.objectContaining({
-              error: expect.stringContaining('The run takes about 15 API requests'),
+              error: expect.stringContaining(`The run takes about ${14 + 2 + 6} API requests`),
             }),
           }),
         ]);
@@ -2469,7 +2470,8 @@ describe('SeedCloneHandler', () => {
       it('counts the updates of the second pass its preview leaves, one a record of each object written without a lookup', async () => {
         // 400 contacts whose ReportsToId names another contact: written
         // without it, then given it in two updates of 200. Counted the job
-        // alone, the clone said 13 where it sends 15.
+        // alone, the clone said 13 where it sends 15; the run's reads as it
+        // writes besides.
         oneRequestLeft([]);
         linker.lookupsFilledAfter.mockReturnValue([
           {
@@ -2489,7 +2491,7 @@ describe('SeedCloneHandler', () => {
         expect(posted(deps, 'operation:failed')).toEqual([
           expect.objectContaining({
             payload: expect.objectContaining({
-              error: expect.stringContaining('The run takes about 15 API requests'),
+              error: expect.stringContaining(`The run takes about ${14 + 2 + 6} API requests`),
             }),
           }),
         ]);

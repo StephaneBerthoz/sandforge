@@ -240,12 +240,12 @@ describe('a seed from the command line', () => {
 
     const summary = JSON.parse(stdout.join('')) as { apiRequests: { estimate: number } };
     // A job for each slice, of 10,000 and of 2,000, each read as long as it
-    // runs at 100 records a second and its results three ways, and the query
+    // runs at 60 records a second and its results three ways, and the query
     // of the rules; then what the run reads as it writes — the object list,
-    // a describe, who it writes as — and the two reads that type the org
-    // before a real run writes. Not told of the rules, the REST calls a rule
-    // would make of the first.
-    expect(summary.apiRequests.estimate).toBe(3 + 26 + 3 + (3 + 10 + 3) + 1 + (1 + 1 + 2 + 2));
+    // a describe, who it writes as, the limits from its gate on — and the
+    // two reads that type the org before a real run writes. Not told of the
+    // rules, the REST calls a rule would make of the first.
+    expect(summary.apiRequests.estimate).toBe(3 + 40 + 3 + (3 + 13 + 3) + 1 + (1 + 1 + 2 + 3 + 2));
     // Asked live, a seed of 12,000 records no rule watched took 42 requests
     // more than its dry run, and was counted 29.
     expect(summary.apiRequests.estimate).toBeGreaterThanOrEqual(42);
@@ -536,5 +536,145 @@ describe('a seed from the command line', () => {
     expect(JSON.parse(stdout.join(''))).toMatchObject({
       result: { status: 'success', planned: 50 },
     });
+  });
+
+  /**
+   * An org whose connection sends every call it answers through its
+   * `request`, as jsforce sends each — a query, a describe, the object list,
+   * who the session is, a write of up to 200 records, each call of a Bulk API
+   * job, its results read three ways —, and answers `/limits` with room to
+   * spare. `requests` lists each call as the org took it.
+   */
+  function routedOrg() {
+    const org = fakeOrg();
+    // Its answers, taken before the connection's methods are routed.
+    const fake = { ...org.conn, bulk2: { ...org.conn.bulk2 }, tooling: { ...org.conn.tooling } };
+    const requests: string[] = [];
+    const conn = org.conn as unknown as Record<string, unknown>;
+    conn.request = async (request: string | { url?: string }) => {
+      const url = typeof request === 'string' ? request : (request.url ?? '');
+      requests.push(url);
+      return url === '/limits'
+        ? {
+            DataStorageMB: { Max: 200, Remaining: 150 },
+            DailyApiRequests: { Max: 15_000, Remaining: 14_000 },
+          }
+        : {};
+    };
+    // Looked up at each call, as jsforce's methods call the connection's own:
+    // the count the run wraps it in sees them all.
+    const send = (url: string): Promise<unknown> =>
+      (conn.request as (request: { method: string; url: string }) => Promise<unknown>)({
+        method: 'GET',
+        url,
+      });
+    const via =
+      <A extends unknown[], R>(url: string, answer: (...args: A) => Promise<R>) =>
+      async (...args: A): Promise<R> => {
+        await send(url);
+        return answer(...args);
+      };
+    conn.sobject = (name: string) => {
+      const object = fake.sobject(name);
+      return {
+        describe: via(`/sobjects/${name}/describe`, object.describe),
+        create: via('/composite/sobjects', object.create),
+      };
+    };
+    conn.describe = via('/sobjects/describe', fake.describe);
+    conn.describeGlobal = via('/sobjects', fake.describeGlobal);
+    conn.query = via('/query', fake.query);
+    conn.tooling = { query: via('/tooling/query', fake.tooling.query) };
+    conn.identity = async () => {
+      await send('/');
+      await send('/id');
+      return { user_id: '005000000000007AAA' };
+    };
+    conn.bulk2 = {
+      createJob: (): BulkJobHandle => {
+        const job = fake.bulk2.createJob();
+        return {
+          ...job,
+          open: via('/jobs/ingest', job.open),
+          uploadData: via('/jobs/ingest/batches', job.uploadData),
+          close: via('/jobs/ingest/state', job.close),
+          check: via('/jobs/ingest/check', job.check),
+          getAllResults: async () => {
+            await send('/jobs/ingest/successfulResults');
+            await send('/jobs/ingest/failedResults');
+            await send('/jobs/ingest/unprocessedrecords');
+            return job.getAllResults();
+          },
+        };
+      },
+    };
+    return { ...org, requests };
+  }
+
+  it('says in its --json every request it sent the target, beside what its gate priced, a run and a dry run alike', async () => {
+    const dry = routedOrg();
+    await main(argv(600, '--dry-run', '--json'));
+    const planned = JSON.parse(stdout.join('')) as {
+      apiRequests: { estimate: number; sent: number };
+    };
+    expect(planned.apiRequests.sent).toBe(dry.requests.length);
+
+    stdout.length = 0;
+    const org = routedOrg();
+    await main(argv(600, '--json'));
+    const summary = JSON.parse(stdout.join('')) as {
+      apiRequests: { estimate: number; sent: number };
+    };
+
+    // Every call the org took: what typed it and the asset's describe before
+    // the gate, the gate's read of the limits, then who the run writes as,
+    // the object list, the describe again, the query of the duplicate rules
+    // and the seven calls of the job, its state read once.
+    expect(org.jobs).toEqual([600]);
+    expect(org.requests.indexOf('/limits')).toBe(2);
+    expect(summary.apiRequests.sent).toBe(org.requests.length);
+    expect(summary.apiRequests.sent).toBe(2 + 1 + 2 + 1 + 1 + 1 + 7);
+    // Priced with what it sent before its gate, as sent: the two reads, then
+    // the object list, the describe, who it writes as and the limits from
+    // the gate on, and the dearer of the job and three REST calls, the rules
+    // not read for Asset, with their query.
+    expect(summary.apiRequests.estimate).toBe(2 + (1 + 1 + 2 + 3) + 14 + 1);
+    expect(summary.apiRequests.estimate).toBeGreaterThanOrEqual(summary.apiRequests.sent);
+    // The dry run says what the run would send, the org typed among it.
+    expect(planned.apiRequests.estimate).toBeGreaterThanOrEqual(summary.apiRequests.sent);
+    expect(planned.apiRequests.sent).toBeLessThan(summary.apiRequests.sent);
+  });
+
+  it('prices on a run what it sent before its gate, as sent: the reads it took then', async () => {
+    const org = routedOrg();
+    // The template's describe, sent four times where once was enough: four
+    // requests the gate must price.
+    const conn = org.conn as unknown as { sobject: (name: string) => Record<string, unknown> };
+    const sobject = conn.sobject;
+    let described = 0;
+    conn.sobject = (name: string) => {
+      const object = sobject(name);
+      return {
+        ...object,
+        describe: async () => {
+          if (described++ === 0) {
+            for (let i = 0; i < 3; i++) await (object.describe as () => Promise<unknown>)();
+          }
+          return (object.describe as () => Promise<unknown>)();
+        },
+      };
+    };
+
+    await main(argv(150, '--json'));
+
+    const summary = JSON.parse(stdout.join('')) as {
+      apiRequests: { estimate: number; sent: number };
+    };
+    expect(org.requests.indexOf('/limits')).toBe(1 + 4);
+    expect(summary.apiRequests.sent).toBe(org.requests.length);
+    // One REST call of 150 records, the reads the run sends as it writes,
+    // and the five reads before its gate.
+    expect(summary.apiRequests.estimate).toBe(1 + (1 + 1 + 2 + 3) + 5);
+    expect(summary.apiRequests.estimate).toBeGreaterThanOrEqual(summary.apiRequests.sent);
   });
 });

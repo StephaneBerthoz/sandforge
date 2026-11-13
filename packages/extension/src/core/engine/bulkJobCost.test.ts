@@ -26,23 +26,23 @@ describe('what a Bulk API job costs', () => {
     expect(bulkJobStateReads(50_000)).toBe(1 + Math.ceil((24 + 50_000 / 750) / 5));
   });
 
-  it('reads the state of a job that saves its records as long as a slower cadence: 100 records a second after its wait', () => {
+  it('reads the state of a job that saves its records as long as a slower cadence: 60 records a second after its wait', () => {
     // A delete's cadence stays the rewind's.
     expect(bulkJobSeconds(10_000)).toBeCloseTo(24 + 10_000 / 750);
-    expect(bulkJobSeconds(10_000, 'save')).toBe(124);
-    expect(bulkJobStateReads(10_000, undefined, 'save')).toBe(1 + 25);
-    expect(bulkJobStateReads(2_000, undefined, 'save')).toBe(1 + 9);
+    expect(bulkJobSeconds(10_000, 'save')).toBeCloseTo(24 + 10_000 / 60);
+    expect(bulkJobStateReads(10_000, undefined, 'save')).toBe(1 + 39);
+    expect(bulkJobStateReads(2_000, undefined, 'save')).toBe(1 + 12);
   });
 
-  it('prices a whole job from its records as one that saves them: 600 take thirteen calls, 10,000 thirty-two, 25,000 sixty-two', () => {
-    // 600: 30 seconds, six waits. Thirteen calls, where a REST write of
+  it('prices a whole job from its records as one that saves them: 600 take fourteen calls, 10,000 forty-six, 25,000 ninety-six', () => {
+    // 600: 34 seconds, seven waits. Fourteen calls, where a REST write of
     // the same records sends three.
-    expect(bulkJobCost(600)).toBe(3 + (1 + 6) + 3);
-    // 10,000: 124 seconds, twenty-five waits.
-    expect(bulkJobCost(10_000)).toBe(3 + (1 + 25) + 3);
-    // 25,000 in one job: 274 seconds, fifty-five waits — not three jobs of
-    // five calls each.
-    expect(bulkJobCost(25_000)).toBe(3 + (1 + 55) + 3);
+    expect(bulkJobCost(600)).toBe(3 + (1 + 7) + 3);
+    // 10,000: about 191 seconds, thirty-nine waits.
+    expect(bulkJobCost(10_000)).toBe(3 + (1 + 39) + 3);
+    // 25,000 in one job: about 441 seconds, eighty-nine waits — not three
+    // jobs of five calls each.
+    expect(bulkJobCost(25_000)).toBe(3 + (1 + 89) + 3);
   });
 
   it('prices no less than a seed of 12,000 cases took live: its jobs of 10,000 and 2,000 took about 39 calls, priced 28 at the cadence of deletes', () => {
@@ -54,8 +54,27 @@ describe('what a Bulk API job costs', () => {
       bulkJobRequests({ stateReads: bulkJobStateReads(10_000) }) +
         bulkJobRequests({ stateReads: bulkJobStateReads(2_000) }),
     ).toBe(28);
-    expect(bulkJobCost(10_000) + bulkJobCost(2_000)).toBe(32 + 16);
+    expect(bulkJobCost(10_000) + bulkJobCost(2_000)).toBe(46 + 19);
     expect(bulkJobCost(10_000) + bulkJobCost(2_000)).toBeGreaterThanOrEqual(42);
+  });
+
+  it('prices no job lower than the calls each job of a seed sent, counted call by call on a scratch org', () => {
+    // Opened, its CSV sent, closed, its state read as long as it ran, its
+    // results read three ways. 10,000 cases: 27 reads of their state over
+    // the 142 seconds from its close to its results, where 100 records a
+    // second priced 26. 2,000: 7 reads over 33 seconds. 600: 4 over 17.
+    const counted = [
+      { records: 10_000, sent: 3 + 27 + 3 },
+      { records: 2_000, sent: 3 + 7 + 3 },
+      { records: 600, sent: 3 + 4 + 3 },
+    ];
+    for (const { records, sent } of counted) {
+      expect(bulkJobCost(records)).toBeGreaterThanOrEqual(sent);
+    }
+    // The job of 10,000 with the margin the slower cadence leaves it:
+    // priced about 191 seconds for the 142 it took.
+    expect(bulkJobCost(10_000) - (3 + 27 + 3)).toBe(13);
+    expect(bulkJobSeconds(10_000, 'save') / 142).toBeGreaterThan(1.3);
   });
 
   it('takes a count below nothing for no record, never a job quicker than its wait', () => {

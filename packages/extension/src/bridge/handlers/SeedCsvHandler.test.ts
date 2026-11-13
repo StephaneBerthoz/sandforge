@@ -239,17 +239,19 @@ describe('SeedCsvHandler', () => {
       const [error] = posted(deps, 'seed:csv:error');
       expect((error.payload as { code?: string }).code).toBe('API_BUDGET_EXCEEDED');
       // No duplicate rule watches the accounts: the writer sends the 25,000
-      // rows in one job, 274 seconds at 100 rows a second read every five,
-      // its results read three ways. Counted 15, as three jobs of five calls.
+      // rows in one job, about 441 seconds at 60 rows a second read every
+      // five, its results read three ways: 96 calls. Counted 15, as three
+      // jobs of five calls. Then what the run reads as it writes: the limits
+      // its gate reads, who it writes as.
       expect(String((error.payload as { message?: string }).message)).toContain(
-        'The run takes about 62 API requests',
+        `The run takes about ${96 + 5} API requests`,
       );
     });
 
     it('counts again by REST the rows a duplicate rule watching the object may refuse in the job', async () => {
       // The writer sends what a rule refused in a job again, 200 rows a
       // call, with the header that lets its matches be saved: every row of
-      // 25,000 accounts may go so, 125 calls past the job's 62.
+      // 25,000 accounts may go so, 125 calls past the job's 96.
       handler.setTargetAutomation({
         read: async (_orgId: string, objects: readonly string[]) => ({
           ...(await nothingFires(_orgId, objects)),
@@ -275,7 +277,7 @@ describe('SeedCsvHandler', () => {
       expect(writer.insert).not.toHaveBeenCalled();
       const [error] = posted(deps, 'seed:csv:error');
       expect(String((error.payload as { message?: string }).message)).toContain(
-        'The run takes about 187 API requests',
+        `The run takes about ${96 + 125 + 5} API requests`,
       );
     });
 

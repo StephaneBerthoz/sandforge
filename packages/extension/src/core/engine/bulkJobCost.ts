@@ -66,17 +66,25 @@ export const FORGE_BULK_POLL_SCHEDULE: BulkPollSchedule = (attempt) =>
 /**
  * Records a Bulk API job saves a second once under way — an insert, an
  * update, an upsert, each record through the target's save path, its
- * triggers and its rules, which a delete is not —, about: asked live, a seed
+ * triggers and its rules, which a delete is not —, at the slowest: asked live, a seed
  * of 12,000 cases on a scratch org, sent as jobs of 10,000 and 2,000, took 42
  * requests more than its dry run. Less the two reads that typed the org and
  * the query of the duplicate rules, the jobs took about 39, some 27 of them
  * reads of their state, where the cadence of deletes priced them 28 calls
  * with 16 such reads. Its records went at about 160 a second, its wait taken
- * as a delete's; 100 are taken, slower than that one run. A floor of reads a
+ * as a delete's; 100 were taken, slower than that one run. A floor of reads a
  * job would not do: what the deletes' cadence missed grows with the job's
  * records, and a floor set by these two jobs would price one of 50,000 short.
+ *
+ * Counted call by call on the same org later, the same seed went
+ * slower: its job of 10,000 read its state 27 times over the 142 seconds
+ * from its close to its results, about 70 records a second with its wait;
+ * the job of 2,000, 7 times over 33 seconds; a job of 600 cases, 4 times over
+ * 17. At 100 a second the job of 10,000 was priced 26 reads, one short of
+ * what it sent. 60 are taken, and the wait on top: the job of 10,000 is
+ * priced 191 seconds, a third more than the slower of the two runs took.
  */
-const BULK_SAVE_RECORDS_PER_SECOND = 100;
+const BULK_SAVE_RECORDS_PER_SECOND = 60;
 
 /** What a Bulk API job does with its records, as far as its time goes. */
 export type BulkJobWork = 'delete' | 'save';

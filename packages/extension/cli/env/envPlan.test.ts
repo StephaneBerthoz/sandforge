@@ -449,13 +449,14 @@ const CASES: PlanCase[] = [
     name: 'blocks every write when the API requests summed pass what the org has left, each alone fitting',
     arrange: async () => ({
       resolved: resolvedOf(document()),
-      // Each seed takes its call and the reads it sends as it writes: 7 for
-      // the accounts, 8 for the contacts, which read their accounts too.
-      over: { budget: { ...BUDGET, apiRequests: { remaining: 8, max: 15_000 } } },
+      // Each seed takes its call and the reads it sends as it writes, the
+      // limits from its gate on among them: 10 for the accounts, 11 for the
+      // contacts, which read their accounts too.
+      over: { budget: { ...BUDGET, apiRequests: { remaining: 12, max: 15_000 } } },
     }),
     expected: [
-      ['accounts', 'blocked', /take about 15 API requests, and TGT has 8 left today/],
-      ['contacts', 'blocked', /take about 15 API requests/],
+      ['accounts', 'blocked', /take about 21 API requests, and TGT has 12 left today/],
+      ['contacts', 'blocked', /take about 21 API requests/],
     ],
   },
   {
@@ -571,7 +572,7 @@ describe('the plan, on the memory org', () => {
     const created = await planOf(resolvedOf(document()), undefined);
     expect(created.actions[0]).toMatchObject({
       objects: [{ object: 'Account', wouldCreate: 2 }],
-      gates: { apiRequests: 1 + (1 + 1 + 2) + 2, storageBytes: 4_096, emails: [] },
+      gates: { apiRequests: 1 + (1 + 1 + 2 + 3) + 2, storageBytes: 4_096, emails: [] },
     });
     // The contacts draw their accounts from what the accounts resource writes
     // first: their dry run, which read the org before, counted none of them,
@@ -585,8 +586,8 @@ describe('the plan, on the memory org', () => {
     });
     expect(created.gates).toEqual({
       apiRequests: {
-        // 7 for the accounts, 8 for the contacts, which read their accounts too.
-        estimate: 15,
+        // 10 for the accounts, 11 for the contacts, which read their accounts too.
+        estimate: 21,
         leftToday: 14_000,
         partial: true,
         notCounted: ['what contacts draws from the records accounts writes first'],
@@ -844,7 +845,7 @@ describe('the plan, on the memory org', () => {
       'totals: 0 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 2 blocked',
     );
     expect(lines).toContain(
-      'API requests: about 15, 1 left; not counted: what contacts draws from the records ' +
+      'API requests: about 21, 1 left; not counted: what contacts draws from the records ' +
         'accounts writes first',
     );
     expect(lines.at(-1)).toMatch(/^an apply now would be refused: The resources the plan writes/);

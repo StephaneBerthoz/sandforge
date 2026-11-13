@@ -552,7 +552,7 @@ describe('fitSeedTemplate', () => {
       objects: [
         {
           objectApiName: 'Contact',
-          recordCount: 25_000,
+          recordCount: 50_000,
           fieldRules: [],
           excludedFields: [],
           insertOrder: 0,
@@ -566,18 +566,18 @@ describe('fitSeedTemplate', () => {
       fitSeedTemplate({
         template: contacts,
         personObjects: [],
-        budget: budgetOf(500 * BYTES_PER_MB, 100),
+        budget: budgetOf(500 * BYTES_PER_MB, 240),
         room: NO_ROOM,
         ...(path ? { path } : {}),
       });
-    // No rule watches the contacts: jobs of 10,000, 10,000 and 5,000 (86
-    // calls), the query of the rules and the four reads of the run as it
-    // writes, within the 100 left.
-    expect(fit(noRule)).toMatchObject({ heldBy: 'whole', requests: 91 });
-    // Not told, a rule may: 125 REST calls, and the share is cut.
+    // No rule watches the contacts: five jobs of 10,000 (230 calls), the
+    // query of the rules and the seven reads of the run as it writes, within
+    // the 240 left.
+    expect(fit(noRule)).toMatchObject({ heldBy: 'whole', requests: 238 });
+    // Not told, a rule may: 250 REST calls, and the share is cut.
     expect(fit().heldBy).toBe('apiRequests');
     expect(
-      seedFitProposalOf(budgetOf(500 * BYTES_PER_MB, 100), contacts, [], NO_ROOM, noRule)?.share,
+      seedFitProposalOf(budgetOf(500 * BYTES_PER_MB, 240), contacts, [], NO_ROOM, noRule)?.share,
     ).toBe(1);
   });
 });

@@ -438,7 +438,7 @@ describe('the API requests of a run, priced as its writer sends them', () => {
       await estimateOf([{ objectApiName: 'Contact', operation: 'delete', rows: 600 }], {
         readAutomation: async () => ruledBy('Contact'),
       }),
-    ).toBe(13);
+    ).toBe(14);
     expect(
       await estimateOf([
         { objectApiName: 'Account', operation: 'upsert', rows: 200, batchSize: 50 },
@@ -825,9 +825,9 @@ describe('gateSyncWrite', () => {
       }),
     );
 
-    // 1,000 contacts in one Bulk API job of fourteen calls, no rule watching them.
+    // 1,000 contacts in one Bulk API job of sixteen calls, no rule watching them.
     expect(measured.check).toMatchObject({
-      apiRequests: { verdict: 'exceeds', estimate: 14, remaining: 4, max: 15_000 },
+      apiRequests: { verdict: 'exceeds', estimate: 16, remaining: 4, max: 15_000 },
       verdict: 'refused',
     });
     for (const policy of ['ask', 'unattended', 'refuse'] as const) {
@@ -855,9 +855,9 @@ describe('gateSyncWrite', () => {
 
     await gateSyncWrite(measured, { policy: 'ask', org: 'TRAP', orgTier: 'development', confirm });
 
-    // 3,000 contacts in one job of eighteen calls.
+    // 3,000 contacts in one job of twenty-two calls.
     expect(confirm.mock.calls[0][0]).toMatchObject({
-      apiRequests: { estimate: 18, remaining: 1_000, max: 15_000 },
+      apiRequests: { estimate: 22, remaining: 1_000, max: 15_000 },
     });
   });
 

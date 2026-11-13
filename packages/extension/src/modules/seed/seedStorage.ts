@@ -62,6 +62,13 @@ const IDENTITY_CALLS = 2;
  */
 const ORG_TYPE_READS = 2;
 
+/**
+ * The target's `/limits` as a run reads them from its gate on, at most: the
+ * gate's read, its read of the daily requests alone when the storage is not
+ * told, and the read of the day's emails when something may send one.
+ */
+const LIMITS_READS = 3;
+
 /** The read of the org's standard price book, once a run, for a seed that points at it. */
 const STANDARD_PRICEBOOK_READ = 1;
 
@@ -103,6 +110,13 @@ export interface SeedWritePath {
    * a dry run reads none of it, and says what a run would send.
    */
   typedFirst?: boolean;
+  /**
+   * The requests the command line had sent its target when its gate priced
+   * the run, counted as they went (`countRequests`): what typed the org,
+   * described the objects the line names, read the target's automation and
+   * scoped a checkpoint. Priced as sent, whatever the records; absent, none.
+   */
+  sentBefore?: number;
 }
 
 /** Whether `rules` say a duplicate rule watches `objectApiName`, whatever its case; nothing when they do not say. */
@@ -190,18 +204,23 @@ export function seedRequestsEstimate(
  * with a campaign, who again, and the Marketing User box of that user; the
  * parents of each relation, a page of 2,000 of those the org holds already,
  * a query of 200 of those named by id; the standard price book, for a seed
- * that points at it; and, from the command line, what the target is
- * ({@link SeedWritePath.typedFirst}).
+ * that points at it; from the command line, what the target is
+ * ({@link SeedWritePath.typedFirst}); the target's limits, from the gate on;
+ * and what the command line sent before its gate ({@link SeedWritePath.sentBefore}).
  *
  * Asked live, a seed of 600 contacts under the standard duplicate rule took
  * six requests more than its dry run, and was counted four, the three calls
  * of its records and the query of the rules: the reads that typed the org
  * before it wrote, and who it writes as, were counted nowhere, nor were the
- * object list and the describes each run reads as it writes.
+ * object list and the describes each run reads as it writes. Counted call
+ * by call, the same seed then sent sixteen and was priced ten: seven reads
+ * before its gate — what the org is, the contact's describe for its fields,
+ * five of the target's automation — and the gate's own read of its limits
+ * were priced nowhere.
  */
 export function seedRunReads(
   template: Pick<SeedTemplate, 'objects' | 'relations'>,
-  path: Pick<SeedWritePath, 'typedFirst'> = {},
+  path: Pick<SeedWritePath, 'typedFirst' | 'sentBefore'> = {},
 ): number {
   const names = new Set(template.objects.map((object) => object.objectApiName));
   const pricebook = template.objects.some((object) =>
@@ -220,7 +239,9 @@ export function seedRunReads(
     (names.has(CAMPAIGN) ? IDENTITY_CALLS + 1 : 0) +
     parents +
     (pricebook ? STANDARD_PRICEBOOK_READ : 0) +
-    (path.typedFirst ? ORG_TYPE_READS : 0)
+    (path.typedFirst ? ORG_TYPE_READS : 0) +
+    LIMITS_READS +
+    Math.max(0, path.sentBefore ?? 0)
   );
 }
 
@@ -276,13 +297,30 @@ export function importRequestsEstimate(
 }
 
 /**
+ * What the CSV import and the clone from an org send their target besides
+ * their records, from their gate on, at most: its limits, which the gate
+ * reads ({@link LIMITS_READS}); who the run writes as, for its removal's
+ * sweep (`keepRunUser`), the API's root then the identity URL; and, for the
+ * clone, each object's describe, read again as it writes (`describes`).
+ *
+ * A seed's price counted who it writes as and the describes it reads as it
+ * writes; the two that write through the import's writer priced their
+ * records alone, and neither the gate's read nor who the run writes as was
+ * counted anywhere.
+ */
+export function importRunReads(describes = 0): number {
+  return LIMITS_READS + IDENTITY_CALLS + Math.max(0, describes);
+}
+
+/**
  * The API requests a clone from an org makes of its target, as it sends
  * them: its records as an import's ({@link importRequestsEstimate}); the
  * roles the platform writes with the opportunities it creates, read 200
  * opportunities a query and given the source's fields by the same writer,
- * as many as there are opportunities and roles to link; and its second pass,
+ * as many as there are opportunities and roles to link; its second pass,
  * an update of each record of an object written without a lookup the order
- * writes after it (`secondPass`), 200 a call (`fillOwedLookups`).
+ * writes after it (`secondPass`), 200 a call (`fillOwedLookups`); and what
+ * it reads of the target as it writes them ({@link importRunReads}).
  *
  * Its records alone were counted: a clone of 600 accounts whose parent
  * account goes in on the second pass sends three updates more than them.
@@ -303,7 +341,8 @@ export function cloneRequestsEstimate(
       ? Math.ceil(roles / PLATFORM_ROLES_PER_READ) +
         importRequestsEstimate([{ objectApiName: 'OpportunityContactRole', rows: roles }], path)
       : 0) +
-    runRequestsEstimate(secondPass)
+    runRequestsEstimate(secondPass) +
+    importRunReads(objects.length)
   );
 }
 

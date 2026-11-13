@@ -4,6 +4,7 @@ import type { SeedTemplate } from '@sandforge/shared';
 import {
   cloneRequestsEstimate,
   importRequestsEstimate,
+  importRunReads,
   seedFitBudgetOf,
   seedPartitionOf,
   seedRequestsEstimate,
@@ -146,14 +147,14 @@ describe('seedStorageGate', () => {
   });
 
   it('counts a REST call per 200 records, and past them the dearer of the REST calls and the Bulk API job when the duplicate rules were not read', () => {
-    // 600 contacts: a job of thirteen calls, or three REST calls should a
+    // 600 contacts: a job of fourteen calls, or three REST calls should a
     // duplicate rule watch them; the query of the rules besides. Counted 1 + 5.
     expect(seedWritesEstimate(objects(['Account', 150], ['Contact', 600]))).toBe(
-      1 + (3 + 7 + 3) + 1,
+      1 + (3 + 8 + 3) + 1,
     );
-    // 25,000 contacts: 125 REST calls, or jobs of 10,000, 10,000 and 5,000 of
-    // 44 calls. Counted 15.
-    expect(seedWritesEstimate(objects(['Contact', 25_000]))).toBe(125 + 1);
+    // 25,000 contacts: slices of 10,000, 10,000 and 5,000, each the dearer
+    // of its REST calls and its job — 50 or 46, 50 or 46, 25 or 29. Counted 15.
+    expect(seedWritesEstimate(objects(['Contact', 25_000]))).toBe(50 + 50 + 29 + 1);
   });
 
   it('lets a seed through, saying so, when the org will not say what it has left', async () => {
@@ -269,21 +270,22 @@ describe('seedWritesEstimate', () => {
   it('prices each slice of an object no rule watches as one Bulk API job over its whole time: 12,000 in jobs of 10,000 and 2,000', () => {
     // A seed writes an object 10,000 records at a time, each slice one job:
     // opened, sent, closed, its state read once closed and every five
-    // seconds of its time (124 and 44 seconds), its results read three ways.
-    // Counted five a job: ten.
+    // seconds of its time (about 191 and 57 seconds), its results read three
+    // ways. Counted five a job: ten.
     expect(
       seedWritesEstimate(objects({ Opportunity: 12_000 }), rules({ Opportunity: false })),
-    ).toBe(3 + 26 + 3 + (3 + 10 + 3) + 1);
-    // 600 in one job of thirteen calls, counted five.
+    ).toBe(3 + 40 + 3 + (3 + 13 + 3) + 1);
+    // 600 in one job of fourteen calls, counted five.
     expect(seedWritesEstimate(objects({ Opportunity: 600 }), rules({ Opportunity: false }))).toBe(
-      3 + 7 + 3 + 1,
+      3 + 8 + 3 + 1,
     );
   });
 
   it('takes an object the read of the rules did not name for one a rule may watch', () => {
     const named = rules({ Account: false });
-    expect(seedWritesEstimate(objects({ Contact: 25_000 }), named)).toBe(125 + 1);
-    expect(seedWritesEstimate(objects({ Contact: 600 }), named)).toBe(3 + 7 + 3 + 1);
+    // Each slice the dearer of its REST calls and its job.
+    expect(seedWritesEstimate(objects({ Contact: 25_000 }), named)).toBe(50 + 50 + 29 + 1);
+    expect(seedWritesEstimate(objects({ Contact: 600 }), named)).toBe(3 + 8 + 3 + 1);
   });
 
   it('matches the objects the rules were read for whatever their case', () => {
@@ -301,11 +303,11 @@ describe('seedWritesEstimate', () => {
   });
 
   it('counts each partition of a seed the setting partitions as its own insert', () => {
-    // Partitions of 5,000: five jobs of 74 seconds, twenty-two calls each,
-    // where slices of 10,000 make three jobs.
+    // Partitions of 5,000: five jobs of about 107 seconds, twenty-nine calls
+    // each, where slices of 10,000 make three jobs.
     const partitioned = { duplicateRules: new Map([['Opportunity', false]]), partition: 5_000 };
     expect(seedWritesEstimate(objects({ Opportunity: 25_000 }), partitioned)).toBe(
-      5 * (3 + 16 + 3) + 1,
+      5 * (3 + 23 + 3) + 1,
     );
   });
 
@@ -322,7 +324,7 @@ describe('seedWritesEstimate', () => {
         })),
       })),
     };
-    expect(seedWritesEstimate(wide, rules({ Opportunity: false }))).toBe(2 * (3 + 16 + 3) + 1);
+    expect(seedWritesEstimate(wide, rules({ Opportunity: false }))).toBe(2 * (3 + 23 + 3) + 1);
   });
 });
 
@@ -341,13 +343,13 @@ describe('seedPartitionOf', () => {
 
 describe('importRequestsEstimate', () => {
   it('prices an import past the threshold as one Bulk API job over its whole time, however many its rows', () => {
-    // 25,000 rows in one job of 274 seconds: sixty-two calls. Counted 15.
+    // 25,000 rows in one job of about 441 seconds: ninety-six calls. Counted 15.
     expect(
       importRequestsEstimate([{ objectApiName: 'Account', rows: 25_000 }], {
         threshold: 200,
         ...rules({ Account: false }),
       }),
-    ).toBe(3 + 56 + 3);
+    ).toBe(3 + 90 + 3);
   });
 
   it('counts again by REST every row of an object a duplicate rule watches, which the job may refuse', () => {
@@ -357,11 +359,11 @@ describe('importRequestsEstimate', () => {
         threshold: 200,
         ...rules({ Account: true }),
       }),
-    ).toBe(3 + 56 + 3 + 125);
+    ).toBe(3 + 90 + 3 + 125);
     // Not read, the same.
     expect(
       importRequestsEstimate([{ objectApiName: 'Account', rows: 25_000 }], { threshold: 200 }),
-    ).toBe(3 + 56 + 3 + 125);
+    ).toBe(3 + 90 + 3 + 125);
   });
 
   it('counts an import of no more than the threshold by REST, the batch size a call', () => {
@@ -392,7 +394,17 @@ describe('importRequestsEstimate', () => {
         threshold: 200,
         ...rules({ Contact: true }),
       }),
-    ).toBe(3 + 7 + 3);
+    ).toBe(3 + 8 + 3);
+  });
+});
+
+describe('importRunReads', () => {
+  it('counts what the CSV import and the clone read of the target from their gate on: its limits, who the run writes as, a describe an object', () => {
+    // The gate's read of the limits, again for the requests alone, once for
+    // the emails; the API's root and the identity URL.
+    expect(importRunReads()).toBe(3 + 2);
+    expect(importRunReads(4)).toBe(3 + 2 + 4);
+    expect(importRunReads(-1)).toBe(3 + 2);
   });
 });
 
@@ -401,10 +413,12 @@ describe('cloneRequestsEstimate', () => {
 
   it('counts the second pass: an update of each record of an object written without a lookup, 200 a call', () => {
     const accounts = [{ objectApiName: 'Account', rows: 600 }];
-    expect(cloneRequestsEstimate(accounts, path)).toBe(13);
+    // One job of fourteen calls, and what the run reads of the target as it
+    // writes: its limits, who it writes as, the account's describe.
+    expect(cloneRequestsEstimate(accounts, path)).toBe(14 + importRunReads(1));
     // Their parent account filled once they are all in.
     expect(cloneRequestsEstimate(accounts, { ...path, secondPass: new Set(['Account']) })).toBe(
-      13 + 3,
+      14 + 3 + importRunReads(1),
     );
   });
 
@@ -419,11 +433,22 @@ describe('cloneRequestsEstimate', () => {
         ],
         { ...path, ...rules({ Opportunity: false, OpportunityContactRole: false }) },
       ),
-    ).toBe(1 + 13 + (1 + 1));
+    ).toBe(1 + 13 + (1 + 1) + importRunReads(2));
     // No roles to link without opportunities.
     expect(
       cloneRequestsEstimate([{ objectApiName: 'OpportunityContactRole', rows: 300 }], path),
-    ).toBe(13 + 2);
+    ).toBe(13 + 2 + importRunReads(1));
+  });
+
+  it('counts what it reads of the target as it writes, which its records alone left out', () => {
+    // The gate's reads of the limits, who the run writes as — the API's
+    // root and the identity URL —, the target's describe of each object,
+    // read again as the run writes.
+    const two = [
+      { objectApiName: 'Account', rows: 2 },
+      { objectApiName: 'Contact', rows: 2 },
+    ];
+    expect(cloneRequestsEstimate(two, path)).toBe(1 + 1 + (3 + 2 + 2));
   });
 });
 
@@ -440,19 +465,34 @@ describe('seedRunReads', () => {
     batchSize: 200,
   });
 
+  /** The target's limits as the run reads them from its gate on, at most. */
+  const LIMITS = 3;
+
   it("counts the reads each run sends as it writes: the org's object list, a describe an object, who it writes as", () => {
     // The object list once, a describe of each, then jsforce's identity:
     // the API's root and the identity URL.
-    expect(seedRunReads({ objects: [object('Contact')] })).toBe(1 + 1 + 2);
-    expect(seedRunReads({ objects: [object('Account'), object('Contact')] })).toBe(1 + 2 + 2);
+    expect(seedRunReads({ objects: [object('Contact')] })).toBe(1 + 1 + 2 + LIMITS);
+    expect(seedRunReads({ objects: [object('Account'), object('Contact')] })).toBe(
+      1 + 2 + 2 + LIMITS,
+    );
   });
 
   it('counts the two reads that type the org when the run reads them before it writes, as the command line does', () => {
-    expect(seedRunReads({ objects: [object('Contact')] }, { typedFirst: true })).toBe(4 + 2);
+    expect(seedRunReads({ objects: [object('Contact')] }, { typedFirst: true })).toBe(
+      4 + LIMITS + 2,
+    );
+  });
+
+  it('counts what the command line sent before its gate as it sent it, and the limits the gate reads', () => {
+    // Counted live: what the org is, the contact's describe for its fields,
+    // five reads of the target's automation; then the gate's read of the
+    // limits. A run that typed the org has its reads among those it sent.
+    expect(seedRunReads({ objects: [object('Contact')] }, { sentBefore: 7 })).toBe(4 + LIMITS + 7);
+    expect(seedRunReads({ objects: [object('Contact')] }, { sentBefore: -3 })).toBe(4 + LIMITS);
   });
 
   it("counts the user's Marketing User box for a campaign, the parents a relation reads, and the standard price book", () => {
-    expect(seedRunReads({ objects: [object('Campaign')] })).toBe(4 + 2 + 1);
+    expect(seedRunReads({ objects: [object('Campaign')] })).toBe(4 + 2 + 1 + LIMITS);
     const ids = Array.from({ length: 450 }, (_, i) => `parent-${i}`);
     const related = {
       objects: [object('Contact'), object('Case')],
@@ -475,7 +515,7 @@ describe('seedRunReads', () => {
     } as Pick<SeedTemplate, 'objects' | 'relations'>;
     // Three pages of 2,000 for 5,000 records the org holds, three queries
     // of 200 ids for 450.
-    expect(seedRunReads(related)).toBe(1 + 2 + 2 + 3 + 3);
+    expect(seedRunReads(related)).toBe(1 + 2 + 2 + 3 + 3 + LIMITS);
     const priced = [
       object('PricebookEntry', [
         {
@@ -486,9 +526,9 @@ describe('seedRunReads', () => {
         },
       ]),
     ];
-    expect(seedRunReads({ objects: priced })).toBe(4 + 1);
+    expect(seedRunReads({ objects: priced })).toBe(4 + 1 + LIMITS);
     // A seed that writes its own price book matches nothing.
-    expect(seedRunReads({ objects: [object('Pricebook2'), ...priced] })).toBe(1 + 2 + 2);
+    expect(seedRunReads({ objects: [object('Pricebook2'), ...priced] })).toBe(1 + 2 + 2 + LIMITS);
   });
 });
 
@@ -512,7 +552,7 @@ describe('seedRequestsEstimate', () => {
     // the org typed first, beside the reads both runs send as they write.
     const path = { ...rules({ Contact: true }), typedFirst: true };
     expect(seedWritesEstimate(contacts(600), path)).toBe(3 + 1);
-    expect(seedRequestsEstimate(contacts(600), path)).toBe(3 + 1 + (1 + 1 + 2 + 2));
+    expect(seedRequestsEstimate(contacts(600), path)).toBe(3 + 1 + (1 + 1 + 2 + 2 + 3));
     expect(seedRequestsEstimate(contacts(600), path)).toBeGreaterThanOrEqual(6);
   });
 
@@ -522,8 +562,78 @@ describe('seedRequestsEstimate', () => {
       objects: contacts(12_000).objects.map((o) => ({ ...o, objectApiName: 'Case' })),
     };
     const path = { ...rules({ Case: false }), typedFirst: true };
-    expect(seedWritesEstimate(cases, path)).toBe(32 + 16 + 1);
+    expect(seedWritesEstimate(cases, path)).toBe(46 + 19 + 1);
     expect(seedRequestsEstimate(cases, path)).toBeGreaterThanOrEqual(42);
+  });
+
+  describe('against every request a seed sent its target, counted call by call on a scratch org', () => {
+    /**
+     * Each seed as the command line ran it, its `--json` saying what it sent:
+     * before its gate — what the org is (a run's alone), the object's
+     * describe for its fields, the reads of the target's automation —, then
+     * from the gate on — its read of the limits, who it writes as (the API's
+     * root and the identity URL), the object list, the describe again, the
+     * query of the duplicate rules, and its writes.
+     */
+    const counted = [
+      {
+        name: '600 contacts a duplicate rule watches, sent in three REST calls',
+        object: 'Contact',
+        records: 600,
+        watched: true,
+        before: { run: 1 + 1 + 5, dryRun: 1 + 5 },
+        fromGate: 1 + 2 + 1 + 1 + 1 + 3,
+        // Priced ten, where it sent sixteen.
+        sent: { run: 16, dryRun: 9 },
+        price: { run: 18, dryRun: 19 },
+      },
+      {
+        name: '12,000 cases no rule watches, sent as jobs of 10,000 and 2,000',
+        object: 'Case',
+        records: 12_000,
+        watched: false,
+        // Six reads of the automation: a case has assignment rules too.
+        before: { run: 1 + 1 + 6, dryRun: 1 + 6 },
+        // The job of 10,000 read its state 27 times, the job of 2,000 seven.
+        fromGate: 1 + 2 + 1 + 1 + 1 + (3 + 27 + 3) + (3 + 7 + 3),
+        // Priced 55, where it sent 60.
+        sent: { run: 60, dryRun: 10 },
+        price: { run: 81, dryRun: 82 },
+      },
+      {
+        name: '600 cases no rule watches, sent as one job',
+        object: 'Case',
+        records: 600,
+        watched: false,
+        before: { run: 1 + 1 + 6, dryRun: 1 + 6 },
+        fromGate: 1 + 2 + 1 + 1 + 1 + (3 + 4 + 3),
+        // Priced 20, where it sent 24.
+        sent: { run: 24, dryRun: 10 },
+        price: { run: 30, dryRun: 31 },
+      },
+    ];
+
+    it.each(counted)('prices $name at no less than it sent', (seed) => {
+      const template = {
+        objects: contacts(seed.records).objects.map((o) => ({ ...o, objectApiName: seed.object })),
+      };
+      const ruled = rules({ [seed.object]: seed.watched });
+      expect(seed.before.run + seed.fromGate).toBe(seed.sent.run);
+      // A run typed the org before its gate, among what it sent.
+      const run = seedRequestsEstimate(template, { ...ruled, sentBefore: seed.before.run });
+      expect(run).toBe(seed.price.run);
+      expect(run).toBeGreaterThanOrEqual(seed.sent.run);
+      // A dry run says what a run would send: the reads that type the org
+      // beside what it sent itself.
+      const dryRun = seedRequestsEstimate(template, {
+        ...ruled,
+        typedFirst: true,
+        sentBefore: seed.before.dryRun,
+      });
+      expect(dryRun).toBe(seed.price.dryRun);
+      expect(dryRun).toBeGreaterThanOrEqual(seed.sent.run);
+      expect(dryRun).toBeGreaterThanOrEqual(seed.sent.dryRun);
+    });
   });
 
   it('prices an insert past the threshold the run is given, not past 200 whatever it is', () => {

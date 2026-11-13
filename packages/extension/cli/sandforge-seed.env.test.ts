@@ -250,7 +250,7 @@ describe('a seed run without the environment’s lines', () => {
     // A dry run's gates, added for an environment to sum them: the 2 KB each
     // of the three assets takes, and the one REST call that writes them,
     // against what the target's `/limits` say — this org's list no daily
-    // requests. A run's summary is as it was.
+    // requests. A run's summary adds its requests alone.
     ...(dryRun
       ? {
           storage: {
@@ -262,14 +262,26 @@ describe('a seed run without the environment’s lines', () => {
           },
           apiRequests: {
             verdict: 'unread',
-            // Three assets in one REST call; the object list, its describe and
-            // who the run writes as, read as it writes; the two reads that
-            // type the org before a real run writes.
-            estimate: 1 + (1 + 1 + 2) + 2,
+            // Three assets in one REST call; the object list, its describe,
+            // who the run writes as and the limits from its gate on, read as
+            // it writes; the two reads that type the org before a real run
+            // writes.
+            estimate: 1 + (1 + 1 + 2 + 3) + 2,
             unread: 'the limits the org answered list no DailyApiRequests',
+            // What the command sent through the connection's `request`: the
+            // read of the limits, the one call this stand-in sends so.
+            sent: 1,
           },
         }
-      : {}),
+      : {
+          apiRequests: {
+            verdict: 'unread',
+            // The run typed the org itself, among what it sent before its gate.
+            estimate: 1 + (1 + 1 + 2 + 3),
+            unread: 'the limits the org answered list no DailyApiRequests',
+            sent: 1,
+          },
+        }),
     result: {
       templateId: 'cli-1790845200000',
       operationId: 'sandforge-seed-00000000-0000-4000-8000-000000000000',
@@ -300,7 +312,7 @@ describe('a seed run without the environment’s lines', () => {
     fakeOrg();
   });
 
-  it('prints a run’s --json summary and lines as it did, and keeps its file as it did', async () => {
+  it('prints a run’s --json summary as it did with its requests added, its lines as they were, and keeps its file as it did', async () => {
     await main([...LINE, '--json']);
 
     expect(said(stdout)).toBe(`${JSON.stringify(summary(false), null, 2)}\n`);

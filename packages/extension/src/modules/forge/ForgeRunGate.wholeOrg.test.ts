@@ -60,12 +60,12 @@ const plan = writePlanOf([
 /*
  * The calls of one job of Forge's writer, read after waits of 5, 10, 20, then
  * 30 seconds, as long as a job that saves its records takes: its wait of 24
- * seconds, then 100 records a second.
- * - 10,000 rows, 124 seconds: six waits, seven reads, thirteen calls.
- * - 5,000 rows, 74 seconds: five waits, six reads, twelve calls.
+ * seconds, then 60 records a second.
+ * - 10,000 rows, about 191 seconds: nine waits, ten reads, sixteen calls.
+ * - 5,000 rows, about 107 seconds: six waits, seven reads, thirteen calls.
  */
-const JOB_10K = 3 + 7 + 3;
-const JOB_5K = 3 + 6 + 3;
+const JOB_10K = 3 + 10 + 3;
+const JOB_5K = 3 + 7 + 3;
 const CASES = JOB_10K + JOB_10K + JOB_5K;
 // 3,000 tasks and 600 accounts by REST: fifteen calls and three.
 const REST = 15 + 3;
@@ -167,7 +167,7 @@ describe('the run part of a clone that writes through the Bulk API', () => {
   it('prices a job at the pace a seed of 12,000 cases saved its records at, not at the pace of deletes', () => {
     const tenThousand = writePlanOf([counted('Case', 10_000)]);
 
-    expect(forgeRequestPartsOf({ plan: tenThousand, bulk: {} })).toEqual({ run: 13 });
+    expect(forgeRequestPartsOf({ plan: tenThousand, bulk: {} })).toEqual({ run: JOB_10K });
     // At the pace of deletes, 37 seconds: four waits, five reads, eleven calls.
     expect(
       bulkJobRequests({ stateReads: bulkJobStateReads(10_000, FORGE_BULK_POLL_SCHEDULE) }),
@@ -206,9 +206,9 @@ describe('what a clone of the whole org takes beside the target’s requests', (
     expect(wholeOrgCostOf({ plan, measures, updatedAfterInsert: ['Case'] }).bulkBatches).toBe(6);
   });
 
-  it('reckons the time its writes take, one after another: each job its wait and 100 records a second, REST 0.01 s a record', () => {
+  it('reckons the time its writes take, one after another: each job its wait and 60 records a second, REST 0.01 s a record', () => {
     expect(wholeOrgCostOf({ plan, measures }).durationSeconds).toBeCloseTo(
-      124 + 124 + 74 + 3_000 * 0.01 + 600 * 0.01,
+      2 * (24 + 10_000 / 60) + (24 + 5_000 / 60) + 3_000 * 0.01 + 600 * 0.01,
     );
   });
 });
@@ -247,10 +247,10 @@ describe('the write budget of a clone of the whole org, one part of the model of
       code: API_BUDGET_EXCEEDED,
       api: { kind: 'requests', org: 'target', estimate: CASES + REST, remaining: 50 },
     });
-    expect(budget.stop?.message).toMatch(/^The run takes about 56 API requests, and TGT-SB has 50/);
+    expect(budget.stop?.message).toMatch(/^The run takes about 63 API requests, and TGT-SB has 50/);
     expect(ForgeRunGateError.of(defined(budget.stop)).stop).toEqual({
       code: API_BUDGET_EXCEEDED,
-      api: { kind: 'requests', org: 'target', estimate: 56, remaining: 50 },
+      api: { kind: 'requests', org: 'target', estimate: 63, remaining: 50 },
     });
   });
 
@@ -649,7 +649,9 @@ describe('the dry run of a clone of the whole org, stopped at its gate', () => {
       { objectApiName: 'Case', fields: ['SuppliedEmail'] },
       { objectApiName: 'EmailMessage', fields: ['ToAddress'] },
     ]);
-    expect(dry.durationSeconds).toBeCloseTo(124 + 124 + 74 + (3_000 + 1_200 + 600) * 0.01);
+    expect(dry.durationSeconds).toBeCloseTo(
+      2 * (24 + 10_000 / 60) + (24 + 5_000 / 60) + (3_000 + 1_200 + 600) * 0.01,
+    );
     expect(dry.wouldBeRefused).toEqual([]);
   });
 

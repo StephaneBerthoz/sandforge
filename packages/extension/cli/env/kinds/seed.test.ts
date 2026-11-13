@@ -257,10 +257,10 @@ describe('a seed resource’s answers, read off what the seed prints', () => {
       expect.objectContaining({ objectApiName: 'Asset', recordsCreated: 3, recordsFailed: 0 }),
     ]);
     // What its gates counted: three assets of 2 KB, one REST call and the
-    // reads the run sends, against what the org's `/limits` say — this one
-    // lists no daily requests.
+    // reads the run sends, the limits from its gate on among them, against
+    // what the org's `/limits` say — this one lists no daily requests.
     expect(answer.storage).toMatchObject({ bytes: 6_144, verdict: 'fits', remainingMB: 150 });
-    expect(answer.apiRequests).toMatchObject({ estimate: 1 + 6, verdict: 'unread' });
+    expect(answer.apiRequests).toMatchObject({ estimate: 1 + 9, verdict: 'unread' });
     // A dry run is not a run: read as one, it is refused.
     expect(() => readSeedRun(stdout.join(''))).toThrow(StepAnswerError);
   });
