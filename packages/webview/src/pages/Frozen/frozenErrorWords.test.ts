@@ -416,6 +416,31 @@ describe('frozenErrorWords', () => {
       ).toBeUndefined();
     });
 
+    it('says a load refused past the API requests the org has left today, with its figures', () => {
+      // The host's sentence tells to write fewer records, which a dataset
+      // loaded whole cannot, in English in every locale.
+      expect(
+        frozenErrorWords(
+          {
+            code: 'API_BUDGET_EXCEEDED',
+            orgId: 'org-uat',
+            message: 'The run takes about 30 API requests … or write fewer records.',
+            apiRequests: { verdict: 'exceeds', estimate: 30, remaining: 25, max: 15000 },
+          },
+          t,
+          aliasOf,
+        ),
+      ).toBe(
+        'The load would take about 30 API requests of UAT, which has 25 of its 15000 daily ' +
+          'requests left: it would stop part way through, and nothing was written. Load once ' +
+          'the org has requests to spare — the daily limit is counted over the last 24 hours —, ' +
+          'or into an org with more left today.',
+      );
+      expect(
+        frozenErrorWords({ code: 'API_BUDGET_EXCEEDED', orgId: 'org-uat' }, t, aliasOf),
+      ).toBeUndefined();
+    });
+
     it('says each in the interface language', async () => {
       i18n.addResourceBundle('fr', 'translation', fr, true, true);
       await i18n.changeLanguage('fr');

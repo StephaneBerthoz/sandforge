@@ -38,6 +38,8 @@ export interface FrozenErrorPayload {
   emails?: unknown;
   /** What a load's question found the target runs as it writes, with `AUTOMATION_NOT_ACCEPTED`. */
   automation?: unknown;
+  /** What a load's gate counted of the API requests, with `API_BUDGET_EXCEEDED`. */
+  apiRequests?: unknown;
 }
 
 /** Whether a value is a list of words the host sent. */
@@ -145,9 +147,40 @@ export function frozenErrorWords(
       return emailsWords(payload, t, aliasOf);
     case 'AUTOMATION_NOT_ACCEPTED':
       return automationWords(payload, t, aliasOf);
+    case 'API_BUDGET_EXCEEDED':
+      return apiBudgetWords(payload, t, aliasOf);
     default:
       return undefined;
   }
+}
+
+/**
+ * A load its gate refused for the API requests it takes past what the target
+ * has left today, nothing written, with the figures it counted. The host's
+ * sentence says "write fewer records", which a dataset loaded whole cannot.
+ */
+function apiBudgetWords(
+  payload: FrozenErrorPayload,
+  t: (key: string, options?: Record<string, unknown>) => string,
+  aliasOf: (orgId: string) => string,
+): string | undefined {
+  if (typeof payload.orgId !== 'string') return undefined;
+  const api = payload.apiRequests as Record<string, unknown> | undefined;
+  if (
+    typeof api !== 'object' ||
+    api === null ||
+    typeof api.estimate !== 'number' ||
+    typeof api.remaining !== 'number' ||
+    typeof api.max !== 'number'
+  ) {
+    return undefined;
+  }
+  return `${t('frozen.refusal.apiBudgetExceeded.explanation', {
+    org: aliasOf(payload.orgId),
+    estimate: api.estimate,
+    remaining: api.remaining,
+    max: api.max,
+  })} ${t('frozen.refusal.apiBudgetExceeded.action')}`;
 }
 
 /** How each kind of automation is named, with its name. */

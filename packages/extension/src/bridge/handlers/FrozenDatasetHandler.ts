@@ -14,6 +14,7 @@ import type {
   FrozenDiscoveryOrigin,
   FrozenGraphCoverage,
   FrozenLastVerifyInfo,
+  FrozenLoadApiRequests,
   FrozenLoadAutomationInfo,
   FrozenLoadEmailsInfo,
   FrozenLoadRecordsInfo,
@@ -89,17 +90,27 @@ import {
   isMuteRefusedError,
   muteForRun,
   muteOrgOf,
+  mutePartOf,
   type HeldMute,
   type MuteLeaseOptions,
   type RunMute,
 } from '../../modules/forge/AutomationMuteLease.js';
 import {
+  API_BUDGET_EXCEEDED,
   CHECKPOINT_REFUSED,
+  apiBudgetCheckOf,
+  apiBudgetRefusal,
+  automationReadRequests,
+  checkpointPartOf,
   checkpointScopeStop,
+  deliverabilityPartOf,
+  readApiBudget,
   takeCheckpointFirst,
   readEmailLimits,
+  type ApiBudgetCheck,
   type LimitsTransport,
 } from '../../modules/forge/ForgeRunGate.js';
+import { duplicateRulesOf } from '../../modules/seed/seedDuplicateRules.js';
 import {
   NO_APEX_IN_PRODUCTION,
   readEmailDeliverability,
@@ -260,6 +271,10 @@ import {
   type MarkedLoad,
 } from '../../modules/frozendataset/otherSasLoads.js';
 import { loadEmailsOf, type LoadEmails } from '../../modules/frozendataset/loadEmails.js';
+import {
+  loadRequestsEstimate,
+  type LoadRequestsInput,
+} from '../../modules/frozendataset/loadRequests.js';
 import { loadAutomationOf } from '../../modules/frozendataset/loadAutomation.js';
 
 /**
@@ -380,6 +395,49 @@ class LoadAutomationStop extends Error {
     super(message);
     this.name = 'LoadAutomationStop';
   }
+}
+
+/**
+ * A load its gate on the API requests stopped before anything was taken for
+ * it: it takes more of them than the target has left today
+ * (`API_BUDGET_EXCEEDED`), with what the gate counted, for the panel to say it.
+ */
+class LoadBudgetStop extends Error {
+  readonly code = API_BUDGET_EXCEEDED;
+  constructor(
+    message: string,
+    readonly apiRequests: FrozenLoadApiRequests,
+    /** The org the load was refused into, by its registered id. */
+    readonly orgId: string,
+  ) {
+    super(message);
+    this.name = 'LoadBudgetStop';
+  }
+}
+
+/** The checkpoint a load scoped before its gate on the API requests, to be taken after it. */
+interface ScopedLoadCheckpoint {
+  checkpoints: BeforeRunCheckpoints;
+  ask: BeforeRunAsk;
+  own: BeforeRunOwn;
+  estimate: RunCheckpointEstimate;
+}
+
+/**
+ * What a load's gate on the API requests says of them: the check, and the
+ * refusal a load meets past what the target has left.
+ */
+function loadApiRequestsOf(check: ApiBudgetCheck, target: string): FrozenLoadApiRequests {
+  const refusal = apiBudgetRefusal(check, target);
+  return {
+    verdict: check.verdict,
+    estimate: check.estimate,
+    ...(check.verdict === 'unread'
+      ? { unread: check.unread }
+      : { remaining: check.remaining, max: check.max }),
+    ...(check.parts ? { parts: { ...check.parts } } : {}),
+    ...(refusal !== undefined ? { refused: { code: API_BUDGET_EXCEEDED, message: refusal } } : {}),
+  };
 }
 
 /**
@@ -2028,6 +2086,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     if (err instanceof LoadAutomationStop) {
       return { automation: err.automation, orgId: err.orgId };
     }
+    if (err instanceof LoadBudgetStop) return { apiRequests: err.apiRequests, orgId: err.orgId };
     return undefined;
   }
 
@@ -2067,6 +2126,79 @@ export class FrozenDatasetHandler implements DomainHandler {
       target: this.orgNameOf(input.orgId),
       mayMute: input.mayMute,
     });
+  }
+
+  /**
+   * The gate of a load on the API requests it takes of its target, as Seed's,
+   * Sync's and the clone's: its own ({@link loadRequestsEstimate}) — the
+   * dataset's records at most, as its gate on the emails counts them, and on
+   * a reload what its purge takes —, the checkpoint taken first, the lease of
+   * the mute it holds while it writes and the read of the deliverability,
+   * against the daily requests the target has left, read as the user it
+   * writes as. A target that would not say is said in the log, and holds
+   * nothing back.
+   */
+  private async loadApiCheck(input: {
+    conn: LimitsTransport;
+    dataset: FrozenDataset;
+    purged?: LoadRequestsInput['purged'];
+    read: ForgeTargetAutomation | { unread: string };
+    checkpoint?: Pick<RunCheckpointEstimate, 'estimate'>;
+    plan?: Pick<MutePlan, 'assign'>;
+    emails?: Pick<LoadEmails, 'run'>;
+    orgId: string;
+    operation: string;
+  }): Promise<FrozenLoadApiRequests> {
+    const budget = await readApiBudget(input.conn).catch((err: unknown) => ({
+      unread: extractErrorMessage(err),
+    }));
+    const duplicateRules = duplicateRulesOf(input.read);
+    const check = apiBudgetCheckOf(
+      {
+        run: loadRequestsEstimate({
+          inserts: input.dataset.objects.map((object) => ({
+            objectApiName: object.objectApiName,
+            rows: object.records.length,
+          })),
+          ...(input.purged ? { purged: input.purged } : {}),
+          threshold: robustnessConfigOf(this.deps).bulk.threshold,
+          ...(duplicateRules ? { duplicateRules } : {}),
+          automationRead: automationReadRequests(input.read),
+        }),
+        ...checkpointPartOf(input.checkpoint),
+        ...mutePartOf(input.plan),
+        ...deliverabilityPartOf(input.emails?.run.ofRun),
+      },
+      budget,
+    );
+    if (check.verdict === 'unread') {
+      this.deps.log(
+        `[WARN] ${input.operation}: the daily API requests the target has left could not be ` +
+          `read (${check.unread})`,
+      );
+    }
+    return loadApiRequestsOf(check, this.orgNameOf(input.orgId));
+  }
+
+  /**
+   * What a reload's purge takes of the loads before it, per object, as
+   * {@link purgeStepsOf} reads them from the sas: deleted, or set inactive
+   * where the configuration says the platform does not delete the object.
+   * Nothing of a sas a refresh of the target made stale.
+   */
+  private async purgedOf(
+    store: SasReferenceIdMappingStore,
+    config: FrozenProjectConfig,
+  ): Promise<NonNullable<LoadRequestsInput['purged']>> {
+    if (await store.isStale()) return [];
+    const deactivated = config.undeletableObjects ?? {};
+    return (await store.recordedLoads())
+      .flatMap((load) => loadRecordsLeft(load))
+      .map(({ objectApiName, ids }) => ({
+        objectApiName,
+        rows: ids.length,
+        deletes: !Object.hasOwn(deactivated, objectApiName),
+      }));
   }
 
   /** An org as the command line names it in a refusal: its alias, else its user, else its id. */
@@ -2817,6 +2949,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     let emailsJudged: LoadEmails | undefined;
     /** What the target runs as it writes, which it was told to write through, once asked. */
     let automationJudged: FrozenLoadAutomationInfo | undefined;
+    /** What its gate made of the API requests it takes of the target, once judged. */
+    let apiJudged: FrozenLoadApiRequests | undefined;
     const recordLoad = (
       outcome: AuditOutcome,
       objects?: AuditObjectCounts[],
@@ -3060,20 +3194,43 @@ export class FrozenDatasetHandler implements DomainHandler {
           emails.info,
           parsed.targetOrgId,
         );
-      // The checkpoint of what the load writes, taken after the cost its
-      // preview said and before the lease and the first write: refused,
-      // failed or stopped, the load writes nothing and assigns nothing.
-      if (parsed.checkpointFirst !== undefined) {
-        taken = await this.takeLoadCheckpoint({
-          msg,
-          orgId: parsed.targetOrgId,
-          written,
-          read,
-          mute,
-          request: parsed.checkpointFirst,
-          signal: abortController.signal,
-        });
+      // The checkpoint of what the load writes, scoped first, reading no
+      // record: refused there, the load writes nothing. Its requests are
+      // counted with the load's below.
+      const scoped =
+        parsed.checkpointFirst !== undefined
+          ? await this.scopeLoadCheckpoint({
+              msg,
+              orgId: parsed.targetOrgId,
+              written,
+              read,
+              mute,
+              request: parsed.checkpointFirst,
+            })
+          : undefined;
+      // The API requests of the load against what the target has left today,
+      // once its guards and its emails let it through and before anything is
+      // taken for it: past them, the load is refused, nothing written and
+      // nothing assigned, as a seed, a sync or a clone is. A load read no
+      // limit of them, and the lease of its mute was counted nowhere.
+      apiJudged = await this.loadApiCheck({
+        conn,
+        dataset,
+        ...(purge ? { purged: await this.purgedOf(mappingStore, config) } : {}),
+        read,
+        ...(scoped ? { checkpoint: scoped.estimate } : {}),
+        ...(mute?.plan ? { plan: mute.plan } : {}),
+        emails,
+        orgId: parsed.targetOrgId,
+        operation: `frozen:load ${operationId}`,
+      });
+      if (apiJudged.refused) {
+        throw new LoadBudgetStop(apiJudged.refused.message, apiJudged, parsed.targetOrgId);
       }
+      // The checkpoint, taken after the cost its preview said and before the
+      // lease and the first write: refused, failed or stopped, the load
+      // writes nothing and assigns nothing.
+      if (scoped) taken = await this.takeLoadCheckpoint(scoped, abortController.signal);
       const held = mute?.prepared ? await mute.prepared.acquire(operationId) : undefined;
       if (held) {
         mutedAutomation = held.outcome;
@@ -3216,6 +3373,7 @@ export class FrozenDatasetHandler implements DomainHandler {
             ? { emails: emailsJudged.info }
             : {}),
           ...(automationJudged ? { automation: automationJudged } : {}),
+          ...(apiJudged ? { apiRequests: apiJudged } : {}),
         },
       });
       this.deps.broker.postToWebview(response);
@@ -3317,12 +3475,13 @@ export class FrozenDatasetHandler implements DomainHandler {
       // the code is the one of what it failed on.
       // A mute refused stops the load before its first write; so does what
       // the command line's question on what a reload's sweep deletes stopped,
-      // and the gate on the emails.
+      // the gate on the emails, and the one on the API requests.
       const refusedFirst =
         isMuteRefusedError(err) ||
         err instanceof RemovalStopped ||
         err instanceof LoadEmailsStop ||
-        err instanceof LoadAutomationStop
+        err instanceof LoadAutomationStop ||
+        err instanceof LoadBudgetStop
           ? err
           : undefined;
       const stopped =
@@ -3446,23 +3605,22 @@ export class FrozenDatasetHandler implements DomainHandler {
   }
 
   /**
-   * Take the checkpoint of what a load writes before its lease and its first
-   * write: scoped first, reading no record — refused there, the load is
-   * refused — then taken, held to what the scope said it takes, stopped by
-   * the load's Cancel. The load's own mark alone does not refuse either.
+   * Scope the checkpoint of what a load writes, reading no record: refused
+   * there, the load is refused. The load's own mark alone does not refuse
+   * it. What it takes is counted with the load's requests before it is taken
+   * ({@link takeLoadCheckpoint}).
    *
-   * @throws {CheckpointFirstStop} When it is refused, fails or is stopped:
-   *   nothing was written, and nothing of the take is kept.
+   * @throws {CheckpointFirstStop} When it is refused or cannot be scoped:
+   *   nothing was written, and nothing taken.
    */
-  private async takeLoadCheckpoint(input: {
+  private async scopeLoadCheckpoint(input: {
     msg: InboundRequest;
     orgId: string;
     written: readonly string[];
     read: ForgeTargetAutomation | { unread: string };
     mute?: Pick<RunMute, 'plan'>;
     request: RunCheckpointRequest;
-    signal: AbortSignal;
-  }): Promise<RunCheckpointTaken> {
+  }): Promise<ScopedLoadCheckpoint> {
     const checkpoints = this.beforeRunCheckpoints;
     if (!checkpoints) {
       throw new CheckpointFirstStop(
@@ -3480,8 +3638,24 @@ export class FrozenDatasetHandler implements DomainHandler {
     }
     const refused = checkpointScopeStop(estimate);
     if (refused) throw new CheckpointFirstStop(refused.code, refused.message);
+    return { checkpoints, ask, own, estimate };
+  }
+
+  /**
+   * Take the checkpoint a load scoped ({@link scopeLoadCheckpoint}) before
+   * its lease and its first write, held to what the scope said it takes,
+   * stopped by the load's Cancel.
+   *
+   * @throws {CheckpointFirstStop} When it is refused, fails or is stopped:
+   *   nothing was written, and nothing of the take is kept.
+   */
+  private async takeLoadCheckpoint(
+    scoped: ScopedLoadCheckpoint,
+    signal: AbortSignal,
+  ): Promise<RunCheckpointTaken> {
+    const { checkpoints, ask, own, estimate } = scoped;
     const took = await takeCheckpointFirst(() =>
-      checkpoints.take(ask, own, { planned: estimate, signal: input.signal }),
+      checkpoints.take(ask, own, { planned: estimate, signal }),
     );
     if ('stop' in took) {
       throw new CheckpointFirstStop(
@@ -3744,13 +3918,16 @@ export class FrozenDatasetHandler implements DomainHandler {
       // reads them — the mute planned when asked, nothing assigned — and the
       // refusal it would meet: a dry run that let by what its load then
       // refused would have a plan apply what it cannot.
-      const { emails, automation } = await this.previewWhatRuns({
+      // So are the API requests it would take of the target, counted as its
+      // gate counts them, the checkpoint said above among them.
+      const { emails, automation, apiRequests } = await this.previewWhatRuns({
         conn,
         orgId: parsed.targetOrgId,
         dataset,
         store: this.mappingStoreFor(sasDir, parsed.targetOrgId, guard),
         config,
         parsed,
+        ...(checkpoint ? { checkpoint } : {}),
       });
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'frozen:load:preview:response', {
@@ -3759,6 +3936,7 @@ export class FrozenDatasetHandler implements DomainHandler {
             ...(checkpoint ? { checkpoint } : {}),
             ...(emails ? { emails } : {}),
             ...(automation ? { automation } : {}),
+            ...(apiRequests ? { apiRequests } : {}),
           },
         }),
       );
@@ -3772,11 +3950,12 @@ export class FrozenDatasetHandler implements DomainHandler {
   }
 
   /**
-   * What the target runs as a load of the preview would write, and the
-   * emails of what still runs, judged as the load judges them before its
-   * first write: what the target runs on what it would insert, and on what a
-   * reload's purge would delete; the mute planned when it is asked, nothing
-   * assigned. Neither, said in the log, when they could not be judged.
+   * What the target runs as a load of the preview would write, the emails of
+   * what still runs, and the API requests it would take, judged as the load
+   * judges them before its first write: what the target runs on what it
+   * would insert, and on what a reload's purge would delete; the mute
+   * planned when it is asked, nothing assigned. None, said in the log, when
+   * they could not be judged.
    */
   private async previewWhatRuns(input: {
     conn: LimitsTransport & Parameters<typeof muteOrgOf>[0];
@@ -3791,7 +3970,13 @@ export class FrozenDatasetHandler implements DomainHandler {
       acceptEmails?: boolean;
       acceptAutomation?: boolean;
     };
-  }): Promise<{ emails?: FrozenLoadEmailsInfo; automation?: FrozenLoadAutomationInfo }> {
+    /** What the checkpoint asked first would take, as the preview scoped it. */
+    checkpoint?: Pick<RunCheckpointEstimate, 'estimate'>;
+  }): Promise<{
+    emails?: FrozenLoadEmailsInfo;
+    automation?: FrozenLoadAutomationInfo;
+    apiRequests?: FrozenLoadApiRequests;
+  }> {
     const { parsed } = input;
     try {
       const purge =
@@ -3838,9 +4023,26 @@ export class FrozenDatasetHandler implements DomainHandler {
         logger.warn(`Frozen preview: the emails could not be judged (${extractErrorMessage(err)})`);
         return undefined;
       });
+      const apiRequests = await this.loadApiCheck({
+        conn: input.conn,
+        dataset: input.dataset,
+        ...(purge ? { purged: await this.purgedOf(input.store, input.config) } : {}),
+        read,
+        ...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
+        ...(mute?.plan ? { plan: mute.plan } : {}),
+        ...(emails ? { emails } : {}),
+        orgId: input.orgId,
+        operation: 'frozen:load:preview',
+      }).catch((err: unknown) => {
+        logger.warn(
+          `Frozen preview: the API requests could not be judged (${extractErrorMessage(err)})`,
+        );
+        return undefined;
+      });
       return {
         ...(emails && saysSomething(emails.info) ? { emails: emails.info } : {}),
         ...(automation ? { automation } : {}),
+        ...(apiRequests ? { apiRequests } : {}),
       };
     } catch (err: unknown) {
       logger.warn(

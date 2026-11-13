@@ -382,6 +382,27 @@ describe('a reload, whose purge deletes what the loads before it created', () =>
     expect(report()?.purge.cameAlong).toEqual({ Account: { count: 1, objects: ['Contact'] } });
   });
 
+  it('counts among its API requests what its purge deletes of the load before it', async () => {
+    // The purge's deletes are the reload's own writes, sent before its
+    // inserts: its account and its contact, a REST call each, beside what
+    // the same dataset loaded without a reload takes.
+    const request = tied.conn.request;
+    tied.conn.request = async (asked) =>
+      asked.url === '/limits'
+        ? { DailyApiRequests: { Max: 15_000, Remaining: 15_000 } }
+        : request(asked);
+
+    await reload();
+    const reloaded = report()?.apiRequests?.estimate;
+    vi.mocked(deps.broker.postToWebview).mockClear();
+    await handler.handle(buildMsg('frozen:load', { targetOrgId: TARGET_ORG }));
+    const loaded = report()?.apiRequests?.estimate;
+
+    expect(errors()).toEqual([]);
+    expect(loaded).toBeGreaterThan(0);
+    expect(reloaded).toBe(Number(loaded) + 2);
+  });
+
   describe('of a load one of whose accounts holds a contact that came with it, to which someone added a campaign member since', () => {
     /** The contact the target's automation made as the load wrote the account. */
     const CAME_WITH_IT = id('003', 3);

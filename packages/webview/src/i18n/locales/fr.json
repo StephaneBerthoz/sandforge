@@ -5557,6 +5557,12 @@
         "exceeded": "Au-delà de ce qu'il reste aujourd'hui à {{org}}, chaque enregistrement dont le Flow échoue à l'enregistrement est refusé : le chargement serait refusé, rien d'écrit, quelle que soit la case. Coupez ce qui les envoie, ou chargez dans une org à qui il reste plus d'e-mails aujourd'hui.",
         "uncounted": "Tous n'ont pas été comptés : {{why}} n'a pas pu être lu."
       },
+      "apiRequests": {
+        "fits": "Requêtes d'API : environ {{estimate}}, sur les {{remaining}} qu'il reste à {{org}} de ses {{max}} par jour.",
+        "near": "Requêtes d'API : environ {{estimate}}, ce qui laisserait à {{org}} moins d'un dixième de ses {{max}} par jour ({{remaining}} restantes).",
+        "exceeds": "Requêtes d'API : environ {{estimate}}, plus que les {{remaining}} qu'il reste à {{org}} de ses {{max}} par jour : le chargement serait refusé.",
+        "unread": "Requêtes d'API : environ {{estimate}}. Ce qu'il reste aujourd'hui à {{org}} n'a pas pu être lu ({{reason}})."
+      },
       "automation": {
         "title": "Ce que {{org}} exécute quand le chargement insère ses enregistrements et les met à jour :",
         "onInsert": "{{object}} — {{what}}, à l'insertion de ses enregistrements",
@@ -5851,6 +5857,10 @@
       "emailsExceeded": {
         "explanation": "Le chargement ferait envoyer à {{org}} plus d'e-mails qu'il ne lui en reste aujourd'hui ({{limit}} : environ {{emails}}, {{remaining}} sur {{max}} restants), et rien n'a été écrit.",
         "action": "Cochez la coupure de l'automatisation pour faire taire ce qui les envoie, ou chargez dans une org à qui il reste plus d'e-mails aujourd'hui."
+      },
+      "apiBudgetExceeded": {
+        "explanation": "Le chargement prendrait environ {{estimate}} requêtes d'API à {{org}}, à qui il en reste {{remaining}} sur ses {{max}} par jour : il s'arrêterait en cours de route, et rien n'a été écrit.",
+        "action": "Chargez quand l'org aura des requêtes à revendre — la limite quotidienne se compte sur les dernières 24 heures —, ou dans une org à qui il en reste davantage aujourd'hui."
       },
       "automationNotAccepted": {
         "explanation": "{{org}} exécute des automatisations quand le chargement écrit ses enregistrements ({{named}}), et rien n'a été écrit.",

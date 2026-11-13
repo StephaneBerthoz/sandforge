@@ -5557,6 +5557,12 @@
         "exceeded": "Past what {{org}} has left today, each record whose flow fails in the save is refused: the load would be refused, nothing written, whatever the box says. Mute what sends them, or load into an org with more emails left today.",
         "uncounted": "Not all of them were counted: {{why}} could not be read."
       },
+      "apiRequests": {
+        "fits": "API requests: about {{estimate}}, of the {{remaining}} {{org}} has left of its {{max}} a day.",
+        "near": "API requests: about {{estimate}}, which would leave {{org}} less than a tenth of its {{max}} a day ({{remaining}} left).",
+        "exceeds": "API requests: about {{estimate}}, more than the {{remaining}} {{org}} has left of its {{max}} a day: the load would be refused.",
+        "unread": "API requests: about {{estimate}}. What {{org}} has left today could not be read ({{reason}})."
+      },
       "automation": {
         "title": "What {{org}} runs as the load inserts its records and updates them:",
         "onInsert": "{{object}} — {{what}}, as its records are inserted",
@@ -5851,6 +5857,10 @@
       "emailsExceeded": {
         "explanation": "The load would make {{org}} send more emails than it has left today ({{limit}}: about {{emails}}, {{remaining}} of {{max}} left), and nothing was written.",
         "action": "Tick Mute automation to keep quiet what sends them, or load into an org with more emails left today."
+      },
+      "apiBudgetExceeded": {
+        "explanation": "The load would take about {{estimate}} API requests of {{org}}, which has {{remaining}} of its {{max}} daily requests left: it would stop part way through, and nothing was written.",
+        "action": "Load once the org has requests to spare — the daily limit is counted over the last 24 hours —, or into an org with more left today."
       },
       "automationNotAccepted": {
         "explanation": "{{org}} runs automation as the load writes its records ({{named}}), and nothing was written.",

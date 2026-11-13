@@ -752,8 +752,10 @@ describe('FrozenDatasetHandler', () => {
           buildMsg('frozen:load:preview', { targetOrgId: 'org-2', reload: true }),
         );
 
+        // With the API requests a load would take, which a target that
+        // does not answer its limits leaves unread.
         expect(posted(deps, 'frozen:load:preview:response').map((m) => m.payload)).toEqual([
-          { plan: PLAN },
+          { plan: { ...PLAN, apiRequests: expect.objectContaining({ verdict: 'unread' }) } },
         ]);
         expect(loaderPlan).toHaveBeenCalledWith(
           expect.objectContaining({ orgId: 'org-2', reload: true, sasDir }),

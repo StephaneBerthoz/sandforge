@@ -77,6 +77,33 @@ export interface FrozenLoadEmailsInfo {
   refused?: { code: string; message: string };
 }
 
+/**
+ * The API requests a load takes of its target, roughly, against the daily
+ * requests it has left, as its gate judged them before anything was taken
+ * for it: `near` when the load would leave it under a tenth of them,
+ * `exceeds` past them — refused, as it would stop part way through —,
+ * `unread` when the target would not say what it has left, which holds
+ * nothing back. Said by a preview, a dry run, the report, and a load refused
+ * for them.
+ */
+export interface FrozenLoadApiRequests {
+  verdict: 'fits' | 'near' | 'exceeds' | 'unread';
+  /** Every part together. */
+  estimate: number;
+  remaining?: number;
+  max?: number;
+  /** Why the target did not say what it has left. */
+  unread?: string;
+  /**
+   * The requests beside the load's own (`run`): the checkpoint taken first,
+   * the lease of the mute, the read of the target's deliverability. Absent
+   * when the load's own are all there is.
+   */
+  parts?: { run: number; checkpoint?: number; mute?: number; deliverability?: number };
+  /** Why a load would be refused for them, nothing written; absent when it would not be. */
+  refused?: { code: string; message: string };
+}
+
 /** A flow, an Apex trigger, a process or a workflow rule the target runs as a load writes. */
 export interface FrozenLoadAutomationEntry {
   objectApiName: string;
@@ -627,6 +654,8 @@ export interface FrozenLoadReportInfo {
    * wrote nothing. Absent when it was not asked.
    */
   checkpoint?: RunCheckpointInfo;
+  /** The API requests its gate counted against what the target had left today. */
+  apiRequests?: FrozenLoadApiRequests;
   /**
    * The user the load wrote as, by Salesforce id, as its journal keeps it:
    * what a removal's sweep holds the records the target's automation made
@@ -960,6 +989,12 @@ export interface FrozenLoadPlanInfo {
    * be judged, which the log says.
    */
   emails?: FrozenLoadEmailsInfo;
+  /**
+   * The API requests the load would take of the target against what it has
+   * left today, as its gate judges them, and the refusal a load would meet.
+   * Absent when they could not be judged, which the log says.
+   */
+  apiRequests?: FrozenLoadApiRequests;
   /**
    * What the target runs as the load would insert its records and update
    * them, the mute planned when asked, nothing assigned, and the refusal a

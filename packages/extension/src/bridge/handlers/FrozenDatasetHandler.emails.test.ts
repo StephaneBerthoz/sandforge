@@ -358,7 +358,9 @@ describe('a Frozen load, what still runs as it writes, and the emails it sends',
     await load();
 
     expect(loaderLoad).toHaveBeenCalledTimes(1);
-    expect(asked).toEqual([]);
+    // Neither the daily emails nor the deliverability: the limits read once,
+    // by the gate on the API requests.
+    expect(asked).toEqual(['/limits']);
   });
 
   it('refuses a load while the target runs automation on what it inserts, unaccepted, naming it, and asks the org nothing more', async () => {

@@ -5557,6 +5557,12 @@
         "exceeded": "Más allá de lo que le queda hoy a {{org}}, cada registro cuyo flujo falla al guardar se rechaza: la carga se rechazaría, sin escribir nada, diga lo que diga la casilla. Silencie lo que los envía, o cargue en una org a la que le queden más correos hoy.",
         "uncounted": "No se contaron todos: no se pudo leer {{why}}."
       },
+      "apiRequests": {
+        "fits": "Solicitudes de API: unas {{estimate}}, de las {{remaining}} que le quedan a {{org}} de sus {{max}} diarias.",
+        "near": "Solicitudes de API: unas {{estimate}}, que dejarían a {{org}} con menos de una décima parte de sus {{max}} diarias ({{remaining}} restantes).",
+        "exceeds": "Solicitudes de API: unas {{estimate}}, más que las {{remaining}} que le quedan a {{org}} de sus {{max}} diarias: la carga se rechazaría.",
+        "unread": "Solicitudes de API: unas {{estimate}}. Lo que le queda hoy a {{org}} no se pudo leer ({{reason}})."
+      },
       "automation": {
         "title": "Lo que {{org}} ejecuta cuando la carga inserta sus registros y los actualiza:",
         "onInsert": "{{object}} — {{what}}, al insertar sus registros",
@@ -5851,6 +5857,10 @@
       "emailsExceeded": {
         "explanation": "La carga haría que {{org}} enviara más correos de los que le quedan hoy ({{limit}}: unos {{emails}}, {{remaining}} de {{max}} restantes), y no se escribió nada.",
         "action": "Marque el silencio de la automatización para callar lo que los envía, o cargue en una org a la que le queden más correos hoy."
+      },
+      "apiBudgetExceeded": {
+        "explanation": "La carga usaría unas {{estimate}} solicitudes de API de {{org}}, a la que le quedan {{remaining}} de sus {{max}} diarias: se detendría a medio camino, y no se escribió nada.",
+        "action": "Cargue cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas—, o en una org a la que le queden más hoy."
       },
       "automationNotAccepted": {
         "explanation": "{{org}} ejecuta automatizaciones cuando la carga escribe sus registros ({{named}}), y no se escribió nada.",

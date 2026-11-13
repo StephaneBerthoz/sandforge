@@ -431,6 +431,30 @@ describe('FrozenLoadTab', () => {
       );
     });
 
+    it('says in the preview the API requests a load would take, and that it would be refused for them', () => {
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            mode: { pilot: false, reload: false },
+            apiRequests: {
+              verdict: 'exceeds',
+              estimate: 1830,
+              remaining: 120,
+              max: 15000,
+              refused: { code: 'API_BUDGET_EXCEEDED', message: 'The run takes about 1830…' },
+            },
+          },
+        },
+      };
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-api-requests').textContent).toBe(
+        'API requests: about 1,830, more than the 120 DEV-SANDBOX has left of its 15,000 a ' +
+          'day: the load would be refused.',
+      );
+    });
+
     it('offers nothing of it for a dataset that says which encrypted fields it left out, none or some', () => {
       for (const encryptedNotKept of [[], ['Contact.SSN__c']]) {
         useFrozenStore.setState({ status: WITH_COVERAGE(encryptedNotKept) });

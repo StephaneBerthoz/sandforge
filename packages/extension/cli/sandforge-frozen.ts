@@ -55,6 +55,7 @@ import type {
   ForgeSweepResult,
   ForgeTargetAutomation,
   FrozenDiscoveryOrigin,
+  FrozenLoadApiRequests,
   FrozenLoadAutomationInfo,
   FrozenLoadEmailsInfo,
   FrozenLoadPlanInfo,
@@ -86,6 +87,7 @@ import {
 import { loadOrg, makeConn, type SfOrg } from './sfSession.js';
 import {
   SWEEP_CLASS_FLAGS,
+  apiRequestsLine,
   automationHeldLines,
   journalDirOf,
   otherRunsOf,
@@ -112,6 +114,7 @@ import {
 import type { MutedAutomation, MutePlan } from '@sandforge/shared';
 import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import {
+  API_BUDGET_EXCEEDED,
   CHECKPOINT_REFUSED,
   CHECKPOINT_STOPPED_WORDS,
   bypassesToAssign,
@@ -1110,7 +1113,7 @@ const MUTE_REFUSED_CODES = ['MUTE_PRODUCTION', 'MUTE_NO_RIGHT', 'MUTE_FAILED'] a
 
 /**
  * The codes the handler refuses a step with before its first write, by each
- * step's error: a load for its emails, its mute, what fires as its sweep
+ * step's error: a load for its emails, its API requests, its mute, what fires as its sweep
  * deletes or no Production Guard; a removal for what fires as it deletes, its
  * mute or Production Guard — its refusal, or its question answered no, which
  * the removal's preview says under the same code. Any other code of the same
@@ -1122,6 +1125,7 @@ const REFUSED_FIRST_CODES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
     new Set([
       'EMAILS_NOT_ACCEPTED',
       'FROZEN_EMAILS_EXCEEDED',
+      API_BUDGET_EXCEEDED,
       'AUTOMATION_NOT_ACCEPTED',
       PRODUCTION_GUARD_MISSING.code,
       ...MUTE_REFUSED_CODES,
@@ -1255,6 +1259,25 @@ export function frozenStepExit(step: string, posted: readonly Posted[]): number 
       }
       return DONE_EXIT;
     }),
+  );
+}
+
+/**
+ * The API requests a load's gate counted against what the target has left
+ * today, as a clone's and an Autopilot run's line says them. Exported so it
+ * can be tested.
+ */
+export function loadApiRequestsLine(api: FrozenLoadApiRequests, target: string): string {
+  return apiRequestsLine(
+    api.verdict === 'unread'
+      ? { verdict: 'unread', estimate: api.estimate, unread: api.unread ?? 'not said' }
+      : {
+          verdict: api.verdict,
+          estimate: api.estimate,
+          remaining: api.remaining ?? 0,
+          max: api.max ?? 0,
+        },
+    target,
   );
 }
 
@@ -1638,6 +1661,9 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
       // What its gate made of the emails of what still ran as it wrote.
       const emails = (p.report as { emails?: FrozenLoadEmailsInfo }).emails;
       if (emails) lines.push(...loadEmailsLines(emails, 'the target'));
+      // And of the API requests it took of the target.
+      const api = (p.report as { apiRequests?: FrozenLoadApiRequests }).apiRequests;
+      if (api) lines.push(loadApiRequestsLine(api, 'the target'));
       lines.push(
         ...frozenRecordTypeLines(
           (p.report as { recordTypesGiven?: RecordTypeGiven[] }).recordTypesGiven,
@@ -1821,6 +1847,9 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
       // What the load's gate would make of the emails of what still runs.
       const emails = (p.plan as { emails?: FrozenLoadEmailsInfo }).emails;
       if (emails) lines.push(...loadEmailsLines(emails, 'the target'));
+      // And of the API requests it would take of the target.
+      const api = (p.plan as { apiRequests?: FrozenLoadApiRequests }).apiRequests;
+      if (api) lines.push(loadApiRequestsLine(api, 'the target'));
       return lines;
     }
     case 'frozen:verify:result': {
@@ -2686,6 +2715,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // delivered without --accept-emails, under the load's own code.
           const emailsRefused = plan?.emails?.refused;
           if (emailsRefused) wouldRefuse(emailsRefused);
+          // And its gate on the API requests it takes of the target, its
+          // checkpoint and its mute's lease among them: past what the target
+          // has left today, under API_BUDGET_EXCEEDED, as the load is.
+          const apiRefused = plan?.apiRequests?.refused;
+          if (apiRefused) wouldRefuse(apiRefused);
           // What a reload's purge would fire, read and judged as the reload
           // reads it before it writes: a dry run that let by what its run then
           // refused would have a plan apply what it cannot. Asked with a
@@ -3166,6 +3200,8 @@ const LOAD_REFUSED_BEFORE_WRITING: ReadonlySet<string> = new Set([
   'FROZEN_EMAILS_EXCEEDED',
   // Its question on what runs as it writes, asked before them.
   'AUTOMATION_NOT_ACCEPTED',
+  // Its gate on the API requests, before anything is taken for it.
+  API_BUDGET_EXCEEDED,
 ]);
 
 /**

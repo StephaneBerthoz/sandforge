@@ -3602,6 +3602,7 @@ describe('reduced motion', () => {
     for (const prop of [
       'animation-duration',
       'animation-iteration-count',
+      'transition-property',
       'transition-duration',
       'scroll-behavior',
     ]) {
@@ -3611,6 +3612,9 @@ describe('reduced motion', () => {
       expect(decl?.important, `${prop} is not !important`).toBe(true);
     }
     expect(declared.get('animation-iteration-count')?.value).toBe('1');
+    // A duration alone left `transition-all` a transition one frame long. The
+    // rendered proof is e2e/reduced-motion.spec.ts; this guards the rule only.
+    expect(declared.get('transition-property')?.value).toBe('none');
     expect(universal?.selectors.map((s) => s.trim())).toEqual(
       expect.arrayContaining(['*::before', '*::after']),
     );

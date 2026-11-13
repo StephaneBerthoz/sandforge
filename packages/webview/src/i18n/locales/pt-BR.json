@@ -5557,6 +5557,12 @@
         "exceeded": "Além do que resta hoje a {{org}}, cada registro cujo fluxo falha ao salvar é recusado: a carga seria recusada, nada gravado, seja o que for que a caixa diga. Silencie o que os envia, ou carregue numa org com mais e-mails restantes hoje.",
         "uncounted": "Nem todos foram contados: {{why}} não pôde ser lido."
       },
+      "apiRequests": {
+        "fits": "Solicitações de API: cerca de {{estimate}}, das {{remaining}} que restam a {{org}} de suas {{max}} diárias.",
+        "near": "Solicitações de API: cerca de {{estimate}}, o que deixaria {{org}} com menos de um décimo de suas {{max}} diárias ({{remaining}} restantes).",
+        "exceeds": "Solicitações de API: cerca de {{estimate}}, mais do que as {{remaining}} que restam a {{org}} de suas {{max}} diárias: a carga seria recusada.",
+        "unread": "Solicitações de API: cerca de {{estimate}}. O que resta hoje a {{org}} não pôde ser lido ({{reason}})."
+      },
       "automation": {
         "title": "O que {{org}} executa quando a carga insere seus registros e os atualiza:",
         "onInsert": "{{object}} — {{what}}, ao inserir seus registros",
@@ -5851,6 +5857,10 @@
       "emailsExceeded": {
         "explanation": "A carga faria {{org}} enviar mais e-mails do que lhe restam hoje ({{limit}}: cerca de {{emails}}, {{remaining}} de {{max}} restantes), e nada foi gravado.",
         "action": "Marque o silêncio da automação para calar o que os envia, ou carregue numa org com mais e-mails restantes hoje."
+      },
+      "apiBudgetExceeded": {
+        "explanation": "A carga usaria cerca de {{estimate}} solicitações de API de {{org}}, à qual restam {{remaining}} de suas {{max}} diárias: ela pararia no meio do caminho, e nada foi gravado.",
+        "action": "Carregue quando a org tiver solicitações de sobra — o limite diário é contado nas últimas 24 horas —, ou numa org com mais restantes hoje."
       },
       "automationNotAccepted": {
         "explanation": "{{org}} executa automações quando a carga grava seus registros ({{named}}), e nada foi gravado.",

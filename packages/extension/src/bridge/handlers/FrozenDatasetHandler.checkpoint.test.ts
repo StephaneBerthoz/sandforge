@@ -490,8 +490,18 @@ describe('frozen:load, the checkpoint taken first', () => {
     expect(port.scope.mock.calls[0]?.[0].running.firing).toEqual([]);
     expect(org.writes).toEqual([]);
     expect(port.take).not.toHaveBeenCalled();
+    // Its requests counted with the load's, as the load's gate counts them;
+    // the target here does not say what it has left.
     expect(posted('frozen:load:preview:response')[0]?.payload).toEqual({
-      plan: { orgId: 'org-2', perObject: [], checkpoint: ESTIMATE },
+      plan: {
+        orgId: 'org-2',
+        perObject: [],
+        checkpoint: ESTIMATE,
+        apiRequests: expect.objectContaining({
+          verdict: 'unread',
+          parts: expect.objectContaining({ checkpoint: 8, mute: 7 }),
+        }),
+      },
     });
   });
 

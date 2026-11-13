@@ -1412,3 +1412,112 @@ describe('sandforge-frozen load, and what the target runs as it inserts', () => 
     expect(answer).not.toHaveProperty('refused');
   });
 });
+
+describe('sandforge-frozen load, held to the daily API requests the target has left', () => {
+  /** What the target runs as the records go in: nothing, read in no request. */
+  const NOTHING_RUNS = {
+    objectsRead: ['Account', 'Contact'],
+    objects: [],
+    bypassGrants: [],
+    unread: [],
+    requests: 0,
+  } as unknown as ForgeTargetAutomation;
+
+  /** The target, its limits saying it has `remaining` of its 15,000 daily requests left. */
+  function limitedTo(remaining: number): string[] {
+    const { writes, conn } = targetOrg();
+    const answering = {
+      ...conn,
+      request: async ({ url }: { url: string }) => {
+        if (url === '/limits') return { DailyApiRequests: { Max: 15_000, Remaining: remaining } };
+        throw new Error(`not answered: ${url}`);
+      },
+    };
+    vi.mocked(makeConn).mockReturnValue(answering as unknown as Connection);
+    vi.mocked(getJsforceConnection).mockResolvedValue(answering as never);
+    vi.spyOn(TargetAutomationReader.prototype, 'read').mockResolvedValue(NOTHING_RUNS);
+    return writes;
+  }
+
+  it('ends on the line a refused run ends on, its code named, and gives the code under refused: exit 1', async () => {
+    // A load read no limit of the requests: into an org whose integrations
+    // had spent the day's, it stopped part way through.
+    const writes = limitedTo(3);
+    const said: string[] = [];
+    vi.mocked(process.stderr.write).mockImplementation(((chunk: string) => {
+      said.push(String(chunk));
+      return true;
+    }) as never);
+
+    await main(argv('load', '--config', configPath, '--target', 'TGT', '--yes', '--json'));
+
+    expect(writes).toEqual([]);
+    expect(process.exitCode).toBe(1);
+    const answer = JSON.parse(printed.join('')) as {
+      refused?: { code: string; message: string };
+      refusalCodes?: string[];
+    };
+    expect(answer.refused).toEqual({
+      code: 'API_BUDGET_EXCEEDED',
+      message: expect.stringContaining('has 3 of its 15000 daily requests left'),
+    });
+    expect(answer.refusalCodes).toEqual(['API_BUDGET_EXCEEDED']);
+    const lines = said.join('').trimEnd().split('\n');
+    expect(lines.at(-1)).toBe(`refused (API_BUDGET_EXCEEDED): ${answer.refused?.message}`);
+    expect(said.join('')).not.toContain('! frozen:load:error');
+  });
+
+  it('says with --dry-run what a load would take and that it would be refused: exit 1', async () => {
+    const writes = limitedTo(3);
+    vi.spyOn(FrozenDatasetLoader.prototype, 'planLoad').mockResolvedValue({
+      orgId: ORG_ID,
+      mode: { pilot: false, reload: false },
+      plannedAt: '2026-10-21T10:00:00.000Z',
+      perObject: [],
+      excludedObjects: [],
+      removals: [],
+      placeholders: [],
+      requiredDefaults: [],
+      recordTypeIssues: 0,
+      personContacts: 0,
+      earlierLoads: 0,
+    } as unknown as FrozenLoadPlanInfo);
+
+    await main(argv('load', '--config', configPath, '--target', 'TGT', '--dry-run'));
+
+    expect(writes).toEqual([]);
+    expect(process.exitCode).toBe(1);
+    const said = printed.join('');
+    expect(said).toMatch(
+      /\n {2}API requests: about \d+, of the 3 the target has left of its 15000 a day: more than it has left\n/,
+    );
+    expect(said).toContain('a load would be refused (API_BUDGET_EXCEEDED): The run takes about');
+  });
+
+  it('says on a load it lets by what it took of what the target had left', async () => {
+    limitedTo(14_000);
+    vi.spyOn(FrozenDatasetLoader.prototype, 'load').mockResolvedValue({
+      status: 'completed',
+      orgId: ORG_ID,
+      mode: { pilot: false, reload: false },
+      startedAt: '2026-10-21T10:00:00.000Z',
+      durationMs: 10,
+      alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+      placeholders: [],
+      requiredDefaults: [],
+      perObject: [],
+      pass2: { resolved: 0, unresolved: [] },
+      personContact: { restored: 0, sent: [], unresolved: [] },
+      statuses: { restored: 0, refused: [] },
+      purge: { deleted: {}, deactivated: {}, failures: [] },
+      mappingPath: '',
+      contractPath: join(sasDir, 'no-such-contract.json'),
+    } as never);
+
+    await main(argv('load', '--config', configPath, '--target', 'TGT', '--yes'));
+
+    expect(printed.join('')).toMatch(
+      /\n {2}API requests: about \d+, of the 14000 the target has left of its 15000 a day\n/,
+    );
+  });
+});

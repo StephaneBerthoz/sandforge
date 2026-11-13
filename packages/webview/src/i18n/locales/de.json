@@ -5557,6 +5557,12 @@
         "exceeded": "Über das hinaus, was {{org}} heute bleibt, wird jeder Datensatz abgelehnt, dessen Flow beim Speichern scheitert: Der Ladevorgang würde abgelehnt, nichts geschrieben, was auch immer das Kästchen sagt. Schalten Sie stumm, was sie sendet, oder laden Sie in eine Org mit mehr verbleibenden E-Mails.",
         "uncounted": "Nicht alle wurden gezählt: {{why}} ließ sich nicht lesen."
       },
+      "apiRequests": {
+        "fits": "API-Anfragen: etwa {{estimate}}, von den {{remaining}}, die {{org}} von ihren {{max}} pro Tag bleiben.",
+        "near": "API-Anfragen: etwa {{estimate}}, womit {{org}} weniger als ein Zehntel ihrer {{max}} pro Tag bliebe ({{remaining}} übrig).",
+        "exceeds": "API-Anfragen: etwa {{estimate}}, mehr als die {{remaining}}, die {{org}} von ihren {{max}} pro Tag bleiben: Der Ladevorgang würde abgelehnt.",
+        "unread": "API-Anfragen: etwa {{estimate}}. Was {{org}} heute bleibt, konnte nicht gelesen werden ({{reason}})."
+      },
       "automation": {
         "title": "Was {{org}} ausführt, wenn der Ladevorgang seine Datensätze einfügt und aktualisiert:",
         "onInsert": "{{object}} — {{what}}, beim Einfügen seiner Datensätze",
@@ -5851,6 +5857,10 @@
       "emailsExceeded": {
         "explanation": "Der Ladevorgang ließe {{org}} mehr E-Mails senden, als ihr heute bleiben ({{limit}}: etwa {{emails}}, {{remaining}} von {{max}} verbleibend), und nichts wurde geschrieben.",
         "action": "Haken Sie das Stummschalten der Automatisierung an, um still zu halten, was sie sendet, oder laden Sie in eine Org mit mehr verbleibenden E-Mails."
+      },
+      "apiBudgetExceeded": {
+        "explanation": "Der Ladevorgang bräuchte etwa {{estimate}} API-Anfragen von {{org}}, der von ihren {{max}} pro Tag noch {{remaining}} bleiben: Er bliebe mittendrin stehen, und nichts wurde geschrieben.",
+        "action": "Laden Sie, sobald die Org Anfragen übrig hat — das Tageslimit zählt über die letzten 24 Stunden —, oder in eine Org, der heute mehr bleiben."
       },
       "automationNotAccepted": {
         "explanation": "{{org}} führt Automatisierungen aus, wenn der Ladevorgang seine Datensätze schreibt ({{named}}), und nichts wurde geschrieben.",
