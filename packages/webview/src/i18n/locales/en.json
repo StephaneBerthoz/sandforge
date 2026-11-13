@@ -4143,6 +4143,7 @@
     "leftOut": {
       "missingInTarget": "Not in the target org",
       "notWritable": "Not created, edited and deleted by you in the target org",
+      "createOnly": "Created by you in the target org, but not edited or deleted there: a clone edits what it wrote to fill in its lookups, and its removal deletes it",
       "notQueryable": "Not queried by you in the source org",
       "unreadable": "Refused by the source org",
       "notDescribed": "Their description could not be read",
@@ -4161,7 +4162,9 @@
       "platformCreated": "Created by Salesforce alone, such as approvals, Einstein insights and invoices",
       "customSetting": "Custom settings: configuration, not copied unless asked",
       "feature": "a feature the target has not turned on keeps it closed",
-      "parent": "opened by the records it hangs from, if at all"
+      "parent": "opened by the records it hangs from, if at all",
+      "noEdit": "not edited by you",
+      "noDelete": "not deleted by you"
     },
     "depthAllTooltip": "Every record of every object the source org lets Forge read and the target lets it create",
     "depthAllHint": "ALL copies the whole source org: every object the target can create, every record of each, with no cap. Objects Salesforce does not let an API create are left out, and Review names them. Files are copied only if you tick them on Review.",
@@ -5015,6 +5018,12 @@
       "heldBack": "Held back",
       "heldBackRows_one": "{{formatted}} record of {{objects}}, whose record type is closed to the user the run writes as",
       "heldBackRows_other": "{{formatted}} records of {{objects}}, whose record type is closed to the user the run writes as",
+      "heldUnder": "Held back with their parent",
+      "heldUnderRows_one": "{{formatted}} record of {{objects}}, under a record held back that it cannot be written without",
+      "heldUnderRows_other": "{{formatted}} records of {{objects}}, under records held back that they cannot be written without",
+      "leftAside": "Left aside",
+      "leftAsideRows_one": "{{formatted}} record of {{objects}}: a lookup it may not leave empty names a record the source does not hold, so no copy can write it",
+      "leftAsideRows_other": "{{formatted}} records of {{objects}}: a lookup they may not leave empty names a record the source does not hold, so no copy can write them",
       "personalAsIs": "Personal fields copied as they are",
       "personalNone": "none: every one is anonymized",
       "personalFields_one": "{{formatted}} field, on {{objects}}",
@@ -7033,6 +7042,10 @@
     "graphWithoutEdges": {
       "explanation": "This graph is the one the history keeps of a clone of the whole org, without the relations between its objects, which a run orders its writes and maps its lookups by. It cannot be run as it is. Nothing was read or written.",
       "action": "Discover the org again from the Forge panel, with the ALL depth, and run it from Review."
+    },
+    "nothingToClone": {
+      "explanation": "Every object of the source org that holds records is left out of this clone of the whole org, so there is nothing to clone. Nothing was written.",
+      "action": "Tick at least one object on Review, then execute the clone again."
     }
   },
   "moduleSummary": {

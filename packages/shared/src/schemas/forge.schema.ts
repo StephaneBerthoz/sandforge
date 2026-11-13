@@ -380,6 +380,7 @@ export const forgeLeftOutReasonSchema = z.enum([
   'empty',
   'unreadable',
   'notWritable',
+  'createOnly',
   'setup',
   'platformCreated',
   'metadata',

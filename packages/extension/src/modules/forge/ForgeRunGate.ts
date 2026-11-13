@@ -257,8 +257,23 @@ export interface WritePlan {
 export interface WritePlanLeftOut {
   /** Rows the run it retries or resumes wrote, which it links to. */
   writtenBefore: number;
-  /** Per object held back whole for a record type closed to the user the run writes as, its rows. */
+  /**
+   * Per object, its rows held back for a record type closed to the user the
+   * run writes as: the whole object, or, in a clone of the whole org that
+   * writes its other rows, those of the closed types.
+   */
   heldBack: Array<{ objectApiName: string; rows: number }>;
+  /**
+   * Of a clone of the whole org, per object, the rows held back with a
+   * record they cannot be written without, held back itself. Absent when none.
+   */
+  withoutParent?: Array<{ objectApiName: string; rows: number }>;
+  /**
+   * Of a clone of the whole org, per object, the rows left aside: a lookup
+   * they may not leave empty names a record the source does not hold, or
+   * one so left aside. Absent when none.
+   */
+  noParentInSource?: Array<{ objectApiName: string; rows: number }>;
   /**
    * Per object, the rows the platform writes itself with a record the run
    * creates, which the write links to and never sends. Absent when none.
@@ -340,6 +355,12 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
       ? [{ objectApiName, ...leftOut.linkedByValue }]
       : [],
   );
+  const rowsOf = (kind: 'withoutParent' | 'noParentInSource') =>
+    objects
+      .filter((object) => (object.leftOut?.[kind] ?? 0) > 0)
+      .map(({ objectApiName, leftOut }) => ({ objectApiName, rows: leftOut?.[kind] ?? 0 }));
+  const withoutParent = rowsOf('withoutParent');
+  const noParentInSource = rowsOf('noParentInSource');
   return {
     objects: measured,
     totalRows: measured.reduce((sum, object) => sum + object.rows, 0),
@@ -347,13 +368,17 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
     ...(writtenBefore > 0 ||
     heldBack.length > 0 ||
     byThePlatform.length > 0 ||
-    linkedByValue.length > 0
+    linkedByValue.length > 0 ||
+    withoutParent.length > 0 ||
+    noParentInSource.length > 0
       ? {
           leftOut: {
             writtenBefore,
             heldBack,
             ...(byThePlatform.length > 0 ? { byThePlatform } : {}),
             ...(linkedByValue.length > 0 ? { linkedByValue } : {}),
+            ...(withoutParent.length > 0 ? { withoutParent } : {}),
+            ...(noParentInSource.length > 0 ? { noParentInSource } : {}),
           },
         }
       : {}),
@@ -3396,8 +3421,20 @@ export function leftOutLines(leftOut: WritePlanLeftOut | undefined): string[] {
   }
   for (const { objectApiName, rows } of leftOut.heldBack) {
     lines.push(
-      `  not counted: ${objectApiName}, ${rows} record(s), held back whole for a record type ` +
+      `  not counted: ${objectApiName}, ${rows} record(s), held back for a record type ` +
         'closed to the user the run writes as',
+    );
+  }
+  for (const { objectApiName, rows } of leftOut.withoutParent ?? []) {
+    lines.push(
+      `  not counted: ${objectApiName}, ${rows} record(s) held back with a record they cannot ` +
+        'be written without, held back itself',
+    );
+  }
+  for (const { objectApiName, rows } of leftOut.noParentInSource ?? []) {
+    lines.push(
+      `  not counted: ${objectApiName}, ${rows} record(s) left aside: a lookup they may not ` +
+        'leave empty names a record the source does not hold, which no copy can write',
     );
   }
   for (const { objectApiName, rows } of leftOut.byThePlatform ?? []) {

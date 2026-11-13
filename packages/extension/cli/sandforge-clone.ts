@@ -156,6 +156,7 @@ import type { GlobalObject } from '../src/modules/checkpoint/checkpointScope.js'
 import {
   WholeOrgDryRunStop,
   carriedOf,
+  nothingToClone,
   pricedOfTheDryRun,
   wholeOrgConfirmationOf,
   type WholeOrgCarried,
@@ -3498,6 +3499,7 @@ const LEFT_OUT_WORDS: Readonly<Record<ForgeLeftOutReason, string>> = {
   empty: 'empty',
   unreadable: 'unreadable',
   notWritable: 'not writable in the target',
+  createOnly: 'creatable but not editable or deletable in the target',
   setup: 'setup',
   platformCreated: 'written by the platform alone',
   metadata: 'metadata',
@@ -9044,6 +9046,30 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       );
     }
     return;
+  }
+
+  // A clone of the whole org that copies no object is refused here, before
+  // the target's automation is read and before a journal is opened: run, it
+  // ended `success` with nothing written and kept a journal.
+  const nothing = wholeOrg ? nothingToClone(graph) : undefined;
+  if (nothing) {
+    recordClone({ outcome: 'stopped', code: nothing.code, context: runAudit().context() });
+    process.stderr.write(`${refusedLine(nothing)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        refusedSummary(
+          {
+            tool: 'sandforge-clone',
+            source: args.source,
+            target: args.target,
+            dryRun: args.dryRun,
+            elapsedMs: elapsedSince(t0),
+          },
+          nothing,
+        ),
+      );
+    }
+    process.exit(1);
   }
 
   // The journal of a run that writes, which says how it was set up: a run

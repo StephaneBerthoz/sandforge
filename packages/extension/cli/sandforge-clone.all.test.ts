@@ -38,6 +38,7 @@ import {
   parseRunSummary,
   removalPlan,
   runSummaryOfFile,
+  wholeOrgGraphLine,
   wholeOrgRefusalWords,
   wholeOrgRunConfig,
   wholeOrgSweepLine,
@@ -562,6 +563,31 @@ describe('sandforge-clone --depth all, a clone of the whole org', () => {
     });
   });
 
+  describe('its graph line', () => {
+    it('says an object the target creates and does not let edit or delete apart from one it does not let write', () => {
+      const line = wholeOrgGraphLine(
+        {
+          nodes: [],
+          edges: [],
+          totalRecords: 0,
+          estimatedSizeMB: 0,
+          estimatedDurationSeconds: 0,
+          leftOut: [
+            { objectApiName: 'AccountPartner', reason: 'createOnly', detail: 'noEdit' },
+            { objectApiName: 'BusinessHours', reason: 'createOnly', detail: 'noDelete' },
+            { objectApiName: 'AssetAction', reason: 'notWritable', detail: 'feature' },
+          ],
+        },
+        { waves: [], cycleResolutions: [] },
+        'SRC',
+      );
+
+      expect(line).toContain(
+        '3 left out (2 creatable but not editable or deletable in the target, 1 not writable in the target)',
+      );
+    });
+  });
+
   describe('its listing', () => {
     it('lists the objects it would copy, and what it leaves of the source with why, reading no row', async () => {
       const orgs = withFakeOrgs();
@@ -720,6 +746,36 @@ describe('sandforge-clone --depth all, a clone of the whole org', () => {
         'The clone of the whole org would write 11 records, more than the 5 --max-total holds it to',
       );
       expect(orgs.TGT.creates).toEqual([]);
+    });
+
+    it('is refused NOTHING_TO_CLONE, exit 1, when --exclude-object leaves out every object, a dry run as a run', async () => {
+      const everyObject = ['Account', 'Contact', 'ns__Policy__c', 'Ticket__c'].flatMap((name) => [
+        '--exclude-object',
+        name,
+      ]);
+      const runs = join(String(process.env['SANDFORGE_JOURNAL_DIR']), 'forge-runs');
+      const journalsBefore = existsSync(runs) ? readdirSync(runs).length : 0;
+      for (const flags of [['--dry-run'], ['--yes']]) {
+        stdout = [];
+        stderr = [];
+        const orgs = withFakeOrgs();
+
+        expect(await run(argv(...flags, '--json', ...everyObject))).toBe(1);
+
+        const answer = JSON.parse(stdout.join('')) as {
+          dryRun: boolean;
+          refused: { code: string; message: string };
+        };
+        expect(answer.dryRun).toBe(flags[0] === '--dry-run');
+        expect(answer.refused.code).toBe('NOTHING_TO_CLONE');
+        expect(answer.refused.message).toContain('4 of them by name');
+        expect(stderr.join('')).toContain('refused (NOTHING_TO_CLONE): Nothing to clone');
+        expect(stderr.join('')).not.toContain('write gate:');
+        expect(orgs.TGT.creates).toEqual([]);
+        expect(orgs.TGT.jobs).toEqual([]);
+      }
+      // No journal kept for a run that has nothing to write.
+      expect(existsSync(runs) ? readdirSync(runs).length : 0).toBe(journalsBefore);
     });
 
     it('anonymizes by default a source its Organization record says is a production org', async () => {

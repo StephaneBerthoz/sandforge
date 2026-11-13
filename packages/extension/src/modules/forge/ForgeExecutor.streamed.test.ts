@@ -1157,25 +1157,53 @@ describe('a run of whole tables read page by page', () => {
       paged.events.find((e) => e.objectName === 'Contact' && e.status === 'done'),
     ).toBeTruthy();
 
-    // Refused past half, the object is failed, and the contacts skipped.
+    // Refused past half, the object is failed: the contacts of the seven
+    // accounts it wrote go all the same, those of the others are held back.
     const refuseMost = (object: string, row: Row): string | undefined =>
       object === 'Account' && Number(String(row['Name']).split(' ')[1]) < 16
         ? 'FIELD_CUSTOM_VALIDATION_EXCEPTION: no'
         : undefined;
-    const failed = await runOver(
-      schema,
-      graph,
+    const runs: ExecuteOptions[] = [
+      {},
       { stream: { pageSize: 8 } },
-      { refuse: refuseMost },
-    );
-    expect(failed.events.filter((e) => e.objectName === 'Account' && e.status === 'error')).toEqual(
-      [
+      { stream: { everything: true } },
+    ];
+    for (const options of runs) {
+      const failed = await runOver(schema, graph, options, { refuse: refuseMost });
+      expect(
+        failed.events.filter((e) => e.objectName === 'Account' && e.status === 'error'),
+      ).toEqual([
         expect.objectContaining({
-          message: expect.stringMatching(/^16\/23 Account records failed \(>50%\)/),
+          message: expect.stringMatching(
+            /^16\/23 Account records failed \(>50%\).* — the records that cannot be written without one of those not written are held back$/,
+          ),
         }),
-      ],
-    );
-    expect(failed.insertCalls.some((call) => call.object === 'Contact')).toBe(false);
+      ]);
+      const contacts = Object.values(failed.written()['Contact'] ?? {});
+      // Contacts 16 to 22 and 39 name the accounts 16 to 22, which went in.
+      expect(contacts.map((row) => row['LastName']).sort()).toEqual(
+        [16, 17, 18, 19, 20, 21, 22, 39].map((n) => `Contact ${n}`).sort(),
+      );
+      expect(failed.events.filter((e) => e.objectName === 'Contact').pop()?.message).toMatch(
+        /: 8 succeeded, 32 failed, 32 of them held back for want of their parent/,
+      );
+      expect(failed.summary.skippedCount).toBe(0);
+      expect(failed.summary.errors).toContainEqual(
+        expect.objectContaining({
+          objectApiName: 'Contact',
+          stage: 'scope',
+          failedCount: 32,
+          samples: [
+            {
+              recordSummary: 'AccountId → Account (32 records)',
+              messages: [
+                'Not written: AccountId may not be left empty, and the Account it points at failed in this run.',
+              ],
+            },
+          ],
+        }),
+      );
+    }
   });
 
   describe('a run that keeps its journal, stopped part way and resumed from it', () => {
@@ -2749,6 +2777,20 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
     const columnsOf = (columns: readonly string[] | null, row: Row): Row =>
       Object.fromEntries((columns ?? []).map((c) => [c, row[c] ?? null]));
     const select = (soql: string, all: boolean): Row[] => {
+      // The rows whose lookup names no record of its object the source holds.
+      const orphans =
+        /^SELECT Id FROM (\w+) WHERE (\w+) != null AND (\w+) NOT IN \(SELECT Id FROM (\w+)\)$/.exec(
+          soql,
+        );
+      if (orphans) {
+        const [, object, field, , parent] = orphans;
+        const held = new Set(visible(parent, false).map((row) => String(row['Id']).slice(0, 15)));
+        return visible(object, all)
+          .filter(
+            (row) => typeof row[field] === 'string' && !held.has(String(row[field]).slice(0, 15)),
+          )
+          .map((row) => ({ Id: row['Id'] }));
+      }
       // The rows of each record type, as the org groups them.
       const grouped = /^SELECT RecordTypeId, COUNT\(Id\) n (FROM .+) GROUP BY RecordTypeId$/.exec(
         soql,
@@ -2896,6 +2938,257 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
     return running;
   }
 
+  describe('what a lookup its rows may not leave empty names', () => {
+    const region = (n: number): string => sourceId('Region__c', n);
+    const policy = (n: number): string => sourceId('Policy__c', n);
+    const invoice = (n: number): string => sourceId('Invoice__c', n);
+
+    /**
+     * Regions, the policies of each, and the invoices of each policy, every
+     * lookup one the rows may not leave empty: three policies name a region
+     * the source does not hold, as 34 prices of a scratch org's sample
+     * catalog named a price book and a product it held nowhere, not even
+     * among its deleted records; an invoice hangs from one of them.
+     */
+    function orphans(): { schema: Schema; graph: ForgeGraph } {
+      return {
+        schema: {
+          Region__c: {
+            fields: [text('Name')],
+            rows: [
+              { Id: region(1), Name: 'North' },
+              { Id: region(2), Name: 'South' },
+            ],
+          },
+          Policy__c: {
+            fields: [text('Name'), lookup('Region__c', 'Region__c', false)],
+            rows: [
+              { Id: policy(1), Name: 'P1', Region__c: region(1) },
+              { Id: policy(2), Name: 'P2', Region__c: region(2) },
+              { Id: policy(3), Name: 'P3', Region__c: region(9) },
+              { Id: policy(4), Name: 'P4', Region__c: region(9) },
+              { Id: policy(5), Name: 'P5', Region__c: region(8) },
+            ],
+          },
+          Invoice__c: {
+            fields: [text('Name'), lookup('Policy__c', 'Policy__c', false)],
+            rows: [
+              { Id: invoice(1), Name: 'I1', Policy__c: policy(1) },
+              { Id: invoice(2), Name: 'I2', Policy__c: policy(3) },
+            ],
+          },
+        },
+        graph: graphOf(
+          [node('Region__c', 2), node('Policy__c', 5), node('Invoice__c', 2)],
+          [edge('Region__c', 'Policy__c', true), edge('Policy__c', 'Invoice__c', true)],
+        ),
+      };
+    }
+
+    /**
+     * A clone of the whole org over such orgs, its gate told: a target that
+     * refuses a row sent without a lookup it may not leave empty, as the org
+     * refused the orphan prices, `REQUIRED_FIELD_MISSING`.
+     */
+    async function cloneTold(
+      schema: Schema,
+      graph: ForgeGraph,
+      orgOptions: WholeOrgOptions = {},
+      gate = true,
+    ) {
+      const orgs = wholeOrg(schema, orgOptions);
+      const insert = orgs.deps.insertRecords;
+      const refusedMissing: string[] = [];
+      orgs.deps.insertRecords = vi.fn(async (org: string, object: string, rows: Row[]) => {
+        const required =
+          object === 'Policy__c' ? 'Region__c' : object === 'Invoice__c' ? 'Policy__c' : '';
+        const missing = rows.filter((row) => required && !row[required]);
+        refusedMissing.push(...missing.map((row) => String(row['Name'])));
+        const sent = await insert(
+          org,
+          object,
+          rows.filter((row) => !missing.includes(row)),
+        );
+        let at = 0;
+        return rows.map((row) =>
+          missing.includes(row)
+            ? {
+                id: '',
+                success: false,
+                errors: [`REQUIRED_FIELD_MISSING: Required fields are missing: [${required}]`],
+              }
+            : sent[at++],
+        );
+      });
+      const boundaries: ForgeWriteBoundary[] = [];
+      const events: ForgeProgressEvent[] = [];
+      const summary = await orgs.executor.execute(graph, 'src', 'tgt', (e) => events.push(e), {
+        stream: { everything: true },
+        ...(gate ? { beforeWrite: async (b: ForgeWriteBoundary) => void boundaries.push(b) } : {}),
+      });
+      const written = (object: string): string[] =>
+        orgs.inserts
+          .filter((call) => call.object === object)
+          .flatMap(({ rows }) => rows.map((row) => String(row['Name'])))
+          .filter((name) => !refusedMissing.includes(name));
+      return { ...orgs, summary, events, boundaries, written, refusedMissing };
+    }
+
+    it('leaves aside, in its gate as in its run, the rows naming a record the source does not hold, and what hangs from them, failing none', async () => {
+      const { schema, graph } = orphans();
+      const run = await cloneTold(schema, graph);
+
+      // The gate counts what the run writes, and says what it leaves aside.
+      const plan = writePlanOf(run.boundaries[0]?.objects ?? []);
+      expect(plan.objects.map(({ objectApiName, rows }) => [objectApiName, rows])).toEqual([
+        ['Policy__c', 2],
+        ['Region__c', 2],
+        ['Invoice__c', 1],
+      ]);
+      expect(plan.leftOut?.noParentInSource).toEqual([
+        { objectApiName: 'Policy__c', rows: 3 },
+        { objectApiName: 'Invoice__c', rows: 1 },
+      ]);
+      // The run writes what the gate counted, and sends no row it leaves aside.
+      expect(run.refusedMissing).toEqual([]);
+      expect(run.written('Policy__c')).toEqual(['P1', 'P2']);
+      expect(run.written('Invoice__c')).toEqual(['I1']);
+      expect(run.summary.successCount).toBe(plan.totalRows);
+      expect(run.summary.failedCount).toBe(0);
+      expect(run.events.filter((e) => e.objectName === 'Policy__c').at(-1)).toMatchObject({
+        status: 'done',
+        message:
+          'Completed Policy__c: 2 succeeded, 0 failed, 3 left aside: Region__c may not be left ' +
+          'empty, and names a Region__c record the source does not hold',
+      });
+      expect(run.summary.errors).toEqual(
+        expect.arrayContaining([
+          {
+            objectApiName: 'Policy__c',
+            stage: 'scope',
+            failedCount: 0,
+            attemptedCount: 0,
+            samples: [
+              {
+                recordSummary: 'Region__c → Region__c (3 records)',
+                messages: [
+                  'Left aside, not written: Region__c may not be left empty, and names a ' +
+                    'Region__c record the source does not hold',
+                ],
+              },
+            ],
+          },
+          expect.objectContaining({
+            objectApiName: 'Invoice__c',
+            failedCount: 0,
+            samples: [
+              expect.objectContaining({
+                messages: [
+                  'Left aside, not written: Policy__c may not be left empty, and names a ' +
+                    'Policy__c record left aside',
+                ],
+              }),
+            ],
+          }),
+        ]),
+      );
+    });
+
+    it('finds them as it writes when no gate counted them, reading by id whether the source holds the record named', async () => {
+      const { schema, graph } = orphans();
+      const run = await cloneTold(schema, graph, {}, false);
+
+      expect(run.refusedMissing).toEqual([]);
+      expect(run.written('Policy__c')).toEqual(['P1', 'P2']);
+      expect(run.written('Invoice__c')).toEqual(['I1']);
+      expect(run.summary.failedCount).toBe(0);
+      // The two regions no policy written names, each asked once, page by page.
+      const asked = run.queries
+        .filter((soql) => soql.startsWith('SELECT Id FROM Region__c WHERE Id IN'))
+        .flatMap((soql) => [...soql.matchAll(/'(\w+)'/g)].map(([, id]) => id));
+      expect(asked.sort()).toEqual([region(8), region(9)].sort());
+    });
+
+    it('holds back the rows of a record type closed to the user alone, with what hangs from them, and writes the rest', async () => {
+      const { schema, graph } = orphans();
+      const open = recordType(1, true);
+      const closed = recordType(2, false);
+      schema['Region__c'] = {
+        fields: [text('Name'), lookup('RecordTypeId', 'RecordType', true)],
+        rows: [
+          { Id: region(1), Name: 'North', RecordTypeId: open.recordTypeId },
+          { Id: region(2), Name: 'South', RecordTypeId: closed.recordTypeId },
+          { Id: region(3), Name: 'East', RecordTypeId: open.recordTypeId },
+        ],
+      };
+      schema['Policy__c'].rows = [
+        { Id: policy(1), Name: 'P1', Region__c: region(1) },
+        { Id: policy(2), Name: 'P2', Region__c: region(2) },
+        { Id: policy(3), Name: 'P3', Region__c: region(3) },
+      ];
+      schema['Invoice__c'].rows = [
+        { Id: invoice(1), Name: 'I1', Policy__c: policy(2) },
+        { Id: invoice(2), Name: 'I2', Policy__c: policy(3) },
+      ];
+      const run = await cloneTold(schema, graph, { recordTypes: { Region__c: [open, closed] } });
+
+      const plan = writePlanOf(run.boundaries[0]?.objects ?? []);
+      expect(plan.objects.map(({ objectApiName, rows }) => [objectApiName, rows])).toEqual([
+        ['Policy__c', 2],
+        ['Region__c', 2],
+        ['Invoice__c', 1],
+      ]);
+      expect(plan.leftOut?.heldBack).toEqual([{ objectApiName: 'Region__c', rows: 1 }]);
+      expect(plan.leftOut?.withoutParent).toEqual([
+        { objectApiName: 'Policy__c', rows: 1 },
+        { objectApiName: 'Invoice__c', rows: 1 },
+      ]);
+      expect(run.written('Region__c')).toEqual(['North', 'East']);
+      expect(run.written('Policy__c')).toEqual(['P1', 'P3']);
+      expect(run.written('Invoice__c')).toEqual(['I2']);
+      expect(run.refusedMissing).toEqual([]);
+      expect(run.summary.successCount).toBe(plan.totalRows);
+      expect(run.summary.failedCount).toBe(3);
+      expect(run.events.filter((e) => e.objectName === 'Region__c').at(-1)).toMatchObject({
+        status: 'done',
+        message:
+          'Completed Region__c: 2 succeeded, 1 failed, 1 of them held back for a record type ' +
+          'closed to the user the run writes as',
+      });
+      expect(run.summary.errors).toContainEqual(
+        expect.objectContaining({
+          objectApiName: 'Region__c',
+          stage: 'scope',
+          failedCount: 1,
+          samples: [
+            {
+              recordSummary: 'RecordType=Closed_Type (1 record)',
+              messages: [
+                expect.stringMatching(/^RECORD_TYPE_UNAVAILABLE: 1 Region__c record uses/),
+              ],
+            },
+          ],
+        }),
+      );
+      expect(run.summary.errors).toContainEqual(
+        expect.objectContaining({
+          objectApiName: 'Invoice__c',
+          stage: 'scope',
+          failedCount: 1,
+          samples: [
+            {
+              recordSummary: 'Policy__c → Policy__c (1 record)',
+              messages: [
+                'Not written: Policy__c may not be left empty, and the Policy__c it points at was not written by this run.',
+              ],
+            },
+          ],
+        }),
+      );
+      expect(run.summary.skippedCount).toBe(0);
+    });
+  });
+
   describe('its emails and tasks', () => {
     it('writes the emails on a case after the tasks they name, a page at a time, and links each task the platform wrote with an email', async () => {
       const { schema, graph } = activities();
@@ -3031,7 +3324,7 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
       expect(run.counts.filter(({ all, soql }) => all && !/ FROM Task/.test(soql))).toEqual([]);
     });
 
-    it('reads the record types of the tasks through queryAll: one closed to the user that only archived tasks carry holds the tasks back before their first page', async () => {
+    it('reads the record types of the tasks through queryAll: one closed to the user that only archived tasks carry holds those tasks back alone', async () => {
       const { schema, graph } = activities();
       const open = recordType(1, true);
       const closed = recordType(2, false);
@@ -3057,11 +3350,26 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
         'src',
         expect.stringMatching(/GROUP BY RecordTypeId/),
       );
-      // Held back whole, the archived task counted with the others; the
-      // binned one never.
-      expect(run.inserts.filter(({ object }) => object === 'Task')).toEqual([]);
+      // The archived task held back for its record type, alone; the others
+      // written, the binned one never.
+      const subjects = run.inserts
+        .filter(({ object }) => object === 'Task')
+        .flatMap(({ rows }) => rows.map((row) => row['Subject']));
+      expect(subjects).toContain('Call back');
+      expect(subjects).not.toContain('Old call');
+      expect(subjects).not.toContain('Binned');
       expect(run.summary.errors).toContainEqual(
-        expect.objectContaining({ objectApiName: 'Task', stage: 'scope', failedCount: 4 }),
+        expect.objectContaining({
+          objectApiName: 'Task',
+          stage: 'scope',
+          failedCount: 1,
+          samples: [
+            expect.objectContaining({
+              recordSummary: 'RecordType=Closed_Type (1 record)',
+              messages: [expect.stringMatching(/^RECORD_TYPE_UNAVAILABLE: 1 Task record uses/)],
+            }),
+          ],
+        }),
       );
     });
 

@@ -633,6 +633,10 @@ export interface ForgeGraph {
  *   `detail: 'feature'` when a feature or licence the target has not turned
  *   on keeps it closed even to a user with Modify All Data, `'parent'` when
  *   no permission set opens it and the records it hangs from may.
+ * - `createOnly`: the target lets the user create its records, but not edit
+ *   them (`detail: 'noEdit'`) or not delete them (`'noDelete'`), or neither
+ *   (no `detail`): the run's second pass edits what it wrote, and its
+ *   removal and a rewind delete it.
  * - `setup`: users, permissions and the rest of setup, the org's logs and
  *   jobs, and what no user can create in the target, not even one with
  *   Modify All Data; `detail: 'noLayout'` when it is one the org gives no
@@ -659,6 +663,7 @@ export type ForgeLeftOutReason =
   | 'empty'
   | 'unreadable'
   | 'notWritable'
+  | 'createOnly'
   | 'setup'
   | 'platformCreated'
   | 'metadata'
@@ -681,7 +686,8 @@ export interface ForgeLeftOutObject {
    * translates — `noLayout` for setup the org gives no page layout,
    * `withTheirRecords` for a file the run copies with the records it hangs
    * on, `feature` and `parent` for an object the user may not create and
-   * another user might — or, for an object `unreadable` or `notDescribed`,
+   * another user might, `noEdit` and `noDelete` for one they may create and
+   * not edit, or not delete — or, for an object `unreadable` or `notDescribed`,
    * the org's own words, shown as the org said them.
    */
   detail?: string;
@@ -797,6 +803,10 @@ export interface ForgeWholeOrgDryRun {
       heldBack: Array<{ objectApiName: string; rows: number }>;
       byThePlatform?: Array<{ objectApiName: string; rows: number }>;
       linkedByValue?: Array<{ objectApiName: string; rows: number; fields: readonly string[] }>;
+      /** Rows held back with a record they cannot be written without, held back itself. */
+      withoutParent?: Array<{ objectApiName: string; rows: number }>;
+      /** Rows left aside: a lookup they may not leave empty names a record the source does not hold. */
+      noParentInSource?: Array<{ objectApiName: string; rows: number }>;
     };
   };
   /** Per object it writes, the personal fields it would copy as they are. */

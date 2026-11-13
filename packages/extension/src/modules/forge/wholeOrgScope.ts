@@ -260,6 +260,33 @@ function notCreatableReason(by: NotCreatableBy): { reason: ForgeLeftOutReason; d
   }
 }
 
+/**
+ * What a clone says of an object the target lets its user query and create
+ * but not edit, or not delete: the run's second pass edits what it wrote to
+ * fill in the lookups an insert could not, and its removal and a rewind
+ * delete it. Said "not writable in the target", a real run left out sixteen
+ * objects the target created, an account partner and a flow orchestration's
+ * instances among them, on a word that read as one they could not create.
+ * `detail` says which of the two is closed, nothing when both are. Nothing
+ * when the user may not create its records, or not query them.
+ */
+function createOnlyReason(
+  inTarget: GlobalObject,
+): { reason: ForgeLeftOutReason; detail?: string } | undefined {
+  if (inTarget.createable !== true || inTarget.queryable !== true) return undefined;
+  const edit = inTarget.updateable === true;
+  const remove = inTarget.deletable === true;
+  if (edit && remove) return undefined;
+  if (!edit && !remove) return { reason: 'createOnly' };
+  return { reason: 'createOnly', detail: edit ? NO_DELETE : NO_EDIT };
+}
+
+/** What `detail` says of an object the target lets the user create and not edit. */
+const NO_EDIT = 'noEdit';
+
+/** What `detail` says of an object the target lets the user create and edit, and not delete. */
+const NO_DELETE = 'noDelete';
+
 /** Names in code-unit order, so that the same orgs give the same list on any machine. */
 function byName<T extends { objectApiName: string }>(a: T, b: T): number {
   return a.objectApiName < b.objectApiName ? -1 : a.objectApiName > b.objectApiName ? 1 : 0;
@@ -316,6 +343,9 @@ export function wholeOrgCandidates(
       options.createFacts
     ) {
       said = notCreatableReason(notCreatableBy(inSource.name, options.createFacts));
+    }
+    if (said.reason === 'notWritable' && askedCreate && inTarget) {
+      said = createOnlyReason(inTarget) ?? said;
     }
     // The rule reads a feed or a setup object by its name before it reads
     // the layout, so setup said of an object no name rule leaves out is the

@@ -115,6 +115,7 @@ import {
   WholeOrgDryRunStop,
   carriedOf,
   isWholeOrgDryRunStop,
+  nothingToClone,
   wholeOrgConfirmationOf,
   type WholeOrgRun,
 } from '../../modules/forge/wholeOrgRun.js';
@@ -2263,6 +2264,13 @@ export class ForgeHandler implements DomainHandler {
     // org, often a production's, is not started without them seen.
     if (wholeOrg && reviewSkipped === true) {
       refuseBeforeTheGuard(WHOLE_ORG_DIRECT, WHOLE_ORG_DIRECT_MESSAGE);
+      return;
+    }
+    // Every object unticked on Review: run, it ended `success` with nothing
+    // written, and its dry run said how long it would take.
+    const nothing = wholeOrg ? nothingToClone(graph) : undefined;
+    if (nothing) {
+      refuseBeforeTheGuard(nothing.code, nothing.message);
       return;
     }
 

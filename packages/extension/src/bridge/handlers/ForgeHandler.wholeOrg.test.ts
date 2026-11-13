@@ -661,6 +661,32 @@ describe('forge:execute of the whole org', () => {
       ]);
     });
 
+    it('when every object is unticked on Review: nothing to clone, its dry run refused the same', async () => {
+      use(orchestratorHanding());
+      const graph = wholeOrgGraph();
+      const unticked = {
+        ...graph,
+        nodes: graph.nodes.map((n) => ({ ...n, included: false, leftOutByUser: true })),
+      };
+
+      await execute({ graph: unticked });
+
+      const refused = expectRefused('NOTHING_TO_CLONE');
+      expect(String(refused.message)).toContain('4 of them by name');
+      expect(handed).toEqual([]);
+      expect(questions).toEqual([]);
+      expect(runs()).toEqual([
+        expect.objectContaining({ outcome: 'stopped', details: { code: 'NOTHING_TO_CLONE' } }),
+      ]);
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await execute({ graph: unticked, config: { ...WHOLE_ORG, dryRun: true } });
+      expectRefused('NOTHING_TO_CLONE');
+      expect(handed).toEqual([]);
+      // A dry run is no write of the audit trail.
+      expect(runs()).toHaveLength(1);
+    });
+
     it('when its journal cannot be kept: it keeps on disk what a whole org does not fit in memory with', async () => {
       handler.setForgeOrchestrator(orchestratorHanding(), { targetAutomation: readerOf(QUIET) });
 

@@ -4143,6 +4143,7 @@
     "leftOut": {
       "missingInTarget": "Não existem na org de destino",
       "notWritable": "Você não pode criá-los, editá-los e excluí-los na org de destino",
+      "createOnly": "Você pode criá-los na org de destino, mas não editá-los nem excluí-los: um clone edita o que gravou para preencher suas pesquisas, e sua remoção o exclui",
       "notQueryable": "Você não pode consultá-los na org de origem",
       "unreadable": "Recusados pela org de origem",
       "notDescribed": "Não foi possível ler a descrição",
@@ -4161,7 +4162,9 @@
       "platformCreated": "Criados apenas pelo Salesforce, como aprovações, insights do Einstein e faturas",
       "customSetting": "Configurações personalizadas: configuração, não copiada a menos que se peça",
       "feature": "um recurso que o destino não ativou o mantém fechado",
-      "parent": "aberto pelos registros dos quais depende, se tanto"
+      "parent": "aberto pelos registros dos quais depende, se tanto",
+      "noEdit": "você não pode editá-los",
+      "noDelete": "você não pode excluí-los"
     },
     "depthAllTooltip": "Cada registro de cada objeto que a org de origem deixa o Forge ler e que o destino deixa criar",
     "depthAllHint": "ALL copia a org de origem inteira: cada objeto que o destino pode criar, cada registro de cada um, sem limite. Os objetos que o Salesforce não deixa criar pela API ficam de fora, e a revisão os nomeia. Os arquivos só são copiados se você os marcar na revisão.",
@@ -5015,6 +5018,12 @@
       "heldBack": "Retidos",
       "heldBackRows_one": "{{formatted}} registro de {{objects}}, cujo tipo de registro está fechado para o usuário com que a execução grava",
       "heldBackRows_other": "{{formatted}} registros de {{objects}}, cujo tipo de registro está fechado para o usuário com que a execução grava",
+      "heldUnder": "Retidos com seu registro pai",
+      "heldUnderRows_one": "{{formatted}} registro de {{objects}}, sob um registro retido sem o qual não pode ser gravado",
+      "heldUnderRows_other": "{{formatted}} registros de {{objects}}, sob registros retidos sem os quais não podem ser gravados",
+      "leftAside": "Deixados de lado",
+      "leftAsideRows_one": "{{formatted}} registro de {{objects}}: uma pesquisa que ele não pode deixar vazia nomeia um registro que a origem não contém, então nenhuma cópia pode gravá-lo",
+      "leftAsideRows_other": "{{formatted}} registros de {{objects}}: uma pesquisa que eles não podem deixar vazia nomeia um registro que a origem não contém, então nenhuma cópia pode gravá-los",
       "personalAsIs": "Campos pessoais copiados como estão",
       "personalNone": "nenhum: todos são anonimizados",
       "personalFields_one": "{{formatted}} campo, em {{objects}}",
@@ -7033,6 +7042,10 @@
     "graphWithoutEdges": {
       "explanation": "Este grafo é o que o histórico guarda de um clone da org inteira, sem as relações entre seus objetos, pelas quais uma execução ordena suas gravações e liga suas pesquisas. Ele não pode ser executado como está. Nada foi lido nem gravado.",
       "action": "Descubra a org de novo pelo painel do Forge, com a profundidade ALL, e execute-a pela revisão."
+    },
+    "nothingToClone": {
+      "explanation": "Cada objeto da org de origem que contém registros fica de fora deste clone da org inteira: não há nada a clonar. Nada foi gravado.",
+      "action": "Marque ao menos um objeto na revisão e execute o clone de novo."
     }
   },
   "moduleSummary": {

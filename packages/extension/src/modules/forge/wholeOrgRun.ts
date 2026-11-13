@@ -6,7 +6,7 @@
  * the same dry run and put the same question.
  */
 
-import type { ForgeConfig } from '@sandforge/shared';
+import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
 import { namespaceOf } from '../checkpoint/checkpointScope.js';
 import type {
   WholeOrgAllowance,
@@ -82,6 +82,34 @@ export class WholeOrgDryRunStop extends Error {
     );
     this.name = 'WholeOrgDryRunStop';
   }
+}
+
+/** Why a clone of the whole org that copies no object is refused: see {@link nothingToClone}. */
+export const NOTHING_TO_CLONE = 'NOTHING_TO_CLONE';
+
+/**
+ * The refusal of a clone of the whole org whose graph copies no object —
+ * each left out by name, or none of the source's holding a record the target
+ * can take — or nothing when it copies one. Run for real with every object
+ * left out by `--exclude-object`, it ended `success` with nothing written and
+ * kept a journal, and its dry run said it would take about a minute. Refused
+ * before anything is written, as a run past `--max-total` is, by the command
+ * line and the panel alike.
+ */
+export function nothingToClone(
+  graph: Pick<ForgeGraph, 'nodes'>,
+): { code: typeof NOTHING_TO_CLONE; message: string } | undefined {
+  if (graph.nodes.some((node) => node.included)) return undefined;
+  const byName = graph.nodes.filter((node) => node.leftOutByUser === true).length;
+  return {
+    code: NOTHING_TO_CLONE,
+    message:
+      byName > 0
+        ? `Nothing to clone: every object of the source that holds records is left out, ` +
+          `${byName} of them by name. Leave fewer out. Nothing was written.`
+        : 'Nothing to clone: no object of the source holds records the target can take. ' +
+          'Nothing was written.',
+  };
 }
 
 /**

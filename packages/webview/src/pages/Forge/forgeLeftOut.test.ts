@@ -42,6 +42,17 @@ describe('what the page says of an object left out', () => {
     expect(leftOutReasonLabel(t, 'notWritable')).toBe(
       'Not created, edited and deleted by you in the target org',
     );
+    // An object the target creates is not said to be closed to the user.
+    expect(leftOutReasonLabel(t, 'createOnly')).toMatch(
+      /^Created by you in the target org, but not edited or deleted there/,
+    );
+    expect(
+      leftOutByReason([
+        { objectApiName: 'BusinessHours', reason: 'createOnly', detail: 'noDelete' },
+        { objectApiName: 'AssetAction', reason: 'notWritable', detail: 'feature' },
+        { objectApiName: 'Asset', reason: 'empty' },
+      ]).map((group) => group.reason),
+    ).toEqual(['notWritable', 'createOnly', 'empty']);
   });
 
   it('translates the two words it knows of a detail, and gives the org’s own as it said them', () => {
@@ -65,6 +76,16 @@ describe('what the page says of an object left out', () => {
     expect(
       leftOutDetail(t, { objectApiName: 'Note', reason: 'notWritable', detail: 'parent' }),
     ).toBe('opened by the records it hangs from, if at all');
+    expect(
+      leftOutDetail(t, { objectApiName: 'AccountPartner', reason: 'createOnly', detail: 'noEdit' }),
+    ).toBe('not edited by you');
+    expect(
+      leftOutDetail(t, {
+        objectApiName: 'BusinessHours',
+        reason: 'createOnly',
+        detail: 'noDelete',
+      }),
+    ).toBe('not deleted by you');
     // A word of the org's that happens to name a property of every object is
     // still the org's word.
     expect(

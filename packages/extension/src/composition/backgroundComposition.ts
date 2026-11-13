@@ -1216,7 +1216,25 @@ function writeQuestion(question: WriteConfirmation): string[] {
   for (const { objectApiName, rows } of leftOut?.heldBack ?? []) {
     lines.push(
       vscode.l10n.t(
-        'Not counted: {0}, {1} records, held back whole for a record type closed to the user the run writes as.',
+        'Not counted: {0}, {1} records, held back for a record type closed to the user the run writes as.',
+        objectApiName,
+        rows,
+      ),
+    );
+  }
+  for (const { objectApiName, rows } of leftOut?.withoutParent ?? []) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0}, {1} records held back with a record they cannot be written without, held back itself.',
+        objectApiName,
+        rows,
+      ),
+    );
+  }
+  for (const { objectApiName, rows } of leftOut?.noParentInSource ?? []) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0}, {1} records left aside: a lookup they may not leave empty names a record the source does not hold, which no copy can write.',
         objectApiName,
         rows,
       ),

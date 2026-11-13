@@ -4143,6 +4143,7 @@
     "leftOut": {
       "missingInTarget": "Absents de l'org cible",
       "notWritable": "Que vous ne pouvez pas créer, modifier et supprimer dans l'org cible",
+      "createOnly": "Que vous pouvez créer dans l'org cible, mais pas modifier ou supprimer : un clonage modifie ce qu'il a écrit pour remplir ses recherches, et son retrait le supprime",
       "notQueryable": "Que vous ne pouvez pas interroger dans l'org source",
       "unreadable": "Refusés par l'org source",
       "notDescribed": "Description illisible",
@@ -4161,7 +4162,9 @@
       "platformCreated": "Créés par Salesforce seul, comme les approbations, les insights Einstein et les factures",
       "customSetting": "Paramètres personnalisés : de la configuration, non copiée sauf demande",
       "feature": "une fonctionnalité que la cible n'a pas activée le garde fermé",
-      "parent": "ouvert par les enregistrements dont il dépend, s'il l'est"
+      "parent": "ouvert par les enregistrements dont il dépend, s'il l'est",
+      "noEdit": "que vous ne pouvez pas modifier",
+      "noDelete": "que vous ne pouvez pas supprimer"
     },
     "depthAllTooltip": "Chaque enregistrement de chaque objet que l'org source laisse lire à Forge et que la cible le laisse créer",
     "depthAllHint": "ALL copie toute l'org source : chaque objet que la cible peut créer, chaque enregistrement de chacun, sans plafond. Les objets que Salesforce ne laisse pas créer par l'API sont écartés, et la revue les nomme. Les fichiers ne sont copiés que si vous les cochez dans la revue.",
@@ -5015,6 +5018,12 @@
       "heldBack": "Retenus",
       "heldBackRows_one": "{{formatted}} enregistrement de {{objects}}, dont le type d'enregistrement est fermé à l'utilisateur sous lequel le clonage écrit",
       "heldBackRows_other": "{{formatted}} enregistrements de {{objects}}, dont le type d'enregistrement est fermé à l'utilisateur sous lequel le clonage écrit",
+      "heldUnder": "Retenus avec leur parent",
+      "heldUnderRows_one": "{{formatted}} enregistrement de {{objects}}, sous un enregistrement retenu sans lequel il ne peut pas être écrit",
+      "heldUnderRows_other": "{{formatted}} enregistrements de {{objects}}, sous des enregistrements retenus sans lesquels ils ne peuvent pas être écrits",
+      "leftAside": "Laissés de côté",
+      "leftAsideRows_one": "{{formatted}} enregistrement de {{objects}} : une recherche qu'il ne peut pas laisser vide nomme un enregistrement que la source ne contient pas, donc aucune copie ne peut l'écrire",
+      "leftAsideRows_other": "{{formatted}} enregistrements de {{objects}} : une recherche qu'ils ne peuvent pas laisser vide nomme un enregistrement que la source ne contient pas, donc aucune copie ne peut les écrire",
       "personalAsIs": "Champs personnels copiés tels quels",
       "personalNone": "aucun : chacun est anonymisé",
       "personalFields_one": "{{formatted}} champ, sur {{objects}}",
@@ -7033,6 +7042,10 @@
     "graphWithoutEdges": {
       "explanation": "Ce graphe est celui que l'historique garde d'un clonage de toute l'org, sans les relations entre ses objets, d'après lesquelles un clonage ordonne ses écritures et relie ses recherches. Il ne peut pas être exécuté tel quel. Rien n'a été lu ni écrit.",
       "action": "Découvrez à nouveau l'org depuis le panneau Forge, avec la profondeur ALL, et exécutez-la depuis la revue."
+    },
+    "nothingToClone": {
+      "explanation": "Chaque objet de l'org source qui contient des enregistrements est laissé de côté par ce clonage de toute l'org : il n'y a rien à cloner. Rien n'a été écrit.",
+      "action": "Cochez au moins un objet dans la revue, puis exécutez à nouveau le clonage."
     }
   },
   "moduleSummary": {

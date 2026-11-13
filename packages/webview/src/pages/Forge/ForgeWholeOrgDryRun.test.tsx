@@ -57,6 +57,28 @@ describe('ForgeWholeOrgDryRunResult', () => {
     );
   });
 
+  it('says the records the run holds back with their parent and those it leaves aside, its parent not in the source', () => {
+    const dry = wholeOrgDryRun();
+    renderDry({
+      leftOut: {
+        ...dry.leftOut,
+        rows: {
+          writtenBefore: 0,
+          heldBack: [{ objectApiName: 'Opportunity', rows: 1 }],
+          withoutParent: [{ objectApiName: 'OpportunityLineItem', rows: 4 }],
+          noParentInSource: [{ objectApiName: 'PricebookEntry', rows: 34 }],
+        },
+      },
+    });
+
+    expect(screen.getByTestId('forge-whole-org-dry-run-held-under').textContent).toBe(
+      '4 records of OpportunityLineItem, under records held back that they cannot be written without',
+    );
+    expect(screen.getByTestId('forge-whole-org-dry-run-left-aside').textContent).toBe(
+      '34 records of PricebookEntry: a lookup they may not leave empty names a record the source does not hold, so no copy can write them',
+    );
+  });
+
   it('says the run would go through when nothing refuses it', () => {
     renderDry({ wouldBeRefused: [] });
 

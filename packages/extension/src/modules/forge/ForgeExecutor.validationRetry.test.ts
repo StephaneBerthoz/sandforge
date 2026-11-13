@@ -286,7 +286,8 @@ describe('ForgeExecutor — a row a validation rule refused on a field it named'
 
     expect(events.find((e) => e.objectName === 'Contact' && e.status === 'error')?.message).toBe(
       `2/3 Contact records failed (>50%), 1 written without Phone: a validation rule of the ` +
-        `target refused it, ${REASON} — objects that cannot be written without it will be skipped`,
+        `target refused it, ${REASON} — the records that cannot be written without one of those ` +
+        'not written are held back',
     );
   });
 

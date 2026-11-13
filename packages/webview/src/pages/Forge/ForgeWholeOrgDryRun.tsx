@@ -106,6 +106,31 @@ export const ForgeWholeOrgDryRunResult: React.FC<ForgeWholeOrgDryRunResultProps>
   );
   const heldBack = dry.leftOut.rows?.heldBack ?? [];
   const heldBackRows = heldBack.reduce((sum, { rows }) => sum + rows, 0);
+  // What the run holds back one by one, under a record held back, and what
+  // it leaves aside, its parent not in the source: counted out as the run
+  // will not write them, and said.
+  const rowsOf = (
+    kind: 'withoutParent' | 'noParentInSource',
+    id: string,
+    key: string,
+    label: string,
+  ) => {
+    const entries = dry.leftOut.rows?.[kind] ?? [];
+    const rows = entries.reduce((sum, entry) => sum + entry.rows, 0);
+    return rows > 0
+      ? [
+          {
+            id,
+            label: t(label),
+            value: t(key, {
+              count: rows,
+              formatted: n(rows),
+              objects: entries.map(({ objectApiName }) => objectApiName).join(', '),
+            }),
+          },
+        ]
+      : [];
+  };
 
   const facts: Array<{ id: string; label: string; value: string }> = [
     {
@@ -168,6 +193,18 @@ export const ForgeWholeOrgDryRunResult: React.FC<ForgeWholeOrgDryRunResultProps>
           },
         ]
       : []),
+    ...rowsOf(
+      'withoutParent',
+      'held-under',
+      'forgeRun.wholeOrgDryRun.heldUnderRows',
+      'forgeRun.wholeOrgDryRun.heldUnder',
+    ),
+    ...rowsOf(
+      'noParentInSource',
+      'left-aside',
+      'forgeRun.wholeOrgDryRun.leftAsideRows',
+      'forgeRun.wholeOrgDryRun.leftAside',
+    ),
     {
       id: 'personal',
       label: t('forgeRun.wholeOrgDryRun.personalAsIs'),

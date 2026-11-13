@@ -894,6 +894,11 @@ const FORGE_REFUSALS: Readonly<Record<string, { keys: HintKeys; severity: ErrorH
     keys: ['errors.graphWithoutEdges.explanation', 'errors.graphWithoutEdges.action'],
     severity: 'warning',
   },
+  // A clone of the whole org with every object left out: nothing to write.
+  NOTHING_TO_CLONE: {
+    keys: ['errors.nothingToClone.explanation', 'errors.nothingToClone.action'],
+    severity: 'warning',
+  },
   // Not a failure: the user's own Abort, which came before the run started.
   ABORTED_BEFORE_START: {
     keys: ['errors.abortedBeforeStart.explanation', 'errors.abortedBeforeStart.action'],

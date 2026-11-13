@@ -602,33 +602,76 @@ describe('ForgeExecutor', () => {
         );
       }
 
-      it('skips the children when 7 of 10 parent records failed', async () => {
+      it('writes the children whose parent went in when 7 of 10 parent records failed, and holds back the others', async () => {
+        // Skipped whole, a real whole-org clone lost four order lines whose
+        // two prices had gone in, 34 orphan prices of 44 having been refused.
         failAccounts(7);
+        vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) =>
+          soql.includes('FROM Account')
+            ? Array.from({ length: 10 }, (_, i) => ({ Id: `001OLD${i}`, Name: `A${i}` }))
+            : [0, 1, 8, 9].map((i) => ({
+                Id: `003OLD${i}`,
+                Name: `C${i}`,
+                AccountId: `001OLD${i}`,
+              })),
+        );
+        vi.mocked(deps.describeFields).mockImplementation(async (_org, object) =>
+          object === 'Contact'
+            ? [
+                ...DEFAULT_FIELDS,
+                {
+                  name: 'AccountId',
+                  queryable: true,
+                  createable: true,
+                  isReference: true,
+                  referenceTo: ['Account'],
+                  nillable: false,
+                },
+              ]
+            : DEFAULT_FIELDS,
+        );
         const graph = makeGraph(
-          [makeNode('Account', { recordCount: 10 }), makeNode('Contact')],
+          [makeNode('Account', { recordCount: 10 }), makeNode('Contact', { recordCount: 4 })],
           [accountToContact],
         );
 
         const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
 
-        expect(summary.successCount).toBe(3);
-        expect(summary.failedCount).toBe(7);
-        expect(summary.skippedCount).toBe(1);
-        expect(vi.mocked(deps.insertRecords).mock.calls.map((c) => c[1])).toEqual(['Account']);
+        const contactsSent = vi
+          .mocked(deps.insertRecords)
+          .mock.calls.filter((c) => c[1] === 'Contact')
+          .flatMap((c) => c[2].map((row) => row['Name']));
+        expect(contactsSent).toEqual(['C8', 'C9']);
+        expect(summary.successCount).toBe(5);
+        expect(summary.failedCount).toBe(9);
+        expect(summary.skippedCount).toBe(0);
         const accountEnd = progressEvents.filter((e) => e.objectName === 'Account').pop();
         expect(accountEnd?.status).toBe('error');
-        expect(accountEnd?.message).toContain('7/10');
-        expect(
-          progressEvents.find((e) => e.objectName === 'Contact' && e.status === 'skipped')?.message,
-        ).toContain('parent failed');
+        expect(accountEnd?.message).toMatch(
+          /^7\/10 Account records failed \(>50%\) — the records that cannot be written without one of those not written are held back$/,
+        );
+        expect(summary.errors).toContainEqual({
+          objectApiName: 'Contact',
+          stage: 'scope',
+          failedCount: 2,
+          attemptedCount: 0,
+          samples: [
+            {
+              recordSummary: 'AccountId → Account (2 records)',
+              messages: [
+                'Not written: AccountId may not be left empty, and the Account it points at failed in this run.',
+              ],
+            },
+          ],
+        });
       });
 
-      it('names the children it skipped among the errors, counting none of the records it never read', async () => {
+      it('names the children it skipped among the errors when every parent record failed, counting none of the records it never read', async () => {
         // Said on its line alone, the object was in no report of the run, and
         // the entry of a run that lost it read as one that never met it. A
         // run of whole tables skips it before its read: the graph's count is
         // discovery's, and the run never learned how many it would have written.
-        failAccounts(7);
+        failAccounts(10);
         const graph = makeGraph(
           [makeNode('Account', { recordCount: 10 }), makeNode('Contact', { recordCount: 40 })],
           [accountToContact],
@@ -636,6 +679,8 @@ describe('ForgeExecutor', () => {
 
         const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
 
+        expect(summary.skippedCount).toBe(1);
+        expect(vi.mocked(deps.insertRecords).mock.calls.map((c) => c[1])).toEqual(['Account']);
         expect(summary.errors).toContainEqual({
           objectApiName: 'Contact',
           stage: 'scope',
@@ -653,7 +698,7 @@ describe('ForgeExecutor', () => {
           ],
         });
         // The accounts the target refused, and no more.
-        expect(summary.failedCount).toBe(7);
+        expect(summary.failedCount).toBe(10);
         expect(
           progressEvents.find((e) => e.objectName === 'Contact' && e.status === 'skipped')?.message,
         ).toBe('Skipped Contact (parent failed)');
@@ -9440,7 +9485,7 @@ describe('ForgeExecutor', () => {
           status: 'error',
           message:
             '4/5 FeedItem records failed (>50%), 2 of them held back for want of their parent ' +
-            '— objects that cannot be written without it will be skipped',
+            '— the records that cannot be written without one of those not written are held back',
         });
       });
 

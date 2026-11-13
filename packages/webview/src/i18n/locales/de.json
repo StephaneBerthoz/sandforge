@@ -4143,6 +4143,7 @@
     "leftOut": {
       "missingInTarget": "Nicht in der Ziel-Org vorhanden",
       "notWritable": "In der Ziel-Org von Ihnen nicht erstell-, bearbeit- und löschbar",
+      "createOnly": "Von Ihnen in der Ziel-Org erstellbar, aber dort nicht bearbeitbar oder löschbar: Ein Klon bearbeitet, was er geschrieben hat, um seine Lookups zu füllen, und sein Entfernen löscht es",
       "notQueryable": "In der Quell-Org von Ihnen nicht abfragbar",
       "unreadable": "Von der Quell-Org verweigert",
       "notDescribed": "Beschreibung nicht lesbar",
@@ -4161,7 +4162,9 @@
       "platformCreated": "Nur von Salesforce erstellt, etwa Genehmigungen, Einstein-Insights und Rechnungen",
       "customSetting": "Benutzerdefinierte Einstellungen: Konfiguration, nur auf Wunsch kopiert",
       "feature": "eine Funktion, die das Ziel nicht aktiviert hat, hält es verschlossen",
-      "parent": "wenn überhaupt, über die Datensätze geöffnet, an denen es hängt"
+      "parent": "wenn überhaupt, über die Datensätze geöffnet, an denen es hängt",
+      "noEdit": "von Ihnen nicht bearbeitbar",
+      "noDelete": "von Ihnen nicht löschbar"
     },
     "depthAllTooltip": "Jeder Datensatz jedes Objekts, das die Quell-Org Forge lesen und die Ziel-Org anlegen lässt",
     "depthAllHint": "ALL kopiert die gesamte Quell-Org: jedes Objekt, das das Ziel erstellen kann, jeden Datensatz davon, ohne Obergrenze. Objekte, die Salesforce nicht per API erstellen lässt, werden ausgelassen, und die Überprüfung nennt sie. Dateien werden nur kopiert, wenn Sie sie in der Überprüfung ankreuzen.",
@@ -5015,6 +5018,12 @@
       "heldBack": "Zurückgehalten",
       "heldBackRows_one": "{{formatted}} Datensatz von {{objects}}, dessen Datensatztyp dem Benutzer verschlossen ist, als der der Lauf schreibt",
       "heldBackRows_other": "{{formatted}} Datensätze von {{objects}}, deren Datensatztyp dem Benutzer verschlossen ist, als der der Lauf schreibt",
+      "heldUnder": "Mit ihrem übergeordneten Datensatz zurückgehalten",
+      "heldUnderRows_one": "{{formatted}} Datensatz von {{objects}}, unter einem zurückgehaltenen Datensatz, ohne den er nicht geschrieben werden kann",
+      "heldUnderRows_other": "{{formatted}} Datensätze von {{objects}}, unter zurückgehaltenen Datensätzen, ohne die sie nicht geschrieben werden können",
+      "leftAside": "Beiseitegelassen",
+      "leftAsideRows_one": "{{formatted}} Datensatz von {{objects}}: Ein Lookup, das er nicht leer lassen darf, nennt einen Datensatz, den die Quelle nicht enthält, daher kann keine Kopie ihn schreiben",
+      "leftAsideRows_other": "{{formatted}} Datensätze von {{objects}}: Ein Lookup, das sie nicht leer lassen dürfen, nennt einen Datensatz, den die Quelle nicht enthält, daher kann keine Kopie sie schreiben",
       "personalAsIs": "Unverändert kopierte personenbezogene Felder",
       "personalNone": "keine: Jedes wird anonymisiert",
       "personalFields_one": "{{formatted}} Feld, auf {{objects}}",
@@ -7033,6 +7042,10 @@
     "graphWithoutEdges": {
       "explanation": "Dieser Graph ist der, den der Verlauf von einem Klon der gesamten Org aufbewahrt, ohne die Beziehungen zwischen seinen Objekten, nach denen ein Lauf seine Schreibvorgänge ordnet und seine Lookups zuordnet. Er kann so nicht ausgeführt werden. Nichts wurde gelesen oder geschrieben.",
       "action": "Ermitteln Sie die Org im Forge-Panel erneut mit der Tiefe ALL und führen Sie sie in der Überprüfung aus."
+    },
+    "nothingToClone": {
+      "explanation": "Jedes Objekt der Quell-Org, das Datensätze enthält, ist von diesem Klon der gesamten Org ausgenommen: Es gibt nichts zu klonen. Nichts wurde geschrieben.",
+      "action": "Wählen Sie in der Überprüfung mindestens ein Objekt aus und führen Sie den Klon erneut aus."
     }
   },
   "moduleSummary": {

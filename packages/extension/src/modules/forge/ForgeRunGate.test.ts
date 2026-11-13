@@ -64,6 +64,7 @@ import {
   storageRefusal,
   unreadEmailOf,
   updateStepsOf,
+  leftOutLines,
   writePlanLines,
   writePlanOf,
 } from './ForgeRunGate.js';
@@ -1906,9 +1907,37 @@ describe('what the gate says', () => {
       `  ${'Contact'.padEnd(42)}${'30'.padStart(8)}`,
       '  not counted: 6 record(s) the run it retries or resumes wrote, which it links to and ' +
         'does not write again',
-      '  not counted: Account, 4 record(s), held back whole for a record type closed to the ' +
+      '  not counted: Account, 4 record(s), held back for a record type closed to the ' +
         'user the run writes as',
       '  data storage of TGT: 12 MB left of 200 MB',
+    ]);
+  });
+
+  it('says on the command line the rows a clone of the whole org holds back with their parent, and those it leaves aside', () => {
+    const plan = writePlanOf([
+      { objectApiName: 'Opportunity', rows: [], counted: { rows: 25 }, leftOut: { heldBack: 1 } },
+      {
+        objectApiName: 'OpportunityLineItem',
+        rows: [],
+        counted: { rows: 0 },
+        leftOut: { withoutParent: 4 },
+      },
+      {
+        objectApiName: 'PricebookEntry',
+        rows: [],
+        counted: { rows: 13 },
+        leftOut: { noParentInSource: 34 },
+      },
+    ]);
+
+    expect(plan.totalRows).toBe(38);
+    expect(leftOutLines(plan.leftOut)).toEqual([
+      '  not counted: Opportunity, 1 record(s), held back for a record type closed to the user ' +
+        'the run writes as',
+      '  not counted: OpportunityLineItem, 4 record(s) held back with a record they cannot be ' +
+        'written without, held back itself',
+      '  not counted: PricebookEntry, 34 record(s) left aside: a lookup they may not leave ' +
+        'empty names a record the source does not hold, which no copy can write',
     ]);
   });
 

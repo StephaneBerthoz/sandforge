@@ -266,6 +266,8 @@ export interface WriteConfirmation {
     heldBack: Array<{ objectApiName: string; rows: number }>;
     byThePlatform?: Array<{ objectApiName: string; rows: number }>;
     linkedByValue?: Array<{ objectApiName: string; rows: number; fields: readonly string[] }>;
+    withoutParent?: Array<{ objectApiName: string; rows: number }>;
+    noParentInSource?: Array<{ objectApiName: string; rows: number }>;
   };
   /**
    * Set when the rows were counted rather than read: a run of whole tables

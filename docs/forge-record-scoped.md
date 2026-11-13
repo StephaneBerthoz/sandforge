@@ -677,8 +677,9 @@ record or object failed. An object the clone holds no record of — no record
 read points at it or sits above it, or the target refuses it and there is none
 to write — is counted among the skipped objects, not among the errors.
 
-An object skipped because a record its rows cannot be written without failed
-in this run is counted among the skipped objects and named among the errors,
+An object skipped because an object its rows cannot be written without failed
+in this run with none of its records in the target is counted among the skipped
+objects and named among the errors,
 its `scope` report flagged `skipped` and naming the objects it could not do
 without. The rows the run had read of it — a record-scoped run reads every
 object before it writes one — are counted as failed, in the report and in the
@@ -810,7 +811,9 @@ excluded by name, said once, on the line that ends the object —
 `Completed OpportunityLineItem: 2 succeeded, 2 failed, 2 of them held back for
 want of ProductSellingModelOption, excluded from this run`. So do the lines of
 a write that mostly failed (`4/5 FeedItem records failed (>50%), 2 of them
-held back for want of their parent`) or failed whole (`Failed all FeedItem
+held back for want of their parent — the records that cannot be written
+without one of those not written are held back`: what hangs from it is judged
+row by row, and a row whose parent went in is written) or failed whole (`Failed all FeedItem
 records: 3 failed, 2 of them held back for want of their parent`). A line that
 counts no failure of the object — a dry run's, or that of an email object whose
 other emails the run never sent — says them failed on their own: `[dry-run]

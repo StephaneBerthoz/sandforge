@@ -62,7 +62,7 @@ describe('wholeOrgCandidates', () => {
       { objectApiName: 'Archive__b', reason: 'unsupportedKind' },
       { objectApiName: 'Document', reason: 'files' },
       { objectApiName: 'FeedItem', reason: 'chatter' },
-      { objectApiName: 'Locked__c', reason: 'notWritable' },
+      { objectApiName: 'Locked__c', reason: 'createOnly', detail: 'noDelete' },
       { objectApiName: 'Order_Event__e', reason: 'unsupportedKind' },
       { objectApiName: 'User', reason: 'setup' },
     ]);
@@ -103,6 +103,7 @@ describe('wholeOrgCandidates', () => {
         writable('ProcessInstance', { createable: false }),
         writable('FlowDefinitionView', { createable: false }),
         writable('Locked__c', { deletable: false }),
+        writable('Closed__c', { createable: false }),
         writable('Gone__c'),
       ],
       { excluded: ['Gone__c'] },
@@ -121,6 +122,7 @@ describe('wholeOrgCandidates', () => {
         'setup',
         'platformCreated',
         'notWritable',
+        'createOnly',
         'excludedByUser',
       ].sort(),
     );
@@ -250,7 +252,9 @@ describe('wholeOrgCandidates', () => {
     );
 
     expect(scope.candidates).toEqual(['Endpoints__c']);
-    expect(scope.leftOut).toEqual([{ objectApiName: 'Switches__c', reason: 'notWritable' }]);
+    expect(scope.leftOut).toEqual([
+      { objectApiName: 'Switches__c', reason: 'createOnly', detail: 'noDelete' },
+    ]);
   });
 
   it('says a custom setting named that the target does not hold is one it lacks, once', () => {
@@ -344,7 +348,7 @@ describe('wholeOrgCandidates', () => {
       expect(scope.candidates).toEqual(['Account']);
       expect(scope.leftOut).toEqual([
         { objectApiName: 'Licensed__c', reason: 'notWritable', detail: 'feature' },
-        { objectApiName: 'Locked__c', reason: 'notWritable' },
+        { objectApiName: 'Locked__c', reason: 'createOnly', detail: 'noDelete' },
         { objectApiName: 'OrderLine__c', reason: 'setup' },
         { objectApiName: 'Report__c', reason: 'setup' },
       ]);
@@ -360,7 +364,7 @@ describe('wholeOrgCandidates', () => {
 
       expect(scope.leftOut).toEqual([
         { objectApiName: 'Licensed__c', reason: 'notWritable' },
-        { objectApiName: 'Locked__c', reason: 'notWritable' },
+        { objectApiName: 'Locked__c', reason: 'createOnly', detail: 'noDelete' },
         { objectApiName: 'OrderLine__c', reason: 'notWritable', detail: 'parent' },
         { objectApiName: 'Report__c', reason: 'notWritable', detail: 'parent' },
       ]);
@@ -373,10 +377,40 @@ describe('wholeOrgCandidates', () => {
         scope.leftOut.map((entry) => [entry.objectApiName, entry.reason, entry.detail]),
       ).toEqual([
         ['Licensed__c', 'notWritable', undefined],
-        ['Locked__c', 'notWritable', undefined],
+        ['Locked__c', 'createOnly', 'noDelete'],
         ['OrderLine__c', 'notWritable', undefined],
         ['Report__c', 'notWritable', undefined],
       ]);
+    });
+
+    it('says of an object the target lets the user create what it does not let them do with it', () => {
+      // As the target's global describe flags them in a real org: an account
+      // partner is created and never edited, a flow orchestration's instance
+      // and business hours are never deleted, an asset action is created by
+      // none. Said "not writable", the sixteen created read as closed.
+      const scope = bothOrgs(
+        [
+          writable('AccountPartner', { updateable: false }),
+          writable('BusinessHours', { deletable: false }),
+          writable('FlowOrchestrationInstance', { deletable: false }),
+          writable('Both__c', { updateable: false, deletable: false }),
+          writable('AssetAction', { createable: false, updateable: false, deletable: false }),
+          writable('Unread__c', { queryable: false, deletable: false }),
+        ],
+        { createFacts: { coverable: new Set(['assetaction']), modifyAllData: true } },
+      );
+
+      expect(scope.leftOut).toEqual([
+        { objectApiName: 'AccountPartner', reason: 'createOnly', detail: 'noEdit' },
+        { objectApiName: 'AssetAction', reason: 'notWritable', detail: 'feature' },
+        { objectApiName: 'Both__c', reason: 'createOnly' },
+        { objectApiName: 'BusinessHours', reason: 'createOnly', detail: 'noDelete' },
+        { objectApiName: 'FlowOrchestrationInstance', reason: 'createOnly', detail: 'noDelete' },
+        { objectApiName: 'Unread__c', reason: 'notWritable' },
+      ]);
+      for (const { reason } of scope.leftOut) {
+        expect(forgeLeftOutReasonSchema.safeParse(reason).success).toBe(true);
+      }
     });
 
     it('asks a file no Create: the data API creates none', () => {

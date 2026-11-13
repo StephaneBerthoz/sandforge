@@ -1029,8 +1029,23 @@ export interface ForgeMayBeByThePlatform {
 export interface ForgeRowsLeftOut {
   /** Rows the run it retries or resumes wrote: linked to, never written again. */
   writtenBefore?: number;
-  /** Rows held back with the object, whole, for a record type closed to the user the run writes as. */
+  /**
+   * Rows held back for a record type closed to the user the run writes as:
+   * with the object, whole — or, in a clone of the whole org that writes its
+   * other rows, those of the closed types alone.
+   */
   heldBack?: number;
+  /**
+   * Of a clone of the whole org, rows held back one by one with a record
+   * they may not be written without, held back itself: counted as failed.
+   */
+  withoutParent?: number;
+  /**
+   * Of a clone of the whole org, rows left aside, which no copy writes: a
+   * lookup they may not leave empty names a record the source does not
+   * hold, or one so left aside.
+   */
+  noParentInSource?: number;
   /**
    * Rows the platform writes itself with a record the run creates — the
    * owner's member and split of an opportunity, a person account's contact
@@ -1767,6 +1782,8 @@ interface TableRecordTypes {
   readonly closed: UnavailableRecordTypeUse[];
   /** The rows the count found, of every record type: what holding the table back holds. */
   readonly rows: number;
+  /** The source's record types the rows of `closed` carry as read: what a read of those rows asks by. */
+  readonly closedInSource: readonly string[];
   /** The target's describe of the object: the record types a gap may map to. */
   readonly target: TargetObjectInfo | null;
 }
@@ -2035,6 +2052,31 @@ interface ExecutionState {
   readonly bulk?: BulkTransport;
   /** Objects whose downstream children must be skipped. */
   readonly failedObjects: Set<string>;
+  /**
+   * Of `failedObjects`, those failed by their rate that the target holds
+   * rows of all the same: what hangs from them is judged row by row, by the
+   * parent each row names (`skipForFailedParent`).
+   */
+  readonly failedInPart: Set<string>;
+  /**
+   * Of a clone of the whole org, the source rows it holds back one by one,
+   * by id: `held` for a row of a record type closed to the user the run
+   * writes as, or one under a record the run did not write — counted as
+   * failed; or, left aside and not counted as failed, why a row cannot go
+   * in at all: a lookup it may not leave empty names a record the source
+   * does not hold, or it hangs from one so left aside. What hangs from a row
+   * held back is held back with it (`rowsHeldInTheWholeOrg`). Seeded by the
+   * gate, which counts them (`heldAtTheGate`), and added to as the run writes.
+   */
+  readonly heldInTheOrg: Map<string, 'held' | ParentNotWritten>;
+  /**
+   * Of a clone of the whole org, the rows left aside — see `heldInTheOrg` —
+   * per object, by lookup and parent: said on the object's line and in the
+   * run's reports, not counted as failed.
+   */
+  readonly leftAside: Map<string, Map<string, ParentNotWritten & { count: number }>>;
+  /** The objects whose turn has ended: a lookup at one names a record the run wrote, or did not. */
+  readonly turnsEnded: Set<string>;
   /**
    * Objects the target refuses inserts on: read for whether the clone holds
    * any record of them, never written — on a dry run as on a real one.
@@ -2834,6 +2876,12 @@ interface ParentNotWritten {
    * split, and a split's type (`opportunityTeamOf`).
    */
   reason?: string;
+  /**
+   * Set on a row of a clone of the whole org held back for its record type,
+   * closed to the user the run writes as: the record type, `parentObject`
+   * its API name. Said as the whole object held back for it is.
+   */
+  recordType?: UnavailableRecordTypeUse;
 }
 
 /**
@@ -2852,13 +2900,14 @@ function groupsOfParentsNotWritten(
   held: Iterable<ParentNotWritten>,
   into: Map<string, ParentNotWritten & { count: number }> = new Map(),
 ): Map<string, ParentNotWritten & { count: number }> {
-  for (const { field, parentObject, notInTarget, reason } of held) {
+  for (const { field, parentObject, notInTarget, reason, recordType } of held) {
     const key = `${field}|${parentObject}|${notInTarget === true ? 'outside' : ''}|${reason ?? ''}`;
     const group = into.get(key) ?? {
       field,
       parentObject,
       ...(notInTarget ? { notInTarget } : {}),
       ...(reason !== undefined ? { reason } : {}),
+      ...(recordType ? { recordType } : {}),
       count: 0,
     };
     group.count++;
@@ -2875,20 +2924,141 @@ function samplesOfParentsNotWritten(
   return [...groups.values()]
     .sort((a, b) => b.count - a.count)
     .slice(0, 3)
-    .map(({ field, parentObject, notInTarget, reason, count }) => ({
-      recordSummary: `${field} → ${parentObject} (${count} record${count === 1 ? '' : 's'})`,
-      messages: [
-        reason !== undefined
-          ? `Not written: ${reason}`
-          : notInTarget
-            ? `Not written: ${field} may not be left empty, and the target holds no ` +
-              `${parentObject} record of the id it names, outside the run.`
-            : `Not written: ${field} may not be left empty, and the ${parentObject} it points at ` +
-              (failedObjects.has(parentObject)
-                ? 'failed in this run.'
-                : 'was not written by this run.'),
-      ],
+    .map(({ field, parentObject, notInTarget, reason, recordType, count }) => ({
+      recordSummary: recordType
+        ? `RecordType=${recordType.developerName} (${count} record${count === 1 ? '' : 's'})`
+        : `${field} → ${parentObject} (${count} record${count === 1 ? '' : 's'})`,
+      messages: recordType
+        ? [recordTypeBlockedMessage({ ...recordType, recordCount: count })]
+        : [
+            reason !== undefined
+              ? `Not written: ${reason}`
+              : notInTarget
+                ? `Not written: ${field} may not be left empty, and the target holds no ` +
+                  `${parentObject} record of the id it names, outside the run.`
+                : `Not written: ${field} may not be left empty, and the ${parentObject} it points at ` +
+                  (failedObjects.has(parentObject)
+                    ? 'failed in this run.'
+                    : 'was not written by this run.'),
+          ],
     }));
+}
+
+/**
+ * The most rows the gate of a clone of the whole org reads by id to count out
+ * what its write holds back one by one (`heldAtTheGate`).
+ */
+const HELD_AT_THE_GATE_MOST = 50_000;
+
+/**
+ * What `heldInTheOrg` holds of an id the source does not hold: rows naming it
+ * are left aside (`rowsHeldInTheWholeOrg`).
+ */
+const NOT_IN_THE_SOURCE: ParentNotWritten = {
+  field: '',
+  parentObject: '',
+  reason: 'the source does not hold it',
+};
+
+/** Why a row whose `field` names a record the source does not hold is left aside. */
+function notInTheSource(field: string, parent: string): string {
+  return `${field} may not be left empty, and names a ${parent} record the source does not hold`;
+}
+
+/** Why a row whose `field` names a record left aside is left aside with it. */
+function leftAsideUnder(field: string, parent: string): string {
+  return `${field} may not be left empty, and names a ${parent} record left aside`;
+}
+
+/**
+ * The lookups of `objectApiName` its rows may not leave empty, each at one
+ * object a clone of the whole org writes and has had its turn — a record it
+ * names is one the run wrote, or did not — and sent by the insert.
+ */
+function requiredLookupsInTheRun(
+  state: ExecutionState,
+  objectApiName: string,
+  fieldInfos: readonly FieldInfo[],
+  carried: (field: string) => boolean = () => true,
+): Array<{ field: string; parent: string }> {
+  return fieldInfos.flatMap((f) => {
+    const targets = f.referenceTo ?? [];
+    const [parent] = targets;
+    return f.isReference &&
+      targets.length === 1 &&
+      parent !== objectApiName &&
+      carried(f.name) &&
+      state.writtenObjects.has(parent) &&
+      !state.config.referenceDataObjects.has(parent) &&
+      state.turnsEnded.has(parent) &&
+      isRequiredLookup(objectApiName, f.name, f.nillable)
+      ? [{ field: f.name, parent }]
+      : [];
+  });
+}
+
+/** Why a line says the rows of a record type closed to the user the run writes as were held back. */
+const FOR_THEIR_RECORD_TYPE = 'held back for a record type closed to the user the run writes as';
+
+/**
+ * The rows `rowsWithoutTheirParent` and its like hold back, as a line says
+ * them: those of a record type closed to the user apart from those held back
+ * for want of their parent.
+ */
+function heldWithoutParentWhy(held: Iterable<ParentNotWritten>): HeldBackReason[] {
+  let types = 0;
+  let parents = 0;
+  for (const entry of held) {
+    if (entry.recordType) types++;
+    else parents++;
+  }
+  return [
+    ...(types > 0 ? [{ count: types, why: FOR_THEIR_RECORD_TYPE }] : []),
+    ...(parents > 0 ? [{ count: parents, why: WITHOUT_THEIR_PARENT }] : []),
+  ];
+}
+
+/** Note the rows of `objectApiName` a clone of the whole org leaves aside, for its line and reports. */
+function noteLeftAside(
+  state: ExecutionState,
+  objectApiName: string,
+  aside: Iterable<ParentNotWritten>,
+): void {
+  const groups = state.leftAside.get(objectApiName) ?? new Map();
+  groupsOfParentsNotWritten(aside, groups);
+  state.leftAside.set(objectApiName, groups);
+}
+
+/**
+ * What an object's line says of its rows a clone of the whole org left
+ * aside: `, 34 left aside: Product2Id may not be left empty and names a
+ * Product2 record the source does not hold`, per lookup — or nothing.
+ */
+function leftAsideNote(state: ExecutionState, objectApiName: string): string {
+  return [...(state.leftAside.get(objectApiName)?.values() ?? [])]
+    .map(({ count, reason }) => `, ${count} left aside: ${reason ?? ''}`)
+    .join('');
+}
+
+/**
+ * The rows a clone of the whole org left aside, one report per object, one
+ * sample per lookup: not written, and not counted as failed, since no copy
+ * writes a row whose parent the source does not hold.
+ */
+function leftAsideReports(state: ExecutionState): ExecutionObjectError[] {
+  return [...state.leftAside].map(([objectApiName, groups]): ExecutionObjectError => ({
+    objectApiName,
+    stage: 'scope',
+    failedCount: 0,
+    attemptedCount: 0,
+    samples: [...groups.values()]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3)
+      .map(({ field, parentObject, reason, count }) => ({
+        recordSummary: `${field} → ${parentObject} (${count} record${count === 1 ? '' : 's'})`,
+        messages: [`Left aside, not written: ${reason ?? ''}`],
+      })),
+  }));
 }
 
 /**
@@ -2897,10 +3067,12 @@ function samplesOfParentsNotWritten(
  * cannot go in without one it does, or nothing.
  */
 function leftToThePlatformNote(state: ExecutionState, objectApiName: string): string {
-  return state.leftToThePlatform
-    .counts(objectApiName)
-    .map(({ why, count }) => `, ${leftOutNote(count, why)}`)
-    .join('');
+  return (
+    state.leftToThePlatform
+      .counts(objectApiName)
+      .map(({ why, count }) => `, ${leftOutNote(count, why)}`)
+      .join('') + leftAsideNote(state, objectApiName)
+  );
 }
 
 /**
@@ -2910,6 +3082,11 @@ function leftToThePlatformNote(state: ExecutionState, objectApiName: string): st
  * target writes its own.
  */
 function leftToThePlatformReports(state: ExecutionState): ExecutionObjectError[] {
+  return [...platformReports(state), ...leftAsideReports(state)];
+}
+
+/** See {@link leftToThePlatformReports}: the rows the platform writes itself, and what hangs from them. */
+function platformReports(state: ExecutionState): ExecutionObjectError[] {
   const samples = new Map<string, ExecutionErrorSample[]>();
   for (const { objectApiName, why, count } of state.leftToThePlatform.counts()) {
     samples.set(objectApiName, [
@@ -3001,6 +3178,16 @@ interface HeldBackReason {
 
 /** Why a line says the rows `rowsWithoutTheirParent` holds back were held back. */
 const WITHOUT_THEIR_PARENT = 'held back for want of their parent';
+
+/**
+ * How the line of an object that failed by its rate, and went in in part,
+ * ends: what hangs from it is judged by the parent each row names
+ * (`skipForFailedParent`). It said the objects that cannot be written without
+ * it would be skipped: run for real, 34 orphan prices refused out of 44 took
+ * down the order lines whose two prices had gone in.
+ */
+const PART_FAILED =
+  ' — the records that cannot be written without one of those not written are held back';
 
 /**
  * Why a line says the contacts of person accounts `linkPersonContacts` could
@@ -4692,6 +4879,10 @@ export class ForgeExecutor {
       splitting,
       smallerCallsSaid: new Map<string, number>(),
       failedObjects: new Set<string>(),
+      failedInPart: new Set<string>(),
+      heldInTheOrg: new Map<string, 'held' | ParentNotWritten>(),
+      leftAside: new Map<string, Map<string, ParentNotWritten & { count: number }>>(),
+      turnsEnded: new Set<string>(),
       notCreatable: new Set<string>(),
       notInTarget: new Set<string>(),
       errors: [],
@@ -5454,11 +5645,13 @@ export class ForgeExecutor {
         await this.readInTurn(node, state);
       } else if (streamed && this.streamsNode(node, state)) {
         await this.streamNode(node, state);
+        state.turnsEnded.add(node.objectApiName);
         // The tasks of a clone of the whole org are read page by page too:
         // the emails on a case go in after their turn.
         if (node.objectApiName === TASK) await this.writeEmailsAfterTheirTask(state);
       } else {
         if (await this.readNode(node, state, false, true)) await this.writeNode(node, state);
+        state.turnsEnded.add(node.objectApiName);
         // The emails that wait for the task each names go in once the task
         // node has had its turn: see `writeEmailsAfterTheirTask`.
         if (node.objectApiName === TASK) await this.writeEmailsAfterTheirTask(state);
@@ -5518,6 +5711,7 @@ export class ForgeExecutor {
         );
       } else if (await this.readNode(node, state, false, true)) {
         await this.writeNode(node, state);
+        state.turnsEnded.add(node.objectApiName);
         this.releaseRows(state, node.objectApiName);
       }
     }
@@ -6247,6 +6441,7 @@ export class ForgeExecutor {
         'Forge execution was aborted by user request. Remaining objects were not processed.',
       );
     }
+    if (everything) await this.heldAtTheGate(state, runOrder, objects);
     const wholeOrg = everything
       ? await this.measureTheWholeOrg(state, objects, readWhole, written)
       : undefined;
@@ -6269,6 +6464,175 @@ export class ForgeExecutor {
       dryRun: config.dryRun,
     });
     await this.afterTheGate(state, answer, objects);
+  }
+
+  /**
+   * Of a clone of the whole org, the rows its write will hold back one by one
+   * (`rowsHeldInTheWholeOrg`), counted out of what its gate is shown, as the
+   * run will not write them: the rows of a record type closed to the user it
+   * writes as, of a table it writes the rest of (`leftOut.heldBack`); those
+   * whose lookup they may not leave empty names a record the source does not
+   * hold (`leftOut.noParentInSource`); and what hangs from either through
+   * such a lookup, held back with them (`leftOut.withoutParent`) or left
+   * aside with them. Run for real, a dry run counted 157 records, the run
+   * wrote 106: 34 orphan prices sent and refused, and the lines and quotes
+   * under an opportunity of a closed type.
+   *
+   * Read by id from the source, parents first, as the run will meet them:
+   * the rows of the closed types (`RecordTypeId IN …`), the orphans (`Field
+   * NOT IN (SELECT Id FROM Parent)`), then the rows under each (`Field IN
+   * …`), {@link HELD_AT_THE_GATE_MOST} ids at most — past them the rows under
+   * are counted in, said too many rather than too few. A read the source
+   * refuses counts nothing out: the run finds those rows as it writes. The
+   * rows told are held back by the run as told here.
+   */
+  private async heldAtTheGate(
+    state: ExecutionState,
+    runOrder: readonly ForgeGraphNode[],
+    objects: Array<{
+      objectApiName: string;
+      counted: ForgeCountedObject;
+      leftOut?: ForgeRowsLeftOut;
+    }>,
+  ): Promise<void> {
+    const { config } = state;
+    const written = runOrder.filter(
+      (node) =>
+        node.included &&
+        state.writtenObjects.has(node.objectApiName) &&
+        !config.referenceDataObjects.has(node.objectApiName),
+    );
+    const turn = new Map(written.map((node, at) => [node.objectApiName, at]));
+    /** Per object, the ids held back and why, in the order told. */
+    const told = new Map<string, Map<string, 'held' | ParentNotWritten>>();
+    /** Per object, how many of them are of a closed record type. */
+    const ofTypes = new Map<string, number>();
+    let left = HELD_AT_THE_GATE_MOST;
+    const tell = (object: string, id: string, why: 'held' | ParentNotWritten): void => {
+      const ids = told.get(object) ?? new Map<string, 'held' | ParentNotWritten>();
+      if (ids.has(id) || left <= 0) return;
+      ids.set(id, why);
+      told.set(object, ids);
+      left--;
+    };
+    for (const node of written) {
+      if (this.isAborted || left <= 0) break;
+      const object = node.objectApiName;
+      if (this.streamsNode(node, state)) {
+        const types = await this.recordTypesOfTable(state, node);
+        if (types && types.closed.length > 0 && this.typesHeldRowByRow(state, types)) {
+          const list = types.closedInSource.map((type) => `'${type}'`).join(', ');
+          const ids = list ? await this.idsUnder(state, object, `RecordTypeId IN (${list})`) : [];
+          for (const id of ids ?? []) tell(object, id, 'held');
+          ofTypes.set(object, told.get(object)?.size ?? 0);
+        }
+      }
+      const fields = await this.deps
+        .describeFields(state.sourceOrgId, object)
+        .catch((): FieldInfo[] => []);
+      for (const f of fields) {
+        const [parent] = f.referenceTo ?? [];
+        const before = parent === undefined ? undefined : turn.get(parent);
+        if (
+          !f.isReference ||
+          (f.referenceTo ?? []).length !== 1 ||
+          before === undefined ||
+          before >= (turn.get(object) ?? 0) ||
+          !f.createable ||
+          (config.fieldExclusions[object] ?? []).includes(f.name) ||
+          !isRequiredLookup(object, f.name, f.nillable)
+        ) {
+          continue;
+        }
+        const field = assertSoqlIdentifier(f.name);
+        const orphans = await this.idsUnder(
+          state,
+          object,
+          `${field} != null AND ${field} NOT IN (SELECT Id FROM ${assertSoqlIdentifier(parent)})`,
+        );
+        for (const id of orphans ?? []) {
+          tell(object, id, {
+            field: f.name,
+            parentObject: parent,
+            reason: notInTheSource(f.name, parent),
+          });
+        }
+        const above = told.get(parent);
+        if (!above || above.size === 0) continue;
+        const heldAbove = [...above].filter(([, why]) => why === 'held').map(([id]) => id);
+        const asideAbove = [...above].filter(([, why]) => why !== 'held').map(([id]) => id);
+        for (const [ids, why] of [
+          [heldAbove, 'held'],
+          [
+            asideAbove,
+            { field: f.name, parentObject: parent, reason: leftAsideUnder(f.name, parent) },
+          ],
+        ] as const) {
+          for (const list of idLists(ids)) {
+            if (left <= 0) break;
+            for (const id of (await this.idsUnder(state, object, `${field} IN (${list})`)) ?? []) {
+              tell(object, id, why);
+            }
+          }
+        }
+      }
+    }
+    for (const entry of objects) {
+      const ids = told.get(entry.objectApiName);
+      if (!ids || ids.size === 0) continue;
+      const types = ofTypes.get(entry.objectApiName) ?? 0;
+      const held = [...ids.values()].filter((why) => why === 'held').length;
+      const aside = ids.size - held;
+      const rows = Math.max(0, entry.counted.rows - ids.size);
+      const persons = entry.counted.personAccounts;
+      entry.counted = {
+        rows,
+        ...(persons !== undefined && Math.min(persons, rows) > 0
+          ? { personAccounts: Math.min(persons, rows) }
+          : {}),
+      };
+      entry.leftOut = {
+        ...entry.leftOut,
+        ...(types > 0 ? { heldBack: (entry.leftOut?.heldBack ?? 0) + types } : {}),
+        ...(held - types > 0 ? { withoutParent: held - types } : {}),
+        ...(aside > 0 ? { noParentInSource: aside } : {}),
+      };
+    }
+    for (const ids of told.values()) {
+      for (const [id, why] of ids) state.heldInTheOrg.set(id, why);
+    }
+  }
+
+  /**
+   * The ids of the rows of `objectApiName` the run reads that meet
+   * `condition`, under its filter and after the checkpoint of the run it
+   * resumes; undefined when the source would not answer.
+   */
+  private async idsUnder(
+    state: ExecutionState,
+    objectApiName: string,
+    condition: string,
+  ): Promise<string[] | undefined> {
+    const resumed = state.config.stream?.resumeAfter.get(objectApiName);
+    const filter = this.filterOf(state, objectApiName);
+    const terms = [
+      ...(filter ? [`(${filter})`] : []),
+      ...(resumed && SALESFORCE_ID.test(resumed.lastId) ? [`Id > '${resumed.lastId}'`] : []),
+      condition,
+    ];
+    try {
+      const rows = await this.readWholeOf(
+        state,
+        objectApiName,
+        `SELECT Id FROM ${assertSoqlIdentifier(objectApiName)} WHERE ${terms.join(' AND ')}`,
+      );
+      return rows.map((row) => String(row['Id']));
+    } catch (err) {
+      logger.warn(
+        `[forge] the ${objectApiName} records held back could not be counted at the gate: ${extractErrorMessage(err)}`,
+      );
+      return undefined;
+    }
   }
 
   /**
@@ -6684,8 +7048,10 @@ export class ForgeExecutor {
     const capLeft = cap === undefined ? undefined : Math.max(0, cap - (resumed?.read ?? 0));
     const capped = capLeft !== undefined && left === capLeft && total > capLeft;
     // Held back whole before its first page: nothing of it is written.
+    // A clone of the whole org writes the rows of its open types: the gate
+    // counts the others out (`heldAtTheGate`).
     const types = streamed ? await this.recordTypesOfTable(state, node) : undefined;
-    if (types && types.closed.length > 0) {
+    if (types && types.closed.length > 0 && !this.typesHeldRowByRow(state, types)) {
       return { read, counted: { rows: 0 }, ...(read > 0 ? { leftOut: { heldBack: read } } : {}) };
     }
     const writtenBefore = Math.min(read, await this.writtenBeforeOf(state, node, resumed));
@@ -6948,6 +7314,153 @@ export class ForgeExecutor {
   }
 
   /**
+   * Of a clone of the whole org, the rows of `records` sent with a record
+   * type of `closed`, each with it: the record type as the row will be sent,
+   * a decision that sends it to the object's default and the record type
+   * mapping applied, as `recordTypesHeldBack` reads them.
+   */
+  private rowsOfClosedTypes(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+    records: readonly Record<string, unknown>[],
+    closed: readonly UnavailableRecordTypeUse[],
+  ): Map<Record<string, unknown>, ParentNotWritten> {
+    const { config } = state;
+    const byId = new Map(closed.map((use) => [use.recordTypeId, use]));
+    let sent: Record<string, unknown>[] = records.map((r) => ({
+      RecordTypeId:
+        config.recordTypeDecisions.get(String(r['RecordTypeId']))?.to === null
+          ? undefined
+          : r['RecordTypeId'],
+    }));
+    if (state.recordTypeMapper && config.recordTypeMappings) {
+      sent = state.recordTypeMapper.apply(sent, config.recordTypeMappings);
+    }
+    const out = new Map<Record<string, unknown>, ParentNotWritten>();
+    records.forEach((row, index) => {
+      const type = sent[index]?.['RecordTypeId'];
+      const use = typeof type === 'string' ? byId.get(type) : undefined;
+      if (use) {
+        out.set(row, {
+          field: 'RecordTypeId',
+          parentObject: use.developerName,
+          recordType: { ...use, objectApiName: node.objectApiName },
+        });
+      }
+    });
+    return out;
+  }
+
+  /**
+   * Of a clone of the whole org, the rows of `records` that cannot be written
+   * for what a lookup they may not leave empty names, at one object the run
+   * writes and has had its turn: by index, those `held` back — the record it
+   * names was held back by the run (`heldInTheOrg`), or is in the source and
+   * did not go in — counted as failed, as the rows held back for want of
+   * their parent are; and those left `aside`, whose record the source does
+   * not hold, or hangs from one so left aside, which no copy can write.
+   *
+   * Run for real on a whole org, 34 prices of the sample catalog, which named
+   * a price book and a product the source did not hold even among its deleted
+   * records, were counted by the dry run, sent and refused, `REQUIRED_FIELD_
+   * MISSING: Required fields are missing: [Pricebook2Id, Product2Id]`. Which
+   * of the ids the run has no record for are in the source is read by id,
+   * once a run each (`SELECT Id … WHERE Id IN …`); a read the source refuses
+   * leaves them held back, as rows whose parent did not go in. A row the
+   * gate found left aside (`heldAtTheGate`) is left aside as the gate said.
+   *
+   * @param carried - Whether the insert sends a lookup: what is asked about.
+   */
+  private async rowsHeldInTheWholeOrg(
+    node: ForgeGraphNode,
+    state: ExecutionState,
+    fieldInfos: readonly FieldInfo[],
+    records: readonly Record<string, unknown>[],
+    carried: (field: string) => boolean,
+  ): Promise<{ held: Map<number, ParentNotWritten>; aside: Map<number, ParentNotWritten> }> {
+    const held = new Map<number, ParentNotWritten>();
+    const aside = new Map<number, ParentNotWritten>();
+    if (state.config.stream?.everything !== true || records.length === 0) return { held, aside };
+    const lookups = requiredLookupsInTheRun(state, node.objectApiName, fieldInfos, carried);
+    /** Per parent object, the ids no record of the run's stands for, and the rows that name them. */
+    const unknown = new Map<string, Map<string, Array<{ index: number; field: string }>>>();
+    records.forEach((record, index) => {
+      const own = state.heldInTheOrg.get(String(record['Id']));
+      if (own !== undefined && own !== 'held') {
+        aside.set(index, own);
+        return;
+      }
+      for (const { field, parent } of lookups) {
+        const id = record[field];
+        if (typeof id !== 'string' || id === '' || state.remapper.get(id)) continue;
+        const known = state.heldInTheOrg.get(id);
+        if (known === 'held') {
+          held.set(index, { field, parentObject: parent });
+          return;
+        }
+        if (known) {
+          const reason =
+            known === NOT_IN_THE_SOURCE
+              ? notInTheSource(field, parent)
+              : leftAsideUnder(field, parent);
+          aside.set(index, { field, parentObject: parent, reason });
+          return;
+        }
+        const ids =
+          unknown.get(parent) ?? new Map<string, Array<{ index: number; field: string }>>();
+        ids.set(id, [...(ids.get(id) ?? []), { index, field }]);
+        unknown.set(parent, ids);
+      }
+    });
+    for (const [parent, ids] of unknown) {
+      const inSource = await this.idsInTheSource(state, parent, [...ids.keys()]);
+      for (const [id, rows] of ids) {
+        const there = inSource === undefined || inSource.has(id.slice(0, 15));
+        if (!there) state.heldInTheOrg.set(id, NOT_IN_THE_SOURCE);
+        for (const { index, field } of rows) {
+          if (held.has(index) || aside.has(index)) continue;
+          if (there) held.set(index, { field, parentObject: parent });
+          else
+            aside.set(index, {
+              field,
+              parentObject: parent,
+              reason: notInTheSource(field, parent),
+            });
+        }
+      }
+    }
+    for (const index of held.keys()) aside.delete(index);
+    return { held, aside };
+  }
+
+  /**
+   * The ids of `objectApiName` among `ids` that the source holds, read by id
+   * under their fifteen characters; undefined when the source would not say.
+   */
+  private async idsInTheSource(
+    state: ExecutionState,
+    objectApiName: string,
+    ids: readonly string[],
+  ): Promise<Set<string> | undefined> {
+    const found = new Set<string>();
+    try {
+      for (const list of idLists(ids)) {
+        const rows = await this.deps.queryRecords(
+          state.sourceOrgId,
+          `SELECT Id FROM ${assertSoqlIdentifier(objectApiName)} WHERE Id IN (${list})`,
+        );
+        for (const row of rows) found.add(String(row['Id']).slice(0, 15));
+      }
+      return found;
+    } catch (err) {
+      logger.warn(
+        `[forge] whether the source holds the ${objectApiName} records named could not be read: ${extractErrorMessage(err)}`,
+      );
+      return undefined;
+    }
+  }
+
+  /**
    * The rows of `node`'s count the run this one retries wrote: the ids it
    * links to, told from the object's key prefix in the source. None for an
    * object read after the checkpoint of a run it resumes, whose count leaves
@@ -7044,7 +7557,7 @@ export class ForgeExecutor {
     // written and the rest held back: judged before the first page instead,
     // from the record types the table holds.
     const types = pass ? undefined : await this.recordTypesOfTable(state, node);
-    if (types && types.closed.length > 0) {
+    if (types && types.closed.length > 0 && !this.typesHeldRowByRow(state, types)) {
       const rows = bound === undefined ? types.rows : Math.min(types.rows, bound - cursor.read);
       this.holdBackTableForRecordTypes(node, state, types, rows);
       return;
@@ -7170,7 +7683,7 @@ export class ForgeExecutor {
     const { config, sourceOrgId, targetOrgId } = state;
     const object = node.objectApiName;
     const target = await this.targetObjectInfoOf(state, object);
-    const none: TableRecordTypes = { closed: [], rows: 0, target };
+    const none: TableRecordTypes = { closed: [], rows: 0, target, closedInSource: [] };
     if (!target || !target.recordTypes.some((type) => !type.available && !type.master)) {
       return none;
     }
@@ -7203,11 +7716,18 @@ export class ForgeExecutor {
         (sum, row) => sum + (typeof row['n'] === 'number' && row['n'] > 0 ? row['n'] : 0),
         0,
       );
+      const counted = parseRecordTypeCounts(answered);
       const closed = unavailableRecordTypeUses(
         object,
-        this.recordTypesAsSent(state, parseRecordTypeCounts(answered)),
+        this.recordTypesAsSent(state, counted),
         target.recordTypes,
       );
+      const closedInSource = (uses: readonly UnavailableRecordTypeUse[]): string[] => {
+        const ids = new Set(uses.map((use) => use.recordTypeId));
+        return [...counted.keys()].filter((type) =>
+          [...this.recordTypesAsSent(state, [[type, 1]]).keys()].some((sent) => ids.has(sent)),
+        );
+      };
       // The table holds more rows than the run reads, and a closed record type
       // among them: judged on the rows the run reads, in the order of their
       // ids, as it reads them (`inIdOrder`). Judged on the whole table, a
@@ -7218,18 +7738,20 @@ export class ForgeExecutor {
       if (closed.length > 0 && left !== undefined && rows > left) {
         const read = await this.recordTypesOfTheRowsRead(state, object, from, left);
         if (read) {
+          const ofRead = unavailableRecordTypeUses(
+            object,
+            this.recordTypesAsSent(state, read.counts),
+            target.recordTypes,
+          );
           return {
-            closed: unavailableRecordTypeUses(
-              object,
-              this.recordTypesAsSent(state, read.counts),
-              target.recordTypes,
-            ),
+            closed: ofRead,
             rows: read.rows,
             target,
+            closedInSource: closedInSource(ofRead),
           };
         }
       }
-      return { closed, rows, target };
+      return { closed, rows, target, closedInSource: closedInSource(closed) };
     } catch {
       return undefined;
     }
@@ -7294,6 +7816,22 @@ export class ForgeExecutor {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * Whether a clone of the whole org writes the rows of a table holding a
+   * record type closed to the user it writes as whose type is open, holding
+   * back only the others (`rowsOfClosedTypes`). Run for real, one opportunity
+   * of 26 of a closed type held back the 26, and the 7 lines and quotes under
+   * the 25 others with them, though the dry run counted those. Any other run
+   * holds the object back whole, as before: a clone of records is the copy
+   * of a whole, and a part of it written is not what was asked for. So is a
+   * table whose every row is of a closed type.
+   */
+  private typesHeldRowByRow(state: ExecutionState, types: TableRecordTypes): boolean {
+    if (state.config.stream?.everything !== true) return false;
+    const closed = types.closed.reduce((sum, use) => sum + use.recordCount, 0);
+    return types.rows > closed;
   }
 
   /**
@@ -7624,13 +8162,14 @@ export class ForgeExecutor {
     const readById = readAsParentsNote(state, object);
     const ownNote = ownSentNote(carry.sentOnTheirOwn);
     if (failedNode) {
+      if (settled > 0) state.failedInPart.add(object);
       fail(
         settled === 0
           ? `Failed all ${object} records: ${carry.failed + heldCount} failed` +
               `${ofThemHeldBack(held)}${ownNote}${picklists}${readById}`
           : `${carry.failed + heldCount}/${total + heldCount} ${object} records failed (>50%)` +
-              `${ofThemHeldBack(held)}${ownNote}${picklists}${withoutFields}${sentSmaller}${readById} — objects ` +
-              'that cannot be written without it will be skipped',
+              `${ofThemHeldBack(held)}${ownNote}${picklists}${withoutFields}${sentSmaller}${readById}` +
+              PART_FAILED,
       );
       return;
     }
@@ -7675,6 +8214,7 @@ export class ForgeExecutor {
       carry.alreadyExists !== carry.failed &&
       (settled === 0 || carry.failed / total > 0.5);
     if (failedNode) state.failedObjects.add(object);
+    if (failedNode && settled > 0) state.failedInPart.add(object);
     state.onProgress({
       objectName: object,
       status: failedNode ? 'error' : 'stopped',
@@ -8138,6 +8678,13 @@ export class ForgeExecutor {
    * opportunity could have gone in with that one lookup left empty. It now
    * does, and the second pass reports the lookup it could not fill in.
    *
+   * And only a parent of which nothing went in. One failed by its rate, more
+   * than half its rows refused, used to take the node down whole: run for
+   * real on a whole org, 34 orphan prices refused of 44 skipped the four
+   * order lines whose two prices had been written. What hangs from such a
+   * parent is judged row by row instead, by the record each row names
+   * (`rowsWithoutTheirParent`): a row whose parent is in the target goes.
+   *
    * The node is named among the run's errors, with the parents it could not
    * do without. Said on its line alone, it was in none of the run's reports:
    * its history entry and its audit entry left the object out, and a run
@@ -8169,8 +8716,8 @@ export class ForgeExecutor {
     rowsRead?: readonly Record<string, unknown>[],
   ): Promise<boolean> {
     const failedParents = (fields: readonly FieldInfo[]): string[] =>
-      requiredParentsOf(node.objectApiName, state.graph, fields).filter((parent) =>
-        state.failedObjects.has(parent),
+      requiredParentsOf(node.objectApiName, state.graph, fields).filter(
+        (parent) => state.failedObjects.has(parent) && !state.failedInPart.has(parent),
       );
     let failed = failedParents(fieldInfos ?? []);
     if (failed.length === 0) return false;
@@ -8257,6 +8804,28 @@ export class ForgeExecutor {
     records: readonly Record<string, unknown>[],
   ): Promise<Map<number, ParentNotWritten>> {
     const held = new Map<number, ParentNotWritten>();
+    // A lookup at one object that went in in part holds back the rows that
+    // name one of its records the run did not write: `skipForFailedParent`
+    // let the node go for those whose parent is in the target.
+    records.forEach((record, index) => {
+      for (const f of fieldInfos) {
+        const [parent] = f.referenceTo ?? [];
+        if (
+          !f.isReference ||
+          (f.referenceTo ?? []).length !== 1 ||
+          parent === node.objectApiName ||
+          !state.failedInPart.has(parent) ||
+          !isRequiredLookup(node.objectApiName, f.name, f.nillable)
+        ) {
+          continue;
+        }
+        const id = record[f.name];
+        if (typeof id === 'string' && id && !state.remapper.get(id)) {
+          held.set(index, { field: f.name, parentObject: parent });
+          return;
+        }
+      }
+    });
     const lookups = fieldInfos.filter(
       (f) =>
         f.isReference &&
@@ -15274,6 +15843,8 @@ export class ForgeExecutor {
         : rows;
     // The rows to write, less those held back for want of their parent.
     let toWrite = records;
+    /** Of a clone of the whole org, the rows held back for their record type, as the line says them. */
+    const heldForTheirType: ParentNotWritten[] = [];
     try {
       // Step 2: describe the *target* org (schema-drift defense) — the only
       // way to detect missing fields/picklist drift before insert.
@@ -15397,14 +15968,50 @@ export class ForgeExecutor {
         effectiveCreatableSet,
         state,
       );
+      // A clone of the whole org holds back the rows of a closed type alone,
+      // with their record type, and writes the others: see `typesHeldRowByRow`.
+      // A table read page by page was judged before its first page
+      // (`streamNode`): a page all of a closed type holds back its own rows.
+      const ofClosedTypes =
+        heldBack.length > 0 && config.stream?.everything === true
+          ? this.rowsOfClosedTypes(state, node, records, heldBack)
+          : undefined;
+      const rowByRow =
+        ofClosedTypes !== undefined &&
+        ofClosedTypes.size > 0 &&
+        (page !== undefined || ofClosedTypes.size < records.length);
+      if (rowByRow) {
+        toWrite = records.filter((row) => !ofClosedTypes.has(row));
+        state.failedCount += ofClosedTypes.size;
+        for (const row of ofClosedTypes.keys()) state.heldInTheOrg.set(String(row['Id']), 'held');
+        const entries = [...ofClosedTypes.values()];
+        heldForTheirType.push(...entries);
+        if (page) {
+          page.withoutParent += entries.length;
+          groupsOfParentsNotWritten(entries, page.withoutParentGroups);
+          carryHeld(page, [{ count: entries.length, why: FOR_THEIR_RECORD_TYPE }]);
+        } else {
+          state.errors.push({
+            objectApiName: node.objectApiName,
+            stage: 'scope',
+            failedCount: entries.length,
+            attemptedCount: 0,
+            samples: samplesOfParentsNotWritten(
+              groupsOfParentsNotWritten(entries),
+              state.failedObjects,
+            ),
+          });
+        }
+        if (page && toWrite.length === 0) return;
+      }
       // Read page by page, an object a page held back whole for a record type
       // holds back the pages after it: the pages before it are written.
-      if (page?.heldWhole !== undefined && heldBack.length === 0) {
+      else if (page?.heldWhole !== undefined && heldBack.length === 0) {
         state.failedCount += records.length;
         page.heldWholeRows += records.length;
         return;
       }
-      if (heldBack.length > 0) {
+      if (heldBack.length > 0 && !rowByRow) {
         // What a simulation says of it: each record type, with those of the
         // target the user the run writes as may map it to.
         for (const use of heldBack) {
@@ -15545,6 +16152,44 @@ export class ForgeExecutor {
       )) {
         if (!withoutParent.has(index)) withoutParent.set(index, why);
       }
+      // And, in a clone of the whole org, what a lookup they may not leave
+      // empty names that the run holds back, or that is not in the source:
+      // see `rowsHeldInTheWholeOrg`. Those left aside go out of the write and
+      // out of the failures.
+      const inTheOrg = await this.rowsHeldInTheWholeOrg(
+        node,
+        state,
+        fieldInfos,
+        toWrite,
+        (field) =>
+          effectiveCreatableSet.has(field) &&
+          !leftOutOfTheWrite.has(field) &&
+          renames[field] === undefined,
+      );
+      for (const [index, why] of inTheOrg.held) {
+        if (!withoutParent.has(index)) withoutParent.set(index, why);
+      }
+      if (inTheOrg.aside.size > 0) {
+        for (const index of withoutParent.keys()) inTheOrg.aside.delete(index);
+        noteLeftAside(state, node.objectApiName, inTheOrg.aside.values());
+        toWrite.forEach((row, index) => {
+          const why = inTheOrg.aside.get(index);
+          if (why) state.heldInTheOrg.set(String(row['Id']), why);
+        });
+        const kept = toWrite.filter((_, index) => !inTheOrg.aside.has(index));
+        const keptIndex = new Map<number, number>();
+        toWrite.forEach((_, index) => {
+          if (!inTheOrg.aside.has(index)) keptIndex.set(index, keptIndex.size);
+        });
+        const reindexed = new Map<number, ParentNotWritten>();
+        for (const [index, why] of withoutParent) {
+          const at = keptIndex.get(index);
+          if (at !== undefined) reindexed.set(at, why);
+        }
+        withoutParent.clear();
+        for (const [index, why] of reindexed) withoutParent.set(index, why);
+        toWrite = kept;
+      }
       // And a team member or a split whose user or type the target has no
       // counterpart of: see `opportunityTeamOf`.
       toWrite.forEach((row, index) => {
@@ -15558,6 +16203,12 @@ export class ForgeExecutor {
         }
       });
       if (withoutParent.size > 0) {
+        // What hangs from a row held back is held back with it.
+        if (config.stream?.everything === true) {
+          toWrite.forEach((row, index) => {
+            if (withoutParent.has(index)) state.heldInTheOrg.set(String(row['Id']), 'held');
+          });
+        }
         toWrite = toWrite.filter((_, index) => !withoutParent.has(index));
         state.failedCount += withoutParent.size;
         if (page) {
@@ -16191,6 +16842,7 @@ export class ForgeExecutor {
       // back as they were read are said once, on the line that ends the node,
       // as its other notes are: a cancel's line always ends it.
       const heldBeforeTheWrite = (endsTheNode: boolean): HeldBackReason[] => [
+        ...heldWithoutParentWhy(heldForTheirType),
         ...(withoutParent.size > 0
           ? [{ count: withoutParent.size, why: WITHOUT_THEIR_PARENT }]
           : []),
@@ -16301,6 +16953,7 @@ export class ForgeExecutor {
 
       if (failedNode) {
         state.failedObjects.add(node.objectApiName);
+        if (settled > 0) state.failedInPart.add(node.objectApiName);
         // The rows held back are among the failures, as the run counts them:
         // left out of this line, they read as rows the node never had. The
         // rate that made it fail is that of the rows sent. A write that failed
@@ -16316,7 +16969,7 @@ export class ForgeExecutor {
               ? `Failed all ${node.objectApiName} records: ` +
                 `${nodeFailure + heldCount} failed${ofThemHeldBack(held)}${sentOnTheirOwn}${picklists}${readById}`
               : `${nodeFailure + heldCount}/${total + heldCount} ${node.objectApiName} records ` +
-                `failed (>50%)${ofThemHeldBack(held)}${sentOnTheirOwn}${picklists}${withoutFields}${sentSmaller}${readById} — objects that cannot be written without it will be skipped`,
+                `failed (>50%)${ofThemHeldBack(held)}${sentOnTheirOwn}${picklists}${withoutFields}${sentSmaller}${readById}${PART_FAILED}`,
         });
       } else {
         onProgress({
