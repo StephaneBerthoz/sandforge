@@ -4280,6 +4280,8 @@
     "retrySkippedHint": "Reintentar objetos omitidos vuelve a ejecutar el clon una vez corregido lo que los hizo omitir: los objetos que esta ejecución omitió por completo se escriben, vinculados a lo que sí escribió, que no se escribe una segunda vez.",
     "retryWithParents": "Obtener los padres que faltan y reintentar",
     "retryWithParentsHint": "Obtener los padres que faltan y reintentar vuelve a ejecutar el clon con «Obtener padres automáticamente» activado: los padres que el clon no lee por sí mismo también se copian, y luego se escribe lo que esta ejecución no pudo escribir, vinculado a lo que sí escribió. Corrige un campo obligatorio que quedó vacío cuando ese campo es una búsqueda.",
+    "wholeOrgAgain": "Clonar de nuevo toda la org",
+    "wholeOrgAgainHint": "Esta ejecución no se puede reintentar: el historial guarda un clon de toda la org sin las relaciones entre sus objetos, que ordenan una ejecución. Clonar de nuevo toda la org abre ALL entre las mismas orgs, y la org se descubre de nuevo. Lo que esta ejecución escribió sigue en el destino mientras no lo retire: la revisión indica lo que el destino ya contiene.",
     "saveIdMapCsv": "Guardar correspondencia de Ids (CSV)",
     "saveResultsCsv": "Guardar resultados (CSV)",
     "saveResultJson": "Guardar resultados (JSON)",
@@ -4308,7 +4310,8 @@
       "apiRequestsExceededSource": "La ejecución se rechazó antes de escribir nada: leer la org de origen necesitaría unas {{estimate}} de sus solicitudes de API, y le quedan {{remaining}} hoy. Ejecútela cuando a la org le sobren, o excluya objetos en la revisión.",
       "bulkBatchesExceeded": "La ejecución se rechazó antes de escribir nada: sus trabajos de Bulk API necesitarían unos {{estimate}} lotes de la org de destino, a la que le quedan {{remaining}} en las últimas 24 horas. Ejecútela cuando a la org le sobren.",
       "filesUnread": "La ejecución se rechazó antes de escribir nada: la org de origen no sumó ni enumeró sus archivos, así que no se sabe cuánto almacenamiento de archivos del destino ocupan. Desactive la copia de archivos en la revisión, o vuelva a ejecutarla cuando el origen responda.",
-      "fileStorageUnread": "La ejecución se rechazó antes de escribir nada: la org de destino no indicó cuánto almacenamiento de archivos le queda, así que los archivos que copiar no pudieron compararse con él. Desactive la copia de archivos en la revisión, o vuelva a ejecutarla cuando la org responda."
+      "fileStorageUnread": "La ejecución se rechazó antes de escribir nada: la org de destino no indicó cuánto almacenamiento de archivos le queda, así que los archivos que copiar no pudieron compararse con él. Desactive la copia de archivos en la revisión, o vuelva a ejecutarla cuando la org responda.",
+      "filesUnreadRecords": "La ejecución se rechazó antes de escribir nada: no se pudieron buscar en el origen todos los archivos de los registros que clonar, y los registros habrían llegado sin algunos de ellos. Desactive la copia de archivos en la revisión, o vuelva a ejecutarla cuando el origen responda."
     },
     "executionTable": {
       "leftOut": "excluido",
@@ -4416,7 +4419,11 @@
     "errorsPanel": {
       "title": "Errores de ejecución",
       "lookupsLeftEmpty_one": "{{count}} vínculo que la segunda pasada dejó vacío",
-      "lookupsLeftEmpty_other": "{{count}} vínculos que la segunda pasada dejó vacíos"
+      "lookupsLeftEmpty_other": "{{count}} vínculos que la segunda pasada dejó vacíos",
+      "secondPass": "Segunda pasada",
+      "orphanParents": "Obtener padres automáticamente",
+      "parentsNotCopied_one": "{{count}} padre obtenido fuera del clon no se copió",
+      "parentsNotCopied_other": "{{count}} padres obtenidos fuera del clon no se copiaron"
     },
     "errorsCell": {
       "failed_one": "{{stage}}: {{formatted}} registro fallido",

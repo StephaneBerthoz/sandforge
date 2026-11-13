@@ -1061,6 +1061,47 @@ describe('useForgeStore', () => {
     });
   });
 
+  describe('a clone of the whole org asked for again', () => {
+    it('goes back to the input as Forge again does, the orgs held for the form', () => {
+      useForgeStore.setState({
+        phase: 'results',
+        result: {
+          forgeId: 'forge-all',
+          status: 'partial',
+          graph: {
+            nodes: [],
+            edges: [],
+            totalRecords: 0,
+            estimatedSizeMB: 0,
+            estimatedDurationSeconds: 0,
+            withoutEdges: true,
+          },
+          duration: 1000,
+          timestamp: '2026-11-13',
+          idRemapCount: 5,
+        },
+      });
+
+      useForgeStore.getState().cloneWholeOrgAgain({ sourceOrgId: 'org-1', targetOrgId: 'org-2' });
+
+      const state = useForgeStore.getState();
+      expect(state.phase).toBe('input');
+      expect(state.result).toBeNull();
+      expect(state.graph).toBeNull();
+      expect(state.wholeOrgAgain).toEqual({ sourceOrgId: 'org-1', targetOrgId: 'org-2' });
+    });
+
+    it('hands the orgs to the form once', () => {
+      useForgeStore.getState().cloneWholeOrgAgain({ sourceOrgId: 'org-1', targetOrgId: undefined });
+
+      expect(useForgeStore.getState().takeWholeOrgAgain()).toEqual({
+        sourceOrgId: 'org-1',
+        targetOrgId: undefined,
+      });
+      expect(useForgeStore.getState().takeWholeOrgAgain()).toBeNull();
+    });
+  });
+
   describe('the answer to a run', () => {
     /** The extension answering `forge:execute` request `correlationId`. */
     function answer(correlationId: string, result?: ForgeExecutionResult): void {

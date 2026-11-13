@@ -170,6 +170,45 @@ export function isSecondPass(report: ForgeExecutionError): boolean {
   return report.objectApiName === SECOND_PASS;
 }
 
+/**
+ * The name the extension gives the report of the parents it fetched for rows
+ * whose required lookup pointed outside the clone (Auto-fetch parents): what
+ * it counts are those parents it could not copy, each a record of its own
+ * object, which its samples name. The rows that needed them fail under their
+ * own object, and the run counts the parents failed nowhere.
+ */
+const ORPHAN_PARENTS = '__expandOrphanParents__';
+
+/** Whether a report of the run is the fetched parents', which names no object. */
+export function isOrphanParents(report: ForgeExecutionError): boolean {
+  return report.objectApiName === ORPHAN_PARENTS;
+}
+
+/**
+ * Whether a report of the run is a pass's rather than an object's — the
+ * second pass, or the parents fetched outside the clone — as the audit trail
+ * reads them: counted apart from the failed records and their objects.
+ */
+export function isPassReport(report: ForgeExecutionError): boolean {
+  return isSecondPass(report) || isOrphanParents(report);
+}
+
+/**
+ * The parents the run fetched outside the clone and could not copy, across
+ * its reports: none when it copied every one it fetched, or fetched none.
+ */
+export function parentsNotCopiedOf(reports: readonly ForgeExecutionError[]): number {
+  let parents = 0;
+  for (const report of failuresOf(reports).filter(isOrphanParents)) parents += report.failedCount;
+  return parents;
+}
+
+/**
+ * The words the copied report gives the parents fetched outside the clone
+ * that it could not copy.
+ */
+const PARENTS_NOT_COPIED_WORDS = 'Parents fetched outside the clone, not copied';
+
 /** What the second pass left empty, across its reports. */
 export interface LookupsLeftEmpty {
   /** The lookups it left empty. */
@@ -296,21 +335,26 @@ export function runFailureCell(
 
 /**
  * The copied report's Run Errors section: the records the run failed, across
- * how many objects, and the lookups its second pass left empty, apart — those
- * records are in the target, and the run counts them failed nowhere. Then a
- * row per report, as the errors panel lists them, the second pass's included:
- * its stage, what it failed of what it tried, the codes its samples open with
- * and the first of their messages. Nothing when the run failed nothing. Only
- * the failed and attempted counts are exact: the codes are read from three
- * samples at most, which the column's heading says.
+ * how many objects, then apart the lookups its second pass left empty — those
+ * records are in the target, and the run counts them failed nowhere — and the
+ * parents it fetched outside the clone and could not copy, which the rows that
+ * needed them are already failed for. Then a row per report, as the errors
+ * panel lists them, the passes' included: its stage, what it failed of what it
+ * tried, the codes its samples open with and the first of their messages.
+ * Nothing when the run failed nothing. Only the failed and attempted counts
+ * are exact: the codes are read from three samples at most, which the
+ * column's heading says.
  */
 export function runErrorsReportLines(reports: readonly ForgeExecutionError[]): string[] {
   const failures = failuresOf(reports);
   if (failures.length === 0) return [];
-  const ofObjects = failures.filter((report) => !isSecondPass(report));
+  // A pass names no object: counted as one, the fetched parents' report read
+  // "3 objects" of a run that failed rows of two.
+  const ofObjects = failures.filter((report) => !isPassReport(report));
   let failed = 0;
   for (const report of ofObjects) failed += report.failedCount;
   const leftEmpty = lookupsLeftEmptyOf(failures)?.leftEmpty ?? 0;
+  const parentsNotCopied = parentsNotCopiedOf(failures);
   // Counted as the errors panel counts them: an object with two reports is one.
   const objects = new Set(ofObjects.map((report) => report.objectApiName)).size;
   const lines = ['', '## Run Errors', ''];
@@ -321,6 +365,9 @@ export function runErrorsReportLines(reports: readonly ForgeExecutionError[]): s
   }
   if (leftEmpty > 0) {
     lines.push(`- ${LEFT_EMPTY_WORDS}: ${String(leftEmpty)}`);
+  }
+  if (parentsNotCopied > 0) {
+    lines.push(`- ${PARENTS_NOT_COPIED_WORDS}: ${String(parentsNotCopied)}`);
   }
   lines.push(
     '',

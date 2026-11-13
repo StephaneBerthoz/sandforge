@@ -4280,6 +4280,8 @@
     "retrySkippedHint": "„Übersprungene Objekte wiederholen“ führt den Klon erneut aus, sobald behoben ist, was sie übersprungen hat: Die Objekte, die dieser Lauf ganz übersprungen hat, werden geschrieben und mit dem verknüpft, was er geschrieben hat; das wird kein zweites Mal geschrieben.",
     "retryWithParents": "Fehlende übergeordnete abrufen und wiederholen",
     "retryWithParentsHint": "„Fehlende übergeordnete abrufen und wiederholen“ führt den Klon erneut aus, mit „Übergeordnete automatisch abrufen“ eingeschaltet: Die übergeordneten Datensätze, die der Klon nicht von selbst liest, werden mitkopiert, dann wird geschrieben, was dieser Lauf nicht schreiben konnte, verknüpft mit dem, was er geschrieben hat. Das behebt ein leer gebliebenes Pflichtfeld, wenn dieses Feld eine Suche ist.",
+    "wholeOrgAgain": "Gesamte Org erneut klonen",
+    "wholeOrgAgainHint": "Dieser Lauf kann nicht wiederholt werden: Der Verlauf speichert einen Klon der gesamten Org ohne die Beziehungen zwischen ihren Objekten, nach denen ein Lauf geordnet wird. Gesamte Org erneut klonen öffnet ALL zwischen denselben Orgs, und die Org wird neu ermittelt. Was dieser Lauf geschrieben hat, bleibt im Ziel, solange Sie es nicht entfernen: Die Überprüfung zeigt, was das Ziel bereits enthält.",
     "saveIdMapCsv": "Id-Zuordnung speichern (CSV)",
     "saveResultsCsv": "Ergebnisse speichern (CSV)",
     "saveResultJson": "Ergebnisse speichern (JSON)",
@@ -4308,7 +4310,8 @@
       "apiRequestsExceededSource": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Das Lesen der Quell-Org bräuchte etwa {{estimate}} ihrer API-Anfragen, und ihr bleiben heute noch {{remaining}}. Starten Sie ihn, sobald die Org wieder genug davon hat, oder lassen Sie in der Überprüfung Objekte weg.",
       "bulkBatchesExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Bulk-API-Jobs bräuchten etwa {{estimate}} Batches der Ziel-Org, der in den letzten 24 Stunden noch {{remaining}} bleiben. Starten Sie ihn, sobald die Org wieder genug davon hat.",
       "filesUnread": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Quell-Org hat ihre Dateien weder summiert noch aufgelistet, daher ist nicht bekannt, wie viel Dateispeicher des Ziels sie belegen. Schalten Sie das Kopieren der Dateien in der Überprüfung aus, oder starten Sie ihn erneut, sobald die Quelle antwortet.",
-      "fileStorageUnread": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Ziel-Org hat nicht angegeben, wie viel Dateispeicher ihr bleibt, daher konnten die zu kopierenden Dateien nicht daran gemessen werden. Schalten Sie das Kopieren der Dateien in der Überprüfung aus, oder starten Sie ihn erneut, sobald die Org antwortet."
+      "fileStorageUnread": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Ziel-Org hat nicht angegeben, wie viel Dateispeicher ihr bleibt, daher konnten die zu kopierenden Dateien nicht daran gemessen werden. Schalten Sie das Kopieren der Dateien in der Überprüfung aus, oder starten Sie ihn erneut, sobald die Org antwortet.",
+      "filesUnreadRecords": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Dateien der zu klonenden Datensätze konnten in der Quelle nicht alle nachgeschlagen werden, und die Datensätze wären ohne einige davon angekommen. Schalten Sie das Kopieren der Dateien in der Überprüfung aus, oder starten Sie ihn erneut, sobald die Quelle antwortet."
     },
     "executionTable": {
       "leftOut": "ausgelassen",
@@ -4416,7 +4419,11 @@
     "errorsPanel": {
       "title": "Ausführungsfehler",
       "lookupsLeftEmpty_one": "{{count}} Verknüpfung, die der zweite Durchlauf leer ließ",
-      "lookupsLeftEmpty_other": "{{count}} Verknüpfungen, die der zweite Durchlauf leer ließ"
+      "lookupsLeftEmpty_other": "{{count}} Verknüpfungen, die der zweite Durchlauf leer ließ",
+      "secondPass": "Zweiter Durchlauf",
+      "orphanParents": "Übergeordnete automatisch abrufen",
+      "parentsNotCopied_one": "{{count}} außerhalb des Klons abgerufener übergeordneter Datensatz wurde nicht kopiert",
+      "parentsNotCopied_other": "{{count}} außerhalb des Klons abgerufene übergeordnete Datensätze wurden nicht kopiert"
     },
     "errorsCell": {
       "failed_one": "{{stage}}: {{formatted}} Datensatz fehlgeschlagen",

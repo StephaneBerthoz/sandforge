@@ -68,10 +68,13 @@ import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult
 import { useForgeRunGateStore } from './runGate';
 import {
   createdTargets,
+  isOrphanParents,
+  isPassReport,
   isRunNote,
   isSecondPass,
   lookupsLeftEmptyOf,
   objectResultsCsv,
+  parentsNotCopiedOf,
   reportCell,
   rootCopyOf,
   runErrorsReportLines,
@@ -474,8 +477,20 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
    * were was offered no retry. A simulation wrote nothing to retry against,
    * and once a removal took the run's records, the extension refuses one.
    */
+  const retryWanted = retryable || failures.length > 0;
+
+  /*
+   * The graph the history keeps of a clone of the whole org has no relations
+   * between its objects (`withoutEdges`): run again, its parents would go
+   * unordered and its lookups unmapped, and the extension refuses it
+   * (GRAPH_WITHOUT_EDGES). Opened from the history, its results offered Retry
+   * all the same, refused every time. They offer the clone of the whole org
+   * again in its place, its org discovered anew.
+   */
+  const keptWithoutEdges = graph?.withoutEdges === true || result?.graph?.withoutEdges === true;
   const retryOffered =
-    !simulated && !removed && result?.journalGone !== true && (retryable || failures.length > 0);
+    !simulated && !removed && !keptWithoutEdges && result?.journalGone !== true && retryWanted;
+  const wholeOrgAgainOffered = !simulated && keptWithoutEdges && retryWanted;
 
   /**
    * A run of whole tables that stopped part way can be taken up where it
@@ -872,6 +887,11 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   const handleForgeAgain = useCallback(() => {
     forgeAgain();
   }, [forgeAgain]);
+
+  /** Back to the input on ALL, between the orgs this run was, for the org to be discovered again. */
+  const handleWholeOrgAgain = useCallback(() => {
+    useForgeStore.getState().cloneWholeOrgAgain({ sourceOrgId, targetOrgId });
+  }, [sourceOrgId, targetOrgId]);
 
   return (
     <div data-testid="forge-results" className={cn('flex flex-col gap-4', className)}>
@@ -1633,6 +1653,18 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             {t(retryLabel)}
           </Button>
         )}
+        {wholeOrgAgainOffered && (
+          <Button
+            variant="secondary"
+            size="md"
+            icon={<RefreshCw size={14} />}
+            onClick={handleWholeOrgAgain}
+            aria-describedby="forge-whole-org-again-hint"
+            data-testid="forge-whole-org-again"
+          >
+            {t('forgeRun.wholeOrgAgain')}
+          </Button>
+        )}
         {missingParents && result && (
           <Button
             variant="secondary"
@@ -1681,6 +1713,16 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           data-testid="forge-retry-failed-hint"
         >
           {t(retryHint)}
+        </p>
+      )}
+      {/* Why the run is not retried, and what cloning the org again leaves. */}
+      {wholeOrgAgainOffered && (
+        <p
+          id="forge-whole-org-again-hint"
+          className="text-xs text-text-secondary"
+          data-testid="forge-whole-org-again-hint"
+        >
+          {t('forgeRun.wholeOrgAgainHint')}
         </p>
       )}
       {missingParents && result && (
@@ -1801,20 +1843,23 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
   }, []);
 
   /*
-   * The failed records and their objects, then the lookups the second pass
-   * left empty, apart, as the copied report counts them: those records are
-   * in the target, and the run counts them failed nowhere. Added to the
-   * records, with the pass counted as an object, they read "3 objects · 4
-   * records" of 3 records of 2 objects. An object can have two reports — its
-   * rows refused at insert, and the statuses it was not given back — and
+   * The failed records and their objects, then apart, as the copied report
+   * counts them, what the passes left: the lookups the second pass left empty
+   * — those records are in the target, and the run counts them failed
+   * nowhere — and the parents fetched outside the clone that could not be
+   * copied, whose rows are already failed under their own object. Added to
+   * the records, with each pass counted as an object, they read "3 objects ·
+   * 4 records" of 3 records of 2 objects. An object can have two reports —
+   * its rows refused at insert, and the statuses it was not given back — and
    * counted per report, it was counted twice.
    */
   const totals = useMemo(() => {
-    const ofObjects = errors.filter((e) => !isSecondPass(e));
+    const ofObjects = errors.filter((e) => !isPassReport(e));
     let failedRecords = 0;
     for (const e of ofObjects) failedRecords += e.failedCount;
     const objectCount = new Set(ofObjects.map((e) => e.objectApiName)).size;
     const leftEmpty = lookupsLeftEmptyOf(errors)?.leftEmpty ?? 0;
+    const parentsNotCopied = parentsNotCopiedOf(errors);
     return [
       ...(objectCount > 0
         ? [
@@ -1823,6 +1868,9 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
           ]
         : []),
       ...(leftEmpty > 0 ? [t('forgeRun.errorsPanel.lookupsLeftEmpty', { count: leftEmpty })] : []),
+      ...(parentsNotCopied > 0
+        ? [t('forgeRun.errorsPanel.parentsNotCopied', { count: parentsNotCopied })]
+        : []),
     ].join(' · ');
   }, [errors, t]);
 
@@ -1867,7 +1915,7 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                   size={14}
                   className={cn('transition-transform shrink-0', isOpen && 'rotate-90')}
                 />
-                <span className="font-mono text-text-primary truncate">{err.objectApiName}</span>
+                <ErrorsPanelRowName report={err} />
                 <span
                   className={cn(
                     'inline-block rounded-full px-2 py-0.5 text-xs font-medium',
@@ -1915,6 +1963,27 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
         })}
       </ul>
     </m.div>
+  );
+};
+
+/**
+ * What a row of the errors panel is named: an object by its API name, and a
+ * pass in the panel's language. Named `__pass2__` and `__expandOrphanParents__`,
+ * the passes read as two objects nobody had ever heard of.
+ */
+const ErrorsPanelRowName: React.FC<{ report: ForgeExecutionError }> = ({ report }) => {
+  const { t } = useTranslation();
+  const pass = isSecondPass(report)
+    ? t('forgeRun.errorsPanel.secondPass')
+    : isOrphanParents(report)
+      ? t('forgeRun.errorsPanel.orphanParents')
+      : undefined;
+  return pass === undefined ? (
+    <span className="font-mono text-text-primary truncate">{report.objectApiName}</span>
+  ) : (
+    <span data-testid="forge-errors-pass" className="text-text-primary truncate">
+      {pass}
+    </span>
   );
 };
 

@@ -3172,6 +3172,24 @@ export function isForgeRunGateError(error: unknown): error is ForgeRunGateError 
   );
 }
 
+/**
+ * The refusal of the file copier of a run that clones no whole org, as the
+ * gate's stop of the same code: the files of the records it read could not
+ * all be looked up ({@link FILES_UNREAD}), or the target would not say what
+ * file storage it has left ({@link FILE_STORAGE_UNREAD}). Raised before the
+ * first write, as a clone of the whole org's gate raises them, and recorded
+ * stopped under its code, as the command line records it. Told the page as a
+ * run that failed, it was said in English with no hint, on the execution
+ * screen, away from the Review where the copy of files is turned off. Read by
+ * its name, as a gate stop is. Nothing for any other error.
+ */
+export function filesRefusalStop(error: unknown): ForgeRunGateError | undefined {
+  if (!(error instanceof Error) || error.name !== 'ForgeFilesRefusedError') return undefined;
+  const { code } = error as { code?: unknown };
+  if (code !== FILES_UNREAD && code !== FILE_STORAGE_UNREAD) return undefined;
+  return new ForgeRunGateError(code, error.message);
+}
+
 /** Why the rows cannot be written for the storage they take, or nothing when they can. */
 export function storageRefusal(check: StorageCheck, target: string): string | undefined {
   if (check.verdict !== 'exceeds') return undefined;

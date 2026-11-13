@@ -4280,6 +4280,8 @@
     "retrySkippedHint": "Repetir objetos ignorados executa o clone de novo depois de corrigido o que os fez ser ignorados: os objetos que esta execução ignorou por inteiro são gravados, vinculados ao que ela gravou, que não é gravado uma segunda vez.",
     "retryWithParents": "Buscar os pais que faltam e repetir",
     "retryWithParentsHint": "Buscar os pais que faltam e repetir executa o clone de novo com \"Buscar pais automaticamente\" ativado: os pais que o clone não lê por conta própria também são copiados, e então é gravado o que esta execução não conseguiu gravar, vinculado ao que ela gravou. Corrige um campo obrigatório deixado vazio quando esse campo é uma pesquisa.",
+    "wholeOrgAgain": "Clonar a org inteira novamente",
+    "wholeOrgAgainHint": "Esta execução não pode ser repetida: o histórico guarda um clone da org inteira sem as relações entre seus objetos, que ordenam uma execução. Clonar a org inteira novamente abre ALL entre as mesmas orgs, e a org é descoberta de novo. O que esta execução gravou fica no destino enquanto você não o remover: a revisão diz o que o destino já contém.",
     "saveIdMapCsv": "Salvar mapeamento de Ids (CSV)",
     "saveResultsCsv": "Salvar resultados (CSV)",
     "saveResultJson": "Salvar resultados (JSON)",
@@ -4308,7 +4310,8 @@
       "apiRequestsExceededSource": "A execução foi recusada antes de gravar qualquer coisa: ler a org de origem precisaria de cerca de {{estimate}} de suas solicitações de API, e restam {{remaining}} hoje. Execute-a quando a org tiver de sobra, ou exclua objetos na revisão.",
       "bulkBatchesExceeded": "A execução foi recusada antes de gravar qualquer coisa: seus jobs da Bulk API precisariam de cerca de {{estimate}} lotes da org de destino, que tem {{remaining}} restantes nas últimas 24 horas. Execute-a quando a org tiver de sobra.",
       "filesUnread": "A execução foi recusada antes de gravar qualquer coisa: a org de origem não somou nem listou seus arquivos, então não se sabe quanto armazenamento de arquivos do destino eles ocupam. Desative a cópia de arquivos na revisão, ou execute de novo quando a origem responder.",
-      "fileStorageUnread": "A execução foi recusada antes de gravar qualquer coisa: a org de destino não informou quanto armazenamento de arquivos lhe resta, então os arquivos a copiar não puderam ser comparados a ele. Desative a cópia de arquivos na revisão, ou execute de novo quando a org responder."
+      "fileStorageUnread": "A execução foi recusada antes de gravar qualquer coisa: a org de destino não informou quanto armazenamento de arquivos lhe resta, então os arquivos a copiar não puderam ser comparados a ele. Desative a cópia de arquivos na revisão, ou execute de novo quando a org responder.",
+      "filesUnreadRecords": "A execução foi recusada antes de gravar qualquer coisa: nem todos os arquivos dos registros a clonar puderam ser buscados na origem, e os registros teriam chegado sem alguns deles. Desative a cópia de arquivos na revisão, ou execute de novo quando a origem responder."
     },
     "executionTable": {
       "leftOut": "excluído",
@@ -4416,7 +4419,11 @@
     "errorsPanel": {
       "title": "Erros de execução",
       "lookupsLeftEmpty_one": "{{count}} vínculo que a segunda passagem deixou vazio",
-      "lookupsLeftEmpty_other": "{{count}} vínculos que a segunda passagem deixou vazios"
+      "lookupsLeftEmpty_other": "{{count}} vínculos que a segunda passagem deixou vazios",
+      "secondPass": "Segunda passagem",
+      "orphanParents": "Buscar pais automaticamente",
+      "parentsNotCopied_one": "{{count}} pai buscado fora do clone não foi copiado",
+      "parentsNotCopied_other": "{{count}} pais buscados fora do clone não foram copiados"
     },
     "errorsCell": {
       "failed_one": "{{stage}}: {{formatted}} registro com falha",

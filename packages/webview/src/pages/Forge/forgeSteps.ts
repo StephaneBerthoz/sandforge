@@ -1,6 +1,6 @@
-import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 import { loadOrgRibbon } from '../../components/ui/lazyOrgRibbon';
 import { withEnglish } from '../../i18n/englishNamespaces';
+import { lazyOnce, loadOnce, type Thenable } from '../../utils/loadOnce';
 
 /*
  * The Forge steps a run reaches after its input, each a chunk of its own
@@ -21,54 +21,6 @@ import { withEnglish } from '../../i18n/englishNamespaces';
  * and plan listeners): nothing a step shows is lost while its chunk loads. A
  * step listens itself only for what it asks for once drawn.
  */
-
-/** What React.lazy reads of a loader's answer: a `then` it hands its two callbacks. */
-interface Thenable<T> {
-  then(onFulfilled: (value: T) => unknown, onRejected: (reason: unknown) => unknown): unknown;
-}
-
-/**
- * React.lazy as React takes it: from a loader that answers a promise "or
- * another thenable", which its types narrow to a promise.
- */
-const lazyStep = lazy as <P extends object>(
-  load: () => Thenable<{ default: ComponentType<P> }>,
-) => LazyExoticComponent<ComponentType<P>>;
-
-/**
- * `load`, run once for a step's `lazy` and for its preload alike, and answered
- * at once when its module is in.
- *
- * The preload ran the loader itself, and `lazy` ran it again the first time
- * the step was drawn: a promise of its own, which settles a microtask later
- * however long ago the chunk came. React drew the step's fallback for that
- * microtask, an empty box in place of the Review just left, and the panel,
- * that much shorter, went back to its top at the first Execute. Once the
- * module is in, the loader answers with a thenable that calls back before it
- * returns, which `lazy` draws on the spot. A load that failed is run again the
- * next time the step is asked for.
- */
-function loadOnce<T>(load: () => Promise<T>): () => Thenable<T> {
-  let loaded: { module: T } | undefined;
-  let loading: Promise<T> | undefined;
-  return () => {
-    if (loaded) {
-      const { module } = loaded;
-      return { then: (onFulfilled) => onFulfilled(module) };
-    }
-    loading ??= load().then(
-      (module) => {
-        loaded = { module };
-        return module;
-      },
-      (error: unknown) => {
-        loading = undefined;
-        throw error;
-      },
-    );
-    return loading;
-  };
-}
 
 /** Discovery: the graph read from the source, drawn as it grows. */
 const loadDiscovery = loadOnce(() =>
@@ -100,10 +52,15 @@ const loadResults = loadOnce(() =>
   ),
 );
 
-export const ForgeDiscovery = lazyStep(loadDiscovery);
-export const ForgeReview = lazyStep(loadReview);
-export const ForgeExecution = lazyStep(loadExecution);
-export const ForgeResults = lazyStep(loadResults);
+/*
+ * Each loaded once for its `lazy` and its preload (`loadOnce`): run twice, the
+ * step fetched ahead still suspended as it was first drawn, and the panel went
+ * back to its top at the first Execute.
+ */
+export const ForgeDiscovery = lazyOnce(loadDiscovery);
+export const ForgeReview = lazyOnce(loadReview);
+export const ForgeExecution = lazyOnce(loadExecution);
+export const ForgeResults = lazyOnce(loadResults);
 
 /**
  * The steps a run can reach from each one, fetched while it is shown.

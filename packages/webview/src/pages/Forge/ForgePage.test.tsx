@@ -76,6 +76,8 @@ vi.mock('../../stores/useForgeStore', async (importOriginal) => {
     fileCopy: { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false },
     setFileCopy: vi.fn(),
     gapReads: {},
+    // No clone of the whole org asked for again from its results.
+    takeWholeOrgAgain: () => null,
   };
 
   const store = Object.assign(

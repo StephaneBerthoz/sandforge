@@ -3313,6 +3313,106 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Forge results naming the passes in the errors panel, counted apart from the objects', async ({
+      page,
+    }) => {
+      const request = await startForgeRun(bridge, page, theme);
+      await forgeProgress(page, request, 'Account', 'done');
+      await forgeProgress(page, request, 'Contact', 'error');
+      // The second pass and the parents fetched outside the clone report under
+      // names of their own: listed as such, they read as two objects nobody had
+      // heard of, counted with the objects and their records.
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:response',
+        id: 'resp-forge-passes',
+        correlationId: request,
+        payload: {
+          result: {
+            forgeId: 'forge-run-passes',
+            status: 'partial',
+            graph: FORGE_TWO_NODE_GRAPH,
+            duration: 3_000,
+            timestamp: '2026-09-01T08:00:00.000Z',
+            idRemapCount: 1,
+            createdCount: 1,
+            idRemapTable: { [fakeId('001', 1, 'SRC')]: fakeId('001', 1) },
+            readByObject: [
+              { objectApiName: 'Account', read: 1 },
+              { objectApiName: 'Contact', read: 2 },
+            ],
+            errors: [
+              {
+                objectApiName: 'Contact',
+                stage: 'insert',
+                failedCount: 2,
+                attemptedCount: 2,
+                samples: [
+                  {
+                    recordSummary: 'LastName=Doe',
+                    messages: ['REQUIRED_FIELD_MISSING: Required fields are missing: [AccountId]'],
+                  },
+                ],
+              },
+              {
+                objectApiName: '__expandOrphanParents__',
+                stage: 'insert',
+                failedCount: 2,
+                attemptedCount: 2,
+                samples: [
+                  {
+                    recordSummary: `Account/${fakeId('001', 7, 'SRC')}`,
+                    messages: ['REQUIRED_FIELD_MISSING: Required fields are missing: [Region__c]'],
+                  },
+                ],
+              },
+              {
+                objectApiName: '__pass2__',
+                stage: 'insert',
+                failedCount: 1,
+                attemptedCount: 4,
+                samples: [
+                  {
+                    recordSummary: `Contact source=${fakeId('003', 2, 'SRC')}`,
+                    messages: [
+                      "Cycle FK 'ReportsToId' could not be resolved — referenced parent was not cloned",
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          operationId: 'forge-execute-1',
+        },
+      });
+      const errors = page.getByTestId('forge-errors-panel');
+      await errors.waitFor({ timeout: 10_000 });
+      await expect(errors.getByTestId('forge-errors-totals')).toHaveText(
+        '1 object · 2 records · 1 lookup the second pass left empty · ' +
+          '2 parents fetched outside the clone were not copied',
+      );
+      await expect(errors.getByTestId('forge-errors-pass')).toHaveText([
+        'Auto-fetch parents',
+        'Second pass',
+      ]);
+      await expect(errors).not.toContainText('__pass2__');
+      await expect(errors).not.toContainText('__expandOrphanParents__');
+      // Opened, each pass shows what it was refused with, and its hint.
+      for (const name of ['Auto-fetch parents', 'Second pass']) {
+        await errors
+          .getByTestId('forge-errors-row')
+          .filter({ hasText: name })
+          .getByRole('button')
+          .click();
+      }
+      await expect(errors.getByTestId('forge-errors-samples')).toHaveCount(2);
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-errors-pass"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('Forge run an error stopped after it wrote, then the results of what it wrote', async ({
       page,
     }) => {

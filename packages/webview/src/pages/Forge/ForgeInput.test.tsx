@@ -111,6 +111,8 @@ vi.mock('../../stores/useForgeStore', () => {
     toggleNodeIncluded: vi.fn(),
     toggleAnonymizeField: vi.fn(),
     reset: vi.fn(),
+    // No clone of the whole org asked for again from its results.
+    takeWholeOrgAgain: () => null,
   };
 
   const store = Object.assign(

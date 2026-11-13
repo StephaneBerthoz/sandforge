@@ -30,6 +30,24 @@ describe('lazyOrgRibbon', () => {
     expect(evaluated).toHaveBeenCalledTimes(1);
   });
 
+  it('draws the ribbon fetched ahead the first time it is asked for, without its fallback', async () => {
+    // Fetched while discovery was read, the ribbon still suspended as Review
+    // was first drawn: it came some 100 milliseconds after Review, and moved
+    // it 79 pixels down.
+    vi.doMock('./OrgRibbon', () => ({ OrgRibbon: () => <div data-testid="the-ribbon" /> }));
+    const { LazyOrgRibbon, loadOrgRibbon } = await import('./lazyOrgRibbon');
+    await loadOrgRibbon();
+
+    render(
+      <Suspense fallback={<div data-testid="waiting" />}>
+        <LazyOrgRibbon source={undefined} target={undefined} />
+      </Suspense>,
+    );
+
+    expect(screen.queryByTestId('waiting')).toBeNull();
+    expect(screen.getByTestId('the-ribbon')).toBeDefined();
+  });
+
   it('draws nothing, and throws nothing, when its chunk cannot be read', async () => {
     const failed = vi.fn();
     vi.doMock('./OrgRibbon', () => {

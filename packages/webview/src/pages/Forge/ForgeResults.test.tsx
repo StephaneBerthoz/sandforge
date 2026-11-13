@@ -19,6 +19,7 @@ import { ForgeResults, ID_REMAP_VIRTUALIZE_THRESHOLD } from './ForgeResults';
 import { FORGE_GUIDE_URL } from '@sandforge/shared';
 import { useForgeRunGateStore } from './runGate';
 import {
+  ORPHAN_PARENTS_REPORT,
   RUN_NOTES,
   SECOND_PASS_REPORT,
   SKIPPED_WHOLE,
@@ -256,6 +257,7 @@ const mockResetNodeStatuses = vi.fn(() => {
 const mockSetExecutionRequestId = vi.fn();
 /** The results screen a retry was started from, as the store is told it. */
 const mockMarkRetry = vi.fn();
+const mockCloneWholeOrgAgain = vi.fn();
 /** The configuration of the run on screen. */
 let mockConfig: ForgeConfig = RUN_CONFIG;
 /** What the screen wrote into the store directly: a retry's fix, into its config. */
@@ -311,6 +313,7 @@ vi.mock('../../stores/useForgeStore', () => {
         resetNodeStatuses: mockResetNodeStatuses,
         setExecutionRequestId: mockSetExecutionRequestId,
         markRetry: mockMarkRetry,
+        cloneWholeOrgAgain: mockCloneWholeOrgAgain,
       }),
       setState: (partial: { config?: ForgeConfig }) => mockSetState(partial),
     },
@@ -1002,6 +1005,44 @@ describe('ForgeResults', () => {
       );
     });
 
+    it('counts apart, in the errors panel, the parents fetched outside the clone it could not copy, and as no object', () => {
+      // Counted as an object, with its parents among the records, the fetched
+      // parents' report read "3 objects · 5 records" of 3 records of 2 objects.
+      cloneTheTrapRefused([...TRAP_REFUSALS, ORPHAN_PARENTS_REPORT, SECOND_PASS_REPORT]);
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-errors-totals').textContent).toBe(
+        '2 objects · 3 records · 1 lookup the second pass left empty · ' +
+          '2 parents fetched outside the clone were not copied',
+      );
+    });
+
+    it('names the passes in the errors panel in its language, and the objects by their API name', async () => {
+      // The rows read "__pass2__" and "__expandOrphanParents__": two objects
+      // nobody had ever heard of.
+      cloneTheTrapRefused([...TRAP_REFUSALS, ORPHAN_PARENTS_REPORT, SECOND_PASS_REPORT]);
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      try {
+        render(<ForgeResults />);
+        const names = screen
+          .getAllByTestId('forge-errors-row')
+          .map((row) => row.querySelector('button span:nth-of-type(1)')?.textContent);
+        expect(names).toEqual([
+          'Account',
+          'Contact',
+          'Récupérer les parents automatiquement',
+          'Seconde passe',
+        ]);
+        expect(screen.getByTestId('forge-errors-totals').textContent).toBe(
+          '2 objets · 3 enregistrements · 1 lien laissé vide par la seconde passe · ' +
+            "2 parents récupérés hors du clone n'ont pas été copiés",
+        );
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    });
+
     it('counts no object nor record in the errors panel of a run whose second pass alone left something', () => {
       cloneTheTrapRefused([SECOND_PASS_REPORT, ...RUN_NOTES]);
       render(<ForgeResults />);
@@ -1454,6 +1495,63 @@ describe('ForgeResults', () => {
   it('should not render retry failed button when no failed nodes', () => {
     render(<ForgeResults />);
     expect(screen.queryByTestId('forge-retry-failed')).toBeNull();
+  });
+
+  describe('a clone of the whole org taken up from the history', () => {
+    /*
+     * The history keeps its graph without the relations between its objects,
+     * and the extension refuses a run of it (GRAPH_WITHOUT_EDGES): Retry was
+     * offered all the same, and refused every time.
+     */
+    function keptWithoutEdges(): void {
+      mockGraph = { ...makeMockGraphWithError(), edges: [], withoutEdges: true };
+      mockResult = { ...makeMockResult(), graph: mockGraph };
+      mockConfig = {
+        inputMode: 'org',
+        depth: 'all',
+        sourceOrgId: 'org-source',
+        targetOrgId: 'org-target',
+        anonymizePII: true,
+        skipEmpty: false,
+        batchSize: 'auto',
+      };
+    }
+
+    it('offers no Retry, nor Retry with its parents, but the clone of the whole org again', () => {
+      keptWithoutEdges();
+      render(<ForgeResults />);
+
+      expect(screen.queryByTestId('forge-retry-failed')).toBeNull();
+      expect(screen.queryByTestId('forge-retry-parents')).toBeNull();
+      const again = screen.getByTestId('forge-whole-org-again');
+      expect(again.textContent).toBe('Clone the whole org again');
+      expect(again.getAttribute('aria-describedby')).toBe('forge-whole-org-again-hint');
+      expect(screen.getByTestId('forge-whole-org-again-hint').textContent).toContain(
+        'This run cannot be retried',
+      );
+    });
+
+    it('opens ALL again between the orgs it ran between, and sends no run', () => {
+      keptWithoutEdges();
+      render(<ForgeResults />);
+
+      fireEvent.click(screen.getByTestId('forge-whole-org-again'));
+
+      expect(mockCloneWholeOrgAgain).toHaveBeenCalledWith({
+        sourceOrgId: 'org-source',
+        targetOrgId: 'org-target',
+      });
+      expect(sent('forge:execute')).toEqual([]);
+    });
+
+    it('is not offered of a run whose graph keeps its relations: Retry is', () => {
+      mockGraph = makeMockGraphWithError();
+      mockResult = { ...makeMockResult(), graph: mockGraph };
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-retry-failed')).toBeDefined();
+      expect(screen.queryByTestId('forge-whole-org-again')).toBeNull();
+    });
   });
 
   describe('Retry failed', () => {

@@ -312,6 +312,106 @@ test('Empty these objects first opens DataOps on Cleanup for the target, the obj
   expect(selected).toEqual({ orgId: QA_SANDBOX.id });
 });
 
+test('a clone of the whole org taken up from the history offers to clone the org again, not a Retry it would refuse, and passes axe', async ({
+  page,
+}) => {
+  // The history keeps the graph of a clone of the whole org without its
+  // relations, and the extension refuses a run of it (GRAPH_WITHOUT_EDGES):
+  // its results offered Retry all the same, refused every time.
+  const bridge = new MockBridge();
+  await bridge.setup(page);
+  await paintHostTheme(page, 'Dark Modern');
+  await page.addInitScript(() => {
+    (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'forge';
+  });
+  await page.goto('/');
+  await bridge.seedOrgs([DEV_SANDBOX, QA_SANDBOX, PRODUCTION]);
+  await page.waitForSelector('[data-testid="forge-page"]', { timeout: 10_000 });
+  // As the history keeps it: no relation, and what it left out counted by reason.
+  const graph = { ...wholeOrgGraph(), edges: [], withoutEdges: true };
+  delete graph.leftOut;
+  const entry = {
+    forgeId: 'forge-all-past',
+    status: 'partial',
+    graph,
+    leftOutCounts: [{ reason: 'chatter', count: 1 }],
+    duration: 60_000,
+    timestamp: '2026-11-13T10:00:00.000Z',
+    idRemapCount: 9_000,
+    createdCount: 9_000,
+    resumable: true,
+    sourceOrgId: PRODUCTION.id,
+    targetOrgId: QA_SANDBOX.id,
+    config: {
+      inputMode: 'org',
+      depth: 'all',
+      anonymizePII: true,
+      skipEmpty: false,
+      batchSize: 'auto',
+    },
+  };
+  await bridge.waitForMessage('forge:history:list', { timeout: 10_000 });
+  await answerAll(page, 'forge:history:list', 'forge:history:list:response', {
+    history: [entry],
+  });
+
+  await page.getByTestId('forge-history-resume-forge-all-past').click();
+  const resumed = await bridge.waitForMessage('forge:resume-run', { timeout: 10_000 });
+  await sendExtensionMessage(page, {
+    type: 'forge:execute:response',
+    id: 'resumed',
+    correlationId: String(resumed.id),
+    payload: {
+      result: {
+        ...entry,
+        forgeId: 'forge-all-resumed',
+        resumable: false,
+        errors: [
+          {
+            objectApiName: 'Contact',
+            stage: 'insert',
+            failedCount: 3,
+            attemptedCount: 4_800,
+            samples: [
+              {
+                recordSummary: 'LastName=Contact 0025',
+                messages: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Email is required. [Email]'],
+              },
+            ],
+          },
+        ],
+      },
+      operationId: 'forge-execute-1',
+    },
+  });
+
+  await expect(page.getByTestId('forge-results')).toBeVisible();
+  await expect(page.getByTestId('forge-retry-failed')).toHaveCount(0);
+  await expect(page.getByTestId('forge-whole-org-again')).toHaveText('Clone the whole org again');
+  await expect(page.getByTestId('forge-whole-org-again-hint')).toContainText(
+    'This run cannot be retried',
+  );
+  const results = await checkAccessibility(page);
+  expect(results.violations.length, formatViolations(results.violations)).toBe(0);
+
+  await page.getByTestId('forge-whole-org-again').click();
+
+  // ALL again, between the same orgs, with a new run's defaults: the org is
+  // discovered anew, nothing of the graph the history kept is run.
+  await expect(page.getByTestId('forge-depth-all')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByTestId('forge-anonymize-toggle')).toBeChecked();
+  await page.getByTestId('forge-discover-btn').click();
+  const [discover] = await sentPayloads(page, 'forge:discover');
+  expect(discover.config).toMatchObject({
+    inputMode: 'org',
+    depth: 'all',
+    anonymizePII: true,
+    sourceOrgId: PRODUCTION.id,
+    targetOrgId: QA_SANDBOX.id,
+  });
+  expect(await sentPayloads(page, 'forge:execute')).toEqual([]);
+});
+
 /** Each refusal of the gate of a clone of the whole org, and what Review says of it. */
 const REFUSALS: Array<{ name: string; gate: Record<string, unknown>; says: string }> = [
   {

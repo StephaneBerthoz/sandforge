@@ -414,9 +414,17 @@ async function openReview(page: Page, options: ReviewOptions = {}): Promise<Mock
   await page.getByTestId('forge-input-soql').fill('SELECT Id FROM Account');
   await page.getByTestId('forge-target-org').click();
   await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+  // The ribbon of the two orgs is fetched while discovery is read, and drawn
+  // with Review. Discovery answered at once, Review could be asked for before
+  // its chunk was in: the ribbon came after it, moved it down, and a test
+  // measured the page between the two.
+  const ribbonFetched = page.waitForResponse((response) =>
+    response.url().includes('/components/ui/OrgRibbon'),
+  );
   await page.getByTestId('forge-discover-btn').click();
   await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
   await answerAll(page, 'forge:discover', 'forge:discover:response', { graph });
+  await ribbonFetched;
   await page.getByTestId('forge-execute-btn').click();
   await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
   await bridge.waitForMessage('forge:automation:request', { timeout: 10_000 });
@@ -584,6 +592,38 @@ test.describe('Forge Review on a wide panel', () => {
     const rows = await page.getByTestId('review-tabs').boundingBox();
     const column = await page.getByTestId('review-run-column').boundingBox();
     expect(column!.x).toBeGreaterThanOrEqual(rows!.x + rows!.width);
+  });
+
+  test('draws the ribbon of the two orgs with Review, which does not move under it', async ({
+    page,
+  }) => {
+    // Fetched while discovery was read, the ribbon still suspended as Review
+    // was first drawn: it came some 100 milliseconds after, and moved Review
+    // 79 pixels down. The column, measured where Review first stood, ran under
+    // its foot until it was measured again.
+    await page.addInitScript(() => {
+      const first: { top?: number; ribbon?: boolean } = {};
+      (window as unknown as Record<string, unknown>).__reviewFirstDrawn = first;
+      new MutationObserver((_records, observer) => {
+        const review = document.querySelector('[data-testid="forge-review"]');
+        if (!review) return;
+        first.top = review.getBoundingClientRect().top;
+        first.ribbon = document.querySelector('[data-testid="org-ribbon"]') !== null;
+        observer.disconnect();
+      }).observe(document, { childList: true, subtree: true });
+    });
+    await openReview(page, { gaps: [REFUSING_GAP] });
+
+    const first = await page.evaluate(
+      () =>
+        (window as unknown as Record<string, { top?: number; ribbon?: boolean }>)
+          .__reviewFirstDrawn,
+    );
+    expect(first.ribbon).toBe(true);
+    const top = await page
+      .getByTestId('forge-review')
+      .evaluate((review) => review.getBoundingClientRect().top);
+    expect(top).toBe(first.top);
   });
 
   test('leaves a control reached by Tab clear of the actions held at the foot', async ({

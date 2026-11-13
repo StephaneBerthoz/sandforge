@@ -38,7 +38,8 @@ import * as z from 'zod';
  *   bounds the memory, and nobody declined anything.
  * - `FILES_UNREAD`: a clone of the whole org asked to copy files, and the
  *   source would neither sum nor list them: what they take of the target's
- *   file storage is not known.
+ *   file storage is not known. Of any other run, its file copier could not
+ *   look up all the files of the records it read.
  * - `FILE_STORAGE_UNREAD`: the same, the target not saying what file storage
  *   it has left.
  */

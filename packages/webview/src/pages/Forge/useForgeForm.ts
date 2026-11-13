@@ -14,6 +14,7 @@ import type {
   ForgeExecutionResult,
   ForgeInputMode,
   ForgeTemplate,
+  ForgeWholeOrgAgain,
 } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useSendMessage } from '../../hooks/useMessageBus';
@@ -392,6 +393,36 @@ export function useForgeForm(): ForgeFormState {
   useEffect(() => {
     adoptHandedOverRecord.current();
   }, [adoptHandedOverRecord]);
+
+  /**
+   * Open on a clone of the whole org asked for again from its results: the
+   * ALL chip, and the orgs it ran between when this machine still holds them.
+   * Its defaults are a new run's — no file, Anonymize PII on for a source
+   * that holds real people's data — and its org is discovered again, the
+   * graph the history keeps of it having no relations to run by. Taken from
+   * the store once, and kept for the form's life: the source the panel has
+   * selected is taken just before, on every pass of the effects, and the
+   * second pass React makes in development gave the run's source back to it.
+   */
+  const wholeOrgAgain = useRef<ForgeWholeOrgAgain | null>(null);
+  const adoptWholeOrgAgain = useLatestRef(() => {
+    wholeOrgAgain.current ??= useForgeStore.getState().takeWholeOrgAgain();
+    const again = wholeOrgAgain.current;
+    if (!again) return;
+    const held = (id: string | undefined): id is string =>
+      id !== undefined && orgs.some((o) => o.id === id);
+    // An org no longer held leaves the source the form takes on any mount.
+    const source = held(again.sourceOrgId)
+      ? again.sourceOrgId
+      : sourceOrgId || (selectedOrgId ?? '');
+    setDepthState('all');
+    if (held(again.sourceOrgId)) setSourceOrgIdState(again.sourceOrgId);
+    if (held(again.targetOrgId)) setTargetOrgId(again.targetOrgId);
+    anonymizeFor('all', source);
+  });
+  useEffect(() => {
+    adoptWholeOrgAgain.current();
+  }, [adoptWholeOrgAgain]);
 
   /* ---- Record preview (composed hook) ---- */
   const { preview, previewLoading, previewError, handlePreview, resetPreview, closePreview } =

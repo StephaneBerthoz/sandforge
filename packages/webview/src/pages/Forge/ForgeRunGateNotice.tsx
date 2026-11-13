@@ -46,7 +46,8 @@ const CANCELLED: ReadonlySet<ForgeRunGateCode> = new Set([
  * when the run was to take one; and of a clone of the whole org, which
  * storage, which allowance of which org — its source's requests, its
  * target's Bulk API batches — refused it, in words that name what it can
- * leave out rather than a cap it does not have.
+ * leave out rather than a cap it does not have; files that could not be
+ * looked up, by what looked them up.
  */
 function sentenceOf(stop: ForgeRunGateStop, checkpointAsked: boolean, wholeOrg: boolean): string {
   if (stop.code === 'CHECKPOINT_REFUSED' && stop.reason !== undefined) {
@@ -65,6 +66,10 @@ function sentenceOf(stop: ForgeRunGateStop, checkpointAsked: boolean, wholeOrg: 
   if (stop.code === 'API_BUDGET_EXCEEDED' && checkpointAsked) {
     return 'forgeRun.gate.apiBudgetExceededWithCheckpoint';
   }
+  // Of any other run, its file copier refused the files of the records it
+  // read, some of which it could not look up: the source did not fail to sum
+  // the org's files, which only a clone of the whole org asks.
+  if (stop.code === 'FILES_UNREAD' && !wholeOrg) return 'forgeRun.gate.filesUnreadRecords';
   return STOP_KEYS[stop.code];
 }
 

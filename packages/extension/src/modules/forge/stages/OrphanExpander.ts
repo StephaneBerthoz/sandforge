@@ -465,14 +465,21 @@ export class OrphanExpander {
    * Build the aggregated error entry for the execution summary, or `null`
    * when no expansion failed. Mirrors the `__expandOrphanParents__` report
    * the legacy executor appended at the end of `execute()`.
+   *
+   * It counts every parent that could not be copied, each once, as the
+   * negative cache holds them; its samples are three of them at most. Counted
+   * by its samples, a run that could copy none of fifty parents said three,
+   * which the results page then said as the parents it could not copy. It
+   * attempted those and the ones it copied: counted by the copies alone, the
+   * page read "2/5", two failed of five tried, of seven parents tried.
    */
   buildErrorReport(): ExecutionObjectError | null {
-    if (this.expansionErrors.length === 0) return null;
+    if (this.failedOrphans.size === 0) return null;
     return {
       objectApiName: '__expandOrphanParents__',
       stage: 'insert',
-      failedCount: this.expansionErrors.length,
-      attemptedCount: this.expansionsUsed,
+      failedCount: this.failedOrphans.size,
+      attemptedCount: this.expansionsUsed + this.failedOrphans.size,
       samples: this.expansionErrors,
     };
   }

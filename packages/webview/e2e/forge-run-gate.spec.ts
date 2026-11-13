@@ -209,6 +209,35 @@ test('a refusal for storage says what the records take and what the target had l
   );
 });
 
+for (const refusal of [
+  {
+    code: 'FILES_UNREAD',
+    host: 'The files of the records to clone could not all be looked up in the source (INVALID_TYPE: sObject type ContentDocumentLink is not supported.). Run it again, or leave the files out. Nothing was written.',
+    says: 'The run was refused before it wrote anything: the files of the records to clone could not all be looked up in the source, and the records would have gone without some of them. Turn the copy of files off on Review, or run it again once the source answers.',
+  },
+  {
+    code: 'FILE_STORAGE_UNREAD',
+    host: 'The file storage the target has left could not be read (Request timed out), so the files could not be checked against it. Nothing was written.',
+    says: 'The run was refused before it wrote anything: the target org would not say what file storage it has left, so the files to copy could not be weighed against it. Turn the copy of files off on Review, or run it again once the org answers.',
+  },
+]) {
+  test(`files its copier refused (${refusal.code}) come back to Review, said in its words, and pass axe`, async ({
+    page,
+  }) => {
+    // Told as a run that failed, the copier's refusal stayed on the execution
+    // screen in the host's English, with no hint, away from the copy of files.
+    const { run } = await startRun(page, 'Light Modern');
+
+    await stopAtTheGate(page, run, refusal.host, { code: refusal.code });
+
+    await expect(page.getByTestId('forge-review')).toBeVisible();
+    await expect(page.getByTestId('forge-run-gate-reason')).toHaveText(refusal.says);
+    await expect(page.getByTestId('forge-execution-error')).toHaveCount(0);
+    const results = await checkAccessibility(page);
+    expect(results.violations.length, formatViolations(results.violations)).toBe(0);
+  });
+}
+
 test('a run that failed stays on the execution screen with its error, not on Review', async ({
   page,
 }) => {

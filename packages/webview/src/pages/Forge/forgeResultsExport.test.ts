@@ -14,6 +14,7 @@ import {
   type ObjectResultRow,
 } from './forgeResultsExport';
 import {
+  ORPHAN_PARENTS_REPORT,
   RUN_NOTES,
   SECOND_PASS_REPORT,
   SKIPPED_WHOLE,
@@ -446,6 +447,35 @@ describe("the copied report's Run Errors section", () => {
       '## Run Errors',
       '',
       '- Lookups the second pass left empty: 1',
+      '',
+    ]);
+  });
+
+  it('counts the parents fetched outside the clone apart from the failed records, and as no object', () => {
+    // Counted as an object, with its parents among the failed records, the
+    // fetched parents' report read "5 failed records across 3 objects" of a
+    // run that failed 3 rows of 2 objects, the rows that needed those parents
+    // among them.
+    const lines = runErrorsReportLines([...TRAP_REFUSALS, ORPHAN_PARENTS_REPORT]);
+
+    expect(lines.slice(0, 6)).toEqual([
+      '',
+      '## Run Errors',
+      '',
+      '- Failed records: 3 across 2 objects',
+      '- Parents fetched outside the clone, not copied: 2',
+      '',
+    ]);
+    // Its row stays, as the errors panel lists it.
+    expect(lines.at(-1)).toMatch(/^\| __expandOrphanParents__ \| insert \| 2 \| 2 \| /);
+  });
+
+  it('says only the parents not copied of a run that failed nothing else', () => {
+    expect(runErrorsReportLines([ORPHAN_PARENTS_REPORT]).slice(0, 5)).toEqual([
+      '',
+      '## Run Errors',
+      '',
+      '- Parents fetched outside the clone, not copied: 2',
       '',
     ]);
   });

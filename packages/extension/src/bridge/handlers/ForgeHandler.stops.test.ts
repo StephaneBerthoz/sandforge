@@ -14,6 +14,7 @@ import { PROTOCOL_VERSION, forgeRunCountsLeft } from '@sandforge/shared';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { DiscoveryOptions } from '../../modules/forge/GraphDiscoveryService.js';
 import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
+import { ForgeFilesRefusedError } from '../../modules/forge/stages/FileCopier.js';
 import {
   ForgeRunGateError,
   OWNER_MAP_INACTIVE,
@@ -704,6 +705,77 @@ describe('ForgeHandler stops and discoveries, with two panels', () => {
       await run;
 
       expect(taken(panelA, 'forge:execute:error')).toEqual([]);
+    });
+  });
+
+  describe('a run whose files its file copier refuses before the first write', () => {
+    /*
+     * Thrown by the executor of a run that clones no whole org. Told the page
+     * as a run that failed, under EXECUTE_ERROR, the refusal was said in
+     * English with no hint, on the execution screen, away from the Review
+     * where the copy of files is turned off; and the trail recorded a failure
+     * the command line records as stopped. The words are the executor's: what
+     * a source answers to a lookup it refuses is yet to be read on a real org.
+     */
+    const REFUSALS = [
+      {
+        code: 'FILES_UNREAD',
+        message:
+          'The files of the records to clone could not all be looked up in the source ' +
+          '(INVALID_TYPE: sObject type ContentDocumentLink is not supported.). Run it again, or ' +
+          'leave the files out. Nothing was written.',
+      },
+      {
+        code: 'FILE_STORAGE_UNREAD',
+        message:
+          'The file storage the target has left could not be read (Request timed out), so the ' +
+          'files could not be checked against it. Nothing was written.',
+      },
+    ] as const;
+
+    for (const { code, message } of REFUSALS) {
+      it(`takes ${code} back to Review as the gate's stop, recorded stopped, and keeps no run`, async () => {
+        const run = send(panelA, `wv-run-${code}`, 'forge:execute', {
+          graph: graphOf('Account'),
+          config: CONFIG,
+        });
+        await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(1));
+
+        stopRun(new ForgeFilesRefusedError(message, code));
+        await run;
+
+        const [refused] = taken(panelA, 'forge:execute:error');
+        expect(refused?.payload).toMatchObject({ code, message, gate: { code } });
+        expect(refused?.payload).not.toHaveProperty('result');
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            action: 'forge_execute',
+            outcome: 'stopped',
+            details: expect.objectContaining({ code }),
+          }),
+        ]);
+      });
+    }
+
+    it('makes no stop of the gate of a refusal of files the gate has no code for', async () => {
+      // Files that do not fit in the target: the gate's own stop for them is
+      // STORAGE_EXCEEDED with the megabytes it read, which this one does not carry.
+      const run = send(panelA, 'wv-run-exceeded', 'forge:execute', {
+        graph: graphOf('Account'),
+        config: CONFIG,
+      });
+      await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(1));
+
+      stopRun(
+        new ForgeFilesRefusedError(
+          'The files take 12 MB and the target has 3 MB left. Nothing was written.',
+          'FILE_STORAGE_EXCEEDED',
+        ),
+      );
+      await run;
+
+      const [refused] = taken(panelA, 'forge:execute:error');
+      expect(refused?.payload).not.toHaveProperty('gate');
     });
   });
 

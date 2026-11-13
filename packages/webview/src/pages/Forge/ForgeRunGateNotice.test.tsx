@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useForgeStore } from '../../stores/useForgeStore';
 import type { ForgeConfig, ForgeRunGateStop } from '@sandforge/shared';
@@ -208,6 +209,35 @@ describe('ForgeRunGateNotice', () => {
 
       expect(screen.getByTestId('forge-run-gate-notice').getAttribute('role')).toBe('alert');
       expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(text);
+    });
+  });
+
+  describe('of a run its file copier refused, which clones no whole org', () => {
+    // Told the page as a run that failed, its refusal was said in English with
+    // no hint, on the execution screen; a clone of the whole org's words say
+    // the source would not sum the org's files, which no other run asks.
+    it('says the files of its records could not all be looked up, in the panel’s language', async () => {
+      act(() => useForgeRunGateStore.getState().setStop({ code: 'FILES_UNREAD' }));
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await act(() => i18n.changeLanguage('fr'));
+      try {
+        render(<ForgeRunGateNotice />);
+        expect(screen.getByTestId('forge-run-gate-notice').getAttribute('role')).toBe('alert');
+        expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
+          "Le clonage a été refusé avant d'écrire quoi que ce soit : les fichiers des enregistrements à cloner n'ont pas tous pu être recherchés dans la source, et les enregistrements seraient partis sans certains d'entre eux. Désactivez la copie des fichiers dans la revue, ou relancez-le quand la source répondra.",
+        );
+      } finally {
+        await act(() => i18n.changeLanguage('en'));
+      }
+    });
+
+    it('says the target would not tell its file storage, as for a clone of the whole org', () => {
+      act(() => useForgeRunGateStore.getState().setStop({ code: 'FILE_STORAGE_UNREAD' }));
+      render(<ForgeRunGateNotice />);
+
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
+        'The run was refused before it wrote anything: the target org would not say what file storage it has left, so the files to copy could not be weighed against it. Turn the copy of files off on Review, or run it again once the org answers.',
+      );
     });
   });
 

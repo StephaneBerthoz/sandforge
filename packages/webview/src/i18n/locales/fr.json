@@ -4280,6 +4280,8 @@
     "retrySkippedHint": "Retenter les objets ignorés relance le clone une fois corrigé ce qui les a fait ignorer : les objets que cette exécution a ignorés en entier sont écrits, rattachés à ce qu'elle a écrit, qui n'est pas écrit une seconde fois.",
     "retryWithParents": "Récupérer les parents manquants et retenter",
     "retryWithParentsHint": "Récupérer les parents manquants et retenter relance le clone avec « Récupérer les parents automatiquement » activé : les parents que le clone ne lit pas de lui-même sont copiés aussi, puis ce que cette exécution n'a pas pu écrire est écrit, rattaché à ce qu'elle a écrit. Cela corrige un champ obligatoire resté vide quand ce champ est une référence.",
+    "wholeOrgAgain": "Cloner à nouveau toute l'org",
+    "wholeOrgAgainHint": "Ce run ne peut pas être retenté : l'historique garde un clonage de toute l'org sans les relations entre ses objets, qui ordonnent un run. Cloner à nouveau toute l'org rouvre ALL entre les mêmes orgs, et l'org est découverte à nouveau. Ce que ce run a écrit reste dans la cible tant que vous ne le retirez pas : la revue dit ce que la cible contient déjà.",
     "saveIdMapCsv": "Enregistrer la correspondance des Ids (CSV)",
     "saveResultsCsv": "Enregistrer les résultats (CSV)",
     "saveResultJson": "Enregistrer les résultats (JSON)",
@@ -4308,7 +4310,8 @@
       "apiRequestsExceededSource": "Le clonage a été refusé avant d'écrire quoi que ce soit : lire l'org source demanderait environ {{estimate}} de ses appels API, et il lui en reste {{remaining}} aujourd'hui. Relancez-le quand l'org en aura de reste, ou excluez des objets dans la revue.",
       "bulkBatchesExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses jobs Bulk API demanderaient environ {{estimate}} lots à l'org cible, à qui il en reste {{remaining}} sur les dernières 24 heures. Relancez-le quand l'org en aura de reste.",
       "filesUnread": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'org source n'a ni totalisé ni listé ses fichiers, donc ce qu'ils prennent du stockage de fichiers de la cible n'est pas connu. Désactivez la copie des fichiers dans la revue, ou relancez-le quand la source répondra.",
-      "fileStorageUnread": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'org cible n'a pas dit ce qu'il lui reste de stockage de fichiers, donc les fichiers à copier n'ont pas pu y être comparés. Désactivez la copie des fichiers dans la revue, ou relancez-le quand l'org répondra."
+      "fileStorageUnread": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'org cible n'a pas dit ce qu'il lui reste de stockage de fichiers, donc les fichiers à copier n'ont pas pu y être comparés. Désactivez la copie des fichiers dans la revue, ou relancez-le quand l'org répondra.",
+      "filesUnreadRecords": "Le clonage a été refusé avant d'écrire quoi que ce soit : les fichiers des enregistrements à cloner n'ont pas tous pu être recherchés dans la source, et les enregistrements seraient partis sans certains d'entre eux. Désactivez la copie des fichiers dans la revue, ou relancez-le quand la source répondra."
     },
     "executionTable": {
       "leftOut": "écarté",
@@ -4416,7 +4419,11 @@
     "errorsPanel": {
       "title": "Erreurs d'exécution",
       "lookupsLeftEmpty_one": "{{count}} lien laissé vide par la seconde passe",
-      "lookupsLeftEmpty_other": "{{count}} liens laissés vides par la seconde passe"
+      "lookupsLeftEmpty_other": "{{count}} liens laissés vides par la seconde passe",
+      "secondPass": "Seconde passe",
+      "orphanParents": "Récupérer les parents automatiquement",
+      "parentsNotCopied_one": "{{count}} parent récupéré hors du clone n'a pas été copié",
+      "parentsNotCopied_other": "{{count}} parents récupérés hors du clone n'ont pas été copiés"
     },
     "errorsCell": {
       "failed_one": "{{stage}} : {{formatted}} enregistrement en échec",

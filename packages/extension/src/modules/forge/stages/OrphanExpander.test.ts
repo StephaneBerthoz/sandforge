@@ -520,8 +520,65 @@ describe('OrphanExpander', () => {
     expect(report).not.toBeNull();
     expect(report?.objectApiName).toBe('__expandOrphanParents__');
     expect(report?.failedCount).toBe(1);
-    expect(report?.attemptedCount).toBe(0); // only successful expansions count
+    // Attempted once: the second node's ask, answered by the negative cache,
+    // tried nothing.
+    expect(report?.attemptedCount).toBe(1);
     expect(report?.samples[0].messages).toEqual(['REQUIRED_FIELD_MISSING']);
+  });
+
+  it('counts every parent it could not copy, its samples three of them', async () => {
+    // Counted by its samples, a run that could copy none of five parents
+    // reported three, which the results page said as the parents not copied.
+    const orphans = ['01', '02', '03', '04', '05'].map((n) => `001AP00ORPHAN${n}`);
+    const deps = makeDeps({
+      queryRecords: vi.fn<ExpanderDeps['queryRecords']>(async (_org, soql) => {
+        const id = orphans.find((orphan) => soql.includes(orphan));
+        return id ? [{ Id: id, Name: `Parent ${id}` }] : [];
+      }),
+      insertRecords: vi
+        .fn<ExpanderDeps['insertRecords']>()
+        .mockResolvedValue([{ id: '', success: false, errors: ['REQUIRED_FIELD_MISSING'] }]),
+    });
+    const { input } = makeInput(deps, {
+      records: orphans.map((orphan, i) => ({ Id: `02iOLD${String(i)}`, AccountId: orphan })),
+    });
+    const expander = new OrphanExpander(deps);
+
+    await expander.expandForNode(input);
+
+    expect(deps.insertRecords).toHaveBeenCalledTimes(5);
+    const report = expander.buildErrorReport();
+    expect(report?.failedCount).toBe(5);
+    expect(report?.samples).toHaveLength(3);
+  });
+
+  it('counts as attempted the parents it copied and those it could not', async () => {
+    // Counted by the copies alone, the errors panel read "1/2", one failed of
+    // two tried, of three parents tried.
+    const orphans = ['01', '02', '03'].map((n) => `001AP00ORPHAN${n}`);
+    const deps = makeDeps({
+      queryRecords: vi.fn<ExpanderDeps['queryRecords']>(async (_org, soql) => {
+        const id = orphans.find((orphan) => soql.includes(orphan));
+        return id ? [{ Id: id, Name: `Parent ${id}` }] : [];
+      }),
+      insertRecords: vi.fn<ExpanderDeps['insertRecords']>(async (_org, _object, rows) =>
+        rows.map((row) =>
+          row.Name === `Parent ${orphans[2]}`
+            ? { id: '', success: false, errors: ['REQUIRED_FIELD_MISSING'] }
+            : { id: `001NEW${String(row.Name).slice(-2)}`, success: true, errors: [] },
+        ),
+      ),
+    });
+    const { input } = makeInput(deps, {
+      records: orphans.map((orphan, i) => ({ Id: `02iOLD${String(i)}`, AccountId: orphan })),
+    });
+    const expander = new OrphanExpander(deps);
+
+    await expander.expandForNode(input);
+
+    const report = expander.buildErrorReport();
+    expect(report?.failedCount).toBe(1);
+    expect(report?.attemptedCount).toBe(3);
   });
 
   it('says the parent produced no new id when the target answers its insert with nothing', async () => {

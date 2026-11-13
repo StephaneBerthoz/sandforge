@@ -67,6 +67,35 @@ export const SECOND_PASS_REPORT: ForgeExecutionError = {
   ],
 };
 
+/**
+ * The report of the parents a run fetched outside the clone (Auto-fetch
+ * parents), as the expander builds it: two accounts the required field absent
+ * from the source (trap 6) refused, each named by its object and source id.
+ * It counts the parents it could not copy, not the rows that needed them,
+ * which fail under their own object; its attempted count is the parents it
+ * tried, copied or not: here the two it could not copy.
+ */
+export const ORPHAN_PARENTS_REPORT: ForgeExecutionError = {
+  objectApiName: '__expandOrphanParents__',
+  stage: 'insert',
+  failedCount: 2,
+  attemptedCount: 2,
+  samples: [
+    {
+      recordSummary: 'Account/001000000000071AAA',
+      messages: [
+        "REQUIRED_FIELD_MISSING: Des champs obligatoires n'ont pas été remplis : [Trap_Target_Only__c]",
+      ],
+    },
+    {
+      recordSummary: 'Account/001000000000072AAA',
+      messages: [
+        "REQUIRED_FIELD_MISSING: Des champs obligatoires n'ont pas été remplis : [Trap_Target_Only__c]",
+      ],
+    },
+  ],
+};
+
 /** An object the run skipped whole before reading it: the target has none of it. */
 export const SKIPPED_WHOLE: ForgeExecutionError = {
   objectApiName: 'Invoice__c',

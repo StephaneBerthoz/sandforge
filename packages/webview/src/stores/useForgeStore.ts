@@ -391,6 +391,12 @@ const NO_GAPS: Readonly<Record<ForgeGapSource, ForgeGap[]>> = {
   rehearsal: [],
 };
 
+/** The orgs a clone of the whole org asked for again was run between, for the form to take. */
+export interface ForgeWholeOrgAgain {
+  sourceOrgId: string | undefined;
+  targetOrgId: string | undefined;
+}
+
 const INITIAL_STATE = {
   phase: 'input' as ForgePhase,
   config: null as ForgeConfig | null,
@@ -428,6 +434,7 @@ const INITIAL_STATE = {
   simulation: false,
   wholeOrgDryRun: null as ForgeWholeOrgDryRun | null,
   retrying: null as ForgeRetryOrigin | null,
+  wholeOrgAgain: null as ForgeWholeOrgAgain | null,
 };
 
 /** Forge state machine store — state and actions. */
@@ -865,6 +872,19 @@ export interface ForgeState {
   addLog: (entry: ForgeLogEntry) => void;
   /** Soft reset: clear result/graph/plan/compliance/diffs but keep config/templates/history/rules. Go to input phase. */
   forgeAgain: () => void;
+  /**
+   * A clone of the whole org asked for again from its results, for the form
+   * to open on: the ALL chip and the orgs it ran between. Null once the form
+   * took it, or when none was asked for.
+   */
+  wholeOrgAgain: ForgeWholeOrgAgain | null;
+  /**
+   * Go back to the input, as {@link forgeAgain} does, with ALL and the orgs
+   * of the run on screen handed to the form: the org is discovered again.
+   */
+  cloneWholeOrgAgain: (orgs: ForgeWholeOrgAgain) => void;
+  /** What a clone of the whole org asked for again hands the form, once: null after. */
+  takeWholeOrgAgain: () => ForgeWholeOrgAgain | null;
   /** Reset the store to its initial state. */
   reset: () => void;
 }
@@ -1568,6 +1588,23 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       retrying: null,
       // Preserve: config, templates, history, anonymizationRules, anonymizationPresetId
     });
+  },
+
+  /*
+   * The graph the history keeps of a clone of the whole org has no relations,
+   * and a run of it is refused (GRAPH_WITHOUT_EDGES): Retry offered from its
+   * results was refused every time. The form keeps its fields to itself, so
+   * the run's ALL and orgs are handed over, as the Home hero hands a record.
+   */
+  cloneWholeOrgAgain(orgs: ForgeWholeOrgAgain): void {
+    get().forgeAgain();
+    set({ wholeOrgAgain: { ...orgs } });
+  },
+
+  takeWholeOrgAgain(): ForgeWholeOrgAgain | null {
+    const handedOver = get().wholeOrgAgain;
+    if (handedOver) set({ wholeOrgAgain: null });
+    return handedOver;
   },
 
   reset(): void {

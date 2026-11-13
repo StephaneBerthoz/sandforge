@@ -162,6 +162,7 @@ import {
   countedEmailChecksOf,
   deliverabilityPartOf,
   emailsUncountedOf,
+  filesRefusalStop,
   firedOnInsertOf,
   firedOnUpdateOf,
   formatMB,
@@ -3272,8 +3273,9 @@ export class ForgeHandler implements DomainHandler {
     } catch (error: unknown) {
       // Stopped at its gate — refused, or cancelled at one of its questions —
       // before the first record was written: no failure, whatever the reads
-      // had met, and nothing for the history to keep.
-      const gate = isForgeRunGateError(error) ? error : undefined;
+      // had met, and nothing for the history to keep. So are the files the
+      // file copier could not look up or weigh, under the gate's own codes.
+      const gate = isForgeRunGateError(error) ? error : filesRefusalStop(error);
       // A mute refused stops the run before its first write, as a gate does:
       // at the write gate, with nothing written that its partial would say.
       const muteRefused = isMuteRefusedError(error) ? error : undefined;

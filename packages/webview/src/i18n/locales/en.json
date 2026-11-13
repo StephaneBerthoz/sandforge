@@ -4280,6 +4280,8 @@
     "retrySkippedHint": "Retry skipped objects runs the clone again once what skipped them is fixed: the objects this run skipped whole are written, linked to what it did write, which is not written a second time.",
     "retryWithParents": "Fetch the missing parents and retry",
     "retryWithParentsHint": "Fetch the missing parents and retry runs the clone again with Auto-fetch parents on: the parents the clone does not read on its own are copied too, then what this run could not write is written, linked to what it did write. It fixes a required field left empty when that field is a lookup.",
+    "wholeOrgAgain": "Clone the whole org again",
+    "wholeOrgAgainHint": "This run cannot be retried: the history keeps a clone of the whole org without the relations between its objects, which a run is ordered by. Clone the whole org again opens ALL between the same orgs, and the org is discovered anew. What this run wrote stays in the target unless you remove it: Review says what the target already holds.",
     "saveIdMapCsv": "Save Id map (CSV)",
     "saveResultsCsv": "Save results (CSV)",
     "saveResultJson": "Save results (JSON)",
@@ -4308,7 +4310,8 @@
       "apiRequestsExceededSource": "The run was refused before it wrote anything: reading the source org would take about {{estimate}} of its API requests, and it has {{remaining}} left today. Run it once the org has more to spare, or leave objects out on Review.",
       "bulkBatchesExceeded": "The run was refused before it wrote anything: its Bulk API jobs would take about {{estimate}} batches of the target org, which has {{remaining}} left over the last 24 hours. Run it once the org has more to spare.",
       "filesUnread": "The run was refused before it wrote anything: the source org would neither sum nor list its files, so what they take of the target’s file storage is not known. Turn the copy of files off on Review, or run it again once the source answers.",
-      "fileStorageUnread": "The run was refused before it wrote anything: the target org would not say what file storage it has left, so the files to copy could not be weighed against it. Turn the copy of files off on Review, or run it again once the org answers."
+      "fileStorageUnread": "The run was refused before it wrote anything: the target org would not say what file storage it has left, so the files to copy could not be weighed against it. Turn the copy of files off on Review, or run it again once the org answers.",
+      "filesUnreadRecords": "The run was refused before it wrote anything: the files of the records to clone could not all be looked up in the source, and the records would have gone without some of them. Turn the copy of files off on Review, or run it again once the source answers."
     },
     "executionTable": {
       "leftOut": "left out",
@@ -4416,7 +4419,11 @@
     "errorsPanel": {
       "title": "Execution errors",
       "lookupsLeftEmpty_one": "{{count}} lookup the second pass left empty",
-      "lookupsLeftEmpty_other": "{{count}} lookups the second pass left empty"
+      "lookupsLeftEmpty_other": "{{count}} lookups the second pass left empty",
+      "secondPass": "Second pass",
+      "orphanParents": "Auto-fetch parents",
+      "parentsNotCopied_one": "{{count}} parent fetched outside the clone was not copied",
+      "parentsNotCopied_other": "{{count}} parents fetched outside the clone were not copied"
     },
     "errorsCell": {
       "failed_one": "{{stage}}: {{formatted}} record failed",
