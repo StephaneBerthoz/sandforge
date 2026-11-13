@@ -13,8 +13,68 @@ import {
   seedStorageBytes,
   seedStorageGate,
 } from './seedStorage';
+import { seedInsert, type SeedInsertConnection } from './seedInsert';
+import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
+import type { BulkJobHandle } from '../../core/engine/BulkApiExecutor.js';
 
 const KB = 1024;
+
+/**
+ * An org that takes every record a seed's insert sends it, through REST or
+ * as a Bulk API job done at once, and will not say its duplicate rules — a
+ * user without View Setup and Configuration, a call that failed —, counting
+ * each call it is sent: the query of the rules, each REST call, and each call
+ * of a job, its results read three ways.
+ */
+function orgWhoseRulesAreUnread() {
+  let sent = 0;
+  let made = 0;
+  const id = (): string => `a00000000000${String(100000 + made++).slice(-6)}`;
+  const conn: SeedInsertConnection = {
+    sobject: () => ({
+      create: async (records) => {
+        sent++;
+        return records.map(() => ({ success: true, id: id() }));
+      },
+    }),
+    query: async () => {
+      sent++;
+      throw new Error('INSUFFICIENT_ACCESS: DuplicateRule');
+    },
+    bulk2: {
+      createJob: () => {
+        let rows = 0;
+        const job: BulkJobHandle = {
+          id: '750000000000001AAA',
+          open: async () => {
+            sent++;
+          },
+          uploadData: async (csv: string) => {
+            sent++;
+            rows = csv.trim().split('\n').length - 1;
+          },
+          close: async () => {
+            sent++;
+          },
+          abort: async () => {
+            sent++;
+          },
+          check: async () => {
+            sent++;
+            return { state: 'JobComplete', numberRecordsProcessed: rows };
+          },
+          getAllResults: async () => {
+            sent += 3;
+            return Array.from({ length: rows }, () => ({ success: true, id: id() }));
+          },
+        };
+        return job;
+      },
+    },
+  };
+  return { conn, sent: () => sent };
+}
 const MB = 1024 * KB;
 
 /** An org that says it has `remaining` of `max` MB of data storage left, and its API requests. */
@@ -311,6 +371,61 @@ describe('seedWritesEstimate', () => {
     );
   });
 
+  it('prices each object in the slices its run cuts it in, as the gate read them, and the rest by their rules', () => {
+    // The org requires fields of Opportunity the template names no rule
+    // for: its run cuts 9,615 records a slice, two jobs where one was priced.
+    const path = {
+      ...rules({ Opportunity: false, Asset: false }),
+      slices: new Map([['Opportunity', 9_615]]),
+    };
+    expect(seedWritesEstimate(objects({ Opportunity: 10_000 }), path)).toBe(44 + 14 + 1);
+    expect(seedWritesEstimate(objects({ Asset: 10_000 }), path)).toBe(46 + 1);
+    // A partition is the run's insert whatever the slices.
+    expect(
+      seedWritesEstimate(objects({ Opportunity: 10_000 }), { ...path, partition: 5_000 }),
+    ).toBe(29 + 29 + 1);
+  });
+
+  it('prices Account, Contact and Lead past the threshold at the dearer of their jobs and their REST calls, though the read of the automation found no rule watching them', () => {
+    // The insert reads the rules again for itself, and sends these three
+    // through REST when that read fails: priced as jobs alone, 25,000
+    // contacts were counted 122 where they took 126.
+    const none = rules({ Account: false, Contact: false, Lead: false, Opportunity: false });
+    expect(seedWritesEstimate(objects({ Contact: 25_000 }), none)).toBe(50 + 50 + 29 + 1);
+    expect(seedWritesEstimate(objects({ Account: 10_000 }), none)).toBe(50 + 1);
+    expect(seedWritesEstimate(objects({ Lead: 600 }), none)).toBe(3 + 8 + 3 + 1);
+    // Any other object goes as the read found it, its own read failing or not.
+    expect(seedWritesEstimate(objects({ Opportunity: 25_000 }), none)).toBe(46 + 46 + 29 + 1);
+  });
+
+  it.each(['Account', 'Contact', 'Lead', 'Opportunity'])(
+    'prices %s no less than the insert sends it when its own read of the duplicate rules fails',
+    async (objectApiName) => {
+      const org = orgWhoseRulesAreUnread();
+      const insert = seedInsert({
+        conn: org.conn,
+        bulkThreshold: 200,
+        bulkManager: new BulkApiManager(5),
+        retry: new RetryableOperation({ retryConfig: { maxRetries: 0 } }),
+        signal: new AbortController().signal,
+        label: 'seed:execute op-1',
+        log: () => {},
+        onProgress: () => {},
+      });
+      const records = Array.from({ length: 10_000 }, (_, i) => ({ Name: `Row ${i}` }));
+
+      await insert('org', objectApiName, records, 200);
+
+      // The read of the automation, before the gate, found no rule on it.
+      const price = seedWritesEstimate(
+        objects({ [objectApiName]: 10_000 }),
+        rules({ [objectApiName]: false }),
+      );
+      expect(org.sent()).toBeGreaterThan(0);
+      expect(price).toBeGreaterThanOrEqual(org.sent());
+    },
+  );
+
   it('cuts a wide object into smaller slices, each its own job', () => {
     // 100 rules: 5,000 records a slice, as the run generates them.
     const wide = {
@@ -508,6 +623,10 @@ describe('seedRunReads', () => {
     expect(seedRunReads({ objects: [object('Contact')] }, { automationRead: 5 })).toBe(
       4 + LIMITS + 5,
     );
+  });
+
+  it("counts the describes the panel's gate read to cut the slices, beside the one the run reads again as it writes", () => {
+    expect(seedRunReads({ objects: [object('Contact')] }, { slicesRead: 1 })).toBe(4 + LIMITS + 1);
   });
 
   it("counts the user's Marketing User box for a campaign, the parents a relation reads, and the standard price book", () => {

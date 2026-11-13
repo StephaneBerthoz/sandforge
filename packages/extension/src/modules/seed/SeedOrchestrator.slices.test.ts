@@ -11,6 +11,8 @@ import { SeedGrappeAdapter } from './SeedGrappeAdapter';
 import { FieldMapper } from './FieldMapper';
 import type { FieldMapperDependencies } from './FieldMapper';
 import { FakerFallback } from './FakerFallback';
+import { seedRunSlicesOf, seedWritesEstimate } from './seedStorage';
+import { runRequestsEstimate } from '../forge/ForgeRunGate.js';
 
 /*
  * A seed generates an object a slice at a time, each slice only once the one
@@ -238,5 +240,111 @@ describe('a seed of an object larger than one slice', () => {
     ]);
     expect(inserted[2]?.rows[999]?.LastName).toBe('C-5000');
     expect(result.objectResults[0]).toMatchObject({ recordsCreated: 5_000 });
+  });
+});
+
+describe('what the gate of a seed prices of the slices its run cuts', () => {
+  /** `count` records of an object of `rules` rules, each a field of its own. */
+  function wideObject(count: number, rules: number): SeedTemplate {
+    const wide = template(count);
+    const object = wide.objects[0];
+    if (!object) throw new Error('no object');
+    wide.objects = [
+      {
+        ...object,
+        objectApiName: 'Asset',
+        fieldRules: Array.from({ length: rules }, (_, i) => ({
+          fieldApiName: `Attribute_${i}__c`,
+          ruleType: 'static' as const,
+          config: { staticValue: 'x' },
+        })),
+      },
+    ];
+    return wide;
+  }
+
+  /** The describe of an org that takes `createable` and requires `required` of every object. */
+  function describes(createable: readonly string[], required: readonly string[]) {
+    return {
+      describeCreateableFields: vi.fn(async () => new Set([...createable, ...required])),
+      describeRequiredFields: vi.fn(async () =>
+        required.map((fieldApiName) => ({
+          fieldApiName,
+          type: 'picklist',
+          picklistValues: ['Gold', 'Silver'],
+          referenceTo: [],
+          length: 255,
+          objectApiName: 'Asset',
+          required: true,
+        })),
+      ),
+    };
+  }
+
+  /** What the run's inserts send, each slice a Bulk API job, and the query of the rules. */
+  const asJobs = (inserts: readonly number[]): number =>
+    inserts.reduce((sum, rows) => sum + runRequestsEstimate([{ rows, bulk: true }]), 0) + 1;
+  const noRule = { duplicateRules: new Map([['Asset', false]]) };
+
+  it('prices an object the org requires more fields of in the slices its run cuts it in, from the same describe', async () => {
+    // 48 rules, and four fields the org requires that the template names
+    // no rule for: 52 rules, 9,615 records a slice.
+    const wide = wideObject(10_000, 48);
+    const read = describes(wide.objects[0]?.fieldRules.map((rule) => rule.fieldApiName) ?? [], [
+      'Tier_0__c',
+      'Tier_1__c',
+      'Tier_2__c',
+      'Tier_3__c',
+    ]);
+    const { deps, inserted } = depsKeepingInserts();
+
+    await new SeedOrchestrator({ ...deps, ...read }).execute(wide, 'org');
+    const slices = await seedRunSlicesOf(wide, read);
+
+    expect(inserted.map((call) => call.rows.length)).toEqual([9_615, 385]);
+    expect(slices).toEqual(new Map([['Asset', 9_615]]));
+    expect(seedWritesEstimate(wide, { ...noRule, slices })).toBe(asJobs([9_615, 385]));
+    expect(asJobs([9_615, 385])).toBe(44 + 14 + 1);
+    // From the template's rules alone, one job of 10,000.
+    expect(seedWritesEstimate(wide, noRule)).toBe(46 + 1);
+  });
+
+  it('prices an object whose rules the org drops in the fewer slices its run cuts it in', async () => {
+    // 100 rules, half of them on fields the org does not let a seed set:
+    // 50, ten thousand records a slice, where the template's 100 give 5,000.
+    const wide = wideObject(10_000, 100);
+    const kept = wide.objects[0]?.fieldRules.slice(0, 50).map((rule) => rule.fieldApiName) ?? [];
+    const read = describes(kept, []);
+    const { deps, inserted } = depsKeepingInserts();
+
+    await new SeedOrchestrator({ ...deps, ...read }).execute(wide, 'org');
+    const slices = await seedRunSlicesOf(wide, read);
+
+    expect(inserted.map((call) => call.rows.length)).toEqual([10_000]);
+    expect(seedWritesEstimate(wide, { ...noRule, slices })).toBe(asJobs([10_000]));
+    expect(seedWritesEstimate(wide, noRule)).toBe(asJobs([5_000, 5_000]));
+  });
+
+  it('describes no object of a slice or fewer, nor any of a partitioned seed', async () => {
+    const read = describes([], ['Tier_0__c']);
+
+    expect(await seedRunSlicesOf(wideObject(200, 60), read)).toEqual(new Map());
+    expect(await seedRunSlicesOf(wideObject(10_000, 60), read, 2_000)).toEqual(new Map());
+    expect(read.describeRequiredFields).not.toHaveBeenCalled();
+    expect(read.describeCreateableFields).not.toHaveBeenCalled();
+  });
+
+  it("cuts an object the org's describe could not be read for by its template's rules, as the run does", async () => {
+    const wide = wideObject(10_000, 100);
+    const unread = {
+      describeCreateableFields: async () => Promise.reject(new Error('INVALID_TYPE')),
+      describeRequiredFields: async () => Promise.reject(new Error('INVALID_TYPE')),
+    };
+    const { deps, inserted } = depsKeepingInserts();
+
+    await new SeedOrchestrator({ ...deps, ...unread }).execute(wide, 'org');
+
+    expect(inserted.map((call) => call.rows.length)).toEqual([5_000, 5_000]);
+    expect(await seedRunSlicesOf(wide, unread)).toEqual(new Map([['Asset', 5_000]]));
   });
 });

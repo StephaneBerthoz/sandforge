@@ -298,10 +298,11 @@ describe('SeedOpsHandler — a seed fitted to the storage', () => {
     const fit = error.payload.fit as SeedFitProposal;
     // Six calls of its records, and the thirteen reads it sends as it
     // writes, the target's limits from its gate on among them, whatever its
-    // counts; and the read of its automation just before, which says it
-    // sent one.
+    // counts; the read of its automation just before, which says it sent
+    // one; and the describes its gate read of the four objects of more than
+    // 200 records, for the slices their run cuts them in.
     expect(fit.cannotFit).toMatch(
-      /takes about 20 API requests, past the 0 that leave the org a tenth of its daily requests$/,
+      /takes about 24 API requests, past the 0 that leave the org a tenth of its daily requests$/,
     );
   });
 

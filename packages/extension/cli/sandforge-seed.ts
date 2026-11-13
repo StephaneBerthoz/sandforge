@@ -132,7 +132,7 @@ import {
   readExistingParentIds,
   readPresentParentIds,
 } from '../src/modules/seed/existingParents.js';
-import { describedFieldsOf } from '../src/modules/seed/describedFields.js';
+import { describedFieldsOf, requiredForAccountKinds } from '../src/modules/seed/describedFields.js';
 import { seedTemplatePayloadSchema } from '../src/bridge/validatePayload.js';
 import { personRecordTypes, templateForAccountKinds } from '../src/modules/seed/seedRecordTypes.js';
 import { seedObjectAccess, templateTheOrgTakes } from '../src/modules/seed/seedObjectAccess.js';
@@ -145,6 +145,7 @@ import {
 import {
   SEED_STORAGE_EXCEEDED,
   seedFitBudgetOf,
+  seedRunSlicesOf,
   seedStorageBytes,
   seedStorageGate,
   watchedBy,
@@ -1980,6 +1981,22 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // Drawn in the org's own locale unless --locale says otherwise, as the
   // panel draws.
   const locale = await seedLocaleOf(args.locale, conn);
+  /**
+   * Each object's describe as the command reads it before its gate, read
+   * once: the rules of an object it names, the record types a template
+   * file's objects are given, and the slices its gate prices the run's
+   * inserts in. The run reads its own once its lease is taken.
+   */
+  const describeNow = (objectApiName: string) => conn.sobject(objectApiName).describe();
+  const describedBeforeGate = new Map<string, ReturnType<typeof describeNow>>();
+  const describeBeforeGate = (objectApiName: string): ReturnType<typeof describeNow> => {
+    let described = describedBeforeGate.get(objectApiName);
+    if (!described) {
+      described = describeNow(objectApiName);
+      describedBeforeGate.set(objectApiName, described);
+    }
+    return described;
+  };
   log(`locale: ${locale}${args.locale ? '' : "  (the org's; --locale draws in another)"}`);
 
   const now = new Date().toISOString();
@@ -2036,7 +2053,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         objects.push(object);
         continue;
       }
-      const described = await conn.sobject(object.objectApiName).describe();
+      const described = await describeBeforeGate(object.objectApiName);
       const typed = recordTypeRule(object.objectApiName, chosen, described.recordTypeInfos);
       if ('refusal' in typed) {
         process.stderr.write(`${typed.refusal}\n`);
@@ -2070,7 +2087,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   if (!template) {
     const objects: SeedTemplate['objects'] = [];
     for (const [index, spec] of args.objects.entries()) {
-      const described = await conn.sobject(spec.objectApiName).describe();
+      const described = await describeBeforeGate(spec.objectApiName);
       // The record types the line chose, or a word on the ones it could choose.
       const chosen = args.recordTypes[spec.objectApiName];
       // Accounts given a person account's record type are person accounts:
@@ -2301,8 +2318,19 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // Priced nowhere, they left a seed of 600 contacts priced ten requests for
   // the sixteen it sent.
   const sentSoFar = (): number => requestsSent() - (deliverabilityRequests.deliverability ?? 0);
+  // Each object priced in the slices its run cuts it in, from the rules it
+  // generates its records from once the org's describe is read: a field the
+  // org requires and the template names no rule for shrinks a wide object's
+  // slices, which the gate priced from the template's rules. Read before the
+  // gate, among what the command sent.
+  const gateFields = describedFieldsOf(describeBeforeGate);
+  const slices = await seedRunSlicesOf(taken, {
+    describeCreateableFields: gateFields.createable,
+    describeRequiredFields: requiredForAccountKinds(gateFields, personObjects),
+  });
   let writePath: SeedWritePath = {
     duplicateRules: duplicateRulesOf(read),
+    slices,
     bulkThreshold: DEFAULT_ROBUSTNESS_CONFIG.bulk.threshold,
     typedFirst: args.dryRun,
     sentBefore: sentSoFar(),
@@ -2588,15 +2616,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     describeVisibleFields: described.visible,
     describePicklistValues: described.picklistValues,
     describeFieldLengths: described.lengths,
-    describeRequiredFields: async (objectApiName) =>
-      (await described.required(objectApiName)).filter(
-        (field) =>
-          !leftOutForAccountKind(
-            objectApiName,
-            field.fieldApiName,
-            personObjects.includes(objectApiName) ? 'person' : 'business',
-          ),
-      ),
+    // What the org requires less what the kind of account written does not
+    // take, as the gate cut the slices by.
+    describeRequiredFields: requiredForAccountKinds(described, personObjects),
     objectAccess,
     insert,
     // The roles the platform writes with the opportunities: read and given

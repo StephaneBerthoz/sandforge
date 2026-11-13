@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { describedFieldsOf, type SeedDescribe } from './describedFields';
+import { describedFieldsOf, requiredForAccountKinds, type SeedDescribe } from './describedFields';
 
 const ACCOUNT: SeedDescribe = {
   fields: [
@@ -144,5 +144,36 @@ describe('describedFieldsOf', () => {
     const fields = describedFieldsOf(async () => Promise.reject(new Error('NOT_FOUND')));
     await expect(fields.createable('Knowledge__kav')).rejects.toThrow('NOT_FOUND');
     await expect(fields.picklistValues('Knowledge__kav')).rejects.toThrow('NOT_FOUND');
+  });
+
+  it('asks the fields the org requires less those the kind of account written leaves out', async () => {
+    const fields = describedFieldsOf(async () => ({
+      fields: [
+        { name: 'Name', type: 'string', createable: true, nillable: false, length: 255 },
+        { name: 'LastName', type: 'string', createable: true, nillable: false, length: 80 },
+        { name: 'Region__c', type: 'string', createable: true, nillable: false, length: 40 },
+      ],
+    }));
+    const named = async (
+      ask: (objectApiName: string) => Promise<Array<{ fieldApiName: string }>>,
+      object: string,
+    ) => (await ask(object)).map((field) => field.fieldApiName);
+
+    // A business account takes no person's name; a person account no Name,
+    // the org building it from the two names.
+    expect(await named(requiredForAccountKinds(fields, []), 'Account')).toEqual([
+      'Name',
+      'Region__c',
+    ]);
+    expect(await named(requiredForAccountKinds(fields, ['Account']), 'Account')).toEqual([
+      'LastName',
+      'Region__c',
+    ]);
+    // Any other object, every field it requires.
+    expect(await named(requiredForAccountKinds(fields, ['Account']), 'Lead')).toEqual([
+      'Name',
+      'LastName',
+      'Region__c',
+    ]);
   });
 });

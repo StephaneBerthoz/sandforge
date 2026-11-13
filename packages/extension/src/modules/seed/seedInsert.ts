@@ -35,21 +35,13 @@ import {
   saveErrorDetail,
 } from '../../core/common/existingRecordMatch.js';
 import type { InsertedRow, InsertResult } from './SeedOrchestrator.js';
-import { objectsUnderDuplicateRules } from './seedDuplicateRules.js';
+import {
+  objectsUnderDuplicateRules,
+  STANDARD_DUPLICATE_RULE_OBJECTS,
+} from './seedDuplicateRules.js';
 
 /** Records of one object past which the write goes as one job uploaded a chunk at a time. */
 export const STREAMING_THRESHOLD = 10_000;
-
-/**
- * The objects the standard duplicate rules every org starts with watch, and
- * keep active: Account, Contact and Lead. Sent as a Bulk API job, which cannot
- * waive a rule, the standard account rule refused 296 of 500 accounts.
- */
-const STANDARD_DUPLICATE_RULE_OBJECTS: ReadonlySet<string> = new Set([
-  'Account',
-  'Contact',
-  'Lead',
-]);
 
 /**
  * What a Bulk API job answered for each record, in the order sent, its

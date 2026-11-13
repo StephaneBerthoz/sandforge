@@ -548,10 +548,13 @@ describe('fitSeedTemplate', () => {
   });
 
   it('prices the requests of each share by the write path the gate read, as the gate prices them', () => {
-    const contacts: Pick<SeedTemplate, 'objects' | 'relations'> = {
+    // Cases: no standard duplicate rule watches them, so the insert sends
+    // them as the read of the automation found the rules, its own read
+    // failing or not.
+    const cases: Pick<SeedTemplate, 'objects' | 'relations'> = {
       objects: [
         {
-          objectApiName: 'Contact',
+          objectApiName: 'Case',
           recordCount: 50_000,
           fieldRules: [],
           excludedFields: [],
@@ -561,23 +564,23 @@ describe('fitSeedTemplate', () => {
       ],
       relations: [],
     };
-    const noRule = { duplicateRules: new Map([['Contact', false]]) };
+    const noRule = { duplicateRules: new Map([['Case', false]]) };
     const fit = (path?: typeof noRule) =>
       fitSeedTemplate({
-        template: contacts,
+        template: cases,
         personObjects: [],
         budget: budgetOf(500 * BYTES_PER_MB, 240),
         room: NO_ROOM,
         ...(path ? { path } : {}),
       });
-    // No rule watches the contacts: five jobs of 10,000 (230 calls), the
+    // No rule watches the cases: five jobs of 10,000 (230 calls), the
     // query of the rules and the seven reads of the run as it writes, within
     // the 240 left.
     expect(fit(noRule)).toMatchObject({ heldBy: 'whole', requests: 238 });
     // Not told, a rule may: 250 REST calls, and the share is cut.
     expect(fit().heldBy).toBe('apiRequests');
     expect(
-      seedFitProposalOf(budgetOf(500 * BYTES_PER_MB, 240), contacts, [], NO_ROOM, noRule)?.share,
+      seedFitProposalOf(budgetOf(500 * BYTES_PER_MB, 240), cases, [], NO_ROOM, noRule)?.share,
     ).toBe(1);
   });
 });

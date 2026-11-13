@@ -17,6 +17,19 @@ import type { ForgeTargetAutomation } from '@sandforge/shared';
 const ACTIVE_DUPLICATE_RULES = 'SELECT SobjectType FROM DuplicateRule WHERE IsActive = true';
 
 /**
+ * The objects the standard duplicate rules every org starts with watch, and
+ * keep active: Account, Contact and Lead. Sent as a Bulk API job, which cannot
+ * waive a rule, the standard account rule refused 296 of 500 accounts. A
+ * seed's insert sends them through REST when it cannot read the rules
+ * (`seedInsert`), and its gate prices them so (`seedWritesEstimate`).
+ */
+export const STANDARD_DUPLICATE_RULE_OBJECTS: ReadonlySet<string> = new Set([
+  'Account',
+  'Contact',
+  'Lead',
+]);
+
+/**
  * Whether an active duplicate rule watches each object a read of the target's
  * automation looked at, by the object's name as the read was asked it: what
  * the gate of a seed or an import prices their writes by, before the insert

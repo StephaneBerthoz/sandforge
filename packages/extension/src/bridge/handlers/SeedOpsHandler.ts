@@ -108,7 +108,7 @@ import {
   seedRecordTypeOptions,
   templateForAccountKinds,
 } from '../../modules/seed/seedRecordTypes.js';
-import { ACCOUNT, leftOutForAccountKind } from '../../core/common/platformRecords.js';
+import { ACCOUNT } from '../../core/common/platformRecords.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import {
   withGivenAnswer,
@@ -121,6 +121,7 @@ import {
   SEED_STORAGE_EXCEEDED,
   seedFitBudgetOf,
   seedPartitionOf,
+  seedRunSlicesOf,
   seedStorageGate,
   type SeedWritePath,
 } from '../../modules/seed/seedStorage.js';
@@ -1823,6 +1824,28 @@ export class SeedOpsHandler implements DomainHandler {
       await import('../../modules/seed/seedObjectAccess.js');
     // What it counts: an optional object the org does not take is skipped by the run.
     const taken = await templateTheOrgTakes(kinds.template, seedObjectAccess(conn));
+    // Each object priced in the slices its run cuts it in, from the rules it
+    // generates its records from once the org's describe is read: a field
+    // the org requires and the template names no rule for shrinks a wide
+    // object's slices, and the gate priced them from the template's rules.
+    // Read from describes of the gate's own, counted with the run's: the run
+    // reads its own once its lease is taken, which may open fields.
+    const partition = seedPartitionOf(readGrappeConfig(this.deps.services), kinds.template);
+    const { describedFieldsOf, requiredForAccountKinds } =
+      await import('../../modules/seed/describedFields.js');
+    let slicesRead = 0;
+    const gateFields = describedFieldsOf(async (objectApiName) => {
+      slicesRead++;
+      return conn.describe(objectApiName);
+    });
+    const slices = await seedRunSlicesOf(
+      taken,
+      {
+        describeCreateableFields: gateFields.createable,
+        describeRequiredFields: requiredForAccountKinds(gateFields, kinds.personObjects),
+      },
+      partition,
+    );
     // Its requests priced as its insert sends them: an object a duplicate
     // rule watches through REST, as the automation read above found the
     // rules, each partition of a run the setting partitions on its own, and
@@ -1830,7 +1853,9 @@ export class SeedOpsHandler implements DomainHandler {
     // as it says what it sent; and the lease of its mute.
     const writePath: SeedWritePath = {
       duplicateRules: duplicateRulesOf(read),
-      partition: seedPartitionOf(readGrappeConfig(this.deps.services), kinds.template),
+      partition,
+      slices,
+      slicesRead,
       bulkThreshold: robustnessConfigOf(this.deps).bulk.threshold,
       automationRead: automationReadRequests(read),
     };
@@ -2433,7 +2458,8 @@ export class SeedOpsHandler implements DomainHandler {
       const { readExistingParentIds, readPresentParentIds } =
         await import('../../modules/seed/existingParents.js');
       const { seedObjectAccess } = await import('../../modules/seed/seedObjectAccess.js');
-      const { describedFieldsOf } = await import('../../modules/seed/describedFields.js');
+      const { describedFieldsOf, requiredForAccountKinds } =
+        await import('../../modules/seed/describedFields.js');
       const { seedTargetOf } = await import('../../modules/seed/seedPlatformRoles.js');
       const seedKnowledge = scenario
         ? (await import('../../modules/seed/seedKnowledge.js')).seedKnowledge
@@ -2464,16 +2490,9 @@ export class SeedOpsHandler implements DomainHandler {
         describePicklistValues: describedFields.picklistValues,
         describeFieldLengths: describedFields.lengths,
         // What the org requires and the template names no rule for, less what
-        // the kind of account written does not take.
-        describeRequiredFields: async (objectApiName: string) =>
-          (await describedFields.required(objectApiName)).filter(
-            (field) =>
-              !leftOutForAccountKind(
-                objectApiName,
-                field.fieldApiName,
-                payload.personObjects.includes(objectApiName) ? 'person' : 'business',
-              ),
-          ),
+        // the kind of account written does not take, as the gate cut the
+        // slices by.
+        describeRequiredFields: requiredForAccountKinds(describedFields, payload.personObjects),
         // An object the org has not, or the user may not create, is skipped
         // with the reason, before its records are generated.
         objectAccess: seedObjectAccess(conn),

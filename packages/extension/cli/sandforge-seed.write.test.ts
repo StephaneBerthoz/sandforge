@@ -20,7 +20,9 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
   removalOrg: vi.fn(),
 }));
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { loadOrg, makeConn } from './sfSession.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
@@ -545,8 +547,8 @@ describe('a seed from the command line', () => {
    * job, its results read three ways —, and answers `/limits` with room to
    * spare. `requests` lists each call as the org took it.
    */
-  function routedOrg() {
-    const org = fakeOrg();
+  function routedOrg(others: Record<string, typeof ASSET> = {}) {
+    const org = fakeOrg(undefined, undefined, undefined, others);
     // Its answers, taken before the connection's methods are routed.
     const fake = { ...org.conn, bulk2: { ...org.conn.bulk2 }, tooling: { ...org.conn.tooling } };
     const requests: string[] = [];
@@ -643,6 +645,95 @@ describe('a seed from the command line', () => {
     // The dry run says what the run would send, the org typed among it.
     expect(planned.apiRequests.estimate).toBeGreaterThanOrEqual(summary.apiRequests.sent);
     expect(planned.apiRequests.sent).toBeLessThan(summary.apiRequests.sent);
+  });
+
+  it('prices an object the org requires more fields of in the slices its run cuts it in, read before its gate', async () => {
+    // A template file's 48 rules on an object of which the org requires four
+    // more fields: the run generates 52 and cuts slices of 9,615 records,
+    // two jobs of 44 and 14 calls where the template's rules gave one of 46.
+    const rules = Array.from({ length: 48 }, (_, i) => `Attribute_${i}__c`);
+    const required = ['Tier_0__c', 'Tier_1__c', 'Tier_2__c', 'Tier_3__c'];
+    const widget = {
+      ...ASSET,
+      name: 'Widget__c',
+      fields: [
+        ...ASSET.fields.filter((field) => field.name === 'Id'),
+        ...rules.map((name) => ({ ...ASSET.fields[1], name, nillable: true })),
+        ...required.map((name) => ({
+          ...ASSET.fields[1],
+          name,
+          type: 'picklist',
+          picklistValues: [{ value: 'Gold', active: true }],
+        })),
+      ],
+    } as typeof ASSET;
+    const org = routedOrg({ Widget__c: widget });
+    // The rules read with the automation: none watches the object.
+    vi.mocked(targetAutomationReader).mockReturnValueOnce({
+      read: async (_target: string, objects: readonly string[]) => ({
+        objectsRead: [...objects],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+      }),
+    } as never);
+    const dir = mkdtempSync(join(tmpdir(), 'seed-slices-'));
+    const file = join(dir, 'template.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        name: 'Wide',
+        description: '',
+        strategy: 'faker',
+        objects: [
+          {
+            objectApiName: 'Widget__c',
+            recordCount: 10_000,
+            fieldRules: rules.map((fieldApiName) => ({
+              fieldApiName,
+              fieldType: 'string',
+              ruleType: 'static',
+              config: { staticValue: 'x' },
+            })),
+            excludedFields: [],
+            insertOrder: 0,
+          },
+        ],
+        tags: [],
+      }),
+    );
+
+    try {
+      await main([
+        'node',
+        'sandforge-seed.ts',
+        '--target',
+        'TGT',
+        '--template-file',
+        file,
+        '--seed',
+        '7',
+        '--locale',
+        'en_US',
+        '--json',
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+
+    expect(org.jobs).toEqual([9_615, 385]);
+    const summary = JSON.parse(stdout.join('')) as {
+      apiRequests: { estimate: number; sent: number };
+    };
+    // The object's describe read before the gate, among what it sent then.
+    const beforeGate = org.requests.indexOf('/limits');
+    expect(org.requests.slice(0, beforeGate)).toContain('/sobjects/Widget__c/describe');
+    // What it sent before its gate, the reads the run sends as it writes,
+    // and the two jobs with the query of the rules.
+    expect(summary.apiRequests.estimate).toBe(beforeGate + (1 + 1 + 2 + 3) + (44 + 14) + 1);
+    expect(summary.apiRequests.sent).toBe(org.requests.length);
+    expect(summary.apiRequests.estimate).toBeGreaterThanOrEqual(summary.apiRequests.sent);
   });
 
   it('prices on a run what it sent before its gate, as sent: the reads it took then', async () => {

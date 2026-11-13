@@ -33,8 +33,9 @@ import {
   type StorageCheck,
 } from '../forge/ForgeRunGate.js';
 import { fitBudgetOf, type FitBudget } from '../forge/fitBudget.js';
-import { seedSliceOf } from './SeedOrchestrator.js';
+import { SEED_SLICE_LEAST, seedRunSliceOf, seedSliceOf } from './SeedOrchestrator.js';
 import { PARENT_IDS_PER_QUERY } from './existingParents.js';
+import { STANDARD_DUPLICATE_RULE_OBJECTS } from './seedDuplicateRules.js';
 
 /** Records past which a seed sends an object as a Bulk API job (`seedInsert`'s default). */
 const SEED_BULK_THRESHOLD = 200;
@@ -88,7 +89,9 @@ export interface SeedWritePath {
    * target's automation said it (`duplicateRulesOf`): the insert sends such
    * an object through REST, however many its records, and any other past
    * the threshold as Bulk API jobs. An object it does not name, or every
-   * object when absent, may go either way: it is priced the dearer.
+   * object when absent, may go either way: it is priced the dearer. So is
+   * an object the standard rules watch, which the insert sends through REST
+   * when its own read of the rules fails (`STANDARD_DUPLICATE_RULE_OBJECTS`).
    */
   duplicateRules?: ReadonlyMap<string, boolean>;
   /**
@@ -97,6 +100,21 @@ export interface SeedWritePath {
    * (`seedSliceOf`).
    */
   partition?: number;
+  /**
+   * The records each slice of an object holds as the run cuts it, by
+   * object, read from the target's describe before the gate
+   * ({@link seedRunSlicesOf}): fewer than the template's rules give when the
+   * org requires fields the template names no rule for, more when it drops
+   * rules. An object it does not name is priced from its template's rules.
+   */
+  slices?: ReadonlyMap<string, number>;
+  /**
+   * The describes the panel's gate read to cut those slices, where nothing
+   * counts what a run sends as it goes: the run reads its own again once its
+   * lease is taken. The command line's are among what it sent
+   * ({@link sentBefore}).
+   */
+  slicesRead?: number;
   /**
    * The records of an insert past which it goes as a Bulk API job, as the
    * run's insert is given it (`RobustnessConfig.bulk.threshold`): 200 when
@@ -153,13 +171,16 @@ function insertsOf(count: number, size: number): number[] {
 /**
  * The API requests a seed's writes make of its target, as its insert sends
  * them (`seedInsert`): each object a slice of up to 10,000 records at a time
- * — fewer for a wide one, a partition each when the run partitions the seed
- * —, each slice by REST calls of its batch size up to the Bulk API threshold
- * ({@link SeedWritePath.bulkThreshold}), and past it as one Bulk API job over
- * its whole time, unless a duplicate rule watches the object, which then goes
- * by REST however many its records. Where the read of the rules did not say,
- * the dearer of the two. With a job, the query of the rules; and the calls of
- * the roles the platform writes with the opportunities.
+ * — fewer for a wide one, as the run cuts it once the target's describe has
+ * told its rules ({@link SeedWritePath.slices}), a partition each when the
+ * run partitions the seed —, each slice by REST calls of its batch size up to
+ * the Bulk API threshold ({@link SeedWritePath.bulkThreshold}), and past it as
+ * one Bulk API job over its whole time, unless a duplicate rule watches the
+ * object, which then goes by REST however many its records. Where the read of
+ * the rules did not say, the dearer of the two; and for Account, Contact and
+ * Lead whatever it said, which the insert sends through REST when its own read
+ * of the rules fails. With a job, the query of the rules; and the calls of the
+ * roles the platform writes with the opportunities.
  *
  * A job was counted five calls whatever its time, and an object a rule
  * watches as jobs: 25,000 contacts, which the insert sends in 125 REST calls,
@@ -175,13 +196,20 @@ export function seedWritesEstimate(
   let jobs = false;
   const writes = template.objects.flatMap((object) => {
     const watched = watchedBy(path.duplicateRules, object.objectApiName);
-    return insertsOf(object.recordCount, path.partition ?? seedSliceOf(object)).map((records) => {
+    // The read of the automation found no rule on it, but the insert reads
+    // the rules again, and a read that fails sends what the standard rules
+    // watch through REST: 25,000 contacts went in 125 calls, priced as the
+    // 121 of three jobs.
+    const goesAsJobs =
+      watched === false && !STANDARD_DUPLICATE_RULE_OBJECTS.has(object.objectApiName);
+    const slice = path.partition ?? path.slices?.get(object.objectApiName) ?? seedSliceOf(object);
+    return insertsOf(object.recordCount, slice).map((records) => {
       const rest = runRequestsEstimate([{ rows: records, perCall: object.batchSize }]);
       if (records <= threshold) return rest;
       jobs = true;
       if (watched === true) return rest;
       const job = runRequestsEstimate([{ rows: records, bulk: true }]);
-      return watched === false ? job : Math.max(job, rest);
+      return goesAsJobs ? job : Math.max(job, rest);
     });
   });
   return (
@@ -214,7 +242,8 @@ export function seedRequestsEstimate(
  * that points at it; from the command line, what the target is
  * ({@link SeedWritePath.typedFirst}); the target's limits, from the gate on;
  * what the command line sent before its gate ({@link SeedWritePath.sentBefore});
- * and the panel's read of the target's automation ({@link SeedWritePath.automationRead}).
+ * the panel's read of the target's automation ({@link SeedWritePath.automationRead});
+ * and the describes its gate cut the slices by ({@link SeedWritePath.slicesRead}).
  *
  * Asked live, a seed of 600 contacts under the standard duplicate rule took
  * six requests more than its dry run, and was counted four, the three calls
@@ -228,7 +257,7 @@ export function seedRequestsEstimate(
  */
 export function seedRunReads(
   template: Pick<SeedTemplate, 'objects' | 'relations'>,
-  path: Pick<SeedWritePath, 'typedFirst' | 'sentBefore' | 'automationRead'> = {},
+  path: Pick<SeedWritePath, 'typedFirst' | 'sentBefore' | 'automationRead' | 'slicesRead'> = {},
 ): number {
   const names = new Set(template.objects.map((object) => object.objectApiName));
   const pricebook = template.objects.some((object) =>
@@ -250,8 +279,34 @@ export function seedRunReads(
     (path.typedFirst ? ORG_TYPE_READS : 0) +
     LIMITS_READS +
     Math.max(0, path.sentBefore ?? 0) +
-    Math.max(0, path.automationRead ?? 0)
+    Math.max(0, path.automationRead ?? 0) +
+    Math.max(0, path.slicesRead ?? 0)
   );
+}
+
+/**
+ * The records each slice of a seed's objects holds as its run cuts them
+ * (`seedRunSliceOf`), from the target's describe of each, read before the
+ * gate: what {@link SeedWritePath.slices} prices the inserts by. Only an
+ * object of more records than the least slice is described, the rest going
+ * in one insert whatever their rules; none when the run partitions the seed,
+ * each partition then its own insert.
+ *
+ * @param describe - The fields the org lets a seed set and those it requires,
+ *   as the run's orchestrator is given them, from describes of the gate's own.
+ */
+export async function seedRunSlicesOf(
+  template: Pick<SeedTemplate, 'objects' | 'relations'>,
+  describe: Parameters<typeof seedRunSliceOf>[2],
+  partition?: number,
+): Promise<ReadonlyMap<string, number>> {
+  const slices = new Map<string, number>();
+  if (partition !== undefined) return slices;
+  for (const object of template.objects) {
+    if (object.recordCount <= SEED_SLICE_LEAST) continue;
+    slices.set(object.objectApiName, await seedRunSliceOf(object, template.relations, describe));
+  }
+  return slices;
 }
 
 /**

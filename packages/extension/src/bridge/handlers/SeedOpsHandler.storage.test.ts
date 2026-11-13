@@ -257,6 +257,7 @@ describe('SeedOpsHandler — storage and locale', () => {
             ? { records: [{ DefaultLocaleSidKey: 'en_US' }] }
             : { records: [] },
       );
+      return { request, query };
     };
     const refusal = (): string => {
       const [error] = posted('seed:error');
@@ -264,14 +265,16 @@ describe('SeedOpsHandler — storage and locale', () => {
       return String(error.payload.message);
     };
 
-    it('prices contacts no duplicate rule watches as the Bulk API jobs the insert sends them in', async () => {
-      // The org's rules read with its automation: none on Contact. Jobs of
-      // 10,000, 10,000 and 5,000 and the query of the rules: 122, where the
-      // REST calls a rule would make them take 125; the object list, the
-      // describe of Contact, who the run writes as and the limits from its
-      // gate on, read as it writes, and the five queries of the read of its
-      // automation just before. The read of whether the org delivers the
-      // contacts' emails besides.
+    it('prices contacts no duplicate rule watches at the dearer of the jobs and the REST calls the insert may send them in', async () => {
+      // The org's rules read with its automation: none on Contact. The
+      // insert sends them as jobs of 10,000, 10,000 and 5,000, or through
+      // REST when its own read of the rules fails, the standard contact rule
+      // watching them: the dearer of each and the query of the rules, 130,
+      // where the jobs alone were 122; the object list, the describe of
+      // Contact, who the run writes as and the limits from its gate on, read
+      // as it writes; the five queries of the read of its automation and the
+      // describe of Contact its gate read just before, for its slices. The
+      // read of whether the org delivers the contacts' emails besides.
       orgWithRules(['Account']);
       const template = contactsOf(25_000);
 
@@ -280,22 +283,80 @@ describe('SeedOpsHandler — storage and locale', () => {
       expect(executed).toEqual([]);
       expect(
         seedRequestsEstimate(template, { duplicateRules: new Map([['Contact', false]]) }),
-      ).toBe(46 + 46 + 29 + 1 + (1 + 1 + 2 + 3));
+      ).toBe(50 + 50 + 29 + 1 + (1 + 1 + 2 + 3));
       expect(refusal()).toContain(
-        'The run takes about 135 API requests (1 of them to read whether the target delivers its emails)',
+        'The run takes about 144 API requests (1 of them to read whether the target delivers its emails)',
       );
     });
 
     it('prices contacts a duplicate rule watches as the REST calls the insert sends them in', async () => {
       // 600 contacts in three calls and the query of the rules, where a job
       // would take fourteen; the seven reads of the run as it writes, the
-      // five of the read of its automation, and the read of the
-      // deliverability besides.
+      // five of the read of its automation, the describe of Contact its gate
+      // read for its slices, and the read of the deliverability besides.
       orgWithRules(['Contact']);
 
       await execute(contactsOf(600));
 
-      expect(refusal()).toContain('The run takes about 17 API requests (1 of them');
+      expect(refusal()).toContain('The run takes about 18 API requests (1 of them');
+    });
+
+    it('prices an object the org requires more fields of in the slices its run cuts it in', async () => {
+      // 48 rules on Asset. Where the org requires four more fields the
+      // template names no rule for, the run generates 52 and cuts slices of
+      // 9,615 records: two jobs, of 44 and 14 calls, where the template's
+      // rules alone gave one of 46. Priced from the template, the gate
+      // counted twelve requests fewer than the run sends.
+      const rules = Array.from({ length: 48 }, (_, i) => ({
+        fieldApiName: `Attribute_${i}__c`,
+        ruleType: 'static' as const,
+        config: { staticValue: 'x' },
+      }));
+      const template: SeedTemplate = {
+        ...CRM_STARTER,
+        objects: [
+          {
+            objectApiName: 'Asset',
+            recordCount: 10_000,
+            fieldRules: rules,
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
+        relations: [],
+      };
+      const priceWith = async (required: string[]): Promise<number> => {
+        vi.mocked(deps.broker.postToWebview).mockClear();
+        const { request, query } = orgWithRules([]);
+        const describe = vi.fn(async () => ({
+          fields: [
+            ...rules.map((rule) => ({
+              name: rule.fieldApiName,
+              type: 'string',
+              createable: true,
+              nillable: true,
+            })),
+            ...required.map((name) => ({
+              name,
+              type: 'picklist',
+              createable: true,
+              nillable: false,
+              picklistValues: [{ value: 'Gold', active: true }],
+            })),
+          ],
+        }));
+        vi.mocked(getJsforceConnection).mockResolvedValue({ request, query, describe } as never);
+        await execute(template);
+        expect(describe).toHaveBeenCalledWith('Asset');
+        return Number(/The run takes about (\d+) API requests/.exec(refusal())?.[1]);
+      };
+
+      const asTemplated = await priceWith([]);
+      const withRequired = await priceWith(['Tier_0__c', 'Tier_1__c', 'Tier_2__c', 'Tier_3__c']);
+
+      expect(executed).toEqual([]);
+      expect(withRequired - asTemplated).toBe(44 + 14 - 46);
     });
 
     it('prices each partition of a seed the setting partitions as its own job', async () => {

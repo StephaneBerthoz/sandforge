@@ -6,7 +6,7 @@
  */
 
 import type { DescribedSeedField } from '@sandforge/shared';
-import { integerDigitsOf } from '@sandforge/shared';
+import { integerDigitsOf, leftOutForAccountKind } from '@sandforge/shared';
 
 /** One field of an object's describe, the part a seed reads. */
 export interface SeedDescribeField {
@@ -138,4 +138,27 @@ export function describedFieldsOf(
         }));
     },
   };
+}
+
+/**
+ * The fields the org requires of each object, as `fields` reads them, less
+ * those the kind of account written leaves out: what a seed's run gives a
+ * rule of its own (`describeRequiredFields`), and what its gate cuts the
+ * run's slices by, both asked the same way.
+ *
+ * @param personObjects - The objects written as person accounts, looked at as each object is asked.
+ */
+export function requiredForAccountKinds(
+  fields: Pick<DescribedFields, 'required'>,
+  personObjects: readonly string[],
+): (objectApiName: string) => Promise<DescribedSeedField[]> {
+  return async (objectApiName) =>
+    (await fields.required(objectApiName)).filter(
+      (field) =>
+        !leftOutForAccountKind(
+          objectApiName,
+          field.fieldApiName,
+          personObjects.includes(objectApiName) ? 'person' : 'business',
+        ),
+    );
 }

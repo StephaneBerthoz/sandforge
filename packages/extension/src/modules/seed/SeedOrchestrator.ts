@@ -57,7 +57,7 @@ export const SEED_SLICE_RECORDS = 10_000;
 export const SEED_SLICE_VALUES = 500_000;
 
 /** Fewest records a slice holds, however wide the object: a REST call's worth. */
-const SEED_SLICE_LEAST = 200;
+export const SEED_SLICE_LEAST = 200;
 
 /** The records of `config` one slice of a sequential seed holds: see {@link SEED_SLICE_VALUES}. */
 export function seedSliceOf(config: Pick<SeedTemplate['objects'][number], 'fieldRules'>): number {
@@ -555,7 +555,10 @@ export class SeedOrchestrator {
     this.reportProgress(obj.objectApiName, run.objectResults, plannedRecords);
 
     const own = withoutRelationLookup(obj, relation);
-    const { config: fitted, dropped } = await this.dropRulesTheOrgCannotTake(own);
+    const { config: fitted, dropped } = await dropRulesTheOrgCannotTake(
+      own,
+      this.deps.describeCreateableFields,
+    );
     const why = await this.whyDropped(obj.objectApiName, dropped);
     const namesNone = (config: SeedObjectConfig): boolean =>
       config.fieldRules.length === 0 && fieldsOfRows(config.rows).length === 0;
@@ -566,9 +569,10 @@ export class SeedOrchestrator {
         `Skipped: none of the fields the template names can be written (${why.join('; ')}).`,
       );
     }
-    const { config: usable, filled } = await this.withWhatTheOrgRequires(
+    const { config: usable, filled } = await withWhatTheOrgRequires(
       await this.withTheOrgsPicklistValues(fitted),
       relation,
+      this.deps.describeRequiredFields,
     );
     const noStandardBook = await this.matchStandardPricebook(usable, run);
     if (noStandardBook) return skipObject(run, obj.objectApiName, noStandardBook);
@@ -841,45 +845,6 @@ export class SeedOrchestrator {
   }
 
   /**
-   * The object's rules, with one for each field the org requires and no rule
-   * names — the rule the wizard gives a field it describes — and those fields'
-   * names. A field no generator fits (a time, a multi-select picklist) is
-   * left for the org to refuse, as the wizard leaves it; so are all of them
-   * when the org's describe cannot be read.
-   */
-  private async withWhatTheOrgRequires(
-    obj: SeedTemplate['objects'][number],
-    relation: SeedRelation | undefined,
-  ): Promise<{ config: SeedTemplate['objects'][number]; filled: string[] }> {
-    if (!this.deps.describeRequiredFields) return { config: obj, filled: [] };
-    let required: DescribedSeedField[];
-    try {
-      required = await this.deps.describeRequiredFields(obj.objectApiName);
-    } catch {
-      return { config: obj, filled: [] };
-    }
-    // A field every row gives is named; one some rows leave out gets the
-    // rule, and the rows that give it keep their value.
-    const named = new Set([
-      ...obj.fieldRules.map((rule) => rule.fieldApiName),
-      ...fieldsEveryRowGives(obj.rows),
-      ...(relation ? [relation.lookupField] : []),
-    ]);
-    const added: FieldRule[] = [];
-    for (const field of required) {
-      if (named.has(field.fieldApiName)) continue;
-      const rule = describedFieldRule(field);
-      if (rule.ruleType === 'static' && rule.config.staticValue === undefined) continue;
-      added.push({ fieldApiName: field.fieldApiName, fieldType: field.type, ...rule });
-    }
-    if (added.length === 0) return { config: obj, filled: [] };
-    return {
-      config: { ...obj, fieldRules: [...obj.fieldRules, ...added] },
-      filled: added.map((rule) => rule.fieldApiName),
-    };
-  }
-
-  /**
    * Give the run the org's standard price book, which a reference to
    * `Pricebook2` in a seed that writes none points at, read once for the
    * run; or why the object is skipped when the book cannot be had. Its
@@ -951,43 +916,6 @@ export class SeedOrchestrator {
           ]
         : []),
     ];
-  }
-
-  /**
-   * The object's rules, less the ones naming a field this org does not have,
-   * or the user may not set; and its rows, less those fields' values. A row
-   * is the rule's equal here: one value of a field the org does not have
-   * refused the whole record, and every record of the object.
-   *
-   * A reference rule fills a lookup and is left alone: the field it writes is
-   * named by the rule, and a describe that cannot see it is a reason to let
-   * the platform answer rather than to guess.
-   */
-  private async dropRulesTheOrgCannotTake(
-    obj: SeedTemplate['objects'][number],
-  ): Promise<{ config: SeedTemplate['objects'][number]; dropped: string[] }> {
-    if (!this.deps.describeCreateableFields) return { config: obj, dropped: [] };
-    let creatable: ReadonlySet<string>;
-    try {
-      creatable = await this.deps.describeCreateableFields(obj.objectApiName);
-    } catch {
-      return { config: obj, dropped: [] };
-    }
-    const kept = obj.fieldRules.filter(
-      (rule) => rule.ruleType === 'reference' || creatable.has(rule.fieldApiName),
-    );
-    const rowFieldsDropped = fieldsOfRows(obj.rows).filter((field) => !creatable.has(field));
-    if (kept.length === obj.fieldRules.length && rowFieldsDropped.length === 0) {
-      return { config: obj, dropped: [] };
-    }
-    const dropped = [
-      ...new Set([
-        ...obj.fieldRules.filter((rule) => !kept.includes(rule)).map((rule) => rule.fieldApiName),
-        ...rowFieldsDropped,
-      ]),
-    ];
-    const rows = obj.rows && rowsWithout(obj.rows, new Set(rowFieldsDropped));
-    return { config: { ...obj, fieldRules: kept, ...(rows ? { rows } : {}) }, dropped };
   }
 
   /** The most characters each field of an object takes, or none known when the describe cannot say. */
@@ -1540,6 +1468,118 @@ function rowsWithout(rows: readonly SeedRow[], fields: ReadonlySet<string>): See
     ...row,
     values: Object.fromEntries(Object.entries(row.values).filter(([field]) => !fields.has(field))),
   }));
+}
+
+/**
+ * The object's rules, less the ones naming a field this org does not have,
+ * or the user may not set; and its rows, less those fields' values. A row
+ * is the rule's equal here: one value of a field the org does not have
+ * refused the whole record, and every record of the object.
+ *
+ * A reference rule fills a lookup and is left alone: the field it writes is
+ * named by the rule, and a describe that cannot see it is a reason to let
+ * the platform answer rather than to guess.
+ */
+async function dropRulesTheOrgCannotTake(
+  obj: SeedTemplate['objects'][number],
+  describeCreateableFields: SeedOrchestratorDependencies['describeCreateableFields'],
+): Promise<{ config: SeedTemplate['objects'][number]; dropped: string[] }> {
+  if (!describeCreateableFields) return { config: obj, dropped: [] };
+  let creatable: ReadonlySet<string>;
+  try {
+    creatable = await describeCreateableFields(obj.objectApiName);
+  } catch {
+    return { config: obj, dropped: [] };
+  }
+  const kept = obj.fieldRules.filter(
+    (rule) => rule.ruleType === 'reference' || creatable.has(rule.fieldApiName),
+  );
+  const rowFieldsDropped = fieldsOfRows(obj.rows).filter((field) => !creatable.has(field));
+  if (kept.length === obj.fieldRules.length && rowFieldsDropped.length === 0) {
+    return { config: obj, dropped: [] };
+  }
+  const dropped = [
+    ...new Set([
+      ...obj.fieldRules.filter((rule) => !kept.includes(rule)).map((rule) => rule.fieldApiName),
+      ...rowFieldsDropped,
+    ]),
+  ];
+  const rows = obj.rows && rowsWithout(obj.rows, new Set(rowFieldsDropped));
+  return { config: { ...obj, fieldRules: kept, ...(rows ? { rows } : {}) }, dropped };
+}
+
+/**
+ * The object's rules, with one for each field the org requires and no rule
+ * names — the rule the wizard gives a field it describes — and those fields'
+ * names. A field no generator fits (a time, a multi-select picklist) is
+ * left for the org to refuse, as the wizard leaves it; so are all of them
+ * when the org's describe cannot be read.
+ */
+async function withWhatTheOrgRequires(
+  obj: SeedTemplate['objects'][number],
+  relation: SeedRelation | undefined,
+  describeRequiredFields: SeedOrchestratorDependencies['describeRequiredFields'],
+): Promise<{ config: SeedTemplate['objects'][number]; filled: string[] }> {
+  if (!describeRequiredFields) return { config: obj, filled: [] };
+  let required: DescribedSeedField[];
+  try {
+    required = await describeRequiredFields(obj.objectApiName);
+  } catch {
+    return { config: obj, filled: [] };
+  }
+  // A field every row gives is named; one some rows leave out gets the
+  // rule, and the rows that give it keep their value.
+  const named = new Set([
+    ...obj.fieldRules.map((rule) => rule.fieldApiName),
+    ...fieldsEveryRowGives(obj.rows),
+    ...(relation ? [relation.lookupField] : []),
+  ]);
+  const added: FieldRule[] = [];
+  for (const field of required) {
+    if (named.has(field.fieldApiName)) continue;
+    const rule = describedFieldRule(field);
+    if (rule.ruleType === 'static' && rule.config.staticValue === undefined) continue;
+    added.push({ fieldApiName: field.fieldApiName, fieldType: field.type, ...rule });
+  }
+  if (added.length === 0) return { config: obj, filled: [] };
+  return {
+    config: { ...obj, fieldRules: [...obj.fieldRules, ...added] },
+    filled: added.map((rule) => rule.fieldApiName),
+  };
+}
+
+/**
+ * The records one slice of `obj` holds as a sequential run cuts it
+ * ({@link seedSliceOf}), from the rules the run generates them from once the
+ * org's describe is read, as it readies the object: its relation's lookup
+ * apart, less those naming a field the org does not let a seed set, with one
+ * for each field the org requires and no rule names. What a seed's gate
+ * prices its inserts by, read before it from the same describe.
+ *
+ * Priced from the template's rules alone, an object of 48 rules the org
+ * requires four more of was priced one Bulk API job of 10,000 records, where
+ * its run sent two, of 9,615 and 385; and one whose rules the org drops was
+ * priced in more slices than it is cut in.
+ */
+export async function seedRunSliceOf(
+  obj: SeedTemplate['objects'][number],
+  relations: readonly SeedRelation[] | undefined,
+  describe: Pick<
+    SeedOrchestratorDependencies,
+    'describeCreateableFields' | 'describeRequiredFields'
+  >,
+): Promise<number> {
+  const relation = relationFor(obj.objectApiName, relations);
+  const { config: fitted } = await dropRulesTheOrgCannotTake(
+    withoutRelationLookup(obj, relation),
+    describe.describeCreateableFields,
+  );
+  const { config: usable } = await withWhatTheOrgRequires(
+    fitted,
+    relation,
+    describe.describeRequiredFields,
+  );
+  return seedSliceOf(usable);
 }
 
 /** The object's rules, less the one on the lookup its relation fills. */
