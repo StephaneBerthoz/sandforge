@@ -1208,3 +1208,25 @@ for (const theme of THEMES) {
     });
   });
 }
+
+test.describe('Forge Review, what its discovery cost', () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  for (const theme of ['Light 2026', 'Dark 2026'] as const) {
+    test(`says what discovery sent each org before any row was read, and passes axe — ${theme}`, async ({
+      page,
+    }) => {
+      await openReview(page, {
+        theme,
+        graph: { ...GRAPH, discoveryRequests: { source: 12, target: 3 } },
+      });
+      await expect(page.getByTestId('review-discovery-cost')).toHaveText(
+        /^Discovery sent 15 API requests, before any row was read: 12 to .+, 3 to .+\.$/,
+      );
+      const results = await checkAccessibility(page);
+      expect(results.violations.length, formatViolations(results.violations)).toBe(0);
+      const shortfalls = await themeContrastShortfalls(page, vscodeTheme(theme));
+      expect(shortfalls, shortfalls.join('\n')).toEqual([]);
+    });
+  }
+});

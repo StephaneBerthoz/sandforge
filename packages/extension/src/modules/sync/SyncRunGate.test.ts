@@ -13,6 +13,8 @@ import {
   measureSyncWrite,
   mutingSyncWriteGate,
   syncGateStops,
+  syncRequestsEstimate,
+  syncRequestsPastTheGate,
   syncRunWrites,
   syncWriteGate,
   syncWritePlan,
@@ -451,11 +453,16 @@ describe('the API requests of a run, priced as its writer sends them', () => {
         readAutomation: async () => ruledBy('Contact'),
       }),
     ).toBe(14);
+    // Four calls of fifty accounts, one of 150 contacts: what is read before
+    // each is priced past the gate (`syncRequestsPastTheGate`).
     expect(
-      await estimateOf([
-        { objectApiName: 'Account', operation: 'upsert', rows: 200, batchSize: 50 },
-        { objectApiName: 'Contact', operation: 'update', rows: 150 },
-      ]),
+      syncRequestsEstimate(
+        [
+          { objectApiName: 'Account', operation: 'upsert', rows: 200, batchSize: 50 },
+          { objectApiName: 'Contact', operation: 'update', rows: 150 },
+        ],
+        {},
+      ),
     ).toBe(4 + 1);
   });
 
@@ -463,6 +470,88 @@ describe('the API requests of a run, priced as its writer sends them', () => {
     const accounts = [{ objectApiName: 'Account', operation: 'insert' as const, rows: 300 }];
     expect(await estimateOf(accounts, { bulkThreshold: 500 })).toBe(2);
     expect(await estimateOf(accounts)).toBe(3 + 7 + 3);
+  });
+});
+
+describe('what a run sends its target from its gate on, beside its writes', () => {
+  const ID = { characters: 20, wide: false };
+
+  it('prices, before each call that writes over records, the reads of what it writes over, by its key', () => {
+    // 600 accounts updated by id: one Bulk API job, read in four statements
+    // of 181 before it; the rows a duplicate rule may have refused in it sent
+    // again in three calls of 200, each read in two; once more without the
+    // stamps; and whether the run's user reads encrypted fields.
+    const updated = [
+      { objectApiName: 'Account', operation: 'update' as const, rows: 600, overwriteKey: ID },
+    ];
+    expect(syncRequestsPastTheGate({ objects: updated }, {})).toBe(4 + 3 * 2 + 1 + 1);
+    // No rule watches them: the job's reads alone.
+    expect(
+      syncRequestsPastTheGate(
+        { objects: updated },
+        { duplicateRules: new Map([['Account', false]]) },
+      ),
+    ).toBe(4 + 1 + 1);
+    // An upsert by an external id of 80 characters: 47 a statement.
+    expect(
+      syncRequestsPastTheGate(
+        {
+          objects: [
+            {
+              objectApiName: 'Account',
+              operation: 'upsert',
+              rows: 100,
+              overwriteKey: { characters: 82, wide: false },
+            },
+          ],
+        },
+        {},
+      ),
+    ).toBe(3 + 1 + 1);
+    // An insert and a delete write over nothing.
+    expect(
+      syncRequestsPastTheGate(
+        {
+          objects: [
+            { objectApiName: 'Account', operation: 'insert', rows: 600 },
+            { objectApiName: 'Contact', operation: 'delete', rows: 600 },
+          ],
+        },
+        {},
+      ),
+    ).toBe(0);
+  });
+
+  it('prices the roles the platform wrote with the opportunities created with a contact: read, then given the rows’ fields', () => {
+    const objects = [
+      { objectApiName: 'Opportunity', operation: 'insert' as const, rows: 300 },
+      {
+        objectApiName: 'OpportunityContactRole',
+        operation: 'insert' as const,
+        rows: 250,
+        overwriteKey: ID,
+      },
+    ];
+    // 300 roles at most, 50 the gate linked already: read 200 opportunities
+    // a statement, updated in two calls of 200 and 100, each read first as
+    // any update — two statements, then one —, once more without the stamps,
+    // and whether encrypted fields read in clear.
+    expect(syncRequestsPastTheGate({ objects, rolesLinked: 50 }, {})).toBe(2 + 2 + (2 + 1 + 1) + 1);
+  });
+
+  it('prices a describe of each object whose record types it reads again, once the mute assigns a permission set', async () => {
+    const typed = { ...counted([{ objectApiName: 'Contact', operation: 'insert', rows: 150 }]) };
+    const again = { ...typed, describedAgain: 2 };
+    expect(syncRequestsPastTheGate(again, { leaseAssigns: true })).toBe(2);
+    expect(syncRequestsPastTheGate(again, { leaseAssigns: false })).toBe(0);
+
+    const plan = {
+      assign: [{ permissionSet: 'PS_Bypass', label: 'Bypass', permissions: ['Contact_Bypass'] }],
+    };
+    const leased = await measureSyncWrite(again, measures({ mutePlan: () => plan }));
+    const unleased = await measureSyncWrite(again, measures());
+    expect(leased.api.parts?.run).toBe(1 + GATE_READS + 2);
+    expect(unleased.api.estimate).toBe(1 + GATE_READS);
   });
 });
 
@@ -890,9 +979,17 @@ describe('gateSyncWrite', () => {
     );
 
     // 1,000 contacts in one Bulk API job of sixteen calls, no rule watching
-    // them, and the run's reads of the target.
+    // them; before it, what they write over read in twenty statements of
+    // fifty, as a call that may write more than a hundred fields reads it,
+    // one sent again without the stamps, and whether the run's user reads
+    // encrypted fields; and the run's reads of the target.
     expect(measured.check).toMatchObject({
-      apiRequests: { verdict: 'exceeds', estimate: 16 + GATE_READS, remaining: 4, max: 15_000 },
+      apiRequests: {
+        verdict: 'exceeds',
+        estimate: 16 + (20 + 1 + 1) + GATE_READS,
+        remaining: 4,
+        max: 15_000,
+      },
       verdict: 'refused',
     });
     for (const policy of ['ask', 'unattended', 'refuse'] as const) {

@@ -16,6 +16,12 @@
  * item it still holds names a record of the run: one holding a record that is
  * not the run's is that record's report too, and stays. A set the org already
  * held, into which the run's records were reported, stays whatever it holds.
+ *
+ * A sweep takes, by the same rule, the sets made with the records it takes
+ * (`ForgeRunSweep`): the run's records and its own together, at least one of
+ * its own among them. Left, a set reporting a contact the target's
+ * automation made with an account of the run stayed once the sweep had taken
+ * the contact and the removal the account: neither read it as its own.
  */
 
 import { idLists } from '../dataops/RecordRemoval.js';
@@ -60,6 +66,16 @@ export interface DuplicateSetsRun {
   user: string;
 }
 
+/** A set of the run, as read: when it was made and last modified, and by whom. */
+export interface DuplicateSetRead {
+  id: string;
+  created: number;
+  modified: number;
+  modifiedBy?: string;
+  /** The records its items still name, by their first fifteen characters. */
+  names: string[];
+}
+
 /**
  * The sets the target's duplicate rules made for the run's records: see the
  * module's comment. A read that fails, or fills its limit, tells none.
@@ -68,13 +84,27 @@ export async function duplicateSetsOf(
   org: { query(soql: string): Promise<{ records: unknown[] }> },
   run: DuplicateSetsRun,
 ): Promise<PlatformCopy[]> {
+  return (await duplicateSetsRead(org, run)).map((set) => ({
+    id: set.id,
+    modified: modifiedOf(set, run),
+  }));
+}
+
+/**
+ * The same sets, each with what tells it the run's: when it was made and
+ * last modified, by whom, and the records its items still name.
+ */
+export async function duplicateSetsRead(
+  org: { query(soql: string): Promise<{ records: unknown[] }> },
+  run: DuplicateSetsRun,
+): Promise<DuplicateSetRead[]> {
   if (!Number.isFinite(run.start) || !Number.isFinite(run.end) || !SF_ID_RE.test(run.user)) {
     return [];
   }
   let sets: Array<Record<string, unknown>>;
   try {
     const answer = await org.query(
-      `SELECT Id, LastModifiedDate, LastModifiedById FROM ${DUPLICATE_SET_OBJECT} ` +
+      `SELECT Id, CreatedDate, LastModifiedDate, LastModifiedById FROM ${DUPLICATE_SET_OBJECT} ` +
         `WHERE CreatedById = '${run.user}' ` +
         `AND CreatedDate >= ${soqlDate(run.start - TIE_LEAD_MS)} ` +
         `AND CreatedDate <= ${soqlDate(run.end + MADE_WITHIN_MS)} LIMIT ${READ_LIMIT}`,
@@ -91,6 +121,8 @@ export async function duplicateSetsOf(
   if (ids.length === 0) return [];
   /** Keys of the sets an item of which names a record that is not the run's. */
   const others = new Set<string>();
+  /** By the key of each set, the records its items name. */
+  const names = new Map<string, string[]>();
   try {
     for (const list of idLists(ids)) {
       const answer = await org.query(
@@ -104,6 +136,7 @@ export async function duplicateSetsOf(
         const named = row.RecordId;
         if (typeof set !== 'string') continue;
         if (typeof named !== 'string' || !run.has(recordKey(named))) others.add(recordKey(set));
+        else names.set(recordKey(set), [...(names.get(recordKey(set)) ?? []), recordKey(named)]);
       }
     }
   } catch {
@@ -111,7 +144,17 @@ export async function duplicateSetsOf(
   }
   return sets.flatMap((row) =>
     typeof row.Id === 'string' && !others.has(recordKey(row.Id))
-      ? [{ id: row.Id, modified: modifiedOf(row, run) }]
+      ? [
+          {
+            id: row.Id,
+            created: epochOf(row.CreatedDate),
+            modified: epochOf(row.LastModifiedDate),
+            ...(typeof row.LastModifiedById === 'string'
+              ? { modifiedBy: row.LastModifiedById }
+              : {}),
+            names: names.get(recordKey(row.Id)) ?? [],
+          },
+        ]
       : [],
   );
 }
@@ -124,10 +167,12 @@ export async function duplicateSetsOf(
  * reported into after the run's last save read as changed since, and stayed.
  * One someone else modified, or the run's user later, holds its own date.
  */
-function modifiedOf(row: Record<string, unknown>, run: DuplicateSetsRun): number {
-  const modified = epochOf(row.LastModifiedDate);
-  const by = typeof row.LastModifiedById === 'string' ? recordKey(row.LastModifiedById) : '';
-  return by === recordKey(run.user) && modified <= run.end + MADE_WITHIN_MS
-    ? Math.min(modified, run.end)
-    : modified;
+export function modifiedOf(
+  set: Pick<DuplicateSetRead, 'modified' | 'modifiedBy'>,
+  run: Pick<DuplicateSetsRun, 'end' | 'user'>,
+): number {
+  const by = set.modifiedBy !== undefined ? recordKey(set.modifiedBy) : '';
+  return by === recordKey(run.user) && set.modified <= run.end + MADE_WITHIN_MS
+    ? Math.min(set.modified, run.end)
+    : set.modified;
 }

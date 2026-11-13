@@ -3829,6 +3829,43 @@ describe('removeRunRecords — what the target automation made under the run rec
     expect(org.has('Task_Note__c', id('a0N', 1))).toBe(true);
   });
 
+  it('counts none for a record held through a restricted lookup by what the automation made, when something added since hangs from that: a sweep keeps it', async () => {
+    // The task points at the account by a lookup the org refuses the
+    // account's delete for: a sweep would delete it first, but keeps it for
+    // the colleague's note under it, and the account stays for it.
+    const restricted = (): FakeOrg => {
+      const org = accountWithTask(madeJustAfter);
+      org.relationships.set('Account', [
+        { childSObject: 'Task', field: 'WhatId', cascadeDelete: false, restrictedDelete: true },
+      ]);
+      return org;
+    };
+    const bare = await removeRunRecords(restricted(), PLAN, options());
+    expect(bare.objects[0]).toMatchObject({ keptDependents: 1, heldByAutomation: 1 });
+
+    const org = restricted();
+    org.relationships.set('Task', [
+      { childSObject: 'Task_Note__c', field: 'Task__c', cascadeDelete: true },
+    ]);
+    org.add('Task_Note__c', {
+      Id: id('a0N', 1),
+      Task__c: TASK,
+      CreatedById: COLLEAGUE,
+      CreatedDate: LONG_AFTER_RUN,
+      LastModifiedDate: LONG_AFTER_RUN,
+    });
+
+    const outcome = await removeRunRecords(org, PLAN, options());
+
+    expect(outcome.objects[0]).toMatchObject({
+      deleted: 0,
+      keptDependents: 1,
+      heldBy: ['Task', 'Task_Note__c'],
+    });
+    expect(outcome.objects[0].heldByAutomation).toBeUndefined();
+    expect(outcome.objects[0].automationHolders).toBeUndefined();
+  });
+
   it('still counts held by the automation what only more of the automation’s work hangs from', async () => {
     const org = accountWithTask(madeJustAfter);
     org.relationships.set('Task', [

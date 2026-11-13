@@ -619,6 +619,14 @@ export interface ForgeGraph {
    * every graph discovery builds.
    */
   withoutEdges?: true;
+  /**
+   * The API requests the panel's discovery of this graph sent each org, as
+   * its reads sent them: what Review says discovery cost, before any row is
+   * read. Absent from a graph the session's cache served, which sent
+   * nothing; and from a graph a run or its history carries, which no
+   * schema keeps it in (`forgeGraphSchema`).
+   */
+  discoveryRequests?: { source: number; target: number };
 }
 
 /**

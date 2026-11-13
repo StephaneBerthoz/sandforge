@@ -330,6 +330,29 @@ describe('autopilot:execute, the checkpoint taken first', () => {
     expect(runs()[0]).toMatchObject({ outcome: 'success', checkpointId: TAKEN.checkpointId });
   });
 
+  it('counts the lease of its mute among the requests its gate holds the run to, nothing assigned when they do not fit', async () => {
+    // Six left: the plan's own fit, the lease's seven — who the run writes
+    // as, three reads, the set assigned and taken back — do not.
+    const org = target();
+    mockGetConn.mockResolvedValue({
+      ...org.connection,
+      request: vi.fn(async () => ({
+        DataStorageMB: { Max: 200, Remaining: 150 },
+        DailyApiRequests: { Max: 15_000, Remaining: 6 },
+      })),
+    } as never);
+
+    const { executePlan } = await run({ muteAutomation: true });
+
+    expect(executePlan).not.toHaveBeenCalled();
+    expect(calls).not.toContain('assignment insert');
+    const refused = posted('autopilot:error')[0]?.payload;
+    expect(refused).toMatchObject({ code: 'API_BUDGET_EXCEEDED' });
+    expect(String(refused?.['message'] ?? refused?.['error'] ?? '')).toContain(
+      "7 of them to assign and take back the permission sets that mute the target's automation",
+    );
+  });
+
   it('holds the creations of a flow that still runs, the run not muted', async () => {
     const port = checkpointsAnswering();
     target();

@@ -2130,3 +2130,106 @@ describe('what a sweep keeps for what someone hung under what it takes', () => {
     });
   });
 });
+
+describe('the duplicate record sets the target’s rules made with what a sweep takes', () => {
+  const MIXED = id('0GK', 1);
+  const RUN_ONLY = id('0GK', 2);
+
+  /**
+   * The rules' reports as the run and its automation wrote: a set of the
+   * asset the case's flow cloned and the run's contact, which neither the
+   * sweep nor the removal named, and a set of the run's own records alone,
+   * the removal's to take.
+   */
+  function withSets(org: TiedOrg): void {
+    org.shape('DuplicateRecordSet', {
+      children: [
+        { childSObject: 'DuplicateRecordItem', field: 'DuplicateRecordSetId', cascadeDelete: true },
+      ],
+    });
+    org.shape('DuplicateRecordItem', {
+      references: { DuplicateRecordSetId: ['DuplicateRecordSet'] },
+    });
+    org.add(
+      'DuplicateRecordSet',
+      rec(MIXED, 'DRS-000001', RUN_USER, at(2)),
+      rec(RUN_ONLY, 'DRS-000002', RUN_USER, at(1)),
+    );
+    org.add(
+      'DuplicateRecordItem',
+      { Id: id('0GL', 1), DuplicateRecordSetId: MIXED, RecordId: id('02i', 1) },
+      { Id: id('0GL', 2), DuplicateRecordSetId: MIXED, RecordId: CONTACT },
+      { Id: id('0GL', 3), DuplicateRecordSetId: RUN_ONLY, RecordId: CONTACT },
+      { Id: id('0GL', 4), DuplicateRecordSetId: RUN_ONLY, RecordId: CASE },
+    );
+  }
+
+  it('takes a set its records and the run’s alone are reported in, lists it, and names its object for the automation read', async () => {
+    const org = tiedOrg();
+    withSets(org);
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+
+    await parts.ask();
+    expect(parts.listing?.found.find((f) => f.objectApiName === 'DuplicateRecordSet')).toEqual({
+      objectApiName: 'DuplicateRecordSet',
+      count: 1,
+      names: [],
+      classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+    });
+    // What the removal reads the target's automation on, plans its mute from
+    // and asks about, before the first delete.
+    expect(parts.takes).toContain('DuplicateRecordSet');
+
+    await parts.first();
+    await org.destroy('Case', [CASE]);
+    await parts.afterRemoval();
+
+    expect(deletedIds(org)).toContain(MIXED);
+    // The run's own set is the removal's: the sweep leaves it.
+    expect(deletedIds(org)).not.toContain(RUN_ONLY);
+    expect(org.ids('DuplicateRecordSet')).toEqual([RUN_ONLY]);
+    expect(
+      parts.result().objects.find((o) => o.objectApiName === 'DuplicateRecordSet'),
+    ).toMatchObject({ found: 1, deleted: 1 });
+  });
+
+  it('keeps a set that reports a record the sweep keeps: deleted, it would take that record’s report along', async () => {
+    const org = tiedOrg();
+    withSets(org);
+    // A colleague edited the asset since the run: the sweep keeps it.
+    const asset = org.row('Asset', id('02i', 1))!;
+    asset.LastModifiedDate = LONG_AFTER;
+    asset.LastModifiedById = COLLEAGUE;
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+
+    await parts.first();
+    await parts.afterRemoval();
+
+    expect(deletedIds(org)).not.toContain(MIXED);
+    expect(org.ids('DuplicateRecordItem')).toContain(id('0GL', 1));
+    expect(
+      parts.result().objects.find((o) => o.objectApiName === 'DuplicateRecordSet'),
+    ).toMatchObject({ found: 1, deleted: 0, keptDependents: 1, heldBy: ['DuplicateRecordItem'] });
+  });
+
+  it('takes no set an item of which reports a record neither the run’s nor found, and reads none for a sweep that found nothing', async () => {
+    const org = tiedOrg();
+    withSets(org);
+    org.add('DuplicateRecordItem', {
+      Id: id('0GL', 5),
+      DuplicateRecordSetId: MIXED,
+      RecordId: id('00T', 6),
+    });
+    const listing = await listSweep(org, tiedInput());
+    expect(listing.found.map((f) => f.objectApiName)).not.toContain('DuplicateRecordSet');
+
+    const empty = new TiedOrg();
+    empty.shape('Account', {});
+    empty.add('Account', recWith(ACCOUNT, 'Cloned account', RUN_USER, AT_CASE, {}));
+    await listSweep(
+      empty,
+      tiedInput({}, { created: [{ objectApiName: 'Account', ids: [ACCOUNT] }] }),
+    );
+    expect(empty.queries.filter((q) => q.includes('FROM DuplicateRecordSet'))).toEqual([]);
+  });
+});

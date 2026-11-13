@@ -4440,6 +4440,8 @@
       "hint": "None of these is a failed record or a skipped object: each says what the run did differently, or could not check — a lookup left empty because its record is not in the clone, records the platform writes itself, a check of the target org that could not be made. The totals and the audit trail count none of them as a failure."
     },
     "review": {
+      "discoveryCost_one": "Discovery sent {{count}} API request, before any row was read: {{source}} to {{sourceOrg}}, {{target}} to {{targetOrg}}.",
+      "discoveryCost_other": "Discovery sent {{count}} API requests, before any row was read: {{source}} to {{sourceOrg}}, {{target}} to {{targetOrg}}.",
       "gapsRead": {
         "pending": "Reading what the target org holds against the rows…",
         "error": "What the target org holds against the rows could not be read: {{error}}",

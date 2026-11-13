@@ -4440,6 +4440,8 @@
       "hint": "Nenhuma destas notas é um registro com falha nem um objeto ignorado: cada uma diz o que a execução fez de outro modo, ou não conseguiu verificar — uma pesquisa deixada vazia porque seu registro não está no clone, registros que a plataforma grava ela mesma, uma verificação da org de destino que não pôde ser feita. Os totais e o registro de auditoria não contam nenhuma delas como falha."
     },
     "review": {
+      "discoveryCost_one": "A descoberta enviou {{count}} solicitação de API, antes de ler qualquer linha: {{source}} para {{sourceOrg}}, {{target}} para {{targetOrg}}.",
+      "discoveryCost_other": "A descoberta enviou {{count}} solicitações de API, antes de ler qualquer linha: {{source}} para {{sourceOrg}}, {{target}} para {{targetOrg}}.",
       "gapsRead": {
         "pending": "Lendo o que a org de destino opõe às linhas…",
         "error": "Não foi possível ler o que a org de destino opõe às linhas: {{error}}",

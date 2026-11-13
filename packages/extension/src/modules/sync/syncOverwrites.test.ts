@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  ID_KEY_CHARACTERS,
+  keysPerOverwriteRead,
   overwriteBackupIdOf,
+  overwriteKeyOf,
+  overwriteReadsOf,
   storeOverwriteBackup,
   syncOverwriteKeeper,
   type OverwriteBackup,
@@ -366,6 +370,90 @@ describe('syncOverwriteKeeper', () => {
     ]);
     expect(kept[0].records).toEqual([{ Id: A1, Name: 'Before 1' }]);
     expect(recorder.overwriting.mock.calls[0]).toEqual(['Account', BACKUP, [A1]]);
+  });
+});
+
+describe('overwriteReadsOf', () => {
+  /** The statements the keeper sends before one call of `rows`, as a target that holds none counts them. */
+  async function sentFor(
+    rows: ReadonlyArray<Record<string, unknown>>,
+    operation: 'update' | 'upsert',
+    key?: string,
+  ): Promise<number> {
+    let sent = 0;
+    const keeper = syncOverwriteKeeper({
+      query: async () => {
+        sent++;
+        return [];
+      },
+      backup: keeping().backup,
+      recorder: keeping().recorder,
+    });
+    await keeper.before('Account', operation, rows, key);
+    return sent;
+  }
+
+  it('prices the reads of an update at what the keeper sends, its ids 181 a statement', async () => {
+    const ids = { characters: ID_KEY_CHARACTERS, wide: false };
+    const rows = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ Id: fakeId('001', i + 1), Name: `After ${i}` }));
+    expect(keysPerOverwriteRead(ids)).toBe(181);
+    // Two calls of 200 and one Bulk API job of 600: each read as it goes.
+    const sent = (await sentFor(rows(200), 'update')) * 2 + (await sentFor(rows(600), 'update'));
+    expect(sent).toBe(2 + 2 + 4);
+    // Priced with the read sent again without the stamps: never fewer.
+    expect(overwriteReadsOf([200, 200, 600], ids)).toBe(sent + 1);
+  });
+
+  it('prices a wide call and a long key by the statements they shorten', async () => {
+    const wide = Object.fromEntries(Array.from({ length: 120 }, (_, i) => [`F${i}__c`, i]));
+    const rows = Array.from({ length: 200 }, (_, i) => ({ Id: fakeId('001', i + 1), ...wide }));
+    const sentWide = await sentFor(rows, 'update');
+    expect(sentWide).toBe(4);
+    expect(overwriteReadsOf([200], { characters: ID_KEY_CHARACTERS, wide: true })).toBe(
+      sentWide + 1,
+    );
+
+    // An external id of 80 characters, between quotes: 47 a statement.
+    const keyed = Array.from({ length: 200 }, (_, i) => ({
+      Ext__c: `K-${String(i).padStart(78, '0')}`,
+      Name: `After ${i}`,
+    }));
+    const sentKeyed = await sentFor(keyed, 'upsert', 'Ext__c');
+    expect(keysPerOverwriteRead({ characters: 82, wide: false })).toBe(47);
+    expect(sentKeyed).toBe(5);
+    expect(overwriteReadsOf([200], { characters: 82, wide: false })).toBe(sentKeyed + 1);
+    expect(overwriteReadsOf([], { characters: 82, wide: false })).toBe(0);
+  });
+});
+
+describe('overwriteKeyOf', () => {
+  const field = (name: string, type: string, more: Record<string, unknown> = {}) => ({
+    name,
+    type,
+    queryable: true,
+    createable: true,
+    isReference: false,
+    ...more,
+  });
+  const described = (writable: number) => ({
+    creatable: new Set(Array.from({ length: writable }, (_, i) => `F${i}__c`)),
+    fields: [
+      field('Ext__c', 'string', { length: 40 }),
+      field('Number__c', 'double', { precision: 10 }),
+    ],
+  });
+
+  it('names records by id, by the figures of a number, or by the characters a text key holds', () => {
+    expect(overwriteKeyOf('Id', described(10))).toEqual({ characters: 20, wide: false });
+    expect(overwriteKeyOf('ext__c', described(10))).toEqual({ characters: 42, wide: false });
+    expect(overwriteKeyOf('Number__c', described(10))).toEqual({ characters: 12, wide: false });
+  });
+
+  it('takes a call that may write more than a hundred columns for a wide one, and the longest key when not described', () => {
+    expect(overwriteKeyOf('Id', described(97)).wide).toBe(true);
+    expect(overwriteKeyOf('Id', described(96)).wide).toBe(false);
+    expect(overwriteKeyOf('Ext__c', undefined)).toEqual({ characters: 257, wide: true });
   });
 });
 

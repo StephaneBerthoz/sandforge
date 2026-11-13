@@ -313,6 +313,33 @@ describe('sandforge-autopilot --checkpoint-first', () => {
     );
   });
 
+  it('prices with --plan-only the lease of the mute in a part of its own, said before the mute it plans', async () => {
+    const events: string[] = [];
+    orgs(events);
+    muteOf(events);
+    const planned = vi.mocked(muteForRun).getMockImplementation();
+    vi.mocked(muteForRun).mockImplementation(async (...args) => ({
+      ...(await planned!(...args)),
+      plan: {
+        assign: [{ permissionSet: 'PS_Bypass', label: 'Bypass', permissions: ['Bypass_Flow'] }],
+        silenced: [],
+        stillRuns: [],
+      },
+    }));
+
+    await main(argv('--mute-automation', '--plan-only', '--json'));
+
+    const printed = JSON.parse(out.join('')) as {
+      writeGate: { apiRequests: { parts?: { mute?: number } } };
+    };
+    // Who the run writes as, three reads, the set assigned and taken back.
+    expect(printed.writeGate.apiRequests.parts?.mute).toBe(2 + 3 + 2);
+    expect(events).not.toContain('lease');
+    const said = err.join('');
+    expect(said.indexOf('API requests')).toBeGreaterThan(-1);
+    expect(said.indexOf('mute:')).toBeGreaterThan(said.indexOf('API requests'));
+  });
+
   it("says with --plan-only that a real run would be refused past the target's daily API requests, the checkpoint's part named", async () => {
     const limits = {
       DataStorageMB: { Max: 200, Remaining: 150 },

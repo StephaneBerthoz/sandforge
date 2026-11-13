@@ -142,6 +142,10 @@ function orgs(): { targetRequests: string[] } {
           errors: [],
         }));
       },
+      update: async (records: Array<{ Id: string }>) => {
+        await send('/composite/sobjects/update');
+        return records.map((record) => ({ id: record.Id, success: true, errors: [] }));
+      },
     });
     self.describe = async () => {
       await send('/sobjects/Account/describe');
@@ -228,6 +232,18 @@ describe('sandforge-sync --json, its API requests', () => {
     // it then sent, and the dry run says what the run would.
     expect(ran.apiRequests.estimate).toBeGreaterThanOrEqual(ran.apiRequests.sent);
     expect(planned.apiRequests.estimate).toBeGreaterThanOrEqual(ran.apiRequests.sent);
+  });
+
+  it('prices an update with the reads of what it writes over, sent past its gate: never fewer than it sends', async () => {
+    const real = orgs();
+    const ran = await summaryOf(argv('--operation', 'update', '--json'));
+
+    // Its write, and before it the read of what it writes over.
+    expect(real.targetRequests.filter((url) => url === '/composite/sobjects/update')).toHaveLength(
+      1,
+    );
+    expect(ran.apiRequests.sent).toBe(real.targetRequests.length);
+    expect(ran.apiRequests.estimate).toBeGreaterThanOrEqual(ran.apiRequests.sent);
   });
 
   it('says what it sent when its gate never priced the run', () => {

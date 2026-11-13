@@ -510,6 +510,29 @@ describe('SyncOrchestrator — the record type the target gave a record sent wit
       });
     });
 
+    it('tells the gate the describes it reads again under a lease that assigns, and reads no more', async () => {
+      const target = targetOrg({ describedAgain: TWO_OPEN, givesType: () => MASTER });
+      const { seen, writeGate } = gate(target.calls);
+
+      await orchestrator(target, [opportunity(1, null)], {
+        ...counting,
+        writeGate,
+        ...lease(target.calls, 1),
+      }).execute(config());
+
+      expect(seen[0]?.describedAgain).toBe(1);
+      expect(target.describeTargetFieldsAgain).toHaveBeenCalledTimes(seen[0]?.describedAgain ?? 0);
+      // A target with no type but Master is read again for nothing.
+      const untyped = targetOrg({ described: UNTYPED });
+      const untypedGate = gate(untyped.calls);
+      await orchestrator(untyped, [opportunity(1, null)], {
+        ...counting,
+        writeGate: untypedGate.writeGate,
+        ...lease(untyped.calls, 1),
+      }).execute(config());
+      expect(untypedGate.seen[0]).not.toHaveProperty('describedAgain');
+    });
+
     it('reads no describe again when the lease assigned none', async () => {
       const target = targetOrg({ describedAgain: TWO_OPEN });
       const { writeGate } = gate(target.calls);

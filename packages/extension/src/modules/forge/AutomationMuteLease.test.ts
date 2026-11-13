@@ -399,6 +399,47 @@ describe('what a lease sends the target', () => {
     expect(muteLeaseRequests(undefined)).toBe(0);
     expect(mutePartOf({ assign: [] })).toEqual({});
   });
+
+  it('prices too the leases other runs left past their end, which its take releases first', async () => {
+    // A run killed under its lease left its set assigned: the next take
+    // deletes it, a request no plan said, sent past the gate's price.
+    const memory = orgWith();
+    const left = memory.assign(SET_VR);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      muteJournalFileOf(dir, memory.organizationId, memory.userId),
+      JSON.stringify({
+        version: 1,
+        organizationId: memory.organizationId,
+        userId: memory.userId,
+        leases: [
+          {
+            runId: 'killed',
+            host: 'this-machine',
+            pid: 300,
+            hostStartedAt: '2026-10-30T08:00:00.000Z',
+            acquiredAt: '2026-10-30T08:01:00.000Z',
+            endsAt: '2026-10-30T08:30:00.000Z',
+            needs: [SET_VR],
+            assigning: [],
+            created: [{ id: left, permissionSetId: SET_VR, permissionSet: 'PS_BypassVR' }],
+          },
+        ],
+      }),
+    );
+    const counted = countedOf(muteOrgOf(memory.connection));
+    const mute = await prepareMute(counted.org, automation, asProcess(100));
+    if ('refused' in mute) throw new Error(mute.refused.message);
+    const before = counted.sent();
+
+    await (await mute.acquire('run-1')).release();
+
+    expect(memory.writes[0]).toEqual({ kind: 'delete', id: left });
+    expect(counted.sent() - before).toBe(muteLeaseRequests(mute.plan));
+    expect(muteLeaseRequests(mute.plan)).toBe(2 + 3 + 2 * 2 + 1);
+    // A plan made from the read alone, which no journal was read for, prices its own.
+    expect(muteLeaseRequests({ assign: mute.plan.assign })).toBe(2 + 3 + 2 * 2);
+  });
 });
 
 describe('releasing a lease', () => {

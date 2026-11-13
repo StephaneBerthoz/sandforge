@@ -140,6 +140,21 @@ describe('gateAutopilotWrite, on its emails and its reads back', () => {
     );
   });
 
+  it('refuses a plan past the requests left once the lease of its mute is counted, its part named', async () => {
+    const own = await autopilotApiCheck(plan, storageOf(14_000), vi.fn());
+    const storage = storageOf(own.estimate + 6);
+
+    const without = await gateAutopilotWrite(inputOf({ storage, confirmAboveRecords: 0 }));
+    // Who the run writes as, three reads, one set assigned and taken back.
+    const muted = await gateAutopilotWrite(inputOf({ storage, confirmAboveRecords: 0, mute: 7 }));
+
+    expect(without.go).toBe(true);
+    expect(muted).toMatchObject({ go: false, code: 'API_BUDGET_EXCEEDED' });
+    expect(
+      (await autopilotApiCheck(plan, storageOf(14_000), vi.fn(), undefined, { mute: 7 })).parts,
+    ).toEqual({ run: own.estimate, mute: 7 });
+  });
+
   it('asks about the emails an org on All email delivers, though nothing else asks, and takes the answer for the accord', async () => {
     const confirm = vi.fn(async (_question: WriteConfirmation) => 'confirmed' as const);
     const runEmails = await emailsOf(

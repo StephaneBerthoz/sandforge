@@ -534,6 +534,19 @@ describe('ForgeReview', () => {
     expect(screen.queryByTestId('forge-left-out-cost')).toBeNull();
   });
 
+  it('says what its discovery sent each org before any row was read, and nothing of a graph that sent none', () => {
+    mockGraph = { ...defaultGraph, discoveryRequests: { source: 12, target: 0 } };
+    const { unmount } = render(<ForgeReview />);
+    expect(screen.getByTestId('review-discovery-cost').textContent).toMatch(
+      /^Discovery sent 12 API requests, before any row was read: 12 to .+, 0 to .+\.$/,
+    );
+    unmount();
+
+    mockGraph = defaultGraph;
+    render(<ForgeReview />);
+    expect(screen.queryByTestId('review-discovery-cost')).toBeNull();
+  });
+
   it('should not send forge:execute when the graph is missing', () => {
     mockGraph = null;
     render(<ForgeReview />);

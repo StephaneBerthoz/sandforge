@@ -3,6 +3,7 @@ import * as fs from 'fs/promises';
 import type { Connection } from 'jsforce';
 import { SchemaCache } from '../core/metadata/SchemaCache';
 import { forgeDescribeCache } from '../modules/forge/forgeDescribeCache.js';
+import { discoveryRequestSent } from '../modules/forge/discoveryRequests.js';
 import { TimeoutManager } from '../core/engine/TimeoutManager';
 import type { ObjectDescribe } from '../modules/forge/GraphDiscoveryService';
 import type { GlobalObject } from '../modules/checkpoint/checkpointScope.js';
@@ -320,6 +321,8 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           if (settled) return settled;
 
           onSent?.();
+          // Sent for the discovery under way, if any: Review says what it cost.
+          discoveryRequestSent(orgId);
           const request = conn
             .describe(objectApiName)
             .then((meta) => {
@@ -370,6 +373,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
                 const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
                 signal?.throwIfAborted();
                 timeoutSignal.throwIfAborted();
+                discoveryRequestSent(orgId);
                 const result = await conn.query<{ expr0: number }>(
                   soql,
                   options?.all ? { scanAll: true } : undefined,
@@ -392,6 +396,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
                 const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
                 signal?.throwIfAborted();
                 timeoutSignal.throwIfAborted();
+                discoveryRequestSent(orgId);
                 const r = await conn.describeGlobal();
                 return r.sobjects.map((s): GlobalObject => ({
                   name: s.name,
@@ -418,6 +423,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
                 const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
                 signal?.throwIfAborted();
                 timeoutSignal.throwIfAborted();
+                discoveryRequestSent(orgId);
                 const answer = await conn.tooling.describeGlobal();
                 return answer.sobjects.map((sobject) => sobject.name);
               },
@@ -432,6 +438,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
                 const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
                 signal?.throwIfAborted();
                 timeoutSignal.throwIfAborted();
+                discoveryRequestSent(orgId);
                 return conn.request<unknown>(`/services/data/v${conn.version}/limits/recordCount`);
               },
               60_000,
@@ -760,7 +767,17 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
                     });
                     return { sent, fields: described.fields };
                   },
-                  query: targetQueries.query,
+                  // Its describe counts itself as it is sent; its query here.
+                  query: async (queryOrgId, soql) => {
+                    try {
+                      const answer = await targetQueries.query(queryOrgId, soql);
+                      discoveryRequestSent(queryOrgId, answer.requests);
+                      return answer;
+                    } catch (err: unknown) {
+                      discoveryRequestSent(queryOrgId);
+                      throw err;
+                    }
+                  },
                 },
                 orgId,
               )

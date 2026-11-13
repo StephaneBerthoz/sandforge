@@ -4440,6 +4440,8 @@
       "hint": "Keiner dieser Hinweise ist ein fehlgeschlagener Datensatz oder ein übersprungenes Objekt: Jeder sagt, was der Lauf anders gemacht hat oder nicht prüfen konnte — eine Nachschlagebeziehung, die leer blieb, weil ihr Datensatz nicht im Klon ist, Datensätze, die die Plattform selbst schreibt, eine Prüfung der Ziel-Org, die nicht möglich war. Die Summen und das Audit-Protokoll zählen keinen davon als Fehler."
     },
     "review": {
+      "discoveryCost_one": "Die Ermittlung hat {{count}} API-Anfrage gesendet, bevor eine Zeile gelesen wurde: {{source}} an {{sourceOrg}}, {{target}} an {{targetOrg}}.",
+      "discoveryCost_other": "Die Ermittlung hat {{count}} API-Anfragen gesendet, bevor eine Zeile gelesen wurde: {{source}} an {{sourceOrg}}, {{target}} an {{targetOrg}}.",
       "gapsRead": {
         "pending": "Lese, was die Ziel-Org den Zeilen entgegenhält…",
         "error": "Was die Ziel-Org den Zeilen entgegenhält, konnte nicht gelesen werden: {{error}}",

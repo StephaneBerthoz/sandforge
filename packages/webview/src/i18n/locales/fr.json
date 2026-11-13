@@ -4440,6 +4440,8 @@
       "hint": "Aucune de ces notes n'est un enregistrement en échec ni un objet ignoré : chacune dit ce que l'exécution a fait autrement, ou n'a pas pu vérifier — une recherche laissée vide parce que son enregistrement n'est pas dans le clone, des enregistrements que la plateforme écrit elle-même, une vérification de l'org cible qui n'a pas pu être faite. Les totaux et le journal d'audit n'en comptent aucune comme un échec."
     },
     "review": {
+      "discoveryCost_one": "La découverte a envoyé {{count}} requête API, avant de lire la moindre ligne : {{source}} à {{sourceOrg}}, {{target}} à {{targetOrg}}.",
+      "discoveryCost_other": "La découverte a envoyé {{count}} requêtes API, avant de lire la moindre ligne : {{source}} à {{sourceOrg}}, {{target}} à {{targetOrg}}.",
       "gapsRead": {
         "pending": "Lecture de ce que l'org cible oppose aux lignes…",
         "error": "Ce que l'org cible oppose aux lignes n'a pas pu être lu : {{error}}",

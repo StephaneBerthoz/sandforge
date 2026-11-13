@@ -33,6 +33,7 @@ import { clonesOneRecord, clonesWholeOrg } from './forgeRunConfig';
 import { PERSONAL_AS_IS_ID, ReviewWholeOrgNotes } from './ReviewWholeOrgNotes';
 import { useForgeGaps } from './useForgeGaps';
 import { ReviewGapsRead } from './ReviewGapsRead';
+import { ReviewDiscoveryCost } from './ReviewDiscoveryCost';
 import { ReviewCheckpointFirst, ReviewControlsTab } from './ReviewControlsTab';
 import { useReviewRoom } from './useReviewRoom';
 import { ReviewGraphSearch, graphMatches } from './ReviewGraphSearch';
@@ -533,6 +534,8 @@ export const ForgeReview: React.FC = () => {
           })}{' '}
           {t('forgeRun.review.nothingWritten', { action: t('forgeRun.executeForge') })}
         </p>
+        {/* What discovery cost each org, a step of its own no gate counts. */}
+        {graph && <ReviewDiscoveryCost graph={graph} source={sourceName} target={targetName} />}
         {graph && <ReviewLeftOutCost graph={graph} />}
         {graph && config && wholeOrg && (
           <ReviewWholeOrgNotes

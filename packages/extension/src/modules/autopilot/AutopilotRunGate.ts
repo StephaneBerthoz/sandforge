@@ -210,7 +210,7 @@ export async function autopilotApiCheck(
   storage: DataStorage | { unread: string },
   readApiBudget: () => Promise<ApiBudget>,
   checkpoint?: Pick<RunCheckpointEstimate, 'estimate'>,
-  parts: Pick<RunRequestParts, 'readBack' | 'deliverability'> = {},
+  parts: Pick<RunRequestParts, 'readBack' | 'deliverability' | 'mute'> = {},
 ): Promise<ApiBudgetCheck> {
   const budget =
     'unread' in storage
@@ -218,11 +218,12 @@ export async function autopilotApiCheck(
           unread: err instanceof Error ? err.message : String(err),
         }))
       : storage.dailyApiRequests;
-  const { readBack = 0, deliverability = 0 } = parts;
+  const { readBack = 0, deliverability = 0, mute = 0 } = parts;
   return apiBudgetCheckOf(
     {
       run: runRequestsEstimate(plan.objects.map(({ rows }) => ({ rows }))),
       ...checkpointPartOf(checkpoint),
+      ...(mute > 0 ? { mute } : {}),
       ...(readBack > 0 ? { readBack } : {}),
       ...(deliverability > 0 ? { deliverability } : {}),
     },
@@ -314,6 +315,11 @@ export interface AutopilotGateInput {
    */
   readBack?: number;
   /**
+   * What the lease of the run's mute sends the target from its take to its
+   * release (`muteLeaseRequests`); absent or 0 for a run that does not mute.
+   */
+  mute?: number;
+  /**
    * What the plan's emails came to at their gate: what still runs that may
    * send one once the mute's plan holds, and whether the target delivers
    * them, read only when something may (`runEmailsOf`). Absent when nothing
@@ -381,6 +387,7 @@ export async function gateAutopilotWrite(
   // of the record types given and the read of the deliverability.
   const api = await autopilotApiCheck(plan, input.storage, input.readApiBudget, checkpoint, {
     ...(input.readBack !== undefined ? { readBack: input.readBack } : {}),
+    ...(input.mute !== undefined ? { mute: input.mute } : {}),
     ...deliverabilityPartOf(input.runEmails?.ofRun),
   });
   const overBudget = apiBudgetRefusal(api, input.org);

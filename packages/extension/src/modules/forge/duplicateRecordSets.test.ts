@@ -70,7 +70,7 @@ describe('duplicateSetsOf', () => {
     // Asked of the run's user, in its window, a lead before the first write
     // and a minute after the last.
     expect(org.asked[0]).toBe(
-      'SELECT Id, LastModifiedDate, LastModifiedById FROM DuplicateRecordSet ' +
+      'SELECT Id, CreatedDate, LastModifiedDate, LastModifiedById FROM DuplicateRecordSet ' +
         `WHERE CreatedById = '${RUN_USER}' AND CreatedDate >= 2026-11-13T02:19:44Z ` +
         'AND CreatedDate <= 2026-11-13T02:22:10Z LIMIT 2000',
     );

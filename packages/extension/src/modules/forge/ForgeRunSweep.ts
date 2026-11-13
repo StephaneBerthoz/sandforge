@@ -43,6 +43,12 @@
  * once a record of the run is deleted, a lookup the org clears with it
  * (`Task.AccountId`) no longer tells the tie.
  *
+ * The duplicate record sets the target's rules made with what the sweep
+ * takes, every item of which names a record of the run or one the sweep
+ * takes, go too, as a removal takes those of the run's records
+ * (`duplicateRecordSets`): their object is among those the removal reads
+ * the target's automation on before anything is deleted ({@link SweepParts.takes}).
+ *
  * Hand work is not swept: records the run's user created in the window on
  * objects people make by hand ({@link HAND_WORK_OBJECTS}), tied to nothing of
  * the run, are said, left, and refuse what is tied to nothing. Nothing outside
@@ -88,8 +94,10 @@ import {
   type RecordKeys,
   type RemovalOrg,
 } from './ForgeRunRemoval.js';
+import { DUPLICATE_SET_OBJECT, duplicateSetsRead } from './duplicateRecordSets.js';
 import {
   LATE_WITHIN_MS,
+  MADE_WITHIN_MS,
   SAME_SAVE_MS,
   sweepTiesOf,
   type SweepAnchor,
@@ -482,6 +490,12 @@ interface SweepFindings {
    * already read, so nothing more is read once the sweep was asked.
    */
   ordering?: RemovalOrg;
+  /**
+   * Of the duplicate record sets found ({@link DUPLICATE_SET_OBJECT}), by id,
+   * the keys of the records found that their items name: a set one of which
+   * stays is that record's report, and stays with it.
+   */
+  reports?: Map<string, string[]>;
 }
 
 /** An object's describe, as far as a sweep reads it. */
@@ -1422,6 +1436,14 @@ async function findTied(
     lateEarlier: new Set((ties.lateEarlier ?? []).map(recordKey)),
   });
   classify(found, tied, ties, findings, last, removalSpans);
+  if (stopped()) return halt();
+  await setsOfWhatItTakes(org, describes, findings, {
+    user,
+    span,
+    lastWrite: last,
+    removalSpans,
+    isRun: (key) => anchors.has(key) || input.remap.has(key),
+  });
   listing.found.push(...overBound);
   if (ties.muted) listing.muted = ties.muted;
   // The order of the deletes is read from the describes read already: once
@@ -1437,6 +1459,122 @@ async function findTied(
     userId: () => org.userId(),
   };
   return findings;
+}
+
+/** The rank of each class, the weakest first: a set goes as the weakest record it reports. */
+const CLASS_RANK: Readonly<Record<SweepClass, number>> = {
+  untied: 0,
+  late: 1,
+  madeOver: 2,
+  made: 3,
+};
+
+/**
+ * Add to what a sweep found the duplicate record sets the target's rules
+ * made with it, as a removal reads those of the run's records
+ * (`duplicateSetsRead`): created by the run's user in the sweep's span, every
+ * item naming a record of the run or one found, at least one of those. A set
+ * goes as the weakest class of the records found it reports — one reporting a
+ * record made late is taken only with what came late — and before the run's
+ * records. The platform restamps a set as it reports a record into it: one
+ * the run's user last modified within a minute of the latest record it
+ * reports is no change since the run. A set whose items name only the run's
+ * records is the removal's, and none of an object the org would not let be
+ * read or deleted is taken: it is said unread. A read that fails finds none.
+ */
+async function setsOfWhatItTakes(
+  org: SweepOrg,
+  describes: Describes,
+  findings: SweepFindings,
+  run: {
+    user: string;
+    span: Window;
+    lastWrite: number;
+    removalSpans: readonly ForgeRemovalSpan[];
+    isRun: (key: string) => boolean;
+  },
+): Promise<void> {
+  const swept = new Map<string, SweepRow>();
+  for (const rows of findings.rows.values()) {
+    for (const row of rows) swept.set(recordKey(row.id), row);
+  }
+  if (swept.size === 0 || findings.rows.has(DUPLICATE_SET_OBJECT)) return;
+  const sets = (
+    await duplicateSetsRead(org, {
+      has: (key) => swept.has(key) || run.isRun(key),
+      start: run.span.from,
+      end: run.span.to,
+      user: run.user,
+    })
+  ).filter((set) => !run.isRun(recordKey(set.id)) && set.names.some((key) => swept.has(key)));
+  if (sets.length === 0) return;
+  const object = await sweptObjectOf(DUPLICATE_SET_OBJECT, describes.of);
+  if ('reason' in object) {
+    findings.listing.unread.push({ objectApiName: DUPLICATE_SET_OBJECT, reason: object.reason });
+    return;
+  }
+  const reports = new Map<string, string[]>();
+  const rows = sets.map((set): SweepRow => {
+    const named = set.names.flatMap((key) => {
+      const row = swept.get(key);
+      return row ? [row] : [];
+    });
+    reports.set(
+      set.id,
+      named.map((row) => recordKey(row.id)),
+    );
+    const weakest = named.reduce<SweepClass>(
+      (worst, row) => (CLASS_RANK[row.class] < CLASS_RANK[worst] ? row.class : worst),
+      'made',
+    );
+    const latest = Math.max(...named.map((row) => row.created));
+    const restamped =
+      set.modifiedBy !== undefined &&
+      recordKey(set.modifiedBy) === recordKey(run.user) &&
+      set.modified <= latest + MADE_WITHIN_MS;
+    return {
+      id: set.id,
+      created: set.created,
+      modified: restamped ? Math.min(set.modified, set.created) : set.modified,
+      ...(set.modifiedBy !== undefined ? { modifiedBy: recordKey(set.modifiedBy) } : {}),
+      class: weakest,
+      turn: 'before',
+    };
+  });
+  findings.rows.set(DUPLICATE_SET_OBJECT, rows);
+  findings.reports = reports;
+  const classes: ForgeSweepClasses = { made: 0, madeOver: 0, late: 0, untied: 0 };
+  let changed = 0;
+  const changedIn: NonNullable<ForgeSweepClasses['changedIn']> = {};
+  for (const row of rows) {
+    classes[row.class]++;
+    if (changedSince(row, run.lastWrite, run.removalSpans)) {
+      changed++;
+      changedIn[row.class] = (changedIn[row.class] ?? 0) + 1;
+    }
+  }
+  const { listing } = findings;
+  listing.found.push({
+    objectApiName: DUPLICATE_SET_OBJECT,
+    count: rows.length,
+    names: [],
+    classes: { ...classes, ...(changed > 0 ? { changed, changedIn } : {}) },
+  });
+  if (classes.late > 0) {
+    listing.late = [
+      ...(listing.late ?? []),
+      { objectApiName: DUPLICATE_SET_OBJECT, count: classes.late },
+    ];
+  }
+  if (classes.untied > 0 && listing.untied) {
+    listing.untied = {
+      ...listing.untied,
+      objects: [
+        ...listing.untied.objects,
+        { objectApiName: DUPLICATE_SET_OBJECT, count: classes.untied },
+      ],
+    };
+  }
 }
 
 /**
@@ -1731,6 +1869,9 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       [...rows.keys()].map((objectApiName) => ({ objectApiName })),
     );
     for (const { objectApiName } of order) {
+      // A set's items are the reports of the records it names, which its
+      // own check reads: not read again as what hangs from it.
+      if (objectApiName === DUPLICATE_SET_OBJECT) continue;
       const ids = sent.get(objectApiName) ?? [];
       if (ids.length === 0) continue;
       if (stopped()) return;
@@ -1741,6 +1882,36 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
         taken.delete(id);
         heldUnder.set(id, verdict.holders);
       }
+    }
+    // Once what stays below what it takes is known, a set reporting it stays too.
+    holdSetsOfWhatStays(findings, rows, taken);
+  };
+
+  /**
+   * Keep the duplicate record sets one of whose items reports a record found
+   * that the sweep does not send — of a class it does not take, changed since,
+   * or held by what hangs from it —, never sent: deleted, the set would take
+   * that record's report with it. Said kept for the item that stays.
+   */
+  const holdSetsOfWhatStays = (
+    findings: SweepFindings,
+    rows: ReadonlyMap<string, readonly SweepRow[]>,
+    taken: Set<string>,
+  ): void => {
+    const reports = findings.reports;
+    if (!reports) return;
+    const going = new Set(
+      [...rows]
+        .filter(([objectApiName]) => objectApiName !== DUPLICATE_SET_OBJECT)
+        .flatMap(([, all]) =>
+          all.filter((row) => taken.has(row.id)).map((row) => recordKey(row.id)),
+        ),
+    );
+    for (const row of rows.get(DUPLICATE_SET_OBJECT) ?? []) {
+      if (heldUnder.has(row.id)) continue;
+      if ((reports.get(row.id) ?? []).every((key) => going.has(key))) continue;
+      taken.delete(row.id);
+      heldUnder.set(row.id, ['DuplicateRecordItem']);
     }
   };
 

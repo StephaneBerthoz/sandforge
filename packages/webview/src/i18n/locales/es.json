@@ -4440,6 +4440,8 @@
       "hint": "Ninguna de estas notas es un registro fallido ni un objeto omitido: cada una dice lo que la ejecución hizo de otro modo, o no pudo comprobar — una búsqueda que quedó vacía porque su registro no está en el clon, registros que la plataforma escribe por sí misma, una comprobación de la org de destino que no se pudo hacer. Los totales y el registro de auditoría no cuentan ninguna como un fallo."
     },
     "review": {
+      "discoveryCost_one": "El descubrimiento envió {{count}} solicitud de API, antes de leer ninguna fila: {{source}} a {{sourceOrg}}, {{target}} a {{targetOrg}}.",
+      "discoveryCost_other": "El descubrimiento envió {{count}} solicitudes de API, antes de leer ninguna fila: {{source}} a {{sourceOrg}}, {{target}} a {{targetOrg}}.",
       "gapsRead": {
         "pending": "Leyendo lo que la org de destino opone a las filas…",
         "error": "No se pudo leer lo que la org de destino opone a las filas: {{error}}",

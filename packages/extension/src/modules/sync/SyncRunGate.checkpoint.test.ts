@@ -99,10 +99,13 @@ function measures(overrides: Partial<SyncWriteMeasures> = {}): SyncWriteMeasures
 
 /**
  * What the run reads of the target from its gate on, beside its writes, in
- * its own part: who it writes as (2), the limits (3), and the read of its
- * automation, which says it sent 4.
+ * its own part: who it writes as (2), the limits (3), the read of its
+ * automation, which says it sent 4, and before the call that updates the
+ * five accounts what it writes over, read once, again without the stamps
+ * should the target refuse them, and whether its user reads encrypted fields
+ * in clear (3).
  */
-const GATE_READS = 2 + 3 + AUTOMATION.requests;
+const GATE_READS = 2 + 3 + AUTOMATION.requests + 3;
 
 /** 200 contacts inserted, 5 accounts updated: one REST call each. */
 const WRITE: SyncCountedWrite = {
@@ -248,7 +251,7 @@ describe('measureSyncWrite, with a checkpoint taken first', () => {
   });
 
   it('refuses a run the read-backs take past what the target has left, naming them', async () => {
-    // The run's 11 fit in the 12 left; with its 2 read-backs, 13 do not.
+    // The run's 14 fit in the 15 left; with its 2 read-backs, 16 do not.
     const measured = await measureSyncWrite(
       { ...WRITE, readBack: 2 },
       measures({
@@ -266,7 +269,7 @@ describe('measureSyncWrite, with a checkpoint taken first', () => {
     });
     expect(answer).toMatchObject({ go: false, code: 'API_BUDGET_EXCEEDED' });
     expect(answer.go ? '' : answer.message).toMatch(
-      /^The run takes about 13 API requests \(2 of them to read back the record types the target gave\), and DEV-SB has 12 of its 500 daily requests left/,
+      /^The run takes about 16 API requests \(2 of them to read back the record types the target gave\), and DEV-SB has 15 of its 500 daily requests left/,
     );
   });
 });
@@ -274,7 +277,7 @@ describe('measureSyncWrite, with a checkpoint taken first', () => {
 describe('gateSyncWrite, with a checkpoint taken first', () => {
   it('lets the run through with its requests and the checkpoint’s exactly what the target has left, and refuses one more before anything is taken, naming both parts', async () => {
     for (const policy of ['ask', 'unattended', 'refuse'] as const) {
-      // 2 for the run's writes and 9 for its reads, 68 for the checkpoint: 79.
+      // 2 for the run's writes and 12 for its reads, 68 for the checkpoint: 82.
       const at = async (remaining: number) => {
         const first = checkpointFirstOf(estimateOf(68));
         const confirm = confirmer();
@@ -298,7 +301,7 @@ describe('gateSyncWrite, with a checkpoint taken first', () => {
       const over = await at(69 + GATE_READS);
       expect(over.held.answer, policy).toMatchObject({ go: false, code: 'API_BUDGET_EXCEEDED' });
       expect(over.held.answer.go ? '' : over.held.answer.message).toMatch(
-        /^The run takes about 79 API requests \(68 of them for the checkpoint taken first\), and DEV-SB has 78 of its 500 daily requests left/,
+        /^The run takes about 82 API requests \(68 of them for the checkpoint taken first\), and DEV-SB has 81 of its 500 daily requests left/,
       );
       expect(over.first.take).not.toHaveBeenCalled();
       expect(over.confirm).not.toHaveBeenCalled();
@@ -306,7 +309,7 @@ describe('gateSyncWrite, with a checkpoint taken first', () => {
   });
 
   it('judges "near" on the sum, and the question says the parts', async () => {
-    // 1 550 left of 15 000: the run's 11 leave 1 539; with the checkpoint's 90, 1 449.
+    // 1 550 left of 15 000: the run's 14 leave 1 536; with the checkpoint's 90, 1 446.
     const confirm = confirmer();
     const budget = {
       readStorage: async () => ({

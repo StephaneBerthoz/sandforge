@@ -137,6 +137,7 @@ import {
   muteForRun,
   muteLines,
   muteOrgOf,
+  mutePartOf,
   type RunMute,
 } from '../src/modules/forge/AutomationMuteLease.js';
 import type { MutedAutomation } from '@sandforge/shared';
@@ -725,15 +726,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // once, whatever counts them again.
   let budget: Promise<ApiBudget> | undefined;
   const readBudget = (): Promise<ApiBudget> => (budget ??= readApiBudget(targetConn));
-  let api = await autopilotApiCheck(writePlan, storage, readBudget, undefined, {
-    readBack: autopilotReadBackOf(writePlan),
-  });
-  log('');
-  for (const line of writePlanLines(writePlan, check, args.target)) log(line);
-  // A run that takes a checkpoint first says them once it is scoped, its
-  // requests among them.
-  if (!checkpoints) log(apiRequestsLine(api, args.target));
-  for (const line of personAccountLines(scan.personAccounts)) log(line);
   // The emails the target's flows send as the plan's records go in, against
   // what it has left today: its automation read as Forge reads it, its limits
   // when something sends. Past them, the run is refused, as past the storage.
@@ -749,13 +741,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) })));
   let mute: RunMute | undefined;
   let muteRefused: RunRefusal | undefined;
+  // Planned before the plan's requests are priced, said after them: the
+  // lease of the mute is among them. Priced nowhere, a run that muted the
+  // target sent seven requests or more beside what its price said.
   if (args.muteAutomation) {
     const read = await readTheAutomation();
     try {
       mute = await muteForRun(async () => muteOrgOf(targetConn), read, {
         writes: (_objectApiName, write) => write === 'insert' || write === 'update',
       });
-      for (const line of muteLines(mute.muted, args.target)) log(`  ${line}`);
     } catch (err: unknown) {
       if (!isMuteRefusedError(err)) throw err;
       muteRefused = {
@@ -764,6 +758,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       };
     }
   }
+  let api = await autopilotApiCheck(writePlan, storage, readBudget, undefined, {
+    readBack: autopilotReadBackOf(writePlan),
+    ...mutePartOf(mute?.plan),
+  });
+  log('');
+  for (const line of writePlanLines(writePlan, check, args.target)) log(line);
+  // A run that takes a checkpoint first says them once it is scoped, its
+  // requests among them.
+  if (!checkpoints) log(apiRequestsLine(api, args.target));
+  for (const line of personAccountLines(scan.personAccounts)) log(line);
+  if (mute) for (const line of muteLines(mute.muted, args.target)) log(`  ${line}`);
   // The checkpoint asked first, scoped from the objects the plan writes and
   // what still runs as it inserts and updates them — what the mute keeps
   // quiet held quiet — before its requests are counted with the plan's.
@@ -795,6 +800,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   if (checkpoints) {
     api = await autopilotApiCheck(writePlan, storage, readBudget, checkpointPlanned?.estimate, {
       readBack: autopilotReadBackOf(writePlan),
+      ...mutePartOf(mute?.plan),
     });
     log(apiRequestsLine(api, args.target));
     if (checkpointPlanned) {
@@ -889,6 +895,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       }
       api = await autopilotApiCheck(writePlan, storage, readBudget, checkpointPlanned?.estimate, {
         readBack: autopilotReadBackOf(writePlan),
+        ...mutePartOf(mute?.plan),
       });
       log('');
       sayThePlan();
@@ -947,6 +954,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   if (deliverability.deliverability !== undefined) {
     api = await autopilotApiCheck(writePlan, storage, readBudget, checkpointPlanned?.estimate, {
       readBack: autopilotReadBackOf(writePlan),
+      ...mutePartOf(mute?.plan),
       ...deliverability,
     });
     log(apiRequestsLine(api, args.target));

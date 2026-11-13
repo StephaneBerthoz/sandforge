@@ -240,6 +240,73 @@ const WIDE_COLUMNS = 100;
 /** The most characters the `IN` list of one statement takes: an external id can be long. */
 const KEY_CHARACTERS_PER_QUERY = 4_000;
 
+/**
+ * What the keeper's statements name an object's records by, as far as their
+ * count goes: the most characters one key's literal takes in the `IN` list,
+ * quotes included, and whether a call may write so many fields that a
+ * statement names more than {@link WIDE_COLUMNS} columns, and fewer records.
+ */
+export interface OverwriteKeyShape {
+  characters: number;
+  wide: boolean;
+}
+
+/** A record's id as a statement names it: eighteen characters at most, between quotes. */
+export const ID_KEY_CHARACTERS = 20;
+
+/** The most characters a text field holds, where its describe does not say. */
+const TEXT_KEY_LENGTH = 255;
+
+/**
+ * What the keeper names an object's records by as a write keyed on
+ * `keyField` sends them, from the target's describe of it: an id; a number,
+ * by its digits, a sign and a point; any other key by the characters its
+ * field holds, between quotes. A call may write every field the user may
+ * write, besides the id, the key and the two stamps: past
+ * {@link WIDE_COLUMNS} columns, a statement names fewer records. Without a
+ * describe, a key of 255 characters, and a wide call.
+ */
+export function overwriteKeyOf(
+  keyField: string,
+  target: Pick<TargetWriteFields, 'creatable' | 'fields'> | undefined,
+): OverwriteKeyShape {
+  const wide = target === undefined || target.creatable.size + 4 > WIDE_COLUMNS;
+  if (keyField.toLowerCase() === 'id') return { characters: ID_KEY_CHARACTERS, wide };
+  const field = target?.fields?.find((f) => f.name.toLowerCase() === keyField.toLowerCase());
+  if (field && ['double', 'int', 'long', 'currency', 'percent'].includes(field.type ?? '')) {
+    return { characters: (field.precision ?? field.digits ?? 18) + 2, wide };
+  }
+  return { characters: (field?.length ?? TEXT_KEY_LENGTH) + 2, wide };
+}
+
+/**
+ * The records one statement of the keeper names at most, by keys of `key`'s
+ * shape: its `IN` list closes at {@link KEYS_PER_QUERY} keys, a quarter of
+ * them past {@link WIDE_COLUMNS} columns, and before the key that would take
+ * it past {@link KEY_CHARACTERS_PER_QUERY} characters, each key counted with
+ * the comma and space after it. 181 ids, then.
+ */
+export function keysPerOverwriteRead(key: OverwriteKeyShape): number {
+  const perQuery = key.wide ? KEYS_PER_QUERY / 4 : KEYS_PER_QUERY;
+  const byLength = Math.floor((KEY_CHARACTERS_PER_QUERY + 2) / (Math.max(1, key.characters) + 2));
+  return Math.max(1, Math.min(perQuery, byLength));
+}
+
+/**
+ * The statements the keeper sends the target before an object's calls, at
+ * most: of each call, its keys {@link keysPerOverwriteRead} a statement; and
+ * the first again, without the stamps, for an object the target would not
+ * read them of. Counted nowhere, a run updating 600 accounts sent four reads
+ * of what it wrote over beside its three calls, and no gate held it to them.
+ *
+ * @param calls - The keys each call carries, in the calls' order.
+ */
+export function overwriteReadsOf(calls: readonly number[], key: OverwriteKeyShape): number {
+  const per = keysPerOverwriteRead(key);
+  const statements = calls.reduce((sum, keys) => sum + Math.ceil(Math.max(0, keys) / per), 0);
+  return statements > 0 ? statements + 1 : 0;
+}
+
 /** A record by its first fifteen characters: the same record, whichever length its id is in. */
 function recordKey(id: string): string {
   return id.slice(0, 15);

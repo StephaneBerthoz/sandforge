@@ -35,7 +35,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { hostname, homedir, uptime } from 'node:os';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import * as z from 'zod';
 import type { Connection } from 'jsforce';
@@ -883,8 +883,11 @@ export async function prepareMute(
   options: PrepareMuteOptions = {},
 ): Promise<MutePrepared | { refused: MuteRefusal }> {
   let production: boolean;
+  let organizationId: string;
   try {
-    production = isProductionTarget(await org.typeOrg());
+    const typed = await org.typeOrg();
+    production = isProductionTarget(typed);
+    organizationId = typed.id;
   } catch (err: unknown) {
     return {
       refused: {
@@ -923,12 +926,63 @@ export async function prepareMute(
       },
     };
   }
+  endedLeases.set(
+    plan,
+    await endedLeasesRequests(options.dir ?? defaultMuteLeasesDir(), organizationId),
+  );
   return {
     plan,
     automation: muted,
     planned,
     acquire: (runId) => acquireMute(org, plan, runId, options),
   };
+}
+
+/**
+ * Of the plans {@link prepareMute} made, what the leases this machine's
+ * journals hold of the org would send the target as the plan's lease is
+ * taken, past their end by then ({@link endedLeasesRequests}): what
+ * {@link muteLeaseRequests} adds to the plan's own. Kept beside the plan,
+ * never in it: a plan goes into a dry run's summary as it is.
+ */
+const endedLeases = new WeakMap<Pick<MutePlan, 'assign'>, number>();
+
+/** A journal's file name: the start of the org's id, then of the user's. */
+const JOURNAL_NAME = /^[A-Za-z0-9]{15}-[A-Za-z0-9]{15}\.json$/;
+
+/**
+ * The requests the take of a lease sends releasing the leases other runs
+ * left in the journals of the org, at most (`releaseStale`): of each, the
+ * look-up of the set its process may have died assigning, and the delete of
+ * each assignment it created. Every lease the org's journals of this machine
+ * hold is counted, the users the run does not write as included: one still
+ * held as the gate prices the run may have ended by the take, a person
+ * taking their time over the question. A journal that cannot be read counts
+ * none; its take reads it under its lock.
+ */
+async function endedLeasesRequests(dir: string, organizationId: string): Promise<number> {
+  if (!SF_ID.test(organizationId)) return 0;
+  const prefix = `${organizationId.slice(0, 15)}-`;
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return 0;
+  }
+  let requests = 0;
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !JOURNAL_NAME.test(name)) continue;
+    try {
+      const parsed = journalSchema.safeParse(JSON.parse(await readFile(join(dir, name), 'utf8')));
+      if (!parsed.success) continue;
+      for (const lease of parsed.data.leases) {
+        requests += (lease.assigning.length > 0 ? 1 : 0) + lease.created.length;
+      }
+    } catch {
+      // Gone or being written: its take reads it under its lock.
+    }
+  }
+  return requests;
 }
 
 /**
@@ -1317,16 +1371,19 @@ const LEASE_READS = 3;
  * release, at most: who the run writes as ({@link LEASE_IDENTITY_CALLS}),
  * the reads of the sets and of what the user holds of them
  * ({@link LEASE_READS}), and each set of the plan assigned, then taken back
- * as the run ends. Nothing for a plan that assigns nothing, whose lease asks
- * the org nothing. A lease another run left past its end, released as this
- * one is taken, is not counted: no plan says it.
+ * as the run ends; and, of a plan {@link prepareMute} made, what releasing
+ * the leases other runs left past their end sends as this one is taken
+ * ({@link endedLeasesRequests}). Nothing for a plan that assigns nothing,
+ * whose lease asks the org nothing.
  *
  * Counted nowhere, the lease of a mute that assigns one set sends seven
- * requests no gate held the run to, two of them writes to the target.
+ * requests no gate held the run to, two of them writes to the target; and a
+ * lease a killed run left was taken back, a delete for each set it held,
+ * past the price of the run that took it back.
  */
 export function muteLeaseRequests(plan: Pick<MutePlan, 'assign'> | undefined): number {
-  const sets = plan?.assign.length ?? 0;
-  return sets === 0 ? 0 : LEASE_IDENTITY_CALLS + LEASE_READS + 2 * sets;
+  if (!plan || plan.assign.length === 0) return 0;
+  return LEASE_IDENTITY_CALLS + LEASE_READS + 2 * plan.assign.length + (endedLeases.get(plan) ?? 0);
 }
 
 /**

@@ -14,6 +14,7 @@ import { buildSyntheticForgeGraph } from '@sandforge/shared';
 import { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { ForgeOrchestratorDeps } from '../../modules/forge/ForgeOrchestrator.js';
 import { ForgeAbortedError, ForgeExecutor } from '../../modules/forge/ForgeExecutor.js';
+import { discoveryRequestSent } from '../../modules/forge/discoveryRequests.js';
 import type {
   ExecutionSummary,
   ForgeExecutorDeps,
@@ -318,6 +319,34 @@ describe('ForgeHandler', () => {
       };
       expect(response.correlationId).toBe(msg.id);
       expect(response.payload.graph).toEqual(graph);
+    });
+
+    it('answers with the graph what its reads sent each org, for Review to say what discovery cost', async () => {
+      const config = createMockConfig();
+      const graph = createMockGraph();
+      vi.mocked(orchestrator.discover).mockImplementation(async () => {
+        // Two describes and a count of the source, one list of the target.
+        discoveryRequestSent('src-org', 3);
+        discoveryRequestSent('tgt-org');
+        return graph;
+      });
+
+      await handler.handle(buildMsg('forge:discover', { config }));
+      // Served from the session's cache, a discovery sends nothing.
+      vi.mocked(orchestrator.discover).mockResolvedValue(graph);
+      await handler.handle(buildMsg('forge:discover', { config }));
+
+      const answered = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: { graph: ForgeGraph } })
+        .filter((m) => m.type === 'forge:discover:response');
+      expect(answered[0].payload.graph).toEqual({
+        ...graph,
+        discoveryRequests: { source: 3, target: 1 },
+      });
+      expect(answered[1].payload.graph).toEqual(graph);
+      // The graph the session's cache keeps is not changed.
+      expect(graph).not.toHaveProperty('discoveryRequests');
     });
 
     it('posts error message when discover fails', async () => {

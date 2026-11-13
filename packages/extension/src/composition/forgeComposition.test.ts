@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Connection } from 'jsforce';
 import type { ForgeConfig } from '@sandforge/shared';
 import { buildSyntheticForgeGraph } from '@sandforge/shared';
+import { countingDiscovery } from '../modules/forge/discoveryRequests.js';
 
 /** What VS Code calls when a setting changes, as the listeners registered below gave it. */
 type ConfigurationListener = (event: {
@@ -226,6 +227,23 @@ describe('initForgeComposition', () => {
     for (const [key, count] of describeCalls) {
       expect({ key, count }).toEqual({ key, count: 1 });
     }
+  });
+
+  it('counts for a discovery the requests its reads send each org, and none of what it found held', async () => {
+    const { orchestrator } = await compose();
+
+    const first = await countingDiscovery(() => orchestrator.discover(SOQL_CONFIG));
+    // Its describes and its counts of the source, as many as the fake
+    // source answered: three of each.
+    const described = [...describeCalls.values()].reduce((sum, n) => sum + n, 0);
+    const counted = queriesSent.filter((q) => /COUNT\(\)/i.test(q)).length;
+    expect([described, counted]).toEqual([3, 3]);
+    expect(first.sent.get('src')).toBe(described + counted);
+    expect(first.sent.has('tgt')).toBe(false);
+
+    // Served from the session's cache: nothing sent, nothing counted.
+    const again = await countingDiscovery(() => orchestrator.discover(SOQL_CONFIG));
+    expect(again.sent.size).toBe(0);
   });
 
   it("says a report no user can create in Review's metadata and gaps alike, from one read of who may be given Create", async () => {

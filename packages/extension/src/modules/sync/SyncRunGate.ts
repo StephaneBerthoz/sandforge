@@ -82,6 +82,7 @@ import {
 import { emailsRefusalWords, runEmailsSaidOf, type RunEmailsSaid } from '../forge/runEmailsSaid.js';
 import { duplicateRulesOf } from '../seed/seedDuplicateRules.js';
 import { importRequestsEstimate, importRunReads } from '../seed/seedStorage.js';
+import { ID_KEY_CHARACTERS, overwriteReadsOf, type OverwriteKeyShape } from './syncOverwrites.js';
 import type { SyncHeldBackObject } from './syncHeldBack.js';
 import {
   heldPlanOf,
@@ -104,6 +105,14 @@ export interface SyncCountedObject {
    * what its requests are priced by under the Bulk API threshold. 200 when absent.
    */
   batchSize?: number;
+  /**
+   * What the keeper of what the run writes over names its records by, as
+   * the target's describe says the key and the fields it may write
+   * (`syncOverwriteKeeper`): what its reads before each call are priced by.
+   * Absent, an id, or for an upsert a key of 255 characters, in statements
+   * of a quarter of the records.
+   */
+  overwriteKey?: OverwriteKeyShape;
 }
 
 /** An object of a run the target will take no record of as the run writes it, and why. */
@@ -159,6 +168,13 @@ export interface SyncCountedWrite {
    * to read.
    */
   readBack?: number;
+  /**
+   * The objects whose record types the run reads again from the target once
+   * the mute's lease assigned a permission set (`describeTargetFieldsAgain`),
+   * one describe each: those it creates records of whose target has a record
+   * type besides Master. Absent when none.
+   */
+  describedAgain?: number;
 }
 
 /** Whether an object's write creates records: an insert, or an upsert that may. */
@@ -232,6 +248,120 @@ export function syncRequestsEstimate(
       ...(path.duplicateRules ? { duplicateRules: path.duplicateRules } : {}),
     },
   );
+}
+
+/** The object whose records, created with a contact, have the platform write a contact role. */
+const OPPORTUNITY = 'Opportunity';
+const CONTACT_ROLE = 'OpportunityContactRole';
+
+/** The opportunities one read of the roles the platform wrote with them names (`contactRolesOf`). */
+const ROLE_READS_PER_STATEMENT = 200;
+
+/** What an update or an upsert of an object whose key is unknown names its records by, at most. */
+const UNKNOWN_KEY: Record<'update' | 'upsert', OverwriteKeyShape> = {
+  update: { characters: ID_KEY_CHARACTERS, wide: true },
+  upsert: { characters: 257, wide: true },
+};
+
+/** The records of each call of `rows`, `size` at a time. */
+function callsOf(rows: number, size: number): number[] {
+  const step = Math.max(1, Math.floor(size));
+  return Array.from({ length: Math.ceil(Math.max(0, rows) / step) }, (_, at) =>
+    Math.min(step, rows - at * step),
+  );
+}
+
+/**
+ * The records each call of an object's write carries, as its writer sends
+ * them (`BulkDataWriter`): calls of its batch size up to the Bulk API
+ * threshold; past it, one job of them all, then the rows a duplicate rule
+ * may have refused in it, sent again by REST, 200 a call.
+ */
+function writeCallsOf(
+  object: Pick<SyncCountedObject, 'objectApiName' | 'rows' | 'batchSize'>,
+  path: { bulkThreshold?: number; duplicateRules?: ReadonlyMap<string, boolean> },
+): number[] {
+  if (object.rows <= (path.bulkThreshold ?? SYNC_BULK_THRESHOLD)) {
+    return callsOf(object.rows, object.batchSize ?? SF_LIMITS.REST_API_BATCH_SIZE);
+  }
+  const watched = path.duplicateRules
+    ? [...path.duplicateRules].find(
+        ([name]) => name.toLowerCase() === object.objectApiName.toLowerCase(),
+      )?.[1]
+    : undefined;
+  return [
+    object.rows,
+    ...(watched === false ? [] : callsOf(object.rows, SF_LIMITS.REST_API_BATCH_SIZE)),
+  ];
+}
+
+/**
+ * The API requests a run sends its target from its gate on beside its writes
+ * and the read-backs of the record types given, at most:
+ * - before each call of an update or an upsert, the keeper's reads of what it
+ *   writes over (`overwriteReadsOf`), and once a run whether its user reads
+ *   encrypted fields in clear;
+ * - of the contact roles it creates with opportunities it creates with a
+ *   contact, the roles the platform wrote with them, read 200 opportunities a
+ *   statement, and updated with the fields the run's rows hold, calls of the
+ *   object's batch size, each read first as any update;
+ * - once the mute's lease assigned a permission set, a describe of each
+ *   object whose record types the run reads again (`describedAgain`).
+ *
+ * Counted nowhere, they were sent past the price the run was held to: a
+ * run updating 600 accounts priced at its three calls sent four reads more.
+ * A key whose literal holds quotes or backslashes, escaped, takes more
+ * characters than its field's length: such keys fill more statements.
+ *
+ * @param path.leaseAssigns - Whether the run's mute assigns a permission set.
+ */
+export function syncRequestsPastTheGate(
+  counted: Pick<SyncCountedWrite, 'objects' | 'describedAgain' | 'rolesLinked'>,
+  path: {
+    bulkThreshold?: number;
+    duplicateRules?: ReadonlyMap<string, boolean>;
+    leaseAssigns?: boolean;
+  },
+): number {
+  let requests = 0;
+  let overwritten = false;
+  for (const object of counted.objects) {
+    if (object.rows <= 0 || (object.operation !== 'update' && object.operation !== 'upsert')) {
+      continue;
+    }
+    overwritten = true;
+    requests += overwriteReadsOf(
+      writeCallsOf(object, path),
+      object.overwriteKey ?? UNKNOWN_KEY[object.operation],
+    );
+  }
+  const creating = (name: string): SyncCountedObject | undefined =>
+    counted.objects.find(
+      (object) =>
+        object.objectApiName === name &&
+        (object.operation === 'insert' || object.operation === 'upsert'),
+    );
+  const opportunities = creating(OPPORTUNITY);
+  const roles = creating(CONTACT_ROLE);
+  const looked =
+    opportunities && roles
+      ? Math.min(opportunities.rows, roles.rows + (counted.rolesLinked ?? 0))
+      : 0;
+  if (roles && looked > 0) {
+    const updates = callsOf(looked, roles.batchSize ?? SF_LIMITS.REST_API_BATCH_SIZE);
+    overwritten = true;
+    requests +=
+      Math.ceil(looked / ROLE_READS_PER_STATEMENT) +
+      updates.length +
+      // Updated by their id, whatever key the roles' own write goes by.
+      overwriteReadsOf(updates, {
+        characters: ID_KEY_CHARACTERS,
+        wide: roles.overwriteKey?.wide ?? true,
+      });
+  }
+  if (overwritten) requests += 1;
+  if (path.leaseAssigns === true) requests += Math.max(0, counted.describedAgain ?? 0);
+  return requests;
 }
 
 /** What a run's checks read of the target. */
@@ -490,13 +620,27 @@ export async function measureSyncWrite(
       : sentBefore !== undefined
         ? Math.max(0, sentBefore - (deliverability.deliverability ?? 0))
         : importRunReads(0, read !== undefined ? automationReadRequests(read) : 0);
+  // And what it sends from its gate on beside its writes: the reads of what
+  // it writes over, of the roles the platform wrote, and the describes read
+  // again under the mute's lease. The command line's count stops at the gate.
+  const duplicateRules = read !== undefined ? duplicateRulesOf(read) : undefined;
+  const pastTheGate =
+    total === 0
+      ? 0
+      : syncRequestsPastTheGate(counted, {
+          bulkThreshold: measures.bulkThreshold,
+          duplicateRules,
+          leaseAssigns: (measures.mutePlan?.()?.assign.length ?? 0) > 0,
+        });
   const api: ApiBudgetCheck = apiBudgetCheckOf(
     {
       run:
         syncRequestsEstimate(counted.objects, {
           bulkThreshold: measures.bulkThreshold,
-          duplicateRules: read !== undefined ? duplicateRulesOf(read) : undefined,
-        }) + reads,
+          duplicateRules,
+        }) +
+        reads +
+        pastTheGate,
       ...checkpointPartOf(checkpoint),
       ...mutePartOf(measures.mutePlan?.()),
       ...(counted.readBack !== undefined && counted.readBack > 0

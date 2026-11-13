@@ -92,6 +92,7 @@ import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import {
   isMuteRefusedError,
   muteForRun,
+  muteLeaseRequests,
   muteOrgOf,
   type MuteLeaseOptions,
   type RunMute,
@@ -1207,6 +1208,9 @@ export class AutopilotHandler implements DomainHandler {
       ...(checkpointFirst ? { checkpointFirst } : {}),
       // The record types the target gave, read back once the writes are through.
       readBack: autopilotReadBackOf(writePlan),
+      // The lease of its mute, from its take to its release: priced nowhere,
+      // a run that muted the target sent seven requests or more past its price.
+      mute: muteLeaseRequests(mute?.plan),
       ...(runEmails ? { runEmails } : {}),
     });
     if (!gate.go) {

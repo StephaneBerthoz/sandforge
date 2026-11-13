@@ -48,6 +48,7 @@ import {
   type TargetRefusal,
   type TargetWriteFields,
 } from './targetWriteFields.js';
+import { overwriteKeyOf, type OverwriteKeyShape } from './syncOverwrites.js';
 import { SyncRunFailure, SyncRunRefused } from './SyncRunFailure.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
 import type { SyncCountedObject, SyncCountedWrite, SyncWriteGate } from './SyncRunGate.js';
@@ -906,6 +907,10 @@ function createsRecords(operation: SyncObjectConfig['operation']): boolean {
  *   target holds and never writes (`HeldBackInput.matched`): the standard
  *   price book, and the prices left out for the source's own. Neither
  *   written nor refused, they are counted in no object.
+ * @param past - What the run reads from its gate on, beside its writes:
+ *   what the keeper of what it writes over names each object's records by
+ *   (`keys`), and the objects whose record types it reads again once the
+ *   mute's lease assigned a permission set (`typed`).
  */
 function countedWriteOf(
   objects: readonly SyncObjectConfig[],
@@ -917,6 +922,7 @@ function countedWriteOf(
   matched: ReadonlyMap<string, number> = new Map(),
   linked: ReadonlySet<string> = new Set(),
   rolesLinked?: number,
+  past: { keys?: ReadonlyMap<string, OverwriteKeyShape>; typed?: ReadonlySet<string> } = {},
 ): GateInput {
   let alreadyCopied = 0;
   let alreadyLinked = 0;
@@ -932,12 +938,14 @@ function countedWriteOf(
     alreadyCopied += asLeft - linkedLeft;
     const held = refused.has(name) ? 0 : (heldBack.get(name)?.rows ?? 0);
     const apart = held + (matched.get(name) ?? 0);
+    const key = past.keys?.get(name);
     return {
       objectApiName: name,
       operation: objectConfig.operation,
       rows: Math.max(0, count.rows - left - apart),
       ...(count.personAccounts !== undefined ? { personAccounts: count.personAccounts } : {}),
       batchSize: objectConfig.batchSize,
+      ...(key ? { overwriteKey: key } : {}),
     };
   });
   // An object the target will take no record of is counted apart: its rows
@@ -961,6 +969,9 @@ function countedWriteOf(
   const held = [...heldBack.values()].filter(({ objectApiName }) => !refused.has(objectApiName));
   // Up to how many, where the rows could not tell them.
   const roles = rolesLinked === undefined ? rolesThePlatformMayWrite(objects, written) : 0;
+  // Read again under a lease that assigns, one describe each, whatever rows
+  // they hold: every object the run creates records of with a record type.
+  const describedAgain = written.filter((object) => past.typed?.has(object.objectApiName)).length;
   return {
     objects: written,
     alreadyCopied,
@@ -970,6 +981,7 @@ function countedWriteOf(
     ...(reads > 0 ? { readBack: reads } : {}),
     ...(roles > 0 ? { rolesByThePlatform: roles } : {}),
     ...(takenOut > 0 ? { rolesLinked: takenOut } : {}),
+    ...(describedAgain > 0 ? { describedAgain } : {}),
   };
 }
 
@@ -1181,6 +1193,7 @@ export class SyncOrchestrator {
       refused: unwritable,
       typed,
       lookups,
+      keys,
     } = await this.writeOrderOf(config.objects);
     // Of each object a cycle of lookups ties to others, those written after it.
     const later = laterInCycles(order);
@@ -1309,6 +1322,7 @@ export class SyncOrchestrator {
           earlier.links,
           gateReads,
         ),
+        { keys, ...(this.deps.describeTargetFieldsAgain ? { typed } : {}) },
       );
       const { answer } = await this.deps.writeGate.hold(measured);
       if (!answer.go) throw refuse(answer.message, answer.code);
@@ -2385,16 +2399,20 @@ export class SyncOrchestrator {
     typed: ReadonlySet<string>;
     /** Per object, the lookups its write carries, from the target's describe. */
     lookups: ReadonlyMap<string, readonly WriteLookup[]>;
+    /** Per object it writes, what the keeper of what it writes over names its records by. */
+    keys: ReadonlyMap<string, OverwriteKeyShape>;
   }> {
     const describe = this.deps.describeTargetFields;
     const refused = new Map<string, TargetRefusal>();
     const typed = new Set<string>();
+    const keys = new Map<string, OverwriteKeyShape>();
     if (!describe) {
       return {
         ordered: [...objects].sort((a, b) => a.insertOrder - b.insertOrder),
         refused,
         typed,
         lookups: new Map(),
+        keys,
       };
     }
     const lookups = new Map<string, WriteLookup[]>();
@@ -2419,6 +2437,24 @@ export class SyncOrchestrator {
           ? withFieldsOfItsQuery(withKeyAsTargetNamesIt(objectConfig, access.target), access.target)
           : objectConfig;
       written.push(asWritten);
+      // What the keeper of what it writes over reads its records by: an
+      // update's, an upsert's, and the contact roles' the platform wrote,
+      // which the run updates with the fields its rows hold. Nothing of an
+      // object the target takes none of.
+      if (
+        !('refused' in access) &&
+        (asWritten.operation === 'update' ||
+          asWritten.operation === 'upsert' ||
+          asWritten.objectApiName === OPPORTUNITY_CONTACT_ROLE)
+      ) {
+        keys.set(
+          objectConfig.objectApiName,
+          overwriteKeyOf(
+            asWritten.operation === 'upsert' ? (asWritten.externalIdField ?? 'Id') : 'Id',
+            'target' in access ? access.target : undefined,
+          ),
+        );
+      }
       if ('target' in access && access.target) {
         lookups.set(objectConfig.objectApiName, lookupsOf(asWritten, access.target));
         if (
@@ -2429,7 +2465,7 @@ export class SyncOrchestrator {
         }
       }
     }
-    return { ...orderSyncObjects(written, lookups), refused, typed, lookups };
+    return { ...orderSyncObjects(written, lookups), refused, typed, lookups, keys };
   }
 
   /**
@@ -2624,6 +2660,7 @@ export class SyncOrchestrator {
       refused,
       typed,
       lookups,
+      keys,
     } = await this.writeOrderOf(config.objects);
     let filePlan: SyncFilePlan | undefined;
     let writeCheck: SyncWriteCheck | undefined;
@@ -2723,6 +2760,10 @@ export class SyncOrchestrator {
               earlier.links,
               gateReads,
             ),
+            // What the run would send past its gate, which a dry run prices
+            // as the run: the describes read again under a lease are its
+            // own, whether or not the simulation was given a way to.
+            { keys, typed },
           ),
         );
       } catch (err: unknown) {

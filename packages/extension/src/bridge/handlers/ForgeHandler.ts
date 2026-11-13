@@ -77,6 +77,7 @@ import {
 import { logger } from '../../logger.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { countingDiscovery, discoveryRequestsOf } from '../../modules/forge/discoveryRequests.js';
 import {
   isMuteRefusedError,
   muteForRun,
@@ -2098,16 +2099,21 @@ export class ForgeHandler implements DomainHandler {
 
     try {
       logger.info('Forge discover started');
-      const graph = await this.orchestrator.discover(config, {
-        // Absent, the discovery service keeps its own default. A clone of
-        // the whole org takes every object it may copy, bounded by its own
-        // limit and refused past it: a cap carried over is ignored.
-        ...(config.inputMode === 'org' ? {} : { maxNodes: config.maxNodes }),
-        signal: controller.signal,
-        onProgress: (event) => {
-          throttledProgress(event as unknown as Record<string, unknown>);
-        },
-      });
+      const orchestrator = this.orchestrator;
+      // What its reads send each org counted as they go, for Review to say
+      // what discovery cost, as the command line says it.
+      const { result: graph, sent } = await countingDiscovery(() =>
+        orchestrator.discover(config, {
+          // Absent, the discovery service keeps its own default. A clone of
+          // the whole org takes every object it may copy, bounded by its own
+          // limit and refused past it: a cap carried over is ignored.
+          ...(config.inputMode === 'org' ? {} : { maxNodes: config.maxNodes }),
+          signal: controller.signal,
+          onProgress: (event) => {
+            throttledProgress(event as unknown as Record<string, unknown>);
+          },
+        }),
+      );
       throttledProgress.flush();
       if (controller.signal.aborted) {
         // Stopped, or superseded by a newer discovery. The BFS hands back the
@@ -2117,7 +2123,10 @@ export class ForgeHandler implements DomainHandler {
         this.answerStoppedDiscovery(msg, discovery);
         return;
       }
-      const response = buildResponse(this.deps, msg, 'forge:discover:response', { graph });
+      const discoveryRequests = discoveryRequestsOf(sent, config);
+      const response = buildResponse(this.deps, msg, 'forge:discover:response', {
+        graph: discoveryRequests ? { ...graph, discoveryRequests } : graph,
+      });
       // The whole graph, to the page that asked: only its discovery waits on it.
       this.deps.broker.replyToRequester(response);
       sendOperationCompleted(this.deps, operationId, { nodeCount: graph.nodes?.length ?? 0 });
