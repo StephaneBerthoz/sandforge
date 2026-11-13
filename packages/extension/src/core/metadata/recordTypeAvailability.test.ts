@@ -8,6 +8,7 @@ import {
   partsOfRecordType,
   recordTypeBlockedMessage,
   recordTypeCountSoql,
+  recordTypesTheTargetLacks,
   unavailableRecordTypeUses,
   withRecordTypeNames,
 } from './recordTypeAvailability.js';
@@ -261,6 +262,98 @@ describe('unavailableRecordTypeUses', () => {
         recordCount: 40,
       },
     ]);
+  });
+});
+
+describe('recordTypesTheTargetLacks', () => {
+  /** A record type the source alone has, as the source's describe names it. */
+  const SOURCE_ONLY = '012Fk00000RtJkLIAV';
+  /** One the source deactivated, which the mapping of active record types never reads. */
+  const RETIRED = '012Fk00000RtMnOIAV';
+  const target = parseRecordTypeInfos(ACCOUNT_RECORD_TYPE_INFOS);
+  const source = parseRecordTypeInfos([
+    {
+      active: true,
+      available: true,
+      developerName: 'Source_Only',
+      master: false,
+      name: 'Source only',
+      recordTypeId: SOURCE_ONLY,
+    },
+    {
+      active: false,
+      available: true,
+      developerName: 'Retired',
+      master: false,
+      name: 'Retired',
+      recordTypeId: RETIRED,
+    },
+  ]);
+
+  it('counts the records of each id no record type of the target carries, named by the source', () => {
+    const counts = new Map([
+      [SOURCE_ONLY.slice(0, 15), 2],
+      [CUSTOMER, 12],
+      [PARTNER, 4],
+      [LEGACY, 1],
+      [MASTER, 3],
+      [RETIRED, 1],
+    ]);
+
+    expect(recordTypesTheTargetLacks('Account', counts, target, source)).toEqual([
+      {
+        objectApiName: 'Account',
+        recordTypeId: RETIRED,
+        developerName: 'Retired',
+        name: 'Retired',
+        inactive: false,
+        recordCount: 1,
+        unmapped: true,
+        inactiveInSource: true,
+      },
+      {
+        objectApiName: 'Account',
+        recordTypeId: SOURCE_ONLY.slice(0, 15),
+        developerName: 'Source_Only',
+        name: 'Source only',
+        inactive: false,
+        recordCount: 2,
+        unmapped: true,
+      },
+    ]);
+  });
+
+  it('tells nothing from a describe that lists no record type, and names an id the source does not by itself', () => {
+    const counts = new Map([[SOURCE_ONLY, 2]]);
+
+    expect(recordTypesTheTargetLacks('Account', counts, [], source)).toEqual([]);
+    expect(recordTypesTheTargetLacks('Account', counts, target, [])).toEqual([
+      expect.objectContaining({ developerName: SOURCE_ONLY, recordCount: 2, unmapped: true }),
+    ]);
+  });
+
+  it('says what to do, under its own code', () => {
+    const [retired, sourceOnly] = recordTypesTheTargetLacks(
+      'Account',
+      new Map([
+        [SOURCE_ONLY, 1],
+        [RETIRED, 2],
+      ]),
+      target,
+      source,
+    );
+
+    expect(sourceOnly && recordTypeBlockedMessage(sourceOnly)).toBe(
+      'RECORD_TYPE_UNMAPPED: 1 Account record uses record type Source_Only (Source only), which ' +
+        'has no active Account record type of that API name in the target org. Create or ' +
+        'activate record type Source_Only on Account in the target org, or map it to one the ' +
+        'running user has.',
+    );
+    expect(retired && recordTypeBlockedMessage(retired)).toBe(
+      'RECORD_TYPE_UNMAPPED: 2 Account records use record type Retired, which is inactive in ' +
+        'the source org: no record type of the target org is mapped to it. Map it to one the ' +
+        'running user has on Account.',
+    );
   });
 });
 

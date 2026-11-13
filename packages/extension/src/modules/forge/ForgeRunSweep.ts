@@ -1472,11 +1472,11 @@ const CLASS_RANK: Readonly<Record<SweepClass, number>> = {
 /**
  * Add to what a sweep found the duplicate record sets the target's rules
  * made with it, as a removal reads those of the run's records
- * (`duplicateSetsRead`): created by the run's user in the sweep's span, every
- * item naming a record of the run or one found, at least one of those. A set
- * goes as the weakest class of the records found it reports — one reporting a
- * record made late is taken only with what came late — and before the run's
- * records. The platform restamps a set as it reports a record into it: one
+ * (`duplicateSetsRead`): created in the sweep's span, by whoever created it
+ * — the org's Automated Process user does — every item naming a record of
+ * the run or one found, at least one of those. A set goes as the weakest
+ * class of the records found it reports — one reporting a record made late
+ * is taken only with what came late — and before the run's records. The platform restamps a set as it reports a record into it: one
  * the run's user last modified within a minute of the latest record it
  * reports is no change since the run. A set whose items name only the run's
  * records is the removal's, and none of an object the org would not let be

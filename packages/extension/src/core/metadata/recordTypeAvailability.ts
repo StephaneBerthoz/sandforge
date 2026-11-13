@@ -66,6 +66,14 @@ export interface UnavailableRecordTypeUse {
   inactive: boolean;
   /** How many of the records carry it. */
   recordCount: number;
+  /**
+   * Set when the target has no record type of the id at all
+   * ({@link recordTypesTheTargetLacks}): `recordTypeId` is then the source's,
+   * as the write would send it, and the names are the source's.
+   */
+  unmapped?: true;
+  /** Of one unmapped, set when it is inactive in the source org, which no mapping reads. */
+  inactiveInSource?: true;
 }
 
 /**
@@ -73,6 +81,9 @@ export interface UnavailableRecordTypeUse {
  * errors by their code can say what it means.
  */
 export const RECORD_TYPE_UNAVAILABLE = 'RECORD_TYPE_UNAVAILABLE';
+
+/** The code the messages of a record type the target has none of start with. */
+export const RECORD_TYPE_UNMAPPED = 'RECORD_TYPE_UNMAPPED';
 
 /** One entry of a describe's `recordTypeInfos`: external input, checked before it is read. */
 const recordTypeInfoSchema = z
@@ -176,7 +187,8 @@ export function partsOfRecordType(info: RecordTypeAvailability): RecordTypeNameP
  * Only a record type the describe knows and reports unavailable is counted. A
  * record with no `RecordTypeId` takes the user's default and is fine; a value
  * the target does not know at all is a different fault — a type with no match
- * in the target — which the writers report on their own. The master record
+ * in the target — which the writers report on their own
+ * ({@link recordTypesTheTargetLacks}). The master record
  * type is left to the platform, as the record type mapping leaves it.
  *
  * @param objectApiName - The object the records belong to.
@@ -230,6 +242,64 @@ export function unavailableRecordTypeUses(
         recordCount: count,
       });
     }
+  }
+  return [...uses.values()].sort((a, b) => a.developerName.localeCompare(b.developerName));
+}
+
+/** The master record type's id, the same in every org, 15 or 18 characters. */
+const MASTER_RECORD_TYPE_ID = /^012000000000000(AAA)?$/;
+
+/**
+ * The record types among those a write is about to send that the target has
+ * none of — no record type of the object in the target carries the id, once
+ * the record type mapping translated what it could — with how many records
+ * carry each: a record type of the source with no active one of its API name
+ * in the target, or inactive in the source, which no mapping reads. Sent,
+ * every such record is refused, `INVALID_CROSS_REFERENCE_KEY: Record Type
+ * ID: this ID value isn't valid for the user`, and nothing said why before
+ * the write: run for real on a whole org, an opportunity of a record type
+ * the target lacked went with the source's id, which its dry run had counted
+ * as one to write.
+ *
+ * Told only from a describe that lists the object's record types, which
+ * lists every one of the target, inactive and closed to the user included;
+ * one that lists none says nothing. The master record type is left to the
+ * platform. Each is named as `sourceTypes` names its id, by the id otherwise.
+ *
+ * @param countsById - Records per `RecordTypeId` as the write sends it, ids in either form.
+ * @param infos - The target's record types for the object.
+ * @param sourceTypes - The source's, for their names.
+ */
+export function recordTypesTheTargetLacks(
+  objectApiName: string,
+  countsById: ReadonlyMap<string, number>,
+  infos: readonly RecordTypeAvailability[],
+  sourceTypes: readonly RecordTypeAvailability[],
+): UnavailableRecordTypeUse[] {
+  if (infos.length === 0) return [];
+  const known = new Set(infos.map((info) => idKey(info.recordTypeId)));
+  const named = new Map(sourceTypes.map((type) => [idKey(type.recordTypeId), type]));
+  const uses = new Map<string, UnavailableRecordTypeUse>();
+  for (const [value, count] of countsById) {
+    if (value.length < 15 || count <= 0 || MASTER_RECORD_TYPE_ID.test(value)) continue;
+    const key = idKey(value);
+    if (known.has(key)) continue;
+    const use = uses.get(key);
+    if (use) {
+      use.recordCount += count;
+      continue;
+    }
+    const source = named.get(key);
+    uses.set(key, {
+      objectApiName,
+      recordTypeId: value,
+      developerName: source?.developerName ?? value,
+      name: source?.name ?? source?.developerName ?? value,
+      inactive: false,
+      recordCount: count,
+      unmapped: true,
+      ...(source && !source.active ? { inactiveInSource: true as const } : {}),
+    });
   }
   return [...uses.values()].sort((a, b) => a.developerName.localeCompare(b.developerName));
 }
@@ -308,6 +378,21 @@ function titleOf(use: UnavailableRecordTypeUse): string {
  */
 export function recordTypeBlockedReason(use: UnavailableRecordTypeUse): string {
   const uses = use.recordCount === 1 ? 'uses' : 'use';
+  if (use.unmapped && use.inactiveInSource) {
+    return (
+      `${countOf(use)} ${uses} record type ${titleOf(use)}, which is inactive in the source ` +
+      `org: no record type of the target org is mapped to it. Map it to one the running user ` +
+      `has on ${use.objectApiName}.`
+    );
+  }
+  if (use.unmapped) {
+    return (
+      `${countOf(use)} ${uses} record type ${titleOf(use)}, which has no active ` +
+      `${use.objectApiName} record type of that API name in the target org. Create or activate ` +
+      `record type ${use.developerName} on ${use.objectApiName} in the target org, or map it to ` +
+      `one the running user has.`
+    );
+  }
   if (use.inactive) {
     return (
       `${countOf(use)} ${uses} record type ${titleOf(use)}, which is inactive in the target ` +
@@ -324,5 +409,6 @@ export function recordTypeBlockedReason(use: UnavailableRecordTypeUse): string {
 
 /** {@link recordTypeBlockedReason}, led by its code for a panel that translates errors by code. */
 export function recordTypeBlockedMessage(use: UnavailableRecordTypeUse): string {
-  return `${RECORD_TYPE_UNAVAILABLE}: ${recordTypeBlockedReason(use)}`;
+  const code = use.unmapped ? RECORD_TYPE_UNMAPPED : RECORD_TYPE_UNAVAILABLE;
+  return `${code}: ${recordTypeBlockedReason(use)}`;
 }

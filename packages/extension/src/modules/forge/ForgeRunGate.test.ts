@@ -1941,6 +1941,30 @@ describe('what the gate says', () => {
     ]);
   });
 
+  it('says on the command line the rows held back for a record type the target has none of, apart from those closed to its user', () => {
+    // Live, an opportunity of a record type only the source had was counted
+    // to write, sent with the source's id and refused.
+    const plan = writePlanOf([
+      {
+        objectApiName: 'Opportunity',
+        rows: [],
+        counted: { rows: 24 },
+        leftOut: { heldBack: 1, recordTypeNotInTarget: 1 },
+      },
+    ]);
+
+    expect(plan.totalRows).toBe(24);
+    expect(plan.leftOut?.recordTypeNotInTarget).toEqual([
+      { objectApiName: 'Opportunity', rows: 1 },
+    ]);
+    expect(leftOutLines(plan.leftOut)).toEqual([
+      '  not counted: Opportunity, 1 record(s), held back for a record type closed to the user ' +
+        'the run writes as',
+      '  not counted: Opportunity, 1 record(s), held back for a record type the target has ' +
+        'none of, which it would refuse',
+    ]);
+  });
+
   it('says on the command line the rows it does not count for a unique value the target holds, which the run links to', () => {
     const linked = writePlanOf([
       { objectApiName: 'Contact', rows: rows(1) },

@@ -106,11 +106,11 @@ export const ForgeWholeOrgDryRunResult: React.FC<ForgeWholeOrgDryRunResultProps>
   );
   const heldBack = dry.leftOut.rows?.heldBack ?? [];
   const heldBackRows = heldBack.reduce((sum, { rows }) => sum + rows, 0);
-  // What the run holds back one by one, under a record held back, and what
-  // it leaves aside, its parent not in the source: counted out as the run
-  // will not write them, and said.
+  // What the run holds back one by one, for a record type the target has
+  // none of or under a record held back, and what it leaves aside, its parent
+  // not in the source: counted out as the run will not write them, and said.
   const rowsOf = (
-    kind: 'withoutParent' | 'noParentInSource',
+    kind: 'recordTypeNotInTarget' | 'withoutParent' | 'noParentInSource',
     id: string,
     key: string,
     label: string,
@@ -193,6 +193,12 @@ export const ForgeWholeOrgDryRunResult: React.FC<ForgeWholeOrgDryRunResultProps>
           },
         ]
       : []),
+    ...rowsOf(
+      'recordTypeNotInTarget',
+      'type-not-in-target',
+      'forgeRun.wholeOrgDryRun.typeNotInTargetRows',
+      'forgeRun.wholeOrgDryRun.typeNotInTarget',
+    ),
     ...rowsOf(
       'withoutParent',
       'held-under',

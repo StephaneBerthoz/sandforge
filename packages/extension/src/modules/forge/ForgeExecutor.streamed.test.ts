@@ -8,7 +8,12 @@ import { PersonaRegistry } from '../autopilot/SmartAnonymizer.js';
 import { ForgeAnonymizer } from './ForgeAnonymizer.js';
 import { ForgeAbortedError, ForgeExecutor, WHOLE_ORG_WINDOW } from './ForgeExecutor.js';
 import { ForgeRunStore, memoryRunFile, type RunFile } from './ForgeRunStore.js';
-import { WHOLE_ORG_SOURCE_READS_PER_OBJECT, wholeOrgCostOf, writePlanOf } from './ForgeRunGate.js';
+import {
+  WHOLE_ORG_SOURCE_READS_PER_OBJECT,
+  leftOutLines,
+  wholeOrgCostOf,
+  writePlanOf,
+} from './ForgeRunGate.js';
 import { reconcileInFlight, type InFlightTarget } from './ForgeInFlight.js';
 import { partialSummaryOf } from './interruptedRun.js';
 import { finishedRunStatus } from './runResult.js';
@@ -57,6 +62,10 @@ const KEY_PREFIX: Record<string, string> = {
   ContentDocumentLink: '06A',
   Attachment: '00P',
   User: '005',
+  Pricebook2: '01s',
+  Product2: '01t',
+  PricebookEntry: '01u',
+  CurrencyType: '02c',
 };
 
 const idField: FieldInfo = { name: 'Id', queryable: true, createable: false, isReference: false };
@@ -2746,6 +2755,10 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
     failPage?: { object: string; at: number; error: unknown; times?: number };
     /** The record types of each object, as the target's describe gives them. */
     recordTypes?: Record<string, RecordTypeAvailability[]>;
+    /** The source's, when they are not the target's. */
+    sourceRecordTypes?: Record<string, RecordTypeAvailability[]>;
+    /** What the target holds before the run, by object. */
+    targetHolds?: Record<string, Row[]>;
   }
 
   /** What the executor holds of a run under way, as far as these tests look. */
@@ -2760,6 +2773,9 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
    */
   function wholeOrg(schema: Schema, options: WholeOrgOptions = {}) {
     const target = new Map<string, Map<string, Row>>();
+    for (const [object, rows] of Object.entries(options.targetHolds ?? {})) {
+      target.set(object, new Map(rows.map((row) => [String(row['Id']), { ...row }])));
+    }
     const created: Record<string, number> = {};
     const reads: Array<{ soql: string; all: boolean }> = [];
     /** The statements of the source read at once (`queryRecords`), in the order asked. */
@@ -2868,7 +2884,24 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
       }),
       insertRecords: vi.fn(async (_org: string, object: string, rows: Row[]) => {
         inserts.push({ object, rows: rows.map((row) => ({ ...row })) });
+        const usable = new Set(
+          (options.recordTypes?.[object] ?? [])
+            .filter((type) => type.available || type.master)
+            .map((type) => type.recordTypeId.slice(0, 15)),
+        );
         return rows.map((row) => {
+          // A record type the target has none of, or one closed to the user,
+          // refused as the org refuses it.
+          const type = row['RecordTypeId'];
+          if (options.recordTypes && typeof type === 'string' && !usable.has(type.slice(0, 15))) {
+            return {
+              id: '',
+              success: false,
+              errors: [
+                `INVALID_CROSS_REFERENCE_KEY: Record Type ID: this ID value isn't valid for the user: ${type}`,
+              ],
+            };
+          }
           if (object === 'EmailMessage' && row['ActivityId'] && !row['ParentId']) {
             return {
               id: '',
@@ -2899,9 +2932,12 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
       isObjectCreatable: async () => true,
       ...(options.recordTypes
         ? {
-            describeObject: async (_org: string, object: string) => ({
+            describeObject: async (org: string, object: string) => ({
               keyPrefix: KEY_PREFIX[object] ?? null,
-              recordTypes: options.recordTypes?.[object] ?? [],
+              recordTypes:
+                (org === 'src' && options.sourceRecordTypes
+                  ? options.sourceRecordTypes[object]
+                  : options.recordTypes?.[object]) ?? [],
             }),
           }
         : {}),
@@ -2995,6 +3031,7 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
       graph: ForgeGraph,
       orgOptions: WholeOrgOptions = {},
       gate = true,
+      options: ExecuteOptions = {},
     ) {
       const orgs = wholeOrg(schema, orgOptions);
       const insert = orgs.deps.insertRecords;
@@ -3023,6 +3060,7 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
       const boundaries: ForgeWriteBoundary[] = [];
       const events: ForgeProgressEvent[] = [];
       const summary = await orgs.executor.execute(graph, 'src', 'tgt', (e) => events.push(e), {
+        ...options,
         stream: { everything: true },
         ...(gate ? { beforeWrite: async (b: ForgeWriteBoundary) => void boundaries.push(b) } : {}),
       });
@@ -3211,6 +3249,254 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
         }),
       );
       expect(run.summary.skippedCount).toBe(0);
+    });
+
+    it('holds back the rows of a record type the target has none of, with what hangs from them, in its gate as in its run, and writes the rest', async () => {
+      // Live, an opportunity of a record type only the source had was counted
+      // by the dry run, sent with the source's id and refused, INVALID_CROSS_
+      // REFERENCE_KEY: the mapping by API name had no counterpart for it, and
+      // the run kept the source's value.
+      const { schema, graph } = orphans();
+      const sourceOpen: RecordTypeAvailability = {
+        ...recordType(1, true),
+        recordTypeId: canonicalRecordId('012S00000000011') ?? '',
+      };
+      const sourceOnly: RecordTypeAvailability = {
+        ...recordType(3, true),
+        recordTypeId: canonicalRecordId('012S00000000013') ?? '',
+        developerName: 'Source_Only',
+        name: 'Source only',
+      };
+      const targetOpen = recordType(1, true);
+      schema['Region__c'] = {
+        fields: [text('Name'), lookup('RecordTypeId', 'RecordType', true)],
+        rows: [
+          { Id: region(1), Name: 'North', RecordTypeId: sourceOpen.recordTypeId },
+          { Id: region(2), Name: 'South', RecordTypeId: sourceOnly.recordTypeId },
+          { Id: region(3), Name: 'East', RecordTypeId: sourceOpen.recordTypeId },
+        ],
+      };
+      schema['Policy__c'].rows = [
+        { Id: policy(1), Name: 'P1', Region__c: region(1) },
+        { Id: policy(2), Name: 'P2', Region__c: region(2) },
+        { Id: policy(3), Name: 'P3', Region__c: region(3) },
+      ];
+      schema['Invoice__c'].rows = [
+        { Id: invoice(1), Name: 'I1', Policy__c: policy(2) },
+        { Id: invoice(2), Name: 'I2', Policy__c: policy(3) },
+      ];
+      const run = await cloneTold(
+        schema,
+        graph,
+        {
+          recordTypes: { Region__c: [targetOpen] },
+          sourceRecordTypes: { Region__c: [sourceOpen, sourceOnly] },
+        },
+        true,
+        {
+          recordTypeMappings: [
+            {
+              sourceId: sourceOpen.recordTypeId,
+              targetId: targetOpen.recordTypeId,
+              developerName: 'Open_Type',
+            },
+          ],
+        },
+      );
+
+      // The gate counts what the run writes, and says why it holds the rest.
+      const plan = writePlanOf(run.boundaries[0]?.objects ?? []);
+      expect(plan.objects.map(({ objectApiName, rows }) => [objectApiName, rows])).toEqual([
+        ['Policy__c', 2],
+        ['Region__c', 2],
+        ['Invoice__c', 1],
+      ]);
+      expect(plan.leftOut?.recordTypeNotInTarget).toEqual([
+        { objectApiName: 'Region__c', rows: 1 },
+      ]);
+      expect(plan.leftOut?.heldBack).toEqual([]);
+      expect(plan.leftOut?.withoutParent).toEqual([
+        { objectApiName: 'Policy__c', rows: 1 },
+        { objectApiName: 'Invoice__c', rows: 1 },
+      ]);
+      // Nothing is sent that the target refuses; the rest goes with the
+      // target's record type.
+      expect(run.summary.errors.filter((e) => e.stage === 'insert')).toEqual([]);
+      expect(run.written('Region__c')).toEqual(['North', 'East']);
+      expect(
+        run.inserts
+          .filter((call) => call.object === 'Region__c')
+          .flatMap(({ rows }) => rows.map((row) => row['RecordTypeId'])),
+      ).toEqual([targetOpen.recordTypeId, targetOpen.recordTypeId]);
+      expect(run.written('Policy__c')).toEqual(['P1', 'P3']);
+      expect(run.written('Invoice__c')).toEqual(['I2']);
+      expect(run.summary.successCount).toBe(plan.totalRows);
+      expect(run.summary.failedCount).toBe(3);
+      expect(run.events.filter((e) => e.objectName === 'Region__c').at(-1)).toMatchObject({
+        status: 'done',
+        message:
+          'Completed Region__c: 2 succeeded, 1 failed, 1 of them held back for a record type ' +
+          'the target has none of',
+      });
+      expect(run.summary.errors).toContainEqual(
+        expect.objectContaining({
+          objectApiName: 'Region__c',
+          stage: 'scope',
+          failedCount: 1,
+          samples: [
+            {
+              recordSummary: 'RecordType=Source_Only (1 record)',
+              messages: [
+                'RECORD_TYPE_UNMAPPED: 1 Region__c record uses record type Source_Only (Source ' +
+                  'only), which has no active Region__c record type of that API name in the ' +
+                  'target org. Create or activate record type Source_Only on Region__c in the ' +
+                  'target org, or map it to one the running user has.',
+              ],
+            },
+          ],
+        }),
+      );
+    });
+  });
+
+  describe('what its gate counts of the price catalog', () => {
+    const book = (n: number): string => sourceId('Pricebook2', n);
+    const product = (n: number): string => sourceId('Product2', n);
+    const TARGET_STANDARD = canonicalRecordId('01sT00000000009') ?? '';
+    /** A price of product `n` in `book`, in `currency`. */
+    const price = (at: number, inBook: number, n: number, currency: string): Row => ({
+      Id: sourceId('PricebookEntry', at),
+      Pricebook2Id: book(inBook),
+      Product2Id: product(n),
+      UnitPrice: currency === 'GBP' ? 7.9 : 10,
+      CurrencyIsoCode: currency,
+      IsActive: true,
+    });
+
+    /**
+     * A source with USD and GBP, whose catalog prices two products in its
+     * standard book and a custom one, a product's GBP price beside its USD
+     * one in both books, and a GBP price of the other with no USD one in the
+     * custom book; a target with USD alone and its own standard book. As a
+     * scratch org's whole org went: its standard book linked to the
+     * target's, three GBP prices left for the USD price of the same product
+     * and book.
+     */
+    function catalog(): { schema: Schema; graph: ForgeGraph; targetHolds: Record<string, Row[]> } {
+      const currency: FieldInfo = { ...text('CurrencyIsoCode', 'picklist') };
+      return {
+        schema: {
+          Pricebook2: {
+            fields: [text('Name'), { ...text('IsStandard', 'boolean'), createable: false }],
+            rows: [
+              { Id: book(1), Name: 'Standard Price Book', IsStandard: true },
+              { Id: book(2), Name: 'Partners', IsStandard: false },
+            ],
+          },
+          Product2: {
+            fields: [text('Name')],
+            rows: [
+              { Id: product(1), Name: 'Widget' },
+              { Id: product(2), Name: 'Gadget' },
+            ],
+          },
+          PricebookEntry: {
+            fields: [
+              lookup('Pricebook2Id', 'Pricebook2', false),
+              lookup('Product2Id', 'Product2', false),
+              text('UnitPrice', 'currency'),
+              currency,
+              text('IsActive', 'boolean'),
+            ],
+            rows: [
+              price(1, 1, 1, 'USD'),
+              price(2, 1, 1, 'GBP'),
+              price(3, 1, 2, 'USD'),
+              price(4, 2, 1, 'USD'),
+              price(5, 2, 1, 'GBP'),
+              price(6, 2, 2, 'GBP'),
+            ],
+          },
+          CurrencyType: {
+            fields: [],
+            rows: [
+              { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+              { IsoCode: 'GBP', ConversionRate: 0.79, IsActive: true, IsCorporate: false },
+            ],
+          },
+        },
+        graph: graphOf(
+          [node('Pricebook2', 2), node('Product2', 2), node('PricebookEntry', 6)],
+          [edge('Pricebook2', 'PricebookEntry', true), edge('Product2', 'PricebookEntry', true)],
+        ),
+        targetHolds: {
+          Pricebook2: [{ Id: TARGET_STANDARD, Name: 'Standard Price Book', IsStandard: true }],
+          CurrencyType: [
+            {
+              Id: canonicalRecordId('02cT00000000001') ?? '',
+              IsoCode: 'USD',
+              ConversionRate: 1,
+              IsActive: true,
+              IsCorporate: true,
+            },
+          ],
+        },
+      };
+    }
+
+    it('counts the run’s writes alone: the standard price book linked to the target’s, and the prices in a currency the target lacks left for the source’s own, each said', async () => {
+      const { schema, graph, targetHolds } = catalog();
+      const orgs = wholeOrg(schema, { targetHolds });
+      // A book holds one price per product and currency, as the org refuses
+      // a second.
+      const insert = orgs.deps.insertRecords;
+      const priced = new Set<string>();
+      orgs.deps.insertRecords = vi.fn(async (org: string, object: string, rows: Row[]) => {
+        if (object !== 'PricebookEntry') return insert(org, object, rows);
+        const answers = await insert(org, object, rows);
+        return rows.map((row, at) => {
+          const key = [row['Pricebook2Id'], row['Product2Id'], row['CurrencyIsoCode']].join('|');
+          if (priced.has(key)) {
+            return {
+              id: '',
+              success: false,
+              errors: ['DUPLICATE_VALUE: This price definition already exists in this price book'],
+            };
+          }
+          priced.add(key);
+          return answers[at];
+        });
+      });
+      const boundaries: ForgeWriteBoundary[] = [];
+      const events: ForgeProgressEvent[] = [];
+      const summary = await orgs.executor.execute(graph, 'src', 'tgt', (e) => events.push(e), {
+        stream: { everything: true },
+        beforeWrite: async (b: ForgeWriteBoundary) => void boundaries.push(b),
+      });
+
+      const plan = writePlanOf(boundaries[0]?.objects ?? []);
+      expect(plan.objects.map(({ objectApiName, rows }) => [objectApiName, rows])).toEqual([
+        ['PricebookEntry', 4],
+        ['Product2', 2],
+        ['Pricebook2', 1],
+      ]);
+      expect(plan.leftOut?.linkedToTarget).toEqual([{ objectApiName: 'Pricebook2', rows: 1 }]);
+      expect(plan.leftOut?.currencyReplaced).toEqual([
+        { objectApiName: 'PricebookEntry', rows: 2 },
+      ]);
+      expect(leftOutLines(plan.leftOut)).toEqual([
+        "  not counted: Pricebook2, 1 record(s), the standard price book: linked to the target's " +
+          'own, never written',
+        '  not counted: PricebookEntry, 2 record(s) in a currency the target lacks, replaced by ' +
+          "the source's own price in the currency written, for the same product and price book",
+      ]);
+      // The run writes what its gate counted.
+      expect(summary.errors.filter((e) => e.stage === 'insert')).toEqual([]);
+      expect(summary.successCount).toBe(plan.totalRows);
+      expect(summary.failedCount).toBe(0);
+      expect(
+        orgs.inserts.filter((c) => c.object === 'Pricebook2').flatMap(({ rows }) => rows),
+      ).toEqual([expect.objectContaining({ Name: 'Partners' })]);
     });
   });
 

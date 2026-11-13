@@ -1160,11 +1160,11 @@ describe('ForgeExecutor, a package’s record type beside the org’s own of the
     expect(sentTypes(sent)).toEqual([TARGET_RETAIL, TARGET_RETAIL, TARGET_PACKAGED]);
   });
 
-  it('never writes the package’s with the org’s own, and offers its gap under its namespaced name', async () => {
+  it('never writes the package’s with the org’s own, holds the object back for it, and offers its gap under its namespaced name', async () => {
     const { deps, sent, options } = namespacedOrgs({ packageInTarget: false });
 
     const { summary } = await run(deps, { ...options, dryRun: true });
-    await run(deps, options);
+    const real = await run(deps, options);
 
     expect(
       gapOf(
@@ -1177,9 +1177,41 @@ describe('ForgeExecutor, a package’s record type beside the org’s own of the
       detail: { mapTo: ['Retail', 'Wholesale'] },
       decisions: ['map_record_type', 'exclude_object', 'ignore'],
     });
-    // Unmapped, the package's order keeps the source's id; the org's own go
-    // with the target's Retail.
-    expect(sentTypes(sent)).toEqual([TARGET_RETAIL, TARGET_RETAIL, PACKAGED]);
+    // Unmapped, the package's order would go with the source's id, which no
+    // record type of the target carries and the target refuses: the object is
+    // held back whole before any of it is sent, as for a record type closed
+    // to the user, with the change to make.
+    expect(sentTypes(sent)).toEqual([]);
+    expect(real.summary.errors).toContainEqual(
+      expect.objectContaining({
+        objectApiName: 'Order__c',
+        stage: 'scope',
+        failedCount: 3,
+        samples: [
+          {
+            recordSummary: 'RecordType=ns__Retail (1 record)',
+            messages: [
+              expect.stringMatching(
+                /^RECORD_TYPE_UNMAPPED: 1 Order__c record uses record type ns__Retail \(Retail\), which has no active Order__c record type of that API name in the target org\./,
+              ),
+            ],
+          },
+        ],
+      }),
+    );
+  });
+
+  it('counts the object held back at its gate, for a record type the target has none of', async () => {
+    const { deps, sent, options } = namespacedOrgs({ packageInTarget: false });
+    const gates: ForgeWriteBoundary[] = [];
+
+    await run(deps, { ...options, beforeWrite: async (boundary) => void gates.push(boundary) });
+
+    const plan = writePlanOf(gates[0]?.objects ?? []);
+    expect(plan.objects.map(({ objectApiName }) => objectApiName)).not.toContain('Order__c');
+    expect(plan.leftOut?.recordTypeNotInTarget).toEqual([{ objectApiName: 'Order__c', rows: 3 }]);
+    expect(plan.leftOut?.heldBack).toEqual([]);
+    expect(sentTypes(sent)).toEqual([]);
   });
 
   it('writes the package’s record type where a decision naming it `ns__Retail` says', async () => {

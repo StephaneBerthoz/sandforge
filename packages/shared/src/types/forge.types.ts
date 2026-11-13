@@ -811,12 +811,18 @@ export interface ForgeWholeOrgDryRun {
     rows?: {
       writtenBefore: number;
       heldBack: Array<{ objectApiName: string; rows: number }>;
+      /** Rows held back for a record type the target has none of, which it would refuse. */
+      recordTypeNotInTarget?: Array<{ objectApiName: string; rows: number }>;
       byThePlatform?: Array<{ objectApiName: string; rows: number }>;
       linkedByValue?: Array<{ objectApiName: string; rows: number; fields: readonly string[] }>;
       /** Rows held back with a record they cannot be written without, held back itself. */
       withoutParent?: Array<{ objectApiName: string; rows: number }>;
       /** Rows left aside: a lookup they may not leave empty names a record the source does not hold. */
       noParentInSource?: Array<{ objectApiName: string; rows: number }>;
+      /** Rows linked to the target's own record of the same standing, never written: the standard price book. */
+      linkedToTarget?: Array<{ objectApiName: string; rows: number }>;
+      /** Prices in a currency the target lacks, left out for the source's own price in the currency written. */
+      currencyReplaced?: Array<{ objectApiName: string; rows: number }>;
     };
   };
   /** Per object it writes, the personal fields it would copy as they are. */

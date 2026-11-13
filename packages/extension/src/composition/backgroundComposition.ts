@@ -1222,6 +1222,15 @@ function writeQuestion(question: WriteConfirmation): string[] {
       ),
     );
   }
+  for (const { objectApiName, rows } of leftOut?.recordTypeNotInTarget ?? []) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0}, {1} records, held back for a record type the target has none of, which it would refuse.',
+        objectApiName,
+        rows,
+      ),
+    );
+  }
   for (const { objectApiName, rows } of leftOut?.withoutParent ?? []) {
     lines.push(
       vscode.l10n.t(
@@ -1273,6 +1282,27 @@ function writeQuestion(question: WriteConfirmation): string[] {
         objectApiName,
         rows,
         fields.join(', '),
+      ),
+    );
+  }
+  // The standard price book, matched to the target's and never written; the
+  // prices in a currency the target lacks, written as the source's own price
+  // in the currency they go in.
+  for (const { objectApiName, rows } of leftOut?.linkedToTarget ?? []) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0}, {1} records, the standard price book: linked to the standard price book of the target, never written.',
+        objectApiName,
+        rows,
+      ),
+    );
+  }
+  for (const { objectApiName, rows } of leftOut?.currencyReplaced ?? []) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0}, {1} records in a currency the target lacks, replaced by the price the source holds in the currency written, for the same product and price book.',
+        objectApiName,
+        rows,
       ),
     );
   }

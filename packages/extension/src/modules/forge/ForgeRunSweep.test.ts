@@ -2150,10 +2150,12 @@ describe('the duplicate record sets the target’s rules made with what a sweep 
     org.shape('DuplicateRecordItem', {
       references: { DuplicateRecordSetId: ['DuplicateRecordSet'] },
     });
+    // Created by the org's Automated Process user within the second of the
+    // save, restamped as the run's user as its records went in.
     org.add(
       'DuplicateRecordSet',
-      rec(MIXED, 'DRS-000001', RUN_USER, at(2)),
-      rec(RUN_ONLY, 'DRS-000002', RUN_USER, at(1)),
+      rec(MIXED, 'DRS-000001', AUTOMATED_PROCESS, at(2), { by: RUN_USER }),
+      rec(RUN_ONLY, 'DRS-000002', AUTOMATED_PROCESS, at(1), { by: RUN_USER }),
     );
     org.add(
       'DuplicateRecordItem',

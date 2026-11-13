@@ -264,10 +264,13 @@ export interface WriteConfirmation {
   leftOut?: {
     writtenBefore: number;
     heldBack: Array<{ objectApiName: string; rows: number }>;
+    recordTypeNotInTarget?: Array<{ objectApiName: string; rows: number }>;
     byThePlatform?: Array<{ objectApiName: string; rows: number }>;
     linkedByValue?: Array<{ objectApiName: string; rows: number; fields: readonly string[] }>;
     withoutParent?: Array<{ objectApiName: string; rows: number }>;
     noParentInSource?: Array<{ objectApiName: string; rows: number }>;
+    linkedToTarget?: Array<{ objectApiName: string; rows: number }>;
+    currencyReplaced?: Array<{ objectApiName: string; rows: number }>;
   };
   /**
    * Set when the rows were counted rather than read: a run of whole tables

@@ -10,12 +10,19 @@
  * with them, and the two sets stayed, empty (`RecordCount` 0), seen by no
  * removal and no sweep.
  *
- * A set is the run's when the run's user created it while the run wrote —
- * from {@link TIE_LEAD_MS} before its first write to {@link MADE_WITHIN_MS}
- * after its last, the platform writing it a moment after the save — and every
- * item it still holds names a record of the run: one holding a record that is
- * not the run's is that record's report too, and stays. A set the org already
- * held, into which the run's records were reported, stays whatever it holds.
+ * A set is the run's when it was created while the run wrote — from
+ * {@link TIE_LEAD_MS} before its first write to {@link MADE_WITHIN_MS} after
+ * its last, the platform writing it a moment after the save — and every item
+ * it still holds names a record of the run: one holding a record that is not
+ * the run's is that record's report too, and stays. Whoever created it: the
+ * org's Automated Process user creates the sets, within the second of the
+ * save, and the user whose records go in or out of one is only its last
+ * modifier. Read by its creator, a removal on a scratch org took neither of
+ * the two sets the Lead and Contact rules made of a clone's records, and both
+ * stayed, empty. A set that holds no item any more — its records gone — is
+ * the run's only when the run's user last modified it, as records left it:
+ * nothing else ties it to the run. A set the org already held, into which the
+ * run's records were reported, stays whatever it holds.
  *
  * A sweep takes, by the same rule, the sets made with the records it takes
  * (`ForgeRunSweep`): the run's records and its own together, at least one of
@@ -62,7 +69,10 @@ export interface DuplicateSetsRun {
   /** The run's span, by the org's clock. */
   start: number;
   end: number;
-  /** The user the run wrote as, by id. */
+  /**
+   * The user the run wrote as, by id: the last modifier of a set the run's
+   * records went in or out of, never its creator.
+   */
   user: string;
 }
 
@@ -105,8 +115,7 @@ export async function duplicateSetsRead(
   try {
     const answer = await org.query(
       `SELECT Id, CreatedDate, LastModifiedDate, LastModifiedById FROM ${DUPLICATE_SET_OBJECT} ` +
-        `WHERE CreatedById = '${run.user}' ` +
-        `AND CreatedDate >= ${soqlDate(run.start - TIE_LEAD_MS)} ` +
+        `WHERE CreatedDate >= ${soqlDate(run.start - TIE_LEAD_MS)} ` +
         `AND CreatedDate <= ${soqlDate(run.end + MADE_WITHIN_MS)} LIMIT ${READ_LIMIT}`,
     );
     if (answer.records.length >= READ_LIMIT) return [];
@@ -142,8 +151,12 @@ export async function duplicateSetsRead(
   } catch {
     return [];
   }
+  const user = recordKey(run.user);
   return sets.flatMap((row) =>
-    typeof row.Id === 'string' && !others.has(recordKey(row.Id))
+    typeof row.Id === 'string' &&
+    !others.has(recordKey(row.Id)) &&
+    (names.has(recordKey(row.Id)) ||
+      (typeof row.LastModifiedById === 'string' && recordKey(row.LastModifiedById) === user))
       ? [
           {
             id: row.Id,

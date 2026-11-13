@@ -1544,8 +1544,9 @@ export async function removeRunRecords(
     snapshots,
   });
   // The sets the target's duplicate rules made of the run's records, read
-  // with the copies and taken as they are: left, they stayed empty. Told only
-  // by the run's user, and never by a rewind, whose plan reads what it deletes.
+  // with the copies and taken as they are: left, they stayed empty. Read only
+  // when the run's user is known, the last modifier of the sets its records
+  // went in, and never by a rewind, whose plan reads what it deletes.
   if (options.runUserId && options.alongAccepted !== true) {
     const sets = await duplicateSetsOf(session, {
       has: (key) => records.has(key),

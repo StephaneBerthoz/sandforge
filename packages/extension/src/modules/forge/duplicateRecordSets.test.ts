@@ -7,6 +7,8 @@ const id = (prefix: string, n: number): string => `${prefix}${String(n).padStart
 
 const RUN_USER = id('005', 1);
 const COLLEAGUE = id('005', 2);
+/** The org's Automated Process user, who creates the sets a rule makes. */
+const AUTOMATED = id('005', 3);
 const START = Date.parse('2026-11-13T02:19:46.000Z');
 const END = Date.parse('2026-11-13T02:21:10.000Z');
 const DURING = '2026-11-13T02:20:30.000+0000';
@@ -17,7 +19,8 @@ const run = { has: (key: string) => RUN.has(key), start: START, end: END, user: 
 
 /**
  * An org answering the two reads a removal sends, as a scratch org answers
- * them: the sets the run's user created in the window, then their items.
+ * them: the sets created in the window — by the user a read names, when it
+ * names one — then their items.
  */
 function orgOf(
   sets: Array<Record<string, unknown>>,
@@ -30,7 +33,10 @@ function orgOf(
     query: async (soql) => {
       asked.push(soql);
       if (fails?.test(soql)) throw new Error("INVALID_TYPE: sObject type 'DuplicateRecordSet'");
-      if (soql.includes('FROM DuplicateRecordSet ')) return { records: sets };
+      if (soql.includes('FROM DuplicateRecordSet ')) {
+        const by = /CreatedById = '(\w+)'/.exec(soql)?.[1];
+        return { records: sets.filter((s) => by === undefined || s.CreatedById === by) };
+      }
       const wanted =
         /IN \((.*)\)/
           .exec(soql)?.[1]
@@ -45,6 +51,7 @@ function orgOf(
 
 const set = (n: number, more: Record<string, unknown> = {}) => ({
   Id: id('0GK', n),
+  CreatedById: AUTOMATED,
   LastModifiedDate: DURING,
   LastModifiedById: RUN_USER,
   ...more,
@@ -56,24 +63,41 @@ const item = (n: number, setN: number, record: string) => ({
 });
 
 describe('duplicateSetsOf', () => {
-  it('takes the sets the run’s user made in its window whose every item names a record of the run, and an emptied one', async () => {
-    // Live, a clone of the whole org had the target's Lead and Contact rules
-    // make two sets of its own records, which stayed empty once it was taken back.
+  it('takes the sets made in the run’s window whose every item names a record of the run, whoever created them', async () => {
+    // Live, the target's Lead and Contact rules made two sets of a clone's
+    // records, created by the org's Automated Process user, the run's user
+    // their last modifier only; read by their creator, the removal took
+    // neither, and both stayed, empty.
     const org = orgOf(
-      [set(1), set(2), set(3)],
-      [item(1, 1, id('003', 1)), item(2, 1, id('003', 2)), item(3, 3, id('00Q', 1))],
+      [set(1), set(2, { CreatedById: RUN_USER }), set(3)],
+      [
+        item(1, 1, id('003', 1)),
+        item(2, 1, id('003', 2)),
+        item(3, 2, id('003', 2)),
+        item(4, 3, id('00Q', 1)),
+      ],
     );
 
     const sets = await duplicateSetsOf(org, run);
 
     expect(sets.map((s) => s.id)).toEqual([id('0GK', 1), id('0GK', 2), id('0GK', 3)]);
-    // Asked of the run's user, in its window, a lead before the first write
-    // and a minute after the last.
+    // Asked in its window, a lead before the first write and a minute after
+    // the last, of any creator.
     expect(org.asked[0]).toBe(
       'SELECT Id, CreatedDate, LastModifiedDate, LastModifiedById FROM DuplicateRecordSet ' +
-        `WHERE CreatedById = '${RUN_USER}' AND CreatedDate >= 2026-11-13T02:19:44Z ` +
+        'WHERE CreatedDate >= 2026-11-13T02:19:44Z ' +
         'AND CreatedDate <= 2026-11-13T02:22:10Z LIMIT 2000',
     );
+  });
+
+  it('takes an emptied set the run’s user last modified, and leaves one someone else did', async () => {
+    // A set whose records are gone holds no item: only its last modifier,
+    // restamped as records leave it, ties it to the run.
+    const org = orgOf([set(1), set(2, { LastModifiedById: COLLEAGUE })], []);
+
+    const sets = await duplicateSetsOf(org, run);
+
+    expect(sets.map((s) => s.id)).toEqual([id('0GK', 1)]);
   });
 
   it('leaves a set one item of which names a record that is not the run’s: it reports that record too', async () => {
@@ -89,7 +113,7 @@ describe('duplicateSetsOf', () => {
         set(1, { LastModifiedDate: soonAfter }),
         set(2, { LastModifiedDate: soonAfter, LastModifiedById: COLLEAGUE }),
       ],
-      [],
+      [item(1, 1, id('003', 1)), item(2, 2, id('003', 2))],
     );
 
     const [restamped, changed] = await duplicateSetsOf(org, run);

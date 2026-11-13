@@ -176,9 +176,10 @@ class FakeOrg implements RemovalOrg {
         .map((row) => ({ Id: row.Id }));
       return { totalSize: records.length, records };
     }
-    // The sets a user's duplicate rules made in a window, as a removal asks them.
+    // The sets the duplicate rules made in a window, of one creator when a
+    // read names one, as a removal asks them.
     const sets =
-      /^SELECT (.+) FROM DuplicateRecordSet WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+) LIMIT \d+$/.exec(
+      /^SELECT (.+) FROM DuplicateRecordSet WHERE (?:CreatedById = '(\w+)' AND )?CreatedDate >= (\S+) AND CreatedDate <= (\S+) LIMIT \d+$/.exec(
         soql,
       );
     if (sets) {
@@ -186,7 +187,7 @@ class FakeOrg implements RemovalOrg {
       const records = (this.rows.get('DuplicateRecordSet') ?? [])
         .filter(
           (row) =>
-            row.CreatedById === by &&
+            (by === undefined || row.CreatedById === by) &&
             Date.parse(String(row.CreatedDate)) >= Date.parse(from) &&
             Date.parse(String(row.CreatedDate)) <= Date.parse(to),
         )
@@ -4248,11 +4249,13 @@ describe('removeRunRecords — what came with the run under its records, and wha
 
 describe('removeRunRecords — the duplicate record sets the target’s rules made of the run’s records', () => {
   const RUN_USER = id('005', 3);
+  /** The org's Automated Process user, who creates the sets a rule makes. */
+  const AUTOMATED = id('005', 4);
   /** The rule's report of the run's two contacts, made as it wrote them. */
   const SET = id('0GK', 1);
   /** A set the target already held, into which a contact of the run was reported. */
   const HELD_SET = id('0GK', 2);
-  /** A set of the run's user in the window, one item of which reports a colleague's contact. */
+  /** A set made in the window, one item of which reports a colleague's contact. */
   const SHARED_SET = id('0GK', 3);
 
   function withSets(): { org: FakeOrg; plan: ForgeRunObjectRecords[] } {
@@ -4264,7 +4267,9 @@ describe('removeRunRecords — the duplicate record sets the target’s rules ma
       { childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true },
     ]);
     org.notWorked.add('DuplicateRecordItem');
-    const made = { CreatedById: RUN_USER, LastModifiedById: RUN_USER };
+    // Created by the org's Automated Process user within the second of the
+    // save, restamped as the run's user as its records went in.
+    const made = { CreatedById: AUTOMATED, LastModifiedById: RUN_USER };
     org.add(
       'DuplicateRecordSet',
       { Id: SET, CreatedDate: DURING_RUN, LastModifiedDate: DURING_RUN, ...made },
@@ -4282,9 +4287,11 @@ describe('removeRunRecords — the duplicate record sets the target’s rules ma
     return { org, plan };
   }
 
-  it('takes the sets the run’s user made as it wrote whose every item reports a record of the run, and says them apart', async () => {
+  it('takes the sets made as the run wrote whose every item reports a record of the run, whoever created them, and says them apart', async () => {
     // Live, a clone of the whole org left the two sets the target's Lead and
     // Contact rules had made of its records, empty: 427 sets before, 433 after.
+    // Read by the run's user as their creator, a removal still left both: the
+    // org's Automated Process user creates them.
     const { org, plan } = withSets();
 
     const outcome = await removeRunRecords(org, plan, options({ runUserId: RUN_USER }));

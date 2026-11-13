@@ -298,6 +298,7 @@ import {
   partsOfRecordType,
   recordTypeBlockedMessage,
   recordTypeBlockedReason,
+  recordTypesTheTargetLacks,
   unavailableRecordTypeUses,
   withRecordTypeNames,
   type RecordTypeAvailability,
@@ -1040,6 +1041,12 @@ export interface ForgeRowsLeftOut {
    */
   heldBack?: number;
   /**
+   * Rows held back for a record type the target has none of: no record type
+   * of the object in the target carries the id the write would send, which
+   * the target refuses. Counted as failed, as `heldBack`.
+   */
+  recordTypeNotInTarget?: number;
+  /**
    * Of a clone of the whole org, rows held back one by one with a record
    * they may not be written without, held back itself: counted as failed.
    */
@@ -1064,6 +1071,18 @@ export interface ForgeRowsLeftOut {
    * write's calls.
    */
   linkedByValue?: { rows: number; fields: readonly string[] };
+  /**
+   * Rows the run links to the target's own record of the same standing and
+   * never sends: the source's standard price book, matched to the target's.
+   */
+  linkedToTarget?: number;
+  /**
+   * Of a clone of the whole org, prices in a currency the target does not
+   * hold active that the write leaves out for the source's own price of the
+   * same product and book in the currency they go in, which it writes
+   * (`pricesReplacedAtTheGate`). Neither created nor failed.
+   */
+  currencyReplaced?: number;
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -1782,12 +1801,18 @@ const ROLES_TOLD_AT_THE_GATE = 2000;
  * page is read: see `recordTypesOfTable`.
  */
 interface TableRecordTypes {
-  /** The record types closed to the user the run writes as, each with its rows. */
+  /**
+   * The record types closed to the user the run writes as, and those the
+   * target has none of (`unmapped`, `recordTypesTheTargetLacks`), each with
+   * its rows.
+   */
   readonly closed: UnavailableRecordTypeUse[];
   /** The rows the count found, of every record type: what holding the table back holds. */
   readonly rows: number;
   /** The source's record types the rows of `closed` carry as read: what a read of those rows asks by. */
   readonly closedInSource: readonly string[];
+  /** Of them, those of the record types the target has none of. */
+  readonly lackingInSource: readonly string[];
   /** The target's describe of the object: the record types a gap may map to. */
   readonly target: TargetObjectInfo | null;
 }
@@ -2882,8 +2907,9 @@ interface ParentNotWritten {
   reason?: string;
   /**
    * Set on a row of a clone of the whole org held back for its record type,
-   * closed to the user the run writes as: the record type, `parentObject`
-   * its API name. Said as the whole object held back for it is.
+   * closed to the user the run writes as or one the target has none of
+   * (`unmapped`): the record type, `parentObject` its API name. Said as the
+   * whole object held back for it is.
    */
   recordType?: UnavailableRecordTypeUse;
 }
@@ -2947,6 +2973,14 @@ function samplesOfParentsNotWritten(
           ],
     }));
 }
+
+/**
+ * The most requests a read of an org's currencies sends
+ * (`readOrgCurrencies`): its `CurrencyType`, whether it dates its rates, and
+ * the dated rates. What the gate of a clone of the whole org prices of the
+ * source's when it reads them first (`pricesReplacedAtTheGate`).
+ */
+const CURRENCIES_READ_MOST = 3;
 
 /**
  * The most rows the gate of a clone of the whole org reads by id to count out
@@ -3032,22 +3066,55 @@ function requiredLookupsInTheRun(
 /** Why a line says the rows of a record type closed to the user the run writes as were held back. */
 const FOR_THEIR_RECORD_TYPE = 'held back for a record type closed to the user the run writes as';
 
+/** Why a line says the rows of a record type the target has none of were held back. */
+const FOR_A_TYPE_THE_TARGET_LACKS = 'held back for a record type the target has none of';
+
 /**
  * The rows `rowsWithoutTheirParent` and its like hold back, as a line says
- * them: those of a record type closed to the user apart from those held back
- * for want of their parent.
+ * them: those of a record type closed to the user, and those of one the
+ * target has none of, apart from those held back for want of their parent.
  */
 function heldWithoutParentWhy(held: Iterable<ParentNotWritten>): HeldBackReason[] {
   let types = 0;
+  let lacking = 0;
   let parents = 0;
   for (const entry of held) {
-    if (entry.recordType) types++;
+    if (entry.recordType?.unmapped) lacking++;
+    else if (entry.recordType) types++;
     else parents++;
   }
   return [
     ...(types > 0 ? [{ count: types, why: FOR_THEIR_RECORD_TYPE }] : []),
+    ...(lacking > 0 ? [{ count: lacking, why: FOR_A_TYPE_THE_TARGET_LACKS }] : []),
     ...(parents > 0 ? [{ count: parents, why: WITHOUT_THEIR_PARENT }] : []),
   ];
+}
+
+/**
+ * What a gate counts out of an object held back whole for its record types:
+ * under `heldBack` when one of them is closed to the user the run writes as,
+ * under `recordTypeNotInTarget` when the target has none of each.
+ */
+function heldForTheirTypes(
+  uses: readonly UnavailableRecordTypeUse[],
+  rows: number,
+): Pick<ForgeRowsLeftOut, 'heldBack' | 'recordTypeNotInTarget'> {
+  if (rows <= 0) return {};
+  return uses.every((use) => use.unmapped) ? { recordTypeNotInTarget: rows } : { heldBack: rows };
+}
+
+/** The gap a simulation says of a record type that holds rows back: unmapped, or unavailable. */
+function recordTypeGapOfUse(
+  use: UnavailableRecordTypeUse,
+  target: TargetObjectInfo | null,
+): ReturnType<typeof recordTypeGapOf> {
+  return recordTypeGapOf(
+    use.unmapped ? 'record_type_unmapped' : 'record_type_unavailable',
+    use.objectApiName,
+    use.developerName,
+    use.recordCount,
+    recordTypesToMapTo(target),
+  );
 }
 
 /** Note the rows of `objectApiName` a clone of the whole org leaves aside, for its line and reports. */
@@ -6474,6 +6541,7 @@ export class ForgeExecutor {
       );
     }
     const held = everything ? await this.heldAtTheGate(state, runOrder, objects) : undefined;
+    if (held) held.requests += await this.pricesReplacedAtTheGate(state, objects);
     const wholeOrg = everything
       ? await this.measureTheWholeOrg(state, objects, readWhole, written, held)
       : undefined;
@@ -6502,13 +6570,20 @@ export class ForgeExecutor {
    * Of a clone of the whole org, the rows its write will hold back one by one
    * (`rowsHeldInTheWholeOrg`), counted out of what its gate is shown, as the
    * run will not write them: the rows of a record type closed to the user it
-   * writes as, of a table it writes the rest of (`leftOut.heldBack`); those
-   * whose lookup they may not leave empty names a record the source does not
-   * hold (`leftOut.noParentInSource`); and what hangs from either through
-   * such a lookup, held back with them (`leftOut.withoutParent`) or left
-   * aside with them. Run for real, a dry run counted 157 records, the run
-   * wrote 106: 34 orphan prices sent and refused, and the lines and quotes
-   * under an opportunity of a closed type.
+   * writes as, of a table it writes the rest of (`leftOut.heldBack`), and
+   * those of a record type the target has none of
+   * (`leftOut.recordTypeNotInTarget`); those whose lookup they may not leave
+   * empty names a record the source does not hold
+   * (`leftOut.noParentInSource`); and what hangs from either through such a
+   * lookup, held back with them (`leftOut.withoutParent`) or left aside with
+   * them. Run for real, a dry run counted 157 records, the run wrote 106: 34
+   * orphan prices sent and refused, and the lines and quotes under an
+   * opportunity of a closed type. Another counted an opportunity of a record
+   * type the target lacked, which the run sent with the source's id, and the
+   * target refused.
+   *
+   * The rows of the closed types and those of the types the target lacks
+   * are read apart, each said with its own reason.
    *
    * Read by id from the source, parents first, as the run will meet them:
    * the rows of the closed types (`RecordTypeId IN …`), the orphans (`Field
@@ -6545,6 +6620,8 @@ export class ForgeExecutor {
     const told = new Map<string, Map<string, 'held' | ParentNotWritten>>();
     /** Per object, how many of them are of a closed record type. */
     const ofTypes = new Map<string, number>();
+    /** Per object, how many of them are of a record type the target has none of. */
+    const ofLacking = new Map<string, number>();
     let left = HELD_AT_THE_GATE_MOST;
     const tell = (object: string, id: string, why: 'held' | ParentNotWritten): void => {
       const ids = told.get(object) ?? new Map<string, 'held' | ParentNotWritten>();
@@ -6566,10 +6643,21 @@ export class ForgeExecutor {
       if (left > 0 && this.streamsNode(node, state)) {
         const types = await this.recordTypesOfTable(state, node);
         if (types && types.closed.length > 0 && this.typesHeldRowByRow(state, types)) {
-          const list = types.closedInSource.map((type) => `'${type}'`).join(', ');
-          const ids = list ? await idsUnder(object, `RecordTypeId IN (${list})`) : [];
-          for (const id of ids ?? []) tell(object, id, 'held');
-          ofTypes.set(object, told.get(object)?.size ?? 0);
+          // Read apart, those of a closed type, then those the target lacks:
+          // the gate says each with its own reason.
+          const lacking = new Set(types.lackingInSource);
+          for (const [inSource, counts] of [
+            [types.closedInSource.filter((type) => !lacking.has(type)), ofTypes],
+            [types.lackingInSource, ofLacking],
+          ] as const) {
+            const list = inSource.map((type) => `'${type}'`).join(', ');
+            if (!list) continue;
+            const before = told.get(object)?.size ?? 0;
+            for (const id of (await idsUnder(object, `RecordTypeId IN (${list})`)) ?? []) {
+              tell(object, id, 'held');
+            }
+            counts.set(object, (told.get(object)?.size ?? 0) - before);
+          }
         }
       }
       const fields = await this.deps
@@ -6628,6 +6716,7 @@ export class ForgeExecutor {
       const ids = told.get(entry.objectApiName);
       if (!ids || ids.size === 0) continue;
       const types = ofTypes.get(entry.objectApiName) ?? 0;
+      const lacking = ofLacking.get(entry.objectApiName) ?? 0;
       const held = [...ids.values()].filter((why) => why === 'held').length;
       const aside = ids.size - held;
       const rows = Math.max(0, entry.counted.rows - ids.size);
@@ -6641,7 +6730,10 @@ export class ForgeExecutor {
       entry.leftOut = {
         ...entry.leftOut,
         ...(types > 0 ? { heldBack: (entry.leftOut?.heldBack ?? 0) + types } : {}),
-        ...(held - types > 0 ? { withoutParent: held - types } : {}),
+        ...(lacking > 0
+          ? { recordTypeNotInTarget: (entry.leftOut?.recordTypeNotInTarget ?? 0) + lacking }
+          : {}),
+        ...(held - types - lacking > 0 ? { withoutParent: held - types - lacking } : {}),
         ...(aside > 0 ? { noParentInSource: aside } : {}),
       };
     }
@@ -6649,6 +6741,80 @@ export class ForgeExecutor {
       for (const [id, why] of ids) state.heldInTheOrg.set(id, why);
     }
     return reads;
+  }
+
+  /**
+   * Of a clone of the whole org, the prices its write leaves out for another
+   * of the source's (`settlePriceCurrencies`), counted out of what its gate
+   * is shown and said apart (`leftOut.currencyReplaced`): a price in a
+   * currency the target does not hold active, of a product and book the
+   * source prices in the currency it would go in — the target's corporate
+   * one, or the one the user mapped its own to — which the run writes in its
+   * place. Run for real, a dry run counted 13 prices and the run wrote 10:
+   * three GBP prices went as the USD price of the same product and book.
+   *
+   * Read from the source as the run reads its prices, whole, the fields the
+   * settling reads alone, up to {@link HELD_AT_THE_GATE_MOST} of them; the
+   * rows the gate holds back or leaves aside left out, counted already
+   * (`heldInTheOrg`). A read the source refuses counts nothing out, as the
+   * currencies of an org that cannot be read.
+   *
+   * @returns The requests its reads of the source sent: a page per 2 000
+   *   prices, and the read of the source's currencies when it sent it.
+   */
+  private async pricesReplacedAtTheGate(
+    state: ExecutionState,
+    objects: Array<{
+      objectApiName: string;
+      counted: ForgeCountedObject;
+      leftOut?: ForgeRowsLeftOut;
+    }>,
+  ): Promise<number> {
+    const entry = objects.find((o) => o.objectApiName === PRICEBOOK_ENTRY_OBJECT);
+    if (!entry || entry.counted.rows <= 0 || !state.standardPricebookId) return 0;
+    // Past the most rows the gate reads, counted in: too many rather than too few.
+    if ((state.counted.get(PRICEBOOK_ENTRY_OBJECT) ?? 0) > HELD_AT_THE_GATE_MOST) return 0;
+    const fields = await this.deps
+      .describeFields(state.sourceOrgId, PRICEBOOK_ENTRY_OBJECT)
+      .catch((): FieldInfo[] => []);
+    if (!fields.some((f) => f.name === PRICEBOOK_ENTRY_CURRENCY_FIELD)) return 0;
+    const columns = [
+      'Id',
+      PRICEBOOK_ENTRY_BOOK_FIELD,
+      PRICEBOOK_ENTRY_PRODUCT_FIELD,
+      PRICEBOOK_ENTRY_CURRENCY_FIELD,
+      ...(fields.some((f) => f.name === 'IsActive') ? ['IsActive'] : []),
+      ...(state.sellingModels && fields.some((f) => f.name === PRICEBOOK_ENTRY_SELLING_MODEL_FIELD)
+        ? [PRICEBOOK_ENTRY_SELLING_MODEL_FIELD]
+        : []),
+    ];
+    const filter = this.filterOf(state, PRICEBOOK_ENTRY_OBJECT);
+    let read: Record<string, unknown>[];
+    try {
+      read = await this.readWholeOf(
+        state,
+        PRICEBOOK_ENTRY_OBJECT,
+        `SELECT ${columns.join(', ')} FROM ${PRICEBOOK_ENTRY_OBJECT}` +
+          (filter ? ` WHERE ${filter}` : ''),
+      );
+    } catch (err) {
+      logger.warn(
+        `[forge] the prices replaced in another currency could not be counted at the gate: ${extractErrorMessage(err)}`,
+      );
+      return 1;
+    }
+    const pages = Math.max(1, Math.ceil(read.length / ROWS_PER_PAGE));
+    const currenciesUnread = state.currencies === undefined;
+    const prices = read.filter((row) => !state.heldInTheOrg.has(String(row['Id'])));
+    const input = await this.priceCurrencyInput(state, prices, fields);
+    const sent =
+      pages + (currenciesUnread && state.currencies !== undefined ? CURRENCIES_READ_MOST : 0);
+    if (!input) return sent;
+    const replaced = Math.min(entry.counted.rows, settlePriceCurrencies(input, []).standsFor.size);
+    if (replaced === 0) return sent;
+    entry.counted = { ...entry.counted, rows: entry.counted.rows - replaced };
+    entry.leftOut = { ...entry.leftOut, currencyReplaced: replaced };
+    return sent;
   }
 
   /**
@@ -7106,11 +7272,28 @@ export class ForgeExecutor {
     // counts the others out (`heldAtTheGate`).
     const types = streamed ? await this.recordTypesOfTable(state, node) : undefined;
     if (types && types.closed.length > 0 && !this.typesHeldRowByRow(state, types)) {
-      return { read, counted: { rows: 0 }, ...(read > 0 ? { leftOut: { heldBack: read } } : {}) };
+      return {
+        read,
+        counted: { rows: 0 },
+        ...(read > 0 ? { leftOut: heldForTheirTypes(types.closed, read) } : {}),
+      };
     }
     const writtenBefore = Math.min(read, await this.writtenBeforeOf(state, node, resumed));
-    const rows = read - writtenBefore;
-    const leftOut = writtenBefore > 0 ? { writtenBefore } : undefined;
+    // The standard price book is matched to the target's, never written (see
+    // `readNode`): counted out, and said. Counted in, a whole org's dry run
+    // said two price books to write, and the run wrote one.
+    const linkedToTarget =
+      object === PRICEBOOK_OBJECT
+        ? Math.min(read - writtenBefore, await this.standardBookOfTheTable(state, count))
+        : 0;
+    const rows = read - writtenBefore - linkedToTarget;
+    const leftOut =
+      writtenBefore > 0 || linkedToTarget > 0
+        ? {
+            ...(writtenBefore > 0 ? { writtenBefore } : {}),
+            ...(linkedToTarget > 0 ? { linkedToTarget } : {}),
+          }
+        : undefined;
     const counted = (personAccounts?: number): ForgeCountedObject =>
       personAccounts === undefined ? { rows } : { rows, personAccounts };
     const partial = read < total;
@@ -7153,6 +7336,25 @@ export class ForgeExecutor {
       ...(capped ? { capped: true as const } : {}),
       ...(partial ? { partial: true as const } : {}),
     };
+  }
+
+  /**
+   * Whether the table of price books a count says the run reads holds the
+   * source's standard price book, which the run matches to the target's and
+   * never writes: 1 or 0. Under no filter it does, the run having read its id
+   * from the table; under one, the count says. None for a run that matched
+   * none, or whose run it retries linked it already.
+   *
+   * @param count - Counts the rows of the table under the run's filter and a condition of its own.
+   */
+  private async standardBookOfTheTable(
+    state: ExecutionState,
+    count: (extra: string) => Promise<number | undefined>,
+  ): Promise<number> {
+    const id = state.standardPricebookId;
+    if (!id || !SALESFORCE_ID.test(id) || state.config.writtenBefore.has(id)) return 0;
+    if (!this.filterOf(state, PRICEBOOK_OBJECT)) return 1;
+    return Math.min(1, (await count(`Id = '${id}'`)) ?? 0);
   }
 
   /**
@@ -7701,13 +7903,15 @@ export class ForgeExecutor {
 
   /**
    * The record types the table of a node read page by page holds that the
-   * user the run writes as cannot use, with the rows of each, counted once a
-   * run under the run's filter and after the checkpoint of the run it
-   * resumes (`SELECT RecordTypeId, COUNT(Id) … GROUP BY RecordTypeId`), as
-   * the rows will be sent: a decision that sends a type to the object's
-   * default leaves it out, the record type mapping translates it.
+   * user the run writes as cannot use, and those the target has none of
+   * (`typesTheTargetLacks`), with the rows of each, counted once a run under
+   * the run's filter and after the checkpoint of the run it resumes (`SELECT
+   * RecordTypeId, COUNT(Id) … GROUP BY RecordTypeId`), as the rows will be
+   * sent: a decision that sends a type to the object's default leaves it
+   * out, the record type mapping translates it.
    *
-   * Counted only when the target has a record type closed to the user and
+   * Counted only when the target has a record type closed to the user, or
+   * the source one the target may have none of (`mayLackRecordTypes`), and
    * `RecordTypeId` is written at all; none then. Undefined when the count
    * could not be read: the pages are judged one by one, as before. Of a table
    * that holds more rows than the run reads of it, a closed record type the
@@ -7737,8 +7941,18 @@ export class ForgeExecutor {
     const { config, sourceOrgId, targetOrgId } = state;
     const object = node.objectApiName;
     const target = await this.targetObjectInfoOf(state, object);
-    const none: TableRecordTypes = { closed: [], rows: 0, target, closedInSource: [] };
-    if (!target || !target.recordTypes.some((type) => !type.available && !type.master)) {
+    const none: TableRecordTypes = {
+      closed: [],
+      rows: 0,
+      target,
+      closedInSource: [],
+      lackingInSource: [],
+    };
+    if (!target) return none;
+    if (
+      !target.recordTypes.some((type) => !type.available && !type.master) &&
+      !(await this.mayLackRecordTypes(state, object, target))
+    ) {
       return none;
     }
     if ((config.fieldExclusions[object] ?? []).includes('RecordTypeId')) return none;
@@ -7771,17 +7985,24 @@ export class ForgeExecutor {
         0,
       );
       const counted = parseRecordTypeCounts(answered);
-      const closed = unavailableRecordTypeUses(
-        object,
-        this.recordTypesAsSent(state, counted),
-        target.recordTypes,
-      );
+      const usesOf = async (asSent: ReadonlyMap<string, number>) => [
+        ...unavailableRecordTypeUses(object, asSent, target.recordTypes),
+        ...(await this.typesTheTargetLacks(state, object, asSent, target)),
+      ];
+      const closed = await usesOf(this.recordTypesAsSent(state, counted));
       const closedInSource = (uses: readonly UnavailableRecordTypeUse[]): string[] => {
         const ids = new Set(uses.map((use) => use.recordTypeId));
         return [...counted.keys()].filter((type) =>
           [...this.recordTypesAsSent(state, [[type, 1]]).keys()].some((sent) => ids.has(sent)),
         );
       };
+      const typesOf = (uses: UnavailableRecordTypeUse[], rows: number): TableRecordTypes => ({
+        closed: uses,
+        rows,
+        target,
+        closedInSource: closedInSource(uses),
+        lackingInSource: closedInSource(uses.filter((use) => use.unmapped)),
+      });
       // The table holds more rows than the run reads, and a closed record type
       // among them: judged on the rows the run reads, in the order of their
       // ids, as it reads them (`inIdOrder`). Judged on the whole table, a
@@ -7792,20 +8013,10 @@ export class ForgeExecutor {
       if (closed.length > 0 && left !== undefined && rows > left) {
         const read = await this.recordTypesOfTheRowsRead(state, object, from, left);
         if (read) {
-          const ofRead = unavailableRecordTypeUses(
-            object,
-            this.recordTypesAsSent(state, read.counts),
-            target.recordTypes,
-          );
-          return {
-            closed: ofRead,
-            rows: read.rows,
-            target,
-            closedInSource: closedInSource(ofRead),
-          };
+          return typesOf(await usesOf(this.recordTypesAsSent(state, read.counts)), read.rows);
         }
       }
-      return { closed, rows, target, closedInSource: closedInSource(closed) };
+      return typesOf(closed, rows);
     } catch {
       return undefined;
     }
@@ -7835,6 +8046,53 @@ export class ForgeExecutor {
       asSent.set(sentType, (asSent.get(sentType) ?? 0) + count);
     }
     return asSent;
+  }
+
+  /**
+   * Of the record types `asSent` carries — each id as the write sends it,
+   * with its rows — those no record type of the object in the target
+   * carries (`recordTypesTheTargetLacks`), named by the source's describe.
+   * Told only of a run that read both orgs' record types to map them, which
+   * sends every one it could not map as the source holds it: one that could
+   * not read them says why already, and sends them so.
+   */
+  private async typesTheTargetLacks(
+    state: ExecutionState,
+    objectApiName: string,
+    asSent: ReadonlyMap<string, number>,
+    target: TargetObjectInfo | null,
+  ): Promise<UnavailableRecordTypeUse[]> {
+    if (!state.recordTypeMapper || !state.config.recordTypeMappings) return [];
+    if (!target || target.recordTypes.length === 0) return [];
+    const lacking = recordTypesTheTargetLacks(objectApiName, asSent, target.recordTypes, []);
+    if (lacking.length === 0) return [];
+    const sourceTypes = await this.sourceRecordTypesOf(state, objectApiName);
+    state.gaps?.knowRecordTypes(objectApiName, 'source', sourceTypes);
+    return recordTypesTheTargetLacks(objectApiName, asSent, target.recordTypes, sourceTypes);
+  }
+
+  /**
+   * Whether the source has a record type of `objectApiName` the target may
+   * have none of, as the write would send it: of a run that maps record
+   * types, one of the source's describe whose id the mapping leaves to no
+   * record type of the target's. Read from the describes alone, which the
+   * run holds already, before a count of the table's rows is asked for it.
+   */
+  private async mayLackRecordTypes(
+    state: ExecutionState,
+    objectApiName: string,
+    target: TargetObjectInfo,
+  ): Promise<boolean> {
+    if (!state.recordTypeMapper || !state.config.recordTypeMappings) return false;
+    if (target.recordTypes.length === 0) return false;
+    const source = await this.objectInfoOf(state.sourceOrgId, objectApiName);
+    const types = (source?.recordTypes ?? []).filter((type) => !type.master);
+    if (types.length === 0) return false;
+    const asSent = this.recordTypesAsSent(
+      state,
+      types.map((type): [string, number] => [type.recordTypeId, 1]),
+    );
+    return recordTypesTheTargetLacks(objectApiName, asSent, target.recordTypes, []).length > 0;
   }
 
   /**
@@ -7902,17 +8160,7 @@ export class ForgeExecutor {
   ): void {
     const object = node.objectApiName;
     state.gaps?.knowRecordTypes(object, 'target', types.target?.recordTypes ?? []);
-    for (const use of types.closed) {
-      state.gaps?.add(
-        recordTypeGapOf(
-          'record_type_unavailable',
-          object,
-          use.developerName,
-          use.recordCount,
-          recordTypesToMapTo(types.target),
-        ),
-      );
-    }
+    for (const use of types.closed) state.gaps?.add(recordTypeGapOfUse(use, types.target));
     state.failedObjects.add(object);
     state.failedCount += rows;
     state.errors.push({
@@ -14243,16 +14491,17 @@ export class ForgeExecutor {
   }> {
     const rows = read.records.filter((row) => !wasWrittenBefore(state.config, row));
     const writtenBefore = read.records.length - rows.length;
-    const heldBack =
-      rows.length > 0 && (await this.heldBackAtTheGate(state, objectApiName, read, rows));
+    const uses =
+      rows.length > 0 ? await this.heldBackAtTheGate(state, objectApiName, read, rows) : [];
+    const heldBack = uses.length > 0;
     const leftOut: ForgeRowsLeftOut = {
       ...(writtenBefore > 0 ? { writtenBefore } : {}),
-      ...(heldBack ? { heldBack: rows.length } : {}),
+      ...(heldBack ? heldForTheirTypes(uses, rows.length) : {}),
     };
     return {
       objectApiName,
       rows: heldBack ? [] : rows,
-      ...(leftOut.writtenBefore !== undefined || leftOut.heldBack !== undefined ? { leftOut } : {}),
+      ...(Object.keys(leftOut).length > 0 ? { leftOut } : {}),
       ...(mayAdd > 0 && !heldBack ? { mayAdd } : {}),
     };
   }
@@ -14772,20 +15021,22 @@ export class ForgeExecutor {
   }
 
   /**
-   * Whether the write will hold `rows` of an object back whole for a record
-   * type closed to the user the run writes as: asked of the target only when
-   * it has such a record type, as the write asks it.
+   * The record types for which the write will hold `rows` of an object back
+   * whole — closed to the user the run writes as, or none of the target's —
+   * none when it writes them: asked of the target as the write asks it.
    */
   private async heldBackAtTheGate(
     state: ExecutionState,
     objectApiName: string,
     read: PrereadNode,
     rows: Record<string, unknown>[],
-  ): Promise<boolean> {
+  ): Promise<UnavailableRecordTypeUse[]> {
     const node = state.graph.nodes.find((n) => n.objectApiName === objectApiName);
-    if (!node) return false;
+    if (!node) return [];
     const target = await this.objectInfoOf(state.targetOrgId, objectApiName);
-    if (!target?.recordTypes.some((type) => !type.available && !type.master)) return false;
+    if (!target || target.recordTypes.length === 0) return [];
+    const mapped = state.recordTypeMapper !== null && state.config.recordTypeMappings !== undefined;
+    if (!mapped && !target.recordTypes.some((type) => !type.available && !type.master)) return [];
     const sets = await (read.targetSetsPending ??
       describeTargetFieldSets(this.deps.describeFields, state.targetOrgId, objectApiName).then(
         (described) => ({ ok: true as const, sets: described }),
@@ -14794,12 +15045,15 @@ export class ForgeExecutor {
     const creatable = sets.ok
       ? intersect(read.createableSet, sets.sets.creatable)
       : read.createableSet;
-    return this.recordTypesHeldBack(node, rows, target, creatable, state).length > 0;
+    return this.recordTypesHeldBack(node, rows, target, creatable, state);
   }
 
   /**
    * The record types among those the node's records will be sent with that
-   * the running user may not use in the target org.
+   * the running user may not use in the target org, and those the target has
+   * none of (`typesTheTargetLacks`): sent with the source's id, each of their
+   * records was refused, `INVALID_CROSS_REFERENCE_KEY: Record Type ID: this
+   * ID value isn't valid for the user`.
    *
    * Read from the values as they will be sent — translated by the record
    * type mapping — and only when `RecordTypeId` is sent at all: a field
@@ -14807,13 +15061,13 @@ export class ForgeExecutor {
    * is how a user hands the choice to the platform, which then gives the
    * running user's default.
    */
-  private recordTypesHeldBack(
+  private async recordTypesHeldBack(
     node: ForgeGraphNode,
     records: Record<string, unknown>[],
     target: TargetObjectInfo | null,
     creatable: ReadonlySet<string>,
     state: ExecutionState,
-  ): UnavailableRecordTypeUse[] {
+  ): Promise<UnavailableRecordTypeUse[]> {
     const { config } = state;
     if (!target || target.recordTypes.length === 0) return [];
     if (!creatable.has('RecordTypeId')) return [];
@@ -14829,7 +15083,15 @@ export class ForgeExecutor {
     if (state.recordTypeMapper && config.recordTypeMappings) {
       sent = state.recordTypeMapper.apply(sent, config.recordTypeMappings);
     }
-    return findUnavailableRecordTypes(node.objectApiName, sent, target.recordTypes);
+    const asSent = new Map<string, number>();
+    for (const row of sent) {
+      const type = row['RecordTypeId'];
+      if (typeof type === 'string') asSent.set(type, (asSent.get(type) ?? 0) + 1);
+    }
+    return [
+      ...findUnavailableRecordTypes(node.objectApiName, sent, target.recordTypes),
+      ...(await this.typesTheTargetLacks(state, node.objectApiName, asSent, target)),
+    ];
   }
 
   /**
@@ -16018,8 +16280,9 @@ export class ForgeExecutor {
       // is written for it — orphan parents included — with the change to make
       // in the target. Forge maps record types and never drops one, so there
       // is no default to fall back to without the user choosing it: excluding
-      // `RecordTypeId` for the object is that choice.
-      const heldBack = this.recordTypesHeldBack(
+      // `RecordTypeId` for the object is that choice. So is a record type the
+      // target has none of, which went with the source's id, refused the same.
+      const heldBack = await this.recordTypesHeldBack(
         node,
         records,
         targetObject,
@@ -16047,7 +16310,7 @@ export class ForgeExecutor {
         if (page) {
           page.withoutParent += entries.length;
           groupsOfParentsNotWritten(entries, page.withoutParentGroups);
-          carryHeld(page, [{ count: entries.length, why: FOR_THEIR_RECORD_TYPE }]);
+          carryHeld(page, heldWithoutParentWhy(entries));
         } else {
           state.errors.push({
             objectApiName: node.objectApiName,
@@ -16072,17 +16335,7 @@ export class ForgeExecutor {
       if (heldBack.length > 0 && !rowByRow) {
         // What a simulation says of it: each record type, with those of the
         // target the user the run writes as may map it to.
-        for (const use of heldBack) {
-          state.gaps?.add(
-            recordTypeGapOf(
-              'record_type_unavailable',
-              node.objectApiName,
-              use.developerName,
-              use.recordCount,
-              recordTypesToMapTo(targetObject),
-            ),
-          );
-        }
+        for (const use of heldBack) state.gaps?.add(recordTypeGapOfUse(use, targetObject));
         state.failedObjects.add(node.objectApiName);
         state.failedCount += records.length;
         state.errors.push({

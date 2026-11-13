@@ -264,6 +264,12 @@ export interface WritePlanLeftOut {
    */
   heldBack: Array<{ objectApiName: string; rows: number }>;
   /**
+   * Per object, its rows held back for a record type the target has none of,
+   * which it would refuse: the whole object, or, in a clone of the whole org
+   * that writes its other rows, those of such types. Absent when none.
+   */
+  recordTypeNotInTarget?: Array<{ objectApiName: string; rows: number }>;
+  /**
    * Of a clone of the whole org, per object, the rows held back with a
    * record they cannot be written without, held back itself. Absent when none.
    */
@@ -285,6 +291,17 @@ export interface WritePlanLeftOut {
    * record, which the write creates none of. Absent when none.
    */
   linkedByValue?: Array<{ objectApiName: string; rows: number; fields: readonly string[] }>;
+  /**
+   * Per object, the rows the run links to the target's own record of the
+   * same standing and never sends: the standard price book. Absent when none.
+   */
+  linkedToTarget?: Array<{ objectApiName: string; rows: number }>;
+  /**
+   * Of a clone of the whole org, per object, the prices in a currency the
+   * target does not hold active that the run leaves out for the source's own
+   * price in the currency they go in, which it writes. Absent when none.
+   */
+  currencyReplaced?: Array<{ objectApiName: string; rows: number }>;
 }
 
 /**
@@ -355,30 +372,46 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
       ? [{ objectApiName, ...leftOut.linkedByValue }]
       : [],
   );
-  const rowsOf = (kind: 'withoutParent' | 'noParentInSource') =>
+  const rowsOf = (
+    kind:
+      | 'recordTypeNotInTarget'
+      | 'withoutParent'
+      | 'noParentInSource'
+      | 'linkedToTarget'
+      | 'currencyReplaced',
+  ) =>
     objects
       .filter((object) => (object.leftOut?.[kind] ?? 0) > 0)
       .map(({ objectApiName, leftOut }) => ({ objectApiName, rows: leftOut?.[kind] ?? 0 }));
+  const recordTypeNotInTarget = rowsOf('recordTypeNotInTarget');
   const withoutParent = rowsOf('withoutParent');
   const noParentInSource = rowsOf('noParentInSource');
+  const linkedToTarget = rowsOf('linkedToTarget');
+  const currencyReplaced = rowsOf('currencyReplaced');
   return {
     objects: measured,
     totalRows: measured.reduce((sum, object) => sum + object.rows, 0),
     storageBytes: measured.reduce((sum, object) => sum + object.storageBytes, 0),
     ...(writtenBefore > 0 ||
     heldBack.length > 0 ||
+    recordTypeNotInTarget.length > 0 ||
     byThePlatform.length > 0 ||
     linkedByValue.length > 0 ||
     withoutParent.length > 0 ||
-    noParentInSource.length > 0
+    noParentInSource.length > 0 ||
+    linkedToTarget.length > 0 ||
+    currencyReplaced.length > 0
       ? {
           leftOut: {
             writtenBefore,
             heldBack,
+            ...(recordTypeNotInTarget.length > 0 ? { recordTypeNotInTarget } : {}),
             ...(byThePlatform.length > 0 ? { byThePlatform } : {}),
             ...(linkedByValue.length > 0 ? { linkedByValue } : {}),
             ...(withoutParent.length > 0 ? { withoutParent } : {}),
             ...(noParentInSource.length > 0 ? { noParentInSource } : {}),
+            ...(linkedToTarget.length > 0 ? { linkedToTarget } : {}),
+            ...(currencyReplaced.length > 0 ? { currencyReplaced } : {}),
           },
         }
       : {}),
@@ -3473,6 +3506,12 @@ export function leftOutLines(leftOut: WritePlanLeftOut | undefined): string[] {
         'closed to the user the run writes as',
     );
   }
+  for (const { objectApiName, rows } of leftOut.recordTypeNotInTarget ?? []) {
+    lines.push(
+      `  not counted: ${objectApiName}, ${rows} record(s), held back for a record type the ` +
+        'target has none of, which it would refuse',
+    );
+  }
   for (const { objectApiName, rows } of leftOut.withoutParent ?? []) {
     lines.push(
       `  not counted: ${objectApiName}, ${rows} record(s) held back with a record they cannot ` +
@@ -3495,6 +3534,19 @@ export function leftOutLines(leftOut: WritePlanLeftOut | undefined): string[] {
     lines.push(
       `  not counted: ${objectApiName}, ${rows} record(s) the target holds under the same ` +
         `${fields.join(', ')}, which the run links to and does not create`,
+    );
+  }
+  for (const { objectApiName, rows } of leftOut.linkedToTarget ?? []) {
+    lines.push(
+      `  not counted: ${objectApiName}, ${rows} record(s), the standard price book: linked to ` +
+        "the target's own, never written",
+    );
+  }
+  for (const { objectApiName, rows } of leftOut.currencyReplaced ?? []) {
+    lines.push(
+      `  not counted: ${objectApiName}, ${rows} record(s) in a currency the target lacks, ` +
+        "replaced by the source's own price in the currency written, for the same product " +
+        'and price book',
     );
   }
   return lines;

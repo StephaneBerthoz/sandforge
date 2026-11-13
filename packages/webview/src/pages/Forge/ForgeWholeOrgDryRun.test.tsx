@@ -86,6 +86,30 @@ describe('ForgeWholeOrgDryRunResult', () => {
     );
   });
 
+  it('says the records the run holds back for a record type the target has none of, apart from those closed to its user', () => {
+    // Live, an opportunity of a record type the target lacked was counted to
+    // write, sent with the source's id and refused, and the dry run had said
+    // nothing of it.
+    const dry = wholeOrgDryRun();
+    renderDry({
+      leftOut: {
+        ...dry.leftOut,
+        rows: {
+          writtenBefore: 0,
+          heldBack: [{ objectApiName: 'Opportunity', rows: 1 }],
+          recordTypeNotInTarget: [{ objectApiName: 'Opportunity', rows: 1 }],
+        },
+      },
+    });
+
+    expect(screen.getByTestId('forge-whole-org-dry-run-type-not-in-target').textContent).toBe(
+      '1 record of Opportunity, whose record type the target has none of, which it would refuse',
+    );
+    expect(screen.getByTestId('forge-whole-org-dry-run-held-back').textContent).toBe(
+      '1 record of Opportunity, whose record type is closed to the user the run writes as',
+    );
+  });
+
   it('says the run would go through when nothing refuses it', () => {
     renderDry({ wouldBeRefused: [] });
 
