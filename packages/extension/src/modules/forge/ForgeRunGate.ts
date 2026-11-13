@@ -1281,10 +1281,29 @@ export function readBoundStopOf(
 export type WholeOrgFilesCheck = { count: number; check: StorageCheck } | { unmeasured: true };
 
 /**
+ * Why a clone of the whole org asked to copy files is refused when the source
+ * would neither sum nor list them: what they take of the target's file
+ * storage is not known, as the file copier of every other run refuses files
+ * it could not all look up (`FILES_UNREAD`).
+ */
+const FILES_UNREAD = 'FILES_UNREAD';
+
+/**
+ * Why a clone of the whole org asked to copy files is refused when the target
+ * would not say what file storage it has left, as the file copier of every
+ * other run refuses then (`FILE_STORAGE_UNREAD`).
+ */
+const FILE_STORAGE_UNREAD = 'FILE_STORAGE_UNREAD';
+
+/**
  * The files a clone of the whole org copies against the target's file
  * storage, from the `/limits` its gate read for the data storage: refused
  * past it (`STORAGE_EXCEEDED`, `storage.kind: 'files'`). None to copy, no
- * check; files the source would not sum are said so, and refuse nothing.
+ * check. Files the source would neither sum nor list ({@link FILES_UNREAD}),
+ * or a file storage the target would not tell ({@link FILE_STORAGE_UNREAD}),
+ * refuse the run too, as the file copier of any other run refuses them:
+ * copied unmeasured, a whole org's files could fill the target's storage part
+ * way through, its records written and their files not.
  */
 export function wholeOrgFilesOf(
   files: WholeOrgMeasures['files'],
@@ -1292,7 +1311,18 @@ export function wholeOrgFilesOf(
   target: string,
 ): { files?: WholeOrgFilesCheck; stop?: ForgeGateStop } {
   if (!files) return {};
-  if ('unmeasured' in files) return { files: { unmeasured: true } };
+  if ('unmeasured' in files) {
+    return {
+      files: { unmeasured: true },
+      stop: {
+        code: FILES_UNREAD,
+        message:
+          'The source would neither sum nor list its files, so what they take of the file ' +
+          `storage ${target} has left is not known: turn the copy of files off on Review, or ` +
+          'run it again once the source answers. Nothing was written.',
+      },
+    };
+  }
   if (files.count <= 0) return {};
   const check = storageCheckOf(
     { storageBytes: files.bytes },
@@ -1300,6 +1330,18 @@ export function wholeOrgFilesOf(
       ? limits
       : (limits.fileStorage ?? { unread: 'the limits the org answered list no FileStorageMB' }),
   );
+  if (check.verdict === 'unread') {
+    return {
+      files: { count: files.count, check },
+      stop: {
+        code: FILE_STORAGE_UNREAD,
+        message:
+          `The file storage ${target} has left could not be read (${check.unread}), so the ` +
+          `${files.count} files to copy could not be checked against it: turn the copy of ` +
+          'files off on Review, or run it again once the org answers. Nothing was written.',
+      },
+    };
+  }
   const refused = fileStorageRefusal(check, target);
   return {
     files: { count: files.count, check },
@@ -3027,7 +3069,9 @@ export type ForgeRunGateErrorCode =
   | 'EMAILS_EXCEEDED'
   | typeof EMAILS_NOT_ACCEPTED
   | typeof API_BUDGET_EXCEEDED
-  | typeof CHECKPOINT_REFUSED;
+  | typeof CHECKPOINT_REFUSED
+  | typeof FILES_UNREAD
+  | typeof FILE_STORAGE_UNREAD;
 
 /**
  * Raised when a run's gate stops it: before it reads anything, or once it has

@@ -95,6 +95,11 @@ export function forgeRunResult(
     ...(summary.withTheirRecordSourceIds
       ? { idRemapWithTheirRecord: summary.withTheirRecordSourceIds }
       : {}),
+    // Counted, of a run whose ids stayed in its journal, where the list above
+    // is left empty: the removal's count of what it keeps leaves them out.
+    ...(summary.withTheirRecordCount !== undefined && summary.withTheirRecordCount > 0
+      ? { withTheirRecordCount: summary.withTheirRecordCount }
+      : {}),
     createdCount: summary.successCount,
     // Only a run that upserted says how many records it wrote over.
     ...(summary.updatedCount > 0 ? { updatedCount: summary.updatedCount } : {}),

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { LOST_JOBS_WAIT_MS, LostBulkJobs, type LostBulkJob } from './lostBulkJobs.js';
+import {
+  LOST_JOBS_WAIT_MS,
+  LostBulkJobs,
+  pastMuteNotes,
+  type LostBulkJob,
+} from './lostBulkJobs.js';
 
 /*
  * The jobs a run closed and lost, waited for at its end before it gives back
@@ -132,5 +137,32 @@ describe('LostBulkJobs', () => {
     expect(running).toEqual([unnamed]);
     expect(reads).toEqual([]);
     expect(clock.waits).toEqual([]);
+  });
+});
+
+describe('pastMuteNotes', () => {
+  it('names each job still running past the mute under its object, as a note that fails no row', () => {
+    const notes = pastMuteNotes([
+      { objectApiName: 'Account', jobId: '750000000000001AAA' },
+      { objectApiName: 'Account' },
+      { objectApiName: 'Contact', jobId: '750000000000002AAA' },
+    ]);
+
+    expect(
+      notes.map(({ objectApiName, stage, failedCount }) => [objectApiName, stage, failedCount]),
+    ).toEqual([
+      ['Account', 'scope', 0],
+      ['Contact', 'scope', 0],
+    ]);
+    expect(notes[0].samples.map((sample) => sample.recordSummary)).toEqual([
+      'Bulk API job 750000000000001AAA',
+      'Bulk API job (the org gave no id)',
+    ]);
+    expect(notes[0].samples[0].messages[0]).toContain('Bulk Data Load Jobs');
+    expect(notes[0].samples[1].messages[0]).toContain('could not be waited for');
+  });
+
+  it('says nothing when no job ran past the mute', () => {
+    expect(pastMuteNotes([])).toEqual([]);
   });
 });

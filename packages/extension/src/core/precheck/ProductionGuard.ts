@@ -344,7 +344,9 @@ export interface WriteConfirmation {
    * The API requests the run takes, when it would leave the org under a
    * tenth of its daily requests, every part together, and the parts beside
    * the run's own when it has any (`RunRequestParts`: the checkpoint first,
-   * the read-backs, the deliverability read, the fit). Absent otherwise.
+   * the read-backs, the deliverability read, the fit). Absent otherwise, and
+   * from a clone of the whole org, whose own part says them near or not
+   * (`WholeOrgConfirmation.targetApi`).
    */
   apiRequests?: {
     estimate: number;
@@ -406,6 +408,86 @@ export interface WriteConfirmation {
      */
     farAbove?: true;
   };
+  /**
+   * Of a Forge clone of the whole org (the ALL depth), what else it takes and
+   * does besides the rows and their data storage above, as its question says
+   * it whatever the volume: it is always asked. Absent for any other run.
+   */
+  wholeOrg?: WholeOrgConfirmation;
+}
+
+/** An allowance of a day an org has, as a clone of the whole org takes of it. */
+export interface WholeOrgAllowance {
+  /** What the run takes of it, about. */
+  estimate: number;
+  /** What the org has left of it today, and its most: absent when the org did not say. */
+  remaining?: number;
+  max?: number;
+  /** Set when the run would leave the org less than a tenth of it. */
+  near?: true;
+  /** Why what is left could not be read, when it could not. */
+  unread?: string;
+}
+
+/** What a clone of the whole org puts in its question: see {@link WriteConfirmation.wholeOrg}. */
+export interface WholeOrgConfirmation {
+  /** The org it copies, as the user knows it. */
+  source: string;
+  /**
+   * The objects of the source it leaves out — those discovery left out, each
+   * with its reason on Review, and those the user took out there.
+   */
+  leftOut: number;
+  /**
+   * What the run was set to that narrows it, carried over from the template
+   * or the run it started from or set on Review: the objects read through a
+   * filter, those left out by name, those whose rows a decision on Gaps holds
+   * back (`skippedRows`), and those with fields left out (`fieldExclusions`),
+   * each by name. Absent when nothing does.
+   */
+  carried?: { filters: string[]; excluded: string[]; heldBack: string[]; fieldsLeftOut: string[] };
+  /** The target's API requests, every part together: said whenever it is asked. */
+  targetApi: WholeOrgAllowance;
+  /** The API requests its reads of the source still take. */
+  sourceApi: WholeOrgAllowance;
+  /**
+   * The Bulk API 2.0 jobs it sends, the records they carry and the records it
+   * sends by REST calls of 200, as its counts say; and the target's daily
+   * Bulk API batches the jobs take, as its gate prices them. Absent when it
+   * sends no job.
+   */
+  bulk?: { jobs: number; jobRows: number; restRows: number; batches?: WholeOrgAllowance };
+  /** How long its writes take, about, in seconds. */
+  durationSeconds: number;
+  /** The objects with rows to write that it writes by REST rather than in jobs, by name. */
+  restObjects: string[];
+  /**
+   * The files it copies: how many, what they take, how many are past the
+   * largest file copied, and what the target has left of its file storage.
+   * Absent when it copies none.
+   */
+  fileStorage?: {
+    files: number;
+    estimateMB: number;
+    overCeiling: number;
+    remainingMB: number;
+    maxMB: number;
+    /** Set when they take more than 80 % of what the target has left. */
+    near?: true;
+  };
+  /**
+   * The objects of managed packages it writes, by name: their package's own
+   * triggers and flows run as their records go in, whatever the mute of the
+   * target's automation keeps quiet. Absent when it writes none.
+   */
+  managedPackages?: string[];
+  /** The phone numbers it writes empty past the 10 000 its fiction holds, at most. Absent when none. */
+  contactPointsBlanked?: number;
+  /**
+   * Per object it writes, the personal fields it copies as they are — not
+   * anonymized. Absent when it copies none so.
+   */
+  personalAsIs?: Array<{ objectApiName: string; fields: string[] }>;
 }
 
 /**

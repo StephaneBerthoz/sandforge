@@ -9,7 +9,12 @@ import type {
 } from '@sandforge/shared';
 import { BYTES_PER_MB, FORGE_READ_CEILING_PER_OBJECT, leftOutByTheUser } from '@sandforge/shared';
 import type { GraphDiscoveryService, DiscoveryOptions } from './GraphDiscoveryService.js';
-import type { ExecuteOptions, ForgeExecutor, ForgeProgressEvent } from './ForgeExecutor.js';
+import {
+  WHOLE_ORG_WINDOW,
+  type ExecuteOptions,
+  type ForgeExecutor,
+  type ForgeProgressEvent,
+} from './ForgeExecutor.js';
 import type { ForgePlanGenerator } from './ForgePlanGenerator.js';
 import {
   runAnonymization,
@@ -273,13 +278,20 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       const scoped = forgeExecuteOptions(graph, config, runOptions, (fields) =>
         this.deps.discoveryService.personalFields(fields),
       );
-      const stream = runOptions?.stream;
+      const stream = scoped?.stream;
 
       // Forge sets each record's owner itself: the target's assignment rules
       // apply only when the run asks for them.
       this.deps.setWriteOptions?.({ applyAssignmentRules: config.applyAssignmentRules === true });
+      // A clone of the whole org reads page by page with no ceiling: what the
+      // deps bound of it is a node it reads whole — the price catalog, an
+      // object mapped by name — to the setting (`wholeReadBound`). Its
+      // ceiling is none, and fell back to the default of 50 000.
       this.deps.setReadOptions?.({
-        maxRecordsPerObject: stream?.ceiling ?? FORGE_READ_CEILING_PER_OBJECT,
+        maxRecordsPerObject:
+          stream?.everything === true
+            ? (stream.wholeReadBound ?? FORGE_READ_CEILING_PER_OBJECT)
+            : (stream?.ceiling ?? FORGE_READ_CEILING_PER_OBJECT),
       });
       const summary = await this.deps.executor.execute(
         graph,
@@ -385,8 +397,26 @@ export function forgeExecuteOptions(
     : undefined;
   const writtenBefore = runOptions?.writtenBefore;
   const beforeWrite = runOptions?.beforeWrite;
+  const wholeOrg = config.inputMode === 'org';
   // Read page by page when it reads whole tables: see `ExecuteOptions.stream`.
-  const stream = runOptions?.stream;
+  // A clone of the whole org always is, everything it holds (`everything`),
+  // with no ceiling — every row of the org is the point — a window of a Bulk
+  // API job's worth of rows at a time, and its second pass a job's worth of
+  // lookups at a time: by pages of 2 000, no update of the pass reached the
+  // 2 000 of one object a job takes. The setting the ceiling is read from
+  // bounds instead what it reads whole (`wholeReadBound`), and its gate
+  // refuses the run past it.
+  const given = runOptions?.stream;
+  const stream: ExecuteOptions['stream'] = wholeOrg
+    ? {
+        ...given,
+        everything: true,
+        writeWindow: WHOLE_ORG_WINDOW,
+        secondPassPageSize: WHOLE_ORG_WINDOW,
+        ceiling: undefined,
+        wholeReadBound: given?.wholeReadBound ?? given?.ceiling ?? FORGE_READ_CEILING_PER_OBJECT,
+      }
+    : given;
   // The objects unchecked on the Forge page leave the run as objects
   // excluded by name: the rows that cannot be written without one of
   // their records are held back and said, not sent for the target to
@@ -446,7 +476,11 @@ export function forgeExecuteOptions(
           dryRun ||
           decisions
         ? {
-            maxRecordsPerObject: config.maxRecordsPerObject,
+            // A clone of the whole org copies every row: no cap on each
+            // object, whatever a config carried over says. It alone writes
+            // through the Bulk API, from a job's worth of rows of an object.
+            maxRecordsPerObject: wholeOrg ? undefined : config.maxRecordsPerObject,
+            ...(wholeOrg ? { writeApi: 'auto' as const } : {}),
             fieldExclusions: config.fieldExclusions,
             excludedObjects,
             ownerMappings: config.ownerMappings,

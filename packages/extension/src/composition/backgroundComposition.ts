@@ -18,6 +18,7 @@ import type {
   RehearsalConfirmation,
   RunConfirmation,
   RunUpdateStep,
+  WholeOrgConfirmation,
   WriteConfirmation,
 } from '../core/precheck/ProductionGuard';
 import { PIIDetector } from '../core/precheck/PIIDetector';
@@ -733,7 +734,8 @@ function limitsLines(question: WriteConfirmation): string[] {
   }
   // The day's API requests the run would leave the org short of, and what
   // of them is not the run's own: the checkpoint taken first, the read-backs.
-  const api = question.apiRequests;
+  // A clone of the whole org says them whatever is left, among its own lines.
+  const api = question.wholeOrg ? undefined : question.apiRequests;
   if (api) {
     lines.push(
       vscode.l10n.t(
@@ -766,32 +768,317 @@ function limitsLines(question: WriteConfirmation): string[] {
   return lines;
 }
 
+/**
+ * One of an org's allowances of the day, as a clone of the whole org's
+ * question says it: what the run takes, what the org has left of it, and
+ * whether that would leave it short; or that what is left is not known.
+ */
+function allowanceLines(
+  allowance: WholeOrgConfirmation['targetApi'],
+  words: {
+    told: (estimate: number, remaining: number, max: number) => string;
+    unread: (estimate: number, unread: string | undefined) => string;
+    near: () => string;
+  },
+): string[] {
+  const { estimate, remaining, max } = allowance;
+  if (remaining === undefined || max === undefined) {
+    return [words.unread(estimate, allowance.unread)];
+  }
+  return allowance.near
+    ? [words.told(estimate, remaining, max), words.near()]
+    : [words.told(estimate, remaining, max)];
+}
+
+/**
+ * What a clone of the whole org says besides its rows and their data storage,
+ * as its question is always put: what it leaves out and what it was set to
+ * that narrows it; the API requests it takes of both orgs, its Bulk API jobs
+ * and the target's batches they take, each said short when it would run
+ * short; how long it writes and what goes by REST; the files it copies; the
+ * objects of managed packages it writes, whose own automation no mute
+ * reaches; the phone numbers that go in empty; the personal fields it copies
+ * as they are; who owns a record whose owner the target holds inactive; and
+ * that a removal takes it back.
+ */
+function wholeOrgLines(question: WriteConfirmation, wholeOrg: WholeOrgConfirmation): string[] {
+  const lines: string[] = [];
+  if (wholeOrg.leftOut > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Left out: {0} objects that are empty or unreadable in {1}, missing from {2}, or that the API cannot create or a removal cannot take back there, setup, history, sharing and system objects among them. Review names them.',
+        wholeOrg.leftOut,
+        wholeOrg.source,
+        question.org,
+      ),
+    );
+  }
+  // What the run was set to that narrows it: carried over from a template
+  // or a run, or set on Review, which the configuration does not tell apart.
+  const { carried } = wholeOrg;
+  if (carried && carried.filters.length > 0) {
+    lines.push(
+      vscode.l10n.t('Read through a filter rather than whole: {0}.', carried.filters.join(', ')),
+    );
+  }
+  if (carried && carried.excluded.length > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Carried over from the template or run this clone started from, left out by name: {0}.',
+        carried.excluded.join(', '),
+      ),
+    );
+  }
+  if (carried && carried.heldBack.length > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Copied without the rows a decision on Gaps holds back: {0}.',
+        carried.heldBack.join(', '),
+      ),
+    );
+  }
+  if (carried && carried.fieldsLeftOut.length > 0) {
+    lines.push(
+      vscode.l10n.t('Copied without some of their fields: {0}.', carried.fieldsLeftOut.join(', ')),
+    );
+  }
+  lines.push(
+    ...allowanceLines(wholeOrg.targetApi, {
+      told: (estimate, remaining, max) =>
+        vscode.l10n.t(
+          'API requests of {0}, to write: about {1}; it has {2} of its {3} daily requests left.',
+          question.org,
+          estimate,
+          remaining,
+          max,
+        ),
+      unread: () =>
+        vscode.l10n.t(
+          'What {0} has left of its daily API requests could not be read, so whether the writes fit is not known.',
+          question.org,
+        ),
+      near: () =>
+        vscode.l10n.t(
+          'That would leave {0} with less than a tenth of its daily requests.',
+          question.org,
+        ),
+    }),
+    // The source is often a production org whose integrations draw on the
+    // same requests.
+    ...allowanceLines(wholeOrg.sourceApi, {
+      told: (estimate, remaining, max) =>
+        vscode.l10n.t(
+          'API requests of {0}, to read: about {1}; it has {2} of its {3} daily requests left.',
+          wholeOrg.source,
+          estimate,
+          remaining,
+          max,
+        ),
+      unread: (_estimate, unread) =>
+        vscode.l10n.t(
+          'What {0} has left of its daily API requests could not be read ({1}), so whether the reads fit is not known.',
+          wholeOrg.source,
+          unread ?? '',
+        ),
+      near: () =>
+        vscode.l10n.t(
+          'That would leave {0} with less than a tenth of its daily requests.',
+          wholeOrg.source,
+        ),
+    }),
+  );
+  const { bulk } = wholeOrg;
+  if (bulk) {
+    lines.push(
+      vscode.l10n.t(
+        'The records go in {0} Bulk API 2.0 jobs carrying {1} of them, one at a time, parents first; {2} go by REST calls of 200.',
+        bulk.jobs,
+        bulk.jobRows,
+        bulk.restRows,
+      ),
+    );
+  }
+  if (bulk?.batches) {
+    lines.push(
+      ...allowanceLines(bulk.batches, {
+        told: (estimate, remaining, max) =>
+          vscode.l10n.t(
+            'Bulk API batches of {0}: about {1}; it has {2} of its {3} daily batches left.',
+            question.org,
+            estimate,
+            remaining,
+            max,
+          ),
+        unread: (estimate) =>
+          vscode.l10n.t(
+            'Bulk API batches of {0}: about {1}. It did not say how many it has left today, so whether they fit is not known.',
+            question.org,
+            estimate,
+          ),
+        near: () =>
+          vscode.l10n.t(
+            'That would leave {0} with less than a tenth of its daily Bulk API batches.',
+            question.org,
+          ),
+      }),
+    );
+  }
+  // A minute or less, then in minutes up to two hours, then in hours to a
+  // tenth in the window's own figures: a run of a whole org may write for a
+  // night.
+  const minutes = Math.max(1, Math.ceil(wholeOrg.durationSeconds / 60));
+  lines.push(
+    minutes === 1
+      ? vscode.l10n.t('Duration: a minute or less.')
+      : minutes < 120
+        ? vscode.l10n.t('Duration: about {0} minutes.', minutes)
+        : vscode.l10n.t(
+            'Duration: about {0} hours.',
+            (Math.ceil(minutes / 6) / 10).toLocaleString(vscode.env.language, {
+              maximumFractionDigits: 1,
+            }),
+          ),
+  );
+  const rest = wholeOrg.restObjects;
+  if (rest.length > 0) {
+    const named = rest.slice(0, LISTED_IN_A_QUESTION).join(', ');
+    lines.push(
+      rest.length > LISTED_IN_A_QUESTION
+        ? vscode.l10n.t(
+            'Written by REST rather than in Bulk API jobs, for their size or what a job cannot do: {0}, and {1} more.',
+            named,
+            rest.length - LISTED_IN_A_QUESTION,
+          )
+        : vscode.l10n.t(
+            'Written by REST rather than in Bulk API jobs, for their size or what a job cannot do: {0}.',
+            named,
+          ),
+    );
+  }
+  // Counts as a figure after a colon: no plural to agree with a single file.
+  const { fileStorage } = wholeOrg;
+  if (fileStorage) {
+    lines.push(
+      vscode.l10n.t(
+        'Files: {0}, taking about {1} MB; {2} has {3} MB of file storage left of {4} MB.',
+        fileStorage.files,
+        formatMB(fileStorage.estimateMB),
+        question.org,
+        fileStorage.remainingMB,
+        fileStorage.maxMB,
+      ),
+    );
+    if (fileStorage.near) {
+      lines.push(vscode.l10n.t('That is more than 80% of the file storage left.'));
+    }
+    if (fileStorage.overCeiling > 0) {
+      lines.push(
+        vscode.l10n.t(
+          'Files not copied, larger than the largest file the clone copies: {0}.',
+          fileStorage.overCeiling,
+        ),
+      );
+    }
+  }
+  // A package's triggers and flows run as its records go in: the mute takes
+  // the org's own automation through its bypass, which no package reads.
+  const managed = wholeOrg.managedPackages ?? [];
+  if (managed.length > 0) {
+    const named = managed.slice(0, LISTED_IN_A_QUESTION).join(', ');
+    lines.push(
+      managed.length > LISTED_IN_A_QUESTION
+        ? vscode.l10n.t(
+            'Objects of managed packages, copied as any other, whose package runs its own triggers and flows as they go in, muted or not: {0}, and {1} more.',
+            named,
+            managed.length - LISTED_IN_A_QUESTION,
+          )
+        : vscode.l10n.t(
+            'Objects of managed packages, copied as any other, whose package runs its own triggers and flows as they go in, muted or not: {0}.',
+            named,
+          ),
+    );
+  }
+  if (wholeOrg.contactPointsBlanked !== undefined && wholeOrg.contactPointsBlanked > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Up to {0} phone numbers are written empty: past the 10000 fictional numbers the clone gives, none is left to replace them.',
+        wholeOrg.contactPointsBlanked,
+      ),
+    );
+  }
+  // What a copy of a production org brings with it: said by count and
+  // object, the fields named on Review's personal data tab.
+  const asIs = wholeOrg.personalAsIs ?? [];
+  if (asIs.length > 0) {
+    const fields = asIs.reduce((sum, { fields: named }) => sum + named.length, 0);
+    const objects = asIs
+      .slice(0, LISTED_IN_A_QUESTION)
+      .map(({ objectApiName, fields: named }) => `${objectApiName} (${named.length})`)
+      .join(', ');
+    lines.push(
+      asIs.length > LISTED_IN_A_QUESTION
+        ? vscode.l10n.t(
+            'Personal fields copied as they are, not anonymized, {0} in all, per object: {1}, and {2} more objects.',
+            fields,
+            objects,
+            asIs.length - LISTED_IN_A_QUESTION,
+          )
+        : vscode.l10n.t(
+            'Personal fields copied as they are, not anonymized, {0} in all, per object: {1}.',
+            fields,
+            objects,
+          ),
+    );
+  }
+  // Said whatever the org holds, with no figure: telling how many owners the
+  // target holds inactive would take a read of its users before the question,
+  // and whether the user the run writes as may keep them a read of its
+  // permissions.
+  lines.push(
+    vscode.l10n.t(
+      'Records whose owner is inactive in {0} are written with you as their owner, unless you hold Update Records with Inactive Owners; owners mapped under Review → Controls come first.',
+      question.org,
+    ),
+    vscode.l10n.t('Removing the run from Results takes back every record it created.'),
+  );
+  return lines;
+}
+
 /** What a run's question says of the rows it is about to write, and their storage. */
 function writeQuestion(question: WriteConfirmation): string[] {
+  const { wholeOrg } = question;
   const lines = [
-    question.module === 'autopilot'
+    wholeOrg
       ? vscode.l10n.t(
-          'This Autopilot run is about to write {0} records to {1}:',
-          question.total,
+          'This clone copies all the data of {0} into {1}: {2} objects, {3} records.',
+          wholeOrg.source,
           question.org,
+          question.objects.length,
+          question.total,
         )
-      : question.module === 'seed'
+      : question.module === 'autopilot'
         ? vscode.l10n.t(
-            'This seed is about to write {0} records to {1}:',
+            'This Autopilot run is about to write {0} records to {1}:',
             question.total,
             question.org,
           )
-        : question.module === 'sync'
+        : question.module === 'seed'
           ? vscode.l10n.t(
-              'This sync is about to write {0} records to {1}:',
+              'This seed is about to write {0} records to {1}:',
               question.total,
               question.org,
             )
-          : vscode.l10n.t(
-              'This clone is about to write {0} records to {1}:',
-              question.total,
-              question.org,
-            ),
+          : question.module === 'sync'
+            ? vscode.l10n.t(
+                'This sync is about to write {0} records to {1}:',
+                question.total,
+                question.org,
+              )
+            : vscode.l10n.t(
+                'This clone is about to write {0} records to {1}:',
+                question.total,
+                question.org,
+              ),
   ];
   // Names and counts alone: nothing in them to translate — save, once the
   // case was simulated, what the simulation counted of each object.
@@ -1045,6 +1332,7 @@ function writeQuestion(question: WriteConfirmation): string[] {
       limits: limitsLines(question),
     }),
   );
+  if (wholeOrg) lines.push(...wholeOrgLines(question, wholeOrg));
   // The rows of a call the run resumed had under way when it stopped, which
   // the target may hold already: written only on the user's word.
   for (const { objectApiName, rows } of question.mayBeInTarget ?? []) {
@@ -1198,7 +1486,9 @@ export async function confirmRun(question: RunConfirmation): Promise<boolean> {
           ? vscode.l10n.t('SandForge: confirm this sync')
           : question.stage === 'write' && question.module === 'seed'
             ? vscode.l10n.t('SandForge: confirm this seed')
-            : vscode.l10n.t('SandForge: confirm this clone'),
+            : question.stage === 'write' && question.wholeOrg
+              ? vscode.l10n.t('SandForge: confirm this clone of the whole org')
+              : vscode.l10n.t('SandForge: confirm this clone'),
     { modal: true, detail: runQuestionDetail(question) },
     ...(commands.length > 0 ? [go, copy] : [go]),
   );

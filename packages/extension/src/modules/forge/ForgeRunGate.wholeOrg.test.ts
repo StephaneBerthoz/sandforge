@@ -410,23 +410,51 @@ describe('the files a clone of the whole org copies, against the target’s file
     });
   });
 
-  it('lets through files that fit, and says what the target would not tell', () => {
+  it('lets through files that fit', () => {
     expect(wholeOrgFilesOf({ count: 3, bytes: MB }, told, 'TGT-SB')).toEqual({
       files: { count: 3, check: expect.objectContaining({ verdict: 'fits' }) },
     });
-    expect(
-      wholeOrgFilesOf({ count: 3, bytes: MB }, { maxMB: 1, remainingMB: 1 }, 'TGT-SB').files,
-    ).toMatchObject({
+  });
+
+  // The file copier of every other run refuses files it could not check
+  // against the target's file storage: copied unmeasured, a whole org's
+  // files could fill it part way through, records written and files not.
+  it('refuses files whose fit the target would not tell, as the file copier of any run does', () => {
+    const { files, stop } = wholeOrgFilesOf(
+      { count: 3, bytes: MB },
+      { maxMB: 1, remainingMB: 1 },
+      'TGT-SB',
+    );
+
+    expect(files).toMatchObject({
       check: { verdict: 'unread', unread: 'the limits the org answered list no FileStorageMB' },
+    });
+    expect(stop).toEqual({
+      code: 'FILE_STORAGE_UNREAD',
+      message:
+        'The file storage TGT-SB has left could not be read (the limits the org answered list ' +
+        'no FileStorageMB), so the 3 files to copy could not be checked against it: turn the ' +
+        'copy of files off on Review, or run it again once the org answers. Nothing was written.',
+    });
+    expect(
+      wholeOrgFilesOf({ count: 3, bytes: MB }, { unread: 'REQUEST_LIMIT_EXCEEDED' }, 'TGT-SB').stop
+        ?.code,
+    ).toBe('FILE_STORAGE_UNREAD');
+  });
+
+  it('refuses files the source would neither sum nor list', () => {
+    expect(wholeOrgFilesOf({ unmeasured: true }, told, 'TGT-SB')).toEqual({
+      files: { unmeasured: true },
+      stop: {
+        code: 'FILES_UNREAD',
+        message: expect.stringContaining('The source would neither sum nor list its files'),
+      },
     });
   });
 
-  it('checks nothing for a clone that copies none, and says files the source would not sum', () => {
+  it('checks nothing for a clone that copies none', () => {
     expect(wholeOrgFilesOf(undefined, told, 'TGT-SB')).toEqual({});
     expect(wholeOrgFilesOf({ count: 0, bytes: 0 }, told, 'TGT-SB')).toEqual({});
-    expect(wholeOrgFilesOf({ unmeasured: true }, told, 'TGT-SB')).toEqual({
-      files: { unmeasured: true },
-    });
   });
 });
 
@@ -708,6 +736,8 @@ describe('the dry run of a clone of the whole org, stopped at its gate', () => {
     });
     expect(dry.bulkBatches).toMatchObject({ verdict: 'unread' });
     expect(dry.files).toMatchObject({ check: { verdict: 'unread' } });
-    expect(dry.wouldBeRefused).toEqual([]);
+    // What could not be read refuses nothing, but the files the target's
+    // file storage could not be checked for, as the file copier refuses them.
+    expect(dry.wouldBeRefused.map((stop) => stop.code)).toEqual(['FILE_STORAGE_UNREAD']);
   });
 });

@@ -696,6 +696,17 @@ export interface ForgeLeftOutCount {
   count: number;
 }
 
+/**
+ * A Bulk API job a run closed and could not read back that was still running
+ * — or could not be read at all — when the run gave back the mute of the
+ * target's automation (`ForgeExecutionResult.bulkJobsPastMute`).
+ */
+export interface ForgeBulkJobPastMute {
+  objectApiName: string;
+  /** The id the org gave the job; absent when its close went before the org told it. */
+  jobId?: string;
+}
+
 /** Sample of a record that failed insertion, with the platform errors. */
 export interface ForgeExecutionErrorSample {
   /** Compact key=value summary of up to 4 fields, used for UI display. */
@@ -976,6 +987,14 @@ export interface ForgeUndoResult {
    * Absent when no sweep was asked.
    */
   sweep?: ForgeSweepResult;
+  /**
+   * Set on the removal of a clone of the whole org asked without its sweep,
+   * as it is unless asked: what the target's automation created during the
+   * run's hours, which the run's id map does not hold, was not looked for and
+   * stays in the org. Its sweep looks at 300 objects at most, over a window
+   * as long as the run, and is asked for on its own.
+   */
+  wholeOrgNotSwept?: true;
   /**
    * Of a run cut and taken up, the other parts no removal was asked for yet
    * whose records are of objects among those holding what this removal kept
@@ -1761,6 +1780,14 @@ export interface ForgeExecutionResult {
    */
   mutedAutomation?: MutedAutomation;
   /**
+   * The Bulk API jobs the run closed and lost that the org was still writing,
+   * or whose id it never told, when the run gave back the mute of the
+   * target's automation after waiting for them: what they wrote from then
+   * went in with the flows, triggers and rules the mute kept quiet. Absent
+   * when the run muted nothing, or every such job had ended.
+   */
+  bulkJobsPastMute?: ForgeBulkJobPastMute[];
+  /**
    * Of a clone of the whole org as its entry in the history keeps it, how
    * many objects it left out for each reason: the entry's graph keeps its
    * nodes without their relations and without `leftOut`, which name
@@ -1832,6 +1859,13 @@ export interface ForgeExecutionResult {
    * none, and from runs recorded before it was kept.
    */
   idRemapWithTheirRecord?: string[];
+  /**
+   * Of a run whose ids are in its journal (`remapInJournal`), the records of
+   * `linkedExistingCount` the platform wrote with one the run created and
+   * deletes with it: what `idRemapWithTheirRecord` lists of a run that keeps
+   * its ids, counted. Absent when there were none.
+   */
+  withTheirRecordCount?: number;
   /**
    * Records this run created. The graph's per-node counts are never filled
    * in by a run, so without this the results read zero whatever was written.

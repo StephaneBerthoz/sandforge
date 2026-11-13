@@ -463,6 +463,15 @@ describe('a run whose ids are in its journal', () => {
     expect(forgeRunLinkedKeptCount(inTheJournal())).toBe(2);
   });
 
+  // A person account's contact, an email's task: linked, never written, and
+  // deleted with the record the run created. Counted as kept, a removal's
+  // confirmation said they stayed in the org.
+  it('leaves out of what it keeps, counted, the records that go with one the run created', () => {
+    expect(forgeRunLinkedKeptCount(inTheJournal({ withTheirRecordCount: 2 }))).toBe(0);
+    expect(forgeRunLinkedKeptCount(inTheJournal({ withTheirRecordCount: 1 }))).toBe(1);
+    expect(forgeRemovalPlanOf(inTheJournal({ withTheirRecordCount: 1 }))?.linked).toBe(1);
+  });
+
   it('keeps a plan that names its journal and holds no id, counted as the entry counts it', () => {
     const plan = forgeRemovalPlanOf(inTheJournal());
     expect(plan).toMatchObject({

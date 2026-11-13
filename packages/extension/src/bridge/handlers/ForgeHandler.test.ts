@@ -335,14 +335,16 @@ describe('ForgeHandler', () => {
       expect(errCalls.length).toBeGreaterThanOrEqual(1);
     });
 
-    // No page sends the clone of a whole org: one that arrives in a message is
-    // refused as any mode or depth no page offers, before anything is read.
+    // The clone of a whole org goes with the depth ALL and with nothing that
+    // walks from a root: a mode or a depth of it given with anything else is
+    // refused at the parse, in the words of the rule, before anything is read.
     it.each([
-      ['the whole org', { inputMode: 'org', depth: 'all', recordId: undefined }, 'inputMode'],
-      ['the depth all from a record', { depth: 'all' }, 'depth'],
+      ['the depth all from a record', { depth: 'all' }, "The depth 'all'"],
+      ['the whole org at another depth', { inputMode: 'org', recordId: undefined }, "'org'"],
+      ['the whole org from a record', { inputMode: 'org', depth: 'all' }, 'recordId'],
     ] as const)(
-      'refuses a discovery of %s before anything is read, as a mode or depth no page offers',
-      async (_label, overrides, field) => {
+      'refuses a discovery of %s before anything is read',
+      async (_label, overrides, words) => {
         const msg = buildMsg('forge:discover', { config: createMockConfig(overrides) });
 
         expect(await handler.handle(msg)).toBe(true);
@@ -355,14 +357,32 @@ describe('ForgeHandler', () => {
           )
           .filter((m) => m.type === 'forge:discover:error');
         expect(errors.map((m) => m.payload.code)).toEqual(['INVALID_PAYLOAD']);
-        expect(errors[0].payload.message).toContain(field);
+        expect(errors[0].payload.message).toContain(words);
       },
     );
 
-    it('refuses to run the clone of a whole org a message carries, before anything is written', async () => {
+    it('discovers the whole org a message asks for, with no cap on its objects carried over', async () => {
+      const msg = buildMsg('forge:discover', {
+        config: createMockConfig({
+          inputMode: 'org',
+          depth: 'all',
+          recordId: undefined,
+          maxNodes: 50,
+        }),
+      });
+
+      await handler.handle(msg);
+
+      expect(orchestrator.discover).toHaveBeenCalledTimes(1);
+      const [config, options] = vi.mocked(orchestrator.discover).mock.calls[0];
+      expect(config).toMatchObject({ inputMode: 'org', depth: 'all' });
+      expect(options).not.toHaveProperty('maxNodes');
+    });
+
+    it('refuses to run the depth all from a record a message carries, before anything is written', async () => {
       const msg = buildMsg('forge:execute', {
         graph: createMockGraph(),
-        config: createMockConfig({ inputMode: 'org', depth: 'all', recordId: undefined }),
+        config: createMockConfig({ depth: 'all' }),
       });
 
       expect(await handler.handle(msg)).toBe(true);

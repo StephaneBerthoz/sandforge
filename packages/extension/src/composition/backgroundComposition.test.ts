@@ -718,6 +718,81 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     expect(call[0]).toBe('SandForge: confirm this sync');
   });
 
+  // A copy of a whole org, often a production's, into a sandbox: what it
+  // takes of both orgs and how long, what goes as it is — the automation of
+  // its packages, the phone numbers past the fiction, the personal fields —
+  // said before anything is written, whatever the volume.
+  it('says what a clone of the whole org takes of both orgs, and what it copies as it is', async () => {
+    const wholeOrg: WriteConfirmation = {
+      ...write,
+      counted: true,
+      aboveRecords: undefined,
+      objects: [
+        { objectApiName: 'Big__c', rows: 12_000 },
+        { objectApiName: 'Contact', rows: 300 },
+        { objectApiName: 'ns__Widget__c', rows: 30 },
+      ],
+      total: 12_330,
+      // The target's requests are said in its own lines, near or not.
+      wholeOrg: {
+        source: 'PROD',
+        leftOut: 2,
+        targetApi: { estimate: 40, remaining: 9_000, max: 100_000, near: true },
+        sourceApi: { estimate: 12, unread: 'INSUFFICIENT_ACCESS' },
+        bulk: {
+          jobs: 2,
+          jobRows: 12_000,
+          restRows: 330,
+          batches: { estimate: 2, remaining: 14_000, max: 15_000 },
+        },
+        durationSeconds: 9_000,
+        restObjects: ['Contact', 'ns__Widget__c'],
+        fileStorage: {
+          files: 40,
+          estimateMB: 300,
+          overCeiling: 2,
+          remainingMB: 1_900,
+          maxMB: 2_000,
+        },
+        managedPackages: ['ns__Widget__c'],
+        contactPointsBlanked: 4,
+        personalAsIs: [{ objectApiName: 'Contact', fields: ['Email', 'Phone', 'Birthdate'] }],
+      },
+    };
+
+    expect(runQuestionDetail(wholeOrg).split('\n')).toEqual([
+      'This clone copies all the data of PROD into DEV: 3 objects, 12330 records.',
+      '• Big__c: 12000',
+      '• Contact: 300',
+      '• ns__Widget__c: 30',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
+      'Left out: 2 objects that are empty or unreadable in PROD, missing from DEV, or that the API cannot create or a removal cannot take back there, setup, history, sharing and system objects among them. Review names them.',
+      'API requests of DEV, to write: about 40; it has 9000 of its 100000 daily requests left.',
+      'That would leave DEV with less than a tenth of its daily requests.',
+      'What PROD has left of its daily API requests could not be read (INSUFFICIENT_ACCESS), so whether the reads fit is not known.',
+      'The records go in 2 Bulk API 2.0 jobs carrying 12000 of them, one at a time, parents first; 330 go by REST calls of 200.',
+      'Bulk API batches of DEV: about 2; it has 14000 of its 15000 daily batches left.',
+      'Duration: about 2.5 hours.',
+      'Written by REST rather than in Bulk API jobs, for their size or what a job cannot do: Contact, ns__Widget__c.',
+      'Files: 40, taking about 300 MB; DEV has 1900 MB of file storage left of 2000 MB.',
+      'Files not copied, larger than the largest file the clone copies: 2.',
+      'Objects of managed packages, copied as any other, whose package runs its own triggers and flows as they go in, muted or not: ns__Widget__c.',
+      'Up to 4 phone numbers are written empty: past the 10000 fictional numbers the clone gives, none is left to replace them.',
+      'Personal fields copied as they are, not anonymized, 3 in all, per object: Contact (3).',
+      'Records whose owner is inactive in DEV are written with you as their owner, unless you hold Update Records with Inactive Owners; owners mapped under Review → Controls come first.',
+      'Removing the run from Results takes back every record it created.',
+      'The records have been counted, and nothing has been read or written yet.',
+    ]);
+
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Execute' as never);
+    const { productionGuard } = createBackgroundComposition({
+      configStore: createMockConfigStore(),
+    });
+    await expect(productionGuard.confirmRun(wholeOrg)).resolves.toBe('confirmed');
+    const call = vi.mocked(vscode.window.showWarningMessage).mock.calls[0] as unknown[];
+    expect(call[0]).toBe('SandForge: confirm this clone of the whole org');
+  });
+
   it("names in a Sync run's question what it may write over, and that removing it puts that back", () => {
     expect(
       runQuestionDetail({ ...write, module: 'sync', counted: true, overwrites: 2400 }).split('\n'),

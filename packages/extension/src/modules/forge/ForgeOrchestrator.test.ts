@@ -434,6 +434,61 @@ describe('ForgeOrchestrator', () => {
       });
     });
 
+    // A clone of the whole org reads every row of every object it streams,
+    // in windows of a Bulk API job's worth written as jobs, and holds to the
+    // setting only what it reads whole: the ceiling a run of whole tables
+    // reads each table to would cut every large table of the org short.
+    it('asks a clone of the whole org for everything, in windows of a job, through the Bulk API, its ceiling bounding only what it reads whole', async () => {
+      const told: number[] = [];
+      const ordered = new ForgeOrchestrator({
+        ...deps,
+        setReadOptions: ({ maxRecordsPerObject }) => told.push(maxRecordsPerObject),
+      });
+      const wholeOrg = createMockConfig({
+        inputMode: 'org',
+        depth: 'all',
+        recordId: undefined,
+        // Carried over from a template: no cap bounds a whole org.
+        maxRecordsPerObject: 500,
+      });
+
+      await ordered.execute(createMockGraph(), wholeOrg, { stream: { ceiling: 200_000 } });
+
+      const options = vi.mocked(deps.executor.execute).mock.calls[0][4];
+      expect(options).toMatchObject({
+        writeApi: 'auto',
+        stream: {
+          everything: true,
+          writeWindow: 10_000,
+          secondPassPageSize: 10_000,
+          wholeReadBound: 200_000,
+        },
+      });
+      expect(options?.stream?.ceiling).toBeUndefined();
+      expect(options?.maxRecordsPerObject).toBeUndefined();
+      expect(told).toEqual([200_000, 50_000]);
+    });
+
+    it('never asks any other run to write through the Bulk API, nor to read everything', async () => {
+      await orchestrator.execute(createMockGraph(), createMockConfig(), {
+        stream: { ceiling: 200_000 },
+      });
+      await orchestrator.execute(
+        createMockGraph(),
+        createMockConfig({
+          inputMode: 'soql',
+          recordId: undefined,
+          soqlQuery: 'SELECT Id FROM Account',
+        }),
+        { stream: { ceiling: 200_000 } },
+      );
+
+      for (const [, , , , options] of vi.mocked(deps.executor.execute).mock.calls) {
+        expect(options?.writeApi).toBeUndefined();
+        expect(options?.stream).toEqual({ ceiling: 200_000 });
+      }
+    });
+
     it('leaves out by name the objects unchecked on the page, not those discovery left out, in both input modes', async () => {
       // Unchecked on the page, the prices were skipped as a node discovery
       // left out is: the line items were sent all the same, and the target

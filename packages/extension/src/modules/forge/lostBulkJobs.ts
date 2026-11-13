@@ -27,6 +27,11 @@
  * so those are the run's own.
  */
 
+import type {
+  ForgeBulkJobPastMute,
+  ForgeExecutionError,
+  ForgeExecutionErrorSample,
+} from '@sandforge/shared';
 import { FORGE_BULK_POLL_SCHEDULE, type BulkPollSchedule } from '../../core/engine/bulkJobCost.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 
@@ -165,4 +170,40 @@ export class LostBulkJobs {
     }
     return [...unreadable, ...pending];
   }
+}
+
+/**
+ * What the run's summary says of the jobs still running as its mute was
+ * given back: one note per object, a sample per job, among the run's other
+ * notes — a report at the `scope` stage that counts no failed row, which the
+ * results, the run's status and its audit entry read as a note. The result's
+ * own field (`bulkJobsPastMute`) names them to what reads the run, these to
+ * the user, in the results they already read.
+ */
+export function pastMuteNotes(jobs: readonly ForgeBulkJobPastMute[]): ForgeExecutionError[] {
+  const byObject = new Map<string, ForgeExecutionErrorSample[]>();
+  for (const { objectApiName, jobId } of jobs) {
+    byObject.set(objectApiName, [
+      ...(byObject.get(objectApiName) ?? []),
+      {
+        recordSummary: jobId ? `Bulk API job ${jobId}` : 'Bulk API job (the org gave no id)',
+        messages: [
+          jobId
+            ? 'Still being written by the org when the run gave back the mute of its automation, ' +
+              'after waiting for it: the rows it wrote from then went in with the flows, triggers ' +
+              'and rules the mute kept quiet. Look the job up in the target’s Bulk Data Load Jobs.'
+            : 'Closed before the org gave its id, so it could not be waited for: the rows it wrote ' +
+              'after the run gave back the mute of its automation went in with the flows, ' +
+              'triggers and rules the mute kept quiet.',
+        ],
+      },
+    ]);
+  }
+  return [...byObject].map(([objectApiName, samples]) => ({
+    objectApiName,
+    stage: 'scope',
+    failedCount: 0,
+    attemptedCount: 0,
+    samples,
+  }));
 }

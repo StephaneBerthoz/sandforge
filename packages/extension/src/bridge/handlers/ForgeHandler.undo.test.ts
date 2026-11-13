@@ -342,6 +342,33 @@ describe('forge:undo', () => {
     expect(answer()).not.toHaveProperty('mayHaveBeenWritten');
   });
 
+  // The sweep of a clone of the whole org looks at 300 objects at most over
+  // a window as long as the run, hours of it: asked for on its own, and its
+  // removal without it says what that leaves.
+  it('says the removal of a clone of the whole org asked without its sweep leaves what the automation made', async () => {
+    const wholeOrg = runEntry({
+      config: {
+        inputMode: 'org',
+        depth: 'all',
+        anonymizePII: false,
+        skipEmpty: true,
+        batchSize: 'auto',
+      },
+    });
+    store.set('forge:history', [wholeOrg], 'forge');
+
+    await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+    expect(answer()).toMatchObject({ status: 'success', wholeOrgNotSwept: true });
+    expect(answer()).not.toHaveProperty('sweep');
+  });
+
+  it('says nothing of a sweep not asked for the removal of a run from a record', async () => {
+    await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+    expect(answer()).not.toHaveProperty('wholeOrgNotSwept');
+  });
+
   it('records the removal in the audit trail with what it deleted per object', async () => {
     await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
 
