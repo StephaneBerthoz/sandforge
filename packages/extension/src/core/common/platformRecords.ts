@@ -855,15 +855,25 @@ export async function contactRolesOf(
   return read;
 }
 
+/**
+ * How many seconds after its opportunity the platform's contact role may be
+ * dated: one save, seen to span the turn of a second. A role made by hand
+ * under the copy, four seconds later in a real org, stays apart.
+ */
+const SAVE_SPAN_SECONDS = 1;
+
 /** A date-time the org answers, to the second; NaN for anything else. */
 const secondOf = (value: unknown): number =>
   typeof value === 'string' && value !== '' ? Math.floor(Date.parse(value) / 1000) : Number.NaN;
 
 /**
  * Whether a contact role read with {@link contactRolesSoql} was made with its
- * opportunity: the same second, by the same user. The platform writes its
- * role as it takes the opportunity, in the same save, as the user the run
- * writes as: in a real org, both were dated to the second alike.
+ * opportunity: by the same user, dated the same second or the next. The
+ * platform writes its role as it takes the opportunity, in the same save, as
+ * the user the run writes as. In a real org both were mostly dated to the
+ * second alike, but a save that spans the turn of a second dated the role
+ * one second after its opportunity (10:51:04 and 10:51:05), and the run, not
+ * finding the platform's role, wrote a second one of the same contact.
  *
  * Learnt in a real org. A clone stopped after its opportunity; a role of the
  * same contact, Influencer, was made by hand under the copy four seconds
@@ -879,12 +889,15 @@ export function madeWithItsOpportunity(role: Readonly<Record<string, unknown>>):
   const by = textOf(role, 'CreatedById');
   const itsBy = textOf(made, 'CreatedById');
   const at = secondOf(role['CreatedDate']);
+  const itsAt = secondOf(made['CreatedDate']);
   return (
     by !== undefined &&
     itsBy !== undefined &&
     idKey(by) === idKey(itsBy) &&
     !Number.isNaN(at) &&
-    at === secondOf(made['CreatedDate'])
+    !Number.isNaN(itsAt) &&
+    at - itsAt >= 0 &&
+    at - itsAt <= SAVE_SPAN_SECONDS
   );
 }
 
@@ -946,7 +959,7 @@ export function rolesMadeAlikeWords(count: number, writtenAs = 'read'): string {
   return (
     `${count} contact role(s) not linked to the one the platform wrote with their ` +
     `opportunity, so written as ${writtenAs}: the target holds more than one role of their contact ` +
-    'under it made with it, the same second, by the same user, and nothing tells which the ' +
+    'under it made with it, within a second, by the same user, and nothing tells which the ' +
     'platform wrote. The opportunity holds the role of its contact more than once.'
   );
 }

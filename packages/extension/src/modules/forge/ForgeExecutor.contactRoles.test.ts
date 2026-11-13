@@ -487,7 +487,7 @@ describe('ForgeExecutor, an opportunity sent with its primary contact', () => {
             messages: [
               '1 contact role(s) not linked to the one the platform wrote with their ' +
                 'opportunity, so written as read: the target holds more than one role of their ' +
-                'contact under it made with it, the same second, by the same user, and nothing ' +
+                'contact under it made with it, within a second, by the same user, and nothing ' +
                 'tells which the platform wrote. The opportunity holds the role of its contact ' +
                 'more than once.',
             ],

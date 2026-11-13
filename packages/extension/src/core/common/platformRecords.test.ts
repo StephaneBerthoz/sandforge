@@ -1794,12 +1794,12 @@ describe('the contact role the platform writes with an opportunity', () => {
     expect(rolesMadeAlikeWords(1)).toBe(
       '1 contact role(s) not linked to the one the platform wrote with their opportunity, so ' +
         'written as read: the target holds more than one role of their contact under it made ' +
-        'with it, the same second, by the same user, and nothing tells which the platform ' +
+        'with it, within a second, by the same user, and nothing tells which the platform ' +
         'wrote. The opportunity holds the role of its contact more than once.',
     );
   });
 
-  it('tells a role made with its opportunity by the second and the user the org answers, in either form of a date or an id', () => {
+  it('tells a role made with its opportunity by the user and the second, or the next, the org answers, in either form of a date or an id', () => {
     expect(madeWithItsOpportunity(heldRole('00KTGT000000001AAA', '003TGT000000001AAA'))).toBe(true);
     expect(
       madeWithItsOpportunity({
@@ -1808,10 +1808,27 @@ describe('the contact role the platform writes with an opportunity', () => {
         CreatedById: RUN_USER.slice(0, 15),
       }),
     ).toBe(true);
+    // A save that spans the turn of a second: the role dated the next one, as
+    // a real org dated it (10:51:04 and 10:51:05).
     expect(
       madeWithItsOpportunity(
         heldRole('00KTGT000000001AAA', '003TGT000000001AAA', {
           at: '2026-11-09T11:47:01.000+0000',
+        }),
+      ),
+    ).toBe(true);
+    // Two seconds on, and before the opportunity: no role of the platform's.
+    expect(
+      madeWithItsOpportunity(
+        heldRole('00KTGT000000001AAA', '003TGT000000001AAA', {
+          at: '2026-11-09T11:47:02.000+0000',
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      madeWithItsOpportunity(
+        heldRole('00KTGT000000001AAA', '003TGT000000001AAA', {
+          at: '2026-11-09T11:46:59.000+0000',
         }),
       ),
     ).toBe(false);
