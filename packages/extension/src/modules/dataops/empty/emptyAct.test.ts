@@ -468,6 +468,142 @@ describe('a cancel, and its resume', () => {
   });
 });
 
+describe('a resume the org refuses again', () => {
+  it('ends partial once the org refused all it had left, says what stays and why, and closes the run', async () => {
+    const org = new MemoryEmptyOrg(emptySalesSpecs());
+    // A contact the org will never delete so.
+    org.memory.refuse.set(SALES.contactAlone, 'held for good');
+    const stop = new AbortController();
+    const kept = await previewed(contextOf(org), {
+      mode: 'objects',
+      objects: ['Contact', 'Opportunity'],
+    });
+    org.beforeDelete = (_via, objectApiName) => {
+      if (objectApiName === 'Opportunity') stop.abort();
+    };
+    const first = await runEmptyAct(contextOf(org, { signal: stop.signal }), {
+      confirmed: kept,
+      accord: {},
+    });
+    if (!first.ran) throw new Error(first.refusal.message);
+    expect(first.result.status).toBe('cancelled');
+    org.beforeDelete = undefined;
+
+    const resumed = await runEmptyAct(contextOf(org), {
+      resumeRunId: first.result.runId,
+      accord: {},
+    });
+
+    if (!resumed.ran) throw new Error(resumed.refusal.message);
+    expect(resumed.result.status).toBe('partial');
+    expect(resumed.result.totals).toMatchObject({ deleted: 0, refused: 1 });
+    expect(resumed.result.passes.find((pass) => pass.objectApiName === 'Contact')).toMatchObject({
+      refused: 1,
+      reasons: ['DELETE_FAILED: held for good'],
+    });
+    expect(resumed.result.notes.join(' ')).toContain('the emptying is closed');
+    // No longer open: another emptying of the org may start, and Undo still reaches it.
+    const next = await previewed(contextOf(org), { mode: 'objects', objects: ['Case'] });
+    expect(next.openRun).toBeUndefined();
+    expect(resumed.result.undo).toEqual({ offered: true });
+  });
+});
+
+describe('a person account’s contact', () => {
+  /** An org of person accounts: a business account and its contact, a person account and its own. */
+  function personOrg(): MemoryEmptyOrg {
+    const lookup = (name: string, to: string, relationshipName: string) => ({
+      name,
+      referenceTo: [to],
+      relationshipName,
+    });
+    return new MemoryEmptyOrg([
+      {
+        name: 'Account',
+        fields: [
+          { name: 'IsPersonAccount' },
+          lookup('PersonContactId', 'Contact', 'PersonContact'),
+        ],
+        children: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+        // A checkbox is never empty: the org reads false where it is not set.
+        rows: [
+          { Id: fakeId('001', 1), IsPersonAccount: false },
+          { Id: fakeId('001', 2), IsPersonAccount: true, PersonContactId: fakeId('003', 2) },
+        ],
+      },
+      {
+        name: 'Contact',
+        fields: [lookup('AccountId', 'Account', 'Account'), { name: 'IsPersonAccount' }],
+        rows: [
+          { Id: fakeId('003', 1), AccountId: fakeId('001', 1), IsPersonAccount: false },
+          { Id: fakeId('003', 2), AccountId: fakeId('001', 2), IsPersonAccount: true },
+          { Id: fakeId('003', 3), IsPersonAccount: false },
+        ],
+      },
+    ]);
+  }
+
+  it('never sends one with the contacts emptied alone, which the org refuses, and leaves it with its account', async () => {
+    const org = personOrg();
+    const kept = await previewed(contextOf(org), { mode: 'objects', objects: ['Contact'] });
+
+    expect(kept.preview.passes).toMatchObject([
+      { objectApiName: 'Contact', rows: 'IsPersonAccount = false', records: { records: 2 } },
+    ]);
+    const answer = await runEmptyAct(contextOf(org), { confirmed: kept, accord: {} });
+
+    if (!answer.ran) throw new Error(answer.refusal.message);
+    expect(answer.result.status).toBe('success');
+    expect(org.sent.flatMap((sent) => sent.ids)).not.toContain(fakeId('003', 2));
+    expect(org.live('Contact')).toEqual([fakeId('003', 2)]);
+  });
+
+  it('takes it with its account when the accounts go too', async () => {
+    const org = personOrg();
+    const kept = await previewed(contextOf(org), {
+      mode: 'objects',
+      objects: ['Account', 'Contact'],
+    });
+    const answer = await runEmptyAct(contextOf(org), { confirmed: kept, accord: {} });
+
+    if (!answer.ran) throw new Error(answer.refusal.message);
+    expect(answer.result.status).toBe('success');
+    expect(org.live('Contact')).toEqual([]);
+  });
+});
+
+describe('the requests an emptying sends', () => {
+  it('prices its dry run and its run above what they sent, counted as sent', async () => {
+    for (const request of [
+      ACCOUNTS_AND_CONTACTS,
+      { mode: 'objects', objects: ['Account', 'Case', 'Pricebook2'] } as EmptyScopeRequest,
+      { mode: 'org' } as EmptyScopeRequest,
+    ]) {
+      const org = new MemoryEmptyOrg(emptySalesSpecs());
+      const context = contextOf(org, { requestsSent: () => org.requestsSent() });
+      const answer = await previewEmptyAct(context, { request, deleteMode: 'recycle', accord: {} });
+      if (!answer.previewed) throw new Error(answer.refusal.message);
+      const run = await runEmptyAct(context, {
+        confirmed: answer.kept,
+        accord: {},
+        acceptNoUndo: true,
+      });
+      if (!run.ran) throw new Error(run.refusal.message);
+
+      const sent = (answer.requestsSent ?? 0) + (run.result.requestsSent ?? 0);
+      expect(answer.requestsSent).toBeGreaterThan(0);
+      expect(run.result.requestsSent).toBeGreaterThan(0);
+      expect(sent).toBe(org.requestsSent());
+      expect(answer.kept.preview.cost.apiRequests).toBeGreaterThanOrEqual(sent);
+      // The dry run's own reads are in it, twice: they were more than the deletes.
+      expect(answer.kept.preview.cost.requests).toMatchObject({
+        reads: answer.requestsSent,
+        readings: 2,
+      });
+    }
+  });
+});
+
 describe('checkpoint first, and the jobs the org may still run', () => {
   /** The window's checkpoints, as a test holds them: what each step saw of the org. */
   function checkpointsOf(

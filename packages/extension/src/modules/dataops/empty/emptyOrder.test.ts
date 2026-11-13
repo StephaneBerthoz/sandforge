@@ -282,6 +282,137 @@ describe('where objects point at each other', () => {
   });
 });
 
+/**
+ * An account, its service contracts and entitlements, as a scratch org's
+ * describes list them: an account takes its entitlements along by its
+ * describe (both flags) and its opportunities, tasks and events; a service
+ * contract's account and an entitlement's service contract refuse the delete
+ * of the record they name.
+ */
+function serviceOrg(): EmptyFixtureOrg {
+  return new EmptyFixtureOrg([
+    {
+      name: 'Account',
+      children: [
+        {
+          childSObject: 'Entitlement',
+          field: 'AccountId',
+          cascadeDelete: true,
+          restrictedDelete: true,
+        },
+        { childSObject: 'ServiceContract', field: 'AccountId', restrictedDelete: true },
+        { childSObject: 'Opportunity', field: 'AccountId', cascadeDelete: true },
+        { childSObject: 'Task', field: 'WhatId', cascadeDelete: true },
+        { childSObject: 'Event', field: 'WhatId', cascadeDelete: true },
+      ],
+    },
+    {
+      name: 'ServiceContract',
+      fields: [{ name: 'AccountId', referenceTo: ['Account'], relationshipName: 'Account' }],
+      children: [
+        { childSObject: 'Entitlement', field: 'ServiceContractId', restrictedDelete: true },
+      ],
+    },
+    {
+      name: 'Entitlement',
+      fields: [
+        { name: 'AccountId', referenceTo: ['Account'], relationshipName: 'Account' },
+        {
+          name: 'ServiceContractId',
+          referenceTo: ['ServiceContract'],
+          relationshipName: 'ServiceContract',
+        },
+      ],
+    },
+    {
+      name: 'Opportunity',
+      fields: [{ name: 'AccountId', referenceTo: ['Account'], relationshipName: 'Account' }],
+    },
+    {
+      name: 'Task',
+      fields: [
+        { name: 'WhatId', referenceTo: ['Account', 'Opportunity'], relationshipName: 'What' },
+      ],
+    },
+    {
+      name: 'Event',
+      fields: [
+        { name: 'WhatId', referenceTo: ['Account', 'Opportunity'], relationshipName: 'What' },
+      ],
+    },
+  ]);
+}
+
+const SERVICE = ['Account', 'Entitlement', 'Event', 'Opportunity', 'ServiceContract', 'Task'];
+
+describe('emptyOrderOf, an account’s entitlements', () => {
+  it('deletes entitlements before their account, whose delete the org refuses while one names it, and says the pair', async () => {
+    const { order, affected } = await orderOf(serviceOrg(), SERVICE, SERVICE);
+
+    expect(before(order, 'Entitlement', 'Account')).toBe(true);
+    expect(before(order, 'ServiceContract', 'Account')).toBe(true);
+    expect(order.beforeParent).toContainEqual({
+      objectApiName: 'Entitlement',
+      field: 'AccountId',
+      parent: 'Account',
+      reason: 'restricted',
+    });
+    expect(affected.routes.has('Entitlement')).toBe(false);
+    expect(order.unordered).toEqual([]);
+  });
+
+  it('never says entitlements go along with an account emptied without them: they stand in its way', async () => {
+    const { affected } = await orderOf(serviceOrg(), ['Account'], SERVICE);
+
+    expect(affected.along).toEqual(['Event', 'Opportunity', 'Task']);
+  });
+});
+
+describe('emptyOrderOf, an object left out', () => {
+  // A hub takes deals, tasks and a right along; the right refuses the
+  // delete of its plan, and the plan the hub's. The right left out, its
+  // records go with the hub, so the hub goes before the plan, which goes
+  // before the hub: a cycle of two refused deletes.
+  const objects: FixtureObject[] = [
+    {
+      name: 'Hub__c',
+      children: [
+        { childSObject: 'Alpha_Deal__c', field: 'Hub__c', cascadeDelete: true },
+        { childSObject: 'Beta_Task__c', field: 'Hub__c', cascadeDelete: true },
+        { childSObject: 'Right__c', field: 'Hub__c', cascadeDelete: true },
+        { childSObject: 'Plan__c', field: 'Hub__c', restrictedDelete: true },
+      ],
+    },
+    {
+      name: 'Plan__c',
+      children: [{ childSObject: 'Right__c', field: 'Plan__c', restrictedDelete: true }],
+    },
+    { name: 'Right__c' },
+    { name: 'Alpha_Deal__c' },
+    { name: 'Beta_Task__c' },
+  ];
+  const names = objects.map((object) => object.name);
+
+  it('keeps every other object after the parent that takes it along: only the two of the cycle give way', async () => {
+    const emptied = names.filter((name) => name !== 'Right__c');
+    const { order } = await orderOf(new EmptyFixtureOrg(objects), emptied, names);
+
+    expect(before(order, 'Hub__c', 'Alpha_Deal__c')).toBe(true);
+    expect(before(order, 'Hub__c', 'Beta_Task__c')).toBe(true);
+    expect(order.unordered.every((constraint) => constraint.reason === 'restricted')).toBe(true);
+    expect(order.unordered).toHaveLength(1);
+    const deal = order.passes.find((pass) => pass.objectApiName === 'Alpha_Deal__c');
+    expect(deal?.sentBeforeTheirParent).toEqual([]);
+  });
+
+  it('orders the deals and tasks after the hub with the right emptied too, as without it', async () => {
+    const { order } = await orderOf(new EmptyFixtureOrg(objects), names, names);
+
+    expect(before(order, 'Hub__c', 'Alpha_Deal__c')).toBe(true);
+    expect(before(order, 'Hub__c', 'Beta_Task__c')).toBe(true);
+  });
+});
+
 describe('orderConstraintsOf', () => {
   it('says no constraint of an object nothing deletes: a portal user’s contact blocks, it does not order', async () => {
     const org = salesOrg();

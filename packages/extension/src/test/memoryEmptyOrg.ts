@@ -93,6 +93,12 @@ export class MemoryEmptyOrg implements EmptyOrg {
   readonly waitedFor: LostBulkJob[][] = [];
   /** Called before each delete, a job's or a call's: what a test stops a run from. */
   beforeDelete?: (via: SentDelete['via'], objectApiName: string) => void;
+  /**
+   * The requests sent it, each call as the org counts one: a query and each
+   * page after it, a describe, a write of up to 200 records, a SOAP call, a
+   * job by the calls it answers it took.
+   */
+  private requests = 0;
   private readonly specs: FixtureObject[];
   private readonly options: MemoryEmptyOrgOptions;
   private clock: number;
@@ -193,49 +199,65 @@ export class MemoryEmptyOrg implements EmptyOrg {
     }
   }
 
+  /** Every request sent it so far: see {@link requests}. */
+  requestsSent(): number {
+    return this.requests;
+  }
+
   describe(objectApiName: string): Promise<unknown> {
+    this.requests++;
     return this.fixture.describe(objectApiName);
   }
 
   async count(soql: string): Promise<number> {
+    this.requests++;
     this.sync();
     return this.fixture.count(soql);
   }
 
   async countAll(soql: string): Promise<number> {
+    this.requests++;
     this.sync();
     return this.fixture.countAll(soql);
   }
 
   async query(soql: string, options?: { scanAll?: boolean }): Promise<EmptyQueryPage> {
+    this.requests++;
     return this.memory.query(soql, options);
   }
 
   async queryMore(nextRecordsUrl: string): Promise<EmptyQueryPage> {
+    this.requests++;
     return this.memory.queryMore(nextRecordsUrl);
   }
 
   queryDeleted(soql: string): Promise<{ records: unknown[] }> {
+    this.requests++;
     return this.memory.queryDeleted(soql);
   }
 
   async describeGlobal(): Promise<unknown> {
+    this.requests++;
     return { sobjects: this.fixture.global() };
   }
 
   async toolingObjects(): Promise<string[]> {
+    this.requests++;
     return this.options.tooling ?? ['ApexClass'];
   }
 
   async serverTime(): Promise<string> {
+    this.requests++;
     return new Date(this.nowMs).toISOString();
   }
 
   async userId(): Promise<string> {
+    this.requests++;
     return MEMORY_ORG_USER;
   }
 
   async limits(): Promise<unknown> {
+    this.requests++;
     return (
       this.options.limits ?? {
         DailyApiRequests: { Max: 100_000, Remaining: 99_000 },
@@ -246,10 +268,12 @@ export class MemoryEmptyOrg implements EmptyOrg {
   }
 
   update(objectApiName: string, records: Array<Record<string, unknown>>): Promise<unknown> {
+    this.requests += Math.max(1, Math.ceil(records.length / 200));
     return this.memory.update(objectApiName, records);
   }
 
   async destroy(objectApiName: string, ids: string[]): Promise<unknown> {
+    this.requests++;
     this.beforeDelete?.('rest', objectApiName);
     this.sent.push({ via: 'rest', objectApiName, ids: [...ids] });
     return this.memory.destroy(objectApiName, ids);
@@ -276,6 +300,7 @@ export class MemoryEmptyOrg implements EmptyOrg {
         if (rows[at].success) this.memory.hardDelete(objectApiName, id);
       });
     }
+    this.requests += 7;
     return { kind: 'answered', rows, requests: 7 };
   }
 
@@ -285,6 +310,7 @@ export class MemoryEmptyOrg implements EmptyOrg {
 
   async bulkHardDestroy(objectApiName: string, ids: readonly string[]): Promise<BulkDeleteAnswer> {
     if (!this.hardDeletePermitted) {
+      this.requests++;
       this.sent.push({ via: 'hardDelete', objectApiName, ids: [] });
       return {
         kind: 'untouched',
@@ -297,6 +323,7 @@ export class MemoryEmptyOrg implements EmptyOrg {
   }
 
   undelete(ids: string[]): Promise<unknown> {
+    this.requests++;
     return this.memory.undelete(ids);
   }
 

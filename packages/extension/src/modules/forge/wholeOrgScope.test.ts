@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { forgeLeftOutReasonSchema, type ForgeLeftOutObject } from '@sandforge/shared';
 import type { GlobalObject } from '../checkpoint/checkpointScope.js';
 import type { CreateFacts } from './targetCreators.js';
-import { wholeOrgCandidates, wholeOrgScope } from './wholeOrgScope.js';
+import { isConfiguration, wholeOrgCandidates, wholeOrgScope } from './wholeOrgScope.js';
 
 /** An object the user may query, create, edit and delete, with a page layout. */
 function writable(name: string, extra: Partial<GlobalObject> = {}): GlobalObject {
@@ -481,5 +481,92 @@ describe('wholeOrgScope', () => {
 
     expect(scope.candidates).toEqual(['Account']);
     expect(scope.leftOut).toEqual([{ objectApiName: 'Case', reason: 'excludedByUser' }]);
+  });
+});
+
+/**
+ * The objects of configuration an emptying of a scratch org's whole would
+ * have deleted, with the flags its global describe gives them, and data
+ * beside them flagged as they are there.
+ */
+const SCRATCH_ORG_CONFIGURATION: GlobalObject[] = [
+  writable('FlowRecord', { createable: false, undeletable: false }),
+  writable('FlowRecordVersion', { createable: false, updateable: false, undeletable: false }),
+  writable('FlowOrchestration', { createable: false, undeletable: false }),
+  writable('FlowInterview', { createable: false, updateable: false, undeletable: false }),
+  writable('AsyncOperationLog', { createable: false, updateable: false, undeletable: true }),
+  writable('FieldServiceMobileSettings', { undeletable: false }),
+  writable('WorkBadgeDefinition', { undeletable: true }),
+  writable('ContentWorkspace', { undeletable: false }),
+];
+
+const SCRATCH_ORG_DATA: GlobalObject[] = [
+  writable('Account', { undeletable: true }),
+  writable('WorkBadge', { undeletable: true }),
+  writable('WorkPlanTemplate', { undeletable: true }),
+  // Flagged as a library of files is: not undeleted on its own. A price is
+  // data, which a clone copies: the flag tells no configuration.
+  writable('PricebookEntry', { undeletable: false }),
+  writable('OpportunityLineItem', { undeletable: false }),
+  writable('Imported__c', { createable: false, updateable: false }),
+  writable('acme__Settings__c'),
+];
+
+/** The three a clone of a scratch org's whole copied, which the target held its own of. */
+const CLONED_CONFIGURATION = [
+  'ContentWorkspace',
+  'FieldServiceMobileSettings',
+  'WorkBadgeDefinition',
+];
+
+describe('wholeOrgScope, the org’s configuration', () => {
+  it('leaves out of an emptying the flows, orchestrations, settings and definitions an org keeps as records, by their describe and their names', () => {
+    const scope = wholeOrgScope([...SCRATCH_ORG_CONFIGURATION, ...SCRATCH_ORG_DATA], [], 'empty');
+
+    expect(scope.leftOut).toEqual(
+      [...SCRATCH_ORG_CONFIGURATION]
+        .map((object) => ({ objectApiName: object.name, reason: 'configuration' }))
+        .sort((a, b) => (a.objectApiName < b.objectApiName ? -1 : 1)),
+    );
+    // An org's own object and a package's are data, whatever their flags or names.
+    expect(scope.candidates).toEqual([
+      'Account',
+      'Imported__c',
+      'OpportunityLineItem',
+      'PricebookEntry',
+      'WorkBadge',
+      'WorkPlanTemplate',
+      'acme__Settings__c',
+    ]);
+    for (const name of CLONED_CONFIGURATION) {
+      expect(scope.leftOut).toContainEqual({ objectApiName: name, reason: 'configuration' });
+    }
+  });
+
+  it('leaves out of a clone the badge definitions, settings and libraries it would write over the target’s, said as setup, as an emptying leaves them', () => {
+    const org = [...SCRATCH_ORG_CONFIGURATION, ...SCRATCH_ORG_DATA];
+    const clone = wholeOrgCandidates(org, org, []);
+    const scope = wholeOrgScope(org, [], 'clone');
+
+    for (const name of CLONED_CONFIGURATION) {
+      expect(outOf(clone, name)).toEqual({ objectApiName: name, reason: 'setup' });
+      expect(scope.leftOut).toContainEqual({ objectApiName: name, reason: 'configuration' });
+    }
+    // Prices and lines, which no undelete brings back on their own either,
+    // are data a clone copies.
+    expect(clone.candidates).toEqual([
+      'Account',
+      'OpportunityLineItem',
+      'PricebookEntry',
+      'WorkBadge',
+      'WorkPlanTemplate',
+      'acme__Settings__c',
+    ]);
+  });
+
+  it('reads a file as a file, though the data API creates none either', () => {
+    expect(
+      isConfiguration(writable('ContentDocument', { createable: false, updateable: false })),
+    ).toBe(false);
   });
 });

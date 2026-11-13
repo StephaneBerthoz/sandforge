@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { deletedForGood, emptyCostOf, passDeletesOf, RECORDS_PER_BULK_BATCH } from './emptyCost';
+import {
+  deletedForGood,
+  emptyCostOf,
+  passDeletesOf,
+  pricedWithReads,
+  RECORDS_PER_BULK_BATCH,
+} from './emptyCost';
 
 describe('passDeletesOf', () => {
   it('sends an object’s records to the recycle bin over REST, 200 a call, below 10,000', () => {
@@ -54,7 +60,7 @@ describe('passDeletesOf', () => {
 });
 
 describe('emptyCostOf', () => {
-  it('counts the fixed requests, the describes, each pass’s pages of ids, its calls and its jobs, each job by the calls it sends', () => {
+  it('counts a read of the org twice, the dry run’s and its run’s, then each pass’s pages of ids, its count of what was made since, its calls and its jobs, each job by the calls it sends', () => {
     const cost = emptyCostOf({
       mode: 'recycle',
       passes: [
@@ -63,22 +69,60 @@ describe('emptyCostOf', () => {
       ],
       toDraft: 0,
       deleted: 12_004,
+      reads: 40,
     });
 
-    // 3 fixed, 1 call of describes; Account: 1 page, 1 call; Contact: 6
-    // pages, one job of 12,000 — opened, sent, closed, its state read 9
-    // times over its 40 seconds, its results read 3 ways.
-    expect(cost.apiRequests).toBe(3 + 1 + 1 + 1 + 6 + 15);
-    expect(cost.seconds).toBeCloseTo(3 * 0.35 + 2.5 + 1 + 0.86 + 6 + 40, 5);
+    // 40 reads twice; Account: 1 page, 1 count, 1 call; Contact: 6 pages, 1
+    // count, one job of 12,000 — opened, sent, closed, its state read 9
+    // times over its 40 seconds, its results read 3 ways. Then 5% for what
+    // the org's answers make vary, rounded up.
+    const counted = 2 * 40 + (1 + 1 + 1) + (6 + 1 + 15);
+    expect(cost.apiRequests).toBe(counted + Math.ceil(counted * 0.05));
+    expect(cost.requests).toEqual({ reads: 40, readings: 2, passes: 3 + 22, margin: 6 });
+    // The run's time: its own read of the org, and its passes.
+    expect(cost.seconds).toBeCloseTo(40 * 0.35 + (1 + 0.35 + 0.86) + (6 + 0.35 + 40), 5);
     expect(cost.bulkBatches).toBe(2);
     expect(cost.binRecords).toBe(12_004);
   });
 
-  it('prices setting orders back to Draft: their statuses, their pages, their updates', () => {
-    const without = emptyCostOf({ mode: 'recycle', passes: [], toDraft: 0, deleted: 0 });
-    const withOrders = emptyCostOf({ mode: 'recycle', passes: [], toDraft: 2_001, deleted: 0 });
+  it('says more than the deletes alone: a dry run of 10,207 contacts read 153 requests, where the deletes priced 25', () => {
+    const base = {
+      mode: 'recycle' as const,
+      passes: [{ objectApiName: 'Contact', records: 10_207 }],
+      toDraft: 0,
+      deleted: 10_207,
+    };
+    const deletesAlone = emptyCostOf({ ...base, reads: 0 });
+    const read = emptyCostOf({ ...base, reads: 153 });
 
-    expect(withOrders.apiRequests - without.apiRequests).toBe(1 + 2 + 11);
+    expect(deletesAlone.apiRequests).toBeLessThan(153);
+    expect(read.apiRequests).toBeGreaterThanOrEqual(2 * 153 + deletesAlone.apiRequests);
+  });
+
+  it('prices setting orders back to Draft: their statuses, their pages, their updates; and the read of those going along', () => {
+    const base = { mode: 'recycle' as const, passes: [], deleted: 0, reads: 0 };
+    const without = emptyCostOf({ ...base, toDraft: 0 });
+    const withOrders = emptyCostOf({ ...base, toDraft: 2_001 });
+    const along = emptyCostOf({ ...base, toDraft: 2_001, draftReads: 1 });
+
+    // Statuses, 2 pages, 11 updates, and 11 reads back once the passes are through.
+    expect(withOrders.requests.passes - without.requests.passes).toBe(1 + 2 + 11 + 11);
+    expect(along.requests.passes - withOrders.requests.passes).toBe(1);
+  });
+
+  it('prices what the org refuses at first, sent again and read back once the rest has gone, 200 a call each', () => {
+    const base = {
+      mode: 'recycle' as const,
+      passes: [{ objectApiName: 'Account', records: 7 }],
+      toDraft: 0,
+      deleted: 7,
+      reads: 0,
+    };
+
+    expect(
+      emptyCostOf({ ...base, refused: [1, 201] }).requests.passes -
+        emptyCostOf(base).requests.passes,
+    ).toBe(2 * 1 + 2 * 2);
   });
 
   it('deleting for good costs a job, its wait and a batch per object, and puts nothing in the recycle bin', () => {
@@ -86,8 +130,8 @@ describe('emptyCostOf', () => {
       { objectApiName: 'Account', records: 4 },
       { objectApiName: 'Contact', records: 6 },
     ];
-    const recycle = emptyCostOf({ mode: 'recycle', passes, toDraft: 0, deleted: 10 });
-    const hard = emptyCostOf({ mode: 'hard', passes, toDraft: 0, deleted: 10 });
+    const recycle = emptyCostOf({ mode: 'recycle', passes, toDraft: 0, deleted: 10, reads: 0 });
+    const hard = emptyCostOf({ mode: 'hard', passes, toDraft: 0, deleted: 10, reads: 0 });
 
     expect(recycle.bulkBatches).toBe(0);
     expect(hard.bulkBatches).toBe(2);
@@ -99,23 +143,24 @@ describe('emptyCostOf', () => {
   });
 
   it('prices nothing of a file asked to be deleted for good, which is not sent', () => {
-    const without = emptyCostOf({ mode: 'hard', passes: [], toDraft: 0, deleted: 0 });
+    const without = emptyCostOf({ mode: 'hard', passes: [], toDraft: 0, deleted: 0, reads: 0 });
     const files = emptyCostOf({
       mode: 'hard',
       passes: [{ objectApiName: 'ContentDocument', records: 30 }],
       toDraft: 0,
       deleted: 30,
+      reads: 0,
     });
 
-    // The one call of describes is the pass's; nothing else is sent for it.
-    expect(files.apiRequests - without.apiRequests).toBe(1);
+    // Nothing is sent for it, its ids not even read.
+    expect(files.apiRequests).toBe(without.apiRequests);
     expect(files.binRecords).toBe(0);
     expect(files.passes[0].notSent).toBe(true);
   });
 
   it('weighs the requests against what the org has left today, and says when it did not say', () => {
     const passes = [{ objectApiName: 'Contact', records: 2_000 }];
-    const base = { mode: 'recycle' as const, passes, toDraft: 0, deleted: 2_000 };
+    const base = { mode: 'recycle' as const, passes, toDraft: 0, deleted: 2_000, reads: 0 };
 
     expect(emptyCostOf({ ...base, apiBudget: { max: 15_000, remaining: 10 } }).api.verdict).toBe(
       'exceeds',
@@ -138,12 +183,14 @@ describe('emptyCostOf', () => {
       passes: [{ objectApiName: 'Contact', records: 10 }],
       toDraft: 0,
       deleted: 10,
+      reads: 0,
     });
     const jobs = emptyCostOf({
       mode: 'recycle',
       passes: [{ objectApiName: 'Contact', records: 30_000 }],
       toDraft: 0,
       deleted: 30_000,
+      reads: 0,
       bulkBatches: { max: 15_000, remaining: 2 },
     });
     const untold = emptyCostOf({
@@ -151,6 +198,7 @@ describe('emptyCostOf', () => {
       passes: [{ objectApiName: 'Contact', records: 10 }],
       toDraft: 0,
       deleted: 10,
+      reads: 0,
     });
 
     expect(rest.batches).toBeUndefined();
@@ -164,6 +212,7 @@ describe('emptyCostOf', () => {
       mode: 'recycle' as const,
       passes: [{ objectApiName: 'Contact', records: 200 }],
       toDraft: 0,
+      reads: 0,
     };
 
     expect(emptyCostOf({ ...base, deleted: 126, dataStorageMB: 5 }).bin).toEqual({
@@ -172,5 +221,44 @@ describe('emptyCostOf', () => {
     });
     expect(emptyCostOf({ ...base, deleted: 125, dataStorageMB: 5 }).bin?.past).toBe(false);
     expect(emptyCostOf({ ...base, deleted: 125 }).bin).toBeUndefined();
+  });
+});
+
+describe('pricedWithReads', () => {
+  const cost = emptyCostOf({
+    mode: 'recycle',
+    passes: [{ objectApiName: 'Contact', records: 400 }],
+    toDraft: 0,
+    deleted: 400,
+    reads: 30,
+    apiBudget: { max: 15_000, remaining: 14_000 },
+  });
+
+  it('prices a dry run on the reads it sent as counted, its own and its run’s', () => {
+    const priced = pricedWithReads(cost, 153, 2);
+    const counted = 2 * 153 + cost.requests.passes;
+
+    expect(priced.apiRequests).toBe(counted + Math.ceil(counted * 0.05));
+    expect(priced.requests).toEqual({
+      reads: 153,
+      readings: 2,
+      passes: cost.requests.passes,
+      margin: Math.ceil(counted * 0.05),
+    });
+    expect(priced.api).toMatchObject({ verdict: 'fits', estimate: priced.apiRequests });
+    expect(priced.seconds - cost.seconds).toBeCloseTo((153 - 30) * 0.35, 5);
+  });
+
+  it('holds a run to its own read alone, the dry run’s spent, against what the org had left', () => {
+    const run = pricedWithReads(cost, 153, 1);
+    const tight = pricedWithReads(
+      { ...cost, api: { verdict: 'fits', estimate: 0, max: 15_000, remaining: 155 } },
+      153,
+      1,
+    );
+
+    expect(run.requests).toMatchObject({ reads: 153, readings: 1 });
+    expect(run.apiRequests).toBeLessThan(pricedWithReads(cost, 153, 2).apiRequests - 140);
+    expect(tight.api.verdict).toBe('exceeds');
   });
 });

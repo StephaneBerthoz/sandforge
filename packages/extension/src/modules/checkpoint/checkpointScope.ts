@@ -63,6 +63,8 @@ export const globalObjectSchema = z
     createable: z.boolean().optional(),
     updateable: z.boolean().optional(),
     deletable: z.boolean().optional(),
+    /** Whether a record deleted on its own comes back from the recycle bin. */
+    undeletable: z.boolean().optional(),
     customSetting: z.boolean().optional(),
     layoutable: z.boolean().optional(),
     /** The first three characters of its records' ids: what tells the object a link names. */
@@ -554,9 +556,17 @@ const CHILD_FIRST: RelationshipPlacing = () => ({ first: 'child', firmness: 0 })
  *
  * Read from the child relationships each object's describe lists. `placing`
  * may say otherwise of a relationship — its parent first, or nothing — and how
- * firmly: where objects point at each other, the constraints of the lowest
- * firmness give way first, and the order given decides only once none is left
- * to give way.
+ * firmly: where objects point at each other, the constraints among them of
+ * the lowest firmness give way first, and the order given decides only once
+ * none is left to give way.
+ *
+ * Only the constraints of the objects that point at each other give way: an
+ * object that waits for one of them without being on the cycle keeps its
+ * place after it. Placed instead as the first object free once the firmer
+ * constraints alone were read, an emptying's opportunities, tasks and events
+ * went before the account whose delete takes them along — a cycle between
+ * the account and a service contract left nothing free — and their undo
+ * could no longer bring them back.
  */
 export function childrenFirst(
   names: readonly string[],
@@ -579,42 +589,140 @@ export function childrenFirst(
       }
     }
   });
-  /** Per object, by firmness, how many objects not yet placed must go before it. */
-  const waiting = names.map(() => new Map<number, number>());
-  const firmnesses = new Set<number>();
-  for (const before of goesBefore) {
-    for (const [then, firmness] of before) {
-      waiting[then].set(firmness, (waiting[then].get(firmness) ?? 0) + 1);
-      firmnesses.add(firmness);
+  return placedInOrder(
+    names.map((_, at) => at),
+    goesBefore,
+    Number.NEGATIVE_INFINITY,
+  ).map((at) => names[at]);
+}
+
+/**
+ * `nodes`, places in the order given, in an order that keeps every
+ * constraint among them firmer than `above`: each object after those it
+ * waits for, the free one placed first in the order given. Objects that wait
+ * for each other, a cycle, go as a whole where the constraints from and to
+ * the rest place them, and are ordered among themselves the same way once
+ * their constraints of the lowest firmness have given way.
+ */
+function placedInOrder(
+  nodes: readonly number[],
+  goesBefore: ReadonlyArray<ReadonlyMap<number, number>>,
+  above: number,
+): number[] {
+  const within = new Set(nodes);
+  const after = (node: number): number[] =>
+    [...goesBefore[node]]
+      .filter(([then, firmness]) => within.has(then) && firmness > above)
+      .map(([then]) => then);
+  const cycles = tiedTogether(nodes, after, goesBefore.length);
+  const cycleOf = new Map<number, number>();
+  cycles.forEach((members, at) => {
+    for (const member of members) cycleOf.set(member, at);
+  });
+  /** Per cycle, how many others not yet placed go before it, and those it goes before. */
+  const waiting = cycles.map(() => 0);
+  const goesOn = cycles.map(() => new Set<number>());
+  for (const node of nodes) {
+    const from = cycleOf.get(node) ?? 0;
+    for (const then of after(node)) {
+      const to = cycleOf.get(then) ?? 0;
+      if (to === from || goesOn[from].has(to)) continue;
+      goesOn[from].add(to);
+      waiting[to]++;
     }
   }
-  const floors = [...firmnesses].sort((a, b) => a - b);
-  const free = (at: number, floor: number): boolean =>
-    [...waiting[at]].every(([firmness, count]) => count === 0 || firmness < floor);
-  const placed = names.map(() => false);
-  const ordered: string[] = [];
-  while (ordered.length < names.length) {
+  const placed = cycles.map(() => false);
+  const ordered: number[] = [];
+  for (let left = cycles.length; left > 0; left--) {
+    // A graph of cycles has none: one of them is always free. An object on
+    // no cycle goes before a cycle, as a removal breaks one only once
+    // nothing else is free (`removalOrder`).
     let next = -1;
-    let first = -1;
-    for (const floor of floors.length > 0 ? floors : [0]) {
-      for (let at = 0; at < names.length; at++) {
-        if (placed[at]) continue;
-        if (first < 0) first = at;
-        if (free(at, floor)) {
-          next = at;
-          break;
+    for (let at = 0; at < cycles.length; at++) {
+      if (placed[at] || waiting[at] > 0) continue;
+      const alone = cycles[at].length === 1;
+      const nextAlone = next >= 0 && cycles[next].length === 1;
+      if (
+        next < 0 ||
+        (alone && !nextAlone) ||
+        (alone === nextAlone && cycles[at][0] < cycles[next][0])
+      ) {
+        next = at;
+      }
+    }
+    placed[next] = true;
+    const members = cycles[next];
+    if (members.length === 1) {
+      ordered.push(members[0]);
+    } else {
+      let lowest = Number.POSITIVE_INFINITY;
+      for (const member of members) {
+        for (const [then, firmness] of goesBefore[member]) {
+          if (firmness > above && cycleOf.get(then) === next && firmness < lowest) {
+            lowest = firmness;
+          }
         }
       }
-      if (next >= 0) break;
+      ordered.push(...placedInOrder(members, goesBefore, lowest));
     }
-    if (next < 0) next = first;
-    placed[next] = true;
-    ordered.push(names[next]);
-    for (const [then, firmness] of goesBefore[next]) {
-      waiting[then].set(firmness, (waiting[then].get(firmness) ?? 0) - 1);
-    }
+    for (const to of goesOn[next]) waiting[to]--;
   }
   return ordered;
+}
+
+/**
+ * The objects of `nodes` that wait for each other, each group in the order
+ * given, every object in one group: Tarjan's strongly connected components,
+ * walked without recursion, as an org of two thousand objects would go
+ * deeper than a stack.
+ *
+ * @param size - Every place a node may hold, from 0.
+ */
+function tiedTogether(
+  nodes: readonly number[],
+  after: (node: number) => number[],
+  size: number,
+): number[][] {
+  const seenAt = new Array<number>(size).fill(-1);
+  const lowest = new Array<number>(size).fill(0);
+  const stacked = new Array<boolean>(size).fill(false);
+  const stack: number[] = [];
+  const groups: number[][] = [];
+  let counter = 0;
+  for (const root of nodes) {
+    if (seenAt[root] >= 0) continue;
+    const walk: Array<{ node: number; edges: number[]; at: number }> = [];
+    const open = (node: number): void => {
+      seenAt[node] = counter;
+      lowest[node] = counter;
+      counter++;
+      stack.push(node);
+      stacked[node] = true;
+      walk.push({ node, edges: after(node), at: 0 });
+    };
+    open(root);
+    while (walk.length > 0) {
+      const top = walk[walk.length - 1];
+      if (top.at < top.edges.length) {
+        const then = top.edges[top.at++];
+        if (seenAt[then] < 0) open(then);
+        else if (stacked[then]) lowest[top.node] = Math.min(lowest[top.node], seenAt[then]);
+        continue;
+      }
+      walk.pop();
+      const below = walk[walk.length - 1];
+      if (below) lowest[below.node] = Math.min(lowest[below.node], lowest[top.node]);
+      if (lowest[top.node] !== seenAt[top.node]) continue;
+      const group: number[] = [];
+      for (let member = stack.pop(); member !== undefined; member = stack.pop()) {
+        stacked[member] = false;
+        group.push(member);
+        if (member === top.node) break;
+      }
+      groups.push(group.sort((a, b) => a - b));
+    }
+  }
+  return groups;
 }
 
 /** {@link CheckpointScope.packages} of `objects`, by package name. */

@@ -121,6 +121,7 @@ const headSchema = z.object({
       customSettings: z.boolean().optional(),
       files: z.boolean().optional(),
       managedPackages: z.boolean().optional(),
+      unrestorable: z.boolean().optional(),
     })
     .strict(),
   passes: z.array(
@@ -130,6 +131,12 @@ const headSchema = z.object({
       records: z.number().int().nonnegative().optional(),
       /** Of them, those its own pass sends: what its deletes go by, a job or calls. */
       sent: z.number().int().nonnegative().optional(),
+      /**
+       * The condition its pass reads its records by, leaving out what it never
+       * sends — the standard price book, a person account's contact; absent
+       * when it sends every record it finds.
+       */
+      rows: z.string().max(200).optional(),
     }),
   ),
   /** Of the objects going along, those whose records past Draft are set back to Draft first. */

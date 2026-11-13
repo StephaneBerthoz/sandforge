@@ -101,6 +101,7 @@ import {
   type EmptyJournalStore,
 } from './emptyJournal.js';
 import type { EmptyOrg } from './emptyOrg.js';
+import { pricedWithReads } from './emptyCost.js';
 import { previewEmpty, type EmptyPreview } from './emptyPreview.js';
 import { emptyPasses } from './emptyRun.js';
 import type { EmptyScopeRequest } from './emptyScope.js';
@@ -151,6 +152,12 @@ export interface EmptyActContext {
   operationId: string;
   /** Whether the panel or a command line runs it. */
   tool: 'panel' | 'cli';
+  /**
+   * Every request the act has sent the org so far, through each connection
+   * it reads and deletes through, counted as sent; absent where nothing
+   * counts them. A dry run's estimate holds its reads as counted.
+   */
+  requestsSent?: () => number;
   signal?: AbortSignal;
   onProgress?: (percentage: number, step: string) => void;
   /** This machine's clock. */
@@ -183,6 +190,8 @@ export type EmptyPreviewAnswer =
       automation: DataOpsAutomationAnswer;
       /** What the run would meet now, as asked: the first stops it. */
       refusals: DataOpsEmptyRefusal[];
+      /** The requests the dry run sent the org, as counted; absent where nothing counts them. */
+      requestsSent?: number;
     }
   | { previewed: false; refusal: DataOpsEmptyRefusal };
 
@@ -384,6 +393,18 @@ function openRunRefusal(orgName: string, runId: string): DataOpsEmptyRefusal {
   };
 }
 
+/** What an entry of what no undo brings back is, in a few words. */
+export function undoLostWords(entry: EmptyPreview['undoLost'][number]): string {
+  switch (entry.reason) {
+    case 'standardPrices':
+      return `standard prices with ${entry.parent ?? 'their product'}`;
+    case 'notRestorable':
+      return `${entry.objectApiName}, which Salesforce does not bring back`;
+    default:
+      return `${entry.objectApiName} before ${entry.parent ?? 'their parent'}`;
+  }
+}
+
 /** The refusal of records no undo would bring back, not accepted. */
 function noUndoRefusal(preview: EmptyPreview): DataOpsEmptyRefusal | undefined {
   if (preview.deleteMode !== 'recycle') return undefined;
@@ -392,14 +413,21 @@ function noUndoRefusal(preview: EmptyPreview): DataOpsEmptyRefusal | undefined {
   );
   if (lost.length === 0) return undefined;
   const records = lost.reduce((sum, entry) => sum + (entry.records.records ?? 0), 0);
-  const named = [...new Set(lost.map((entry) => `${entry.objectApiName} before ${entry.parent}`))];
+  const named = [...new Set(lost.map(undoLostWords))];
+  const before = lost.some(
+    (entry) => entry.reason === 'restricted' || entry.reason === 'unordered',
+  );
   return {
     code: 'NO_UNDO',
     message:
-      `${records.toLocaleString('en-US')} record(s) go before a record they name, as Salesforce ` +
-      `requires (${named.slice(0, 5).join(', ')}${named.length > 5 ? ', …' : ''}): once both have ` +
-      'gone, Undo cannot bring them back. Accept it to empty all the same, or leave those objects ' +
-      `out. ${NOTHING_DELETED}`,
+      `${records.toLocaleString('en-US')} record(s) would stay gone after Undo ` +
+      `(${named.slice(0, 5).join(', ')}${named.length > 5 ? ', …' : ''})` +
+      (before
+        ? ': some go before a record they name, as Salesforce requires, and once both have ' +
+          'gone, Undo cannot bring them back'
+        : '') +
+      '. Accept it to empty all the same, or leave those objects out. ' +
+      NOTHING_DELETED,
   };
 }
 
@@ -475,7 +503,11 @@ export function changedSince(confirmed: EmptyPreview, fresh: EmptyPreview): stri
     const lostOf = (preview: EmptyPreview): number =>
       preview.undoLost.reduce((sum, entry) => sum + (entry.records.records ?? 0), 0);
     const pairs = (preview: EmptyPreview): Set<string> =>
-      new Set(preview.undoLost.map((entry) => `${entry.objectApiName}.${entry.field}`));
+      new Set(
+        preview.undoLost.map(
+          (entry) => `${entry.objectApiName}.${entry.field ?? ''}.${entry.reason}`,
+        ),
+      );
     const before = pairs(confirmed);
     const added = [...pairs(fresh)].filter((pair) => !before.has(pair));
     if (added.length > 0 || lostOf(fresh) > lostOf(confirmed)) {
@@ -522,6 +554,7 @@ export async function previewEmptyAct(
   ask: EmptyPreviewAsk,
 ): Promise<EmptyPreviewAnswer> {
   const { org, orgName } = context;
+  const sentBefore = context.requestsSent?.() ?? 0;
   const conn = guardConnectionOf(org);
   const guard = await guardEmpty(conn, {
     orgName,
@@ -529,7 +562,7 @@ export async function previewEmptyAct(
     mode: ask.request.mode,
   });
   if (!guard.allowed) return { previewed: false, refusal: guard.refusal };
-  const read = await readTheOrg(context, ask.request, ask.deleteMode);
+  const firstRead = await readTheOrg(context, ask.request, ask.deleteMode);
   const answer = await readDataOpsAct({
     act: 'cleanup',
     target: orgName,
@@ -538,15 +571,20 @@ export async function previewEmptyAct(
     mayMute: true,
     ...(context.muteLeases ? { muteLeases: context.muteLeases } : {}),
     ...(context.voice ? { voice: context.voice } : {}),
-    ...writesAsked(read.preview),
+    ...writesAsked(firstRead.preview),
   });
   const open = await openRunOf(context.store, guard.org.id);
   const checkpoint =
     ask.checkpointFirst === true && context.checkpoints
-      ? await context.checkpoints.scope(checkpointAsk(context, read.preview, answer.answer), {
+      ? await context.checkpoints.scope(checkpointAsk(context, firstRead.preview, answer.answer), {
           operationId: context.operationId,
         })
       : undefined;
+  // Its reads as they went, where they are counted: the run reads the org so
+  // again before its first delete, and the estimate holds both.
+  const requestsSent =
+    context.requestsSent !== undefined ? context.requestsSent() - sentBefore : undefined;
+  const read = pricedRead(firstRead, requestsSent, 2);
   const kept: EmptyKeptPreview = {
     previewId: newPreviewId(context.now?.() ?? new Date()),
     readAt: read.readAt,
@@ -574,7 +612,27 @@ export async function previewEmptyAct(
     ...(checkpoint ? { checkpoint } : {}),
     ...(open ? { open: open.runId } : {}),
   });
-  return { previewed: true, kept, automation: answer.answer, refusals };
+  return {
+    previewed: true,
+    kept,
+    automation: answer.answer,
+    refusals,
+    ...(requestsSent !== undefined ? { requestsSent } : {}),
+  };
+}
+
+/**
+ * `read` with its estimate priced on the requests its read took, as counted
+ * (`pricedWithReads`), else as its describes and counts add up; holding
+ * `readings` reads of the org: a dry run's own and its run's, or a run's
+ * alone.
+ */
+function pricedRead(read: OrgRead, sent: number | undefined, readings: 1 | 2): OrgRead {
+  const reads = sent ?? read.preview.cost.requests.reads;
+  return {
+    ...read,
+    preview: { ...read.preview, cost: pricedWithReads(read.preview.cost, reads, readings) },
+  };
 }
 
 /** A preview's id: `ep-` and the time, then four random characters. */
@@ -679,7 +737,7 @@ async function gateRefusals(
     });
   }
   if (options.deleteMode === 'hard' && !read.permissions.hardDelete) {
-    refusals.push(hardDeleteRefusal(context.username, read.permissions));
+    refusals.push(hardDeleteRefusal(read.permissions));
   }
   const people = peopleActiveRefusal(context.orgName, read.people);
   if (people) refusals.push(people);
@@ -719,6 +777,7 @@ function journalRequestOf(request: EmptyScopeRequest): EmptyJournalHead['request
     ...(request.customSettings !== undefined ? { customSettings: request.customSettings } : {}),
     ...(request.files !== undefined ? { files: request.files } : {}),
     ...(request.managedPackages !== undefined ? { managedPackages: request.managedPackages } : {}),
+    ...(request.unrestorable !== undefined ? { unrestorable: request.unrestorable } : {}),
   };
 }
 
@@ -751,6 +810,7 @@ export async function runEmptyAct(
   if (!ask.confirmed && ask.resumeRunId === undefined) {
     throw new Error('An emptying acts on a preview it was confirmed on, or takes up a run.');
   }
+  const sentBefore = context.requestsSent?.() ?? 0;
   const conn = guardConnectionOf(org);
   const guard = await guardEmpty(conn, {
     orgName,
@@ -844,6 +904,13 @@ export async function runEmptyAct(
         });
       }
     }
+    // Held to what the org has left now, the dry run's reads spent: its own
+    // read of the org as it went, and its passes.
+    read = pricedRead(
+      read,
+      context.requestsSent !== undefined ? context.requestsSent() - sentBefore : undefined,
+      1,
+    );
     refusals.push(
       ...(await gateRefusals(context, organizationId, read, {
         deleteMode,
@@ -859,7 +926,7 @@ export async function runEmptyAct(
     const head = (resumed as EmptyJournal).head;
     const permissions = await emptyPermissionsOf(conn);
     if (deleteMode === 'hard' && !permissions.hardDelete) {
-      refusals.push(hardDeleteRefusal(context.username, permissions));
+      refusals.push(hardDeleteRefusal(permissions));
     }
     const writing = await context.runWriting?.(organizationId);
     if (writing !== undefined) refusals.push({ code: 'RUN_WRITING', message: writing });
@@ -1009,6 +1076,7 @@ export async function runEmptyAct(
           objectApiName: pass.objectApiName,
           ...(pass.records.records !== undefined ? { records: pass.records.records } : {}),
           ...(pass.sent.records !== undefined ? { sent: pass.sent.records } : {}),
+          ...(pass.rows !== undefined ? { rows: pass.rows } : {}),
         })),
         toDraftAlong: (going as EmptyPreview).toDraftAlong,
         beforeParent: (going as EmptyPreview).beforeParent,
@@ -1086,6 +1154,9 @@ export async function runEmptyAct(
       ...(mutedAutomation ? { mutedAutomation } : {}),
       ...(info ? { checkpoint: info } : {}),
       ...(removedRuns.length > 0 ? { removedRuns } : {}),
+      ...(context.requestsSent !== undefined
+        ? { requestsSent: context.requestsSent() - sentBefore }
+        : {}),
       startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),
     };
@@ -1104,6 +1175,7 @@ export async function undoEmptyAct(
 ): Promise<EmptyUndoAnswer> {
   const { org, orgName } = context;
   const now = context.now ?? (() => new Date());
+  const sentBefore = context.requestsSent?.() ?? 0;
   const conn = guardConnectionOf(org);
   // An undo deletes nothing: a sandbox marked Staging may be given back what
   // its emptying took, objects or whole org alike.
@@ -1215,6 +1287,9 @@ export async function undoEmptyAct(
             : []),
         ],
         ...(mutedAutomation ? { mutedAutomation } : {}),
+        ...(context.requestsSent !== undefined
+          ? { requestsSent: context.requestsSent() - sentBefore }
+          : {}),
         finishedAt: finishedAt.toISOString(),
       },
     };

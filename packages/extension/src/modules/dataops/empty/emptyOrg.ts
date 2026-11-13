@@ -22,6 +22,7 @@ import {
   deletionOrg,
   type BulkDeleteAnswer,
 } from '../../../core/removal/deleteRecords.js';
+import { countRequests } from '../../../core/precheck/orgKindLive.js';
 import { LostBulkJobs, type LostBulkJob } from '../../forge/lostBulkJobs.js';
 import type { EmptyPreviewOrg } from './emptyPreview.js';
 
@@ -66,6 +67,8 @@ export interface EmptyOrg extends EmptyPreviewOrg {
   lostJobs?(): readonly LostBulkJob[];
   /** Of `jobs`, those the org still runs once waited for, at most ten minutes. */
   stillRunning?(jobs: readonly LostBulkJob[]): Promise<LostBulkJob[]>;
+  /** Every request sent the org through this one so far, counted as sent. */
+  requestsSent?(): number;
 }
 
 /**
@@ -117,6 +120,9 @@ function trackedBulk(conn: Connection): {
  * @param context - Names the work in the API-usage warnings.
  */
 export function emptyOrgOf(conn: Connection, orgId: string, context: string): EmptyOrg {
+  // Counted from the first call, through the connection itself: what else
+  // reads through it — the guard, the emails' limits — is counted with it.
+  const requestsSent = countRequests(conn);
   const deletion = deletionOrg(conn, context);
   const tracked = trackedBulk(conn);
   const lost: LostBulkJob[] = [];
@@ -175,5 +181,6 @@ export function emptyOrgOf(conn: Connection, orgId: string, context: string): Em
     undelete: (ids) => conn.soap.undelete(ids),
     lostJobs: () => [...lost],
     stillRunning: (jobs) => waits.stillRunning(jobs),
+    requestsSent,
   };
 }

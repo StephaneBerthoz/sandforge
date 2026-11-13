@@ -19,9 +19,10 @@ import type { ApiBudget } from '../../forge/ForgeRunGate.js';
 import type { GlobalObject } from '../../checkpoint/checkpointScope.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import type { DeleteMode } from '../../../core/removal/deleteRecords.js';
+import { setBackToDraftOf } from '../../../core/removal/recordsToDraft.js';
 import { inPool } from '../RecordRemoval.js';
 import { countEmpty, type Counted, type EmptyCountOrg, type EmptyCounts } from './emptyCounts.js';
-import { deletedForGood, emptyCostOf, type EmptyCost } from './emptyCost.js';
+import { deletedForGood, EMPTY_FIXED_READS, emptyCostOf, type EmptyCost } from './emptyCost.js';
 import { emptyOrderOf, type BeforeParent, type OrderConstraint } from './emptyOrder.js';
 import {
   affectedBy,
@@ -70,6 +71,8 @@ export interface EmptyPreviewInput {
 /** One pass of the dry run, in the order the run takes them. */
 export interface EmptyPreviewPass {
   objectApiName: string;
+  /** The condition its pass reads its records by (`passRowsOf`): absent when it sends every row. */
+  rows?: string;
   /** Its records the emptying deletes, every pass together. */
   records: Counted;
   /** Of them, those its own pass sends. */
@@ -225,15 +228,40 @@ export async function previewEmpty(
   const activated = counts.refusals
     .filter((refusal) => refusal.code === 'activatedOrder')
     .reduce((sum, refusal) => sum + (numberOf(refusal.records) ?? 0), 0);
+  const toDraftAlong = order.toDraft
+    .filter((name) => !affected.emptied.has(name))
+    .map((objectApiName) => {
+      const condition = anyRouteCondition(affected.routes.get(objectApiName) ?? [], describes);
+      return { objectApiName, ...(condition ? { condition: condition.soql } : {}) };
+    });
+  // A read of the org as this one: its fixed reads, a describe each, a count
+  // each, and for each object whose records go, a read of who else changed
+  // them and, for a user without View All Data and Modify All Data, its
+  // describe again. Where its requests are counted as sent, the count stands
+  // in for it (`pricedWithReads`).
+  const holds = (counted: Counted): boolean => counted.records === undefined || counted.records > 0;
+  const going =
+    counts.objects.filter((object) => holds(object.records)).length +
+    counts.along.filter((object) => holds(object.records)).length;
+  const reads = EMPTY_FIXED_READS + describes.size + errors.size + counts.statements + 2 * going;
 
   const cost = emptyCostOf({
     mode: input.deleteMode,
     passes: counts.objects.map((object) => ({
       objectApiName: object.objectApiName,
-      records: numberOf(object.sent) ?? 0,
+      // An order's ids are read before the first delete, to set those past
+      // Draft back to it: its pass sends every one, those its account took
+      // along answered gone.
+      records:
+        numberOf(
+          setBackToDraftOf([object.objectApiName]).length > 0 ? object.records : object.sent,
+        ) ?? 0,
     })),
     toDraft: activated,
     deleted: deletedRecords,
+    reads,
+    draftReads: toDraftAlong.filter((along) => along.condition !== undefined).length,
+    refused: counts.blockers.map((blocker) => numberOf(blocker.records) ?? 0),
     ...(input.apiBudget ? { apiBudget: input.apiBudget } : {}),
     ...(input.bulkBatches ? { bulkBatches: input.bulkBatches } : {}),
     ...(input.dataStorageMB === undefined ? {} : { dataStorageMB: input.dataStorageMB }),
@@ -252,12 +280,7 @@ export async function previewEmpty(
     undoLost: counts.undoLost,
     undo: input.deleteMode === 'recycle',
     affected: [...affected.emptied, ...affected.along].sort(),
-    toDraftAlong: order.toDraft
-      .filter((name) => !affected.emptied.has(name))
-      .map((objectApiName) => {
-        const condition = anyRouteCondition(affected.routes.get(objectApiName) ?? [], describes);
-        return { objectApiName, ...(condition ? { condition: condition.soql } : {}) };
-      }),
+    toDraftAlong,
     cost,
     total: { records: deletedRecords, objects: counted.length, uncounted },
     statements: counts.statements,

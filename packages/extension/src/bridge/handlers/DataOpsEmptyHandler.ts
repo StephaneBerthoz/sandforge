@@ -32,6 +32,7 @@ import {
 } from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
+import { countRequests } from '../../core/precheck/orgKindLive.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -171,7 +172,6 @@ export class DataOpsEmptyHandler implements DomainHandler {
   /** The acts under way, by their operation id: what a cancel stops. */
   private readonly running = new Map<string, AbortController>();
   private targetAutomation?: Pick<TargetAutomationReader, 'read'>;
-  private reader?: Promise<TargetAutomationReader>;
   private muteLeases: MuteLeaseOptions = {};
   private checkpoints?: Pick<BeforeRunCheckpoints, 'scope' | 'take' | 'settle'>;
   private runWriting?: EmptyRunWriting;
@@ -240,16 +240,24 @@ export class DataOpsEmptyHandler implements DomainHandler {
     }
   }
 
-  private ownReader(): Promise<TargetAutomationReader> {
-    this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
-      ({ TargetAutomationReader, targetAutomationQueries }) =>
-        new TargetAutomationReader(
-          targetAutomationQueries((orgId) =>
-            getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
-          ),
-        ),
+  /**
+   * The reader of what the org runs, for one act: each connection it opens
+   * counted from its first request (`counted`), so that what the act sent the
+   * org — its estimate held to it, its `requestsSent` — has the automation's
+   * reads too.
+   */
+  private async countingReader(
+    counted: (conn: Connection) => void,
+  ): Promise<TargetAutomationReader> {
+    const { TargetAutomationReader, targetAutomationQueries } =
+      await import('../../modules/forge/TargetAutomationReader.js');
+    return new TargetAutomationReader(
+      targetAutomationQueries(async (orgId) => {
+        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+        counted(conn);
+        return conn;
+      }),
     );
-    return this.reader;
   }
 
   private ownStores(): EmptyStores {
@@ -281,12 +289,26 @@ export class DataOpsEmptyHandler implements DomainHandler {
     const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
     const orgName = registered?.alias || registered?.username || orgId;
     const stores = this.ownStores();
-    const reader = (): Promise<Pick<TargetAutomationReader, 'read'>> =>
-      this.targetAutomation ? Promise.resolve(this.targetAutomation) : this.ownReader();
+    const org = this.orgOf(conn, orgId);
+    // The automation's reads go through connections of their own: counted
+    // each, for this act alone.
+    const readerCounts: Array<() => number> = [];
+    let ownReader: Promise<TargetAutomationReader> | undefined;
+    const reader = (): Promise<Pick<TargetAutomationReader, 'read'>> => {
+      if (this.targetAutomation) return Promise.resolve(this.targetAutomation);
+      ownReader ??= this.countingReader((opened) => readerCounts.push(countRequests(opened)));
+      return ownReader;
+    };
     const voice = dataOpsVoiceOf(asked);
     const writing = this.runWriting?.(orgId, orgName, operationId);
     return {
-      org: this.orgOf(conn, orgId),
+      org,
+      ...(org.requestsSent
+        ? {
+            requestsSent: () =>
+              (org.requestsSent?.() ?? 0) + readerCounts.reduce((sum, sent) => sum + sent(), 0),
+          }
+        : {}),
       orgId,
       orgName,
       username: registered?.username ?? orgName,
@@ -438,6 +460,7 @@ export class DataOpsEmptyHandler implements DomainHandler {
         ...keptForPage(answer.kept),
         automation: answer.automation,
         refusals: answer.refusals,
+        ...(answer.requestsSent !== undefined ? { requestsSent: answer.requestsSent } : {}),
       });
     } catch (err: unknown) {
       this.fail(msg, err, 'EMPTY_PREVIEW_ERROR');

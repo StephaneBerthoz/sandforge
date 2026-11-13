@@ -21,6 +21,15 @@
  * integration's endpoint, a switch an admin flipped — and a clone of a
  * production writes no endpoint of its into a sandbox unasked.
  *
+ * Nor does either act take the org's configuration kept as records of
+ * standard objects ({@link isConfiguration}), which a checkpoint holds for
+ * a rewind to set back: the emptying of a scratch org would have deleted its
+ * 90 flows (`FlowRecord`), their versions, its orchestrations, the settings
+ * of its Field Service app and its badge definitions — four of the five
+ * objects of a kind whose records no undelete brings back — and a clone
+ * writes the settings and badge definitions of its source over the
+ * target's.
+ *
  * What a clone adds to the rule ({@link wholeOrgCandidates}):
  *
  * - files are not objects of their own: a file, its versions, its links to
@@ -74,10 +83,66 @@ export interface WholeOrgScopeOptions {
   customSettings?: Readonly<CheckpointCustomSettings>;
 }
 
+/** Why an act on the whole org leaves an object out: the checkpoint's reasons, and configuration. */
+export type WholeOrgLeftOutReason = CandidateLeftOutReason | 'configuration';
+
+/** What an act on the whole org covers of an org, and what it leaves out with why. */
+export interface WholeOrgScope extends Omit<ScopeCandidates, 'leftOut'> {
+  leftOut: Array<{ objectApiName: string; reason: WholeOrgLeftOutReason; detail?: string }>;
+}
+
+/** The ends of the names of standard objects that hold configuration: a setup's settings, a definition. */
+const CONFIGURATION_SUFFIXES: readonly string[] = ['settings', 'definition'];
+
+/**
+ * The configuration neither the describe nor the name tells, in lower case:
+ * the libraries of files (`ContentWorkspace`), an asset library among them,
+ * which the org makes itself. Its flags read as a price's — created, edited,
+ * deleted, not undeleted, neither searched nor triggered — and a clone of a
+ * whole org wrote one, refused for the org's own prefix: "INVALID_INPUT:
+ * $sfdc_asset_ DeveloperName prefix is reserved".
+ */
+const CONFIGURATION_OBJECTS: ReadonlySet<string> = new Set(['contentworkspace']);
+
+/**
+ * Whether `object` holds the org's configuration rather than people's
+ * records, as its global describe says it, of a standard object alone — an
+ * org's own object, and a package's, is data:
+ *
+ * - the data API creates none of its records, Setup, a builder or Salesforce
+ *   making them: a flow (`FlowRecord`) and its versions, an orchestration,
+ *   an operation's log. A file is not one: the data API creates none either,
+ *   and it is a file;
+ * - or its name says it is a setup's settings or a definition: the settings
+ *   of the Field Service app (`FieldServiceMobileSettings`), which the data
+ *   API creates, and the definitions badges are given from
+ *   (`WorkBadgeDefinition`), whose every flag reads as data's;
+ * - or it is one of the few the two do not tell ({@link CONFIGURATION_OBJECTS}).
+ *
+ * A rule rather than a list where the describe allows it: the five such
+ * objects of a scratch org's emptying were each read by one of the first
+ * two, and of the three a clone of a whole org copied, two. A clone wrote
+ * the twelve standard badge definitions again beside the target's own, and
+ * the org refused the Field Service settings (`DUPLICATE_VALUE`) and the
+ * asset library.
+ */
+export function isConfiguration(object: GlobalObject): boolean {
+  if (object.name.includes('__')) return false;
+  const name = object.name.toLowerCase();
+  if (CONFIGURATION_OBJECTS.has(name)) return true;
+  if (CONFIGURATION_SUFFIXES.some((suffix) => name.endsWith(suffix))) return true;
+  return object.createable === false && name !== FILE_OBJECT.toLowerCase();
+}
+
+/** Names in code-unit order, so that the same org gives the same list on any machine. */
+function byObjectName<T extends { objectApiName: string }>(a: T, b: T): number {
+  return a.objectApiName < b.objectApiName ? -1 : a.objectApiName > b.objectApiName ? 1 : 0;
+}
+
 /**
  * The objects of `org` an act on the whole org covers, and those it leaves
  * out with why, sorted by name: the checkpoint's rule, asked what the act
- * asks of the user.
+ * asks of the user, less the org's configuration ({@link isConfiguration}).
  *
  * @param org - The org's global describe: the target of a clone, the org an emptying empties.
  * @param tooling - The names the org's Tooling API serves; none when it could not say.
@@ -87,8 +152,8 @@ export function wholeOrgScope(
   tooling: readonly string[],
   act: WholeOrgAct,
   options: WholeOrgScopeOptions = {},
-): ScopeCandidates {
-  return scopeCandidates(
+): WholeOrgScope {
+  const scope = scopeCandidates(
     org,
     {
       mode: 'everything',
@@ -98,6 +163,23 @@ export function wholeOrgScope(
     },
     tooling,
   );
+  const byName = new Map(org.map((object) => [object.name.toLowerCase(), object]));
+  const candidates: string[] = [];
+  const configuration: WholeOrgScope['leftOut'] = [];
+  for (const name of scope.candidates) {
+    const object = byName.get(name.toLowerCase());
+    if (object !== undefined && isConfiguration(object)) {
+      configuration.push({ objectApiName: name, reason: 'configuration' });
+    } else {
+      candidates.push(name);
+    }
+  }
+  if (configuration.length === 0) return scope;
+  return {
+    ...scope,
+    candidates,
+    leftOut: [...scope.leftOut, ...configuration].sort(byObjectName),
+  };
 }
 
 /**
@@ -128,11 +210,15 @@ const NO_LAYOUT = 'noLayout';
  * A file's version or link is copied with its file, and so with the records
  * the file hangs on. An object picked and not found, which a whole org never
  * picks, and a custom setting named that the target holds none of, are
- * objects the target lacks. The rule's own word for why is never put in
- * `detail`, which holds a word the page translates or the org's own words.
+ * objects the target lacks. The org's configuration is setup, as Review
+ * already words what no copy writes. The rule's own word for why is never
+ * put in `detail`, which holds a word the page translates or the org's own
+ * words.
  */
-function reasonOf(reason: CandidateLeftOutReason): { reason: ForgeLeftOutReason; detail?: string } {
+function reasonOf(reason: WholeOrgLeftOutReason): { reason: ForgeLeftOutReason; detail?: string } {
   switch (reason) {
+    case 'configuration':
+      return { reason: 'setup' };
     case 'chatter':
     case 'history':
     case 'sharing':

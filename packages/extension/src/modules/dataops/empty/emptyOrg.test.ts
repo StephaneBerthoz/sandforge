@@ -44,6 +44,7 @@ function connectionLosingItsJob(): { conn: Connection; states: string[] } {
         throw new Error('INSUFFICIENT_ACCESS');
       }),
     },
+    request: vi.fn(async () => ({ DailyApiRequests: { Max: 15_000, Remaining: 14_000 } })),
     limitInfo: {},
   } as unknown as Connection;
   return { conn, states };
@@ -82,5 +83,16 @@ describe('emptyOrgOf', () => {
     expect(await org.count('SELECT COUNT() FROM Task')).toBe(5);
     expect(await org.countAll('SELECT COUNT() FROM Task')).toBe(7);
     expect(await org.toolingObjects()).toEqual([]);
+  });
+
+  it('counts the requests sent through its connection, from its first, whatever sends them', async () => {
+    const { conn } = connectionLosingItsJob();
+    const org = emptyOrgOf(conn, 'org-1', 'test');
+
+    expect(org.requestsSent?.()).toBe(0);
+    await org.limits();
+    await conn.request('/sobjects');
+
+    expect(org.requestsSent?.()).toBe(2);
   });
 });

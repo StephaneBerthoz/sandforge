@@ -14,9 +14,10 @@
  * writes (`excludedObjects.ts`) and what the org gives no page layout —
  * Chatter, history, sharing and change events, big, external and Data Cloud
  * objects, Knowledge versions and platform events, the records Salesforce
- * alone creates, and what the Tooling API serves.
+ * alone creates, what the Tooling API serves, and the org's configuration
+ * kept as records: its flows, orchestrations, settings and definitions.
  *
- * Three kinds of object are emptied only when asked, in either mode — a pick
+ * Four kinds of object are emptied only when asked, in either mode — a pick
  * asks for its object:
  *
  * - custom settings, which are configuration: an integration's endpoint, a
@@ -26,7 +27,12 @@
  *   An attachment still goes with the record it hangs from, said as what
  *   goes along;
  * - the objects of managed packages, whose records a package's own
- *   configuration may live in.
+ *   configuration may live in;
+ * - the objects whose records no undelete brings back on their own, as the
+ *   global describe says (`undeletable: false`): a price, an opportunity's
+ *   product, a contact's role. What they hold under a record emptied still
+ *   goes along with it, and comes back with it; sent on their own, by a pass
+ *   of theirs, they would be beyond any undo, which the preview then says.
  *
  * The standard price book is never deleted, whatever is asked: every price
  * of every product hangs from it, and a copy matches it rather than makes it
@@ -38,10 +44,9 @@ import {
   ATTACHMENT_OBJECT,
   FILE_OBJECT,
   namespaceOf,
-  type CandidateLeftOutReason,
   type GlobalObject,
 } from '../../checkpoint/checkpointScope.js';
-import { wholeOrgScope } from '../../forge/wholeOrgScope.js';
+import { wholeOrgScope, type WholeOrgLeftOutReason } from '../../forge/wholeOrgScope.js';
 import type { EmptyDescribe } from './emptyRelations.js';
 
 /** The objects picked, or every object people work in. */
@@ -60,6 +65,11 @@ export interface EmptyScopeRequest {
   files?: boolean;
   /** In `org` mode, whether the objects of managed packages are emptied: not unless asked. */
   managedPackages?: boolean;
+  /**
+   * In `org` mode, whether the objects whose records no undelete brings back
+   * are emptied by passes of their own: not unless asked.
+   */
+  unrestorable?: boolean;
 }
 
 /** Why an emptying leaves an object out. */
@@ -94,6 +104,10 @@ export type EmptyLeftOutReason =
   | 'platformCreated'
   /** Metadata, which the Tooling API serves. */
   | 'metadata'
+  /** The org's configuration kept as records: its flows, orchestrations, settings and definitions. */
+  | 'configuration'
+  /** Its records cannot come back from the recycle bin on their own, not asked for. */
+  | 'notRestorable'
   /** The user may not query or delete its records. */
   | 'notDeletable'
   /** Its describe could not be read. */
@@ -136,8 +150,9 @@ export type WholeOrgScopeRule = (
  * `files` here is what a person opts into; an object the user may not write
  * there is, asked what emptying asks, one they may not query or delete.
  */
-function reasonOf(reason: CandidateLeftOutReason): EmptyLeftOutReason {
+function reasonOf(reason: WholeOrgLeftOutReason): EmptyLeftOutReason {
   switch (reason) {
+    case 'configuration':
     case 'excludedByUser':
     case 'notFound':
     case 'chatter':
@@ -217,6 +232,7 @@ function notAskedReason(
   if (namespaceOf(object.name) !== undefined && request.managedPackages !== true) {
     return 'managedPackage';
   }
+  if (object.undeletable === false && request.unrestorable !== true) return 'notRestorable';
   return undefined;
 }
 
@@ -226,10 +242,11 @@ function notAskedReason(
  *
  * In `objects` mode, each object picked is emptied when the rule holds it,
  * and left out with the rule's reason otherwise: a pick is the person's
- * opt-in to a custom setting, a file or a package's object, never to a feed
- * or to setup. In `org` mode, every object the rule holds is emptied but
- * those left out by name and those of the three kinds not asked for, and
- * every object of the org is either emptied or left out with why.
+ * opt-in to a custom setting, a file, a package's object or one whose records
+ * no undelete brings back, never to a feed, to setup or to configuration. In
+ * `org` mode, every object the rule holds is emptied but those left out by
+ * name and those of the four kinds not asked for, and every object of the
+ * org is either emptied or left out with why.
  *
  * @param tooling - The names the org's Tooling API serves; none when it could not say.
  * @param rule - The whole-org rule read: see {@link WholeOrgScopeRule}.

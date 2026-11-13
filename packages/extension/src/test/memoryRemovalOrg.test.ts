@@ -1096,8 +1096,7 @@ describe('MemoryRemovalOrg', () => {
 
       const refusal = {
         statusCode: 'INVALID_PERSON_ACCOUNT_OPERATION',
-        message:
-          "You can't create or delete a person contact on its own: delete or modify the account instead.",
+        message: 'cannot reference person contact',
       };
       expect(alone).toEqual([{ success: false, errors: [refusal] }]);
       expect(contactAlone).toEqual([

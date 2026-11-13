@@ -10,11 +10,13 @@ import {
   keptRowsOf,
   MOST_ROUTES,
   namesDeletedCondition,
+  REFUSING_CASCADES,
   relationKindOf,
   relationsOf,
   stepsCondition,
   type EmptyDescribe,
 } from './emptyRelations';
+import { setBackToDraftOf } from '../../../core/removal/recordsToDraft';
 
 /** The describes `org` gives of `names`, those it refuses left out. */
 async function describesOf(
@@ -64,6 +66,40 @@ describe('relationKindOf', () => {
     expect(relationKindOf({ cascadeDelete: true })).toBe('cascade');
     expect(relationKindOf({ restrictedDelete: true })).toBe('restricted');
     expect(relationKindOf({})).toBe('lookup');
+  });
+
+  it('reads an entitlement’s account as a lookup that refuses the delete, flagged both ways as it is: the org refused the account while one lived', () => {
+    const entitlement = {
+      childSObject: 'Entitlement',
+      field: 'AccountId',
+      cascadeDelete: true,
+      restrictedDelete: true,
+    };
+
+    expect(relationKindOf(entitlement, 'Account')).toBe('restricted');
+    expect(relationKindOf({ ...entitlement, childSObject: 'entitlement' }, 'account')).toBe(
+      'restricted',
+    );
+    // An order's account, flagged the same way, takes its orders along once
+    // they are back to Draft; a price's product takes its standard prices.
+    expect(relationKindOf({ ...entitlement, childSObject: 'Order' }, 'Account')).toBe('cascade');
+    expect(
+      relationKindOf(
+        { ...entitlement, childSObject: 'PricebookEntry', field: 'Product2Id' },
+        'Product2',
+      ),
+    ).toBe('cascade');
+  });
+
+  it('meets every refusal of its table a way of its own: what is refused whatever goes first, an order past Draft is set back to Draft', () => {
+    expect(
+      REFUSING_CASCADES.filter((entry) => entry.refused === 'always').map((entry) => entry.child),
+    ).toEqual(['Entitlement']);
+    const drafted = REFUSING_CASCADES.filter((entry) => entry.refused === 'pastDraft').map(
+      (entry) => entry.child,
+    );
+    expect(drafted).toEqual(['Order']);
+    expect(setBackToDraftOf(drafted)).toEqual(drafted);
   });
 });
 
@@ -252,16 +288,92 @@ describe('the conditions of a count', () => {
     ).toEqual({ soql: "Who.Type = 'Contact'", exact: false });
   });
 
-  it('reads a lookup to the price book as one to a price book it deletes: the standard one is kept', async () => {
+  it('reads a lookup to the price book as one to a price book it deletes, there to be read: the standard one is kept', async () => {
     const org = salesOrg();
     const describes = await describesOf(org, SALES);
 
+    // The org reads `Pricebook2.IsStandard = false` true of a record naming no
+    // book it holds: an opportunity under none, a price whose book is gone.
     expect(
       stepsCondition(
         [{ object: 'Opportunity', field: 'Pricebook2Id', parent: 'Pricebook2' }],
         describes,
       ),
-    ).toEqual({ soql: 'Pricebook2.IsStandard = false', exact: true });
+    ).toEqual({ soql: 'Pricebook2.Id != null AND Pricebook2.IsStandard = false', exact: true });
+  });
+
+  it('counts the prices under the book it deletes, not those whose book the org no longer holds, nor an opportunity under no book', async () => {
+    const org = salesOrg({
+      extraRows: {
+        PricebookEntry: Array.from({ length: 34 }, (_, at) => ({
+          Id: `PE-ORPHAN-${at}`,
+          Pricebook2Id: 'PB-GONE',
+          Product2Id: 'P-GONE',
+        })),
+      },
+    });
+    const describes = await describesOf(org, SALES);
+    const prices = stepsCondition(
+      [{ object: 'PricebookEntry', field: 'Pricebook2Id', parent: 'Pricebook2' }],
+      describes,
+    );
+    const opportunities = stepsCondition(
+      [{ object: 'Opportunity', field: 'Pricebook2Id', parent: 'Pricebook2' }],
+      describes,
+    );
+
+    // The custom book holds one price; the org read the orphans along too.
+    expect(await org.count(`SELECT COUNT() FROM PricebookEntry WHERE ${prices?.soql}`)).toBe(1);
+    expect(
+      await org.count('SELECT COUNT() FROM PricebookEntry WHERE Pricebook2.IsStandard = false'),
+    ).toBe(35);
+    // Two opportunities in the custom book, one in the standard one.
+    expect(await org.count(`SELECT COUNT() FROM Opportunity WHERE ${opportunities?.soql}`)).toBe(2);
+  });
+
+  it('reads a lookup its describe flags as pointing at several objects by the type of what it names, though it names one', async () => {
+    const objects: FixtureObject[] = [
+      {
+        name: 'Account',
+        children: [{ childSObject: 'Asset', field: 'AccountId', cascadeDelete: true }],
+        rows: [{ Id: 'A1' }],
+      },
+      {
+        name: 'Asset',
+        fields: [{ name: 'AccountId', referenceTo: ['Account'], relationshipName: 'Account' }],
+        children: [
+          { childSObject: 'AsyncOperationLog', field: 'RelatedRecordId', cascadeDelete: true },
+        ],
+        rows: [{ Id: 'AS1', AccountId: 'A1' }],
+      },
+      {
+        name: 'AsyncOperationLog',
+        fields: [
+          {
+            name: 'RelatedRecordId',
+            referenceTo: ['Asset'],
+            relationshipName: 'RelatedRecord',
+            polymorphic: true,
+          },
+        ],
+        rows: [{ Id: 'LOG1', RelatedRecordId: 'AS1' }, { Id: 'LOG2' }],
+      },
+    ];
+    const org = new EmptyFixtureOrg(objects);
+    const names = objects.map((object) => object.name);
+    const describes = await describesOf(org, names);
+    const route = affectedBy(['Account'], names, describes).routes.get('AsyncOperationLog')?.[0];
+    if (!route) throw new Error('A log goes with the asset its account takes along');
+    const condition = stepsCondition(route.steps, describes);
+
+    expect(condition).toEqual({ soql: "RelatedRecord.Type = 'Asset'", exact: false });
+    expect(await org.count(`SELECT COUNT() FROM AsyncOperationLog WHERE ${condition?.soql}`)).toBe(
+      1,
+    );
+    // Read as a lookup to one object, the path the org refused.
+    await expect(
+      org.count('SELECT COUNT() FROM AsyncOperationLog WHERE RelatedRecord.AccountId != null'),
+    ).rejects.toThrow("No such column 'AccountId' on entity 'Name'");
   });
 
   it('reads nothing through a lookup the user cannot see, and the lookup alone of an object not described', async () => {

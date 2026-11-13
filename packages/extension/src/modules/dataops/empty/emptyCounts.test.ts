@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { salesOrg, type EmptyFixtureOrg } from '../../../test/emptyFixtureOrg';
+import { EmptyFixtureOrg, salesOrg } from '../../../test/emptyFixtureOrg';
 import { countEmpty, type Counted, type EmptyCounts } from './emptyCounts';
 import { emptyOrderOf } from './emptyOrder';
 import { affectedBy, emptyDescribeSchema, relationsOf, type EmptyDescribe } from './emptyRelations';
@@ -125,7 +125,7 @@ describe('countEmpty, the whole org', () => {
     });
   });
 
-  it('counts what no undo would bring back: cases before their accounts and contacts, what names a custom price book or a product before it goes, the custom prices', async () => {
+  it('counts what no undo would bring back: cases before their accounts and contacts, what names a custom price book or a product before it goes, the standard prices that go with their products', async () => {
     const counts = await counted(salesOrg(), WORKED);
 
     expect(
@@ -146,7 +146,9 @@ describe('countEmpty, the whole org', () => {
       ['OrderItem.Product2Id → Product2 (restricted)', 1],
       ['QuoteLineItem.Product2Id → Product2 (restricted)', 1],
       ['Asset.Product2Id → Product2 (restricted)', 1],
-      ['PricebookEntry.Product2Id → Product2 (customPrices)', 1],
+      // The custom price goes with its book and came back with it; the two
+      // standard ones went with their products and did not.
+      ['PricebookEntry.Product2Id → Product2 (standardPrices)', 2],
     ]);
   });
 
@@ -290,6 +292,272 @@ describe('countEmpty, objects picked', () => {
     ]);
   });
 });
+
+describe('countEmpty, a person account’s contact', () => {
+  it('never sends one by the pass of the contacts, which reads them out, and counts it with its account when the account goes', async () => {
+    const contactsAlone = await counted(salesOrg(), ['Contact']);
+    const withAccounts = await counted(salesOrg(), ['Account', 'Contact']);
+
+    // Five business contacts; the person account's stays, said so.
+    expect(passOf(contactsAlone, 'Contact')).toMatchObject({
+      rows: 'IsPersonAccount = false',
+      records: { records: 5 },
+      sent: { records: 5 },
+    });
+    // All six go, the person account's with it; the pass sends the one under no account.
+    expect(passOf(withAccounts, 'Contact')).toMatchObject({
+      rows: 'IsPersonAccount = false',
+      records: { records: 6 },
+      sent: { records: 1 },
+    });
+  });
+
+  it('reads every contact in an org with no person accounts', async () => {
+    const org = salesOrg({ emptyObjects: ['Account'] });
+    const counts = await counted(org, ['Contact']);
+
+    expect(passOf(counts, 'Contact').rows).toBe('IsPersonAccount = false');
+    expect(
+      (await countedIn(businessOrg(), ['Contact'], ['Account', 'Contact'])).objects[0],
+    ).not.toHaveProperty('rows');
+  });
+});
+
+/** Count an emptying of `emptied` among `worked` in `org`, each described. */
+async function countedIn(
+  org: EmptyFixtureOrg,
+  emptied: readonly string[],
+  worked: readonly string[],
+): Promise<EmptyCounts> {
+  const describes = new Map<string, EmptyDescribe>();
+  for (const name of worked) {
+    describes.set(name, emptyDescribeSchema.parse(await org.describe(name)));
+  }
+  const affected = affectedBy(emptied, worked, describes);
+  const relations = relationsOf(describes);
+  return countEmpty(
+    { affected, order: emptyOrderOf(affected, relations), relations, describes },
+    org,
+  );
+}
+
+/** An org of business accounts alone: its contacts' describe lists no `IsPersonAccount`. */
+function businessOrg(): EmptyFixtureOrg {
+  return new EmptyFixtureOrg([
+    {
+      name: 'Account',
+      children: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+      rows: [{ Id: 'A1' }],
+    },
+    {
+      name: 'Contact',
+      fields: [{ name: 'AccountId', referenceTo: ['Account'], relationshipName: 'Account' }],
+      rows: [{ Id: 'C1', AccountId: 'A1' }, { Id: 'C2' }],
+    },
+  ]);
+}
+
+/**
+ * An account holding an entitlement and a case, as the scratch org whose
+ * emptying the org refused: the account's describe flags the entitlement's
+ * lookup both ways.
+ */
+function entitlementOrg(): EmptyFixtureOrg {
+  return new EmptyFixtureOrg([
+    {
+      name: 'Account',
+      children: [
+        {
+          childSObject: 'Entitlement',
+          field: 'AccountId',
+          cascadeDelete: true,
+          restrictedDelete: true,
+        },
+        { childSObject: 'Case', field: 'AccountId', restrictedDelete: true },
+      ],
+      rows: [{ Id: 'A1' }, { Id: 'A2' }],
+    },
+    {
+      name: 'Entitlement',
+      fields: [{ name: 'AccountId', referenceTo: ['Account'], relationshipName: 'Account' }],
+      rows: [{ Id: 'E1', AccountId: 'A1' }],
+    },
+    {
+      name: 'Case',
+      fields: [{ name: 'AccountId', referenceTo: ['Account'], relationshipName: 'Account' }],
+      rows: [{ Id: 'CS1' }],
+    },
+  ]);
+}
+
+const ENTITLEMENT_WORKED = ['Account', 'Case', 'Entitlement'];
+
+describe('countEmpty, an account’s entitlements', () => {
+  it('names an entitlement as blocking its account emptied without it, where the dry run said it went along', async () => {
+    const counts = await countedIn(entitlementOrg(), ['Account'], ENTITLEMENT_WORKED);
+
+    expect(counts.along).toEqual([]);
+    expect(counts.blockers).toEqual([
+      {
+        objectApiName: 'Entitlement',
+        field: 'AccountId',
+        parent: 'Account',
+        records: { records: 1 },
+      },
+    ]);
+  });
+
+  it('sends the entitlements before their account when both are emptied, and says them beyond Undo', async () => {
+    const counts = await countedIn(
+      entitlementOrg(),
+      ['Account', 'Entitlement'],
+      ENTITLEMENT_WORKED,
+    );
+
+    expect(counts.objects.map((pass) => pass.objectApiName)).toEqual(['Entitlement', 'Account']);
+    expect(counts.undoLost).toEqual([
+      {
+        objectApiName: 'Entitlement',
+        field: 'AccountId',
+        parent: 'Account',
+        reason: 'restricted',
+        records: { records: 1 },
+      },
+    ]);
+  });
+});
+
+/**
+ * Price books, products and prices as a scratch org held them: the standard
+ * book and a custom one, two products, a standard and a custom price of each,
+ * and 34 prices whose book and product the org no longer holds. A price is
+ * not brought back from the recycle bin on its own (`undeletable: false`).
+ */
+function priceOrg(): EmptyFixtureOrg {
+  return new EmptyFixtureOrg([
+    {
+      name: 'Pricebook2',
+      fields: [{ name: 'IsStandard' }],
+      children: [{ childSObject: 'PricebookEntry', field: 'Pricebook2Id', cascadeDelete: true }],
+      rows: [
+        { Id: 'PBS', IsStandard: true },
+        { Id: 'PBC', IsStandard: false },
+      ],
+    },
+    {
+      name: 'Product2',
+      children: [
+        {
+          childSObject: 'PricebookEntry',
+          field: 'Product2Id',
+          cascadeDelete: true,
+          restrictedDelete: true,
+        },
+      ],
+      rows: [{ Id: 'P1' }, { Id: 'P2' }],
+    },
+    {
+      name: 'PricebookEntry',
+      global: { undeletable: false },
+      fields: [
+        { name: 'Pricebook2Id', referenceTo: ['Pricebook2'], relationshipName: 'Pricebook2' },
+        { name: 'Product2Id', referenceTo: ['Product2'], relationshipName: 'Product2' },
+      ],
+      rows: [
+        { Id: 'PES1', Pricebook2Id: 'PBS', Product2Id: 'P1' },
+        { Id: 'PES2', Pricebook2Id: 'PBS', Product2Id: 'P2' },
+        { Id: 'PEC1', Pricebook2Id: 'PBC', Product2Id: 'P1' },
+        { Id: 'PEC2', Pricebook2Id: 'PBC', Product2Id: 'P2' },
+        ...Array.from({ length: 34 }, (_, at) => ({
+          Id: `PE-ORPHAN-${at}`,
+          Pricebook2Id: 'PB-GONE',
+          Product2Id: 'P-GONE',
+        })),
+      ],
+    },
+  ]);
+}
+
+const PRICES = ['Pricebook2', 'PricebookEntry', 'Product2'];
+
+describe('countEmpty, prices', () => {
+  it('counts the prices under the custom book it deletes, not those whose book the org no longer holds', async () => {
+    const counts = await countedIn(priceOrg(), ['Pricebook2'], PRICES);
+
+    expect(counts.along).toEqual([
+      {
+        objectApiName: 'PricebookEntry',
+        records: { records: 2 },
+        via: [
+          {
+            field: 'Pricebook2Id',
+            parent: 'Pricebook2',
+            emptied: 'Pricebook2',
+            records: { records: 2 },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('says the standard prices of the products emptied beyond Undo, not the custom ones that come back with their book', async () => {
+    const counts = await countedIn(priceOrg(), ['Pricebook2', 'Product2'], PRICES);
+
+    expect(counts.undoLost).toEqual([
+      {
+        objectApiName: 'PricebookEntry',
+        field: 'Product2Id',
+        parent: 'Product2',
+        reason: 'standardPrices',
+        records: { records: 2 },
+      },
+    ]);
+  });
+
+  it('says beyond Undo what the pass of the prices sends itself, those no book held among them', async () => {
+    const alone = await countedIn(priceOrg(), ['PricebookEntry'], PRICES);
+    const withBook = await countedIn(priceOrg(), ['Pricebook2', 'PricebookEntry'], PRICES);
+
+    expect(alone.undoLost).toEqual([
+      { objectApiName: 'PricebookEntry', reason: 'notRestorable', records: { records: 38 } },
+    ]);
+    // The custom prices go with their book, and come back with it; the
+    // standard ones and those no book held are sent alone.
+    expect(passOf(withBook, 'PricebookEntry')).toMatchObject({
+      records: { records: 38 },
+      sent: { records: 36 },
+    });
+    expect(withBook.undoLost).toEqual([
+      { objectApiName: 'PricebookEntry', reason: 'notRestorable', records: { records: 36 } },
+    ]);
+  });
+
+  it('says nothing beyond Undo of records deleted for good, which none brings back', async () => {
+    const counts = await countEmptyFor(priceOrg(), PRICES, { undo: false });
+
+    expect(counts.undoLost).toEqual([]);
+  });
+});
+
+/** {@link countedIn} of the prices, with the options of a count. */
+async function countEmptyFor(
+  org: EmptyFixtureOrg,
+  emptied: readonly string[],
+  options: { undo: boolean },
+): Promise<EmptyCounts> {
+  const describes = new Map<string, EmptyDescribe>();
+  for (const name of PRICES) {
+    describes.set(name, emptyDescribeSchema.parse(await org.describe(name)));
+  }
+  const affected = affectedBy(emptied, PRICES, describes);
+  const relations = relationsOf(describes);
+  return countEmpty(
+    { affected, order: emptyOrderOf(affected, relations), relations, describes },
+    org,
+    undefined,
+    options,
+  );
+}
 
 describe('countEmpty, what it cannot count', () => {
   it('keeps the org’s words for a count it refused, never a zero, and says what goes with it as unknown', async () => {

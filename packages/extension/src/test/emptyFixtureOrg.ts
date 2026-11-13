@@ -12,7 +12,12 @@
  *   refused, `INVALID_FIELD`, as is a field it does not list;
  * - a lookup that may point at several objects is read by the type of what
  *   it names (`What.Type`), its id and its name, and refused past them, as
- *   the org reads only its `Name` entity's columns of such a parent;
+ *   the org reads only its `Name` entity's columns of such a parent — one
+ *   whose describe names a single object and flags it `polymorphicForeignKey`
+ *   too, as an operation log's related record;
+ * - a checkbox read through a parent that is not there — no lookup filled,
+ *   or one naming a record the org does not hold — reads false, as the org
+ *   read `Pricebook2.IsStandard = false` of prices whose book was gone;
  * - a query leaves out deleted rows and archived activities; `queryAll`
  *   returns both;
  * - an object not given, or given as one the user may not see, is refused
@@ -41,6 +46,8 @@ export interface FixtureField {
   /** The objects a lookup points at. */
   referenceTo?: string[];
   relationshipName?: string;
+  /** A lookup that may point at several objects, whatever `referenceTo` lists. */
+  polymorphic?: boolean;
 }
 
 /** A child relationship as a parent's describe lists it. */
@@ -130,12 +137,13 @@ export class EmptyFixtureOrg implements EmptyPreviewOrg {
     return {
       name: object.name,
       deletable: object.global?.deletable ?? true,
-      undeletable: true,
+      undeletable: object.global?.undeletable ?? true,
       fields: this.fieldsOf(object).map((field) => ({
         name: field.name,
         type: field.referenceTo ? 'reference' : 'string',
         ...(field.referenceTo ? { referenceTo: field.referenceTo } : {}),
         ...(field.relationshipName ? { relationshipName: field.relationshipName } : {}),
+        ...(field.polymorphic ? { polymorphicForeignKey: true } : {}),
       })),
       childRelationships: (object.children ?? []).map((child) => ({
         childSObject: child.childSObject,
@@ -186,7 +194,8 @@ export class EmptyFixtureOrg implements EmptyPreviewOrg {
     const names = path.split('.');
     let current: { object: FixtureObject; row: FixtureRow } | undefined = { object, row };
     for (const [at, name] of names.entries()) {
-      if (!current) return null;
+      // Through a parent that is not there, a checkbox reads false.
+      if (!current) return /^Is[A-Z]/.test(names[names.length - 1]) ? false : null;
       const last = at === names.length - 1;
       if (last) {
         const field = this.fieldOf(current.object, name);
@@ -210,7 +219,7 @@ export class EmptyFixtureOrg implements EmptyPreviewOrg {
         );
       }
       const target = this.rowOf(lookup.referenceTo, current.row[lookup.name]);
-      if (lookup.referenceTo.length > 1) {
+      if (lookup.referenceTo.length > 1 || lookup.polymorphic === true) {
         const next = names[at + 1];
         const column = NAME_COLUMNS[next.toLowerCase()];
         if (at + 1 !== names.length - 1 || column === undefined) {

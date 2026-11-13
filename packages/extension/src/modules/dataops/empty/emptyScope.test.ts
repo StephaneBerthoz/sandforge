@@ -157,6 +157,60 @@ describe('emptyScopeOf, objects picked', () => {
   });
 });
 
+describe('emptyScopeOf, records no undelete brings back', () => {
+  /** A scratch org's objects with the flags its global describe gives them. */
+  const SCRATCH = [
+    { name: 'Account', undeletable: true },
+    { name: 'Product2', undeletable: true },
+    { name: 'PricebookEntry', undeletable: false },
+    { name: 'OpportunityLineItem', undeletable: false },
+    { name: 'ActionLinkTemplate', undeletable: false },
+    { name: 'FlowRecord', undeletable: false, createable: false },
+  ].map((object) => ({
+    queryable: true,
+    createable: true,
+    updateable: true,
+    deletable: true,
+    layoutable: true,
+    ...object,
+  }));
+
+  it('leaves them out of the whole org unless asked, as worked still: what they hold under a record emptied goes along with it', () => {
+    const scope = emptyScopeOf(SCRATCH, [], { mode: 'org' });
+
+    expect(scope.objects).toEqual(['Account', 'Product2']);
+    expect(reasons(scope.leftOut)).toEqual({
+      ActionLinkTemplate: 'notRestorable',
+      FlowRecord: 'configuration',
+      OpportunityLineItem: 'notRestorable',
+      PricebookEntry: 'notRestorable',
+    });
+    expect(scope.worked).toEqual([
+      'Account',
+      'ActionLinkTemplate',
+      'OpportunityLineItem',
+      'PricebookEntry',
+      'Product2',
+    ]);
+  });
+
+  it('empties them when asked, and when picked: a pick asks for its object', () => {
+    expect(emptyScopeOf(SCRATCH, [], { mode: 'org', unrestorable: true }).objects).toEqual([
+      'Account',
+      'ActionLinkTemplate',
+      'OpportunityLineItem',
+      'PricebookEntry',
+      'Product2',
+    ]);
+    expect(
+      emptyScopeOf(SCRATCH, [], { mode: 'objects', objects: ['PricebookEntry', 'FlowRecord'] }),
+    ).toMatchObject({
+      objects: ['PricebookEntry'],
+      leftOut: [{ objectApiName: 'FlowRecord', reason: 'configuration' }],
+    });
+  });
+});
+
 describe('the whole-org rule', () => {
   it('is the whole-org rule a clone reads, asked what emptying asks: to query and delete, not to write', () => {
     const emptying = emptyingRule(GLOBAL, TOOLING, { customSettings: false });

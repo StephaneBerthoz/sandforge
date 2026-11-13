@@ -23,7 +23,10 @@
  *   naming a price book emptied with the accounts;
  * - a direct relation of a contact to its account goes only with the
  *   contact: emptying the relations alone leaves the direct ones;
- * - a person account's contact goes only with its account;
+ * - a person account's contact goes only with its account: sent alone, in a
+ *   job of contacts, the org refused each, "INVALID_PERSON_ACCOUNT_OPERATION:
+ *   cannot reference person contact". The pass of the contacts never sends
+ *   one ({@link passRowsOf}), and counts it only when its account goes;
  * - the standard price book is never deleted, and is counted as kept.
  *
  * A count the org would not give keeps the org's words and no number: an
@@ -80,9 +83,29 @@ export interface Counted {
   atLeast?: true;
 }
 
+/**
+ * The condition the pass of `objectApiName` reads its records by, leaving
+ * out the rows it never sends: the standard price book, which no emptying
+ * deletes, and, in an org of person accounts, a person account's contact,
+ * which goes only with its account. Nothing when it sends every row.
+ *
+ * @param personAccounts - Whether the org has person accounts: its contacts'
+ *   describe lists `IsPersonAccount`.
+ */
+export function passRowsOf(objectApiName: string, personAccounts: boolean): string | undefined {
+  const deleted = deletedRowsOf(objectApiName);
+  if (deleted !== undefined) return deleted;
+  if (personAccounts && objectApiName.toLowerCase() === CONTACT.toLowerCase()) {
+    return `${PERSON_ACCOUNT_FLAG} = false`;
+  }
+  return undefined;
+}
+
 /** One object emptied, as counted. */
 export interface EmptyObjectCount {
   objectApiName: string;
+  /** The condition its pass reads its records by: see {@link passRowsOf}. Absent when it sends every row. */
+  rows?: string;
   /** Its records the emptying deletes, every pass together. */
   records: Counted;
   /** Of them, those its own pass sends: the rest go with an emptied object whose pass comes before. */
@@ -132,13 +155,27 @@ export interface EmptyBlocker {
   records: Counted;
 }
 
-/** Records that leave before a record they name: no undo brings them back once it has gone too. */
+/**
+ * Records no undo would bring back, and why:
+ *
+ * - `restricted`: they leave before a record they name, as the platform
+ *   requires, and once it has gone too, no undelete brings them back (F41);
+ * - `unordered`: so too, where objects point at each other and a constraint
+ *   gave way;
+ * - `standardPrices`: the standard prices of a product emptied, which go
+ *   with it and did not come back with it (seen live: "no longer in the
+ *   recycle bin"), where the prices of a custom book came back with theirs;
+ * - `notRestorable`: those the pass of an object whose records no undelete
+ *   brings back on their own sends (`undeletable: false`), the 34 prices no
+ *   book held among them.
+ */
 export interface EmptyUndoLost {
   objectApiName: string;
-  field: string;
-  parent: string;
-  /** Required by the platform, or a constraint that gave way where objects point at each other. */
-  reason: 'restricted' | 'customPrices' | 'unordered';
+  /** The lookup through which they name the record they go before, or go with; absent for `notRestorable`. */
+  field?: string;
+  /** The object of that record; absent for `notRestorable`. */
+  parent?: string;
+  reason: 'restricted' | 'unordered' | 'standardPrices' | 'notRestorable';
   records: Counted;
 }
 
@@ -259,6 +296,41 @@ function unreadable(objectApiName: string): Counted {
   return { unread: `${objectApiName}: the lookup its records go by is hidden from the user` };
 }
 
+/** The price, which goes with its product and with its price book. */
+const PRICE = 'PricebookEntry';
+/** The product whose standard prices go with it. */
+const PRODUCT = 'Product2';
+
+/**
+ * The condition that a price is in the standard price book, read through the
+ * price's lookup to its book: nothing when the price's describe does not
+ * list it.
+ */
+function standardPriceCondition(describes: ReadonlyMap<string, EmptyDescribe>): string | undefined {
+  const book = describes
+    .get(PRICE)
+    ?.fields.find((field) => field.name.toLowerCase() === 'pricebook2id')?.relationshipName;
+  const kept = keptRowsOf('Pricebook2');
+  return book && kept ? `${book}.${kept}` : undefined;
+}
+
+/**
+ * `lost` with one entry per pair — the same records said lost twice, under
+ * two reasons, were listed twice (38 prices, then 36) — the one counting
+ * more kept, or the one the org would not count.
+ */
+function onceEach(lost: readonly EmptyUndoLost[]): EmptyUndoLost[] {
+  const kept = new Map<string, EmptyUndoLost>();
+  const weight = (entry: EmptyUndoLost): number =>
+    entry.records.records ?? Number.POSITIVE_INFINITY;
+  for (const entry of lost) {
+    const key = [entry.objectApiName, entry.field ?? '', entry.parent ?? ''].join('\u0000');
+    const known = kept.get(key);
+    if (!known || weight(entry) > weight(known)) kept.set(key, entry);
+  }
+  return [...kept.values()];
+}
+
 /**
  * Count what deleting `input`'s passes would delete and refuse: see the
  * module's comment. Nothing is written.
@@ -276,14 +348,23 @@ export async function countEmpty(
 ): Promise<EmptyCounts> {
   const { affected, order, relations, describes } = input;
   const emptied = order.passes.map((pass) => pass.objectApiName);
+  const personAccounts =
+    describes.get(CONTACT)?.fields.some((field) => field.name === PERSON_ACCOUNT_FLAG) === true;
+  /**
+   * The rows of `name` its emptying deletes, every pass together: those its
+   * pass sends, and a person account's contact too when its account goes.
+   */
+  const deletedRows = (name: string): string[] => {
+    const rows = passRowsOf(name, personAccounts);
+    if (rows === undefined) return [];
+    if (name.toLowerCase() === CONTACT.toLowerCase() && affected.emptied.has(ACCOUNT)) return [];
+    return [rows];
+  };
 
   // The first round: each emptied object's own records.
   const first = new Round();
   const ownKeys = new Map<string, string>();
-  for (const name of emptied) {
-    const deleted = deletedRowsOf(name);
-    ownKeys.set(name, first.ask(name, deleted === undefined ? [] : [deleted]));
-  }
+  for (const name of emptied) ownKeys.set(name, first.ask(name, deletedRows(name)));
   let cut = await first.run(org, stopped);
   const own = new Map(emptied.map((name) => [name, first.answer(ownKeys.get(name) ?? '')]));
 
@@ -314,8 +395,7 @@ export async function countEmpty(
   for (const pass of order.passes) {
     const name = pass.objectApiName;
     if (!mayHold(own.get(name))) continue;
-    const deleted = deletedRowsOf(name);
-    const rows = deleted === undefined ? [] : [deleted];
+    const rows = deletedRows(name);
     if (countedWithArchived(name))
       asked.archived.set(name, second.ask(name, [...rows, 'IsArchived = true']));
     const kept = keptRowsOf(name);
@@ -359,6 +439,10 @@ export async function countEmpty(
   }
 
   for (const pair of options.undo ? order.beforeParent : []) {
+    // A custom price goes with its book, before its product, and came back
+    // with it: the 36 counted lost of the product came back but for the
+    // product's standard prices, counted below.
+    if (pair.reason === 'customPrices') continue;
     if (!mayGo(pair.objectApiName) || !mayGo(pair.parent)) continue;
     const names = namesDeletedCondition(
       pair.objectApiName,
@@ -375,19 +459,30 @@ export async function countEmpty(
       );
       if (goes) conditions.push(goes);
     }
-    if (pair.reason === 'customPrices') {
-      const custom = stepsCondition(
-        [{ object: pair.objectApiName, field: 'Pricebook2Id', parent: 'Pricebook2' }],
-        describes,
-      );
-      if (custom) conditions.push(custom);
-    }
     asked.undoLost.push({
       objectApiName: pair.objectApiName,
       field: pair.field,
       parent: pair.parent,
-      reason: pair.reason,
+      reason: 'restricted',
       ...(names ? { key: second.ask(pair.objectApiName, [...conditions, names]) } : {}),
+    });
+  }
+
+  // The standard prices of the products emptied go with them, and did not
+  // come back with them: in the undo of an emptying of the whole org, the
+  // products came back and their two standard prices stayed "no longer in
+  // the recycle bin".
+  const deleted = (name: string): boolean =>
+    affected.emptied.has(name) || affected.routes.has(name);
+  if (options.undo && deleted(PRICE) && deleted(PRODUCT) && mayGo(PRODUCT)) {
+    const withProduct = namesDeletedCondition(PRICE, 'Product2Id', PRODUCT, affected, describes);
+    const standard = standardPriceCondition(describes);
+    asked.undoLost.push({
+      objectApiName: PRICE,
+      field: 'Product2Id',
+      parent: PRODUCT,
+      reason: 'standardPrices',
+      ...(withProduct && standard ? { key: second.ask(PRICE, [standard, withProduct]) } : {}),
     });
   }
 
@@ -454,8 +549,16 @@ export async function countEmpty(
 
   const objects = order.passes.map((pass): EmptyObjectCount => {
     const name = pass.objectApiName;
+    const rows = passRowsOf(name, personAccounts);
     const records = own.get(name) ?? { unread: STOPPED };
-    if (!mayHold(records)) return { objectApiName: name, records, sent: records };
+    if (!mayHold(records)) {
+      return {
+        objectApiName: name,
+        ...(rows !== undefined ? { rows } : {}),
+        records,
+        sent: records,
+      };
+    }
     const gone = asked.goneBefore.get(name);
     const sent =
       gone === undefined
@@ -467,12 +570,27 @@ export async function countEmpty(
     const kept = asked.kept.get(name);
     return {
       objectApiName: name,
+      ...(rows !== undefined ? { rows } : {}),
       records,
       sent,
       ...(archived ? { archived: second.answer(archived) } : {}),
       ...(kept ? { kept: second.answer(kept) } : {}),
     };
   });
+  // What the pass of an object no undelete brings back on its own sends: a
+  // price no book held, sent by the pass of the prices, stayed gone.
+  const notRestorable: EmptyUndoLost[] = options.undo
+    ? objects
+        .filter(
+          (object) =>
+            describes.get(object.objectApiName)?.undeletable === false && !none(object.sent),
+        )
+        .map((object) => ({
+          objectApiName: object.objectApiName,
+          reason: 'notRestorable' as const,
+          records: object.sent,
+        }))
+    : [];
   const along = [...asked.along]
     .map(([name, { total, via }]) => ({
       objectApiName: name,
@@ -501,7 +619,7 @@ export async function countEmpty(
     along,
     refusals: answered(asked.refusals),
     blockers: answered(asked.blockers),
-    undoLost: answered(asked.undoLost),
+    undoLost: onceEach([...answered(asked.undoLost), ...notRestorable]),
     statements: first.size + second.size,
     ...(cut ? { stopped: true as const } : {}),
   };

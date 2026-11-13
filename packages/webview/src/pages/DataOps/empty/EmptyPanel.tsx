@@ -67,6 +67,7 @@ interface OrgAsked {
   customSettings: boolean;
   files: boolean;
   managedPackages: boolean;
+  unrestorable: boolean;
   excluded: string[];
 }
 
@@ -94,6 +95,7 @@ const OPT_IN_KEYS = {
   customSettings: 'dataopsEmpty.org.customSettings',
   files: 'dataopsEmpty.org.files',
   managedPackages: 'dataopsEmpty.org.managedPackages',
+  unrestorable: 'dataopsEmpty.org.unrestorable',
 } as const;
 
 /** The request a section's options make: what the preview, then the run, act on. */
@@ -109,6 +111,7 @@ function requestOf(
     ...(org.customSettings ? { customSettings: true } : {}),
     ...(org.files ? { files: true } : {}),
     ...(org.managedPackages ? { managedPackages: true } : {}),
+    ...(org.unrestorable ? { unrestorable: true } : {}),
   };
 }
 
@@ -179,6 +182,7 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
     customSettings: false,
     files: false,
     managedPackages: false,
+    unrestorable: false,
     excluded: [],
   });
   const [how, setHow] = useState<Record<DataOpsEmptyMode, HowAsked>>({
@@ -210,6 +214,7 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
           ...(orgAsked.customSettings ? { customSettings: true } : {}),
           ...(orgAsked.files ? { files: true } : {}),
           ...(orgAsked.managedPackages ? { managedPackages: true } : {}),
+          ...(orgAsked.unrestorable ? { unrestorable: true } : {}),
         },
     {
       responseType: 'dataops:empty:scope:response',

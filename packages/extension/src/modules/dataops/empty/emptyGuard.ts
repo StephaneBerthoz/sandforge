@@ -191,20 +191,24 @@ export async function emptyPermissionsOf(
   };
 }
 
-/** The refusal of a delete for good the user may not send. */
+/**
+ * The refusal of a delete for good the user may not send. It names no one:
+ * the user SandForge deletes as is said so, never by a username, which the
+ * output a person copies into a ticket or a channel would carry with it.
+ * Said once the org was read, it says nothing was deleted.
+ */
 export function hardDeleteRefusal(
-  username: string,
   permissions: Pick<EmptyPermissions, 'unread'>,
 ): DataOpsEmptyRefusal {
   return {
     code: 'HARD_DELETE_NOT_PERMITTED',
     message:
-      `Deleting for good needs Bulk API Hard Delete, and ${username} ` +
+      'Deleting for good needs Bulk API Hard Delete, and the user SandForge deletes as ' +
       (permissions.unread !== undefined
         ? `could not be read to have it (${permissions.unread}). `
         : "doesn't have it: Salesforce refuses the job as it is opened. ") +
       'Give the user a permission set with Bulk API Hard Delete, or empty to the recycle bin, ' +
-      `which Undo brings back. ${NOTHING_READ}`,
+      'which Undo brings back. Nothing was deleted.',
   };
 }
 

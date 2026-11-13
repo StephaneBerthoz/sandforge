@@ -12,7 +12,9 @@
  * records along unless one of them stands in the way — an activated order
  * refuses its account's delete — so such a lookup is read as one that takes
  * them along, as the removal and the checkpoint read it (`ForgeRunRemoval`,
- * `restrictParentsOf`). Seen on real describes:
+ * `restrictParentsOf`), save where the org was seen to refuse the parent's
+ * delete whatever the records are: an entitlement's account
+ * ({@link REFUSING_CASCADES}). Seen on real describes:
  *
  * - an account takes its contacts, opportunities, orders, contracts, assets,
  *   activities, notes and attachments along, and refuses its delete while a
@@ -31,6 +33,13 @@
  * lookup that may point at several objects, past five levels, through a field
  * the user cannot see — is cut where it stops being readable, and the count
  * says it may count more than goes.
+ *
+ * A lookup may point at several objects though its describe names one: an
+ * operation log's related record lists an asset alone, and the org read a
+ * path through it as through its `Name` entity, refusing an asset's columns
+ * ("No such column 'AccountId' on entity 'Name'"). Its describe flags it
+ * (`polymorphicForeignKey`), and it is read as the other lookups to several
+ * objects are.
  */
 
 import * as z from 'zod';
@@ -44,6 +53,8 @@ import {
 const emptyFieldSchema = checkpointFieldSchema.extend({
   /** The name a path through the lookup takes: `Account` of `AccountId`, `What` of `WhatId`. */
   relationshipName: z.string().nullish(),
+  /** Whether the lookup may point at several objects, whatever `referenceTo` lists. */
+  polymorphicForeignKey: z.boolean().optional(),
 });
 
 /** An object's describe, as far as an emptying reads it. */
@@ -104,11 +115,84 @@ export interface Relation {
   kind: RelationKind;
 }
 
-/** How `relationship` ties its records to the parent's: see the module's comment. */
-export function relationKindOf(relationship: {
-  cascadeDelete?: boolean;
-  restrictedDelete?: boolean;
-}): RelationKind {
+/**
+ * How the org meets the delete of a parent its describe says takes the
+ * records along, where it refuses it while some of them live.
+ *
+ * - `always`: whatever the records are. The records go before their parent,
+ *   as those of a lookup that refuses the delete do, and no undo brings them
+ *   back once their parent has gone too (F41);
+ * - `pastDraft`: while a record is past Draft. The run sets it back to Draft
+ *   before its first delete, and it then goes along (P8, `setBackToDraftOf`);
+ * - `closedWon`: while an opportunity is closed won, for a user the org does
+ *   not let delete those. The account's delete is refused, the pass of the
+ *   opportunities sends them, and the rounds of tries take the account.
+ */
+export type RefusedWhile = 'always' | 'pastDraft' | 'closedWon';
+
+/**
+ * The lookups whose describe says the parent's delete takes the records
+ * along — `cascadeDelete`, `restrictedDelete` beside it — where the org was
+ * seen to refuse that delete while one lives, in one table:
+ *
+ * - an entitlement's account: "Your attempt to delete … could not be
+ *   completed because it is associated with the following entitlements"
+ *   (`DELETE_FAILED`), on the emptying of a scratch org whose account held
+ *   one, its dry run having said the entitlement went along;
+ * - an order's account, while the order is activated: "associated with the
+ *   following active orders";
+ * - an opportunity's account, while it holds a closed won one: "some
+ *   opportunities of this account were closed won", in a removal of a clone.
+ *
+ * A price's product, flagged the same way, takes its standard prices along
+ * (seen live): it is no entry here.
+ */
+export const REFUSING_CASCADES: ReadonlyArray<{
+  child: string;
+  field: string;
+  parent: string;
+  refused: RefusedWhile;
+}> = [
+  { child: 'Entitlement', field: 'AccountId', parent: 'Account', refused: 'always' },
+  { child: 'Order', field: 'AccountId', parent: 'Account', refused: 'pastDraft' },
+  { child: 'Opportunity', field: 'AccountId', parent: 'Account', refused: 'closedWon' },
+];
+
+/** Whether the org refuses `parent`'s delete while any record of `child` names it through `field`. */
+function alwaysRefused(parent: string, child: string, field: string): boolean {
+  const [p, c, f] = [parent, child, field].map((name) => name.toLowerCase());
+  return REFUSING_CASCADES.some(
+    (entry) =>
+      entry.refused === 'always' &&
+      entry.parent.toLowerCase() === p &&
+      entry.child.toLowerCase() === c &&
+      entry.field.toLowerCase() === f,
+  );
+}
+
+/**
+ * How `relationship` ties its records to the parent's: see the module's
+ * comment. Given the parent, a lookup the org refuses its delete for whatever
+ * the describe says ({@link REFUSING_CASCADES}, `always`) is read as one that
+ * refuses it.
+ */
+export function relationKindOf(
+  relationship: {
+    childSObject?: string;
+    field?: string;
+    cascadeDelete?: boolean;
+    restrictedDelete?: boolean;
+  },
+  parent?: string,
+): RelationKind {
+  if (
+    parent !== undefined &&
+    relationship.childSObject !== undefined &&
+    relationship.field !== undefined &&
+    alwaysRefused(parent, relationship.childSObject, relationship.field)
+  ) {
+    return 'restricted';
+  }
   if (relationship.cascadeDelete === true) return 'cascade';
   if (relationship.restrictedDelete === true) return 'restricted';
   return 'lookup';
@@ -130,7 +214,7 @@ export function relationsOf(
         parent,
         child: names(relationship.childSObject),
         field: relationship.field,
-        kind: relationKindOf(relationship),
+        kind: relationKindOf(relationship, parent),
       });
     }
   }
@@ -223,7 +307,7 @@ export function affectedBy(
       return;
     }
     for (const relationship of described.childRelationships ?? []) {
-      if (relationKindOf(relationship) !== 'cascade') continue;
+      if (relationKindOf(relationship, from) !== 'cascade') continue;
       const child = nameOf(relationship.childSObject);
       const key = child.toLowerCase();
       if (!isWorked.has(key) || key === from.toLowerCase()) continue;
@@ -301,6 +385,12 @@ function fieldOf(
  * its lookup. Nothing when the first object's describe lists no such field:
  * one field-level security hides from the user is in no statement the org
  * takes.
+ *
+ * A row its object deletes is read with its parent there: the org reads
+ * `Pricebook2.IsStandard = false` true of a record whose price book is not
+ * there at all — no lookup filled, or one naming a book gone — and counted 36
+ * prices under the book an emptying deleted, where 2 hung from it (34 named
+ * none it could read, `Pricebook2.Id = null`).
  */
 export function stepsCondition(
   steps: readonly RouteStep[],
@@ -317,7 +407,8 @@ export function stepsCondition(
       const previous = steps[at - 1];
       return { soql: `${[...path.slice(0, -1), previous.field].join('.')} != null`, exact: false };
     }
-    const polymorphic = (field.referenceTo?.length ?? 0) > 1;
+    const polymorphic =
+      (field.referenceTo?.length ?? 0) > 1 || field.polymorphicForeignKey === true;
     const relationship = field.relationshipName ?? undefined;
     const last = at === steps.length - 1;
     const through = relationship ? [...path, relationship].join('.') : undefined;
@@ -330,7 +421,7 @@ export function stepsCondition(
       if (deleted === undefined)
         return { soql: `${[...path, field.name].join('.')} != null`, exact: true };
       if (!through) return { soql: `${[...path, field.name].join('.')} != null`, exact: false };
-      return { soql: `${through}.${deleted}`, exact: true };
+      return { soql: `${through}.Id != null AND ${through}.${deleted}`, exact: true };
     }
     if (!relationship || at + 1 >= MOST_ROUTE_STEPS) {
       return { soql: `${[...path, field.name].join('.')} != null`, exact: false };

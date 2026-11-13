@@ -432,8 +432,8 @@ const emptyScope = {
     .literal(true)
     .optional()
     .describe(
-      'Empty every object people work in, less users, setup, Chatter, history, sharing and the ' +
-        'standard price book. Not with objects.',
+      'Empty every object people work in, less users, setup, Chatter, history, sharing, the ' +
+        "org's flows, settings and definitions, and the standard price book. Not with objects.",
     ),
   excluded: z
     .array(z.string().regex(API_NAME, 'an object API name'))
@@ -444,6 +444,11 @@ const emptyScope = {
   customSettings: acceptance('With wholeOrg: empty the custom settings too.'),
   files: acceptance('With wholeOrg: empty the files and attachments too.'),
   managedPackages: acceptance('With wholeOrg: empty the objects of managed packages too.'),
+  unrestorable: acceptance(
+    'With wholeOrg: empty too, by passes of their own, the objects whose records Salesforce ' +
+      'does not bring back from the recycle bin on their own. Only once the person using you ' +
+      'has accepted that Undo cannot bring those back.',
+  ),
   hardDelete: acceptance(
     'Delete for good, with what goes along: nothing goes to the recycle bin and no undo brings ' +
       'anything back. Needs the Bulk API Hard Delete permission of the user. Only once the ' +
@@ -482,6 +487,7 @@ function emptyScopeLine(args: {
   customSettings?: boolean | undefined;
   files?: boolean | undefined;
   managedPackages?: boolean | undefined;
+  unrestorable?: boolean | undefined;
   hardDelete?: boolean | undefined;
   checkpointFirst?: boolean | undefined;
   acceptNoUndo?: boolean | undefined;
@@ -493,6 +499,7 @@ function emptyScopeLine(args: {
     ...(args.customSettings === true ? ['--custom-settings'] : []),
     ...(args.files === true ? ['--files'] : []),
     ...(args.managedPackages === true ? ['--managed-packages'] : []),
+    ...(args.unrestorable === true ? ['--unrestorable'] : []),
     ...(args.hardDelete === true ? ['--hard-delete'] : []),
     ...(args.checkpointFirst === true ? ['--checkpoint-first'] : []),
     ...(args.acceptNoUndo === true ? ['--accept-no-undo'] : []),

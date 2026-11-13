@@ -1136,6 +1136,7 @@ const dataOpsEmptyScopeRequestShape = {
   customSettings: z.boolean().optional(),
   files: z.boolean().optional(),
   managedPackages: z.boolean().optional(),
+  unrestorable: z.boolean().optional(),
 };
 
 /** The objects picked are named in `objects` mode, and only there. */

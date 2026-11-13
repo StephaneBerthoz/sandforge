@@ -488,7 +488,8 @@ Pick objects among the org's: every record of each goes, with what the org
 deletes along with them (an account's contacts and opportunities, a contact's
 tasks), counted per object. A record of an object you did not pick whose
 lookup refuses the delete of its parent is named as blocking, with its object,
-field and count.
+field and count: an account's entitlements among them, which the org refuses
+the account's delete for though its describe says they go along.
 
 #### Empty the org
 
@@ -496,11 +497,17 @@ Every object people work in, read by the rule a checkpoint and a clone of the
 whole org read it by, less what is never touched: users, profiles, permissions
 and the rest of setup, Chatter, field history, sharing, change events, big,
 external and Data Cloud objects, Knowledge versions, platform events, the
-records only Salesforce creates, and the standard price book, kept whatever is
-asked. Custom settings, files and attachments, and the objects of managed
-packages are emptied only when asked; objects can be left out by name. Every
-object left out is listed with why. A sandbox marked **Staging** is refused
-the whole org: pick its objects instead, which Production Guard asks about.
+records only Salesforce creates, the org's configuration kept as records — its
+flows and their versions, orchestrations, settings, definitions and libraries
+of files, read from the describe (no record the data API creates) and from
+the name — and the standard price book, kept whatever is asked. Custom settings, files and
+attachments, the objects of managed packages, and the objects whose records
+Salesforce does not bring back from the recycle bin on their own (a price, an
+opportunity's product, a contact's role) are emptied only when asked; what
+those last hold under a record emptied goes along with it all the same, and
+comes back with it. Objects can be left out by name. Every object left out is
+listed with why. A sandbox marked **Staging** is refused the whole org: pick
+its objects instead, which Production Guard asks about.
 
 #### Before anything is deleted
 
@@ -511,13 +518,19 @@ The dry run comes first, and says:
 - what will likely be refused, or what the run does first so that it is not:
   an activated order is set back to Draft before any delete, the standard
   price book is kept, a direct relation of a contact to its account goes with
-  its contact, and a person account's contact with its account;
+  its contact, and a person account's contact with its account, never sent
+  on its own;
 - what no undo would bring back: records Salesforce requires to go before a
   record they name, such as an opportunity before the price book its lookup
-  restricts. The run is refused until that is accepted;
+  restricts or an entitlement before its account; the standard prices of a
+  product emptied, which did not come back with it; and what an object whose
+  records Salesforce does not bring back sends by its own pass. The run is
+  refused until that is accepted;
 - the API requests and Bulk API batches it takes against what the org has
-  left today, about how long it runs, and how many records it sends to the
-  recycle bin, against what the bin is documented to hold;
+  left today — the dry run's reads of the org, the run's own read again
+  before its first delete, and its deletes — about how long it runs, and how
+  many records it sends to the recycle bin, against what the bin is
+  documented to hold;
 - for a user without View All Data and Modify All Data, each object they are
   not proven to see whole: its records they cannot see are neither counted
   nor deleted, though those a deleted parent takes along go too;
@@ -571,7 +584,10 @@ deleted for good.
 
 A run stopped part way — cancelled, failed, its process gone — is open: the
 org's next emptying is refused until it is taken up, which deletes what is
-left of what its preview confirmed, or undone. The journals are kept in
+left of what its preview confirmed, or undone. Taken up, a run whose every
+record left the org refuses again ends **partial**, each refusal named in the
+org's words, and is closed: what stays stays, and Undo still brings back what
+it deleted. The journals are kept in
 `empty/` under the folder `SANDFORGE_JOURNAL_DIR` names (`~/.sandforge` by
 default), where the panel and the command line both read them.
 
@@ -589,8 +605,12 @@ pnpm exec tsx packages/extension/cli/sandforge-empty.ts --target DEV --undo <run
 It asks no question: without `--dry-run` or `--yes` it is refused, exit `1`,
 before any org is reached. With `--yes` it reads the org as its dry run does,
 says it all, and empties only when nothing refuses it. `--hard-delete` deletes
-for good, `--accept-no-undo` accepts what no undo would bring back, and
-`--checkpoint-first` takes a checkpoint first; `--accept-automation`,
+for good, `--accept-no-undo` accepts what no undo would bring back,
+`--unrestorable` empties with the org the objects Salesforce does not bring
+back from the recycle bin, and `--checkpoint-first` takes a checkpoint first.
+With `--json`, `apiRequests` gives `estimate`, what the dry run priced, and
+`sent`, every request the dry run and the run sent the org, counted as sent;
+`--accept-automation`,
 `--accept-emails` and `--mute-automation` are every DataOps script's. Exit
 `0` done, `1` refused before anything was deleted, `2` a bad command line, `3`
 records the org refused, `130`, `143` or `129` stopped by a signal, the journal

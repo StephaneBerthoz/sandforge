@@ -137,6 +137,19 @@ describe('EmptyPanel', () => {
     });
   });
 
+  it('asks the whole org with the objects Salesforce does not bring back when ticked, and only then', () => {
+    render(<EmptyPanel orgId="org-1" orgName="dev" />);
+    expect(screen.getByTestId('empty-org-unrestorable')).not.toBeChecked();
+    fireEvent.click(screen.getByTestId('empty-org-unrestorable'));
+    fireEvent.click(screen.getByTestId('empty-org-preview'));
+    expect(lastPayload('dataops:empty:preview')).toEqual({
+      orgId: 'org-1',
+      request: { mode: 'org', unrestorable: true },
+      deleteMode: 'recycle',
+      fromPage: true,
+    });
+  });
+
   it('refuses the whole of a sandbox marked Staging, and offers its objects', () => {
     setOrg({ ...SANDBOX, staging: true });
     render(<EmptyPanel orgId="org-1" orgName="dev" />);

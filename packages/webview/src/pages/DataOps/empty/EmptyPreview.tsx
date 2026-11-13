@@ -13,6 +13,7 @@ import {
   type DataOpsEmptyLeftOut,
   type DataOpsEmptyLikelyRefusalCode,
   type DataOpsEmptyPreviewResponse,
+  type DataOpsEmptyUndoLost,
 } from '@sandforge/shared';
 import { useFocusOnChange } from '../../../hooks/useFocusOnChange';
 import { Button } from '../../../components/ui/Button';
@@ -42,6 +43,8 @@ export type EmptyPreviewAnswer = DataOpsEmptyPreviewResponse['payload'];
 
 /** Why a scope leaves an object out, in the page's words. */
 export const LEFT_OUT_KEYS: Readonly<Record<DataOpsEmptyLeftOut['reason'], string>> = {
+  configuration: 'dataopsEmpty.reason.configuration',
+  notRestorable: 'dataopsEmpty.reason.notRestorable',
   excludedByUser: 'dataopsEmpty.reason.excludedByUser',
   notFound: 'dataopsEmpty.reason.notFound',
   chatter: 'dataopsEmpty.reason.chatter',
@@ -61,6 +64,14 @@ export const LEFT_OUT_KEYS: Readonly<Record<DataOpsEmptyLeftOut['reason'], strin
   notDescribed: 'dataopsEmpty.reason.notDescribed',
   noRecycleBin: 'dataopsEmpty.reason.noRecycleBin',
   notForGood: 'dataopsEmpty.reason.notForGood',
+};
+
+/** Why Undo would not bring records back, in the page's words. */
+const UNDO_LOST_KEYS: Readonly<Record<DataOpsEmptyUndoLost['reason'], string>> = {
+  restricted: 'dataopsEmpty.preview.undoLost',
+  unordered: 'dataopsEmpty.preview.undoLost',
+  standardPrices: 'dataopsEmpty.preview.undoLostStandardPrices',
+  notRestorable: 'dataopsEmpty.preview.undoLostNotRestorable',
 };
 
 /** What the org will likely refuse, or what the run does first so that it does not. */
@@ -530,11 +541,11 @@ export const EmptyPreview: React.FC<EmptyPreviewProps> = ({
           <p className="font-medium">{t('dataopsEmpty.preview.undoLostTitle')}</p>
           <ul className="ml-4 list-disc">
             {undoLost.map((lost) => (
-              <li key={`${lost.objectApiName}.${lost.field}`}>
-                {t('dataopsEmpty.preview.undoLost', {
+              <li key={`${lost.objectApiName}.${lost.field ?? ''}.${lost.reason}`}>
+                {t(UNDO_LOST_KEYS[lost.reason], {
                   records: countWords(t, lost.records),
                   object: lost.objectApiName,
-                  parent: lost.parent,
+                  parent: lost.parent ?? '',
                 })}
               </li>
             ))}

@@ -38,6 +38,15 @@
  * which lists a record deleted for good as deleted, as it does one in the
  * recycle bin (probed live).
  *
+ * **A resume that meets only refusals ends the run.** Once every record left
+ * has been sent and the org refused each again — a record it will never
+ * delete so — the run is `partial` when it deleted anything, this attempt or
+ * an earlier one: what it could do, it did, and the run is closed, its
+ * refusals named with the org's words. Read `failure` because this attempt
+ * deleted nothing, a run whose job had deleted 10,202 contacts stayed open
+ * on the five the org refused, every resume sending them again, and no other
+ * emptying of the org could start until its Undo.
+ *
  * **The journal comes first.** A delete's answer is written down before the
  * next one goes; one the disk refuses stops the run, as an Undo that missed
  * deletes would leave records in the bin it believes it brought back.
@@ -158,18 +167,29 @@ function passResultOf(
   };
 }
 
-/** The status of an attempt from what its passes did. */
+/**
+ * The status of an attempt from what its passes did.
+ *
+ * @param deletedBefore - Whether an earlier attempt of the run deleted a
+ *   record: a resume that deletes nothing more ends the run as it stands,
+ *   `partial`, once the org refused all it had left.
+ */
 export function emptyStatusOf(
   passes: readonly DataOpsEmptyPassResult[],
   cancelled: boolean,
   hardRefused: string | undefined,
+  deletedBefore = false,
 ): DataOpsEmptyStatus {
   if (cancelled && hardRefused === undefined) return 'cancelled';
   const deleted = passes.reduce((sum, pass) => sum + pass.deleted, 0);
   const left = passes.reduce((sum, pass) => sum + pass.refused + (pass.notReached ?? 0), 0);
+  // Refused the right to delete for good, the run stays open to be taken up
+  // once the user holds it.
   if (hardRefused !== undefined) return deleted > 0 ? 'partial' : 'failure';
   if (left === 0) return 'success';
-  return deleted > 0 || passes.some((pass) => pass.gone > 0) ? 'partial' : 'failure';
+  return deleted > 0 || deletedBefore || passes.some((pass) => pass.gone > 0)
+    ? 'partial'
+    : 'failure';
 }
 
 /**
@@ -201,6 +221,13 @@ export async function emptyPasses(deps: EmptyRunDeps): Promise<EmptyRunOutcome> 
   let deletedAny = false;
   const since = madeBeforeCondition(head.readAt);
   const confirmed = new Map(head.passes.map((pass) => [pass.objectApiName, pass]));
+  /**
+   * The condition a pass reads its records by, as its preview settled it —
+   * a person account's contact left out — or, of a journal written before
+   * the preview said it, the standard price book alone.
+   */
+  const rowsOf = (objectApiName: string): string | undefined =>
+    confirmed.get(objectApiName)?.rows ?? deletedRowsOf(objectApiName);
   const reads = new Map<string, Promise<ReadPass | undefined>>();
 
   /** Read the ids of `table` into `dir`, without `since` when the object has no `CreatedDate`. */
@@ -247,12 +274,8 @@ export async function emptyPasses(deps: EmptyRunDeps): Promise<EmptyRunOutcome> 
         };
       }
       if (stopped()) return undefined;
-      const read = await spool(dir, {
-        objectApiName,
-        ...(deletedRowsOf(objectApiName) !== undefined
-          ? { own: deletedRowsOf(objectApiName) }
-          : {}),
-      });
+      const own = rowsOf(objectApiName);
+      const read = await spool(dir, { objectApiName, ...(own !== undefined ? { own } : {}) });
       if (!read) return undefined;
       const count = read.spool.count;
       const counted = confirmed.get(objectApiName)?.records;
@@ -385,7 +408,7 @@ export async function emptyPasses(deps: EmptyRunDeps): Promise<EmptyRunOutcome> 
     for (const pass of passes) {
       const read = readOf.get(pass.objectApiName);
       if (!read?.sinceRead) continue;
-      const own = deletedRowsOf(pass.objectApiName);
+      const own = rowsOf(pass.objectApiName);
       const after = since.replace('CreatedDate <', 'CreatedDate >=');
       try {
         const answer = await org.deletion.query(
@@ -402,13 +425,22 @@ export async function emptyPasses(deps: EmptyRunDeps): Promise<EmptyRunOutcome> 
   }
 
   const cancelled = outcome.cancelled && changed === undefined && journalFailed === undefined;
+  const status =
+    changed !== undefined || journalFailed !== undefined
+      ? deletedAny
+        ? 'partial'
+        : 'failure'
+      : emptyStatusOf(passes, cancelled, outcome.hardRefused, deps.resumed && state.deletedAny);
+  const refused = passes.reduce((sum, pass) => sum + pass.refused, 0);
+  if (deps.resumed && status === 'partial' && !deletedAny && refused > 0) {
+    notes.push(
+      `The org refused again the ${refused.toLocaleString('en-US')} record(s) this emptying had ` +
+        'left, each said with its words above: they stay, and the emptying is closed. Undo ' +
+        'brings back what it deleted.',
+    );
+  }
   return {
-    status:
-      changed !== undefined || journalFailed !== undefined
-        ? deletedAny
-          ? 'partial'
-          : 'failure'
-        : emptyStatusOf(passes, cancelled, outcome.hardRefused),
+    status,
     hard: outcome.hard,
     passes,
     ...(outcome.hardRefused !== undefined ? { hardRefused: outcome.hardRefused } : {}),

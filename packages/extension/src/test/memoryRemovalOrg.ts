@@ -379,12 +379,14 @@ const ACTIVATED_ORDER_REFUSAL = {
     'unable to modify activated order:  cannot delete order, or add or remove order products',
 };
 
-/** The org's answer when a person account's contact is created or deleted on its own. */
+/**
+ * The org's answer when a person account's contact is deleted on its own,
+ * in its words: seen live in the results of a Bulk API job of contacts (an
+ * emptying of a scratch org, 13/11), five person contacts among ten thousand.
+ */
 const PERSON_CONTACT_REFUSAL = {
-  // A code of the API's own list; the case is documented, not seen live.
   statusCode: 'INVALID_PERSON_ACCOUNT_OPERATION',
-  message:
-    "You can't create or delete a person contact on its own: delete or modify the account instead.",
+  message: 'cannot reference person contact',
 };
 
 /**

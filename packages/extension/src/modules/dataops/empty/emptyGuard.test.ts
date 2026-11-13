@@ -124,9 +124,16 @@ describe('emptyPermissionsOf', () => {
       hardDelete: false,
     });
     expect(permissions.unread).toContain('No such column');
-    expect(hardDeleteRefusal('admin', permissions).message).toContain(
-      'could not be read to have it',
-    );
+    expect(hardDeleteRefusal(permissions).message).toContain('could not be read to have it');
+  });
+
+  it('names no one in its refusal of a delete for good, and says nothing was deleted, not that nothing was read', () => {
+    const refusal = hardDeleteRefusal({});
+
+    expect(refusal.message).toContain("the user SandForge deletes as doesn't have it");
+    expect(refusal.message).not.toMatch(/@/);
+    expect(refusal.message).toContain('Nothing was deleted.');
+    expect(refusal.message).not.toContain('No record was read');
   });
 });
 

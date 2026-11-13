@@ -192,6 +192,21 @@ function harness(
   return { org, dir, journalRoot, connected, sent, run };
 }
 
+/**
+ * The sales org with objects that hold no record beside it, as most of a
+ * whole org's are, and a contact under no account the org refuses to delete.
+ */
+function withEmptyObjects(): MemoryEmptyOrg {
+  const org = new MemoryEmptyOrg([
+    ...emptySalesSpecs(),
+    { name: 'Idea' },
+    { name: 'Macro' },
+    { name: 'QuickText' },
+  ]);
+  org.memory.refuse.set(SALES.contactAlone, 'held for good');
+  return org;
+}
+
 /** The runs whose journals the command kept, by id. */
 function journals(h: Harness): string[] {
   if (!existsSync(h.journalRoot)) return [];
@@ -232,6 +247,7 @@ describe('sandforge-empty: the line', () => {
     [['--dry-run'], 'Name the objects to empty with --objects'],
     [['--objects', 'Contact', '--exclude-object', 'Case', '--dry-run'], 'goes with --org alone'],
     [['--objects', 'Contact', '--files', '--dry-run'], 'goes with --org alone'],
+    [['--objects', 'Contact', '--unrestorable', '--dry-run'], 'goes with --org alone'],
     [['--objects', 'Contact', '--dry-run', '--yes'], '--dry-run and --yes go apart'],
     [['--objects', 'Contact; DROP', '--dry-run'], 'is not an object API name'],
     [['--undo', 'last', '--yes'], 'names no emptying'],
@@ -269,11 +285,12 @@ describe('sandforge-empty: the line', () => {
         '--exclude-object',
         'Lead',
         '--files',
+        '--unrestorable',
         '--dry-run',
       ]),
     ).toMatchObject({
       act: 'empty',
-      request: { mode: 'org', excluded: ['Case', 'Lead'], files: true },
+      request: { mode: 'org', excluded: ['Case', 'Lead'], files: true, unrestorable: true },
       dryRun: true,
     });
     expect(
@@ -351,6 +368,43 @@ describe('sandforge-empty: the dry run', () => {
     expect(stderr).toContain('a real run would be refused (HARD_DELETE_NOT_PERMITTED)');
     expect(stderr).toContain('the user does not hold Bulk API Hard Delete');
     expect(h.org.sent).toEqual([]);
+    // It names no one, and says what it did: it read, it deleted nothing.
+    expect(`${stdout}${stderr}`).not.toContain('tester@example.com');
+    expect(stderr).toContain('the user SandForge deletes as');
+    expect(stderr).not.toContain('No record was read or deleted');
+  });
+
+  it('gives in --json the requests its estimate priced and those the dry run sent, counted as sent', async () => {
+    const h = harness();
+
+    const { code, stdout } = await h.run('--target', 'DEV', '--org', '--dry-run', '--json');
+
+    expect(code).toBe(1);
+    const answer = JSON.parse(stdout) as { apiRequests: { estimate: number; sent: number } };
+    expect(answer.apiRequests.sent).toBe(h.org.requestsSent());
+    expect(answer.apiRequests.estimate).toBeGreaterThan(2 * answer.apiRequests.sent);
+  });
+
+  it('lists the objects that hold records, and how many hold none, the JSON keeping every one', async () => {
+    const h = harness({ org: withEmptyObjects() });
+
+    const { stdout, stderr } = await h.run('--target', 'DEV', '--org', '--dry-run', '--json');
+
+    const emptied = stderr.slice(
+      stderr.indexOf('Emptied, in the order'),
+      stderr.indexOf('\n\n', stderr.indexOf('Emptied, in the order')),
+    );
+    const answer = JSON.parse(stdout) as {
+      preview: { passes: Array<{ objectApiName: string; records: { records?: number } }> };
+    };
+    const holding = answer.preview.passes.filter((pass) => pass.records.records !== 0);
+    const empty = answer.preview.passes.length - holding.length;
+    expect(empty).toBeGreaterThan(0);
+    for (const pass of holding) expect(emptied).toContain(pass.objectApiName);
+    for (const pass of answer.preview.passes.filter((each) => each.records.records === 0)) {
+      expect(emptied).not.toMatch(new RegExp(`^  ${pass.objectApiName} `, 'm'));
+    }
+    expect(emptied).toContain(`and ${empty} object(s) holding no record (--json lists them)`);
   });
 });
 
@@ -430,6 +484,54 @@ describe('sandforge-empty: a run', () => {
         details: expect.objectContaining({ empty: 'run', runId: answer.result.runId }),
       }),
     ]);
+  });
+
+  it('gives in --json every request its dry run and its run sent, under what the estimate priced', async () => {
+    const h = harness({ org: withEmptyObjects() });
+
+    const { code, stdout } = await h.run(
+      '--target',
+      'DEV',
+      '--org',
+      '--yes',
+      '--accept-no-undo',
+      '--json',
+    );
+
+    expect(code).toBe(3);
+    const answer = JSON.parse(stdout) as {
+      apiRequests: { estimate: number; sent: number };
+      result: DataOpsEmptyRunResult;
+    };
+    expect(answer.apiRequests.sent).toBe(h.org.requestsSent());
+    expect(answer.apiRequests.sent).toBeLessThanOrEqual(answer.apiRequests.estimate);
+    expect(answer.result.requestsSent).toBeLessThan(answer.apiRequests.sent);
+  });
+
+  it('prints the passes that moved or met a refusal, and how many found nothing, the JSON keeping every one', async () => {
+    const h = harness({ org: withEmptyObjects() });
+
+    const { stdout, stderr } = await h.run(
+      '--target',
+      'DEV',
+      '--org',
+      '--yes',
+      '--accept-no-undo',
+      '--json',
+    );
+
+    const answer = JSON.parse(stdout) as { result: DataOpsEmptyRunResult };
+    const still = answer.result.passes.filter(
+      (pass) => pass.deleted + pass.gone + pass.refused + (pass.notReached ?? 0) === 0,
+    );
+    expect(still.length).toBeGreaterThan(0);
+    expect(stderr).not.toMatch(/deleted 0\n/);
+    expect(stderr).toContain(
+      `and ${still.length} object(s) whose pass found nothing to delete (--json lists them)`,
+    );
+    const refused = answer.result.passes.find((pass) => pass.refused > 0);
+    expect(refused).toBeDefined();
+    expect(stderr).toMatch(new RegExp(`^  ${refused?.objectApiName} +deleted`, 'm'));
   });
 
   it('refuses, exit 1, records no undo would bring back until --accept-no-undo, the flag named', async () => {

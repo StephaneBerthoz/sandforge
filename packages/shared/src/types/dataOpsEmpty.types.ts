@@ -37,10 +37,19 @@ export interface DataOpsEmptyScopeRequest {
   files?: boolean;
   /** In `org` mode, whether the objects of managed packages are emptied: not unless asked. */
   managedPackages?: boolean;
+  /**
+   * In `org` mode, whether the objects whose records no undelete brings back
+   * on their own are emptied by passes of their own: not unless asked.
+   */
+  unrestorable?: boolean;
 }
 
 /** Why an emptying leaves an object out. */
 export type DataOpsEmptyLeftOutReason =
+  /** The org's configuration kept as records: its flows, orchestrations, settings and definitions. */
+  | 'configuration'
+  /** Its records cannot come back from the recycle bin on their own, not asked for. */
+  | 'notRestorable'
   | 'excludedByUser'
   | 'notFound'
   | 'chatter'
@@ -120,12 +129,20 @@ export interface DataOpsEmptyBlocker {
   records: DataOpsEmptyCounted;
 }
 
-/** Records that leave before a record they name: no undo brings them back once it has gone too. */
+/**
+ * Records no undo would bring back: those that leave before a record they
+ * name, once it has gone too (`restricted`, or `unordered` where a constraint
+ * gave way); a product's standard prices, which go with it and do not come
+ * back with it (`standardPrices`); and what the pass of an object whose
+ * records no undelete brings back on their own sends (`notRestorable`).
+ */
 export interface DataOpsEmptyUndoLost {
   objectApiName: string;
-  field: string;
-  parent: string;
-  reason: 'restricted' | 'customPrices' | 'unordered';
+  /** The lookup through which they name the record they go before, or with; absent for `notRestorable`. */
+  field?: string;
+  /** The object of that record; absent for `notRestorable`. */
+  parent?: string;
+  reason: 'restricted' | 'unordered' | 'standardPrices' | 'notRestorable';
   records: DataOpsEmptyCounted;
 }
 
@@ -178,7 +195,10 @@ export type DataOpsEmptyBudgetCheck =
 
 /** What an emptying costs, and how it stands against what the org has left. */
 export interface DataOpsEmptyCost {
+  /** From the dry run to the last delete: the dry run's read of the org, the run's own, its passes. */
   apiRequests: number;
+  /** Those requests apart: one read of the org, how many reads it holds, the passes', and a margin. */
+  requests?: { reads: number; readings: 1 | 2; passes: number; margin: number };
   seconds: number;
   bulkBatches: number;
   passes: DataOpsEmptyPassDeletes[];
@@ -317,6 +337,11 @@ export interface DataOpsEmptyRunResult {
   checkpoint?: RunCheckpointInfo;
   /** The org's earlier emptyings whose journals went once this one ended: Undo reaches the last alone. */
   removedRuns?: string[];
+  /**
+   * Every request the run sent the org, from its read of it again to its last
+   * delete, counted as sent; absent where nothing counts them.
+   */
+  requestsSent?: number;
   startedAt: string;
   finishedAt: string;
 }
@@ -349,6 +374,8 @@ export interface DataOpsEmptyUndoResult {
   objects: DataOpsEmptyUndoObject[];
   notes: string[];
   mutedAutomation?: MutedAutomation;
+  /** Every request the undo sent the org, counted as sent; absent where nothing counts them. */
+  requestsSent?: number;
   finishedAt: string;
 }
 

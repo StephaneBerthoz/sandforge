@@ -99,7 +99,8 @@ Required:
                          with them
   --org                  empty every object people work in, as checkpoints
                          read them: never users, profiles, setup, Chatter,
-                         history, sharing or the standard price book
+                         history, sharing, the org's flows, settings and
+                         definitions, or the standard price book
   --dry-run              read the org and say everything a run would do and
                          meet, deleting nothing; exit 1 when a run would be
                          refused, its refusals listed
@@ -117,6 +118,13 @@ Options of --org:
                          given)
   --managed-packages     empty the objects of managed packages too (left out
                          unless given)
+  --unrestorable         empty too, by passes of their own, the objects whose
+                         records Salesforce does not bring back from the
+                         recycle bin on their own (left out unless given;
+                         what they hold under a record emptied goes along
+                         with it all the same). What their passes send is
+                         said beyond Undo: NO_UNDO, exit 1, without
+                         --accept-no-undo
 
 Options:
   --hard-delete          delete for good, with what goes along: nothing goes
@@ -189,6 +197,7 @@ const FLAGS: CommandFlags = {
     '--custom-settings',
     '--files',
     '--managed-packages',
+    '--unrestorable',
     '--hard-delete',
     '--dry-run',
     '--yes',
@@ -277,7 +286,9 @@ export function parseArgs(argv: readonly string[]): EmptyArgs {
   const objectsValue = once('--objects');
   const excluded = valuesOf(args, '--exclude-object');
   const orgMode = has('--org');
-  const options = ['--custom-settings', '--files', '--managed-packages'].filter(has);
+  const options = ['--custom-settings', '--files', '--managed-packages', '--unrestorable'].filter(
+    has,
+  );
 
   if (undo !== undefined || resume !== undefined) {
     const flag = undo !== undefined ? '--undo' : '--resume';
@@ -334,6 +345,7 @@ export function parseArgs(argv: readonly string[]): EmptyArgs {
         ...(has('--custom-settings') ? { customSettings: true } : {}),
         ...(has('--files') ? { files: true } : {}),
         ...(has('--managed-packages') ? { managedPackages: true } : {}),
+        ...(has('--unrestorable') ? { unrestorable: true } : {}),
       }
     : { mode: 'objects', objects: [...new Set(objects ?? [])] };
   return {
@@ -382,6 +394,8 @@ function countedWords(counted: DataOpsEmptyCounted): string {
 }
 
 const LEFT_OUT_WORDS: Readonly<Record<DataOpsEmptyLeftOutReason, string>> = {
+  configuration: 'configuration: flows, orchestrations, settings, definitions',
+  notRestorable: 'cannot come back from the recycle bin (--unrestorable empties them)',
   excludedByUser: 'left out as asked',
   notFound: 'the org has no such object',
   chatter: 'Chatter',
@@ -415,7 +429,35 @@ const LIKELY_WORDS: Readonly<Record<DataOpsEmptyLikelyRefusalCode, string>> = {
 export type EmptyPreviewAnswer = DataOpsEmptyPreviewKept & {
   automation: DataOpsAutomationAnswer;
   refusals: DataOpsEmptyRefusal[];
+  /** The requests the dry run sent the org, counted as sent. */
+  requestsSent?: number;
 };
+
+/**
+ * What `--json` says of the API requests: `estimate`, what the dry run priced
+ * the emptying at, its own reads and its run's together; and `sent`, every
+ * request the emptying's dry run and run sent the org, counted as they were
+ * sent, through each connection they read and delete through. The org's
+ * `/limits`, the only other count, are the whole org's and read a minute or
+ * two late: a dry run took 153 where the estimate said 25. Neither holds the
+ * two reads that register the org as the command connects, nor a checkpoint
+ * taken first, which says its own. Exported so it can be tested.
+ */
+export function apiRequestsJson(
+  estimate: number | undefined,
+  ...sent: Array<number | undefined>
+): { apiRequests: { estimate?: number; sent?: number } } | Record<string, never> {
+  const counted = sent.every((each) => each !== undefined)
+    ? sent.reduce<number>((sum, each) => sum + (each ?? 0), 0)
+    : undefined;
+  if (estimate === undefined && counted === undefined) return {};
+  return {
+    apiRequests: {
+      ...(estimate !== undefined ? { estimate } : {}),
+      ...(counted !== undefined ? { sent: counted } : {}),
+    },
+  };
+}
 
 /** The flag a refusal's code is lifted by, where the command line has one. */
 const FLAG_OF_CODE: Readonly<Record<string, string>> = {
@@ -428,6 +470,24 @@ export function refusalWords(refusal: DataOpsEmptyRefusal): DataOpsEmptyRefusal 
   return flag && !refusal.message.includes(flag)
     ? { ...refusal, message: `${refusal.message} (${flag} accepts it)` }
     : refusal;
+}
+
+/** What no undo brings back of one object, and why, as a line says it. */
+function undoLostLine(lost: EmptyPreviewAnswer['preview']['undoLost'][number]): string {
+  switch (lost.reason) {
+    case 'standardPrices':
+      return (
+        `${lost.objectApiName} standard prices, going with ${lost.parent ?? 'their product'}: ` +
+        'Salesforce did not bring them back with it'
+      );
+    case 'notRestorable':
+      return `${lost.objectApiName} sent by its own pass: Salesforce does not bring them back`;
+    default:
+      return (
+        `${lost.objectApiName} before ${lost.parent ?? 'its parent'}` +
+        `${lost.field !== undefined ? ` (${lost.field})` : ''}: they go before a record they name`
+      );
+  }
 }
 
 /** The lines a dry run says, before any refusal. */
@@ -448,9 +508,14 @@ export function previewLines(target: string, answer: EmptyPreviewAnswer): string
         ? `, and ${preview.total.uncounted.join(', ')} not counted`
         : ''),
   );
+  // The objects that hold records, or that the org would not count: a whole
+  // org's two hundred passes printed every one that holds none.
+  const holding = preview.passes.filter(
+    (pass) => pass.records.records === undefined || pass.records.records > 0,
+  );
   if (preview.passes.length > 0) {
     lines.push('', 'Emptied, in the order the run takes them:');
-    for (const pass of preview.passes) {
+    for (const pass of holding) {
       const sent =
         pass.sent.records !== pass.records.records
           ? `, ${countedWords(pass.sent)} sent by its own pass`
@@ -461,11 +526,19 @@ export function previewLines(target: string, answer: EmptyPreviewAnswer): string
         `  ${pass.objectApiName.padEnd(40)} ${countedWords(pass.records)}${sent}${archived}${kept}`,
       );
     }
+    const empty = preview.passes.length - holding.length;
+    if (empty > 0) {
+      lines.push(`  and ${count(empty)} object(s) holding no record (--json lists them)`);
+    }
   }
   if (preview.along.length > 0) {
     lines.push('', 'Going along, deleted by the org with a record emptied:');
     for (const along of preview.along) {
-      const via = along.via.map((route) => `${route.field} → ${route.parent}`).join(', ');
+      // Once each: the routes of one lookup from several emptied objects
+      // printed the same lookup three times.
+      const via = [...new Set(along.via.map((route) => `${route.field} → ${route.parent}`))].join(
+        ', ',
+      );
       lines.push(
         `  ${along.objectApiName.padEnd(40)} ${countedWords(along.records)}${via ? `  (${via})` : ''}`,
       );
@@ -491,12 +564,8 @@ export function previewLines(target: string, answer: EmptyPreviewAnswer): string
   }
   const lost = preview.undoLost.filter((each) => each.records.records !== 0);
   if (preview.deleteMode === 'recycle' && lost.length > 0) {
-    lines.push('', 'Undo cannot bring back, as they go before a record they name:');
-    for (const each of lost) {
-      lines.push(
-        `  ${each.objectApiName} before ${each.parent} (${each.field}): ${countedWords(each.records)}`,
-      );
-    }
+    lines.push('', 'Undo cannot bring back:');
+    for (const each of lost) lines.push(`  ${undoLostLine(each)}: ${countedWords(each.records)}`);
   }
   if (preview.leftOut.length > 0) {
     // Each object the user named, by name; of the whole org's, how many for
@@ -545,7 +614,8 @@ function costLines(answer: EmptyPreviewAnswer): string[] {
       ? ` (what the org has left today could not be read: ${check.unread})`
       : ` of ${count(check.remaining)} left today${check.verdict === 'exceeds' ? ': too many' : ''}`;
   const lines = [
-    `about ${count(cost.api.estimate)} API request(s)${against(cost.api)}, ` +
+    `about ${count(cost.api.estimate)} API request(s), the dry run's reads and the run's ` +
+      `together${against(cost.api)}, ` +
       `${count(cost.bulkBatches)} Bulk API batch(es)` +
       (cost.batches ? against(cost.batches) : '') +
       `, about ${count(Math.ceil(cost.seconds))} s`,
@@ -605,7 +675,14 @@ export function runLines(target: string, result: DataOpsEmptyRunResult): string[
     `${result.resumed ? 'took up' : 'emptied'} ${target}: ${result.runId}, ${result.status}` +
       (result.hard ? ', for good' : ''),
   ];
-  for (const pass of result.passes) {
+  // The passes that moved or met the org's refusal: a whole org's two
+  // hundred printed "deleted 0" for each that held nothing. --json keeps them.
+  const moved = result.passes.filter(
+    (pass) =>
+      pass.deleted + pass.gone + pass.refused + (pass.notReached ?? 0) + (pass.madeSince ?? 0) >
+        0 || pass.reasons.length > 0,
+  );
+  for (const pass of moved) {
     const parts = [
       `deleted ${count(pass.deleted)}`,
       ...(pass.gone > 0 ? [`gone before ${count(pass.gone)}`] : []),
@@ -615,6 +692,12 @@ export function runLines(target: string, result: DataOpsEmptyRunResult): string[
     ];
     lines.push(`  ${pass.objectApiName.padEnd(40)} ${parts.join(', ')}`);
     for (const reason of pass.reasons) lines.push(`      ${reason}`);
+  }
+  const still = result.passes.length - moved.length;
+  if (still > 0) {
+    lines.push(
+      `  and ${count(still)} object(s) whose pass found nothing to delete (--json lists them)`,
+    );
   }
   const { totals } = result;
   lines.push(
@@ -882,12 +965,20 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
       if (undoing) {
         const result = payloadOf(sent.answer).result as DataOpsEmptyUndoResult;
         for (const line of undoLines(args.target, result)) say(line);
-        answerJson({ runId: args.runId, result });
+        answerJson({
+          runId: args.runId,
+          result,
+          ...apiRequestsJson(undefined, result.requestsSent),
+        });
         endWith(emptyExitCode(result.status, sent.stoppedBy));
       } else {
         const result = payloadOf(sent.answer).result as DataOpsEmptyRunResult;
         for (const line of runLines(args.target, result)) say(line);
-        answerJson({ runId: args.runId, result });
+        answerJson({
+          runId: args.runId,
+          result,
+          ...apiRequestsJson(undefined, result.requestsSent),
+        });
         endWith(emptyExitCode(result.status, sent.stoppedBy));
       }
       return;
@@ -923,11 +1014,13 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
       ...(preview.openRun ? { openRun: preview.openRun } : {}),
       automation: preview.automation,
     };
+    const estimate = preview.preview.cost.api.estimate;
     if (args.dryRun) {
       for (const each of refusals) say(`  ${wouldBeRefusedLine(each)}`);
       if (refusals.length === 0) say('  a real run would not be refused');
       answerJson({
         ...summary,
+        ...apiRequestsJson(estimate, preview.requestsSent),
         ...(refusals.length > 0
           ? {
               wouldBeRefused: refusals.map((each) => each.message),
@@ -942,7 +1035,12 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
     if (first) {
       process.stderr.write(`${refusedLine(first)}\n`);
       for (const each of also) process.stderr.write(`${refusedLine(each)}\n`);
-      answerJson({ ...summary, refused: first, ...(also.length > 0 ? { alsoRefused: also } : {}) });
+      answerJson({
+        ...summary,
+        ...apiRequestsJson(estimate, preview.requestsSent),
+        refused: first,
+        ...(also.length > 0 ? { alsoRefused: also } : {}),
+      });
       endWith(FAILED_EXIT);
       return;
     }
@@ -970,7 +1068,11 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
     const result = payloadOf(sent.answer).result as DataOpsEmptyRunResult;
     for (const line of runLines(args.target, result)) say(line);
     if (result.runId !== '') say(`journal: ${journals.root}`);
-    answerJson({ ...summary, result });
+    answerJson({
+      ...summary,
+      ...apiRequestsJson(estimate, preview.requestsSent, result.requestsSent),
+      result,
+    });
     endWith(emptyExitCode(result.status, sent.stoppedBy));
   } catch (err: unknown) {
     const stop =

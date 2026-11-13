@@ -13,9 +13,21 @@
  * results read three ways (`bulkJobCost.ts`), and a Bulk API batch of the
  * org's day per 10,000 of its records, shared with every other Bulk API load
  * of the day. An order past Draft is read and set back to Draft first, 200 a
- * call. What cannot be known before — a record refused and tried again, what
- * the org's automation does in answer — is not counted, and the estimate is
- * about.
+ * call. Once the passes are through, each counts what was made since the
+ * preview read the org, a statement a pass. A record the preview says will
+ * be refused at first — what an object not emptied holds of it — is sent
+ * again and read back once the rest has gone, 200 a call each.
+ *
+ * Before any of that, the org is read: its clock, its global describe, its
+ * limits, the describes of what goes and what blocks, a count per object and
+ * per relationship, what the user may do and see, who else is at work, and
+ * what its automation runs ({@link EmptyCost.requests}). The dry run reads it
+ * so, and the run reads it again before its first delete, to refuse what the
+ * dry run did not show: both are in the estimate, which says what the
+ * emptying sends from its dry run to its last delete. Counted on the deletes
+ * alone, it said 25 requests where a dry run took 153 and its run about 170.
+ * What cannot be known before — what the org's automation does in answer, a
+ * mute's deploys — is not counted, and the estimate is about.
  *
  * Deleted for good (`hard`), every object goes by a job, however few its
  * records: no REST call deletes for good. That costs more requests and more
@@ -47,13 +59,11 @@ import {
 import { RECORDS_PER_CALL } from '../RecordRemoval.js';
 import {
   ESTIMATE_PAGE_ROWS,
-  SECONDS_PER_DESCRIBE_CALL,
   SECONDS_PER_PAGE,
   SECONDS_PER_SMALL_CALL,
   SECONDS_PER_WRITE,
   type Cost,
 } from '../../checkpoint/rewindEstimate.js';
-import { SUBREQUESTS_PER_COMPOSITE } from '../../checkpoint/compositeQueries.js';
 
 /**
  * Records of a Bulk API 2.0 job one of the org's daily Bulk API batches
@@ -77,10 +87,12 @@ export function deletedForGood(objectApiName: string): boolean {
 }
 
 /**
- * Requests an emptying sends whatever it deletes: the org's global describe,
- * the user it runs as and its `/limits`.
+ * Requests a read of the org sends whatever it deletes: what kind of org it
+ * is, its clock, its global describe, what its Tooling API serves, its
+ * `/limits`, what the user may do, who the user is — twice, the second for
+ * their grants — and the org's Automated Process user.
  */
-const EMPTY_FIXED_REQUESTS = 3;
+export const EMPTY_FIXED_READS = 9;
 
 /** Records of the recycle bin per MB of data storage, as Salesforce documents it. */
 const BIN_RECORDS_PER_MB = 25;
@@ -141,12 +153,29 @@ export interface EmptyCostInput {
   bulkBatches?: ApiBudget;
   /** The org's data storage, in MB: what the recycle bin's size is read from. */
   dataStorageMB?: number;
+  /** The requests a read of the org as the dry run reads it takes: see {@link EmptyCost.requests}. */
+  reads: number;
+  /** The reads of the org the estimate holds: the dry run's and the run's (2), the run's alone (1). */
+  readings?: 1 | 2;
+  /** Of the objects going along, those whose records past Draft are read by a condition of their own. */
+  draftReads?: number;
+  /** Per object of records the org will refuse at first, how many: sent again, then read back. */
+  refused?: readonly number[];
 }
 
 /** What an emptying costs, and how it stands against what the org has left. */
 export interface EmptyCost {
+  /** Every request together: the reads of the org, `requests.readings` times, and the passes'. */
   apiRequests: number;
-  /** Seconds, about. */
+  /**
+   * The requests apart: `reads`, one read of the org as the dry run read it —
+   * counted as they were sent where the dry run counted them, else its
+   * describes, its counts and its fixed reads, what the automation reads
+   * apart; how many such reads the estimate holds; what the passes send; and
+   * the margin for what the org's answers make vary ({@link MARGIN_SHARE}).
+   */
+  requests: { reads: number; readings: 1 | 2; passes: number; margin: number };
+  /** Seconds of the run, about: its read of the org and its passes. */
   seconds: number;
   /** The Bulk API batches its jobs take. */
   bulkBatches: number;
@@ -187,11 +216,15 @@ function idPages(records: number): number {
   return Math.max(1, Math.ceil(records / ESTIMATE_PAGE_ROWS));
 }
 
-/** What sending one pass's deletes costs. */
+/**
+ * What one pass costs: its ids read, its deletes, and the count of what was
+ * made since the preview once the passes are through.
+ */
 function deletesCost(deletes: PassDeletes): Cost {
   if (deletes.notSent) return { apiRequests: 0, seconds: 0 };
   return sum([
     calls(idPages(deletes.records), SECONDS_PER_PAGE),
+    calls(1, SECONDS_PER_SMALL_CALL),
     calls(deletes.restCalls, SECONDS_PER_WRITE),
     ...deletes.jobs.map((job) => ({
       apiRequests: bulkJobRequests({ stateReads: bulkJobStateReads(job) }),
@@ -202,7 +235,9 @@ function deletesCost(deletes: PassDeletes): Cost {
 
 /**
  * What setting `records` back to Draft costs: the org's statuses read once,
- * the records read 2,000 a page, and updated 200 a call.
+ * the records read 2,000 a page, updated 200 a call, and read back by their
+ * ids once the passes are through, 200 a statement, to give the status back
+ * to those the run left.
  */
 function toDraftCost(records: number): Cost {
   if (records <= 0) return { apiRequests: 0, seconds: 0 };
@@ -210,7 +245,42 @@ function toDraftCost(records: number): Cost {
     calls(1, SECONDS_PER_SMALL_CALL),
     calls(Math.ceil(records / ESTIMATE_PAGE_ROWS), SECONDS_PER_PAGE),
     calls(Math.ceil(records / RECORDS_PER_CALL), SECONDS_PER_WRITE),
+    calls(Math.ceil(records / RECORDS_PER_CALL), SECONDS_PER_PAGE),
   ]);
+}
+
+/**
+ * What the records the org refuses at first cost once the rest has gone:
+ * sent again, 200 a call, and read back to tell those a parent took along.
+ */
+function refusedCost(records: number): Cost {
+  if (records <= 0) return { apiRequests: 0, seconds: 0 };
+  const batches = Math.ceil(records / RECORDS_PER_CALL);
+  return sum([calls(batches, SECONDS_PER_WRITE), calls(batches, SECONDS_PER_PAGE)]);
+}
+
+/**
+ * The share of the requests the estimate adds for what the org's answers
+ * make vary: a job's state read more often than its pace says, a record the
+ * org could not lock sent again, a call a limit cut in halves, the
+ * automation read again by the run. On the memory org the estimate met what
+ * was sent to the request; a real org is never that even.
+ */
+const MARGIN_SHARE = 0.05;
+
+/** `cost`'s requests and seconds with `reads` for one read of the org, `readings` times. */
+function withReads(
+  passes: Cost,
+  reads: number,
+  readings: 1 | 2,
+): Pick<EmptyCost, 'apiRequests' | 'seconds' | 'requests'> {
+  const counted = readings * reads + passes.apiRequests;
+  const margin = Math.ceil(counted * MARGIN_SHARE);
+  return {
+    apiRequests: counted + margin,
+    seconds: reads * SECONDS_PER_SMALL_CALL + passes.seconds,
+    requests: { reads, readings, passes: passes.apiRequests, margin },
+  };
 }
 
 /** What an emptying costs: see the module's comment. */
@@ -218,12 +288,13 @@ export function emptyCostOf(input: EmptyCostInput): EmptyCost {
   const passes = input.passes.map(({ objectApiName, records }) =>
     passDeletesOf(objectApiName, Math.max(0, records), input.mode),
   );
-  const total = sum([
-    calls(EMPTY_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
-    calls(Math.ceil(passes.length / SUBREQUESTS_PER_COMPOSITE), SECONDS_PER_DESCRIBE_CALL),
+  const passCost = sum([
     toDraftCost(input.toDraft),
+    calls(input.draftReads ?? 0, SECONDS_PER_PAGE),
     ...passes.map(deletesCost),
+    ...(input.refused ?? []).map(refusedCost),
   ]);
+  const total = withReads(passCost, Math.max(0, input.reads), input.readings ?? 2);
   const bulkBatches = passes.reduce(
     (batches, pass) =>
       batches + pass.jobs.reduce((n, job) => n + Math.ceil(job / RECORDS_PER_BULK_BATCH), 0),
@@ -237,8 +308,7 @@ export function emptyCostOf(input: EmptyCostInput): EmptyCost {
     input.dataStorageMB === undefined ? undefined : input.dataStorageMB * BIN_RECORDS_PER_MB;
   const sendsJobs = passes.some((pass) => pass.jobs.length > 0);
   return {
-    apiRequests: total.apiRequests,
-    seconds: total.seconds,
+    ...total,
     bulkBatches,
     passes,
     binRecords,
@@ -258,4 +328,24 @@ export function emptyCostOf(input: EmptyCostInput): EmptyCost {
         }
       : {}),
   };
+}
+
+/**
+ * `cost` priced again with `reads` for one read of the org — the requests a
+ * read sent, as counted once it was through — held `readings` times: a dry
+ * run's estimate holds its own read and its run's, a run's gate its own
+ * alone, the dry run's being spent. Against what the org had left as the
+ * read began, which the limits the estimate was read with say.
+ */
+export function pricedWithReads(cost: EmptyCost, reads: number, readings: 1 | 2): EmptyCost {
+  const passes = {
+    apiRequests: cost.requests.passes,
+    seconds: cost.seconds - cost.requests.reads * SECONDS_PER_SMALL_CALL,
+  };
+  const total = withReads(passes, Math.max(0, reads), readings);
+  const budget =
+    cost.api.verdict === 'unread'
+      ? { unread: cost.api.unread }
+      : { max: cost.api.max, remaining: cost.api.remaining };
+  return { ...cost, ...total, api: apiBudgetCheckOf(total.apiRequests, budget) };
 }
