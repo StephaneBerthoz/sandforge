@@ -233,7 +233,7 @@ test("the README's editor paragraph names the files the manifest has checked, an
   assert.ok(
     editor.includes('](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml)'),
   );
-  assert.ok(editor.includes('generated from the one `sandforge-env validate` reads the file with'));
+  assert.ok(editor.includes('generated from the one `sandforge env validate` reads the file with'));
   assert.ok(
     editor.includes(
       'The YAML extension is what reads that schema; without it, the editor checks nothing.',

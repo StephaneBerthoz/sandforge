@@ -100,7 +100,7 @@ pipeline {
         }
 
         // ── Forge clone + removal (dry-run default) ────────
-        stage('Clone (sandforge-clone)') {
+        stage('Clone (sandforge clone)') {
             when {
                 expression { return env.SANDFORGE_SF_ORGS == 'true' && params.SF_CLONE_RECORD_ID?.trim() }
             }

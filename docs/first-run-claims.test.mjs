@@ -264,7 +264,7 @@ test('the FAQ says how to undo a run, module by module, as the code allows', () 
   }
   assert.match(row(body, 'Autopilot'), /Not removable/);
   // The way out for a run nothing takes back, said with its danger.
-  assert.match(body, /`sandforge-cleanup` deletes every record your user created/);
+  assert.match(body, /`sandforge cleanup` deletes every record your user created/);
   assert.match(body, /--dry-run/);
   assert.match(body, /--objects/);
 });

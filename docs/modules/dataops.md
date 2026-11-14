@@ -84,7 +84,7 @@ Take a copy of the objects an Anonymize writes over:
   removed as SandForge starts and after each backup. A Sync run keeps here,
   listed as a backup of the org it wrote to, the values it wrote over, which
   removing the run gives back: only their age takes those, and the run's card
-  says until when. `sandforge-backup` and `sandforge-dataops` apply the same
+  says until when. `sandforge backup` and `sandforge dataops` apply the same
   retention as they start, `--max-age-days` setting it (0 keeps them all), and
   name on stderr each backup they remove, a Sync run's said as the run's. A
   backup taken before
@@ -118,9 +118,9 @@ Restore data from a previously saved backup:
   run's removal does, a record changed since the run — modified after its last
   write — or deleted since is left as it is, and counted per object with the
   result, unless **Also restore the records changed or deleted since the run**
-  is ticked. `sandforge-backup --restore` and `sandforge-dataops anonymize
+  is ticked. `sandforge backup --restore` and `sandforge dataops anonymize
 --restore` leave them as they are too, and end on exit code 3, unless
-  `--include-changed` is given, as the run's own `sandforge-sync --remove
+  `--include-changed` is given, as the run's own `sandforge sync --remove
 --include-changed` gives them back. Its delete question says that removing
   the run will no longer put these values back. A run
   no longer kept on this machine has no known last write: every record of its
@@ -145,7 +145,7 @@ What a restore does, in order:
   many. A row the org no longer holds goes too, and its answer says what became
   of it; a batch whose values cannot be read is written whole. **Write every
   row of the backup back** on the Restore tab, or `--rewrite-all` with
-  `sandforge-backup --restore`, upserts every row, the unchanged ones included
+  `sandforge backup --restore`, upserts every row, the unchanged ones included
 - Reports progress per object, reading the backup 200 records at a time:
   backups taken before records went one to a line, and those kept in extension
   state before files, are read as they were written
@@ -165,7 +165,7 @@ What a restore does, in order:
 
 A restore is listed in Live Operations while it writes, and the Restore tab
 offers **Cancel run** meanwhile. It stops between two batches when it is
-cancelled — from either, by Ctrl-C at `sandforge-dataops --restore`, or as the
+cancelled — from either, by Ctrl-C at `sandforge dataops --restore`, or as the
 window closes — as a masking run does: the records it put back before are counted,
 the audit trail records it cancelled with them, and the same restore run
 again puts back the rest, writing only the rows that do not hold the backup's
@@ -218,7 +218,7 @@ your own:
   rules. An object of which no field can be masked is named too, and an object
   whose rules mask nothing in this org refuses the run under
   `MASKING_MASKS_NOTHING`. A resume is held to the same check, and
-  `sandforge-dataops anonymize` ends on exit code 1. An object with no record
+  `sandforge dataops anonymize` ends on exit code 1. An object with no record
   holds nothing to mask, and refuses nothing
 - **A run that stops before the end says what it left.** A cancel -- the
   Anonymize tab's **Cancel run** while the run masks, or Live Operations',
@@ -614,7 +614,7 @@ default), where the panel and the command line both read them.
 
 #### From the command line
 
-`sandforge-empty` runs the same handler, with the same guards, journals and
+`sandforge empty` runs the same handler, with the same guards, journals and
 lock ([every flag](../../ci-examples/README.md)):
 
 ```sh
@@ -719,7 +719,7 @@ Forge, Sync, Seed and Frozen Dataset do:
   own delete; contacts that went with their account ran neither the before
   delete flow nor the after delete trigger of Contact; and Salesforce has no
   flow that starts after a delete. The same holds for what their review could
-  not count. `sandforge-cleanup` reads it on the objects it names, as the page
+  not count. `sandforge cleanup` reads it on the objects it names, as the page
   does, and says that what the target deletes along with them goes too,
   uncounted, running none of its delete automation
 - **Duplicate rules**: the active ones of what a masking, a restore or an
@@ -738,8 +738,8 @@ it before the org's name is typed, and wait for it; the box **Mute the target's 
 when the org's own bypass silences something of it, on any org but a
 production one, whose automation is never muted, and on an org that
 delivers the emails, a box lets them go, which the confirmation itself never
-stands for. On the command line, `sandforge-dataops anonymize`, its
-`--restore`, `sandforge-backup --restore` and `sandforge-cleanup` say it
+stands for. On the command line, `sandforge dataops anonymize`, its
+`--restore`, `sandforge backup --restore` and `sandforge cleanup` say it
 before they ask or write, and write nothing without `--accept-automation` when
 something fires or could not be read (`AUTOMATION_NOT_ACCEPTED`), nor without
 `--accept-emails` when the org delivers what still runs sends

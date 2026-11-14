@@ -3228,11 +3228,15 @@ describe('CheckpointHandler — Export… and Import… on the page', () => {
 
     expect(answerOf(h, 'wv-export-1').payload).toMatchObject({
       code: 'NO_FILE_DIALOG',
-      message: expect.stringContaining('sandforge-checkpoint export'),
+      message: expect.stringContaining(
+        'with npx sandforge checkpoint export. Nothing was written.',
+      ),
     });
     expect(answerOf(h, 'wv-read-1').payload).toMatchObject({
       code: 'NO_FILE_DIALOG',
-      message: expect.stringContaining('sandforge-checkpoint import'),
+      message: expect.stringContaining(
+        'with npx sandforge checkpoint import. Nothing was imported.',
+      ),
     });
   });
 });

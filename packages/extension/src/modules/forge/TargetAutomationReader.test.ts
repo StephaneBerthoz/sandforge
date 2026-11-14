@@ -3164,7 +3164,7 @@ describe('automationLines', () => {
   });
 
   it('names no --apply-assignment-rules to a reader who cannot give it', () => {
-    // Relayed by sandforge-env plan, the clone's dry run said "(--apply-assignment-rules
+    // Relayed by sandforge env plan, the clone's dry run said "(--apply-assignment-rules
     // applies it)" of the trap org's case and lead rules: a flag the environment
     // does not take.
     const ruled: ForgeTargetAutomation = {

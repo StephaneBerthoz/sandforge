@@ -1,22 +1,22 @@
 # Environments as code: `sandforge.yaml`
 
-A `sandforge.yaml` committed with your project says what records an environment needs: so many accounts, so many contacts under each. `sandforge-env`, one of the [command-line scripts](../ci-examples/README.md), applies it to an org: `plan` says what it would create, keep, replace and take back, `apply` does it, `destroy` takes it back into the recycle bin, and between them a **state** on your machine says what was applied to which org. Applied again, it writes nothing; changed, it replaces what changed.
+A `sandforge.yaml` committed with your project says what records an environment needs: so many accounts, so many contacts under each. `sandforge env`, one of the [command-line scripts](../ci-examples/README.md), applies it to an org: `plan` says what it would create, keep, replace and take back, `apply` does it, `destroy` takes it back into the recycle bin, and between them a **state** on your machine says what was applied to which org. Applied again, it writes nothing; changed, it replaces what changed.
 
-It writes nothing to an org itself. Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource, `sandforge-frozen` for a frozen resource, `sandforge-dataops` for a mask resource --, run in a process of its own with `--json`, and taken back by that script's own removal, a masking excepted, which is never undone: every guard, gate and run file of the script holds unchanged, and what `sandforge-env` adds is what no run knows -- the file, the order, the state, and refusals of its own. The checkpoints a file asks are taken, compared with and rewound to by `sandforge-checkpoint`, the same way.
+It writes nothing to an org itself. Each resource of the file is applied by its script -- `sandforge seed` for a seed resource, `sandforge clone` for a forge resource, `sandforge frozen` for a frozen resource, `sandforge dataops` for a mask resource --, run in a process of its own with `--json`, and taken back by that script's own removal, a masking excepted, which is never undone: every guard, gate and run file of the script holds unchanged, and what `sandforge env` adds is what no run knows -- the file, the order, the state, and refusals of its own. The checkpoints a file asks are taken, compared with and rewound to by `sandforge checkpoint`, the same way.
 
 This version applies **seed resources** -- records Seed generates, from a built-in template or from objects, counts, field rules and relations of the file's own --, **forge resources** -- records Forge clones from an org the file names by its role, one record and what hangs from it, or whole tables ([A forge resource](#a-forge-resource)) -- **frozen resources** -- a Frozen Dataset frozen beforehand, loaded as the **Load** tab loads it ([A frozen resource](#a-frozen-resource)) -- and **mask resources**: records the org already holds, a sandbox copied from production, masked with DataOps rules as the **DataOps** panel masks them, and never unmasked ([A mask resource](#a-mask-resource)). A seed relation may draw its parents from the records another resource created ([References between resources](#references-between-resources)). Around its applies, a file may ask **checkpoints** of the org ([Checkpoints](#checkpoints)): `reset` rewinds the org to the one taken once applied, between two test suites, and `destroy --rewind` to the one taken before the first apply. [Not yet](#not-yet) says what it does not do.
 
 ## Run it
 
-Without a checkout, the `sandforge` npm package runs it with Node.js 20.19 or later, from your project's folder, each org logged in to the Salesforce CLI (`sf`): `npx sandforge env plan --org pool-1`. Installed with `npm install -g sandforge`, it is the command `sandforge-env`, the name the sessions below give it.
+Without a checkout, the `sandforge` npm package runs it with Node.js 20.19 or later, from your project's folder, each org logged in to the Salesforce CLI (`sf`): `npx sandforge env plan --org pool-1`. Installed with `npm install -g sandforge`, it is the command `sandforge env`, as the sessions below give it.
 
 From the root of a checkout of this repository, once `pnpm install` and `pnpm build:shared` have run, with each org logged in to the Salesforce CLI (`sf`), which holds its credentials:
 
 ```bash
-alias sandforge-env='pnpm exec tsx packages/extension/cli/sandforge-env.ts'
+alias sandforge='pnpm exec tsx packages/extension/cli/sandforge.ts'
 ```
 
-The script runs from the checkout, so `--file` names your project's file; without it, `sandforge.yaml` of the folder it runs in is read. The sessions below run from `/home/dev/sandforge`, a checkout beside the project `/home/dev/case-flow`, against `pool-1`, a scratch org. Each script it runs says its own lines too, on stderr, as they come -- its dry run, what the org runs as records go in, the run file it keeps --: they are left out here, and what is shown is what `sandforge-env` itself says. With `--json`, the answer alone goes to stdout and every other line to stderr.
+The script runs from the checkout, so `--file` names your project's file; without it, `sandforge.yaml` of the folder it runs in is read. The sessions below run from `/home/dev/sandforge`, a checkout beside the project `/home/dev/case-flow`, against `pool-1`, a scratch org. Each script it runs says its own lines too, on stderr, as they come -- its dry run, what the org runs as records go in, the run file it keeps --: they are left out here, and what is shown is what `sandforge env` itself says. With `--json`, the answer alone goes to stdout and every other line to stderr.
 
 ## The file
 
@@ -86,7 +86,7 @@ Two resources, applied in order: `accounts` writes three accounts, then `contact
 | `resources.<name>.anonymize`                | `presetId`, `rules`, `fields`                                                                                                                             | Forge's anonymization, as a template holds it: the method of each category, and the personal fields of each object                                                                                                                                                                                                                                |
 | `resources.<name>.accept`, `kind: forge`    | `automation`, `realData`                                                                                                                                  | `automation`, as for a seed resource; `realData: true`, to clone a production source without anonymizing it, reviewed in the file ([Real data](#real-data-from-a-production-org))                                                                                                                                                                 |
 | `resources.<name>`, `kind: frozen`          | `kind`, `dependsOn`, `accept`, `config`, `dataset`                                                                                                        | `kind: frozen`; `config`, the project's Frozen configuration, from the file's folder; `dataset`, the dataset it loads, pinned                                                                                                                                                                                                                     |
-| `resources.<name>.dataset`                  | `path`, `version`, `digest`                                                                                                                               | the dataset's folder, from the root, or `{ env: NAME }`; the version its manifest says; its digest, `sha256:` and 64 hexadecimal digits, as `sandforge-frozen --json` gives it                                                                                                                                                                    |
+| `resources.<name>.dataset`                  | `path`, `version`, `digest`                                                                                                                               | the dataset's folder, from the root, or `{ env: NAME }`; the version its manifest says; its digest, `sha256:` and 64 hexadecimal digits, as `sandforge frozen --json` gives it                                                                                                                                                                    |
 | `masking.<set>`                             | `rules`                                                                                                                                                   | the DataOps rules a mask resource names the set by, one at least, as the DataOps panel saves a template's, and held to its save: no field given two rules ([A mask resource](#a-mask-resource))                                                                                                                                                   |
 | `masking.<set>.rules[]`                     | `fieldPattern`, `ruleType`, `config`                                                                                                                      | the field, with its object, as `Contact.Email`; its method, `fake`, `mask`, `hash`, `nullify`, `shuffle`, `preserve_format`, `constant` or `truncate`; the settings the method takes                                                                                                                                                              |
 | `….rules[].config`                          | `constantValue`, `maskKeepLast`, `truncateLength`, `truncateKeep`                                                                                         | the value a `constant` writes; the characters a `mask` keeps at the end; how many a `truncate` keeps, and from which end, `first` or `last`                                                                                                                                                                                                       |
@@ -110,7 +110,7 @@ resources:
     maxTotal: 500
 ```
 
-A forge resource is cloned by [`sandforge-clone`](forge-reference.md#the-command-line) from the org its `source` role names, into the org to fill: one `record` and what discovery reaches from it, or whole `tables`, each under its condition. It is turned into a Forge template -- the entry of the project's templates file it names, the file's `depth`, caps, anonymization and contact points over it -- and the clone is given that template with the record or the tables beside it.
+A forge resource is cloned by [`sandforge clone`](forge-reference.md#the-command-line) from the org its `source` role names, into the org to fill: one `record` and what discovery reaches from it, or whole `tables`, each under its condition. It is turned into a Forge template -- the entry of the project's templates file it names, the file's `depth`, caps, anonymization and contact points over it -- and the clone is given that template with the record or the tables beside it.
 
 - **The record of a query is read at each plan**, on the source: no row, or more than one, blocks the resource with the count. A scratch org made again gives the same case another id, which a record named by its `id` could not follow.
 - **The source by its Organization Id.** What the resource's fingerprint is of names the org its role's alias reaches, and the record its query resolved to, never the alias: an alias pointed at another org replaces it, one renamed keeps it. A source that is the org to fill is refused.
@@ -171,10 +171,10 @@ resources:
         distribution: { mode: perParent, count: 1 }
 ```
 
-A frozen resource loads a [Frozen Dataset](modules/frozen-dataset.md) a person froze beforehand -- selected, extracted, pseudonymized and checked by the non-reidentification control -- with [`sandforge-frozen`](modules/frozen-dataset.md#removing-a-load), which drives the **Load** tab's own handler.
+A frozen resource loads a [Frozen Dataset](modules/frozen-dataset.md) a person froze beforehand -- selected, extracted, pseudonymized and checked by the non-reidentification control -- with [`sandforge frozen`](modules/frozen-dataset.md#removing-a-load), which drives the **Load** tab's own handler.
 
 - **Its configuration is committed, its dataset is not.** `config` names the project's Frozen configuration, from the file's folder, as the panel saves it: held to Frozen's own schema, strict, a key it does not name refused, and no key shaped like a secret -- a load never reads the salt. The dataset is pseudonymized business data: it stays outside the repository, where the pipeline downloads it, named by its path from the root or by a `{ env: NAME }` variable. A dataset inside the repository that holds the file is refused, exit `2`.
-- **Pinned by its version and its digest.** `version` is the one its manifest stamps, and `digest` what `sandforge-frozen --json` gives it: `sha256:` over the files a load reads, the same wherever the folder is moved. A dataset whose digest or version is not the file's blocks the resource, both named: what was reviewed is what is loaded. The fingerprint is of the digest, never of the path: a dataset moved keeps the resource, a dataset frozen again replaces it once the file pins it.
+- **Pinned by its version and its digest.** `version` is the one its manifest stamps, and `digest` what `sandforge frozen --json` gives it: `sha256:` over the files a load reads, the same wherever the folder is moved. A dataset whose digest or version is not the file's blocks the resource, both named: what was reviewed is what is loaded. The fingerprint is of the digest, never of the path: a dataset moved keeps the resource, a dataset frozen again replaces it once the file pins it.
 - **The environment sets its folders.** Each run is given the committed configuration with its `sasDir` set to a folder of the state, `frozen/<resource>`, which keeps the resource's loads -- the mapping of what each created, its counting contract, the script's own store -- and its `datasetDir` set to the dataset pinned; a `sasDir` or a `datasetDir` the configuration gives is warned of and not used.
 - **Held to its plan's count, and verified.** The plan dry-runs the load (`load --dry-run`) and shows what it would insert per object; the run (`load`) is held to that count with `--max-total`, and judged by the verification the load chains after it: an object it FAILED leaves the resource partial. On each plan after, its verification (`verify`) and the preview of its removal read what the org holds of it: an object FAILED, a record gone or changed since, and the resource is drifted, each named.
 - **Replaced by a reload.** A dataset changed, a resource it depends on run again, or its last load stopped part way: the replace is one run, `load --reload`, whose purge takes back what the loads before it created, then loads again. It is refused before anything is written when that purge would leave records -- changed since, of an object the user may not delete -- and the plan blocks the resource in the load's own words, as it does what else a load refuses: an org its entry guards turn away, a protected one, a required field the dataset leaves empty with no default. What the load would leave out without refusing -- a field the target encrypts that may hold masks, a picklist value a restricted picklist refuses and its rule rewrites -- the plan says beside its counts.
@@ -183,7 +183,7 @@ A frozen resource loads a [Frozen Dataset](modules/frozen-dataset.md) a person f
 <!-- replay: frozen -->
 
 ```console
-$ sandforge-env plan --file ../claims-flow/sandforge.yaml --org pool-1
+$ sandforge env plan --file ../claims-flow/sandforge.yaml --org pool-1
 claims: reading its dataset at /home/dev/datasets/claims
 claims: dry run
 followers: dry run
@@ -205,7 +205,7 @@ The dataset is read first, and held to its pin; the load's dry run counts what i
 <!-- replay: then -->
 
 ```console
-$ sandforge-env apply --file ../claims-flow/sandforge.yaml --org pool-1 --yes
+$ sandforge env apply --file ../claims-flow/sandforge.yaml --org pool-1 --yes
 claims: reading its dataset at /home/dev/datasets/claims
 claims: dry run
 followers: dry run
@@ -233,7 +233,7 @@ A test deletes one of the contacts the load wrote:
 <!-- replay: then; a contact of the load deleted -->
 
 ```console
-$ sandforge-env plan --file ../claims-flow/sandforge.yaml --org pool-1 --fail-on-drift
+$ sandforge env plan --file ../claims-flow/sandforge.yaml --org pool-1 --fail-on-drift
 claims: reading its dataset at /home/dev/datasets/claims
 followers: reading what the org holds of run 1
 claims: reading what the org holds of run 1
@@ -258,7 +258,7 @@ The dataset is frozen again, at the same path, with a third account; the file st
 <!-- replay: then; the dataset frozen again -->
 
 ```console
-$ sandforge-env plan --file ../claims-flow/sandforge.yaml --org pool-1
+$ sandforge env plan --file ../claims-flow/sandforge.yaml --org pool-1
 claims: reading its dataset at /home/dev/datasets/claims
 followers: reading what the org holds of run 1
 claims: reading what the org holds of run 1
@@ -283,7 +283,7 @@ Once the file pins it, the apply reloads it:
 <!-- replay: then; the file pins the new dataset -->
 
 ```console
-$ sandforge-env apply --file ../claims-flow/sandforge.yaml --org pool-1 --yes
+$ sandforge env apply --file ../claims-flow/sandforge.yaml --org pool-1 --yes
 claims: reading its dataset at /home/dev/datasets/claims
 followers: reading what the org holds of run 1
 claims: reading what the org holds of run 1
@@ -327,7 +327,7 @@ After the reload above, `followers` asks for four contacts:
 <!-- replay: then; followers ask for four -->
 
 ```console
-$ sandforge-env plan --file ../claims-flow/sandforge.yaml --org pool-1
+$ sandforge env plan --file ../claims-flow/sandforge.yaml --org pool-1
 claims: reading its dataset at /home/dev/datasets/claims
 followers: reading what the org holds of run 2
 claims: reading what the org holds of run 2
@@ -372,19 +372,19 @@ resources:
     where: 'Email != null' # without object, every object its rules mask
 ```
 
-A mask resource masks records the org already holds -- a sandbox copied from production -- with [`sandforge-dataops`](modules/dataops.md), which drives the **DataOps** panel's own handler. It writes over records, and creates none.
+A mask resource masks records the org already holds -- a sandbox copied from production -- with [`sandforge dataops`](modules/dataops.md), which drives the **DataOps** panel's own handler. It writes over records, and creates none.
 
 - **Its rules are DataOps rules.** `rules` names a set of the file's `masking`, each rule as the DataOps panel saves a template's and held to that save, or a template that ships, as `{ template: tpl-gdpr-standard }`. The script masks one object a run: a resource names its `object` and the records its `where` selects, or no object, and every object its rules mask, Account's person accounts among them where the org has them. A rule set with no rule for its object is refused before any org is reached, exit `2`: a run would mask nothing there.
 - **The snapshot comes first.** Each run takes a snapshot of the records it masks, their masked fields as they are, before its first write, and writes nothing unless the snapshot holds every one of them. The snapshot is kept on this machine in the resource's own store, `dataops/<resource>/` beside the state, and the state keeps its id.
 - **Planned by its own dry run.** The plan dry-runs the masking (`anonymize --dry-run`) and says, per object, the records it would mask. A field the rules name that the org does not show the user blocks the resource, in the script's own words, and so does one the user may read and not edit, and an object the org would not count or read: a run is refused for it, and masks nothing. An object with no record holds nothing to mask, and blocks nothing. The dry run reads too what the org runs as the records are written over: something that fires blocks the resource unless `accept: { automation: true }` on it, handed to the script as `--accept-automation`; emails the org delivers block it unless the line gives `--accept-emails`; and the emails it counts join the day's email gate with the other resources'.
 - **Kept, drifted, replaced.** Applied with the same rules, it is kept while its condition selects as many records as it masked; once it selects others -- records copied in since, which hold their own values --, it is drifted, and `--replace` or `--replace-drifted` masks them all again. Changed rules replace it, and a replace masks again what its condition selects, the records it masked before a second time, taking nothing back first: the values they held before any masking stay only in the first run's snapshot.
-- **Never unmasked.** `destroy`, and an apply of a file it left, delete its store, its snapshots with it -- the only copy of the values it wrote over -- and leave its records masked. Putting values back is your own act, before the destroy: `sandforge-dataops anonymize --restore <snapshot>`, with the store the plan names. A file with a mask resource takes no `checkpoint.before`, exit `2`: that checkpoint would hold the values in clear, and `destroy --rewind` would write them back; for the same reason, `destroy --rewind` is refused while the state names a mask resource.
+- **Never unmasked.** `destroy`, and an apply of a file it left, delete its store, its snapshots with it -- the only copy of the values it wrote over -- and leave its records masked. Putting values back is your own act, before the destroy: `sandforge dataops anonymize --restore <snapshot>`, with the store the plan names. A file with a mask resource takes no `checkpoint.before`, exit `2`: that checkpoint would hold the values in clear, and `destroy --rewind` would write them back; for the same reason, `destroy --rewind` is refused while the state names a mask resource.
 - **Masking what a seed wrote.** A masking writes over the records it masks: those a seed or a forge resource of the same file wrote read as changed since, drifted, and their destroy keeps them unless `--include-changed`.
 
 <!-- replay: masking -->
 
 ```console
-$ sandforge-env plan --file ../uat-masked/sandforge.yaml --org uat
+$ sandforge env plan --file ../uat-masked/sandforge.yaml --org uat
 customers: dry run
 plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
 state: none on this machine
@@ -402,7 +402,7 @@ On a sandbox the machine keeps no state of, the apply asks `--accept-no-state`:
 <!-- replay: then -->
 
 ```console
-$ sandforge-env apply --file ../uat-masked/sandforge.yaml --org uat --yes --accept-no-state
+$ sandforge env apply --file ../uat-masked/sandforge.yaml --org uat --yes --accept-no-state
 customers: dry run
 plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
 state: none on this machine
@@ -425,7 +425,7 @@ Planned again, with the same rules over the same records, the masking is kept: `
 <!-- replay: then -->
 
 ```console
-$ sandforge-env plan --file ../uat-masked/sandforge.yaml --org uat --fail-on-change
+$ sandforge env plan --file ../uat-masked/sandforge.yaml --org uat --fail-on-change
 customers: dry run
 plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
 state: kept on this machine, serial 2
@@ -443,7 +443,7 @@ A colleague copies in a contact from production:
 <!-- replay: then; a contact copied in since -->
 
 ```console
-$ sandforge-env plan --file ../uat-masked/sandforge.yaml --org uat --fail-on-drift
+$ sandforge env plan --file ../uat-masked/sandforge.yaml --org uat --fail-on-drift
 customers: dry run
 plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
 state: kept on this machine, serial 2
@@ -454,7 +454,7 @@ API requests: about 0, 14000 left
 data storage: about 0 MB, 5 MB left
 $ echo $?
 3
-$ sandforge-env apply --file ../uat-masked/sandforge.yaml --org uat --yes --replace-drifted
+$ sandforge env apply --file ../uat-masked/sandforge.yaml --org uat --yes --replace-drifted
 customers: dry run
 plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
 state: kept on this machine, serial 2
@@ -476,7 +476,7 @@ apply: success; state serial 4
 <!-- replay: then -->
 
 ```console
-$ sandforge-env output --file ../uat-masked/sandforge.yaml --org uat
+$ sandforge env output --file ../uat-masked/sandforge.yaml --org uat
 uat-masked on uat (sandbox, 00Dxx0000001gPLEAY): state serial 4, written 2026-10-25T09:03:30.000Z
   customers  mask, applied, run 2
     Contact  4 masked
@@ -489,7 +489,7 @@ Taken back:
 <!-- replay: then -->
 
 ```console
-$ sandforge-env destroy --file ../uat-masked/sandforge.yaml --org uat --yes
+$ sandforge env destroy --file ../uat-masked/sandforge.yaml --org uat --yes
 plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
 state: kept on this machine, serial 4
   delete   customers  Contact 4 masked
@@ -504,7 +504,7 @@ every record of uat-masked is taken back from uat, and what it masked left maske
   customers store deleted, destroyed  Contact 4 left masked
       Contact: left masked, as destroy leaves a masking; snapshots cli-dataops-anonymize-1792918860000-a1b2c3-snapshot, cli-dataops-anonymize-1792918980000-a1b2c3-snapshot deleted
 destroy: success; state serial 8
-$ sandforge-env output --file ../uat-masked/sandforge.yaml --org uat
+$ sandforge env output --file ../uat-masked/sandforge.yaml --org uat
 uat-masked on uat (sandbox, 00Dxx0000001gPLEAY): state serial 8, written 2026-10-25T09:03:30.000Z
   customers  mask, destroyed, run 2
     taken back by a destroy, which deleted its store and left its records masked: a masking creates no record
@@ -515,7 +515,7 @@ The records stay masked. A set naming a field the org lacks blocks the resource 
 <!-- replay: then; the set names a field the org lacks -->
 
 ```console
-$ sandforge-env plan --file ../uat-masked/sandforge.yaml --org uat
+$ sandforge env plan --file ../uat-masked/sandforge.yaml --org uat
 customers: dry run
 plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
 state: kept on this machine, serial 8
@@ -536,7 +536,7 @@ an apply now would be refused: A resource is blocked, and the apply refuses befo
 <!-- replay: scratch -->
 
 ```console
-$ sandforge-env validate --file ../case-flow/sandforge.yaml
+$ sandforge env validate --file ../case-flow/sandforge.yaml
 /home/dev/case-flow/sandforge.yaml: valid, the environment case-flow
   accounts: Account 3
   contacts: Contact 6, after accounts
@@ -547,7 +547,7 @@ It reaches no org, and needs no `--org`. It names the order the resources are ap
 <!-- replay: then; the accounts lose their field rule -->
 
 ```console
-$ sandforge-env validate --file ../case-flow/sandforge.yaml
+$ sandforge env validate --file ../case-flow/sandforge.yaml
 /home/dev/case-flow/sandforge.yaml does not validate:
   resources.accounts.objects[0]: Account asks for 3 record(s) and names no field to fill: add at least one field rule
 $ echo $?
@@ -559,7 +559,7 @@ $ echo $?
 <!-- replay: then; the file as above -->
 
 ```console
-$ sandforge-env plan --file ../case-flow/sandforge.yaml --org pool-1
+$ sandforge env plan --file ../case-flow/sandforge.yaml --org pool-1
 accounts: dry run
 contacts: dry run
 plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
@@ -592,7 +592,7 @@ The totals follow, then what the resources take of the org's day: the API reques
 <!-- replay: then -->
 
 ```console
-$ sandforge-env apply --file ../case-flow/sandforge.yaml --org pool-1 --yes
+$ sandforge env apply --file ../case-flow/sandforge.yaml --org pool-1 --yes
 accounts: dry run
 contacts: dry run
 plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
@@ -618,7 +618,7 @@ It plans first, then, on a terminal, asks for the org's alias to be typed exactl
 <!-- replay: then -->
 
 ```console
-$ sandforge-env apply --file ../case-flow/sandforge.yaml --org pool-1 --yes
+$ sandforge env apply --file ../case-flow/sandforge.yaml --org pool-1 --yes
 contacts: reading what the org holds of run 1
 accounts: reading what the org holds of run 1
 plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
@@ -642,7 +642,7 @@ $ echo $?
 <!-- replay: then -->
 
 ```console
-$ sandforge-env state
+$ sandforge env state
 case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY): serial 4, written 2026-10-25T09:03:00.000Z, expires 2026-11-24T09:03:00.000Z; accounts applied, contacts applied
 ```
 
@@ -653,7 +653,7 @@ It reaches no org. `--org` keeps the states of one org, by its alias or its Orga
 <!-- replay: then -->
 
 ```console
-$ sandforge-env output --file ../case-flow/sandforge.yaml --org pool-1
+$ sandforge env output --file ../case-flow/sandforge.yaml --org pool-1
 case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY): state serial 4, written 2026-10-25T09:03:00.000Z
   accounts  seed, applied, run 1
     Account  001000000000000AAA 001000000000001AAA 001000000000002AAA
@@ -666,7 +666,7 @@ case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY): state serial 4, written 2026-
 With `--json`, the answer alone goes to stdout, each resource under its name, its ids under their object, for a test script to read:
 
 ```bash
-sandforge-env output --file ../case-flow/sandforge.yaml --org pool-1 --json | jq -r '.resources.accounts.records.Account[]'
+sandforge env output --file ../case-flow/sandforge.yaml --org pool-1 --json | jq -r '.resources.accounts.records.Account[]'
 ```
 
 - **A resource a destroy took back** names no record: `taken back by a destroy: none of the org's records is its` ([Take it back](#take-it-back-destroy) ends on one).
@@ -681,7 +681,7 @@ A test deletes one of the contacts:
 <!-- replay: then; a contact deleted -->
 
 ```console
-$ sandforge-env plan --file ../case-flow/sandforge.yaml --org pool-1 --fail-on-drift
+$ sandforge env plan --file ../case-flow/sandforge.yaml --org pool-1 --fail-on-drift
 contacts: reading what the org holds of run 1
 accounts: reading what the org holds of run 1
 plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
@@ -706,7 +706,7 @@ $ echo $?
 <!-- replay: then; accounts asks for four -->
 
 ```console
-$ sandforge-env apply --file ../case-flow/sandforge.yaml --org pool-1 --yes
+$ sandforge env apply --file ../case-flow/sandforge.yaml --org pool-1 --yes
 contacts: reading what the org holds of run 1
 accounts: reading what the org holds of run 1
 accounts: dry run
@@ -741,7 +741,7 @@ Someone edits one of the accounts:
 <!-- replay: then; an account changed -->
 
 ```console
-$ sandforge-env destroy --file ../case-flow/sandforge.yaml --org pool-1 --yes
+$ sandforge env destroy --file ../case-flow/sandforge.yaml --org pool-1 --yes
 contacts: reading what the org holds of run 2
 accounts: reading what the org holds of run 2
 plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
@@ -769,7 +769,7 @@ The account changed since is kept, the destroy exits `3`, and the state stays wi
 <!-- replay: then -->
 
 ```console
-$ sandforge-env destroy --file ../case-flow/sandforge.yaml --org pool-1 --yes --include-changed
+$ sandforge env destroy --file ../case-flow/sandforge.yaml --org pool-1 --yes --include-changed
 accounts: reading what the org holds of run 2
 plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
 state: kept on this machine, serial 19
@@ -785,9 +785,9 @@ every record of case-flow is taken back from pool-1: the state keeps it as destr
 destroy: success; state serial 22
 $ echo $?
 0
-$ sandforge-env state
+$ sandforge env state
 case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY): serial 22, written 2026-10-25T09:12:00.000Z, expires 2026-11-24T09:12:00.000Z; accounts destroyed, contacts destroyed
-$ sandforge-env output --file ../case-flow/sandforge.yaml --org pool-1
+$ sandforge env output --file ../case-flow/sandforge.yaml --org pool-1
 case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY): state serial 22, written 2026-10-25T09:12:00.000Z
   accounts  seed, destroyed, run 2
     taken back by a destroy: none of the org's records is its
@@ -799,7 +799,7 @@ On a terminal, `destroy` asks for the alias too, and with `--include-changed` it
 
 ## Checkpoints
 
-A file may ask two checkpoints of the org, each a [checkpoint](modules/checkpoint.md) of its data taken, compared with and rewound to by `sandforge-checkpoint` itself, spawned with `--json` as every script is:
+A file may ask two checkpoints of the org, each a [checkpoint](modules/checkpoint.md) of its data taken, compared with and rewound to by `sandforge checkpoint` itself, spawned with `--json` as every script is:
 
 ```yaml
 checkpoint:
@@ -820,7 +820,7 @@ The file of the walk-through, with `checkpoint: { after: baseline }`:
 <!-- replay: scratch; the file asks a checkpoint once applied -->
 
 ```console
-$ sandforge-env apply --file ../case-flow/sandforge.yaml --org pool-1 --yes
+$ sandforge env apply --file ../case-flow/sandforge.yaml --org pool-1 --yes
 accounts: dry run
 contacts: dry run
 checkpoint: estimating what a take of the org costs
@@ -854,7 +854,7 @@ A test renames one of the environment's accounts, and creates an account of its 
 <!-- replay: then; a test renames an account and creates one -->
 
 ```console
-$ sandforge-env plan --file ../case-flow/sandforge.yaml --org pool-1 --fail-on-drift
+$ sandforge env plan --file ../case-flow/sandforge.yaml --org pool-1 --fail-on-drift
 contacts: reading what the org holds of run 1
 accounts: reading what the org holds of run 1
 checkpoint ck-20261025-090230-a1b2: comparing the whole org with it
@@ -879,7 +879,7 @@ Each resource is read back by its removal preview, as without a checkpoint; the 
 <!-- replay: then -->
 
 ```console
-$ sandforge-env reset --file ../case-flow/sandforge.yaml --org pool-1 --yes
+$ sandforge env reset --file ../case-flow/sandforge.yaml --org pool-1 --yes
 reset: rewinding pool-1 to checkpoint ck-20261025-090230-a1b2
 
   rewind to ck-20261025-090230-a1b2: exit 0, success  1 deleted, 1 given back, 0 brought back
@@ -899,7 +899,7 @@ The reset gave the renamed account its name back, which dates it after the apply
 <!-- replay: then -->
 
 ```console
-$ sandforge-env plan --file ../case-flow/sandforge.yaml --org pool-1 --fail-on-drift
+$ sandforge env plan --file ../case-flow/sandforge.yaml --org pool-1 --fail-on-drift
 contacts: reading what the org holds of run 1
 accounts: reading what the org holds of run 1
 checkpoint ck-20261025-090230-a1b2: comparing the whole org with it
@@ -926,7 +926,7 @@ With `checkpoint: { before: true }`, the first apply takes a checkpoint before i
 <!-- replay: scratch; the file asks a checkpoint before the first write -->
 
 ```console
-$ sandforge-env apply --file ../case-flow/sandforge.yaml --org pool-1 --yes
+$ sandforge env apply --file ../case-flow/sandforge.yaml --org pool-1 --yes
 accounts: dry run
 contacts: dry run
 checkpoint: estimating what a take of the org costs
@@ -958,7 +958,7 @@ A test creates an account of its own; then:
 <!-- replay: then; a test creates an account -->
 
 ```console
-$ sandforge-env destroy --file ../case-flow/sandforge.yaml --org pool-1 --rewind --yes
+$ sandforge env destroy --file ../case-flow/sandforge.yaml --org pool-1 --rewind --yes
 destroy --rewind: rewinding pool-1 to checkpoint ck-20261025-090130-a1b2
 checkpoint ck-20261025-090130-a1b2: deleted from this machine, the environment it was taken of is taken back
 every record of case-flow is taken back from pool-1, with what anyone changed since its first apply: the state keeps it as destroyed, and the next apply creates it again
@@ -982,7 +982,7 @@ In a pipeline, the plan is made and reviewed in the pull request, and applied on
 <!-- replay: scratch -->
 
 ```console
-$ sandforge-env plan --file ../case-flow/sandforge.yaml --org pool-1 --out ../case-flow.plan.json
+$ sandforge env plan --file ../case-flow/sandforge.yaml --org pool-1 --out ../case-flow.plan.json
 accounts: dry run
 contacts: dry run
 plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
@@ -1005,7 +1005,7 @@ plan kept in /home/dev/case-flow.plan.json, for apply --plan until 2026-10-26T09
 <!-- replay: then -->
 
 ```console
-$ sandforge-env apply --file ../case-flow/sandforge.yaml --org pool-1 --plan ../case-flow.plan.json --yes
+$ sandforge env apply --file ../case-flow/sandforge.yaml --org pool-1 --plan ../case-flow.plan.json --yes
 accounts: dry run
 contacts: dry run
 plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
@@ -1036,7 +1036,7 @@ apply: success; state serial 4
 <!-- replay: then -->
 
 ```console
-$ sandforge-env apply --file ../case-flow/sandforge.yaml --org pool-1 --plan ../case-flow.plan.json --yes
+$ sandforge env apply --file ../case-flow/sandforge.yaml --org pool-1 --plan ../case-flow.plan.json --yes
 The plan kept in /home/dev/case-flow.plan.json was made against no state, and the state is now at serial 4: an apply or a destroy ran since, or a cache put back another state. Nothing was written: plan again.
 $ echo $?
 1
@@ -1047,7 +1047,7 @@ $ echo $?
 <!-- replay: then -->
 
 ```console
-$ sandforge-env plan --file ../case-flow/sandforge.yaml --org pool-1 --out ../case-flow.plan.json
+$ sandforge env plan --file ../case-flow/sandforge.yaml --org pool-1 --out ../case-flow.plan.json
 contacts: reading what the org holds of run 1
 accounts: reading what the org holds of run 1
 plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
@@ -1065,7 +1065,7 @@ plan kept in /home/dev/case-flow.plan.json, for apply --plan until 2026-10-26T09
 <!-- replay: then; a contact deleted -->
 
 ```console
-$ sandforge-env apply --file ../case-flow/sandforge.yaml --org pool-1 --plan ../case-flow.plan.json --yes
+$ sandforge env apply --file ../case-flow/sandforge.yaml --org pool-1 --plan ../case-flow.plan.json --yes
 contacts: reading what the org holds of run 1
 accounts: reading what the org holds of run 1
 The plan kept in /home/dev/case-flow.plan.json is not what the org holds now, read again: contacts: planned keep (Contact 6 in the org), now drifted (Contact 5 in the org, 1 gone). Nothing was written: plan again.
@@ -1295,7 +1295,7 @@ Before any record is read, every command that reaches an org types it from its O
 <!-- replay: production -->
 
 ```console
-$ sandforge-env plan --file ../case-flow/sandforge.yaml --org prod
+$ sandforge env plan --file ../case-flow/sandforge.yaml --org prod
 prod is a production org (its Organization record says IsSandbox false, edition Enterprise Edition): an environment is applied to scratch orgs, Developer Edition orgs and the sandboxes its file lists. Nothing was read or written. No flag lifts this: an environment is never applied to a production org.
 $ echo $?
 1
@@ -1306,7 +1306,7 @@ $ echo $?
 <!-- replay: sandbox -->
 
 ```console
-$ sandforge-env plan --file ../case-flow/sandforge.yaml --org uat
+$ sandforge env plan --file ../case-flow/sandforge.yaml --org uat
 uat is a sandbox, and the file's targets.kinds allows scratch, developer: add sandbox to targets.kinds to apply it there. Nothing was read or written. If it is a scratch org, the sf CLI did not say so: its display names no Dev Hub for it, as when the org was logged in with an auth URL alone. Log its Dev Hub in on this machine, or list the org as a sandbox.
 ```
 
@@ -1315,7 +1315,7 @@ uat is a sandbox, and the file's targets.kinds allows scratch, developer: add sa
 <!-- replay: sandbox; the file lists another sandbox -->
 
 ```console
-$ sandforge-env plan --file ../case-flow/sandforge.yaml --org uat
+$ sandforge env plan --file ../case-flow/sandforge.yaml --org uat
 uat is a sandbox, and its Organization Id 00Dxx0000001gPLEAY is not listed under targets.sandboxes: nothing Salesforce says tells a sandbox that holds a client's records from a developer's, so each one the file writes to is listed, reviewed with the file. A refresh changes the Id: a sandbox listed before its refresh is listed again. Nothing was read or written. If it is a scratch org, the sf CLI did not say so: its display names no Dev Hub for it, as when the org was logged in with an auth URL alone.
 ```
 
@@ -1324,7 +1324,7 @@ uat is a sandbox, and its Organization Id 00Dxx0000001gPLEAY is not listed under
 <!-- replay: developer -->
 
 ```console
-$ sandforge-env apply --file ../case-flow/sandforge.yaml --org my-de --yes
+$ sandforge env apply --file ../case-flow/sandforge.yaml --org my-de --yes
 accounts: dry run
 contacts: dry run
 plan of case-flow on my-de (developer, 00Dxx0000001gPLEAY)
@@ -1353,7 +1353,7 @@ A `destroy` that took everything back keeps the state, every resource in it dest
 <!-- replay: scratch; the journal inside the repository -->
 
 ```console
-$ sandforge-env plan --file ../case-flow/sandforge.yaml --org pool-1
+$ sandforge env plan --file ../case-flow/sandforge.yaml --org pool-1
 The journal directory /home/dev/case-flow/.sandforge is inside the repository /home/dev/case-flow that holds the file: the state, the run summaries and the templates of its runs would be committed with it, and they name the org’s records by their ids. Point SANDFORGE_JOURNAL_DIR at a folder outside the repository — in CI, $RUNNER_TEMP/sandforge — and keep it between the jobs that apply and destroy, in a cache keyed by the org.
 $ echo $?
 2
@@ -1389,12 +1389,12 @@ What `apply` keeps of the org: **ids, counts and dates, never a record's values*
 
 ## When the state is lost: `state recover`
 
-`state recover` rebuilds the state of the file's environment on an org from the run files the journal directory keeps, when `state.json` is gone or does not read while those files are still there: deleted by hand, written by another version or cut short, or the environment's folder deleted while `seed-runs/` stayed. It does not make up for a lost cache: a cache that was not restored takes the run files with it, there is nothing to rebuild from, and the [refusal](#what-is-refused) of the next apply stands. When the files are there, that refusal says so: `sandforge-env state recover rebuilds the state from them`.
+`state recover` rebuilds the state of the file's environment on an org from the run files the journal directory keeps, when `state.json` is gone or does not read while those files are still there: deleted by hand, written by another version or cut short, or the environment's folder deleted while `seed-runs/` stayed. It does not make up for a lost cache: a cache that was not restored takes the run files with it, there is nothing to rebuild from, and the [refusal](#what-is-refused) of the next apply stands. When the files are there, that refusal says so, and names the command that rebuilds the state from them: `sandforge env state recover`.
 
 <!-- replay: developer; the state of an apply lost -->
 
 ```console
-$ sandforge-env state recover --file ../case-flow/sandforge.yaml --org my-de
+$ sandforge env state recover --file ../case-flow/sandforge.yaml --org my-de
 state of case-flow on my-de rebuilt from its run files: serial 1
   accounts  seed, applied: run 1
   contacts  seed, applied: run 1
@@ -1415,7 +1415,7 @@ It reaches the org to type it alone, with the guards of a plan -- a production o
 <!-- replay: then -->
 
 ```console
-$ sandforge-env plan --file ../case-flow/sandforge.yaml --org my-de
+$ sandforge env plan --file ../case-flow/sandforge.yaml --org my-de
 contacts: reading what the org holds of run 1
 accounts: reading what the org holds of run 1
 accounts: dry run
@@ -1436,7 +1436,7 @@ Refused, exit `1`, nothing written: a state that reads, which it never writes ov
 <!-- replay: then -->
 
 ```console
-$ sandforge-env state recover --file ../case-flow/sandforge.yaml --org my-de
+$ sandforge env state recover --file ../case-flow/sandforge.yaml --org my-de
 This machine keeps a state of case-flow on my-de that reads, serial 1: state recover never writes over one, and plan reads it. Nothing was written.
 $ echo $?
 1

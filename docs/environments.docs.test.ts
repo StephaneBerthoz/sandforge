@@ -56,6 +56,7 @@ vi.mock('../packages/extension/src/core/connection/ConnectionHelper.js', async (
 
 import { checkEnvFile, documentOf } from '../packages/extension/cli/env/envFile.js';
 import { main } from '../packages/extension/cli/sandforge-env.js';
+import { dispatchOf } from '../packages/extension/cli/sandforge.js';
 import type { CommandRunner } from '../packages/extension/cli/scriptRunner.js';
 import { runnerWithCheckpoints } from '../packages/extension/cli/testing/envCheckpointWorld.js';
 import { EnvWorld, type EnvWorldOptions } from '../packages/extension/cli/testing/envWorld.js';
@@ -490,7 +491,16 @@ describe('docs/environments.md', () => {
     const run = 'pnpm exec tsx packages/extension/cli/sandforge-env.ts';
 
     expect(help()).toContain(`  ${run} <command> [--file <sandforge.yaml>] --org <alias>`);
-    expect(DOC).toContain(`alias sandforge-env='${run}'`);
+    // The sessions type `sandforge env …`, as the npm package names it: from a
+    // checkout, the alias is the command the package starts, which hands the
+    // words after `env` to this script.
+    expect(DOC).toContain("alias sandforge='pnpm exec tsx packages/extension/cli/sandforge.ts'");
+    expect(dispatchOf(['env', 'plan', '--org', 'pool-1'])).toEqual({
+      kind: 'run',
+      tool: 'env',
+      args: ['plan', '--org', 'pool-1'],
+    });
+    expect(section(DOC, '## Run it')).toContain('`npx sandforge env plan --org pool-1`');
     expect(section(DOC, '## Run it')).toContain('`pnpm install` and `pnpm build:shared`');
     // The default file is the one of the folder the script runs in.
     expect(CLI).toContain("file: resolve(cwd, fileGiven ?? 'sandforge.yaml'),");
@@ -842,8 +852,8 @@ describe('docs/environments.md', () => {
             );
             continue;
           }
-          const [script, ...args] = line.split(' ');
-          expect(script).toBe('sandforge-env');
+          const [program, tool, ...args] = line.split(' ');
+          expect(`${program} ${tool}`).toBe('sandforge env');
           const { said, code } = await command(replay, args);
           expect(expected, `$ ${line}`).toBe(said.replace(/\n$/, ''));
           last = code;
@@ -890,7 +900,7 @@ describe('docs/environments.md', () => {
       "Its lines go on to this process's stderr as they\n * come",
     );
     expect(DOC).toContain(
-      'Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource, `sandforge-frozen` for a frozen resource, `sandforge-dataops` for a mask resource --, run in a process of its own with `--json`',
+      'Each resource of the file is applied by its script -- `sandforge seed` for a seed resource, `sandforge clone` for a forge resource, `sandforge frozen` for a frozen resource, `sandforge dataops` for a mask resource --, run in a process of its own with `--json`',
     );
     expect(DOC).toContain('Each script it runs says its own lines too, on stderr, as they come');
     // The file's two checks: its own schema, then Seed's, as the panel's.
@@ -1945,7 +1955,10 @@ describe('state recover, on the page', () => {
     );
     // The refusal of an apply with no state names it when the runs are kept.
     expect(GUARDS).toContain("'rebuilds the state from them'");
-    expect(page).toContain('`sandforge-env state recover rebuilds the state from them`');
+    expect(GUARDS).toContain("${commandOf('env')} state recover ");
+    expect(page).toContain(
+      'that refusal says so, and names the command that rebuilds the state from them: `sandforge env state recover`',
+    );
     // A damaged state, set aside, never deleted.
     expect(STATE).toContain('let aside = `${file}.damaged-${when}`;');
     expect(page).toContain('`state.json.damaged-<when>`');
@@ -1984,8 +1997,8 @@ describe('the pages that send a reader to docs/environments.md', () => {
 
   /** The commented-out jobs of the pipeline: what follows their header. */
   function envJobs(): string {
-    const start = commented.indexOf('── An environment as code (sandforge-env), commented out');
-    if (start === -1) throw new Error('the pipeline has no commented sandforge-env jobs: re-point');
+    const start = commented.indexOf('── An environment as code (sandforge env), commented out');
+    if (start === -1) throw new Error('the pipeline has no commented sandforge env jobs: re-point');
     return commented.slice(start);
   }
 
@@ -2018,7 +2031,7 @@ describe('the pages that send a reader to docs/environments.md', () => {
 
   it('the CI guide names the environment among the scripts its bullets and exit codes cover', () => {
     expect(GUIDE).toContain(
-      "so does `sandforge-env`'s: `plan`, `apply` and `destroy` refuse a production org, and a sandbox its file does not list by its Organization Id, before they read anything, with exit code `1`, and `validate`, `state` and `output` never contact an org",
+      "so does `sandforge env`'s: `plan`, `apply` and `destroy` refuse a production org, and a sandbox its file does not list by its Organization Id, before they read anything, with exit code `1`, and `validate`, `state` and `output` never contact an org",
     );
     expect(GUIDE).toContain(
       "An environment's `apply` and `destroy` ask for the alias typed too, and with no terminal and no `--yes` stop at the question, exit `2`, having written nothing",
@@ -2074,7 +2087,7 @@ describe('the pages that send a reader to docs/environments.md', () => {
       ),
     ).toHaveLength(2);
     // Nothing of the jobs runs: every line of them is commented out.
-    expect(PIPELINE).not.toMatch(/^\s+[^#\s][^\n]*sandforge-env/m);
+    expect(PIPELINE).not.toMatch(/^\s+[^#\s][^\n]*sandforge[- ]env/m);
   });
 
   it('the README paragraph and the FAQ answer link the guide, and say what the help says', () => {
@@ -2105,7 +2118,7 @@ describe('the pages that send a reader to docs/environments.md', () => {
     expect(LOCK).toContain('in the folder of\n * the checkpoint locks (`~/.sandforge/locks`');
 
     expect(kept).toContain(
-      'the states of `sandforge-env`, in `env/` beside them, ids, counts and dates only',
+      'the states of `sandforge env`, in `env/` beside them, ids, counts and dates only',
     );
     expect(kept).toContain(
       "an environment's apply or its destroy writes to, in `~/.sandforge/locks/`",

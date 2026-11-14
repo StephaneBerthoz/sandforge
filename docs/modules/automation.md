@@ -103,7 +103,7 @@ Every step is read before the run the way its module's own request is read: a Ba
 - **Seed** -- Remove in Seed's Recent runs, where the run is listed under the pipeline's name.
 - **Anonymize** -- nothing unmasks a value: a restore of the step's snapshot, on the DataOps page, writes back the values it wrote over.
 - **Checkpoint** -- the checkpoint is deleted on the Checkpoints page, or at the end of the days it is kept.
-- **Rewind** -- Undo on the Checkpoints page, or `sandforge-checkpoint undo`, for the org's last rewind, while the recycle bin keeps what it deleted.
+- **Rewind** -- Undo on the Checkpoints page, or `sandforge checkpoint undo`, for the org's last rewind, while the recycle bin keeps what it deleted.
 
 ### The confirmation of a Rewind step
 
@@ -119,7 +119,7 @@ The confirmation is bound to what the step does to the org: its org, its checkpo
 
 A Rewind step without its confirmation is refused before the pipeline starts, and so is a pipeline whose checkpoint was made by the org before a refresh of its sandbox: a trigger on it starts nothing, and its starts are written to History as missed, with the reason. An Approval step before a Rewind is allowed, not needed: at 2 a.m. nobody answers, and the step would fail after its wait.
 
-**A nightly reset of a training org**: take a baseline once on the Checkpoints page, kept until you delete it; build a pipeline "Nightly reset" with a Rewind step to it, its `maxRecords` set to what a day of training writes, and a Schedule trigger `0 2 * * *` in your time zone; save it and confirm the step. It runs only while VS Code is open: a night it is closed shows as missed, never run late. For a machine that sleeps, run `sandforge-checkpoint rewind --org <alias> --checkpoint <id> --yes --max-records <n> --refuse-when-active` from cron or CI instead (see [Checkpoint & Rewind](checkpoint.md#from-the-command-line)). A Seed step after the Rewind step seeds the org afresh each night, with no records of the night before left over.
+**A nightly reset of a training org**: take a baseline once on the Checkpoints page, kept until you delete it; build a pipeline "Nightly reset" with a Rewind step to it, its `maxRecords` set to what a day of training writes, and a Schedule trigger `0 2 * * *` in your time zone; save it and confirm the step. It runs only while VS Code is open: a night it is closed shows as missed, never run late. For a machine that sleeps, run `sandforge checkpoint rewind --org <alias> --checkpoint <id> --yes --max-records <n> --refuse-when-active` from cron or CI instead (see [Checkpoint & Rewind](checkpoint.md#from-the-command-line)). A Seed step after the Rewind step seeds the org afresh each night, with no records of the night before left over.
 
 ### Triggers
 

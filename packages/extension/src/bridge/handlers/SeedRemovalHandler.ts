@@ -122,7 +122,7 @@ const SEED_WRITING_ELSEWHERE =
  * The removal of what a Seed run created, from the run's results or the list
  * of earlier seeds, and what the page reads before it asks for one. The
  * command line has had it since a run's summary could be taken back
- * (`sandforge-seed --remove`); the panel offered none, and a seed written into
+ * (`sandforge seed --remove`); the panel offered none, and a seed written into
  * an org from it stayed there.
  *
  * - `seed:removal:info` — what the run kept, what a removal would take, and

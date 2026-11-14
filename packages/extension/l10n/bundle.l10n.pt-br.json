@@ -170,7 +170,7 @@
   "staging": "de staging",
   "development": "de desenvolvimento",
   "scratch": "temporária",
-  "SandForge: the record of a {0} run started {1} in {2}, whose {3} created record(s) are still in that org, was dropped to keep the runs kept on this machine within their bound. Delete those records with sandforge-cleanup, or from the org.": "SandForge: o registro de uma execução de {0} iniciada em {1} em {2}, cujos {3} registros criados ainda estão nessa org, foi descartado para manter as execuções guardadas nesta máquina dentro do limite. Exclua esses registros com o sandforge-cleanup, ou na org.",
+  "SandForge: the record of a {0} run started {1} in {2}, whose {3} created record(s) are still in that org, was dropped to keep the runs kept on this machine within their bound. Delete those records with npx sandforge cleanup, or from the org.": "SandForge: o registro de uma execução de {0} iniciada em {1} em {2}, cujos {3} registros criados ainda estão nessa org, foi descartado para manter as execuções guardadas nesta máquina dentro do limite. Exclua esses registros com o npx sandforge cleanup, ou na org.",
   "Left out: {0}, {1} records: {2} has no such object, or the user the sync writes as cannot see it.": "Deixado de fora: {0}, {1} registros: {2} não tem esse objeto, ou o usuário com que a sincronização grava não pode vê-lo.",
   "Left out: {0}, {1} records: the user the sync writes as may not create its records in {2}.": "Deixado de fora: {0}, {1} registros: o usuário com que a sincronização grava não pode criar seus registros em {2}.",
   "Left out: {0}, {1} records: the user the sync writes as may not edit its records in {2}.": "Deixado de fora: {0}, {1} registros: o usuário com que a sincronização grava não pode editar seus registros em {2}.",

@@ -43,7 +43,7 @@
  * bound drops is said (`SyncRunCreationsDeps.onDropped`).
  *
  * A run the command line made is taken back from the summary it printed
- * (`sandforge-seed --remove`), which builds the run the same way
+ * (`sandforge seed --remove`), which builds the run the same way
  * (`seedRunKept`), or from the file it keeps here as it writes, under the
  * folder `SANDFORGE_JOURNAL_DIR` names: a run killed before it printed its
  * summary kept what it created in memory alone.

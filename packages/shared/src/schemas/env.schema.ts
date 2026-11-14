@@ -625,11 +625,11 @@ const datasetVersionSchema = z.string().regex(/^\d+\.\d+\.\d+$/, {
 });
 
 /**
- * A dataset's digest, as `sandforge-frozen --json` gives it: `sha256:` and 64
+ * A dataset's digest, as `sandforge frozen --json` gives it: `sha256:` and 64
  * hexadecimal digits, over the files a load reads.
  */
 const datasetDigestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/, {
-  error: 'A dataset’s digest is sha256: and 64 hexadecimal digits, as sandforge-frozen gives it',
+  error: 'A dataset’s digest is sha256: and 64 hexadecimal digits, as sandforge frozen gives it',
 });
 
 export const envFrozenResourceSchema = strictObject('a frozen resource', {
@@ -665,7 +665,7 @@ const maskingRuleFileSchema = strictObject('a masking rule', {
   ).optional(),
 });
 
-/** A named set of DataOps rules, as `sandforge-dataops --rules` takes them: what mask resources name. */
+/** A named set of DataOps rules, as `sandforge dataops --rules` takes them: what mask resources name. */
 const maskingSetFileSchema = strictObject('a rule set', {
   rules: z
     .array(maskingRuleFileSchema)

@@ -147,7 +147,7 @@ stages:
 
   # ── Forge clone + removal (real CLI, dry-run default) ────────
   - stage: Clone
-    displayName: 'Forge Clone (sandforge-clone)'
+    displayName: 'Forge Clone (sandforge clone)'
     dependsOn: Quality
     # Only runs after the quality gates pass, and when sf org secrets and a
     # record to clone have been configured. A custom condition drops the
@@ -206,7 +206,7 @@ stages:
                 --remap-csv remap.csv \
                 --audit clone-audit.json \
                 > clone-output.json
-            displayName: 'Clone record graph (sandforge-clone)'
+            displayName: 'Clone record graph (sandforge clone)'
 
           # Your checks against the cloned records go here.
 
@@ -231,7 +231,7 @@ stages:
                     --json \
                     --audit clone-audit.json \
                     > clone-removal.json
-                displayName: 'Remove what the clone created (sandforge-clone --remove)'
+                displayName: 'Remove what the clone created (sandforge clone --remove)'
 
           # Copied into one folder first: CopyFiles skips a file the run did not
           # write — the removal's, after a dry run — where a publish task per

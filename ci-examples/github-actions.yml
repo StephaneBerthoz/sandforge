@@ -8,7 +8,7 @@
 #   3. Removal (opt-in) — the same script with --remove clone-summary.json takes
 #                        back what that clone created, and nothing else
 #   4. VSIX package    — pnpm package, uploaded as an artifact
-#   5. Environment     — commented out at the end: the sandforge-env jobs of a
+#   5. Environment     — commented out at the end: the sandforge env jobs of a
 #                        project that commits a sandforge.yaml
 #
 # There is no installed `sandforge` command: each headless tool is a script of
@@ -177,7 +177,7 @@ jobs:
           sf org login sfdxurl --sfdx-url-file "$auth_dir/source.txt" --alias ci-source
           sf org login sfdxurl --sfdx-url-file "$auth_dir/target.txt" --alias ci-target
 
-      - name: Clone record graph (sandforge-clone)
+      - name: Clone record graph (sandforge clone)
         env:
           SF_CLONE_RECORD_ID: ${{ vars.SF_CLONE_RECORD_ID }}
         run: |
@@ -228,7 +228,7 @@ jobs:
       # when the target's flows or triggers fire as the records are deleted,
       # unless told to go on: see ci-examples/README.md. --sweep deletes too
       # what it ties to the clone; add --sweep-late for what came late.
-      - name: Remove what the clone created (sandforge-clone --remove)
+      - name: Remove what the clone created (sandforge clone --remove)
         if: env.DRY_RUN != 'true' && env.REMOVE_AFTER == 'true'
         run: |
           REMOVAL_AUTOMATION_FLAG=""
@@ -306,7 +306,7 @@ jobs:
             -H 'Content-Type: application/json' \
             -d "{\"text\": \"SandForge Pipeline FAILED on ${{ github.repository }} (${{ github.ref_name }}) — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
 
-  # ── An environment as code (sandforge-env), commented out ─────────────────
+  # ── An environment as code (sandforge env), commented out ─────────────────
   #
   # Two jobs for your project's own repository, which commits a sandforge.yaml
   # at its root: its environment applied to one org kept for the tests (here
@@ -325,7 +325,7 @@ jobs:
   # Add `pull_request:` to the triggers above for env-plan.
   #
   # env-plan:
-  #   name: Environment plan (sandforge-env)
+  #   name: Environment plan (sandforge env)
   #   if: github.event_name == 'pull_request'
   #   runs-on: ubuntu-latest
   #   timeout-minutes: 30
@@ -369,7 +369,7 @@ jobs:
   #     # Writes nothing, to the org or to the state: what apply would create,
   #     # keep, replace and take back, and exit 3 when the org no longer holds
   #     # the environment as applied.
-  #     - name: Plan (sandforge-env plan --fail-on-drift)
+  #     - name: Plan (sandforge env plan --fail-on-drift)
   #       working-directory: sandforge
   #       run: |
   #         pnpm exec tsx packages/extension/cli/sandforge-env.ts plan \
@@ -381,7 +381,7 @@ jobs:
   #         path: env-plan.json
   #
   # env-tests:
-  #   name: Tests on the environment (sandforge-env)
+  #   name: Tests on the environment (sandforge env)
   #   if: github.event_name == 'push'
   #   runs-on: ubuntu-latest
   #   timeout-minutes: 60
@@ -426,7 +426,7 @@ jobs:
   #     # Writes nothing when the org holds the environment as the file
   #     # describes it; replaces what changed in the file. --yes: a CI step has
   #     # no terminal to type the alias at.
-  #     - name: Apply (sandforge-env apply)
+  #     - name: Apply (sandforge env apply)
   #       working-directory: sandforge
   #       run: |
   #         pnpm exec tsx packages/extension/cli/sandforge-env.ts apply \
@@ -436,7 +436,7 @@ jobs:
   #
   #     # Exit 3 when the tests left the environment's records deleted or
   #     # changed: the next apply leaves them so, unless --replace-drifted.
-  #     - name: Drift after the tests (sandforge-env plan --fail-on-drift)
+  #     - name: Drift after the tests (sandforge env plan --fail-on-drift)
   #       working-directory: sandforge
   #       run: |
   #         pnpm exec tsx packages/extension/cli/sandforge-env.ts plan \
@@ -446,7 +446,7 @@ jobs:
   #     # into the recycle bin; exit 3 when it left records, the state kept for
   #     # the next destroy. A destroy that took everything back deletes the
   #     # state, so the next apply to this org asks --accept-no-state again.
-  #     - name: Destroy (sandforge-env destroy)
+  #     - name: Destroy (sandforge env destroy)
   #       if: always() && vars.SANDFORGE_ENV_DESTROY == 'true'
   #       working-directory: sandforge
   #       run: |

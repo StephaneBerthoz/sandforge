@@ -209,7 +209,7 @@ export interface EnvFrozenDataset {
   digest: string;
 }
 
-/** A Frozen Dataset a person froze beforehand, loaded by `sandforge-frozen`. */
+/** A Frozen Dataset a person froze beforehand, loaded by `sandforge frozen`. */
 export interface EnvFrozenResource {
   kind: 'frozen';
   dependsOn?: string[];
@@ -227,7 +227,7 @@ export interface EnvMaskingRule {
   config?: SavedTemplateRuleConfig;
 }
 
-/** A named set of DataOps rules, as `sandforge-dataops --rules` takes them. */
+/** A named set of DataOps rules, as `sandforge dataops --rules` takes them. */
 export interface EnvMaskingSet {
   rules: EnvMaskingRule[];
 }
@@ -265,7 +265,7 @@ export interface EnvFile {
 }
 
 /**
- * What a mask resource runs: the rules `sandforge-dataops` is given, held to
+ * What a mask resource runs: the rules `sandforge dataops` is given, held to
  * the schema the DataOps panel's save goes through — a set's as a rules file,
  * or a template that ships by its id —, and what it masks.
  */
@@ -285,7 +285,7 @@ export interface EnvMaskRun {
 }
 
 /**
- * What a seed resource runs: the template `sandforge-seed` is given as a file,
+ * What a seed resource runs: the template `sandforge seed` is given as a file,
  * converted from the resource and checked by Seed's own payload schema, and
  * the flags given beside it.
  */
@@ -331,7 +331,7 @@ export interface EnvFrozenRun {
 }
 
 /**
- * What a forge resource runs: the template `sandforge-clone` is given as a
+ * What a forge resource runs: the template `sandforge clone` is given as a
  * file, exported from the resource and checked by Forge's own template
  * schema, and what it clones, which the line names beside it.
  */

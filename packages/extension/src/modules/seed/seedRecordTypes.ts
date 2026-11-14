@@ -1,7 +1,7 @@
 /**
  * The record types a seed from the panel gives an object's records, and what
  * a person account's type changes about the accounts it writes — the rules
- * the command line has followed since `--record-type` (`sandforge-seed`).
+ * the command line has followed since `--record-type` (`sandforge seed`).
  *
  * The panel offered no record type: every record took the running user's
  * default, and person accounts could be seeded from the command line only.

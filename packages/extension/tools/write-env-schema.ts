@@ -9,7 +9,7 @@
  * schema there. SandForge's manifest names the file this script writes.
  *
  * The schema is generated, never written by hand: `z.toJSONSchema` of
- * `envFileSchema`, the zod schema `sandforge-env validate` reads the file
+ * `envFileSchema`, the zod schema `sandforge env validate` reads the file
  * with, as a file is written (`io: 'input'`, so a key the schema fills in is
  * not asked of it). It holds the shape -- every key, its type and its values,
  * and the keys a strict object refuses -- and none of what the zod schema

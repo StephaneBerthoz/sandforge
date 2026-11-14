@@ -8,7 +8,7 @@
  *
  * A session kept none of it. The box that turns its writes on said so, and
  * sent the user to a DataOps backup of the target taken beforehand, or to
- * `sandforge-cleanup`, which deletes whatever the user created in a window
+ * `sandforge cleanup`, which deletes whatever the user created in a window
  * of time, the session's or not. The session's file is begun with its first
  * write and ended once it stops: a host that closes under it leaves what it
  * wrote so far removable, as a run's.
