@@ -496,6 +496,21 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
                     })}
                   </span>
                 )}
+                {/* Which records a clone from a query took: its line named
+                    the query alone, not what it chose nor what it wrote. */}
+                {entry.roots && (
+                  <span
+                    data-testid={`forge-history-roots-${entry.forgeId}`}
+                    className="block text-[11px] text-text-secondary"
+                  >
+                    {t('forge.history.roots', {
+                      count: entry.roots.read,
+                      formatted: sampleNumber(entry.roots.read),
+                      object: entry.roots.objectApiName,
+                      written: sampleNumber(entry.roots.written + entry.roots.linked),
+                    })}
+                  </span>
+                )}
               </div>
 
               {entry.resumable && entry.config && (

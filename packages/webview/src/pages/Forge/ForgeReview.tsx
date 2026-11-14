@@ -36,7 +36,7 @@ import { ReviewFilesOption, filesBlockExecute } from './ReviewFilesOption';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
 import { ForgeRehearseAction } from './ForgeRehearseAction';
 import { startForgeRun } from './startForgeRun';
-import { clonesOneRecord, clonesWholeOrg } from './forgeRunConfig';
+import { clonesFromRecords, clonesWholeOrg } from './forgeRunConfig';
 import { PERSONAL_AS_IS_ID, ReviewWholeOrgNotes } from './ReviewWholeOrgNotes';
 import { useForgeGaps } from './useForgeGaps';
 import { ReviewGapsRead } from './ReviewGapsRead';
@@ -457,7 +457,7 @@ export const ForgeReview: React.FC = () => {
   }, []);
 
   const buckets = useMemo(() => (graph ? forgeRunBuckets(graph) : null), [graph]);
-  const oneRecord = clonesOneRecord(config);
+  const oneRecord = clonesFromRecords(config);
   const sourceName = orgDisplayName(sourceOrg, config?.sourceOrgId);
   const targetName = orgDisplayName(targetOrg, config?.targetOrgId);
 
@@ -626,6 +626,7 @@ export const ForgeReview: React.FC = () => {
                   cycleCount={plan?.cycleResolutions.length ?? 0}
                   truncated={graph.truncated === true}
                   oneRecord={oneRecord}
+                  fromQuery={oneRecord && config?.inputMode === 'soql'}
                   maxNodes={config?.maxNodes}
                 />
               ) : (

@@ -214,8 +214,8 @@ test.describe('Forge — input form', () => {
 
     await expect(page.getByTestId('forge-ai-query')).toHaveValue(AI_DRAFT);
     await expect(page.getByTestId('forge-ai-checked')).toBeVisible();
-    // The WHERE clause narrows the root only, as on the SOQL tab.
-    await expect(page.getByTestId('forge-soql-where-warning')).toBeVisible();
+    // The draft chooses the records to clone, as a query of the SOQL tab does.
+    await expect(page.getByTestId('forge-roots-info')).toBeVisible();
     expect(await outgoing(page, 'forge:discover')).toHaveLength(0);
 
     await page.getByTestId('forge-discover-btn').click();
@@ -225,7 +225,7 @@ test.describe('Forge — input form', () => {
       config: {
         inputMode: 'soql',
         soqlQuery: AI_DRAFT,
-        objectSoqlFilters: { Account: "Industry = 'Energy'" },
+        queryScope: 'records',
         sourceOrgId: 'org-src-1',
         targetOrgId: 'org-tgt-1',
       },

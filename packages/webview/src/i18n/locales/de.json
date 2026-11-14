@@ -4330,9 +4330,7 @@
     "objectCapDefault": "Standard (50)",
     "recordLimitSmart": "Automatisch (je nach Eingabe)",
     "recordLimitSmartRecord": "Automatisch: liest nur, was der Datensatz erreicht, höchstens 50.000 Zeilen pro Objekt, und fragt vor einem großen Schreibvorgang.",
-    "recordLimitSmartSoql": "Automatisch: {{limit}} pro Objekt. Ein Lauf aus einer Abfrage liest die übrigen Objekte aus ihren ganzen Tabellen.",
-    "recordLimitSoqlCap": "Ein Lauf aus einer Abfrage nimmt höchstens {{cap}} Datensätze pro Objekt: Seine verknüpften Objekte werden aus ihren ganzen Tabellen gelesen. Für mehr klonen Sie aus einem Datensatz oder über die Befehlszeile: sandforge clone --object und --where klonen die genannten Tabellen, mit --max als Grenze.",
-    "recordLimitSoqlHeld": "{{chosen}} gilt für einen Lauf aus einem Datensatz: Ein Lauf aus einer Abfrage nimmt höchstens {{cap}} Datensätze pro Objekt, seine verknüpften Objekte werden aus ihren ganzen Tabellen gelesen. Für mehr klonen Sie aus einem Datensatz oder über die Befehlszeile: sandforge clone --object und --where klonen die genannten Tabellen, mit --max als Grenze.",
+    "recordLimitSmartSoql": "Automatisch: liest nur, was die von der Abfrage ausgewählten Datensätze erreichen, höchstens 50.000 Zeilen pro Objekt und 50.000 insgesamt, und fragt vor einem großen Schreibvorgang.",
     "recordLimitAll": "Alle",
     "recordLimitOpt10": "10 / Objekt (Stichprobe)",
     "recordLimitOpt50": "50 / Objekt",
@@ -4378,10 +4376,6 @@
       "step4": "Tiefe, Datensatzlimit und Anonymisierung anpassen",
       "step5": "Nach der Überprüfung in Ihre Sandbox ausführen, oder ohne sie mit Direkt klonen — IDs werden neu vergeben"
     },
-    "soqlUnscopedWarnTitle": "Ihre WHERE-Klausel filtert nur {{object}}.",
-    "soqlUnscopedWarnBody": "Verknüpfte Objekte werden nicht auf die Datensätze eingeschränkt, die sie trifft: Jedes wird aus seiner gesamten Tabelle gelesen, bis zu {{cap}} Datensätze. Um eines auf die Datensätze unter Ihren einzuschränken, geben Sie ihm unter Überprüfung → Einstellungen einen Filter, etwa {{lookup}} IN (SELECT Id FROM {{object}} WHERE …), wobei {{lookup}} sein Feld ist, das auf {{object}} zeigt.",
-    "soqlFilterRefused": "Diese WHERE-Klausel kann nicht angewendet werden. Sie darf höchstens 512 Zeichen lang sein, weder --, /* noch */ enthalten (auch nicht in einem Wert in Anführungszeichen) und nicht mit einem Semikolon enden.",
-    "soqlAliasRefused": "Diese Abfrage kann nicht ausgeführt werden. Die FROM-Klausel deklariert einen Alias über eine Beziehung, die nicht beim Objekt nach FROM beginnt — prüfen Sie den Alias vor dem Punkt.",
     "history": {
       "title": "Letzte Durchläufe",
       "olderTitle": "Ältere Durchläufe",
@@ -4409,9 +4403,10 @@
       "removeNotRecorded": "Aufgezeichnet, bevor Durchläufe festhielten, was sie erstellen: Die Datensätze lassen sich hier nicht entfernen. Ein vor dem Durchlauf erstellter Prüfpunkt bringt die Org auf den Stand davor zurück: Prüfpunkte → Zurücksetzen…. Ohne einen leert DataOps → Bereinigung → Objekte leeren die Objekte, die er geschrieben hat — jeden ihrer Datensätze, nicht nur die dieses Durchlaufs.",
       "removeOrgGone": "Die Org, in die dieser Durchlauf geschrieben hat, ist nicht mehr registriert: Die Datensätze lassen sich hier nicht entfernen.",
       "journalGone": "Die Ids der Datensätze dieses Durchlaufs lagen in seinem Journal, das nicht mehr existiert: Sie lassen sich hier nicht mehr entfernen, prüfen, erneut versuchen oder speichern. Ein vor dem Durchlauf erstellter Prüfpunkt bringt die Org auf den Stand davor zurück: Prüfpunkte → Zurücksetzen…. Ohne einen leert DataOps → Bereinigung → Objekte leeren die Objekte, die er geschrieben hat — jeden ihrer Datensätze, nicht nur die dieses Durchlaufs.",
-      "sweepAction": "Zurücknehmen, was die Automatisierung des Ziels erstellt hat"
+      "sweepAction": "Zurücknehmen, was die Automatisierung des Ziels erstellt hat",
+      "roots_one": "{{formatted}} {{object}}-Datensatz, von seiner Abfrage ausgewählt, davon {{written}} im Ziel",
+      "roots_other": "{{formatted}} {{object}}-Datensätze, von seiner Abfrage ausgewählt, davon {{written}} im Ziel"
     },
-    "soqlObjectNameInvalid": "\"{{object}}\" ist kein SObject-API-Name, daher kann die WHERE-Klausel nicht darunter gesendet werden. Er muss mit einem Buchstaben beginnen und höchstens 80 Buchstaben, Ziffern oder Unterstriche enthalten.",
     "hintSoqlObjectNameInvalid": "Korrigieren Sie den Objektnamen nach FROM, um den Graph zu ermitteln",
     "files": {
       "title": "Dateien",
@@ -4519,7 +4514,33 @@
         "grantEditDelete": "Dem Benutzer, mit dem SandForge schreibt, Bearbeitungs- und Löschrecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}}).",
         "grantRead": "Dem Benutzer, mit dem SandForge liest, das Leserecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}})."
       }
-    }
+    },
+    "roots": {
+      "info": "Ihre Abfrage wählt die {{object}}-Datensätze aus, die geklont werden: Was mit ihnen verknüpft ist, kommt mit, wie beim Klon eines Datensatzes. Andere {{object}}-Datensätze kommen nur als Eltern, die sie nennen.",
+      "reading": "Es wird gelesen, was die Abfrage in der Quell-Org auswählt …",
+      "chosen_one": "Die Abfrage wählt {{formatted}} {{object}}-Datensatz der Quell-Org aus: Der Lauf klont ihn mit dem, was er erreicht (höchstens {{cap}}).",
+      "chosen_other": "Die Abfrage wählt {{formatted}} {{object}}-Datensätze der Quell-Org aus: Der Lauf klont jeden mit dem, was er erreicht (höchstens {{cap}}).",
+      "more": "Die Abfrage wählt mehr als die {{cap}} {{object}}-Datensätze aus, die ein Lauf klont, und kein LIMIT begrenzt sie darauf: Der Lauf würde abgelehnt, bevor er irgendetwas anderes liest. Nehmen Sie die neuesten, engen Sie ihr WHERE ein oder erhöhen Sie die Einstellung.",
+      "moreThanLimit": "Das LIMIT {{limit}} der Abfrage liegt über den {{cap}} {{object}}-Datensätzen, die ein Lauf klont: Der Lauf würde abgelehnt, bevor er irgendetwas anderes liest. Senken Sie ihr LIMIT oder erhöhen Sie die Einstellung.",
+      "none": "Die Abfrage wählt keinen {{object}}-Datensatz der Quell-Org aus: Der Lauf würde abgelehnt. Prüfen Sie ihr WHERE an der Quell-Org.",
+      "failed": "Was die Abfrage auswählt, konnte nicht gelesen werden: {{message}}",
+      "newest": "Die {{cap}} neuesten nehmen",
+      "firstInOrder": "Die ersten {{cap}} in ihrer Reihenfolge nehmen",
+      "setting": "Einstellung (bis {{most}})",
+      "readAgain": "Erneut lesen",
+      "before181": "Vor 1.81.0 gespeichert, las diese Abfrage jede verknüpfte Tabelle ganz, höchstens 200 Datensätze. Jetzt klont sie die Datensätze, die sie auswählt, jeden mit dem, was er erreicht: Simulieren Sie zuerst.",
+      "issue": {
+        "noObject": "Die Abfrage nennt kein Objekt nach FROM: Schreiben Sie sie als SELECT Id FROM <Objekt> WHERE …",
+        "object": "„{{object}}“ nach FROM ist kein API-Name eines Objekts: Nennen Sie das Objekt so wie die Org, etwa Account oder Region__c.",
+        "refused": "Das {{clause}} der Abfrage ändert die Datensätze, die sie liefert, und der Klon würde andere lesen, als sie zeigt: Entfernen Sie es und wählen Sie die Datensätze mit WHERE, ORDER BY und LIMIT.",
+        "aggregate": "Die Abfrage zählt, summiert oder gruppiert ihre Zeilen (COUNT(), SUM(), MAX() …) und liefert keinen Datensatz zum Klonen: Wählen Sie die Datensätze selbst aus, etwa SELECT Id FROM <Objekt> WHERE …",
+        "alias": "Die Abfrage nennt eine Beziehung über einen Alias, der nicht zu ihrem Objekt zurückführt (FROM Contact c, x.Account a): Schreiben Sie jeden Pfad vom Objekt aus, etwa Account.Name.",
+        "where": "Das WHERE der Abfrage ist länger als 512 Zeichen, enthält eine Kommentarmarke (--, /*, */) – auch in einem Wert in Anführungszeichen – oder endet mit einem Semikolon: Kürzen Sie es oder entfernen Sie sie.",
+        "orderBy": "Das ORDER BY der Abfrage nimmt Feldpfade, jeweils mit ASC oder DESC und NULLS FIRST oder LAST, durch Kommas getrennt, höchstens 200 Zeichen: etwa ORDER BY CreatedDate DESC, Id.",
+        "limit": "Das LIMIT der Abfrage ist eine ganze Zahl von 1 bis {{most}}: Darüber hinaus kopieren Sie eine Stichprobe der ganzen Org mit einem Filter auf ihre Wurzeln."
+      }
+    },
+    "hintRootsQuery": "Korrigieren Sie die Abfrage, um den Graphen zu ermitteln: Sie wählt die Datensätze zum Klonen aus"
   },
   "forgeRun": {
     "rehearsal": {
@@ -4766,7 +4787,8 @@
       "leftOutCost": "Was die ausgelassenen Objekte kosten",
       "leftOutLookup": "{{object}}: Datensätze, die einen Datensatz von {{leftOut}} benötigen, werden nicht geschrieben, es sei denn, das Ziel enthält ihn bereits.",
       "leftOutStatus": "{{object}}: Datensätze jenseits von Entwurf werden als Entwürfe geschrieben und bleiben es: Die Plattform gibt ihnen ihren Status nur mit {{leftOut}}-Datensätzen darunter.",
-      "leftOutSellingModel": "{{object}}: Preise, die nach einem Verkaufsmodell verkauft werden, werden nicht geschrieben: Jeder benötigt das Objekt {{leftOut}} seines Produkts für dieses Modell."
+      "leftOutSellingModel": "{{object}}: Preise, die nach einem Verkaufsmodell verkauft werden, werden nicht geschrieben: Jeder benötigt das Objekt {{leftOut}} seines Produkts für dieses Modell.",
+      "readsWhatTheRecordsReach": "Der Klon liest nur, was die von seiner Abfrage ausgewählten Datensätze erreichen: Diese Zahlen sind die der Quelltabellen, nicht die dessen, was er schreiben wird."
     },
     "verify": {
       "action": "Prüfen, was dieser Durchlauf geschrieben hat",
@@ -5041,7 +5063,9 @@
         "wholeOrg_one": "Die gesamte Org {{source}} nach {{target}} kopieren: {{formatted}} gezählter Datensatz in {{objects}} Objekten.",
         "wholeOrg_other": "Die gesamte Org {{source}} nach {{target}} kopieren: {{formatted}} gezählte Datensätze in {{objects}} Objekten.",
         "sample_one": "Eine Stichprobe von {{source}}, die in {{target}} passt, kopieren, gezogen aus {{formatted}} gezählten Datensatz in {{objects}} Objekten.",
-        "sample_other": "Eine Stichprobe von {{source}}, die in {{target}} passt, kopieren, gezogen aus {{formatted}} gezählten Datensätzen in {{objects}} Objekten."
+        "sample_other": "Eine Stichprobe von {{source}}, die in {{target}} passt, kopieren, gezogen aus {{formatted}} gezählten Datensätzen in {{objects}} Objekten.",
+        "queryRecords_one": "Die {{object}}-Datensätze, die die Abfrage auswählt, höchstens {{cap}}, und was sie in {{count}} Objekt erreichen, von {{source}} nach {{target}} kopieren.",
+        "queryRecords_other": "Die {{object}}-Datensätze, die die Abfrage auswählt, höchstens {{cap}}, und was sie in {{count}} Objekten erreichen, von {{source}} nach {{target}} kopieren."
       },
       "left": {
         "none": "Es bleibt nichts zu entscheiden.",
@@ -5645,6 +5669,36 @@
       },
       "counts": "{{rows}} Datensätze gelesen, {{requests}} API-Anfragen von {{source}}.",
       "countsPriced": "{{rows}} Datensätze gelesen, {{requests}} API-Anfragen von {{source}} von etwa {{pricedAt}} veranschlagten."
+    },
+    "rootsResult": {
+      "title": "Von der Abfrage ausgewählte Datensätze",
+      "fromQuery_one": "{{formatted}} {{object}}-Datensatz, von der Abfrage ausgewählt, gelesen am {{at}} (höchstens {{cap}}).",
+      "fromQuery_other": "{{formatted}} {{object}}-Datensätze, von der Abfrage ausgewählt, gelesen am {{at}} (höchstens {{cap}}).",
+      "fromPlan_one": "{{formatted}} {{object}}-Datensatz, von seiner Simulation ausgewählt, gelesen am {{at}}: Ein Datensatz, den die Abfrage seitdem auswählt, wird nicht geschrieben.",
+      "fromPlan_other": "{{formatted}} {{object}}-Datensätze, von seiner Simulation ausgewählt, gelesen am {{at}}: Ein Datensatz, den die Abfrage seitdem auswählt, wird nicht geschrieben.",
+      "fromRecords_one": "{{formatted}} {{object}}-Datensatz, über seine Id benannt (höchstens {{cap}}).",
+      "fromRecords_other": "{{formatted}} {{object}}-Datensätze, über ihre Ids benannt (höchstens {{cap}}).",
+      "readAgain_one": "Der {{formatted}} Datensatz seiner Simulation, gelesen am {{at}}, war einen Tag alt oder älter: Die Abfrage wurde erneut gelesen und wählte {{read}} aus.",
+      "readAgain_other": "Die {{formatted}} Datensätze seiner Simulation, gelesen am {{at}}, waren einen Tag alt oder älter: Die Abfrage wurde erneut gelesen und wählte {{read}} aus.",
+      "written": "{{written}} von {{read}} geschrieben.",
+      "wouldWrite": "{{written}} von {{read}} würden geschrieben; nichts wurde geschrieben.",
+      "linked_one": "{{formatted}} mit einem Datensatz verknüpft, den das Ziel hatte.",
+      "linked_other": "{{formatted}} mit einem Datensatz verknüpft, den das Ziel hatte.",
+      "withTheirAccount_one": "{{formatted}} mit seinem Personenaccount geschrieben.",
+      "withTheirAccount_other": "{{formatted}} mit ihrem Personenaccount geschrieben.",
+      "gone_one": "{{formatted}} ist seit der Auswahl nicht mehr in {{source}}: nicht geschrieben, und kein Fehler.",
+      "gone_other": "{{formatted}} sind seit der Auswahl nicht mehr in {{source}}: nicht geschrieben, und kein Fehler.",
+      "failed_one": "{{formatted}} vom Ziel abgelehnt:",
+      "failed_other": "{{formatted}} vom Ziel abgelehnt:",
+      "reads_one": "Das Lesen dessen, was sie erreichen, hat {{formatted}} Anfrage an {{source}} gesendet.",
+      "reads_other": "Das Lesen dessen, was sie erreichen, hat {{formatted}} Anfragen an {{source}} gesendet.",
+      "origin": {
+        "object": "{{object}}: {{rows}} gelesen, {{how}}.",
+        "roots": "{{rows}} von der Abfrage ausgewählt",
+        "under": "{{rows}} unter den Datensätzen des Klons",
+        "named": "{{rows}} von den Datensätzen des Klons benannt",
+        "readUnder": "Unter {{objects}} gelesen: Ein über die Id gelesener Elternteil bringt seine anderen Kinder mit, wie beim Klon eines Datensatzes."
+      }
     }
   },
   "autopilot": {

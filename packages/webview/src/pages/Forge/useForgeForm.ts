@@ -4,8 +4,14 @@ import {
   BUILTIN_FORGE_TEMPLATES,
   buildSyntheticForgeGraph,
   getBuiltinTemplateObjects,
+  soqlRootQueryIssue,
 } from '@sandforge/shared';
-import type { ForgeRemovalPlan, ForgeSampleOptions, SalesforceOrg } from '@sandforge/shared';
+import type {
+  ForgeRemovalPlan,
+  ForgeSampleOptions,
+  SalesforceOrg,
+  SoqlRootIssue,
+} from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import type {
@@ -34,14 +40,9 @@ import type { RecordPreviewState } from './useRecordPreview';
 import { useForgeAIPlan } from './useForgeAIPlan';
 import type { ForgeAIPlanState } from './useForgeAIPlan';
 import { extractRecordId } from '../../utils/recordId';
-import {
-  extractSalesforceDomain,
-  SMART_SOQL_CAP,
-  soqlFilterRefused,
-  soqlObjectNameRefused,
-  soqlObjectFilters,
-  SOQL_UNSCOPED_RECORD_CAP,
-} from './forgeUtils';
+import { extractSalesforceDomain, newestQueryOf } from './forgeUtils';
+import { useRootsPreview } from './useRootsPreview';
+import type { RootsPreviewState } from './useRootsPreview';
 
 /**
  * Depth option values for the chip selector. ALL comes last: it walks no
@@ -198,9 +199,9 @@ export interface ForgeFormState {
   setRecordLimit: (v: string) => void;
   recordLimitValue: number | undefined;
   /**
-   * Whether the run reads its root from a SOQL query — typed, drafted, or
-   * saved in a template — and so takes {@link SOQL_UNSCOPED_RECORD_CAP}
-   * records of each object at most, whatever Records per object says.
+   * Whether the run clones the records a SOQL query chooses — typed, drafted,
+   * or saved in a template —, each with what the clone of that record copies:
+   * Records per object holds each object as it holds a clone of one record.
    */
   runsSoql: boolean;
   /**
@@ -227,10 +228,28 @@ export interface ForgeFormState {
 
   /* Derived / actions */
   canDiscover: boolean;
-  /** The query this run would send has a WHERE clause the extension refuses. */
-  whereClauseRefused: boolean;
-  /** The object after FROM is not an API name the extension accepts. */
-  objectNameRefused: boolean;
+  /**
+   * Why the query this run would send cannot choose the records it clones —
+   * a clause that changes the rows it returns, an alias nothing traces, a
+   * WHERE, ORDER BY or LIMIT past the rules —, or nothing when it can:
+   * Discover is held back, and says why.
+   */
+  rootQueryIssue: SoqlRootIssue | undefined;
+  /** What the query this run would send chooses, read before Discover. */
+  roots: RootsPreviewState;
+  /**
+   * Put the newest of the records the typed query chooses in its place, as
+   * many as a run takes: `ORDER BY CreatedDate DESC LIMIT <n>` written into
+   * the query, where the user sees it. Absent where the query cannot be
+   * changed here (a template, an AI draft), or has a LIMIT already.
+   */
+  takeNewest: ((cap: number) => void) | undefined;
+  /**
+   * The query is a template's, or a past run's, saved before 1.81.0, when a
+   * query read each related table whole: it now reads what its records
+   * reach, which Review and the input say.
+   */
+  queryBefore181: boolean;
   /** The SOQL query of the selected template, when it saved one. */
   templateSoqlQuery: string | null;
   handleDiscover: () => void;
@@ -339,6 +358,11 @@ export function useForgeForm(): ForgeFormState {
   const [inputMode, setInputMode] = useState<ForgeTabMode>('record');
   const [recordId, setRecordId] = useState('');
   const [soqlQuery, setSoqlQuery] = useState('');
+  /**
+   * The query of a past run put back in the form that predates 1.81.0, when
+   * a query read each related table whole: said while the query is that one.
+   */
+  const [before181Query, setBefore181Query] = useState<string | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [depth, setDepthState] = useState<ForgeDepth>('direct');
   const [customDepth, setCustomDepth] = useState(3);
@@ -576,34 +600,21 @@ export function useForgeForm(): ForgeFormState {
    * large write. Smart used to size a cap from the preview's count of the
    * root object's whole table — 100 above 5 000 rows, 50 above 50 000 — and a
    * clone of an account with 250 cases took 100 of them, in no order, and
-   * said "Success". A run from a query reads its other objects from their
-   * whole tables, and keeps a cap of 100 (`SMART_SOQL_CAP`).
+   * said "Success".
+   *
+   * A clone from a query is the clone of each record it chooses, and takes
+   * the same: it used to read each related object from its whole table, held
+   * to 200 rows of each (100 on Smart), and brought contacts of other
+   * accounts while it cut a root's 250 cases short.
    *
    * A clone of the whole org has none, whatever the select says: it copies
-   * every record of each object. That comes first, because the tab showing
-   * when ALL was picked may be the SOQL one, whose cap of 200 would
-   * otherwise have bounded the copy of the whole org.
+   * every record of each object.
    */
   const recordLimitValue = useMemo<number | undefined>(() => {
-    if (depth === 'all') return undefined;
-    let base: number | undefined;
-    if (recordLimit === 'smart') {
-      base = runsSoql ? SMART_SOQL_CAP : undefined;
-    } else if (recordLimit === 'all') {
-      base = undefined;
-    } else {
-      const n = Number(recordLimit);
-      base = Number.isFinite(n) && n > 0 ? n : undefined;
-    }
-
-    // SOQL mode filters only the object after FROM and never enters the
-    // record-scoped path: every related object is read from its whole table,
-    // so "all" would clone whole tables across the graph. Bound it.
-    if (runsSoql) {
-      return Math.min(base ?? SOQL_UNSCOPED_RECORD_CAP, SOQL_UNSCOPED_RECORD_CAP);
-    }
-    return base;
-  }, [depth, recordLimit, runsSoql]);
+    if (depth === 'all' || recordLimit === 'smart' || recordLimit === 'all') return undefined;
+    const n = Number(recordLimit);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }, [depth, recordLimit]);
 
   /**
    * Whether the current input has enough data to proceed. A clone of the
@@ -636,35 +647,57 @@ export function useForgeForm(): ForgeFormState {
     }
   }, [depth, inputMode, recordId, soqlQuery, selectedTemplate, templateInput, ai.checked]);
 
-  /*
-   * The WHERE clause travels as an object filter, which the extension checks
-   * before running anything. A clause it refuses would fail the whole
-   * discovery, so Discover stays off until the query is fixed. A saved
-   * template's query counts too: a run sends it the same way.
-   */
-  const whereClauseRefused = useMemo((): boolean => {
-    if (inputMode === 'soql') return soqlFilterRefused(soqlQuery);
-    if (inputMode === 'ai') return soqlFilterRefused(ai.draft);
-    return templateInput?.inputMode === 'soql' && soqlFilterRefused(templateInput.soqlQuery ?? '');
-  }, [inputMode, soqlQuery, ai.draft, templateInput]);
-
-  /*
-   * The clause travels under the name of the object after FROM, and that name
-   * has a rule of its own. `SELECT Id FROM 1Account WHERE …` passed every
-   * check the form made and was refused by the extension when Discover was
-   * clicked, with no explanation attached to the field that caused it.
-   */
-  const objectNameRefused = useMemo((): boolean => {
-    if (inputMode === 'soql') return soqlObjectNameRefused(soqlQuery);
-    if (inputMode === 'ai') return soqlObjectNameRefused(ai.draft);
-    return (
-      templateInput?.inputMode === 'soql' && soqlObjectNameRefused(templateInput.soqlQuery ?? '')
-    );
-  }, [inputMode, soqlQuery, ai.draft, templateInput]);
-
-  /** The template's own query, which the SOQL warnings below the picker read. */
+  /** The template's own query, which the SOQL notices below the picker read. */
   const templateSoqlQuery =
     templateInput?.inputMode === 'soql' ? (templateInput.soqlQuery ?? null) : null;
+
+  /** The query the run would send: typed, drafted by the AI, or saved in the template. */
+  const runSoql =
+    inputMode === 'soql'
+      ? soqlQuery.trim() || undefined
+      : inputMode === 'ai'
+        ? ai.draft.trim() || undefined
+        : (templateSoqlQuery ?? undefined);
+
+  /*
+   * The query chooses the records the run clones, read by a statement of the
+   * extension's own from its object, WHERE, ORDER BY and LIMIT: a clause that
+   * would change the rows it returns, an alias nothing traces, or a part past
+   * the rules is refused by the extension as a whole, so Discover stays off
+   * until the query is fixed, and the input says why. A saved template's
+   * query counts too: a run sends it the same way.
+   */
+  const rootQueryIssue = useMemo(
+    (): SoqlRootIssue | undefined =>
+      depth === 'all' || runSoql === undefined ? undefined : soqlRootQueryIssue(runSoql),
+    [depth, runSoql],
+  );
+
+  /** What the query chooses, read once it reads as one the run takes. */
+  const roots = useRootsPreview({
+    sourceOrgId,
+    query: runSoql,
+    enabled: depth !== 'all' && runSoql !== undefined && rootQueryIssue === undefined,
+  });
+
+  /** The most roots a run takes, as the read of what the query chooses was told it. */
+  const rootsCap = roots.status === 'read' ? roots.preview?.cap : undefined;
+
+  /** The typed query, with the newest of the records it chooses in its place. */
+  const takeNewest = useMemo(() => {
+    if (inputMode !== 'soql' || newestQueryOf(soqlQuery, 1) === undefined) return undefined;
+    return (cap: number): void => {
+      const newest = newestQueryOf(soqlQuery, cap);
+      if (newest !== undefined) setSoqlQuery(newest);
+    };
+  }, [inputMode, soqlQuery]);
+
+  /** A template, or a past run, saved before a query cloned the records it chooses. */
+  const queryBefore181 =
+    (inputMode === 'template' &&
+      templateInput?.inputMode === 'soql' &&
+      templateInput.queryScope === undefined) ||
+    (inputMode === 'soql' && before181Query !== null && soqlQuery.trim() === before181Query);
 
   /**
    * The root input fields of an outgoing config, shared by Discover and by
@@ -679,17 +712,9 @@ export function useForgeForm(): ForgeFormState {
    */
   const runInput = useMemo((): Pick<
     ForgeConfig,
-    'inputMode' | 'recordId' | 'soqlQuery' | 'objectSoqlFilters' | 'templateId'
+    'inputMode' | 'recordId' | 'soqlQuery' | 'queryScope' | 'maxRoots' | 'templateId'
   > => {
     if (depth === 'all') return { inputMode: 'org' };
-    const runSoql =
-      inputMode === 'soql'
-        ? soqlQuery.trim()
-        : inputMode === 'ai'
-          ? ai.draft.trim() || undefined
-          : templateInput?.inputMode === 'soql'
-            ? templateInput.soqlQuery
-            : undefined;
     // A built-in template IS the record mode — that is what its config
     // declares and what its description promises — so discovery runs it as
     // one. Sent as `template`, nothing downstream resolved it: the extension
@@ -712,12 +737,19 @@ export function useForgeForm(): ForgeFormState {
           : (builtinTemplateRoot ?? undefined) ||
             (templateInput?.inputMode === 'record' ? templateInput.recordId : undefined),
       soqlQuery: runSoql,
-      // The query's WHERE clause reaches the executor as the root object's
-      // filter; without it the root was cloned from its whole table.
-      objectSoqlFilters: runSoql ? soqlObjectFilters(runSoql) : undefined,
+      // The records the query chooses, each with what the clone of that
+      // record copies: its WHERE chooses them, and filters no other read of
+      // their object — a parent of that object one of them names is read as
+      // a parent. A template or a past run saved before 1.81.0, which read
+      // each related table whole, goes the same way, and the input says so.
+      // The most it takes is the extension's setting (sandforge.forge.maxRoots),
+      // as the read of what it chooses was told it, which Review then names;
+      // unread, the extension fills it in.
+      ...(runSoql !== undefined ? { queryScope: 'records' as const } : {}),
+      ...(runSoql !== undefined && rootsCap !== undefined ? { maxRoots: rootsCap } : {}),
       templateId: inputMode === 'template' && !templateInput ? selectedTemplate : undefined,
     };
-  }, [depth, inputMode, recordId, soqlQuery, ai.draft, selectedTemplate, templateInput]);
+  }, [depth, inputMode, recordId, runSoql, rootsCap, selectedTemplate, templateInput]);
 
   const sameOrgSelected = sourceOrgId.length > 0 && sourceOrgId === targetOrgId;
   // A query refused on a tab ALL greys out is not sent, and holds nothing back.
@@ -730,7 +762,7 @@ export function useForgeForm(): ForgeFormState {
     sourceOrgId.length > 0 &&
     targetOrgId.length > 0 &&
     !sameOrgSelected &&
-    (wholeOrg || (!whereClauseRefused && !objectNameRefused));
+    (wholeOrg || rootQueryIssue === undefined);
 
   /** Refs to the depth chips so arrow-key nav can move DOM focus. */
   const depthRefs = useRef<Partial<Record<ForgeDepth, HTMLButtonElement | null>>>({});
@@ -950,7 +982,7 @@ export function useForgeForm(): ForgeFormState {
     !clonedWholeOrg(history[0]) &&
     !!sourceOrgId &&
     !!targetOrgId &&
-    !whereClauseRefused &&
+    rootQueryIssue === undefined &&
     (inputMode !== 'ai' || ai.checked);
   const handleReuseLastGraph = useCallback(() => {
     if (!canReuseLastGraph || !lastGraph) return;
@@ -1073,6 +1105,11 @@ export function useForgeForm(): ForgeFormState {
       setInputMode(mode);
       setRecordId(mode === 'record' ? (config.recordId ?? '') : '');
       setSoqlQuery(mode === 'soql' ? (config.soqlQuery ?? '') : '');
+      setBefore181Query(
+        mode === 'soql' && config.queryScope === undefined && config.soqlQuery
+          ? config.soqlQuery.trim()
+          : null,
+      );
       setSelectedTemplate(mode === 'template' ? (config.templateId ?? '') : '');
       applyRunOptions(config);
       setCarried(carriedChoices(config));
@@ -1179,8 +1216,10 @@ export function useForgeForm(): ForgeFormState {
     resetPreview,
     closePreview,
     canDiscover,
-    whereClauseRefused,
-    objectNameRefused,
+    rootQueryIssue,
+    roots,
+    takeNewest,
+    queryBefore181,
     templateSoqlQuery,
     handleDiscover,
     handleCloneDirectly,

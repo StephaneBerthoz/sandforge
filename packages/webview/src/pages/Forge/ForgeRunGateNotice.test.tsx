@@ -9,6 +9,11 @@ import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { useForgeRunGateStore } from './runGate';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
 
+const opened = vi.hoisted(() => [] as unknown[]);
+vi.mock('../../bridge/sendBridgeMessage', () => ({
+  sendBridgeMessage: (type: string, payload: unknown) => void opened.push({ type, payload }),
+}));
+
 /*
  * Whether the system asks for reduced motion, as framer-motion reads it. It
  * reads the setting once, the first time a component asks: the hook stands in
@@ -481,6 +486,33 @@ describe('ForgeRunGateNotice', () => {
       } finally {
         await act(() => i18n.changeLanguage('en'));
       }
+    });
+
+    it('opens the setting that takes more records, up to the most of all, and offers none past it', () => {
+      opened.length = 0;
+      act(() =>
+        useForgeRunGateStore.getState().setStop({
+          code: 'ROOTS_EXCEEDED',
+          roots: { objectApiName: 'Account', cap: 200 },
+        }),
+      );
+      const { unmount } = render(<ForgeRunGateNotice />);
+      const setting = screen.getByTestId('forge-run-gate-roots-setting');
+      expect(setting.textContent).toBe('Setting (up to 2,000)');
+      fireEvent.click(setting);
+      expect(opened).toEqual([
+        { type: 'workbench:open-setting', payload: { setting: 'sandforge.forge.maxRoots' } },
+      ]);
+      unmount();
+
+      act(() =>
+        useForgeRunGateStore.getState().setStop({
+          code: 'ROOTS_EXCEEDED',
+          roots: { objectApiName: 'Account', cap: 2_000 },
+        }),
+      );
+      render(<ForgeRunGateNotice />);
+      expect(screen.queryByTestId('forge-run-gate-roots-setting')).toBeNull();
     });
 
     it('says each refusal of the roots and of a draw in its own words, none falling back on another', () => {

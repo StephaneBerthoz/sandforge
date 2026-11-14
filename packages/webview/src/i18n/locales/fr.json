@@ -4330,9 +4330,7 @@
     "objectCapDefault": "Par défaut (50)",
     "recordLimitSmart": "Automatique (selon l'entrée)",
     "recordLimitSmartRecord": "Automatique : ne lit que ce que l'enregistrement atteint, au plus 50 000 lignes par objet, et demande avant une écriture volumineuse.",
-    "recordLimitSmartSoql": "Automatique : {{limit}} par objet. Une exécution depuis une requête lit les autres objets dans leur table entière.",
-    "recordLimitSoqlCap": "Une exécution depuis une requête prend au plus {{cap}} enregistrements par objet : ses objets liés sont lus dans leur table entière. Pour davantage, clonez depuis un enregistrement, ou en ligne de commande : sandforge clone --object et --where clonent les tables nommées, --max servant de plafond.",
-    "recordLimitSoqlHeld": "{{chosen}} vaut pour une exécution depuis un enregistrement : une exécution depuis une requête prend au plus {{cap}} enregistrements par objet, ses objets liés étant lus dans leur table entière. Pour davantage, clonez depuis un enregistrement, ou en ligne de commande : sandforge clone --object et --where clonent les tables nommées, --max servant de plafond.",
+    "recordLimitSmartSoql": "Automatique : ne lit que ce qu’atteignent les enregistrements que la requête choisit, au plus 50 000 lignes par objet et 50 000 en tout, et demande avant une écriture volumineuse.",
     "recordLimitAll": "Tout",
     "recordLimitOpt10": "10 / objet (échantillon)",
     "recordLimitOpt50": "50 / objet",
@@ -4378,10 +4376,6 @@
       "step4": "Ajustez profondeur, limite d'enregistrements et anonymisation",
       "step5": "Exécutez vers votre sandbox après la revue, ou sans elle avec Cloner directement — les IDs sont réattribués"
     },
-    "soqlUnscopedWarnTitle": "Votre clause WHERE ne filtre que {{object}}.",
-    "soqlUnscopedWarnBody": "Les objets liés ne sont pas limités aux enregistrements qu’elle retient : chacun est lu dans toute sa table, jusqu’à {{cap}} enregistrements. Pour en limiter un aux enregistrements rattachés aux vôtres, donnez-lui un filtre dans Revue → Réglages, par exemple {{lookup}} IN (SELECT Id FROM {{object}} WHERE …), {{lookup}} étant son champ qui pointe vers {{object}}.",
-    "soqlFilterRefused": "Cette clause WHERE ne peut pas être appliquée. Elle doit compter au plus 512 caractères, ne contenir ni --, ni /*, ni */ (même dans une valeur entre guillemets), et ne pas se terminer par un point-virgule.",
-    "soqlAliasRefused": "Cette requête ne peut pas être exécutée. La clause FROM déclare un alias sur une relation qui ne part pas de l'objet situé après FROM : vérifiez l'alias avant le point.",
     "history": {
       "title": "Exécutions récentes",
       "olderTitle": "Exécutions plus anciennes",
@@ -4409,9 +4403,10 @@
       "removeNotRecorded": "Enregistrée avant que les exécutions gardent ce qu'elles créent : ses enregistrements ne peuvent pas être supprimés d'ici. Un point de contrôle pris avant l'exécution ramène l'org à avant elle : Points de contrôle → Revenir à ce point…. Sans point de contrôle, DataOps → Nettoyage → Vider des objets vide les objets qu'elle a écrits — tous leurs enregistrements, pas seulement ceux de cette exécution.",
       "removeOrgGone": "L'org où cette exécution a écrit n'est plus enregistrée : ses enregistrements ne peuvent pas être supprimés d'ici.",
       "journalGone": "Les Ids des enregistrements de cette exécution étaient gardés dans son journal, qui n'existe plus : ils ne peuvent plus être supprimés, vérifiés, repris ni enregistrés d'ici. Un point de contrôle pris avant l'exécution ramène l'org à avant elle : Points de contrôle → Revenir à ce point…. Sans point de contrôle, DataOps → Nettoyage → Vider des objets vide les objets qu'elle a écrits — tous leurs enregistrements, pas seulement ceux de cette exécution.",
-      "sweepAction": "Reprendre ce que l'automatisation de la cible a créé"
+      "sweepAction": "Reprendre ce que l'automatisation de la cible a créé",
+      "roots_one": "{{formatted}} enregistrement {{object}} choisi par sa requête, {{written}} dans la cible",
+      "roots_other": "{{formatted}} enregistrements {{object}} choisis par sa requête, dont {{written}} dans la cible"
     },
-    "soqlObjectNameInvalid": "« {{object}} » n'est pas un nom d'API d'objet : la clause WHERE ne peut pas être envoyée sous ce nom. Il doit commencer par une lettre et compter au plus 80 lettres, chiffres ou tirets bas.",
     "hintSoqlObjectNameInvalid": "Corrigez le nom de l'objet après FROM pour découvrir le graphe",
     "files": {
       "title": "Fichiers",
@@ -4519,7 +4514,33 @@
         "grantEditDelete": "Donner à l'utilisateur sous lequel SandForge écrit les droits de modification et de suppression sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}}).",
         "grantRead": "Donner à l'utilisateur sous lequel SandForge lit le droit de lecture sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}})."
       }
-    }
+    },
+    "roots": {
+      "info": "Votre requête choisit les enregistrements {{object}} à cloner : ce qui leur est lié vient avec eux, comme pour le clonage d’un enregistrement. D’autres enregistrements {{object}} ne viennent que comme parents qu’ils nomment.",
+      "reading": "Lecture de ce que la requête choisit dans l’org source…",
+      "chosen_one": "La requête choisit {{formatted}} enregistrement {{object}} de l’org source : le clonage le copie, avec ce qu’il atteint ({{cap}} au plus).",
+      "chosen_other": "La requête choisit {{formatted}} enregistrements {{object}} de l’org source : le clonage copie chacun, avec ce qu’il atteint ({{cap}} au plus).",
+      "more": "La requête choisit plus que les {{cap}} enregistrements {{object}} qu’un clonage copie, et aucun LIMIT ne la retient : le clonage serait refusé avant toute autre lecture. Prenez les plus récents, resserrez son WHERE ou relevez le paramètre.",
+      "moreThanLimit": "Le LIMIT {{limit}} de la requête dépasse les {{cap}} enregistrements {{object}} qu’un clonage copie : le clonage serait refusé avant toute autre lecture. Abaissez son LIMIT ou relevez le paramètre.",
+      "none": "La requête ne choisit aucun enregistrement {{object}} de l’org source : le clonage serait refusé. Vérifiez son WHERE sur l’org source.",
+      "failed": "Ce que la requête choisit n’a pas pu être lu : {{message}}",
+      "newest": "Prendre les {{cap}} plus récents",
+      "firstInOrder": "Prendre les {{cap}} premiers dans son ordre",
+      "setting": "Paramètre (jusqu’à {{most}})",
+      "readAgain": "Relire",
+      "before181": "Enregistrée avant la 1.81.0, cette requête lisait chaque table liée en entier, 200 enregistrements au plus. Elle clone maintenant les enregistrements qu’elle choisit, chacun avec ce qu’il atteint : simulez d’abord.",
+      "issue": {
+        "noObject": "La requête ne nomme aucun objet après FROM : écrivez-la sous la forme SELECT Id FROM <Objet> WHERE …",
+        "object": "« {{object}} » après FROM n’est pas le nom d’API d’un objet : nommez l’objet comme l’org le nomme, comme Account ou Region__c.",
+        "refused": "Le {{clause}} de la requête change les enregistrements qu’elle rend, et le clonage en lirait d’autres que ceux qu’elle montre : retirez-le, et choisissez les enregistrements par WHERE, ORDER BY et LIMIT.",
+        "aggregate": "La requête compte, additionne ou groupe ses lignes (COUNT(), SUM(), MAX()…), et ne rend aucun enregistrement à cloner : sélectionnez les enregistrements eux-mêmes, comme SELECT Id FROM <Objet> WHERE …",
+        "alias": "La requête nomme une relation par un alias qui ne ramène pas à son objet (FROM Contact c, x.Account a) : écrivez chaque chemin depuis l’objet, comme Account.Name.",
+        "where": "Le WHERE de la requête dépasse 512 caractères, ou contient un marqueur de commentaire (--, /*, */) — même dans une valeur entre quotes — ou finit par un point-virgule : raccourcissez-le, ou retirez-les.",
+        "orderBy": "L’ORDER BY de la requête prend des chemins de champs, chacun avec ASC ou DESC et NULLS FIRST ou LAST, séparés par des virgules, 200 caractères au plus : comme ORDER BY CreatedDate DESC, Id.",
+        "limit": "Le LIMIT de la requête est un nombre entier de 1 à {{most}} : au-delà, copiez un échantillon de toute l’org avec un filtre sur ses racines."
+      }
+    },
+    "hintRootsQuery": "Corrigez la requête pour découvrir le graphe : elle choisit les enregistrements à cloner"
   },
   "forgeRun": {
     "rehearsal": {
@@ -4766,7 +4787,8 @@
       "leftOutCost": "Ce que coûtent les objets laissés de côté",
       "leftOutLookup": "{{object}} : les enregistrements qui ont besoin d'un enregistrement de {{leftOut}} ne sont pas écrits, sauf si la cible le détient déjà.",
       "leftOutStatus": "{{object}} : les enregistrements au-delà de Brouillon sont écrits en brouillon et le restent : la plateforme ne leur donne leur statut qu'avec des enregistrements de {{leftOut}} sous eux.",
-      "leftOutSellingModel": "{{object}} : les prix vendus selon un modèle de vente ne sont pas écrits : chacun a besoin de l'objet {{leftOut}} de son produit pour ce modèle."
+      "leftOutSellingModel": "{{object}} : les prix vendus selon un modèle de vente ne sont pas écrits : chacun a besoin de l'objet {{leftOut}} de son produit pour ce modèle.",
+      "readsWhatTheRecordsReach": "Le clonage ne lit que ce qu’atteignent les enregistrements que sa requête choisit : ces nombres sont ceux des tables sources, pas de ce qu’il écrira."
     },
     "verify": {
       "action": "Vérifier ce que cette exécution a écrit",
@@ -5041,7 +5063,9 @@
         "wholeOrg_one": "Copier toute l’org {{source}} dans {{target}} : {{formatted}} enregistrement compté dans {{objects}} objets.",
         "wholeOrg_other": "Copier toute l’org {{source}} dans {{target}} : {{formatted}} enregistrements comptés dans {{objects}} objets.",
         "sample_one": "Copier un échantillon de {{source}} qui tient dans {{target}}, tiré de {{formatted}} enregistrement compté dans {{objects}} objets.",
-        "sample_other": "Copier un échantillon de {{source}} qui tient dans {{target}}, tiré de {{formatted}} enregistrements comptés dans {{objects}} objets."
+        "sample_other": "Copier un échantillon de {{source}} qui tient dans {{target}}, tiré de {{formatted}} enregistrements comptés dans {{objects}} objets.",
+        "queryRecords_one": "Copier les enregistrements {{object}} que la requête choisit, {{cap}} au plus, et ce qu’ils atteignent dans {{count}} objet, de {{source}} vers {{target}}.",
+        "queryRecords_other": "Copier les enregistrements {{object}} que la requête choisit, {{cap}} au plus, et ce qu’ils atteignent dans {{count}} objets, de {{source}} vers {{target}}."
       },
       "left": {
         "none": "Il ne reste rien à décider.",
@@ -5645,6 +5669,36 @@
       },
       "counts": "{{rows}} enregistrements lus, {{requests}} requêtes API de {{source}}.",
       "countsPriced": "{{rows}} enregistrements lus, {{requests}} requêtes API de {{source}} sur environ {{pricedAt}} chiffrées."
+    },
+    "rootsResult": {
+      "title": "Enregistrements choisis par la requête",
+      "fromQuery_one": "{{formatted}} enregistrement {{object}} choisi par la requête, lu le {{at}} ({{cap}} au plus).",
+      "fromQuery_other": "{{formatted}} enregistrements {{object}} choisis par la requête, lus le {{at}} ({{cap}} au plus).",
+      "fromPlan_one": "{{formatted}} enregistrement {{object}} choisi par sa simulation, lu le {{at}} : un enregistrement que la requête choisit depuis n’est pas écrit.",
+      "fromPlan_other": "{{formatted}} enregistrements {{object}} choisis par sa simulation, lus le {{at}} : un enregistrement que la requête choisit depuis n’est pas écrit.",
+      "fromRecords_one": "{{formatted}} enregistrement {{object}} nommé par son id ({{cap}} au plus).",
+      "fromRecords_other": "{{formatted}} enregistrements {{object}} nommés par leurs ids ({{cap}} au plus).",
+      "readAgain_one": "L’enregistrement de sa simulation ({{formatted}}), lu le {{at}}, avait un jour ou plus : la requête a été relue, et en a choisi {{read}}.",
+      "readAgain_other": "Les {{formatted}} enregistrements de sa simulation, lus le {{at}}, avaient un jour ou plus : la requête a été relue, et en a choisi {{read}}.",
+      "written": "{{written}} sur {{read}} écrits.",
+      "wouldWrite": "{{written}} sur {{read}} seraient écrits ; rien n’a été écrit.",
+      "linked_one": "{{formatted}} lié à un enregistrement que la cible avait.",
+      "linked_other": "{{formatted}} liés à un enregistrement que la cible avait.",
+      "withTheirAccount_one": "{{formatted}} écrit avec son compte personnel.",
+      "withTheirAccount_other": "{{formatted}} écrits avec leur compte personnel.",
+      "gone_one": "{{formatted}} n’est plus dans {{source}} depuis qu’il a été choisi : non écrit, et ce n’est pas un échec.",
+      "gone_other": "{{formatted}} ne sont plus dans {{source}} depuis qu’ils ont été choisis : non écrits, et ce n’est pas un échec.",
+      "failed_one": "{{formatted}} refusé par la cible :",
+      "failed_other": "{{formatted}} refusés par la cible :",
+      "reads_one": "La lecture de ce qu’ils atteignent a envoyé {{formatted}} requête à {{source}}.",
+      "reads_other": "La lecture de ce qu’ils atteignent a envoyé {{formatted}} requêtes à {{source}}.",
+      "origin": {
+        "object": "{{object}} : {{rows}} lus, {{how}}.",
+        "roots": "{{rows}} choisis par la requête",
+        "under": "{{rows}} sous les enregistrements du clonage",
+        "named": "{{rows}} nommés par les enregistrements du clonage",
+        "readUnder": "Lu sous {{objects}} : un parent lu par id amène ses autres enfants, comme le clonage d’un enregistrement."
+      }
     }
   },
   "autopilot": {

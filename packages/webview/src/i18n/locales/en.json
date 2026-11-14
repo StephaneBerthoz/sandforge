@@ -4330,9 +4330,7 @@
     "objectCapDefault": "Default (50)",
     "recordLimitSmart": "Smart (set by the input)",
     "recordLimitSmartRecord": "Smart: reads only what the record reaches, at most 50,000 rows per object, and asks before a large write.",
-    "recordLimitSmartSoql": "Smart: {{limit}} per object. A run from a query reads the other objects from their whole tables.",
-    "recordLimitSoqlCap": "A run from a query takes {{cap}} records of each object at most: its related objects are read from their whole tables. For more, clone from a record, or from the command line: sandforge clone --object and --where clone the tables named, with --max as the cap.",
-    "recordLimitSoqlHeld": "{{chosen}} is for a run from a record: a run from a query takes {{cap}} records of each object at most, its related objects being read from their whole tables. For more, clone from a record, or from the command line: sandforge clone --object and --where clone the tables named, with --max as the cap.",
+    "recordLimitSmartSoql": "Smart: reads only what the records the query chooses reach, at most 50,000 rows per object and 50,000 in all, and asks before a large write.",
     "recordLimitAll": "All",
     "recordLimitOpt10": "10 / object (sample)",
     "recordLimitOpt50": "50 / object",
@@ -4378,10 +4376,6 @@
       "step4": "Tune depth, record limit and anonymization",
       "step5": "Execute toward your sandbox after Review, or without it with Clone directly — IDs are remapped"
     },
-    "soqlUnscopedWarnTitle": "Your WHERE clause filters {{object}} only.",
-    "soqlUnscopedWarnBody": "Related objects are not narrowed to the records it matches: each one is read from its whole table, up to {{cap}} records. To narrow one to the records under yours, give it a filter in Review → Controls, such as {{lookup}} IN (SELECT Id FROM {{object}} WHERE …), {{lookup}} being its field that points at {{object}}.",
-    "soqlFilterRefused": "This WHERE clause cannot be applied. It must be 512 characters or fewer, contain no --, /* or */ (not even inside a quoted value), and not end with a semicolon.",
-    "soqlAliasRefused": "This query cannot be run. The FROM clause declares an alias over a relationship that does not start from the object after FROM — check the alias before the dot.",
     "history": {
       "title": "Recent runs",
       "olderTitle": "Older runs",
@@ -4409,9 +4403,10 @@
       "removeNotRecorded": "Recorded before runs kept what they created: its records cannot be removed from here. A checkpoint taken before the run takes the org back to before it: Checkpoints → Rewind…. Without one, DataOps → Cleanup → Empty objects empties the objects it wrote — every record of them, not this run's alone.",
       "removeOrgGone": "The org this run wrote to is no longer registered: its records cannot be removed from here.",
       "journalGone": "The ids of this run's records were kept in its journal, which is gone: they can no longer be removed, verified, retried against or saved from here. A checkpoint taken before the run takes the org back to before it: Checkpoints → Rewind…. Without one, DataOps → Cleanup → Empty objects empties the objects it wrote — every record of them, not this run's alone.",
-      "sweepAction": "Take back what the target's automation created"
+      "sweepAction": "Take back what the target's automation created",
+      "roots_one": "{{formatted}} {{object}} record its query chose, {{written}} of them in the target",
+      "roots_other": "{{formatted}} {{object}} records its query chose, {{written}} of them in the target"
     },
-    "soqlObjectNameInvalid": "\"{{object}}\" is not an SObject API name, so the WHERE clause cannot be sent under it. It must start with a letter and hold at most 80 letters, digits or underscores.",
     "hintSoqlObjectNameInvalid": "Fix the object name after FROM to discover the graph",
     "files": {
       "title": "Files",
@@ -4519,7 +4514,33 @@
         "grantEditDelete": "Give the user SandForge writes as Edit and Delete on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}}).",
         "grantRead": "Give the user SandForge reads as Read on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}})."
       }
-    }
+    },
+    "roots": {
+      "info": "Your query chooses the {{object}} records to clone: what is linked to them comes with them, as for the clone of one record. Other {{object}} records come only as parents they name.",
+      "reading": "Reading what the query chooses in the source org…",
+      "chosen_one": "The query chooses {{formatted}} {{object}} record of the source org: the run clones it, with what it reaches ({{cap}} at most).",
+      "chosen_other": "The query chooses {{formatted}} {{object}} records of the source org: the run clones each, with what it reaches ({{cap}} at most).",
+      "more": "The query chooses more than the {{cap}} {{object}} records a run clones, and no LIMIT holds it to that: the run would be refused before it read anything else. Take the newest, narrow its WHERE, or raise the setting.",
+      "moreThanLimit": "The query’s LIMIT {{limit}} is past the {{cap}} {{object}} records a run clones: the run would be refused before it read anything else. Lower its LIMIT, or raise the setting.",
+      "none": "The query chooses no {{object}} record of the source org: the run would be refused. Check its WHERE against the source org.",
+      "failed": "What the query chooses could not be read: {{message}}",
+      "newest": "Take the {{cap}} newest",
+      "firstInOrder": "Take the first {{cap}} in its order",
+      "setting": "Setting (up to {{most}})",
+      "readAgain": "Read again",
+      "before181": "Saved before 1.81.0, this query read each related table whole, 200 records at most. It now clones the records it chooses, each with what it reaches: simulate first.",
+      "issue": {
+        "noObject": "The query names no object after FROM: write it as SELECT Id FROM <Object> WHERE …",
+        "object": "\"{{object}}\" after FROM is not an object’s API name: name the object as the org does, as Account or Region__c.",
+        "refused": "The query’s {{clause}} changes the records it returns, and the clone would read others than it shows: take it out, and choose the records by WHERE, ORDER BY and LIMIT.",
+        "aggregate": "The query counts, sums or groups its rows (COUNT(), SUM(), MAX()…), and returns no record to clone: select the records themselves, as SELECT Id FROM <Object> WHERE …",
+        "alias": "The query names a relationship by an alias that does not lead back to its object (FROM Contact c, x.Account a): write each path from the object, as Account.Name.",
+        "where": "The query’s WHERE is past 512 characters, or holds a comment marker (--, /*, */) — even inside a quoted value — or ends with a semicolon: shorten it, or take them out.",
+        "orderBy": "The query’s ORDER BY takes field paths, each with ASC or DESC and NULLS FIRST or LAST, separated by commas, 200 characters at most: as ORDER BY CreatedDate DESC, Id.",
+        "limit": "The query’s LIMIT is a whole number from 1 to {{most}}: past it, copy a sample of the whole org with a filter on its roots."
+      }
+    },
+    "hintRootsQuery": "Correct the query to discover the graph: it chooses the records to clone"
   },
   "forgeRun": {
     "rehearsal": {
@@ -4766,7 +4787,8 @@
       "leftOutCost": "What the objects left out cost",
       "leftOutLookup": "{{object}}: records that need a record of {{leftOut}} are not written, unless the target already holds it.",
       "leftOutStatus": "{{object}}: records past Draft are written as drafts and stay drafts: the platform gives them their status only with {{leftOut}} records under them.",
-      "leftOutSellingModel": "{{object}}: prices sold under a selling model are not written: each needs its product's {{leftOut}} for that model."
+      "leftOutSellingModel": "{{object}}: prices sold under a selling model are not written: each needs its product's {{leftOut}} for that model.",
+      "readsWhatTheRecordsReach": "The clone reads only what the records its query chooses reach: these counts are of the source tables, not of what it will write."
     },
     "verify": {
       "action": "Verify what this run wrote",
@@ -5041,7 +5063,9 @@
         "wholeOrg_one": "Copy the whole of {{source}} into {{target}}: {{formatted}} record counted in {{objects}} objects.",
         "wholeOrg_other": "Copy the whole of {{source}} into {{target}}: {{formatted}} records counted in {{objects}} objects.",
         "sample_one": "Copy a sample of {{source}} that fits {{target}}, drawn from {{formatted}} record counted in {{objects}} objects.",
-        "sample_other": "Copy a sample of {{source}} that fits {{target}}, drawn from {{formatted}} records counted in {{objects}} objects."
+        "sample_other": "Copy a sample of {{source}} that fits {{target}}, drawn from {{formatted}} records counted in {{objects}} objects.",
+        "queryRecords_one": "Copy the {{object}} records the query chooses, {{cap}} at most, and what they reach in {{count}} object, from {{source}} into {{target}}.",
+        "queryRecords_other": "Copy the {{object}} records the query chooses, {{cap}} at most, and what they reach in {{count}} objects, from {{source}} into {{target}}."
       },
       "left": {
         "none": "Nothing is left to decide.",
@@ -5645,6 +5669,36 @@
       },
       "counts": "{{rows}} records read, {{requests}} API requests of {{source}}.",
       "countsPriced": "{{rows}} records read, {{requests}} API requests of {{source}} of about {{pricedAt}} priced."
+    },
+    "rootsResult": {
+      "title": "Records the query chose",
+      "fromQuery_one": "{{formatted}} {{object}} record the query chose, read {{at}} ({{cap}} at most).",
+      "fromQuery_other": "{{formatted}} {{object}} records the query chose, read {{at}} ({{cap}} at most).",
+      "fromPlan_one": "{{formatted}} {{object}} record its simulation chose, read {{at}}: a record the query chooses since is not written.",
+      "fromPlan_other": "{{formatted}} {{object}} records its simulation chose, read {{at}}: a record the query chooses since is not written.",
+      "fromRecords_one": "{{formatted}} {{object}} record named by its id ({{cap}} at most).",
+      "fromRecords_other": "{{formatted}} {{object}} records named by their ids ({{cap}} at most).",
+      "readAgain_one": "Its simulation’s {{formatted}} record, read {{at}}, was a day old or more: the query was read again, and chose {{read}}.",
+      "readAgain_other": "Its simulation’s {{formatted}} records, read {{at}}, were a day old or more: the query was read again, and chose {{read}}.",
+      "written": "{{written}} of {{read}} written.",
+      "wouldWrite": "{{written}} of {{read}} would be written; nothing was written.",
+      "linked_one": "{{formatted}} linked to a record the target held.",
+      "linked_other": "{{formatted}} linked to a record the target held.",
+      "withTheirAccount_one": "{{formatted}} written with its person account.",
+      "withTheirAccount_other": "{{formatted}} written with their person account.",
+      "gone_one": "{{formatted}} is no longer in {{source}} since it was chosen: not written, and no failure.",
+      "gone_other": "{{formatted}} are no longer in {{source}} since they were chosen: not written, and no failure.",
+      "failed_one": "{{formatted}} refused by the target:",
+      "failed_other": "{{formatted}} refused by the target:",
+      "reads_one": "Reading what they reach sent {{source}} {{formatted}} request.",
+      "reads_other": "Reading what they reach sent {{source}} {{formatted}} requests.",
+      "origin": {
+        "object": "{{object}}: {{rows}} read, {{how}}.",
+        "roots": "{{rows}} chosen by the query",
+        "under": "{{rows}} under the clone’s records",
+        "named": "{{rows}} named by the clone’s records",
+        "readUnder": "Read under {{objects}}: a parent read by id brings its other children, as the clone of one record does."
+      }
     }
   },
   "autopilot": {

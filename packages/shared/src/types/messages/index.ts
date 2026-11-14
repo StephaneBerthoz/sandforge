@@ -397,6 +397,7 @@ import type {
   ForgeUsersRequest,
   ForgeTargetRecordsRequest,
   ForgeSampleBudgetRequest,
+  ForgePreviewRootsRequest,
   ForgePreviewResponse,
   ForgePreviewErrorMessage,
   ForgeDiscoverResponse,
@@ -444,6 +445,8 @@ import type {
   ForgeSampleBudgetResponse,
   ForgeSampleBudgetErrorMessage,
   ForgeSamplingProgressMessage,
+  ForgePreviewRootsResponse,
+  ForgePreviewRootsErrorMessage,
 } from './forge.messages.js';
 import type {
   AIChatRequest,
@@ -817,6 +820,7 @@ export type WebViewToExtensionMessage =
   | ForgeUsersRequest
   | ForgeTargetRecordsRequest
   | ForgeSampleBudgetRequest
+  | ForgePreviewRootsRequest
   // AI
   | AIChatRequest
   | AIChatCancelRequest
@@ -1128,6 +1132,8 @@ export type ExtensionToWebViewMessage =
   | ForgeSampleBudgetResponse
   | ForgeSampleBudgetErrorMessage
   | ForgeSamplingProgressMessage
+  | ForgePreviewRootsResponse
+  | ForgePreviewRootsErrorMessage
   // AI
   | AIChatResponse
   | AIConversationCreatedResponse

@@ -14,7 +14,7 @@ import type {
   ForgeInputMode,
   ForgeTemplate,
 } from '@sandforge/shared';
-import { soqlRootFilter } from '@sandforge/shared';
+import { isRecordScoped, soqlRootFilter } from '@sandforge/shared';
 
 /** A run's configuration as History and templates keep it: without the org pair. */
 export type StoredForgeConfig = Omit<ForgeConfig, 'sourceOrgId' | 'targetOrgId'>;
@@ -37,14 +37,17 @@ export function inputModeKeyOf(mode: ForgeInputMode): string {
 }
 
 /**
- * Whether the run clones one record's graph: it reads only what that record
- * reaches, where discovery counted whole tables. The counts, sizes and
- * durations shown before such a run are the source tables', not the clone's.
+ * Whether the run clones records and what they reach: one record's graph, or
+ * the records a query chooses (`queryScope: 'records'`), each with what the
+ * clone of that record copies. It reads only that, where discovery counted
+ * whole tables: the counts, sizes and durations shown before such a run are
+ * the source tables', and so the most it may read, not the clone's.
  */
-export function clonesOneRecord(
-  config: Pick<ForgeConfig, 'inputMode' | 'recordId'> | null | undefined,
+export function clonesFromRecords(
+  config:
+    Pick<ForgeConfig, 'inputMode' | 'recordId' | 'soqlQuery' | 'queryScope'> | null | undefined,
 ): boolean {
-  return config?.inputMode === 'record' && Boolean(config.recordId);
+  return isRecordScoped(config);
 }
 
 /**
@@ -119,9 +122,13 @@ export type CarriedRunChoices = Partial<Pick<ForgeConfig, (typeof CARRIED_KEYS)[
 /**
  * The choices `config` carries, only those it holds: none for no config.
  *
- * The filter a query gives its root object is not one of them: the query
- * says it, and the run's next Discover reads it from the query as it stands.
- * Carried, a WHERE clause taken off the query would still have held the root.
+ * The filter a query read as tables (before 1.81.0) gave its root object is
+ * not one of them: it was the query's WHERE, which the run's next Discover
+ * reads from the query as it stands — carried, a WHERE clause taken off the
+ * query would still have held the root, and would now filter the parents of
+ * that object its records name. A query that chooses records sends none of
+ * its own: a filter on its object is one set on Review → Controls, and is
+ * carried as any other.
  */
 export function carriedChoices(config: StoredForgeConfig | ForgeConfig | null): CarriedRunChoices {
   const carried: CarriedRunChoices = {};
@@ -129,7 +136,10 @@ export function carriedChoices(config: StoredForgeConfig | ForgeConfig | null): 
   for (const key of CARRIED_KEYS) {
     if (config[key] !== undefined) Object.assign(carried, { [key]: config[key] });
   }
-  const root = config.soqlQuery ? soqlRootFilter(config.soqlQuery)?.objectApiName : undefined;
+  const root =
+    config.soqlQuery && config.queryScope !== 'records'
+      ? soqlRootFilter(config.soqlQuery)?.objectApiName
+      : undefined;
   if (root !== undefined && carried.objectSoqlFilters?.[root] !== undefined) {
     const filters = { ...carried.objectSoqlFilters };
     delete filters[root];

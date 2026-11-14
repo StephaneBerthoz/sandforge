@@ -1296,6 +1296,7 @@ export class ExtensionHandlers {
         'forge:users:request',
         'forge:target-records:request',
         'forge:sample-budget:request',
+        'forge:previewRoots',
       ],
       this.forgeHandler,
     );

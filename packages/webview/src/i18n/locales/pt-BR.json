@@ -4330,9 +4330,7 @@
     "objectCapDefault": "Padrão (50)",
     "recordLimitSmart": "Inteligente (conforme a entrada)",
     "recordLimitSmartRecord": "Inteligente: lê apenas o que o registro alcança, no máximo 50.000 linhas por objeto, e pergunta antes de uma gravação grande.",
-    "recordLimitSmartSoql": "Inteligente: {{limit}} por objeto. Uma execução a partir de uma consulta lê os outros objetos de suas tabelas inteiras.",
-    "recordLimitSoqlCap": "Uma execução a partir de uma consulta pega no máximo {{cap}} registros de cada objeto: seus objetos relacionados são lidos das tabelas inteiras. Para mais, clone a partir de um registro, ou pela linha de comando: sandforge clone --object e --where clonam as tabelas indicadas, com --max como teto.",
-    "recordLimitSoqlHeld": "{{chosen}} vale para uma execução a partir de um registro: uma execução a partir de uma consulta pega no máximo {{cap}} registros de cada objeto, e seus objetos relacionados são lidos das tabelas inteiras. Para mais, clone a partir de um registro, ou pela linha de comando: sandforge clone --object e --where clonam as tabelas indicadas, com --max como teto.",
+    "recordLimitSmartSoql": "Inteligente: lê apenas o que os registros que a consulta escolhe alcançam, no máximo 50.000 linhas por objeto e 50.000 no total, e pergunta antes de uma gravação grande.",
     "recordLimitAll": "Todos",
     "recordLimitOpt10": "10 / objeto (amostra)",
     "recordLimitOpt50": "50 / objeto",
@@ -4378,10 +4376,6 @@
       "step4": "Ajuste profundidade, limite de registros e anonimização",
       "step5": "Execute para sua sandbox após a revisão, ou sem ela com Clonar diretamente — os IDs são remapeados"
     },
-    "soqlUnscopedWarnTitle": "Sua cláusula WHERE filtra apenas {{object}}.",
-    "soqlUnscopedWarnBody": "Os objetos relacionados não são limitados aos registros que ela seleciona: cada um é lido da tabela inteira, até {{cap}} registros. Para limitar um aos registros ligados aos seus, dê a ele um filtro em Revisão → Ajustes, como {{lookup}} IN (SELECT Id FROM {{object}} WHERE …), sendo {{lookup}} o campo dele que aponta para {{object}}.",
-    "soqlFilterRefused": "Esta cláusula WHERE não pode ser aplicada. Ela deve ter no máximo 512 caracteres, não conter --, /* nem */ (nem mesmo dentro de um valor entre aspas) e não terminar com ponto e vírgula.",
-    "soqlAliasRefused": "Esta consulta não pode ser executada. A cláusula FROM declara um alias sobre uma relação que não parte do objeto após FROM: verifique o alias antes do ponto.",
     "history": {
       "title": "Execuções recentes",
       "olderTitle": "Execuções mais antigas",
@@ -4409,9 +4403,10 @@
       "removeNotRecorded": "Registrada antes de as execuções guardarem o que criam: seus registros não podem ser removidos daqui. Um ponto de verificação criado antes da execução leva a org de volta a antes dela: Pontos de verificação → Retroceder…. Sem um, DataOps → Limpeza → Esvaziar objetos esvazia os objetos que ela gravou — todos os registros deles, não só os desta execução.",
       "removeOrgGone": "A org em que esta execução gravou não está mais registrada: seus registros não podem ser removidos daqui.",
       "journalGone": "Os Ids dos registros desta execução ficavam no seu diário, que não existe mais: eles não podem mais ser removidos, verificados, tentados de novo nem salvos daqui. Um ponto de verificação criado antes da execução leva a org de volta a antes dela: Pontos de verificação → Retroceder…. Sem um, DataOps → Limpeza → Esvaziar objetos esvazia os objetos que ela gravou — todos os registros deles, não só os desta execução.",
-      "sweepAction": "Recuperar o que a automação do destino criou"
+      "sweepAction": "Recuperar o que a automação do destino criou",
+      "roots_one": "{{formatted}} registro {{object}} escolhido pela consulta, {{written}} deles no destino",
+      "roots_other": "{{formatted}} registros {{object}} escolhidos pela consulta, {{written}} deles no destino"
     },
-    "soqlObjectNameInvalid": "\"{{object}}\" não é um nome de API de SObject, então a cláusula WHERE não pode ser enviada com ele. Ele deve começar com uma letra e ter no máximo 80 letras, dígitos ou sublinhados.",
     "hintSoqlObjectNameInvalid": "Corrija o nome do objeto após FROM para descobrir o grafo",
     "files": {
       "title": "Arquivos",
@@ -4519,7 +4514,33 @@
         "grantEditDelete": "Dar ao usuário com que o SandForge grava as permissões de edição e exclusão em {{object}} (Configuração > o perfil dele ou um conjunto de permissões > Configurações de objeto > {{object}}).",
         "grantRead": "Dar ao usuário com que o SandForge lê a permissão de leitura em {{object}} (Configuração > o perfil dele ou um conjunto de permissões > Configurações de objeto > {{object}})."
       }
-    }
+    },
+    "roots": {
+      "info": "Sua consulta escolhe os registros {{object}} a clonar: o que está ligado a eles vem junto, como na clonagem de um registro. Outros registros {{object}} só vêm como pais que eles nomeiam.",
+      "reading": "Lendo o que a consulta escolhe na org de origem…",
+      "chosen_one": "A consulta escolhe {{formatted}} registro {{object}} da org de origem: a execução o clona, com o que ele alcança ({{cap}} no máximo).",
+      "chosen_other": "A consulta escolhe {{formatted}} registros {{object}} da org de origem: a execução clona cada um, com o que ele alcança ({{cap}} no máximo).",
+      "more": "A consulta escolhe mais que os {{cap}} registros {{object}} que uma execução clona, e nenhum LIMIT a contém: a execução seria recusada antes de ler qualquer outra coisa. Pegue os mais recentes, estreite o WHERE dela ou aumente a configuração.",
+      "moreThanLimit": "O LIMIT {{limit}} da consulta passa dos {{cap}} registros {{object}} que uma execução clona: a execução seria recusada antes de ler qualquer outra coisa. Reduza o LIMIT dela ou aumente a configuração.",
+      "none": "A consulta não escolhe nenhum registro {{object}} da org de origem: a execução seria recusada. Verifique o WHERE dela na org de origem.",
+      "failed": "Não foi possível ler o que a consulta escolhe: {{message}}",
+      "newest": "Pegar os {{cap}} mais recentes",
+      "firstInOrder": "Pegar os {{cap}} primeiros na ordem dela",
+      "setting": "Configuração (até {{most}})",
+      "readAgain": "Ler de novo",
+      "before181": "Salva antes da 1.81.0, esta consulta lia cada tabela ligada inteira, no máximo 200 registros. Agora ela clona os registros que escolhe, cada um com o que alcança: simule primeiro.",
+      "issue": {
+        "noObject": "A consulta não nomeia nenhum objeto depois de FROM: escreva-a como SELECT Id FROM <Objeto> WHERE …",
+        "object": "\"{{object}}\" depois de FROM não é o nome de API de um objeto: nomeie o objeto como a org o nomeia, como Account ou Region__c.",
+        "refused": "O {{clause}} da consulta muda os registros que ela retorna, e a clonagem leria outros que os que ela mostra: tire-o e escolha os registros por WHERE, ORDER BY e LIMIT.",
+        "aggregate": "A consulta conta, soma ou agrupa suas linhas (COUNT(), SUM(), MAX()…) e não retorna nenhum registro a clonar: selecione os próprios registros, como SELECT Id FROM <Objeto> WHERE …",
+        "alias": "A consulta nomeia uma relação por um alias que não leva de volta ao seu objeto (FROM Contact c, x.Account a): escreva cada caminho a partir do objeto, como Account.Name.",
+        "where": "O WHERE da consulta passa de 512 caracteres, ou contém um marcador de comentário (--, /*, */) — mesmo dentro de um valor entre aspas — ou termina com ponto e vírgula: encurte-o ou tire-os.",
+        "orderBy": "O ORDER BY da consulta recebe caminhos de campos, cada um com ASC ou DESC e NULLS FIRST ou LAST, separados por vírgulas, no máximo 200 caracteres: como ORDER BY CreatedDate DESC, Id.",
+        "limit": "O LIMIT da consulta é um número inteiro de 1 a {{most}}: acima disso, copie uma amostra da org inteira com um filtro sobre suas raízes."
+      }
+    },
+    "hintRootsQuery": "Corrija a consulta para descobrir o grafo: ela escolhe os registros a clonar"
   },
   "forgeRun": {
     "rehearsal": {
@@ -4766,7 +4787,8 @@
       "leftOutCost": "O que custam os objetos deixados de fora",
       "leftOutLookup": "{{object}}: os registros que precisam de um registro de {{leftOut}} não são gravados, a menos que o destino já o tenha.",
       "leftOutStatus": "{{object}}: os registros além de Rascunho são gravados como rascunhos e continuam assim: a plataforma só lhes dá o status com registros de {{leftOut}} sob eles.",
-      "leftOutSellingModel": "{{object}}: os preços vendidos sob um modelo de venda não são gravados: cada um precisa do objeto {{leftOut}} do seu produto para esse modelo."
+      "leftOutSellingModel": "{{object}}: os preços vendidos sob um modelo de venda não são gravados: cada um precisa do objeto {{leftOut}} do seu produto para esse modelo.",
+      "readsWhatTheRecordsReach": "A clonagem lê apenas o que os registros que sua consulta escolhe alcançam: estes números são os das tabelas de origem, não os do que ela vai gravar."
     },
     "verify": {
       "action": "Verificar o que esta execução escreveu",
@@ -5041,7 +5063,9 @@
         "wholeOrg_one": "Copiar a org {{source}} inteira para {{target}}: {{formatted}} registro contado em {{objects}} objetos.",
         "wholeOrg_other": "Copiar a org {{source}} inteira para {{target}}: {{formatted}} registros contados em {{objects}} objetos.",
         "sample_one": "Copiar uma amostra de {{source}} que caiba em {{target}}, sorteada de {{formatted}} registro contado em {{objects}} objetos.",
-        "sample_other": "Copiar uma amostra de {{source}} que caiba em {{target}}, sorteada de {{formatted}} registros contados em {{objects}} objetos."
+        "sample_other": "Copiar uma amostra de {{source}} que caiba em {{target}}, sorteada de {{formatted}} registros contados em {{objects}} objetos.",
+        "queryRecords_one": "Copiar os registros {{object}} que a consulta escolhe, no máximo {{cap}}, e o que eles alcançam em {{count}} objeto, de {{source}} para {{target}}.",
+        "queryRecords_other": "Copiar os registros {{object}} que a consulta escolhe, no máximo {{cap}}, e o que eles alcançam em {{count}} objetos, de {{source}} para {{target}}."
       },
       "left": {
         "none": "Não resta nada a decidir.",
@@ -5645,6 +5669,36 @@
       },
       "counts": "{{rows}} registros lidos, {{requests}} solicitações de API de {{source}}.",
       "countsPriced": "{{rows}} registros lidos, {{requests}} solicitações de API de {{source}} de cerca de {{pricedAt}} previstas."
+    },
+    "rootsResult": {
+      "title": "Registros que a consulta escolheu",
+      "fromQuery_one": "{{formatted}} registro {{object}} escolhido pela consulta, lido em {{at}} (no máximo {{cap}}).",
+      "fromQuery_other": "{{formatted}} registros {{object}} escolhidos pela consulta, lidos em {{at}} (no máximo {{cap}}).",
+      "fromPlan_one": "{{formatted}} registro {{object}} escolhido pela simulação, lido em {{at}}: um registro que a consulta escolhe desde então não é gravado.",
+      "fromPlan_other": "{{formatted}} registros {{object}} escolhidos pela simulação, lidos em {{at}}: um registro que a consulta escolhe desde então não é gravado.",
+      "fromRecords_one": "{{formatted}} registro {{object}} nomeado pelo id ({{cap}} no máximo).",
+      "fromRecords_other": "{{formatted}} registros {{object}} nomeados pelos ids ({{cap}} no máximo).",
+      "readAgain_one": "O {{formatted}} registro da simulação, lido em {{at}}, tinha um dia ou mais: a consulta foi lida de novo e escolheu {{read}}.",
+      "readAgain_other": "Os {{formatted}} registros da simulação, lidos em {{at}}, tinham um dia ou mais: a consulta foi lida de novo e escolheu {{read}}.",
+      "written": "{{written}} de {{read}} gravados.",
+      "wouldWrite": "{{written}} de {{read}} seriam gravados; nada foi gravado.",
+      "linked_one": "{{formatted}} ligado a um registro que o destino tinha.",
+      "linked_other": "{{formatted}} ligados a um registro que o destino tinha.",
+      "withTheirAccount_one": "{{formatted}} gravado com sua conta pessoal.",
+      "withTheirAccount_other": "{{formatted}} gravados com sua conta pessoal.",
+      "gone_one": "{{formatted}} não está mais em {{source}} desde que foi escolhido: não gravado, e não é uma falha.",
+      "gone_other": "{{formatted}} não estão mais em {{source}} desde que foram escolhidos: não gravados, e não é uma falha.",
+      "failed_one": "{{formatted}} recusado pelo destino:",
+      "failed_other": "{{formatted}} recusados pelo destino:",
+      "reads_one": "Ler o que eles alcançam enviou {{formatted}} requisição a {{source}}.",
+      "reads_other": "Ler o que eles alcançam enviou {{formatted}} requisições a {{source}}.",
+      "origin": {
+        "object": "{{object}}: {{rows}} lidos, {{how}}.",
+        "roots": "{{rows}} escolhidos pela consulta",
+        "under": "{{rows}} sob os registros da clonagem",
+        "named": "{{rows}} nomeados pelos registros da clonagem",
+        "readUnder": "Lido sob {{objects}}: um pai lido por id traz seus outros filhos, como na clonagem de um registro."
+      }
     }
   },
   "autopilot": {

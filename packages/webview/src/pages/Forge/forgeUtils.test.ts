@@ -6,13 +6,7 @@ import de from '../../i18n/locales/de.json';
 import es from '../../i18n/locales/es.json';
 import ptBR from '../../i18n/locales/pt-BR.json';
 import ja from '../../i18n/locales/ja.json';
-import {
-  SMART_SOQL_CAP,
-  SOQL_UNSCOPED_RECORD_CAP,
-  extractSalesforceDomain,
-  isPiiField,
-  starterTemplateKeys,
-} from './forgeUtils';
+import { extractSalesforceDomain, isPiiField, starterTemplateKeys } from './forgeUtils';
 
 const LOCALES: Record<string, unknown> = { en, fr, de, es, 'pt-BR': ptBR, ja };
 
@@ -58,13 +52,6 @@ describe('starterTemplateKeys', () => {
 
   it('knows no saved template', () => {
     expect(starterTemplateKeys('a1b2c3d4-user-template')).toBeNull();
-  });
-});
-
-describe('SMART_SOQL_CAP', () => {
-  it('stays under the cap a SOQL run is held to whatever is chosen', () => {
-    expect(SMART_SOQL_CAP).toBeGreaterThan(0);
-    expect(SMART_SOQL_CAP).toBeLessThanOrEqual(SOQL_UNSCOPED_RECORD_CAP);
   });
 });
 

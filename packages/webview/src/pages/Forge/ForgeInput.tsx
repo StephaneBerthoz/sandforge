@@ -27,20 +27,9 @@ import { ForgeLivePreviewPanel } from './ForgeLivePreviewPanel';
 import { ForgeOrgCard } from './ForgeOrgCard';
 import { ForgeDepthChips } from './ForgeDepthChips';
 import { ForgeOptionToggles } from './ForgeOptionToggles';
-import { starterTemplateKeys, SOQL_UNSCOPED_RECORD_CAP } from './forgeUtils';
+import { starterTemplateKeys } from './forgeUtils';
 import { extractRecordId } from '../../utils/recordId';
-import { orgDisplayName, soqlRootFilter } from '@sandforge/shared';
-
-/**
- * The choices of Records per object past the cap of a run from a query
- * ({@link SOQL_UNSCOPED_RECORD_CAP}), with the words they are listed in: a
- * run from a query holds each object to the cap, whichever is picked.
- */
-const SOQL_HELD_LIMITS: ReadonlyMap<string, string> = new Map([
-  ['500', 'forge.recordLimitOpt500'],
-  ['1000', 'forge.recordLimitOpt1000'],
-  ['all', 'forge.recordLimitAll'],
-]);
+import { orgDisplayName } from '@sandforge/shared';
 
 /** A starter template's name in the panel's language, as its Template tab says it. */
 function starterName(
@@ -126,22 +115,18 @@ export const ForgeInput: React.FC = () => {
   /** The CTA gate: everything `canDiscover` asks, plus a record id that parses. */
   const canDiscoverNow = form.canDiscover && !recordIdInvalid;
   /**
-   * The query the run would send in this mode: typed, drafted by the AI, or
-   * saved in the selected template.
+   * Why Discover is off for the query, by the part of it to fix: an alias
+   * after FROM, not the WHERE, when the alias is what nothing traces — saying
+   * "shorten the WHERE clause" would name a clause that may be faultless.
    */
-  const runQuery =
-    form.inputMode === 'soql'
-      ? form.soqlQuery
-      : form.inputMode === 'ai'
-        ? form.ai.draft
-        : (form.templateSoqlQuery ?? '');
-  /**
-   * The refusal is about the FROM clause, not the WHERE one: an alias there
-   * stands for a relationship that starts from no declared alias, so nothing
-   * can rewrite the paths headed by it. Saying "shorten the WHERE clause"
-   * would name a clause that may be faultless, and point at the wrong fix.
-   */
-  const aliasRefused = Boolean(soqlRootFilter(runQuery)?.unresolvedAlias);
+  const issueHint =
+    form.rootQueryIssue?.kind === 'alias'
+      ? 'forge.hintSoqlAliasRefused'
+      : form.rootQueryIssue?.kind === 'where'
+        ? 'forge.hintSoqlFilterRefused'
+        : form.rootQueryIssue?.kind === 'object'
+          ? 'forge.hintSoqlObjectNameInvalid'
+          : 'forge.hintRootsQuery';
   /** The carried choices a clone of the whole org still keeps, listed in its note. */
   const narrowing = form.carriedNarrowing;
   /** Each kind of carried choice the note lists, with the objects it names. */
@@ -404,7 +389,10 @@ export const ForgeInput: React.FC = () => {
                       />
                       <ForgeSoqlNotices
                         query={form.soqlQuery}
-                        objectNameRefused={form.objectNameRefused}
+                        issue={form.rootQueryIssue}
+                        roots={form.roots}
+                        {...(form.takeNewest ? { onTakeNewest: form.takeNewest } : {})}
+                        before181={form.queryBefore181}
                       />
                     </>
                   )}
@@ -476,7 +464,9 @@ export const ForgeInput: React.FC = () => {
                   {form.templateSoqlQuery !== null && (
                     <ForgeSoqlNotices
                       query={form.templateSoqlQuery}
-                      objectNameRefused={form.objectNameRefused}
+                      issue={form.rootQueryIssue}
+                      roots={form.roots}
+                      before181={form.queryBefore181}
                     />
                   )}
                 </Tabs.Content>
@@ -499,7 +489,8 @@ export const ForgeInput: React.FC = () => {
                       tab's verdicts too. */}
                       <ForgeSoqlNotices
                         query={form.ai.draft}
-                        objectNameRefused={form.objectNameRefused}
+                        issue={form.rootQueryIssue}
+                        roots={form.roots}
                       />
                     </>
                   )}
@@ -602,9 +593,7 @@ export const ForgeInput: React.FC = () => {
               aria-describedby={
                 form.wholeOrg
                   ? 'forge-record-limit-hint forge-record-limit-all'
-                  : form.runsSoql
-                    ? 'forge-record-limit-hint forge-record-limit-soql'
-                    : 'forge-record-limit-hint'
+                  : 'forge-record-limit-hint'
               }
               data-testid="forge-record-limit"
               value={form.wholeOrg ? (form.sampled ? 'sample' : 'every') : form.recordLimit}
@@ -633,41 +622,16 @@ export const ForgeInput: React.FC = () => {
                   <option value="10">{t('forge.recordLimitOpt10')}</option>
                   <option value="50">{t('forge.recordLimitOpt50')}</option>
                   <option value="100">{t('forge.recordLimitOpt100')}</option>
-                  {/* Past the cap a run from a query holds each object to,
-                      greyed: chosen, they were brought back to it unsaid. */}
-                  <option value="500" disabled={form.runsSoql}>
-                    {t('forge.recordLimitOpt500')}
-                  </option>
-                  <option value="1000" disabled={form.runsSoql}>
-                    {t('forge.recordLimitOpt1000')}
-                  </option>
-                  <option value="all" disabled={form.runsSoql}>
-                    {t('forge.recordLimitAll')}
-                  </option>
+                  <option value="500">{t('forge.recordLimitOpt500')}</option>
+                  <option value="1000">{t('forge.recordLimitOpt1000')}</option>
+                  <option value="all">{t('forge.recordLimitAll')}</option>
                 </>
               )}
             </select>
-            {/* The cap of a run from a query, said with or without a WHERE
-                clause, and what reads more: a clone from a record, or the
-                command line's tables. A choice past it made on another tab
-                is said held to it. */}
-            {form.runsSoql && (
-              <p
-                id="forge-record-limit-soql"
-                data-testid="forge-record-limit-soql"
-                className="mt-1.5 text-[10px] text-text-secondary"
-              >
-                {SOQL_HELD_LIMITS.has(form.recordLimit)
-                  ? t('forge.recordLimitSoqlHeld', {
-                      cap: SOQL_UNSCOPED_RECORD_CAP,
-                      chosen: t(SOQL_HELD_LIMITS.get(form.recordLimit) ?? ''),
-                    })
-                  : t('forge.recordLimitSoqlCap', { cap: SOQL_UNSCOPED_RECORD_CAP })}
-              </p>
-            )}
             {/* What Smart applies to this run: no cap to one record's graph,
-                a cap to a run from a query. It named the root object's whole
-                table "the org" and sized the cap of a one-record clone by it. */}
+                nor to the records a query chooses, each read as the clone of
+                that record reads it. It named the root object's whole table
+                "the org" and sized the cap of a one-record clone by it. */}
             {/* In its place for ALL, which reads past the 50,000 rows per
                 object Smart announces for one record: what the choice copies. */}
             {form.wholeOrg && (
@@ -684,9 +648,7 @@ export const ForgeInput: React.FC = () => {
                 className="mt-1.5 text-[10px] text-text-secondary"
                 data-testid="forge-record-limit-smart-hint"
               >
-                {form.recordLimitValue === undefined
-                  ? t('forge.recordLimitSmartRecord')
-                  : t('forge.recordLimitSmartSoql', { limit: form.recordLimitValue })}
+                {t(form.runsSoql ? 'forge.recordLimitSmartSoql' : 'forge.recordLimitSmartRecord')}
               </div>
             )}
           </div>
@@ -738,17 +700,11 @@ export const ForgeInput: React.FC = () => {
                     ? t('forge.hintSameOrg')
                     : form.recordNotInSource
                       ? t('forge.hintRecordNotInSource')
-                      : form.whereClauseRefused
-                        ? t(
-                            aliasRefused
-                              ? 'forge.hintSoqlAliasRefused'
-                              : 'forge.hintSoqlFilterRefused',
-                          )
-                        : form.objectNameRefused
-                          ? t('forge.hintSoqlObjectNameInvalid')
-                          : form.inputMode === 'ai'
-                            ? t('forge.hintAiUnchecked')
-                            : t('forge.hintNoInput')}
+                      : form.rootQueryIssue
+                        ? t(issueHint)
+                        : form.inputMode === 'ai'
+                          ? t('forge.hintAiUnchecked')
+                          : t('forge.hintNoInput')}
             </p>
           )}
 

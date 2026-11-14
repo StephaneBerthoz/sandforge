@@ -36,11 +36,13 @@ export interface ReviewPlanLineProps {
   cycleCount: number;
   truncated: boolean;
   /**
-   * The run clones one record's graph (`clonesOneRecord`): the counts are
+   * The run clones one record's graph (`clonesFromRecords`): the counts are
    * the source tables', and the calls and the duration reckoned from them are
    * left out.
    */
   oneRecord?: boolean;
+  /** Of such a run, the records are those a query chooses, not one record. */
+  fromQuery?: boolean;
   /** The object cap discovery was given (`ForgeConfig.maxNodes`); absent, the default. */
   maxNodes?: number;
 }
@@ -56,6 +58,7 @@ export const ReviewPlanLine: React.FC<ReviewPlanLineProps> = ({
   cycleCount,
   truncated,
   oneRecord = false,
+  fromQuery = false,
   maxNodes,
 }) => {
   const { t } = useTranslation();
@@ -153,7 +156,11 @@ export const ReviewPlanLine: React.FC<ReviewPlanLineProps> = ({
       )}
       {oneRecord && !buckets.cloneRecordsUnknown && (
         <span data-testid="forge-preview-source-tables" className="text-xs text-text-secondary">
-          {t('forgeRun.preview.readsWhatTheRecordReaches')}
+          {t(
+            fromQuery
+              ? 'forgeRun.preview.readsWhatTheRecordsReach'
+              : 'forgeRun.preview.readsWhatTheRecordReaches',
+          )}
         </span>
       )}
     </span>

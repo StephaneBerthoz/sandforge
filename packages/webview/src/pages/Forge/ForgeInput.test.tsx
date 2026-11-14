@@ -5,7 +5,6 @@ import i18n from '../../i18n';
 import { useAppStore } from '../../stores/useAppStore';
 import { ForgeInput } from './ForgeInput';
 import { useForgeStore } from '../../stores/useForgeStore';
-import { SOQL_UNSCOPED_RECORD_CAP } from './forgeUtils';
 
 /* ---- Bridge double: what the form posts, and a way to answer it ---- */
 
@@ -317,9 +316,11 @@ describe('ForgeInput', () => {
       const config = mockSetConfig.mock.calls[0][0];
       expect(config.inputMode).toBe('soql');
       expect(config.soqlQuery).toBe(DRAFT);
-      expect(config.objectSoqlFilters).toEqual({ Account: "Industry = 'Energy'" });
-      // The WHERE clause narrows the root only, so "All" stays capped as in the SOQL tab.
-      expect(config.maxRecordsPerObject).toBe(SOQL_UNSCOPED_RECORD_CAP);
+      // The records the draft chooses, each with what its clone copies: its
+      // WHERE filters no read, and "All" is no cap, as for one record.
+      expect(config.queryScope).toBe('records');
+      expect(config.objectSoqlFilters).toBeUndefined();
+      expect(config.maxRecordsPerObject).toBeUndefined();
       expect(sent<{ config: { inputMode: string } }>('forge:discover')[0].config.inputMode).toBe(
         'soql',
       );
@@ -381,8 +382,9 @@ describe('ForgeInput', () => {
     expect(hint).toMatch(/template/i);
   });
 
-  it('says what Smart applies: no cap to one record, a cap of 100 to a run from a query', () => {
-    // It said "Detected org with N records" of the root object's whole table.
+  it('says what Smart applies: no cap, to one record as to the records a query chooses', () => {
+    // It said "Detected org with N records" of the root object's whole table,
+    // then a cap of 100 of each object to a run from a query.
     render(<ForgeInput />);
 
     expect(screen.getByTestId('forge-record-limit-smart-hint').textContent).toBe(
@@ -390,49 +392,28 @@ describe('ForgeInput', () => {
     );
     fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
     expect(screen.getByTestId('forge-record-limit-smart-hint').textContent).toBe(
-      i18n.t('forge.recordLimitSmartSoql', { limit: 100 }),
+      i18n.t('forge.recordLimitSmartSoql'),
     );
     fireEvent.change(screen.getByTestId('forge-record-limit'), { target: { value: '50' } });
     expect(screen.queryByTestId('forge-record-limit-smart-hint')).toBeNull();
   });
 
-  it('greys the records per object past the cap of a run from a query, and says the cap and what reads more', () => {
-    // 500, 1000 and All were brought back to 200 unsaid, and the cap was said
-    // only under a WHERE clause.
+  it('offers every records per object to a run from a query, as to a clone of one record', () => {
+    // 500, 1000 and All were greyed, and every object held to 200, the
+    // related ones read from their whole tables.
     render(<ForgeInput />);
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
     const option = (value: string): HTMLOptionElement =>
       screen
         .getByTestId('forge-record-limit')
         .querySelector(`option[value="${value}"]`) as HTMLOptionElement;
 
     expect(option('500').disabled).toBe(false);
+    expect(option('1000').disabled).toBe(false);
+    expect(option('all').disabled).toBe(false);
     expect(screen.queryByTestId('forge-record-limit-soql')).toBeNull();
-
-    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
-
-    expect(option('500').disabled).toBe(true);
-    expect(option('1000').disabled).toBe(true);
-    expect(option('all').disabled).toBe(true);
-    expect(option('100').disabled).toBe(false);
-    const said = screen.getByTestId('forge-record-limit-soql').textContent ?? '';
-    expect(said).toBe(i18n.t('forge.recordLimitSoqlCap', { cap: SOQL_UNSCOPED_RECORD_CAP }));
-    expect(said).toContain(`${SOQL_UNSCOPED_RECORD_CAP} records of each object`);
-    expect(said).toContain('sandforge clone --object');
-    expect(screen.getByTestId('forge-record-limit').getAttribute('aria-describedby')).toContain(
-      'forge-record-limit-soql',
-    );
-  });
-
-  it('says a limit picked for a record held to the cap once the run is from a query', () => {
-    render(<ForgeInput />);
-    fireEvent.change(screen.getByTestId('forge-record-limit'), { target: { value: '1000' } });
-    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
-
-    expect(screen.getByTestId('forge-record-limit-soql').textContent).toBe(
-      i18n.t('forge.recordLimitSoqlHeld', {
-        cap: SOQL_UNSCOPED_RECORD_CAP,
-        chosen: i18n.t('forge.recordLimitOpt1000'),
-      }),
+    expect(screen.getByTestId('forge-record-limit').getAttribute('aria-describedby')).toBe(
+      'forge-record-limit-hint',
     );
   });
 
@@ -461,7 +442,9 @@ describe('ForgeInput', () => {
     );
   });
 
-  it('sends the WHERE clause of a SOQL query as the filter of the object after FROM', () => {
+  it('sends a SOQL query as the records it chooses, its WHERE filtering no read of their object', () => {
+    // Its WHERE went as the filter of the object after FROM, every related
+    // object read from its whole table, 200 rows at most.
     render(<ForgeInput />);
     fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
     fireEvent.change(screen.getByTestId('forge-input-soql'), {
@@ -473,9 +456,9 @@ describe('ForgeInput', () => {
     expect(mockSetConfig).toHaveBeenCalledTimes(1);
     const config = mockSetConfig.mock.calls[0][0];
     expect(config.inputMode).toBe('soql');
-    expect(config.objectSoqlFilters).toEqual({ Account: "Industry = 'X'" });
-    // Related objects are still read from their whole tables: the cap stays.
-    expect(config.maxRecordsPerObject).toBeLessThanOrEqual(200);
+    expect(config.queryScope).toBe('records');
+    expect(config.objectSoqlFilters).toBeUndefined();
+    expect(config.maxRecordsPerObject).toBeUndefined();
   });
 
   it('sends no filter for a SOQL query without a WHERE clause', () => {
@@ -488,7 +471,7 @@ describe('ForgeInput', () => {
     fireEvent.click(screen.getByTestId('forge-discover-btn'));
 
     expect(mockSetConfig.mock.calls[0][0].objectSoqlFilters).toBeUndefined();
-    expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
+    expect(mockSetConfig.mock.calls[0][0].queryScope).toBe('records');
   });
 
   it.each([
@@ -502,10 +485,10 @@ describe('ForgeInput', () => {
     });
     selectOrg('forge-target-org', 'org-tgt');
 
-    const refusal = screen.getByTestId('forge-soql-filter-refused').textContent ?? '';
+    const refusal = screen.getByTestId('forge-roots-issue').textContent ?? '';
     expect(refusal).toContain('512');
     expect(refusal).toContain('--');
-    expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
+    expect(screen.queryByTestId('forge-roots-info')).toBeNull();
     expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId('forge-discover-hint').textContent).toMatch(/WHERE/);
     fireEvent.click(screen.getByTestId('forge-discover-btn'));
@@ -523,8 +506,8 @@ describe('ForgeInput', () => {
     });
     selectOrg('forge-target-org', 'org-tgt');
 
-    expect(screen.getByTestId('forge-soql-filter-refused').textContent).toBe(
-      i18n.t('forge.soqlAliasRefused'),
+    expect(screen.getByTestId('forge-roots-issue').textContent).toBe(
+      i18n.t('forge.roots.issue.alias'),
     );
     expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId('forge-discover-hint').textContent).toBe(
@@ -532,17 +515,33 @@ describe('ForgeInput', () => {
     );
   });
 
-  it('says the WHERE clause filters only the object after FROM', () => {
+  it('says the query chooses the records to clone, with what they reach', () => {
     render(<ForgeInput />);
     fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
     fireEvent.change(screen.getByTestId('forge-input-soql'), {
       target: { value: "SELECT Id FROM Account WHERE Industry = 'X'" },
     });
 
-    const warning = screen.getByTestId('forge-soql-where-warning').textContent ?? '';
-    expect(warning).not.toMatch(/not applied/i);
-    expect(warning).toContain('Account');
-    expect(warning).toContain('200');
+    expect(screen.getByTestId('forge-roots-info').textContent).toBe(
+      i18n.t('forge.roots.info', { object: 'Account' }),
+    );
+  });
+
+  it('refuses to discover with a query whose clause changes the rows it returns, and says which', () => {
+    render(<ForgeInput />);
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+    fireEvent.change(screen.getByTestId('forge-input-soql'), {
+      target: { value: 'SELECT Id FROM Account LIMIT 10 OFFSET 20' },
+    });
+    selectOrg('forge-target-org', 'org-tgt');
+
+    expect(screen.getByTestId('forge-roots-issue').textContent).toBe(
+      i18n.t('forge.roots.issue.refused', { clause: 'OFFSET' }),
+    );
+    expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('forge-discover-hint').textContent).toBe(
+      i18n.t('forge.hintRootsQuery'),
+    );
   });
 
   it('refuses to discover when the name after FROM is not an API name', () => {
@@ -555,9 +554,8 @@ describe('ForgeInput', () => {
     });
     selectOrg('forge-target-org', 'org-tgt');
 
-    expect(screen.getByTestId('forge-soql-object-invalid').textContent).toContain('1Account');
-    expect(screen.queryByTestId('forge-soql-filter-refused')).toBeNull();
-    expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
+    expect(screen.getByTestId('forge-roots-issue').textContent).toContain('1Account');
+    expect(screen.queryByTestId('forge-roots-info')).toBeNull();
     expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByTestId('forge-discover-btn'));
     expect(mockSetConfig).not.toHaveBeenCalled();
@@ -682,27 +680,35 @@ describe('ForgeInput', () => {
       fireEvent.click(screen.getByText('Filtered accounts'));
     }
 
-    it('warns which object a valid WHERE clause narrows', () => {
+    it('says which object its query chooses the records of', () => {
       pickTemplate("SELECT Id FROM Account WHERE Industry = 'X'");
 
-      const warning = screen.getByTestId('forge-soql-where-warning').textContent ?? '';
-      expect(warning).toContain('Account');
-      expect(screen.queryByTestId('forge-soql-filter-refused')).toBeNull();
+      expect(screen.getByTestId('forge-roots-info').textContent).toContain('Account');
+      expect(screen.queryByTestId('forge-roots-issue')).toBeNull();
     });
 
-    it('refuses a clause the run would reject, and shows no warning beside it', () => {
+    it('says a template saved before 1.81.0 now clones the records its query chooses, to be simulated first', () => {
+      // Saved with no queryScope: it read each related table whole.
+      pickTemplate("SELECT Id FROM Account WHERE Industry = 'X'");
+
+      expect(screen.getByTestId('forge-roots-before-181').textContent).toBe(
+        i18n.t('forge.roots.before181'),
+      );
+    });
+
+    it('refuses a clause the run would reject, and says nothing else of the query', () => {
       pickTemplate("SELECT Id FROM Account WHERE Name LIKE '%--%'");
 
-      expect(screen.getByTestId('forge-soql-filter-refused')).toBeDefined();
-      expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
+      expect(screen.getByTestId('forge-roots-issue')).toBeDefined();
+      expect(screen.queryByTestId('forge-roots-info')).toBeNull();
     });
 
     it('names the FROM clause when a saved query declares an alias that leads nowhere', () => {
       pickTemplate("SELECT Id FROM Contact c, x.Account a WHERE a.Name = 'X'");
       selectOrg('forge-target-org', 'org-tgt');
 
-      expect(screen.getByTestId('forge-soql-filter-refused').textContent).toBe(
-        i18n.t('forge.soqlAliasRefused'),
+      expect(screen.getByTestId('forge-roots-issue').textContent).toBe(
+        i18n.t('forge.roots.issue.alias'),
       );
       expect(screen.getByTestId('forge-discover-hint').textContent).toBe(
         i18n.t('forge.hintSoqlAliasRefused'),
@@ -713,8 +719,8 @@ describe('ForgeInput', () => {
       pickTemplate('SELECT Id FROM 1Account WHERE Name = null');
       selectOrg('forge-target-org', 'org-tgt');
 
-      expect(screen.getByTestId('forge-soql-object-invalid').textContent).toContain('1Account');
-      expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
+      expect(screen.getByTestId('forge-roots-issue').textContent).toContain('1Account');
+      expect(screen.queryByTestId('forge-roots-info')).toBeNull();
       expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
       expect(screen.getByTestId('forge-discover-hint').textContent).toBe(
         i18n.t('forge.hintSoqlObjectNameInvalid'),
@@ -736,8 +742,8 @@ describe('ForgeInput', () => {
       fireEvent.mouseDown(screen.getByTestId('forge-tab-template'));
       fireEvent.click(screen.getByText('One account'));
 
-      expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
-      expect(screen.queryByTestId('forge-soql-filter-refused')).toBeNull();
+      expect(screen.queryByTestId('forge-roots-info')).toBeNull();
+      expect(screen.queryByTestId('forge-roots-issue')).toBeNull();
     });
   });
 

@@ -1,81 +1,166 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { soqlRootQueryIssue, type ForgeRootsPreview } from '@sandforge/shared';
 import i18n from '../../i18n';
 import { ForgeSoqlNotices } from './ForgeSoqlNotices';
+import type { RootsPreviewState } from './useRootsPreview';
+
+const sent = vi.hoisted(() => [] as Array<{ type: string; payload: unknown }>);
+vi.mock('../../bridge/sendBridgeMessage', () => ({
+  sendBridgeMessage: (type: string, payload: unknown) => {
+    sent.push({ type, payload });
+  },
+}));
+
+const ENERGY = "SELECT Id FROM Account WHERE Industry = 'Energy'";
+
+/** What the read of `query` answered, as the extension says it. */
+function read(preview: Partial<ForgeRootsPreview>, readAgain = vi.fn()): RootsPreviewState {
+  return {
+    status: 'read',
+    preview: {
+      sourceOrgId: 'src',
+      soqlQuery: ENERGY,
+      objectApiName: 'Account',
+      cap: 200,
+      chosen: 37,
+      more: false,
+      requests: 1,
+      ...preview,
+    },
+    readAgain,
+  };
+}
 
 describe('ForgeSoqlNotices', () => {
-  it('says which object a WHERE clause narrows, and that nothing else is', () => {
+  beforeEach(() => {
+    sent.length = 0;
+  });
+
+  it('says the query chooses the records to clone, with what they reach, and that other records of their object come as parents', () => {
+    render(<ForgeSoqlNotices query={ENERGY} issue={undefined} />);
+
+    expect(screen.getByTestId('forge-roots-info').textContent).toBe(
+      i18n.t('forge.roots.info', { object: 'Account' }),
+    );
+    expect(screen.queryByTestId('forge-roots-issue')).toBeNull();
+  });
+
+  it('says how many records the query chooses, read before Discover', () => {
+    render(<ForgeSoqlNotices query={ENERGY} issue={undefined} roots={read({ chosen: 37 })} />);
+
+    const said = screen.getByTestId('forge-roots-said');
+    expect(said.getAttribute('role')).toBe('status');
+    expect(said.textContent).toBe(
+      i18n.t('forge.roots.chosen', { count: 37, formatted: '37', object: 'Account', cap: '200' }),
+    );
+    expect(screen.queryByTestId('forge-roots-newest')).toBeNull();
+  });
+
+  it('offers the newest of them, the setting and a new read when the query chooses more than a run takes', () => {
+    const readAgain = vi.fn();
+    const onTakeNewest = vi.fn();
     render(
       <ForgeSoqlNotices
-        query="SELECT Id FROM Account WHERE Industry = 'Energy'"
-        objectNameRefused={false}
+        query={ENERGY}
+        issue={undefined}
+        roots={read({ chosen: 200, more: true }, readAgain)}
+        onTakeNewest={onTakeNewest}
       />,
     );
 
-    const warning = screen.getByTestId('forge-soql-where-warning');
-    expect(warning.getAttribute('role')).toBe('status');
-    expect(warning.textContent).toContain(
-      i18n.t('forge.soqlUnscopedWarnTitle', { object: 'Account' }),
+    expect(screen.getByTestId('forge-roots-said').textContent).toBe(
+      i18n.t('forge.roots.more', { object: 'Account', cap: '200' }),
     );
-    expect(screen.queryByTestId('forge-soql-filter-refused')).toBeNull();
+    fireEvent.click(screen.getByTestId('forge-roots-newest'));
+    expect(onTakeNewest).toHaveBeenCalledWith(200);
+    fireEvent.click(screen.getByTestId('forge-roots-setting'));
+    expect(sent).toEqual([
+      { type: 'workbench:open-setting', payload: { setting: 'sandforge.forge.maxRoots' } },
+    ]);
+    fireEvent.click(screen.getByTestId('forge-roots-read-again'));
+    expect(readAgain).toHaveBeenCalledTimes(1);
   });
 
-  it('names the filter of Review → Controls that narrows a related object, as a semi-join on the query’s object', () => {
-    // It said only that related objects were read from their whole tables:
-    // a clone of a few accounts read every contact, and nothing said what
-    // narrows them.
+  it('offers no newest of a query whose own LIMIT is past the most, and says to lower it', () => {
+    const query = `${ENERGY} LIMIT 500`;
     render(
       <ForgeSoqlNotices
-        query="SELECT Id FROM Account WHERE Industry = 'Energy'"
-        objectNameRefused={false}
+        query={query}
+        issue={undefined}
+        roots={read({ soqlQuery: query, chosen: 200, more: true, limit: 500 })}
+        onTakeNewest={vi.fn()}
       />,
     );
 
-    const warning = screen.getByTestId('forge-soql-where-warning').textContent ?? '';
-    expect(warning).toContain('Review → Controls');
-    expect(warning).toContain('AccountId IN (SELECT Id FROM Account WHERE …)');
+    expect(screen.queryByTestId('forge-roots-newest')).toBeNull();
+    expect(screen.getByTestId('forge-roots-said').textContent).toBe(
+      i18n.t('forge.roots.moreThanLimit', { object: 'Account', cap: '200', limit: '500' }),
+    );
   });
 
-  it('gives a custom object’s example lookup the object’s own name', () => {
+  it('says a query that chooses none, that its run would be refused', () => {
+    render(<ForgeSoqlNotices query={ENERGY} issue={undefined} roots={read({ chosen: 0 })} />);
+
+    expect(screen.getByTestId('forge-roots-said').textContent).toBe(
+      i18n.t('forge.roots.none', { object: 'Account' }),
+    );
+  });
+
+  it('says a read that failed, with the extension’s words, and offers to read again', () => {
     render(
       <ForgeSoqlNotices
-        query="SELECT Id FROM Invoice__c WHERE Status__c = 'Open'"
-        objectNameRefused={false}
+        query={ENERGY}
+        issue={undefined}
+        roots={{ status: 'failed', error: "No such column 'Nope__c'", readAgain: vi.fn() }}
       />,
     );
 
-    expect(screen.getByTestId('forge-soql-where-warning').textContent).toContain(
-      'Invoice__c IN (SELECT Id FROM Invoice__c WHERE …)',
+    expect(screen.getByTestId('forge-roots-said').textContent).toBe(
+      i18n.t('forge.roots.failed', { message: "No such column 'Nope__c'" }),
     );
+    expect(screen.getByTestId('forge-roots-read-again')).toBeTruthy();
   });
 
-  it('refuses a clause the extension would reject, and gives no warning beside it', () => {
-    render(
+  it('refuses a query whose clause changes the rows it returns, and says nothing else of it', () => {
+    const query = 'SELECT Industry FROM Account GROUP BY Industry';
+    render(<ForgeSoqlNotices query={query} issue={soqlRootQueryIssue(query)} />);
+
+    const issue = screen.getByTestId('forge-roots-issue');
+    expect(issue.getAttribute('role')).toBe('alert');
+    expect(issue.textContent).toBe(i18n.t('forge.roots.issue.refused', { clause: 'GROUP BY' }));
+    expect(screen.queryByTestId('forge-roots-info')).toBeNull();
+    expect(screen.queryByTestId('forge-roots-line')).toBeNull();
+  });
+
+  it('names the object when its name is refused, and the comment marker of a WHERE', () => {
+    const { rerender } = render(
       <ForgeSoqlNotices
-        query="SELECT Id FROM Account WHERE Name = 'a' -- and the rest"
-        objectNameRefused={false}
+        query="SELECT Id FROM 1Account WHERE Name = 'a'"
+        issue={soqlRootQueryIssue("SELECT Id FROM 1Account WHERE Name = 'a'")}
       />,
     );
-
-    expect(screen.getByTestId('forge-soql-filter-refused').textContent).toBe(
-      i18n.t('forge.soqlFilterRefused'),
+    expect(screen.getByTestId('forge-roots-issue').textContent).toBe(
+      i18n.t('forge.roots.issue.object', { object: '1Account' }),
     );
-    expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
+
+    const marked = "SELECT Id FROM Account WHERE Name = 'a' -- and the rest";
+    rerender(<ForgeSoqlNotices query={marked} issue={soqlRootQueryIssue(marked)} />);
+    expect(screen.getByTestId('forge-roots-issue').textContent).toBe(
+      i18n.t('forge.roots.issue.where'),
+    );
   });
 
-  it('names the object when its name is refused', () => {
-    render(<ForgeSoqlNotices query="SELECT Id FROM 1Account WHERE Name = 'a'" objectNameRefused />);
+  it('says a query saved before 1.81.0 now clones the records it chooses, to be simulated first', () => {
+    render(<ForgeSoqlNotices query={ENERGY} issue={undefined} before181 />);
 
-    expect(screen.getByTestId('forge-soql-object-invalid').textContent).toBe(
-      i18n.t('forge.soqlObjectNameInvalid', { object: '1Account' }),
+    expect(screen.getByTestId('forge-roots-before-181').textContent).toBe(
+      i18n.t('forge.roots.before181'),
     );
-    expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
   });
 
-  it('says nothing about a query with no WHERE clause', () => {
-    const { container } = render(
-      <ForgeSoqlNotices query="SELECT Id FROM Account" objectNameRefused={false} />,
-    );
+  it('says nothing of an empty query', () => {
+    const { container } = render(<ForgeSoqlNotices query="  " issue={{ kind: 'noObject' }} />);
 
     expect(container.textContent).toBe('');
   });

@@ -263,6 +263,41 @@ describe('ForgeHistoryPanel', () => {
     );
   });
 
+  it('says how many records a clone from a query chose, of which object, and how many of them are in the target', () => {
+    const fromQuery: ForgeExecutionResult = {
+      ...RECORD_RUN,
+      forgeId: 'forge-roots',
+      config: {
+        inputMode: 'soql',
+        soqlQuery: "SELECT Id FROM Account WHERE Industry = 'Energy'",
+        queryScope: 'records',
+        maxRoots: 200,
+        depth: 'full',
+        anonymizePII: false,
+        skipEmpty: false,
+        batchSize: 'auto',
+      },
+      roots: {
+        objectApiName: 'Account',
+        from: 'query',
+        cap: 200,
+        asked: 37,
+        read: 37,
+        gone: [],
+        written: 35,
+        linked: 1,
+        failed: [{ id: '001000000000038AAA', reason: 'REQUIRED_FIELD_MISSING' }],
+        sha256: 'a'.repeat(64),
+        readAt: '2026-11-14T14:02:00.000Z',
+      },
+    };
+    render(<ForgeHistoryPanel entries={[fromQuery]} error={null} onReuseConfig={vi.fn()} />);
+
+    expect(screen.getByTestId('forge-history-roots-forge-roots').textContent).toBe(
+      '37 Account records its query chose, 36 of them in the target',
+    );
+  });
+
   it('confirms the refill instead of leaving the button silent', () => {
     render(<ForgeHistoryPanel entries={[RECORD_RUN]} error={null} onReuseConfig={vi.fn()} />);
 

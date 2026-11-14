@@ -98,6 +98,7 @@ import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { runCheckpointEstimateOf, takenOrDeleted } from '../../utils/runCheckpoint';
 import { ForgeWholeOrgDryRunResult } from './ForgeWholeOrgDryRun';
 import { ForgeSampleResult } from './ForgeSampleResult';
+import { ForgeRootsResult } from './ForgeRootsResult';
 
 /**
  * Whether a failure's samples name a required field left empty: the refusal
@@ -1055,6 +1056,18 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           kept: its success says every record of the plan was written. */}
       {result?.sample && !simulated && (
         <ForgeSampleResult sample={result.sample} source={sourceOrgName ?? sourceOrgId ?? ''} />
+      )}
+      {/* What a clone from the records a query chose did of them: where they
+          came from, how many were written, refused or gone, what reading what
+          they reach sent the source, and how each object's records came in. */}
+      {result?.roots && (
+        <ForgeRootsResult
+          roots={result.roots}
+          {...(result.reads ? { reads: result.reads } : {})}
+          {...(result.readByObject ? { readByObject: result.readByObject } : {})}
+          simulated={simulated}
+          source={sourceOrgName ?? sourceOrgId ?? ''}
+        />
       )}
       {/* What the run muted of the target's automation, when Review's box
           asked it to: the sets assigned for it, what they silenced and what

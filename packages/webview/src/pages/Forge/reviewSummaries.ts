@@ -4,7 +4,7 @@
  * screen already holds: nothing here asks the org for anything.
  */
 import type { TFunction } from 'i18next';
-import { leftOutAsEmptyTable, soqlRootFilter } from '@sandforge/shared';
+import { FORGE_ROOTS_DEFAULT, leftOutAsEmptyTable, soqlRootFilter } from '@sandforge/shared';
 import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
 import { uiLocale } from '../../utils/formatters';
 
@@ -107,9 +107,12 @@ export interface RunSentenceInput {
   buckets: ForgeRunBuckets;
   config: Pick<
     ForgeConfig,
-    'maxRecordsPerObject' | 'objectSoqlFilters' | 'soqlQuery' | 'sample'
+    'maxRecordsPerObject' | 'objectSoqlFilters' | 'soqlQuery' | 'sample' | 'queryScope' | 'maxRoots'
   > | null;
-  /** The run clones one record's graph (`clonesOneRecord`). */
+  /**
+   * The run clones records and what they reach (`clonesFromRecords`): one
+   * record's graph, or the records a query chooses.
+   */
   oneRecord: boolean;
   /** The two orgs, as the user knows them. */
   source: string;
@@ -146,6 +149,21 @@ export function runSentence(
   }
   if (buckets.cloneRecordsUnknown) {
     return t('forgeRun.review.sentence.notCounted', { ...orgs, count: objects });
+  }
+  // The records a query chooses: their object and the most the run takes,
+  // the roots' own count being read before Discover and by the run.
+  const queryObject =
+    config?.queryScope === 'records' && config.soqlQuery
+      ? soqlRootFilter(config.soqlQuery)?.objectApiName
+      : undefined;
+  if (oneRecord && queryObject !== undefined) {
+    const cap = config?.maxRoots ?? FORGE_ROOTS_DEFAULT;
+    return t('forgeRun.review.sentence.queryRecords', {
+      ...orgs,
+      count: objects,
+      object: queryObject,
+      cap: cap.toLocaleString(uiLocale()),
+    });
   }
   if (oneRecord) return t('forgeRun.review.sentence.oneRecord', { ...orgs, count: objects });
   const { records, atMost } = recordsAtMost(graph, buckets, config);

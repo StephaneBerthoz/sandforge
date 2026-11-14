@@ -509,7 +509,9 @@ describe('useForgeForm run history', () => {
     expect(config.maxRecordsPerObject).toBeUndefined();
   });
 
-  it('keeps a cap of 100 on each object on Smart for a run from a SOQL query', () => {
+  it('puts no cap on Smart for a run from a SOQL query, which clones each record it chooses as one record', () => {
+    // It held each object to 100 on Smart, every related object being read
+    // from its whole table.
     const { result } = renderHook(() => useForgeForm());
 
     act(() => {
@@ -517,7 +519,7 @@ describe('useForgeForm run history', () => {
       result.current.setSoqlQuery("SELECT Id FROM Account WHERE Industry = 'X'");
     });
 
-    expect(result.current.recordLimitValue).toBe(100);
+    expect(result.current.recordLimitValue).toBeUndefined();
   });
 
   it('maps a stored record cap back onto a dropdown option', () => {
@@ -548,17 +550,19 @@ describe('useForgeForm run history', () => {
     expect(result.current.maxNodes).toBeUndefined();
   });
 
-  it('re-caps a SOQL replay at the unscoped cap it ran under', () => {
+  it('replays a SOQL run of before 1.81.0 as the records its query chooses, and says so while its query is the one put back', () => {
     const { result } = renderHook(() => useForgeForm());
 
     act(() => {
       result.current.applyHistoryConfig(SOQL_RUN.config!);
     });
 
+    // Its cap of 200 comes back as the next option up, no longer held to 200.
     expect(result.current.recordLimit).toBe('500');
-    // SOQL mode reads related objects from their whole tables, so
-    // recordLimitValue clamps back to the 200 the stored run actually used.
-    expect(result.current.recordLimitValue).toBe(200);
+    expect(result.current.recordLimitValue).toBe(500);
+    expect(result.current.queryBefore181).toBe(true);
+    act(() => result.current.setSoqlQuery('SELECT Id FROM Contact'));
+    expect(result.current.queryBefore181).toBe(false);
   });
 });
 
@@ -596,7 +600,7 @@ describe('useForgeForm WHERE clause the extension refuses', () => {
       result.current.setSelectedTemplate('tpl-soql');
     });
 
-    expect(result.current.whereClauseRefused).toBe(true);
+    expect(result.current.rootQueryIssue).toEqual({ kind: 'where' });
     expect(result.current.canDiscover).toBe(false);
     act(() => result.current.handleDiscover());
     expect(useForgeStore.getState().config).toBeNull();
@@ -618,7 +622,7 @@ describe('useForgeForm WHERE clause the extension refuses', () => {
       result.current.setSelectedTemplate('tpl-soql');
     });
 
-    expect(result.current.whereClauseRefused).toBe(false);
+    expect(result.current.rootQueryIssue).toBeUndefined();
     expect(result.current.canDiscover).toBe(true);
   });
 });
@@ -644,7 +648,7 @@ describe('useForgeForm reusing the last graph', () => {
     useOrgStore.setState({ selectedOrgId: null });
   });
 
-  it("sends a SOQL query's WHERE clause as the root object's filter", () => {
+  it('sends a SOQL query as the records it chooses, with no filter taken from its WHERE', () => {
     const { result } = renderHook(() => useForgeForm());
 
     act(() => {
@@ -656,15 +660,14 @@ describe('useForgeForm reusing the last graph', () => {
     expect(result.current.canReuseLastGraph).toBe(true);
     act(() => result.current.handleReuseLastGraph());
 
-    expect(useForgeStore.getState().config?.objectSoqlFilters).toEqual({
-      Account: "Industry = 'X'",
-    });
+    expect(useForgeStore.getState().config?.objectSoqlFilters).toBeUndefined();
     const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:plan:request');
     expect(config).toMatchObject({
       inputMode: 'soql',
       soqlQuery: filteredQuery,
-      objectSoqlFilters: { Account: "Industry = 'X'" },
+      queryScope: 'records',
     });
+    expect(config.objectSoqlFilters).toBeUndefined();
   });
 
   it('reuses it for an AI draft only once the draft passed its check', () => {
@@ -697,11 +700,11 @@ describe('useForgeForm reusing the last graph', () => {
     expect(config).toMatchObject({
       inputMode: 'soql',
       soqlQuery: filteredQuery,
-      objectSoqlFilters: { Account: "Industry = 'X'" },
+      queryScope: 'records',
     });
   });
 
-  it("sends a saved template's query and its filter, capped like a SOQL run", () => {
+  it("sends a saved template's query as the records it chooses, a template of before 1.81.0 included, and says so", () => {
     useForgeStore.setState({ templates: [soqlTemplate(filteredQuery)] });
     const { result } = renderHook(() => useForgeForm());
 
@@ -712,17 +715,19 @@ describe('useForgeForm reusing the last graph', () => {
       result.current.setSelectedTemplate('tpl-soql');
       result.current.setRecordLimit('all');
     });
-    // Related objects are read from their whole tables, as in SOQL mode.
-    expect(result.current.recordLimitValue).toBe(200);
+    // Each record it chooses is cloned as one record is: no cap on All.
+    expect(result.current.recordLimitValue).toBeUndefined();
+    expect(result.current.queryBefore181).toBe(true);
     act(() => result.current.handleReuseLastGraph());
 
     const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:plan:request');
     expect(config).toMatchObject({
       inputMode: 'soql',
       soqlQuery: filteredQuery,
-      objectSoqlFilters: { Account: "Industry = 'X'" },
-      maxRecordsPerObject: 200,
+      queryScope: 'records',
     });
+    expect(config.objectSoqlFilters).toBeUndefined();
+    expect(config.maxRecordsPerObject).toBeUndefined();
     expect(config.templateId).toBeUndefined();
   });
 

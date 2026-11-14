@@ -403,7 +403,60 @@ export interface ForgeSampleBudgetRequest extends BaseMessage {
   payload: { graph: ForgeGraph; config: ForgeConfig; muteAutomation?: boolean };
 }
 
+/**
+ * `forge:previewRoots`. WebView -> Extension. Before Discover, the records
+ * the query of the SOQL tab chooses as the roots of a clone from records
+ * (`ForgeConfig.queryScope: 'records'`), read as the run reads them: by its
+ * own statement, `SELECT Id FROM <object> WHERE (…) ORDER BY <order | Id>
+ * LIMIT <n>`, `n` the query's LIMIT when the run takes that many and one past
+ * the most it takes otherwise. One request of the source, two past 2 000
+ * rows. Nothing is written.
+ *
+ * `maxRoots` as the page holds it; absent, `sandforge.forge.maxRoots`.
+ */
+export interface ForgePreviewRootsRequest extends BaseMessage {
+  type: 'forge:previewRoots';
+  payload: { sourceOrgId: string; soqlQuery: string; maxRoots?: number };
+}
+
+/**
+ * What the query of the SOQL tab chooses, as `forge:previewRoots` read it:
+ * the source and the query it was asked of — a page whose query changed
+ * meanwhile drops it —, the object after FROM, the most the run takes
+ * (`cap`), the records it chooses up to that most (`chosen`), whether it
+ * chooses more and nothing holds it to the most (`more`: the run would be
+ * refused, `ROOTS_EXCEEDED`), its own LIMIT and ORDER BY, and the requests
+ * the read sent.
+ */
+export interface ForgeRootsPreview {
+  sourceOrgId: string;
+  soqlQuery: string;
+  objectApiName: string;
+  cap: number;
+  chosen: number;
+  more: boolean;
+  limit?: number;
+  orderBy?: string;
+  requests: number;
+}
+
 // ─── Forge responses & events (Extension -> WebView) ────────────────────────
+
+/** `forge:previewRoots:response`. Extension -> WebView. See {@link ForgeRootsPreview}. */
+export interface ForgePreviewRootsResponse extends BaseMessage {
+  type: 'forge:previewRoots:response';
+  payload: ForgeRootsPreview;
+}
+
+/**
+ * `forge:previewRoots:error`. Extension -> WebView. A query that cannot
+ * choose the records a clone takes (`ROOTS_QUERY_REFUSED`, nothing read), or
+ * a read the source refused, with its words.
+ */
+export interface ForgePreviewRootsErrorMessage extends BaseMessage {
+  type: 'forge:previewRoots:error';
+  payload: { message: string; code: string; retryable: boolean; soqlQuery?: string };
+}
 
 /** `forge:preview:response`. Extension -> WebView. Record preview for the wizard. */
 export interface ForgePreviewResponse extends BaseMessage {

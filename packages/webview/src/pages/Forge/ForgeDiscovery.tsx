@@ -21,7 +21,7 @@ import { ForgeNodeDetail } from './ForgeNodeDetail';
 import { ForgeTableView } from './ForgeTableView';
 import { ForgeViewToggle } from './ForgeViewToggle';
 import { sendDiscovery } from './directRun';
-import { clonesOneRecord, clonesWholeOrg } from './forgeRunConfig';
+import { clonesFromRecords, clonesWholeOrg } from './forgeRunConfig';
 import { leftOutByReason, leftOutReasonLabel } from './forgeLeftOut';
 
 import { Button } from '../../components/ui/Button';
@@ -81,7 +81,7 @@ export const ForgeDiscovery: React.FC = () => {
 
   const config = useForgeStore((s) => s.config);
   /** The counts are the source tables', the clone reading only what its record reaches. */
-  const oneRecord = clonesOneRecord(config);
+  const oneRecord = clonesFromRecords(config);
   const setNodesIncluded = useForgeStore((s) => s.setNodesIncluded);
   /**
    * Whether the discovery the flow waits on, the screen's or a Clone
@@ -554,7 +554,11 @@ export const ForgeDiscovery: React.FC = () => {
             clone of one case's graph. */}
           {oneRecord ? (
             <p className="text-xs text-text-secondary" data-testid="stat-source-tables">
-              {t('forgeRun.preview.readsWhatTheRecordReaches')}
+              {t(
+                config?.inputMode === 'soql'
+                  ? 'forgeRun.preview.readsWhatTheRecordsReach'
+                  : 'forgeRun.preview.readsWhatTheRecordReaches',
+              )}
             </p>
           ) : (
             <>

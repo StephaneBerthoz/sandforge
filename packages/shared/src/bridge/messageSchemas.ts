@@ -462,6 +462,8 @@ const AutomationMessages = [
   msg('forge:target-records:request'),
   // What a sample of the whole org may take of the target, before it is simulated.
   msg('forge:sample-budget:request'),
+  // What the query of the SOQL tab chooses as the roots of a clone from records, before Discover.
+  msg('forge:previewRoots'),
   // Forge responses / progress events / error channels (Extension -> WebView).
   msg('forge:preview:response'),
   msg('forge:preview:error'),
@@ -510,6 +512,8 @@ const AutomationMessages = [
   msg('forge:target-records:error'),
   msg('forge:sample-budget:response'),
   msg('forge:sample-budget:error'),
+  msg('forge:previewRoots:response'),
+  msg('forge:previewRoots:error'),
   // Where the drawing of a sample's plan stands, before the run's gate.
   msg('forge:sampling:progress'),
 ] as const;

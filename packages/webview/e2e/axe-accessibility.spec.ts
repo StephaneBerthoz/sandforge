@@ -15716,16 +15716,32 @@ for (const theme of SCANNED_THEMES) {
       );
     });
 
-    test('Forge Records per object on a run from a query, what it cannot take greyed and why', async ({
+    test('Forge SOQL tab, its query choosing more records than a run takes, with the newest offered', async ({
       page,
     }) => {
+      const query = "SELECT Id FROM Account WHERE Industry = 'Energy'";
       await openModule(bridge, page, 'forge');
       await page.getByTestId('forge-page').waitFor({ timeout: 10_000 });
-      await page.getByTestId('forge-record-limit').selectOption('1000');
       await page.getByTestId('forge-tab-soql').click();
-      await page.getByTestId('forge-record-limit-soql').waitFor();
+      await page.getByTestId('forge-input-soql').fill(query);
+      await bridge.waitForMessage('forge:previewRoots', { timeout: 10_000 });
+      await answerAll(page, 'forge:previewRoots', 'forge:previewRoots:response', {
+        sourceOrgId: 'org-src-1',
+        soqlQuery: query,
+        objectApiName: 'Account',
+        cap: 200,
+        chosen: 200,
+        more: true,
+        requests: 1,
+      });
+      await page.getByTestId('forge-roots-newest').waitFor();
 
-      await expectMeasuredReadable(page, theme, byTestId('forge-record-limit-soql'));
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('forge-roots-info'),
+        byTestId('forge-roots-line'),
+      );
     });
 
     test('Forge discovery of an object not counted in time, offered to be included anyway', async ({

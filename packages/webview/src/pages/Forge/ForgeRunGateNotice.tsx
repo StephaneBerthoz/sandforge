@@ -6,6 +6,7 @@ import { ShieldAlert, X } from 'lucide-react';
 import {
   FORGE_READ_CEILING_PER_OBJECT,
   FORGE_ROOTS_DEFAULT,
+  FORGE_ROOTS_MAX,
   type ForgeRunGateCode,
   type ForgeRunGateStop,
   type WholeOrgSampleLimit,
@@ -19,6 +20,7 @@ import { useForgeRunGateStore } from './runGate';
 import { clonesWholeOrg } from './forgeRunConfig';
 import { startForgeRun } from './startForgeRun';
 import { mbOf } from './sampleWords';
+import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 
 /**
  * The sentence each stop is said in, unless the run's checkpoint first has
@@ -382,6 +384,23 @@ export const ForgeRunGateNotice: React.FC<{
             }}
           >
             {t('forgeRun.review.sample.offerAction')}
+          </Button>
+        )}
+        {/* A query choosing more records than a run takes: the setting
+            that takes more, up to the most of all, opened where it is set. */}
+        {stop.code === 'ROOTS_EXCEEDED' && (stop.roots?.cap ?? 0) < FORGE_ROOTS_MAX && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="self-start"
+            data-testid="forge-run-gate-roots-setting"
+            onClick={() =>
+              sendBridgeMessage<{ setting: string }>('workbench:open-setting', {
+                setting: 'sandforge.forge.maxRoots',
+              })
+            }
+          >
+            {t('forge.roots.setting', { most: FORGE_ROOTS_MAX.toLocaleString(uiLocale()) })}
           </Button>
         )}
         {simulateAgain && (

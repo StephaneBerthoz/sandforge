@@ -3,7 +3,7 @@
  * ForgeInput.tsx so they can be unit-tested in isolation.
  */
 
-import { forgeConfigSchema, soqlRootFilter } from '@sandforge/shared';
+import { soqlRootQuery } from '@sandforge/shared';
 
 /** Preview data returned by the extension for a Salesforce record. */
 export interface RecordPreview {
@@ -68,13 +68,6 @@ export function starterTemplateKeys(id: string): StarterTemplateKeys | null {
   return STARTER_TEMPLATE_KEYS[id] ?? null;
 }
 
-/**
- * The cap on each object Smart gives a run from a SOQL query, whose objects
- * past the one after FROM are read from their whole tables. A clone of one
- * record's graph gets none on Smart: it reads only what the record reaches.
- */
-export const SMART_SOQL_CAP = 100;
-
 /** Extract the hostname/pod from a Salesforce URL or instanceUrl. */
 export function extractSalesforceDomain(url: string): string | null {
   try {
@@ -86,16 +79,6 @@ export function extractSalesforceDomain(url: string): string | null {
   }
 }
 
-/**
- * Per-object record cap forced in SOQL mode.
- *
- * The query's WHERE clause filters the object after FROM only. Related objects
- * the graph discovered are not narrowed to the records it matches — each is
- * read from its whole table — so the run is bounded rather than left to pull an
- * entire org.
- */
-export const SOQL_UNSCOPED_RECORD_CAP = 200;
-
 /** The object cap discovery takes when the page names none, as the extension's discovery does. */
 export const DEFAULT_OBJECT_CAP = 50;
 
@@ -106,52 +89,18 @@ export const DEFAULT_OBJECT_CAP = 50;
 export const MOST_OBJECTS_OFFERED = 500;
 
 /**
- * The `objectSoqlFilters` a SOQL-mode run sends: the query's WHERE clause under
- * the name of the object after FROM, or undefined when there is nothing to filter.
+ * The query that takes the newest of the records `soql` chooses, `cap` of
+ * them: `ORDER BY CreatedDate DESC LIMIT <cap>` after it — the order of the
+ * ids is not the order the records were made in —, or `LIMIT <cap>` alone
+ * after an ORDER BY of its own, the first of them in that order. Nothing for
+ * a query that has a LIMIT already, which the user changes themselves, or
+ * that names no object.
  */
-export function soqlObjectFilters(soql: string): Record<string, string> | undefined {
-  const root = soqlRootFilter(soql);
-  return root?.where ? { [root.objectApiName]: root.where } : undefined;
-}
-
-/**
- * The rule every object filter value is checked against. The object name has
- * its own rule, and a name it refuses says nothing about the clause.
- */
-const objectSoqlFilterRule = forgeConfigSchema.shape.objectSoqlFilters.unwrap().valueType;
-
-/**
- * Whether the query's WHERE clause breaks the rules the extension checks every
- * object filter against: at most 512 characters, no SOQL comment marker even
- * inside a quoted value, no trailing semicolon. Such a run would be refused as
- * a whole, so the form holds it back and says why.
- *
- * A WHERE clause under a FROM clause that declares an alias over a relationship
- * nobody can trace is held back too: its paths would reach the org under a name
- * the object has no field for, and the run would fail on the first object it
- * reads. Without a WHERE clause there is nothing to send under those aliases,
- * and the query is accepted.
- */
-export function soqlFilterRefused(soql: string): boolean {
-  const root = soqlRootFilter(soql);
-  if (root?.unresolvedAlias) return true;
-  const where = root?.where;
-  return !!where && !objectSoqlFilterRule.safeParse(where).success;
-}
-
-/** The rule every object filter KEY is checked against: an SObject API name. */
-const objectSoqlFilterKeyRule = forgeConfigSchema.shape.objectSoqlFilters.unwrap().keyType;
-
-/**
- * Whether the name after FROM breaks the rule the extension checks every
- * object filter key against: a letter followed by at most 79 letters, digits
- * or underscores. The clause travels under that name, so a name the schema
- * refuses sinks the whole run — and only once it reached the host, with the
- * form showing nothing.
- *
- * A query with no WHERE clause sends no filter at all, so nothing is refused.
- */
-export function soqlObjectNameRefused(soql: string): boolean {
-  const root = soqlRootFilter(soql);
-  return !!root?.where && !objectSoqlFilterKeyRule.safeParse(root.objectApiName).success;
+export function newestQueryOf(soql: string, cap: number): string | undefined {
+  const query = soqlRootQuery(soql);
+  if (!query || query.limit !== null) return undefined;
+  const typed = soql.trimEnd();
+  return query.orderBy !== null
+    ? `${typed} LIMIT ${cap}`
+    : `${typed} ORDER BY CreatedDate DESC LIMIT ${cap}`;
 }

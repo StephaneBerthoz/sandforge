@@ -635,37 +635,24 @@ test.describe('the Automation marketplace', () => {
 });
 
 test.describe('Forge’s Records per object for a run from a query', () => {
-  test('greys what a run from a query cannot take and says why, and says a choice made for a record is held to its cap', async ({
+  test('offers every choice to a run from a query, which clones each record it chooses as one record, and says what Smart reads', async ({
     page,
   }) => {
+    // 500, 1000 and All were greyed, and every object held to 200, its
+    // related objects read from their whole tables.
     const bridge = new MockBridge();
     await openModule(bridge, page, 'forge');
     await page.getByTestId('forge-page').waitFor({ timeout: 10_000 });
     const records = page.getByTestId('forge-record-limit');
     const past = ['500', '1000', 'all'].map((value) => records.locator(`option[value="${value}"]`));
 
+    await page.getByTestId('forge-tab-soql').click();
     for (const option of past) await expect(option).toBeEnabled();
     await expect(page.getByTestId('forge-record-limit-soql')).toHaveCount(0);
-    await records.selectOption('1000');
-
-    await page.getByTestId('forge-tab-soql').click();
-    for (const option of past) await expect(option).toBeDisabled();
-    const said = page.getByTestId('forge-record-limit-soql');
-    await expect(said).toHaveText(
-      '1000 / object is for a run from a record: a run from a query takes 200 records of each object at most, its related objects being read from their whole tables. For more, clone from a record, or from the command line: sandforge clone --object and --where clone the tables named, with --max as the cap.',
+    await expect(records).toHaveAttribute('aria-describedby', 'forge-record-limit-hint');
+    await expect(page.getByTestId('forge-record-limit-smart-hint')).toHaveText(
+      'Smart: reads only what the records the query chooses reach, at most 50,000 rows per object and 50,000 in all, and asks before a large write.',
     );
-    await expect(records).toHaveAttribute(
-      'aria-describedby',
-      'forge-record-limit-hint forge-record-limit-soql',
-    );
-
-    await records.selectOption('100');
-    await expect(said).toHaveText(
-      'A run from a query takes 200 records of each object at most: its related objects are read from their whole tables. For more, clone from a record, or from the command line: sandforge clone --object and --where clone the tables named, with --max as the cap.',
-    );
-    await page.getByTestId('forge-tab-record').click();
-    for (const option of past) await expect(option).toBeEnabled();
-    await expect(said).toHaveCount(0);
   });
 });
 

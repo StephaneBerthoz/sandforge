@@ -3,7 +3,7 @@ import type { ForgeConfig, ForgeGraph, ForgeGraphNode } from '@sandforge/shared'
 import {
   carriedChoices,
   carriedNarrowing,
-  clonesOneRecord,
+  clonesFromRecords,
   clonesWholeOrg,
   configSubject,
   inputModeKeyOf,
@@ -14,12 +14,19 @@ import {
 } from './forgeRunConfig';
 import type { RunToSave } from './forgeRunConfig';
 
-describe('clonesOneRecord', () => {
-  it('holds of a run from a record id, and of no run from a query or with no record', () => {
-    expect(clonesOneRecord({ inputMode: 'record', recordId: '001000000000001AAA' })).toBe(true);
-    expect(clonesOneRecord({ inputMode: 'record' })).toBe(false);
-    expect(clonesOneRecord({ inputMode: 'soql', recordId: '001000000000001AAA' })).toBe(false);
-    expect(clonesOneRecord(null)).toBe(false);
+describe('clonesFromRecords', () => {
+  it('holds of a run from a record id, and of no run with no record', () => {
+    expect(clonesFromRecords({ inputMode: 'record', recordId: '001000000000001AAA' })).toBe(true);
+    expect(clonesFromRecords({ inputMode: 'record' })).toBe(false);
+    expect(clonesFromRecords({ inputMode: 'soql', recordId: '001000000000001AAA' })).toBe(false);
+    expect(clonesFromRecords(null)).toBe(false);
+  });
+
+  it('holds of a query that clones the records it chooses, and not of one read as tables', () => {
+    const soqlQuery = "SELECT Id FROM Account WHERE Industry = 'Energy'";
+    expect(clonesFromRecords({ inputMode: 'soql', soqlQuery, queryScope: 'records' })).toBe(true);
+    expect(clonesFromRecords({ inputMode: 'soql', soqlQuery, queryScope: 'tables' })).toBe(false);
+    expect(clonesFromRecords({ inputMode: 'soql', soqlQuery })).toBe(false);
   });
 });
 
@@ -320,6 +327,22 @@ describe('carriedChoices', () => {
         objectSoqlFilters: { Account: "Industry = 'Energy'", Contact: 'Email != null' },
       }).objectSoqlFilters,
     ).toEqual({ Contact: 'Email != null' });
+  });
+
+  it('carries the filter Review → Controls set on the object of a query that chooses records, which its query no longer gives', () => {
+    // Dropped, a replay of the clone would read every root the query chooses
+    // again, past the filter the user set on them.
+    const recordsRun = {
+      ...RECORD_RUN,
+      inputMode: 'soql' as const,
+      recordId: undefined,
+      soqlQuery: "SELECT Id FROM Account WHERE Industry = 'Energy'",
+      queryScope: 'records' as const,
+    };
+    expect(
+      carriedChoices({ ...recordsRun, objectSoqlFilters: { Account: "Type = 'Customer'" } })
+        .objectSoqlFilters,
+    ).toEqual({ Account: "Type = 'Customer'" });
   });
 });
 

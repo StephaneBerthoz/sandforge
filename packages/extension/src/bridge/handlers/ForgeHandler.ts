@@ -37,6 +37,8 @@ import type {
 import {
   auditMutedOf,
   FORGE_MAX_RECORDS_PER_OBJECT_BOUND,
+  FORGE_ROOTS_DEFAULT,
+  FORGE_ROOTS_MAX,
   emailsPerInsertOf,
   fileCopyRefusal,
   forgeAnonymizationRulesSchema,
@@ -109,7 +111,7 @@ import {
   importedTemplatesFor,
   isTemplateEntry,
 } from '../../core/config/importedForgeTemplates.js';
-import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
+import type { ForgeOrchestrator, ForgeRunOptions } from '../../modules/forge/ForgeOrchestrator.js';
 import type { PendingStart } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
@@ -311,6 +313,26 @@ import {
   sampleBudgetPreviewOf,
   sampleBudgetTermsOf,
 } from '../../modules/forge/sample/sampleBudget.js';
+import {
+  forgeRunStopWords,
+  forgeRunWriting,
+  forgeRunWritingWords,
+  lockForgeRun,
+  type ForgeRunLockHolder,
+} from '../../modules/forge/ForgeRunLock.js';
+import {
+  rootsCapOf,
+  rootsQueryOf,
+  rootsQueryRefusedStop,
+  rootsStatement,
+} from '../../modules/forge/stages/QueryRoots.js';
+import {
+  RootPlanError,
+  dryRunRootPlanPathOf,
+  openRootPlan,
+  sweepRootPlans,
+  type RootPlan,
+} from '../../modules/forge/roots/rootPlanStore.js';
 import { ownerMapRefusalOf } from '../../modules/forge/ownerMapRefusal.js';
 import {
   beforeRunFailedWords,
@@ -587,6 +609,13 @@ const RUN_NOT_IN_HISTORY = 'RUN_NOT_IN_HISTORY';
 
 /** Why a run's records were refused a removal or a verification: one is under way. */
 const REMOVAL_RUNNING = 'REMOVAL_RUNNING';
+/**
+ * Why a run's records were refused a removal, or the run a resume, or a run
+ * its start: a run still writes its journal — a part of it this window runs,
+ * or a run of another process that holds the journal's lock. The command
+ * line's removal is refused under the same code.
+ */
+const RUN_WRITING = 'RUN_WRITING';
 const VERIFY_RUNNING = 'VERIFY_RUNNING';
 
 /**
@@ -794,6 +823,14 @@ const sampleBudgetPayloadSchema = z
     message: 'A sample is drawn from a clone of the whole org alone (inputMode org, depth all)',
     path: ['config', 'inputMode'],
   });
+// The query as the SOQL tab holds it, as long as a config takes one, and the
+// most it may choose: what it chooses is read by the run's own statement,
+// never by the text sent.
+const previewRootsPayloadSchema = z.object({
+  sourceOrgId: orgIdSchema,
+  soqlQuery: z.string().min(1).max(20_000),
+  maxRoots: z.number().int().min(1).max(FORGE_ROOTS_MAX).optional(),
+});
 
 /**
  * Why a sample of the whole org was refused before anything was read: its
@@ -926,6 +963,40 @@ function parsePayload<T>(
   return validatePayload(schema, msg, responseType, deps);
 }
 
+/**
+ * The lock a run holds on its journal while it writes it, read and taken by
+ * the path of the journal: the file a run of any process holds — the command
+ * line's, the MCP server's, another window's (`ForgeRunLock.ts`) —, which
+ * keeps a removal, a resume and a second run off a journal still being
+ * written. See {@link ForgeHandler.setJournalLocks}.
+ */
+export interface ForgeJournalLocks {
+  /** Who holds the lock of the journal at `path`, alive; none when nobody does. */
+  holder(path: string): ForgeRunLockHolder | undefined;
+  /**
+   * Take the lock of the journal at `path` for a run of this window about to
+   * write it; one whose holder is alive is said, and nothing is taken.
+   */
+  take(
+    path: string,
+    run: { journalId: string; target?: string; resumes?: boolean },
+  ): { release(): void } | { busy: ForgeRunLockHolder };
+}
+
+/** The lock files beside the journals, as the command line takes and reads them, a run of a window taking them as `editor`. */
+const RUN_JOURNAL_LOCKS: ForgeJournalLocks = {
+  holder: (path) => forgeRunWriting(path),
+  take: (path, run) => {
+    const taken = lockForgeRun(path, { ...run, ranFrom: 'editor' });
+    return 'busy' in taken ? taken : { release: () => taken.lock.release() };
+  },
+};
+
+/** `text` with its first letter in capital. */
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /** Optional v2 services injected alongside the ForgeOrchestrator. */
 export interface ForgeServices {
   /** Optional plan generator for wave-based planning. */
@@ -974,6 +1045,11 @@ export interface ForgeServices {
    * id through its target's connection.
    */
   lostBulkJobs?: LostBulkJobs;
+  /**
+   * The lock a run holds on its journal while it writes it, which the command
+   * line, the MCP server and every window read (see `setJournalLocks`).
+   */
+  journalLocks?: ForgeJournalLocks;
 }
 
 /**
@@ -1154,10 +1230,14 @@ const FORGE_TYPES = new Set([
   'forge:users:request',
   'forge:target-records:request',
   'forge:sample-budget:request',
+  'forge:previewRoots',
 ]);
 
 /** Timeout for plan generation in milliseconds. */
 const PLAN_TIMEOUT_MS = 30_000;
+
+/** Timeout for reading what a query chooses before Discover, in milliseconds: a page or two of ids. */
+const ROOTS_PREVIEW_TIMEOUT_MS = 60_000;
 
 /** Timeout for compliance report generation in milliseconds. */
 const COMPLIANCE_TIMEOUT_MS = 30_000;
@@ -1873,6 +1953,8 @@ export class ForgeHandler implements DomainHandler {
   private otherModuleRuns: OtherModuleRuns = () => Promise.resolve([]);
   /** The journals of the runs under way, which a listing of the runs leaves where they are. */
   private readonly journalsRunning = new Set<string>();
+  /** The lock a run holds on its journal, which another process reads: the lock files beside the journals. */
+  private journalLocks: ForgeJournalLocks = RUN_JOURNAL_LOCKS;
 
   /**
    * Per-org `describeGlobal` result, keyed by org id.
@@ -2032,6 +2114,7 @@ export class ForgeHandler implements DomainHandler {
       this.muteLeases = services.muteLeases;
       this.lostBulkJobs = services.lostBulkJobs;
       this.rehearser = services.rehearser;
+      if (services.journalLocks) this.journalLocks = services.journalLocks;
     }
   }
 
@@ -2195,6 +2278,9 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:sample-budget:request':
         await this.handleSampleBudgetRequest(msg);
+        return true;
+      case 'forge:previewRoots':
+        await this.handlePreviewRoots(msg);
         return true;
       default:
         return false;
@@ -2429,7 +2515,9 @@ export class ForgeHandler implements DomainHandler {
 
     const parsed = parsePayload(discoverPayloadSchema, msg, 'forge:discover:error', this.deps);
     if (!parsed) return;
-    const { config } = parsed;
+    // The most roots a clone from a query takes, filled in as its run fills
+    // it: the cache key of what discovery reads takes it in.
+    const config = this.withMaxRoots(parsed.config);
     // Kept under its request, beside the discoveries of other panels: a newer
     // discovery stopped any other, and the page that had asked for the other
     // waited for an answer that never came. The page that replaces its own
@@ -2575,7 +2663,12 @@ export class ForgeHandler implements DomainHandler {
       ? resume.startedWith
       : parsePayload(executePayloadSchema, msg, 'forge:execute:error', this.deps);
     if (!parsed) return;
-    const { graph, config, anonymizationRules, files, reviewSkipped, muteAutomation } = parsed;
+    const { graph, anonymizationRules, files, reviewSkipped, muteAutomation } = parsed;
+    // A clone from the records a query chooses takes the most roots the page
+    // named, or the setting's, filled in before anything reads the config:
+    // its simulation and its run are fingerprinted alike, and its journal
+    // keeps the number a resume takes it up with.
+    const config = this.withMaxRoots(parsed.config);
     // A run taken up where it stopped names the part it resumes, as a retry
     // names the run it retries: the history walks back through both.
     const retryOf = resume ? resume.forgeId : parsed.retryOf;
@@ -3006,6 +3099,8 @@ export class ForgeHandler implements DomainHandler {
      * entry it had answered with already held.
      */
     let journalEnded = false;
+    /** The lock of the run's journal, held until its part has ended; none without a reader of them. */
+    let journalLock: { release(): void } | undefined;
     const endJournal = async (): Promise<void> => {
       if (!journalId || journalEnded) return;
       journalEnded = true;
@@ -3022,6 +3117,8 @@ export class ForgeHandler implements DomainHandler {
         );
       });
       this.journalsRunning.delete(id);
+      journalLock?.release();
+      journalLock = undefined;
     };
     /** The requests sent for the run before the executor had it: both orgs' record types. */
     const lookup = { requests: 0 };
@@ -3361,6 +3458,30 @@ export class ForgeHandler implements DomainHandler {
       let journalFailed: { err: unknown } | undefined;
       if (journal) {
         const id = resume?.journalId ?? `forge-run-${startedAt}`;
+        // The journal's lock, which a removal, a resume and a run of another
+        // process read: held from before its first line to its part's end.
+        // Held by a run of another process, this run is refused, nothing
+        // written; one whose process is gone is no lock.
+        // A lock that cannot be written — a folder the journal cannot be
+        // begun in either — costs the run its lock, as it costs it its journal.
+        let taken: ReturnType<ForgeJournalLocks['take']> | undefined;
+        try {
+          taken = this.journalLocks.take(journal.pathOf(id), {
+            journalId: id,
+            target: targetName,
+            ...(resume ? { resumes: true } : {}),
+          });
+        } catch (err: unknown) {
+          logger.warn(`Forge run journal: its lock not taken (${extractErrorMessage(err)})`);
+        }
+        if (taken && 'busy' in taken) {
+          throw new ForgeRunRefusal(
+            RUN_WRITING,
+            `${capitalized(forgeRunWritingWords(taken.busy))}: taken up now, two runs would ` +
+              `write it; ${forgeRunStopWords(taken.busy)}, then resume it. Nothing was written.`,
+          );
+        }
+        journalLock = taken;
         journalId = id;
         this.journalsRunning.add(id);
         // A part resuming the run goes on in its journal; a run begins its own,
@@ -3477,6 +3598,17 @@ export class ForgeHandler implements DomainHandler {
           onProgress: throttledSampling,
         });
       }
+      // The records a query chose: kept by a simulation, taken up by the run
+      // of the same setup, read from its journal by a resume.
+      const roots = await this.rootsOfTheRun({
+        graph,
+        config,
+        anonymizationRules,
+        readCeiling,
+        dryRun,
+        resumes: resume !== undefined,
+        lookup,
+      });
       // A Cancel taken while the journal was opened reaches an executor that
       // has not started, which clears it on entry: the run wrote.
       if (runController.signal.aborted) {
@@ -3620,6 +3752,7 @@ export class ForgeHandler implements DomainHandler {
             ...(sample ? { sample: sample.stream } : {}),
           },
           ...(runUserId ? { runUserId } : {}),
+          ...(roots ? { roots } : {}),
           // The lease the gate took is handed to the executor, which gives it
           // back once its last write is through, before it reads back the
           // record types the target gave: the bypass is held no longer than
@@ -4023,6 +4156,8 @@ export class ForgeHandler implements DomainHandler {
       // stopped part way, its journal says how, for it to be taken up. Ended
       // already, before the run's answer, unless the answer itself threw.
       await endJournal();
+      // A journal never begun, its lock taken: let go all the same.
+      journalLock?.release();
       releaseRun(runError);
       if (this.executeOperationId === operationId) {
         this.executeOperationId = null;
@@ -5820,6 +5955,16 @@ export class ForgeHandler implements DomainHandler {
     let lookedFor: { callsNotLookedFor?: number; journalRead?: true } = {};
     const target = entry?.targetOrgId ?? kept?.targetOrgId;
     const journalId = entry ? entry.journalId : kept?.inJournal?.journalId;
+    // A run still writing the journal — a part of it this window runs, or a
+    // run of the command line or the MCP server — goes on writing under a
+    // removal: refused before the target is read, naming the run at work.
+    if (journalId) {
+      const busy = this.journalBusy(journalId, 'remove');
+      if (busy) {
+        refuse(busy, RUN_WRITING);
+        return;
+      }
+    }
     if (target && journalId && (!entry || entry.idRemapCreated)) {
       if (this.removing.has(forgeId)) {
         refuse(
@@ -6335,6 +6480,10 @@ export class ForgeHandler implements DomainHandler {
     try {
       const running = new Set(this.journalsRunning);
       for (const read of await journal.leftOver(running)) {
+        // Still written by a run of another process — the command line, the
+        // MCP server, another window —: no run a closed window left, and
+        // listed so it would be offered to be removed under that run.
+        if (this.journalBusy(read.journalId, 'remove') !== undefined) continue;
         const startedWith = read.resume?.startedWith;
         if (!startedWith) {
           const plan = ForgeRunJournal.planOf(read);
@@ -6419,6 +6568,8 @@ export class ForgeHandler implements DomainHandler {
     if (this.journalsRunning.has(entry.journalId)) {
       return { refused: 'This run is being taken up already.', targetOrgId };
     }
+    const busy = this.journalBusy(entry.journalId, 'resume');
+    if (busy) return { refused: busy, targetOrgId };
     const end = await journal.lastEnd(entry.journalId);
     if (!end || end.forgeId !== entry.forgeId || !RESUMABLE_ENDS.has(end.status)) {
       return {
@@ -6541,7 +6692,8 @@ export class ForgeHandler implements DomainHandler {
     if (
       parsed.graph &&
       parsed.config &&
-      !setUpAlike({ graph: parsed.graph, config: parsed.config })
+      // The page's config named the most roots as its run filled them in.
+      !setUpAlike({ graph: parsed.graph, config: this.withMaxRoots(parsed.config) })
     ) {
       refuse(
         RESUME_CHANGED,
@@ -8117,6 +8269,54 @@ export class ForgeHandler implements DomainHandler {
   }
 
   /**
+   * The lock a run holds on its journal while it writes it, by the journal's
+   * path: the file the command line, the MCP server and every window read.
+   * A run of this window takes it as it begins its journal or takes one up,
+   * and lets it go once its part has ended; one held by a run of another
+   * process refuses the run. A removal of a run's records, or a resume of
+   * it, is refused while it is held: a removal would delete under the run
+   * what it goes on writing, and two writers would interleave one journal.
+   * The lock files beside the journals unless told (`ForgeRunLock.ts`).
+   */
+  setJournalLocks(locks: ForgeJournalLocks): void {
+    this.journalLocks = locks;
+  }
+
+  /**
+   * Why the run whose journal is `journalId` may not be removed or taken up
+   * now, or nothing: a run of this window still writes that journal — a
+   * part that resumes it —, or another process holds its lock. The words
+   * name the run at work and how to stop it. A lock that cannot be read
+   * refuses too: what writes the journal is not known.
+   */
+  private journalBusy(journalId: string, act: 'remove' | 'resume'): string | undefined {
+    const then =
+      act === 'remove'
+        ? 'Removing its records now would delete under it what it goes on writing; remove them once it has ended.'
+        : 'Taken up now, two runs would write the same journal; resume it once it has ended.';
+    if (this.journalsRunning.has(journalId)) {
+      return `A run of this window still writes this run's journal — a part that resumes it. ${then} Stop it on the Forge page, or let it end. Nothing was read or written.`;
+    }
+    const journal = this.runJournal;
+    if (!journal) return undefined;
+    let holder: ForgeRunLockHolder | undefined;
+    try {
+      holder = this.journalLocks.holder(journal.pathOf(journalId));
+    } catch (err: unknown) {
+      return (
+        `The lock of this run's journal, in ${dirname(journal.pathOf(journalId))}, could not be ` +
+        `read (${extractErrorMessage(err)}): whether a run still writes it is not known. Try ` +
+        'again once the folder can be read. Nothing was read or written.'
+      );
+    }
+    if (!holder) return undefined;
+    return (
+      `${capitalized(forgeRunWritingWords(holder))}. ${then} ` +
+      `${capitalized(forgeRunStopWords(holder))}. Nothing was read or written.`
+    );
+  }
+
+  /**
    * Read what a sweep asked with a past run's removal would take, for the
    * removal's confirmation to list before the user types the org's name: per
    * object, what the run's user created during the run that its id map does
@@ -8138,6 +8338,13 @@ export class ForgeHandler implements DomainHandler {
     const entry = this.loadHistory().find((e) => e.forgeId === parsed.forgeId);
     if (!entry) {
       refuse(SWEEP_NEEDS_HISTORY, RUN_NOT_IN_HISTORY);
+      return;
+    }
+    // What the sweep of a run still writing would list is not what its
+    // removal would find: refused as the removal is.
+    const busy = entry.journalId ? this.journalBusy(entry.journalId, 'remove') : undefined;
+    if (busy) {
+      refuse(busy, RUN_WRITING);
       return;
     }
     const targetOrgId = entry.targetOrgId;
@@ -8802,6 +9009,12 @@ export class ForgeHandler implements DomainHandler {
       refuse(new Error('This run is no longer in the Forge history.'), RUN_NOT_IN_HISTORY);
       return;
     }
+    // The objects of a run still writing are not those its removal would take.
+    const busy = entry.journalId ? this.journalBusy(entry.journalId, 'remove') : undefined;
+    if (busy) {
+      refuse(new Error(busy), RUN_WRITING);
+      return;
+    }
     // Its objects, counted: a run past the bound counts them without its ids.
     const objects = (
       parsed.again === true ? forgeRunCountsCreated(entry) : forgeRunCountsLeft(entry)
@@ -9029,5 +9242,184 @@ export class ForgeHandler implements DomainHandler {
         code: 'SAMPLE_BUDGET_ERROR',
       });
     }
+  }
+
+  /**
+   * What the query of the SOQL tab chooses as the roots of a clone from
+   * records, before Discover (`forge:previewRoots`): read as the run reads
+   * them, by its own statement — their ids alone, in the query's order or by
+   * Id, to one past the most the run takes, or to the query's LIMIT when the
+   * run takes that many. One request of the source, two past a page. A query
+   * that cannot choose records is refused before anything is read, in the
+   * words its run would be refused in (`ROOTS_QUERY_REFUSED`).
+   *
+   * The filter Review → Controls may add on the object later is not known
+   * yet: the run reads its roots under it too, and may choose fewer.
+   */
+  private async handlePreviewRoots(msg: InboundRequest): Promise<void> {
+    const parsed = parsePayload(
+      previewRootsPayloadSchema,
+      msg,
+      'forge:previewRoots:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const { sourceOrgId, soqlQuery } = parsed;
+    const cap = parsed.maxRoots ?? this.maxRoots();
+    const asked = rootsQueryOf(soqlQuery);
+    if ('issue' in asked) {
+      const stop = rootsQueryRefusedStop(asked.issue, undefined);
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'forge:previewRoots:error', {
+          code: stop.code,
+          message: stop.message,
+          retryable: false,
+          soqlQuery,
+        }),
+      );
+      return;
+    }
+    const { objectApiName, query } = asked;
+    try {
+      const conn = await getJsforceConnection(
+        sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const take = query.limit !== undefined && query.limit <= cap ? query.limit : cap + 1;
+      const { records, pages } = await new TimeoutManager(ROOTS_PREVIEW_TIMEOUT_MS).withTimeout(
+        'forge:previewRoots',
+        () =>
+          queryAllPages<Record<string, unknown>>(
+            {
+              query: async (q) => conn.query<Record<string, unknown>>(q),
+              queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
+            },
+            rootsStatement(objectApiName, query, undefined, cap),
+            take,
+          ),
+      );
+      checkApiLimits(conn.limitInfo, `forge:previewRoots ${objectApiName}`);
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'forge:previewRoots:response', {
+          sourceOrgId,
+          soqlQuery,
+          objectApiName,
+          cap,
+          chosen: Math.min(records.length, cap),
+          more: records.length > cap,
+          ...(query.limit !== undefined ? { limit: query.limit } : {}),
+          ...(query.orderBy !== undefined ? { orderBy: query.orderBy } : {}),
+          requests: pages,
+        }),
+      );
+    } catch (error: unknown) {
+      sendHandlerError(this.deps, 'forge:previewRoots', 'forge:previewRoots:error', msg, error, {
+        code: 'ROOTS_PREVIEW_ERROR',
+        retryable: true,
+        extraPayload: { soqlQuery },
+      });
+    }
+  }
+
+  /**
+   * `sandforge.forge.maxRoots`: the most records a clone from a query takes
+   * as its roots, 1 to {@link FORGE_ROOTS_MAX}; {@link FORGE_ROOTS_DEFAULT}
+   * when the setting is not a number.
+   */
+  private maxRoots(): number {
+    const value = this.deps.services?.getSandforgeSetting?.<unknown>(
+      'forge.maxRoots',
+      FORGE_ROOTS_DEFAULT,
+    );
+    return rootsCapOf(typeof value === 'number' ? value : undefined, FORGE_ROOTS_DEFAULT);
+  }
+
+  /**
+   * `config` with the most roots a clone from a query takes, when it clones
+   * the records its query chooses and names none: the setting's, filled in
+   * before anything reads the config, so that its discovery, its simulation
+   * and its run are set up alike — their cache key and their fingerprint
+   * take it in. Any other config as it is.
+   */
+  private withMaxRoots<C extends ForgeConfig>(config: C): C {
+    if (config.inputMode !== 'soql' || config.queryScope !== 'records') return config;
+    if (config.maxRoots !== undefined) return config;
+    return { ...config, maxRoots: this.maxRoots() };
+  }
+
+  /**
+   * What a clone from the records a query chooses is handed besides its
+   * config (`ForgeRunOptions.roots`), so that what its simulation chose is
+   * what its run writes:
+   *
+   * - a simulation keeps the roots it reads under its setup's fingerprint
+   *   (`forge-roots/<fingerprint>.json` in the extension's storage), the
+   *   last read for that setup, kept a day;
+   * - a run of the same setup takes them up and writes those ids rather
+   *   than read its query again — a record made in between is not written,
+   *   one deleted is said gone. One more than a day old is handed all the
+   *   same: the run reads its query again and says it (`readAgain`);
+   * - a run that resumes another reads its roots from its journal, and is
+   *   handed no plan.
+   *
+   * Every run is handed what the source has left of its daily requests,
+   * read once (one request, counted with the run's): its read of what the
+   * roots reach is held to a tenth of it. A source that would not say holds
+   * it to 2 000. The simulations' roots a day old or more go as a run
+   * starts: they are a production's ids.
+   *
+   * A window that keeps no storage keeps no roots, and its run reads its
+   * query again; the run says so in its result as any run that read them.
+   */
+  private async rootsOfTheRun(run: {
+    graph: ForgeGraph;
+    config: ForgeConfig;
+    anonymizationRules: ForgeAnonymizationRules | undefined;
+    readCeiling: number;
+    dryRun: boolean;
+    resumes: boolean;
+    lookup: { requests: number };
+  }): Promise<ForgeRunOptions['roots']> {
+    const { config } = run;
+    if (!isRecordScoped(config) || config.inputMode !== 'soql') return undefined;
+    const source = await this.readSourceApiBudget(config, run.lookup);
+    const sourceRequestsLeft = 'unread' in source ? undefined : source.remaining;
+    const handed: NonNullable<ForgeRunOptions['roots']> =
+      sourceRequestsLeft !== undefined ? { sourceRequestsLeft } : {};
+    const storagePath = this.runJournal?.storagePath;
+    if (storagePath === undefined || run.resumes) return handed;
+    const now = new Date();
+    await sweepRootPlans(storagePath, now).catch((err: unknown) => {
+      logger.warn(
+        `Forge roots: the roots of past simulations were not swept (${extractErrorMessage(err)})`,
+      );
+    });
+    const fingerprint = this.setupFingerprintOf(
+      run.graph,
+      config,
+      run.anonymizationRules,
+      run.readCeiling,
+    );
+    let file: string;
+    try {
+      file = dryRunRootPlanPathOf(storagePath, fingerprint);
+    } catch (err: unknown) {
+      if (err instanceof RootPlanError) return handed;
+      throw err;
+    }
+    if (run.dryRun) return { ...handed, keepAt: file, fingerprint };
+    let plan: RootPlan | undefined;
+    try {
+      plan = await openRootPlan(file);
+    } catch (err: unknown) {
+      if (!(err instanceof RootPlanError)) throw err;
+      // None kept for this setup, or no longer as it was written: the run
+      // reads its query, as a run with no simulation before it does.
+      if (err.fault === 'changed') {
+        logger.warn(`Forge roots: the simulation's roots no longer read whole (${err.message})`);
+      }
+    }
+    return { ...handed, fingerprint, ...(plan ? { plan } : {}) };
   }
 }
