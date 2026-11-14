@@ -181,8 +181,8 @@ const headSchema = z.object({
      */
     targetOrgId: z.string().min(1).max(200),
     /**
-     * The alias the command line was given for the target (`sandforge-sync`,
-     * `sandforge-seed`): what its saved configuration keeps its watermarks,
+     * The alias the command line was given for the target (`sandforge sync`,
+     * `sandforge seed`): what its saved configuration keeps its watermarks,
      * copied files and links under, between the orgs of the line
      * (`configTargetOf`). Absent from the panel's runs, and from a file
      * written before, whose `targetOrgId` is that alias.
@@ -212,7 +212,7 @@ const headSchema = z.object({
     realtime: z.literal(true).optional(),
     /**
      * The target's own Organization id, for a run whose orgs are named by
-     * the command line's aliases (`sandforge-sync`): its removal is refused
+     * the command line's aliases (`sandforge sync`): its removal is refused
      * from any other org, whatever org the alias names by then.
      */
     targetOrganizationId: idSchema.optional(),

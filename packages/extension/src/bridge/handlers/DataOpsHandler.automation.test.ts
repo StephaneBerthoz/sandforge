@@ -526,7 +526,7 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
   });
 
   it('offers the mute in none of its refusals to the reader of a command that mutes nothing', async () => {
-    // A mask resource of sandforge-env, whose runs never mute, relayed
+    // A mask resource of sandforge env, whose runs never mute, relayed
     // "With --mute-automation, the masking assigns …": a flag the
     // environment does not take.
     const bypassed: ForgeTargetFlow = {

@@ -225,7 +225,7 @@ describe('docs/modules/sync.md', () => {
     );
     expect(DOC).toContain('names none, and never runs');
     expect(DOC).toContain('is refused before anything is read\n  or written');
-    expect(DOC).toContain('`sandforge-sync --config-file`, which exits 1');
+    expect(DOC).toContain('`sandforge sync --config-file`, which exits 1');
     expect(DOC).not.toContain('applies to all fields of all objects');
     expect(DOC).not.toContain('**Every field**');
     expect(DOC).not.toContain('Every rule you add applies to all fields');
@@ -448,6 +448,6 @@ describe('docs/modules/sync.md', () => {
     expect(DOC).toContain(
       'A Regex replace rule whose pattern is no regular expression -- `[a-`, an\n  unclosed group -- is refused before anything is read or written',
     );
-    expect(DOC).toContain('`sandforge-sync --config-file`, which exits 2. It is not saved either.');
+    expect(DOC).toContain('`sandforge sync --config-file`, which exits 2. It is not saved either.');
   });
 });

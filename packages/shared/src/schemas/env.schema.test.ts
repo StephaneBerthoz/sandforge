@@ -552,7 +552,7 @@ describe('a frozen resource', () => {
       'resources.claims.dataset.version: A dataset’s version is the one its manifest says, as 1.4.0',
     ]);
     expect(dataset({ digest: '3f1c' })).toEqual([
-      'resources.claims.dataset.digest: A dataset’s digest is sha256: and 64 hexadecimal digits, as sandforge-frozen gives it',
+      'resources.claims.dataset.digest: A dataset’s digest is sha256: and 64 hexadecimal digits, as sandforge frozen gives it',
     ]);
     expect(dataset({ digest: undefined })).toEqual([
       expect.stringContaining('resources.claims.dataset.digest'),
@@ -1144,7 +1144,7 @@ describe('the plan and the steps', () => {
       undo: {
         offered: true,
         until: '2026-11-09T09:00:00.000Z',
-        line: 'sandforge-checkpoint undo --org pool-1 --checkpoint ck-20261025-090000-a1b2',
+        line: 'npx sandforge checkpoint undo --org pool-1 --checkpoint ck-20261025-090000-a1b2',
       },
       state: { serial: 4 },
     };

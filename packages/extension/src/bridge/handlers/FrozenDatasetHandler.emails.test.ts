@@ -298,7 +298,7 @@ describe('a Frozen load, what still runs as it writes, and the emails it sends',
   });
 
   it('names the mute in its refusal for the emails only to a reader who can ask it', async () => {
-    // Relayed by sandforge-env, which mutes nothing, the refusal said
+    // Relayed by sandforge env, which mutes nothing, the refusal said
     // "--mute-automation keeps quiet …", a flag the environment does not take.
     await load();
     expect(errorOf()?.message).toContain('--mute-automation keeps quiet');

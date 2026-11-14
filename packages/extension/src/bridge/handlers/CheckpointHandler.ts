@@ -1930,9 +1930,9 @@ export class CheckpointHandler implements DomainHandler {
         'NO_FILE_DIALOG',
         act === 'export'
           ? 'This window has no dialog to ask where the file goes: export the checkpoint with ' +
-              'sandforge-checkpoint export. Nothing was written.'
+              'npx sandforge checkpoint export. Nothing was written.'
           : 'This window has no dialog to ask which file to read: import it with ' +
-              'sandforge-checkpoint import. Nothing was imported.',
+              'npx sandforge checkpoint import. Nothing was imported.',
       );
     }
     return dialogs;

@@ -1,7 +1,7 @@
 /**
  * The record types a seed from the panel can give an object's records, read
  * with the object's describe, and the accounts a run writes as the kind their
- * record types give them — the rules `sandforge-seed --record-type` follows.
+ * record types give them — the rules `sandforge seed --record-type` follows.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BaseMessage, SeedRecordTypeOption, SeedTemplate } from '@sandforge/shared';

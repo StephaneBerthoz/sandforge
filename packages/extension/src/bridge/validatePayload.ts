@@ -272,7 +272,7 @@ export const syncObjectPayloadSchema = syncObjectConfigSchema
    * or a field mapping's. Run, it threw JavaScript's own SyntaxError at the
    * first record, which stopped the run at that object and named neither the
    * rule nor the object. Refused here, at every start of a run, a save and
-   * `sandforge-sync --config-file`, naming both.
+   * `sandforge sync --config-file`, naming both.
    */
   .superRefine((object, ctx) => {
     const unreadable = unreadablePatternRules([object]);

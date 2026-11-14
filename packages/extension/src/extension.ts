@@ -322,7 +322,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const records = createdCount(run);
       const org = orgDisplayName(orgManager.getOrg(run.targetOrgId), run.targetOrgId);
       const message = vscode.l10n.t(
-        'SandForge: the record of a {0} run started {1} in {2}, whose {3} created record(s) are still in that org, was dropped to keep the runs kept on this machine within their bound. Delete those records with sandforge-cleanup, or from the org.',
+        'SandForge: the record of a {0} run started {1} in {2}, whose {3} created record(s) are still in that org, was dropped to keep the runs kept on this machine within their bound. Delete those records with npx sandforge cleanup, or from the org.',
         kind,
         run.startedAt,
         org,

@@ -237,7 +237,7 @@ describe('docs/modules/checkpoint.md', () => {
       expect(source(`packages/extension/cli/sandforge-${script}.ts`)).toContain(
         '${checkpointFirstHelp({',
       );
-      expect(before).toContain(`\`sandforge-${script}`);
+      expect(before).toContain(`\`sandforge ${script}`);
     }
     for (const flag of printed) expect(before).toContain(flag);
     const named = [...prose(before).matchAll(/(?<![\w-])(--[a-z][a-z-]*)/g)].map((m) => m[1]);
@@ -665,7 +665,7 @@ describe('docs/modules/checkpoint.md', () => {
       'every folder is made readable by its owner only, and every file likewise',
     );
     expect(kept).toContain(
-      'as the first SandForge view of a window opens and as any command of `sandforge-checkpoint` starts',
+      'as the first SandForge view of a window opens and as any command of `sandforge checkpoint` starts',
     );
   });
 
@@ -1332,8 +1332,8 @@ describe('the README lines of the module', () => {
     );
 
     expect(section(source('README.md'), '## Rewind an org to a checkpoint')).toContain(
-      'From a checkout of this repository, the [`sandforge-checkpoint` ' +
-        'script](docs/modules/checkpoint.md#from-the-command-line) takes, previews, rewinds and ' +
+      'From the `sandforge` npm package or a checkout of this repository, [`sandforge checkpoint`]' +
+        '(docs/modules/checkpoint.md#from-the-command-line) takes, previews, rewinds and ' +
         'undoes the same way without the editor',
     );
   });

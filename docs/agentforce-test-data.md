@@ -31,7 +31,7 @@ pnpm exec tsx packages/extension/cli/sandforge-seed.ts --test-file <run file> --
   --agent <agent API name> --topic damaged-parcel=<agent topic> --topic refund=<agent topic> ...
 ```
 
-`--scenario` takes a pack's id or a pack file; `--scenario-seed <n>` draws other names. `--test-file` without `--agent` lists the org's agents, their topics and actions. `sandforge-seed --help` gives every option.
+`--scenario` takes a pack's id or a pack file; `--scenario-seed <n>` draws other names. `--test-file` without `--agent` lists the org's agents, their topics and actions. `sandforge seed --help` gives every option.
 
 ## Drafting a pack from your own text
 

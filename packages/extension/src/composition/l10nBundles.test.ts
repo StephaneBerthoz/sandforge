@@ -121,6 +121,38 @@ describe('extension host l10n bundles', () => {
     expect(offenders).toEqual([]);
   });
 
+  // `sandforge-cleanup` exists only on the PATH of a global install of the
+  // `sandforge` npm package; copied as `npx sandforge-cleanup`, it asks the
+  // registry for a package of that name. A message names the command as the
+  // package runs it, and a translation keeps that line as the source gives it.
+  it('names a command line as the sandforge package runs it, in every bundle', () => {
+    const tools = readdirSync(join(__dirname, '..', '..', 'cli'))
+      .map((file) => /^sandforge-([a-z]+)\.ts$/.exec(file)?.[1])
+      .filter((tool): tool is string => tool !== undefined);
+    // Positive control: the scripts of the folder are read, the cleanup among them.
+    expect(tools).toContain('cleanup');
+    const scriptName = new RegExp(`sandforge-(?:${tools.join('|')})(?![a-z.-])`);
+    const commandLine = new RegExp(`npx sandforge (?:${tools.join('|')})(?: [a-z-]+)*`, 'g');
+    const bundles = ['', ...LOCALES.map((locale) => `.${locale}`)].map((suffix) =>
+      loadBundle(`bundle.l10n${suffix}.json`),
+    );
+    const named: string[] = [];
+    const offenders: string[] = [];
+    for (const key of Object.keys(reference)) {
+      const lines = key.match(commandLine) ?? [];
+      named.push(...lines);
+      for (const bundle of bundles) {
+        const value = bundle[key] ?? '';
+        if (scriptName.test(value)) offenders.push(`a script's name in: ${value}`);
+        for (const line of lines) {
+          if (!value.includes(line)) offenders.push(`${line} not kept in: ${value}`);
+        }
+      }
+    }
+    expect(named).toContain('npx sandforge cleanup');
+    expect(offenders).toEqual([]);
+  });
+
   it.each(LOCALES)('bundle.l10n.%s.json preserves every placeholder', (locale) => {
     const bundle = loadBundle(`bundle.l10n.${locale}.json`);
     const dropped: string[] = [];

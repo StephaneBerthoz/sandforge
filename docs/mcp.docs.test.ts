@@ -109,10 +109,14 @@ describe('docs/mcp.md', () => {
     expect(section('Add it to Claude Code')).toContain(line);
     expect(SERVER).toContain(` *   ${line}`);
     expect(SERVER).toContain(`    ${line}\n`);
-    for (const script of new Set(section('The tools').match(/sandforge-[a-z]+/g) ?? [])) {
-      expect(existsSync(resolve(REPO_ROOT, `packages/extension/cli/${script}.ts`)), script).toBe(
-        true,
-      );
+    const run = [...section('The tools').matchAll(/`sandforge ([a-z]+)\b/g)].map((m) => m[1]);
+    // Positive control: the table names the command each tool runs.
+    expect(new Set(run)).toEqual(new Set(['seed', 'clone', 'sync', 'checkpoint', 'env']));
+    for (const tool of new Set(run)) {
+      expect(
+        existsSync(resolve(REPO_ROOT, `packages/extension/cli/sandforge-${tool}.ts`)),
+        tool,
+      ).toBe(true);
     }
   });
 
@@ -154,7 +158,7 @@ describe('docs/mcp.md', () => {
     expect(envTools.map((tool) => tool.name)).toEqual(['env_plan', 'env_apply', 'env_destroy']);
     expect(lines).toEqual(['plan', 'apply', 'destroy']);
     expect(not).toContain(
-      'No tool resets an environment (`sandforge-env reset`) or destroys it by rewinding the org to a checkpoint (`destroy --rewind`) in this version',
+      'No tool resets an environment (`sandforge env reset`) or destroys it by rewinding the org to a checkpoint (`destroy --rewind`) in this version',
     );
     expect(not).toContain('`env_destroy` takes back by removal alone.');
     expect(SERVER).not.toContain("'--rewind'");
@@ -232,7 +236,7 @@ describe('the pages that send a reader to docs/mcp.md', () => {
     const rewind = readme.slice(readme.indexOf('## Rewind an org to a checkpoint'));
     const checkpoint = rewind
       .split('\n')
-      .find((line) => line.includes('[`sandforge-checkpoint` script]'));
+      .find((line) => line.includes('[`sandforge checkpoint`]('));
     const privacy = source('docs/faq.md')
       .split('\n')
       .find((line) => line.startsWith('Only to Anthropic'));

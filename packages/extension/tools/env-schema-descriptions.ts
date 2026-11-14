@@ -158,7 +158,7 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'the org in there.',
   'orgs.<role>.alias{object}.env': ENV_VARIABLE('the alias', 'SF_UAT_ALIAS'),
   checkpoint:
-    'Checkpoints of the org’s data the environment takes, with `sandforge-checkpoint`: ' +
+    'Checkpoints of the org’s data the environment takes, with `sandforge checkpoint`: ' +
     '`before` its first write, `after` an apply. Kept in `checkpoints/` of the journal ' +
     'directory, outside the repository, they hold the records’ values in clear. The ' +
     'checkpoint’s own guard refuses a production org and a user without View All Data and ' +
@@ -227,7 +227,7 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'resources.<name>{seed}':
     'A seed resource: records Seed generates, from one of its built-in templates ' +
     '(`template`) or from the objects, counts and field rules the file gives (`objects`, with ' +
-    '`relations`), written by `sandforge-seed` and taken back by its own removal. `seed` keeps ' +
+    '`relations`), written by `sandforge seed` and taken back by its own removal. `seed` keeps ' +
     'the draws, so the same file writes the same records again.',
   'resources.<name>{seed}.kind': KIND,
   'resources.<name>{seed}.dependsOn': DEPENDS_ON,
@@ -391,7 +391,7 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
 
   // The forge kind
   'resources.<name>{forge}':
-    'A forge resource: records `sandforge-clone` clones from the org a role of `orgs` names ' +
+    'A forge resource: records `sandforge clone` clones from the org a role of `orgs` names ' +
     '(`source`) into the org to fill, one `record` and what discovery reaches from it, or ' +
     'whole `tables`; taken back by the clone’s own removal. A source that is a production ' +
     'org is refused unless the resource gives `anonymize` or `accept: { realData: true }`.',
@@ -488,7 +488,7 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
   // The frozen kind
   'resources.<name>{frozen}':
     'A frozen resource: a Frozen Dataset a person froze beforehand, extracted, pseudonymized ' +
-    'and checked, loaded by `sandforge-frozen` and taken back by its own removal. Its ' +
+    'and checked, loaded by `sandforge frozen` and taken back by its own removal. Its ' +
     'configuration is committed (`config`); its dataset is not, and is pinned by its ' +
     'version and its digest (`dataset`).',
   'resources.<name>{frozen}.kind': KIND,
@@ -519,15 +519,15 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'resources.<name>{frozen}.dataset.version':
     'The dataset’s version, as its manifest stamps it, as `1.4.0`.',
   'resources.<name>{frozen}.dataset.digest':
-    'The dataset’s digest, as `sandforge-frozen --json` gives it: `sha256:` and 64 ' +
+    'The dataset’s digest, as `sandforge frozen --json` gives it: `sha256:` and 64 ' +
     'hexadecimal digits, over the files a load reads, the same wherever the folder is moved.',
 
   // The mask kind
   'resources.<name>{mask}':
     'A mask resource: records the org already holds, a sandbox copied from production, ' +
-    'masked by `sandforge-dataops` with DataOps rules, after a snapshot of the values it ' +
+    'masked by `sandforge dataops` with DataOps rules, after a snapshot of the values it ' +
     'writes over, kept on this machine. It creates no record, and `destroy` never unmasks: ' +
-    'it deletes the snapshots. Putting the values back is `sandforge-dataops anonymize ' +
+    'it deletes the snapshots. Putting the values back is `sandforge dataops anonymize ' +
     '--restore`, before a destroy.',
   'resources.<name>{mask}.kind': KIND,
   'resources.<name>{mask}.dependsOn': DEPENDS_ON,
