@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ForgeConfig, ForgeUsersResponse } from '@sandforge/shared';
+import { soqlRootFilter, type ForgeConfig, type ForgeUsersResponse } from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
 import { CheckpointFirstOption } from '../../components/ui/CheckpointFirstOption';
 import { cn } from '../../theme';
@@ -16,7 +16,6 @@ import {
   withOwnerMapping,
   withRecordCap,
 } from '../../utils/forgeRunControls';
-import { soqlRootFilter } from './forgeUtils';
 import { clonesWholeOrg } from './forgeRunConfig';
 import { RECORD_LIMIT_PRESETS } from './useForgeForm';
 import { uiLocale } from '../../utils/formatters';

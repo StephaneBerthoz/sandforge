@@ -54,6 +54,7 @@ import { z } from 'zod';
 import {
   forgeTemplateSchema,
   type EnvDocumentPath,
+  type EnvForgeFit,
   type EnvForgeResource,
   type EnvForgeRun,
   type EnvForgeTable,
@@ -189,8 +190,11 @@ export function forgeRunOfResource(
         wholeOrg: {
           anonymize: resource.anonymize !== undefined,
           keepContactPoints: resource.keepContactPoints === true,
+          // Every key of the fit goes on to the line, its flag of the same
+          // name: one dropped here would be a draw the file says and the clone
+          // never makes, and a fingerprint that missed it.
           ...(resource.fit !== undefined
-            ? { fit: resource.fit === 'share' ? {} : { withinMB: resource.fit.withinMB } }
+            ? { fit: resource.fit === 'share' ? {} : structuredClone(resource.fit) }
             : {}),
         },
         ...(resource.maxTotal !== undefined ? { maxTotal: resource.maxTotal } : {}),
@@ -554,16 +558,36 @@ function wholeOrgSwitches(
     '--skip-preflight',
     wholeOrg.anonymize ? '--anonymize' : '--no-anonymize',
     ...(wholeOrg.keepContactPoints ? ['--keep-contact-points'] : []),
-    ...(wholeOrg.fit !== undefined
+    ...(wholeOrg.fit !== undefined ? ['--fit', 'share', ...fitSwitches(wholeOrg.fit)] : []),
+    ...(input.acceptAutomation ? ['--accept-automation'] : []),
+  ];
+}
+
+/**
+ * The `--fit-*` flags of a sample's keys, each the flag of its name: the MB,
+ * the seed, the draw, the window as `--fit-window` writes one —
+ * `created:2025-01-01..2025-06-30`, an end left out empty, or `created:30d` —,
+ * a `--fit-where Object=WHERE` per object and a `--fit-strata` per field.
+ */
+function fitSwitches(fit: EnvForgeFit): string[] {
+  const window = fit.window;
+  return [
+    ...(fit.withinMB !== undefined ? ['--fit-within', String(fit.withinMB)] : []),
+    ...(fit.seed !== undefined ? ['--fit-seed', String(fit.seed)] : []),
+    ...(fit.draw !== undefined ? ['--fit-draw', fit.draw] : []),
+    ...(window !== undefined
       ? [
-          '--fit',
-          'share',
-          ...(wholeOrg.fit.withinMB !== undefined
-            ? ['--fit-within', String(wholeOrg.fit.withinMB)]
-            : []),
+          '--fit-window',
+          window.lastDays !== undefined
+            ? `${window.field}:${window.lastDays}d`
+            : `${window.field}:${window.from ?? ''}..${window.to ?? ''}`,
         ]
       : []),
-    ...(input.acceptAutomation ? ['--accept-automation'] : []),
+    ...Object.entries(fit.where ?? {}).flatMap(([object, where]) => [
+      '--fit-where',
+      valueOf('--fit-where', `${object}=${where}`),
+    ]),
+    ...(fit.strata ?? []).flatMap((stratum) => ['--fit-strata', valueOf('--fit-strata', stratum)]),
   ];
 }
 

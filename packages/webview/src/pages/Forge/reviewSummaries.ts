@@ -4,10 +4,9 @@
  * screen already holds: nothing here asks the org for anything.
  */
 import type { TFunction } from 'i18next';
-import { leftOutAsEmptyTable } from '@sandforge/shared';
+import { leftOutAsEmptyTable, soqlRootFilter } from '@sandforge/shared';
 import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
 import { uiLocale } from '../../utils/formatters';
-import { soqlRootFilter } from './forgeUtils';
 
 /** Where a row stands. */
 export type ReviewRowState = 'decide' | 'ready' | 'working' | 'failed' | 'toRead';

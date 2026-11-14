@@ -275,6 +275,7 @@
   "the daily Bulk API batches of {0}": "les lots Bulk API quotidiens de {0}",
   "the records set aside, each past a tenth of the room {0} has: every other root fits": "les enregistrements mis de côté, chacun au-delà d'un dixième de la place dont dispose {0} : toutes les autres racines tiennent",
   "nothing: every record fits, and copying the whole org is the better run": "rien : chaque enregistrement tient, et copier toute l'org est la meilleure exécution",
+  "all the roots its window, the filters of its roots and its strata let it draw: widen them to take more": "toutes les racines que sa fenêtre, les filtres de ses racines et ses strates lui laissent tirer : élargissez-les pour en prendre plus",
   "Drawn by the simulation {0} minutes before; the run takes up its plan.": "Tiré par la simulation {0} minutes avant ; l'exécution reprend son plan.",
   "Drawn by this run.": "Tiré par cette exécution.",
   "Drawn by the run this one retries; the run takes up its plan.": "Tiré par l'exécution que celle-ci relance ; l'exécution reprend son plan.",

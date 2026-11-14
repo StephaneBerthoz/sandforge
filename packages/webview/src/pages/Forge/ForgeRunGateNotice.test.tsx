@@ -456,6 +456,63 @@ describe('ForgeRunGateNotice', () => {
     });
   });
 
+  describe('a clone from the records a query chooses, refused for them', () => {
+    it('says a query past the most it clones with the LIMIT that holds it, ungrouped in every language', async () => {
+      act(() =>
+        useForgeRunGateStore.getState().setStop({
+          code: 'ROOTS_EXCEEDED',
+          roots: { objectApiName: 'Account', cap: 2_000 },
+        }),
+      );
+      const { unmount } = render(<ForgeRunGateNotice />);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
+        'The run was refused before it read anything else: its query chooses more Account records than the 2,000 it clones, and nothing was written. Add ORDER BY CreatedDate DESC LIMIT 2000 to the query to clone the newest, or narrow its WHERE.',
+      );
+      unmount();
+      // A LIMIT grouped as the language groups a figure — 2 000, 2.000 — is
+      // no SOQL the query could be given.
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await act(() => i18n.changeLanguage('fr'));
+      try {
+        render(<ForgeRunGateNotice />);
+        const reason = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
+        expect(reason).toContain('LIMIT 2000 à la requête');
+        expect(reason).toContain('que les 2');
+      } finally {
+        await act(() => i18n.changeLanguage('en'));
+      }
+    });
+
+    it('says each refusal of the roots and of a draw in its own words, none falling back on another', () => {
+      const said = new Set<string>();
+      for (const stop of [
+        { code: 'ROOTS_QUERY_REFUSED' },
+        { code: 'NO_ROOTS', roots: { objectApiName: 'Case' } },
+        { code: 'ROOTS_PLAN_MISMATCH', roots: { objectApiName: 'Case', plan: 'otherQuery' } },
+        { code: 'ROOTS_PLAN_GONE', roots: { objectApiName: 'Case', plan: 'gone' } },
+        { code: 'SAMPLE_DRAW_INVALID', sample: { requests: 0 } },
+        { code: 'SAMPLE_DRAW_EMPTY', sample: { requests: 4 } },
+      ] satisfies ForgeRunGateStop[]) {
+        act(() => useForgeRunGateStore.getState().setStop(stop));
+        const { unmount } = render(<ForgeRunGateNotice />);
+        const reason = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
+        expect(reason, stop.code).not.toMatch(/forgeRun\.gate|\{\{/);
+        said.add(reason);
+        unmount();
+      }
+      expect(said.size).toBe(6);
+      act(() =>
+        useForgeRunGateStore
+          .getState()
+          .setStop({ code: 'NO_ROOTS', roots: { objectApiName: 'Case' } }),
+      );
+      render(<ForgeRunGateNotice />);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toContain(
+        'its query chooses no Case record of the source org',
+      );
+    });
+  });
+
   describe('a run past the day’s API requests', () => {
     it('names the checkpoint among them only when the run was to take one', () => {
       act(() =>

@@ -27,9 +27,9 @@ import { ForgeLivePreviewPanel } from './ForgeLivePreviewPanel';
 import { ForgeOrgCard } from './ForgeOrgCard';
 import { ForgeDepthChips } from './ForgeDepthChips';
 import { ForgeOptionToggles } from './ForgeOptionToggles';
-import { soqlRootFilter, starterTemplateKeys, SOQL_UNSCOPED_RECORD_CAP } from './forgeUtils';
+import { starterTemplateKeys, SOQL_UNSCOPED_RECORD_CAP } from './forgeUtils';
 import { extractRecordId } from '../../utils/recordId';
-import { orgDisplayName } from '@sandforge/shared';
+import { orgDisplayName, soqlRootFilter } from '@sandforge/shared';
 
 /**
  * The choices of Records per object past the cap of a run from a query

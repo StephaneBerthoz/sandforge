@@ -3,13 +3,19 @@ import type * as z from 'zod';
 
 import type {
   ForgeLeftOutReason,
+  ForgeQueryScope,
   ForgeSampleDraw,
   ForgeSampleOptions,
   ForgeSampleParents,
+  ForgeSampleWindow,
 } from '../types/forge.types.js';
 import {
   FORGE_LEFT_OUT_MAX,
   FORGE_SAMPLE_DEFAULTS,
+  forgeQueryScopeSchema,
+  forgeSampleWindowBound,
+  forgeSampleWindowSchema,
+  queryScopeConfigIssue,
   forgeSampleDrawSchema,
   forgeSampleOptionsSchema,
   forgeSampleParentsSchema,
@@ -256,6 +262,9 @@ describe('a sample of the whole org', () => {
     whole: ['Region__c'],
     floor: 0,
     plan: '/home/someone/plans/forge-samples/abc/manifest.json',
+    window: { field: 'CreatedDate', from: '2025-01-01T00:00:00Z', to: '2025-07-01T00:00:00Z' },
+    rootWhere: { Account: "BillingCountry = 'France'" },
+    strata: ['RecordTypeId', 'Lead.Status'],
   };
 
   /** The messages the strict schema refuses `config` with, path and all. */
@@ -342,7 +351,7 @@ describe('a sample of the whole org', () => {
       refusals({
         ...WHOLE_ORG,
         sample: {
-          draw: 'oldest',
+          draw: 'newest',
           parents: 'none',
           children: 0,
           floor: -1,
@@ -357,7 +366,7 @@ describe('a sample of the whole org', () => {
       'sample.withinMB: Too small: expected number to be >0',
       'sample.maxTotal: Too small: expected number to be >=1',
       'sample.seed: Invalid input: expected int, received number',
-      'sample.draw: Invalid option: expected one of "uniform"|"recent"',
+      'sample.draw: Invalid option: expected one of "uniform"|"recent"|"oldest"',
       'sample.parents: Invalid option: expected one of "all"|"required"',
       'sample.children: Too small: expected number to be >=1',
       'sample.whole.0: Invalid SObject API name',
@@ -373,6 +382,7 @@ describe('a sample of the whole org', () => {
     expectTypeOf<z.infer<typeof forgeSampleOptionsSchema>>().toEqualTypeOf<ForgeSampleOptions>();
     expectTypeOf<z.infer<typeof forgeSampleDrawSchema>>().toEqualTypeOf<ForgeSampleDraw>();
     expectTypeOf<z.infer<typeof forgeSampleParentsSchema>>().toEqualTypeOf<ForgeSampleParents>();
+    expectTypeOf<z.infer<typeof forgeSampleWindowSchema>>().toEqualTypeOf<ForgeSampleWindow>();
   });
 
   it('copies no file: the files asked with a sample are refused, in their words', () => {
@@ -436,6 +446,244 @@ describe('forgeEdgeTypeSchema', () => {
 });
 
 // ─── Config Schema Tests ─────────────────────────────────────────────────────
+
+/**
+ * The roots a sample draws among, chosen: by the dates they were made or
+ * changed in, a filter of each object's roots, the values of a field.
+ */
+describe('how a sample chooses its roots', () => {
+  const WHOLE_ORG = {
+    ...createValidForgeConfig(),
+    inputMode: 'org',
+    depth: 'all',
+    recordId: undefined,
+  };
+
+  /** The messages the strict schema refuses a sample with, path and all. */
+  function refusals(
+    sample: Record<string, unknown>,
+    config: Record<string, unknown> = {},
+  ): string[] {
+    const parsed = forgeConfigSchemaStrict.safeParse({ ...WHOLE_ORG, ...config, sample });
+    return parsed.success
+      ? []
+      : parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+  }
+
+  it('takes a window of either date, bounded on one side, both, or the last days', () => {
+    for (const window of [
+      { field: 'CreatedDate', from: '2025-01-01T00:00:00Z' },
+      { field: 'LastModifiedDate', to: '2025-07-01T00:00:00Z' },
+      { field: 'CreatedDate', from: '2025-01-01T00:00:00Z', to: '2025-01-01T00:00:01Z' },
+      { field: 'CreatedDate', lastDays: 90 },
+    ]) {
+      expect(refusals({ window }), JSON.stringify(window)).toEqual([]);
+    }
+  });
+
+  it('refuses a window with no bound, a bound and the last days, an end before its start, each in its words', () => {
+    expect(refusals({ window: { field: 'CreatedDate' } })).toEqual([
+      'sample.window: A window gives from, to or both, or lastDays',
+    ]);
+    expect(
+      refusals({ window: { field: 'CreatedDate', from: '2025-01-01T00:00:00Z', lastDays: 30 } }),
+    ).toEqual([
+      'sample.window.lastDays: lastDays counts back from when the sample is drawn, and takes no from or to: give one or the other',
+    ]);
+    expect(
+      refusals({
+        window: { field: 'CreatedDate', from: '2025-07-01T00:00:00Z', to: '2025-07-01T00:00:00Z' },
+      }),
+    ).toEqual(['sample.window.to: A window’s from is before its to']);
+  });
+
+  it('refuses a bound that is no instant in UTC to the second, a day the calendar lacks, a field or a key it does not name', () => {
+    const message = 'A bound is an instant in UTC, as 2025-07-01T00:00:00Z';
+    for (const from of ['2025-01-01', '2025-01-01T00:00:00+01:00', '2025-02-30T00:00:00Z', '']) {
+      expect(refusals({ window: { field: 'CreatedDate', from } }), from).toEqual([
+        `sample.window.from: ${message}`,
+      ]);
+    }
+    expect(refusals({ window: { field: 'SystemModstamp', lastDays: 1 } })).toEqual([
+      'sample.window.field: Invalid option: expected one of "CreatedDate"|"LastModifiedDate"',
+    ]);
+    expect(refusals({ window: { field: 'CreatedDate', lastDays: 1, days: 2 } })).toEqual([
+      'sample.window: Unrecognized key: "days"',
+    ]);
+    expect(refusals({ window: { field: 'CreatedDate', lastDays: 36_501 } })).toEqual([
+      'sample.window.lastDays: Too big: expected number to be <=36500',
+    ]);
+  });
+
+  it('turns a date into the instant a window holds: its midnight, or as an end the next one', () => {
+    expect(forgeSampleWindowBound('2025-06-30', false)).toBe('2025-06-30T00:00:00Z');
+    expect(forgeSampleWindowBound('2025-06-30', true)).toBe('2025-07-01T00:00:00Z');
+    expect(forgeSampleWindowBound('2024-12-31', true)).toBe('2025-01-01T00:00:00Z');
+    expect(forgeSampleWindowBound('2025-06-30T12:00:00Z', true)).toBe('2025-06-30T12:00:00Z');
+    for (const text of ['2025-02-30', '30/06/2025', '2025-06-30T12:00Z', 'yesterday']) {
+      expect(forgeSampleWindowBound(text, false), text).toBeUndefined();
+    }
+  });
+
+  it('takes one stratum field of each object at most, the object form beside the field alone', () => {
+    expect(refusals({ strata: ['RecordTypeId', 'Case.Status', 'Lead.Status'] })).toEqual([]);
+    expect(refusals({ strata: ['RecordTypeId', 'OwnerId'] })).toEqual([
+      'sample.strata.1: OwnerId: the roots are stratified by one field of every object at most',
+    ]);
+    expect(refusals({ strata: ['Case.Status', 'case.Origin'] })).toEqual([
+      'sample.strata.1: case.Origin: the roots of case are stratified by one field at most',
+    ]);
+    expect(refusals({ strata: ['Account.Owner.Name'] })).toEqual([
+      'sample.strata.0: A stratum is a field, as RecordTypeId, or an object and its field, as Account.RecordTypeId',
+    ]);
+    expect(refusals({ strata: Array.from({ length: 21 }, (_, i) => `O${i}.F`) })).toEqual([
+      'sample.strata: Too big: expected array to have <=20 items',
+    ]);
+  });
+
+  it('takes a filter of the roots as an object filter is taken, fifty objects at most', () => {
+    expect(
+      refusals({
+        rootWhere: {
+          Account: 'Id IN (SELECT AccountId FROM Case WHERE CreatedDate = LAST_N_DAYS:90)',
+        },
+      }),
+    ).toEqual([]);
+    expect(refusals({ rootWhere: { Account: "Name = 'x';" } })).toEqual([
+      'sample.rootWhere.Account: SOQL filter must not contain comment markers (--, /*, */) or trailing semicolon',
+    ]);
+    expect(refusals({ rootWhere: { 'Account Name': 'x = 1' } })).toEqual([
+      'sample.rootWhere.Account Name: Invalid key in record',
+    ]);
+    const many = Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`O${i}`, 'x = 1']));
+    expect(refusals({ rootWhere: many })).toEqual([
+      'sample.rootWhere: The roots of 50 objects at most are filtered',
+    ]);
+  });
+
+  it('refuses a filter of the roots of an object copied whole or left out, which would choose nothing', () => {
+    expect(refusals({ whole: ['Account'], rootWhere: { Account: 'x = 1' } })).toEqual([
+      'inputMode: The sample filters the roots of an object it copies whole, every record of which comes: Account. Take each out of whole, or filter the object itself (objectSoqlFilters), which leaves records out of the copy',
+    ]);
+    expect(
+      refusals({ rootWhere: { Lead: 'x = 1', Case: 'y = 2' } }, { excludedObjects: ['Case'] }),
+    ).toEqual([
+      'inputMode: The sample filters the roots of an object the run leaves out: Case. Take each out of one list or the other',
+    ]);
+  });
+});
+
+/**
+ * A query clones the records it chooses, each with what the clone of that
+ * record would copy (`records`), or reads whole tables as before 1.81.0
+ * (`tables`, and absent).
+ */
+describe('a clone from the records a query chooses', () => {
+  const QUERY = {
+    ...createValidForgeConfig(),
+    inputMode: 'soql',
+    recordId: undefined,
+    soqlQuery:
+      "SELECT Id FROM Account WHERE Industry = 'Energy' ORDER BY CreatedDate DESC LIMIT 50",
+  };
+
+  function refusals(config: Record<string, unknown>): string[] {
+    const parsed = forgeConfigSchemaStrict.safeParse(config);
+    return parsed.success
+      ? []
+      : parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+  }
+
+  it('keeps its scope and the most roots through the parse a journal and the panel are read with', () => {
+    // Dropped, a run sent to clone the records a query chooses would reach
+    // the executor as one that reads whole tables.
+    const parsed = forgeConfigSchema.parse({ ...QUERY, queryScope: 'records', maxRoots: 500 });
+    expect(parsed.queryScope).toBe('records');
+    expect(parsed.maxRoots).toBe(500);
+    expect(forgeConfigSchema.parse(QUERY)).not.toHaveProperty('queryScope');
+    expect(refusals({ ...QUERY, queryScope: 'records', maxRoots: 2_000 })).toEqual([]);
+    expect(refusals({ ...QUERY, queryScope: 'tables' })).toEqual([]);
+    expectTypeOf<z.infer<typeof forgeQueryScopeSchema>>().toEqualTypeOf<ForgeQueryScope>();
+  });
+
+  it('is kept by a template saved from the SOQL tab', () => {
+    const template = createValidForgeTemplate();
+    const parsed = forgeTemplateSchema.parse({
+      ...template,
+      config: {
+        ...(template.config as Record<string, unknown>),
+        inputMode: 'soql',
+        soqlQuery: QUERY.soqlQuery,
+        queryScope: 'records',
+        maxRoots: 300,
+      },
+    });
+    expect(parsed.config).toMatchObject({ queryScope: 'records', maxRoots: 300 });
+  });
+
+  it('refuses a scope off a query, and a most roots off a scope of records', () => {
+    expect(refusals({ ...createValidForgeConfig(), queryScope: 'records' })).toEqual([
+      "queryScope: queryScope says what a query clones, and goes with inputMode 'soql' alone, not 'record'",
+    ]);
+    expect(refusals({ ...QUERY, maxRoots: 300 })).toEqual([
+      "maxRoots: maxRoots bounds the records a query chooses to clone, and goes with queryScope 'records' alone",
+    ]);
+    expect(refusals({ ...QUERY, queryScope: 'tables', maxRoots: 300 })).toHaveLength(1);
+  });
+
+  it('refuses a most roots past what any run takes', () => {
+    expect(refusals({ ...QUERY, queryScope: 'records', maxRoots: 2_001 })).toEqual([
+      'maxRoots: Too big: expected number to be <=2000',
+    ]);
+    expect(refusals({ ...QUERY, queryScope: 'records', maxRoots: 0 })).toEqual([
+      'maxRoots: Too small: expected number to be >=1',
+    ]);
+  });
+
+  it('refuses a query of records that would read others than it returns, in the words of the way out', () => {
+    expect(
+      refusals({
+        ...QUERY,
+        queryScope: 'records',
+        soqlQuery: 'SELECT Id FROM Account LIMIT 10 OFFSET 10',
+      }),
+    ).toEqual([
+      'soqlQuery: The query’s OFFSET changes the records it returns, and the clone would read others than it shows: take it out, and choose the records by WHERE, ORDER BY and LIMIT',
+    ]);
+    // Read as tables, as before 1.81.0, the same query is the run's to read.
+    expect(refusals({ ...QUERY, soqlQuery: 'SELECT Id FROM Account LIMIT 10 OFFSET 10' })).toEqual(
+      [],
+    );
+    expect(
+      queryScopeConfigIssue({
+        inputMode: 'soql',
+        queryScope: 'records',
+        soqlQuery: 'SELECT Id FROM Account LIMIT 2001',
+      })?.field,
+    ).toBe('soqlQuery');
+    expect(
+      queryScopeConfigIssue({
+        inputMode: 'soql',
+        queryScope: 'records',
+        soqlQuery: QUERY.soqlQuery,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('refuses a scope on a clone of the whole org beside the refusal of the clone itself', () => {
+    expect(
+      refusals({
+        ...createValidForgeConfig(),
+        inputMode: 'org',
+        depth: 'all',
+        recordId: undefined,
+        queryScope: 'records',
+      }),
+    ).toEqual([
+      "queryScope: queryScope says what a query clones, and goes with inputMode 'soql' alone, not 'org'",
+    ]);
+  });
+});
 
 describe('forgeConfigSchema', () => {
   it('should parse valid config with auto batchSize', () => {

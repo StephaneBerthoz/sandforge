@@ -1716,6 +1716,19 @@ describe('callsEstimateOf', () => {
       }),
     ).toEqual({ writes: 2, reads: 1, bound: 'atMost' });
   });
+
+  it('says at most of a clone from the records a query chooses, as of one record, and not of whole tables', () => {
+    // Both read only what their records reach, where discovery counted the
+    // whole tables: their estimate is a bound, never what they make.
+    const graph = graphOf([node('Account', { recordCount: 4_001 })]);
+    const query = { inputMode: 'soql' as const, soqlQuery: 'SELECT Id FROM Account LIMIT 50' };
+    expect(callsEstimateOf(graph, { ...query, queryScope: 'records' }).bound).toBe('atMost');
+    expect(
+      callsEstimateOf(graph, { inputMode: 'record', recordId: '001000000000001AAA' }).bound,
+    ).toBe('atMost');
+    expect(callsEstimateOf(graph, query).bound).toBe('exact');
+    expect(callsEstimateOf(graph, { ...query, queryScope: 'tables' }).bound).toBe('exact');
+  });
 });
 
 describe('gapFieldOf', () => {

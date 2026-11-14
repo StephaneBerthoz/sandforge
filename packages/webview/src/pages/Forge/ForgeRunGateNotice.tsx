@@ -5,6 +5,7 @@ import { useReducedMotion } from 'framer-motion';
 import { ShieldAlert, X } from 'lucide-react';
 import {
   FORGE_READ_CEILING_PER_OBJECT,
+  FORGE_ROOTS_DEFAULT,
   type ForgeRunGateCode,
   type ForgeRunGateStop,
   type WholeOrgSampleLimit,
@@ -44,6 +45,15 @@ const STOP_KEYS: Record<ForgeRunGateCode, string> = {
   SAMPLE_TOO_LARGE: 'forgeRun.gate.sampleTooLarge',
   SAMPLE_PLAN_MISMATCH: 'forgeRun.gate.samplePlanMismatch',
   SAMPLE_PLAN_GONE: 'forgeRun.gate.samplePlanGone',
+  SAMPLE_DRAW_INVALID: 'forgeRun.gate.sampleDrawInvalid',
+  SAMPLE_DRAW_EMPTY: 'forgeRun.gate.sampleDrawEmpty',
+  // A clone from the records a query chooses refused for them, before it
+  // wrote anything.
+  ROOTS_QUERY_REFUSED: 'forgeRun.gate.rootsQueryRefused',
+  NO_ROOTS: 'forgeRun.gate.noRoots',
+  ROOTS_EXCEEDED: 'forgeRun.gate.rootsExceeded',
+  ROOTS_PLAN_MISMATCH: 'forgeRun.gate.rootsPlanMismatch',
+  ROOTS_PLAN_GONE: 'forgeRun.gate.rootsPlanGone',
 };
 
 /**
@@ -209,6 +219,11 @@ export function gateStopSentence(
       most: (stop.sample?.most ?? 0).toLocaleString(locale),
       fitted: (stop.sample?.fittedMB ?? 0).toLocaleString(locale),
       holds: (stop.sample?.holdsMB ?? 0).toLocaleString(locale),
+      // A clone from the records a query chooses: the object, the most it
+      // takes, and that most as a LIMIT the query is given, never grouped.
+      object: stop.roots?.objectApiName ?? '',
+      cap: (stop.roots?.cap ?? FORGE_ROOTS_DEFAULT).toLocaleString(locale),
+      limit: String(stop.roots?.cap ?? FORGE_ROOTS_DEFAULT),
     },
   );
 }

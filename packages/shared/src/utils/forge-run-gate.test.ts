@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FORGE_RUN_GATE_CODES, forgeRunGateStopOf, isForgeRunGateCode } from './forge-run-gate.js';
 
 describe('forge run gate stops', () => {
-  it('names the seventeen ways a run stops at its gate, the five of a sample of the whole org last', () => {
+  it('names the twenty-four ways a run stops at its gate, the seven of a sample of the whole org, then the five of a clone from a query', () => {
     expect(FORGE_RUN_GATE_CODES).toEqual([
       'PRODUCTION_TARGET',
       'AUTOMATION_DECLINED',
@@ -21,7 +21,121 @@ describe('forge run gate stops', () => {
       'SAMPLE_TOO_LARGE',
       'SAMPLE_PLAN_MISMATCH',
       'SAMPLE_PLAN_GONE',
+      'SAMPLE_DRAW_INVALID',
+      'SAMPLE_DRAW_EMPTY',
+      'ROOTS_QUERY_REFUSED',
+      'NO_ROOTS',
+      'ROOTS_EXCEEDED',
+      'ROOTS_PLAN_MISMATCH',
+      'ROOTS_PLAN_GONE',
     ]);
+  });
+
+  // A clone from the records a query chooses is refused before it writes
+  // when the query chooses none, more than it takes, or its plan is not the
+  // one it was given: read as a stop, the page offers the LIMIT that holds
+  // it with the figures the stop names.
+  describe('of a clone from the records a query chooses', () => {
+    it('reads the object, the most it takes and the records the query chooses', () => {
+      expect(
+        forgeRunGateStopOf({
+          code: 'ROOTS_EXCEEDED',
+          roots: { objectApiName: 'Account', cap: 200, total: 1_204 },
+        }),
+      ).toEqual({
+        code: 'ROOTS_EXCEEDED',
+        roots: { objectApiName: 'Account', cap: 200, total: 1_204 },
+      });
+      // Counted at best: a query past the cap whose count did not answer says
+      // "more than", with no total.
+      expect(
+        forgeRunGateStopOf({ code: 'ROOTS_EXCEEDED', roots: { objectApiName: 'Case', cap: 200 } }),
+      ).toEqual({ code: 'ROOTS_EXCEEDED', roots: { objectApiName: 'Case', cap: 200 } });
+      expect(forgeRunGateStopOf({ code: 'NO_ROOTS', roots: { objectApiName: 'Account' } })).toEqual(
+        { code: 'NO_ROOTS', roots: { objectApiName: 'Account' } },
+      );
+      expect(forgeRunGateStopOf({ code: 'ROOTS_QUERY_REFUSED' })).toEqual({
+        code: 'ROOTS_QUERY_REFUSED',
+      });
+    });
+
+    it('reads a plan of the roots refused, by what is wrong with it', () => {
+      for (const plan of ['gone', 'otherOrg', 'otherQuery', 'changed'] as const) {
+        const code = plan === 'gone' ? 'ROOTS_PLAN_GONE' : 'ROOTS_PLAN_MISMATCH';
+        expect(forgeRunGateStopOf({ code, roots: { objectApiName: 'Contact', plan } })).toEqual({
+          code,
+          roots: { objectApiName: 'Contact', plan },
+        });
+      }
+      expect(
+        forgeRunGateStopOf({
+          code: 'ROOTS_PLAN_MISMATCH',
+          roots: { objectApiName: 'Contact', plan: 'otherSetup' },
+        }),
+      ).toBeNull();
+    });
+
+    it('reads nothing past what a page names: a cap past the most, a name that is no object', () => {
+      expect(
+        forgeRunGateStopOf({
+          code: 'ROOTS_EXCEEDED',
+          roots: { objectApiName: 'Account', cap: 2_001 },
+        }),
+      ).toBeNull();
+      expect(
+        forgeRunGateStopOf({
+          code: 'ROOTS_EXCEEDED',
+          roots: { objectApiName: 'Account; DELETE', cap: 200 },
+        }),
+      ).toBeNull();
+      expect(
+        forgeRunGateStopOf({ code: 'NO_ROOTS', roots: { objectApiName: 'Account', total: -1 } }),
+      ).toBeNull();
+    });
+
+    it('drops what a stop says of the roots on a stop that is not of them', () => {
+      expect(
+        forgeRunGateStopOf({
+          code: 'STORAGE_EXCEEDED',
+          roots: { objectApiName: 'Account', cap: 200 },
+        }),
+      ).toEqual({ code: 'STORAGE_EXCEEDED' });
+    });
+
+    it('reads the bound of the records the roots reach, apart from the rows of one object read whole', () => {
+      const readBound = {
+        bound: 50_000,
+        objects: [{ objectApiName: 'Case', rows: 31_000 }],
+        of: 'roots',
+      } as const;
+      expect(forgeRunGateStopOf({ code: 'READ_BOUND_EXCEEDED', readBound })).toEqual({
+        code: 'READ_BOUND_EXCEEDED',
+        readBound,
+      });
+      expect(
+        forgeRunGateStopOf({
+          code: 'READ_BOUND_EXCEEDED',
+          readBound: { ...readBound, of: 'tables' },
+        }),
+      ).toBeNull();
+    });
+
+    it('reads the bound on the requests reading what the roots reach, apart from a drawing’s', () => {
+      const api = {
+        kind: 'requests',
+        org: 'source',
+        estimate: 2_004,
+        remaining: 20_000,
+        reading: { bound: 2_000 },
+      } as const;
+      expect(forgeRunGateStopOf({ code: 'API_BUDGET_EXCEEDED', api })?.api).toEqual(api);
+      expect(
+        forgeRunGateStopOf({
+          code: 'API_BUDGET_EXCEEDED',
+          api: { ...api, reading: { bound: 0 } },
+        }),
+      ).toBeNull();
+    });
   });
 
   // A sample of the whole org is refused before it writes when it cannot be
@@ -96,6 +210,23 @@ describe('forge run gate stops', () => {
         storage: { estimateMB: 3.5, remainingMB: 3 },
         sample: { fittedMB: 3.6, holdsMB: 2 },
       });
+    });
+
+    it('reads a draw refused, with the requests its counts sent, and a sample held by its draw', () => {
+      expect(forgeRunGateStopOf({ code: 'SAMPLE_DRAW_INVALID', sample: { requests: 0 } })).toEqual({
+        code: 'SAMPLE_DRAW_INVALID',
+        sample: { requests: 0 },
+      });
+      expect(forgeRunGateStopOf({ code: 'SAMPLE_DRAW_EMPTY', sample: { requests: 6 } })).toEqual({
+        code: 'SAMPLE_DRAW_EMPTY',
+        sample: { requests: 6 },
+      });
+      expect(
+        forgeRunGateStopOf({ code: 'SAMPLE_CANNOT_FIT', sample: { limitedBy: 'draw' } }),
+      ).toEqual({ code: 'SAMPLE_CANNOT_FIT', sample: { limitedBy: 'draw' } });
+      expect(
+        forgeRunGateStopOf({ code: 'SAMPLE_DRAW_EMPTY', sample: { requests: 1.5 } }),
+      ).toBeNull();
     });
 
     it('drops what a stop says of a sample on a stop that is not of one', () => {
@@ -208,9 +339,23 @@ describe('forge run gate stops', () => {
     expect(
       forgeRunGateStopOf({
         code: 'API_BUDGET_EXCEEDED',
-        api: { ...api, drawing: { share: 0.1, draw: 'oldest' } },
+        api: { ...api, drawing: { share: 0.1, draw: 'newest' } },
       }),
     ).toBeNull();
+  });
+
+  // The oldest roots first read only those kept, as the newest do; a draw
+  // held to a window, filters or strata prices what it reads at most, and
+  // the page offers to narrow those rather than another draw.
+  it('keeps how a drawing refused for its requests drew, the oldest first, and whether its roots were chosen', () => {
+    const api = {
+      kind: 'requests',
+      org: 'source',
+      estimate: 3,
+      remaining: 20,
+      drawing: { share: 0.1, draw: 'oldest', restricted: true },
+    } as const;
+    expect(forgeRunGateStopOf({ code: 'API_BUDGET_EXCEEDED', api })?.api).toEqual(api);
   });
 
   it('reads a refusal for an object read whole: the bound and each object past it', () => {

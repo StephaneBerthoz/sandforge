@@ -4,7 +4,6 @@ import {
   soqlFilterRefused,
   soqlObjectFilters,
   soqlObjectNameRefused,
-  soqlRootFilter,
   SOQL_UNSCOPED_RECORD_CAP,
 } from './forgeUtils';
 
@@ -15,127 +14,10 @@ import {
  * The clause travels as that object's entry in `objectSoqlFilters`, which the
  * executor appends to the object's query. Related objects are not narrowed to
  * the records it matches: they are read from their whole tables, so the run
- * stays bounded by a per-object cap.
+ * stays bounded by a per-object cap. The query is read by the parser shared
+ * with the extension and the command line, whose tests sit beside it
+ * (`@sandforge/shared`, `utils/soqlRoot.test.ts`).
  */
-describe('soqlRootFilter', () => {
-  it('reads the object after FROM and the WHERE clause', () => {
-    expect(soqlRootFilter("SELECT Id, Name FROM Account WHERE Industry = 'X'")).toEqual({
-      objectApiName: 'Account',
-      where: "Industry = 'X'",
-    });
-  });
-
-  it('reads keywords regardless of casing', () => {
-    expect(soqlRootFilter("select id from account where name = 'x'")).toEqual({
-      objectApiName: 'account',
-      where: "name = 'x'",
-    });
-  });
-
-  it('has no filter for a query with no WHERE clause', () => {
-    expect(soqlRootFilter('SELECT Id, Name FROM Account')).toEqual({
-      objectApiName: 'Account',
-      where: null,
-    });
-  });
-
-  it('does not read a field or object merely containing the letters as WHERE', () => {
-    expect(soqlRootFilter('SELECT Somewhere__c FROM Anywhere__c')).toEqual({
-      objectApiName: 'Anywhere__c',
-      where: null,
-    });
-  });
-
-  it('ends the filter where the next clause starts', () => {
-    const base = "SELECT Id FROM Account WHERE Industry = 'X' AND Rating = 'Hot'";
-    for (const tail of [
-      ' ORDER BY Name',
-      ' LIMIT 10',
-      ' OFFSET 5',
-      ' GROUP BY Industry',
-      ' WITH SECURITY_ENFORCED',
-      ' FOR VIEW',
-      ' UPDATE TRACKING',
-    ]) {
-      expect(soqlRootFilter(`${base}${tail}`)?.where).toBe("Industry = 'X' AND Rating = 'Hot'");
-    }
-  });
-
-  it('skips the FROM and WHERE of a subquery in the select list', () => {
-    expect(
-      soqlRootFilter(
-        "SELECT Id, (SELECT Id FROM Contacts WHERE Email != null) FROM Account WHERE Name LIKE 'A%'",
-      ),
-    ).toEqual({ objectApiName: 'Account', where: "Name LIKE 'A%'" });
-  });
-
-  it('keeps a semi-join and quoted keywords inside the filter', () => {
-    const where =
-      "Id IN (SELECT AccountId FROM Contact WHERE LastName = 'x') AND Name = 'it\\'s ORDER BY LIMIT'";
-    expect(soqlRootFilter(`SELECT Id FROM Account WHERE ${where} LIMIT 5`)).toEqual({
-      objectApiName: 'Account',
-      where,
-    });
-  });
-
-  it('gives nothing for a query with no FROM object', () => {
-    expect(soqlRootFilter('SELECT Id')).toBeNull();
-    expect(soqlRootFilter('')).toBeNull();
-  });
-
-  it('has no filter for an empty WHERE', () => {
-    expect(soqlRootFilter('SELECT Id FROM Account WHERE LIMIT 5')?.where).toBeNull();
-  });
-
-  it("drops the object's alias from the filter, which is sent without one", () => {
-    expect(
-      soqlRootFilter("SELECT a.Name FROM Account a WHERE a.Industry = 'X' AND A.Owner.Name = 'Y'"),
-    ).toEqual({ objectApiName: 'Account', where: "Industry = 'X' AND Owner.Name = 'Y'" });
-  });
-
-  it('leaves a quoted value, a nested field and a subquery untouched by the alias', () => {
-    const query =
-      "SELECT Id FROM Contact a WHERE Name = 'a.b' AND Owner.a.x = 1 AND Id IN (SELECT a.Id FROM Case)";
-    expect(soqlRootFilter(query)?.where).toBe(
-      "Name = 'a.b' AND Owner.a.x = 1 AND Id IN (SELECT a.Id FROM Case)",
-    );
-  });
-
-  it('rewrites an alias declared over a relationship to the path it stands for', () => {
-    expect(soqlRootFilter("SELECT Id FROM Contact c, c.Account a WHERE a.Name = 'X'")).toEqual({
-      objectApiName: 'Contact',
-      where: "Account.Name = 'X'",
-    });
-  });
-
-  it('leaves a quoted value alone when it reads like a relationship alias path', () => {
-    expect(
-      soqlRootFilter("SELECT Id FROM Contact c, c.Account a WHERE c.Description = 'a.Name'")?.where,
-    ).toBe("Description = 'a.Name'");
-  });
-
-  it('marks a relationship entry that no alias resolves', () => {
-    const root = soqlRootFilter("SELECT Id FROM Contact c, x.Account a WHERE a.Name = 'X'");
-    expect(root?.unresolvedAlias).toBe(true);
-  });
-
-  it('leaves the same entry unmarked when there is no clause to rewrite', () => {
-    // No WHERE clause means no filter travels, so the aliases are read by
-    // nothing: the query reads Contact and is accepted as it stands.
-    expect(soqlRootFilter('SELECT Id FROM Contact c, x.Account a ORDER BY Name')).toEqual({
-      objectApiName: 'Contact',
-      where: null,
-    });
-  });
-
-  it('does not read USING SCOPE as an alias', () => {
-    expect(soqlRootFilter("SELECT Id FROM Account USING SCOPE mine WHERE Name = 'x'")).toEqual({
-      objectApiName: 'Account',
-      where: "Name = 'x'",
-    });
-  });
-});
-
 describe('soqlFilterRefused', () => {
   const query = (where: string) => `SELECT Id FROM Account WHERE ${where}`;
 

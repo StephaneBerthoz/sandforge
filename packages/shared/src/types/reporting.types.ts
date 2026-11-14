@@ -5,6 +5,7 @@ import type {
   ForgeSampleDraw,
   ForgeVerificationVerdict,
   WholeOrgSampleLimit,
+  WholeOrgSampleResult,
 } from './forge.types.js';
 
 /** Report type */
@@ -284,7 +285,8 @@ export interface AuditBeforeRun {
  * What the audit trail keeps of a fit to the target's storage: the module,
  * the share applied or the caps, the bound asked, and the records kept of
  * those the source held. Counts, never ids. Of Forge's, a sample of the
- * whole org: its seed, its draw and the bound that held it besides.
+ * whole org: its seed, its draw, how its roots were chosen and the bound
+ * that held it besides.
  */
 export interface AuditFit {
   module: 'seed' | 'autopilot' | 'forge';
@@ -299,6 +301,12 @@ export interface AuditFit {
   draw?: ForgeSampleDraw;
   /** Of a sample of the whole org, the first bound that held it. */
   limitedBy?: WholeOrgSampleLimit;
+  /**
+   * Of a sample of the whole org whose roots were chosen, how: its window,
+   * the objects whose roots were filtered and the fields they were
+   * stratified by — never a filter's text nor a stratum's value.
+   */
+  roots?: WholeOrgSampleResult['roots'];
   /** Records the fitted run set out to write, and those the unfitted one would have. */
   kept: number;
   inSource: number;

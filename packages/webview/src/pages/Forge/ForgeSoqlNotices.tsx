@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { soqlFilterRefused, soqlRootFilter, SOQL_UNSCOPED_RECORD_CAP } from './forgeUtils';
+import { soqlRootFilter } from '@sandforge/shared';
+import { soqlFilterRefused, SOQL_UNSCOPED_RECORD_CAP } from './forgeUtils';
 
 /** Props for the ForgeSoqlNotices component. */
 export interface ForgeSoqlNoticesProps {

@@ -758,8 +758,45 @@
                   }
                 },
                 "additionalProperties": false,
-                "markdownDescription": "The record it clones, and what discovery reaches from it: by its `id`, or by its `object` and a `where` its source answers with exactly one row, read at each plan. A resource clones a `record` or `tables`, not both.",
-                "description": "The record it clones, and what discovery reaches from it: by its `id`, or by its `object` and a `where` its source answers with exactly one row, read at each plan. A resource clones a `record` or `tables`, not both."
+                "markdownDescription": "The record it clones, and what discovery reaches from it: by its `id`, or by its `object` and a `where` its source answers with exactly one row, read at each plan. A resource clones a `record`, `records` or `tables`, one of them.",
+                "description": "The record it clones, and what discovery reaches from it: by its `id`, or by its `object` and a `where` its source answers with exactly one row, read at each plan. A resource clones a `record`, `records` or `tables`, one of them."
+              },
+              "records": {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                    "markdownDescription": "The object of the records, by its API name, as `Account`.",
+                    "description": "The object of the records, by its API name, as `Account`."
+                  },
+                  "where": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "markdownDescription": "A SOQL condition, without `WHERE`, selecting the records it clones, as `Industry = 'Energy'`; every record of the object without it. 512 characters at most, with no comment marker (`--`, `/*`, `*/`), no `;` at its end, and not starting with `-`.",
+                    "description": "A SOQL condition, without `WHERE`, selecting the records it clones, as `Industry = 'Energy'`; every record of the object without it. 512 characters at most, with no comment marker (`--`, `/*`, `*/`), no `;` at its end, and not starting with `-`."
+                  },
+                  "orderBy": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "markdownDescription": "The order the records are chosen in, without `ORDER BY`: field paths, each with `ASC` or `DESC` and `NULLS FIRST` or `NULLS LAST`, separated by commas, 200 characters at most, as `CreatedDate DESC`. `Id` without it: a limit with no order would choose other records from one plan to the next.",
+                    "description": "The order the records are chosen in, without `ORDER BY`: field paths, each with `ASC` or `DESC` and `NULLS FIRST` or `NULLS LAST`, separated by commas, 200 characters at most, as `CreatedDate DESC`. `Id` without it: a limit with no order would choose other records from one plan to the next."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2000,
+                    "markdownDescription": "The most records it clones, 1 to 2,000, always given: each plan reads the records again, and must choose the same ones. A query that chooses fewer clones those.",
+                    "description": "The most records it clones, 1 to 2,000, always given: each plan reads the records again, and must choose the same ones. A query that chooses fewer clones those."
+                  }
+                },
+                "required": ["object", "limit"],
+                "additionalProperties": false,
+                "markdownDescription": "The records a query chooses, each with what the clone of that record would copy — the records it reaches, each one they share read and written once —, as `sandforge clone --query` clones them: those of `object` its `where` selects, in the order `orderBy` gives, `limit` of them at most. Read at each plan, their ids in the fingerprint: other records chosen replace the resource. A resource clones a `record`, `records` or `tables`, one of them, and never with `depth: all`.",
+                "description": "The records a query chooses, each with what the clone of that record would copy — the records it reaches, each one they share read and written once —, as `sandforge clone --query` clones them: those of `object` its `where` selects, in the order `orderBy` gives, `limit` of them at most. Read at each plan, their ids in the fingerprint: other records chosen replace the resource. A resource clones a `record`, `records` or `tables`, one of them, and never with `depth: all`."
               },
               "tables": {
                 "minItems": 1,
@@ -785,11 +822,11 @@
                   },
                   "required": ["object"],
                   "additionalProperties": false,
-                  "markdownDescription": "Whole tables it clones, each under its condition, the first the one discovery starts from: 1 to 50, each object once. A resource clones a `record` or `tables`, not both.",
-                  "description": "Whole tables it clones, each under its condition, the first the one discovery starts from: 1 to 50, each object once. A resource clones a `record` or `tables`, not both."
+                  "markdownDescription": "Whole tables it clones, each under its condition, the first the one discovery starts from: 1 to 50, each object once. A resource clones a `record`, `records` or `tables`, one of them.",
+                  "description": "Whole tables it clones, each under its condition, the first the one discovery starts from: 1 to 50, each object once. A resource clones a `record`, `records` or `tables`, one of them."
                 },
-                "markdownDescription": "Whole tables it clones, each under its condition, the first the one discovery starts from: 1 to 50, each object once. A resource clones a `record` or `tables`, not both.",
-                "description": "Whole tables it clones, each under its condition, the first the one discovery starts from: 1 to 50, each object once. A resource clones a `record` or `tables`, not both."
+                "markdownDescription": "Whole tables it clones, each under its condition, the first the one discovery starts from: 1 to 50, each object once. A resource clones a `record`, `records` or `tables`, one of them.",
+                "description": "Whole tables it clones, each under its condition, the first the one discovery starts from: 1 to 50, each object once. A resource clones a `record`, `records` or `tables`, one of them."
               },
               "template": {
                 "type": "object",
@@ -832,14 +869,87 @@
                         "maximum": 1000000,
                         "markdownDescription": "The most MB the sample may take, above 0 and up to 1,000,000, whatever the org to fill has left.",
                         "description": "The most MB the sample may take, above 0 and up to 1,000,000, whatever the org to fill has left."
+                      },
+                      "seed": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991,
+                        "markdownDescription": "The seed the roots are drawn by, 0 or more, as `--fit-seed`: the same seed draws the same roots of the same org. `1` without it. Only a `uniform` draw reads it.",
+                        "description": "The seed the roots are drawn by, 0 or more, as `--fit-seed`: the same seed draws the same roots of the same org. `1` without it. Only a `uniform` draw reads it."
+                      },
+                      "draw": {
+                        "type": "string",
+                        "enum": ["uniform", "recent", "oldest"],
+                        "markdownDescription": "How the roots are drawn, as `--fit-draw`: `uniform`, spread over each object by the seed, reading the id of every root; `recent`, the newest by their creation date, and `oldest`, the oldest, reading only those kept. `uniform` without it.",
+                        "description": "How the roots are drawn, as `--fit-draw`: `uniform`, spread over each object by the seed, reading the id of every root; `recent`, the newest by their creation date, and `oldest`, the oldest, reading only those kept. `uniform` without it."
+                      },
+                      "window": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "enum": ["created", "modified"],
+                            "markdownDescription": "The date the window is of: `created`, when each root was made; `modified`, when it was last changed.",
+                            "description": "The date the window is of: `created`, when each root was made; `modified`, when it was last changed."
+                          },
+                          "from": {
+                            "type": "string",
+                            "markdownDescription": "The first day of the window, as `2025-01-01`, from 00:00 UTC, or an instant in UTC to the second, as `2025-01-01T06:00:00Z`. No start without it; never with `lastDays`.",
+                            "description": "The first day of the window, as `2025-01-01`, from 00:00 UTC, or an instant in UTC to the second, as `2025-01-01T06:00:00Z`. No start without it; never with `lastDays`."
+                          },
+                          "to": {
+                            "type": "string",
+                            "markdownDescription": "The last day of the window, as `2025-06-30`, taken whole, or an instant in UTC to the second, left out. No end without it; never with `lastDays`.",
+                            "description": "The last day of the window, as `2025-06-30`, taken whole, or an instant in UTC to the second, left out. No end without it; never with `lastDays`."
+                          },
+                          "lastDays": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 36500,
+                            "markdownDescription": "The last days the window takes, 1 to 36,500, counted back from each draw: a plan of each night takes the days before it. Never with `from` or `to`.",
+                            "description": "The last days the window takes, 1 to 36,500, counted back from each draw: a plan of each night takes the days before it. Never with `from` or `to`."
+                          }
+                        },
+                        "required": ["field"],
+                        "additionalProperties": false,
+                        "markdownDescription": "The dates the roots are drawn in, as `--fit-window`: of their making (`created`) or their last change (`modified`), from `from` to `to`, either left out, or the last `lastDays` days, counted at each draw. The roots alone: a record under a root or above it comes whatever its date.",
+                        "description": "The dates the roots are drawn in, as `--fit-window`: of their making (`created`) or their last change (`modified`), from `from` to `to`, either left out, or the last `lastDays` days, counted at each draw. The roots alone: a record under a root or above it comes whatever its date."
+                      },
+                      "where": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 512,
+                          "markdownDescription": "The condition the roots of the object are drawn among. 512 characters at most, with no comment marker (`--`, `/*`, `*/`), no `;` at its end, and not starting with `-`.",
+                          "description": "The condition the roots of the object are drawn among. 512 characters at most, with no comment marker (`--`, `/*`, `*/`), no `;` at its end, and not starting with `-`."
+                        },
+                        "markdownDescription": "A SOQL condition per object, without `WHERE`, its roots drawn among the records it selects alone, as `--fit-where Object=…`: `{ Account: \"BillingCountry = 'France'\" }`. Unlike a filter of the object, the records under or above the roots come whatever it says, and no lookup is left empty for it. A semi-join is taken, two at most, as `Id IN (SELECT AccountId FROM Case WHERE …)`.",
+                        "description": "A SOQL condition per object, without `WHERE`, its roots drawn among the records it selects alone, as `--fit-where Object=…`: `{ Account: \"BillingCountry = 'France'\" }`. Unlike a filter of the object, the records under or above the roots come whatever it says, and no lookup is left empty for it. A semi-join is taken, two at most, as `Id IN (SELECT AccountId FROM Case WHERE …)`."
+                      },
+                      "strata": {
+                        "maxItems": 20,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^(?:[A-Za-z][A-Za-z0-9_]{0,79}\\.)?[A-Za-z][A-Za-z0-9_]{0,79}$",
+                          "markdownDescription": "Fields the roots are stratified by, as `--fit-strata`: `Field`, of every object drawn that has it, as `RecordTypeId`, or `Object.Field`, of that object, as `Lead.Status`, before the other form. The sample keeps the same share of the roots of each value of a picklist, a checkbox or a lookup, and one of each at least. One field per object, 20 at most.",
+                          "description": "Fields the roots are stratified by, as `--fit-strata`: `Field`, of every object drawn that has it, as `RecordTypeId`, or `Object.Field`, of that object, as `Lead.Status`, before the other form. The sample keeps the same share of the roots of each value of a picklist, a checkbox or a lookup, and one of each at least. One field per object, 20 at most."
+                        },
+                        "markdownDescription": "Fields the roots are stratified by, as `--fit-strata`: `Field`, of every object drawn that has it, as `RecordTypeId`, or `Object.Field`, of that object, as `Lead.Status`, before the other form. The sample keeps the same share of the roots of each value of a picklist, a checkbox or a lookup, and one of each at least. One field per object, 20 at most.",
+                        "description": "Fields the roots are stratified by, as `--fit-strata`: `Field`, of every object drawn that has it, as `RecordTypeId`, or `Object.Field`, of that object, as `Lead.Status`, before the other form. The sample keeps the same share of the roots of each value of a picklist, a checkbox or a lookup, and one of each at least. One field per object, 20 at most."
                       }
                     },
-                    "required": ["withinMB"],
                     "additionalProperties": false
                   }
                 ],
-                "markdownDescription": "With `depth: all`, `share`: a sample of the whole org that fits the data storage the org to fill has left and `maxTotal`, as `sandforge clone --depth all --fit share` draws it, none of its records without those they name. `{ withinMB: <MB> }`: the same, within that many MB. Without it, every record of the whole org.",
-                "description": "With `depth: all`, `share`: a sample of the whole org that fits the data storage the org to fill has left and `maxTotal`, as `sandforge clone --depth all --fit share` draws it, none of its records without those they name. `{ withinMB: <MB> }`: the same, within that many MB. Without it, every record of the whole org."
+                "markdownDescription": "With `depth: all`, `share`: a sample of the whole org that fits the data storage the org to fill has left and `maxTotal`, as `sandforge clone --depth all --fit share` draws it, none of its records without those they name. A mapping draws the same sample, within `withinMB`, by its `seed`, `draw`, `window`, `where` and `strata`, each the `--fit-*` flag of its name. Without it, every record of the whole org.",
+                "description": "With `depth: all`, `share`: a sample of the whole org that fits the data storage the org to fill has left and `maxTotal`, as `sandforge clone --depth all --fit share` draws it, none of its records without those they name. A mapping draws the same sample, within `withinMB`, by its `seed`, `draw`, `window`, `where` and `strata`, each the `--fit-*` flag of its name. Without it, every record of the whole org."
               },
               "customDepth": {
                 "type": "integer",
@@ -947,8 +1057,8 @@
             },
             "required": ["kind", "source"],
             "additionalProperties": false,
-            "markdownDescription": "A forge resource: records `sandforge clone` clones from the org a role of `orgs` names (`source`) into the org to fill, one `record` and what discovery reaches from it, whole `tables`, or the whole org (`depth: all`), or a sample of it that fits (`fit`); taken back by the clone’s own removal. A source that is a production org is refused unless the resource gives `anonymize` or `accept: { realData: true }`.",
-            "description": "A forge resource: records `sandforge clone` clones from the org a role of `orgs` names (`source`) into the org to fill, one `record` and what discovery reaches from it, whole `tables`, or the whole org (`depth: all`), or a sample of it that fits (`fit`); taken back by the clone’s own removal. A source that is a production org is refused unless the resource gives `anonymize` or `accept: { realData: true }`."
+            "markdownDescription": "A forge resource: records `sandforge clone` clones from the org a role of `orgs` names (`source`) into the org to fill, one `record` and what discovery reaches from it, the `records` a query chooses, each with what the clone of that record would copy, whole `tables`, or the whole org (`depth: all`), or a sample of it that fits (`fit`); taken back by the clone’s own removal. A source that is a production org is refused unless the resource gives `anonymize` or `accept: { realData: true }`.",
+            "description": "A forge resource: records `sandforge clone` clones from the org a role of `orgs` names (`source`) into the org to fill, one `record` and what discovery reaches from it, the `records` a query chooses, each with what the clone of that record would copy, whole `tables`, or the whole org (`depth: all`), or a sample of it that fits (`fit`); taken back by the clone’s own removal. A source that is a production org is refused unless the resource gives `anonymize` or `accept: { realData: true }`."
           },
           {
             "type": "object",

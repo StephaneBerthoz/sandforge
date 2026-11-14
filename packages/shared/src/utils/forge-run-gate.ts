@@ -1,5 +1,5 @@
 import * as z from 'zod';
-import type { WholeOrgSampleLimit } from '../types/forge.types.js';
+import type { ForgeSampleDraw, WholeOrgSampleLimit } from '../types/forge.types.js';
 
 /**
  * Why a Forge run stopped at its gate — the checks between Execute and the
@@ -49,7 +49,7 @@ import type { WholeOrgSampleLimit } from '../types/forge.types.js';
  *   is refused so at its gate under `STORAGE_EXCEEDED`.
  *
  * A sample of the whole org (`ForgeConfig.sample`) is refused, nothing
- * written, under five codes of its own; and under `STORAGE_EXCEEDED` when
+ * written, under seven codes of its own; and under `STORAGE_EXCEEDED` when
  * the target has less room than the sample was fitted to, the stop's
  * `sample` saying how much: drawn again, it would fit, cut, it would not be
  * the sample simulated.
@@ -65,6 +65,33 @@ import type { WholeOrgSampleLimit } from '../types/forge.types.js';
  *   another org or for another setup, or is no longer as it was written.
  * - `SAMPLE_PLAN_GONE`: the plan a run resumes, or was given, is not on this
  *   machine, or not as it was written: its records cannot be taken up.
+ * - `SAMPLE_DRAW_INVALID`: the roots it was asked to draw among cannot be
+ *   drawn so — an object or a field the run does not have, a stratum field
+ *   that is no picklist, checkbox or lookup, or has more values than a
+ *   stratum is counted by, a filter on the roots the source refused, more
+ *   semi-joins than a statement takes, a filter on an object copied whole or
+ *   with no root. Refused before a record is read past the counts.
+ * - `SAMPLE_DRAW_EMPTY`: no object has a root in the window, the filters on
+ *   the roots and the strata asked: there is nothing to draw.
+ *
+ * A clone from the records a query chooses (`queryScope: 'records'`) is
+ * refused, nothing written, under five codes of its own, and under
+ * `READ_BOUND_EXCEEDED` and `API_BUDGET_EXCEEDED` when what its roots reach
+ * reads more records, or more requests of the source, than it may — the
+ * stop's `readBound.of` and `api.reading` say so.
+ *
+ * - `ROOTS_QUERY_REFUSED`: its query cannot choose records — a clause that
+ *   changes the rows it returns, an alias nothing traces, a WHERE, ORDER BY
+ *   or LIMIT past the rules. Nothing was read.
+ * - `NO_ROOTS`: its query chooses no record of the source.
+ * - `ROOTS_EXCEEDED`: its query chooses more records than the run takes
+ *   (`maxRoots`), and gives no LIMIT that holds it: refused before any other
+ *   read, rather than cut at an order nobody chose.
+ * - `ROOTS_PLAN_MISMATCH`: the records a dry run chose, which the run was
+ *   given, were read of another org or by another query, or changed since.
+ * - `ROOTS_PLAN_GONE`: the records a run resumes are not in its journal: it
+ *   cannot take them up without reading the query again, which may choose
+ *   others.
  */
 /**
  * The rows of one object past which a run reading it with no cap asks first
@@ -80,6 +107,32 @@ export const FORGE_READ_CEILING_PER_OBJECT = 50_000;
  * extension host.
  */
 export const FORGE_MAX_RECORDS_PER_OBJECT_BOUND = 1_000_000;
+
+/**
+ * The records a clone from a query takes as its roots unless told otherwise
+ * (`ForgeConfig.maxRoots`, `--max-roots`): the 200 the SOQL tab capped each
+ * object at before a query chose records.
+ */
+export const FORGE_ROOTS_DEFAULT = 200;
+
+/**
+ * The most roots a clone from a query or from records named takes, whatever
+ * it is told: the ids it keeps of them fit the 2 000 its journal keeps of a
+ * run, and a clone from records holds every row it reads, unpaged. Each
+ * lookup to that many is read in about five statements, a statement's URI
+ * holding some 459 ids beside an Account's hundred fields. Past it, a sample
+ * of the whole org with a filter on its roots.
+ */
+export const FORGE_ROOTS_MAX = 2_000;
+
+/**
+ * The most records a clone from many roots reads in all before it writes —
+ * a clone from records reads everything before its first write and holds it:
+ * past it, refused (`READ_BOUND_EXCEEDED`, `readBound.of: 'roots'`), nothing
+ * written. The command line may lower it (`--max-read-total`); a clone of one
+ * record is not held to it.
+ */
+export const FORGE_ROOTS_READ_TOTAL = 50_000;
 
 export const FORGE_RUN_GATE_CODES = [
   'PRODUCTION_TARGET',
@@ -99,6 +152,13 @@ export const FORGE_RUN_GATE_CODES = [
   'SAMPLE_TOO_LARGE',
   'SAMPLE_PLAN_MISMATCH',
   'SAMPLE_PLAN_GONE',
+  'SAMPLE_DRAW_INVALID',
+  'SAMPLE_DRAW_EMPTY',
+  'ROOTS_QUERY_REFUSED',
+  'NO_ROOTS',
+  'ROOTS_EXCEEDED',
+  'ROOTS_PLAN_MISMATCH',
+  'ROOTS_PLAN_GONE',
 ] as const;
 
 /** A way a Forge run stops at its gate. */
@@ -141,17 +201,48 @@ export interface ForgeRunGateStop {
     /**
      * Of a sample refused as its plan was drawn: the share of `remaining`
      * the drawing may read (a tenth), past which it stopped, and how it drew.
-     * Absent, the run was refused past all that is left. The newest roots
-     * first read fewer requests than roots spread over the org.
+     * Absent, the run was refused past all that is left. The newest or the
+     * oldest roots first read fewer requests than roots spread over the org.
+     * `restricted` says the draw was held to a window, filters on its roots
+     * or strata: its counts are at most, and narrowing them is a way out.
      */
-    drawing?: { share: number; draw: 'uniform' | 'recent' };
+    drawing?: { share: number; draw: ForgeSampleDraw; restricted?: boolean };
+    /**
+     * Of a clone from the records a query chose, refused as it read what they
+     * reach: the requests the read may send the source — a tenth of what it
+     * has left today, or 2 000 when it would not say —, which `estimate`, the
+     * requests sent and those of the next object's statements, passed.
+     * Nothing was written.
+     */
+    reading?: { bound: number };
   };
   /**
    * For a clone of the whole org refused for an object it reads whole: the
    * most rows of one object it may hold (`sandforge.forge.maxRecordsPerObject`),
-   * and each object past it with its rows.
+   * and each object past it with its rows. With `of: 'roots'`, of a clone from
+   * the records a query chose: the most records it may read in all
+   * (`FORGE_ROOTS_READ_TOTAL`, or `--max-read-total`), and the objects it had
+   * read when it went past, with their rows.
    */
-  readBound?: { bound: number; objects: Array<{ objectApiName: string; rows: number }> };
+  readBound?: {
+    bound: number;
+    objects: Array<{ objectApiName: string; rows: number }>;
+    of?: 'roots';
+  };
+  /**
+   * For a clone from the records a query chooses refused for them — its
+   * query refused, choosing none, more than it takes, or a plan of them
+   * refused: the object the query chooses from, the most it takes
+   * (`maxRoots`), the records the query chooses when they were counted, and
+   * what is wrong with the plan. What the query was refused for is said in
+   * the error's message.
+   */
+  roots?: {
+    objectApiName: string;
+    cap?: number;
+    total?: number;
+    plan?: RootsGatePlanRefusal;
+  };
   /**
    * For a sample of the whole org stopped at its gate, what the page names of
    * the stop:
@@ -167,7 +258,10 @@ export interface ForgeRunGateStop {
    *   another setup, or another plan than its run's;
    * - of a sample whose target has less room than it was fitted to
    *   (`STORAGE_EXCEEDED`), the MB it was fitted to and the MB the storage
-   *   the target has left now holds of a sample.
+   *   the target has left now holds of a sample;
+   * - of a draw refused (`SAMPLE_DRAW_INVALID`, `SAMPLE_DRAW_EMPTY`), the
+   *   requests its counts had sent the source: none, of options refused
+   *   before any.
    */
   sample?: {
     needMB?: number;
@@ -179,11 +273,20 @@ export interface ForgeRunGateStop {
     plan?: SampleGatePlanRefusal;
     fittedMB?: number;
     holdsMB?: number;
+    requests?: number;
   };
 }
 
 /** What is wrong with the plan of a sample a run is refused for: see {@link ForgeRunGateStop.sample}. */
 export type SampleGatePlanRefusal = 'gone' | 'changed' | 'otherOrg' | 'otherSetup' | 'otherSha';
+
+/**
+ * What is wrong with the plan of the roots a run is refused for, see
+ * {@link ForgeRunGateStop.roots}: not in the journal of the run it resumes
+ * (`gone`), read of another org (`otherOrg`) or by another query
+ * (`otherQuery`), or no longer the ids it was written with (`changed`).
+ */
+export type RootsGatePlanRefusal = 'gone' | 'otherOrg' | 'otherQuery' | 'changed';
 
 /** The codes of a sample's own stops, and the one a sample whose target moved is refused under. */
 const SAMPLE_STOP_CODES: ReadonlySet<ForgeRunGateCode> = new Set([
@@ -192,8 +295,22 @@ const SAMPLE_STOP_CODES: ReadonlySet<ForgeRunGateCode> = new Set([
   'SAMPLE_TOO_LARGE',
   'SAMPLE_PLAN_MISMATCH',
   'SAMPLE_PLAN_GONE',
+  'SAMPLE_DRAW_INVALID',
+  'SAMPLE_DRAW_EMPTY',
   'STORAGE_EXCEEDED',
 ]);
+
+/** The codes of a clone from a query's own stops, which say what the stop names of its roots. */
+const ROOTS_STOP_CODES: ReadonlySet<ForgeRunGateCode> = new Set([
+  'ROOTS_QUERY_REFUSED',
+  'NO_ROOTS',
+  'ROOTS_EXCEEDED',
+  'ROOTS_PLAN_MISMATCH',
+  'ROOTS_PLAN_GONE',
+]);
+
+/** An object's API name, as a stop names one. */
+const OBJECT_NAME = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
 /** The heaviest objects a refusal of a sample that cannot fit names, at most, as the page reads them. */
 const SAMPLE_HEAVIEST_NAMED = 20;
@@ -223,9 +340,15 @@ const stopSchema = z.object({
       drawing: z
         .object({
           share: z.number().positive().max(1),
-          draw: z.enum(['uniform', 'recent']),
+          draw: z.enum([
+            'uniform',
+            'recent',
+            'oldest',
+          ] as const satisfies readonly ForgeSampleDraw[]),
+          restricted: z.boolean().optional(),
         })
         .optional(),
+      reading: z.object({ bound: z.number().int().positive() }).optional(),
     })
     .optional(),
   // Bounded as a message is: the page names each object, and a forged one
@@ -242,6 +365,22 @@ const stopSchema = z.object({
         )
         .min(1)
         .max(200),
+      of: z.literal('roots').optional(),
+    })
+    .optional(),
+  roots: z
+    .object({
+      objectApiName: z.string().regex(OBJECT_NAME),
+      cap: z.number().int().min(1).max(FORGE_ROOTS_MAX).optional(),
+      total: z.number().int().nonnegative().optional(),
+      plan: z
+        .enum([
+          'gone',
+          'otherOrg',
+          'otherQuery',
+          'changed',
+        ] as const satisfies readonly RootsGatePlanRefusal[])
+        .optional(),
     })
     .optional(),
   // Bounded as a message is: sizes and counts never below zero, and the
@@ -261,6 +400,7 @@ const stopSchema = z.object({
           'sourceRequests',
           'heavyRoots',
           'whole',
+          'draw',
         ] as const satisfies readonly WholeOrgSampleLimit[])
         .optional(),
       rows: z.number().int().nonnegative().optional(),
@@ -268,6 +408,7 @@ const stopSchema = z.object({
       plan: z.enum(['gone', 'changed', 'otherOrg', 'otherSetup', 'otherSha']).optional(),
       fittedMB: z.number().nonnegative().optional(),
       holdsMB: z.number().nonnegative().optional(),
+      requests: z.number().int().nonnegative().optional(),
     })
     .optional(),
 });
@@ -284,7 +425,7 @@ export function isForgeRunGateCode(value: unknown): value is ForgeRunGateCode {
 export function forgeRunGateStopOf(value: unknown): ForgeRunGateStop | null {
   const parsed = stopSchema.safeParse(value);
   if (!parsed.success) return null;
-  const { code, storage, ceiling, reason, api, readBound, sample } = parsed.data;
+  const { code, storage, ceiling, reason, api, readBound, sample, roots } = parsed.data;
   return {
     code,
     ...(storage
@@ -302,5 +443,6 @@ export function forgeRunGateStopOf(value: unknown): ForgeRunGateStop | null {
     ...(api && code === 'API_BUDGET_EXCEEDED' ? { api } : {}),
     ...(readBound && code === 'READ_BOUND_EXCEEDED' ? { readBound } : {}),
     ...(sample && SAMPLE_STOP_CODES.has(code) ? { sample } : {}),
+    ...(roots && ROOTS_STOP_CODES.has(code) ? { roots } : {}),
   };
 }

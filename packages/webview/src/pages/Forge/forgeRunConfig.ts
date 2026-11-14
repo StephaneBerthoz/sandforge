@@ -14,7 +14,7 @@ import type {
   ForgeInputMode,
   ForgeTemplate,
 } from '@sandforge/shared';
-import { soqlRootFilter } from './forgeUtils';
+import { soqlRootFilter } from '@sandforge/shared';
 
 /** A run's configuration as History and templates keep it: without the org pair. */
 export type StoredForgeConfig = Omit<ForgeConfig, 'sourceOrgId' | 'targetOrgId'>;

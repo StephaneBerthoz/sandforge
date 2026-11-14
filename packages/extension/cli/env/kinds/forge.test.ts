@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { Connection } from 'jsforce';
 import {
   forgeTemplateSchema,
+  type EnvForgeFit,
   type EnvForgeResource,
   type EnvForgeRun,
   type ForgeTemplateInput,
@@ -954,6 +955,73 @@ describe('a forge resource of depth: all, the whole org', () => {
       keepContactPoints: true,
     });
     expect(parseCloneArgs(['node', 'sandforge-clone.ts', ...asRead])).not.toHaveProperty('sample');
+  });
+
+  it('gives each key of its sample the --fit-* flag of its name, none dropped, and fingerprints them', () => {
+    const fit: EnvForgeFit = {
+      withinMB: 120,
+      seed: 7,
+      draw: 'oldest',
+      window: { field: 'created', from: '2025-01-01', to: '2025-06-30' },
+      where: { Account: "BillingCountry = 'France'", Lead: 'IsConverted = false' },
+      strata: ['Account.RecordTypeId', 'Status'],
+    };
+    const run = wholeOf({ ...whole, fit: structuredClone(fit) });
+    expect(run.wholeOrg?.fit).toEqual(fit);
+    const line = forgeDryRunLine({
+      source: 'SRC',
+      target: 'TGT',
+      templateFile: join(dir, 'whole.json'),
+      wholeOrg: run.wholeOrg,
+      maxTotal: 40_000,
+      acceptAutomation: false,
+    });
+    const after = line.slice(line.indexOf('--fit'));
+    expect(after.slice(0, after.indexOf('--dry-run'))).toEqual([
+      '--fit',
+      'share',
+      '--fit-within',
+      '120',
+      '--fit-seed',
+      '7',
+      '--fit-draw',
+      'oldest',
+      '--fit-window',
+      'created:2025-01-01..2025-06-30',
+      '--fit-where',
+      "Account=BillingCountry = 'France'",
+      '--fit-where',
+      'Lead=IsConverted = false',
+      '--fit-strata',
+      'Account.RecordTypeId',
+      '--fit-strata',
+      'Status',
+    ]);
+    const windowOf = (window: NonNullable<EnvForgeFit['window']>): string[] => {
+      const dry = forgeDryRunLine({
+        source: 'SRC',
+        target: 'TGT',
+        templateFile: join(dir, 'whole.json'),
+        wholeOrg: { anonymize: true, keepContactPoints: false, fit: { window } },
+        maxTotal: 1,
+        acceptAutomation: false,
+      });
+      return dry.slice(dry.indexOf('--fit-window'), dry.indexOf('--fit-window') + 2);
+    };
+    expect(windowOf({ field: 'modified', lastDays: 30 })).toEqual(['--fit-window', 'modified:30d']);
+    expect(windowOf({ field: 'created', from: '2025-01-01T06:00:00Z' })).toEqual([
+      '--fit-window',
+      'created:2025-01-01T06:00:00Z..',
+    ]);
+    expect(windowOf({ field: 'created', to: '2025-06-30' })).toEqual([
+      '--fit-window',
+      'created:..2025-06-30',
+    ]);
+    // Another draw is another sample: the resource is replaced, never kept.
+    const read = { organizationId: '00D000000000008AAA' };
+    expect(forgeWritten(run, read)).not.toEqual(
+      forgeWritten(wholeOf({ ...whole, fit: { ...structuredClone(fit), draw: 'recent' } }), read),
+    );
   });
 
   it('counts as anonymized, by each category’s default method, and is fingerprinted apart from a walk', () => {

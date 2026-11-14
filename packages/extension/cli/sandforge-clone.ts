@@ -5075,6 +5075,11 @@ function sampleLimitWords(
       return `limited by the daily API requests ${source} has left`;
     case 'whole':
       return 'every record of the org fits: leave out --fit share to copy the whole org';
+    case 'draw':
+      return (
+        'limited by the draw: every root --fit-window, --fit-where and --fit-strata leave is ' +
+        'in the sample; widen them to take more'
+      );
   }
 }
 

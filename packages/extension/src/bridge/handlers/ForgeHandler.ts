@@ -55,6 +55,7 @@ import {
   idMapCsvLines,
   idMapRows,
   type IdMapRow,
+  isRecordScoped,
   leftOutByTheUser,
   removalRisksOf,
   guardTierOf,
@@ -1644,7 +1645,10 @@ function failureCodes(errors: readonly ForgeExecutionError[]): Record<string, st
  */
 function guardedWrites(
   graph: ForgeGraph,
-  config: Pick<ForgeConfig, 'inputMode' | 'recordId' | 'maxRecordsPerObject'>,
+  config: Pick<
+    ForgeConfig,
+    'inputMode' | 'recordId' | 'soqlQuery' | 'queryScope' | 'maxRecordsPerObject'
+  >,
 ): Pick<OperationRequest, 'objectName' | 'recordCount' | 'alsoWrites'> {
   const written = graph.nodes.filter((node) => node.included);
   const objectName = written.map((node) => node.objectApiName).join(', ') || 'ForgeData';
@@ -1652,8 +1656,9 @@ function guardedWrites(
   // A clone of the whole org copies every row whatever cap a config carried
   // over (`forgeExecuteOptions`): none bounds what it writes.
   const cap = config.inputMode === 'org' ? undefined : config.maxRecordsPerObject;
-  // Record-scoped as the orchestrator runs it: an input of one record.
-  let atMost = config.inputMode === 'record' && typeof config.recordId === 'string';
+  // Record-scoped: a record, or the records a query chooses, read with what
+  // they reach alone, where discovery counted whole tables.
+  let atMost = isRecordScoped(config);
   let records = 0;
   for (const node of written) {
     if (node.recordCountUnknown === true) {

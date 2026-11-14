@@ -10,7 +10,16 @@ import {
   TEMPLATE_MAX_RULES,
   savedTemplateRuleSchema,
 } from '../constants/saved-anonymization-templates.js';
-import { forgeAnonymizationRulesSchema, forgeRunDepthSchema } from './forge.schema.js';
+import {
+  FORGE_SAMPLE_MAX_LAST_DAYS,
+  FORGE_SAMPLE_MAX_ROOT_WHERE,
+  forgeAnonymizationRulesSchema,
+  forgeRunDepthSchema,
+  forgeSampleStrataSchema,
+  forgeSampleWindowBound,
+} from './forge.schema.js';
+import { FORGE_ROOTS_MAX } from '../utils/forge-run-gate.js';
+import { soqlOrderBySchema } from '../utils/soqlRoot.js';
 import { fieldRuleConfigSchema, fieldRuleSchema } from './seed-config.schema.js';
 
 /**
@@ -429,9 +438,8 @@ const fitWithinSchema = z.number().positive().max(FIT_WITHIN_MOST_MB);
 /**
  * A seed fitted to the target's data storage, as `sandforge seed --fit share`
  * seeds it: the largest share of every count that fits, or of what fits
- * within `withinMB` (`--fit-within`). A forge resource of `depth: all` takes
- * it too: the sample of the whole org that fits, `sandforge clone --depth all
- * --fit share`.
+ * within `withinMB` (`--fit-within`). A forge resource's takes more: see
+ * {@link forgeFitSchema}.
  */
 const seedFitSchema = z.union(
   [z.literal('share'), strictObject('fit', { withinMB: fitWithinSchema })],
@@ -537,6 +545,83 @@ const relativePathSchema = z
     { error: 'A path is written from the folder of the file, never absolute and never up with ..' },
   );
 
+/** A bound of a window, as the file writes it: a date, or an instant in UTC to the second. */
+const windowBoundSchema = z
+  .string()
+  .refine((bound) => forgeSampleWindowBound(bound, false) !== undefined, {
+    error: 'A bound is a date, as 2025-06-30, or an instant in UTC, as 2025-06-30T12:00:00Z',
+  });
+
+/**
+ * The dates a sample draws its roots in, as `--fit-window` takes them: of
+ * their making (`created`) or their last change (`modified`), from `from`,
+ * included, to `to`, a date there taking the whole day, either left out; or
+ * the last `lastDays` days, fixed each time the sample is drawn.
+ */
+const forgeFitWindowFileSchema = strictObject('window', {
+  field: z.enum(['created', 'modified']),
+  from: windowBoundSchema.optional(),
+  to: windowBoundSchema.optional(),
+  lastDays: z.number().int().min(1).max(FORGE_SAMPLE_MAX_LAST_DAYS).optional(),
+}).superRefine((window, ctx) => {
+  const bounded = window.from !== undefined || window.to !== undefined;
+  if (!bounded && window.lastDays === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [],
+      message: 'A window gives from, to or both, or lastDays: the last days the roots were made in',
+    });
+  }
+  if (bounded && window.lastDays !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['lastDays'],
+      message:
+        'lastDays counts back from each draw, and takes no from or to: give one or the other',
+    });
+  }
+  const from = window.from === undefined ? undefined : forgeSampleWindowBound(window.from, false);
+  const to = window.to === undefined ? undefined : forgeSampleWindowBound(window.to, true);
+  if (from !== undefined && to !== undefined && from >= to) {
+    ctx.addIssue({ code: 'custom', path: ['to'], message: 'A window’s from is before its to' });
+  }
+});
+
+/**
+ * A forge resource's sample of the whole org, with `depth: all`, as
+ * `sandforge clone --depth all --fit share` draws it: `share`, the sample
+ * that fits the org to fill, or the same within `withinMB`, by the seed, the
+ * draw, the window, the filters of the roots and the strata given — the
+ * `--fit-*` flags of the same names. The seed's `fit` takes `withinMB` alone:
+ * a seed draws no root.
+ */
+const forgeFitSchema = z.union(
+  [
+    z.literal('share'),
+    strictObject('fit', {
+      withinMB: fitWithinSchema.optional(),
+      seed: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+      draw: z.enum(['uniform', 'recent', 'oldest']).optional(),
+      window: forgeFitWindowFileSchema.optional(),
+      where: z
+        .record(apiNameSchema, whereClauseSchema)
+        .refine((where) => Object.keys(where).length <= FORGE_SAMPLE_MAX_ROOT_WHERE, {
+          error: `The roots of ${FORGE_SAMPLE_MAX_ROOT_WHERE} objects at most are filtered`,
+        })
+        .optional(),
+      strata: forgeSampleStrataSchema.optional(),
+    }),
+  ],
+  // A value a key of the mapping refuses outright — a draw or a window's
+  // field it does not list — fails both shapes, and is said here: the
+  // refinements of the mapping say their own words, at their own keys.
+  {
+    error:
+      'fit is share, or a mapping of withinMB, seed, draw (uniform, recent or oldest), window ' +
+      '({ field: created or modified, from, to } or { field, lastDays }), where and strata',
+  },
+);
+
 /**
  * The record a forge resource clones: by its id, for a source that lives on,
  * or by its object and a condition its source answers with exactly one row,
@@ -565,6 +650,33 @@ const forgeRecordFileSchema = strictObject('a record', {
       message: 'A record named by a query gives its object and its where both',
     });
   }
+});
+
+/**
+ * The records a forge resource clones from a query, each with what the
+ * clone of that record would copy, as `sandforge clone --query` clones them:
+ * those of `object` its `where` selects, in the order `orderBy` gives — `Id`
+ * unless it says otherwise —, `limit` of them at most. The limit is asked: a
+ * plan reads the records again each time, and must read the same ones.
+ */
+const forgeRecordsFileSchema = strictObject('records', {
+  object: apiNameSchema,
+  where: whereClauseSchema.optional(),
+  orderBy: soqlOrderBySchema
+    .refine((orderBy) => !orderBy.startsWith('-'), {
+      error: 'An ORDER BY does not start with -',
+    })
+    .optional(),
+  limit: z
+    .number({
+      error: (issue) =>
+        issue.input === undefined
+          ? `records gives limit, the most records it clones, 1 to ${FORGE_ROOTS_MAX}: each plan reads them again, and must read the same`
+          : undefined,
+    })
+    .int()
+    .min(1)
+    .max(FORGE_ROOTS_MAX),
 });
 
 /** A table a forge resource clones whole, under its condition. */
@@ -616,14 +728,19 @@ export const envForgeResourceSchema = strictObject('a forge resource', {
   source: envNameSchema,
   /** One record and what discovery reaches from it. */
   record: forgeRecordFileSchema.optional(),
+  /** The records a query chooses, each with what the clone of that record would copy. */
+  records: forgeRecordsFileSchema.optional(),
   /** Whole tables, the first the one discovery starts from. */
   tables: z.array(forgeTableFileSchema).min(1).max(ENV_FORGE_MAX_TABLES).optional(),
   /** A template the Template tab saved: its decisions, exclusions, filters and mappings. */
   template: forgeTemplateRefFileSchema.optional(),
   /** A walk's depth, or `all`: the whole org, from no record, no table and no template. */
   depth: forgeRunDepthSchema.optional(),
-  /** With `depth: all`, a sample of the whole org that fits the target: `share`, or `{ withinMB }`. */
-  fit: seedFitSchema.optional(),
+  /**
+   * With `depth: all`, a sample of the whole org that fits the target:
+   * `share`, or `{ withinMB, seed, draw, window, where, strata }`.
+   */
+  fit: forgeFitSchema.optional(),
   customDepth: z.number().int().positive().max(10).optional(),
   maxNodes: z.number().int().min(10).max(500).optional(),
   anonymize: forgeAnonymizeFileSchema.optional(),
@@ -637,6 +754,7 @@ export const envForgeResourceSchema = strictObject('a forge resource', {
     // own line refuses each flag.
     const notWithAll: Array<[keyof typeof resource, string]> = [
       ['record', 'it starts from no record'],
+      ['records', 'it starts from no query; a sample of it filters its roots with fit: { where }'],
       ['tables', 'it starts from no table'],
       [
         'template',
@@ -680,13 +798,16 @@ export const envForgeResourceSchema = strictObject('a forge resource', {
         'A clone of a record or of tables writes what it reaches',
     });
   }
-  if ((resource.record === undefined) === (resource.tables === undefined)) {
+  const starts = (['record', 'records', 'tables'] as const).filter(
+    (key) => resource[key] !== undefined,
+  );
+  if (starts.length !== 1) {
     ctx.addIssue({
       code: 'custom',
       path: [],
       message:
-        'A forge resource clones one record (record), whole tables (tables) or the whole org ' +
-        '(depth: all): give one of them',
+        'A forge resource clones one record (record), the records a query chooses (records), ' +
+        'whole tables (tables) or the whole org (depth: all): give one of them',
     });
   }
   const seen = new Set<string>();

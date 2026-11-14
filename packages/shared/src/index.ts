@@ -355,13 +355,32 @@ export { seedEmailEstimates, seedEmailsRefused } from './utils/seed-automation.j
 export {
   FORGE_READ_CEILING_PER_OBJECT,
   FORGE_MAX_RECORDS_PER_OBJECT_BOUND,
+  FORGE_ROOTS_DEFAULT,
+  FORGE_ROOTS_MAX,
+  FORGE_ROOTS_READ_TOTAL,
   FORGE_RUN_GATE_CODES,
   forgeRunGateStopOf,
   isForgeRunGateCode,
   type ForgeRunGateCode,
   type ForgeRunGateStop,
+  type RootsGatePlanRefusal,
   type SampleGatePlanRefusal,
 } from './utils/forge-run-gate.js';
+export {
+  SOQL_ROOT_ORDER_BY_MAX,
+  SOQL_ROOT_REFUSED_CLAUSES,
+  isRecordScoped,
+  soqlOrderBySchema,
+  soqlRootFilter,
+  soqlRootIssueWords,
+  soqlRootQuery,
+  soqlRootQueryIssue,
+  soqlWhereFragmentSchema,
+  type SoqlRootFilter,
+  type SoqlRootIssue,
+  type SoqlRootQuery,
+  type SoqlRootRefusedClause,
+} from './utils/soqlRoot.js';
 export {
   COMPARE_DIFFERENCE_COUNT,
   conditionDefect,

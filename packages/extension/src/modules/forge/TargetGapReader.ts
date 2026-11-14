@@ -62,6 +62,7 @@ import {
   gapAssignEntry,
   gapAssignments,
   gapLiftedBy,
+  isRecordScoped,
   mergeGaps,
 } from '@sandforge/shared';
 import * as z from 'zod';
@@ -254,6 +255,8 @@ export type GapRunScope = Partial<
     ForgeConfig,
     | 'inputMode'
     | 'recordId'
+    | 'soqlQuery'
+    | 'queryScope'
     | 'maxRecordsPerObject'
     | 'fieldExclusions'
     | 'fieldMappings'
@@ -415,16 +418,15 @@ interface CallsEstimate {
  * (`ForgePlanGenerator`), and a read of each object for each 2 000 rows it
  * holds. Each table counts for no more than the cap on each object.
  *
- * Discovery counts whole tables: a clone of one record reads the few rows of
- * each table its record reaches, so its estimate is what it makes at most. A
- * graph with an object never counted — a starter template's — and no cap
- * cannot be estimated.
+ * Discovery counts whole tables: a clone of one record, or of the records a
+ * query chooses, reads the few rows of each table they reach, so its estimate
+ * is what it makes at most. A graph with an object never counted — a starter
+ * template's — and no cap cannot be estimated.
  */
 export function callsEstimateOf(graph: ForgeGraph, scope: GapRunScope = {}): CallsEstimate {
   const cap = scope.maxRecordsPerObject;
   const included = graph.nodes.filter((node) => node.included);
-  let bound: CallsEstimate['bound'] =
-    scope.inputMode === 'record' && typeof scope.recordId === 'string' ? 'atMost' : 'exact';
+  let bound: CallsEstimate['bound'] = isRecordScoped(scope) ? 'atMost' : 'exact';
   const capped = included.map((node) => {
     if (node.recordCountUnknown === true) {
       if (cap === undefined) bound = 'unknown';

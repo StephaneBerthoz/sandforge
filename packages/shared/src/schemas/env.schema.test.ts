@@ -426,7 +426,7 @@ describe('a forge resource', () => {
 
   it('clones one record or whole tables, one of them, a record named one way', () => {
     expect(refusalsOf(withForge({}))).toEqual([
-      'resources.bug-1234: A forge resource clones one record (record), whole tables (tables) or the whole org (depth: all): give one of them',
+      'resources.bug-1234: A forge resource clones one record (record), the records a query chooses (records), whole tables (tables) or the whole org (depth: all): give one of them',
     ]);
     expect(
       refusalsOf(withForge({ record: { id: '500xx0000001234AAA' }, tables: [{ object: 'Case' }] })),
@@ -558,6 +558,154 @@ describe('a forge resource', () => {
     expect(refusalsOf(withForge({ tables: [{ object: 'Case' }], sourceAlias: 'UAT' }))).toEqual([
       expect.stringContaining('"sourceAlias" is not a key of a forge resource'),
     ]);
+  });
+
+  it('clones the records a query chooses, by its object, condition, order and limit', () => {
+    const energy = envFileSchema.parse(
+      withForge({
+        records: {
+          object: 'Account',
+          where: "  Industry = 'Energy'  ",
+          orderBy: 'CreatedDate DESC',
+          limit: 50,
+        },
+        depth: 'full',
+      }),
+    );
+    expect(energy.resources['bug-1234']).toMatchObject({
+      // Trimmed as a table's condition is: the same condition, the same fingerprint.
+      records: {
+        object: 'Account',
+        where: "Industry = 'Energy'",
+        orderBy: 'CreatedDate DESC',
+        limit: 50,
+      },
+    });
+    expect(
+      envFileSchema.safeParse(withForge({ records: { object: 'Case', limit: 2_000 } })).success,
+    ).toBe(true);
+  });
+
+  it('asks the limit of the records a query chooses, the same each plan, and holds it to the most a clone takes', () => {
+    expect(refusalsOf(withForge({ records: { object: 'Account', where: 'x = 1' } }))).toEqual([
+      'resources.bug-1234.records.limit: records gives limit, the most records it clones, 1 to 2000: each plan reads them again, and must read the same',
+    ]);
+    expect(refusalsOf(withForge({ records: { object: 'Account', limit: 2_001 } }))).toEqual([
+      'resources.bug-1234.records.limit: Too big: expected number to be <=2000',
+    ]);
+    expect(refusalsOf(withForge({ records: { object: 'Account', limit: 0 } }))).toHaveLength(1);
+  });
+
+  it('holds the order of the records a query chooses to field paths and their directions', () => {
+    expect(
+      refusalsOf(withForge({ records: { object: 'Account', orderBy: 'Name; DELETE', limit: 5 } })),
+    ).toEqual([
+      'resources.bug-1234.records.orderBy: An ORDER BY takes field paths, each with ASC or DESC and NULLS FIRST or LAST, separated by commas',
+    ]);
+    expect(
+      refusalsOf(withForge({ records: { object: 'Account', where: "Name = 'a';", limit: 5 } })),
+    ).toHaveLength(1);
+    expect(
+      refusalsOf(withForge({ records: { object: 'Account', limit: 5, query: 'SELECT Id' } })),
+    ).toEqual([
+      expect.stringContaining(
+        '"query" is not a key of records, which takes object, where, orderBy, limit',
+      ),
+    ]);
+  });
+
+  it('clones the records a query chooses or a record or tables, one of them, never with the whole org', () => {
+    expect(
+      refusalsOf(
+        withForge({
+          records: { object: 'Account', limit: 5 },
+          record: { id: '500xx0000001234AAA' },
+        }),
+      ),
+    ).toEqual([
+      'resources.bug-1234: A forge resource clones one record (record), the records a query chooses (records), whole tables (tables) or the whole org (depth: all): give one of them',
+    ]);
+    expect(
+      refusalsOf(
+        withForge({ records: { object: 'Account', limit: 5 }, tables: [{ object: 'Case' }] }),
+      ),
+    ).toHaveLength(1);
+    expect(
+      refusalsOf(withForge({ records: { object: 'Account', limit: 5 }, depth: 'all' })),
+    ).toEqual([
+      'resources.bug-1234.records: depth: all clones the whole org, and does not go with records: it starts from no query; a sample of it filters its roots with fit: { where }',
+    ]);
+  });
+});
+
+describe('a forge resource’s sample of the whole org, its roots chosen', () => {
+  /** The example with a forge resource cloning a sample of the whole org from the uat role. */
+  const withFit = (fit: unknown): Record<string, unknown> =>
+    exampleWith(['resources', 'sample'], {
+      kind: 'forge',
+      source: 'uat',
+      depth: 'all',
+      anonymize: { rules: {} },
+      fit,
+    });
+
+  it('takes the seed, the draw, a window, filters of the roots and strata, as the clone’s --fit-* flags', () => {
+    const fit = {
+      withinMB: 150,
+      seed: 7,
+      draw: 'oldest',
+      window: { field: 'created', from: '2025-01-01', to: '2025-06-30' },
+      where: { Account: "BillingCountry = 'France'" },
+      strata: ['Account.RecordTypeId', 'Lead.Status'],
+    };
+    expect(envFileSchema.parse(withFit(fit)).resources['sample']).toMatchObject({ fit });
+    expect(refusalsOf(withFit({ draw: 'recent' }))).toEqual([]);
+    expect(refusalsOf(withFit({ window: { field: 'modified', lastDays: 30 } }))).toEqual([]);
+    expect(
+      refusalsOf(withFit({ window: { field: 'created', from: '2025-01-01T06:00:00Z' } })),
+    ).toEqual([]);
+    expect(refusalsOf(withFit({}))).toEqual([]);
+  });
+
+  it('refuses a draw, a window or a stratum the clone would not take, each in its words', () => {
+    const shapes =
+      'resources.sample.fit: fit is share, or a mapping of withinMB, seed, draw (uniform, recent or oldest), window ({ field: created or modified, from, to } or { field, lastDays }), where and strata';
+    expect(refusalsOf(withFit({ draw: 'newest' }))).toEqual([shapes]);
+    expect(refusalsOf(withFit({ window: { field: 'created' } }))).toEqual([
+      'resources.sample.fit.window: A window gives from, to or both, or lastDays: the last days the roots were made in',
+    ]);
+    expect(
+      refusalsOf(withFit({ window: { field: 'created', from: '2025-01-01', lastDays: 7 } })),
+    ).toEqual([
+      'resources.sample.fit.window.lastDays: lastDays counts back from each draw, and takes no from or to: give one or the other',
+    ]);
+    // A date alone as the end takes its whole day: the same day both ends is one day.
+    expect(
+      refusalsOf(withFit({ window: { field: 'created', from: '2025-06-30', to: '2025-06-30' } })),
+    ).toEqual([]);
+    expect(
+      refusalsOf(withFit({ window: { field: 'created', from: '2025-07-01', to: '2025-06-30' } })),
+    ).toEqual(['resources.sample.fit.window.to: A window’s from is before its to']);
+    expect(refusalsOf(withFit({ window: { field: 'created', from: '01/07/2025' } }))).toEqual([
+      'resources.sample.fit.window.from: A bound is a date, as 2025-06-30, or an instant in UTC, as 2025-06-30T12:00:00Z',
+    ]);
+    expect(refusalsOf(withFit({ window: { field: 'made', lastDays: 7 } }))).toEqual([shapes]);
+    expect(refusalsOf(withFit({ strata: ['RecordTypeId', 'OwnerId'] }))).toEqual([
+      'resources.sample.fit.strata.1: OwnerId: the roots are stratified by one field of every object at most',
+    ]);
+    expect(refusalsOf(withFit({ where: { Account: "Name = 'x' --" } }))).toHaveLength(1);
+  });
+
+  it('refuses a key of the fit it does not name, and the seed’s fit refuses the draw', () => {
+    expect(refusalsOf(withFit({ draws: 'oldest' }))).toEqual([
+      expect.stringContaining(
+        '"draws" is not a key of fit, which takes withinMB, seed, draw, window, where, strata',
+      ),
+    ]);
+    // A seed draws no root: its fit takes the MB alone.
+    expect(
+      refusalsOf(exampleWith(['resources', 'accounts', 'fit'], { withinMB: 5, draw: 'oldest' })),
+    ).toEqual([expect.stringMatching(/^resources\.accounts\.fit/)]);
   });
 });
 

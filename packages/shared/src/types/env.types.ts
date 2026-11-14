@@ -20,7 +20,7 @@ import type {
   SavedTemplateRuleConfig,
 } from '../constants/saved-anonymization-templates.js';
 import type { ForgeTemplateInput } from '../schemas/forge.schema.js';
-import type { ForgeTraversalDepth } from './forge.types.js';
+import type { ForgeSampleDraw, ForgeTraversalDepth } from './forge.types.js';
 import type { FieldRule, FieldRuleConfig, SeedRelation, SeedTemplate } from './seed.types.js';
 
 // ─── The file (sandforge.yaml, version 1) ───────────────────────────────────
@@ -164,6 +164,46 @@ export interface EnvForgeRecord {
   where?: string;
 }
 
+/**
+ * The records a forge resource clones from a query, each with what the clone
+ * of that record would copy: those of `object` its condition selects, in the
+ * order given — `Id` when none is —, `limit` of them at most.
+ */
+export interface EnvForgeRecords {
+  object: string;
+  /** A SOQL condition, without the keyword; every record of the object when absent. */
+  where?: string;
+  /** An ORDER BY, without the keywords: field paths, each with its direction. */
+  orderBy?: string;
+  limit: number;
+}
+
+/**
+ * The dates a sample of the whole org draws its roots in, as `--fit-window`
+ * takes them: made (`created`) or last modified (`modified`), from `from`
+ * to `to`, each a date or an instant in UTC, or within the last `lastDays`.
+ */
+export interface EnvForgeFitWindow {
+  field: 'created' | 'modified';
+  from?: string;
+  to?: string;
+  lastDays?: number;
+}
+
+/**
+ * A forge resource's sample of the whole org, each key the `--fit-*` flag of
+ * the same name: the MB it may take, its seed, its draw, the window of its
+ * roots, the filter of each object's roots, the fields they are stratified by.
+ */
+export interface EnvForgeFit {
+  withinMB?: number;
+  seed?: number;
+  draw?: ForgeSampleDraw;
+  window?: EnvForgeFitWindow;
+  where?: Record<string, string>;
+  strata?: string[];
+}
+
 /** A table a forge resource clones whole, under its condition. */
 export interface EnvForgeTable {
   object: string;
@@ -193,6 +233,8 @@ export interface EnvForgeResource {
   /** The org role it clones from: a key of the file's orgs. */
   source: string;
   record?: EnvForgeRecord;
+  /** The records a query chooses, each with what the clone of that record would copy. */
+  records?: EnvForgeRecords;
   tables?: EnvForgeTable[];
   template?: EnvForgeTemplateRef;
   /**
@@ -202,9 +244,10 @@ export interface EnvForgeResource {
   depth?: ForgeTraversalDepth | 'all';
   /**
    * With `depth: all`, a sample of the whole org that fits the data storage
-   * the target has left, within `withinMB` when given: `--fit share`.
+   * the target has left, within `withinMB` when given, drawn as its other
+   * keys say: `--fit share` and the `--fit-*` flags.
    */
-  fit?: 'share' | { withinMB: number };
+  fit?: 'share' | EnvForgeFit;
   customDepth?: number;
   maxNodes?: number;
   anonymize?: EnvForgeAnonymize;
@@ -363,10 +406,10 @@ export interface EnvForgeRun {
   /**
    * A clone of the whole org (`depth: all`): whether it anonymizes, each
    * category by its default method, keeps contact points, and the sample of
-   * it that fits the target it asks (`fit`): `--fit share`, and
-   * `--fit-within` when it gives `withinMB`.
+   * it that fits the target it asks (`fit`): `--fit share`, and the
+   * `--fit-*` flag of each key it gives.
    */
-  wholeOrg?: { anonymize: boolean; keepContactPoints: boolean; fit?: { withinMB?: number } };
+  wholeOrg?: { anonymize: boolean; keepContactPoints: boolean; fit?: EnvForgeFit };
   /** One record, by its id or by the query read at each plan; or the tables. */
   record?: EnvForgeRecord;
   tables?: EnvForgeTable[];

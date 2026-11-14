@@ -65,6 +65,7 @@ export const ENV_SCHEMA_RECORD_KEYS: Readonly<Record<string, string>> = {
   masking: 'set',
   resources: 'name',
   'resources.<name>{forge}.anonymize.rules': 'category',
+  'resources.<name>{forge}.fit{object}.where': 'object',
 };
 
 // ─── Texts several kinds of resource share ──────────────────────────────────
@@ -408,7 +409,8 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
   // The forge kind
   'resources.<name>{forge}':
     'A forge resource: records `sandforge clone` clones from the org a role of `orgs` names ' +
-    '(`source`) into the org to fill, one `record` and what discovery reaches from it, whole ' +
+    '(`source`) into the org to fill, one `record` and what discovery reaches from it, the ' +
+    '`records` a query chooses, each with what the clone of that record would copy, whole ' +
     '`tables`, or the whole org (`depth: all`), or a sample of it that fits (`fit`); taken ' +
     'back by the clone’s own removal. A source that is a production org is refused unless ' +
     'the resource gives `anonymize` or `accept: { realData: true }`.',
@@ -428,7 +430,7 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'resources.<name>{forge}.record':
     'The record it clones, and what discovery reaches from it: by its `id`, or by its ' +
     '`object` and a `where` its source answers with exactly one row, read at each plan. A ' +
-    'resource clones a `record` or `tables`, not both.',
+    'resource clones a `record`, `records` or `tables`, one of them.',
   'resources.<name>{forge}.record.id':
     'The record’s id in the source, 15 or 18 letters and digits, for a source that lives on. ' +
     'A scratch org made again gives the same record another id: name it by `object` and ' +
@@ -439,10 +441,30 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'With `object`: a SOQL condition, without `WHERE`, its source answers with exactly one ' +
     "row, as `Subject = 'Login fails'`. Read at each plan: no row, or more than one, blocks " +
     `the resource with the count. ${CONDITION_RULES}`,
+  'resources.<name>{forge}.records':
+    'The records a query chooses, each with what the clone of that record would copy — the ' +
+    'records it reaches, each one they share read and written once —, as `sandforge clone ' +
+    '--query` clones them: those of `object` its `where` selects, in the order `orderBy` ' +
+    'gives, `limit` of them at most. Read at each plan, their ids in the fingerprint: other ' +
+    'records chosen replace the resource. A resource clones a `record`, `records` or ' +
+    '`tables`, one of them, and never with `depth: all`.',
+  'resources.<name>{forge}.records.object':
+    'The object of the records, by its API name, as `Account`.',
+  'resources.<name>{forge}.records.where':
+    "A SOQL condition, without `WHERE`, selecting the records it clones, as `Industry = 'Energy'`; " +
+    `every record of the object without it. ${CONDITION_RULES}`,
+  'resources.<name>{forge}.records.orderBy':
+    'The order the records are chosen in, without `ORDER BY`: field paths, each with `ASC` or ' +
+    '`DESC` and `NULLS FIRST` or `NULLS LAST`, separated by commas, {maxLength} characters at ' +
+    'most, as `CreatedDate DESC`. `Id` without it: a limit with no order would choose other ' +
+    'records from one plan to the next.',
+  'resources.<name>{forge}.records.limit':
+    'The most records it clones, {minimum} to {maximum}, always given: each plan reads the ' +
+    'records again, and must choose the same ones. A query that chooses fewer clones those.',
   'resources.<name>{forge}.tables':
     'Whole tables it clones, each under its condition, the first the one discovery starts ' +
-    'from: 1 to {maxItems}, each object once. A resource clones a `record` or `tables`, not ' +
-    'both.',
+    'from: 1 to {maxItems}, each object once. A resource clones a `record`, `records` or ' +
+    '`tables`, one of them.',
   'resources.<name>{forge}.tables[].object':
     'The object of the table, by its API name, as `Account`.',
   'resources.<name>{forge}.tables[].where':
@@ -469,11 +491,49 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'resources.<name>{forge}.fit':
     'With `depth: all`, `share`: a sample of the whole org that fits the data storage the ' +
     'org to fill has left and `maxTotal`, as `sandforge clone --depth all --fit share` ' +
-    'draws it, none of its records without those they name. `{ withinMB: <MB> }`: the ' +
-    'same, within that many MB. Without it, every record of the whole org.',
+    'draws it, none of its records without those they name. A mapping draws the same ' +
+    'sample, within `withinMB`, by its `seed`, `draw`, `window`, `where` and `strata`, each ' +
+    'the `--fit-*` flag of its name. Without it, every record of the whole org.',
   'resources.<name>{forge}.fit{object}.withinMB':
     'The most MB the sample may take, above 0 and up to {maximum}, whatever the org to fill ' +
     'has left.',
+  'resources.<name>{forge}.fit{object}.seed':
+    'The seed the roots are drawn by, {minimum} or more, as `--fit-seed`: the same seed draws ' +
+    'the same roots of the same org. `1` without it. Only a `uniform` draw reads it.',
+  'resources.<name>{forge}.fit{object}.draw':
+    'How the roots are drawn, as `--fit-draw`: `uniform`, spread over each object by the ' +
+    'seed, reading the id of every root; `recent`, the newest by their creation date, and ' +
+    '`oldest`, the oldest, reading only those kept. `uniform` without it.',
+  'resources.<name>{forge}.fit{object}.window':
+    'The dates the roots are drawn in, as `--fit-window`: of their making (`created`) or ' +
+    'their last change (`modified`), from `from` to `to`, either left out, or the last ' +
+    '`lastDays` days, counted at each draw. The roots alone: a record under a root or above ' +
+    'it comes whatever its date.',
+  'resources.<name>{forge}.fit{object}.window.field':
+    'The date the window is of: `created`, when each root was made; `modified`, when it was ' +
+    'last changed.',
+  'resources.<name>{forge}.fit{object}.window.from':
+    'The first day of the window, as `2025-01-01`, from 00:00 UTC, or an instant in UTC to ' +
+    'the second, as `2025-01-01T06:00:00Z`. No start without it; never with `lastDays`.',
+  'resources.<name>{forge}.fit{object}.window.to':
+    'The last day of the window, as `2025-06-30`, taken whole, or an instant in UTC to the ' +
+    'second, left out. No end without it; never with `lastDays`.',
+  'resources.<name>{forge}.fit{object}.window.lastDays':
+    'The last days the window takes, {minimum} to {maximum}, counted back from each draw: a ' +
+    'plan of each night takes the days before it. Never with `from` or `to`.',
+  'resources.<name>{forge}.fit{object}.where':
+    'A SOQL condition per object, without `WHERE`, its roots drawn among the records it ' +
+    'selects alone, as `--fit-where Object=…`: `{ Account: "BillingCountry = \'France\'" }`. ' +
+    'Unlike a filter of the object, the records under or above the roots come whatever it ' +
+    'says, and no lookup is left empty for it. A semi-join is taken, two at most, as ' +
+    '`Id IN (SELECT AccountId FROM Case WHERE …)`.',
+  'resources.<name>{forge}.fit{object}.where.<object>': `The condition the roots of the object are drawn among. ${CONDITION_RULES}`,
+  'resources.<name>{forge}.fit{object}.strata':
+    'Fields the roots are stratified by, as `--fit-strata`: `Field`, of every object drawn ' +
+    'that has it, as `RecordTypeId`, or `Object.Field`, of that object, as `Lead.Status`, ' +
+    'before the other form. The sample keeps the same share of the roots of each value of a ' +
+    'picklist, a checkbox or a lookup, and one of each at least. One field per object, ' +
+    '{maxItems} at most.',
   'resources.<name>{forge}.customDepth':
     'With `depth: custom`: how many levels discovery goes, 1 to {maximum}; `3` unless the ' +
     'resource or its template says otherwise. Refused with another depth.',

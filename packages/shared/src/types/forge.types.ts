@@ -45,6 +45,9 @@ export type ForgeNodeStatus =
  */
 export type ForgeGraphView = 'auto' | 'graph' | 'table';
 
+/** What a clone from a query copies: see `ForgeConfig.queryScope`. */
+export type ForgeQueryScope = 'records' | 'tables';
+
 /**
  * Configuration for a Forge operation.
  *
@@ -64,6 +67,23 @@ export interface ForgeConfig {
   recordId?: string;
   /** SOQL query string when inputMode is 'soql' */
   soqlQuery?: string;
+  /**
+   * What a query (`soql`) clones, and with it alone: `records`, each record
+   * it returns with what the clone of that record would copy — the records
+   * it reaches, each shared one read and written once —, its WHERE, ORDER BY
+   * and LIMIT choosing them; `tables`, the object after FROM read under the
+   * WHERE and every object discovery reaches read from its whole table.
+   * Absent is `tables`: a run, a journal or a template from before 1.81.0
+   * does what it did. See `isRecordScoped`.
+   */
+  queryScope?: ForgeQueryScope;
+  /**
+   * With `queryScope: 'records'` alone: the most records the query may
+   * choose, 1 to `FORGE_ROOTS_MAX` (`FORGE_ROOTS_DEFAULT` when absent). A
+   * query choosing more, with no LIMIT that holds it, is refused before
+   * anything else is read (`ROOTS_EXCEEDED`).
+   */
+  maxRoots?: number;
   /** Template identifier when inputMode is 'template' */
   templateId?: string;
   /** Natural-language AI prompt when inputMode is 'ai' */
@@ -213,11 +233,27 @@ export interface ForgeConfig {
  * How a sample of the whole org draws its roots: `uniform`, spread over each
  * object by a seeded hash of the ids, which reads every root's id; `recent`,
  * the records made last first, by the date each was made, which reads only
- * those it keeps. An org's ids follow the making of its records within a
- * load only: an object with no creation date the org orders by is read by
- * its ids, and the sample says so (`WholeOrgSample.newestByIds`).
+ * those it keeps; `oldest`, the records made first, the same way. An org's
+ * ids follow the making of its records within a load only: an object with
+ * no creation date the org orders by is read by its ids, and the sample says
+ * so (`WholeOrgSample.newestByIds`, `WholeOrgSample.oldestByIds`).
  */
-export type ForgeSampleDraw = 'uniform' | 'recent';
+export type ForgeSampleDraw = 'uniform' | 'recent' | 'oldest';
+
+/**
+ * The dates a sample draws its roots in (`ForgeSampleOptions.window`): those
+ * made (`CreatedDate`), or last modified (`LastModifiedDate`), from `from`,
+ * included, to before `to`, both instants in UTC written to the second
+ * (`2025-07-01T00:00:00Z`), either left out; or within the last `lastDays`
+ * days, fixed when the sample is drawn, with neither. A record under a root,
+ * or above it as its parent, comes whatever its date.
+ */
+export interface ForgeSampleWindow {
+  field: 'CreatedDate' | 'LastModifiedDate';
+  from?: string;
+  to?: string;
+  lastDays?: number;
+}
 
 /**
  * What a sample does with a record outside it that an optional lookup of a
@@ -262,6 +298,28 @@ export interface ForgeSampleOptions {
    * journal names.
    */
   plan?: string;
+  /**
+   * The dates the roots are drawn in (`--fit-window`): of each object that
+   * has the field, its roots made or modified in them alone. An object
+   * without the field has no root in the draw, and is said apart
+   * (`WholeOrgSampleRoots.notWindowed`).
+   */
+  window?: ForgeSampleWindow;
+  /**
+   * A SOQL condition, without WHERE, per object (`--fit-where Object=…`): its
+   * roots drawn among the records it selects alone. Unlike a filter of the
+   * object (`objectSoqlFilters`), it is never applied to the records the
+   * sample reads under its roots or above them, and no lookup is left empty
+   * for it.
+   */
+  rootWhere?: Record<string, string>;
+  /**
+   * Fields the roots are stratified by (`--fit-strata`): `Field`, of every
+   * object drawn that has it, or `Object.Field`, of that object, before the
+   * other form. The sample keeps the same share of the roots of each value —
+   * a picklist's, a checkbox's or a lookup's —, and at least `floor` of each.
+   */
+  strata?: string[];
 }
 
 /** See `ForgeConfig.skippedRows`. */
@@ -923,7 +981,10 @@ export interface ForgeWholeOrgDryRun {
  * `heavyRoots` when every root fits but those set aside, each past a tenth
  * of the room the target has (`WholeOrgSample.heavyRoots`), the share then
  * every other root; `whole` when the whole org fits, and copying every
- * record is the better run.
+ * record is the better run; `draw` when every root of a draw held to a
+ * window, filters on its roots or strata fits: all the roots it may take are
+ * in it, and widening those takes more — never the whole org, which the draw
+ * did not weigh.
  */
 export type WholeOrgSampleLimit =
   | 'storage'
@@ -933,7 +994,8 @@ export type WholeOrgSampleLimit =
   | 'bulkBatches'
   | 'sourceRequests'
   | 'heavyRoots'
-  | 'whole';
+  | 'whole'
+  | 'draw';
 
 /**
  * What a sample of the whole org may take, and what it is drawn from: "3.6 MB
@@ -1020,6 +1082,39 @@ export interface WholeOrgSampleObject {
    * lookup of this object that names their parent. Absent when none was.
    */
   childrenCut?: Array<{ field: string; rows: number }>;
+  /**
+   * Of a draw held to a window, filters on its roots or strata, the roots
+   * the source holds of the object and those in the draw: the share is of
+   * the second. Absent from an object the draw does not restrict.
+   */
+  rootsInTheSource?: number;
+  rootsInTheDraw?: number;
+}
+
+/**
+ * How a sample chose its roots, when it was told to (`window`, `rootWhere`,
+ * `strata`): the window with its instants resolved — `lastDays` kept beside
+ * them —, the objects drawn that have no such date and so no root in the
+ * draw, the filter of each object's roots, and per stratified object the
+ * roots and the roots kept of each value, the fifty most first, the others
+ * counted (`more`). A record type is named by its DeveloperName, a picklist
+ * value as the API writes it, an owner or another lookup by its id.
+ */
+export interface WholeOrgSampleRoots {
+  window?: ForgeSampleWindow;
+  notWindowed?: string[];
+  where?: Array<{ objectApiName: string; where: string }>;
+  strata?: Array<{
+    objectApiName: string;
+    field: string;
+    values: Array<{
+      value: string | boolean | null;
+      label?: string;
+      roots: number;
+      kept: number;
+    }>;
+    more?: number;
+  }>;
 }
 
 /**
@@ -1081,9 +1176,15 @@ export interface WholeOrgSample {
   leftEmpty: Array<{ objectApiName: string; field: string; rows: number }>;
   /**
    * The objects of the run whose source holds records of which the sample
-   * keeps none: said apart, never as empty.
+   * keeps none: said apart, never as empty. `noRootInTheDraw`: the window,
+   * the filter of its roots or its strata left it none to draw.
    */
-  noRecordDrawn: Array<{ objectApiName: string; sourceRows: number }>;
+  noRecordDrawn: Array<{ objectApiName: string; sourceRows: number; noRootInTheDraw?: true }>;
+  /**
+   * How the roots were chosen, when the sample was told to: see
+   * {@link WholeOrgSampleRoots}. Absent from a draw among every root.
+   */
+  roots?: WholeOrgSampleRoots;
   /** The requests drawing the plan sent the source. */
   planRequests: { source: number };
   /**
@@ -1104,6 +1205,12 @@ export interface WholeOrgSample {
    * there are none.
    */
   newestByIds?: string[];
+  /**
+   * The objects whose oldest roots were taken in the order of their ids, of
+   * a draw of the oldest (`draw: 'oldest'`), having no creation date the org
+   * orders by. Absent when there are none.
+   */
+  oldestByIds?: string[];
   /**
    * The plan on disk: its path, the SHA-256 of its ids, when it was drawn,
    * and whether by this run or by a dry run it takes up — the panel's last
@@ -1166,6 +1273,13 @@ export interface WholeOrgSampleResult {
   drawnBy?: 'run' | 'dryRun';
   drawnAgain?: WholeOrgSampleDrawnAgain;
   ofTheRunRetried?: true;
+  /**
+   * How its roots were chosen, as its results and its history say it: the
+   * window, the objects whose roots were filtered and the fields they were
+   * stratified by. The filters' text is in the run's config, the values of
+   * the strata in its plan. Absent from a draw among every root.
+   */
+  roots?: { window?: ForgeSampleWindow; whereObjects?: string[]; strataFields?: string[] };
   objects: WholeOrgSampleWritten[];
   /**
    * Lookups the run wrote empty because they name a record outside its plan,
@@ -1197,9 +1311,11 @@ export interface ForgeSampleBudget {
    * About the requests drawing the plan reads of the source with the draw
    * asked, by discovery's counts, against what the source has left today,
    * and the seconds it takes: past a tenth of the day, the draw `recent` or a
-   * filter is offered.
+   * filter is offered. `atMost`: the draw is held to a window, filters on its
+   * roots or strata, which discovery's counts know nothing of — what it
+   * reads is at most that.
    */
-  planReads: { source: ForgeWholeOrgAllowanceCheck; seconds: number };
+  planReads: { source: ForgeWholeOrgAllowanceCheck; seconds: number; atMost?: true };
 }
 
 /**
@@ -1318,6 +1434,19 @@ export interface ForgeReadRecords {
   objectApiName: string;
   /** Rows read. */
   read: number;
+  /**
+   * Of a clone from the records a query chose (`ForgeExecutionResult.roots`),
+   * how the rows read came in: as roots, the query's own; read under a
+   * record of the clone (`under`), a child of it; or read because a record
+   * of the clone names it (`named`), a parent. Absent from any other run.
+   */
+  origin?: { roots: number; under: number; named: number };
+  /**
+   * Of the same clone, the objects whose records this one was read under: a
+   * parent read by id brings its other children, as a clone of one record
+   * does — "Case read under Account". Absent when it was read under none.
+   */
+  readUnder?: string[];
 }
 
 /**
@@ -2398,6 +2527,49 @@ export interface ForgeRemovalSpan {
 }
 
 /**
+ * The records a query chose to clone, as its WHERE, ORDER BY and LIMIT read
+ * them, each without its keyword and with the aliases of its FROM written
+ * out: `{ where: "Industry = 'Energy'", orderBy: 'CreatedDate DESC', limit: 50 }`.
+ * An absent ORDER BY reads as `Id`, an absent LIMIT as the most the run takes.
+ */
+export interface ForgeRootsQuery {
+  where?: string;
+  orderBy?: string;
+  limit?: number;
+}
+
+/**
+ * Where the roots of a clone from records came from: the query (`query`),
+ * ids given one by one (`records`, the command line's repeated `--record`),
+ * or a plan a dry run kept of them, which the run wrote rather than read
+ * the query again (`plan`).
+ */
+export type ForgeRootsFrom = 'query' | 'records' | 'plan';
+
+/**
+ * What a clone from records did of its roots — "37 roots of 37 written": the
+ * object, where they came from and by what query, the most it takes, the
+ * ids it set out with (`asked`) and read (`read`), those the source no
+ * longer held, never a failure (`gone`), the roots written and linked to a
+ * record the target held, those refused with why, the SHA-256 of the ids,
+ * sorted, and when they were read.
+ */
+export interface ForgeRunRoots {
+  objectApiName: string;
+  from: ForgeRootsFrom;
+  query?: ForgeRootsQuery;
+  cap: number;
+  asked: number;
+  read: number;
+  gone: string[];
+  written: number;
+  linked: number;
+  failed: Array<{ id: string; reason: string }>;
+  sha256: string;
+  readAt: string;
+}
+
+/**
  * Result returned after a Forge operation completes.
  *
  * Includes the final graph state, timing information, and the
@@ -2428,6 +2600,19 @@ export interface ForgeExecutionResult {
    * other run.
    */
   sample?: WholeOrgSampleResult;
+  /**
+   * Of a clone from the records a query chose, or from records named
+   * (`ForgeConfig.queryScope: 'records'`), what it did of its roots: see
+   * {@link ForgeRunRoots}. Absent from every other run, a clone of one
+   * record among them.
+   */
+  roots?: ForgeRunRoots;
+  /**
+   * Of the same clone, the requests reading what its roots reach sent the
+   * source, each page and describe counted: what its bound on them
+   * (`ForgeRunGateStop.api.reading`) weighs. Absent from every other run.
+   */
+  reads?: { source: number };
   /**
    * Of a clone of the whole org as its entry in the history keeps it, how
    * many objects it left out for each reason: the entry's graph keeps its

@@ -832,6 +832,12 @@ function sampleLimitWords(
       return vscode.l10n.t(
         'nothing: every record fits, and copying the whole org is the better run',
       );
+    // Every root a window, filters or strata left is in the sample: it says
+    // to widen those, never to copy the whole org, which the draw never weighed.
+    case 'draw':
+      return vscode.l10n.t(
+        'all the roots its window, the filters of its roots and its strata let it draw: widen them to take more',
+      );
   }
 }
 

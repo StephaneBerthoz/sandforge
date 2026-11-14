@@ -3036,9 +3036,10 @@ const SAMPLE_HELD_BY: Readonly<Record<WholeOrgSampleLimit, { past: string; more:
     past: 'past the API requests the source has left today',
     more: ', or run it once the source has more to spare',
   },
-  // Neither holds a sample that cannot fit: said all the same, with nothing more.
+  // None of them holds a sample that cannot fit: said all the same, with nothing more.
   heavyRoots: { past: 'past what the sample may take', more: '' },
   whole: { past: 'past what the sample may take', more: '' },
+  draw: { past: 'past what the sample may take', more: '' },
 };
 
 /**

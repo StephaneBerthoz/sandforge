@@ -275,6 +275,7 @@
   "the daily Bulk API batches of {0}": "{0} の 1 日あたりの Bulk API バッチ",
   "the records set aside, each past a tenth of the room {0} has: every other root fits": "除外したレコード (それぞれ {0} の空き容量の 10 分の 1 を超える): ほかのルートはすべて収まります",
   "nothing: every record fits, and copying the whole org is the better run": "なし: すべてのレコードが収まるため、組織全体のコピーの方が適しています",
+  "all the roots its window, the filters of its roots and its strata let it draw: widen them to take more": "期間、ルートのフィルター、層で抽出できるすべてのルート: さらに取得するにはそれらを広げてください",
   "Drawn by the simulation {0} minutes before; the run takes up its plan.": "{0} 分前にシミュレーションで抽出。実行はその計画を引き継ぎます。",
   "Drawn by this run.": "この実行で抽出。",
   "Drawn by the run this one retries; the run takes up its plan.": "この実行が再試行する実行が抽出しました。その計画を引き継ぎます。",

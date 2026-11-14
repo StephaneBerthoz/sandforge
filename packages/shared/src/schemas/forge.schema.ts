@@ -2,11 +2,19 @@ import * as z from 'zod';
 import { anonymizationMethodSchema } from './autopilot.schema.js';
 import { FILE_COPY_CEILING_MB } from '../constants/file-copy.js';
 import { forgeGapParts } from '../utils/forge-gaps.js';
+import { FORGE_ROOTS_MAX } from '../utils/forge-run-gate.js';
+import {
+  soqlRootIssueWords,
+  soqlRootQueryIssue,
+  soqlWhereFragmentSchema,
+} from '../utils/soqlRoot.js';
 import type {
   ForgeConfig,
   ForgeFileCopyOption,
   ForgeLeftOutReason,
+  ForgeQueryScope,
   ForgeSampleOptions,
+  ForgeSampleWindow,
 } from '../types/forge.types.js';
 
 // ─── Enum Schemas ────────────────────────────────────────────────────────────
@@ -87,7 +95,137 @@ const SF_FIELD_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 const SF_RECORD_TYPE_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,96}$/;
 
 /** Zod schema for ForgeSampleDraw */
-export const forgeSampleDrawSchema = z.enum(['uniform', 'recent']);
+export const forgeSampleDrawSchema = z.enum(['uniform', 'recent', 'oldest']);
+
+/** Zod schema for ForgeQueryScope */
+export const forgeQueryScopeSchema = z.enum([
+  'records',
+  'tables',
+] as const satisfies readonly ForgeQueryScope[]);
+
+/** The most days back a window of a sample reaches (`lastDays`): a hundred years. */
+export const FORGE_SAMPLE_MAX_LAST_DAYS = 36_500;
+
+/** The most fields a sample's roots are stratified by (`strata`). */
+export const FORGE_SAMPLE_MAX_STRATA = 20;
+
+/** The most objects whose roots a sample filters (`rootWhere`), as many as a run's object filters. */
+export const FORGE_SAMPLE_MAX_ROOT_WHERE = 50;
+
+/**
+ * A field the roots are stratified by: `Field`, of every object drawn that
+ * has it, or `Object.Field`, of that object.
+ */
+export const FORGE_SAMPLE_STRATUM_PATTERN =
+  /^(?:[A-Za-z][A-Za-z0-9_]{0,79}\.)?[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
+/** An instant of a window, in UTC to the second: `2025-07-01T00:00:00Z`. */
+const WINDOW_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+
+/** Whether `text` is an instant of a window, and one the calendar has. */
+function isWindowInstant(text: string): boolean {
+  if (!WINDOW_INSTANT.test(text)) return false;
+  const time = Date.parse(text);
+  return Number.isFinite(time) && new Date(time).toISOString() === text.replace('Z', '.000Z');
+}
+
+/**
+ * A bound of a window as a person writes it — a date, `2025-06-30`, or an
+ * instant in UTC to the second, `2025-06-30T12:00:00Z` — as the window holds
+ * it: an instant. A date alone starts at 00:00Z; as the end, it takes the
+ * whole day, and becomes the next day at 00:00Z, which the window leaves out.
+ * Undefined for anything else, or a day the calendar does not have.
+ */
+export function forgeSampleWindowBound(text: string, end: boolean): string | undefined {
+  if (isWindowInstant(text)) return text;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return undefined;
+  const midnight = `${text}T00:00:00Z`;
+  if (!isWindowInstant(midnight)) return undefined;
+  if (!end) return midnight;
+  const next = new Date(Date.parse(midnight) + 24 * 60 * 60 * 1000);
+  return `${next.toISOString().slice(0, 19)}Z`;
+}
+
+/**
+ * Zod schema for ForgeSampleWindow. Strict, as the options are: a misspelt
+ * bound read as none would draw among more roots than asked. A window gives
+ * a bound or `lastDays`, never both, and its `from` is before its `to`.
+ */
+export const forgeSampleWindowSchema = z
+  .strictObject({
+    field: z.enum([
+      'CreatedDate',
+      'LastModifiedDate',
+    ] as const satisfies readonly ForgeSampleWindow['field'][]),
+    from: z
+      .string()
+      .refine(isWindowInstant, { message: 'A bound is an instant in UTC, as 2025-07-01T00:00:00Z' })
+      .optional(),
+    to: z
+      .string()
+      .refine(isWindowInstant, { message: 'A bound is an instant in UTC, as 2025-07-01T00:00:00Z' })
+      .optional(),
+    lastDays: z.number().int().min(1).max(FORGE_SAMPLE_MAX_LAST_DAYS).optional(),
+  })
+  .superRefine((window, ctx) => {
+    const bounded = window.from !== undefined || window.to !== undefined;
+    if (!bounded && window.lastDays === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [],
+        message: 'A window gives from, to or both, or lastDays',
+      });
+    }
+    if (bounded && window.lastDays !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['lastDays'],
+        message:
+          'lastDays counts back from when the sample is drawn, and takes no from or to: give one or the other',
+      });
+    }
+    if (window.from !== undefined && window.to !== undefined && window.from >= window.to) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['to'],
+        message: 'A window’s from is before its to',
+      });
+    }
+  });
+
+/**
+ * Zod schema for the fields a sample's roots are stratified by: one field of
+ * each object at most — `Object.Field` before `Field`, which every object
+ * that has it takes, so two of them would give each object two —, none twice.
+ */
+export const forgeSampleStrataSchema = z
+  .array(
+    z
+      .string()
+      .regex(
+        FORGE_SAMPLE_STRATUM_PATTERN,
+        'A stratum is a field, as RecordTypeId, or an object and its field, as Account.RecordTypeId',
+      ),
+  )
+  .max(FORGE_SAMPLE_MAX_STRATA)
+  .superRefine((strata, ctx) => {
+    const seen = new Set<string>();
+    strata.forEach((stratum, index) => {
+      const dot = stratum.indexOf('.');
+      const of = dot < 0 ? '' : stratum.slice(0, dot).toLowerCase();
+      if (seen.has(of)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [index],
+          message:
+            dot < 0
+              ? `${stratum}: the roots are stratified by one field of every object at most`
+              : `${stratum}: the roots of ${stratum.slice(0, dot)} are stratified by one field at most`,
+        });
+      }
+      seen.add(of);
+    });
+  });
 
 /** Zod schema for ForgeSampleParents */
 export const forgeSampleParentsSchema = z.enum(['all', 'required']);
@@ -128,6 +266,17 @@ export const forgeSampleOptionsSchema = z.strictObject({
     .optional(),
   floor: z.number().int().min(0).max(10_000).optional(),
   plan: z.string().min(1).max(4_096).optional(),
+  window: forgeSampleWindowSchema.optional(),
+  rootWhere: z
+    .record(
+      z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+      soqlWhereFragmentSchema,
+    )
+    .refine((m) => Object.keys(m).length <= FORGE_SAMPLE_MAX_ROOT_WHERE, {
+      message: `The roots of ${FORGE_SAMPLE_MAX_ROOT_WHERE} objects at most are filtered`,
+    })
+    .optional(),
+  strata: forgeSampleStrataSchema.optional(),
 });
 
 /** Why a config walked from a root is refused with a sample. */
@@ -144,6 +293,11 @@ export const forgeConfigSchema = z.object({
   inputMode: forgeInputModeSchema,
   recordId: z.string().regex(SF_RECORD_ID_REGEX, 'Invalid Salesforce record ID').optional(),
   soqlQuery: z.string().min(1).max(20_000).optional(),
+  // Parsing drops what the schema does not name: without them, a query sent
+  // to clone the records it chooses would reach the run as one that reads
+  // whole tables.
+  queryScope: forgeQueryScopeSchema.optional(),
+  maxRoots: z.number().int().min(1).max(FORGE_ROOTS_MAX).optional(),
   templateId: z.string().min(1).max(200).optional(),
   aiPrompt: z.string().min(1).max(4_000).optional(),
   depth: forgeRunDepthSchema,
@@ -206,14 +360,7 @@ export const forgeConfigSchema = z.object({
   objectSoqlFilters: z
     .record(
       z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
-      z
-        .string()
-        .min(1)
-        .max(512)
-        .refine((s) => !/--|\/\*|\*\/|;\s*$/.test(s), {
-          message:
-            'SOQL filter must not contain comment markers (--, /*, */) or trailing semicolon',
-        }),
+      soqlWhereFragmentSchema,
     )
     .refine((m) => Object.keys(m).length <= 50, {
       message: 'Too many SOQL filters (max 50)',
@@ -340,7 +487,9 @@ export const forgeWalkConfigSchema = forgeConfigSchema.extend({
  * A sample (`sample`) is drawn from the whole org alone: a walk reads all it
  * reaches, and its config would say a sample its run never draws. Nor can a
  * sample copy whole an object the run leaves out: one of the two choices
- * would be dropped unsaid.
+ * would be dropped unsaid. Nor filter the roots of an object it copies whole
+ * or the run leaves out: such an object has no root to draw, and the filter
+ * would choose nothing.
  */
 export function wholeOrgConfigIssue(
   c: Pick<
@@ -371,8 +520,50 @@ export function wholeOrgConfigIssue(
   }
   const excluded = new Set(c.excludedObjects ?? []);
   const both = (c.sample?.whole ?? []).filter((name) => excluded.has(name));
-  if (both.length === 0) return undefined;
-  return `The sample copies whole an object the run leaves out: ${both.join(', ')}. Take each out of one list or the other`;
+  if (both.length > 0) {
+    return `The sample copies whole an object the run leaves out: ${both.join(', ')}. Take each out of one list or the other`;
+  }
+  const filtered = Object.keys(c.sample?.rootWhere ?? {});
+  const whole = new Set(c.sample?.whole ?? []);
+  const copiedWhole = filtered.filter((name) => whole.has(name));
+  if (copiedWhole.length > 0) {
+    return `The sample filters the roots of an object it copies whole, every record of which comes: ${copiedWhole.join(', ')}. Take each out of whole, or filter the object itself (objectSoqlFilters), which leaves records out of the copy`;
+  }
+  const leftOut = filtered.filter((name) => excluded.has(name));
+  if (leftOut.length === 0) return undefined;
+  return `The sample filters the roots of an object the run leaves out: ${leftOut.join(', ')}. Take each out of one list or the other`;
+}
+
+/**
+ * Why a config's query scope is not one a run can take, or nothing when it
+ * is, by the field that is wrong: `queryScope` goes with a query alone, and
+ * `maxRoots` with a query that clones the records it chooses
+ * (`queryScope: 'records'`), whose query must then choose them as its own
+ * statement reads them (`soqlRootQueryIssue`). Exported beside the strict
+ * schema, as {@link wholeOrgConfigIssue} is, for the messages the extension
+ * parses with the plain one.
+ */
+export function queryScopeConfigIssue(
+  c: Pick<ForgeConfig, 'inputMode' | 'soqlQuery' | 'queryScope' | 'maxRoots'>,
+): { field: 'queryScope' | 'maxRoots' | 'soqlQuery'; message: string } | undefined {
+  if (c.queryScope !== undefined && c.inputMode !== 'soql') {
+    return {
+      field: 'queryScope',
+      message: `queryScope says what a query clones, and goes with inputMode 'soql' alone, not '${c.inputMode}'`,
+    };
+  }
+  if (c.maxRoots !== undefined && c.queryScope !== 'records') {
+    return {
+      field: 'maxRoots',
+      message:
+        "maxRoots bounds the records a query chooses to clone, and goes with queryScope 'records' alone",
+    };
+  }
+  if (c.queryScope === 'records' && c.soqlQuery !== undefined) {
+    const issue = soqlRootQueryIssue(c.soqlQuery);
+    if (issue !== undefined) return { field: 'soqlQuery', message: soqlRootIssueWords(issue) };
+  }
+  return undefined;
 }
 
 /**
@@ -396,9 +587,14 @@ export function wholeOrgSampleFilesIssue(
  * `{inputMode:'soql', recordId:'…'}` passes validation, then crashes
  * downstream in `resolveRootObject` with a generic message. A clone of the
  * whole org, and any config with a sample, is held to
- * {@link wholeOrgConfigIssue}, and refused in its words.
+ * {@link wholeOrgConfigIssue}, and refused in its words; a query's scope to
+ * {@link queryScopeConfigIssue}.
  */
 export const forgeConfigSchemaStrict = forgeConfigSchema.superRefine((c, ctx) => {
+  const scope = queryScopeConfigIssue(c);
+  if (scope !== undefined) {
+    ctx.addIssue({ code: 'custom', message: scope.message, path: [scope.field] });
+  }
   if (c.inputMode === 'org' || c.depth === 'all' || c.sample !== undefined) {
     const issue = wholeOrgConfigIssue(c);
     if (issue !== undefined) ctx.addIssue({ code: 'custom', message: issue, path: ['inputMode'] });

@@ -722,6 +722,25 @@ describe('docs/environments.md', () => {
         forge({ anonymize: { rules: {}, misspelt: 1 } }),
       ],
       ['`resources.<name>.accept`, `kind: forge`', 'accept', forge({ accept: { misspelt: 1 } })],
+      [
+        '`resources.<name>.records`',
+        'records',
+        forge({ tables: undefined, records: { object: 'Account', limit: 5, misspelt: 1 } }),
+      ],
+      [
+        '`resources.<name>.fit`, `kind: forge`',
+        'fit',
+        forge({ tables: undefined, depth: 'all', fit: { misspelt: 1 } }),
+      ],
+      [
+        '`….fit.window`',
+        'window',
+        forge({
+          tables: undefined,
+          depth: 'all',
+          fit: { window: { field: 'created', lastDays: 1, misspelt: 1 } },
+        }),
+      ],
     );
     const mask = (
       resource: Record<string, unknown>,
