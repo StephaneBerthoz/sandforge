@@ -465,7 +465,7 @@ describe('what sandforge-frozen answers, read', () => {
   it('refuses an answer that does not read as one, naming the script', () => {
     expect(() => readFrozenDryRun('nothing')).toThrow(StepAnswerError);
     expect(() => readFrozenRemoval(JSON.stringify({ tool: 'sandforge-seed' }))).toThrow(
-      'sandforge-frozen did not answer the outcome of a removal',
+      'sandforge frozen did not answer the outcome of a removal',
     );
   });
 });

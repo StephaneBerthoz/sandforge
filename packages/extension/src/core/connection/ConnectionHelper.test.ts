@@ -1,13 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  expiredScratchWords,
   getJsforceConnection,
   getConnectionPool,
   getCircuitBreaker,
   isUsableAccessToken,
   observeValidatedIdentities,
   refreshTokenViaCli,
+  renewSessionsFrom,
   resetCircuitBreakers,
   resetConnectionValidation,
+  sessionRenewalWords,
 } from './ConnectionHelper';
 import { OrgConnectionError } from './OrgConnectionError';
 import { connectionCheckRequests } from './connectionChecks';
@@ -300,6 +303,69 @@ describe('ConnectionHelper', () => {
         /^SCRATCH_ORG_EXPIRED: The scratch org "test-org" expired on 2020-01-31: Salesforce deletes a scratch org when it expires/,
       );
       expect((err as Error).message).not.toContain('Reconnect it');
+    });
+
+    describe('read on a command line', () => {
+      beforeEach(() => {
+        renewSessionsFrom('command line');
+      });
+      afterEach(() => {
+        renewSessionsFrom('panel');
+      });
+
+      it("names sf's sign-in and the command's --resume, not a page a terminal has not", async () => {
+        const org = makeOrg();
+        const orgManager = createMockOrgManager(org);
+        const orgRegistry = createMockOrgRegistry(makeCreds());
+        mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+        mockCliInvoker.mockRejectedValue(new Error('sf not found') as never);
+
+        const err = await getJsforceConnection('org-1', orgRegistry, orgManager).catch(
+          (e: unknown) => e,
+        );
+
+        expect((err as OrgConnectionError).code).toBe('ORG_AUTH_EXPIRED');
+        expect((err as Error).message).toContain(
+          'The session with "test-org" has expired and could not be renewed. Sign in to it ' +
+            'again with "sf org login web --alias test-org" (in a CI job, "sf org login jwt" or ' +
+            '"sf org login sfdxurl"), then run the command again, with its --resume if it ' +
+            'stopped a run part way.',
+        );
+        expect((err as Error).message).not.toMatch(/Organizations page|Reconnect/);
+      });
+
+      it('says a new scratch org is created with sf and named by its alias, not imported', async () => {
+        const org = {
+          ...makeOrg(),
+          orgType: 'Scratch' as const,
+          metadata: { ...makeOrg().metadata, expirationDate: '2020-01-31' },
+        };
+        const orgManager = createMockOrgManager(org);
+        const orgRegistry = createMockOrgRegistry(makeCreds());
+        mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+        mockCliInvoker.mockRejectedValue(new Error('sf not found') as never);
+
+        const err = await getJsforceConnection('org-1', orgRegistry, orgManager).catch(
+          (e: unknown) => e,
+        );
+
+        expect((err as Error).message).toContain(
+          'Create a new one ("sf org create scratch") and give its alias.',
+        );
+        expect((err as Error).message).not.toContain('import it');
+      });
+    });
+
+    it('says what renews a session and replaces a scratch org on the surface that reads it', () => {
+      expect(sessionRenewalWords('DEV', 'panel')).toBe(
+        'Reconnect it on the Organizations page (Try Reconnect on its card).',
+      );
+      expect(sessionRenewalWords('DEV', 'command line')).toMatch(
+        /^Sign in to it again with "sf org login web --alias DEV"/,
+      );
+      expect(sessionRenewalWords('DEV')).toBe(sessionRenewalWords('DEV', 'panel'));
+      expect(expiredScratchWords('panel')).toBe('Create a new one and import it.');
+      expect(expiredScratchWords('command line')).toMatch(/sf org create scratch/);
     });
 
     it('says a scratch org past its date is gone when Salesforce answers HTTP 420, not an auth error', async () => {

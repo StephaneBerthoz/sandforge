@@ -660,7 +660,7 @@ describe('the answers of sandforge-clone, as a forge resource reads them', () =>
 
   it('refuses an answer that does not read as the clone’s, naming the clone', () => {
     expect(() => readForgeDryRun('{"tool":"sandforge-seed"}')).toThrow(StepAnswerError);
-    expect(() => readForgeRun('')).toThrow('sandforge-clone did not answer the summary of a run');
+    expect(() => readForgeRun('')).toThrow('sandforge clone did not answer the summary of a run');
   });
 });
 

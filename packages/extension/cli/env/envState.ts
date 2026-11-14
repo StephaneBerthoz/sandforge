@@ -53,6 +53,7 @@ import {
 import { organizationKey } from '../../src/modules/checkpoint/OrgCheckpointStore.js';
 import { SasPathGuard, findRepoRoot } from '../../src/modules/frozendataset/SasPathGuard.js';
 import { toolStoreOf } from '../backupStore.js';
+import { commandOf } from '../invocation.js';
 
 /** What a folder of the states is made with: its owner alone lists and reads it. */
 export const ENV_DIR_MODE = 0o700;
@@ -753,8 +754,8 @@ function stateIn(raw: string, file: string, folder: string): EnvState {
     throw new EnvStateError(
       'damaged',
       `The state ${file} does not read as a state of this SandForge, and is not used: a plan ` +
-        'made from part of it would create again what the rest names. Run sandforge-env state ' +
-        'recover: it sets this file aside and rebuilds the state from the run files beside it.',
+        `made from part of it would create again what the rest names. Run ${commandOf('env')} ` +
+        'state recover: it sets this file aside and rebuilds the state from the run files beside it.',
     );
   }
   // A file copied from another org's folder, or another environment's, would

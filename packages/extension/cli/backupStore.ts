@@ -140,6 +140,6 @@ export function expiredLine(expired: BackupExpired): string {
     `past the retention of ${expired.days} day(s) (--max-age-days, 0 keeps them all)`;
   return expired.syncRunId !== undefined
     ? `${head}. It held what the Sync run ${expired.syncRunId || '(unknown)'} wrote over: ` +
-        'removing that run with sandforge-sync --remove no longer puts those values back'
+        'removing that run with sandforge sync --remove no longer puts those values back'
     : head;
 }

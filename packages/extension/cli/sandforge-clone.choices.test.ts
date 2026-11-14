@@ -258,7 +258,7 @@ describe('--config', () => {
   it('reaches the org lookup with a valid file', async () => {
     const result = await run(argv('--record', RECORD, '--config', fileOf('clone.json', CONFIG)));
 
-    expect((result as Error).message).toBe('sf org display reached');
+    expect((result as Error).message).toContain('sf org display reached');
   });
 });
 

@@ -541,7 +541,7 @@ describe('docs/environments.md', () => {
     read.add('--help');
     // The help block aside, and the checkpoint script's own lines, which its guide holds.
     const base = DOC.replace(/```text\n[\s\S]*?\n```/, '').replace(
-      /sandforge-checkpoint [^\n`]*/g,
+      /(?:pnpm exec tsx packages\/extension\/cli\/)?sandforge-checkpoint(?:\.ts)? [^\n`]*/g,
       '',
     );
     const named = flagsIn(base);
@@ -1034,9 +1034,8 @@ describe('docs/environments.md', () => {
         '`--fail-on-change` exits `3` when `apply` would write or delete anything',
       ],
       [help(), 'records deleted or changed since', 'a record deleted or changed since'],
-      // The question asks for what --org gives, compared letter for letter, and
-      // --org is an alias: a username never reaches the org, let alone the
-      // question, which the help said was asked of an org with no alias.
+      // The question asks for what --org gives, compared letter for letter:
+      // an alias, or the username it stands for, as sf takes either.
       [
         help(),
         "after asking you to type the org's alias exactly as --org gives\n            it",
@@ -1109,17 +1108,23 @@ describe('docs/environments.md', () => {
     expect(DOC).toContain('it stops at the question, exit `2`, having written nothing');
   });
 
-  it('says the question asks for the alias --org gives, and that a username is refused before the org is reached, as the command line does', () => {
+  it('says the question asks for what --org gives, an alias or a username, and that an org sf does not know is refused before it is read, as the command line does', () => {
     // Positive controls: what is typed is held to --org as given, the org is
-    // reached by that alias, and an alias takes no @, which every username has.
+    // reached by it, an alias or the username it stands for, and an org sf
+    // does not know is refused in sf's words, before any question.
     expect(CLI).toContain('if (answer === args.org) return true;');
     expect(CLI).toContain('const session = await loadOrg(alias);');
-    const session = source(`${CLI_DIR}/sfSession.ts`);
-    expect(session).toContain('const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;');
-    expect(session).toContain('`Invalid SF org alias: "${alias}"');
+    expect(source(`${CLI_DIR}/sfSession.ts`)).toContain(
+      "import { SF_ALIAS_RE } from './commandLine.js';",
+    );
+    expect(source(`${CLI_DIR}/commandLine.ts`)).toContain(
+      'export const SF_ALIAS_RE = /^[A-Za-z0-9_][A-Za-z0-9_.@+-]{0,254}$/;',
+    );
+    expect(source(`${CLI_DIR}/sfFailure.ts`)).toContain('`sf does not know ${alias}: ');
+    expect(CLI).toContain('err instanceof SfSessionError');
 
     expect(DOC).toContain(
-      '`--org` takes an alias, never a username, which is refused before the org is reached (`Invalid SF org alias`), exit `1`: give an org that has none an alias first, with `sf alias set`.',
+      "`--org` takes the org's alias, or the username it stands for, as `sf` does; an org `sf` does not know is refused before anything is read from it (`sf does not know …`), exit `1`.",
     );
     for (const text of [DOC, help()]) {
       expect(text.replace(/\s+/g, ' ')).not.toContain('its username for an org that has none');
@@ -1420,7 +1425,7 @@ describe('docs/environments.md: checkpoints, reset, destroy --rewind and real da
     );
     expect(reset).toContain('for 15 days, sooner if the recycle bin fills');
     expect(joined(CHECKPOINTS)).toContain(
-      '`sandforge-checkpoint undo --org ${input.alias} --checkpoint ${input.checkpoint} --store ${envCheckpointStoreOf(input.journalDir)}`',
+      "`${commandOf('checkpoint')} undo --org ${input.alias} --checkpoint ${input.checkpoint} --store ${envCheckpointStoreOf(input.journalDir)}`",
     );
     // Refused before the org is read.
     expect(joined(REWIND)).toContain('names no checkpoint taken after an apply');
@@ -1945,7 +1950,7 @@ describe('state recover, on the page', () => {
     expect(STATE).toContain('let aside = `${file}.damaged-${when}`;');
     expect(page).toContain('`state.json.damaged-<when>`');
     expect(STATE).toContain(
-      "'recover: it sets this file aside and rebuilds the state from the run files beside it.'",
+      "'state recover: it sets this file aside and rebuilds the state from the run files beside it.'",
     );
     // Written at serial 1, under a lineage of its own.
     expect(RECOVER).toContain('await deps.store.write(next, { serial: 0, lineage: next.lineage })');

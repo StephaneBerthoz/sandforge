@@ -24,6 +24,7 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
 }));
 
 import { loadOrg } from './sfSession.js';
+import { sfDisplayFailure } from './sfFailure.js';
 import { acquireEnvLock } from './env/envLock.js';
 import { EnvWorld, type EnvWorldOptions } from './testing/envWorld.js';
 import {
@@ -178,14 +179,14 @@ describe('the command line', () => {
 
     expect(code).toBe(0);
     const help = stdout.join('');
-    expect(help).toMatch(/^sandforge-env — apply a sandforge\.yaml to an org/);
+    expect(help).toMatch(/^sandforge env — apply a sandforge\.yaml to an org/);
     expect(help).toContain(
       'pnpm exec tsx packages/extension/cli/sandforge-env.ts <command> [--file <sandforge.yaml>] --org <alias>',
     );
   });
 
   it.each([
-    [['deploy', '--org', 'TGT'], '"deploy" is not a command of sandforge-env'],
+    [['deploy', '--org', 'TGT'], '"deploy" is not a command of sandforge env'],
     [[], 'Name the command first'],
     [['plan', '--org', 'TGT', '--dry-run'], '"--dry-run" is not a flag this command reads'],
     [['apply', '--org', 'TGT', '--yes=true'], '"--yes=true" is not read'],
@@ -510,7 +511,7 @@ describe('destroy --sweep', () => {
       });
       const ran = await run('sandforge-seed', ['exit'], new AbortController().signal);
 
-      expect(JSON.parse(ran.stdout)).toMatchObject({ relayedBy: 'sandforge-env' });
+      expect(JSON.parse(ran.stdout)).toMatchObject({ relayedBy: 'sandforge env' });
     } finally {
       process.execArgv = inherited;
     }
@@ -523,7 +524,7 @@ describe('destroy --sweep', () => {
     // alone, it offered the mute, which env_destroy does not take.
     const inherited = process.execArgv;
     process.execArgv = ['--import', 'tsx'];
-    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-mcp');
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge mcp');
     try {
       const run = envStepRunner({
         scriptPath: () => join(__dirname, 'testing', 'stopProbe.ts'),
@@ -531,7 +532,7 @@ describe('destroy --sweep', () => {
       const ran = await run('sandforge-clone', ['exit'], new AbortController().signal);
 
       expect(JSON.parse(ran.stdout)).toMatchObject({
-        relayedBy: 'sandforge-env, relayed by sandforge-mcp',
+        relayedBy: 'sandforge env, relayed by sandforge mcp',
       });
     } finally {
       process.execArgv = inherited;
@@ -549,11 +550,11 @@ describe('destroy --sweep', () => {
       const run = relayedRunner(async () => {
         seen.push(process.env['SANDFORGE_RELAYED_BY']);
         return { code: 0, stdout: '', stderr: '' };
-      }, 'sandforge-env apply');
+      }, 'sandforge env apply');
 
       await run('sandforge-seed', [], new AbortController().signal);
 
-      expect(seen).toEqual(['sandforge-env apply']);
+      expect(seen).toEqual(['sandforge env apply']);
       expect(process.env['SANDFORGE_RELAYED_BY']).toBe('before');
     } finally {
       vi.unstubAllEnvs();
@@ -566,16 +567,16 @@ describe('destroy --sweep', () => {
     };
     expect((await run(['apply', '--org', 'TGT', '--yes'], { runner: told })).code).toBe(0);
     expect((await run(['destroy', '--org', 'TGT', '--yes'], { runner: told })).code).toBe(0);
-    expect(new Set(runs)).toEqual(new Set(['sandforge-env apply', 'sandforge-env']));
+    expect(new Set(runs)).toEqual(new Set(['sandforge env apply', 'sandforge env']));
   });
 
   it('names to the scripts it runs the command they run under: a destroy takes their sweep, an apply and a plan do not', () => {
     // An apply's replace told the same as a destroy, its removal said
     // "--sweep takes them first", a flag of the destroy alone.
-    expect(envRelayOf('destroy', undefined)).toBe('sandforge-env');
-    expect(envRelayOf('apply', undefined)).toBe('sandforge-env apply');
-    expect(envRelayOf('plan', '')).toBe('sandforge-env plan');
-    expect(envRelayOf('destroy', 'sandforge-mcp')).toBe('sandforge-env, relayed by sandforge-mcp');
+    expect(envRelayOf('destroy', undefined)).toBe('sandforge env');
+    expect(envRelayOf('apply', undefined)).toBe('sandforge env apply');
+    expect(envRelayOf('plan', '')).toBe('sandforge env plan');
+    expect(envRelayOf('destroy', 'sandforge mcp')).toBe('sandforge env, relayed by sandforge mcp');
   });
 
   it('keeps what came late and what is tied to nothing: --sweep-late and --sweep-untied are no flags of it', async () => {
@@ -629,13 +630,21 @@ describe('asking before it writes', () => {
     expect(world.records('Account')).toEqual([]);
   });
 
-  it('refuses a username for --org before the org is reached, so the question only ever names an alias', async () => {
-    // The help said a username was asked for an org with no alias: the org
-    // is reached by the alias --org gives, and a username is no alias.
-    const { loadOrg: realLoadOrg } =
-      await vi.importActual<typeof import('./sfSession.js')>('./sfSession.js');
-    const readToken = vi.fn();
-    vi.mocked(loadOrg).mockImplementation((alias) => realLoadOrg(alias, readToken));
+  it('refuses an org sf does not know in sf’s words, before any question, a username as an alias', async () => {
+    // A username is what sf takes for an org with no alias, and what the MCP
+    // server hands on: it reaches sf as --org gives it. An org sf does not
+    // know said "admin@example.com could not be reached: Command failed: …".
+    const unknown = Object.assign(new Error('Command failed: sf org display'), {
+      status: 1,
+      stdout: JSON.stringify({
+        status: 1,
+        name: 'NamedOrgNotFoundError',
+        message: 'No authorization information found for admin@example.com.',
+      }),
+    });
+    vi.mocked(loadOrg).mockImplementation(async (alias) => {
+      throw sfDisplayFailure(alias, unknown);
+    });
     const asked: string[] = [];
 
     const { code, answer } = await run(['apply', '--org', 'admin@example.com', '--json'], {
@@ -647,12 +656,13 @@ describe('asking before it writes', () => {
 
     expect(code).toBe(1);
     expect(asked).toEqual([]);
-    expect(readToken).not.toHaveBeenCalled();
+    expect(vi.mocked(loadOrg)).toHaveBeenCalledWith('admin@example.com');
     expect(envRefusalAnswerSchema.parse(answer).refusal).toEqual({
       code: 'NOT_CONNECTED',
       message:
-        'admin@example.com could not be reached: Invalid SF org alias: "admin@example.com" ' +
-        '(allowed: letters, digits, underscore, dash, dot)',
+        'sf does not know admin@example.com: "sf org list" names the orgs it knows; "sf org ' +
+        'login web --alias admin@example.com" adds it (in a CI job, "sf org login jwt" or "sf ' +
+        'org login sfdxurl"). Nothing was read from admin@example.com.',
     });
     expect(world.records('Account')).toEqual([]);
   });

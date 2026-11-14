@@ -59,7 +59,7 @@ describe('what every kind shares', () => {
       tool: 'sandforge-clone',
     });
     expect(() => readAnswer('sandforge-clone', 'a summary', schema, '')).toThrow(
-      'sandforge-clone did not answer a summary (not JSON): it printed nothing on stdout',
+      'sandforge clone did not answer a summary (not JSON): it printed nothing on stdout',
     );
     const long = `refused ${'x'.repeat(ANSWER_EXCERPT_CHARS)}`;
     try {
@@ -71,7 +71,7 @@ describe('what every kind shares', () => {
     }
     expect(() =>
       readAnswer('sandforge-clone', 'a summary', schema, '{"tool":"sandforge-seed"}'),
-    ).toThrow(/sandforge-clone did not answer a summary \(tool: /);
+    ).toThrow(/sandforge clone did not answer a summary \(tool: /);
   });
 });
 

@@ -24,11 +24,16 @@ import { fileURLToPath } from 'node:url';
 import {
   CHECKS,
   NODE_FLOOR,
+  REDIRECT_CHECKS,
+  REDIRECT_EXIT,
   build,
+  buildRedirects,
   nodeVersionOf,
   packageVersion,
+  redirectMessage,
   runBin,
   scratchFolder,
+  toolNames,
 } from './npm-package.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -36,10 +41,12 @@ const node = process.env.SANDFORGE_BIN_NODE ?? process.execPath;
 
 let folder;
 let built;
+let redirects;
 
 before(async () => {
   folder = scratchFolder();
   built = await build(join(folder, 'package'));
+  redirects = buildRedirects(join(folder, 'redirects'));
 });
 
 after(() => {
@@ -60,6 +67,56 @@ for (const check of CHECKS) {
     await check.run({ out: built.out, node, requireNames: false });
   });
 }
+
+for (const check of REDIRECT_CHECKS) {
+  test(`the redirects: ${check.name}`, async () => {
+    await check.run({ out: redirects.out, node, requireNames: false });
+  });
+}
+
+test('each old name says the command that runs now, in the words a reader types, and runs nothing', () => {
+  assert.deepEqual(
+    redirects.packages.map((each) => each.tool),
+    toolNames(),
+  );
+  assert.equal(REDIRECT_EXIT, 2);
+  assert.equal(
+    redirectMessage('checkpoint'),
+    'sandforge-checkpoint is now `npx sandforge checkpoint`. Nothing was run.\n',
+  );
+  for (const { tool, folder: at } of redirects.packages) {
+    const bin = readFileSync(join(at, 'bin.mjs'), 'utf8');
+    // It hands the line on to nothing: no import, no child process, no require.
+    assert.doesNotMatch(
+      bin,
+      /\b(?:import|require|spawn|exec)\b/,
+      `sandforge-${tool} runs something`,
+    );
+    const readme = readFileSync(join(at, 'README.md'), 'utf8');
+    assert.equal(
+      readme.trim().split('\n').length,
+      1,
+      `sandforge-${tool}'s README is more than a line`,
+    );
+    assert.ok(
+      readme.includes(`npx sandforge ${tool}`) &&
+        readme.includes('https://github.com/StephaneBerthoz/sandforge'),
+      `sandforge-${tool}'s README names neither the package's command nor the repository`,
+    );
+  }
+});
+
+test('the redirects move with the version of the package, which bump-version.sh moves', () => {
+  for (const { folder: at } of redirects.packages) {
+    assert.equal(
+      JSON.parse(readFileSync(join(at, 'package.json'), 'utf8')).version,
+      packageVersion(),
+    );
+  }
+  const other = join(folder, 'other-redirects');
+  mkdirSync(join(other, 'notes'), { recursive: true });
+  assert.throws(() => buildRedirects(other), /holds notes: no build of the redirects writes these/);
+});
 
 test('the third-party notices name every package the bundle holds', () => {
   // The license texts are fenced: a heading of their own (BlueOak's "## No
@@ -123,6 +180,14 @@ test('the publish workflow checks the package on its Node floor, and publishes w
   assert.doesNotMatch(workflow, /NPM_TOKEN|NODE_AUTH_TOKEN|secrets\./);
   assert.match(workflow, /npm publish packages\/cli\/dist --provenance --access public/);
   assert.match(workflow, /node scripts\/npm-package\.mjs check packages\/cli\/dist/);
+  // The old names, checked on each Node, published after sandforge, the same way.
+  assert.match(workflow, /node scripts\/npm-package\.mjs check-redirects/);
+  const publishes = workflow.indexOf('npm publish packages/cli/dist ');
+  const redirected = workflow.indexOf('npm publish "$folder" --provenance --access public');
+  assert.ok(
+    publishes !== -1 && redirected > publishes,
+    'the redirects are not published after sandforge',
+  );
 });
 
 test('the guides give the package first and the checkout second, at the Node the package runs on', () => {

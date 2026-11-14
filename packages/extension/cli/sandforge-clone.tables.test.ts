@@ -558,7 +558,7 @@ describe('sandforge-clone of whole tables', () => {
 
       expect(stderr.join('')).toContain(
         'TGT is a production org (its Organization record says IsSandbox false, and no ' +
-          'edition): sandforge-clone writes to sandboxes and Developer Edition orgs only.',
+          'edition): sandforge clone writes to sandboxes and Developer Edition orgs only.',
       );
       expect(orgs.TGT.creates).toEqual([]);
       expect(orgs.SRC.asked).toEqual([]);

@@ -379,7 +379,7 @@ describe('sandforge-seed --checkpoint-first', () => {
         'record(s), kept until 2026-11-08',
     );
     expect(stderr.join('')).toContain(
-      `  rewind to it: sandforge-checkpoint rewind --org TGT --checkpoint ${TAKEN.checkpointId} ` +
+      `  rewind to it: pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts rewind --org TGT --checkpoint ${TAKEN.checkpointId} ` +
         '--mute-automation',
     );
     const asked = vi.mocked(commandCheckpoints).mock.calls[0][0];
@@ -409,7 +409,7 @@ describe('sandforge-seed --checkpoint-first', () => {
 
     const out = stdout.join('');
     expect(out).toContain(
-      `  rewind to it: sandforge-checkpoint rewind --org TGT --checkpoint ${TAKEN.checkpointId}\n`,
+      `  rewind to it: pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts rewind --org TGT --checkpoint ${TAKEN.checkpointId}\n`,
     );
     expect(out.indexOf('rewind to it:')).toBeLessThan(out.indexOf('Account: 2 written'));
   });

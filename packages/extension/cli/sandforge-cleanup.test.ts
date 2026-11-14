@@ -121,7 +121,7 @@ describe('sandforge-cleanup', () => {
     );
 
     expect(result).toBeInstanceOf(Error);
-    expect((result as Error).message).toBe('sf org display reached');
+    expect((result as Error).message).toContain('sf org display reached');
     expect(mockExecFileSync).toHaveBeenCalledTimes(1);
   });
 
@@ -287,7 +287,7 @@ describe('sandforge-cleanup', () => {
       expect(asked.filter((soql) => !soql.includes('FROM Organization'))).toEqual([]);
       expect(stderr).toContain(
         'TGT is a production org (its Organization record says IsSandbox false, edition ' +
-          'Enterprise Edition): sandforge-cleanup deletes from sandboxes and Developer Edition ' +
+          'Enterprise Edition): sandforge cleanup deletes from sandboxes and Developer Edition ' +
           'orgs only. Nothing was deleted; --dry-run, which only reads, runs against it.',
       );
     });

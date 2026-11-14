@@ -452,7 +452,7 @@ describe('sandforge-clone target automation', () => {
   it('names the bypass to assign without the mute to the reader of an environment, whose apply mutes nothing', async () => {
     // Relayed by an apply, the line went on "--mute-automation assigns them",
     // a flag no environment takes: its runs never mute.
-    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge env apply');
     try {
       withOrgs();
 
@@ -671,7 +671,7 @@ describe('sandforge-clone target automation', () => {
   it('offers no mute in its refusal to the reader of an environment, which never mutes, its lines naming the set all the same', async () => {
     // An environment's apply relayed "With --mute-automation, the clone
     // assigns ...", which neither its line nor its file takes.
-    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge env apply');
     try {
       withOrgs(fakeOrg({ permissionSets: [{ name: 'Data_Load', grants: 1 }] }));
 
@@ -949,7 +949,7 @@ describe('sandforge-clone target automation', () => {
     it('names --max-total and what narrows the clone as this script’s own to the reader of a command that takes none of them', async () => {
       // Relayed by the MCP server's clone_record, "raise --max-total" named a
       // parameter the tool does not take.
-      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-mcp');
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge mcp');
       try {
         withOrgs(fakeOrg({ noFlows: true, limits: STORAGE }));
 
@@ -970,7 +970,7 @@ describe('sandforge-clone target automation', () => {
       // Relayed by an apply, "raise its --max-total" sent the reader to a flag
       // the environment sets itself: the plan's count for the run, the
       // resource's maxTotal for its dry run.
-      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge env apply');
       try {
         withOrgs(fakeOrg({ noFlows: true, limits: STORAGE }));
 
@@ -1862,7 +1862,7 @@ describe('sandforge-clone target automation', () => {
           "UTC', 2 object(s), 2 record(s), kept until 2026-11-08",
       );
       expect(errored).toContain(
-        '  rewind to it: sandforge-checkpoint rewind --org TGT --checkpoint ' +
+        '  rewind to it: pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts rewind --org TGT --checkpoint ' +
           'ck-20261101-100000-a1b2 --mute-automation',
       );
     });

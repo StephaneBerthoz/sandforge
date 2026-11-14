@@ -394,7 +394,7 @@ describe('sandforge-frozen load --checkpoint-first', () => {
     expect(answer().checkpoint).toEqual(TAKEN);
     // The handler is asked for no checkpoint of its own.
     expect(errored.join('')).toContain(
-      '  rewind to it: sandforge-checkpoint rewind --org TGT --checkpoint ' +
+      '  rewind to it: pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts rewind --org TGT --checkpoint ' +
         'ck-20261101-120000-e5f6 --mute-automation',
     );
     expect(vi.mocked(commandCheckpoints).mock.calls[0][0]).toMatchObject({

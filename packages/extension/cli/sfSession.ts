@@ -16,6 +16,7 @@
 
 import { execFileSync } from 'node:child_process';
 import jsforce from 'jsforce';
+import { HttpProxyTransport } from 'jsforce/lib/transport';
 import { expiredScratchDate } from '@sandforge/shared';
 import type { Connection } from 'jsforce';
 import {
@@ -23,6 +24,8 @@ import {
   refreshTokenViaCli,
   type CliCredentials,
 } from '../src/core/connection/ConnectionHelper.js';
+import { SF_ALIAS_RE } from './commandLine.js';
+import { sfDisplayFailure } from './sfFailure.js';
 
 /** An authenticated org, as the `sf` CLI knows it. */
 export interface SfOrg {
@@ -41,8 +44,22 @@ export interface SfOrg {
 /** Reads a live token for an org through the `sf` CLI. */
 export type SfTokenReader = (alias: string) => Promise<CliCredentials>;
 
-/** SF alias = letters/digits/underscore/dash/dot. Defends against shell metachars. */
-const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;
+/**
+ * Run `sf org display` for `alias`, its JSON document as `sf` printed it.
+ *
+ * @throws {SfSessionError} When `sf` is missing or answers with an error.
+ */
+function displayOf(alias: string): string {
+  try {
+    return execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], {
+      encoding: 'utf8',
+      maxBuffer: 50 * 1024 * 1024,
+      shell: process.platform === 'win32',
+    });
+  } catch (err: unknown) {
+    throw sfDisplayFailure(alias, err);
+  }
+}
 
 /**
  * The org an `sf` alias names, with a token Salesforce takes.
@@ -61,7 +78,8 @@ export async function loadOrg(
   // passing — block any shell-injection vector via crafted CLI args.
   if (!SF_ALIAS_RE.test(alias)) {
     throw new Error(
-      `Invalid SF org alias: "${alias}" (allowed: letters, digits, underscore, dash, dot)`,
+      `Invalid SF org alias: "${alias}" (an alias or a username: letters, digits, _ . @ + and -, ` +
+        'not starting with . @ + or -)',
     );
   }
   // The username and the org's current instance, from `sf org display`. Its
@@ -70,11 +88,7 @@ export async function loadOrg(
   // it whenever show-access-token did not answer, sending that sentence as the
   // token. The extension's read tries show-access-token first and takes
   // display's token only where it is a real one.
-  const json = execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], {
-    encoding: 'utf8',
-    maxBuffer: 50 * 1024 * 1024,
-    shell: process.platform === 'win32',
-  });
+  const json = displayOf(alias);
   const parsed = JSON.parse(json) as {
     result?: {
       instanceUrl?: string;
@@ -133,12 +147,77 @@ export async function loadOrg(
   };
 }
 
-export function makeConn(org: SfOrg): Connection {
-  return new jsforce.Connection({
+/** A variable of the environment as curl reads it: the lowercase name first, then the uppercase one. */
+function variableOf(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const value = (env[name.toLowerCase()] ?? env[name.toUpperCase()] ?? '').trim();
+  return value === '' ? undefined : value;
+}
+
+/**
+ * Whether NO_PROXY sends `target` past the proxy: `*`, or an entry that is
+ * its host or a domain above it (`salesforce.com`, `.salesforce.com` and
+ * `*.salesforce.com` alike take `acme.my.salesforce.com`), on any port or the
+ * one the entry names.
+ */
+function bypassesProxy(target: URL, noProxy: string | undefined): boolean {
+  if (noProxy === undefined) return false;
+  const host = target.hostname.toLowerCase();
+  const port = target.port || (target.protocol === 'https:' ? '443' : '80');
+  return noProxy
+    .split(/[\s,]+/)
+    .filter((entry) => entry !== '')
+    .some((entry) => {
+      if (entry === '*') return true;
+      const [, name = '', entryPort] = /^(.*?)(?::(\d+))?$/.exec(entry.toLowerCase()) ?? [];
+      if (entryPort !== undefined && entryPort !== port) return false;
+      const domain = name.replace(/^\*?\.?/, '');
+      return domain !== '' && (host === domain || host.endsWith(`.${domain}`));
+    });
+}
+
+/**
+ * The proxy a connection to `url` goes through, or nothing for a direct one:
+ * HTTPS_PROXY for an https address, HTTP_PROXY otherwise and when HTTPS_PROXY
+ * is not set, as jsforce reads them; none for a host NO_PROXY names.
+ *
+ * jsforce 3.10.14 reads HTTPS_PROXY and HTTP_PROXY itself as it loads
+ * (`lib/transport.js`, its request defaults) and never NO_PROXY: behind a
+ * proxy that refuses Salesforce, with Salesforce in NO_PROXY as `sf` reads
+ * it, `sf` signed in and every call of the command went to the proxy.
+ * Exported so it can be tested.
+ */
+export function proxyFor(url: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  let target: URL;
+  try {
+    target = new URL(url);
+  } catch {
+    return undefined;
+  }
+  const proxy =
+    target.protocol === 'https:'
+      ? (variableOf(env, 'https_proxy') ?? variableOf(env, 'http_proxy'))
+      : variableOf(env, 'http_proxy');
+  if (proxy === undefined) return undefined;
+  return bypassesProxy(target, variableOf(env, 'no_proxy')) ? undefined : proxy;
+}
+
+/**
+ * A connection to the org, through the proxy the environment names for its
+ * instance ({@link proxyFor}), or straight to it. jsforce's own transport
+ * would take its proxy from the environment as it loaded, NO_PROXY unread: a
+ * direct connection is given a proxy transport with no proxy, which jsforce's
+ * request reads as none.
+ */
+export function makeConn(org: SfOrg, env: NodeJS.ProcessEnv = process.env): Connection {
+  const proxy = proxyFor(org.instanceUrl, env);
+  const conn = new jsforce.Connection({
     instanceUrl: org.instanceUrl,
     accessToken: org.accessToken,
     version: '66.0',
+    ...(proxy !== undefined ? { httpProxy: proxy } : {}),
   });
+  if (proxy === undefined) conn._transport = new HttpProxyTransport('');
+  return conn;
 }
 
 /**

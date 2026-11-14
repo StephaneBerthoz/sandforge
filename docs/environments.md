@@ -390,7 +390,7 @@ plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
 state: none on this machine
   create   customers  Contact 3 to mask
            not applied to this org yet
-           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: sandforge-dataops anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
+           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
 totals: 1 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
 data storage: about 0 MB, 5 MB left
@@ -408,7 +408,7 @@ plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
 state: none on this machine
   create   customers  Contact 3 to mask
            not applied to this org yet
-           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: sandforge-dataops anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
+           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
 totals: 1 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
 data storage: about 0 MB, 5 MB left
@@ -460,7 +460,7 @@ plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
 state: kept on this machine, serial 2
   replace  customers  Contact 4 to mask, 3 masked
            replaced: its condition selects other records than it masked (Contact 4 under its condition, 3 masked: 1 more, which hold their original values), and --replace-drifted asks it; it masks again what its condition selects, the records it masked before a second time, and takes nothing back first: the values they held before any masking stay only in snapshot cli-dataops-anonymize-1792918860000-a1b2c3-snapshot, run 1's, which destroy deletes
-           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: sandforge-dataops anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
+           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
 totals: 0 to create, 1 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
 data storage: about 0 MB, 5 MB left
@@ -493,7 +493,7 @@ $ sandforge-env destroy --file ../uat-masked/sandforge.yaml --org uat --yes
 plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
 state: kept on this machine, serial 4
   delete   customers  Contact 4 masked
-           taken back by destroy, which never unmasks: its records stay masked, and its store, /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, is deleted from this machine with its snapshots, the only copy of the values they held. To put back those they held before any masking, before this destroy, as your own act: sandforge-dataops anonymize --org uat --restore cli-dataops-anonymize-1792918860000-a1b2c3-snapshot --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
+           taken back by destroy, which never unmasks: its records stay masked, and its store, /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, is deleted from this machine with its snapshots, the only copy of the values they held. To put back those they held before any masking, before this destroy, as your own act: pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize --org uat --restore cli-dataops-anonymize-1792918860000-a1b2c3-snapshot --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
 totals: 0 to create, 0 to replace, 1 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 0
 data storage: about 0 MB
@@ -521,7 +521,7 @@ plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
 state: kept on this machine, serial 8
   blocked  customers  Contact 4 to mask
            taken back by an earlier destroy: applied again
-           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: sandforge-dataops anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
+           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
            refused: its own dry run says a real run would be refused: Contact.Nickname__c: the org has no such field, or field-level security hides it from this user — a run is refused and masks nothing (give the user read and edit access to it, or take it out of the template)
 totals: 0 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 1 blocked
 API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
@@ -613,7 +613,7 @@ contacts: run 1 (create)
 apply: success; state serial 4
 ```
 
-It plans first, then, on a terminal, asks for the org's alias to be typed exactly as `--org` gives it -- `Type pool-1 to apply case-flow to it as planned:` --; with no terminal and no `--yes`, as in a CI step, it stops at the question, exit `2`, having written nothing. `--org` takes an alias, never a username, which is refused before the org is reached (`Invalid SF org alias`), exit `1`: give an org that has none an alias first, with `sf alias set`. Before each run starts, the state names it; once it ends, the state says how. With `--json`, each step of the answer carries its script's exit code and its own `--json` answer, and, for a step its script refused or failed, why, in the script's own words, under `refusal`: what its answer says, or else the last line it said on stderr -- a clone its count gate refuses before its first write says it there alone. Applied again, it writes nothing:
+It plans first, then, on a terminal, asks for the org's alias to be typed exactly as `--org` gives it -- `Type pool-1 to apply case-flow to it as planned:` --; with no terminal and no `--yes`, as in a CI step, it stops at the question, exit `2`, having written nothing. `--org` takes the org's alias, or the username it stands for, as `sf` does; an org `sf` does not know is refused before anything is read from it (`sf does not know …`), exit `1`. Before each run starts, the state names it; once it ends, the state says how. With `--json`, each step of the answer carries its script's exit code and its own `--json` answer, and, for a step its script refused or failed, why, in the script's own words, under `refusal`: what its answer says, or else the last line it said on stderr -- a clone its count gate refuses before its first write says it there alone. Applied again, it writes nothing:
 
 <!-- replay: then -->
 
@@ -883,7 +883,7 @@ $ sandforge-env reset --file ../case-flow/sandforge.yaml --org pool-1 --yes
 reset: rewinding pool-1 to checkpoint ck-20261025-090230-a1b2
 
   rewind to ck-20261025-090230-a1b2: exit 0, success  1 deleted, 1 given back, 0 brought back
-undo it until 2026-11-09T09:04:31.000Z, sooner if the recycle bin fills: sandforge-checkpoint undo --org pool-1 --checkpoint ck-20261025-090230-a1b2 --store /home/dev/.sandforge/checkpoints
+undo it until 2026-11-09T09:04:31.000Z, sooner if the recycle bin fills: pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts undo --org pool-1 --checkpoint ck-20261025-090230-a1b2 --store /home/dev/.sandforge/checkpoints
 reset: success; state serial 5
 ```
 
@@ -1091,7 +1091,7 @@ $ echo $?
 ### Every flag
 
 ```text
-sandforge-env — apply a sandforge.yaml to an org: the data an environment needs, declared in
+sandforge env — apply a sandforge.yaml to an org: the data an environment needs, declared in
 your repository, created, kept and taken back, without the editor.
 
 Usage:
@@ -1202,12 +1202,12 @@ either way, unless keepContactPoints.
 The file's checkpoint.before takes a checkpoint of the org before the first write of its first
 apply, which destroy --rewind returns to; checkpoint.after takes one once an apply ended 0, and
 again after each apply that writes, which reset returns to and plan compares the whole org with.
-sandforge-checkpoint takes, rewinds to and deletes them, in checkpoints/ of the journal
+sandforge checkpoint takes, rewinds to and deletes them, in checkpoints/ of the journal
 directory: they hold the org's values in clear. plan says what each take costs and what refuses
 it, which refuses the apply before its first write. A destroy that took everything back deletes
-them; reset keeps them, and sandforge-checkpoint undo takes a reset back.
+them; reset keeps them, and sandforge checkpoint undo takes a reset back.
 
-A frozen resource loads a Frozen Dataset frozen beforehand, through sandforge-frozen: its
+A frozen resource loads a Frozen Dataset frozen beforehand, through sandforge frozen: its
 configuration committed beside the file, its dataset named by its path from the root or in a
 { env: NAME } variable, and pinned by its version and its digest — a dataset whose digest is not
 the file's is refused, both named. Each load is held to the count its dry run gave and judged by
@@ -1217,11 +1217,11 @@ and a reload while it runs any as its purge deletes, unless --accept-automation 
 resource's accept: { automation: true } takes it.
 
 A mask resource masks records the org already holds, a sandbox copied from production, with
-DataOps rules, through sandforge-dataops: a set of the file's masking, or a template that ships.
+DataOps rules, through sandforge dataops: a set of the file's masking, or a template that ships.
 Each run first takes a snapshot of the values it writes over, and writes nothing unless the
 snapshot holds every record; a masking applied is kept while its condition selects the records
 it masked. destroy never unmasks: it deletes the resource's store, its snapshots with it, the
-only copy of the values masked: putting them back from a snapshot, with sandforge-dataops, is
+only copy of the values masked: putting them back from a snapshot, with sandforge dataops, is
 your own act, before a destroy, and plan and destroy give the line. A file with a mask resource
 takes no checkpoint.before, and destroy --rewind is refused while the state names one.
 

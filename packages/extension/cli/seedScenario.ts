@@ -57,6 +57,7 @@ import {
 import type { SeedObjectAccess } from '../src/modules/seed/SeedOrchestrator.js';
 import { readRunFile } from '../src/modules/sync/SyncRunCreations.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { commandOf } from './invocation.js';
 
 /** A pack the line names, read, or why it cannot be. */
 export function scenarioPackOf(
@@ -229,7 +230,7 @@ export async function keepScenarioRun(input: {
 /** The command that writes a run's test file, its agent and topics to fill in. */
 export function testFileCommand(runFile: string, target: string, pack: ScenarioPack): string {
   return [
-    'sandforge-seed --test-file',
+    `${commandOf('seed')} --test-file`,
     runFile,
     '--target',
     target,

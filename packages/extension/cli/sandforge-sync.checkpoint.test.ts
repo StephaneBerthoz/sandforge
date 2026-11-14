@@ -417,7 +417,7 @@ describe('sandforge-sync --checkpoint-first', () => {
         'record(s), kept until 2026-11-08',
     );
     expect(err.join('')).toContain(
-      `  rewind to it: sandforge-checkpoint rewind --org TGT --checkpoint ${TAKEN.checkpointId} ` +
+      `  rewind to it: pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts rewind --org TGT --checkpoint ${TAKEN.checkpointId} ` +
         '--mute-automation',
     );
     expect(vi.mocked(commandCheckpoints).mock.calls[0][0]).toMatchObject({

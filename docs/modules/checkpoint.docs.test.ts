@@ -151,14 +151,17 @@ describe('docs/modules/checkpoint.md', () => {
 
   it('says a rewind asks you to type the org’s alias exactly as --org gives it, as the script compares what is typed and reaches the org', () => {
     // Positive controls: the rewind and the undo take what is typed for what
-    // --org was given, letter for letter; the org is reached by that alias
-    // before the question, and an alias takes no @, which every username
-    // has: a username is refused there, never asked for.
+    // --org was given, letter for letter; the org is reached by what --org
+    // gives before the question, an alias or the username it stands for, as
+    // sf takes either.
     expect(CLI).toContain('const answer = await typed(rewindQuestion(args.org, ');
     expect(CLI.match(/if \(answer !== args\.org\) throw new Stop/g)).toHaveLength(2);
     expect(PANEL_HOST).toContain('const session = await loadOrg(alias);');
     expect(source('packages/extension/cli/sfSession.ts')).toContain(
-      'const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;',
+      "import { SF_ALIAS_RE } from './commandLine.js';",
+    );
+    expect(source('packages/extension/cli/commandLine.ts')).toContain(
+      'export const SF_ALIAS_RE = /^[A-Za-z0-9_][A-Za-z0-9_.@+-]{0,254}$/;',
     );
 
     const asks = "asks you to type the org's alias exactly as `--org` gives it";

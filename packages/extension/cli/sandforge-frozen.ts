@@ -178,8 +178,9 @@ import {
 import { loadEmailsLines } from '../src/modules/frozendataset/loadEmails.js';
 import { loadAutomationLines } from '../src/modules/frozendataset/loadAutomation.js';
 import { holdOutputWhole } from './wholeOutput.js';
+import { commandOf } from './invocation.js';
 
-const HELP = `sandforge-frozen — build and replay a Frozen Dataset, without the editor.
+const HELP = `sandforge frozen — build and replay a Frozen Dataset, without the editor.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts <step> --config <file> [options]
@@ -234,7 +235,7 @@ Options:
                          nothing, and is not asked
   --gone-first <file>    with load --reload --dry-run: the records taken back before
                          the reload runs, a JSON array of their ids — hanging from the
-                         loads' records, they hold nothing. sandforge-env gives it what
+                         loads' records, they hold nothing. sandforge env gives it what
                          its apply takes back first; a reload that runs reads what is
                          still there
   --max-total <n>       with load: the most records it may insert — the count its dry
@@ -2968,7 +2969,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
               log(
                 `warning: the checkpoint '${kept.name}' taken before the load could not be ` +
                   `deleted (${err instanceof Error ? err.message : String(err)}): delete it ` +
-                  `with sandforge-checkpoint delete --org ${args.target ?? ''} --checkpoint ` +
+                  `with ${commandOf('checkpoint')} delete --org ${args.target ?? ''} --checkpoint ` +
                   kept.checkpointId,
               );
               return kept;

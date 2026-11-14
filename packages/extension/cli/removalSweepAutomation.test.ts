@@ -361,7 +361,7 @@ describe.each(COMMANDS)('$name --remove --sweep', ({ name, main, summary }) => {
   it('offers no mute to the reader of an environment, which never mutes a removal', async () => {
     // Relayed by sandforge-env, the refusal said "With --mute-automation, the
     // removal assigns ...", a flag neither its destroy nor its file takes.
-    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env');
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge env');
     try {
       expect(await remove('--sweep')).toBe(1);
 

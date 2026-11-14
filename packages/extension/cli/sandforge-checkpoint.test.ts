@@ -177,7 +177,7 @@ describe('parseArgs', () => {
     const restore = refused('restore', '--org', 'DEV-SB', '--yes');
     expect(restore.code).toBe(2);
     expect(restore.stderr).toContain(
-      '"restore" is not a command of sandforge-checkpoint: take, list, preview, rewind, undo, ' +
+      '"restore" is not a command of sandforge checkpoint: take, list, preview, rewind, undo, ' +
         'delete, export or import',
     );
   });

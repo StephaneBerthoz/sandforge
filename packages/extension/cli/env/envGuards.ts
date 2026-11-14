@@ -39,6 +39,7 @@ import { isProductionTarget, type TypedTarget } from '../../src/core/precheck/or
 import { organizationKey } from '../../src/modules/checkpoint/OrgCheckpointStore.js';
 import type { EnvStateError } from './envState.js';
 import { envLockRefusal, type EnvLockHolder } from './envLock.js';
+import { commandOf } from '../invocation.js';
 
 /**
  * The code an apply or a destroy is refused with when the state changed
@@ -273,7 +274,7 @@ export function noStateGuard(
     'left there, from another machine or a cache that was not restored, cannot be told from ' +
     'the org’s own, and would be created twice' +
     (runsKept
-      ? `; it keeps runs of ${env} on ${target.alias}, and sandforge-env state recover ` +
+      ? `; it keeps runs of ${env} on ${target.alias}, and ${commandOf('env')} state recover ` +
         'rebuilds the state from them'
       : '');
   if (target.kind === 'scratch' || acceptNoState) return { warning: said };

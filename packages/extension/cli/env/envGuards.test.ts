@@ -197,7 +197,7 @@ describe('no state of the environment on this machine', () => {
 
   it('says state recover rebuilds the state when the journal directory keeps runs of the environment, and nothing of it when it keeps none', () => {
     const hint =
-      'it keeps runs of case-flow on TGT, and sandforge-env state recover rebuilds the state from them';
+      'it keeps runs of case-flow on TGT, and pnpm exec tsx packages/extension/cli/sandforge-env.ts state recover rebuilds the state from them';
     const kept = noStateGuard(target('developer'), 'case-flow', false, true);
     expect('refusal' in kept && kept.refusal.message).toContain(hint);
     expect('refusal' in kept && kept.refusal.message).toContain('--accept-no-state');

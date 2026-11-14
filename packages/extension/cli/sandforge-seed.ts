@@ -269,7 +269,7 @@ import {
 /** The locales the faker draws in. */
 const SUPPORTED_LOCALES: readonly string[] = Object.keys(LOCALE_DATA);
 
-const HELP = `sandforge-seed — fill an org from a seed template, without the editor.
+const HELP = `sandforge seed — fill an org from a seed template, without the editor.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \\
@@ -1590,7 +1590,7 @@ export function recordTypeChoiceLine(
   if (open.length < 2) return undefined;
   const fallback = open.find((info) => info.defaultRecordTypeMapping);
   const chooses =
-    relayedBy()?.startsWith('sandforge-env') === true
+    relayedBy()?.startsWith('sandforge env') === true
       ? `the resource's recordTypes for ${objectApiName}, in the file, chooses`
       : `${ownOptionWords('--record-type')} ${objectApiName}=<Name> chooses`;
   return (
@@ -1669,7 +1669,7 @@ export function seedOrchestrator(deps: {
     fieldMapper: new FieldMapper({
       aiGenerator: new AIDataGenerator(() => {
         throw new Error(
-          'This template has an AI field rule. sandforge-seed runs without an ' +
+          'This template has an AI field rule. sandforge seed runs without an ' +
             'AI key: use the panel for it, or replace the rule with a faker one.',
         );
       }),
@@ -1955,7 +1955,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const seed = args.seed ?? randomInt(0, MAX_SEED + 1);
   const startedAt = new Date().toISOString();
 
-  log(`sandforge-seed  -> ${args.target}`);
+  log(`sandforge seed  -> ${args.target}`);
   log(`seed: ${seed}  (--seed ${seed} draws the same again)`);
   const session = await loadOrg(args.target);
   const conn = makeConn(session);
@@ -1973,7 +1973,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const typedTarget = args.dryRun
     ? undefined
     : await refuseProductionTarget(conn, args.target, {
-        tool: 'sandforge-seed',
+        tool: 'sandforge seed',
         action: 'write',
         readOnly: '--dry-run',
       });
@@ -2147,7 +2147,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
     template = {
       id: `cli-${Date.now()}`,
-      name: 'sandforge-seed',
+      name: 'sandforge seed',
       description: 'Headless run',
       version: 1,
       strategy: 'faker',
@@ -2507,7 +2507,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // Who the run writes as, for the sweep of its removal: its file takes it
   // whenever the org says, and nothing waits for it, not even the end of the
   // process, which goes as `main` returns.
-  keepRunUser(kept, () => conn.identity(), 'sandforge-seed');
+  keepRunUser(kept, () => conn.identity(), 'sandforge seed');
   const runFilePath = runs?.pathOf(runId);
 
   // Ctrl-C stops the run as the panel's Cancel does: before the next call, or
@@ -2540,7 +2540,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     bulkManager: new BulkApiManager(robustness.bulk.maxConcurrentJobs),
     retry: new RetryableOperation({ retryConfig: robustness.retry, signal: stop.signal }),
     signal: stop.signal,
-    label: 'sandforge-seed',
+    label: 'sandforge seed',
     log: (line) => log(`  ${line}`),
     onProgress: (processed, total, step) => {
       const tenth = total > 0 ? Math.floor((processed / total) * 10) : 10;
@@ -3180,7 +3180,7 @@ export function readRunSummary(text: string): { summary: SeedRunSummary } | { re
     const issue = parsed.error.issues[0];
     return {
       refusal:
-        `is not the summary of a sandforge-seed run (${issue.path.join('.') || 'summary'}: ` +
+        `is not the summary of a sandforge seed run (${issue.path.join('.') || 'summary'}: ` +
         `${issue.message}).`,
     };
   }
@@ -3256,7 +3256,7 @@ async function subjectOfRunFile(file: string, args: RemoveArgs): Promise<Removal
     process.exit(2);
   }
   if (!read || read.configId !== 'sandforge-seed') {
-    process.stderr.write(`--remove ${file} names no run of sandforge-seed.\n`);
+    process.stderr.write(`--remove ${file} names no run of sandforge seed.\n`);
     process.exit(2);
   }
   // Read by its run's id, beside what its removals did: under another name,
@@ -3422,7 +3422,7 @@ async function seedRemovalSweepInput(
     ...(earlier?.lateEarlier ? { late: earlier.lateEarlier } : {}),
   });
   return seedSweepInput(
-    removalOrg(conn, 'sandforge-seed --sweep'),
+    removalOrg(conn, 'sandforge seed --sweep'),
     run.created,
     automation,
     signal,
@@ -3534,7 +3534,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const org = await typeTarget(conn);
   // A listing deletes nothing; a removal and a sweep delete, and are refused
   // before either reads anything outside a sandbox or a Developer Edition.
-  const refusal = args.sweepList ? undefined : removalRefusal(args.target, org, 'sandforge-seed');
+  const refusal = args.sweepList ? undefined : removalRefusal(args.target, org, 'sandforge seed');
   if (refusal) refuseTheRemoval({ code: 'PRODUCTION_TARGET', message: refusal });
   if (
     subject.targetOrgId !== undefined &&
@@ -3554,7 +3554,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (jobsUnanswered && subject.runs) {
     const runs = subject.runs;
     const answered = await answerJobsInFlight(runs, run, conn as unknown as IngestJobReading, () =>
-      removalOrg(conn, 'sandforge-seed --remove').serverTime(),
+      removalOrg(conn, 'sandforge seed --remove').serverTime(),
     );
     for (const line of jobLines(answered, args.target)) say(line);
     if (answered.some((job) => job.answered)) run = (await runs.get(run.runId)) ?? run;
@@ -3567,7 +3567,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // What a sweep would delete, read and said; nothing is deleted, the
     // run's own records included.
     const listing = await listSweep(
-      sweepOrgOf(conn, 'sandforge-seed --sweep-list'),
+      sweepOrgOf(conn, 'sandforge seed --sweep-list'),
       await sweepInput(),
       earlier?.removalSpans ?? [],
     );
@@ -3598,7 +3598,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  say(`sandforge-seed --remove  ${args.summaryPath}  from ${args.target}`);
+  say(`sandforge seed --remove  ${args.summaryPath}  from ${args.target}`);
   for (const { objectApiName, ids } of plan) say(`  ${objectApiName}: ${ids.length} to remove`);
   if (plan.length === 0) say('nothing left of the run to remove');
   if (args.sweep) {
@@ -3620,7 +3620,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // (`sweepParts`).
   const parts = args.sweep
     ? sweepParts(
-        sweepOrgOf(conn, 'sandforge-seed --sweep', stop.signal),
+        sweepOrgOf(conn, 'sandforge seed --sweep', stop.signal),
         await sweepInput(stop.signal),
         {
           includeChanged: args.includeChanged,
@@ -3736,14 +3736,14 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const takeTheLease = async (): Promise<void> => {
     if (!removalMute?.prepared || stop.signal.aborted) return;
     held = await removalMute.prepared
-      .acquire(`sandforge-seed --remove ${run.runId}`)
+      .acquire(`sandforge seed --remove ${run.runId}`)
       .catch((err: unknown) => {
         if (!isMuteRefusedError(err)) throw err;
         return endRefused(err.refusal);
       });
     mutedAutomation = held.outcome;
   };
-  const removalTarget = removalOrg(conn, 'sandforge-seed --remove');
+  const removalTarget = removalOrg(conn, 'sandforge seed --remove');
   // Read before the first delete: the items that name them go with the records.
   const duplicateSets = await duplicateSetsOfRemoval(removalTarget, run.created);
   /** Why it stopped for objects its user may not delete, once it did. */
@@ -3976,7 +3976,7 @@ async function previewRemoval(
     say(`\ndone in ${elapsedSince(t0)}ms`);
   };
 
-  say(`sandforge-seed --remove  ${args.summaryPath}  --preview  of ${args.target}`);
+  say(`sandforge seed --remove  ${args.summaryPath}  --preview  of ${args.target}`);
   // A sweep still has the run's window to look in.
   if (plan.length === 0 && !args.sweep) {
     notes.push(
@@ -4019,13 +4019,13 @@ async function previewRemoval(
     process.exit(1);
   }
   const refusals: RunRefusal[] = [];
-  const production = removalRefusal(args.target, org, 'sandforge-seed');
+  const production = removalRefusal(args.target, org, 'sandforge seed');
   if (production) refusals.push({ code: 'PRODUCTION_TARGET', message: production });
   // With --sweep, what it would take, listed as the removal lists it before
   // its first delete; nothing is deleted.
   if (args.sweep) {
     sweepListing = await listSweep(
-      sweepOrgOf(conn, 'sandforge-seed --remove --preview --sweep'),
+      sweepOrgOf(conn, 'sandforge seed --remove --preview --sweep'),
       await seedRemovalSweepInput(conn, args.target, org.id, run, subject),
       subject.earlier?.removalSpans ?? [],
     );
@@ -4069,7 +4069,7 @@ async function previewRemoval(
   try {
     read = await previewSyncRun({
       run,
-      org: removalOrg(conn, 'sandforge-seed --remove --preview'),
+      org: removalOrg(conn, 'sandforge seed --remove --preview'),
       includeChanged: args.includeChanged,
       signal: stop.signal,
     });

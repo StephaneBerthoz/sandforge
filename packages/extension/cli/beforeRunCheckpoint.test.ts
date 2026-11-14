@@ -491,13 +491,13 @@ describe('what the command says of its checkpoint', () => {
     expect(checkpointTakenLines(TAKEN, 'TGT', false)).toEqual([
       "checkpoint before the run: ck-20261030-214000-a1b2 'Before Forge run 2026-10-30 21:40 UTC', " +
         '3 object(s), 1074 record(s), kept until 2026-11-06',
-      '  rewind to it: sandforge-checkpoint rewind --org TGT --checkpoint ck-20261030-214000-a1b2',
+      '  rewind to it: pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts rewind --org TGT --checkpoint ck-20261030-214000-a1b2',
       '  not in the checkpoint: FeedItem — Chatter posts. A rewind leaves its records as they are.',
     ]);
     const kept = checkpointTakenLines({ ...TAKEN, expiresAt: null, notHeld: [] }, 'TGT', true);
     expect(kept[0]).toMatch(/, kept until it is deleted$/);
     expect(kept[1]).toBe(
-      '  rewind to it: sandforge-checkpoint rewind --org TGT --checkpoint ' +
+      '  rewind to it: pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts rewind --org TGT --checkpoint ' +
         'ck-20261030-214000-a1b2 --mute-automation',
     );
   });
@@ -595,7 +595,7 @@ describe('settleCommandCheckpoint', () => {
 
     expect(said).toEqual([
       `warning: the checkpoint '${TAKEN.name}' taken before the run, which wrote nothing, could ` +
-        'not be deleted (the folder is locked): delete it with sandforge-checkpoint delete --org ' +
+        'not be deleted (the folder is locked): delete it with pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts delete --org ' +
         `TGT --checkpoint ${TAKEN.checkpointId}`,
     ]);
   });

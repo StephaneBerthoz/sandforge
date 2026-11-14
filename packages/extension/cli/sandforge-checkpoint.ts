@@ -131,12 +131,13 @@ import { muteLines, planMute } from '../src/modules/forge/AutomationMuteLease.js
 import { refusedLine } from './runRefused.js';
 import { removalStepsWrites } from '@sandforge/shared';
 import { holdOutputWhole } from './wholeOutput.js';
+import { SfSessionError } from './sfFailure.js';
 
 // The counts the bounds of a rewind are read by (`rewindBounds.ts`), which
 // the lines of this command are made of too.
 export { previewTotals, rewindStepsOf, selectionDiff };
 
-const HELP = `sandforge-checkpoint — take a checkpoint of an org's data, and rewind the org to it, without the editor.
+const HELP = `sandforge checkpoint — take a checkpoint of an org's data, and rewind the org to it, without the editor.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts <command> --org <alias> [options]
@@ -704,7 +705,7 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
   }
   if (!isCommand(command)) {
     return refuseLine(
-      `"${command}" is not a command of sandforge-checkpoint: take, list, preview, rewind, undo, ` +
+      `"${command}" is not a command of sandforge checkpoint: take, list, preview, rewind, undo, ` +
         'delete, export or import. Nothing was run. Run with --help.',
     );
   }
@@ -3207,7 +3208,12 @@ export async function main(
       } catch (err: unknown) {
         throw new Stop({
           code: 'NOT_CONNECTED',
-          message: `${alias} could not be reached: ${err instanceof Error ? err.message : String(err)}`,
+          // What sf said of the alias says what to do; "could not be reached"
+          // sent the reader to the network.
+          message:
+            err instanceof SfSessionError
+              ? err.message
+              : `${alias} could not be reached: ${err instanceof Error ? err.message : String(err)}`,
         });
       }
     };

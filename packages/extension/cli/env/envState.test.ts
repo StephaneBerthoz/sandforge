@@ -484,7 +484,7 @@ describe('a state set aside, and the files a recover reads', () => {
     writeFileSync(join(folder, 'state.json'), '{');
     const damaged = await expectRefused(store.read(ORG, 'case-flow'), 'damaged');
     expect(damaged.message).toContain(
-      'Run sandforge-env state recover: it sets this file aside and rebuilds the state from the run files beside it.',
+      'Run pnpm exec tsx packages/extension/cli/sandforge-env.ts state recover: it sets this file aside and rebuilds the state from the run files beside it.',
     );
     expect(damaged.message).not.toContain('delete its folder');
   });

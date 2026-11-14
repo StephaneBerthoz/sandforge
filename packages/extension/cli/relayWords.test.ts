@@ -22,7 +22,7 @@ describe('relayWords', () => {
   });
 
   it('names an option the MCP server takes as itself, and one it does not as this script’s own', () => {
-    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-mcp');
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge mcp');
 
     expect(relayTakes('--mute-automation')).toBe(true);
     expect(ownOptionWords('--leave-undeletable', 'removal')).toBe('--leave-undeletable');
@@ -32,14 +32,14 @@ describe('relayWords', () => {
   });
 
   it('takes the sweep alone for an environment’s destroy, and nothing for its apply, or for an environment the MCP server runs', () => {
-    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-env');
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge env');
     expect(relayTakes('--sweep')).toBe(true);
     expect(relayTakes('--mute-automation')).toBe(false);
     expect(ownOptionWords('--leave-undeletable', 'removal')).toBe(
       "this script's own removal with --leave-undeletable",
     );
 
-    for (const relay of ['sandforge-env apply', 'sandforge-env, relayed by sandforge-mcp']) {
+    for (const relay of ['sandforge env apply', 'sandforge env, relayed by sandforge mcp']) {
       vi.stubEnv(RELAYED_BY_VARIABLE, relay);
       expect(relayTakes('--sweep')).toBe(false);
       expect(relayTakes('--mute-automation')).toBe(false);
@@ -50,17 +50,17 @@ describe('relayWords', () => {
     // A removal an apply's replace ran said "(--include-changed takes them)",
     // which no apply takes; the destroy, which takes it, was told it did not.
     for (const relay of [
-      'sandforge-env',
-      'sandforge-env, relayed by sandforge-mcp',
-      'sandforge-mcp',
+      'sandforge env',
+      'sandforge env, relayed by sandforge mcp',
+      'sandforge mcp',
     ]) {
       vi.stubEnv(RELAYED_BY_VARIABLE, relay);
       expect(relayTakes('--include-changed'), relay).toBe(true);
     }
     for (const relay of [
-      'sandforge-env apply',
-      'sandforge-env plan',
-      'sandforge-env apply, relayed by sandforge-mcp',
+      'sandforge env apply',
+      'sandforge env plan',
+      'sandforge env apply, relayed by sandforge mcp',
     ]) {
       vi.stubEnv(RELAYED_BY_VARIABLE, relay);
       expect(relayTakes('--include-changed'), relay).toBe(false);
@@ -74,10 +74,10 @@ describe('relayWords', () => {
     // Relayed by an environment's plan, a clone said "choices from --template
     // …" and "(--keep-contact-points)": options its file set, no flag its reader gave.
     for (const relay of [
-      'sandforge-env',
-      'sandforge-env plan',
-      'sandforge-env apply',
-      'sandforge-env apply, relayed by sandforge-mcp',
+      'sandforge env',
+      'sandforge env plan',
+      'sandforge env apply',
+      'sandforge env apply, relayed by sandforge mcp',
     ]) {
       vi.stubEnv(RELAYED_BY_VARIABLE, relay);
       expect(relayedByAnEnvironment(), relay).toBe(true);
@@ -85,7 +85,7 @@ describe('relayWords', () => {
         'keepContactPoints',
       );
     }
-    for (const relay of ['sandforge-mcp', '']) {
+    for (const relay of ['sandforge mcp', '']) {
       vi.stubEnv(RELAYED_BY_VARIABLE, relay);
       expect(relayedByAnEnvironment(), relay).toBe(false);
       expect(envWords('--keep-contact-points', 'keepContactPoints'), relay).toBe(

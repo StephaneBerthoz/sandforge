@@ -83,6 +83,7 @@ import {
 } from './scriptRunner.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { loadOrg, makeConn, type SfOrg } from './sfSession.js';
+import { SfSessionError } from './sfFailure.js';
 import {
   applyPlan,
   removalSubjectOf,
@@ -196,7 +197,7 @@ import {
 } from './env/envState.js';
 import { holdOutputWhole } from './wholeOutput.js';
 
-const HELP = `sandforge-env — apply a sandforge.yaml to an org: the data an environment needs, declared in
+const HELP = `sandforge env — apply a sandforge.yaml to an org: the data an environment needs, declared in
 your repository, created, kept and taken back, without the editor.
 
 Usage:
@@ -307,12 +308,12 @@ either way, unless keepContactPoints.
 The file's checkpoint.before takes a checkpoint of the org before the first write of its first
 apply, which destroy --rewind returns to; checkpoint.after takes one once an apply ended 0, and
 again after each apply that writes, which reset returns to and plan compares the whole org with.
-sandforge-checkpoint takes, rewinds to and deletes them, in checkpoints/ of the journal
+sandforge checkpoint takes, rewinds to and deletes them, in checkpoints/ of the journal
 directory: they hold the org's values in clear. plan says what each take costs and what refuses
 it, which refuses the apply before its first write. A destroy that took everything back deletes
-them; reset keeps them, and sandforge-checkpoint undo takes a reset back.
+them; reset keeps them, and sandforge checkpoint undo takes a reset back.
 
-A frozen resource loads a Frozen Dataset frozen beforehand, through sandforge-frozen: its
+A frozen resource loads a Frozen Dataset frozen beforehand, through sandforge frozen: its
 configuration committed beside the file, its dataset named by its path from the root or in a
 { env: NAME } variable, and pinned by its version and its digest — a dataset whose digest is not
 the file's is refused, both named. Each load is held to the count its dry run gave and judged by
@@ -322,11 +323,11 @@ and a reload while it runs any as its purge deletes, unless --accept-automation 
 resource's accept: { automation: true } takes it.
 
 A mask resource masks records the org already holds, a sandbox copied from production, with
-DataOps rules, through sandforge-dataops: a set of the file's masking, or a template that ships.
+DataOps rules, through sandforge dataops: a set of the file's masking, or a template that ships.
 Each run first takes a snapshot of the values it writes over, and writes nothing unless the
 snapshot holds every record; a masking applied is kept while its condition selects the records
 it masked. destroy never unmasks: it deletes the resource's store, its snapshots with it, the
-only copy of the values masked: putting them back from a snapshot, with sandforge-dataops, is
+only copy of the values masked: putting them back from a snapshot, with sandforge dataops, is
 your own act, before a destroy, and plan and destroy give the line. A file with a mask resource
 takes no checkpoint.before, and destroy --rewind is refused while the state names one.
 
@@ -519,7 +520,7 @@ export interface CliArgs {
  * @param outer - The command that relays this one, when one does.
  */
 export function envRelayOf(command: Command, outer: string | undefined): string {
-  const self = command === 'destroy' ? 'sandforge-env' : `sandforge-env ${command}`;
+  const self = command === 'destroy' ? 'sandforge env' : `sandforge env ${command}`;
   return outer !== undefined && outer !== '' ? `${self}, relayed by ${outer}` : self;
 }
 
@@ -580,7 +581,7 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
   }
   if (!isCommand(command)) {
     return refuseLine(
-      `"${command}" is not a command of sandforge-env: validate, plan, apply, destroy, reset, ` +
+      `"${command}" is not a command of sandforge env: validate, plan, apply, destroy, reset, ` +
         'state or output. Nothing was run.',
     );
   }
@@ -916,7 +917,12 @@ async function prepare(
       {
         refusal: {
           code: 'NOT_CONNECTED',
-          message: `${alias} could not be reached: ${err instanceof Error ? err.message : String(err)}`,
+          // What sf said of the alias says what to do; "could not be reached"
+          // sent the reader to the network.
+          message:
+            err instanceof SfSessionError
+              ? err.message
+              : `${alias} could not be reached: ${err instanceof Error ? err.message : String(err)}`,
         },
       },
       FAILED_EXIT,
@@ -1029,7 +1035,10 @@ async function readSources(
       conn = (await reaching).conn;
     } catch (err: unknown) {
       sources[resource.name] = {
-        refusal: `the ${role} org (${alias}) could not be reached: ${err instanceof Error ? err.message : String(err)}`,
+        refusal:
+          err instanceof SfSessionError
+            ? `the ${role} org: ${err.reason}`
+            : `the ${role} org (${alias}) could not be reached: ${err instanceof Error ? err.message : String(err)}`,
       };
       continue;
     }

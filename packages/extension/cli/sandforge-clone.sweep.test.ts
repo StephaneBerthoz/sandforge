@@ -566,20 +566,20 @@ describe('what takes what a sweep kept, as a line relayed by sandforge-env says 
   });
 
   it('says, relayed, that the relaying command keeps them and that the script’s own removal takes them', () => {
-    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-env');
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge env');
 
     const left = sweepLines(LEFT);
     expect(left).toContain(
-      "  left, made late: Task: 2 (sandforge-env keeps them; this script's own removal with " +
+      "  left, made late: Task: 2 (sandforge env keeps them; this script's own removal with " +
         '--sweep --sweep-late takes them)',
     );
     expect(left).toContain(
-      '  left, tied to nothing of the run: Task: 30 (sandforge-env keeps them; this script' +
+      '  left, tied to nothing of the run: Task: 30 (sandforge env keeps them; this script' +
         "'s own removal with --sweep --sweep-untied takes them)",
     );
     const listed = sweepListingLines(TIED, 'TGT', {}).join('\n');
     expect(listed).toContain(
-      "(sandforge-env keeps them; this script's own removal with --sweep --sweep-untied takes them)",
+      "(sandforge env keeps them; this script's own removal with --sweep --sweep-untied takes them)",
     );
     expect(listed).not.toContain('(--sweep-untied takes them)');
     expect(
@@ -595,7 +595,7 @@ describe('what takes what a sweep kept, as a line relayed by sandforge-env says 
   it('names, relayed by a command that runs its removal without a sweep, the sweep this script’s own removal runs', () => {
     // Relayed by the MCP server's run_remove, which takes no sweep: "--sweep
     // takes them first" named a flag its reader could not give.
-    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-mcp');
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge mcp');
 
     const [held] = automationHeldLines([{ heldByAutomation: 1, automationHolders: ['Task'] }], {
       sweep: false,
@@ -608,7 +608,7 @@ describe('what takes what a sweep kept, as a line relayed by sandforge-env says 
     expect(held).not.toMatch(/: --sweep takes/);
 
     // An environment's destroy takes --sweep itself: its reader gives it there.
-    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-env');
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge env');
     expect(
       automationHeldLines([{ heldByAutomation: 1, automationHolders: ['Task'] }], {
         sweep: false,
@@ -619,7 +619,7 @@ describe('what takes what a sweep kept, as a line relayed by sandforge-env says 
 
     // Its apply does not: told the same, the removal of a run it replaced said
     // "--sweep takes them first".
-    for (const relay of ['sandforge-env apply', 'sandforge-env, relayed by sandforge-mcp']) {
+    for (const relay of ['sandforge env apply', 'sandforge env, relayed by sandforge mcp']) {
       vi.stubEnv(RELAYED_BY_VARIABLE, relay);
       expect(
         automationHeldLines([{ heldByAutomation: 1, automationHolders: ['Task'] }], {

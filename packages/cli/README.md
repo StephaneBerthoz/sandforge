@@ -17,7 +17,7 @@ npx sandforge clone --help
 npx sandforge seed --target DEV --template <id> --dry-run
 ```
 
-Installed with `npm install --global sandforge`, the command is `sandforge <command>`, and each one answers to its own name too, `sandforge-<command>`, as the scripts' messages name them (`sandforge-checkpoint rewind --org DEV …`).
+Installed with `npm install --global sandforge`, the command is `sandforge <command>`, and each one answers to its own name too, `sandforge-<command>`. The lines the commands print name them the way that runs anywhere, `npx sandforge checkpoint rewind --org DEV …`: npx takes the command installed when there is one. On npm, the packages named `sandforge-<command>` run nothing: each says the command to type instead.
 
 ## The MCP server
 

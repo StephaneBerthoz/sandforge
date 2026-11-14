@@ -285,7 +285,7 @@ import {
 } from './beforeRunCheckpoint.js';
 import { holdOutputWhole } from './wholeOutput.js';
 
-const HELP = `sandforge-sync — run a Sync between two orgs, without the editor.
+const HELP = `sandforge sync — run a Sync between two orgs, without the editor.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \\
@@ -509,7 +509,7 @@ Environment:
                          What a run writes over — an update, an upsert that
                          finds the record — is read from the target first and
                          kept in <dir>/backups, readable by you alone, as
-                         sandforge-backup keeps a snapshot: the values the
+                         sandforge backup keeps a snapshot: the values the
                          records held, of the fields the run writes, which
                          --remove gives back. A call whose values cannot be
                          kept is not sent, its rows refused with why.
@@ -1906,7 +1906,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     config = buildConfig(args);
   }
 
-  log(`sandforge-sync  ${args.source} -> ${args.target}`);
+  log(`sandforge sync  ${args.source} -> ${args.target}`);
   log(
     `objects: ${config.objects.map((o) => o.objectApiName).join(', ')}` +
       (saved ? `  (configuration ${config.id}, ${config.mode})` : ''),
@@ -1936,7 +1936,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const typed = args.dryRun
     ? await typeTarget(targetConn).catch(() => undefined)
     : await refuseProductionTarget(targetConn, args.target, {
-        tool: 'sandforge-sync',
+        tool: 'sandforge sync',
         action: 'write',
         readOnly: '--dry-run',
       });
@@ -1960,7 +1960,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // Who the run writes as, for the sweep of its removal: its file takes it
   // whenever the target says, and nothing waits for it, not even the end of
   // the process, which goes as `main` returns.
-  keepRunUser(runFile, () => targetConn.identity(), 'sandforge-sync');
+  keepRunUser(runFile, () => targetConn.identity(), 'sandforge sync');
   // Where what the run creates is kept as it writes it, however the run
   // ends: said once, as its gate lets it write and before its first write,
   // on stderr with --json. A run refused at its gate begins no file, and
@@ -2298,7 +2298,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             for (const line of muteLines(planned.muted, args.target)) log(`  ${line}`);
             return planned;
           },
-          `sandforge-sync ${runId}`,
+          `sandforge sync ${runId}`,
           { target: args.target },
         )
       : undefined;
@@ -2986,7 +2986,7 @@ export function readRunSummary(text: string): { summary: RunSummary } | { refusa
     const issue = parsed.error.issues[0];
     return {
       refusal:
-        `is not the summary of a sandforge-sync run (${issue.path.join('.') || 'summary'}: ` +
+        `is not the summary of a sandforge sync run (${issue.path.join('.') || 'summary'}: ` +
         `${issue.message}).`,
     };
   }
@@ -3053,7 +3053,7 @@ export function runOfSummary(summary: RunSummary, removal?: SyncRunRemovalState)
 export function removalRefusal(
   alias: string,
   org: TypedTarget,
-  tool = 'sandforge-sync',
+  tool = 'sandforge sync',
 ): string | undefined {
   if (org.sandbox || isDeveloperEdition(org.edition)) return undefined;
   const said = org.edition
@@ -3347,7 +3347,7 @@ async function subjectOfRunFile(file: string, args: RemoveArgs): Promise<Removal
     process.exit(2);
   }
   if (!read) {
-    process.stderr.write(`--remove ${file} names no run of sandforge-sync.\n`);
+    process.stderr.write(`--remove ${file} names no run of sandforge sync.\n`);
     process.exit(2);
   }
   // Read by its run's id, beside what its removals did: under another name,
@@ -3570,7 +3570,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (jobsUnanswered && subject.runs) {
     const runs = subject.runs;
     const answered = await answerJobsInFlight(runs, run, conn as unknown as IngestJobReading, () =>
-      removalOrg(conn, 'sandforge-sync --remove').serverTime(),
+      removalOrg(conn, 'sandforge sync --remove').serverTime(),
     );
     for (const line of jobLines(answered, args.target)) say(line);
     if (answered.some((job) => job.answered)) run = (await runs.get(run.runId)) ?? run;
@@ -3605,7 +3605,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     } catch (err: unknown) {
       automation = { error: err instanceof Error ? err.message : String(err) };
     }
-    const removal = removalOrg(conn, 'sandforge-sync --sweep');
+    const removal = removalOrg(conn, 'sandforge sync --sweep');
     // What tells the records tied to the run from the rest of what its user
     // created in its window: the other runs of this machine that wrote to
     // the org meanwhile, its mute, when its first removal began, what its
@@ -3646,7 +3646,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // What a sweep would delete, read and said; nothing is deleted, the
     // run's own records included.
     const listing = await listSweep(
-      sweepOrgOf(conn, 'sandforge-sync --sweep-list'),
+      sweepOrgOf(conn, 'sandforge sync --sweep-list'),
       await sweepInput(),
       earlier?.removalSpans ?? [],
     );
@@ -3697,7 +3697,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       );
     }
   }
-  say(`sandforge-sync --remove  ${args.summaryPath}  from ${args.target}`);
+  say(`sandforge sync --remove  ${args.summaryPath}  from ${args.target}`);
   for (const { objectApiName, ids } of kept.kept) {
     say(`  ${objectApiName}: ${ids.length} to give back their values from before the run`);
   }
@@ -3742,7 +3742,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // (`sweepParts`).
   const parts = args.sweep
     ? sweepParts(
-        sweepOrgOf(conn, 'sandforge-sync --sweep', stop.signal),
+        sweepOrgOf(conn, 'sandforge sync --sweep', stop.signal),
         await sweepInput(stop.signal),
         {
           includeChanged: args.includeChanged,
@@ -3868,14 +3868,14 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const takeTheLease = async (): Promise<void> => {
     if (!removalMute?.prepared || stop.signal.aborted) return;
     held = await removalMute.prepared
-      .acquire(`sandforge-sync --remove ${run.runId}`)
+      .acquire(`sandforge sync --remove ${run.runId}`)
       .catch((err: unknown) => {
         if (!isMuteRefusedError(err)) throw err;
         return endRefused(err.refusal);
       });
     mutedAutomation = held.outcome;
   };
-  const removalTarget = removalOrg(conn, 'sandforge-sync --remove');
+  const removalTarget = removalOrg(conn, 'sandforge sync --remove');
   // Read before the first delete, as Seed's removal reads them: the items
   // that name them go with the records.
   const duplicateSets = await duplicateSetsOfRemoval(removalTarget, run.created);

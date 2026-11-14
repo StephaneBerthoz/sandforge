@@ -244,7 +244,7 @@ describe('a mask resource', () => {
       }),
     ]);
     expect(planned.actions[0]?.notes?.[0]).toContain(
-      'sandforge-dataops anonymize --org TGT --restore <the snapshot its run names> ' +
+      'pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize --org TGT --restore <the snapshot its run names> ' +
         `--store ${await storeDirOf()}`,
     );
     // The masking's dry run counts the emails the org sends as the records

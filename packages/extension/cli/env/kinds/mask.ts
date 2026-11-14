@@ -58,6 +58,7 @@ import { ANONYMIZATION_TEMPLATES } from '../../../src/bridge/templates/anonymiza
 import { fileConfigStore } from '../../fileConfigStore.js';
 import { masksObject, missingFieldLine, notWritableLine } from '../../sandforge-dataops.js';
 import type { RunnableScript } from '../../scriptRunner.js';
+import { commandOf } from '../../invocation.js';
 import {
   canonicalJson,
   codesSaidIn,
@@ -653,7 +654,7 @@ export interface MaskPlace {
 /** The line that puts a snapshot's values back, as the script prints it. */
 function restoreLine(place: MaskPlace, snapshot: string): string {
   return (
-    `sandforge-dataops anonymize --org ${place.alias} --restore ${snapshot} ` +
+    `${commandOf('dataops')} anonymize --org ${place.alias} --restore ${snapshot} ` +
     `--store ${place.store ?? '<its store>'}`
   );
 }

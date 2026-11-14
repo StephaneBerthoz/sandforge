@@ -6,6 +6,7 @@ import {
   productionTargetRefusal,
   refuseProductionTarget,
   typeTarget,
+  untypedTargetRefusal,
 } from './targetKind.js';
 
 const ORG_ID = '00D000000000001AAA';
@@ -26,8 +27,8 @@ function org(row: Record<string, unknown> | undefined, edition?: string | Error)
   return { conn, asked };
 }
 
-const WRITE = { tool: 'sandforge-seed', action: 'write', readOnly: '--dry-run' } as const;
-const DELETE = { tool: 'sandforge-cleanup', action: 'delete', readOnly: '--dry-run' } as const;
+const WRITE = { tool: 'sandforge seed', action: 'write', readOnly: '--dry-run' } as const;
+const DELETE = { tool: 'sandforge cleanup', action: 'delete', readOnly: '--dry-run' } as const;
 
 describe('what a command line takes its target for', () => {
   it("types the org with the extension's own reading, so a command line and a checkpoint agree", () => {
@@ -44,12 +45,12 @@ describe('what a command line takes its target for', () => {
       ),
     ).toBe(
       'CI-TARGET is a production org (its Organization record says IsSandbox false, edition ' +
-        'Enterprise Edition): sandforge-seed writes to sandboxes and Developer Edition orgs ' +
+        'Enterprise Edition): sandforge seed writes to sandboxes and Developer Edition orgs ' +
         'only. Nothing was written; --dry-run, which only reads, runs against it.',
     );
     expect(productionTargetRefusal('CI-TARGET', { id: ORG_ID, sandbox: false }, DELETE)).toBe(
       'CI-TARGET is a production org (its Organization record says IsSandbox false, and no ' +
-        'edition): sandforge-cleanup deletes from sandboxes and Developer Edition orgs only. ' +
+        'edition): sandforge cleanup deletes from sandboxes and Developer Edition orgs only. ' +
         'Nothing was deleted; --dry-run, which only reads, runs against it.',
     );
     expect(
@@ -98,6 +99,76 @@ describe('the refusal before a command writes or deletes', () => {
     expect(code).toBe(1);
     expect(stderr).toContain('CI-TARGET did not say what org it is');
     expect(stderr).toContain('Nothing was deleted.');
+  });
+
+  /** An org whose Organization record could not be read: the query fails with `err`. */
+  function failing(err: Error): Pick<Connection, 'query'> {
+    return {
+      query: vi.fn(async () => {
+        throw err;
+      }),
+    } as unknown as Pick<Connection, 'query'>;
+  }
+
+  it("names sf's sign-in when the org refused the session, which no permission would lift", async () => {
+    const expired = Object.assign(new Error('INVALID_SESSION_ID: Session expired or invalid'), {
+      errorCode: 'INVALID_SESSION_ID',
+    });
+
+    const { code, stderr } = await refused(failing(expired), WRITE);
+
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      'CI-TARGET refused the session sf gave for it (INVALID_SESSION_ID: Session expired or ' +
+        'invalid), and sandforge seed writes to no org it cannot tell from a production one. ' +
+        '"sf org display --target-org CI-TARGET" says what sf holds for it; "sf org login web ' +
+        '--alias CI-TARGET" signs in again (in a CI job, "sf org login jwt" or "sf org login ' +
+        'sfdxurl"); then run the command again. Nothing was written.\n',
+    );
+  });
+
+  it('says to run again when the org did not answer', async () => {
+    const reset = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+
+    const { code, stderr } = await refused(failing(reset), DELETE);
+
+    expect(code).toBe(1);
+    expect(stderr).toMatch(/^CI-TARGET did not answer \(socket hang up\), and sandforge cleanup/);
+    expect(stderr).toContain('Run the command again once it answers. Nothing was deleted.');
+    expect(stderr).not.toMatch(/sf org login|View Setup/);
+  });
+
+  it('names View Setup and Configuration when the user may not read the Organization record', async () => {
+    for (const denied of [
+      Object.assign(new Error('INSUFFICIENT_ACCESS: insufficient access rights on object id'), {
+        errorCode: 'INSUFFICIENT_ACCESS',
+      }),
+      Object.assign(new Error("INVALID_TYPE: sObject type 'Organization' is not supported."), {
+        errorCode: 'INVALID_TYPE',
+      }),
+    ]) {
+      const { code, stderr } = await refused(failing(denied), WRITE);
+
+      expect(code).toBe(1);
+      expect(stderr).toMatch(/^CI-TARGET would not show its Organization record/);
+      expect(stderr).toContain(
+        'Reading it takes the View Setup and Configuration permission: give it to the user the ' +
+          'alias signs in as, or name an alias of a user who has it. Nothing was written.',
+      );
+      expect(stderr).not.toMatch(/sf org login/);
+    }
+  });
+
+  it('keeps its first words for an org that answered and said nothing of itself', () => {
+    expect(
+      untypedTargetRefusal('CI-TARGET', new Error('the query timed out on the server'), WRITE),
+    ).toMatch(/did not answer/);
+    expect(
+      untypedTargetRefusal('CI-TARGET', new Error('MALFORMED_QUERY: unexpected token'), WRITE),
+    ).toBe(
+      'CI-TARGET did not say what org it is (MALFORMED_QUERY: unexpected token), and sandforge ' +
+        'seed writes to no org it cannot tell from a production one. Nothing was written.',
+    );
   });
 
   it('hands back a sandbox or a Developer Edition org as typed, and goes on', async () => {

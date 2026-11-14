@@ -60,6 +60,7 @@ import { THIS_HOST, writtenElsewhere, type RunWriterHost } from '../src/modules/
 import type { SyncRunKept } from '../src/modules/sync/SyncRunCreations.js';
 import type { TypedTarget } from './targetKind.js';
 import type { SfOrg } from './sfSession.js';
+import { commandOf } from './invocation.js';
 
 // ─── The options ─────────────────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ export function checkpointFirstHelp(words: {
     '                         them, held whole, as every checkpoint holds an object.',
     '                         Its cost is that of the tables, not of the records',
     `                         written, and is said first. A rewind to it takes ${words.run}`,
-    '                         back (sandforge-checkpoint rewind), and the work of',
+    '                         back (sandforge checkpoint rewind), and the work of',
     '                         anyone else on those objects since with it. Refused',
     `                         — another run writing, a limit, the disk — ${words.run}`,
     '                         writes nothing, exit 1; deleted again when it writes',
@@ -543,7 +544,7 @@ export function checkpointTakenLines(
   return [
     `checkpoint before the run: ${taken.checkpointId} '${taken.name}', ` +
       `${taken.objects.length} object(s), ${taken.records} record(s), ${keptUntil(taken.expiresAt)}`,
-    `  rewind to it: sandforge-checkpoint rewind --org ${target} --checkpoint ` +
+    `  rewind to it: ${commandOf('checkpoint')} rewind --org ${target} --checkpoint ` +
       `${taken.checkpointId}${muted ? ' --mute-automation' : ''}`,
     ...taken.notHeld.map(
       ({ objectApiName, reason }) => `  not in the checkpoint: ${objectApiName} — ${reason}`,
@@ -580,7 +581,7 @@ export async function settleCommandCheckpoint(
     say(
       `warning: the checkpoint '${taken.name}' taken before the run, which wrote nothing, could ` +
         `not be deleted (${err instanceof Error ? err.message : String(err)}): delete it with ` +
-        `sandforge-checkpoint delete --org ${target} --checkpoint ${taken.checkpointId}`,
+        `${commandOf('checkpoint')} delete --org ${target} --checkpoint ${taken.checkpointId}`,
     );
     return taken;
   }

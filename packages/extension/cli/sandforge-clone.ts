@@ -479,6 +479,7 @@ import {
   type SourceOrg,
 } from '../src/modules/forge/RunVerifier.js';
 import { holdOutputWhole } from './wholeOutput.js';
+import { commandOf } from './invocation.js';
 
 export interface CliArgs {
   /** The record a clone of one record starts from; undefined for a clone of whole tables. */
@@ -653,7 +654,7 @@ export interface CliSample {
 /** The flags that read a run's choices from a file. */
 type ChoicesFlag = '--config' | '--template';
 
-const HELP = `sandforge-clone — Forge a clone of one record, or of whole tables, from a source org
+const HELP = `sandforge clone — Forge a clone of one record, or of whole tables, from a source org
 to a target sandbox, or remove what a run of it created.
 
 Usage:
@@ -5266,8 +5267,8 @@ export function productionRefusal(
   if (org.sandbox || isDeveloperEdition(org.edition)) return undefined;
   const what =
     action === 'clone'
-      ? 'sandforge-clone writes to sandboxes and Developer Edition orgs only. Nothing was written; --dry-run, which only reads, runs against it.'
-      : 'sandforge-clone removes records from sandboxes and Developer Edition orgs only. Nothing was deleted.';
+      ? 'sandforge clone writes to sandboxes and Developer Edition orgs only. Nothing was written; --dry-run, which only reads, runs against it.'
+      : 'sandforge clone removes records from sandboxes and Developer Edition orgs only. Nothing was deleted.';
   const said = org.edition
     ? `IsSandbox false, edition ${org.edition}`
     : 'IsSandbox false, and no edition';
@@ -5823,7 +5824,7 @@ export function parseRunSummary(text: string): { summary: RunSummary } | { refus
   }
   const header = z.object({ tool: z.literal('sandforge-clone'), dryRun: z.boolean() });
   const run = header.safeParse(raw);
-  if (!run.success) return { refusal: 'is not a summary sandforge-clone printed with --json.' };
+  if (!run.success) return { refusal: 'is not a summary sandforge clone printed with --json.' };
   if (run.data.dryRun) {
     return {
       refusal:
@@ -5838,7 +5839,7 @@ export function parseRunSummary(text: string): { summary: RunSummary } | { refus
       refusal:
         'does not say which records the run created (createdByObject): it was printed before ' +
         'the summary said so, and the records the run created cannot be told from those the ' +
-        'target already held. sandforge-cleanup remains for such a run.',
+        'target already held. sandforge cleanup remains for such a run.',
     };
   }
   const parsed = runSummarySchema.safeParse(raw);
@@ -6137,7 +6138,7 @@ export function maxTotalRefusal(rows: number, max: number, dryRun = false): stri
       '(--max, --exclude-object, --filter), or raise --max-total.'
     );
   }
-  if (relayedBy()?.startsWith('sandforge-env') === true) {
+  if (relayedBy()?.startsWith('sandforge env') === true) {
     return dryRun
       ? `The run would write ${rows} records, more than the ${max} the resource's maxTotal ` +
           'holds it to: narrow the resource in the file, or raise its maxTotal.'
@@ -7246,7 +7247,7 @@ export function readEarlierRemovals(
   if (!header.success) {
     return {
       refusal:
-        'is not the record of removals sandforge-clone keeps there, and is not overwritten: ' +
+        'is not the record of removals sandforge clone keeps there, and is not overwritten: ' +
         'move it, as the removal keeps there what it leaves on the records of the run.',
     };
   }
@@ -7911,7 +7912,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     inParts && resolvePath(removalsFile) !== resolvePath(inParts.file) ? inParts : undefined;
   const earlier = earlierOfTheRun(ownEarlier, ofTheRun?.earlier);
 
-  say(`sandforge-clone --remove  ${args.summaryPath}  from ${args.target}`);
+  say(`sandforge clone --remove  ${args.summaryPath}  from ${args.target}`);
   const sweepOff = wholeOrgSweepLine(summary, args);
   if (sweepOff !== undefined) say(sweepOff);
   // What earlier removals took is not planned again, as the panel plans only
@@ -7994,7 +7995,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // What a sweep would delete, read and said; nothing is deleted, the
     // run's own records included.
     const listing = await listSweep(
-      sweepOrgOf(conn, 'sandforge-clone --sweep-list'),
+      sweepOrgOf(conn, 'sandforge clone --sweep-list'),
       await cliSweepInput(conn, args.target, summary, created, await sweepTies(), {
         ofTheRun,
       }),
@@ -8069,7 +8070,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // change since the run.
   const parts = args.sweep
     ? sweepParts(
-        sweepOrgOf(conn, 'sandforge-clone --sweep', stop.signal),
+        sweepOrgOf(conn, 'sandforge clone --sweep', stop.signal),
         await cliSweepInput(conn, args.target, summary, created, await sweepTies(), {
           signal: stop.signal,
           ofTheRun,
@@ -8307,7 +8308,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     const held =
       removalMute?.prepared && !stop.signal.aborted
         ? await removalMute.prepared
-            .acquire(`sandforge-clone --remove ${operationId}`)
+            .acquire(`sandforge clone --remove ${operationId}`)
             .catch((err: unknown) => {
               if (!isMuteRefusedError(err)) throw err;
               return endRefused(err.refusal);
@@ -8358,7 +8359,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     try {
       if (plan.length > 0 || setsAgain) {
         const firstPlan = first ? first.plan : plan;
-        removal = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove'), firstPlan, {
+        removal = await removeRunRecords(removalOrg(conn, 'sandforge clone --remove'), firstPlan, {
           ...((first && machineSpanOf(first.part)) ?? runSpan),
           ...(earlier
             ? {
@@ -8409,7 +8410,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
           [removal, ...afterOwn].flatMap((done) => (done.span ? [done.span] : [])),
         );
         const later = laterPartsOf(runParts?.parts ?? [], part.part);
-        const taken = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove'), left, {
+        const taken = await removeRunRecords(removalOrg(conn, 'sandforge clone --remove'), left, {
           ...partSpan,
           removalStamps: stamped,
           removalSpans: spans,
@@ -8675,7 +8676,7 @@ async function previewRemoval(
     say(`\ndone in ${elapsedSince(t0)}ms`);
   };
 
-  say(`sandforge-clone --remove  ${args.summaryPath}  --preview  of ${args.target}`);
+  say(`sandforge clone --remove  ${args.summaryPath}  --preview  of ${args.target}`);
   if (summary.targetOrgId === undefined && summary.target !== args.target) {
     process.stderr.write(
       `The run wrote to ${summary.target}, and its records are read in that org only: ` +
@@ -8811,7 +8812,7 @@ async function previewRemoval(
   // its first delete; nothing is deleted.
   if (args.sweep) {
     sweepListing = await listSweep(
-      sweepOrgOf(conn, 'sandforge-clone --remove --preview --sweep'),
+      sweepOrgOf(conn, 'sandforge clone --remove --preview --sweep'),
       await cliSweepInput(
         conn,
         args.target,
@@ -8914,7 +8915,7 @@ async function previewRemoval(
   ];
   try {
     outcome = await removeRunRecords(
-      removalOrg(conn, 'sandforge-clone --remove --preview'),
+      removalOrg(conn, 'sandforge clone --remove --preview'),
       first ? first.plan : plan,
       {
         ...((first && machineSpanOf(first.part)) ?? runSpan),
@@ -8937,7 +8938,7 @@ async function previewRemoval(
       if (!partSpan || !outcome.preview || stop.signal.aborted) continue;
       const later = laterPartsOf(runParts?.parts ?? [], part.part);
       afterOwn.push(
-        await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove --preview'), left, {
+        await removeRunRecords(removalOrg(conn, 'sandforge clone --remove --preview'), left, {
           ...partSpan,
           ...(earlier
             ? { removalStamps: earlier.removalStamps, removalSpans: earlier.removalSpans }
@@ -9350,7 +9351,7 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
   const written = writtenWithoutSchema.safeParse(raw);
   const leftEmpty = leftEmptySchema.safeParse(raw);
 
-  say(`sandforge-clone --verify  ${args.summaryPath}  in ${args.target}`);
+  say(`sandforge clone --verify  ${args.summaryPath}  in ${args.target}`);
   const session = await loadOrg(args.target);
   const conn = makeConn(session);
   const org = await typeOrg(conn);
@@ -9384,7 +9385,7 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
   const sourceAlias = args.source ?? summary.source;
   let source: SourceOrg | { unavailable: string };
   try {
-    source = verifiedOrg(makeConn(await loadOrg(sourceAlias)), 'sandforge-clone --verify source');
+    source = verifiedOrg(makeConn(await loadOrg(sourceAlias)), 'sandforge clone --verify source');
   } catch (err: unknown) {
     source = {
       unavailable: `the org the run read from, ${sourceAlias}, could not be reached: ${extractErrorMessage(err)}`,
@@ -9403,7 +9404,7 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
   let verification: ForgeRunVerification;
   try {
     verification = await new RunVerifier({
-      target: verifiedOrg(conn, 'sandforge-clone --verify'),
+      target: verifiedOrg(conn, 'sandforge clone --verify'),
       source,
     }).verify({
       records,
@@ -9825,7 +9826,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // CI job that saved it to a file read the progress lines in front of the
   // JSON, and failed on them. What the run says on the way goes to stderr.
   const say = (line: string): void => (args.json ? console.error(line) : console.log(line));
-  say(`sandforge-clone  ${args.source} -> ${args.target}  ${cloneInputLine(args)}`);
+  say(`sandforge clone  ${args.source} -> ${args.target}  ${cloneInputLine(args)}`);
   for (const line of choicesLines(args)) say(line);
   // A run taken up copies the files it was begun copying, --resume given
   // without --files: its journal keeps them, as it keeps its mute. Lost, the
@@ -11621,7 +11622,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   const runUserId =
     args.dryRun || args.rehearse
       ? undefined
-      : await readRunUser(() => targetConn.identity(), 'sandforge-clone');
+      : await readRunUser(() => targetConn.identity(), 'sandforge clone');
   say(
     `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.tables ? ', WHOLE TABLES' : ''}${wholeOrg ? ', WHOLE ORG' : ''}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.applyAssignmentRules ? ', ASSIGNMENT-RULES' : ''}${args.files ? ', FILES' : ''}${args.pageSize !== undefined ? `, READ IN PAGES OF ${args.pageSize}` : ''})`,
   );
@@ -11823,7 +11824,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       say(
         `warning: the checkpoint '${checkpointTaken.name}' taken before the run, which wrote ` +
           `nothing, could not be deleted (${extractErrorMessage(err)}): delete it with ` +
-          `sandforge-checkpoint delete --org ${args.target} --checkpoint ${checkpointTaken.checkpointId}`,
+          `${commandOf('checkpoint')} delete --org ${args.target} --checkpoint ${checkpointTaken.checkpointId}`,
       );
     }
     for (const line of checkpointSettledLines(checkpointInfo)) say(line);
@@ -12072,7 +12073,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     }
     if (!mute?.prepared || held) return allowedAtTheGate;
     const lease = await mute.prepared
-      .acquire(`sandforge-clone ${t0}`)
+      .acquire(`sandforge clone ${t0}`)
       .catch(async (err: unknown) => {
         if (!isMuteRefusedError(err)) throw err;
         recordClone({ outcome: 'stopped', code: err.code, context: runAudit().context() });

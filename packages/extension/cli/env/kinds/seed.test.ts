@@ -343,7 +343,7 @@ describe('an answer that does not read', () => {
     expect(said.script).toBe('sandforge-seed');
     expect(said.excerpt).toBe(printed.slice(0, ANSWER_EXCERPT_CHARS));
     expect(said.message).toBe(
-      `sandforge-seed did not answer the preview of a removal (not JSON): it printed ` +
+      `sandforge seed did not answer the preview of a removal (not JSON): it printed ` +
         `${JSON.stringify(printed.slice(0, 200))}`,
     );
   });
@@ -352,13 +352,13 @@ describe('an answer that does not read', () => {
     const answer = JSON.stringify({ tool: 'sandforge-seed', action: 'remove', result: {} });
 
     expect(() => readSeedPreview(answer)).toThrow(
-      /^sandforge-seed did not answer the preview of a removal \(action: /,
+      /^sandforge seed did not answer the preview of a removal \(action: /,
     );
   });
 
   it('says a script printed nothing, as one refused before its first write does with --json', () => {
     expect(() => readSeedRun('')).toThrow(
-      'sandforge-seed did not answer the summary of a run (not JSON): it printed nothing on stdout',
+      'sandforge seed did not answer the summary of a run (not JSON): it printed nothing on stdout',
     );
   });
 });

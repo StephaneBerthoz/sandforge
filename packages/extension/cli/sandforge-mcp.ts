@@ -44,7 +44,7 @@ import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { z } from 'zod';
 import { CHECKPOINT_BEFORE_RUN_KEEP_DAYS, PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
-import { refuseUnreadArguments } from './commandLine.js';
+import { SF_ALIAS_RE, refuseUnreadArguments } from './commandLine.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT } from './exitCodes.js';
 import { NO_TERMINAL_EXIT } from './prompt.js';
 import {
@@ -55,6 +55,7 @@ import {
 } from './scriptRunner.js';
 import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { holdOutputWhole } from './wholeOutput.js';
+import { nameOf } from './invocation.js';
 
 // ─── The protocol ────────────────────────────────────────────────────────────
 
@@ -140,7 +141,7 @@ export type CommandRunner = RunnerOf<Script>;
  * can be tested.
  */
 export function toolRunner(options: Omit<SpawnOptions, 'relayedBy'> = {}): CommandRunner {
-  return spawnRunner({ ...options, relayedBy: 'sandforge-mcp' });
+  return spawnRunner({ ...options, relayedBy: 'sandforge mcp' });
 }
 
 const TOOL_RUNNER = toolRunner();
@@ -274,7 +275,6 @@ function tool<S extends z.ZodType<Record<string, unknown>>>(spec: ToolSpec<S>): 
  * A value set on a script's line after its flag. One that starts with `-`
  * would be read by the script as a flag, so it is refused here first.
  */
-const ALIAS = /^[A-Za-z0-9_][A-Za-z0-9_.@+-]{0,254}$/;
 const API_NAME = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
 const TEMPLATE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/;
@@ -285,7 +285,7 @@ const RESOURCE_NAME = /^[a-z][a-z0-9-]{0,62}$/;
 const alias = (of: string) =>
   z
     .string()
-    .regex(ALIAS, 'an sf CLI alias, or the username it stands for, not starting with "-"')
+    .regex(SF_ALIAS_RE, 'an sf CLI alias, or the username it stands for, not starting with "-"')
     .describe(of);
 const confirmOf = (of: string) =>
   z
@@ -633,7 +633,7 @@ export const TOOLS: readonly ServedTool[] = [
     title: 'Seed an org',
     description:
       'Fill an org with records, from a Seed template (template, an id seed_templates gives) or ' +
-      'with generated rows (objects), as sandforge-seed --json does. Run it with dryRun: true ' +
+      'with generated rows (objects), as sandforge seed --json does. Run it with dryRun: true ' +
       'first: it reads the org and writes nothing, and says what a real run would meet — the data ' +
       "storage it takes, the emails the org's automation would send, what runs as the records are " +
       'created. Past the storage the org has left, it says the counts that fit; fit: "share" ' +
@@ -730,7 +730,7 @@ export const TOOLS: readonly ServedTool[] = [
     title: 'Clone a record (Forge)',
     description:
       'Clone one record from source into target with the records it needs and the ones that ' +
-      "hang from it, as Forge's record clone and sandforge-clone --record --json do. Run it with " +
+      "hang from it, as Forge's record clone and sandforge clone --record --json do. Run it with " +
       'dryRun: true first: it reads both orgs, counts what it would write and says what would ' +
       "stop a real run — the target's automation, its data storage, the emails its flows send — " +
       'and writes nothing. dryRun: false writes into target, a sandbox or a Developer Edition ' +
@@ -1290,7 +1290,7 @@ export const TOOLS: readonly ServedTool[] = [
     name: 'env_plan',
     title: 'Plan an environment',
     description:
-      'What env_apply would do to org from a sandforge.yaml (file), as sandforge-env plan --json ' +
+      'What env_apply would do to org from a sandforge.yaml (file), as sandforge env plan --json ' +
       'says it: per resource, create, keep, replace, delete, or why it is blocked; what an ' +
       'earlier apply left there and what changed since; per object the records it would write; ' +
       'the API requests, storage and emails it takes. Each resource is dry-run by its own ' +
@@ -1335,7 +1335,7 @@ export const TOOLS: readonly ServedTool[] = [
     name: 'env_apply',
     title: 'Apply an environment',
     description:
-      'Do to org what env_plan says, as sandforge-env apply --yes --json does: plans again, then ' +
+      'Do to org what env_plan says, as sandforge env apply --yes --json does: plans again, then ' +
       'creates what the file declares, replaces what it is told to (replace: the resources, by ' +
       'name) and deletes the resources the file no longer holds, each by its own script, into ' +
       'the state kept on this machine; applied again, it writes nothing. A production org is ' +
@@ -1404,7 +1404,7 @@ export const TOOLS: readonly ServedTool[] = [
     title: 'Destroy an environment',
     description:
       'Take back from org what env_apply created there from file, the last resource first, ' +
-      'into its recycle bin, as sandforge-env destroy --yes --json does; what it cannot take ' +
+      'into its recycle bin, as sandforge env destroy --yes --json does; what it cannot take ' +
       'back is named, with why. Records changed since the apply are kept unless ' +
       'includeChanged: on a shared sandbox, a colleague’s work. A production org is refused. ' +
       'Needs confirm, the alias of org. It takes back by removal alone: no rewind to a ' +
@@ -1686,7 +1686,7 @@ export function serve(options: ServeOptions): Serving {
     const agreed = HANDSHAKE_VERSIONS.includes(asked) ? asked : HANDSHAKE_VERSIONS[0];
     handshake = agreed;
     log(
-      `sandforge-mcp: ${asked === agreed ? 'agreed on' : `asked for ${asked}, offered`} ${agreed}`,
+      `sandforge mcp: ${asked === agreed ? 'agreed on' : `asked for ${asked}, offered`} ${agreed}`,
     );
     return {
       result: {
@@ -1749,7 +1749,7 @@ export function serve(options: ServeOptions): Serving {
     const controller = new AbortController();
     running.set(id, controller);
     try {
-      log(`sandforge-mcp: ${served.definition.name} runs ${commandText(script, args)}`);
+      log(`sandforge mcp: ${served.definition.name} runs ${commandText(script, args)}`);
       let ran: CommandRun;
       try {
         ran = await runCommand(script, args, controller.signal);
@@ -1757,7 +1757,7 @@ export function serve(options: ServeOptions): Serving {
         ran = {
           code: FAILED_EXIT,
           stdout: '',
-          stderr: `${script} could not be started: ${err instanceof Error ? err.message : String(err)}`,
+          stderr: `${nameOf(script)} could not be started: ${err instanceof Error ? err.message : String(err)}`,
         };
       }
       if (cancelled.has(id)) return undefined;
@@ -1850,7 +1850,7 @@ export function serve(options: ServeOptions): Serving {
     if (!controller) return;
     cancelled.add(requestId);
     log(
-      `sandforge-mcp: request ${String(requestId)} cancelled: its script is stopped as Ctrl-C stops it`,
+      `sandforge mcp: request ${String(requestId)} cancelled: its script is stopped as Ctrl-C stops it`,
     );
     controller.abort();
   };
@@ -1952,7 +1952,7 @@ export function claimStdout(stdout: Writable, stderr: Writable): (line: string) 
   };
 }
 
-const HELP = `sandforge-mcp — Seed, Forge's clone of a record, the removal of a run, the emptying of
+const HELP = `sandforge mcp — Seed, Forge's clone of a record, the removal of a run, the emptying of
 objects or of a whole org, Checkpoints and the environments of a sandforge.yaml, as tools for an AI
 agent, over the Model Context Protocol on stdio.
 
@@ -2000,7 +2000,7 @@ export async function main(argv: readonly string[] = process.argv): Promise<void
     void serving.stop().then(() => process.exit(stopExitCode(signal)));
   });
   process.stderr.write(
-    `sandforge-mcp: ${TOOLS.length} tools on stdio, MCP ${PROTOCOL_VERSION} (and ` +
+    `sandforge mcp: ${TOOLS.length} tools on stdio, MCP ${PROTOCOL_VERSION} (and ` +
       `${HANDSHAKE_VERSIONS.join(', ')} by initialize)\n`,
   );
   await serving.done;

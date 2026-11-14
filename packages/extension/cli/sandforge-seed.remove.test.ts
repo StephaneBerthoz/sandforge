@@ -211,7 +211,7 @@ describe('sandforge-seed --remove: the command line and the summary', () => {
       refusal: expect.stringMatching(/a dry run, which wrote nothing/),
     });
     expect(readRunSummary(JSON.stringify(summary({ tool: 'sandforge-sync' })))).toMatchObject({
-      refusal: expect.stringMatching(/not the summary of a sandforge-seed run/),
+      refusal: expect.stringMatching(/not the summary of a sandforge seed run/),
     });
     // What `--json` printed of a seed its gate refused: the seed's, its code, no result.
     expect(
@@ -418,7 +418,7 @@ describe('sandforge-seed --remove', () => {
     await expect(main(argv('--remove', file, '--target', 'TGT'))).rejects.toThrow('exit 1');
 
     expect(exit.stderr()).toContain('TGT is a production org');
-    expect(exit.stderr()).toContain('sandforge-seed removes records');
+    expect(exit.stderr()).toContain('sandforge seed removes records');
     expect(org.deletes).toEqual([]);
     expect(existsSync(join(dir, 'seed.removals.json'))).toBe(false);
   });

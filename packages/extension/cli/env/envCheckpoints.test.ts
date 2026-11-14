@@ -529,7 +529,7 @@ describe('a rewind, as the checkpoint script answers it', () => {
     expect(offered).toEqual({
       offered: true,
       until,
-      line: `sandforge-checkpoint undo --org pool-1 --checkpoint ${CK} --store ${join('/journal', 'checkpoints')}`,
+      line: `pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts undo --org pool-1 --checkpoint ${CK} --store ${join('/journal', 'checkpoints')}`,
     });
     expect(undoLine(offered)).toBe(
       `undo it until ${until}, sooner if the recycle bin fills: ${offered.offered ? offered.line : ''}`,
@@ -546,7 +546,7 @@ describe('a rewind, as the checkpoint script answers it', () => {
   it('refuses an answer that does not read as the checkpoint script’s, naming it', () => {
     expect(() => readCheckpointTake('{"checkpoint":{}}')).toThrow(StepAnswerError);
     expect(() => readCheckpointTake('not json')).toThrow(
-      /sandforge-checkpoint did not answer a take/,
+      /sandforge checkpoint did not answer a take/,
     );
   });
 });

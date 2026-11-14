@@ -233,7 +233,7 @@ describe('testFileRunOf', () => {
 describe('what --test-file says', () => {
   it('gives the command with a placeholder for each topic of the pack', () => {
     expect(testFileCommand('/runs/r.ndjson', 'TGT', RETAIL_ORDERS_PACK)).toBe(
-      'sandforge-seed --test-file /runs/r.ndjson --target TGT --agent <agent API name> ' +
+      'pnpm exec tsx packages/extension/cli/sandforge-seed.ts --test-file /runs/r.ndjson --target TGT --agent <agent API name> ' +
         RETAIL_ORDERS_PACK.topics.map((topic) => `--topic ${topic.key}=<agent topic>`).join(' '),
     );
   });

@@ -21,7 +21,7 @@ export function relayedBy(): string | undefined {
  * script no option, the environment setting each from its file.
  */
 export function relayedByAnEnvironment(): boolean {
-  return relayedBy()?.startsWith('sandforge-env') === true;
+  return relayedBy()?.startsWith('sandforge env') === true;
 }
 
 /**
@@ -45,9 +45,9 @@ export function envWords(option: string, words: string): string {
  * "(--include-changed takes them)", which no apply takes.
  */
 const TAKEN_BY_THE_RELAY: ReadonlyMap<string, readonly string[]> = new Map([
-  ['sandforge-env', ['--sweep', '--include-changed']],
-  ['sandforge-env, relayed by sandforge-mcp', ['--include-changed']],
-  ['sandforge-mcp', ['--mute-automation', '--leave-undeletable', '--store', '--include-changed']],
+  ['sandforge env', ['--sweep', '--include-changed']],
+  ['sandforge env, relayed by sandforge mcp', ['--include-changed']],
+  ['sandforge mcp', ['--mute-automation', '--leave-undeletable', '--store', '--include-changed']],
 ]);
 
 /** Whether the reader of this script's lines can give it `option`: unrelayed, or relayed by a command that takes it. */

@@ -274,7 +274,7 @@ steps:
 What `pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts --help` prints:
 
 ```text
-sandforge-checkpoint — take a checkpoint of an org's data, and rewind the org to it, without the editor.
+sandforge checkpoint — take a checkpoint of an org's data, and rewind the org to it, without the editor.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts <command> --org <alias> [options]

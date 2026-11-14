@@ -295,7 +295,7 @@ describe('state recover: a state lost, rebuilt from its run files', () => {
     const blind = await run(line('plan', '--json'));
     expect(blind.code).toBe(0);
     expect(envPlanSchema.parse(blind.answer).refusal).toContain(
-      'it keeps runs of case-flow on TGT, and sandforge-env state recover rebuilds the state from them',
+      'it keeps runs of case-flow on TGT, and pnpm exec tsx packages/extension/cli/sandforge-env.ts state recover rebuilds the state from them',
     );
 
     const result = await recovered();
@@ -411,7 +411,7 @@ describe('state recover: a state lost, rebuilt from its run files', () => {
     const refused = await run(line('plan', '--json'));
     expect(refused.code).toBe(1);
     expect(envRefusalAnswerSchema.parse(refused.answer).refusal.message).toContain(
-      'Run sandforge-env state recover: it sets this file aside and rebuilds the state from the run files beside it.',
+      'Run pnpm exec tsx packages/extension/cli/sandforge-env.ts state recover: it sets this file aside and rebuilds the state from the run files beside it.',
     );
 
     const result = await recovered();

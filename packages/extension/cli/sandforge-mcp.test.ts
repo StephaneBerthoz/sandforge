@@ -1368,7 +1368,7 @@ describe("sandforge-mcp: a script's answer", () => {
     const result = await c.call('checkpoint_list', { org: 'DEV' });
 
     expect(result).toMatchObject({ isError: true, structuredContent: { exitCode: 1 } });
-    expect(textOf(result)).toContain('sandforge-checkpoint could not be started: spawn ENOENT');
+    expect(textOf(result)).toContain('sandforge checkpoint could not be started: spawn ENOENT');
     await c.close();
   });
 
@@ -1381,7 +1381,7 @@ describe("sandforge-mcp: a script's answer", () => {
       const run = toolRunner({ scriptPath: () => join(__dirname, 'testing', 'stopProbe.ts') });
       const ran = await run('sandforge-clone', ['exit'], new AbortController().signal);
 
-      expect(JSON.parse(ran.stdout)).toMatchObject({ relayedBy: 'sandforge-mcp' });
+      expect(JSON.parse(ran.stdout)).toMatchObject({ relayedBy: 'sandforge mcp' });
     } finally {
       process.execArgv = inherited;
     }
@@ -1872,7 +1872,7 @@ describe('sandforge-mcp over the pipes of a process of its own', () => {
     expect(lines).toHaveLength(4);
     for (const line of lines) expect(JSON.parse(line)).toMatchObject({ jsonrpc: '2.0' });
     // Its own lines, and the script's, on stderr.
-    expect(stderr).toContain('sandforge-mcp: 16 tools on stdio');
+    expect(stderr).toContain('sandforge mcp: 16 tools on stdio');
     expect(stderr).toContain('No checkpoint is kept in');
   }, 60_000);
 });

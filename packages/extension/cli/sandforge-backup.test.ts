@@ -492,7 +492,7 @@ describe('against an org', () => {
       expect(err).toContain(
         `removed snapshot sync-before-run-7, taken ${taken}: past the retention of 30 day(s) ` +
           '(--max-age-days, 0 keeps them all). It held what the Sync run run-7 wrote over: ' +
-          'removing that run with sandforge-sync --remove no longer puts those values back',
+          'removing that run with sandforge sync --remove no longer puts those values back',
       );
       expect(
         fileConfigStore(join(store, 'snapshots.json')).get('backup:sync-before-run-7'),

@@ -38,7 +38,7 @@ import {
 } from './backupStore.js';
 import { basename, join } from 'node:path';
 import { loadOrg } from './sfSession.js';
-import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { SF_ALIAS_RE, refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { confirm } from './prompt.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, FAILED_EXIT, PARTIAL_EXIT, restoreExitCode } from './exitCodes.js';
@@ -72,8 +72,9 @@ import {
 } from './dataOpsAutomationCli.js';
 import { refusedLine } from './runRefused.js';
 import { relayTakes } from './relayWords.js';
+import { commandOf } from './invocation.js';
 
-const HELP = `sandforge-dataops — mask an org's records, and put them back, without the editor.
+const HELP = `sandforge dataops — mask an org's records, and put them back, without the editor.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize \\
@@ -121,7 +122,7 @@ Options:
                          that run then no longer puts back; 0 keeps them all
                          (default: 30)
   --store <dir>          where snapshots, saved templates and checkpoints live, a
-                         folder of your own; the one sandforge-backup reads and
+                         folder of your own; the one sandforge backup reads and
                          lists (default: ~/.sandforge/backups, under the folder
                          SANDFORGE_JOURNAL_DIR names when it is set)
   --max-records <n>      most records of the object a snapshot holds, as
@@ -202,9 +203,6 @@ interface CliArgs {
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
 const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
-/** SF alias = letters/digits/underscore/dash/dot. */
-const ALIAS_RE = /^[A-Za-z0-9_.-]+$/;
-
 /** What the line reads after its command. */
 const FLAGS: CommandFlags = {
   words: 1,
@@ -273,7 +271,9 @@ export function parseArgs(argv: string[]): CliArgs {
     process.exit(0);
   }
   if (args[0] !== 'anonymize') {
-    refuseLine('The command is anonymize: sandforge-dataops.ts anonymize --org … Run with --help.');
+    refuseLine(
+      `The command is anonymize: ${commandOf('dataops')} anonymize --org … Run with --help.`,
+    );
   }
   // `--dry-run=true` or `--dryrun` dropped without a word masked for real.
   refuseUnreadArguments(args, FLAGS);
@@ -290,7 +290,7 @@ export function parseArgs(argv: string[]): CliArgs {
 
   const org = get('--org');
   if (!org) refuseLine('Missing --org. Run with --help.');
-  if (!ALIAS_RE.test(org)) refuseLine(`Not an sf alias: "${org}"`);
+  if (!SF_ALIAS_RE.test(org)) refuseLine(`Not an sf alias: "${org}"`);
 
   const restoreId = get('--restore');
   const dryRun = args.includes('--dry-run');
@@ -691,7 +691,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     metadata: { apiVersion: '66.0', edition: identity.orgType },
   };
   log(
-    `sandforge-dataops  ${args.org} (${identity.isSandbox ? 'sandbox' : identity.orgType || 'production'})` +
+    `sandforge dataops  ${args.org} (${identity.isSandbox ? 'sandbox' : identity.orgType || 'production'})` +
       `  store: ${args.storeDir}`,
   );
   const configStore = fileConfigStore(join(args.storeDir, 'snapshots.json'));
@@ -795,7 +795,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const failed = (answer: Posted): boolean => answer.type === 'dataops:error';
   const reason = (answer: Posted): string => String(answer.payload?.message ?? answer.type);
   const restoreLine = (snapshotId: string): string =>
-    `pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize --org ${args.org} ` +
+    `${commandOf('dataops')} anonymize --org ${args.org} ` +
     `--restore ${snapshotId} --store ${args.storeDir}`;
   /**
    * What the org runs as the act writes the records of `objects`, read before

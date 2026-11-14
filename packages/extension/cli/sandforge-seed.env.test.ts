@@ -228,14 +228,14 @@ describe('a seed run without the environment’s lines', () => {
   // clock stopped and the drawn id fixed: byte for byte what a run printed.
   const RUN_FILE = '<journal>/seed-runs/sandforge-seed-00000000-0000-4000-8000-000000000000.ndjson';
   const LOGGED = [
-    'sandforge-seed  -> TGT',
+    'sandforge seed  -> TGT',
     'seed: 7  (--seed 7 draws the same again)',
     'locale: en_US',
     '  Asset: Name',
     'data storage: about 0.01 MB to write, TGT has 150 MB left of 200 MB',
     'target automation: what TGT runs as these records are created',
     '  nothing runs on them: no flow, Apex trigger, process or workflow rule',
-    'template: sandforge-seed (1 object(s))',
+    'template: sandforge seed (1 object(s))',
     '',
   ];
   const summary = (dryRun: boolean): Record<string, unknown> => ({

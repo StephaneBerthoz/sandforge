@@ -6,6 +6,11 @@ import { createPanelHost, orgFromIdentity, problemLine, settles } from './panelH
 import type { PostedMessage } from './panelHost.js';
 import type { InfraServices } from '../src/bridge/ExtensionHandlers.js';
 import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
+import {
+  expiredScratchWords,
+  renewSessionsFrom,
+  sessionRenewalWords,
+} from '../src/core/connection/ConnectionHelper.js';
 
 const session = {
   alias: 'TGT',
@@ -85,6 +90,20 @@ describe('problemLine', () => {
 });
 
 describe('createPanelHost', () => {
+  it("has the handlers' connections say what renews a session as a terminal does it", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-host-test-'));
+    try {
+      renewSessionsFrom('panel');
+      createPanelHost({ storeDir: dir, log: () => undefined, waitMs: 5_000 });
+
+      expect(sessionRenewalWords('DEV')).toMatch(/^Sign in to it again with "sf org login web/);
+      expect(expiredScratchWords()).toMatch(/sf org create scratch/);
+    } finally {
+      renewSessionsFrom('panel');
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("answers a request through the extension's own routing, and refuses what it does not know", async () => {
     const dir = mkdtempSync(join(tmpdir(), 'sandforge-host-test-'));
     try {

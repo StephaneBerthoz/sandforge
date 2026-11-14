@@ -142,6 +142,7 @@ import {
 } from '../src/modules/forge/AutomationMuteLease.js';
 import type { MutedAutomation } from '@sandforge/shared';
 import { holdOutputWhole } from './wholeOutput.js';
+import { commandOf } from './invocation.js';
 import {
   NO_APEX_IN_PRODUCTION,
   readEmailDeliverability,
@@ -149,7 +150,7 @@ import {
   type RunEmailsInput,
 } from '../src/modules/forge/targetDeliverability.js';
 
-const HELP = `sandforge-autopilot — run an Autopilot copy between two orgs, without the editor.
+const HELP = `sandforge autopilot — run an Autopilot copy between two orgs, without the editor.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-autopilot.ts \\
@@ -491,7 +492,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
   };
 
-  log(`sandforge-autopilot  ${args.source} -> ${args.target}`);
+  log(`sandforge autopilot  ${args.source} -> ${args.target}`);
   log(`objects: ${args.objects.join(', ')}`);
 
   const sourceConn = makeConn(await loadOrg(args.source));
@@ -502,7 +503,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // gate held it to volumes alone. --plan-only only reads.
   const typedTarget = !args.planOnly
     ? await refuseProductionTarget(targetConn, args.target, {
-        tool: 'sandforge-autopilot',
+        tool: 'sandforge autopilot',
         action: 'write',
         readOnly: '--plan-only',
       })
@@ -1147,7 +1148,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // The lease is taken before the first write and given back as the run
     // ends, written, failed, stopped or thrown alike.
     const held = mute?.prepared
-      ? await mute.prepared.acquire(`sandforge-autopilot ${t0}`).catch((err: unknown) => {
+      ? await mute.prepared.acquire(`sandforge autopilot ${t0}`).catch((err: unknown) => {
           if (!isMuteRefusedError(err)) throw err;
           return refuse(err.refusal);
         })
@@ -1188,7 +1189,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         log(
           `warning: the checkpoint '${taken.name}' taken before the run, which wrote nothing, ` +
             `could not be deleted (${extractErrorMessage(err)}): delete it with ` +
-            `sandforge-checkpoint delete --org ${args.target} --checkpoint ${taken.checkpointId}`,
+            `${commandOf('checkpoint')} delete --org ${args.target} --checkpoint ${taken.checkpointId}`,
         );
         return taken;
       });

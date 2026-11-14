@@ -470,7 +470,7 @@ describe('sandforge-clone --remove', () => {
     });
 
     it('refuses a file that is not JSON, one that is not a summary of the command, and one it cannot read', async () => {
-      expect(await run(['--remove', file('sandforge-clone  SRC -> TGT'), '--target', 'TGT'])).toBe(
+      expect(await run(['--remove', file('sandforge clone  SRC -> TGT'), '--target', 'TGT'])).toBe(
         2,
       );
       expect(await run(['--remove', file({ tool: 'sandforge-frozen' }), '--target', 'TGT'])).toBe(
@@ -480,7 +480,7 @@ describe('sandforge-clone --remove', () => {
 
       const said = stderr.join('');
       expect(said).toContain('is not JSON');
-      expect(said).toContain('is not a summary sandforge-clone printed with --json.');
+      expect(said).toContain('is not a summary sandforge clone printed with --json.');
       expect(said).toContain('cannot be read');
       expect(loadOrg).not.toHaveBeenCalled();
     });
@@ -515,7 +515,7 @@ describe('sandforge-clone --remove', () => {
       expect(await run(['--remove', file(summary), '--target', 'TGT'])).toBe(2);
 
       expect(stderr.join('')).toContain('does not say which records the run created');
-      expect(stderr.join('')).toContain('sandforge-cleanup remains for such a run');
+      expect(stderr.join('')).toContain('sandforge cleanup remains for such a run');
       expect(loadOrg).not.toHaveBeenCalled();
     });
 
@@ -592,7 +592,7 @@ describe('sandforge-clone --remove', () => {
 
       expect(stderr.join('')).toContain(
         'TGT is a production org (its Organization record says IsSandbox false, and no ' +
-          'edition): sandforge-clone removes records from sandboxes and Developer Edition orgs ' +
+          'edition): sandforge clone removes records from sandboxes and Developer Edition orgs ' +
           'only. Nothing was deleted.',
       );
       expect(removalOrg).not.toHaveBeenCalled();
@@ -674,7 +674,7 @@ describe('sandforge-clone --remove', () => {
     it("removes what the run created as the wizard does: from the target, on the run's plan, by the target's dates of the run", async () => {
       expect(await run(['--remove', file(runSummary()), '--target', 'TGT'])).toBeUndefined();
 
-      expect(removalOrg).toHaveBeenCalledWith(targetConn, 'sandforge-clone --remove');
+      expect(removalOrg).toHaveBeenCalledWith(targetConn, 'sandforge clone --remove');
       const [org, plan] = vi.mocked(removeRunRecords).mock.calls[0];
       expect(org).toBe(session);
       expect(plan).toEqual([
@@ -745,7 +745,7 @@ describe('sandforge-clone --remove', () => {
     it("names --include-changed as this script's own to the reader of an apply, whose replace does not take it", async () => {
       // Relayed by sandforge-env apply, the plan of a replace's removal said
       // "(--include-changed takes them)": a flag no apply takes.
-      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge env apply');
       try {
         expect(await run(['--remove', file(runSummary()), '--target', 'TGT'])).toBeUndefined();
       } finally {
@@ -1545,7 +1545,7 @@ describe('sandforge-clone --remove', () => {
         expect(await run(['--remove', path, '--target', 'TGT'])).toBe(2);
 
         expect(stderr.join('')).toContain(
-          `${inTheWay} is not the record of removals sandforge-clone keeps there, and is not ` +
+          `${inTheWay} is not the record of removals sandforge clone keeps there, and is not ` +
             'overwritten',
         );
         expect(loadOrg).not.toHaveBeenCalled();
@@ -2858,7 +2858,7 @@ describe('sandforge-clone production guard', () => {
     expect(productionRefusal('TGT', developer, 'remove')).toBeUndefined();
     expect(productionRefusal('TGT', enterprise, 'clone')).toBe(
       'TGT is a production org (its Organization record says IsSandbox false, edition ' +
-        'Enterprise Edition): sandforge-clone writes to sandboxes and Developer Edition orgs ' +
+        'Enterprise Edition): sandforge clone writes to sandboxes and Developer Edition orgs ' +
         'only. Nothing was written; --dry-run, which only reads, runs against it.',
     );
   });

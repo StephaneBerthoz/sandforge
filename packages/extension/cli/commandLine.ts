@@ -77,3 +77,13 @@ export function refuseUnreadArguments(args: readonly string[], flags: CommandFla
   process.stderr.write(`${refusal} Run with --help.\n`);
   process.exit(2);
 }
+
+/**
+ * An org as a command line names it: its `sf` alias, or the username it stands
+ * for, as `sf --target-org` takes either — `ci+dev@example.com` included. The
+ * session, the cleanup and DataOps held to letters, digits, `_`, `.` and `-`,
+ * and refused a username the MCP server and the emptying took. The word
+ * reaches `sf`'s line, through `cmd.exe` on Windows: no space, no character a
+ * shell acts on, and no `-` first, which `sf` would read as a flag.
+ */
+export const SF_ALIAS_RE = /^[A-Za-z0-9_][A-Za-z0-9_.@+-]{0,254}$/;

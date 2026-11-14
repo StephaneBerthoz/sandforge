@@ -35,7 +35,7 @@ import { assertSoqlIdentifier, sanitizeSoqlValue } from '../src/core/common/soql
 import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { loadOrg, makeConn } from './sfSession.js';
 import { refuseProductionTarget } from './targetKind.js';
-import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { SF_ALIAS_RE, refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { endWith } from './exitCodes.js';
 import { holdOutputWhole } from './wholeOutput.js';
 import type { DataOpsAutomationAnswer, DataOpsWriteAccord } from '@sandforge/shared';
@@ -58,8 +58,6 @@ import {
 } from '../src/modules/forge/TargetAutomationReader.js';
 import { isProductionTarget, typeTarget } from '../src/core/precheck/orgKindLive.js';
 
-/** SF org alias = letters/digits/underscore/dash/dot. Defends against shell metachars. */
-const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;
 /** SF user/record ID. */
 const SF_ID_RE = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
 /** An ISO date, as `--since` takes one. */
@@ -102,7 +100,7 @@ interface CliArgs {
   accord: DataOpsWriteAccord;
 }
 
-const HELP = `sandforge-cleanup — Bulk delete records you created on a sandbox in the
+const HELP = `sandforge cleanup — Bulk delete records you created on a sandbox in the
 --since window, whether or not a clone wrote them. Preview with --dry-run and
 narrow with --objects before deleting.
 
@@ -204,7 +202,10 @@ function parseArgs(argv: string[]): CliArgs {
   if (!target) refuse('Missing --target. Run with --help.');
   // The alias reaches the sf command line, and everything below reaches SOQL.
   if (!SF_ALIAS_RE.test(target)) {
-    refuse(`Invalid --target alias: ${target}. Letters/digits/_/-/. only.`);
+    refuse(
+      `Invalid --target alias: ${target}. An sf alias or a username: letters, digits, ` +
+        '_ . @ + and -, not starting with . @ + or -.',
+    );
   }
 
   const objectsCsv = get('--objects');
@@ -350,7 +351,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   /** A line said whatever the mode: on stderr with --json, where stdout carries the JSON alone. */
   const say = (line: string): void => (args.json ? console.error(line) : console.log(line));
   say(
-    `sandforge-cleanup  target=${args.target}  since=${args.since}  ${args.dryRun ? 'DRY-RUN' : 'REAL'}`,
+    `sandforge cleanup  target=${args.target}  since=${args.since}  ${args.dryRun ? 'DRY-RUN' : 'REAL'}`,
   );
 
   // The session every headless tool shares. This script used to read its own
@@ -365,7 +366,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const production = args.dryRun
     ? await typeTarget(conn).then(isProductionTarget, () => true)
     : !(await refuseProductionTarget(conn, args.target, {
-        tool: 'sandforge-cleanup',
+        tool: 'sandforge cleanup',
         action: 'delete',
         readOnly: '--dry-run',
       }));

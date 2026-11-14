@@ -35,6 +35,7 @@ import { loadOrg, makeConn } from './sfSession.js';
 import type { RunToVerify, RunVerifierDeps } from '../src/modules/forge/RunVerifier.js';
 import { main, verificationLines } from './sandforge-clone';
 import { refusedSummary } from './runRefused.js';
+import { sfDisplayFailure } from './sfFailure.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -169,8 +170,22 @@ describe('sandforge-clone --verify', () => {
       return true;
     });
     vi.mocked(loadOrg).mockImplementation(async (alias) => {
-      if (unreachable.has(alias))
-        throw new Error(`No authorization information found for ${alias}.`);
+      // What loadOrg throws for an alias sf does not know: sf's own document,
+      // printed on stdout as the command fails, read into what to do.
+      if (unreachable.has(alias)) {
+        throw sfDisplayFailure(
+          alias,
+          Object.assign(new Error(`Command failed: sf org display --target-org ${alias} --json`), {
+            status: 1,
+            stdout: JSON.stringify({
+              status: 1,
+              name: 'NamedOrgNotFoundError',
+              message: `No authorization information found for ${alias}.`,
+            }),
+            stderr: '',
+          }),
+        );
+      }
       return {
         alias,
         username: '',
@@ -360,7 +375,9 @@ describe('sandforge-clone --verify', () => {
       expect(await run(['--verify', file(runSummary()), '--target', 'TGT'])).toBeUndefined();
       expect(verifierCalls[0].deps.source).toEqual({
         unavailable:
-          'the org the run read from, SRC, could not be reached: No authorization information found for SRC.',
+          'the org the run read from, SRC, could not be reached: sf does not know SRC: ' +
+          '"sf org list" names the orgs it knows; "sf org login web --alias SRC" adds it (in a ' +
+          'CI job, "sf org login jwt" or "sf org login sfdxurl"). Nothing was read from SRC.',
       });
     });
 

@@ -465,7 +465,7 @@ describe('sandforge-autopilot — what the command line refuses, and how a run e
     expect(source.total()).toBe(0);
     expect(err.join('')).toContain(
       'TGT is a production org (its Organization record says IsSandbox false, edition ' +
-        'Enterprise Edition): sandforge-autopilot writes to sandboxes and Developer Edition ' +
+        'Enterprise Edition): sandforge autopilot writes to sandboxes and Developer Edition ' +
         'orgs only. Nothing was written; --plan-only, which only reads, runs against it.',
     );
   });

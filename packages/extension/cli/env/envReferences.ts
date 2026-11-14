@@ -48,6 +48,7 @@ import type { EnvFileResource } from './envFile.js';
 import type { EnvStore } from './envState.js';
 import { resourceOfSas } from './kinds/frozen.js';
 import { readSeedRun } from './kinds/seed.js';
+import { nameOf } from '../invocation.js';
 
 /** Where the runs of an environment's state are read from. */
 export interface EnvReferenceDeps {
@@ -243,7 +244,9 @@ export async function createdByRun(
     case 'sandforge-frozen':
       return frozenCreated(run, where, deps);
     default:
-      return { refusal: `its records are kept by ${run.script}, which this SandForge reads not` };
+      return {
+        refusal: `its records are kept by ${nameOf(run.script)}, which this SandForge reads not`,
+      };
   }
 }
 

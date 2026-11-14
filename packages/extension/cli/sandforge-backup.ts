@@ -58,7 +58,7 @@ import { AuthProvider } from '../src/core/connection/AuthProvider.js';
 import type { ReplacedOrgRestoreQuestion } from '../src/bridge/handlers/HandlerTypes.js';
 import { holdOutputWhole } from './wholeOutput.js';
 
-const HELP = `sandforge-backup — take and restore DataOps snapshots, without the editor.
+const HELP = `sandforge backup — take and restore DataOps snapshots, without the editor.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-backup.ts --org <alias> [options]
@@ -109,7 +109,7 @@ the rows where one of them differs from the snapshot, and says how many it
 found unchanged; --rewrite-all writes them all. Of the snapshot a Sync run
 kept of what it wrote over, the records changed or deleted since the run —
 read against the run's file in SANDFORGE_JOURNAL_DIR — are left as they are
-and counted, as removing the run with sandforge-sync leaves them unless it
+and counted, as removing the run with sandforge sync leaves them unless it
 is told to include them; --include-changed includes them here.
 
 Before it asks or writes, a restore says what the org runs as the records are

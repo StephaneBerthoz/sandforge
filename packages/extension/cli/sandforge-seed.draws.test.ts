@@ -491,12 +491,12 @@ describe('record types', () => {
     // types, and by the MCP server's seed_run, which has no parameter for
     // them, the line said "--record-type Account=<Name> chooses".
     try {
-      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env plan');
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge env plan');
       expect(recordTypeChoiceLine('Account', INFOS)).toBe(
         '  Account: 2 record types open to you (Customer, Partner); the records take your ' +
           "default, Customer: the resource's recordTypes for Account, in the file, chooses",
       );
-      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-mcp');
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge mcp');
       expect(recordTypeChoiceLine('Account', INFOS)).toBe(
         '  Account: 2 record types open to you (Customer, Partner); the records take your ' +
           "default, Customer: this script's own --record-type Account=<Name> chooses",

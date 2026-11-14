@@ -34,6 +34,7 @@ import { EnvWorld } from './testing/envWorld.js';
 import { runnerWithCheckpoints } from './testing/envCheckpointWorld.js';
 import { main, type EnvCliDeps } from './sandforge-env.js';
 import type { CommandRunner } from './scriptRunner.js';
+import { commandOf } from './invocation.js';
 
 /*
  * The checkpoints of an environment on the command line, on the memory org:
@@ -475,11 +476,14 @@ describe('checkpoint.after, and reset', () => {
     const answer = envRewindResultSchema.parse(reset.answer) as EnvRewindResult;
     if (!answer.undo.offered) throw new Error('no undo offered');
     expect(reset.said).toContain(
-      `undo it until ${answer.undo.until}, sooner if the recycle bin fills: sandforge-checkpoint undo --org POOL --checkpoint ${answer.checkpoint.id} --store ${join(journalDir, 'checkpoints')}`,
+      `undo it until ${answer.undo.until}, sooner if the recycle bin fills: pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts undo --org POOL --checkpoint ${answer.checkpoint.id} --store ${join(journalDir, 'checkpoints')}`,
     );
 
-    const [script, ...args] = answer.undo.line.split(' ');
-    expect(script).toBe('sandforge-checkpoint');
+    // The line runs the checkpoint script as this checkout runs it; the words
+    // after it are the script's own.
+    const command = `${commandOf('checkpoint')} `;
+    expect(answer.undo.line.startsWith(command)).toBe(true);
+    const args = answer.undo.line.slice(command.length).split(' ');
     const undone = await runner(
       'sandforge-checkpoint',
       [...args, '--yes', '--json'],

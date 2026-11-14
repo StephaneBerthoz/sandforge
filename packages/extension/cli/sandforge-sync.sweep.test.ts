@@ -923,7 +923,7 @@ describe('sandforge-sync --remove with a sweep', () => {
     it('names, relayed by a command whose reader lists no sweep, this script’s own removal with it', async () => {
       // Relayed so, "run with --sweep-list" named a flag that reader could
       // not give.
-      vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-mcp');
+      vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge mcp');
 
       await main(argv('--remove', file, '--target', 'TGT', '--sweep'));
 

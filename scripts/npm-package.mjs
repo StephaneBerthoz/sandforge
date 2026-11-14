@@ -6,6 +6,9 @@
  *
  *   node scripts/npm-package.mjs build [<folder>]                build it (packages/cli/dist)
  *   node scripts/npm-package.mjs check [<folder>] [--node <node>]  the checks before publishing
+ *   node scripts/npm-package.mjs redirects [<folder>]            the packages that keep the old
+ *                                                                 names (dist/npm-redirects)
+ *   node scripts/npm-package.mjs check-redirects [<folder>] [--node <node>]  their checks
  *
  * The package is assembled in a folder of its own and published from there:
  * `packages/cli/package.json` is a private workspace manifest that carries
@@ -38,7 +41,7 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, delimiter, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { identifiersIn, masked } from './check-confidential.mjs';
 
@@ -123,10 +126,10 @@ export const REWRITES = [
     replace: 'npx sandforge $1',
   },
   {
-    name: "DataOps' command",
-    file: 'sandforge-dataops.ts',
-    find: /sandforge-dataops\.ts anonymize/g,
-    replace: 'sandforge dataops anonymize',
+    name: 'the command a line tells its reader to run',
+    file: 'invocation.ts',
+    find: /`pnpm exec tsx packages\/extension\/cli\/sandforge-\$\{tool\}\.ts`/g,
+    replace: '`npx sandforge ${tool}`',
   },
 ];
 
@@ -217,6 +220,101 @@ const entry = new URL('../lib/${target}', import.meta.url);
 process.argv[1] = fileURLToPath(entry);
 await import(entry.href);
 `;
+}
+
+/**
+ * The packages that keep the names the scripts went by, `sandforge-clone`,
+ * `sandforge-checkpoint`… Their messages used to print those names, and a
+ * line copied as `npx sandforge-checkpoint …` asks the registry for a package
+ * of that name, which anybody could publish while it is free. Each holds the
+ * name and says what runs now, then ends on 2 having run nothing: it never
+ * hands the line on to `sandforge`, which would make it a second way into the
+ * package to keep safe. One per command, at the package's version.
+ */
+// Outside packages/cli, which holds the package's manifest and README alone
+// (docs/product-claims.test.mjs), and ignored by git as every dist/ is.
+export const REDIRECTS_OUT = join(root, 'dist', 'npm-redirects');
+
+/** The exit code of a redirect: the line named nothing that runs. */
+export const REDIRECT_EXIT = 2;
+
+/** What a redirect says on stderr, and all it does. */
+export function redirectMessage(tool) {
+  return `sandforge-${tool} is now \`npx sandforge ${tool}\`. Nothing was run.\n`;
+}
+
+/** The repository's address on GitHub, as the extension's manifest names it. */
+function repositoryUrl() {
+  const extension = readJson(join(EXTENSION, 'package.json'));
+  return extension.repository.url.replace(/^git\+/, '').replace(/\.git$/, '');
+}
+
+/** The manifest of the redirect that keeps `sandforge-<tool>`. */
+export function redirectManifest(tool, version) {
+  const extension = readJson(join(EXTENSION, 'package.json'));
+  return {
+    name: `sandforge-${tool}`,
+    version,
+    description: `Kept for the sandforge package: this command is now \`npx sandforge ${tool}\`.`,
+    homepage: extension.homepage,
+    bugs: extension.bugs,
+    repository: { type: 'git', url: `git+${repositoryUrl()}.git`, directory: 'packages/cli' },
+    license: extension.license,
+    author: extension.author,
+    bin: { [`sandforge-${tool}`]: 'bin.mjs' },
+    files: ['bin.mjs'],
+    engines: { node: `>=${NODE_FLOOR}` },
+  };
+}
+
+/** The command of a redirect: its message, and exit 2. */
+export function redirectBin(tool) {
+  return `#!/usr/bin/env node
+process.stderr.write(${JSON.stringify(redirectMessage(tool))});
+process.exitCode = ${REDIRECT_EXIT};
+`;
+}
+
+/** The one line a redirect's README holds. */
+export function redirectReadme(tool) {
+  return (
+    `\`sandforge-${tool}\` is kept for the [sandforge](https://www.npmjs.com/package/sandforge) ` +
+    `package: run \`npx sandforge ${tool}\`. Source: ${repositoryUrl()}.\n`
+  );
+}
+
+/**
+ * Build the redirects into `out`, one folder per command, refusing a folder
+ * that holds anything they do not write.
+ *
+ * @returns The folder, and the folder of each package.
+ */
+export function buildRedirects(out = REDIRECTS_OUT) {
+  const version = packageVersion();
+  const tools = toolNames();
+  if (existsSync(out)) {
+    const strange = readdirSync(out).filter(
+      (entry) => !/^sandforge-[a-z]+$/.test(entry) || !tools.includes(entry.slice(10)),
+    );
+    if (strange.length > 0) {
+      throw new Error(`${out} holds ${strange.join(', ')}: no build of the redirects writes these`);
+    }
+    rmSync(out, { recursive: true, force: true });
+  }
+  const packages = tools.map((tool) => {
+    const folder = join(out, `sandforge-${tool}`);
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(
+      join(folder, 'package.json'),
+      `${JSON.stringify(redirectManifest(tool, version), null, 2)}\n`,
+    );
+    writeFileSync(join(folder, 'bin.mjs'), redirectBin(tool));
+    chmodSync(join(folder, 'bin.mjs'), 0o755);
+    writeFileSync(join(folder, 'README.md'), redirectReadme(tool));
+    copyFileSync(join(root, 'LICENSE'), join(folder, 'LICENSE'));
+    return { tool, folder };
+  });
+  return { out, packages };
 }
 
 /**
@@ -638,23 +736,56 @@ export function confidentialFindings(out) {
 }
 
 /**
- * What a command of the package may reach while it is checked: no `sf` (the
- * Node it runs under alone on the PATH), a home and a journal folder of its
- * own, empty. Nothing a check runs reads an org, and this holds it to that.
+ * What a command of the package may reach while it is checked: no `sf`, a
+ * home and a journal folder of its own, empty. Nothing a check runs reads an
+ * org, and this holds it to that. The PATH is an empty folder: the commands
+ * are started by the Node's own path and start their scripts by it, and the
+ * folder a Node is installed in is where npm installs `sf` beside it — the
+ * Node 22 the package is checked under held one, which the PATH of the
+ * Node's folder alone handed every command.
  */
-export function sealedEnv(node, home) {
+export function sealedEnv(home) {
   mkdirSync(join(home, 'journal'), { recursive: true });
+  mkdirSync(join(home, 'empty-path'), { recursive: true });
   return {
-    PATH: dirname(node),
+    PATH: join(home, 'empty-path'),
     HOME: home,
     USERPROFILE: home,
     SANDFORGE_JOURNAL_DIR: join(home, 'journal'),
-    ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {}),
+    // Windows starts `sf` through cmd.exe, found by ComSpec, which finds a
+    // command by PATHEXT.
+    ...(process.platform === 'win32'
+      ? {
+          SystemRoot: process.env.SystemRoot,
+          ComSpec: process.env.ComSpec,
+          PATHEXT: process.env.PATHEXT,
+        }
+      : {}),
   };
 }
 
-/** A line that ends a script's own help: its usage names the package's command, not a checkout. */
-const HELP_HEAD = (tool) => `sandforge-${tool} — `;
+/**
+ * A folder holding an `sf` of its own, which answers `sf org display` as the
+ * Salesforce CLI does for an alias it does not know: its JSON document on
+ * stdout, exit 1. No check runs the real `sf`.
+ */
+function unknownAliasSf(home, alias) {
+  const bin = join(home, 'sf-bin');
+  mkdirSync(bin, { recursive: true });
+  const answer = JSON.stringify({
+    status: 1,
+    name: 'NamedOrgNotFoundError',
+    message: `No authorization information found for ${alias}.`,
+    exitCode: 1,
+  });
+  writeFileSync(join(bin, 'sf'), `#!/bin/sh\necho '${answer}'\nexit 1\n`);
+  chmodSync(join(bin, 'sf'), 0o755);
+  writeFileSync(join(bin, 'sf.cmd'), `@echo ${answer}\r\n@exit /b 1\r\n`);
+  return bin;
+}
+
+/** The line a script's own help opens on: the command as the package names it, not a checkout's file. */
+const HELP_HEAD = (tool) => `sandforge ${tool} — `;
 
 /**
  * The checks a built package passes before it is published, each one a
@@ -801,13 +932,85 @@ export const CHECKS = [
     },
   },
   {
+    name: 'a line that tells its reader what to run names npx sandforge, never a name npx would fetch',
+    run: ({ out, node }) => {
+      const home = scratchFolder();
+      try {
+        // DataOps refuses a line without its command, before any org, and
+        // says the line to type: the one command that shows it unaided.
+        const refused = runBin(out, ['sandforge', 'dataops', '--org', 'DEV'], {
+          node,
+          env: sealedEnv(home),
+          cwd: home,
+        });
+        if (
+          refused.code !== 2 ||
+          !refused.stderr.includes('npx sandforge dataops anonymize --org')
+        ) {
+          throw new Error(
+            `sandforge dataops --org DEV ended on ${refused.code}: ${refused.stderr}${refused.stdout}`,
+          );
+        }
+        if (/sandforge-[a-z]+ (?:anonymize|--)/.test(refused.stderr)) {
+          throw new Error(`sandforge dataops names a command npx would fetch: ${refused.stderr}`);
+        }
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  },
+  {
+    name: 'a command says how to install sf where there is none, and names an alias sf does not know',
+    run: ({ out, node }) => {
+      const home = scratchFolder();
+      try {
+        const env = sealedEnv(home);
+        // The PATH holds the Node the command runs under, and no sf.
+        const missing = runBin(out, ['sandforge', 'monitor', '--org', 'DEV'], {
+          node,
+          env,
+          cwd: home,
+        });
+        if (
+          missing.code !== 1 ||
+          !missing.stderr.includes('Salesforce CLI (sf) not found on PATH.') ||
+          !missing.stderr.includes('npm install -g @salesforce/cli') ||
+          /ENOENT/.test(missing.stderr)
+        ) {
+          throw new Error(
+            `with no sf, sandforge monitor ended on ${missing.code}: ${missing.stderr}`,
+          );
+        }
+        const alias = 'NO-SUCH-ALIAS';
+        const unknown = runBin(out, ['sandforge', 'monitor', '--org', alias], {
+          node,
+          env: { ...env, PATH: `${unknownAliasSf(home, alias)}${delimiter}${env.PATH}` },
+          cwd: home,
+        });
+        if (
+          unknown.code !== 1 ||
+          !unknown.stderr.includes(
+            `sf does not know ${alias}: "sf org list" names the orgs it knows`,
+          ) ||
+          /Command failed/.test(unknown.stderr)
+        ) {
+          throw new Error(
+            `for an unknown alias, sandforge monitor ended on ${unknown.code}: ${unknown.stderr}`,
+          );
+        }
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  },
+  {
     name: 'Seed names its templates as the Seed page does',
     run: ({ out, node }) => {
       const home = scratchFolder();
       try {
         const listed = runBin(out, ['sandforge', 'seed', '--list-templates'], {
           node,
-          env: sealedEnv(node, home),
+          env: sealedEnv(home),
           cwd: home,
         });
         if (
@@ -831,7 +1034,7 @@ export const CHECKS = [
     run: ({ out, node }) => {
       const home = scratchFolder();
       try {
-        const env = sealedEnv(node, home);
+        const env = sealedEnv(home);
         for (const tool of toolNames()) {
           const refused = runBin(out, ['sandforge', tool, '--no-such-flag'], {
             node,
@@ -876,7 +1079,7 @@ export const CHECKS = [
               params: { name: 'checkpoint_list', arguments: { org: 'NO-SUCH-ORG' } },
             },
           ],
-          { node, env: sealedEnv(node, home), cwd: home },
+          { node, env: sealedEnv(home), cwd: home },
         );
         const [initialized, listed, called] = answers;
         if (
@@ -945,6 +1148,88 @@ export const CHECKS = [
   },
 ];
 
+/**
+ * The checks the redirects pass before they are published, each one a
+ * function of the folder they were built in that throws what it found.
+ */
+export const REDIRECT_CHECKS = [
+  {
+    name: 'one redirect per command, each at the version of the package and of its name, with no dependency',
+    run: ({ out }) => {
+      const version = packageVersion();
+      const built = readdirSync(out).sort();
+      const expected = toolNames().map((tool) => `sandforge-${tool}`);
+      assertEqual(built, expected, 'the redirects are not one per command');
+      for (const tool of toolNames()) {
+        const published = readJson(join(out, `sandforge-${tool}`, 'package.json'));
+        assertEqual(published, redirectManifest(tool, version), `sandforge-${tool}'s manifest`);
+        if (published.version !== readJson(join(EXTENSION, 'package.json')).version) {
+          throw new Error(
+            `sandforge-${tool} is at ${published.version}, not the extension's version`,
+          );
+        }
+        for (const key of ['dependencies', 'optionalDependencies', 'peerDependencies', 'scripts']) {
+          if (key in published) throw new Error(`sandforge-${tool} has ${key}`);
+        }
+      }
+    },
+  },
+  {
+    name: 'npm packs its command, its README, its license and its manifest, and nothing else',
+    run: ({ out }) => {
+      for (const tool of toolNames()) {
+        const files = packedFiles(join(out, `sandforge-${tool}`));
+        assertEqual(
+          files,
+          ['LICENSE', 'README.md', 'bin.mjs', 'package.json'],
+          `npm would publish sandforge-${tool} with`,
+        );
+      }
+    },
+  },
+  {
+    name: 'nothing in them is a source map, a path of the machine that built them, a client or an org',
+    run: ({ out, requireNames = true }) => {
+      const problems = scanText(out);
+      if (problems.length > 0) throw new Error(problems.join('\n'));
+      const { findings, namesChecked } = confidentialFindings(out);
+      if (findings.length > 0) throw new Error(findings.join('\n'));
+      if (requireNames && !namesChecked && process.env.CI !== 'true') {
+        throw new Error('.confidential-names is absent from this checkout: client names unchecked');
+      }
+    },
+  },
+  {
+    name: 'each says what runs now on stderr, prints nothing on stdout, and ends on 2, whatever its line',
+    run: ({ out, node }) => {
+      const home = scratchFolder();
+      try {
+        for (const tool of toolNames()) {
+          for (const args of [[], ['--help'], ['--org', 'DEV', '--yes']]) {
+            const result = spawnSync(node, [join(out, `sandforge-${tool}`, 'bin.mjs'), ...args], {
+              encoding: 'utf8',
+              env: sealedEnv(home),
+              cwd: home,
+              timeout: 60_000,
+            });
+            if (
+              result.status !== REDIRECT_EXIT ||
+              result.stdout !== '' ||
+              result.stderr !== redirectMessage(tool)
+            ) {
+              throw new Error(
+                `sandforge-${tool} ${args.join(' ')} ended on ${result.status}: ${result.stderr}${result.stdout}`,
+              );
+            }
+          }
+        }
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  },
+];
+
 /** `assert.deepStrictEqual`, with the two values in the message. */
 function assertEqual(actual, expected, message) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -955,9 +1240,9 @@ function assertEqual(actual, expected, message) {
 }
 
 /** Run every check on a built package, saying each one; the number that failed. */
-async function checkCommand(out, node) {
+async function checkCommand(out, node, checks = CHECKS) {
   let failed = 0;
-  for (const check of CHECKS) {
+  for (const check of checks) {
     try {
       await check.run({ out, node });
       console.log(`  ✓ ${check.name}`);
@@ -984,6 +1269,24 @@ async function cli(argv) {
     );
     return 0;
   }
+  if (command === 'redirects') {
+    const built = buildRedirects(positional[0] ? resolve(positional[0]) : REDIRECTS_OUT);
+    console.log(
+      `Built ${built.packages.length} redirects at ${packageVersion()} in ` +
+        `${relative(process.cwd(), built.out) || '.'}: ${built.packages.map((p) => basename(p.folder)).join(', ')}.`,
+    );
+    return 0;
+  }
+  if (command === 'check-redirects') {
+    const runtime = node ?? process.execPath;
+    const folder = positional[0] ? resolve(positional[0]) : REDIRECTS_OUT;
+    console.log(
+      `Checking the redirects in ${relative(process.cwd(), folder) || '.'} under Node ${nodeVersionOf(runtime)}:`,
+    );
+    const failed = await checkCommand(folder, runtime, REDIRECT_CHECKS);
+    console.log(failed === 0 ? 'Every check passed.' : `${failed} check(s) failed.`);
+    return failed === 0 ? 0 : 1;
+  }
   if (command === 'check') {
     const runtime = node ?? process.execPath;
     console.log(
@@ -993,7 +1296,9 @@ async function cli(argv) {
     console.log(failed === 0 ? 'Every check passed.' : `${failed} check(s) failed.`);
     return failed === 0 ? 0 : 1;
   }
-  console.error('usage: node scripts/npm-package.mjs build|check [<folder>] [--node <node>]');
+  console.error(
+    'usage: node scripts/npm-package.mjs build|check|redirects|check-redirects [<folder>] [--node <node>]',
+  );
   return 2;
 }
 

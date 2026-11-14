@@ -393,7 +393,7 @@ export async function rewindEnvironment(
         : ran.refusal.code === 'RECREATE'
           ? `${ran.refusal.message} ${verb === 'reset' ? 'reset' : 'destroy --rewind'} never ` +
             'makes records again with new Ids, which the state would no longer name: rewind with ' +
-            'sandforge-checkpoint itself, then apply again.'
+            'sandforge checkpoint itself, then apply again.'
           : ran.refusal.message;
     return {
       result: {

@@ -155,6 +155,48 @@ export function observeValidatedIdentities(observer: IdentityObserver | undefine
   identityObserver = observer;
 }
 
+/** Where the person who reads why a session could not be renewed renews it. */
+export type SessionRenewer = 'panel' | 'command line';
+
+let sessionRenewer: SessionRenewer = 'panel';
+
+/**
+ * Say from now on what renews a session in the words of `renewer`. The hosts
+ * of the command lines (`cli/panelHost.ts`) run the panel's handlers, and a
+ * session that could not be renewed there sent the reader of a terminal to
+ * the Organizations page and its Reconnect, which a terminal has neither.
+ */
+export function renewSessionsFrom(renewer: SessionRenewer): void {
+  sessionRenewer = renewer;
+}
+
+/**
+ * What renews the session with `alias` when the CLI could not: Reconnect on
+ * its card in the panel; on a command line, `sf`'s sign-in, then the command
+ * again. Exported so it can be tested.
+ */
+export function sessionRenewalWords(
+  alias: string,
+  renewer: SessionRenewer = sessionRenewer,
+): string {
+  return renewer === 'panel'
+    ? 'Reconnect it on the Organizations page (Try Reconnect on its card).'
+    : `Sign in to it again with "sf org login web --alias ${alias}" (in a CI job, ` +
+        '"sf org login jwt" or "sf org login sfdxurl"), then run the command again, with its ' +
+        '--resume if it stopped a run part way.';
+}
+
+/**
+ * What replaces a scratch org that expired: a new one, imported in the panel;
+ * on a command line, created with `sf` and named by its alias. Exported so it
+ * can be tested.
+ */
+export function expiredScratchWords(renewer: SessionRenewer = sessionRenewer): string {
+  return renewer === 'panel'
+    ? 'Create a new one and import it.'
+    : 'Create a new one ("sf org create scratch") and give its alias.';
+}
+
 /** Hand an identity answer to the observer. Never throws: the connection is good either way. */
 function reportIdentity(orgId: string, identity: unknown): void {
   const organizationId = (identity as { organization_id?: unknown } | null)?.organization_id;
@@ -561,15 +603,15 @@ export async function getJsforceConnection(
             'SCRATCH_ORG_EXPIRED',
             orgId,
             `The scratch org "${org.alias}" expired on ${expiredOn}: Salesforce deletes a scratch ` +
-              'org when it expires, and no reconnect brings it back. Create a new one and import ' +
-              `it. (cause: ${cause})`,
+              `org when it expires, and no reconnect brings it back. ${expiredScratchWords()} ` +
+              `(cause: ${cause})`,
           );
         }
         throw new OrgConnectionError(
           'ORG_AUTH_EXPIRED',
           orgId,
           `The session with "${org.alias}" has expired and could not be renewed. ` +
-            `Reconnect it on the Organizations page (Try Reconnect on its card). (cause: ${cause})`,
+            `${sessionRenewalWords(org.alias)} (cause: ${cause})`,
         );
       }
     }
@@ -586,8 +628,8 @@ export async function getJsforceConnection(
         'SCRATCH_ORG_EXPIRED',
         orgId,
         `The scratch org "${org.alias}" expired on ${expiredOn}: Salesforce deletes a scratch ` +
-          'org when it expires, and no reconnect brings it back. Create a new one and import ' +
-          `it. (cause: ${message})`,
+          `org when it expires, and no reconnect brings it back. ${expiredScratchWords()} ` +
+          `(cause: ${message})`,
       );
     }
     throw new Error(`Connection failed for "${org.alias}": ${message}`);

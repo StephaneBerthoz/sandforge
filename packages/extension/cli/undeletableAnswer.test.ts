@@ -57,13 +57,13 @@ describe('undeletableAnswer', () => {
   it('sends the reader of a command that does not take the flag to this script’s own removal', () => {
     // Relayed by sandforge-env, "run again with --leave-undeletable" named a
     // flag the destroy refused, exit 2.
-    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-env');
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge env');
     expect(undeletableRefusal(objects, 'DEV').message).toContain(
       "or run this script's own removal with --leave-undeletable to remove the rest and leave " +
         'them.',
     );
     // The MCP server's run_remove takes it: leaveUndeletable.
-    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-mcp');
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge mcp');
     expect(undeletableRefusal(objects, 'DEV').message).toContain(
       'or run again with --leave-undeletable to remove the rest and leave them.',
     );

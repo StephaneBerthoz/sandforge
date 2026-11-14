@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { EnvDocumentPath, EnvEmailLimit } from '@sandforge/shared';
 import type { RunnableScript } from '../../scriptRunner.js';
+import { nameOf } from '../../invocation.js';
 
 // ─── The file ────────────────────────────────────────────────────────────────
 
@@ -249,7 +250,7 @@ export class StepAnswerError extends Error {
     readonly excerpt: string,
   ) {
     super(
-      `${script} did not answer ${expected} (${reason}): ` +
+      `${nameOf(script)} did not answer ${expected} (${reason}): ` +
         (excerpt === '' ? 'it printed nothing on stdout' : `it printed ${JSON.stringify(excerpt)}`),
     );
     this.name = 'StepAnswerError';

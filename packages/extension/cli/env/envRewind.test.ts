@@ -356,7 +356,7 @@ describe('a rewind of the environment', () => {
     expect(outcome.exitCode).toBe(1);
     expect(outcome.result.refusal).toBe(
       '1 Account record(s) deleted since are gone. reset never makes records again with new Ids, ' +
-        'which the state would no longer name: rewind with sandforge-checkpoint itself, then ' +
+        'which the state would no longer name: rewind with sandforge checkpoint itself, then ' +
         'apply again.',
     );
     expect(outcome.result.undo.offered).toBe(false);

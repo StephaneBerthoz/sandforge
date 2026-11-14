@@ -47,7 +47,7 @@ import { openBackupStore, toolStoreOf } from './backupStore.js';
 import { DONE_EXIT, endWith, FAILED_EXIT, PARTIAL_EXIT } from './exitCodes.js';
 import { holdOutputWhole } from './wholeOutput.js';
 
-const HELP = `sandforge-compare — compare two orgs the way the Compare page does, without the editor.
+const HELP = `sandforge compare — compare two orgs the way the Compare page does, without the editor.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-compare.ts --source <alias> --target <alias> [options]
@@ -535,7 +535,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const source = await host.connect(args.source);
   const target = await host.connect(args.target);
   log(
-    `sandforge-compare  ${args.source} (${source.orgType}) -> ${args.target} (${target.orgType})`,
+    `sandforge compare  ${args.source} (${source.orgType}) -> ${args.target} (${target.orgType})`,
   );
 
   const results: Array<{ op: Operation; answer: PanelAnswer }> = [];

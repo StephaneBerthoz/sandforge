@@ -1351,7 +1351,7 @@ describe('the words of what a removal runs into', () => {
     // Relayed by sandforge-env, the removal said "With --mute-automation, …",
     // a flag neither the destroy nor an apply's replace takes, as Forge's,
     // Sync's and Seed's removals no longer do.
-    for (const relay of ['sandforge-env', 'sandforge-env apply']) {
+    for (const relay of ['sandforge env', 'sandforge env apply']) {
       vi.stubEnv('SANDFORGE_RELAYED_BY', relay);
       try {
         const { refusal } = removalAutomation(

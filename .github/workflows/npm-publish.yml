@@ -72,6 +72,12 @@ jobs:
       - name: Check the package on this Node
         run: node scripts/npm-package.mjs check packages/cli/dist
 
+      - name: Build the redirects of the old names
+        run: node scripts/npm-package.mjs redirects
+
+      - name: Check the redirects on this Node
+        run: node scripts/npm-package.mjs check-redirects
+
   publish:
     needs: bin
     if: ${{ github.event_name == 'push' || inputs.publish }}
@@ -143,3 +149,26 @@ jobs:
             exit 0
           fi
           npm publish packages/cli/dist --provenance --access public
+
+      # The names the commands went by, sandforge-clone, sandforge-checkpoint…:
+      # each kept by a package that says what runs now and runs nothing
+      # (`scripts/npm-package.mjs redirects`), published after sandforge, at
+      # its version, as it is. The first version of each name is published by
+      # hand, right after sandforge's, and each names this workflow as its
+      # trusted publisher, as sandforge does.
+      - name: Build and check the redirects
+        run: |
+          node scripts/npm-package.mjs redirects
+          node scripts/npm-package.mjs check-redirects
+
+      - name: Publish the redirects to npm
+        run: |
+          VERSION=$(node -p "require('./packages/cli/dist/package.json').version")
+          for folder in dist/npm-redirects/sandforge-*; do
+            NAME=$(basename "$folder")
+            if npm view "$NAME@$VERSION" version > /dev/null 2>&1; then
+              echo "::notice::$NAME $VERSION is already on npm: nothing to publish"
+              continue
+            fi
+            npm publish "$folder" --provenance --access public
+          done

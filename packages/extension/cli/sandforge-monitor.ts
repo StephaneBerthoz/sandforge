@@ -35,7 +35,7 @@ import { openBackupStore, toolStoreOf } from './backupStore.js';
 import { endWith, FAILED_EXIT } from './exitCodes.js';
 import { holdOutputWhole } from './wholeOutput.js';
 
-const HELP = `sandforge-monitor — read an org the way the Monitor page does, without the editor.
+const HELP = `sandforge monitor — read an org the way the Monitor page does, without the editor.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-monitor.ts --org <alias> [options]
@@ -402,7 +402,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   for (const alias of args.orgs) {
     const org = await host.connect(alias);
     orgs.push(org);
-    log(`sandforge-monitor  ${alias} (${org.orgType})  store: ${args.storeDir}`);
+    log(`sandforge monitor  ${alias} (${org.orgType})  store: ${args.storeDir}`);
   }
 
   const results: Array<{ pass: number; org: string; label: string; answer: PanelAnswer }> = [];

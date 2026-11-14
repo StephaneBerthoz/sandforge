@@ -51,6 +51,7 @@ import { formatMB } from '../../src/modules/forge/ForgeRunGate.js';
 import { DONE_EXIT, FAILED_EXIT } from '../exitCodes.js';
 import type { CommandRun, CommandRunner, RunnableScript } from '../scriptRunner.js';
 import { SCRATCH_STATE_KEEP_DAYS } from './envState.js';
+import { commandOf } from '../invocation.js';
 import { StepAnswerError, countSchema, readAnswer, valueOf } from './kinds/common.js';
 
 /** The script the checkpoints are taken, previewed, rewound to and deleted by. */
@@ -823,7 +824,7 @@ export function rewindUndoOf(
     offered: true,
     until: new Date(Date.parse(ran.undoUntil)).toISOString(),
     line:
-      `sandforge-checkpoint undo --org ${input.alias} --checkpoint ${input.checkpoint} ` +
+      `${commandOf('checkpoint')} undo --org ${input.alias} --checkpoint ${input.checkpoint} ` +
       `--store ${envCheckpointStoreOf(input.journalDir)}`,
   };
 }

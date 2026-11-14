@@ -59,7 +59,7 @@ import type {
   PanelHostWiring,
   PostedMessage,
 } from './panelHost.js';
-import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { SF_ALIAS_RE, refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, endWith } from './exitCodes.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { commandLineGuard } from './commandLineGuard.js';
@@ -71,6 +71,8 @@ import {
 } from './dataOpsAutomationCli.js';
 import { refusedLine, wouldBeRefusedLine } from './runRefused.js';
 import { holdOutputWhole } from './wholeOutput.js';
+import { commandOf, nameOf } from './invocation.js';
+import { SfSessionError } from './sfFailure.js';
 import type { InfraServices } from '../src/bridge/handlers/HandlerTypes.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { countRequests } from '../src/core/precheck/orgKindLive.js';
@@ -89,7 +91,7 @@ import {
 
 const TOOL = 'sandforge-empty';
 
-const HELP = `sandforge-empty — empty objects of a sandbox, or the whole of it, without the editor:
+const HELP = `sandforge empty — empty objects of a sandbox, or the whole of it, without the editor:
 a dry run first, then the deletes, to the recycle bin with an undo, or for good.
 
 Usage:
@@ -155,7 +157,7 @@ Options:
                          people the dry run named: anyone at work since
                          refuses the run all the same
   --checkpoint-first     take a checkpoint of the objects emptied before the
-                         first delete, to rewind to (sandforge-checkpoint);
+                         first delete, to rewind to (sandforge checkpoint);
                          refused past 500,000 records or the disk's room, and
                          then nothing is deleted
 ${dataOpsAutomationHelp('deleted', '--dry-run')}  --audit <file>         add the run's entry, or the undo's, to the audit trail
@@ -237,9 +239,6 @@ const FLAGS: CommandFlags = {
 /** An object's API name, as `--objects` and `--exclude-object` take one. */
 const OBJECT_API_NAME = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
-/** An org alias, or the username it stands for. */
-const ALIAS = /^[A-Za-z0-9_][A-Za-z0-9_.@+-]{0,254}$/;
-
 /** What the line asks. */
 export type EmptyArgs =
   | ({
@@ -302,7 +301,7 @@ export function parseArgs(argv: readonly string[]): EmptyArgs {
   };
   const target = once('--target');
   if (target === undefined) badLine('--target <alias> names the org to empty.');
-  if (!ALIAS.test(target)) badLine(`--target ${target} is not an sf CLI alias.`);
+  if (!SF_ALIAS_RE.test(target)) badLine(`--target ${target} is not an sf CLI alias.`);
   const json = has('--json');
   const accord = accordOf(args);
   const audit = once('--audit');
@@ -404,9 +403,9 @@ function refuseUnasked(common: CommonArgs, act: 'empty' | 'undo' | 'resume'): ne
     code: 'NOT_CONFIRMED',
     message:
       act === 'empty'
-        ? `${TOOL} asks no question: add --dry-run to read what it would delete, or --yes to ` +
+        ? `${nameOf(TOOL)} asks no question: add --dry-run to read what it would delete, or --yes to ` +
           'empty once the dry run said it. Nothing was read or deleted.'
-        : `${TOOL} asks no question: add --yes to ${act === 'undo' ? 'undo' : 'take up'} the ` +
+        : `${nameOf(TOOL)} asks no question: add --yes to ${act === 'undo' ? 'undo' : 'take up'} the ` +
           'emptying. Nothing was read or written.',
   };
   process.stderr.write(`${refusedLine(refused)}\n`);
@@ -540,7 +539,7 @@ export function previewLines(target: string, answer: EmptyPreviewAnswer): string
       ? 'every object people work in'
       : `${preview.passes.length} object(s) picked`;
   lines.push(
-    `${TOOL}  target=${target}  ${what}  ${preview.deleteMode === 'hard' ? 'FOR GOOD' : 'to the recycle bin'}`,
+    `${nameOf(TOOL)}  target=${target}  ${what}  ${preview.deleteMode === 'hard' ? 'FOR GOOD' : 'to the recycle bin'}`,
   );
   lines.push(`read at ${answer.readAt} on the org's clock: records made after it are left`);
   lines.push(
@@ -779,7 +778,7 @@ export function runLines(target: string, result: DataOpsEmptyRunResult): string[
   if (result.checkpoint?.state === 'taken') {
     lines.push(
       `checkpoint taken first: ${result.checkpoint.name} (${result.checkpoint.checkpointId}); ` +
-        `sandforge-checkpoint rewind --org ${target} --checkpoint ${result.checkpoint.checkpointId} ` +
+        `${commandOf('checkpoint')} rewind --org ${target} --checkpoint ${result.checkpoint.checkpointId} ` +
         'returns the objects it holds to it',
     );
   } else if (result.checkpoint?.state === 'deleted') {
@@ -788,12 +787,12 @@ export function runLines(target: string, result: DataOpsEmptyRunResult): string[
   for (const note of result.notes) lines.push(note);
   if (result.status === 'cancelled' || result.status === 'failure') {
     lines.push(
-      `${TOOL} --target ${target} --resume ${result.runId} --yes takes it up; ` +
+      `${commandOf('empty')} --target ${target} --resume ${result.runId} --yes takes it up; ` +
         `--undo ${result.runId} --yes brings back what it deleted`,
     );
   } else if (result.undo.offered) {
     lines.push(
-      `${TOOL} --target ${target} --undo ${result.runId} --yes brings them back while the ` +
+      `${commandOf('empty')} --target ${target} --undo ${result.runId} --yes brings them back while the ` +
         'recycle bin holds them, as long as no other emptying of the org follows',
     );
   } else if (result.undo.why === 'hard') {
@@ -1035,7 +1034,12 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
     } catch (err: unknown) {
       throw new Stop({
         code: 'NOT_CONNECTED',
-        message: `${args.target} could not be reached: ${err instanceof Error ? err.message : String(err)}. Nothing was read or deleted.`,
+        // What sf said of the alias says what to do; "could not be reached"
+        // sent the reader to the network.
+        message:
+          err instanceof SfSessionError
+            ? `${err.reason} Nothing was read or deleted.`
+            : `${args.target} could not be reached: ${err instanceof Error ? err.message : String(err)}. Nothing was read or deleted.`,
       });
     }
     const accord = { ...args.accord };

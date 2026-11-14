@@ -99,6 +99,7 @@ import {
   type SeedPreviewAnswer,
   type SeedRemovalAnswer,
 } from './kinds/seed.js';
+import { nameOf } from '../invocation.js';
 
 /** The kinds of resource this SandForge applies. */
 export type EnvAppliedKind = 'seed' | 'forge' | 'frozen' | 'mask';
@@ -540,7 +541,7 @@ export function applyLineOf(
  */
 function noRemoval(script: EnvKindScript): never {
   throw new Error(
-    `${script} takes no run back: a masking is never undone, and its destroy deletes its store`,
+    `${nameOf(script)} takes no run back: a masking is never undone, and its destroy deletes its store`,
   );
 }
 

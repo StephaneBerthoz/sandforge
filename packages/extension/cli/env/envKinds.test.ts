@@ -194,7 +194,7 @@ describe('the kinds of resource', () => {
       acceptAutomation: false,
     };
     expect(() => removeLineOf('mask', { ...removal, sweep: false })).toThrow(
-      'sandforge-dataops takes no run back: a masking is never undone',
+      'sandforge dataops takes no run back: a masking is never undone',
     );
     expect(() => previewLineOf('mask', removal)).toThrow('takes no run back');
     const runs: Array<{ n: number; takenBack?: true }> = [{ n: 1 }, { n: 2 }];

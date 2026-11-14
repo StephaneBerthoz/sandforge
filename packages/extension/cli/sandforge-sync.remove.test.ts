@@ -186,7 +186,7 @@ describe('readRunSummary', () => {
       refusal: 'is not JSON: save the output of a run printed with --json.',
     });
     expect(readRunSummary(JSON.stringify({ ...summary(), tool: 'sandforge-clone' }))).toMatchObject(
-      { refusal: expect.stringContaining('is not the summary of a sandforge-sync run') },
+      { refusal: expect.stringContaining('is not the summary of a sandforge sync run') },
     );
     expect(readRunSummary(JSON.stringify(summary({ dryRun: true })))).toMatchObject({
       refusal: expect.stringContaining('dry run'),
@@ -231,7 +231,7 @@ describe('what the command takes back, and from where', () => {
       removalRefusal('TGT', { id: ORG_ID, sandbox: false, edition: 'Enterprise Edition' }),
     ).toBe(
       'TGT is a production org (its Organization record says IsSandbox false, edition ' +
-        'Enterprise Edition): sandforge-sync removes records from sandboxes and Developer ' +
+        'Enterprise Edition): sandforge sync removes records from sandboxes and Developer ' +
         'Edition orgs only. Nothing was deleted.',
     );
   });

@@ -1378,7 +1378,7 @@ describe('sandforge-frozen load, and what the target runs as it inserts', () => 
     };
 
     expect(await refusal()).toContain('With --mute-automation, the load assigns Data_Load');
-    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env');
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge env');
     try {
       const relayed = await refusal();
       expect(relayed).toContain('Add --accept-automation to load all the same');

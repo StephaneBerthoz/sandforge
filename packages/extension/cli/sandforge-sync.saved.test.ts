@@ -240,7 +240,7 @@ describe('sandforge-sync --config-file', () => {
     expect(engine.deps).toEqual([]);
     expect(stderr).toContain(
       'TGT is a production org (its Organization record says IsSandbox false, edition ' +
-        'Enterprise Edition): sandforge-sync writes to sandboxes and Developer Edition orgs only. ' +
+        'Enterprise Edition): sandforge sync writes to sandboxes and Developer Edition orgs only. ' +
         'Nothing was written',
     );
     expect(stdout).toBe('');

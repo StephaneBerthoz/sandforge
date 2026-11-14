@@ -267,7 +267,7 @@ describe('sandforge-autopilot --checkpoint-first', () => {
     expect(writePathOrderDefects(['reads', 'leasePlan', 'question', ...steps])).toEqual([]);
     expect(JSON.parse(out.join('')).checkpoint).toEqual(TAKEN);
     expect(err.join('')).toContain(
-      '  rewind to it: sandforge-checkpoint rewind --org TGT --checkpoint ' +
+      '  rewind to it: pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts rewind --org TGT --checkpoint ' +
         'ck-20261101-110000-c3d4 --mute-automation',
     );
     expect(vi.mocked(commandCheckpoints).mock.calls[0][0]).toMatchObject({

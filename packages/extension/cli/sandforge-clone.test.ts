@@ -161,7 +161,7 @@ describe('sandforge-clone flag validation', () => {
       argv('--anonymize', '--files', '--files-as-is', '--max-file-size', '20'),
     );
 
-    expect((result as Error).message).toBe('sf org display reached');
+    expect((result as Error).message).toContain('sf org display reached');
   });
 
   it('takes --accept-automation and --max-total, and caps a run at 10 000 records unless told', () => {
@@ -222,7 +222,7 @@ describe('sandforge-clone flag validation', () => {
     );
 
     expect(result).toBeInstanceOf(Error);
-    expect((result as Error).message).toBe('sf org display reached');
+    expect((result as Error).message).toContain('sf org display reached');
     expect(mockExecFileSync).toHaveBeenCalledTimes(1);
   });
 });
@@ -868,7 +868,7 @@ describe('sandforge-clone summary', () => {
       mayHaveBeenWritten: [{ objectApiName: 'Contact', sourceIds: ['003000000000001AAA'] }],
       contactPoints: { neutralized: false, fields: [], values: 0 },
     });
-    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge env apply');
     let lines: string[];
     try {
       lines = summaryLines(relayed, false, 500);
@@ -1734,7 +1734,7 @@ describe('sandforge-clone object outcomes', () => {
     it('names no --list-objects to the reader of a command that relays the run and lists nothing', () => {
       // Relayed by sandforge-env plan, the dry run said "--list-objects names
       // them": a flag of this script the environment does not take.
-      for (const relay of ['sandforge-env plan', 'sandforge-mcp']) {
+      for (const relay of ['sandforge env plan', 'sandforge mcp']) {
         vi.stubEnv('SANDFORGE_RELAYED_BY', relay);
         try {
           expect(
@@ -2515,7 +2515,7 @@ describe('sandforge-clone describes', () => {
       expect(printed).toEqual([]);
       expect(JSON.parse(stdout.join(''))).toMatchObject({ tool: 'sandforge-clone', dryRun: true });
       const said = stderr.join('');
-      expect(said).toContain('sandforge-clone  SRC -> TGT  record=001000000000001AAA');
+      expect(said).toContain('sandforge clone  SRC -> TGT  record=001000000000001AAA');
       expect(said).toContain('discovery…');
       expect(said).toContain('preflight (target row counts)…');
       expect(said).toContain('executing… (DRY-RUN)');
@@ -2604,7 +2604,7 @@ describe('sandforge-clone describes', () => {
 
       expect(stderr.join('')).toContain(
         'TGT is a production org (its Organization record says IsSandbox false, and no ' +
-          'edition): sandforge-clone writes to sandboxes and Developer Edition orgs only. ' +
+          'edition): sandforge clone writes to sandboxes and Developer Edition orgs only. ' +
           'Nothing was written',
       );
       expect(orgs.TGT.written).toEqual([]);

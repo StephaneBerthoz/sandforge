@@ -398,7 +398,7 @@ describe('a seed from the command line', () => {
     expect(org.restCalls).toEqual([]);
     expect(stderr.join('')).toContain(
       'TGT is a production org (its Organization record says IsSandbox false, edition ' +
-        'Enterprise Edition): sandforge-seed writes to sandboxes and Developer Edition orgs ' +
+        'Enterprise Edition): sandforge seed writes to sandboxes and Developer Edition orgs ' +
         'only. Nothing was written; --dry-run, which only reads, runs against it.',
     );
   });

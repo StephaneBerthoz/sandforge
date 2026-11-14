@@ -100,6 +100,7 @@ import {
   maskReplaceWords,
   type MaskPlace,
 } from './kinds/mask.js';
+import { nameOf } from '../invocation.js';
 
 /**
  * What a resource's own verification of its last run found, where its kind
@@ -637,7 +638,7 @@ function maskDraft(
     return draft('keep', 'applied from the same file', [], 'it was not dry-run: plan again');
   }
   if ('failed' in dry || dry.answer.tool !== DATAOPS_SCRIPT) {
-    const said = 'failed' in dry ? dry.failed : `${dry.answer.tool} answered its dry run`;
+    const said = 'failed' in dry ? dry.failed : `${nameOf(dry.answer.tool)} answered its dry run`;
     return draft(
       'keep',
       'applied from the same file',

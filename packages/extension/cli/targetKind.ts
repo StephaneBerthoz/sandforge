@@ -21,6 +21,8 @@
  */
 
 import type { Connection } from 'jsforce';
+import { isAuthError } from '../src/core/common/isAuthError.js';
+import { isNetworkError } from '../src/core/common/isNetworkError.js';
 import {
   isProductionTarget,
   typeTarget,
@@ -63,6 +65,65 @@ export function productionTargetRefusal(
   );
 }
 
+/**
+ * Whether the org refused its Organization record to the user the session
+ * signs in as: no access to the object, or an object the user's profile does
+ * not show at all. Reading it takes View Setup and Configuration.
+ */
+function organizationRefused(err: unknown): boolean {
+  const { errorCode, statusCode } = (typeof err === 'object' && err !== null ? err : {}) as {
+    errorCode?: unknown;
+    statusCode?: unknown;
+  };
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    statusCode === 403 ||
+    (typeof errorCode === 'string' && /^INSUFFICIENT_ACCESS/.test(errorCode)) ||
+    /\bINSUFFICIENT_ACCESS/.test(message) ||
+    ((errorCode === 'INVALID_TYPE' || /\bINVALID_TYPE\b/.test(message)) &&
+      /\bOrganization\b/.test(message))
+  );
+}
+
+/**
+ * Why the command will not write to an org it could not type, and what lets
+ * it. It said "did not say what org it is" whatever the cause, which read as
+ * final: a session the org refused is signed in again with `sf`, an org that
+ * did not answer is tried again, and an Organization record the user may not
+ * read takes View Setup and Configuration. An org that answered and said
+ * nothing of itself keeps the first words. Exported so it can be tested.
+ */
+export function untypedTargetRefusal(
+  alias: string,
+  err: unknown,
+  command: RefusingCommand,
+): string {
+  const why = err instanceof Error ? err.message : String(err);
+  const nothing = `Nothing was ${command.action === 'write' ? 'written' : 'deleted'}.`;
+  const refuses =
+    `${command.tool} ${command.action === 'write' ? 'writes to' : 'deletes from'} no org it ` +
+    'cannot tell from a production one';
+  if (isAuthError(err)) {
+    return (
+      `${alias} refused the session sf gave for it (${why}), and ${refuses}. ` +
+      `"sf org display --target-org ${alias}" says what sf holds for it; "sf org login web ` +
+      `--alias ${alias}" signs in again (in a CI job, "sf org login jwt" or "sf org login ` +
+      `sfdxurl"); then run the command again. ${nothing}`
+    );
+  }
+  if (isNetworkError(err)) {
+    return `${alias} did not answer (${why}), and ${refuses}. Run the command again once it answers. ${nothing}`;
+  }
+  if (organizationRefused(err)) {
+    return (
+      `${alias} would not show its Organization record (${why}), and ${refuses}. Reading it ` +
+      'takes the View Setup and Configuration permission: give it to the user the alias signs ' +
+      `in as, or name an alias of a user who has it. ${nothing}`
+    );
+  }
+  return `${alias} did not say what org it is (${why}), and ${refuses}. ${nothing}`;
+}
+
 /** The exit code of a run refused before it wrote or deleted anything. */
 export const REFUSED_EXIT = 1;
 
@@ -82,12 +143,7 @@ export async function refuseProductionTarget(
   try {
     org = await typeTarget(conn);
   } catch (err: unknown) {
-    const why = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `${alias} did not say what org it is (${why}), and ${command.tool} ` +
-        `${command.action === 'write' ? 'writes to' : 'deletes from'} no org it cannot tell ` +
-        `from a production one. Nothing was ${command.action === 'write' ? 'written' : 'deleted'}.\n`,
-    );
+    process.stderr.write(`${untypedTargetRefusal(alias, err, command)}\n`);
     process.exit(REFUSED_EXIT);
   }
   const refusal = productionTargetRefusal(alias, org, command);

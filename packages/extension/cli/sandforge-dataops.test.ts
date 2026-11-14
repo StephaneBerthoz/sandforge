@@ -1399,7 +1399,7 @@ describe('sandforge-dataops', () => {
 
       stderr = '';
       process.exitCode = undefined;
-      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge env apply');
       try {
         expect(await run(...masking, '--yes')).toBe(1);
       } finally {

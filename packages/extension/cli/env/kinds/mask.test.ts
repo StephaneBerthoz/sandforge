@@ -356,10 +356,10 @@ describe('what the script answers', () => {
 
   it('refuses to read what is not an answer of the script, naming it', () => {
     expect(() => readMaskDryRun('{"tool":"sandforge-seed"}')).toThrow(
-      'sandforge-dataops did not answer the answer of a dry run',
+      'sandforge dataops did not answer the answer of a dry run',
     );
     expect(() => readMaskRun('refused')).toThrow(
-      'sandforge-dataops did not answer the answer of a masking (not JSON)',
+      'sandforge dataops did not answer the answer of a masking (not JSON)',
     );
   });
 });
@@ -420,10 +420,10 @@ describe('what the plan and the destroy say', () => {
 
   it('says masking is one-way, and the line that puts values back is the person’s own act', () => {
     expect(maskNotes('customers', { alias: 'pool-1', store: '/j/dataops/customers' })).toEqual([
-      'masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /j/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: sandforge-dataops anonymize --org pool-1 --restore <the snapshot its run names> --store /j/dataops/customers',
+      'masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /j/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize --org pool-1 --restore <the snapshot its run names> --store /j/dataops/customers',
     ]);
     expect(maskDeleteWhy('destroy', 'customers', kept, { alias: 'pool-1', store: '/s' })).toBe(
-      'taken back by destroy, which never unmasks: its records stay masked, and its store, /s, is deleted from this machine with its snapshots, the only copy of the values they held. To put back those they held before any masking, before this destroy, as your own act: sandforge-dataops anonymize --org pool-1 --restore s1-snapshot --store /s',
+      'taken back by destroy, which never unmasks: its records stay masked, and its store, /s, is deleted from this machine with its snapshots, the only copy of the values they held. To put back those they held before any masking, before this destroy, as your own act: pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize --org pool-1 --restore s1-snapshot --store /s',
     );
   });
 

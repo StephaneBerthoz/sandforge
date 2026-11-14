@@ -45,6 +45,7 @@ import { OrgRegistry } from '../src/core/connection/OrgRegistry.js';
 import { AuthProvider } from '../src/core/connection/AuthProvider.js';
 import type { OrgIdentity } from '../src/core/connection/AuthProvider.js';
 import { connectionCheckRequests } from '../src/core/connection/connectionChecks.js';
+import { renewSessionsFrom } from '../src/core/connection/ConnectionHelper.js';
 import { SfdxBridge } from '../src/core/connection/SfdxBridge.js';
 import { CompareOrchestrator } from '../src/modules/compare/CompareOrchestrator.js';
 import { PipelineOrchestrator } from '../src/modules/automation/PipelineOrchestrator.js';
@@ -260,6 +261,8 @@ export function createPanelHost(options: PanelHostOptions): PanelHost {
   const { log } = options;
   const waitMs = options.waitMs ?? 5 * 60_000;
   const checkedBefore = connectionCheckRequests();
+  // The handlers' connections say what renews a session as a terminal does it.
+  renewSessionsFrom('command line');
 
   // What `createCoreComposition` builds, with the two VS Code backends
   // replaced: a file for the memento, memory for SecretStorage.

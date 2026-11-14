@@ -643,7 +643,7 @@ describe('sandforge-clone --summary', () => {
     // Relayed by sandforge-env, the line named "(--remove)": the clone's own
     // removal, which the environment's reader runs as a destroy or a replace.
     withOrgs(fakeOrg([ACCOUNT_GUARD]));
-    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env plan');
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge env plan');
     try {
       expect(await run(argv('--dry-run', '--json'))).toBeUndefined();
     } finally {

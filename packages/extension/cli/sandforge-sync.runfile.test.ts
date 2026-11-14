@@ -349,7 +349,7 @@ describe('the file a run of sandforge-sync keeps', () => {
     expect(stdout).toBe('');
     expect(stderr).toContain(
       'TGT is a production org (its Organization record says IsSandbox false, edition ' +
-        'Enterprise Edition): sandforge-sync writes to sandboxes and Developer Edition orgs ' +
+        'Enterprise Edition): sandforge sync writes to sandboxes and Developer Edition orgs ' +
         'only. Nothing was written; --dry-run, which only reads, runs against it.',
     );
   });
@@ -554,7 +554,7 @@ describe('the file a run of sandforge-sync keeps', () => {
     it('names, relayed by the MCP server, whose run_remove lists no sweep, the listing this script’s own removal gives', async () => {
       // Relayed so, "--sweep-list shows" named a flag no tool of the server
       // takes, as the clone's same line no longer does.
-      vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-mcp');
+      vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge mcp');
 
       await main(argv('--remove', file, '--target', 'TGT'));
 
