@@ -589,9 +589,10 @@ export interface WholeOrgConfirmationSample {
   /** The objects of the run whose source holds records it keeps none of. Absent when none. */
   noRecordDrawn?: number;
   /**
-   * Of a draw of the most recent roots, the objects whose newest were read in
-   * the order of their ids, having no creation date the org sorts by: ids
-   * follow the making of records within a load only. Absent when none.
+   * The objects whose newest — the roots of a draw of the most recent, or the
+   * children kept under the cap — were taken in the order of their ids,
+   * having no creation date the org sorts by: ids follow the making of
+   * records within a load only. Absent when none.
    */
   newestByIds?: string[];
 }

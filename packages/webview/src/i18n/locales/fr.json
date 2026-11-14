@@ -5071,6 +5071,7 @@
     "wholeOrgDryRun": {
       "title": "Simulation de toute l'org",
       "stopped": "Elle s'est arrêtée au contrôle d'écriture du clonage une fois la source comptée : au-delà des décomptes, seuls les ID des enregistrements que le clonage retiendrait ou laisserait de côté et des rôles de contact que la plateforme écrit elle-même ont été lus, avec la taille des e-mails et des fichiers, et rien n'a été écrit dans aucune des deux orgs.",
+      "stoppedSample": "Elle s'est arrêtée au contrôle d'écriture du clonage une fois l'échantillon tiré : le tirage a lu les ID et les recherches des enregistrements atteints, et seulement les quelques valeurs qui décident de ce qu'il garde et de la façon dont chacun s'écrit, comme les types d'enregistrement et les dates de création ; puis le contrôle a compté ce que garde son plan. Rien n'a été écrit dans aucune des deux orgs.",
       "records_one": "{{formatted}} enregistrement à écrire dans {{target}}, de {{objects}} objets, en {{duration}} environ.",
       "records_other": "{{formatted}} enregistrements à écrire dans {{target}}, de {{objects}} objets, en {{duration}} environ.",
       "refused_one": "Le clonage serait refusé, pour {{count}} motif :",
@@ -5144,6 +5145,7 @@
           "targetRequests": "les requêtes API quotidiennes de {{target}}",
           "bulkBatches": "les lots Bulk API quotidiens de {{target}}",
           "sourceRequests": "les requêtes API quotidiennes de {{source}}",
+          "heavyRoots": "les enregistrements mis de côté plus bas, chacun au-delà d'un dixième de la place dont dispose {{target}} : toutes les autres racines tiennent",
           "whole": "rien : chaque enregistrement tient"
         },
         "draw": {
@@ -5163,7 +5165,7 @@
         "childrenCut": "Enfants au-delà de {{cap}} par enregistrement et par relation, les plus récents gardés, laissés de côté : {{objects}}.",
         "noRecordDrawn": "Objets de {{source}} dont l'échantillon ne garde aucun enregistrement : {{objects}}.",
         "inTheSource": "{{object}} ({{rows}} dans la source)",
-        "heavyRoots": "Enregistrements mis de côté, chacun ayant amené plus d'un dixième de ce que l'échantillon peut prendre : {{records}}.",
+        "heavyRoots": "Enregistrements mis de côté, chacun ayant amené plus d'un dixième de la place dont dispose {{target}} : {{records}}.",
         "heavyRoot": "{{object}} {{id}} (environ {{rows}} enregistrements par {{relation}})",
         "dropped": "Enregistrements que le tirage a atteints et laisse de côté, jamais envoyés : {{records}}.",
         "droppedOf": "{{rows}} de {{object}}, {{reason}}",

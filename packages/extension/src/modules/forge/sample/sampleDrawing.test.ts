@@ -294,6 +294,41 @@ describe('drawing a sample of the whole org', () => {
     expect(org.sent.some(({ soql }) => / ORDER BY Id DESC LIMIT \d+$/.test(soql))).toBe(true);
   });
 
+  it('keeps under the cap the children made last, not the greatest ids, and names an object whose children it kept by their ids', async () => {
+    /** A moment `seconds` after the first, as the org writes a record's dates. */
+    const madeAt = (seconds: number): string =>
+      new Date(Date.UTC(2026, 10, 13, 9, 0, seconds)).toISOString().replace('Z', '+0000');
+    const draw = async (dated: boolean) => {
+      const org = orgOf(150, 0);
+      if (!dated) org.columns.set('Contact', ['Id', 'AccountId', 'IsDeleted']);
+      // Five contacts of the first account, made the later the smaller the id.
+      for (let n = 1; n <= 5; n++) {
+        org.add('Contact', {
+          Id: fakeId('003', n),
+          AccountId: fakeId('001', 1),
+          ...(dated ? { CreatedDate: madeAt(10 - n) } : {}),
+          IsDeleted: false,
+        });
+      }
+      const drawing = await drawSampleOfTheOrg(
+        inputOf(org, {
+          options: { seed: 1, draw: 'uniform', parents: 'all', children: 2, floor: 1 },
+        }),
+      );
+      if (drawing.cut.kind !== 'sample') throw new Error('no sample');
+      return { ids: drawing.cut.ids.get('Contact'), newestByIds: drawing.newestByIds };
+    };
+
+    expect(await draw(true)).toEqual({
+      ids: [1, 2].map((n) => fakeId('003', n)),
+      newestByIds: [],
+    });
+    expect(await draw(false)).toEqual({
+      ids: [4, 5].map((n) => fakeId('003', n)),
+      newestByIds: ['Contact'],
+    });
+  });
+
   it('refuses a read of the roots past a tenth of what the source has left today, before an id is read', async () => {
     const org = orgOf(150, 1);
 

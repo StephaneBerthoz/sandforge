@@ -256,7 +256,13 @@ export const ForgeWholeOrgDryRunResult: React.FC<ForgeWholeOrgDryRunResultProps>
       <h3 id={`${tableId}-title`} className="text-sm font-semibold">
         {t(dry.sample ? 'forgeRun.wholeOrgDryRun.titleSample' : 'forgeRun.wholeOrgDryRun.title')}
       </h3>
-      <p className="text-text-secondary">{t('forgeRun.wholeOrgDryRun.stopped')}</p>
+      {/* A sample's draw reads every root's id and what they reach: not the
+          few ids a run of every record reads past its counts. */}
+      <p className="text-text-secondary">
+        {t(
+          dry.sample ? 'forgeRun.wholeOrgDryRun.stoppedSample' : 'forgeRun.wholeOrgDryRun.stopped',
+        )}
+      </p>
       {/* What the sample drew, said first: the counts below are its plan's. */}
       {dry.sample && <ForgeWholeOrgSample sample={dry.sample} source={source} target={target} />}
       {/* Every record past what the target has left: a sample that fits, offered. */}

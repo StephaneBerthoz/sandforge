@@ -757,6 +757,39 @@ describe('sandforge-clone --depth all, a clone of the whole org', () => {
       expect(orgs.TGT.creates).toEqual([]);
     });
 
+    it('offers a sample that fits, --fit share, when every record takes more data storage than the target has left, a dry run as a run', async () => {
+      for (const flags of [['--dry-run'], ['--yes']]) {
+        stdout = [];
+        stderr = [];
+        const orgs = withFakeOrgs({
+          target: { limits: { ...LIMITS, DataStorageMB: { Max: 1_000, Remaining: 0 } } },
+        });
+
+        expect(await run(argv(...flags, '--json'))).toBe(1);
+
+        const answer = JSON.parse(stdout.join('')) as {
+          wouldBeRefused?: string[];
+          wouldBeRefusedCodes?: string[];
+          refused?: { code: string; message: string };
+        };
+        const said =
+          flags[0] === '--dry-run'
+            ? answer.wouldBeRefused?.[answer.wouldBeRefusedCodes?.indexOf('STORAGE_EXCEEDED') ?? -1]
+            : answer.refused?.code === 'STORAGE_EXCEEDED'
+              ? answer.refused.message
+              : undefined;
+        // As the panel offers a sample on the same refusal; the records per
+        // object no clone of the whole org takes are no way out.
+        expect(said).toContain(
+          'TGT has 0 MB left of 1000 MB: copy a sample of the org that fits it (--fit share, ' +
+            'its dry run first), leave objects out (--exclude-object) or narrow them (--filter), ' +
+            'or free data storage in TGT.',
+        );
+        expect(said).not.toContain('lower the records per object');
+        expect(orgs.TGT.creates).toEqual([]);
+      }
+    });
+
     it('is refused NOTHING_TO_CLONE, exit 1, when --exclude-object leaves out every object, a dry run as a run', async () => {
       const everyObject = ['Account', 'Contact', 'ns__Policy__c', 'Ticket__c'].flatMap((name) => [
         '--exclude-object',

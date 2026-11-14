@@ -393,6 +393,27 @@ describe('drawTheSample: heavy roots', () => {
     expect(idsOf(sample, 'Contact').some((id) => id === C(150))).toBe(false);
   });
 
+  it('says the roots set aside held it when every other root fits, never that the whole org fits', async () => {
+    // A tenth of 500 KB is 50 KB: the hub's 124 KB go aside, and the 99
+    // other accounts with their contacts, 396 KB, all fit.
+    const sample = sampled(
+      (await sampleOf(withAHub(), { bytes: 500 * KB, roomBytes: 500 * KB, draw: 'recent' })).cut,
+    );
+    expect(sample.limitedBy).toBe('heavyRoots');
+    // Every root drawn but those set aside, said apart.
+    expect(sample.share).toBe(1);
+    expect(sample.heavyRoots.map((root) => root.id)).toEqual([A(100)]);
+    expect(idsOf(sample, 'Account')).toHaveLength(99);
+
+    // The same draw with room for the hub: nothing set aside, the whole org
+    // kept, its 520 KB within 600.
+    const whole = sampled(
+      (await sampleOf(withAHub(), { bytes: 600 * KB, roomBytes: 2_000 * KB, draw: 'recent' })).cut,
+    );
+    expect(whole.heavyRoots).toEqual([]);
+    expect(whole.limitedBy).toBe('whole');
+  });
+
   it('keeps the same root when the room holds ten times what it brings', async () => {
     const sample = sampled(
       (await sampleOf(withAHub(), { bytes: 200 * KB, roomBytes: 2_000 * KB, draw: 'recent' })).cut,

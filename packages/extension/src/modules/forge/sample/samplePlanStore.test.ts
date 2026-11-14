@@ -181,6 +181,20 @@ describe('the plan of a sample', () => {
     expect((await SamplePlan.open(plan.dir)).manifest.newestByIds).toEqual(['Region__c']);
   });
 
+  it('opens again a plan the roots set aside held, every other root kept', async () => {
+    const aside: WholeOrgSampleDrawn = {
+      ...DRAWN,
+      share: 1,
+      budget: { ...DRAWN.budget, limitedBy: 'heavyRoots' },
+    };
+    const plan = await keepSamplePlan(
+      dryRunPlanDirOf(storage, FINGERPRINT),
+      planOf({ sample: aside }),
+    );
+
+    expect((await SamplePlan.open(plan.dir)).manifest.sample.budget.limitedBy).toBe('heavyRoots');
+  });
+
   it('gives the ids after the last one a run wrote, whether or not it is the plan’s', async () => {
     const plan = await keepSamplePlan(dryRunPlanDirOf(storage, FINGERPRINT), planOf());
 

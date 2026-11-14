@@ -545,7 +545,11 @@ describe('the records a sample names', () => {
 });
 
 describe('the records under a sample', () => {
-  /** Accounts 1 to 3 with 2, 5 and 120 contacts. */
+  /**
+   * Accounts 1 to 3 with 2, 5 and 120 contacts, each made the later the
+   * smaller its id: loads apart, a scratch org's ids interleaved hours apart,
+   * and its greatest ids were not its newest.
+   */
   function hubOrg(): SampleSourceOrg {
     const org = describedOrg();
     let contact = 0;
@@ -557,14 +561,18 @@ describe('the records under a sample', () => {
       org.add('Account', { Id: fakeId('001', n), Name: `A${n}` });
       for (let c = 0; c < children; c++) {
         contact++;
-        org.add('Contact', { Id: fakeId('003', contact), AccountId: fakeId('001', n) });
+        org.add('Contact', {
+          Id: fakeId('003', contact),
+          AccountId: fakeId('001', n),
+          CreatedDate: madeAt(200 - contact),
+        });
       }
     }
     return org;
   }
   const parents = [fakeId('001', 1), fakeId('001', 2), fakeId('001', 3)];
 
-  it('reads a list’s children at once when their object holds no more than the cap times the list, the newest of each kept', async () => {
+  it('reads a list’s children at once when their object holds no more than the cap times the list, the newest of each kept by the date they were made', async () => {
     const org = hubOrg();
     const reader = readerOf(org);
 
@@ -580,17 +588,18 @@ describe('the records under a sample', () => {
     ]);
 
     expect(answer.rows).toHaveLength(2 + 5 + 100);
-    // The newest hundred of the third account: its last contacts, 8 to 127.
-    expect(answer.rows.filter((row) => row['AccountId'] === fakeId('001', 3)).at(-1)?.['Id']).toBe(
-      fakeId('003', 28),
-    );
+    // The newest hundred of the third account: its first contacts, 8 to 107, not its greatest ids.
+    const third = answer.rows.filter((row) => row['AccountId'] === fakeId('001', 3));
+    expect(third[0]?.['Id']).toBe(fakeId('003', 8));
+    expect(third.at(-1)?.['Id']).toBe(fakeId('003', 107));
     expect(answer.cut).toEqual([{ parentId: fakeId('001', 3), rows: 20 }]);
+    expect(answer.newestBy).toBe('created');
     expect(org.sent.map((sent) => sent.soql)).toEqual([
-      `SELECT Id, AccountId, ReportsToId FROM Contact WHERE AccountId IN (${parents.map((id) => `'${id}'`).join(', ')})`,
+      `SELECT Id, AccountId, ReportsToId, CreatedDate FROM Contact WHERE AccountId IN (${parents.map((id) => `'${id}'`).join(', ')})`,
     ]);
   });
 
-  it('counts the children by parent past that, reads those under the cap at once and each hub’s newest alone', async () => {
+  it('counts the children by parent past that, reads those under the cap at once and each hub’s newest alone, by the date they were made', async () => {
     const org = hubOrg();
     const reader = readerOf(org);
 
@@ -605,29 +614,51 @@ describe('the records under a sample', () => {
       },
     ]);
 
-    expect(answer.rows.map((row) => row['Id'])).toEqual([
-      fakeId('003', 2),
-      fakeId('003', 1),
-      fakeId('003', 7),
-      fakeId('003', 6),
-      fakeId('003', 5),
-      fakeId('003', 4),
-      fakeId('003', 127),
-      fakeId('003', 126),
-      fakeId('003', 125),
-      fakeId('003', 124),
-    ]);
+    expect(answer.rows.map((row) => row['Id'])).toEqual(
+      [1, 2, 3, 4, 5, 6, 8, 9, 10, 11].map((n) => fakeId('003', n)),
+    );
     expect(answer.cut).toEqual([
       { parentId: fakeId('001', 2), rows: 1 },
       { parentId: fakeId('001', 3), rows: 116 },
     ]);
     const list = (ids: string[]) => ids.map((id) => `'${id}'`).join(', ');
+    const hub = (n: number) =>
+      `SELECT Id, AccountId, CreatedDate FROM Contact WHERE AccountId = '${fakeId('001', n)}' ` +
+      'ORDER BY CreatedDate DESC, Id DESC LIMIT 4';
     expect(org.sent.map((sent) => sent.soql)).toEqual([
       `SELECT AccountId, COUNT(Id) n FROM Contact WHERE AccountId IN (${list(parents)}) GROUP BY AccountId`,
-      `SELECT Id, AccountId FROM Contact WHERE AccountId IN (${list(parents.slice(0, 1))})`,
-      `SELECT Id, AccountId FROM Contact WHERE AccountId = '${fakeId('001', 2)}' ORDER BY Id DESC LIMIT 4`,
-      `SELECT Id, AccountId FROM Contact WHERE AccountId = '${fakeId('001', 3)}' ORDER BY Id DESC LIMIT 4`,
+      `SELECT Id, AccountId, CreatedDate FROM Contact WHERE AccountId IN (${list(parents.slice(0, 1))})`,
+      hub(2),
+      hub(3),
     ]);
+  });
+
+  it('keeps the greatest ids of an object with no creation date the org orders by, and says so', async () => {
+    const org = hubOrg();
+    const reader = readerOf(
+      org,
+      {},
+      { sorts: (object, field) => !(object === 'Contact' && field === 'CreatedDate') },
+    );
+
+    const [answer] = await reader.readChildren([
+      {
+        objectApiName: 'Contact',
+        field: 'AccountId',
+        parentIds: parents,
+        columns: [],
+        cap: 4,
+        sourceRows: 127,
+      },
+    ]);
+
+    expect(answer.newestBy).toBe('id');
+    expect(answer.rows.map((row) => row['Id'])).toEqual(
+      [2, 1, 7, 6, 5, 4, 127, 126, 125, 124].map((n) => fakeId('003', n)),
+    );
+    expect(org.sent.at(-1)?.soql).toBe(
+      `SELECT Id, AccountId FROM Contact WHERE AccountId = '${fakeId('001', 3)}' ORDER BY Id DESC LIMIT 4`,
+    );
   });
 
   it('reads a list’s children at once when the org will not count them by parent, and keeps the same newest of each', async () => {
@@ -652,7 +683,7 @@ describe('the records under a sample', () => {
     ]);
 
     expect(answer.rows.map((row) => row['Id'])).toEqual(
-      [2, 1, 7, 6, 5, 4, 127, 126, 125, 124].map((n) => fakeId('003', n)),
+      [1, 2, 3, 4, 5, 6, 8, 9, 10, 11].map((n) => fakeId('003', n)),
     );
     expect(answer.cut).toEqual([
       { parentId: fakeId('001', 2), rows: 1 },
@@ -665,7 +696,7 @@ describe('the records under a sample', () => {
   it('reads a hub whole and keeps its newest when the org will not order it, and fails on any other refusal', async () => {
     const org = hubOrg();
     org.refusals.push({
-      pattern: /ORDER BY Id DESC LIMIT/,
+      pattern: /ORDER BY CreatedDate DESC, Id DESC LIMIT/,
       errorCode: 'MALFORMED_QUERY',
       message: 'unexpected token: ORDER',
     });
@@ -681,13 +712,13 @@ describe('the records under a sample', () => {
 
     const [answer] = await reader.readChildren([read]);
     org.refusals.splice(0, 1, {
-      pattern: /ORDER BY Id DESC LIMIT/,
+      pattern: /ORDER BY CreatedDate DESC, Id DESC LIMIT/,
       errorCode: 'REQUEST_LIMIT_EXCEEDED',
       message: 'TotalRequests Limit exceeded.',
     });
 
     expect(answer.rows.map((row) => row['Id']).slice(6)).toEqual(
-      [127, 126, 125, 124].map((n) => fakeId('003', n)),
+      [8, 9, 10, 11].map((n) => fakeId('003', n)),
     );
     expect(answer.cut).toEqual([
       { parentId: fakeId('001', 2), rows: 1 },
@@ -722,6 +753,9 @@ describe('the records under a sample', () => {
 
     expect(first.rows).toHaveLength(20);
     expect(first.cut).toEqual([{ parentId: fakeId('500', 1), rows: 5 }]);
+    // The describe lists no creation date of a feed item: its greatest ids kept, and said.
+    expect(first.newestBy).toBe('id');
+    expect(first.rows[0]?.['Id']).toBe(fakeId('0D5', 25));
     expect(first.counts).toEqual(new Map([[fakeId('500', 1), 25]]));
     expect(second.rows).toHaveLength(5);
     expect(org.sent.map((sent) => sent.soql.split(' FROM ')[0])).toEqual([
@@ -871,7 +905,7 @@ describe('the records under a sample', () => {
     ]);
     expect(org.sent).toEqual([
       {
-        soql: `SELECT Id, WhatId, WhoId FROM Task WHERE IsDeleted = false AND WhatId IN ('${fakeId('001', 1)}', '${fakeId('006', 1)}', '${fakeId('500', 1)}')`,
+        soql: `SELECT Id, WhatId, WhoId, CreatedDate FROM Task WHERE IsDeleted = false AND WhatId IN ('${fakeId('001', 1)}', '${fakeId('006', 1)}', '${fakeId('500', 1)}')`,
         all: true,
       },
     ]);

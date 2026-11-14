@@ -5071,6 +5071,7 @@
     "wholeOrgDryRun": {
       "title": "Dry run of the whole org",
       "stopped": "It stopped at the run’s write gate once the source was counted: past the counts, only the ids of the records the run would hold back or leave aside and of the contact roles the platform writes itself were read, with the size of the emails and files, and nothing was written to either org.",
+      "stoppedSample": "It stopped at the run’s write gate once the sample was drawn: drawing it read the ids and lookups of the records it reached, and only the few values that decide which it keeps and how each is written, such as record types and creation dates; then the gate counted what its plan keeps. Nothing was written to either org.",
       "records_one": "{{formatted}} record to write into {{target}}, of {{objects}} objects, in about {{duration}}.",
       "records_other": "{{formatted}} records to write into {{target}}, of {{objects}} objects, in about {{duration}}.",
       "refused_one": "The run would be refused, for {{count}} reason:",
@@ -5144,6 +5145,7 @@
           "targetRequests": "the daily API requests of {{target}}",
           "bulkBatches": "the daily Bulk API batches of {{target}}",
           "sourceRequests": "the daily API requests of {{source}}",
+          "heavyRoots": "the records set aside below, each past a tenth of the room {{target}} has: every other root fits",
           "whole": "nothing: every record fits"
         },
         "draw": {
@@ -5163,7 +5165,7 @@
         "childrenCut": "Children past {{cap}} per record and relation, the newest kept, left out: {{objects}}.",
         "noRecordDrawn": "Objects of {{source}} none of whose records the sample keeps: {{objects}}.",
         "inTheSource": "{{object}} ({{rows}} in the source)",
-        "heavyRoots": "Records set aside, each of which would have brought in more than a tenth of what the sample may take: {{records}}.",
+        "heavyRoots": "Records set aside, each of which would have brought in more than a tenth of the room {{target}} has: {{records}}.",
         "heavyRoot": "{{object}} {{id}} (about {{rows}} records through {{relation}})",
         "dropped": "Records the draw reached and leaves out, never sent: {{records}}.",
         "droppedOf": "{{rows}} of {{object}}, {{reason}}",

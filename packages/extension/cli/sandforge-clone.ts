@@ -800,18 +800,25 @@ Copy a sample of the whole org that fits the target, with --depth all:
                          its /limits say, half a MB off for their rounding,
                          less what its automation still running creates
                          under the records — and --max-total, its default
-                         of 10000 too: raise it to take more. Small parents,
-                         the price catalog when it fits a quarter of that,
-                         and the reference data go whole. Drawn before the
-                         gate, from ids and lookups alone, the plan is kept
-                         on disk, the ids of each object and no value: a dry
-                         run's in forge-samples/ under the journal directory
-                         for a day, a run's beside its journal. The gate
-                         counts the plan, and the run writes its records and
-                         no other: a lookup to a record outside it is written
-                         empty and said, a record gone from the source since
-                         is said apart, one whose parent changed since is
-                         held back and failed. The dry run says the sample
+                         of 10000 too: raise it to take more. The reference
+                         data go whole. Small parents and the price catalog
+                         go whole while they fit a quarter of the room the
+                         target has, 80 % of what it has left once half a MB
+                         is off, whatever --fit-within and --max-total ask;
+                         a root that would bring in more than a tenth of that
+                         room by itself is set aside and named (heavy roots
+                         set aside:). Drawn before the gate, from ids,
+                         lookups and the few values that decide what it
+                         keeps — record types, creation dates —, the plan
+                         is kept on disk, the ids of each object and no
+                         value: a dry run's in forge-samples/ under the
+                         journal directory for a day, a run's beside its
+                         journal. The gate counts the plan, and the run
+                         writes its records and no other: a lookup to a
+                         record outside it is written empty and said, a
+                         record gone from the source since is said apart,
+                         one whose parent changed since is held back and
+                         failed. The dry run says the sample
                          (sample:), per object what it keeps and how, what
                          goes whole (whole:), the roots set aside (heavy
                          roots set aside:), what it leaves out and why (not
@@ -4351,6 +4358,23 @@ export function wholeOrgMaxTotalRefusal(rows: number, max: number): string {
   );
 }
 
+/**
+ * Why a clone of every record of the whole org may not write past the data
+ * storage the target has left, in the line's own words: a sample that fits
+ * it, as the panel offers on the same refusal, or fewer records of fewer
+ * objects — never the records per object, a cap no whole org takes. Nothing
+ * when they fit.
+ */
+function wholeOrgStorageRefusal(check: StorageCheck, target: string): string | undefined {
+  if (check.verdict !== 'exceeds') return undefined;
+  return (
+    `The records to write take about ${formatMB(check.estimateMB)} MB of data storage, and ` +
+    `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB: copy a sample of the org ` +
+    'that fits it (--fit share, its dry run first), leave objects out (--exclude-object) or ' +
+    `narrow them (--filter), or free data storage in ${target}.`
+  );
+}
+
 // ─── A sample of the whole org (--fit share) ────────────────────────────────
 
 /** The size the documentation gives most records: what a sample's room is counted in, its storage unread. */
@@ -4434,12 +4458,18 @@ function drawWords(sample: Pick<WholeOrgSample, 'seed' | 'draw'>): string {
 
 /** What held a sample, past which the next share would not fit, as its lines say it. */
 function sampleLimitWords(
-  sample: Pick<WholeOrgSample, 'budget'>,
+  sample: Pick<WholeOrgSample, 'budget' | 'heavyRoots'>,
   source: string,
   target: string,
 ): string {
   const { budget } = sample;
   switch (budget.limitedBy) {
+    case 'heavyRoots':
+      // Every other root kept: what the share leaves out is the roots set aside alone.
+      return (
+        `every root fits but ${sample.heavyRoots.length} heavy root(s) set aside below, each ` +
+        `past a tenth of the room ${target} has: they alone keep the sample from every root`
+      );
     case 'storage':
       return `limited by the data storage ${target} has left`;
     case 'within':
@@ -4574,8 +4604,10 @@ export function sampleLines(
     );
   }
   if (sample.heavyRoots.length > 0) {
+    // Weighed against the target's room, the MB and records asked aside: a
+    // smaller sample of the same target sets aside the same roots.
     lines.push(
-      'heavy roots set aside, each bringing in more than a tenth of what the sample may take:',
+      `heavy roots set aside, each bringing in more than a tenth of the room ${target} has:`,
     );
     for (const { objectApiName, id, rows, relation } of sample.heavyRoots) {
       lines.push(
@@ -11203,6 +11235,20 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         ...(requests.stop ? [requests.stop] : []),
         ...(requests.alsoRefused ?? []),
       ];
+    }
+    // Every record past what the target has left, a dry run's as a run's, in
+    // the line's own words: a sample that fits is the way out, as the panel
+    // offers it on the same refusal, and no records per object, a cap no
+    // clone of the whole org takes.
+    const overWholeStorage = sampled
+      ? undefined
+      : wholeOrgStorageRefusal(storageCheck, args.target);
+    if (overWholeStorage !== undefined) {
+      stops = stops.map((stop) =>
+        stop.code === 'STORAGE_EXCEEDED'
+          ? { ...stop, message: `${overWholeStorage} Nothing was written.` }
+          : stop,
+      );
     }
     const question: WholeOrgConfirmation = {
       ...wholeOrgConfirmationOf({

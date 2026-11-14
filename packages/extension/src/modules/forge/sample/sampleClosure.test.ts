@@ -184,7 +184,25 @@ describe('SampleClosure: down', () => {
     Contact: [1, 2, 3, 4, 5].map((n) => ({ id: C(n), refs: { AccountId: A(1) } })),
   });
 
-  it('takes at most the cap of the records under a record per relation, the last by id, and counts those left', async () => {
+  it('takes at most the cap of the records under a record per relation, the newest by the date they were made whatever their ids, as the source gives them or more', async () => {
+    // Made the later the smaller the id: the greatest ids are the oldest, as
+    // a scratch org's interleaved from one load to the next.
+    const madeInReverse = sales({
+      Account: [{ id: A(1) }],
+      Contact: [1, 2, 3, 4, 5].map((n) => ({
+        id: C(n),
+        refs: { AccountId: A(1) },
+        createdAt: 10 - n,
+      })),
+    });
+    for (const pastTheCap of [false, true]) {
+      const run = await closed(madeInReverse, [['Account', A(1)]], { children: 2, pastTheCap });
+      expect([1, 2, 3, 4, 5].filter((n) => run.at('Contact', C(n)) !== undefined)).toEqual([1, 2]);
+      expect(run.closure.cut.get('Contact.AccountId')?.get(run.at('Account', A(1))!)).toBe(3);
+    }
+  });
+
+  it('takes at most the cap of the records under a record per relation, the greatest ids when the source gives no date they were made, and counts those left', async () => {
     const run = await closed(fiveContacts, [['Account', A(1)]], { children: 2 });
     expect([1, 2, 3, 4, 5].map((n) => run.at('Contact', C(n)) !== undefined)).toEqual([
       false,

@@ -275,6 +275,23 @@ describe('sandforge-clone usage text', () => {
     expect(one).toContain('(CHECKPOINT_REFUSED)');
   });
 
+  it('says a sample weighs what it copies whole and the roots it sets aside against the room the target has, not what the sample may take', async () => {
+    expect(await run(['node', 'sandforge-clone.ts', '--help'])).toBe(0);
+
+    const fit = /\n {2}--fit share([\s\S]*?)\n {2}--fit-within/
+      .exec(stdout)?.[1]
+      .replace(/\s+/g, ' ');
+    expect(fit).toContain(
+      'Small parents and the price catalog go whole while they fit a quarter of the room the ' +
+        'target has, 80 % of what it has left once half a MB is off, whatever --fit-within and ' +
+        '--max-total ask',
+    );
+    expect(fit).toContain(
+      'a root that would bring in more than a tenth of that room by itself is set aside and named',
+    );
+    expect(fit).not.toContain('a quarter of that,');
+  });
+
   it('names no bare command anywhere in the script source', () => {
     const source = readFileSync(join(__dirname, 'sandforge-clone.ts'), 'utf8');
     expect(source.split('\n').filter((line) => BARE_COMMAND_LINE.test(line))).toEqual([]);

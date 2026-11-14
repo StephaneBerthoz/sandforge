@@ -85,10 +85,12 @@ export interface SamplePlanManifest {
   /** What the sample drew. */
   sample: WholeOrgSampleDrawn;
   /**
-   * Of a draw of the newest roots, the objects whose newest were read in the
-   * order of their ids, which have no creation date the org orders by
-   * (`RecentDraw`): an object's ids follow the making of its records within
-   * a load, not from one load to the next. Absent when there are none.
+   * The objects whose newest — the roots of a draw by recency, or the
+   * children kept under the cap — were taken in the order of their ids,
+   * having no creation date the org orders by (`RecentDraw`,
+   * `ChildrenRows.newestBy`): an object's ids follow the making of its
+   * records within a load, not from one load to the next. Absent when there
+   * are none.
    */
   newestByIds?: string[];
   /** What the run's gate counts of the plan beside its ids: see {@link SamplePlanCounts}. */
@@ -205,6 +207,7 @@ const sampleSchema = z.object({
       'targetRequests',
       'bulkBatches',
       'sourceRequests',
+      'heavyRoots',
       'whole',
     ]),
   }),

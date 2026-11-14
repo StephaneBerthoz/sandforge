@@ -5071,6 +5071,7 @@
     "wholeOrgDryRun": {
       "title": "Simulation der gesamten Org",
       "stopped": "Sie hat an der Schreibprüfung des Laufs angehalten, sobald die Quelle gezählt war: Über die Zählungen hinaus wurden nur die IDs der Datensätze, die der Lauf zurückhalten oder beiseitelassen würde, und der Kontaktrollen, die die Plattform selbst schreibt, gelesen, dazu die Größe der E-Mails und Dateien, und in keine der beiden Orgs wurde etwas geschrieben.",
+      "stoppedSample": "Sie hat an der Schreibprüfung des Laufs angehalten, sobald die Stichprobe gezogen war: Die Ziehung hat die IDs und Suchen der erreichten Datensätze gelesen und nur die wenigen Werte, die entscheiden, was sie behält und wie jeder geschrieben wird, etwa Datensatztypen und Erstellungsdaten; danach hat die Prüfung gezählt, was ihr Plan behält. In keine der beiden Orgs wurde etwas geschrieben.",
       "records_one": "{{formatted}} Datensatz, der in {{target}} zu schreiben ist, aus {{objects}} Objekten, in etwa {{duration}}.",
       "records_other": "{{formatted}} Datensätze, die in {{target}} zu schreiben sind, aus {{objects}} Objekten, in etwa {{duration}}.",
       "refused_one": "Der Lauf würde abgelehnt, aus {{count}} Grund:",
@@ -5144,6 +5145,7 @@
           "targetRequests": "die täglichen API-Anfragen von {{target}}",
           "bulkBatches": "die täglichen Bulk-API-Batches von {{target}}",
           "sourceRequests": "die täglichen API-Anfragen von {{source}}",
+          "heavyRoots": "die unten beiseitegelegten Datensätze, jeder über einem Zehntel des Platzes, den {{target}} hat: alle anderen Wurzeln passen",
           "whole": "nichts: Alle Datensätze passen"
         },
         "draw": {
@@ -5163,7 +5165,7 @@
         "childrenCut": "Untergeordnete Datensätze über {{cap}} pro Datensatz und Beziehung hinaus, die neuesten behalten, weggelassen: {{objects}}.",
         "noRecordDrawn": "Objekte von {{source}}, von denen die Stichprobe keinen Datensatz behält: {{objects}}.",
         "inTheSource": "{{object}} ({{rows}} in der Quelle)",
-        "heavyRoots": "Beiseitegelegte Datensätze, von denen jeder mehr als ein Zehntel dessen mitgebracht hätte, was die Stichprobe belegen darf: {{records}}.",
+        "heavyRoots": "Beiseitegelegte Datensätze, von denen jeder mehr als ein Zehntel des Platzes mitgebracht hätte, den {{target}} hat: {{records}}.",
         "heavyRoot": "{{object}} {{id}} (etwa {{rows}} Datensätze über {{relation}})",
         "dropped": "Datensätze, die die Ziehung erreicht hat und weglässt, nie gesendet: {{records}}.",
         "droppedOf": "{{rows}} von {{object}}, {{reason}}",

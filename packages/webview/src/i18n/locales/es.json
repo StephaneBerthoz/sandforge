@@ -5071,6 +5071,7 @@
     "wholeOrgDryRun": {
       "title": "Simulación de toda la org",
       "stopped": "Se detuvo en el control de escritura de la ejecución una vez contado el origen: más allá de los recuentos, solo se leyeron los Id de los registros que la ejecución retendría o dejaría de lado y de los roles de contacto que la plataforma escribe por sí misma, además del tamaño de los correos y los archivos, y no se escribió nada en ninguna de las dos orgs.",
+      "stoppedSample": "Se detuvo en el control de escritura de la ejecución una vez extraída la muestra: la extracción leyó los Id y las búsquedas de los registros que alcanzó, y solo los pocos valores que deciden qué conserva y cómo se escribe cada uno, como los tipos de registro y las fechas de creación; luego el control contó lo que conserva su plan. No se escribió nada en ninguna de las dos orgs.",
       "records_one": "{{formatted}} registro que escribir en {{target}}, de {{objects}} objetos, en unos {{duration}}.",
       "records_other": "{{formatted}} registros que escribir en {{target}}, de {{objects}} objetos, en unos {{duration}}.",
       "refused_one": "La ejecución se rechazaría, por {{count}} motivo:",
@@ -5144,6 +5145,7 @@
           "targetRequests": "las solicitudes de API diarias de {{target}}",
           "bulkBatches": "los lotes diarios de Bulk API de {{target}}",
           "sourceRequests": "las solicitudes de API diarias de {{source}}",
+          "heavyRoots": "los registros apartados más abajo, cada uno por encima de una décima parte del espacio que tiene {{target}}: todas las demás raíces caben",
           "whole": "nada: todos los registros caben"
         },
         "draw": {
@@ -5163,7 +5165,7 @@
         "childrenCut": "Hijos más allá de {{cap}} por registro y relación, conservados los más recientes, dejados fuera: {{objects}}.",
         "noRecordDrawn": "Objetos de {{source}} de los que la muestra no conserva ningún registro: {{objects}}.",
         "inTheSource": "{{object}} ({{rows}} en el origen)",
-        "heavyRoots": "Registros apartados, cada uno de los cuales habría traído más de una décima parte de lo que puede ocupar la muestra: {{records}}.",
+        "heavyRoots": "Registros apartados, cada uno de los cuales habría traído más de una décima parte del espacio que tiene {{target}}: {{records}}.",
         "heavyRoot": "{{object}} {{id}} (unos {{rows}} registros a través de {{relation}})",
         "dropped": "Registros que la extracción alcanzó y deja fuera, nunca enviados: {{records}}.",
         "droppedOf": "{{rows}} de {{object}}, {{reason}}",

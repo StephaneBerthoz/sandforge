@@ -25,7 +25,9 @@
  * smaller bound sets aside the same roots and keeps a part of what a larger
  * one keeps. Never the root an object keeps as its floor, nor the first root
  * of the draw: set aside, a room smaller than any root's tenth let every
- * root go, and the run wrote nothing and said it had succeeded.
+ * root go, and the run wrote nothing and said it had succeeded. Every other
+ * root kept, the roots set aside are what held the sample (`heavyRoots`),
+ * never the whole org said to fit beside them.
  *
  * Nothing is cut, and the sample cannot fit, the heaviest named, when the
  * objects copied whole and the floor of each object do not fit alone; and,
@@ -543,18 +545,24 @@ function cutOf(
   if (first !== undefined && roots[first].rank > cut) {
     return { ...cannotFitAt(closure, items, roots[first].rank, bounds), noRoot: true };
   }
+  const report = reportAt(closure, state, setAside, input, cut);
+  // Every root fits: the whole org, but where roots were set aside, which
+  // alone keep the sample from it — said so, never that every record fits.
   const limitedBy: WholeOrgSampleLimit =
     fitting < candidates.length
       ? (brokenAt(items, candidates[fitting], bounds) ?? bounds.bytesLimit)
       : !allRead || draw.beyond !== Infinity
         ? draw.heldBy
-        : 'whole';
+        : report.heavyRoots.length > 0
+          ? 'heavyRoots'
+          : 'whole';
   return {
     kind: 'sample',
-    share: limitedBy === 'whole' ? 1 : Math.max(0, cut),
+    // Every root drawn, those set aside apart.
+    share: limitedBy === 'whole' || limitedBy === 'heavyRoots' ? 1 : Math.max(0, cut),
     limitedBy,
     wholeOrgFits: wholeOrgFits(closure, input),
-    ...reportAt(closure, state, setAside, input, cut),
+    ...report,
   };
 }
 

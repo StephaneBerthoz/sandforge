@@ -198,7 +198,11 @@ export interface SampleDrawing {
   cut: SampleCut | SampleCannotFit;
   /** The requests drawing it sent the source. */
   planRequests: number;
-  /** Of a draw of the newest roots, the objects read in the order of their ids: see `WholeOrgSample.newestByIds`. */
+  /**
+   * The objects whose newest — roots of a draw by recency, or children kept
+   * under the cap — were taken in the order of their ids: see
+   * `WholeOrgSample.newestByIds`.
+   */
   newestByIds: string[];
 }
 
@@ -219,6 +223,13 @@ function isSet(value: unknown): boolean {
 /** A value read as an id or nothing. */
 function idOrNull(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/** When a record read with its creation date was made, in milliseconds; undefined when it was not read so. */
+function createdOf(row: SourceRow): number | undefined {
+  const at = row['CreatedDate'];
+  const ms = typeof at === 'string' ? Date.parse(at) : Number.NaN;
+  return Number.isFinite(ms) ? ms : undefined;
 }
 
 /** What tells the price a price goes as in another currency: its book, product and selling model. */
@@ -253,6 +264,13 @@ function standardKeyOf(row: SourceRow): string {
  * its object and what decides how it is written, mapped to a `SampleRow`.
  */
 export class SourceSampleReader implements SampleReader {
+  /**
+   * The objects whose children the cap left some of, kept by their ids: the
+   * org orders none of their creation dates. The plan says them
+   * (`WholeOrgSample.newestByIds`).
+   */
+  readonly cappedByIds = new Set<string>();
+
   constructor(
     private readonly reader: SampleSourceReader,
     private readonly links: SampleLinks,
@@ -274,6 +292,7 @@ export class SourceSampleReader implements SampleReader {
     const refs: Record<string, string | null> = {};
     for (const field of fieldsToRead(this.links, objectApiName)) refs[field] = idOrNull(row[field]);
     const recordTypeId = row['RecordTypeId'];
+    const created = createdOf(row);
     return {
       id: String(row['Id']),
       refs,
@@ -285,6 +304,7 @@ export class SourceSampleReader implements SampleReader {
         : {}),
       ...(objectApiName === PRICEBOOK_OBJECT && isSet(row['IsStandard']) ? { matched: true } : {}),
       ...(outsideFilter ? { outsideFilter: true } : {}),
+      ...(created !== undefined ? { created } : {}),
     };
   }
 
@@ -402,6 +422,9 @@ export class SourceSampleReader implements SampleReader {
       },
     ]);
     if (!answer) return { rows: [] };
+    if (answer.newestBy === 'id' && answer.cut.some((cut) => cut.rows > 0)) {
+      this.cappedByIds.add(relation.objectApiName);
+    }
     return {
       rows: await this.sampleRowsOf(relation.objectApiName, answer.rows),
       counts: answer.counts,
@@ -532,7 +555,7 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
   }
 
   const draw = new RootDraw(most, options.floor);
-  let newestByIds: string[] = [];
+  let rootsByIds: string[] = [];
   if (options.draw === 'uniform') {
     await reader.drawUniform(reads, (objectApiName, ids) => {
       for (const id of ids) draw.offer(objectApiName, id, rankOf(options.seed, id));
@@ -551,16 +574,17 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
         positions.set(objectApiName, position);
       },
     );
-    newestByIds = drawn.filter((read) => read.by === 'id').map((read) => read.objectApiName);
+    rootsByIds = drawn.filter((read) => read.by === 'id').map((read) => read.objectApiName);
   }
   const { maxTotal } = budget.budget;
   const heldBy =
     maxTotal !== undefined && maxTotal < Math.floor(budget.budget.bytes / SMALLEST_RECORD_BYTES)
       ? 'maxTotal'
       : budget.bytesLimit;
+  const closing = new SourceSampleReader(reader, links, sourceRows, input.priceCurrencyWrittenIn);
   const cut = await drawTheSample({
     links,
-    reader: new SourceSampleReader(reader, links, sourceRows, input.priceCurrencyWrittenIn),
+    reader: closing,
     draw: { roots: draw.drawn(), beyond: draw.beyond, heldBy, floor: options.floor },
     sourceRows,
     options: {
@@ -585,6 +609,8 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
     roomBytes: budget.roomBytes,
     onStep: (step, rows) => input.onProgress?.({ step, rows, requests: reader.requests }),
   });
+  // The roots read newest by their ids, and the children the cap kept so.
+  const newestByIds = [...new Set([...rootsByIds, ...closing.cappedByIds])].sort();
   return { links, cut, planRequests: reader.requests, newestByIds };
 }
 

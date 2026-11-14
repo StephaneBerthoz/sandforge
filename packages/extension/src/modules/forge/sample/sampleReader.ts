@@ -30,8 +30,12 @@
  *   more than the cap times its parents is read at once, the newest of each
  *   parent kept; otherwise counted by parent first, `GROUP BY`, the parents
  *   under the cap read at once and each over it, its newest alone, `ORDER BY
- *   Id DESC LIMIT n` — the greatest ids, in the order of their bytes, as a
- *   scratch org gave them. An object the org will not count so (`COUNT(Id)`
+ *   CreatedDate DESC, Id DESC LIMIT n`. The newest by the date each was made,
+ *   as the roots of a draw by recency: a scratch org's ids interleaved loads
+ *   hours apart, and none of its ten greatest contact ids was among its ten
+ *   newest. An object with no creation date the org orders by keeps its
+ *   greatest ids, in the order of their bytes, as a scratch org gave them,
+ *   and the answer says so. An object the org will not count so (`COUNT(Id)`
  *   of feed items) is read at once. A lookup that may name several objects
  *   takes one list of mixed ids: a scratch org answered `WhatId IN` and
  *   `WhoId IN` of mixed prefixes, through `query` and `queryAll`, as the
@@ -51,7 +55,8 @@
  *
  * No value of a record is read but ids, lookups, and what the closure of a
  * sample asks to decide what it keeps: a record type, `IsPersonAccount`, a
- * price's book, product, currency, model and state.
+ * price's book, product, currency, model and state, and the date a record
+ * was made where the newest are kept.
  */
 
 import type { ForgeSampleDraw, ForgeSamplingProgress } from '@sandforge/shared';
@@ -192,7 +197,7 @@ export interface ChildrenRead {
   parentIds: readonly string[];
   /** The columns besides the id and the lookup; only those the describe lists are read. */
   columns: readonly string[];
-  /** The newest children of each parent kept, or `all` — a master-detail relation's. */
+  /** The newest children of each parent kept, by the date each was made, or `all` — a master-detail relation's. */
   cap: number | 'all';
   /**
    * The records the object holds, as discovery counted them: a list of
@@ -215,6 +220,13 @@ export interface ChildrenRows {
    * none.
    */
   counts: Map<string, number>;
+  /**
+   * How the newest under the cap were told: by `created`, the date each was
+   * made, which the rows then hold (`CreatedDate`), ties by id; or by `id`
+   * alone, of an object with no creation date the org orders by — which the
+   * plan says where the cap left some out.
+   */
+  newestBy: RecentDraw['by'];
 }
 
 /** Records of one object read whole. */
@@ -871,7 +883,11 @@ export class SampleSourceReader {
   private async childrenOf(read: ChildrenRead): Promise<ChildrenRows> {
     const object = assertSoqlIdentifier(read.objectApiName);
     const field = this.fieldOf(object, read.field);
-    const columns = this.columnsOf(object, [field, ...read.columns]);
+    const cap = read.cap;
+    // Under a cap, the newest are kept by the date each was made, read with them.
+    const by = this.newestBy(object);
+    const dated = cap !== 'all' && by === 'created';
+    const columns = this.columnsOf(object, [field, ...read.columns, ...(dated ? [CREATED] : [])]);
     const parents = idsOnce(read.parentIds);
     const options = this.readOptionsOf(object);
     const terms = this.termsOf(object);
@@ -883,18 +899,19 @@ export class SampleSourceReader {
       columns,
       cut: [],
       counts: new Map(),
+      newestBy: by,
     };
     const done = (): ChildrenRows => {
       for (const parent of parents) answer.counts.set(parent, counted.get(idKey(parent)) ?? 0);
       return answer;
     };
     if (parents.length === 0) return answer;
-    const cap = read.cap;
     if (cap === 'all') {
       const all = newestOf(
         await this.byList(object, columns, field, parents, terms, options),
         field,
         Infinity,
+        by,
       );
       answer.rows = all.rows;
       for (const [key, n] of all.counts) counted.set(key, n);
@@ -936,6 +953,7 @@ export class SampleSourceReader {
       await this.byList(object, columns, field, atOnce, terms, options),
       field,
       cap,
+      by,
     );
     answer.rows.push(...kept.rows);
     answer.cut.push(...kept.cut);
@@ -943,7 +961,8 @@ export class SampleSourceReader {
     for (const hub of hubs) {
       const statement =
         `SELECT ${columns.join(', ')} FROM ${object} WHERE ` +
-        `${[...terms, `${field} = '${hub.parentId}'`].join(' AND ')} ORDER BY Id DESC LIMIT ${cap}`;
+        `${[...terms, `${field} = '${hub.parentId}'`].join(' AND ')} ` +
+        `ORDER BY ${newestOrderOf(by)} LIMIT ${cap}`;
       let newest: SourceRow[];
       try {
         newest = await readColumnsApart(statement, (soql) => this.gather(soql, options));
@@ -954,6 +973,7 @@ export class SampleSourceReader {
           await this.byList(object, columns, field, [hub.parentId], terms, options),
           field,
           cap,
+          by,
         );
         answer.rows.push(...whole.rows);
         answer.cut.push(...whole.cut);
@@ -1026,6 +1046,15 @@ export class SampleSourceReader {
 }
 
 /**
+ * The order the newest records of an object are read in: the date each was
+ * made, the latest first, ties by id; or, of an object with no creation date
+ * the org orders by, its ids alone, the greatest first.
+ */
+function newestOrderOf(by: RecentDraw['by']): string {
+  return by === 'created' ? `${CREATED} DESC, Id DESC` : 'Id DESC';
+}
+
+/**
  * What a statement of the newest records of an object holds after `last`,
  * beside the roots' own terms, and its order: see
  * `SampleSourceReader.newestRoots`. Every date is the org's own, to the
@@ -1037,8 +1066,10 @@ function afterTheLast(
   apart: boolean,
   sameSecond: boolean,
 ): { after: string[]; order: string } {
-  const newest = `${CREATED} DESC, Id DESC`;
-  if (by === 'id') return { after: last ? [`Id < '${last.id}'`] : [], order: 'Id DESC' };
+  const newest = newestOrderOf('created');
+  if (by === 'id') {
+    return { after: last ? [`Id < '${last.id}'`] : [], order: newestOrderOf('id') };
+  }
   if (!last) return { after: [], order: newest };
   if (!apart) {
     return {
@@ -1075,15 +1106,43 @@ function lastRowOf(
 }
 
 /**
- * Of `rows`, the newest `cap` of each parent `field` names — the greatest
- * ids, as `ORDER BY Id DESC` reads them: a scratch org gave a hub's largest
- * ids in byte order, which {@link compareIds} is — and, of each parent, the
- * children the cap left out and those it holds.
+ * The moment a row read with its creation date was made, in milliseconds;
+ * undefined for a row without one, which is read by its id.
+ */
+function madeAt(row: SourceRow): number | undefined {
+  const at = row[CREATED];
+  const ms = typeof at === 'string' ? Date.parse(at) : Number.NaN;
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+/**
+ * Whether row `a` is newer than row `b`, as `ORDER BY CreatedDate DESC, Id
+ * DESC` reads them: the later made first, ties — and rows without a date,
+ * after those with one — by their ids, the greatest first, in the order of
+ * their bytes as a scratch org gave them, which {@link compareIds} is.
+ */
+function newerFirst(a: SourceRow, b: SourceRow): number {
+  const at = madeAt(a);
+  const bt = madeAt(b);
+  if (at !== bt) {
+    if (at === undefined) return 1;
+    if (bt === undefined) return -1;
+    return bt - at;
+  }
+  return compareIds(String(b['Id']), String(a['Id']));
+}
+
+/**
+ * Of `rows`, the newest `cap` of each parent `field` names — by the date
+ * each was made, as {@link newestOrderOf} reads them, or, read `by` their
+ * ids, the greatest — and, of each parent, the children the cap left out
+ * and those it holds.
  */
 function newestOf(
   rows: readonly SourceRow[],
   field: string,
   cap: number,
+  by: RecentDraw['by'],
 ): {
   rows: SourceRow[];
   cut: Array<{ parentId: string; rows: number }>;
@@ -1102,7 +1161,9 @@ function newestOf(
   const cut: Array<{ parentId: string; rows: number }> = [];
   const counts = new Map<string, number>();
   for (const [key, { parentId, rows: children }] of byParent) {
-    children.sort((a, b) => compareIds(String(b['Id']), String(a['Id'])));
+    children.sort(
+      by === 'created' ? newerFirst : (a, b) => compareIds(String(b['Id']), String(a['Id'])),
+    );
     kept.push(...children.slice(0, cap));
     if (children.length > cap) cut.push({ parentId, rows: children.length - cap });
     counts.set(key, children.length);

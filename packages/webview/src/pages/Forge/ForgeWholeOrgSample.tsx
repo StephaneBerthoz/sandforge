@@ -128,7 +128,9 @@ export const ForgeWholeOrgSample: React.FC<ForgeWholeOrgSampleProps> = ({
       ? [
           {
             id: 'heavy-roots',
+            // Weighed against the target's room, the MB asked aside.
             text: t('forgeRun.wholeOrgDryRun.sample.heavyRoots', {
+              target,
               records: sample.heavyRoots
                 .map((root) =>
                   t('forgeRun.wholeOrgDryRun.sample.heavyRoot', {

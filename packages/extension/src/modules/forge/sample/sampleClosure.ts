@@ -18,11 +18,13 @@
  *    record is not in the sample for itself.
  * 3. Down. Of each living root, and of each living record reached from above,
  *    the records that name it through a lookup that carries the draw are
- *    read: a hundred at most by default per record and relation, the last by
- *    id, all of them under a master-detail. The last by id, as a statement
- *    `ORDER BY Id DESC LIMIT n` reads them: the same whether the reader read
- *    a record's children through such a statement or in a list of all of
- *    them, and never what the sample's share is. A record read only as one a record
+ *    read: a hundred at most by default per record and relation, the newest
+ *    by the date each was made, all of them under a master-detail. The
+ *    newest as a statement `ORDER BY CreatedDate DESC, Id DESC LIMIT n` reads
+ *    them, ties and records the reader gave no date of by their ids, the
+ *    greatest first: the same whether the reader read a record's children
+ *    through such a statement or in a list of all of them, and never what
+ *    the sample's share is. A record read only as one a record
  *    names never brings the records under it: a price book read for one
  *    price would bring the whole catalog.
  *
@@ -69,6 +71,25 @@ export interface SampleRow {
   also?: ReadonlyArray<{ objectApiName: string; id: string | null }>;
   /** The data storage it takes, where it is its own: an email's size. */
   bytes?: number;
+  /**
+   * When it was made, in milliseconds, where the reader read it: of a record
+   * read under a cap, the order its newest are kept in. Absent, its id.
+   */
+  created?: number;
+}
+
+/**
+ * Whether record `a` is newer than record `b`: the later made first; ties,
+ * and records with no date after those with one, by their ids, the greatest
+ * first — the order `ORDER BY CreatedDate DESC, Id DESC` reads them in.
+ */
+export function newerFirst(a: SampleRow, b: SampleRow): number {
+  if (a.created !== b.created) {
+    if (a.created === undefined) return 1;
+    if (b.created === undefined) return -1;
+    return b.created - a.created;
+  }
+  return compareIds(b.id, a.id);
 }
 
 /**
@@ -110,8 +131,9 @@ export interface SampleReader {
   rows(objectApiName: string, ids: readonly string[]): Promise<readonly SampleRow[]>;
   /**
    * The records of the relation's object whose lookup names one of
-   * `parentIds`, under its filter: at most `cap` per record asked, the last
-   * by id, or all of them; with how many each has, where it counted them.
+   * `parentIds`, under its filter: at most `cap` per record asked, the
+   * newest by the date each was made ({@link newerFirst}), or all of them;
+   * with how many each has, where it counted them.
    */
   children(
     relation: SampleRelation,
@@ -126,7 +148,7 @@ export interface SampleReader {
 export interface SampleClosureOptions {
   /** What an optional lookup at a record outside the sample becomes: see `ForgeSampleParents`. */
   parents: ForgeSampleParents;
-  /** The most records of a record per relation, master-details aside, the last by id. */
+  /** The most records of a record per relation, master-details aside, the newest ({@link newerFirst}). */
   children: number | 'all';
   /**
    * Why a record of `objectApiName` of the record type `recordTypeId` is
@@ -570,9 +592,10 @@ export class SampleClosure {
       for (const [id, count] of answer.counts ?? []) counts.set(idKey(id), count);
       const cuts = this.cuts.get(key) ?? new Map<number, number>();
       for (const [parent, list] of [...under].sort(([a], [b]) => a - b)) {
-        // The last by id, our order of ids, the greatest first: whatever
-        // order the source gave them in, and however many past the cap.
-        const last = [...list.values()].sort((a, b) => compareIds(b.id, a.id));
+        // The newest by the date each was made, ties by our order of ids,
+        // the greatest first: whatever order the source gave them in, and
+        // however many past the cap.
+        const last = [...list.values()].sort(newerFirst);
         const kept = cap === 'all' ? last : last.slice(0, cap);
         const children = this.below.get(parent) ?? [];
         for (const child of kept) {

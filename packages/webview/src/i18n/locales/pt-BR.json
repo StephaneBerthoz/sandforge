@@ -5071,6 +5071,7 @@
     "wholeOrgDryRun": {
       "title": "Simulação da org inteira",
       "stopped": "Ela parou no controle de gravação da execução depois de contar a origem: além das contagens, só foram lidos os Ids dos registros que a execução reteria ou deixaria de lado e dos papéis de contato que a plataforma grava sozinha, com o tamanho dos e-mails e dos arquivos, e nada foi gravado em nenhuma das duas orgs.",
+      "stoppedSample": "Ela parou no controle de gravação da execução depois de sortear a amostra: o sorteio leu os Ids e as pesquisas dos registros que alcançou, e só os poucos valores que decidem o que ela mantém e como cada um é gravado, como os tipos de registro e as datas de criação; depois o controle contou o que o plano mantém. Nada foi gravado em nenhuma das duas orgs.",
       "records_one": "{{formatted}} registro a gravar em {{target}}, de {{objects}} objetos, em cerca de {{duration}}.",
       "records_other": "{{formatted}} registros a gravar em {{target}}, de {{objects}} objetos, em cerca de {{duration}}.",
       "refused_one": "A execução seria recusada, por {{count}} motivo:",
@@ -5144,6 +5145,7 @@
           "targetRequests": "as solicitações de API diárias de {{target}}",
           "bulkBatches": "os lotes diários da Bulk API de {{target}}",
           "sourceRequests": "as solicitações de API diárias de {{source}}",
+          "heavyRoots": "os registros deixados de lado abaixo, cada um acima de um décimo do espaço que {{target}} tem: todas as outras raízes cabem",
           "whole": "nada: todos os registros cabem"
         },
         "draw": {
@@ -5163,7 +5165,7 @@
         "childrenCut": "Filhos além de {{cap}} por registro e relação, mantidos os mais recentes, deixados de fora: {{objects}}.",
         "noRecordDrawn": "Objetos de {{source}} dos quais a amostra não mantém nenhum registro: {{objects}}.",
         "inTheSource": "{{object}} ({{rows}} na origem)",
-        "heavyRoots": "Registros deixados de lado, cada um dos quais traria mais de um décimo do que a amostra pode ocupar: {{records}}.",
+        "heavyRoots": "Registros deixados de lado, cada um dos quais traria mais de um décimo do espaço que {{target}} tem: {{records}}.",
         "heavyRoot": "{{object}} {{id}} (cerca de {{rows}} registros por {{relation}})",
         "dropped": "Registros que o sorteio alcançou e deixa de fora, nunca enviados: {{records}}.",
         "droppedOf": "{{rows}} de {{object}}, {{reason}}",

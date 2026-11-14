@@ -862,7 +862,7 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       'A record outside the sample that an optional lookup names is copied, without its children.',
       'A record brings at most 100 children per relation, the newest; a master record brings every detail.',
       'Lookups written empty, their record outside the sample: 3.',
-      'Records set aside, each of which would have brought in more than a tenth of what the sample may take: 1. The simulation names them.',
+      'Records set aside, each of which would have brought in more than a tenth of the room DEV has: 1. The simulation names them.',
       'Objects of PROD none of whose records the sample keeps: 1.',
       'Copied whole as asked: Region__c.',
       'API requests of DEV, to write: about 40; it has 9000 of its 100000 daily requests left.',
@@ -943,6 +943,18 @@ describe("a run's questions, in the production confirmation's modal (localized)"
         'The plan of the run this one retries was gone: the run drew its own with the same options.',
       ]),
     );
+    // Every root fits but those set aside: held by them, never by nothing.
+    const aside = linesOf({
+      ...base,
+      share: 1,
+      draw: 'uniform',
+      limitedBy: 'heavyRoots',
+      heavyRoots: 2,
+    });
+    expect(aside).toContain(
+      'Drawn with seed 4, spread over the org: 100 % of the roots of each object, with the records they reach; held by the records set aside, each past a tenth of the room DEV has: every other root fits.',
+    );
+    expect(aside.join('\n')).not.toContain('every record fits');
     // A clone of every record says none of it.
     expect(linesOf(undefined).join('\n')).not.toMatch(/sample/);
   });

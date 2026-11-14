@@ -64,6 +64,26 @@ describe('ForgeWholeOrgSample', () => {
     );
   });
 
+  it('says the records set aside held it when every other root fits, never that every record does', () => {
+    renderSample({
+      share: 1,
+      budget: {
+        bytes: 335_544_320,
+        remainingMB: 400,
+        maxMB: 1_024,
+        share: 0.8,
+        roundingMB: 0.5,
+        limitedBy: 'heavyRoots',
+      },
+    });
+
+    expect(line('taken')).toBe(
+      'About 3.1 MB of the 320 MB the sample may take (80 % of the 400 MB left, 0.5 MB off for rounding), held by the records set aside below, each past a tenth of the room dev has: every other root fits.',
+    );
+    expect(line('taken')).not.toContain('Every record fits');
+    expect(line('heavy-roots')).toContain('Account 001000000000001AAA');
+  });
+
   it('lists what it keeps of each object, and how each record came in', () => {
     renderSample();
 
@@ -97,11 +117,13 @@ describe('ForgeWholeOrgSample', () => {
     );
   });
 
-  it('names the records set aside by id, and what each would have brought in', () => {
+  it('names the records set aside by id, and what each would have brought in, past a tenth of the target’s room', () => {
     renderSample();
 
+    // Weighed against the room the target has, not the MB the sample may
+    // take: a smaller sample of the same target sets aside the same roots.
     expect(line('heavy-roots')).toBe(
-      'Records set aside, each of which would have brought in more than a tenth of what the sample may take: Account 001000000000001AAA (about 4,100 records through Contact.AccountId).',
+      'Records set aside, each of which would have brought in more than a tenth of the room dev has: Account 001000000000001AAA (about 4,100 records through Contact.AccountId).',
     );
   });
 

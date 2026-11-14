@@ -5498,6 +5498,16 @@ test('the Forge reference offers a sample where ALL refuses a run past the targe
     /check\.verdict === 'exceeds' && budget\s*\? `\$\{said\} \$\{t\('forgeRun\.review\.sample\.wholeOrg\.offer'/,
     'Review no longer says what a sample would take past the storage — re-point this gate',
   );
+  // The command line's refusal for the storage names the sample, as the panel's offers it.
+  assert.match(
+    reference.replace(/\s+/g, ' '),
+    /names `--fit share` instead, and so does the refusal of a clone of every record past the data storage the target has left \(`STORAGE_EXCEEDED`\)/,
+  );
+  assert.match(
+    read(...EXT, 'cli', 'sandforge-clone.ts'),
+    /: copy a sample of the org ` \+\s*'that fits it \(--fit share, its dry run first\)/,
+    'the command line’s refusal for the storage no longer names --fit share — re-point this gate',
+  );
 });
 
 test('the Forge reference says what a sample keeps, how it is drawn and what it may take, with the figures the code applies', () => {
@@ -5510,9 +5520,14 @@ test('the Forge reference says what a sample keeps, how it is drawn and what it 
   const reader = read(...SAMPLE_SRC, 'sampleReader.ts');
   const fit = read(...SAMPLE_SRC, 'sampleFit.ts');
 
-  // The children of a record: 100 per relation, those with the greatest ids.
+  // The children of a record: 100 per relation, the newest by their creation
+  // date — ids follow it within a load only — or, of an object the org sorts
+  // by no creation date, the greatest ids, which the simulation names.
   assert.match(sample, /at most 100 children per record and relation/);
-  assert.match(sample, /those with the greatest ids/);
+  assert.match(
+    sample,
+    /the newest by their creation date; of an object whose creation date the org does not sort by, those with the greatest ids, and the simulation names it/,
+  );
   assert.match(
     schema,
     /children: 100,/,
@@ -5520,8 +5535,13 @@ test('the Forge reference says what a sample keeps, how it is drawn and what it 
   );
   assert.match(
     reader,
-    /ORDER BY Id DESC LIMIT \$\{cap\}/,
-    'the children of a hub are no longer read by their greatest ids — re-point this gate',
+    /ORDER BY \$\{newestOrderOf\(by\)\} LIMIT \$\{cap\}/,
+    'the children of a hub are no longer read newest first — re-point this gate',
+  );
+  assert.match(
+    reader,
+    /by === 'created' \? `\$\{CREATED\} DESC, Id DESC` : 'Id DESC'/,
+    'the newest are no longer read by their creation date — re-point this gate',
   );
   assert.match(sample, /A master record always comes with every detail/);
 
@@ -5538,6 +5558,16 @@ test('the Forge reference says what a sample keeps, how it is drawn and what it 
     fit,
     /HEAVY_ROOT_SHARE \* Math\.max\(0, input\.roomBytes\)/,
     'a heavy root is no longer weighed against the target’s room — re-point this gate',
+  );
+  // Every other root fitting, the roots set aside held it: never "every record fits".
+  assert.match(
+    sample,
+    /the roots set aside, when every other root fits; or that every record fits/,
+  );
+  assert.match(
+    fit,
+    /report\.heavyRoots\.length > 0\s*\? 'heavyRoots'/,
+    'a sample held by its roots set aside no longer says so — re-point this gate',
   );
 
   // What it may take.
@@ -5565,16 +5595,24 @@ test('the Forge reference says what a sample keeps, how it is drawn and what it 
   assert.match(sample, /_The newest first_: the roots made last, by their creation date/);
   assert.match(
     reader,
-    /const newest = `\$\{CREATED\} DESC, Id DESC`;/,
+    /const newest = newestOrderOf\('created'\);/,
     'the newest roots are no longer read by their creation date — re-point this gate',
   );
   assert.match(
     sample,
     /An object whose creation date the org does not sort by is read by its ids[^.]*, and the simulation names it/,
   );
+  const types = read('packages', 'shared', 'src', 'types', 'forge.types.ts');
+  assert.match(types, /newestByIds\?: string\[\];/);
+  // The shared type of the draw says what the reader reads: the records made last.
+  assert.doesNotMatch(
+    types,
+    /the last ids first/,
+    'the type of the draw says the newest are the last ids, which the draw no longer reads',
+  );
   assert.match(
-    read('packages', 'shared', 'src', 'types', 'forge.types.ts'),
-    /newestByIds\?: string\[\];/,
+    types.replace(/\n\s*\*\s*/g, ' '),
+    /`recent`, the records made last first, by the date each was made/,
   );
 
   // The same seed draws the same records, and a smaller sample is part of a larger one.

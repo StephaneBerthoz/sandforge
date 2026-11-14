@@ -6,7 +6,9 @@
  * - by id, under no filter, a record outside its object's filter marked so,
  *   and an id the source does not hold simply not given back;
  * - the records under a relation, under the child object's filter, at most
- *   the cap per record asked, the last by id, with how many each has — or
+ *   the cap per record asked, the newest by when each was made (`createdAt`),
+ *   ties and undated records by id, each with that date, with how many each
+ *   has — or
  *   none of them counted (`uncounted`), as an object that refuses to count
  *   by a lookup reads its records in a list — or, asked
  *   to (`pastTheCap`), every one of them, as a direct read of a list would;
@@ -24,12 +26,13 @@
 
 import type { ForgeSampleDraw } from '@sandforge/shared';
 import { countedStorageBytes } from '../modules/forge/ForgeRunGate';
-import type {
-  SampleChildren,
-  SampleClosureOptions,
-  SampleReader,
-  SampleRelation,
-  SampleRow,
+import {
+  newerFirst,
+  type SampleChildren,
+  type SampleClosureOptions,
+  type SampleReader,
+  type SampleRelation,
+  type SampleRow,
 } from '../modules/forge/sample/sampleClosure';
 import {
   documentedMeasure,
@@ -231,10 +234,15 @@ export class FakeSampleSource implements SampleReader {
     const counts = new Map<string, number>();
     for (const [parent, list] of byParent) {
       counts.set(parent, list.length);
-      const last = [...list].sort((a, b) => compareIds(b.id, a.id));
+      // Each with the date it was made, as the reader reads it under a cap.
+      const dated = list.map((record) => ({
+        ...rowOf(record, object.fields),
+        ...(record.createdAt !== undefined ? { created: record.createdAt } : {}),
+      }));
+      const newest = dated.sort(newerFirst);
       const listed = this.options.uncounted || this.options.pastTheCap;
-      const given = cap === 'all' || listed ? last : last.slice(0, cap);
-      for (const record of given) rows.push(rowOf(record, object.fields));
+      const given = cap === 'all' || listed ? newest : newest.slice(0, cap);
+      rows.push(...given);
     }
     return Promise.resolve(
       this.options.uncounted ? { rows: this.mixed(rows) } : { rows: this.mixed(rows), counts },

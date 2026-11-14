@@ -212,8 +212,10 @@ export interface ForgeConfig {
 /**
  * How a sample of the whole org draws its roots: `uniform`, spread over each
  * object by a seeded hash of the ids, which reads every root's id; `recent`,
- * the last ids first, which reads only those it keeps: the records made last,
- * as far as an org's ids follow the order its records were made in.
+ * the records made last first, by the date each was made, which reads only
+ * those it keeps. An org's ids follow the making of its records within a
+ * load only: an object with no creation date the org orders by is read by
+ * its ids, and the sample says so (`WholeOrgSample.newestByIds`).
  */
 export type ForgeSampleDraw = 'uniform' | 'recent';
 
@@ -243,8 +245,9 @@ export interface ForgeSampleOptions {
   parents?: ForgeSampleParents;
   /**
    * The most children of a record the sample takes through each relation
-   * other than a master-detail one, the newest, or `all` (`--fit-children`).
-   * A master-detail record always comes with every detail.
+   * other than a master-detail one, the newest by the date each was made, or
+   * `all` (`--fit-children`). A master-detail record always comes with every
+   * detail.
    */
   children?: number | 'all';
   /** Objects copied whole beside those the sample copies whole of itself (`--fit-whole`). */
@@ -905,11 +908,21 @@ export interface ForgeWholeOrgDryRun {
  * The first bound that held a sample of the whole org, past which the next
  * share would not fit: the target's data storage, the MB asked
  * (`--fit-within`), the records asked (`--max-total`), the target's daily
- * API requests or Bulk API batches, the source's daily API requests; `whole`
- * when the whole org fits, and copying every record is the better run.
+ * API requests or Bulk API batches, the source's daily API requests;
+ * `heavyRoots` when every root fits but those set aside, each past a tenth
+ * of the room the target has (`WholeOrgSample.heavyRoots`), the share then
+ * every other root; `whole` when the whole org fits, and copying every
+ * record is the better run.
  */
 export type WholeOrgSampleLimit =
-  'storage' | 'within' | 'maxTotal' | 'targetRequests' | 'bulkBatches' | 'sourceRequests' | 'whole';
+  | 'storage'
+  | 'within'
+  | 'maxTotal'
+  | 'targetRequests'
+  | 'bulkBatches'
+  | 'sourceRequests'
+  | 'heavyRoots'
+  | 'whole';
 
 /**
  * What a sample of the whole org may take, and what it is drawn from: "3.6 MB
@@ -942,9 +955,11 @@ export interface WholeOrgSampleBudget {
 /**
  * Why a sample copies an object whole, every record of it, and draws none of
  * it: reference data matched by name, never written; the price catalog, when
- * it fits a quarter of the budget and the records per object; a small parent,
- * an object of few records that drawn objects name and that needs none of
- * theirs to be written; or `asked` (`ForgeSampleOptions.whole`).
+ * it fits a quarter of the room the target has — what it has left, the MB
+ * and records asked aside — and the records per object; a small parent, an
+ * object of few records that drawn objects name and that needs none of
+ * theirs to be written, while the small parents fit a quarter of that room;
+ * or `asked` (`ForgeSampleOptions.whole`).
  * Whole, an object carries no draw down: a lookup to it would let every
  * record naming it in.
  */
@@ -1021,9 +1036,10 @@ export interface WholeOrgSample {
   whole: WholeOrgSampleWhole[];
   /**
    * The roots set aside: each would have brought in more than a tenth of
-   * the budget, by the relation that swells it — the child object and its
-   * lookup. Named by id, the one id the report holds, so that it can be
-   * left out or looked at.
+   * the room the target has — what it has left, the MB and records asked
+   * aside, so that a smaller sample sets aside the same roots —, by the
+   * relation that swells it — the child object and its lookup. Named by id,
+   * the one id the report holds, so that it can be left out or looked at.
    */
   heavyRoots: Array<{
     objectApiName: string;
@@ -1043,10 +1059,12 @@ export interface WholeOrgSample {
   /** The requests drawing the plan sent the source. */
   planRequests: { source: number };
   /**
-   * Of a draw of the most recent roots (`draw: 'recent'`), the objects whose
-   * newest were read in the order of their ids, having no creation date the
-   * org orders by: an object's ids follow the making of its records within a
-   * load, not from one load to the next. Absent when there are none.
+   * The objects whose newest were taken in the order of their ids, having no
+   * creation date the org orders by — the roots of a draw of the most recent
+   * (`draw: 'recent'`), or the children a record kept under the cap
+   * (`children`) where it left some out: an object's ids follow the making of
+   * its records within a load, not from one load to the next. Absent when
+   * there are none.
    */
   newestByIds?: string[];
   /**

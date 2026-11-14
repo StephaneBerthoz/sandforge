@@ -782,6 +782,10 @@ describe('what a sample of the whole org says', () => {
     );
     expect(lines).toContain('  Region__c: 30 of 30 (copied whole (a small parent))');
     expect(lines).toContain('whole: Region__c (a small parent)');
+    // Weighed against the room the target has, not what the sample may take.
+    expect(lines).toContain(
+      'heavy roots set aside, each bringing in more than a tenth of the room TGT has:',
+    );
     expect(lines).toContain('  Account 001S00000000099AAA: 4200 record(s) through Task.WhatId');
     expect(lines).toContain(
       '  Contact: 3, a lookup they may not leave empty names a record SRC does not hold',
@@ -826,6 +830,11 @@ describe('what a sample of the whole org says', () => {
     ['bulkBatches', 'limited by the daily Bulk API batches TGT has left'],
     ['sourceRequests', 'limited by the daily API requests SRC has left'],
     ['whole', 'every record of the org fits: leave out --fit share to copy the whole org'],
+    [
+      'heavyRoots',
+      'every root fits but 1 heavy root(s) set aside below, each past a tenth of the room TGT ' +
+        'has: they alone keep the sample from every root',
+    ],
   ] as const)('says a sample held by %s in its words', (limitedBy, words) => {
     const sample = sampleReport();
     const lines = sampleLines(

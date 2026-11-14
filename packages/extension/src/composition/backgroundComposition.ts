@@ -823,6 +823,11 @@ function sampleLimitWords(
       return vscode.l10n.t('the daily Bulk API batches of {0}', question.org);
     case 'sourceRequests':
       return vscode.l10n.t('the daily API requests of {0}', source);
+    case 'heavyRoots':
+      return vscode.l10n.t(
+        'the records set aside, each past a tenth of the room {0} has: every other root fits',
+        question.org,
+      );
     case 'whole':
       return vscode.l10n.t(
         'nothing: every record fits, and copying the whole org is the better run',
@@ -864,8 +869,9 @@ function sampleLines(
       sampleLimitWords(sample.limitedBy, question, wholeOrg.source),
     ),
     // Read newest by their ids, an object with no creation date to sort by
-    // is drawn by an order that follows the making of records within a load
-    // only: said, as the draw is not quite what its name says there.
+    // has its roots drawn, or its children kept under the cap, by an order
+    // that follows the making of records within a load only: said, as the
+    // newest are not quite what the word says there.
     ...(sample.newestByIds && sample.newestByIds.length > 0
       ? [
           vscode.l10n.t(
@@ -923,8 +929,9 @@ function sampleLines(
   if (sample.heavyRoots !== undefined && sample.heavyRoots > 0) {
     lines.push(
       vscode.l10n.t(
-        'Records set aside, each of which would have brought in more than a tenth of what the sample may take: {0}. The simulation names them.',
+        'Records set aside, each of which would have brought in more than a tenth of the room {1} has: {0}. The simulation names them.',
         sample.heavyRoots,
+        question.org,
       ),
     );
   }

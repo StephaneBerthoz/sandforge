@@ -227,6 +227,21 @@ describe('ForgeWholeOrgDryRunResult', () => {
     expect(screen.queryByTestId('forge-whole-org-dry-run-sample-offer')).toBeNull();
   });
 
+  it('says what drawing a sample read, never that only the ids of the records held back were', () => {
+    renderDry({ sample: wholeOrgSample(), wouldBeRefused: [] });
+
+    const panel = screen.getByTestId('forge-whole-org-dry-run').textContent ?? '';
+    // Drawing a sample reads the id of every root and what they reach, far
+    // past the ids of the records a run of every record would hold back.
+    expect(panel).not.toContain('past the counts, only the ids');
+    expect(panel).toContain(
+      'It stopped at the run’s write gate once the sample was drawn: drawing it read the ids ' +
+        'and lookups of the records it reached, and only the few values that decide which it ' +
+        'keeps and how each is written, such as record types and creation dates; then the gate ' +
+        'counted what its plan keeps. Nothing was written to either org.',
+    );
+  });
+
   it('says a refusal of a sample in its own words, with what it needs and may take', () => {
     renderDry({
       sample: wholeOrgSample(),
